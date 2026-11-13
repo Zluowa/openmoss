@@ -1,5 +1,5 @@
 import { MIGRATION_LINEAGE_UNSUPPORTED_MESSAGE } from "@moss/shared/migrationRecovery";
-import { Cause, Option, Schema, SchemaIssue } from "effect";
+import { Schema, SchemaIssue } from "effect";
 
 // ===============================
 // Core Persistence Errors
@@ -31,145 +31,8 @@ export class PersistenceDecodeError extends Schema.TaggedErrorClass<PersistenceD
   }
 }
 
-// ===============================
-// Decode errors without stored values
-// ===============================
-
-const MAX_ISSUE_LINES = 3;
-const MAX_PATH_KEY_CHARS = 64;
-
-function kindOf(value: unknown): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (Array.isArray(value)) return "array";
-  return typeof value;
-}
-
-function kindOfOption(value: Option.Option<unknown>): string {
-  return Option.match(value, { onNone: () => "no value", onSome: kindOf });
-}
-
-/** What the schema expected: written by the schema's author, never taken from data. */
-function expectedOf(ast: unknown): string {
-  const node = ast as {
-    readonly _tag?: unknown;
-    readonly annotations?: { readonly identifier?: unknown; readonly expected?: unknown };
-    readonly getExpected?: (recur: (ast: unknown) => string) => string;
-  };
-  if (typeof node?.annotations?.identifier === "string") return node.annotations.identifier;
-  if (typeof node?.getExpected === "function") {
-    try {
-      return node.getExpected(expectedOf);
-    } catch {
-      // Fall through to the node's kind.
-    }
-  }
-  return typeof node?._tag === "string" ? node._tag : "a value";
-}
-
-function formatPath(path: ReadonlyArray<PropertyKey>): string {
-  if (path.length === 0) return "";
-  return ` at ${path
-    .map((key) => {
-      if (typeof key === "number") return `[${key}]`;
-      const text = String(key);
-      return `["${text.length > MAX_PATH_KEY_CHARS ? `${text.slice(0, MAX_PATH_KEY_CHARS)}…` : text}"]`;
-    })
-    .join("")}`;
-}
-
-function collectIssueLines(
-  issue: SchemaIssue.Issue,
-  path: ReadonlyArray<PropertyKey>,
-  out: Array<string>,
-): void {
-  if (out.length >= MAX_ISSUE_LINES) return;
-  const at = formatPath(path);
-  switch (issue._tag) {
-    case "Pointer":
-      collectIssueLines(issue.issue, [...path, ...issue.path], out);
-      return;
-    case "Encoding":
-      collectIssueLines(issue.issue, path, out);
-      return;
-    case "Composite":
-      for (const nested of issue.issues) collectIssueLines(nested, path, out);
-      return;
-    case "AnyOf":
-      if (issue.issues.length === 0) {
-        out.push(`Expected ${expectedOf(issue.ast)}, got ${kindOf(issue.actual)}${at}`);
-        return;
-      }
-      for (const nested of issue.issues) collectIssueLines(nested, path, out);
-      return;
-    case "Filter": {
-      const expected = issue.filter.annotations?.expected;
-      out.push(
-        `Expected ${typeof expected === "string" ? expected : "a value that passes a check"}, got ${kindOf(issue.actual)}${at}`,
-      );
-      return;
-    }
-    case "InvalidType":
-      out.push(`Expected ${expectedOf(issue.ast)}, got ${kindOfOption(issue.actual)}${at}`);
-      return;
-    case "InvalidValue":
-      out.push(`Invalid ${kindOfOption(issue.actual)}${at}`);
-      return;
-    case "MissingKey":
-      out.push(`Missing key${at}`);
-      return;
-    case "UnexpectedKey":
-      out.push(`Unexpected key${at}`);
-      return;
-    case "Forbidden":
-      out.push(`Forbidden operation${at}`);
-      return;
-    case "OneOf":
-      out.push(`Expected exactly one member to match, got ${kindOf(issue.actual)}${at}`);
-      return;
-  }
-}
-
-/**
- * Describes a decode failure by its path, the expected type and the kind of
- * value found, e.g. `Expected string, got null at [0]["modelSelection"]`.
- * Effect's default formatter quotes the stored value itself (a title, a JSON
- * fragment, a prompt), and these messages reach logs that can leave the machine.
- */
-export function describeSchemaIssue(issue: SchemaIssue.Issue): string {
-  const lines: Array<string> = [];
-  collectIssueLines(issue, [], lines);
-  return lines.length > 0 ? lines.join("; ") : "Value did not decode";
-}
-
-/** Stands in for a `SchemaError` wherever an error is kept or printed. */
-export class RedactedSchemaError extends Error {
-  override readonly name = "SchemaError";
-}
-
-/** Replaces a `SchemaError` with one whose message names no stored value. */
-export function redactSchemaError<A>(value: A): A | RedactedSchemaError {
-  return Schema.isSchemaError(value)
-    ? new RedactedSchemaError(describeSchemaIssue(value.issue))
-    : value;
-}
-
-/** The same cause, with every top-level `SchemaError` replaced as above. */
-export function redactSchemaErrorsInCause<E>(cause: Cause.Cause<E>): Cause.Cause<unknown> {
-  return Cause.fromReasons(
-    cause.reasons.map((reason) =>
-      Cause.isFailReason(reason)
-        ? Cause.makeFailReason(redactSchemaError(reason.error))
-        : Cause.isDieReason(reason)
-          ? Cause.makeDieReason(redactSchemaError(reason.defect))
-          : reason,
-    ),
-  );
-}
-
 export function toPersistenceSqlError(operation: string) {
-  return (rawCause: unknown): PersistenceSqlError => {
-    const cause = redactSchemaError(rawCause);
+  return (cause: unknown): PersistenceSqlError => {
     const messages: string[] = [];
     const seen = new Set<unknown>();
     let current: unknown = cause;
@@ -193,8 +56,8 @@ export function toPersistenceDecodeError(operation: string) {
   return (error: Schema.SchemaError): PersistenceDecodeError =>
     new PersistenceDecodeError({
       operation,
-      issue: describeSchemaIssue(error.issue),
-      cause: redactSchemaError(error),
+      issue: SchemaIssue.makeFormatterDefault()(error.issue),
+      cause: error,
     });
 }
 
@@ -213,7 +76,7 @@ export function toPersistenceDecodeCauseError(operation: string) {
     new PersistenceDecodeError({
       operation,
       issue: `Failed to execute ${operation}`,
-      cause: redactSchemaError(cause),
+      cause,
     });
 }
 

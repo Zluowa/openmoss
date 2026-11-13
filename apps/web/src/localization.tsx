@@ -3,7 +3,6 @@
 // Layer: Web UI state
 // Exports: localization provider, translation hook, and pure locale helpers
 
-import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 
 import { useAppSettings } from "./appSettings";
@@ -447,20 +446,6 @@ const EN_TRANSLATIONS = {
   "sidebar.helpMenu.customize": "Customize sidebar",
   "sidebar.helpMenu.shortcuts": "Keybindings",
   "sidebar.helpMenu.feedback": "Send feedback",
-  "backendStartup.failed.title": "Moss couldn't start its local service",
-  "backendStartup.failed.description":
-    "It failed to start {count} times in a row. Try again; if it keeps failing, copy the details and send them to us.",
-  "backendStartup.failed.retry": "Try again",
-  "backendStartup.failed.retrying": "Starting…",
-  "backendStartup.failed.openLogs": "Open logs",
-  "backendStartup.failed.copyDetails": "Copy details",
-  "backendStartup.failed.copied": "Copied",
-  "unreadableThreads.notice":
-    "{count} conversation(s) couldn't be read and are hidden. Your other conversations aren't affected.",
-  "unreadableThreads.copyDetails": "Copy details",
-  "unreadableThreads.copied": "Copied",
-  "unreadableThreads.pane":
-    "This conversation's data is damaged and can't be opened. Your other conversations aren't affected.",
   "sidebar.helpMenu.docs": "Docs",
   "sidebar.newThread": "New thread",
   "sidebar.project.newConversationAria": "Create new thread in {project}",
@@ -821,12 +806,6 @@ const EN_TRANSLATIONS = {
   "chat.composer.send.sending": "Sending",
   "chat.composer.send.message": "Send message",
   "chat.composer.send.resume": "Resume",
-  "chat.composer.resume.refused.busy":
-    "This chat is still working or has a message waiting. Continue once it finishes.",
-  "chat.composer.resume.refused.pendingInteraction":
-    "Answer the approval or question that is waiting first, then continue.",
-  "chat.composer.resume.refused.unavailable":
-    "This task can't be continued from here. Send a message to keep going.",
   "chat.permissions.approvalRequired": "Ask for approval",
   "chat.permissions.approvalRequiredDescription":
     "Always ask to edit external files and use the internet",
@@ -922,8 +901,6 @@ const EN_TRANSLATIONS = {
   "chat.error.copied": "Copied error",
   "chat.error.copiedShort": "Copied",
   "chat.error.continueTask": "Continue task",
-  // What a continuation shows as the person's message; the provider reads the instruction.
-  "chat.continuation.visibleText": INTERRUPTED_TASK_CONTINUATION_PROMPT,
   "chat.error.changeModel": "Change model",
   "chat.error.unblocking": "Unblocking…",
   "chat.error.unblockThread": "Unblock thread",
@@ -2157,27 +2134,6 @@ const EN_TRANSLATIONS = {
   "mossApps.pageApps.prompt1": "Make an app that tracks how much water I drink each day",
   "mossApps.pageApps.prompt2": "Make a wheel that picks where the team has lunch",
   "mossApps.pageApps.prompt3": "Make an app where I can rate the books on my reading list",
-  "pageApps.frame.byline": "AI-generated content. Check it before you rely on it.",
-  "pageApps.frame.untitled": "App page",
-  "pageApps.frame.opening": "Opening…",
-  "pageApps.frame.openingPage": "Opening app page…",
-  "pageApps.frame.openFailed": "Couldn’t open this app page.",
-  "pageApps.frame.favorite": "Favorite",
-  "pageApps.frame.unfavorite": "Remove from favorites",
-  "pageApps.frame.permissions": "Permissions",
-  "pageApps.frame.reload": "Reload",
-  "pageApps.frame.offlineWarning": "Some resources need the internet. It may not run offline.",
-  "pageApps.frame.consent.title": "Allow “{title}” to use these features?",
-  "pageApps.frame.consent.description":
-    "This app page was made by AI. Your choice applies to this app page only, and you can change it any time in Permissions.",
-  "pageApps.frame.allow": "Allow",
-  "pageApps.frame.deny": "Don’t allow",
-  "pageApps.frame.ask": "Ask",
-  "pageApps.frame.cancel": "Cancel",
-  "pageApps.frame.confirm": "OK",
-  "pageApps.frame.permissions.description":
-    "What “{title}” can use. Saving a file always asks each time.",
-  "pageApps.frame.permissions.none": "This app page needs no extra permissions.",
   "mossApps.media.name": "Images & video",
   "mossApps.media.description": "Make images and videos, keep editing them on a canvas",
   "mossApps.media.about":
@@ -2830,23 +2786,6 @@ const EN_TRANSLATIONS = {
   "settings.phone.paired.title": "Paired phones",
   "settings.phone.paired.none": "No phone is paired yet.",
   "settings.phone.unnamedPhone": "Phone",
-  "auth.accountSignIn.title": "Allow “{device}” to use this computer?",
-  "auth.accountSignIn.titleUnnamed": "Allow a phone to use this computer?",
-  "auth.accountSignIn.description":
-    "A phone signed in to your Moss account {account} wants to connect. If you allow it, it can use the chats, files and terminal on this computer.",
-  "auth.accountSignIn.descriptionNoAccount":
-    "A phone signed in to your Moss account wants to connect. If you allow it, it can use the chats, files and terminal on this computer.",
-  "auth.accountSignIn.codeLabel": "Check code",
-  "auth.accountSignIn.codeHint":
-    "Allow only if your phone is showing this same code. If it isn't, choose Don't allow.",
-  "auth.accountSignIn.expires": "This request ends in {seconds} s.",
-  "auth.accountSignIn.moreWaiting": "{count} more phones are waiting.",
-  "auth.accountSignIn.deny": "Don't allow",
-  "auth.accountSignIn.allow": "Allow",
-  "auth.accountSignIn.failed": "Moss could not answer the phone. Try again from the phone.",
-  "auth.accountSignIn.notification.title": "A phone wants to use this computer",
-  "auth.accountSignIn.notification.body": "Open Moss to allow it or not.",
-  "auth.accountSignIn.expired": "The phone's request ran out. Ask again from the phone.",
   "settings.connections.devices.unavailable":
     "Controlling another device from this page is not available yet. You can use SSH to open a remote workspace.",
   "settings.connections.devices.openSsh": "Open SSH connections",
@@ -4914,18 +4853,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "sidebar.helpMenu.customize": "自定义侧栏",
   "sidebar.helpMenu.shortcuts": "按键绑定",
   "sidebar.helpMenu.feedback": "发送反馈",
-  "backendStartup.failed.title": "Moss 无法启动本地服务",
-  "backendStartup.failed.description":
-    "本地服务连续 {count} 次启动失败。请重试；如果仍然失败，请复制详情发给我们。",
-  "backendStartup.failed.retry": "重试",
-  "backendStartup.failed.retrying": "正在启动…",
-  "backendStartup.failed.openLogs": "打开日志",
-  "backendStartup.failed.copyDetails": "复制详情",
-  "backendStartup.failed.copied": "已复制",
-  "unreadableThreads.notice": "有 {count} 个对话的数据已损坏，已暂时隐藏。其他对话不受影响。",
-  "unreadableThreads.copyDetails": "复制详情",
-  "unreadableThreads.copied": "已复制",
-  "unreadableThreads.pane": "这个对话的数据已损坏，无法打开。其他对话不受影响。",
   "sidebar.helpMenu.docs": "文档",
   "sidebar.newThread": "新建项目对话",
   "sidebar.project.newConversationAria": "在 {project} 中新建项目对话",
@@ -5259,9 +5186,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.composer.send.sending": "正在发送",
   "chat.composer.send.message": "发送消息",
   "chat.composer.send.resume": "继续运行",
-  "chat.composer.resume.refused.busy": "这个对话还在运行，或还有消息在排队。等它结束后再继续。",
-  "chat.composer.resume.refused.pendingInteraction": "先处理正在等待的批准或问题，再继续。",
-  "chat.composer.resume.refused.unavailable": "这个任务没法从这里继续了。发一条消息就能接着做。",
   "chat.permissions.approvalRequired": "需要批准",
   "chat.permissions.approvalRequiredDescription": "编辑外部文件和使用互联网时始终请求批准",
   "chat.permissions.auto": "自动批准",
@@ -5353,7 +5277,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.error.copied": "已复制错误信息",
   "chat.error.copiedShort": "已复制",
   "chat.error.continueTask": "继续任务",
-  "chat.continuation.visibleText": "继续刚才的任务。",
   "chat.error.changeModel": "更换模型",
   "chat.error.unblocking": "正在解除…",
   "chat.error.unblockThread": "解除阻止",
@@ -6529,26 +6452,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "mossApps.pageApps.prompt1": "做一个记录每天喝水量的小应用",
   "mossApps.pageApps.prompt2": "做一个决定团队午饭吃什么的抽签转盘",
   "mossApps.pageApps.prompt3": "给我的读书清单做一个能打分的小应用",
-  "pageApps.frame.byline": "AI 生成的内容，使用前请核对",
-  "pageApps.frame.untitled": "应用页",
-  "pageApps.frame.opening": "正在打开…",
-  "pageApps.frame.openingPage": "正在打开应用页…",
-  "pageApps.frame.openFailed": "无法打开这个应用页。",
-  "pageApps.frame.favorite": "收藏",
-  "pageApps.frame.unfavorite": "取消收藏",
-  "pageApps.frame.permissions": "权限",
-  "pageApps.frame.reload": "重新加载",
-  "pageApps.frame.offlineWarning": "部分资源需要联网，离线时可能无法运行。",
-  "pageApps.frame.consent.title": "允许「{title}」使用这些功能？",
-  "pageApps.frame.consent.description":
-    "这个应用页由 AI 生成。你的选择只对这个应用页有效，可以随时在权限里更改。",
-  "pageApps.frame.allow": "允许",
-  "pageApps.frame.deny": "不允许",
-  "pageApps.frame.ask": "询问",
-  "pageApps.frame.cancel": "取消",
-  "pageApps.frame.confirm": "确定",
-  "pageApps.frame.permissions.description": "「{title}」可以使用的功能。保存文件每次都会单独询问。",
-  "pageApps.frame.permissions.none": "这个应用页不需要额外权限。",
   "mossApps.media.name": "图像与视频",
   "mossApps.media.description": "生成图片和视频，在画布里继续改",
   "mossApps.media.about": "智能体直接在对话里生成图片和短视频。在画布里打开，可以继续标注和修改。",
@@ -7154,22 +7057,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.phone.paired.title": "已配对的手机",
   "settings.phone.paired.none": "还没有配对的手机。",
   "settings.phone.unnamedPhone": "手机",
-  "auth.accountSignIn.title": "允许「{device}」使用这台电脑吗？",
-  "auth.accountSignIn.titleUnnamed": "允许这部手机使用这台电脑吗？",
-  "auth.accountSignIn.description":
-    "一部登录了你的 Moss 账号 {account} 的手机想要连接。允许后，它可以使用这台电脑上的对话、文件和终端。",
-  "auth.accountSignIn.descriptionNoAccount":
-    "一部登录了你的 Moss 账号的手机想要连接。允许后，它可以使用这台电脑上的对话、文件和终端。",
-  "auth.accountSignIn.codeLabel": "核对码",
-  "auth.accountSignIn.codeHint": "手机上显示的必须是同一个核对码。不一样就选「不允许」。",
-  "auth.accountSignIn.expires": "{seconds} 秒后失效。",
-  "auth.accountSignIn.moreWaiting": "还有 {count} 部手机在等待。",
-  "auth.accountSignIn.deny": "不允许",
-  "auth.accountSignIn.allow": "允许",
-  "auth.accountSignIn.failed": "Moss 没能回应这部手机，请在手机上重试。",
-  "auth.accountSignIn.notification.title": "有手机想使用这台电脑",
-  "auth.accountSignIn.notification.body": "打开 Moss，选择允许或不允许。",
-  "auth.accountSignIn.expired": "手机的请求已过期，请在手机上重新发起。",
   "settings.connections.devices.unavailable":
     "此页面暂不支持控制其他设备。你可以通过 SSH 打开远程工作区。",
   "settings.connections.devices.openSsh": "打开 SSH 连接",

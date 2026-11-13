@@ -16,42 +16,22 @@ const REQUIRED_RELEASE_MANIFESTS = [
   "scripts/package.json",
 ] as const;
 
-/** Workspace manifests a set of `workspaces` patterns names, forward slashes. */
-function manifestsMatching(repoRoot: string, patterns: readonly string[]): string[] {
-  if (patterns.length === 0) return [];
-  return globSync(
-    patterns.map((pattern) => `${pattern.replace(/\/+$/, "")}/package.json`),
-    { cwd: repoRoot },
-  );
-}
-
-/**
- * Materialize the same workspace graph Bun resolves, including non-shipping dev dependencies.
- * A `!path` pattern leaves a folder out, as Bun does, whatever order the patterns come in:
- * `!apps/mobile` keeps the phone app (its own npm install, no bun.lock importer) out of every
- * release root.
- */
+/** Materialize the same workspace graph Bun resolves, including non-shipping dev dependencies. */
 export function releaseWorkspaceManifestPaths(repoRoot: string): string[] {
   const root = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
     workspaces: { packages: string[] } | string[];
   };
   const packages = Array.isArray(root.workspaces) ? root.workspaces : root.workspaces.packages;
-  const excluded = new Set(
-    manifestsMatching(
-      repoRoot,
-      packages.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1)),
-    ).map((entry) => entry.split(sep).join("/")),
-  );
   const manifests = new Set(["package.json"]);
-  for (const entry of manifestsMatching(
-    repoRoot,
-    packages.filter((pattern) => !pattern.startsWith("!")),
+  for (const entry of globSync(
+    packages.map((pattern) => `${pattern}/package.json`),
+    { cwd: repoRoot },
   )) {
     const relativePath = entry.split(sep).join("/");
     if (isAbsolute(entry) || relativePath.split("/").includes("..")) {
       throw new Error(`Release workspace must be inside the repository: ${entry}`);
     }
-    if (!excluded.has(relativePath)) manifests.add(relativePath);
+    manifests.add(relativePath);
   }
   for (const required of REQUIRED_RELEASE_MANIFESTS) {
     if (!manifests.has(required))

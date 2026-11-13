@@ -162,8 +162,16 @@ export const makePageTypesServiceShape = (
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PageTypesReadInput, raw);
-          const result = yield* pages.read(input, principal);
-          return itemFrom(result.page, yield* latestData(result.page.id, result.page.revision));
+          const result = yield* pages.read(
+            { scopeSpaceId: input.scopeSpaceId, pageId: input.pageId },
+            principal,
+          );
+          // An earlier revision reads the payload as it was then; the page row stays current.
+          const at =
+            input.revision === undefined
+              ? result.page.revision
+              : Math.min(input.revision, result.page.revision);
+          return itemFrom(result.page, yield* latestData(result.page.id, at));
         }),
       );
 

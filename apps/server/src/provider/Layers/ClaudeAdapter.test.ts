@@ -949,25 +949,6 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
-  it.effect("gives slow MCP servers 120 s to connect unless the environment chose", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const adapter = yield* ClaudeAdapter;
-      yield* adapter.startSession({ threadId: THREAD_ID, runtimeMode: "full-access" });
-      assert.equal(harness.getLastCreateQueryInput()?.options.env?.MCP_TIMEOUT, "120000");
-      yield* adapter.listCommands!({
-        provider: "claudeAgent",
-        cwd: "/tmp/claude-work",
-        homePath: "/tmp/claude-home-work",
-        environment: { MCP_TIMEOUT: "45000" },
-      });
-      assert.equal(harness.getLastCreateQueryInput()?.options.env?.MCP_TIMEOUT, "45000");
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
-
   it.effect(
     "keeps command discovery caches and account directories isolated by provider instance id",
     () => {
@@ -5909,27 +5890,6 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
-  it("says why a turn failed without naming a provider when the model or its service failed", () => {
-    // Moss lanes reach other models through Claude Code too; these reasons are about the model
-    // service, so they never say "Claude" (the web translates each one).
-    const expected = {
-      rate_limit: "The model service rate limit was reached. Wait briefly, then retry.",
-      overloaded: "The model service is temporarily overloaded. Retry in a moment.",
-      invalid_request: "The model service rejected the request as invalid.",
-      model_not_found: "The selected model is unavailable for this account.",
-      server_error: "The model service returned a server error. Retry in a moment.",
-      max_output_tokens: "The model reached the maximum output length before completing the turn.",
-      unknown: "The model service failed to complete the turn.",
-      cloud_credential_error:
-        "The model service could not load its cloud credentials. Check or refresh them, then retry.",
-    } as const;
-    for (const [error, message] of Object.entries(expected)) {
-      const actual = claudeAssistantErrorMessage(error as keyof typeof expected, "claudeAgent");
-      assert.equal(actual, message);
-      assert.notMatch(actual, /claude/i);
-    }
-  });
-
   it("tells a Moss Claude lane to send again instead of running claude login", () => {
     assert.equal(
       claudeAssistantErrorMessage("authentication_failed", "claude_moss"),
@@ -6269,7 +6229,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       if (turnCompleted?.type === "turn.completed") {
         assert.equal(String(turnCompleted.turnId), String(turn.turnId));
         assert.equal(turnCompleted.payload.state, "interrupted");
-        assert.equal(turnCompleted.payload.errorMessage, "The turn was interrupted.");
+        assert.equal(turnCompleted.payload.errorMessage, "Claude runtime interrupted.");
       }
 
       const sessionExited = runtimeEvents[5];
@@ -6332,7 +6292,7 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
         assert.equal(turnCompleted.payload.state, "interrupted");
         assert.equal(
           turnCompleted.payload.errorMessage,
-          "The agent stopped and will resume on your next message.",
+          "Claude runtime stopped and will resume on your next message.",
         );
       }
 

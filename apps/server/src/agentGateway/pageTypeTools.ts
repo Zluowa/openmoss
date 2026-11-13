@@ -1,6 +1,7 @@
 // FILE: pageTypeTools.ts
 // Purpose: Agent tools for typed 资料空间 items: list/choose templates, create an item,
-//          read it, edit slides, and read/write spreadsheet ranges.
+//          read it, edit slides, and read and edit spreadsheets (the moss_sheet_* protocol:
+//          typed reads, applyEdits against a base revision, and its guide).
 // Layer: Agent gateway tool catalog (beside pageTools.ts)
 
 import { PageId, ThreadId, type SpaceId } from "@moss/contracts";
@@ -10,6 +11,12 @@ import {
   parseSheetWorkbook,
 } from "@moss/shared/spaceItems/sheetWorkbook";
 import { parseAppItem } from "@moss/shared/spaceItems/itemData";
+import {
+  applySheetEdits,
+  readSheetWorkbook,
+  SheetEditRefusal,
+} from "@moss/shared/spaceItems/sheetEdits";
+import { sheetGuide, SHEET_GUIDE_TOPICS } from "@moss/shared/spaceItems/sheetGuide";
 import { findBuiltInTemplate } from "@moss/shared/spaceItems/templates";
 import { Effect } from "effect";
 
@@ -28,20 +35,33 @@ const scopeProperty = {
 const nullableId = { anyOf: [{ type: "string" }, { type: "null" }] };
 
 const errorResult = (error: unknown) =>
-  error instanceof PagesServiceError
+  error instanceof SheetEditRefusal
     ? {
         ...mcpToolResultJson({
           error: {
-            code: error.code,
-            message: error.message,
-            ...(error.currentRevision === undefined
-              ? {}
-              : { currentRevision: error.currentRevision }),
+            code: "refused",
+            refusal: error.refusal,
+            detail: error.detail,
+            ...(error.editIndex === null ? {} : { editIndex: error.editIndex }),
+            ...(error.address === null ? {} : { address: error.address }),
           },
         }),
         isError: true,
       }
-    : mcpToolResultError(errorText(error));
+    : error instanceof PagesServiceError
+      ? {
+          ...mcpToolResultJson({
+            error: {
+              code: error.code,
+              message: error.message,
+              ...(error.currentRevision === undefined
+                ? {}
+                : { currentRevision: error.currentRevision }),
+            },
+          }),
+          isError: true,
+        }
+      : mcpToolResultError(errorText(error));
 
 type Args = Record<string, unknown>;
 const field = {
@@ -71,7 +91,9 @@ const parseInput = <A>(build: () => A) =>
   Effect.try({
     try: build,
     catch: (error) =>
-      error instanceof ToolInputError ? error : new ToolInputError(errorText(error)),
+      error instanceof ToolInputError || error instanceof SheetEditRefusal
+        ? error
+        : new ToolInputError(errorText(error)),
   });
 
 /** One catalog for every provider/CLI using the common authenticated gateway. */
@@ -271,7 +293,7 @@ export function makePageTypeTools({
     ),
     read(
       "moss_space_item_read",
-      "Read a typed 资料空间 item (slides, sheet, board, app) with its revision and full JSON payload. For a large spreadsheet prefer moss_sheet_read_range.",
+      "Read a typed 资料空间 item (slides, sheet, board, app) with its revision and full JSON payload. For a spreadsheet use moss_sheet_read instead.",
       { pageId: { type: "string" } },
       ["pageId"],
       (args, threadId) =>
@@ -284,8 +306,110 @@ export function makePageTypeTools({
         ),
     ),
     read(
+      "moss_sheet_guide",
+      "How to read and change a 资料空间 spreadsheet (sheet item) with moss_sheet_read and moss_sheet_apply_edits: the read kinds, every edit kind and its keys, what a cell holds, how to build a table, formats, rows and columns, dropdowns, conditional formats, charts and formulas. Read topics core and building before the first call on a sheet.",
+      {
+        topics: {
+          type: "array",
+          items: { type: "string", enum: [...SHEET_GUIDE_TOPICS] },
+          description: "Defaults to core and building.",
+        },
+      },
+      [],
+      (args) =>
+        Effect.succeed({
+          guide: sheetGuide(
+            Array.isArray(args.topics)
+              ? args.topics.filter((topic): topic is string => typeof topic === "string")
+              : undefined,
+          ),
+        }),
+    ),
+    read(
+      "moss_sheet_read",
+      "Read a 资料空间 spreadsheet the way a person sees it. payload is one of {kind:'readSheets'} (names, sizes, filledRange, freeze, table, chart and rule counts), {kind:'readCells',sheet,range} (typed values; formulas with their worked-out value; merged ranges, dropdowns, checkboxes), {kind:'readCellFormats',sheet,range}, {kind:'readConditionalFormats',sheet} (with the fingerprint a rules update needs) or {kind:'readCharts',sheet}. Every answer has the revision to pass as base to moss_sheet_apply_edits. Read moss_sheet_guide first.",
+      { pageId: { type: "string" }, payload: { type: "object" } },
+      ["pageId", "payload"],
+      (args, threadId) =>
+        Effect.gen(function* () {
+          const item = yield* types.read(
+            {
+              scopeSpaceId: field.scope(args),
+              pageId: PageId.makeUnsafe(field.string(args, "pageId")!),
+            },
+            principal(threadId),
+          );
+          if (item.kind !== "sheet" || item.data === null) {
+            return yield* Effect.fail(
+              new ToolInputError(`This item is a ${item.kind}, not a sheet`),
+            );
+          }
+          const workbook = yield* parseInput(() => parseSheetWorkbook(item.data!));
+          return yield* parseInput(() =>
+            readSheetWorkbook(workbook, item.page.revision, args.payload),
+          );
+        }),
+    ),
+    write(
+      "moss_sheet_apply_edits",
+      "Change a 资料空间 spreadsheet: edits (up to 64, about 2,000 written cells) are made in order and land together as one revision, or none does. base is the revision of your last read or update. Kinds: writeCells, addSheet, renameSheet, deleteSheet, restoreSheet, moveSheets, formatCells, setBorders, mergeCells, unmergeCells, setColumnWidths, fitColumns, setRowHeights, insertRows, insertColumns, deleteRows, deleteColumns, moveRows, moveColumns, sortRows, sortCells, groupRows, groupColumns, ungroupRows, ungroupColumns, setSheetSettings, makeDropdown, setDropdownOptions, setCellTable, replaceConditionalFormats, addChart, setChart, deleteChart, setLocale, setTimeZone, with keys exactly as moss_sheet_guide gives them. A refusal names editIndex and a refusal word; nothing landed. The person sees the change at once and can undo it.",
+      {
+        pageId: { type: "string" },
+        base: { type: "integer", minimum: 1 },
+        edits: { type: "array", minItems: 1, maxItems: 64, items: { type: "object" } },
+      },
+      ["pageId", "base", "edits"],
+      (args, threadId) =>
+        Effect.gen(function* () {
+          const base = args.base;
+          if (!Number.isInteger(base) || (base as number) < 1) {
+            return yield* Effect.fail(
+              new ToolInputError("base must be the revision from your last read or update"),
+            );
+          }
+          const current = yield* types.read(
+            {
+              scopeSpaceId: field.scope(args),
+              pageId: PageId.makeUnsafe(field.string(args, "pageId")!),
+            },
+            principal(threadId),
+          );
+          if (current.kind !== "sheet" || current.data === null) {
+            return yield* Effect.fail(
+              new ToolInputError(`This item is a ${current.kind}, not a sheet`),
+            );
+          }
+          if (current.page.revision !== base) {
+            return yield* Effect.fail(
+              new SheetEditRefusal(
+                "baseIsNotTheRevision",
+                `The sheet is at revision ${current.page.revision}, not ${String(base)}: someone edited it since your read. Read the cells again, then send the update with the new base.`,
+              ),
+            );
+          }
+          const result = yield* parseInput(() =>
+            applySheetEdits(parseSheetWorkbook(current.data!), args.edits),
+          );
+          const saved = yield* types.save(
+            {
+              requestId: field.string(args, "requestId")!,
+              scopeSpaceId: field.scope(args),
+              pageId: current.page.id,
+              expectedRevision: base as number,
+              data: JSON.stringify(result.workbook),
+            },
+            principal(threadId),
+          );
+          return {
+            revision: saved.page.revision,
+            ...(result.changedNothing.length ? { changedNothing: result.changedNothing } : {}),
+            ...(result.made.length ? { made: result.made } : {}),
+          };
+        }),
+    ),
+    read(
       "moss_sheet_read_range",
-      "Read a spreadsheet range in A1 notation (e.g. A1:D20; omit for the used area) from a sheet item. Returns values (cached results for formulas) and formulas in the same 2-D shape, plus the sheet names.",
+      "Older plain read of a spreadsheet range (prefer moss_sheet_read). A1 range, e.g. A1:D20; omit for the used area. Returns values (cached results for formulas) and formulas in the same 2-D shape, plus the sheet names.",
       { pageId: { type: "string" }, sheet: { type: "string" }, range: { type: "string" } },
       ["pageId"],
       (args, threadId) =>
@@ -319,7 +443,7 @@ export function makePageTypeTools({
     ),
     write(
       "moss_sheet_write_range",
-      "Write a 2-D block of values into a sheet item starting at the top-left cell `start` (A1). Strings beginning with = are formulas (e.g. =SUM(B2:B9)); null clears a cell. Formula results are recalculated when the sheet is next opened. Requires expectedRevision from the last read.",
+      "Older plain write of a 2-D block of values (prefer moss_sheet_apply_edits). Starts at the top-left cell `start` (A1). Strings beginning with = are formulas (e.g. =SUM(B2:B9)); null clears a cell. Requires expectedRevision from the last read.",
       {
         pageId: { type: "string" },
         expectedRevision: { type: "integer", minimum: 1 },

@@ -7,8 +7,6 @@ import { pathToFileURL } from "node:url";
 import { outboundHttp } from "@moss/shared/outboundHttp";
 import { RUNTIME_RESIDENCY_POLICIES } from "@moss/shared/runtimeResidency";
 import {
-  adoptMediaAccountScope,
-  legacyMediaAccountScopes,
   mediaAccountScope,
   MossMediaJobsError,
   type MossMediaCredential,
@@ -115,25 +113,13 @@ async function realLegacyDirectory(
   credential: MossMediaIdentity,
   workspace: MossCanvasWorkspace,
 ): Promise<string | null> {
-  // Those folders were named by the scope of the day, which named the gateway URL.
-  for (const scope of [mediaAccountScope(credential), ...legacyMediaAccountScopes(credential)]) {
-    const found = await realDirectoryChain(workspace.cwd, [
-      ".moss",
-      "canvas",
-      scope,
-      threadKey(workspace.threadId),
-    ]);
-    if (found) return found;
-  }
-  return null;
-}
-
-async function realDirectoryChain(
-  root: string,
-  parts: ReadonlyArray<string>,
-): Promise<string | null> {
-  let current = root;
-  for (const part of parts) {
+  let current = workspace.cwd;
+  for (const part of [
+    ".moss",
+    "canvas",
+    mediaAccountScope(credential),
+    threadKey(workspace.threadId),
+  ]) {
     current = join(current, part);
     try {
       const info = await lstat(current);
@@ -192,7 +178,6 @@ export async function mossCanvasStorageExists(
 ): Promise<boolean> {
   const directory = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
   if (stores.isOpen(directory)) return true;
-  await adoptMediaAccountScope(stateDirectory, credential);
   if (await isRealDirectory(directory)) return true;
   return workspace ? (await realLegacyDirectory(credential, workspace)) !== null : false;
 }
@@ -204,8 +189,6 @@ export function mossCanvasStorageFor(
 ): Promise<CanvasStorage> {
   const target = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
   const handle = stores.handle(target, async () => {
-    // A Canvas saved under a legacy scope moves into the account scope before it opens.
-    await adoptMediaAccountScope(stateDirectory, credential);
     let directory = target;
     if (workspace && !(await isRealDirectory(target))) {
       // A Canvas made before 2026-11-11 lives in the project; bring it over once.

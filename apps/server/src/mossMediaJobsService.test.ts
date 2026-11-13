@@ -14,12 +14,6 @@ import {
   type MossConversationImageObservation,
 } from "./mossMediaJobsService";
 import { HoolaCanvasBridgeBroker } from "./hoolaCanvasBridge";
-import {
-  makeMossServiceEntryRouter,
-  mossModelGatewayHealthUrl,
-  registerMossServiceEntryRouterForTest,
-  resetMossServiceEntryRoutersForTest,
-} from "./account/mossServiceEntries";
 import { MossMediaHistory } from "./mossMediaHistory";
 import { MossMediaAssetStore } from "./mossMediaAssets";
 import { readMossMediaLibraryItems } from "./mossMediaLibrary";
@@ -907,6 +901,7 @@ describe("MossMediaJobsService", () => {
         realm: "supabase-google" as const,
         account: { ...credential.account, realm: "supabase-google" as const },
       },
+      { ...credential, gatewayBaseUrl: "https://other.example/v1" },
     ]) {
       expect((await restored.history(foreign)).jobs).toEqual([]);
       await expect(restored.check(first.jobId, foreign)).rejects.toMatchObject({
@@ -917,10 +912,6 @@ describe("MossMediaJobsService", () => {
         status: 404,
       });
     }
-    // The same account through another gateway entry is still the same account.
-    const otherEntry = { ...credential, gatewayBaseUrl: "https://other.example/v1" };
-    expect((await restored.history(otherEntry)).jobs.length).toBeGreaterThan(0);
-    expect((await restored.readAsset(first.jobId, 0, otherEntry)).bytes).toHaveLength(9);
     expect(unexpected).not.toHaveBeenCalled();
   });
 
@@ -1349,7 +1340,7 @@ describe("MossMediaJobsService", () => {
       expect(submittedModel).toBe(modelId);
     }
   });
-  it("retains every output and partitions history by user and realm, not by gateway entry", async () => {
+  it("retains every output and partitions history by user, realm, and gateway", async () => {
     let submissions = 0;
     const service = new MossMediaJobsService({
       stateDirectory: stateDirectory(),
@@ -1418,11 +1409,9 @@ describe("MossMediaJobsService", () => {
     const replay = await service.create(request, credential);
     expect(replay.jobId).toBe(job.jobId);
     expect(submissions).toBe(1);
-    expect(
-      service.get(job.jobId, { ...credential, gatewayBaseUrl: "https://other.example/v1" }).jobId,
-    ).toBe(job.jobId);
     for (const other of [
       { ...credential, account: { ...credential.account, id: "account-b" } },
+      { ...credential, gatewayBaseUrl: "https://other.example/v1" },
       {
         ...credential,
         realm: "supabase-google" as const,
@@ -1585,49 +1574,5 @@ describe("MossMediaJobsService", () => {
         }),
     });
     await expect(unavailable.create(request, credential)).rejects.toThrow("pricing_unavailable");
-  });
-});
-
-/** The CN gateway entries in use: both pass their health checks, the primary is in use. */
-const CN_PRIMARY = "https://moss-models.example.cn/functions/v1/moss-model-gateway/v1";
-const CN_FALLBACK = "https://moss-cn-models.example.com/functions/v1/moss-model-gateway/v1";
-const cnEntriesInUse = async () => {
-  const router = makeMossServiceEntryRouter({
-    service: "CN model gateway",
-    entries: [CN_PRIMARY, CN_FALLBACK],
-    healthUrl: mossModelGatewayHealthUrl,
-    probe: async () => true,
-  });
-  await router.ensure();
-  registerMossServiceEntryRouterForTest(router);
-  return router;
-};
-const resetError = () =>
-  Object.assign(new TypeError("fetch failed"), {
-    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
-  });
-const onPrimary = (url: string | URL | Request) =>
-  String(url instanceof Request ? url.url : url).startsWith(new URL(CN_PRIMARY).origin);
-
-describe("the media catalog across CN gateway entries", () => {
-  afterEach(() => resetMossServiceEntryRoutersForTest());
-
-  it("is a read: a reset on the entry in use is asked once more on the next entry", async () => {
-    const router = await cnEntriesInUse();
-    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      if (onPrimary(url)) throw resetError();
-      return catalog();
-    });
-    const service = new MossMediaJobsService({ stateDirectory: stateDirectory(), fetchImpl });
-    const models = await service.catalog(
-      { ...credential, gatewayBaseUrl: CN_PRIMARY },
-      { fresh: true },
-    );
-    expect(models.map((model) => model.id)).toEqual([request.modelId]);
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      `${CN_PRIMARY.replace(/\/v1$/u, "")}/v1/canvas/media/catalog`,
-      `${CN_FALLBACK.replace(/\/v1$/u, "")}/v1/canvas/media/catalog`,
-    ]);
-    expect(router.current()).toBe(CN_FALLBACK);
   });
 });

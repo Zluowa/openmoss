@@ -301,10 +301,6 @@
       "types": "./src/threadSummary.ts",
       "import": "./src/threadSummary.ts"
     },
-    "./turnResume": {
-      "types": "./src/turnResume.ts",
-      "import": "./src/turnResume.ts"
-    },
     "./pendingInteractions": {
       "types": "./src/pendingInteractions.ts",
       "import": "./src/pendingInteractions.ts"
@@ -633,22 +629,6 @@
       "types": "./src/mossDownloadChannel.ts",
       "import": "./src/mossDownloadChannel.ts"
     },
-    "./mossAccountComputers": {
-      "types": "./src/mossAccountComputers.ts",
-      "import": "./src/mossAccountComputers.ts"
-    },
-    "./mossAccountSealedDelivery": {
-      "types": "./src/mossAccountSealedDelivery.ts",
-      "import": "./src/mossAccountSealedDelivery.ts"
-    },
-    "./ownerDeviceSession": {
-      "types": "./src/ownerDeviceSession.ts",
-      "import": "./src/ownerDeviceSession.ts"
-    },
-    "./supabaseMossAuth": {
-      "types": "./src/supabaseMossAuth.ts",
-      "import": "./src/supabaseMossAuth.ts"
-    },
     "./mossProductionPublicConfig": {
       "types": "./src/mossProductionPublicConfig.ts",
       "import": "./src/mossProductionPublicConfig.ts"
@@ -821,6 +801,30 @@
       "types": "./src/spaceItems/sheetWorkbook.ts",
       "import": "./src/spaceItems/sheetWorkbook.ts"
     },
+    "./spaceItems/sheetValues": {
+      "types": "./src/spaceItems/sheetValues.ts",
+      "import": "./src/spaceItems/sheetValues.ts"
+    },
+    "./spaceItems/sheetFormulaRefs": {
+      "types": "./src/spaceItems/sheetFormulaRefs.ts",
+      "import": "./src/spaceItems/sheetFormulaRefs.ts"
+    },
+    "./spaceItems/sheetFormulas": {
+      "types": "./src/spaceItems/sheetFormulas.ts",
+      "import": "./src/spaceItems/sheetFormulas.ts"
+    },
+    "./spaceItems/sheetEdits": {
+      "types": "./src/spaceItems/sheetEdits.ts",
+      "import": "./src/spaceItems/sheetEdits.ts"
+    },
+    "./spaceItems/sheetRules": {
+      "types": "./src/spaceItems/sheetRules.ts",
+      "import": "./src/spaceItems/sheetRules.ts"
+    },
+    "./spaceItems/sheetGuide": {
+      "types": "./src/spaceItems/sheetGuide.ts",
+      "import": "./src/spaceItems/sheetGuide.ts"
+    },
     "./spaceItems/itemData": {
       "types": "./src/spaceItems/itemData.ts",
       "import": "./src/spaceItems/itemData.ts"
@@ -877,6 +881,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fortune-sheet/formula-parser": "0.2.13",
     "@moss/contracts": "workspace:*",
     "@office-kit/pptx": "0.12.0",
     "effect": "catalog:",

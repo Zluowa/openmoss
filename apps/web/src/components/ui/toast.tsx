@@ -300,8 +300,6 @@ function ToastCopyItemButton({ item }: { item: ToastCopyItem }) {
       text={item.text}
       label={item.label}
       className={TOAST_ACTION_BUTTON_CLASS_NAME}
-      {...(item.copyLabel ? { copyLabel: item.copyLabel, copiedLabel: item.copyLabel } : {})}
-      {...(item.copiedText ? { copiedText: item.copiedText } : {})}
     />
   );
 }

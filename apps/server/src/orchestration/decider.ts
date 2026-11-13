@@ -45,6 +45,10 @@ import {
   resolveThreadPresentationOwners,
 } from "@moss/shared/threadHierarchy";
 import { doThreadMarkerRangesOverlap } from "@moss/shared/threadMarkers";
+import {
+  isSafetyBufferingBoundToThread,
+  latestSafetyBufferingActivity as readLatestSafetyBufferingActivity,
+} from "@moss/shared/safetyBuffering";
 import { inferLegacyProviderKindFromModelSelection } from "@moss/shared/providerInstances";
 import { isSidechatThread } from "@moss/shared/sidechatThread";
 import { autoRuntimeModeSelectionIssue } from "@moss/shared/runtimeMode";
@@ -52,10 +56,6 @@ import { isGroupContainerKind } from "@moss/shared/projectContainers";
 import { findProjectFolderProblem } from "@moss/shared/projectFolders";
 import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
 import { isManualCompactionTurnActive } from "@moss/shared/contextCompaction";
-import {
-  INTERRUPTED_TASK_CONTINUATION_PROMPT,
-  threadHasActiveOrQueuedTurn,
-} from "@moss/shared/turnResume";
 import {
   collectTailTurnIds,
   resolveTailUserMessageEditTarget,
@@ -661,6 +661,41 @@ function asJsonRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function latestFailedServerOverloadActivity(
+  thread: OrchestrationReadModel["threads"][number],
+  turnId: TurnId,
+): boolean {
+  const latest = thread.activities
+    .filter((activity) => activity.kind === "turn.completed" && activity.turnId === turnId)
+    .toSorted(
+      (left, right) =>
+        (right.sequence ?? -1) - (left.sequence ?? -1) ||
+        right.createdAt.localeCompare(left.createdAt) ||
+        right.id.localeCompare(left.id),
+    )
+    .at(0);
+  if (!latest) return false;
+  const payload = asJsonRecord(latest.payload);
+  return payload?.state === "failed" && payload.errorInfo === "serverOverloaded";
+}
+
+function latestSafetyBufferingActivity(
+  thread: OrchestrationReadModel["threads"][number],
+  turnId: TurnId,
+): {
+  readonly activity: OrchestrationReadModel["threads"][number]["activities"][number];
+  readonly targetModel: string;
+} | null {
+  const latest = readLatestSafetyBufferingActivity(thread.activities, turnId);
+  const targetModel = latest?.payload.fasterModel?.trim() ?? "";
+  return latest &&
+    isSafetyBufferingBoundToThread(latest.payload, thread.id) &&
+    latest.payload.showBufferingUi &&
+    targetModel
+    ? { activity: latest.activity, targetModel }
+    : null;
+}
+
 function latestTurnCompletionPayload(
   thread: OrchestrationReadModel["threads"][number],
   turnId: TurnId,
@@ -698,6 +733,39 @@ function hasPendingThreadInteraction(thread: OrchestrationReadModel["threads"][n
   }
   return (thread.pendingInteractions ?? []).some(
     (interaction) => interaction.status !== "confirmed",
+  );
+}
+
+function hasQueuedTurnConflict(thread: OrchestrationReadModel["threads"][number]): boolean {
+  const latestCompletedAt = thread.latestTurn?.completedAt;
+  if (latestCompletedAt === null || latestCompletedAt === undefined) return true;
+  // A queued user turn is represented durably by a user message whose turn has
+  // not been bound yet. It must not be hidden behind the provider queue table,
+  // which is deliberately outside this serialized command read model.
+  if (
+    typeof thread.latestUserMessageAt === "string" &&
+    thread.latestUserMessageAt > latestCompletedAt
+  ) {
+    return true;
+  }
+  if (
+    thread.messages.some(
+      (message) =>
+        message.role === "user" &&
+        message.source === "native" &&
+        (message.turnId === null || message.turnId === undefined),
+    )
+  ) {
+    return true;
+  }
+  // Imported/replayed snapshots may carry a typed queue lifecycle activity;
+  // retain the fail-closed check for that representation as well.
+  return thread.activities.some(
+    (activity) =>
+      activity.turnId === thread.latestTurn?.turnId &&
+      (activity.kind === "turn.queued" ||
+        activity.kind === "turn.dispatch-queued" ||
+        activity.kind === "provider.turn.queued"),
   );
 }
 
@@ -3190,18 +3258,169 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    // Nothing on the provider side runs these any more: the reactor handlers and the
-    // Codex empty-turn path were dropped in an upstream merge, and no client
-    // sends them. Accepting one would project the chat as "starting" and leave it there,
-    // so refuse outright. A person continues a stopped or failed turn with
-    // `thread.turn.resume`, which runs as an ordinary turn start.
-    case "thread.turn.capacity-retry":
-    case "thread.turn.safety-buffer-retry": {
-      yield* requireThread({ readModel, command, threadId: command.threadId });
-      return yield* new OrchestrationCommandInvariantError({
-        commandType: command.type,
-        detail: `'${command.type}' is no longer supported: no provider handler runs it. Use 'thread.turn.resume' or send a message.`,
+    case "thread.turn.capacity-retry": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
       });
+      const latestTurn = thread.latestTurn;
+      if (!latestTurn || latestTurn.turnId !== command.turnId) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Capacity retry '${command.turnId}' is not the latest turn on thread '${command.threadId}'.`,
+        });
+      }
+      if (latestTurn.state !== "error" || latestTurn.completedAt === null) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Capacity retry requires a terminal failed latest turn on thread '${command.threadId}'.`,
+        });
+      }
+      if (!latestFailedServerOverloadActivity(thread, command.turnId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Latest turn '${command.turnId}' is not a typed serverOverloaded failure.`,
+        });
+      }
+      if (threadHasInFlightTurn(thread) || hasQueuedTurnConflict(thread)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Thread '${command.threadId}' already has an active or queued turn.`,
+        });
+      }
+      if (!isCodexForegroundThread(thread)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Capacity retry is only available for the bound foreground Codex driver on thread '${command.threadId}'.`,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.turn-capacity-retry-requested",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          trigger: command.trigger,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.turn.safety-buffer-retry": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const latestTurn = thread.latestTurn;
+      if (
+        !latestTurn ||
+        latestTurn.turnId !== command.turnId ||
+        latestTurn.completedAt !== null ||
+        latestTurn.state !== "running" ||
+        thread.session?.status !== "running" ||
+        thread.session.activeTurnId !== command.turnId
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Safety buffering retry '${command.turnId}' is not the exact active latest turn on thread '${command.threadId}'.`,
+        });
+      }
+      if (!isCodexForegroundThread(thread)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Safety buffering retry is only available for the bound foreground Codex driver on thread '${command.threadId}'.`,
+        });
+      }
+      const safety = latestSafetyBufferingActivity(thread, command.turnId);
+      if (!safety) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Latest turn '${command.turnId}' has no active typed safety-buffering target.`,
+        });
+      }
+      if (
+        thread.activities.some(
+          (activity) =>
+            activity.kind === "model.safety-buffering.retry-requested" &&
+            activity.turnId === command.turnId,
+        )
+      ) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Safety buffering retry '${command.turnId}' was already requested.`,
+        });
+      }
+      const sourceMessage = thread.messages
+        .filter(
+          (message) =>
+            message.role === "user" &&
+            message.source === "native" &&
+            message.createdAt <= latestTurn.requestedAt,
+        )
+        .at(-1);
+      const tailTurnIds = sourceMessage
+        ? collectTailTurnIds<TurnId>({ messages: thread.messages, messageId: sourceMessage.id })
+        : [];
+      if (!sourceMessage || tailTurnIds.some((tailTurnId) => tailTurnId !== command.turnId)) {
+        return yield* new OrchestrationCommandInvariantError({
+          commandType: command.type,
+          detail: `Safety buffering retry cannot reconstruct the exact source input for turn '${command.turnId}'.`,
+        });
+      }
+      const targetSelection = { ...thread.modelSelection, model: safety.targetModel };
+      const requestedActivity: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-appended",
+        payload: {
+          threadId: command.threadId,
+          activity: {
+            id: EventId.makeUnsafe(crypto.randomUUID()),
+            tone: "info",
+            kind: "model.safety-buffering.retry-requested",
+            summary: `Retrying with ${safety.targetModel}`,
+            payload: {
+              sourceActivityId: safety.activity.id,
+              targetModel: safety.targetModel,
+            },
+            turnId: command.turnId,
+            createdAt: command.createdAt,
+          },
+        },
+      };
+      const requestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        causationEventId: requestedActivity.eventId,
+        type: "thread.turn-safety-buffer-retry-requested",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          messageId: sourceMessage.id,
+          sourceActivityId: safety.activity.id,
+          targetModel: safety.targetModel,
+          modelSelection: targetSelection,
+          runtimeMode: thread.session.runtimeMode,
+          interactionMode: thread.interactionMode,
+          createdAt: command.createdAt,
+        },
+      };
+      return [requestedActivity, requestedEvent];
     }
 
     case "thread.turn.resume": {
@@ -3232,7 +3451,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Latest turn '${command.turnId}' is not interrupted or backed by a retryable Codex failure.`,
         });
       }
-      if (threadHasActiveOrQueuedTurn(thread)) {
+      if (threadHasInFlightTurn(thread) || hasQueuedTurnConflict(thread)) {
         return yield* new OrchestrationCommandInvariantError({
           commandType: command.type,
           detail: `Thread '${command.threadId}' already has an active or queued turn.`,
@@ -3256,39 +3475,20 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Resume is only available for the bound foreground Codex driver on thread '${command.threadId}'.`,
         });
       }
-      // Nothing on the provider side consumes `thread.turn-resume-requested` any more
-      // (the reactor and Codex empty-turn path were dropped in an upstream merge), so an
-      // accepted resume would leave the chat "starting" forever. Continue as an ordinary
-      // turn instead: the same continuation the "Continue task" card sends, through the
-      // send path every provider supports. The ids derive from the command id, so a
-      // retried resume collides with its own receipt instead of starting a second turn.
-      return yield* decideOrchestrationCommand({
-        command: {
-          type: "thread.turn.start",
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
           commandId: command.commandId,
+        }),
+        type: "thread.turn-resume-requested",
+        payload: {
           threadId: command.threadId,
-          message: {
-            messageId: MessageId.makeUnsafe(`resume:${command.commandId}`),
-            role: "user",
-            text: INTERRUPTED_TASK_CONTINUATION_PROMPT,
-            attachments: [],
-          },
-          dispatchMode: "queue",
-          dispatchOrigin: "user",
-          runtimeMode: thread.runtimeMode,
-          interactionMode: thread.interactionMode,
+          turnId: command.turnId,
           createdAt: command.createdAt,
         },
-        readModel,
-      }).pipe(
-        Effect.mapError(
-          (error) =>
-            new OrchestrationCommandInvariantError({
-              commandType: command.type,
-              detail: error.detail,
-            }),
-        ),
-      );
+      };
     }
 
     case "thread.turn.interrupt": {

@@ -518,47 +518,6 @@ describe("MCP App tool data delivery", () => {
     expect(controller.getSnapshot().phase).toBe("failed");
   });
 
-  it("moves a still-starting frame to the slot of a row that remounted before initialized", () => {
-    // Real-data run: the debug widget's row remounted 100 ms after its webview was created; the
-    // frame stayed on the detached slot (display:none) and the widget never said initialized.
-    const controller = makeController();
-    const internals = controller as unknown as Record<string, unknown>;
-    const follow = vi.fn(() => true);
-    internals.tracker = { follow, setVisible: vi.fn() };
-    internals.snapshot = { ...controller.getSnapshot(), phase: "loading" };
-    internals.running = false;
-    const oldSlot = {} as HTMLElement;
-    const newSlot = {} as HTMLElement;
-    internals.inlineContainer = oldSlot;
-    controller.detachInline(oldSlot);
-    controller.attachInline(newSlot);
-    expect(follow).toHaveBeenCalledWith(newSlot, "inline");
-    expect(controller.getInlineContainer()).toBe(newSlot);
-  });
-
-  it("shows a failed call's fallback at once, while the guest is still being torn down", () => {
-    // The desktop shell's unregister may take its time (or never answer); the card must not
-    // keep showing 「正在加载」 meanwhile.
-    const controller = makeController({
-      projection: projection({ status: "inProgress" }),
-      desktop: { register: async () => null, unregister: () => new Promise(() => undefined) },
-    });
-    const internals = controller as unknown as Record<string, unknown>;
-    internals.snapshot = { ...controller.getSnapshot(), phase: "loading" };
-    internals.descriptor = {
-      generation: 0,
-      initId: "init-1",
-      origin: "moss-mcp-sandbox://mcp-test",
-      partition: "moss-mcp-mcp-test",
-      sandboxId: "mcp-test",
-      src: "moss-mcp-sandbox://mcp-test/ui?generation=0#init=init-1",
-    };
-    controller.updateProjection(
-      projection({ status: "failed", error: { message: "Debug text content #1" } }),
-    );
-    expect(controller.getSnapshot().phase).toBe("failed");
-  });
-
   it("shows the text fallback when a failed call left no usable result", async () => {
     const controller = makeController({
       projection: projection({ status: "failed", error: { message: "bad structuredContent" } }),

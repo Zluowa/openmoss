@@ -14,7 +14,6 @@ import {
 import { dirname } from "node:path";
 
 import type { HoolaCanvasAuthorityCredential } from "./hoolaCanvasBridge";
-import { fetchViaMossServiceEntries } from "./account/mossServiceEntries";
 
 const SEGMENTS_MODEL_ID = "grok-segments-v1";
 const MAX_STATE_BYTES = 64 * 1024 * 1024;
@@ -278,8 +277,8 @@ function sceneIndex(record: SegmentRecord): Readonly<Record<string, unknown>> {
   };
 }
 
-function gatewayRoot(entry: string): string {
-  return entry.replace(/\/+$/u, "").replace(/\/v1$/u, "");
+function gatewayRoot(credential: HoolaCanvasAuthorityCredential): string {
+  return credential.gatewayBaseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
 }
 
 export class HoolaCanvasSegmentsBridgeBroker {
@@ -434,29 +433,21 @@ export class HoolaCanvasSegmentsBridgeBroker {
         body: replay.sceneMap ? sceneIndex(replay) : { jobId: replay.jobId, status: replay.status },
       };
     }
-    // Starts paid work: on the CN entry in use, never sent to a second entry; a reset is
-    // reported so the next attempt uses the entry that works.
-    const response = await fetchViaMossServiceEntries({
-      entry: credential.gatewayBaseUrl,
-      retryOnNextEntry: false,
-      timeoutIsConnectionFailure: false,
-      send: (entry) =>
-        this.#fetch(`${gatewayRoot(entry)}/v1/canvas/segments/jobs`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${credential.accessToken}`,
-            "content-type": "application/json",
-            "x-moss-operation-id": idempotencyKey,
-          },
-          body: JSON.stringify({
-            ...identity,
-            ...(imageDataUrl ? { imageDataUrl } : {}),
-            modelId: SEGMENTS_MODEL_ID,
-            idempotencyKey,
-          }),
-          redirect: "error",
-          signal: AbortSignal.timeout(30_000),
-        }),
+    const response = await this.#fetch(`${gatewayRoot(credential)}/v1/canvas/segments/jobs`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${credential.accessToken}`,
+        "content-type": "application/json",
+        "x-moss-operation-id": idempotencyKey,
+      },
+      body: JSON.stringify({
+        ...identity,
+        ...(imageDataUrl ? { imageDataUrl } : {}),
+        modelId: SEGMENTS_MODEL_ID,
+        idempotencyKey,
+      }),
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000),
     });
     const data = await response.json().catch(() => ({}));
     const recordData = isRecord(data) ? data : {};
@@ -515,19 +506,15 @@ export class HoolaCanvasSegmentsBridgeBroker {
     if (record.status === "failed") {
       return { jobId, status: "failed", code: record.errorCode ?? "SEGMENTS_PROVIDER_FAILED" };
     }
-    // A status read: after a reset it is asked once more on the next entry.
-    const response = await fetchViaMossServiceEntries({
-      entry: credential.gatewayBaseUrl,
-      retryOnNextEntry: true,
-      timeoutIsConnectionFailure: false,
-      send: (entry) =>
-        this.#fetch(`${gatewayRoot(entry)}/v1/canvas/segments/jobs/${encodeURIComponent(jobId)}`, {
-          method: "GET",
-          headers: { authorization: `Bearer ${credential.accessToken}` },
-          redirect: "error",
-          signal: AbortSignal.timeout(30_000),
-        }),
-    });
+    const response = await this.#fetch(
+      `${gatewayRoot(credential)}/v1/canvas/segments/jobs/${encodeURIComponent(jobId)}`,
+      {
+        method: "GET",
+        headers: { authorization: `Bearer ${credential.accessToken}` },
+        redirect: "error",
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
     const data = await response.json().catch(() => ({}));
     const payload = isRecord(data) ? data : {};
     const gatewayError = isRecord(payload.error) ? payload.error : payload;

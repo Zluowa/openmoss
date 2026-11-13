@@ -287,20 +287,6 @@ export function buildClaudeProcessEnv(input?: {
   return buildProviderChildEnvironment({ provider: "claude", baseEnv: env });
 }
 
-/** How long (ms) Claude Code waits for an MCP server to connect, unless the user chose. */
-export const CLAUDE_MCP_CONNECT_TIMEOUT_DEFAULT_MS = "120000";
-
-/**
- * Claude Code gives each MCP server 30 s to connect (`MCP_TIMEOUT`). Some servers need more on
- * a cold start (server-system-monitor's first hardware probe takes over 30 s on Windows), and
- * their tools are then missing for the whole session. Moss allows 120 s unless the user's own
- * environment already sets a value.
- */
-export function withClaudeMcpTimeoutDefault(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (env.MCP_TIMEOUT?.trim()) return env;
-  return { ...env, MCP_TIMEOUT: CLAUDE_MCP_CONNECT_TIMEOUT_DEFAULT_MS };
-}
-
 /**
  * Claude Code turns the Artifact tool (and the `/design` and `/slides` commands
  * built on it) off by default for Agent SDK entrypoints. `CLAUDE_CODE_ARTIFACT`

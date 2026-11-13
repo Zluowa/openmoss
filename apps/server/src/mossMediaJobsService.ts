@@ -7,9 +7,6 @@ import { Effect } from "effect";
 import { mediaImageEditInputError } from "./mediaImageEditInput";
 import { createLogger } from "./logger";
 import { discoveryFailureCode } from "./discoveryFailureCode";
-import { fetchViaMossServiceEntries } from "./account/mossServiceEntries";
-import { mossManagedGatewayEntriesForAuthority } from "./provider/mossManagedGatewayTrust";
-import { adoptLegacyMediaScopes } from "./mossMediaScopeAdoption";
 
 import {
   HoolaCanvasBridgeBroker,
@@ -131,78 +128,19 @@ function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * The account's media scope: realm and account, never the gateway URL, so history, assets and
- * Canvas stay the account's when Moss reaches its gateway through another entry or domain.
- */
-/** What names an account's media: realm and account. A gateway URL is accepted and ignored. */
-export type MossMediaAccountRef = Pick<MossMediaIdentity, "realm" | "account"> & {
-  readonly gatewayBaseUrl?: string;
-};
-
-export function mediaAccountScope(credential: MossMediaAccountRef): string {
+export function mediaAccountScope(credential: MossMediaIdentity): string {
   if (!credential.account.id || credential.account.realm !== credential.realm) {
     throw new MossMediaJobsError("account_recovery_required", 401);
   }
   return createHash("sha256")
-    .update(JSON.stringify(["moss-media-account/2", credential.realm, credential.account.id]))
+    .update(
+      JSON.stringify([
+        credential.realm,
+        credential.account.id,
+        credential.gatewayBaseUrl.replace(/\/+$/u, ""),
+      ]),
+    )
     .digest("hex");
-}
-
-/**
- * Gateway URLs a media scope was once derived from (before 2026-11-13): the CN gateway's
- * primary and its tunnel entry (the CN gateway before the comiction.cn host), the global
- * gateway, and whatever this build lists for the realm.
- */
-const KNOWN_MEDIA_GATEWAY_URLS: Readonly<Record<string, ReadonlyArray<string>>> = {
-  cn: [
-    "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1",
-    "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1",
-  ],
-  global: ["https://evgminmhjommukstgtrj.supabase.co/functions/v1/moss-model-gateway/v1"],
-};
-
-/** The scopes this account's media was saved under while scopes named the gateway URL. */
-export function legacyMediaAccountScopes(
-  credential: MossMediaAccountRef,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): string[] {
-  if (!credential.account.id || credential.account.realm !== credential.realm) return [];
-  const lane = credential.realm === "supabase-google" ? "global" : "cn";
-  const urls = new Set<string>();
-  for (const url of [
-    ...(KNOWN_MEDIA_GATEWAY_URLS[lane] ?? []),
-    ...mossManagedGatewayEntriesForAuthority(credential.realm, env),
-    ...(credential.gatewayBaseUrl ? [credential.gatewayBaseUrl] : []),
-  ]) {
-    const trimmed = url.replace(/\/+$/u, "");
-    urls.add(trimmed);
-    urls.add(trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : `${trimmed}/v1`);
-  }
-  return [...urls].map((url) =>
-    createHash("sha256")
-      .update(JSON.stringify([credential.realm, credential.account.id, url]))
-      .digest("hex"),
-  );
-}
-
-/** Whether a scope named by a saved link is this account's, now or under a legacy scope. */
-export function mediaScopeBelongsTo(credential: MossMediaAccountRef, scope: string): boolean {
-  return (
-    scope === mediaAccountScope(credential) || legacyMediaAccountScopes(credential).includes(scope)
-  );
-}
-
-/** Brings this account's media saved under a legacy scope into its scope (once per process). */
-export function adoptMediaAccountScope(
-  stateDirectory: string,
-  credential: MossMediaAccountRef,
-): Promise<void> {
-  return adoptLegacyMediaScopes(
-    stateDirectory,
-    mediaAccountScope(credential),
-    legacyMediaAccountScopes(credential),
-  );
 }
 
 /** Owns account-scoped history; cloud gateway remains the billing authority. */
@@ -543,8 +481,6 @@ export class MossMediaJobsService {
 
   async #ready(credential: MossMediaIdentity) {
     const scope = mediaAccountScope(credential);
-    // Before the broker reads its saved jobs: they may still be under a legacy scope.
-    await adoptMediaAccountScope(this.options.stateDirectory, credential);
     const broker = this.#broker(credential);
     let initialized = this.#initialized.get(scope);
     if (!initialized) {
@@ -635,17 +571,11 @@ export class MossMediaJobsService {
   }
 
   async #loadCatalogFresh(credential: MossMediaCredential): Promise<MossMediaCatalog> {
-    // A read: on a CN gateway entry that fails below HTTP it is reported and asked once more
-    // on the next entry.
-    const response = await fetchViaMossServiceEntries({
-      entry: credential.gatewayBaseUrl,
-      retryOnNextEntry: true,
-      send: (entry) =>
-        this.#fetch(`${entry.replace(/\/+$/u, "").replace(/\/v1$/u, "")}/v1/canvas/media/catalog`, {
-          headers: { authorization: `Bearer ${credential.accessToken}` },
-          redirect: "error",
-          signal: AbortSignal.timeout(15_000),
-        }),
+    const root = credential.gatewayBaseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
+    const response = await this.#fetch(`${root}/v1/canvas/media/catalog`, {
+      headers: { authorization: `Bearer ${credential.accessToken}` },
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok)
       throw new MossMediaJobsError(
@@ -952,17 +882,9 @@ export class MossMediaJobsService {
    * Signed out: an output already saved on this computer, under the account scope its
    * chat link names. Local history and files only; no import, reconcile or gateway call.
    */
-  /** The account scope a saved link's scope stands for (a legacy scope's account scope). */
-  async resolveSavedScope(scope: string): Promise<string> {
-    if (!/^[a-f0-9]{64}$/u.test(scope)) return scope;
-    return this.#history.resolveScope(scope).catch(() => scope);
-  }
-
-  async readSavedAsset(savedScope: string, jobId: string, index: number) {
-    if (!/^[a-f0-9]{64}$/u.test(savedScope) || !/^moss_[A-Za-z0-9_-]{1,128}$/u.test(jobId))
+  async readSavedAsset(scope: string, jobId: string, index: number) {
+    if (!/^[a-f0-9]{64}$/u.test(scope) || !/^moss_[A-Za-z0-9_-]{1,128}$/u.test(jobId))
       throw new MossMediaJobsError("asset_not_found", 404);
-    // Links saved before 2026-11-13 name a legacy scope.
-    const scope = await this.resolveSavedScope(savedScope);
     const job =
       this.#brokers.get(scope)?.get(jobId) ?? (await this.#history.get(scope, jobId))?.snapshot;
     return this.#readStoredAsset(scope, job, jobId, index);

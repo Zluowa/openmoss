@@ -8,7 +8,6 @@ import {
   localizeProviderRuntimeMessage,
   normalizeProviderRuntimeMessage,
   PERSONAL_CODEX_USAGE_LIMIT_MESSAGE,
-  ZH_CN_TURN_FAILURE_MESSAGES,
 } from "./providerRuntimeMessages";
 
 describe("localizeProviderRuntimeMessage", () => {
@@ -249,57 +248,5 @@ describe("localizeProviderRuntimeMessage", () => {
     "prefix 2 tasks: alpha",
   ])("does not rewrite a near-miss task summary: %s", (message) => {
     expect(localizeProviderRuntimeMessage(message, "zh-CN")).toBe(message);
-  });
-});
-
-describe("why a turn ended, in Chinese", () => {
-  it("names the model service, never Claude, and reads old recorded wordings the same way", () => {
-    const pairs: ReadonlyArray<readonly [string, string, string]> = [
-      [
-        "The model service rate limit was reached. Wait briefly, then retry.",
-        "Claude rate limit reached. Wait briefly, then retry.",
-        "模型服务已达到速率限制，请稍等后重试。",
-      ],
-      [
-        "The model service rejected the request as invalid.",
-        "Claude rejected the request as invalid.",
-        "模型服务认为这次请求无效，已拒绝。",
-      ],
-      [
-        "The selected model is unavailable for this account.",
-        "The selected Claude model is unavailable for this account.",
-        "当前账号不能使用所选模型。",
-      ],
-      [
-        "The model reached the maximum output length before completing the turn.",
-        "Claude reached the maximum output length before completing the turn.",
-        "模型在完成这一轮之前达到了输出长度上限。",
-      ],
-      [
-        "The model service failed to complete the turn.",
-        "Claude failed to complete the turn.",
-        "模型服务没能完成这一轮。",
-      ],
-      [
-        "The model service could not load its cloud credentials. Check or refresh them, then retry.",
-        "Claude could not load its cloud credentials. Check or refresh them, then retry.",
-        "模型服务没能加载云端凭据，请检查或刷新后重试。",
-      ],
-      ["The turn was interrupted.", "Claude runtime interrupted.", "这一轮已中断。"],
-      ["The turn failed.", "Claude turn failed.", "这一轮没有完成。"],
-      [
-        "The agent stopped and will resume on your next message.",
-        "Claude runtime stopped and will resume on your next message.",
-        "智能体已停止，你发送下一条消息时会继续。",
-      ],
-    ];
-    for (const [current, recorded, zh] of pairs) {
-      expect(localizeProviderRuntimeMessage(current, "zh-CN")).toBe(zh);
-      expect(localizeProviderRuntimeMessage(recorded, "zh-CN")).toBe(zh);
-      expect(localizeProviderRuntimeMessage(current, "en")).toBe(current);
-    }
-    for (const zh of Object.values(ZH_CN_TURN_FAILURE_MESSAGES)) {
-      expect(zh).not.toMatch(/claude/iu);
-    }
   });
 });

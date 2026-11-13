@@ -5,7 +5,6 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "!apps/mobile",
       "packages/*",
       "scripts"
     ],
@@ -55,9 +54,6 @@
     "test:check": "vitest run --config tools/check/vitest.config.ts",
     "test:queue": "vitest run --config tools/queue/vitest.config.ts",
     "test:quarantined": "node tools/test-quarantine/run.ts",
-    "mobile:install": "npm --prefix apps/mobile ci",
-    "mobile": "npm --prefix apps/mobile start",
-    "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
     "test:test-quarantine": "vitest run --config tools/test-quarantine/vitest.config.ts",
     "ws": "bun tools/ws/cli.ts",
     "queue": "bun tools/queue/cli.ts",

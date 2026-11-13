@@ -268,7 +268,7 @@ describe("live widget frame placement", () => {
     await screen.unmount();
   });
 
-  it("shows a failed call's own text and 「工具调用失败。」 whatever the server answers", async () => {
+  it("shows the plain result for a failed call whatever the server answers", async () => {
     await page.viewport(1_140, 520);
     sandbox = installMcpAppFakeSandbox({ toolResult: () => ({ status: "pending" }) });
     let setProjection!: (value: WorkLogMcpToolResult) => void;
@@ -281,8 +281,7 @@ describe("live widget frame placement", () => {
     await vi.waitFor(() => expect(sandbox!.widgets).toHaveLength(1));
     const widget = sandbox.widgets[0]!;
     await widget.initialized;
-    // The CLI rejected the result (it failed the tool's output schema): the call itself failed,
-    // so the card says so with the call's own text, not the widget-load sentence.
+    // The CLI rejected the result (bad structuredContent): the row says failed.
     setProjection(
       projection({
         status: "failed",
@@ -290,11 +289,9 @@ describe("live widget frame placement", () => {
         result: { content: [], structuredContent: { rows: [1, 2] } },
       }),
     );
-    await expect.element(page.getByText("工具调用失败。")).toBeInTheDocument();
     await expect
-      .element(page.getByText("returned a malformed result that failed schema validation"))
+      .element(page.getByText("小组件加载失败，已改为显示文字结果。"))
       .toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("小组件加载失败");
     expect(document.querySelector('[data-mcp-app-frame-wrapper="true"]')).toBeNull();
     expect(document.querySelector('[data-mcp-app-fallback="true"]')?.textContent).not.toContain(
       "json",
@@ -318,8 +315,9 @@ describe("live widget frame placement", () => {
         theme="light"
       />
     ));
-    await expect.element(page.getByText("坏数据")).toBeInTheDocument();
-    await expect.element(page.getByText("工具调用失败。")).toBeInTheDocument();
+    await expect
+      .element(page.getByText("小组件加载失败，已改为显示文字结果。"))
+      .toBeInTheDocument();
     expect(sandbox.registrations.length).toBe(before);
     await second.screen.unmount();
   });

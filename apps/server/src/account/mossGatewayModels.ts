@@ -10,8 +10,6 @@
 
 import { Effect } from "effect";
 
-import { isMossConnectionLevelFailure, type MossServiceEntryRouter } from "./mossServiceEntries";
-
 export interface FetchMossGatewayModelIdsInput {
   readonly gatewayBaseUrl: string;
   readonly accessToken: string;
@@ -28,12 +26,6 @@ export type MossGatewayModelCatalogStatus =
 export type MossGatewayModelCatalog = {
   readonly status: MossGatewayModelCatalogStatus;
   readonly models: ReadonlyArray<string>;
-  /**
-   * Set with "transport-degraded" when no HTTP response arrived at all (a reset, refused or
-   * timed-out connection, a TLS or DNS failure), so the caller may try another entry. An HTTP
-   * answer, even a 5xx, never sets it.
-   */
-  readonly connectionFailed?: true;
 };
 
 /**
@@ -117,61 +109,7 @@ export const fetchMossGatewayModelIds: FetchMossGatewayModelIds = (input) =>
     } finally {
       clearTimeout(timer);
     }
-  }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed<MossGatewayModelCatalog>(
-        isMossConnectionLevelFailure(error)
-          ? { status: "transport-degraded", models: [], connectionFailed: true }
-          : { status: "transport-degraded", models: [] },
-      ),
-    ),
-  );
-
-/** Whether a catalog answer says the request never reached the gateway. */
-export function isMossGatewayCatalogConnectionFailure(
-  result: MossGatewayModelCatalog | ReadonlyArray<string> | null,
-): boolean {
-  return result !== null && "status" in result && result.connectionFailed === true;
-}
-
-/**
- * The catalog from the entry in use, tried once more on the next usable entry when the request
- * failed below HTTP. `/v1/models` is a read, so asking a second entry is safe; the failure is
- * reported, so the entry becomes suspect and the next request goes to the entry that answered.
- * Returns the normalized catalog and the entry that answered (or, when none did, the entry in
- * use now): lanes are provisioned with that entry.
- */
-export const fetchMossGatewayCatalogViaEntries = (input: {
-  readonly fetchGatewayModels: FetchMossGatewayModelIds;
-  readonly entries: MossServiceEntryRouter | null;
-  readonly gatewayBaseUrl: string;
-  readonly accessToken: string;
-}): Effect.Effect<{
-  readonly catalog: MossGatewayModelCatalog;
-  readonly gatewayBaseUrl: string;
-}> =>
-  Effect.gen(function* () {
-    const { entries, accessToken } = input;
-    const ask = (gatewayBaseUrl: string) =>
-      input.fetchGatewayModels({ gatewayBaseUrl, accessToken });
-    const first = yield* ask(input.gatewayBaseUrl);
-    if (!entries || !isMossGatewayCatalogConnectionFailure(first)) {
-      return {
-        catalog: normalizeMossGatewayModelCatalog(first),
-        gatewayBaseUrl: input.gatewayBaseUrl,
-      };
-    }
-    const next = yield* Effect.promise(() => entries.reportConnectionFailure(input.gatewayBaseUrl));
-    if (next === input.gatewayBaseUrl) {
-      return { catalog: normalizeMossGatewayModelCatalog(first), gatewayBaseUrl: next };
-    }
-    const second = yield* ask(next);
-    if (!isMossGatewayCatalogConnectionFailure(second)) {
-      return { catalog: normalizeMossGatewayModelCatalog(second), gatewayBaseUrl: next };
-    }
-    const after = yield* Effect.promise(() => entries.reportConnectionFailure(next));
-    return { catalog: normalizeMossGatewayModelCatalog(second), gatewayBaseUrl: after };
-  });
+  }).pipe(Effect.orElseSucceed(() => null));
 
 /**
  * Whether a catalog answer lets Moss set up (or keep) its managed lanes. `/v1/models` is an

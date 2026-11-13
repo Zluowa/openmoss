@@ -1618,12 +1618,6 @@ export const OrchestrationReadModel = Schema.Struct({
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;
 
-export const OrchestrationUnreadableThread = Schema.Struct({
-  id: Schema.String,
-  reason: Schema.String,
-});
-export type OrchestrationUnreadableThread = typeof OrchestrationUnreadableThread.Type;
-
 export const OrchestrationShellSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   requiresEmptyProjectShellRepair: Schema.optional(Schema.Boolean),
@@ -1638,12 +1632,6 @@ export const OrchestrationShellSnapshot = Schema.Struct({
   sidebarOrderRevision: Schema.optional(SidebarOrderRevision),
   sidebarOrderMigrationState: Schema.optional(SidebarOrderMigrationState),
   sidebarOrderItems: Schema.optional(Schema.Array(OrchestrationSidebarOrderItem)),
-  /**
-   * Conversations the server could not read and left out of this snapshot. The
-   * rows stay in the database unchanged; the reason names a path and a type, never
-   * a stored value.
-   */
-  unreadableThreads: Schema.optional(Schema.Array(OrchestrationUnreadableThread)),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationShellSnapshot = typeof OrchestrationShellSnapshot.Type;

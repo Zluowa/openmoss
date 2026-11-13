@@ -135,6 +135,15 @@
     "evidence": "Failed in verify-full fbb0202b4 (11-11, 6 sessions testing) and 6 earlier local runs; ci-audit C12."
   },
   {
+    "id": "server:apps/server/src/codexAppServerManager.test.ts > thread checkpoint control > forks a provider thread with an explicitly selected Standard tier",
+    "platform": "win32",
+    "reason": "Load flake: the fork cases time out when the PC is busy.",
+    "owner": "server",
+    "added": "2026-11-11",
+    "expires": "2026-11-25",
+    "evidence": "Failed in verify-full 2d115cfe9 (11-10), 15f013adf and 5 pr runs (inProgress, legacy-* cases); ci-audit C12."
+  },
+  {
     "id": "server:apps/server/src/platform/windowsProviderProcessGuard.test.ts > windows provider process guard script > stops a registered tree when its owner is terminated while the guard is still starting, and nothing else",
     "platform": "win32",
     "reason": "Load flake: the guard-start race times out under 4 workers; passes alone.",

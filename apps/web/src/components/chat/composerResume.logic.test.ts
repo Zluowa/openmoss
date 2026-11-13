@@ -2,11 +2,7 @@ import { EventId, MessageId, ProjectId, ThreadId, TurnId } from "@moss/contracts
 import type { OrchestrationThread } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
-import { translateMoss } from "~/localization";
-
 import {
-  classifyComposerResumeRefusal,
-  composerResumeRefusalMessageKey,
   hasComposerResumeProjectionAdvancedSince,
   isComposerResumePendingForThread,
   isComposerResumeEligible,
@@ -76,9 +72,6 @@ function makeThread(
 function baseEligibility(thread = makeThread()) {
   return {
     thread,
-    session: thread.session
-      ? { status: thread.session.status, activeTurnId: thread.session.activeTurnId }
-      : null,
     provider: "codex" as const,
     isServerThread: true,
     hasSendableContent: false,
@@ -246,47 +239,6 @@ describe("isComposerResumeEligible", () => {
     ).toBe(true);
   });
 
-  it("offers Continue after Stop although the stopped turn's message never got a turn id", () => {
-    // The shape the mobile run left: the person message that started the turn has no
-    // turn id, the turn settled as interrupted, and the session is ready again.
-    const stopped = makeThread();
-    const thread = {
-      ...stopped,
-      messages: stopped.messages.map((message) => ({ ...message, turnId: null })),
-    };
-    expect(isComposerResumeEligible(baseEligibility(thread))).toBe(true);
-  });
-
-  it.each([
-    [
-      "the session is reconnecting after the stop",
-      { status: "starting" as const, activeTurnId: null },
-    ],
-    ["a queued follow-up is starting", { status: "running" as const, activeTurnId: null }],
-    [
-      "another turn is active",
-      { status: "ready" as const, activeTurnId: TurnId.makeUnsafe("next") },
-    ],
-  ])("hides Continue while %s, as the server would refuse it", (_name, session) => {
-    expect(isComposerResumeEligible({ ...baseEligibility(), session })).toBe(false);
-  });
-
-  it("hides Continue while the latest turn is still marked as queued", () => {
-    const thread = makeThread(undefined, [
-      {
-        id: EventId.makeUnsafe("activity-resume-logic-queued"),
-        tone: "info" as const,
-        kind: "turn.queued" as const,
-        summary: "Turn queued",
-        payload: {} as never,
-        turnId: TURN_ID,
-        sequence: 2,
-        createdAt: DONE,
-      },
-    ]);
-    expect(isComposerResumeEligible(baseEligibility(thread))).toBe(false);
-  });
-
   it("rejects routed parent and subagent threads", () => {
     expect(
       isComposerResumeEligible(
@@ -298,41 +250,6 @@ describe("isComposerResumeEligible", () => {
         baseEligibility({ ...makeThread(), subagentAgentId: "agent-child" }),
       ),
     ).toBe(false);
-  });
-});
-
-const refused = (detail: string) =>
-  new Error(`Orchestration command invariant failed (thread.turn.resume): ${detail}`);
-
-describe("classifyComposerResumeRefusal", () => {
-  it.each([
-    [
-      refused("Thread 'thread-a' already has an active or queued turn."),
-      "busy",
-      "这个对话还在运行，或还有消息在排队。等它结束后再继续。",
-    ],
-    [
-      refused("Resume requires a terminal latest turn on thread 'thread-a'."),
-      "busy",
-      "这个对话还在运行，或还有消息在排队。等它结束后再继续。",
-    ],
-    [
-      refused("Thread 'thread-a' has a pending approval or user input interaction."),
-      "pending-interaction",
-      "先处理正在等待的批准或问题，再继续。",
-    ],
-    [
-      refused("Resume turn 'turn-a' is not the latest turn on thread 'thread-a'."),
-      "unavailable",
-      "这个任务没法从这里继续了。发一条消息就能接着做。",
-    ],
-    [new Error("socket closed"), "unavailable", "这个任务没法从这里继续了。发一条消息就能接着做。"],
-  ] as const)("explains %s plainly", (error, refusal, zhText) => {
-    expect(classifyComposerResumeRefusal(error)).toBe(refusal);
-    const key = composerResumeRefusalMessageKey(refusal);
-    expect(translateMoss("zh-CN", key)).toBe(zhText);
-    // The person never sees thread or turn ids from the server's own words.
-    expect(translateMoss("en", key)).not.toMatch(/thread-a|turn-a|Thread '/u);
   });
 });
 

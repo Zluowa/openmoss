@@ -61,12 +61,6 @@ writeFileSync(nodePath.join(projectRoot, "docs", "readme.md"), "# Hello\n");
 writeFileSync(nodePath.join(projectRoot, ".git", "config"), "secret");
 writeFileSync(nodePath.join(projectRoot, "data.csv"), "a,b\n1,2\n");
 
-/** Wall-clock time that moves forward by at least 1 ms on every reading. */
-const advancingClock = () => {
-  let last = 0;
-  return () => (last = Math.max(last + 1, Date.now()));
-};
-
 const layer = Layer.effect(
   PageAppsService,
   Effect.gen(function* () {
@@ -99,9 +93,6 @@ const layer = Layer.effect(
       policy: async () => policyBox.current,
       project: () => Effect.succeed({ id: "p1", title: "Demo", root: projectRoot }),
       now: () => new Date().toISOString(),
-      // Never the same reading twice: a call and a watch in the same millisecond would make
-      // the cached result 0 ms old, which a staleTime of 0 rightly treats as fresh.
-      clock: advancingClock(),
     };
     return yield* makePageAppsServiceShape({ ai: fakeAi, extensions });
   }),

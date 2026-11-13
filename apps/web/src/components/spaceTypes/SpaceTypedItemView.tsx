@@ -19,8 +19,8 @@ import { BoardItemView } from "./board/BoardItemView";
 import { DeckEditorHost } from "./slides/DeckEditorHost";
 import { pageTypesQueryKeys } from "./spaceItemTypes";
 
-const SheetEditor = lazy(() =>
-  import("./sheet/SheetEditor").then((module) => ({ default: module.SheetEditor })),
+const SheetEditorHost = lazy(() =>
+  import("./sheet/SheetEditorHost").then((module) => ({ default: module.SheetEditorHost })),
 );
 
 const SAVE_DELAY_MS = 700;
@@ -314,16 +314,21 @@ function TypedItemEditor(
         />
       ) : item.kind === "sheet" && workbook ? (
         <Suspense fallback={<p className="p-8 text-muted-foreground">正在载入表格…</p>}>
-          <SheetEditor
-            key={epoch}
+          <SheetEditorHost
+            account={props.account}
+            item={item}
             workbook={workbook}
             title={title}
             readOnly={readOnly}
+            epoch={epoch}
             onChange={(next) => change(JSON.stringify(next))}
             onReplace={(next) => {
               change(JSON.stringify(next));
               setEpoch((value) => value + 1);
             }}
+            flush={save}
+            revision={() => latest.current.revision}
+            reloadIfChanged={reloadIfChanged}
           />
         </Suspense>
       ) : item.kind === "board" && item.data ? (

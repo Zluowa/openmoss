@@ -43,7 +43,6 @@ import {
   isProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
   PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
-  PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
   UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import type { DeepPartial } from "@moss/shared/Struct";
@@ -256,23 +255,6 @@ describe("legacy provider blocker recovery", () => {
     );
 
     expect(outcome._tag).toBe("uncertain");
-  });
-
-  // The only process failures settled at once are those proving nothing was spawned
-  // for this start or sent: startup-failed (cleanup proven) and
-  // previous-runtime-not-stopped (the start ended before spawning).
-  it("rejects a start that ended because the previous runtime had not stopped", () => {
-    const outcome = classifyProviderAttemptOutcome(
-      Exit.fail(
-        new ProviderAdapterProcessError({
-          provider: "codex",
-          threadId: ThreadId.makeUnsafe("thread-previous-runtime"),
-          reason: "previous-runtime-not-stopped",
-          detail: "Provider process tree 44568 did not prove exit (rootExited=false).",
-        }),
-      ),
-    );
-    expect(outcome._tag).toBe("rejected");
   });
 
   it.each(["failure", "defect"] as const)(
@@ -16028,112 +16010,6 @@ describe("ProviderCommandReactor", () => {
       });
       await waitFor(() => harness.sendTurn.mock.calls.length === 1, 3_000);
       expect(sentInputs(harness)).toEqual(["second message"]);
-    });
-
-    // Nothing was spawned or sent, so the start settles as not sent in the same
-    // pass; an ambiguous process failure still waits for the bound.
-    it.each([
-      { reason: "previous-runtime-not-stopped" as const, settlesAtOnce: true },
-      { reason: undefined, settlesAtOnce: false },
-    ])(
-      "settles a start that proves nothing was sent at once, else waits ($reason)",
-      async ({ reason, settlesAtOnce }) => {
-        const harness = await createHarness({
-          // Far beyond this test: an uncertain start cannot settle by the bound here.
-          turnStartBounds: { uncertainSettleAfterMs: 600_000, tickMs: 10 },
-        });
-        harness.startSession.mockImplementationOnce(() =>
-          Effect.fail(
-            new ProviderAdapterProcessError({
-              provider: "codex",
-              threadId,
-              detail:
-                "Failed to prove Codex app-server process-tree exit for 'thread-1': Provider process tree 44568 did not prove exit (rootExited=false, captureComplete=true; no captured descendants remain).",
-              ...(reason ? { reason } : {}),
-            }),
-          ),
-        );
-
-        await dispatchHarnessUserTurn(harness, {
-          messageId: `previous-runtime-${reason ?? "ambiguous"}`,
-          text: "first message",
-          createdAt: new Date().toISOString(),
-        });
-        await harness.drain();
-        const sequence = await readTurnStartSequence(
-          harness,
-          `previous-runtime-${reason ?? "ambiguous"}`,
-        );
-        const thread = await readHarnessThread(harness);
-        if (settlesAtOnce) {
-          expect(await readDeliveryState(harness, sequence)).toBe("succeeded");
-          expect(await readBlockers(harness)).toEqual([]);
-          expect(thread?.session?.lastError).toBe(PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL);
-          expect(await activityDetails(harness)).toContain(PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL);
-        } else {
-          expect(await readDeliveryState(harness, sequence)).toBe("uncertain");
-          expect(thread?.session?.lastError).not.toBe(PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL);
-        }
-        expect(harness.sendTurn).not.toHaveBeenCalled();
-      },
-    );
-
-    // The 2026-11-13 sequence: an account-token rotation could not prove the old
-    // Codex tree gone, so the person's next start failed the same way. Failing
-    // must never change the model the person chose.
-    it("never changes the chosen model when a start fails on the old runtime's stop", async () => {
-      const chosen: ModelSelection = {
-        provider: "codex",
-        instanceId: ProviderInstanceId.makeUnsafe("codex"),
-        model: "gpt-6-luna",
-      };
-      const harness = await createHarness({
-        threadModelSelection: chosen,
-        turnStartBounds: { uncertainSettleAfterMs: 150, tickMs: 10 },
-      });
-      harness.startSession.mockImplementationOnce(() =>
-        Effect.fail(
-          new ProviderAdapterProcessError({
-            provider: "codex",
-            threadId,
-            detail:
-              "Failed to prove Codex app-server process-tree exit for 'thread-1': Provider process tree 44568 did not prove exit (rootExited=false, captureComplete=true; no captured descendants remain).",
-          }),
-        ),
-      );
-
-      await dispatchHarnessUserTurn(harness, {
-        messageId: "rotation-stop-unproven",
-        text: "first message",
-        createdAt: new Date().toISOString(),
-      });
-      await waitFor(
-        async () =>
-          (await readHarnessThread(harness))?.session?.lastError === UNCONFIRMED_TURN_START_DETAIL,
-        3_000,
-      );
-      expect((await readHarnessThread(harness))?.modelSelection).toEqual(chosen);
-      const events = await Effect.runPromise(
-        Stream.runCollect(harness.engine.readEvents(0)).pipe(
-          Effect.map((chunk) => Array.from(chunk)),
-        ),
-      );
-      expect(
-        events.filter(
-          (event) =>
-            event.type === "thread.meta-updated" &&
-            (event.payload as { modelSelection?: unknown }).modelSelection !== undefined,
-        ),
-      ).toEqual([]);
-
-      await dispatchHarnessUserTurn(harness, {
-        messageId: "after-rotation-stop-unproven",
-        text: "second message",
-        createdAt: new Date().toISOString(),
-      });
-      await waitFor(() => harness.sendTurn.mock.calls.length === 1, 3_000);
-      expect(harness.startSession.mock.calls.at(-1)?.[1]?.modelSelection?.model).toBe("gpt-6-luna");
-      expect((await readHarnessThread(harness))?.modelSelection).toEqual(chosen);
     });
   });
 

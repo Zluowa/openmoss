@@ -147,7 +147,7 @@ import {
   readClaudeSessionMessagesInEnvironment,
   type ClaudeOwnedProcess,
 } from "../claudeAgentSdk.ts";
-import { withClaudeArtifactOptIn, withClaudeMcpTimeoutDefault } from "../claudeProcessEnv.ts";
+import { withClaudeArtifactOptIn } from "../claudeProcessEnv.ts";
 import { readClaudeStateBinding, type ClaudeStateBindingOptions } from "../claudeStateBinding.ts";
 import { ClaudeRequestUsage } from "../claudeRequestUsage.ts";
 import {
@@ -868,13 +868,11 @@ function claudeEnvironment(
   providerInstanceId?: string,
   isolationRootDir?: string,
 ): NodeJS.ProcessEnv {
-  return withClaudeMcpTimeoutDefault(
-    buildClaudeInstanceProcessEnv(homePath, environment, {
-      ...(fallbackHomePath ? { homeDir: fallbackHomePath } : {}),
-      ...(providerInstanceId ? { providerInstanceId } : {}),
-      ...(isolationRootDir ? { isolationRootDir } : {}),
-    }),
-  );
+  return buildClaudeInstanceProcessEnv(homePath, environment, {
+    ...(fallbackHomePath ? { homeDir: fallbackHomePath } : {}),
+    ...(providerInstanceId ? { providerInstanceId } : {}),
+    ...(isolationRootDir ? { isolationRootDir } : {}),
+  });
 }
 
 function isUuid(value: string): boolean {
@@ -969,11 +967,6 @@ function normalizeClaudeStreamMessages(cause: Cause.Cause<Error>): ReadonlyArray
   return squashed.length > 0 ? [squashed] : [];
 }
 
-// What a turn says when it stopped or failed without a reason of its own. Shown to the person,
-// so it names no provider (the web translates both).
-const CLAUDE_TURN_INTERRUPTED_MESSAGE = "The turn was interrupted.";
-const CLAUDE_TURN_FAILED_MESSAGE = "The turn failed.";
-
 function isClaudeInterruptedMessage(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -995,8 +988,8 @@ function messageFromClaudeStreamCause(cause: Cause.Cause<Error>, fallback: strin
 }
 
 function interruptionMessageFromClaudeCause(cause: Cause.Cause<Error>): string {
-  const message = messageFromClaudeStreamCause(cause, CLAUDE_TURN_INTERRUPTED_MESSAGE);
-  return isClaudeInterruptedMessage(message) ? CLAUDE_TURN_INTERRUPTED_MESSAGE : message;
+  const message = messageFromClaudeStreamCause(cause, "Claude runtime interrupted.");
+  return isClaudeInterruptedMessage(message) ? "Claude runtime interrupted." : message;
 }
 
 // SIGINT (130) and SIGTERM (143) are graceful stop requests, not crashes. When the
@@ -1007,7 +1000,8 @@ function interruptionMessageFromClaudeCause(cause: Cause.Cause<Error>): string {
 // it usually signals an OOM/forced kill that is worth surfacing.
 const CLAUDE_BENIGN_TERMINATION_EXIT_CODES = new Set([130, 143]);
 
-const CLAUDE_BENIGN_TERMINATION_MESSAGE = "The agent stopped and will resume on your next message.";
+const CLAUDE_BENIGN_TERMINATION_MESSAGE =
+  "Claude runtime stopped and will resume on your next message.";
 
 function isClaudeBenignTerminationMessage(message: string): boolean {
   const normalized = message.toLowerCase();
@@ -1887,11 +1881,11 @@ function normalizeClaudeUserVisibleErrorMessage(
   }
 
   if (sanitized === "User interrupted response.") {
-    return status === "interrupted" ? CLAUDE_TURN_INTERRUPTED_MESSAGE : undefined;
+    return status === "interrupted" ? "Claude runtime interrupted." : undefined;
   }
 
   if (/^[\]})"'`.,;:!?_-]+$/.test(sanitized)) {
-    return status === "interrupted" ? CLAUDE_TURN_INTERRUPTED_MESSAGE : CLAUDE_TURN_FAILED_MESSAGE;
+    return status === "interrupted" ? "Claude runtime interrupted." : "Claude turn failed.";
   }
 
   return sanitized;
@@ -1917,24 +1911,23 @@ export function claudeAssistantErrorMessage(
     case "billing_error":
       return "Claude billing or subscription access failed. Check the active Claude account, then retry.";
     case "rate_limit":
-      return "The model service rate limit was reached. Wait briefly, then retry.";
+      return "Claude rate limit reached. Wait briefly, then retry.";
     case "overloaded":
       // The model API, not Claude Code, failed: say so without a provider name (Moss lanes
-      // reach other models through it too). The same holds for every reason below that is
-      // about the model or its service rather than the person's own Claude account.
+      // reach other models through it too).
       return "The model service is temporarily overloaded. Retry in a moment.";
     case "invalid_request":
-      return "The model service rejected the request as invalid.";
+      return "Claude rejected the request as invalid.";
     case "model_not_found":
-      return "The selected model is unavailable for this account.";
+      return "The selected Claude model is unavailable for this account.";
     case "server_error":
       return "The model service returned a server error. Retry in a moment.";
     case "max_output_tokens":
-      return "The model reached the maximum output length before completing the turn.";
+      return "Claude reached the maximum output length before completing the turn.";
     case "unknown":
-      return "The model service failed to complete the turn.";
+      return "Claude failed to complete the turn.";
     case "cloud_credential_error":
-      return "The model service could not load its cloud credentials. Check or refresh them, then retry.";
+      return "Claude could not load its cloud credentials. Check or refresh them, then retry.";
   }
 }
 
@@ -5223,7 +5216,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         if (status === "failed") {
-          yield* emitRuntimeError(context, errorMessage ?? CLAUDE_TURN_FAILED_MESSAGE);
+          yield* emitRuntimeError(context, errorMessage ?? "Claude turn failed.");
         }
 
         // Retry in case the CLI had not yet written the notification at turn start.
@@ -6311,7 +6304,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
 
     const runSdkStream = (context: ClaudeSessionContext): Effect.Effect<void, Error> =>
       Stream.fromAsyncIterable(context.messageStream ?? context.query, (cause) =>
-        toError(cause, CLAUDE_TURN_FAILED_MESSAGE),
+        toError(cause, "Claude runtime stream failed."),
       ).pipe(
         Stream.takeWhile(() => !context.stopped),
         Stream.runForEach((message) => handleSdkMessage(context, message)),
@@ -6349,7 +6342,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               yield* completeTurn(context, "interrupted", CLAUDE_BENIGN_TERMINATION_MESSAGE);
             }
           } else {
-            const message = messageFromClaudeStreamCause(exit.cause, CLAUDE_TURN_FAILED_MESSAGE);
+            const message = messageFromClaudeStreamCause(
+              exit.cause,
+              "Claude runtime stream failed.",
+            );
             if (isClaudeMissingResumeConversationCause(exit.cause)) {
               // The SDK can accept a resumed query and report the missing
               // native conversation only after the prompt is queued. Drop the
@@ -6381,7 +6377,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             yield* completeTurn(context, "failed", message);
           }
         } else if (context.turnState) {
-          yield* completeTurn(context, "interrupted", CLAUDE_TURN_INTERRUPTED_MESSAGE);
+          yield* completeTurn(context, "interrupted", "Claude runtime stream ended.");
         }
 
         yield* stopSessionInternal(context, {

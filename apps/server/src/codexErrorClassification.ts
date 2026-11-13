@@ -7,14 +7,6 @@ export class CodexSessionStartError extends Error {
   override readonly name = "CodexSessionStartError";
 }
 
-/**
- * The thread's previous app-server could not be proven stopped, so the start
- * ended before spawning anything: no new process exists and no turn was sent.
- */
-export class CodexPreviousRuntimeNotStoppedError extends Error {
-  override readonly name = "CodexPreviousRuntimeNotStoppedError";
-}
-
 const NON_FATAL_CODEX_ERROR_SNIPPETS = [
   "write_stdin failed: stdin is closed for this session",
 ] as const;

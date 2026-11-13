@@ -7,10 +7,9 @@ import type {
   DesktopPhoneAccessState,
   ServerConfig,
 } from "@moss/contracts";
-import { OWNER_DEVICE_SUBJECT, isOwnerDeviceSubject } from "@moss/shared/ownerDeviceSession";
 
 /** Server subject of a code (and the session it becomes) made for the owner's own phone. */
-export const PHONE_PAIRING_SUBJECT = OWNER_DEVICE_SUBJECT;
+export const PHONE_PAIRING_SUBJECT = "owner-device";
 
 /** Origins a phone can open: the configured HTTPS origin first, then same-network ones. */
 export function phonePairingOrigins(
@@ -39,9 +38,8 @@ export function isPhonePairingLink(link: AuthPairingLink): boolean {
   return link.subject === PHONE_PAIRING_SUBJECT;
 }
 
-/** A phone paired by code or admitted through the Moss account; never this window. */
 export function isPairedPhoneSession(session: AuthClientSession): boolean {
-  return isOwnerDeviceSubject(session.subject) && !session.current;
+  return session.subject === PHONE_PAIRING_SUBJECT && !session.current;
 }
 
 /** Plain-HTTP origins travel unencrypted; the panel says so next to the code. */

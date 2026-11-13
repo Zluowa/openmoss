@@ -5,7 +5,6 @@
 import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
 import {
   formatProviderDeliveryBlockDetail,
-  PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
   UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import { describe, expect, it } from "vitest";
@@ -282,32 +281,6 @@ describe("resolveThreadErrorPresentation", () => {
     ).toBe("模型服务暂时过载，请稍后重试。");
   });
 
-  it("explains every reason a turn ended once, in Chinese, with no provider name", () => {
-    for (const [raw, title] of [
-      ["The model service failed to complete the turn.", "模型服务没能完成这一轮。"],
-      ["Claude failed to complete the turn.", "模型服务没能完成这一轮。"],
-      ["The model service rejected the request as invalid.", "模型服务认为这次请求无效，已拒绝。"],
-      ["The turn failed.", "这一轮没有完成。"],
-      [
-        "The model service returned a server error. Retry in a moment.",
-        "模型服务返回了服务器错误，请稍后重试。",
-      ],
-    ] as const) {
-      const presentation = resolveThreadErrorPresentation(raw, "zh-CN");
-      expect(presentation.title).toBe(title);
-      expect(presentation.title).not.toMatch(/claude|[a-z]{4,}/iu);
-      // The turn header leaves it to this card.
-      expect(isExplainedProviderFailure(raw)).toBe(true);
-    }
-    // A model the account cannot use is fixed by another model.
-    expect(
-      resolveThreadErrorPresentation(
-        "The selected model is unavailable for this account.",
-        "zh-CN",
-      ),
-    ).toMatchObject({ title: "当前账号不能使用所选模型。", changeModelFirst: true });
-  });
-
   it("shows the gateway's reason in place of each CLI's raw wrapper", () => {
     for (const raw of [
       "unexpected status 502 Bad Gateway: The model service is temporarily unavailable., url: https://moss.example/functions/v1/moss-model-gateway/v1/responses",
@@ -556,45 +529,6 @@ describe("resolveThreadErrorPresentation", () => {
         "服务商暂时无法完成此请求，请稍后重试。",
       );
     }
-  });
-
-  it("never shows the raw stop-proof failure of a rotation; its settled state offers retry", () => {
-    // The persisted text from a start that failed because the old Codex tree
-    // could not be proven gone (an account-token rotation on a busy machine).
-    const raw =
-      "Error: Provider adapter process error (codex) for thread 2c6572ea-e3c9-4378-8495-7e3948e7576b: Failed to prove Codex app-server process-tree exit for '2c6572ea-e3c9-4378-8495-7e3948e7576b': Provider process tree 44568 did not prove exit (rootExited=false, captureComplete=true; no captured descendants remain).\n    at catch (C:\\repo\\apps\\server\\src\\provider\\Layers\\CodexAdapter.ts:4152:15)";
-    for (const context of ["thread", "provider-start-failure"] as const) {
-      const shown = resolveThreadErrorPresentation(raw, "zh-CN", context);
-      expect(shown.title).not.toMatch(/prove|process tree|CodexAdapter|44568|\\/u);
-      expect(shown.copyText).toBe(shown.title);
-    }
-    // While the start is uncertain the chat shows Moss's delivery block; once the
-    // bound settles it, the stored text is the unconfirmed-start sentence.
-    expect(
-      resolveThreadErrorPresentation(formatProviderDeliveryBlockDetail(raw), "zh-CN").title,
-    ).not.toMatch(/prove|process tree|44568/u);
-    expect(resolveThreadErrorPresentation(UNCONFIRMED_TURN_START_DETAIL, "zh-CN")).toMatchObject({
-      title: "Moss 没能确认服务商是否处理了这条消息，已停止等待，也没有重复发送。可以重试。",
-      retryable: true,
-    });
-  });
-
-  it("says a start that sent nothing was not sent and offers to send it now, in both languages", () => {
-    for (const context of ["thread", "provider-start-failure"] as const) {
-      expect(
-        resolveThreadErrorPresentation(PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL, "zh-CN", context),
-      ).toMatchObject({
-        title: "上一个智能体进程还没停下，这条消息没有发出。可以重新发送。",
-        retryable: true,
-      });
-    }
-    expect(resolveThreadErrorPresentation(PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL, "en")).toMatchObject(
-      {
-        title:
-          "The previous agent process hadn't stopped yet, so this message wasn't sent. You can send it again.",
-        retryable: true,
-      },
-    );
   });
 
   it("says an unconfirmed start was not sent again and offers to send it, in both languages", () => {
