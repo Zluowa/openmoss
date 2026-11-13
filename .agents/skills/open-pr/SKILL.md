@@ -52,6 +52,11 @@ opens the PR; the author never merges it.
 5. **Push without a credential prompt and without printing a token:**
    `GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c "credential.helper=!'<gh>' auth git-credential" push origin <branch>`
    where `<gh>` is the GitHub CLI path from the machine profile.
+   Then run the client CI lanes on the public mirror, free of charge, instead of
+   starting the private `ci.yml` (its minutes are paid):
+   `node scripts/public-mirror/cli.ts ci --target <mirror clone> --ref HEAD --name <branch, with / as -> --push`.
+   Put the runs' address it prints in the report. If an export guard fails, the
+   branch holds something that must not be public: fix that, never skip the step.
 6. **Write the body** to a file in your scratch folder, in the standard report
    shape (`docs/handbook/coordination.md`, "The standard report"). Say which
    model wrote the code.

@@ -8,6 +8,14 @@ on:
       - apps/desktop/src/cuaDriverHost*
       - packages/shared/src/cuaDriver*
       - packages/shared/src/cuaActionDiagnostics*
+  push:
+    branches:
+      - ci/**
+    paths:
+      - apps/desktop/patches/cua-driver/**
+      - apps/desktop/src/cuaDriverHost*
+      - packages/shared/src/cuaDriver*
+      - packages/shared/src/cuaActionDiagnostics*
   workflow_dispatch: {}
 permissions:
   contents: read
