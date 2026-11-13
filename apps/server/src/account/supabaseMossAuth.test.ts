@@ -635,15 +635,7 @@ describe("createMemFirePhoneAuth", () => {
     const client = requireMemFirePhoneClient(vi.fn() as unknown as typeof fetch);
 
     expect(Object.keys(client).sort()).toEqual(
-      [
-        "config",
-        "getUser",
-        "logout",
-        "refresh",
-        "sendPhoneOtp",
-        "updateUserMetadata",
-        "verifyPhoneOtp",
-      ].sort(),
+      ["config", "getUser", "logout", "refresh", "sendPhoneOtp", "verifyPhoneOtp"].sort(),
     );
     expect(client.config).toEqual({
       realm: "memfire-phone",
@@ -815,15 +807,7 @@ describe("createSupabaseGoogleAuth", () => {
     const client = requireSupabaseGoogleClient(vi.fn() as unknown as typeof fetch);
 
     expect(Object.keys(client).sort()).toEqual(
-      [
-        "config",
-        "createAuthorizeUrl",
-        "exchangeCode",
-        "getUser",
-        "logout",
-        "refresh",
-        "updateUserMetadata",
-      ].sort(),
+      ["config", "createAuthorizeUrl", "exchangeCode", "getUser", "logout", "refresh"].sort(),
     );
     expect(client.config).toEqual({
       realm: "supabase-google",
@@ -971,55 +955,5 @@ describe("createSupabaseGoogleAuth", () => {
     const session = await auth.client.verifyPhoneOtp("13800138000", "123456");
 
     expect(session.expiresAt).toBe(localNow + 3_600_000);
-  });
-});
-
-describe("user metadata and device-scoped sign-out", () => {
-  it("merges metadata into the signed-in user and ends only one session on a local sign-out", async () => {
-    const calls: Array<{ url: string; method: string; body: string | null; auth: string | null }> =
-      [];
-    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
-      const headers = new Headers(init?.headers);
-      calls.push({
-        url: String(input),
-        method: init?.method ?? "GET",
-        body: typeof init?.body === "string" ? init.body : null,
-        auth: headers.get("Authorization"),
-      });
-      if (String(input).endsWith("/logout?scope=local") || String(input).endsWith("/logout")) {
-        return new Response(null, { status: 204 });
-      }
-      return new Response(
-        JSON.stringify({ ...userPayload, user_metadata: { moss_computers: [{ i: "a" }] } }),
-        { status: 200 },
-      );
-    }) as typeof fetch;
-    const client = requireClient(fetchImpl);
-
-    const user = await client.updateUserMetadata("access-value", { moss_phone_login: null });
-    await client.logout("access-value", "local");
-    await client.logout("access-value");
-
-    expect(user.userMetadata).toEqual({ moss_computers: [{ i: "a" }] });
-    expect(calls).toEqual([
-      {
-        url: "https://moss-test.supabase.co/auth/v1/user",
-        method: "PUT",
-        body: JSON.stringify({ data: { moss_phone_login: null } }),
-        auth: "Bearer access-value",
-      },
-      {
-        url: "https://moss-test.supabase.co/auth/v1/logout?scope=local",
-        method: "POST",
-        body: null,
-        auth: "Bearer access-value",
-      },
-      {
-        url: "https://moss-test.supabase.co/auth/v1/logout",
-        method: "POST",
-        body: null,
-        auth: "Bearer access-value",
-      },
-    ]);
   });
 });

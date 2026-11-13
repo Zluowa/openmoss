@@ -188,7 +188,7 @@ function DictationButton(props: {
 // ---------------------------------------------------------------------------------------
 // New comment
 
-function NewCommentCard(props: {
+export function NewCommentCard(props: {
   readonly threadId: string;
   readonly pageTitle: string;
   readonly anchor: PageCommentAnchor;
@@ -328,7 +328,7 @@ function AgentReplyBody(props: { readonly status: string; readonly body: string 
   return <span className="line-clamp-[12]">{props.body}</span>;
 }
 
-function ThreadCard(props: {
+export function ThreadCard(props: {
   readonly comment: PageComment;
   readonly position: { left: number; top: number };
   readonly pulse: boolean;
@@ -418,7 +418,7 @@ function ThreadCard(props: {
 // ---------------------------------------------------------------------------------------
 // Pin
 
-function CommentPin(props: {
+export function CommentPin(props: {
   readonly comment: PageComment;
   readonly left: number;
   readonly top: number;

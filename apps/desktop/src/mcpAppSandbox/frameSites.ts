@@ -27,10 +27,7 @@ export const MCP_APP_REFUSED_FRAME_HOSTS: readonly string[] = [
   "antspace.dev",
   "palantirfedstart.com",
   "fedstart.com",
-  // Moss's own hosts: model gateway, payments, share and realtime relays, devs, update feed,
-  // accounts, and the company's site.
-  "mossbotai.com",
-  "tishilabs.com",
+  // Moss's own hosts: update feed, share relay, model gateway, devs, accounts.
   "comiction.cn",
   "inkcomicai.com",
   "moss-global.supabase.co",

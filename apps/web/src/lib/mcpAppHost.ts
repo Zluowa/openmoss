@@ -44,7 +44,7 @@ import {
 import { APP_VERSION } from "~/branding";
 import type { McpAppDisplayMode } from "./mcpAppDockRegistry";
 import {
-  MCP_APP_INITIALIZE_HARD_CAP_MS,
+  MCP_APP_INITIALIZE_TIMEOUT_MS,
   MCP_APP_PROXY_READY_RETRIES,
   MCP_APP_PROXY_READY_TIMEOUT_MS,
   MCP_APP_TOOL_RESULT_POLL_MS,
@@ -102,7 +102,6 @@ import {
   rememberMcpAppHeight,
   resolveMcpAppReportedHeight,
 } from "./mcpApps/sizing";
-import { createVisibleDeadline } from "./mcpApps/startDeadline";
 import type { WorkLogMcpToolResult } from "./toolCallDetails";
 
 const MAX_ARGUMENT_KEYS = 64;
@@ -530,39 +529,6 @@ function fullscreenFrameZIndex(): string {
   return isMcpAppMobileViewport() ? "51" : "43";
 }
 
-let initializeCapMs: number = MCP_APP_INITIALIZE_HARD_CAP_MS;
-
-/** Tests shorten the start cap instead of waiting 120 s; `null` restores it. */
-export function setMcpAppInitializeCapForTests(ms: number | null): void {
-  initializeCapMs = ms ?? MCP_APP_INITIALIZE_HARD_CAP_MS;
-}
-
-/** ERR_ABORTED: a navigation superseded by another one, not a failure. */
-const NAVIGATION_ABORTED_ERROR_CODE = -3;
-
-/**
- * Calls `onDead` when the widget's guest crashes or its page fails to load (Electron webview
- * events). Exported for tests.
- */
-export function watchMcpAppGuestDeath(webview: EventTarget, onDead: () => void): void {
-  let reported = false;
-  const dead = () => {
-    if (reported) return;
-    reported = true;
-    onDead();
-  };
-  webview.addEventListener("render-process-gone", dead);
-  webview.addEventListener("crashed", dead);
-  webview.addEventListener("did-fail-load", (event) => {
-    const detail = event as Event & {
-      readonly errorCode?: unknown;
-      readonly isMainFrame?: unknown;
-    };
-    if (detail.isMainFrame === false || detail.errorCode === NAVIGATION_ABORTED_ERROR_CODE) return;
-    dead();
-  });
-}
-
 function webviewElement(): HTMLElement {
   return document.createElement("webview");
 }
@@ -627,8 +593,7 @@ export class McpAppHostController {
   private navigationPortListener: ((event: MessageEvent) => void) | null = null;
   private toolResultTimer: ReturnType<typeof setTimeout> | null = null;
   private proxyReadyTimer: ReturnType<typeof setTimeout> | null = null;
-  /** The deadline for `initialized` (visible time only; startDeadline.ts). */
-  private initializeTimer: { cancel(): void } | null = null;
+  private initializeTimer: ReturnType<typeof setTimeout> | null = null;
   private proxyReadyRetriesLeft: number = MCP_APP_PROXY_READY_RETRIES;
   private resourceSent = false;
   private generation = 0;
@@ -712,9 +677,8 @@ export class McpAppHostController {
   }
 
   /**
-   * Once the resource is sent and the tool result is in, a third-party widget has up to
-   * MCP_APP_INITIALIZE_HARD_CAP_MS of visible time to say `initialized`; until then the card keeps
-   * loading. Moss's own widgets are never timed out.
+   * Third-party widgets must say `initialized` within 10 s + 5 s once the resource is sent and
+   * the tool result is in; Moss's own widgets are never timed out.
    */
   private armInitializeTimeout(generation: number): void {
     if (
@@ -727,17 +691,14 @@ export class McpAppHostController {
     ) {
       return;
     }
-    this.initializeTimer = createVisibleDeadline({
-      ms: initializeCapMs,
-      onExpire: () => {
-        this.initializeTimer = null;
-        if (!this.initialized && generation === this.generation) void this.fail();
-      },
-    });
+    this.initializeTimer = setTimeout(() => {
+      this.initializeTimer = null;
+      if (!this.initialized && generation === this.generation) void this.fail();
+    }, MCP_APP_INITIALIZE_TIMEOUT_MS);
   }
 
   private clearTimers(): void {
-    this.initializeTimer?.cancel();
+    if (this.initializeTimer !== null) clearTimeout(this.initializeTimer);
     this.initializeTimer = null;
     if (this.proxyReadyTimer !== null) clearTimeout(this.proxyReadyTimer);
     this.proxyReadyTimer = null;
@@ -820,15 +781,9 @@ export class McpAppHostController {
       void this.start(container).catch(() => undefined);
       return;
     }
-    if (this.snapshot.displayMode !== "inline") return;
-    if (this.running) {
+    if (this.running && this.snapshot.displayMode === "inline") {
       this.layoutFrameTo(container, "inline");
-      return;
     }
-    // Still starting (the row remounted before `initialized`): the parked frame follows the new
-    // slot too. Left on the old, detached slot it is hidden with display:none, the guest stops
-    // being laid out, and the widget never finishes starting (the start cap then fails it).
-    this.tracker?.follow(container, "inline");
   }
 
   /** The row unmounted; keep the widget but hide its frame until a slot comes back. */
@@ -1100,10 +1055,6 @@ export class McpAppHostController {
       "webpreferences",
       "nodeIntegration=no,contextIsolation=yes,sandbox=yes,webSecurity=yes,disableDialogs=yes,plugins=no,allowRunningInsecureContent=no",
     );
-    // A guest that is gone cannot start: fail now instead of waiting out the start cap.
-    watchMcpAppGuestDeath(webview, () => {
-      if (!stale()) void this.fail();
-    });
     const frameWrapper = document.createElement("div");
     frameWrapper.dataset.mcpAppFrameWrapper = "true";
     frameWrapper.style.width = "100%";
@@ -1596,11 +1547,8 @@ export class McpAppHostController {
 
   private async fail(): Promise<void> {
     if (this.snapshot.phase === "failed") return;
-    // The card shows its text result at once; the guest's teardown (a goodbye to the widget
-    // and an unregister round trip to the desktop shell) finishes behind it.
-    const teardown = this.teardown();
+    await this.teardown();
     this.setSnapshot({ phase: "failed" });
-    await teardown;
   }
 
   private setSnapshot(partial: Partial<McpAppHostSnapshot>): void {

@@ -5,7 +5,6 @@
 import type { ComponentType } from "react";
 
 import type { ProviderKind } from "@moss/contracts";
-import { isInterruptedTaskContinuationPrompt } from "@moss/shared/turnResume";
 import { basenameOfPath } from "../file-icons";
 import type { ProjectAppearance } from "../lib/projectAppearance";
 import type { ThemeMode, ThemeVariant } from "../theme/theme.logic";
@@ -75,14 +74,6 @@ export interface SidebarSearchThread {
 }
 
 /** Field-wise equality so a rebuilt search thread list can keep its previous identity. */
-/**
- * The text search scores and shows for a loaded message. A continuation stores the
- * model-facing instruction; the person sees, finds and reads their own line instead.
- */
-export function sidebarSearchMessageText(text: string, continuationVisibleText: string): string {
-  return isInterruptedTaskContinuationPrompt(text) ? continuationVisibleText : text;
-}
-
 export function areSidebarSearchThreadListsEqual(
   previous: readonly SidebarSearchThread[],
   next: readonly SidebarSearchThread[],

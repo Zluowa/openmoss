@@ -1,13 +1,8 @@
 import { Effect } from "effect";
 import {
-  fetchMossGatewayCatalogViaEntries,
   fetchMossGatewayModelIds,
+  normalizeMossGatewayModelCatalog,
 } from "./account/mossGatewayModels";
-import {
-  fetchViaMossServiceEntries,
-  mossServiceEntryInUse,
-  mossServiceEntryRouterFor,
-} from "./account/mossServiceEntries";
 import { MossMediaJobsError, type MossMediaCredential } from "./mossMediaJobsService";
 
 const TEXT_MODELS_REUSE_MS = 60_000;
@@ -44,30 +39,13 @@ export function mossCanvasTextModels(
 async function fetchMossCanvasTextModels(
   credential: MossMediaCredential,
 ): Promise<ReadonlyArray<string>> {
-  // A read: on a CN gateway entry that fails below HTTP it is reported and asked once more on
-  // the next entry.
-  const entries = mossServiceEntryRouterFor(credential.gatewayBaseUrl);
-  const { catalog } = await Effect.runPromise(
-    fetchMossGatewayCatalogViaEntries({
-      fetchGatewayModels: fetchMossGatewayModelIds,
-      entries,
-      gatewayBaseUrl: mossServiceEntryInUse(credential.gatewayBaseUrl, entries),
-      accessToken: credential.accessToken,
-    }),
+  const catalog = normalizeMossGatewayModelCatalog(
+    await Effect.runPromise(fetchMossGatewayModelIds(credential)),
   );
   if (catalog.status !== "ready") {
     throw new MossMediaJobsError("model_catalog_unavailable", 503);
   }
   return catalog.models;
-}
-
-/** The gateway entry's non-streaming chat completions URL. */
-function canvasTextTarget(entry: string): URL {
-  const target = new URL(entry);
-  target.pathname = `${target.pathname.replace(/\/+$/u, "").replace(/(?:\/v1)+$/u, "")}/v1/chat/completions`;
-  target.search = "";
-  target.hash = "";
-  return target;
 }
 
 export async function relayMossCanvasText(
@@ -102,36 +80,31 @@ export async function relayMossCanvasText(
   if (!entitledModels.includes(model)) {
     throw new MossMediaJobsError("model_not_entitled", 403);
   }
-
-  // One dispatch only, never to a second entry: a model call is billed. A reset on a CN entry
-  // is reported, so the next request goes to the entry that works; the caller's 180 s timeout
-  // is not, since it is no proof that the supplier did not bill (or that the path is bad).
+  const target = new URL(credential.gatewayBaseUrl);
+  target.pathname = `${target.pathname.replace(/\/+$/u, "").replace(/(?:\/v1)+$/u, "")}/v1/chat/completions`;
+  target.search = "";
+  target.hash = "";
+  // One dispatch only. A timeout is not proof that the supplier did not bill.
   let response: Response;
   try {
-    response = await fetchViaMossServiceEntries({
-      entry: credential.gatewayBaseUrl,
-      retryOnNextEntry: false,
-      timeoutIsConnectionFailure: false,
-      send: (entry) =>
-        fetch(canvasTextTarget(entry), {
-          method: "POST",
-          redirect: "error",
-          signal: AbortSignal.timeout(180000),
-          headers: {
-            authorization: `Bearer ${credential.accessToken}`,
-            "content-type": "application/json",
-            "user-agent": "Moss",
-            "x-client-request-id": operationId,
-          },
-          body: JSON.stringify({
-            model,
-            messages,
-            max_tokens: input.max_tokens,
-            stream: false,
-            ...(typeof input.temperature === "number" ? { temperature: input.temperature } : {}),
-            ...(model.toLowerCase().includes("deepseek") ? { thinking: { type: "disabled" } } : {}),
-          }),
-        }),
+    response = await fetch(target, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(180000),
+      headers: {
+        authorization: `Bearer ${credential.accessToken}`,
+        "content-type": "application/json",
+        "user-agent": "Moss",
+        "x-client-request-id": operationId,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: input.max_tokens,
+        stream: false,
+        ...(typeof input.temperature === "number" ? { temperature: input.temperature } : {}),
+        ...(model.toLowerCase().includes("deepseek") ? { thinking: { type: "disabled" } } : {}),
+      }),
     });
   } catch {
     throw new MossMediaJobsError("canvas_text_billing_unconfirmed", 503);

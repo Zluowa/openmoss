@@ -10,15 +10,10 @@ export const MCP_APP_EMPTY_HEIGHT_THRESHOLD = 8;
 /** Widget height transition (Claude `duration-base ease-out`). */
 export const MCP_APP_HEIGHT_TRANSITION = "height 200ms cubic-bezier(0.165, 0.84, 0.44, 1)" as const;
 /**
- * How long a third-party widget may take to say `initialized` once its resource is sent and the
- * tool result is in, counting only time the window was visible (startDeadline.ts). Until then
- * the card stays 「正在加载」. This is a cap for a widget that never starts, not a start budget:
- * some widgets load megabytes before they talk to the host (the map widget fetches CesiumJS from
- * a CDN before `ui/initialize`), and on a slow network a 15 s limit failed them while their page
- * was alive and loading. Claude's own limit is optional, set from its servers and at least 10 s.
- * A guest that crashes or fails to load fails at once. Moss's own widgets have no limit.
+ * Third-party widgets must say `initialized` within this long once the resource is sent and the
+ * tool result is in (10 000 ms + 5 000 ms slack). Moss's own widgets have no such limit.
  */
-export const MCP_APP_INITIALIZE_HARD_CAP_MS = 120_000;
+export const MCP_APP_INITIALIZE_TIMEOUT_MS = 10_000 + 5_000;
 /** A display-mode request must follow a real click or key press this closely. */
 export const MCP_APP_USER_ACTIVATION_WINDOW_MS = 250;
 /** `ui/message` replace-prompt toast. */

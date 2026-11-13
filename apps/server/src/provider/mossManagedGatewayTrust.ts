@@ -15,14 +15,8 @@ export const MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS_ENV_KEY =
   "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS";
 export const MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS_ENV_KEY = "MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS";
 
-/**
- * The CN model gateway's first entry (phone/MemFire and enterprise-key lanes). Releases before
- * 2026-11-14 shipped `moss-models.comiction.cn` first; it and the tunnel entry are now listed
- * as fallbacks. Trust still comes only from the configured entries, never from this name.
- */
-export const MOSS_CN_MODEL_GATEWAY_HOST = "api.mossbotai.com";
-/** The CN model gateway's first entry in releases up to 2026-11-14 (1.0.3 and earlier). */
-export const MOSS_PREVIOUS_CN_MODEL_GATEWAY_HOST = "moss-models.comiction.cn";
+/** Canonical CN model gateway used by the phone/MemFire authority. */
+export const MOSS_CN_MODEL_GATEWAY_HOST = "moss-models.comiction.cn";
 
 /**
  * Identity authority whose bearer a managed engine forwards: a phone or Google

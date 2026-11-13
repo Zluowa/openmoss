@@ -6,8 +6,7 @@
  * long-lived share instead. Its id appears in every link and never changes on its own. The
  * relay registration is renewed every hour (a refresh of a known share neither counts against
  * the account's share limit nor its registration rate), and after a relay restart the host
- * client registers it again. Links keep the relay entry the publisher was registered on;
- * renewals and the host socket go through the relay's entry in use.
+ * client registers it again.
  */
 import {
   SHARE_RELAY_PROTOCOL_VERSION,
@@ -28,9 +27,7 @@ import {
 } from "../../guestShare/shareRelayHostClient.ts";
 import { registerShareWithRelay } from "../../guestShare/shareRelayRegistration.ts";
 import {
-  isOnAccountShareRelay,
   resolveShareRelayAccount,
-  shareRelayEntriesForOrigin,
   type ShareRelayAccountSources,
 } from "../../guestShare/shareRelayOrigin.ts";
 import { randomShareId } from "./pageShareCredentials.ts";
@@ -86,21 +83,19 @@ export const makePageSharePublisher = (deps: {
       | null = null;
     let relayStatus: PageShareRelayStatus = "unavailable";
 
-    /** Registers or renews `row`; returns the relay entry the registration went through. */
     const register = (row: PublisherRow) =>
       Effect.gen(function* () {
         const account = yield* resolveShareRelayAccount(deps.accountSources);
-        if (!isOnAccountShareRelay(account, row.relay_origin)) {
+        if (account.origin !== row.relay_origin) {
           // The owner switched region: the old links name the old relay, so they cannot move.
           return yield* guestShareOwnerError(
             "guest_share.relay_unavailable",
             new Error("The share relay of this account changed."),
           );
         }
-        const { receipt, origin } = yield* registerShareWithRelay({
+        const receipt = yield* registerShareWithRelay({
           fetch: transport.fetch,
-          origin: row.relay_origin,
-          router: account.relay.router,
+          origin: account.origin,
           bearer: account.bearer,
           request: {
             shareId: row.share_id as GuestShareId,
@@ -116,7 +111,6 @@ export const makePageSharePublisher = (deps: {
           ...(receipt.appPreview ? { appPreview: receipt.appPreview } : {}),
           ...(receipt.editProjection ? { editProjection: receipt.editProjection } : {}),
         };
-        return origin;
       });
 
     const startClient = (row: PublisherRow) => {
@@ -124,11 +118,6 @@ export const makePageSharePublisher = (deps: {
       current = entry;
       const client = new ShareRelayHostClient({
         origin: row.relay_origin,
-        entries: shareRelayEntriesForOrigin(
-          row.relay_origin,
-          transport.env,
-          deps.accountSources.routers,
-        ).router,
         shareId: row.share_id as GuestShareId,
         hostKey: relayHostKey(signingKey, row.share_id as GuestShareId),
         handle: deps.handle,
@@ -178,20 +167,12 @@ export const makePageSharePublisher = (deps: {
         const account = yield* resolveShareRelayAccount(deps.accountSources).pipe(
           Effect.mapError(toSharingError),
         );
-        const proposed: PublisherRow = {
+        const row: PublisherRow = {
           share_id: randomShareId(),
           relay_origin: account.origin,
           created_at: new Date().toISOString(),
         };
-        const registeredOn = yield* register(proposed).pipe(Effect.mapError(toSharingError));
-        // Links name the entry the publisher was registered through.
-        const row =
-          registeredOn === proposed.relay_origin
-            ? proposed
-            : { ...proposed, relay_origin: registeredOn };
-        if (registered !== null && row !== proposed) {
-          registered = { ...registered, parentOrigin: row.relay_origin };
-        }
+        yield* register(row).pipe(Effect.mapError(toSharingError));
         yield* store
           .insertPublisher(row)
           .pipe(

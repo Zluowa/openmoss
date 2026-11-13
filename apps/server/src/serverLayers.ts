@@ -99,7 +99,6 @@ import { MossManagedProviderLive } from "./account/Layers/MossManagedProvider";
 import { MossPayServiceLive } from "./account/Layers/MossPayService";
 import { MossManagedTurnPreflightLive } from "./account/Layers/MossManagedTurnPreflight";
 import { MossPhoneAccountServiceLive } from "./account/Layers/MossPhoneAccountService";
-import { MossAccountPhoneAccessLive } from "./account/Layers/MossAccountPhoneAccess";
 import { RealtimeVoiceServiceLive } from "./realtimeVoice/Layers/RealtimeVoiceService";
 import { OrchestrationEventDeliveryRepositoryLive } from "./persistence/Layers/OrchestrationEventDeliveries";
 import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/ProviderRuntimeEvents";
@@ -282,13 +281,6 @@ export function makeServerRuntimeServicesLayer(
     sessionCredentialLayer,
     authControlPlaneLayer,
     serverAuthLayer,
-  );
-  // Account sign-in for the owner's phone; it issues and revokes those phones' sessions.
-  const mossAccountPhoneAccessLayer = MossAccountPhoneAccessLive.pipe(
-    Layer.provide(mossPhoneAccountLayer),
-    Layer.provide(mossCloudAccountLayer),
-    Layer.provide(serverAuthLayer),
-    Layer.provide(ServerSecretStoreLive),
   );
   const todoServiceLayer = TodoServiceLive.pipe(Layer.provideMerge(TodoRepositoryLive));
   // One instance for the gateway tool that asks and the secretRequest.answer RPC that answers.
@@ -527,7 +519,6 @@ export function makeServerRuntimeServicesLayer(
     mossEnterpriseKeyLayer,
     mossPhoneAccountLayer,
     mossCloudAccountLayer,
-    mossAccountPhoneAccessLayer,
     mossPayLayer,
     realtimeVoiceLayer,
     ThreadSearchQueryLive,

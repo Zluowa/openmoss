@@ -112,7 +112,6 @@ const makeClient = (overrides: Partial<SupabaseMossAuthClient> = {}): SupabaseMo
   recover: unavailable,
   exchangeCode: unavailable,
   updatePassword: unavailable,
-  updateUserMetadata: unavailable,
   logout: unavailable,
   ...overrides,
 });
@@ -139,7 +138,6 @@ const makeGoogleClient = (
   exchangeCode: unavailable,
   refresh: unavailable,
   getUser: unavailable,
-  updateUserMetadata: unavailable,
   logout: unavailable,
   ...overrides,
 });

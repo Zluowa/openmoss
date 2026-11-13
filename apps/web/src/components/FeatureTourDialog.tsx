@@ -10,7 +10,7 @@ import {
   FeatureTourSeenSchema,
   useFeatureTourStore,
 } from "~/featureTour/store";
-import { flushLocalStorageToDisk, useLocalStorage } from "~/hooks/useLocalStorage";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { ChevronLeftIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -92,10 +92,8 @@ export function FeatureTourDialog() {
   }, [blocked, handedOff, owner, ready, replay]);
 
   const dismiss = () => {
-    if (installation) {
+    if (installation)
       setSeen((current) => (current.includes(installation) ? current : [...current, installation]));
-      flushLocalStorageToDisk();
-    }
     useFeatureTourStore.getState().close();
   };
   const slides = FEATURE_TOUR_SLIDES.filter(

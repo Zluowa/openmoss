@@ -2,18 +2,12 @@ import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   HoolaCanvasSegmentsBridgeBroker,
   HoolaCanvasSegmentsBridgeError,
 } from "./hoolaCanvasSegmentsBridge";
-import {
-  makeMossServiceEntryRouter,
-  mossModelGatewayHealthUrl,
-  registerMossServiceEntryRouterForTest,
-  resetMossServiceEntryRoutersForTest,
-} from "./account/mossServiceEntries";
 
 const credential = {
   realm: "memfire-phone" as const,
@@ -247,80 +241,5 @@ describe("HoolaCanvasSegmentsBridgeBroker", () => {
     expect(() => broker.mask("cat-a", "seg_0123456789abcdef", identity, credential)).toThrowError(
       expect.objectContaining({ code: "SEGMENTS_JOB_NOT_FOUND", status: 404 }),
     );
-  });
-});
-
-/** The CN gateway entries in use: both pass their health checks, the primary is in use. */
-const CN_PRIMARY = "https://moss-models.example.cn/functions/v1/moss-model-gateway/v1";
-const CN_FALLBACK = "https://moss-cn-models.example.com/functions/v1/moss-model-gateway/v1";
-const cnEntriesInUse = async () => {
-  const router = makeMossServiceEntryRouter({
-    service: "CN model gateway",
-    entries: [CN_PRIMARY, CN_FALLBACK],
-    healthUrl: mossModelGatewayHealthUrl,
-    probe: async () => true,
-  });
-  await router.ensure();
-  registerMossServiceEntryRouterForTest(router);
-  return router;
-};
-const resetError = () =>
-  Object.assign(new TypeError("fetch failed"), {
-    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
-  });
-const onPrimary = (url: string | URL | Request) =>
-  String(url instanceof Request ? url.url : url).startsWith(new URL(CN_PRIMARY).origin);
-
-describe("HoolaCanvasSegmentsBridgeBroker across CN gateway entries", () => {
-  afterEach(() => resetMossServiceEntryRoutersForTest());
-  const cnCredential = { ...credential, gatewayBaseUrl: CN_PRIMARY };
-
-  it("never sends a segments job (paid work) to a second entry, but reports the reset", async () => {
-    const router = await cnEntriesInUse();
-    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
-      if (onPrimary(url)) throw resetError();
-      return Response.json({ jobId: "seg_0123456789abcdef", status: "queued" }, { status: 202 });
-    });
-    const broker = new HoolaCanvasSegmentsBridgeBroker({ fetchImpl });
-    const authorized = broker.authorize(authorizationInput, cnCredential);
-    await expect(
-      broker.create(
-        { ...authorizationInput, creditOperationId: authorized.creditOperationId },
-        cnCredential,
-      ),
-    ).rejects.toThrow("fetch failed");
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(router.current()).toBe(CN_FALLBACK);
-  });
-
-  it("asks a job's status (a read) once more on the next entry", async () => {
-    const router = await cnEntriesInUse();
-    let created = false;
-    const fetchImpl = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === "POST") {
-        created = true;
-        return Response.json({ jobId: "seg_0123456789abcdef", status: "queued" }, { status: 202 });
-      }
-      if (created && onPrimary(url)) throw resetError();
-      return Response.json({
-        jobId: "seg_0123456789abcdef",
-        status: "masks_ready",
-        sceneMap: sceneMap(),
-      });
-    });
-    const broker = new HoolaCanvasSegmentsBridgeBroker({ fetchImpl });
-    const authorized = broker.authorize(authorizationInput, cnCredential);
-    await broker.create(
-      { ...authorizationInput, creditOperationId: authorized.creditOperationId },
-      cnCredential,
-    );
-    const status = await broker.status("seg_0123456789abcdef", identity, cnCredential);
-    expect(status).toMatchObject({ status: "masks_ready" });
-    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).host)).toEqual([
-      "moss-models.example.cn",
-      "moss-models.example.cn",
-      "moss-cn-models.example.com",
-    ]);
-    expect(router.current()).toBe(CN_FALLBACK);
   });
 });

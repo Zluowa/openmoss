@@ -109,12 +109,6 @@ export class MossMediaHistory {
         yield* sql`CREATE TABLE IF NOT EXISTS media_history_assets (
         scope TEXT NOT NULL, asset_id TEXT NOT NULL, job_id TEXT NOT NULL,
         PRIMARY KEY(scope,asset_id,job_id))`;
-        // Account scopes once named the gateway URL; a legacy scope now points at its account's
-        // scope, and a row keeps the scope it was first written under (Library item ids).
-        yield* sql`CREATE TABLE IF NOT EXISTS media_scope_alias (legacy TEXT PRIMARY KEY, scope TEXT NOT NULL)`;
-        const columns = yield* sql<{ name: string }>`PRAGMA table_info(media_history)`;
-        if (!columns.some((column) => column.name === "origin_scope"))
-          yield* sql`ALTER TABLE media_history ADD COLUMN origin_scope TEXT`;
         return yield* operation(sql);
       }).pipe(Effect.provide(client.layer({ filename: this.#path })), Effect.result),
     );
@@ -124,73 +118,6 @@ export class MossMediaHistory {
 
   #scope(scope: string) {
     if (!HASH.test(scope)) throw new MediaHistoryError("media_history_scope_invalid");
-  }
-
-  /**
-   * Moves one legacy scope's rows to `to` and records the alias, so links that still name the
-   * legacy scope keep working. A scope with no rows changes nothing. Rows that would collide with one already under `to` stay where
-   * they are. The first time any row moves, the database is copied to `backupName` first.
-   * Returns how many rows moved and how many stayed.
-   */
-  async adoptScope(
-    from: string,
-    to: string,
-    backupName = "history.before-account-scope.sqlite",
-  ): Promise<{ readonly moved: number; readonly left: number }> {
-    this.#scope(from);
-    this.#scope(to);
-    if (from === to) return { moved: 0, left: 0 };
-    const backup = join(this.stateDirectory, "media-history", backupName);
-    const backupExists = await lstat(backup).then(
-      () => true,
-      () => false,
-    );
-    return this.#db((sql) =>
-      Effect.gen(function* () {
-        const count = () =>
-          sql<{ n: number }>`SELECT (SELECT COUNT(*) FROM media_history WHERE scope=${from}) +
-            (SELECT COUNT(*) FROM media_history_assets WHERE scope=${from}) AS n`.pipe(
-            Effect.map((rows) => rows[0]?.n ?? 0),
-          );
-        const before = yield* count();
-        if (before === 0) return { moved: 0, left: 0 };
-        if (!backupExists) yield* sql`VACUUM INTO ${backup}`;
-        yield* sql.withTransaction(
-          Effect.gen(function* () {
-            yield* sql`UPDATE OR IGNORE media_history
-              SET origin_scope=COALESCE(origin_scope, scope), scope=${to} WHERE scope=${from}`;
-            yield* sql`UPDATE OR IGNORE media_history_assets SET scope=${to} WHERE scope=${from}`;
-            yield* sql`INSERT INTO media_scope_alias(legacy,scope) VALUES (${from},${to})
-              ON CONFLICT(legacy) DO UPDATE SET scope=excluded.scope`;
-          }),
-        );
-        const left = yield* count();
-        return { moved: before - left, left };
-      }),
-    );
-  }
-
-  /** The account scope a legacy scope was adopted into, or the scope itself. */
-  async resolveScope(scope: string): Promise<string> {
-    this.#scope(scope);
-    return this.#db((sql) =>
-      sql<{ scope: string }>`SELECT scope FROM media_scope_alias WHERE legacy=${scope}`.pipe(
-        Effect.map((rows) => rows[0]?.scope ?? scope),
-      ),
-    );
-  }
-
-  /** For rows adopted into `scope`: the scope each was first written under, by job id. */
-  async originScopes(scope: string): Promise<ReadonlyMap<string, string>> {
-    this.#scope(scope);
-    return this.#db((sql) =>
-      sql<{
-        job_id: string;
-        origin_scope: string;
-      }>`SELECT job_id,origin_scope FROM media_history WHERE scope=${scope} AND origin_scope IS NOT NULL`.pipe(
-        Effect.map((rows) => new Map(rows.map((row) => [row.job_id, row.origin_scope]))),
-      ),
-    );
   }
 
   async get(scope: string, jobId: string): Promise<HoolaCanvasDurableJob | null> {

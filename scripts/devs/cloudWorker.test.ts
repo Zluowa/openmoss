@@ -1,11 +1,4 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
-
-import {
-  MOSS_DEVS_FALLBACK_REPORT_URL,
-  MOSS_DEVS_PUBLIC_REPORT_URL,
-} from "@moss/shared/devsReport";
 import worker from "./cloudWorker";
 
 function environment(options: { limited?: boolean } = {}) {
@@ -69,14 +62,5 @@ describe("developer report worker", () => {
     expect(report.status).toBe(429);
     expect(report.headers.get("access-control-allow-origin")).toBeNull();
     expect(forwarded).toHaveLength(0);
-  });
-});
-
-describe("developer report worker deployment", () => {
-  it("serves both hostnames the app reports to", () => {
-    const wrangler = readFileSync(new URL("./wrangler.jsonc", import.meta.url), "utf8");
-    for (const url of [MOSS_DEVS_PUBLIC_REPORT_URL, MOSS_DEVS_FALLBACK_REPORT_URL]) {
-      expect(wrangler).toContain(`{ "pattern": "${new URL(url).host}", "custom_domain": true }`);
-    }
   });
 });

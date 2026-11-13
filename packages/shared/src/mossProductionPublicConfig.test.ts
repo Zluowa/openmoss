@@ -66,8 +66,6 @@ describe("mossProductionPublicConfig v2", () => {
       MOSS_MEMFIRE_PHONE_PAY_BASE_URL: "",
       MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: "",
       MOSS_MEMFIRE_PHONE_PAY_FALLBACK_BASE_URLS: "",
-      MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: "",
-      MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS: "",
     });
   });
 
@@ -246,85 +244,6 @@ describe("mossProductionPublicConfig v2", () => {
         /modelGatewayFallbackUrls must be a list of URLs/,
       );
     }
-  });
-
-  it("carries ordered realtime relay fallback entries for both realms, and reads older manifests", () => {
-    const cnFallback = "https://realtime-old.moss.cn";
-    const globalFallback = "https://realtime-old.moss.example";
-    const config = resolveMossProductionPublicConfig({
-      ...validEnv,
-      MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: ` ${cnFallback}/ `,
-      MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS: globalFallback,
-    });
-    assert.deepStrictEqual(config.authRealms["memfire-phone"].realtimeRelayFallbackUrls, [
-      cnFallback,
-    ]);
-    assert.deepStrictEqual(config.authRealms["supabase-google"].realtimeRelayFallbackUrls, [
-      globalFallback,
-    ]);
-    const parsed = parseMossProductionPublicConfig(serializeMossProductionPublicConfig(config));
-    assert.deepStrictEqual(parsed, config);
-    const env = toMossProductionPublicConfigEnv(parsed);
-    assert.equal(env.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS, cnFallback);
-    assert.equal(env.MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS, globalFallback);
-    // A release with the single relay URL only (1.0.3 and earlier) loads exactly as before.
-    const older = parseMossProductionPublicConfig(JSON.stringify(expectedConfig));
-    assert.equal(older.authRealms["memfire-phone"].realtimeRelayFallbackUrls, undefined);
-    assert.equal(older.authRealms["supabase-google"].realtimeRelayFallbackUrls, undefined);
-    assert.ok(
-      MOSS_OPTIONAL_PRODUCTION_PUBLIC_CONFIG_ENV_KEYS.includes(
-        "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS",
-      ),
-    );
-  });
-
-  it("refuses realtime fallback entries that break the relay rules, repeat, cross realms, or stand alone", () => {
-    for (const [key, value, extra] of [
-      ["MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS", "http://realtime-old.moss.cn", {}],
-      ["MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS", "https://realtime-old.moss.cn/v1", {}],
-      ["MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS", "https://realtime-old.moss.cn:8443", {}],
-      [
-        "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
-        "https://moss-cn.baseapi.memfiredb.com",
-        {},
-      ],
-      [
-        "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
-        validEnv.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL,
-        {},
-      ],
-      [
-        "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS",
-        "https://a.moss.cn,https://b.moss.cn,https://c.moss.cn,https://d.moss.cn",
-        {},
-      ],
-      [
-        "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS",
-        "https://realtime-old.moss.example",
-        { MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL: undefined },
-      ],
-    ] as const) {
-      assert.throws(
-        () => resolveMossProductionPublicConfig({ ...validEnv, ...extra, [key]: value }),
-        new RegExp(key.replace(/_FALLBACK_URLS$/u, "")),
-      );
-    }
-    // One entry serving both realms would send one realm's bearer to the other's relay.
-    assert.throws(
-      () =>
-        resolveMossProductionPublicConfig({
-          ...validEnv,
-          MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS:
-            validEnv.MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL,
-        }),
-      /distinct relay origins/,
-    );
-    const document = structuredClone(expectedConfig);
-    Object.assign(document.authRealms["supabase-google"], { realtimeRelayFallbackUrls: "one-url" });
-    assert.throws(
-      () => parseMossProductionPublicConfig(JSON.stringify(document)),
-      /supabase-google\.realtimeRelayFallbackUrls must be a list of URLs/,
-    );
   });
 
   it("rejects unsafe or malformed payment routes in both environment and release JSON", () => {

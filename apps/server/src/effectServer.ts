@@ -33,8 +33,6 @@ import {
   type MossPhoneAccountServiceShape,
 } from "./account/Services/MossPhoneAccountService";
 import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
-import { MossAccountPhoneAccess } from "./account/Services/MossAccountPhoneAccess";
-import { startMossAccountComputerRegistry } from "./account/Layers/MossAccountPhoneAccess";
 import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
 import { describeMossErrorCauses } from "./account/mossAccountErrors";
 import { retireMossByokSettings } from "./account/retiredMossByokCleanup";
@@ -47,10 +45,7 @@ import {
   maintainMossPhoneAccountSession,
   startMossPhoneAccountSessionMaintenance,
 } from "./account/Layers/MossPhoneAccountService";
-import {
-  reportMossLaneConnectionFailures,
-  startMossServiceEntryMaintenance,
-} from "./account/mossServiceEntries";
+import { startMossServiceEntryMaintenance } from "./account/mossServiceEntries";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -708,17 +703,6 @@ export const createEffectServer = Effect.fn(function* (
     startMossPhoneAccountSessionMaintenance(mossPhoneAccount),
     subscriptionsScope,
   );
-  // Phone access on: list this computer in its Moss account. Off: remove what an earlier run
-  // listed, and publish nothing. Embedded and test servers may run without the service.
-  const mossAccountPhoneAccess = Option.getOrUndefined(
-    yield* Effect.serviceOption(MossAccountPhoneAccess),
-  );
-  if (mossAccountPhoneAccess) {
-    yield* Scope.provide(
-      startMossAccountComputerRegistry(mossAccountPhoneAccess, config),
-      subscriptionsScope,
-    );
-  }
   // When the CN gateway entry in use changes, lanes provisioned with the old entry are
   // re-provisioned on the new one through the same-authority path.
   yield* Scope.provide(
@@ -735,23 +719,6 @@ export const createEffectServer = Effect.fn(function* (
           ),
         ),
       ),
-    }),
-    subscriptionsScope,
-  );
-  // A Moss Codex lane's turn that failed before any HTTP response reports its gateway entry.
-  yield* Scope.provide(
-    reportMossLaneConnectionFailures({
-      events: providerService.streamEvents,
-      gatewayBaseUrlOf: (instanceId) =>
-        serverSettings.getSettings.pipe(
-          Effect.map((settings) => {
-            const config = settings.providerInstances[instanceId]?.config as
-              | Record<string, unknown>
-              | undefined;
-            return typeof config?.gatewayBaseUrl === "string" ? config.gatewayBaseUrl : null;
-          }),
-          Effect.orElseSucceed(() => null),
-        ),
     }),
     subscriptionsScope,
   );

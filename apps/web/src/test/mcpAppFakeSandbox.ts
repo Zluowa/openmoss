@@ -35,8 +35,6 @@ export interface FakeMcpAppSandboxOptions {
    * when the measured width changes (the ext-apps SDK reports on change only).
    */
   readonly measureLikeGuest?: boolean;
-  /** A widget that loads but never answers: it sends no `ui/initialize` (a slow or stuck page). */
-  readonly neverInitialize?: boolean;
 }
 
 export interface FakeMcpAppSandbox {
@@ -101,7 +99,6 @@ export function installMcpAppFakeSandbox(
         return;
       }
       if (message.method === "ui/notifications/sandbox-resource-ready") {
-        if (options.neverInitialize) return;
         void widget
           .request("ui/initialize", {
             protocolVersion: "2026-01-26",

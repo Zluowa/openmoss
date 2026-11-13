@@ -2280,7 +2280,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               hideImageOnlyBootstrapPrompt:
                 userImages.length > 0 || userFiles.length > 0 || assistantSelections.length > 0,
               messageId: row.message.id,
-              continuationVisibleText: t("chat.continuation.visibleText"),
             },
           );
           const renderedAssistantSelections =
@@ -3038,7 +3037,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             if (item.message.role === "user") {
               const displayed = deriveDisplayedUserMessageState(item.message.text, {
                 messageId: item.message.id,
-                continuationVisibleText: t("chat.continuation.visibleText"),
               });
               return (
                 <div

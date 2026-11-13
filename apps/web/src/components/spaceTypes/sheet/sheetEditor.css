@@ -1,0 +1,82 @@
+/* FILE: sheetEditor.css
+ * Purpose: Fits the spreadsheet engine's DOM parts into the Moss 电子表格 editor: Moss's accent
+ *          for the selection and the active cell, Moss type in the cell editor, the engine's own
+ *          toolbar parts hidden, and the dark sheet drawn from the light one.
+ * Layer: 资料空间 电子表格 (types stream), imported by SheetEditor.tsx only.
+ */
+
+[data-sheet-engine] .fortune-container {
+  font-family: inherit;
+  background: var(--background);
+  /* The engine stacks its parts up to z-index 1003 (its scrollbars). Kept inside its own
+     stacking context, so Moss's layers over the grid (the tool card, charts, comments) stay
+     above all of it: the horizontal scrollbar took the tool card's clicks. */
+  isolation: isolate;
+}
+
+/* Selection: accent tint with a 1px accent edge; the active cell a 2px accent outline. */
+[data-sheet-engine] .luckysheet-cell-selected {
+  border-color: var(--primary) !important;
+  background: color-mix(in srgb, var(--primary) 8%, transparent) !important;
+  border-radius: 1px;
+}
+[data-sheet-engine] .luckysheet-cell-selected-focus {
+  background: transparent !important;
+  box-shadow: 0 0 0 1px var(--primary) inset;
+}
+[data-sheet-engine] .luckysheet-cs-fillhandle,
+[data-sheet-engine] .luckysheet-cs-draghandle-top,
+[data-sheet-engine] .luckysheet-cs-draghandle-bottom,
+[data-sheet-engine] .luckysheet-cs-draghandle-left,
+[data-sheet-engine] .luckysheet-cs-draghandle-right {
+  border-color: var(--primary) !important;
+}
+[data-sheet-engine] .luckysheet-cs-fillhandle {
+  background: var(--primary) !important;
+}
+[data-sheet-engine] .fortune-row-header-selected,
+[data-sheet-engine] .fortune-col-header-selected {
+  background: color-mix(in srgb, var(--primary) 12%, transparent) !important;
+}
+[data-sheet-engine] .fortune-row-header-hover,
+[data-sheet-engine] .fortune-col-header-hover {
+  background: color-mix(in srgb, var(--foreground) 5%, transparent) !important;
+}
+
+/* The cell editor: Moss type, the accent edge, a quiet shadow. */
+[data-sheet-engine] .luckysheet-input-box-inner,
+[data-sheet-engine] #luckysheet-rich-text-editor {
+  font-family: inherit;
+}
+[data-sheet-engine] .luckysheet-input-box {
+  border-radius: 1px;
+}
+[data-sheet-engine] .luckysheet-input-box-inner {
+  border: 2px solid var(--primary) !important;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+/* The engine's own menus and dialogs follow the Moss surface. */
+[data-sheet-engine] .fortune-context-menu,
+[data-sheet-engine] .fortune-dialog,
+[data-sheet-engine] .fortune-search-replace,
+[data-sheet-engine] .fortune-filter-menu,
+[data-sheet-engine] .luckysheet-filter-menu {
+  font-family: inherit;
+  border-radius: var(--radius-popover, 12px);
+  border: 1px solid var(--border);
+  background: var(--popover);
+  color: var(--popover-foreground, var(--foreground));
+  box-shadow:
+    0 2px 6px rgb(0 0 0 / 8%),
+    0 8px 24px rgb(0 0 0 / 12%);
+}
+
+/* Dark sheet: the canvas is painted in the light palette and turned, so a colour keeps its
+   place among the others (pale fills become deep, deep text becomes light). */
+[data-sheet-theme="dark"] [data-sheet-engine] canvas {
+  filter: invert(0.885) hue-rotate(180deg) saturate(1.1);
+}
+[data-sheet-theme="dark"] [data-sheet-engine] .fortune-container {
+  background: var(--background);
+}

@@ -4,9 +4,7 @@
  * are answered the same way (`res`, body chunks, `res-end` / `res-error`). The client keeps the
  * socket alive with backoff for as long as the share lives; the relay's close codes say when to
  * register again (4404), when another host of the same owner took over (4409), and when the
- * share ended (4410). With the relay's entry router, each connection goes to the entry in use,
- * and a connection that fails below HTTP is reported to it before the next attempt, so that
- * attempt goes to the next entry.
+ * share ended (4410).
  *
  * This is plain Node code on purpose: `ws` is callback-driven, and the service bridges it into
  * Effect at the request handler boundary.
@@ -30,11 +28,6 @@ import {
 import { Schema } from "effect";
 import WebSocket from "ws";
 
-import {
-  isMossConnectionLevelFailure,
-  mossServiceEntryInUse,
-  type MossServiceEntryRouter,
-} from "../account/mossServiceEntries.ts";
 import { createLogger } from "../logger.ts";
 
 export interface GuestRelayRequest {
@@ -71,10 +64,7 @@ export const DEFAULT_SHARE_RELAY_HOST_BACKOFF: ShareRelayHostBackoff = {
 };
 
 export interface ShareRelayHostClientOptions {
-  /** The origin the share was registered with. */
   readonly origin: string;
-  /** The router of the relay `origin` belongs to, or null to connect to `origin` itself. */
-  readonly entries?: MossServiceEntryRouter | null;
   readonly shareId: GuestShareId;
   readonly hostKey: string;
   readonly handle: GuestRelayRequestHandler;
@@ -161,8 +151,6 @@ export class ShareRelayHostClient {
   #status: GuestShareRelayStatus = "offline";
   #attempt = 0;
   #stopped = false;
-  /** A failed entry is being reported; the reconnect is scheduled once that is done. */
-  #reporting = false;
   #reconnectTimer: NodeJS.Timeout | null = null;
   #helloTimer: NodeJS.Timeout | null = null;
   #idleTimer: NodeJS.Timeout | null = null;
@@ -178,14 +166,7 @@ export class ShareRelayHostClient {
   }
 
   start(): void {
-    if (
-      this.#stopped ||
-      this.#reporting ||
-      this.#socket !== null ||
-      this.#reconnectTimer !== null
-    ) {
-      return;
-    }
+    if (this.#stopped || this.#socket !== null || this.#reconnectTimer !== null) return;
     this.#connect();
   }
 
@@ -220,18 +201,16 @@ export class ShareRelayHostClient {
   #connect(): void {
     this.#clearReconnect();
     this.#setStatus("connecting");
-    const entries = this.#options.entries ?? null;
-    const origin = mossServiceEntryInUse(this.#options.origin, entries);
-    // Set when the socket failed below HTTP before it opened: the entry is reported first.
-    let connectFailure: unknown = null;
-    let opened = false;
     let socket: WebSocket;
     try {
-      socket = new this.#WebSocketCtor(relayWebSocketUrl(origin, this.#options.shareId), {
-        handshakeTimeout: SHARE_RELAY_HELLO_TIMEOUT_MS,
-        maxPayload: HOST_MAX_PAYLOAD_BYTES,
-        perMessageDeflate: false,
-      });
+      socket = new this.#WebSocketCtor(
+        relayWebSocketUrl(this.#options.origin, this.#options.shareId),
+        {
+          handshakeTimeout: SHARE_RELAY_HELLO_TIMEOUT_MS,
+          maxPayload: HOST_MAX_PAYLOAD_BYTES,
+          perMessageDeflate: false,
+        },
+      );
     } catch (cause) {
       logger.warn("relay socket could not be created", {
         shareId: this.#options.shareId,
@@ -243,7 +222,6 @@ export class ShareRelayHostClient {
     this.#socket = socket;
     socket.on("open", () => {
       if (this.#socket !== socket) return;
-      opened = true;
       this.#sendFrame({
         t: "hello",
         shareId: this.#options.shareId,
@@ -265,7 +243,6 @@ export class ShareRelayHostClient {
     });
     socket.on("error", (error) => {
       if (this.#socket !== socket) return;
-      if (!opened && isMossConnectionLevelFailure(error)) connectFailure = error;
       logger.warn("relay socket error", {
         shareId: this.#options.shareId,
         cause: error.message,
@@ -277,21 +254,7 @@ export class ShareRelayHostClient {
       this.#clearTimers();
       this.#abortInFlight();
       this.#setStatus("offline");
-      if (this.#stopped) return;
-      const closed = () => this.#onClosed(code, toBuffer(reason).toString("utf8"));
-      if (entries === null || connectFailure === null) {
-        closed();
-        return;
-      }
-      // Wait for the router's answer, so the next attempt goes to the entry that works.
-      this.#reporting = true;
-      void entries
-        .reportConnectionFailure(origin)
-        .catch(() => undefined)
-        .then(() => {
-          this.#reporting = false;
-          if (!this.#stopped) closed();
-        });
+      if (!this.#stopped) this.#onClosed(code, toBuffer(reason).toString("utf8"));
     });
   }
 

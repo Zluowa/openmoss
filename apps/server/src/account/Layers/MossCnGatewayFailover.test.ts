@@ -130,14 +130,11 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
   let baseDir: string;
   let now: number;
   const reachable = new Set<string>();
-  /** Hosts whose health check passes but whose real requests are reset (2026-11-13). */
-  const resetsRequests = new Set<string>();
 
   beforeEach(() => {
     baseDir = mkdtempSync(path.join(tmpdir(), "moss-cn-failover-"));
     now = ISSUED_AT;
     reachable.clear();
-    resetsRequests.clear();
     vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", PRIMARY);
     vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS", FALLBACK);
     vi.stubEnv(
@@ -170,22 +167,17 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
         verifyPhoneOtp: async () => authSession("access-1", ISSUED_AT + 3 * HOUR),
         refresh: async () => authSession("access-2", now + 3 * HOUR),
         getUser: async () => authSession("unused", now + HOUR).user,
-        updateUserMetadata: async () => authSession("unused", now + HOUR).user,
         logout: async () => ({ accepted: true }),
       },
     };
   };
 
-  /**
-   * The gateway answers on an entry whose host is reachable; otherwise the request fails below
-   * HTTP, as the live catalog fetch reports a reset.
-   */
+  /** The gateway answers on an entry whose host is reachable; otherwise the request throws. */
   const fetchGatewayModels: FetchMossGatewayModelIds = (input) =>
     Effect.succeed(
-      reachable.has(new URL(input.gatewayBaseUrl).host) &&
-        !resetsRequests.has(new URL(input.gatewayBaseUrl).host)
+      reachable.has(new URL(input.gatewayBaseUrl).host)
         ? { status: "ready" as const, models: mossManagedCodexModelsForLane("cn") }
-        : { status: "transport-degraded" as const, models: [], connectionFailed: true as const },
+        : null,
     );
 
   const makeService = () => {
@@ -223,22 +215,14 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
       const afterSignIn = yield* managedLanes;
       const credential = yield* service.getAuthorityCredential();
 
-      // The primary recovers. It failed at sign-in, so it is suspect for the cool-down (30
-      // minutes) and then needs four good checks a minute apart; maintenance then moves the
-      // lanes. Before that the lanes stay on the fallback.
+      // The primary recovers; the next due check finds it and maintenance moves the lanes.
       reachable.add("moss-models.comiction.cn");
-      for (let minute = 1; minute <= 32; minute += 1) {
-        now += 60_000;
-        yield* Effect.promise(() => entries.refreshIfDue());
-      }
-      yield* service.maintainSession!();
-      const beforeReturn = yield* managedLanes;
-      now += 60_000;
+      now += 5 * 60_000;
       yield* Effect.promise(() => entries.refreshIfDue());
       yield* service.maintainSession!();
       const afterRecovery = yield* managedLanes;
       const session = yield* service.getSession();
-      return { afterSignIn, credential, beforeReturn, afterRecovery, session };
+      return { afterSignIn, credential, afterRecovery, session };
     }).pipe(Effect.provide(makeHarnessLayer(baseDir)), Effect.runPromise);
 
     const bearer = bearerJwt("access-1", ISSUED_AT + 3 * HOUR);
@@ -248,33 +232,12 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
       bearer,
     });
     expect(result.credential.gatewayBaseUrl).toBe(FALLBACK);
-    expect(result.beforeReturn.codex.gatewayBaseUrl).toBe(FALLBACK);
     expect(result.afterRecovery).toEqual({
       codex: { enabled: true, gatewayBaseUrl: PRIMARY },
       claude: { enabled: true, gatewayBaseUrl: PRIMARY.replace(/\/v1$/, "") },
       bearer,
     });
     expect(result.session.authenticated).toBe(true);
-    expect(result.session.modelGatewayStatus).toBe("ready");
-  });
-
-  it("signs in on the fallback when the primary passes its checks but resets the real request", async () => {
-    reachable.add("moss-models.comiction.cn");
-    reachable.add("moss-cn-models.inkcomicai.com");
-    resetsRequests.add("moss-models.comiction.cn");
-    const result = await Effect.gen(function* () {
-      yield* (yield* ServerSettingsService).start;
-      const { service, entries } = yield* makeService();
-      yield* signIn(service);
-      return {
-        lanes: yield* managedLanes,
-        session: yield* service.getSession(),
-        current: entries.current(),
-      };
-    }).pipe(Effect.provide(makeHarnessLayer(baseDir)), Effect.runPromise);
-
-    expect(result.current).toBe(FALLBACK);
-    expect(result.lanes.codex).toEqual({ enabled: true, gatewayBaseUrl: FALLBACK });
     expect(result.session.modelGatewayStatus).toBe("ready");
   });
 
@@ -326,151 +289,4 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
     // The lanes stay in place on the primary, so a chat reports the outage instead.
     expect(result.lanes.codex).toEqual({ enabled: true, gatewayBaseUrl: PRIMARY });
   });
-});
-
-describe("upgrading to the release with the mossbotai.com entries", () => {
-  /** The first CN entry since 2026-11-14; the two entries above became its fallbacks. */
-  const NEW = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
-  const NEW_HOST = "api.mossbotai.com";
-  const DIRECT_HOST = "moss-models.comiction.cn";
-  const TUNNEL_HOST = "moss-cn-models.inkcomicai.com";
-  let baseDir: string;
-  const reachable = new Set<string>();
-
-  beforeEach(() => {
-    baseDir = mkdtempSync(path.join(tmpdir(), "moss-cn-upgrade-"));
-    reachable.clear();
-  });
-
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    resetMossServiceEntryRoutersForTest();
-    rmSync(baseDir, { recursive: true, force: true });
-  });
-
-  const auth = (modelGatewayUrl: string): MemFirePhoneAuthAvailable => {
-    const config = {
-      realm: "memfire-phone" as const,
-      issuer: "https://moss.example.cn/auth/v1",
-      cloudRegion: "cn" as const,
-      modelGatewayUrl,
-      realtimeRelayUrl: "https://rt.mossbotai.com",
-    };
-    return {
-      status: "available",
-      available: true,
-      config,
-      client: {
-        config,
-        sendPhoneOtp: async () => ({ accepted: true }),
-        verifyPhoneOtp: async () => authSession("access-1", ISSUED_AT + 3 * HOUR),
-        refresh: async () => authSession("access-2", ISSUED_AT + 3 * HOUR),
-        getUser: async () => authSession("unused", ISSUED_AT + HOUR).user,
-        updateUserMetadata: async () => authSession("unused", ISSUED_AT + HOUR).user,
-        logout: async () => ({ accepted: true }),
-      },
-    };
-  };
-
-  const fetchGatewayModels: FetchMossGatewayModelIds = (input) =>
-    Effect.succeed(
-      reachable.has(new URL(input.gatewayBaseUrl).host)
-        ? { status: "ready" as const, models: mossManagedCodexModelsForLane("cn") }
-        : { status: "transport-degraded" as const, models: [], connectionFailed: true as const },
-    );
-
-  /**
-   * One app version: its release config in the environment, its entries, its phone account
-   * service. The settings and the stored session live on in the same profile.
-   */
-  const appVersion = (primary: string, fallbacks: ReadonlyArray<string>) => {
-    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", primary);
-    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS", fallbacks.join(","));
-    vi.stubEnv("MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL", "https://rt.mossbotai.com");
-    resetMossServiceEntryRoutersForTest();
-    const entries = makeMossServiceEntryRouter({
-      service: "CN model gateway",
-      entries: [primary, ...fallbacks],
-      healthUrl: mossModelGatewayHealthUrl,
-      probe: async (healthUrl) => reachable.has(new URL(healthUrl).host),
-      now: () => ISSUED_AT,
-    });
-    return makeMossPhoneAccountService({
-      auth: auth(primary),
-      now: () => ISSUED_AT,
-      fetchGatewayModels,
-      modelGatewayEntries: entries,
-    });
-  };
-
-  const signIn = (service: Effect.Success<ReturnType<typeof makeMossPhoneAccountService>>) =>
-    Effect.gen(function* () {
-      const challenge = yield* service.startPhoneLogin({ phoneNumber: PHONE });
-      return yield* service.verifyPhoneLogin({
-        challengeId: challenge.challengeId,
-        phoneNumber: challenge.phoneNumber,
-        code: "123456",
-      });
-    });
-
-  it.each([
-    {
-      from: "1.0.3 (direct entry only)",
-      old: { primary: PRIMARY, fallbacks: [] as string[] },
-      oldReachable: [DIRECT_HOST],
-      laneBefore: PRIMARY,
-      newReachable: [NEW_HOST, TUNNEL_HOST, DIRECT_HOST],
-      laneAfter: NEW,
-    },
-    {
-      from: "a build on the tunnel fallback",
-      old: { primary: PRIMARY, fallbacks: [FALLBACK] },
-      oldReachable: [TUNNEL_HOST],
-      laneBefore: FALLBACK,
-      newReachable: [NEW_HOST, TUNNEL_HOST],
-      laneAfter: NEW,
-    },
-    {
-      from: "1.0.3, on a network where mossbotai.com does not resolve",
-      old: { primary: PRIMARY, fallbacks: [] as string[] },
-      oldReachable: [DIRECT_HOST],
-      laneBefore: PRIMARY,
-      newReachable: [TUNNEL_HOST, DIRECT_HOST],
-      laneAfter: FALLBACK,
-    },
-  ])(
-    "moves the lanes of $from to the entry in use, signed in, with nothing to do",
-    async ({ old, oldReachable, laneBefore, newReachable, laneAfter }) => {
-      const result = await Effect.gen(function* () {
-        yield* (yield* ServerSettingsService).start;
-        for (const host of oldReachable) reachable.add(host);
-        const before = yield* appVersion(old.primary, old.fallbacks);
-        yield* signIn(before);
-        const lanesBefore = yield* managedLanes;
-
-        // The upgrade: same profile, the new release config, a new process.
-        reachable.clear();
-        for (const host of newReachable) reachable.add(host);
-        const after = yield* appVersion(NEW, [FALLBACK, PRIMARY]);
-        yield* after.maintainSession!();
-        return {
-          lanesBefore,
-          lanesAfter: yield* managedLanes,
-          session: yield* after.getSession(),
-          credential: yield* after.getAuthorityCredential(),
-        };
-      }).pipe(Effect.provide(makeHarnessLayer(baseDir)), Effect.runPromise);
-
-      const bearer = bearerJwt("access-1", ISSUED_AT + 3 * HOUR);
-      expect(result.lanesBefore.codex).toEqual({ enabled: true, gatewayBaseUrl: laneBefore });
-      expect(result.lanesAfter).toEqual({
-        codex: { enabled: true, gatewayBaseUrl: laneAfter },
-        claude: { enabled: true, gatewayBaseUrl: laneAfter.replace(/\/v1$/, "") },
-        bearer,
-      });
-      expect(result.session.authenticated).toBe(true);
-      expect(result.session.modelGatewayStatus).toBe("ready");
-      expect(result.credential.gatewayBaseUrl).toBe(laneAfter);
-    },
-  );
 });

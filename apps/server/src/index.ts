@@ -1,7 +1,9 @@
 import { captureSentryException, flushSentry } from "./observability/sentry";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 
 import { CliConfig, makeMossCli, type MossServerLayerOptions } from "./main";
@@ -15,7 +17,6 @@ import { ServerLive } from "./effectServer";
 import { NetService } from "@moss/shared/Net";
 import { FetchHttpClient } from "effect/unstable/http";
 import { consumeDesktopParentInput, withDesktopParentLifetime } from "./desktopParentLifetime";
-import { exitDesktopBackend } from "./desktopFatalExit";
 import { hydrateWindowsUserEnvironment } from "./os-jank";
 import { installWindowsProviderProcessGuard } from "./platform/windowsProviderProcessGuard";
 import { installWindowsExitPriority } from "./platform/windowsExitPriority";
@@ -71,20 +72,15 @@ if (import.meta.main) {
   // the owned process once its runtime has completed instead of leaving the
   // desktop waiting for an unrelated handle to drain. The exit code keeps the
   // runtime's own mapping (0 success, 130 interrupt, 1 failure) so the desktop
-  // log and crash diagnostics still tell a clean exit from a crash. This exit runs
-  // before runMain's own error report, so a crash writes its cause to stderr first.
+  // log and crash diagnostics still tell a clean exit from a crash.
   NodeRuntime.runMain(
     withDesktopParentLifetime(mossServerProgram(), desktopParentInput).pipe(
       Effect.ensuring(Effect.sync(disposeWarmWindowsTeardownObservers)),
       Effect.onExit((exit) =>
-        process.env.MOSS_MODE !== "desktop"
-          ? Effect.void
-          : exitDesktopBackend(exit, {
-              writeStderr: (text, done) => {
-                process.stderr.write(text, () => done());
-              },
-              exitProcess: (code) => process.exit(code),
-            }),
+        Effect.sync(() => {
+          if (process.env.MOSS_MODE !== "desktop") return;
+          process.exit(Exit.isFailure(exit) ? (Cause.hasInterruptsOnly(exit.cause) ? 130 : 1) : 0);
+        }),
       ),
     ),
   );

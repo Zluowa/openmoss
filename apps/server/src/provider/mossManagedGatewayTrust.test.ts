@@ -1,9 +1,3 @@
-import { readFileSync } from "node:fs";
-
-import {
-  parseMossProductionPublicConfig,
-  toMossProductionPublicConfigEnv,
-} from "@moss/shared/mossProductionPublicConfig";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -233,69 +227,5 @@ describe("isTrustedMossManagedGatewayUrl", () => {
         MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS: LOOPBACK_GATEWAY,
       }),
     ).toBe(false);
-  });
-});
-
-describe("the shipped release's CN gateway entries", () => {
-  const shippedEnv = toMossProductionPublicConfigEnv(
-    parseMossProductionPublicConfig(
-      readFileSync(
-        new URL("../../../desktop/resources/moss-production-public-config.json", import.meta.url),
-        "utf8",
-      ),
-    ),
-  );
-  const NEW = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
-  const TUNNEL = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
-  const DIRECT = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
-
-  it("lists the mossbotai.com entry first and both old entries after it, for phone and key lanes", () => {
-    for (const authority of ["memfire-phone", "moss-enterprise-key"] as const) {
-      expect(mossManagedGatewayEntriesForAuthority(authority, shippedEnv)).toEqual([
-        NEW,
-        TUNNEL,
-        DIRECT,
-      ]);
-      for (const entry of [NEW, TUNNEL, DIRECT]) {
-        expect(isTrustedMossManagedGatewayUrlForAuthority(entry, authority, shippedEnv)).toBe(true);
-        // Lanes provisioned before keep their base URL without the /v1 suffix (Claude).
-        expect(
-          isTrustedMossManagedGatewayUrlForAuthority(
-            entry.replace(/\/v1$/u, ""),
-            authority,
-            shippedEnv,
-          ),
-        ).toBe(true);
-      }
-    }
-    for (const entry of [NEW, TUNNEL, DIRECT]) {
-      expect(isTrustedMossManagedGatewayUrlForAuthority(entry, "supabase-google", shippedEnv)).toBe(
-        false,
-      );
-    }
-  });
-
-  it("trusts nothing that only looks like a listed entry", () => {
-    for (const candidate of [
-      "https://api.mossbotai.com.evil.example/functions/v1/moss-model-gateway/v1",
-      "https://evil-mossbotai.com/functions/v1/moss-model-gateway/v1",
-      "https://mossbotai.com/functions/v1/moss-model-gateway/v1",
-      "https://share.mossbotai.com/functions/v1/moss-model-gateway/v1",
-      "https://pay.mossbotai.com/functions/v1/moss-model-gateway/v1",
-      "http://api.mossbotai.com/functions/v1/moss-model-gateway/v1",
-      "https://api.mossbotai.com:8443/functions/v1/moss-model-gateway/v1",
-      "https://api.mossbotai.com/functions/v1/moss-pay",
-      "https://api.mossbotai.com/functions/v1/other-gateway/v1",
-      "https://api.mossbotai.com/v1",
-      "https://user@api.mossbotai.com/functions/v1/moss-model-gateway/v1",
-      "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1?next=evil",
-    ]) {
-      expect(isTrustedMossManagedGatewayUrl(candidate, shippedEnv)).toBe(false);
-      for (const authority of ["memfire-phone", "moss-enterprise-key"] as const) {
-        expect(isTrustedMossManagedGatewayUrlForAuthority(candidate, authority, shippedEnv)).toBe(
-          false,
-        );
-      }
-    }
   });
 });

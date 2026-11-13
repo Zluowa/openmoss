@@ -9,10 +9,8 @@ import {
   mapMossMcpResultToCallToolResult,
   normalizeMcpToolArguments,
   requestMcpAppTeardown,
-  watchMcpAppGuestDeath,
   type McpAppHostOptions,
 } from "./mcpAppHost";
-import { MCP_APP_INITIALIZE_HARD_CAP_MS } from "./mcpApps/constants";
 import type { McpAppBinding, McpAppToolResultResponse } from "./mcpApps/contracts";
 import type { WorkLogMcpToolResult } from "./toolCallDetails";
 
@@ -358,11 +356,7 @@ describe("MCP App host timers and permissions", () => {
       expect(internals.initializeTimer).toBeNull();
       controller.updateProjection(projection({ status: "completed", durationMs: 3 }));
       expect(internals.initializeTimer).not.toBeNull();
-      // A slow widget that is still loading (the map fetches CesiumJS first) is not failed at
-      // the old 15 s; only a widget that never starts is, at the cap.
-      await vi.advanceTimersByTimeAsync(15_000);
-      expect(controller.getSnapshot().phase).not.toBe("failed");
-      await vi.advanceTimersByTimeAsync(MCP_APP_INITIALIZE_HARD_CAP_MS - 15_001);
+      await vi.advanceTimersByTimeAsync(14_999);
       expect(controller.getSnapshot().phase).not.toBe("failed");
       await vi.advanceTimersByTimeAsync(1);
       await vi.waitFor(() => expect(controller.getSnapshot().phase).toBe("failed"));
@@ -524,47 +518,6 @@ describe("MCP App tool data delivery", () => {
     expect(controller.getSnapshot().phase).toBe("failed");
   });
 
-  it("moves a still-starting frame to the slot of a row that remounted before initialized", () => {
-    // Real-data run: the debug widget's row remounted 100 ms after its webview was created; the
-    // frame stayed on the detached slot (display:none) and the widget never said initialized.
-    const controller = makeController();
-    const internals = controller as unknown as Record<string, unknown>;
-    const follow = vi.fn(() => true);
-    internals.tracker = { follow, setVisible: vi.fn() };
-    internals.snapshot = { ...controller.getSnapshot(), phase: "loading" };
-    internals.running = false;
-    const oldSlot = {} as HTMLElement;
-    const newSlot = {} as HTMLElement;
-    internals.inlineContainer = oldSlot;
-    controller.detachInline(oldSlot);
-    controller.attachInline(newSlot);
-    expect(follow).toHaveBeenCalledWith(newSlot, "inline");
-    expect(controller.getInlineContainer()).toBe(newSlot);
-  });
-
-  it("shows a failed call's fallback at once, while the guest is still being torn down", () => {
-    // The desktop shell's unregister may take its time (or never answer); the card must not
-    // keep showing 「正在加载」 meanwhile.
-    const controller = makeController({
-      projection: projection({ status: "inProgress" }),
-      desktop: { register: async () => null, unregister: () => new Promise(() => undefined) },
-    });
-    const internals = controller as unknown as Record<string, unknown>;
-    internals.snapshot = { ...controller.getSnapshot(), phase: "loading" };
-    internals.descriptor = {
-      generation: 0,
-      initId: "init-1",
-      origin: "moss-mcp-sandbox://mcp-test",
-      partition: "moss-mcp-mcp-test",
-      sandboxId: "mcp-test",
-      src: "moss-mcp-sandbox://mcp-test/ui?generation=0#init=init-1",
-    };
-    controller.updateProjection(
-      projection({ status: "failed", error: { message: "Debug text content #1" } }),
-    );
-    expect(controller.getSnapshot().phase).toBe("failed");
-  });
-
   it("shows the text fallback when a failed call left no usable result", async () => {
     const controller = makeController({
       projection: projection({ status: "failed", error: { message: "bad structuredContent" } }),
@@ -642,32 +595,6 @@ describe("MCP App suspension (side-panel residency)", () => {
     const controller = makeController();
     await controller.suspend();
     expect(controller.getSnapshot().phase).toBe("idle");
-  });
-});
-
-describe("a widget guest that is gone", () => {
-  it("is reported once, on a crash or a failed page load, not on an aborted navigation", () => {
-    const webview = new EventTarget();
-    const onDead = vi.fn();
-    watchMcpAppGuestDeath(webview, onDead);
-    webview.dispatchEvent(
-      Object.assign(new Event("did-fail-load"), { errorCode: -3, isMainFrame: true }),
-    );
-    webview.dispatchEvent(
-      Object.assign(new Event("did-fail-load"), { errorCode: -105, isMainFrame: false }),
-    );
-    expect(onDead).not.toHaveBeenCalled();
-    webview.dispatchEvent(
-      Object.assign(new Event("did-fail-load"), { errorCode: -105, isMainFrame: true }),
-    );
-    webview.dispatchEvent(new Event("render-process-gone"));
-    expect(onDead).toHaveBeenCalledTimes(1);
-
-    const crashed = new EventTarget();
-    const onCrash = vi.fn();
-    watchMcpAppGuestDeath(crashed, onCrash);
-    crashed.dispatchEvent(new Event("render-process-gone"));
-    expect(onCrash).toHaveBeenCalledTimes(1);
   });
 });
 

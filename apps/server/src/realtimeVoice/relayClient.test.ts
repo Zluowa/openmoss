@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 import type WebSocket from "ws";
 import { MOSS_CLOUD_REGION_HEADER } from "@moss/shared/mossProductionPublicConfig";
 
-import { makeMossServiceEntryRouter } from "../account/mossServiceEntries";
 import {
   RealtimeVoiceRelayClient,
   resolveMossCloudRegion,
@@ -278,73 +277,5 @@ describe("realtime control channel IPv4 fallback", () => {
     expect(FakeControlSocket.instances).toHaveLength(2);
     expect(handlers.onError).toHaveBeenCalledTimes(1);
     expect(handlers.onClose).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("RealtimeVoiceRelayClient across the relay's entries", () => {
-  const NEW = "https://rt.mossbotai.com";
-  const OLD = "https://moss-cn-realtime-edge.inkcomicai.com";
-
-  it("reports a reset to the entry router and never starts the same call twice", async () => {
-    const router = makeMossServiceEntryRouter({
-      service: "CN realtime relay",
-      entries: [NEW, OLD],
-      healthUrl: (entry) => `${entry}/healthz`,
-      probe: async (healthUrl) => new URL(healthUrl).origin === OLD || healthUrl.startsWith(NEW),
-    });
-    await expect(router.ensure()).resolves.toBe(NEW);
-    const fetchMock = vi.fn(async () => {
-      throw Object.assign(new TypeError("fetch failed"), {
-        cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
-      });
-    });
-    const client = new RealtimeVoiceRelayClient({
-      origin: NEW,
-      cloudRegion: "cn",
-      entries: router,
-      fetch: fetchMock as unknown as typeof fetch,
-      now: () => NOW,
-    });
-    await expect(
-      client.startCall({
-        accessToken: "token",
-        sessionId: SESSION_ID,
-        transport: { type: "websocket-pcm16" },
-        voice: "maple",
-        outputModality: "audio",
-      }),
-    ).rejects.toMatchObject({ code: "REALTIME_RELAY_UNAVAILABLE" });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(router.current()).toBe(OLD);
-  });
-
-  it("does not move on an answer from the relay", async () => {
-    const router = makeMossServiceEntryRouter({
-      service: "CN realtime relay",
-      entries: [NEW, OLD],
-      healthUrl: (entry) => `${entry}/healthz`,
-      probe: async () => true,
-    });
-    await router.ensure();
-    const client = new RealtimeVoiceRelayClient({
-      origin: NEW,
-      cloudRegion: "cn",
-      entries: router,
-      fetch: (async () =>
-        new Response(JSON.stringify({ error: { code: "BUSY" } }), {
-          status: 503,
-        })) as unknown as typeof fetch,
-      now: () => NOW,
-    });
-    await expect(
-      client.startCall({
-        accessToken: "token",
-        sessionId: SESSION_ID,
-        transport: { type: "websocket-pcm16" },
-        voice: "maple",
-        outputModality: "audio",
-      }),
-    ).rejects.toMatchObject({ code: "BUSY" });
-    expect(router.current()).toBe(NEW);
   });
 });

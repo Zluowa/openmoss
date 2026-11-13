@@ -36,11 +36,6 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../../orchestration/Services/OrchestrationEngine";
-import {
-  mossRealtimeRelayEntries,
-  parseMossRealtimeRelayEntry,
-  type MossServiceEntryRouter,
-} from "../../account/mossServiceEntries";
 import { createLogger } from "../../logger";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "../../serverRuntimeStartup";
 import {
@@ -224,36 +219,8 @@ export function resolveRealtimeVoiceAccessToken(input: {
   );
 }
 
-/**
- * The relay entry a credential's calls go to: its realm router's entry in use when the
- * credential is bound to one of the realm's entries (any of them: they reach the same relay),
- * else the bound relay itself, as before relays had entries. A credential bound to the other
- * realm's relay is refused. The first call checks the entries (at most one health-check
- * timeout); later calls return at once.
- */
-export async function resolveRealtimeVoiceRelayEntry(
-  credential: Pick<MossAuthorityCredential, "realm" | "realtimeRelayUrl">,
-  env: Readonly<Record<string, string | undefined>> = process.env,
-): Promise<{ readonly origin: string; readonly entries: MossServiceEntryRouter | null }> {
-  const region = mossCloudRegionForAuthority(credential.realm);
-  const bound = parseMossRealtimeRelayEntry(credential.realtimeRelayUrl);
-  const otherRealm = mossRealtimeRelayEntries(region === "cn" ? "global" : "cn", env);
-  if (bound !== undefined && otherRealm?.entries.includes(bound)) {
-    throw realtimeVoiceAccountRecoveryRequired();
-  }
-  const router = mossRealtimeRelayEntries(region, env);
-  if (router === null || bound === undefined || !router.entries.includes(bound)) {
-    return { origin: credential.realtimeRelayUrl, entries: null };
-  }
-  return { origin: await router.ensure(), entries: router };
-}
-
 export function makeRealtimeVoiceRuntimeRoute(
   credential: MossAuthorityCredential,
-  entry: { readonly origin: string; readonly entries: MossServiceEntryRouter | null } = {
-    origin: credential.realtimeRelayUrl,
-    entries: null,
-  },
 ): RealtimeVoiceRuntimeRoute {
   const accessToken = credential.accessToken.trim();
   if (!accessToken || /[\r\n]/u.test(accessToken) || !credential.realtimeRelayUrl) {
@@ -262,12 +229,9 @@ export function makeRealtimeVoiceRuntimeRoute(
   // An enterprise key uses the mainland relay, like the phone realm.
   const cloudRegion = mossCloudRegionForAuthority(credential.realm);
   const preferredTransport = cloudRegion === "cn" ? "websocket-pcm16" : "webrtc";
-  // Calls go to the entry in use; the authority stays the bound relay, so a launch that
-  // spans an entry change is still the same account's.
   const relay = new RealtimeVoiceRelayClient({
-    origin: entry.origin,
+    origin: credential.realtimeRelayUrl,
     cloudRegion,
-    entries: entry.entries,
   });
   const normalizedOrigin = new URL(credential.realtimeRelayUrl).origin;
   return {
@@ -488,17 +452,8 @@ export const RealtimeVoiceServiceLive = Layer.effect(
     const resolveRuntimeRoute = () =>
       resolveRealtimeVoiceAuthorityCredential({ phoneAccount, cloudAccount, enterpriseKey }).pipe(
         Effect.flatMap((credential) =>
-          Effect.tryPromise({
-            try: () => resolveRealtimeVoiceRelayEntry(credential),
-            catch: (cause) =>
-              cause instanceof RealtimeVoiceRuntimeError
-                ? cause
-                : realtimeVoiceAccountRecoveryRequired(),
-          }).pipe(Effect.map((entry) => ({ credential, entry }))),
-        ),
-        Effect.flatMap(({ credential, entry }) =>
           Effect.try({
-            try: () => makeRealtimeVoiceRuntimeRoute(credential, entry),
+            try: () => makeRealtimeVoiceRuntimeRoute(credential),
             catch: (cause) =>
               cause instanceof RealtimeVoiceRuntimeError
                 ? cause

@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import net from "node:net";
 import path from "node:path";
 
 import {
@@ -32,10 +31,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { htmlRenderActivityPayload } from "@moss/shared/htmlRenderActivity";
 
 import { MossAccountServiceError } from "../../account/mossAccountErrors.ts";
-import {
-  makeMossServiceEntryRouter,
-  type MossServiceEntryRouter,
-} from "../../account/mossServiceEntries.ts";
 import { MossCloudAccountServiceError } from "../../account/mossCloudAccountErrors.ts";
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService.ts";
 import { MossPhoneAccountService } from "../../account/Services/MossPhoneAccountService.ts";
@@ -59,11 +54,7 @@ import {
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "../../serverRuntimeStartup.ts";
 import { GuestShareOwnerError } from "../Errors.ts";
 import { GuestShareService, type GuestShareServiceShape } from "../Services/GuestShareService.ts";
-import {
-  ShareRelayTransport,
-  type ShareRelayTransportShape,
-} from "../Services/ShareRelayTransport.ts";
-import { SHARE_RELAY_ENTRIES_BY_REALM, shareRelayHealthUrl } from "../shareRelayOrigin.ts";
+import { ShareRelayTransport } from "../Services/ShareRelayTransport.ts";
 import type { GuestRelayRequest, GuestRelayResponse } from "../shareRelayHostClient.ts";
 import { FakeShareRelay } from "../testing/fakeShareRelay.ts";
 import { GuestShareServiceLive } from "./GuestShareService.ts";
@@ -127,12 +118,7 @@ interface Harness {
   readonly dispose: () => Promise<void>;
 }
 
-async function makeHarness(
-  options: {
-    /** Replaces parts of the default transport (the loopback override to the fake relay). */
-    readonly transport?: (relay: FakeShareRelay) => Partial<ShareRelayTransportShape>;
-  } = {},
-): Promise<Harness> {
+async function makeHarness(): Promise<Harness> {
   const relay = await FakeShareRelay.start();
   const commands: Array<OrchestrationCommand> = [];
   const state = {
@@ -232,7 +218,6 @@ async function makeHarness(
     webSocket: WebSocket,
     env: { MOSS_SHARE_RELAY_URL: relay.origin },
     backoff: { initialMs: 20, maxMs: 100, replacedMs: 100 },
-    ...options.transport?.(relay),
   });
   const persistence = Layer.mergeAll(
     GuestShareRepositoryLive,
@@ -1347,189 +1332,5 @@ describe("GuestShareService", () => {
       expect(GuestShareOwnerError.name).toBe("GuestShareOwnerError");
       expect(GuestMessageId.makeUnsafe(share.messages[0]!.id)).toBe(share.messages[0]!.id);
     });
-  });
-});
-
-/** What undici throws for a reset: `TypeError: fetch failed` with the cause. */
-const fetchFailed = () =>
-  Object.assign(new TypeError("fetch failed"), {
-    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
-  });
-
-describe("GuestShareService across the relay's entries", () => {
-  const CN_NEW = "https://share.mossbotai.com";
-  const CN_OLD = "https://moss-share.comiction.cn";
-
-  /**
-   * Every entry of both realms reaches the one fake relay, as the hostnames of one relay do.
-   * `blocked` entries reset every connection; `healthy` entries pass their health checks.
-   * Each request and socket is recorded with the entry it was sent to.
-   */
-  const routedTransport = async () => {
-    const blocked = new Set<string>();
-    const healthy = new Set<string>([CN_NEW, CN_OLD]);
-    const requests: Array<{ method: string; origin: string; bearer: boolean }> = [];
-    const sockets: Array<{ origin: string; blocked: boolean }> = [];
-    // Accepts and drops every connection: a reset below HTTP.
-    const resetter = net.createServer((socket) => socket.destroy());
-    await new Promise<void>((resolve) => resetter.listen(0, "127.0.0.1", resolve));
-    const resetPort = (resetter.address() as net.AddressInfo).port;
-    const routers = new Map<string, MossServiceEntryRouter>();
-    const transport = (relay: FakeShareRelay): Partial<ShareRelayTransportShape> => {
-      /** The same path on the fake relay, over http or ws. */
-      const toRelay = (address: string, scheme: "http" | "ws") => {
-        const url = new URL(address);
-        return `${relay.origin.replace(/^http/u, scheme)}${url.pathname}${url.search}`;
-      };
-      class RoutedWebSocket extends WebSocket {
-        constructor(address: string | URL, options?: WebSocket.ClientOptions) {
-          const origin = new URL(String(address)).origin.replace(/^ws/u, "http");
-          const isBlocked = blocked.has(origin);
-          sockets.push({ origin, blocked: isBlocked });
-          super(
-            isBlocked
-              ? `ws://127.0.0.1:${resetPort}${new URL(String(address)).pathname}`
-              : toRelay(String(address), "ws"),
-            options,
-          );
-        }
-      }
-      return {
-        env: {},
-        fetch: async (input, init) => {
-          const url = new URL(String(input));
-          const headers = new Headers(init?.headers);
-          requests.push({
-            method: init?.method ?? "GET",
-            origin: url.origin,
-            bearer: headers.has("authorization"),
-          });
-          if (blocked.has(url.origin)) throw fetchFailed();
-          return globalThis.fetch(toRelay(url.toString(), "http"), init);
-        },
-        webSocket: RoutedWebSocket as unknown as typeof WebSocket,
-        relayRouters: (realm) => {
-          let router = routers.get(realm);
-          if (!router) {
-            router = makeMossServiceEntryRouter({
-              service: `${realm} share relay`,
-              entries: SHARE_RELAY_ENTRIES_BY_REALM[realm],
-              healthUrl: shareRelayHealthUrl,
-              probe: async (healthUrl) => healthy.has(new URL(healthUrl).origin),
-              // Re-check the other entries at every reported failure, not once per 15 s.
-              failureRecheckMs: 0,
-            });
-            routers.set(realm, router);
-          }
-          return router;
-        },
-      };
-    };
-    return {
-      blocked,
-      healthy,
-      requests,
-      sockets,
-      transport,
-      router: (realm: "cn" | "global") => routers.get(realm),
-      close: () => new Promise<void>((resolve) => resetter.close(() => resolve())),
-    };
-  };
-
-  let routed: Awaited<ReturnType<typeof routedTransport>>;
-  let harness: Harness;
-
-  beforeEach(async () => {
-    routed = await routedTransport();
-  });
-
-  afterEach(async () => {
-    await harness.dispose();
-    await routed.close();
-  });
-
-  /** The account's bearer went only to the CN relay's own entries. */
-  const expectBearerOnlyOnCnEntries = () => {
-    const withBearer = routed.requests.filter((request) => request.bearer);
-    expect(withBearer.length).toBeGreaterThan(0);
-    for (const request of withBearer) expect([CN_NEW, CN_OLD]).toContain(request.origin);
-  };
-
-  it("registers a new share on the new entry and builds its link there", async () => {
-    harness = await makeHarness({ transport: routed.transport });
-    const created = await harness.run(harness.service.create(THREAD_ID));
-    expect(created.inviteUrl.startsWith(`${CN_NEW}/s/${created.share.id}#`)).toBe(true);
-    expect(created.share.relayOrigin).toBe(CN_NEW);
-    expect(routed.requests).toEqual([{ method: "POST", origin: CN_NEW, bearer: true }]);
-    await harness.relay.waitForHost(created.share.id);
-    expect(routed.sockets.map((socket) => socket.origin)).toEqual([CN_NEW]);
-    expectBearerOnlyOnCnEntries();
-  });
-
-  it("registers on the old entry, and links there, while the new one does not answer", async () => {
-    routed.healthy.delete(CN_NEW);
-    harness = await makeHarness({ transport: routed.transport });
-    const created = await harness.run(harness.service.create(THREAD_ID));
-    expect(created.inviteUrl.startsWith(`${CN_OLD}/s/${created.share.id}#`)).toBe(true);
-    expect(routed.requests).toEqual([{ method: "POST", origin: CN_OLD, bearer: true }]);
-    await harness.relay.waitForHost(created.share.id);
-    expectBearerOnlyOnCnEntries();
-  });
-
-  it("never sends a registration twice: a reset fails it, and the next attempt uses the next entry", async () => {
-    routed.blocked.add(CN_NEW);
-    harness = await makeHarness({ transport: routed.transport });
-    const failed = await harness.run(harness.service.create(THREAD_ID).pipe(Effect.result));
-    expect(failed._tag === "Failure" && failed.failure.code).toBe("guest_share.relay_unavailable");
-    expect(routed.requests).toEqual([{ method: "POST", origin: CN_NEW, bearer: true }]);
-    expect(routed.router("cn")?.current()).toBe(CN_OLD);
-    const created = await harness.run(harness.service.create(THREAD_ID));
-    expect(created.share.relayOrigin).toBe(CN_OLD);
-    expect(routed.requests.at(-1)).toEqual({ method: "POST", origin: CN_OLD, bearer: true });
-    expect(harness.relay.registerCalls).toHaveLength(1);
-  });
-
-  it("keeps a share's link for its life, and hosts and renews it through the entry that works", async () => {
-    // A share registered while the old entry was in use, as an older version did.
-    routed.healthy.delete(CN_NEW);
-    harness = await makeHarness({ transport: routed.transport });
-    const created = await harness.run(harness.service.create(THREAD_ID));
-    await harness.relay.waitForHost(created.share.id);
-    expect(created.share.relayOrigin).toBe(CN_OLD);
-
-    // The old entry is then reset from this network; the new one answers.
-    routed.healthy.add(CN_NEW);
-    routed.healthy.delete(CN_OLD);
-    routed.blocked.add(CN_OLD);
-    // The relay restarted and forgot the share: the host registers it again.
-    harness.relay.forget(created.share.id);
-    await harness.relay.waitForHost(created.share.id);
-
-    // The renewal went once to the old entry (reset, reported), then to the new one.
-    const posts = routed.requests.filter((request) => request.method === "POST");
-    expect(posts.map((request) => request.origin)).toEqual([CN_OLD, CN_OLD, CN_NEW]);
-    expect(harness.relay.registerCalls).toHaveLength(2);
-    expect(routed.sockets.at(-1)).toEqual({ origin: CN_NEW, blocked: false });
-    expect(routed.router("cn")?.current()).toBe(CN_NEW);
-    // The link a person may already have copied is unchanged.
-    const records = await harness.run(harness.repository.list());
-    expect(records.map((record) => record.relayOrigin)).toEqual([CN_OLD]);
-    expectBearerOnlyOnCnEntries();
-  });
-
-  it("moves the host socket to the next entry when its entry resets the connection", async () => {
-    harness = await makeHarness({ transport: routed.transport });
-    const created = await harness.run(harness.service.create(THREAD_ID));
-    const host = await harness.relay.waitForHost(created.share.id);
-    routed.blocked.add(CN_NEW);
-    routed.healthy.delete(CN_NEW);
-    host.socket.terminate();
-    await waitFor(() => routed.sockets.some((socket) => socket.origin === CN_OLD));
-    await harness.relay.waitForHost(created.share.id);
-    expect(routed.sockets.map((socket) => socket.origin)).toEqual([CN_NEW, CN_NEW, CN_OLD]);
-    expect(routed.router("cn")?.current()).toBe(CN_OLD);
-    // No new registration was needed: it is the same relay.
-    expect(harness.relay.registerCalls).toHaveLength(1);
-    expect(created.share.relayOrigin).toBe(CN_NEW);
   });
 });

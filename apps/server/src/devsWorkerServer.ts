@@ -13,7 +13,7 @@ if (!config.localCodex || !config.githubVerifyRef)
 const transport = githubTransport(config.repository, config.githubToken);
 const magpie = validateLocalCodexConfig(config.localCodex);
 const worker = new DevsOutboundWorker({
-  queueUrl: process.env.MOSS_DEVS_QUEUE_URL ?? "https://devs.mossbotai.com",
+  queueUrl: process.env.MOSS_DEVS_QUEUE_URL ?? "https://moss-devs.inkcomicai.com",
   token: required("MOSS_DEVS_WORKER_TOKEN"),
   stateDir: root,
   engines,

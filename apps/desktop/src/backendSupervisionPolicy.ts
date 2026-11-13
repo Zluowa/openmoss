@@ -2,8 +2,7 @@
 // Purpose: Pure crash-supervision policy for the desktop backend: restart backoff,
 //          the give-up circuit breaker, and the output tail used to explain it.
 // Layer: Desktop backend supervision
-// Exports: BackendSupervisionPolicy, BackendOutputTailDetector, summarizeBackendFailureOutput,
-//          backendExitLogDetail, formatBackendStartupFailureDetails
+// Exports: BackendSupervisionPolicy, BackendOutputTailDetector, summarizeBackendFailureOutput
 
 /** First backoff step; doubles per consecutive failed start. */
 export const BACKEND_RESTART_BASE_DELAY_MS = 500;
@@ -190,35 +189,4 @@ export function summarizeBackendFailureOutput(
 
   const start = errorIndex >= 0 ? errorIndex : Math.max(0, lines.length - maxLines);
   return lines.slice(start, start + maxLines).join("\n");
-}
-
-const BACKEND_EXIT_LOG_MAX_CHARS = 1_000;
-
-/**
- * The backend's last error as one bounded line for the desktop log, so support
- * can read why it stopped without opening the backend's own log.
- */
-export function backendExitLogDetail(output: string): string {
-  const summary = summarizeBackendFailureOutput(output).replace(/\s+/g, " ").trim();
-  return summary.length > BACKEND_EXIT_LOG_MAX_CHARS
-    ? `${summary.slice(0, BACKEND_EXIT_LOG_MAX_CHARS)}…`
-    : summary;
-}
-
-/** Plain-text details a person can copy and send when the backend cannot start. */
-export function formatBackendStartupFailureDetails(input: {
-  readonly appVersion: string;
-  readonly platform: string;
-  readonly failures: number;
-  readonly reason: string;
-  readonly output: string;
-  readonly logFilePath: string;
-}): string {
-  const summary = summarizeBackendFailureOutput(input.output);
-  return [
-    `Moss ${input.appVersion} (${input.platform})`,
-    `The local service failed to start ${input.failures} times in a row (last exit: ${input.reason}).`,
-    summary.length > 0 ? `Last error:\n${summary}` : "The local service wrote no error.",
-    `Log file: ${input.logFilePath}`,
-  ].join("\n\n");
 }

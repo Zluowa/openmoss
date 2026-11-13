@@ -1,12 +1,6 @@
 import { redactDiagnosticText } from "./diagnosticsRedaction";
 
-export const MOSS_DEVS_PUBLIC_REPORT_URL = "https://devs.mossbotai.com/reports";
-/**
- * The same queue under its older hostname. A request that fails below HTTP on the public URL
- * is sent here once; every report request carries the report ID, which the queue
- * deduplicates, so a repeat changes nothing.
- */
-export const MOSS_DEVS_FALLBACK_REPORT_URL = "https://moss-devs.inkcomicai.com/reports";
+export const MOSS_DEVS_PUBLIC_REPORT_URL = "https://moss-devs.inkcomicai.com/reports";
 
 /** Developer reports are on. The user confirms each one, seeing exactly what will be sent. */
 export const MOSS_DEVS_REPORTS_ENABLED = true;

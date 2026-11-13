@@ -1,7 +1,4 @@
 import {
-  ACCOUNT_SIGN_IN_WS_METHODS,
-  AuthAccountDecisionInput,
-  AuthAccountPendingRequests,
   AuthSessionState,
   AuthCreatePairingCredentialInput,
   AuthPairingCredentialResult,
@@ -1738,27 +1735,6 @@ export const WsServerRevokeOtherAuthClientsRpc = Rpc.make(WS_METHODS.serverRevok
   error: WsRpcError,
 });
 
-// Account sign-in from the owner's phone: only the local owner, in the Moss window on this
-// computer, sees the waiting phones and decides.
-export const WsAccountSignInSubscribeRpc = Rpc.make(ACCOUNT_SIGN_IN_WS_METHODS.subscribe, {
-  payload: Schema.Struct({}),
-  success: AuthAccountPendingRequests,
-  error: WsRpcError,
-  stream: true,
-});
-
-export const WsAccountSignInApproveRpc = Rpc.make(ACCOUNT_SIGN_IN_WS_METHODS.approve, {
-  payload: AuthAccountDecisionInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
-export const WsAccountSignInDenyRpc = Rpc.make(ACCOUNT_SIGN_IN_WS_METHODS.deny, {
-  payload: AuthAccountDecisionInput,
-  success: Schema.Void,
-  error: WsRpcError,
-});
-
 export const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerGetSettingsResult,
@@ -3276,9 +3252,6 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsGuestShareCloseRpc,
   WsGuestShareResolveMessageRpc,
   WsGuestShareSubscribeRpc,
-  WsAccountSignInSubscribeRpc,
-  WsAccountSignInApproveRpc,
-  WsAccountSignInDenyRpc,
   WsOrchestrationSettleTurnDispatchRpc,
   WsOrchestrationImportThreadRpc,
   WsListProjectImportsRpc,

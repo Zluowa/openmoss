@@ -6,7 +6,6 @@ import { Layer, ServiceMap } from "effect";
 import WebSocket from "ws";
 
 import type { ShareRelayHostBackoff } from "../shareRelayHostClient.ts";
-import type { ShareRelayEntryRouters } from "../shareRelayOrigin.ts";
 import type { ShareRelayFetch } from "../shareRelayRegistration.ts";
 
 export interface ShareRelayTransportShape {
@@ -15,8 +14,6 @@ export interface ShareRelayTransportShape {
   /** Where `MOSS_SHARE_RELAY_URL` and `MOSS_SHARE_RELAY_DEV_BEARER` are read from. */
   readonly env: NodeJS.ProcessEnv;
   readonly backoff?: ShareRelayHostBackoff;
-  /** Each realm's relay entries and their router; by default Moss's shared routers. */
-  readonly relayRouters?: ShareRelayEntryRouters;
 }
 
 export class ShareRelayTransport extends ServiceMap.Service<

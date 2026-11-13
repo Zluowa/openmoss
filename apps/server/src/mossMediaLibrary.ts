@@ -1,11 +1,7 @@
 import type { LibraryItem, LibraryListInput } from "@moss/contracts";
 import { Effect } from "effect";
 import { MossMediaHistory } from "./mossMediaHistory";
-import {
-  adoptMediaAccountScope,
-  mediaAccountScope,
-  type MossMediaIdentity,
-} from "./mossMediaJobsService";
+import { mediaAccountScope, type MossMediaIdentity } from "./mossMediaJobsService";
 import { validMossMediaAsset } from "./mossMediaAssets";
 import { resolveMossMediaIdentity } from "./mossMediaAuthority";
 import type { LibraryServiceShape } from "./library/Services/LibraryService";
@@ -18,11 +14,7 @@ export async function readMossMediaLibraryItems(
   identity: MossMediaIdentity,
 ): Promise<readonly LibraryItem[]> {
   const scope = mediaAccountScope(identity);
-  await adoptMediaAccountScope(stateDirectory, identity);
   const history = new MossMediaHistory(stateDirectory);
-  // Item ids keep the scope a record was first saved under, so favorites, folders and
-  // deletions made before scopes stopped naming the gateway still apply.
-  const origins = await history.originScopes(scope);
   const items: LibraryItem[] = [];
   let cursor: string | undefined;
   do {
@@ -35,7 +27,7 @@ export async function readMossMediaLibraryItems(
         const extension =
           asset.contentType === "image/jpeg" ? "jpg" : asset.contentType.split("/")[1];
         items.push({
-          id: `${MOSS_MEDIA_LIBRARY_PREFIX}${origins.get(job.jobId) ?? scope}:${job.jobId}:${asset.index}`,
+          id: `${MOSS_MEDIA_LIBRARY_PREFIX}${scope}:${job.jobId}:${asset.index}`,
           title: `${job.prompt.slice(0, 100) || (asset.kind === "video" ? "视频" : "图像")}.${extension}`,
           kind: asset.kind,
           source: "user:legacy",

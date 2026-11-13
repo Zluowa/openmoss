@@ -48,13 +48,6 @@ unstaged edits, untracked files, deletions.
    coordinator's lane, and `ChatView.browser.tsx` always is (it takes over ten minutes alone).
    The browser port is `VITEST_BROWSER_API_PORT`, or 52000 plus `MOSS_PORT_OFFSET` from a `ws`
    lease.
-8. **Phone app** (`apps/mobile`): not a workspace package (root `workspaces` lists
-   `!apps/mobile`; it has its own npm install), so it gets no package typecheck or test step. Its
-   files are formatted and linted like any others. When a change touches `apps/mobile/**`, a file
-   the app imports, or `packages/contracts/src` (its contract-drift test reads them), the tests
-   lane runs `bun run mobile:check` (`mobile:typecheck` with `--no-tests`) if
-   `apps/mobile/node_modules` exists. Without it, one line says the lane was skipped and to run
-   `bun run mobile:install`, then `bun run mobile:check`; that does not fail the gate.
 
 Each step prints one line with its time; a failed step prints the exact command that
 reproduces it and the end of its output. The last line is the total, the verdict and the load
@@ -107,8 +100,7 @@ changes reach it.
 
 ## Tests
 
-`bun run test:check`: file-to-package mapping, workspace patterns with `!` exclusions, when the
-phone app's lane runs,
+`bun run test:check`: file-to-package mapping, workspace patterns with `!` exclusions,
 dependents through import chains, root-config detection, the static checks, test selection and
 grouping, import parsing and resolution, the git side against a temporary repository, the slots
 and the heavy-lane wait against temporary locks, and the rerun-alone classification (report

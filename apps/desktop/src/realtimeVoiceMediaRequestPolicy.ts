@@ -125,31 +125,18 @@ function removeHeaderCaseInsensitive(
 /**
  * Old CN relay deployments reject Chromium's loopback/custom-scheme Origin before they consume
  * the one-time media ticket. Electron may omit that header only for the exact Moss renderer,
- * a listed relay entry, and the media path. The relay's entries (`realtimeRelayUrl`, then its
- * fallbacks) are hostnames of the same relay; the server hands the renderer the media URL of
- * the entry in use, so each listed entry is allowed and nothing else. The subprotocol pair
- * and ticket shape are checked whenever Electron exposes that header here; Chromium and the
- * relay still validate them on the wire either way.
+ * relay URL, and media path. The subprotocol pair and ticket shape are checked whenever Electron
+ * exposes that header here; Chromium and the relay still validate them on the wire either way.
  */
 export function createRealtimeVoiceMediaRequestPolicy(input: {
   readonly realtimeRelayUrl: unknown;
-  /** Absent for a release that lists one relay entry. */
-  readonly realtimeRelayFallbackUrls?: unknown;
   readonly trustedRendererUrl: unknown;
 }): RealtimeVoiceMediaRequestPolicy | null {
-  const primaryMediaUrl = resolveRealtimeMediaUrl(input.realtimeRelayUrl);
+  const expectedMediaUrl = resolveRealtimeMediaUrl(input.realtimeRelayUrl);
   const trustedRendererOrigin = resolveTrustedRendererOrigin(input.trustedRendererUrl);
-  if (primaryMediaUrl === null || trustedRendererOrigin === null) {
+  if (expectedMediaUrl === null || trustedRendererOrigin === null) {
     return null;
   }
-  // An entry that is not a plain HTTPS origin is not an entry: it is left out, never widened.
-  const fallbacks = Array.isArray(input.realtimeRelayFallbackUrls)
-    ? input.realtimeRelayFallbackUrls
-    : [];
-  const expectedMediaUrls = new Set([
-    primaryMediaUrl,
-    ...fallbacks.map(resolveRealtimeMediaUrl).filter((url): url is string => url !== null),
-  ]);
 
   return (details) => {
     const origin = readSingleHeader(details.requestHeaders, "origin");
@@ -165,7 +152,7 @@ export function createRealtimeVoiceMediaRequestPolicy(input: {
     if (
       details.method !== "GET" ||
       details.resourceType !== "webSocket" ||
-      !expectedMediaUrls.has(details.url) ||
+      details.url !== expectedMediaUrl ||
       origin === null ||
       !isExactTrustedOrigin(origin, trustedRendererOrigin) ||
       !protocolsAreValid

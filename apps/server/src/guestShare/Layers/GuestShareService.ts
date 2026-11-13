@@ -150,11 +150,7 @@ import { GuestShareService, type GuestShareServiceShape } from "../Services/Gues
 import { ShareRelayTransport } from "../Services/ShareRelayTransport.ts";
 import { deleteShareFromRelay, registerShareWithRelay } from "../shareRelayRegistration.ts";
 import { ShareRelayHostClient } from "../shareRelayHostClient.ts";
-import {
-  isOnAccountShareRelay,
-  resolveShareRelayAccount,
-  shareRelayEntriesForOrigin,
-} from "../shareRelayOrigin.ts";
+import { resolveShareRelayAccount } from "../shareRelayOrigin.ts";
 import { makeCursorSafeSnapshotLiveStream } from "../../wsSnapshotLiveStream.ts";
 
 const SHARE_ID_BYTES = 16;
@@ -231,15 +227,7 @@ const make = Effect.gen(function* () {
   const threadLocks = yield* Semaphore.makePartitioned<string>({ permits: 1 });
   const changes = yield* PubSub.unbounded<GuestShareChange>();
   const liveShares = new Map<GuestShareId, LiveShare>();
-  const accountSources = {
-    phoneAccount,
-    cloudAccount,
-    env: transport.env,
-    ...(transport.relayRouters ? { routers: transport.relayRouters } : {}),
-  };
-  /** The relay a stored share lives on, for its socket and deletion (no account needed). */
-  const relayOfShare = (origin: string) =>
-    shareRelayEntriesForOrigin(origin, transport.env, transport.relayRouters);
+  const accountSources = { phoneAccount, cloudAccount, env: transport.env };
 
   const withThreadLock = <A, E, R>(threadId: ThreadId, effect: Effect.Effect<A, E, R>) =>
     threadLocks.withPermits(threadId, 1)(effect);
@@ -435,18 +423,13 @@ const make = Effect.gen(function* () {
       if (Option.isSome(record)) yield* publishUpsert(record.value);
     }).pipe(Effect.ignore);
 
-  /**
-   * The relay forgot the share (after a restart): register it again with a fresh bearer,
-   * through the relay's entry in use. The link keeps the entry it was issued on. Only a share
-   * on the account's own relay is renewed; another realm's relay, or a different override, is
-   * a different relay and the bearer does not go there.
-   */
+  /** The relay forgot the share (after a restart): register it again with a fresh bearer. */
   const reregister = (shareId: GuestShareId, hostKey: string) =>
     Effect.gen(function* () {
       const record = yield* repository.getById(shareId);
       if (Option.isNone(record) || isGuestShareExpired(record.value, Date.now())) return false;
       const account = yield* resolveShareRelayAccount(accountSources);
-      if (!isOnAccountShareRelay(account, record.value.relayOrigin)) {
+      if (account.origin !== record.value.relayOrigin) {
         yield* Effect.logWarning("The guest share relay changed; the link cannot be renewed.", {
           shareId,
         });
@@ -454,8 +437,7 @@ const make = Effect.gen(function* () {
       }
       yield* registerShareWithRelay({
         fetch: transport.fetch,
-        origin: record.value.relayOrigin,
-        router: account.relay.router,
+        origin: account.origin,
         bearer: account.bearer,
         request: {
           shareId,
@@ -478,17 +460,9 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const entry = yield* ensureLive(record);
       if (entry.client !== null) return;
-      const relay = relayOfShare(record.relayOrigin);
-      // The first connection after startup goes to an entry that answers its health check.
-      if (relay.router !== null) {
-        const router = relay.router;
-        yield* Effect.promise(() => router.ensure());
-        if (entry.client !== null || liveShares.get(record.id) !== entry) return;
-      }
       const hostKey = relayHostKey(signingKey, record.id);
       const client = new ShareRelayHostClient({
         origin: record.relayOrigin,
-        entries: relay.router,
         shareId: record.id,
         hostKey,
         handle: guestRequestHandler(record),
@@ -526,7 +500,6 @@ const make = Effect.gen(function* () {
           deleteShareFromRelay({
             fetch: transport.fetch,
             origin: record.relayOrigin,
-            router: relayOfShare(record.relayOrigin).router,
             shareId: record.id,
             hostKey: relayHostKey(signingKey, record.id),
           }),
@@ -616,30 +589,24 @@ const make = Effect.gen(function* () {
         yield* threadShell(threadId);
         const account = yield* resolveShareRelayAccount(accountSources);
         const shareId = GuestShareId.makeUnsafe(randomBytes(SHARE_ID_BYTES).toString("base64url"));
-        const opened = openGuestShare({
+        const record = openGuestShare({
           shareId,
           threadId,
           relayOrigin: account.origin,
           nowMs: Date.now(),
         });
         const hostKey = relayHostKey(signingKey, shareId);
-        const registration = yield* registerShareWithRelay({
+        yield* registerShareWithRelay({
           fetch: transport.fetch,
           origin: account.origin,
-          router: account.relay.router,
           bearer: account.bearer,
           request: {
             shareId,
             hostKeyHash: relayHostKeyHash(hostKey),
-            expiresAt: opened.expiresAt,
+            expiresAt: record.expiresAt,
             protocolVersion: SHARE_RELAY_PROTOCOL_VERSION,
           },
         });
-        // The link names the entry the share was registered through.
-        const record =
-          registration.origin === opened.relayOrigin
-            ? opened
-            : { ...opened, relayOrigin: registration.origin };
         yield* Effect.gen(function* () {
           const previous = yield* persisted(repository.getByThreadId(threadId));
           if (Option.isSome(previous)) yield* endShare(previous.value, "replaced");
@@ -651,8 +618,7 @@ const make = Effect.gen(function* () {
           Effect.tapError(() =>
             deleteShareFromRelay({
               fetch: transport.fetch,
-              origin: record.relayOrigin,
-              router: account.relay.router,
+              origin: account.origin,
               shareId,
               hostKey,
             }).pipe(Effect.forkIn(layerScope)),

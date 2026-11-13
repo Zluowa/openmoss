@@ -22,12 +22,6 @@ import type {
 import { MossAccountServiceError } from "../mossAccountErrors";
 import { MossCloudAccountServiceError } from "../mossCloudAccountErrors";
 import { MossPayError, mossPayFetch } from "../mossPayGateway";
-import {
-  fetchViaMossServiceEntries,
-  isMossRealtimeRelayEntry,
-  mossRealtimeRelayEntries,
-  parseMossRealtimeRelayEntry,
-} from "../mossServiceEntries";
 import { MossPayService } from "../Services/MossPayService";
 import { isTrustedMossManagedGatewayUrlForAuthority } from "../../provider/mossManagedGatewayTrust";
 
@@ -1189,44 +1183,57 @@ export function normalizeMossPayQuota(
   };
 }
 
-/**
- * The realtime relay entry the credential is bound to, when it is one of its own realm's
- * listed entries (any of them: the entries reach the same relay), else null. Another realm's
- * entry, or anything unlisted, never receives the bearer.
- */
-export function boundRealtimeRelayOrigin(
-  credential: Pick<MossPayAuthorityCredential, "realm" | "realtimeRelayUrl">,
+function normalizeRealtimeRelayOrigin(value: string | undefined): string | null {
+  const candidate = value?.trim();
+  if (!candidate) return null;
+  try {
+    const url = new URL(candidate);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function configuredRealtimeRelayOrigin(
+  credential: MossPayAuthorityCredential,
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string | null {
-  const region = credential.realm === "memfire-phone" ? "cn" : "global";
-  const bound = parseMossRealtimeRelayEntry(credential.realtimeRelayUrl);
-  return bound && isMossRealtimeRelayEntry(region, bound, env) ? bound : null;
+  const key =
+    credential.realm === "memfire-phone"
+      ? "MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL"
+      : "MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL";
+  const configured = normalizeRealtimeRelayOrigin(env[key]);
+  const bound = normalizeRealtimeRelayOrigin(credential.realtimeRelayUrl);
+  return configured && configured === bound ? bound : null;
 }
 
 async function fetchRealtimeQuota(
   credential: MossPayAuthorityCredential,
 ): Promise<Record<string, unknown> | null> {
-  const origin = boundRealtimeRelayOrigin(credential);
+  const origin = configuredRealtimeRelayOrigin(credential);
   if (!origin) return null;
   const cloudRegion = credential.realm === "memfire-phone" ? "cn" : "global";
   try {
-    // A read: through the entry in use, and once more on the next entry after a reset.
-    const response = await fetchViaMossServiceEntries({
-      entry: origin,
-      router: mossRealtimeRelayEntries(cloudRegion),
-      retryOnNextEntry: true,
-      send: (entry) =>
-        fetch(`${entry}/v1/realtime/quota`, {
-          method: "GET",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${credential.accessToken}`,
-            [MOSS_CLOUD_REGION_HEADER]: cloudRegion,
-          },
-          cache: "no-store",
-          redirect: "error",
-          signal: AbortSignal.timeout(5_000),
-        }),
+    const response = await fetch(`${origin}/v1/realtime/quota`, {
+      method: "GET",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${credential.accessToken}`,
+        [MOSS_CLOUD_REGION_HEADER]: cloudRegion,
+      },
+      cache: "no-store",
+      redirect: "error",
+      signal: AbortSignal.timeout(5_000),
     });
     const text = await response.text();
     if (!response.ok || Buffer.byteLength(text) > 64 * 1_024) return null;

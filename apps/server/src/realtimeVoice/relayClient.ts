@@ -13,10 +13,6 @@ import { isIP } from "node:net";
 import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from "node:tls";
 import WebSocket from "ws";
 
-import {
-  isMossConnectionLevelFailure,
-  type MossServiceEntryRouter,
-} from "../account/mossServiceEntries";
 import { createLogger } from "../logger";
 
 const MAX_RELAY_RESPONSE_BYTES = 768 * 1_024;
@@ -256,7 +252,6 @@ function parseStartResult(
 
 export class RealtimeVoiceRelayClient implements RealtimeVoiceRelayClientShape {
   readonly #origin: string;
-  readonly #entries: MossServiceEntryRouter | null;
   readonly #cloudRegion: MossCloudRegion;
   readonly #fetch: typeof fetch;
   readonly #webSocketFactory: typeof WebSocket;
@@ -266,19 +261,12 @@ export class RealtimeVoiceRelayClient implements RealtimeVoiceRelayClientShape {
   constructor(input: {
     readonly origin: string;
     readonly cloudRegion: MossCloudRegion;
-    /**
-     * The router of the realm's relay entries `origin` belongs to. A call that fails below
-     * HTTP is reported to it, so the next call goes to the next entry; the call itself is not
-     * sent again (it starts a session).
-     */
-    readonly entries?: MossServiceEntryRouter | null;
     readonly fetch?: typeof fetch;
     readonly webSocketFactory?: typeof WebSocket;
     readonly tlsConnect?: typeof tlsConnect;
     readonly now?: () => number;
   }) {
     this.#origin = normalizeRelayOrigin(input.origin);
-    this.#entries = input.entries ?? null;
     this.#cloudRegion = input.cloudRegion;
     this.#fetch = input.fetch ?? fetch;
     this.#webSocketFactory = input.webSocketFactory ?? WebSocket;
@@ -318,9 +306,6 @@ export class RealtimeVoiceRelayClient implements RealtimeVoiceRelayClientShape {
       });
     } catch (cause) {
       if (cause instanceof Error && cause.name === "AbortError") throw cause;
-      if (this.#entries !== null && isMossConnectionLevelFailure(cause)) {
-        await this.#entries.reportConnectionFailure(this.#origin).catch(() => undefined);
-      }
       throw new RealtimeVoiceRelayError("REALTIME_RELAY_UNAVAILABLE", 503);
     }
     const json = await boundedJson(response);

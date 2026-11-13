@@ -19,7 +19,6 @@ import {
   selectMcpAppDockEntry,
   useMcpAppDockEntries,
 } from "~/lib/mcpAppDockRegistry";
-import { setMcpAppInitializeCapForTests } from "~/lib/mcpAppHost";
 import { resetMcpAppLiveWidgetsForTests } from "~/lib/mcpApps/liveWidgets";
 import { resetMcpAppResourceCacheForTests } from "~/lib/mcpApps/resourceCache";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
@@ -269,7 +268,7 @@ describe("live widget frame placement", () => {
     await screen.unmount();
   });
 
-  it("shows a failed call's own text and 「工具调用失败。」 whatever the server answers", async () => {
+  it("shows the plain result for a failed call whatever the server answers", async () => {
     await page.viewport(1_140, 520);
     sandbox = installMcpAppFakeSandbox({ toolResult: () => ({ status: "pending" }) });
     let setProjection!: (value: WorkLogMcpToolResult) => void;
@@ -282,8 +281,7 @@ describe("live widget frame placement", () => {
     await vi.waitFor(() => expect(sandbox!.widgets).toHaveLength(1));
     const widget = sandbox.widgets[0]!;
     await widget.initialized;
-    // The CLI rejected the result (it failed the tool's output schema): the call itself failed,
-    // so the card says so with the call's own text, not the widget-load sentence.
+    // The CLI rejected the result (bad structuredContent): the row says failed.
     setProjection(
       projection({
         status: "failed",
@@ -291,11 +289,9 @@ describe("live widget frame placement", () => {
         result: { content: [], structuredContent: { rows: [1, 2] } },
       }),
     );
-    await expect.element(page.getByText("工具调用失败。")).toBeInTheDocument();
     await expect
-      .element(page.getByText("returned a malformed result that failed schema validation"))
+      .element(page.getByText("小组件加载失败，已改为显示文字结果。"))
       .toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("小组件加载失败");
     expect(document.querySelector('[data-mcp-app-frame-wrapper="true"]')).toBeNull();
     expect(document.querySelector('[data-mcp-app-fallback="true"]')?.textContent).not.toContain(
       "json",
@@ -319,42 +315,11 @@ describe("live widget frame placement", () => {
         theme="light"
       />
     ));
-    await expect.element(page.getByText("坏数据")).toBeInTheDocument();
-    await expect.element(page.getByText("工具调用失败。")).toBeInTheDocument();
-    expect(sandbox.registrations.length).toBe(before);
-    await second.screen.unmount();
-  });
-});
-
-describe("a widget that has not started yet", () => {
-  afterEach(() => setMcpAppInitializeCapForTests(null));
-
-  it("keeps loading while it may still start, then shows the text result at the cap", async () => {
-    await page.viewport(1_140, 520);
-    // The real cap is 120 s of visible time; the test shortens it.
-    setMcpAppInitializeCapForTests(1_500);
-    sandbox = installMcpAppFakeSandbox({ neverInitialize: true });
-    const { screen } = await mount(() => (
-      <McpAppCard projection={projection()} threadId={THREAD} theme="light" />
-    ));
-    await vi.waitFor(() => expect(sandbox!.widgets).toHaveLength(1));
-    // The header shimmers 「正在加载 fixture 的小组件」 while the widget may still start.
-    await vi.waitFor(() =>
-      expect(
-        document.querySelector('[data-mcp-app-header] [data-conversation-shimmer="true"]')
-          ?.firstChild?.textContent,
-      ).toBe("正在加载 fixture 的小组件"),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    expect(document.querySelector("[data-mcp-app-card]")?.getAttribute("data-mcp-app-phase")).toBe(
-      "loading",
-    );
     await expect
       .element(page.getByText("小组件加载失败，已改为显示文字结果。"))
       .toBeInTheDocument();
-    await expect.element(page.getByText("Hello, Moss!")).toBeInTheDocument();
-    expect(document.querySelector('[data-mcp-app-frame-wrapper="true"]')).toBeNull();
-    await screen.unmount();
+    expect(sandbox.registrations.length).toBe(before);
+    await second.screen.unmount();
   });
 });
 

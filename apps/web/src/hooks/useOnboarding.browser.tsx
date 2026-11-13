@@ -65,8 +65,6 @@ async function renderOnboarding() {
 
 describe("onboarding installation identity", () => {
   it("acknowledges the current highlights on first-run completion before announcements mount", async () => {
-    const flushStorage = vi.fn();
-    vi.stubGlobal("desktopBridge", { flushStorage });
     const { hook } = await renderOnboarding();
     await vi.waitFor(() => expect(hook.result.current.isOpen).toBe(true));
     expect(useOnboardingDialogStore.getState().openReason).toBe("first-run");
@@ -74,9 +72,6 @@ describe("onboarding installation identity", () => {
     expect(JSON.parse(localStorage.getItem("moss:feature-tour:since-0.9.2:v1") ?? "[]")).toEqual([
       "/a/worktrees",
     ]);
-    // Written to disk at once: the server marker is, and a stop before Chromium's delayed
-    // commit would otherwise greet this brand-new user with the highlights next launch.
-    expect(flushStorage).toHaveBeenCalled();
     // Its project step is the import, so the old "Import projects" announcement stays away.
     expect(JSON.parse(localStorage.getItem("moss:project-import-announcement:v1") ?? "[]")).toEqual(
       ["/a/worktrees"],

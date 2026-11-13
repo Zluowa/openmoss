@@ -1,19 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import type { OrchestrationCommand, OrchestrationEvent } from "@moss/contracts";
 
 import { MossAccountServiceError } from "../../account/mossAccountErrors";
 import { MossCloudAccountServiceError } from "../../account/mossCloudAccountErrors";
-import {
-  resetMossServiceEntryRoutersForTest,
-  sharedMossServiceEntryRouter,
-} from "../../account/mossServiceEntries";
 import { RealtimeVoiceRuntimeError } from "../runtime";
 import {
   hasRealtimeVoiceBackgroundWork,
   makeTranscriptWriter,
   makeRealtimeVoiceRuntimeRoute,
-  resolveRealtimeVoiceRelayEntry,
   makeRelay,
   resolveRealtimeVoiceAuthorityCredential,
   resolveRealtimeVoiceThreadItem,
@@ -430,73 +425,5 @@ describe("resolveRealtimeVoiceAccessToken", () => {
     expect(phoneRoute.authorityId).not.toBe(googleRoute.authorityId);
     expect(phoneRoute.authorityId).not.toContain("phone-route-token");
     expect(googleRoute.authorityId).not.toContain("google-route-token");
-  });
-});
-
-describe("the realtime relay entry a credential's calls go to", () => {
-  const NEW = "https://rt.mossbotai.com";
-  const OLD = "https://moss-cn-realtime-edge.inkcomicai.com";
-  const env = {
-    MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL: NEW,
-    MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS: OLD,
-    MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_URL: "https://rt-global.mossbotai.com",
-    MOSS_SUPABASE_GOOGLE_REALTIME_RELAY_FALLBACK_URLS:
-      "https://moss-global-realtime.inkcomicai.com",
-  };
-  /** Takes the place of the shared CN router, so no test sends a real health check. */
-  const cnRouter = (reachable: ReadonlySet<string>) =>
-    sharedMossServiceEntryRouter({
-      service: "CN realtime relay",
-      entries: [NEW, OLD],
-      healthUrl: (entry) => `${entry}/healthz`,
-      probe: async (healthUrl) => reachable.has(new URL(healthUrl).origin),
-    });
-
-  afterEach(() => resetMossServiceEntryRoutersForTest());
-
-  it("goes to the new entry while it answers, whichever entry the credential names", async () => {
-    const router = cnRouter(new Set([NEW, OLD]));
-    for (const bound of [NEW, OLD]) {
-      const entry = await resolveRealtimeVoiceRelayEntry(
-        { realm: "memfire-phone", realtimeRelayUrl: bound },
-        env,
-      );
-      expect(entry).toEqual({ origin: NEW, entries: router });
-    }
-    const enterprise = await resolveRealtimeVoiceRelayEntry(
-      { realm: "moss-enterprise-key", realtimeRelayUrl: NEW },
-      env,
-    );
-    expect(enterprise.origin).toBe(NEW);
-  });
-
-  it("goes to the old entry when the new one fails below HTTP", async () => {
-    cnRouter(new Set([OLD]));
-    const entry = await resolveRealtimeVoiceRelayEntry(
-      { realm: "memfire-phone", realtimeRelayUrl: NEW },
-      env,
-    );
-    expect(entry.origin).toBe(OLD);
-  });
-
-  it("refuses a credential bound to the other realm's relay", async () => {
-    cnRouter(new Set([NEW, OLD]));
-    for (const bound of [
-      "https://rt-global.mossbotai.com",
-      "https://moss-global-realtime.inkcomicai.com",
-    ]) {
-      await expect(
-        resolveRealtimeVoiceRelayEntry({ realm: "memfire-phone", realtimeRelayUrl: bound }, env),
-      ).rejects.toMatchObject({ code: expect.any(String) });
-    }
-  });
-
-  it("keeps a relay no realm lists exactly as configured, with no router", async () => {
-    await expect(
-      resolveRealtimeVoiceRelayEntry(
-        { realm: "memfire-phone", realtimeRelayUrl: "https://realtime.example.cn" },
-        env,
-      ),
-    ).resolves.toEqual({ origin: "https://realtime.example.cn", entries: null });
   });
 });

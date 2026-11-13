@@ -6,14 +6,13 @@ import {
 
 import {
   createWsNativeApi,
-  type AccountSignInOwnerApi,
   type GuestShareOwnerApi,
   type PageSharingOwnerApi,
   onWsServerCapabilitiesChange,
   readWsServerCapabilities,
 } from "./wsNativeApi";
 
-export type { AccountSignInOwnerApi, GuestShareOwnerApi, PageSharingOwnerApi } from "./wsNativeApi";
+export type { GuestShareOwnerApi, PageSharingOwnerApi } from "./wsNativeApi";
 
 let cachedDesktopApi: NativeApi | undefined;
 let nativeApiDetached = false;
@@ -37,11 +36,6 @@ export function isNativeApiDetached(): boolean {
  */
 export function ensureGuestShareApi(): GuestShareOwnerApi {
   return createWsNativeApi().guestShare;
-}
-
-/** The confirmation for account sign-in from the owner's phone; WebSocket-only. */
-export function ensureAccountSignInApi(): AccountSignInOwnerApi {
-  return createWsNativeApi().accountSignIn;
 }
 
 /** Owner-side 资料空间 sharing and 站点 calls; WebSocket-only like guest shares. */

@@ -10,7 +10,7 @@ import { MossPayService } from "./account/Services/MossPayService";
 import { ServerConfig } from "./config";
 import { isLocalOnlyAccess, requestPeer } from "./startupAccess";
 import {
-  mediaScopeBelongsTo,
+  mediaAccountScope,
   MossMediaJobsError,
   type MossMediaCredential,
 } from "./mossMediaJobsService";
@@ -242,7 +242,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           now._tag === "Failure"
             ? now.failure instanceof MossMediaJobsError &&
               now.failure.code === "authentication_required"
-            : mediaScopeBelongsTo(now.success, savedScope)
+            : mediaAccountScope(now.success) === savedScope
         )
           return assetResponse(saved.success, true);
       }
@@ -309,7 +309,11 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
                 : prefetchedCloud._tag === "Success"
                   ? prefetchedCloud.success
                   : yield* Effect.fail(prefetchedCloud.failure);
-            if (current.account.id !== credential.account.id || current.realm !== credential.realm)
+            if (
+              current.account.id !== credential.account.id ||
+              current.realm !== credential.realm ||
+              current.gatewayBaseUrl !== credential.gatewayBaseUrl
+            )
               return yield* Effect.fail(new MossMediaJobsError("account_changed", 409));
             return {
               ...current,
@@ -347,7 +351,11 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           const current: MossLocalAccountAuthority = yield* localCanvasRequest
             ? resolveMossMediaIdentity
             : resolveMossMediaCredential;
-          if (current.account.id !== credential.account.id || current.realm !== credential.realm)
+          if (
+            current.account.id !== credential.account.id ||
+            current.realm !== credential.realm ||
+            current.gatewayBaseUrl !== credential.gatewayBaseUrl
+          )
             return yield* Effect.fail(new MossMediaJobsError("account_changed", 409));
           if (canvasWorkspace) {
             const currentWorkspace = yield* resolveMossCanvasWorkspace(canvasWorkspace.threadId);
@@ -867,12 +875,16 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           catch: (error) => error,
         });
         const current = yield* resolveMossMediaCredential;
-        if (current.account.id !== credential.account.id || current.realm !== credential.realm)
+        if (
+          current.account.id !== credential.account.id ||
+          current.realm !== credential.realm ||
+          current.gatewayBaseUrl !== credential.gatewayBaseUrl
+        )
           return json(409, { error: { code: "account_changed" } });
         return json(200, job);
       }
       if (assetMatch && request.method === "GET") {
-        if (savedScope !== null && !mediaScopeBelongsTo(credential, savedScope))
+        if (savedScope !== null && savedScope !== mediaAccountScope(credential))
           return json(404, { error: { code: "asset_not_found" } });
         const result = yield* Effect.tryPromise({
           try: () => service.readAsset(assetMatch[1]!, Number(assetMatch[2]), credential),

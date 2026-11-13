@@ -64,7 +64,6 @@ import type {
 import * as Effect from "effect/Effect";
 import type {
   DesktopAppIcon,
-  DesktopBackendStartupFailure,
   DesktopDockIconPreference,
   DesktopPhoneAccessState,
   DesktopPluginDeepLinkAudit,
@@ -101,7 +100,6 @@ import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
 import { resolveMossDownloadChannel } from "@moss/shared/mossDownloadChannel";
 import {
   MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
-  splitMossServiceUrlList,
   type MossProductionPublicConfig,
 } from "@moss/shared/mossProductionPublicConfig";
 import { MOSS_ERROR_REPORTS_ENABLED_ENV } from "@moss/shared/observability";
@@ -241,7 +239,6 @@ import {
 } from "./windowMaterial";
 import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
 import { BackendLinkDropLog } from "./backendLinkDropLog";
-import { createRendererStorageFlusher } from "./rendererStorageFlush";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
 import {
   handleDesktopSecondInstance,
@@ -274,8 +271,6 @@ import {
   BACKEND_MAX_CONSECUTIVE_START_FAILURES,
   BackendOutputTailDetector,
   BackendSupervisionPolicy,
-  backendExitLogDetail,
-  formatBackendStartupFailureDetails,
   summarizeBackendFailureOutput,
 } from "./backendSupervisionPolicy";
 import { captureBackendProcessOutput } from "./backendProcessOutput";
@@ -807,18 +802,11 @@ let backendLifecycleDialogInFlight: Promise<void> | null = null;
 let backendListeningDetector: ServerListeningDetector | null = null;
 const backendSupervision = new BackendSupervisionPolicy();
 const backendLinkDropLog = new BackendLinkDropLog(writeDesktopLogHeader);
-const flushRendererStorage = createRendererStorageFlusher({});
 // Survives window recreation on purpose: a renderer that keeps dying must not refill
 // its reload budget just because the crash produced a new window.
 const rendererCrashPolicy = new RendererCrashPolicy();
 let rendererCrashDialogInFlight: Promise<void> | null = null;
 let lastBackendFailureDetail: string | null = null;
-// Set while supervision has given up on the backend. A window that renders it
-// replaces its loading state with the failure and its actions.
-let backendStartupFailure: DesktopBackendStartupFailure | null = null;
-// Renderers that asked for the give-up state; until one has, a native dialog
-// stands in (an older renderer, or one that never finished loading).
-const backendStartupFailureRenderers = new Set<number>();
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
 let isUpdaterInstallPreparing = false;
@@ -6020,12 +6008,12 @@ function scheduleBackendRestart(reason: string): void {
       return;
     case "give-up":
       writeDesktopLogHeader(
-        `backend supervision gave up failures=${response.failures} reason=${sanitizeLogValue(reason)} lastError=${backendExitLogDetail(lastBackendFailureDetail ?? "") || "none"}`,
+        `backend supervision gave up failures=${response.failures} reason=${sanitizeLogValue(reason)}`,
       );
       safeConsoleError(
         `[desktop] backend failed to start ${response.failures} times in a row (${reason}); no further restarts will be attempted`,
       );
-      presentBackendStartupGiveUp(reason, response.failures);
+      presentBackendStartupGiveUp(reason);
       return;
     case "retry":
       safeConsoleError(
@@ -6075,61 +6063,12 @@ async function openDesktopLogDirectory(): Promise<void> {
   }
 }
 
-function setBackendStartupFailure(failure: DesktopBackendStartupFailure | null): void {
-  if (backendStartupFailure === null && failure === null) return;
-  backendStartupFailure = failure;
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (window.isDestroyed() || isRealtimeVoiceOverlayWindow(window)) continue;
-    window.webContents.send(IPC.backendStartup.failure, failure);
-  }
-}
-
-function hasBackendStartupFailureRenderer(): boolean {
-  return BrowserWindow.getAllWindows().some(
-    (window) =>
-      !window.isDestroyed() &&
-      !window.webContents.isCrashed() &&
-      backendStartupFailureRenderers.has(window.webContents.id),
-  );
-}
-
-function trackBackendStartupFailureRenderer(contents: Electron.WebContents): void {
-  if (backendStartupFailureRenderers.has(contents.id)) return;
-  const id = contents.id;
-  backendStartupFailureRenderers.add(id);
-  const forget = () => backendStartupFailureRenderers.delete(id);
-  // A reload or crash drops the page that drew it; the next page asks again.
-  contents.once("did-start-loading", forget);
-  contents.once("render-process-gone", forget);
-  contents.once("destroyed", forget);
-}
-
-async function retryBackendAfterStartupFailure(): Promise<void> {
-  if (backendStartupFailure === null || isQuitting) return;
-  writeDesktopLogHeader("backend start retried from the window after supervision gave up");
-  await restartBackendAfterCrash("manual retry after backend startup failure", "lifecycle");
-}
-
 /**
- * Replaces the eternal loading skeleton once supervision stops respawning the
- * backend: the window shows the failure with its actions, or, when no window
- * can draw it, a blocking native dialog does.
+ * Replaces the eternal loading skeleton with a blocking, actionable window once
+ * supervision stops respawning the backend.
  */
-function presentBackendStartupGiveUp(reason: string, failures: number): void {
-  if (isQuitting) return;
-  setBackendStartupFailure({
-    failures,
-    details: formatBackendStartupFailureDetails({
-      appVersion: app.getVersion(),
-      platform: `${process.platform} ${process.arch}`,
-      failures,
-      reason,
-      output: lastBackendFailureDetail ?? "",
-      logFilePath: Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME),
-    }),
-  });
-  if (hasBackendStartupFailureRenderer()) return;
-  if (backendLifecycleDialogInFlight) return;
+function presentBackendStartupGiveUp(reason: string): void {
+  if (isQuitting || backendLifecycleDialogInFlight) return;
 
   const detail = backendFailureDialogDetail(reason);
   const task = (async () => {
@@ -6678,7 +6617,6 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
 
   if (trigger === "lifecycle") {
     backendSupervision.reset();
-    setBackendStartupFailure(null);
   }
 
   const backendEntry = resolveBackendEntry();
@@ -6841,9 +6779,6 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
       }
       const reason = `code=${code ?? "null"} signal=${signal ?? "null"}`;
       lastBackendFailureDetail = outputTailDetector.read();
-      writeDesktopLogHeader(
-        `backend exited unexpectedly ${reason} lastError=${backendExitLogDetail(lastBackendFailureDetail) || "none"}`,
-      );
       if (!expectedExit)
         trackBetaDiagnostics("app.child-process-crash", {
           kind: "crash",
@@ -7417,12 +7352,6 @@ function registerIpcHandlers(): void {
       return;
     }
     backendLinkDropLog.receive(input);
-  });
-
-  ipcMain.removeAllListeners(IPC.flushStorage);
-  ipcMain.on(IPC.flushStorage, (event: IpcMainEvent) => {
-    if (event.sender.isDestroyed()) return;
-    flushRendererStorage(event.sender.session);
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);
@@ -8093,22 +8022,6 @@ function registerIpcHandlers(): void {
     // timeout; the event above is already queued by then.
     setImmediate(() => requestGracefulAppQuit("beta-leave"));
     return result;
-  });
-
-  ipcMain.removeHandler(IPC.backendStartup.getFailure);
-  registerIpcHandle(IPC.backendStartup.getFailure, async (event) => {
-    trackBackendStartupFailureRenderer(event.sender);
-    return backendStartupFailure;
-  });
-
-  ipcMain.removeHandler(IPC.backendStartup.retry);
-  registerIpcHandle(IPC.backendStartup.retry, async () => {
-    await retryBackendAfterStartupFailure();
-  });
-
-  ipcMain.removeHandler(IPC.backendStartup.openLogFolder);
-  registerIpcHandle(IPC.backendStartup.openLogFolder, async () => {
-    await openDesktopLogDirectory();
   });
 
   ipcMain.removeHandler(IPC.updateGetState);
@@ -9132,16 +9045,11 @@ function configureMediaPermissions(): void {
 
 function configureRealtimeVoiceMediaRequests(): void {
   const productionPublicConfig = desktopProductionPublicConfig();
-  const cnRealm = productionPublicConfig?.authRealms["memfire-phone"];
   const realtimeRelayUrl = app.isPackaged
-    ? cnRealm?.realtimeRelayUrl
+    ? productionPublicConfig?.authRealms["memfire-phone"].realtimeRelayUrl
     : process.env.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_URL;
-  const realtimeRelayFallbackUrls = app.isPackaged
-    ? (cnRealm?.realtimeRelayFallbackUrls ?? [])
-    : splitMossServiceUrlList(process.env.MOSS_MEMFIRE_PHONE_REALTIME_RELAY_FALLBACK_URLS);
   const policy = createRealtimeVoiceMediaRequestPolicy({
     realtimeRelayUrl,
-    realtimeRelayFallbackUrls,
     trustedRendererUrl: resolveRendererAppEntryUrl(),
   });
   if (policy === null) {
