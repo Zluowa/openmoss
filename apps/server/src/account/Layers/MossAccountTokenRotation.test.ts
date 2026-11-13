@@ -112,6 +112,7 @@ const lifecycleBusyStop = () =>
 const makeProviderRuntimes = () => {
   let sessions: FakeSession[] = [];
   let refuseStops = false;
+  let hangStops = false;
   const stopCodexAccountRuntimes = vi.fn(
     (): Effect.Effect<void, unknown> =>
       Effect.sync(() => {
@@ -120,11 +121,13 @@ const makeProviderRuntimes = () => {
   );
   const stopRuntimeSession = vi.fn(
     (input: { readonly threadId: ThreadId }): Effect.Effect<void, unknown> =>
-      refuseStops
-        ? Effect.fail(lifecycleBusyStop())
-        : Effect.sync(() => {
-            sessions = sessions.filter((session) => session.threadId !== input.threadId);
-          }),
+      hangStops
+        ? Effect.never
+        : refuseStops
+          ? Effect.fail(lifecycleBusyStop())
+          : Effect.sync(() => {
+              sessions = sessions.filter((session) => session.threadId !== input.threadId);
+            }),
   );
   const service = {
     listSessions: () => Effect.sync(() => sessions.map(toProviderSession)),
@@ -151,6 +154,10 @@ const makeProviderRuntimes = () => {
     /** Every exact-session Stop fails, the way a wedged thread lifecycle refuses it. */
     refuseStops: (refuse: boolean) => {
       refuseStops = refuse;
+    },
+    /** Every exact-session Stop waits forever, like a turn whose process tree never exits. */
+    hangStops: (hang: boolean) => {
+      hangStops = hang;
     },
   };
 };
@@ -559,7 +566,7 @@ describe("Moss phone session with a live managed runtime", () => {
     expect(result.session.authenticated).toBe(true);
   });
 
-  it("says what failed, and the next maintenance pass brings Moss models back", async () => {
+  it("says what failed, and keeps Moss models on through the refresh", async () => {
     const runtimes = makeProviderRuntimes();
     const logged: unknown[] = [];
     const logger = Logger.make(({ message }) => {
@@ -579,22 +586,23 @@ describe("Moss phone session with a live managed runtime", () => {
         },
       ]);
       runtimes.refuseStops(true);
-      // Idle at refresh time, so the old generation is disabled before the new
-      // one is provisioned. That disable is the strict sign-out primitive.
+      // Idle at refresh time, so the old generation is disabled before the new one is
+      // provisioned. That disable cannot stop the runtime; the same pass goes on and puts
+      // the fresh bearer live (round 11: a stuck stop must not hold the lanes).
       now = ISSUED_AT + HOUR - 4 * 60_000;
       yield* maintainMossPhoneAccountSession(service);
-      const afterFailedPass = yield* managedLanes;
-      const warningsAfterFailedPass = logged.length;
-      now += 60_000;
-      yield* maintainMossPhoneAccountSession(service);
-      return { afterFailedPass, warningsAfterFailedPass, afterNextPass: yield* managedLanes };
+      return { afterPass: yield* managedLanes };
     }).pipe(
       Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
       Effect.provide(Logger.layer([logger], { mergeWithExisting: false })),
       Effect.runPromise,
     );
 
-    const failure = logged[logged.indexOf("failed to maintain Moss phone account session") + 1];
+    expect(logged).not.toContain("failed to maintain Moss phone account session");
+    const failure =
+      logged[
+        logged.indexOf("Moss lanes kept their old bearer through a refresh; re-provisioning") + 1
+      ];
     expect(failure).toMatchObject({
       code: "persistence_failed",
       message: "无法配置 Moss 模型服务。",
@@ -607,9 +615,7 @@ describe("Moss phone session with a live managed runtime", () => {
     expect(everything).not.toContain(bearerJwt("access-1", ISSUED_AT + HOUR));
     expect(everything).not.toContain("13800138000");
 
-    expect(result.afterFailedPass.codex.enabled).toBe(false);
-    expect(result.warningsAfterFailedPass).toBeGreaterThan(0);
-    expect(result.afterNextPass).toEqual({
+    expect(result.afterPass).toEqual({
       codex: {
         enabled: true,
         bearer: bearerJwt("access-2", ISSUED_AT + 2 * HOUR - 4 * 60_000),
@@ -661,7 +667,8 @@ describe("Moss phone session with a live managed runtime", () => {
         scope: yield* Effect.scope,
         rotate: () => rotate ?? service.maintainSession(),
         now: () => now,
-        ...(wait !== undefined ? { wait } : {}),
+        // Tests about the outcome wait for it; the 3 s send budget has its own test.
+        wait: wait ?? Duration.seconds(60),
       });
     });
 
@@ -823,5 +830,88 @@ describe("Moss phone session with a live managed runtime", () => {
     expect(result.heldMs).toBeLessThan(2_000);
     expect(result.atSend.bearer).toBe(bearerJwt("access-1", ISSUED_AT + HOUR));
     expect(result.afterRotation.bearer).toBe(bearerJwt("access-2", ISSUED_AT + 50 * 60_000 + HOUR));
+  });
+
+  // 2026-11-13, round 11: a Moss Claude runtime never finished stopping, and every later
+  // rotation (and so every later send's fresh bearer) waited behind it.
+  describe("with a runtime that never stops", () => {
+    beforeEach(() => {
+      vi.stubEnv("MOSS_MANAGED_RUNTIME_STOP_TIMEOUT_MS", "200");
+    });
+
+    it("puts the fresh bearer live within the stop bound, and later sends use it", async () => {
+      const runtimes = makeProviderRuntimes();
+      const hungThread = ThreadId.makeUnsafe("thread-claude-never-stops");
+      const result = await Effect.gen(function* () {
+        const settingsService = yield* ServerSettingsService;
+        yield* settingsService.start;
+        const service = yield* makeService();
+        yield* signIn(service);
+        const preflight = yield* makePreflight(service);
+        runtimes.setSessions([
+          {
+            provider: "claudeAgent",
+            providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+            status: "ready",
+            threadId: hungThread,
+          },
+        ]);
+        runtimes.hangStops(true);
+        now = ISSUED_AT + 50 * 60_000;
+        const started = Date.now();
+        yield* service.maintainSession();
+        const rotationMs = Date.now() - started;
+        const afterRotation = yield* managedLanes;
+        // A second thread's send on another Moss lane: no rotation left to wait for.
+        const sendStarted = Date.now();
+        yield* preflight.beforeTurn({ instanceId: MOSS_MANAGED_PROVIDER_INSTANCE_ID });
+        const sendHeldMs = Date.now() - sendStarted;
+        return { rotationMs, afterRotation, sendHeldMs, atSecondSend: yield* managedLanes };
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+        Effect.runPromise,
+      );
+
+      const fresh = bearerJwt("access-2", ISSUED_AT + 50 * 60_000 + HOUR);
+      expect(runtimes.stopRuntimeSession).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: hungThread }),
+      );
+      expect(result.rotationMs).toBeLessThan(10_000);
+      expect(result.afterRotation).toEqual({
+        codex: { enabled: true, bearer: fresh },
+        claude: { enabled: true, cleanupState: undefined },
+      });
+      expect(result.sendHeldMs).toBeLessThan(2_000);
+      expect(result.atSecondSend.codex.bearer).toBe(fresh);
+    });
+
+    it("still fences the lanes on sign-out, and the sign-out ends instead of waiting forever", async () => {
+      const runtimes = makeProviderRuntimes();
+      const result = await Effect.gen(function* () {
+        const settingsService = yield* ServerSettingsService;
+        yield* settingsService.start;
+        const service = yield* makeService();
+        yield* signIn(service);
+        runtimes.setSessions([
+          {
+            provider: "claudeAgent",
+            providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+            status: "running",
+            threadId: ThreadId.makeUnsafe("thread-claude-never-stops-sign-out"),
+          },
+        ]);
+        runtimes.hangStops(true);
+        const logout = yield* service.logout().pipe(Effect.result);
+        return { logout, lanes: yield* managedLanes };
+      }).pipe(
+        Effect.provide(makeHarnessLayer(runtimes.service, makeSecretStore(), baseDir)),
+        Effect.runPromise,
+      );
+
+      expect(result.logout._tag).toBe("Failure");
+      expect(result.lanes.codex).toEqual({ enabled: false, bearer: undefined });
+      expect(result.lanes.claude.enabled).toBe(false);
+    });
   });
 });

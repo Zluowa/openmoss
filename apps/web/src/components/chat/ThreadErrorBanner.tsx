@@ -27,7 +27,7 @@ type ThreadErrorBannerProps = {
   onContinue?: () => void;
   onChangeModel?: () => void;
   recoveryDisabled?: boolean;
-  /** Sends the request again; offered only for failures that never reached the provider. */
+  /** Sends the request again; offered only for failures Moss will not resend by itself. */
   onRetry?: () => void;
   onDismiss?: () => void;
   /** Recovery action offered only when the error is a provider-delivery quarantine. */

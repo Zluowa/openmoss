@@ -42,6 +42,8 @@ import {
   formatProviderDeliveryBlockDetail,
   isProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
+  PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+  UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import type { DeepPartial } from "@moss/shared/Struct";
 import { SIDECHAT_INACTIVITY_EXPIRY_MS } from "@moss/shared/sidechatExpiry";
@@ -150,6 +152,7 @@ import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts"
 import { ProviderRuntimeIngestionLive } from "./ProviderRuntimeIngestion.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import {
+  activeTimeStepMs,
   awaitInflightClaimSettlement,
   isProviderCommandClaimFromExitedProcess,
   classifyProviderAttemptOutcome,
@@ -157,6 +160,7 @@ import {
   isSafeLegacyProviderBlocker,
   makeProviderCommandReactorLive,
   resolvePreTurnBaselineTimeoutMs,
+  type TurnStartBounds,
 } from "./ProviderCommandReactor.ts";
 import * as groupsBetaGate from "../../projectAgent/groupsBetaGate.ts";
 import {
@@ -547,6 +551,7 @@ describe("ProviderCommandReactor", () => {
     readonly cacheResponseTimeout?: Duration.Duration;
     readonly gatewayOperationCompletionWaitTimeout?: Duration.Duration;
     readonly gatewayOperationCompletionNegativeCacheTtl?: Duration.Duration;
+    readonly turnStartBounds?: Partial<TurnStartBounds>;
     readonly logMessages?: string[];
     readonly gatewayOperationId?: string;
     readonly gitWritingModelSelection?: ModelSelection;
@@ -15738,6 +15743,274 @@ describe("ProviderCommandReactor", () => {
       return Option.isSome(delivery) && delivery.value.state === "uncertain";
     });
     expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+  });
+
+  describe("bounded turn starts", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const readTurnStartSequence = async (
+      harness: Awaited<ReturnType<typeof createHarness>>,
+      messageId: string,
+    ) => {
+      const events = await Effect.runPromise(
+        Stream.runCollect(harness.engine.readEvents(0)).pipe(
+          Effect.map((chunk) => Array.from(chunk)),
+        ),
+      );
+      return events.find(
+        (event) =>
+          event.type === "thread.turn-start-requested" && event.payload.messageId === messageId,
+      )?.sequence;
+    };
+    const readBlockers = (harness: Awaited<ReturnType<typeof createHarness>>) =>
+      Effect.runPromise(
+        harness.deliveryRepository.listBlockingDeliveries({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId,
+          limit: 10,
+        }),
+      );
+    const readDeliveryState = async (
+      harness: Awaited<ReturnType<typeof createHarness>>,
+      eventSequence: number | undefined,
+    ) =>
+      eventSequence === undefined
+        ? undefined
+        : Option.getOrUndefined(
+            await Effect.runPromise(
+              harness.deliveryRepository.getDelivery({
+                consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+                eventSequence,
+              }),
+            ),
+          )?.state;
+    const sentInputs = (harness: Awaited<ReturnType<typeof createHarness>>) =>
+      harness.sendTurn.mock.calls.map(([input]) => input.input);
+    const activityDetails = async (harness: Awaited<ReturnType<typeof createHarness>>) =>
+      ((await readHarnessThread(harness))?.activities ?? []).map(
+        (activity) => (activity.payload as Record<string, unknown> | null)?.detail,
+      );
+
+    it("counts a late tick as at most two ticks of active time", () => {
+      expect(activeTimeStepMs(0, 900, 1_000)).toBe(900);
+      expect(activeTimeStepMs(0, 113_000, 1_000)).toBe(2_000);
+      expect(activeTimeStepMs(5_000, 4_000, 1_000)).toBe(0);
+    });
+
+    it("settles a start that never answered as failed within its bound and runs the next message", async () => {
+      const harness = await createHarness({
+        commandEventTimeout: Duration.millis(1_000),
+        turnStartBounds: { uncertainSettleAfterMs: 150, tickMs: 10 },
+      });
+      harness.sendTurn.mockImplementationOnce(() => Effect.never);
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "never-answered",
+        text: "first message",
+        createdAt: new Date().toISOString(),
+      });
+      // The provider may have it, so it is uncertain first and never sent again.
+      await waitFor(
+        async () => (await readBlockers(harness)).some((blocker) => blocker.state === "uncertain"),
+        3_000,
+      );
+      await waitFor(async () => (await readBlockers(harness)).length === 0, 3_000);
+      const settled = await readHarnessThread(harness);
+      expect(settled?.session).toMatchObject({
+        status: "error",
+        activeTurnId: null,
+        lastError: UNCONFIRMED_TURN_START_DETAIL,
+      });
+      expect(await activityDetails(harness)).toContain(UNCONFIRMED_TURN_START_DETAIL);
+      expect(sentInputs(harness)).toEqual(["first message"]);
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "after-settle",
+        text: "second message",
+        createdAt: new Date().toISOString(),
+      });
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2, 3_000);
+      expect(sentInputs(harness)).toEqual(["first message", "second message"]);
+    });
+
+    it("adopts an uncertain start the provider reports running, without failing or resending it", async () => {
+      const harness = await createHarness({
+        commandEventTimeout: Duration.millis(1_000),
+        turnStartBounds: { uncertainSettleAfterMs: 150, tickMs: 10 },
+      });
+      harness.sendTurn.mockImplementationOnce(() =>
+        Effect.sync(() =>
+          harness.setRuntimeSessionTurnState({
+            threadId: "thread-1",
+            status: "running",
+            activeTurnId: asTurnId("turn-started-late"),
+          }),
+        ).pipe(Effect.andThen(Effect.never)),
+      );
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "started-without-answer",
+        text: "adopt me",
+        createdAt: new Date().toISOString(),
+      });
+      const sequence = await readTurnStartSequence(harness, "started-without-answer");
+      await waitFor(
+        async () => (await readDeliveryState(harness, sequence)) === "uncertain",
+        3_000,
+      );
+      await waitFor(
+        async () => (await readDeliveryState(harness, sequence)) === "succeeded",
+        3_000,
+      );
+      expect(await readBlockers(harness)).toEqual([]);
+      expect(await activityDetails(harness)).not.toContain(UNCONFIRMED_TURN_START_DETAIL);
+      expect((await readHarnessThread(harness))?.session?.lastError).not.toBe(
+        UNCONFIRMED_TURN_START_DETAIL,
+      );
+      expect(sentInputs(harness)).toEqual(["adopt me"]);
+    });
+
+    it("says a slow start is still starting and lets a late answer continue normally", async () => {
+      const harness = await createHarness({
+        commandEventTimeout: Duration.millis(3_000),
+        turnStartBounds: { noticeAfterMs: 60, tickMs: 10, uncertainSettleAfterMs: 150 },
+      });
+      const answer = Deferred.makeUnsafe<void>();
+      harness.sendTurn.mockImplementationOnce(() =>
+        Deferred.await(answer).pipe(
+          Effect.as({ threadId, turnId: asTurnId("turn-answered-late") }),
+        ),
+      );
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "slow-start",
+        text: "slow but fine",
+        createdAt: new Date().toISOString(),
+      });
+      await waitFor(async () =>
+        Boolean(
+          (await readHarnessThread(harness))?.activities.some(
+            (activity) => activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+          ),
+        ),
+      );
+      await Effect.runPromise(Deferred.succeed(answer, undefined));
+      const sequence = await readTurnStartSequence(harness, "slow-start");
+      await waitFor(async () => (await readDeliveryState(harness, sequence)) === "succeeded");
+      const thread = await readHarnessThread(harness);
+      expect(thread?.activities.filter((activity) => activity.tone === "error")).toEqual([]);
+      expect(
+        thread?.activities.filter(
+          (activity) => activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+        ),
+      ).toHaveLength(1);
+      expect(await readBlockers(harness)).toEqual([]);
+      expect(sentInputs(harness)).toEqual(["slow but fine"]);
+    });
+
+    // The first message holds the thread's delivery while its provider starts, so the
+    // second one waits without the reactor having begun to deliver it.
+    const holdFirstStart = async (
+      harness: Awaited<ReturnType<typeof createHarness>>,
+      release: Deferred.Deferred<void>,
+    ) => {
+      const defaultStartSession = harness.startSession.getMockImplementation()!;
+      harness.startSession.mockImplementationOnce((...args) =>
+        Deferred.await(release).pipe(
+          Effect.andThen(Effect.suspend(() => defaultStartSession(...args))),
+        ),
+      );
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "holds-the-thread",
+        text: "first message",
+        createdAt: new Date().toISOString(),
+      });
+      await waitFor(() => harness.startSession.mock.calls.length === 1);
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "waits-behind",
+        text: "second message",
+        createdAt: new Date().toISOString(),
+      });
+    };
+    const notSentDetail = (ms: number) =>
+      `The provider did not finish starting within ${ms}ms, so the message was not sent.`;
+
+    it("fails a message the reactor never began to deliver at its bound and never sends it later", async () => {
+      const harness = await createHarness({
+        commandEventTimeout: Duration.millis(5_000),
+        turnStartBounds: { failAfterMs: 150, noticeAfterMs: 4_000, tickMs: 10 },
+      });
+      const release = Deferred.makeUnsafe<void>();
+      await holdFirstStart(harness, release);
+
+      await waitFor(async () => (await activityDetails(harness)).includes(notSentDetail(150)));
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      await harness.drain();
+      const sequence = await readTurnStartSequence(harness, "waits-behind");
+      expect(await readDeliveryState(harness, sequence)).toBe("succeeded");
+      expect(sentInputs(harness)).toEqual(["first message"]);
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+      expect(await readBlockers(harness)).toEqual([]);
+    });
+
+    it("does not fail a waiting message because the event loop stalled", async () => {
+      let clock = 0;
+      const harness = await createHarness({
+        commandEventTimeout: Duration.millis(5_000),
+        turnStartBounds: { failAfterMs: 150, noticeAfterMs: 4_000, tickMs: 10, now: () => clock },
+      });
+      const release = Deferred.makeUnsafe<void>();
+      await holdFirstStart(harness, release);
+
+      // Ten minutes pass between two ticks: a stall, not ten minutes of waiting.
+      clock += 600_000;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(await activityDetails(harness)).not.toContain(notSentDetail(150));
+
+      await Effect.runPromise(Deferred.succeed(release, undefined));
+      await waitFor(() => harness.sendTurn.mock.calls.length === 2, 3_000);
+      expect(sentInputs(harness)).toEqual(["first message", "second message"]);
+      expect(await activityDetails(harness)).not.toContain(notSentDetail(150));
+    });
+
+    it("keeps an unproven process exit uncertain, then settles it within the bound", async () => {
+      const harness = await createHarness({
+        turnStartBounds: { uncertainSettleAfterMs: 150, tickMs: 10 },
+      });
+      harness.startSession.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            detail: "Provider process tree 1 did not prove exit.",
+          }),
+        ),
+      );
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "exit-unproven",
+        text: "first message",
+        createdAt: new Date().toISOString(),
+      });
+      // A process that may still be alive keeps the start uncertain at first.
+      await waitFor(
+        async () => (await readBlockers(harness)).some((blocker) => blocker.state === "uncertain"),
+        3_000,
+      );
+      await waitFor(async () => (await readBlockers(harness)).length === 0, 3_000);
+      expect((await readHarnessThread(harness))?.session?.lastError).toBe(
+        UNCONFIRMED_TURN_START_DETAIL,
+      );
+      expect(harness.sendTurn).not.toHaveBeenCalled();
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "after-exit-unproven",
+        text: "second message",
+        createdAt: new Date().toISOString(),
+      });
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1, 3_000);
+      expect(sentInputs(harness)).toEqual(["second message"]);
+    });
   });
 
   it("uses the Home thread's isolated folder as provider cwd instead of its shared container", async () => {

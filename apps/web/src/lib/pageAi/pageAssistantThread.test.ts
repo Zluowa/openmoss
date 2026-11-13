@@ -3,7 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPageAssistantKeeper,
+  createPageRunStallGuard,
+  PAGE_RUN_OPEN_TOOL_STALL_MS,
+  PAGE_RUN_STALL_MS,
   pageAssistantThreads,
+  pageRunActivity,
   pageRunProgress,
   sendPageAssistantTurn,
 } from "./pageAssistantThread";
@@ -259,5 +263,136 @@ describe("pageRunProgress", () => {
     };
     expect(pageRunProgress(failed, null, 100_000).state).toBe("pending");
     expect(pageRunProgress(failed, null, 0).state).toBe("error");
+  });
+});
+
+describe("page run stall guard", () => {
+  const started = 100_000;
+  const quiet = {
+    latestTurn: { turnId: TurnId.makeUnsafe("turn-2"), state: "running" },
+    session: { status: "running" },
+    messages: [
+      { role: "assistant", text: "old reply", createdAt: at(2_000), streaming: false },
+      { role: "user", text: "柱状图", createdAt: at(100_100), streaming: false },
+    ],
+    activities: [{ id: "old-tool", kind: "tool.completed", createdAt: at(2_000) }],
+  };
+
+  function guarded() {
+    const timers = fakeTimers();
+    const onStall = vi.fn();
+    const guard = createPageRunStallGuard({
+      onStall,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    return { timers, onStall, guard };
+  }
+
+  it("stops a run that shows nothing for three minutes, once", () => {
+    const { timers, onStall, guard } = guarded();
+    guard.observe(pageRunActivity(quiet, started));
+    timers.advance(PAGE_RUN_STALL_MS - 1);
+    // The same state again is not a sign of life.
+    guard.observe(pageRunActivity(quiet, started));
+    expect(onStall).not.toHaveBeenCalled();
+    timers.advance(1);
+    expect(onStall).toHaveBeenCalledTimes(1);
+    expect(onStall).toHaveBeenCalledWith(PAGE_RUN_STALL_MS);
+    guard.observe(pageRunActivity({ ...quiet, session: { status: "ready" } }, started));
+    timers.advance(PAGE_RUN_STALL_MS * 2);
+    expect(onStall).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits again after every reply delta, thinking step or tool call", () => {
+    const { timers, onStall, guard } = guarded();
+    guard.observe(pageRunActivity(quiet, started));
+    timers.advance(PAGE_RUN_STALL_MS - 1_000);
+    const replying = {
+      ...quiet,
+      messages: [
+        ...quiet.messages,
+        { role: "assistant", text: "Let", createdAt: at(270_000), streaming: true },
+      ],
+    };
+    guard.observe(pageRunActivity(replying, started));
+    timers.advance(PAGE_RUN_STALL_MS - 1_000);
+    const more = {
+      ...replying,
+      messages: [...quiet.messages, { ...replying.messages[2]!, text: "Let me do it." }],
+    };
+    guard.observe(pageRunActivity(more, started));
+    timers.advance(PAGE_RUN_STALL_MS - 1_000);
+    const thinking = {
+      ...more,
+      activities: [
+        ...quiet.activities,
+        { id: "reasoning-1", kind: "task.progress", createdAt: at(600_000) },
+      ],
+    };
+    guard.observe(pageRunActivity(thinking, started));
+    timers.advance(PAGE_RUN_STALL_MS - 1_000);
+    expect(onStall).not.toHaveBeenCalled();
+    timers.advance(1_000);
+    expect(onStall).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives an open tool call longer, and only an open one", () => {
+    const { timers, onStall, guard } = guarded();
+    const toolStarted = {
+      ...quiet,
+      activities: [
+        ...quiet.activities,
+        { id: "vis-started", kind: "tool.started", createdAt: at(110_000) },
+      ],
+    };
+    expect(pageRunActivity(toolStarted, started).toolOpen).toBe(true);
+    guard.observe(pageRunActivity(toolStarted, started));
+    timers.advance(PAGE_RUN_STALL_MS);
+    expect(onStall).not.toHaveBeenCalled();
+    const toolDone = {
+      ...toolStarted,
+      activities: [
+        ...toolStarted.activities,
+        { id: "vis-done", kind: "tool.completed", createdAt: at(400_000) },
+      ],
+    };
+    expect(pageRunActivity(toolDone, started).toolOpen).toBe(false);
+    guard.observe(pageRunActivity(toolDone, started));
+    timers.advance(PAGE_RUN_STALL_MS);
+    expect(onStall).toHaveBeenCalledTimes(1);
+
+    const second = guarded();
+    second.guard.observe(pageRunActivity(toolStarted, started));
+    second.timers.advance(PAGE_RUN_OPEN_TOOL_STALL_MS - 1);
+    expect(second.onStall).not.toHaveBeenCalled();
+    second.timers.advance(1);
+    expect(second.onStall).toHaveBeenCalledWith(PAGE_RUN_OPEN_TOOL_STALL_MS);
+  });
+
+  it("ignores what earlier runs left in a reused chat", () => {
+    // The old tool row and reply predate the run; they neither keep it alive nor open a tool.
+    expect(pageRunActivity(quiet, started).toolOpen).toBe(false);
+    const { timers, onStall, guard } = guarded();
+    guard.observe(pageRunActivity(quiet, started));
+    guard.observe(
+      pageRunActivity(
+        {
+          ...quiet,
+          activities: [{ id: "older-tool", kind: "tool.started", createdAt: at(3_000) }],
+        },
+        started,
+      ),
+    );
+    timers.advance(PAGE_RUN_STALL_MS);
+    expect(onStall).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing after the run is disposed", () => {
+    const { timers, onStall, guard } = guarded();
+    guard.observe(pageRunActivity(quiet, started));
+    guard.dispose();
+    timers.advance(PAGE_RUN_OPEN_TOOL_STALL_MS);
+    expect(onStall).not.toHaveBeenCalled();
   });
 });

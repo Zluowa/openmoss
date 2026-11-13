@@ -1101,7 +1101,21 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
             .hasRunningTurn({ authority: "memfire-phone", now: now() })
             .pipe(Effect.mapError(mapManagedProviderError));
           if (!turnRunning) {
-            yield* disableManagedProviderPreservingStoredSession(stored.accessToken);
+            // A runtime that will not stop must not keep this account's lanes on the old
+            // bearer or off: the synchronization below retires it again and, for this same
+            // account, goes live without it.
+            yield* disableManagedProviderPreservingStoredSession(stored.accessToken).pipe(
+              Effect.catch((error) =>
+                Effect.logWarning(
+                  "Moss lanes kept their old bearer through a refresh; re-provisioning",
+                  {
+                    code: error.code,
+                    message: error.message,
+                    cause: describeMossErrorCauses(error),
+                  },
+                ),
+              ),
+            );
           }
         } else {
           if (current.version !== 3) {

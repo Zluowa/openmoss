@@ -46,6 +46,9 @@ describe("page AI prompts", () => {
     // Round 11: the model drew with Chart.js, which the 应用页 frame does not provide.
     expect(context).toContain("不要用图表库（Chart.js");
     expect(context).toContain("用户说“表格”时也做成可交互的");
+    // Round 11b: tool search came back empty and the model went reading reference files.
+    expect(context).toContain("mcp__moss__moss_app_visualize");
+    expect(context).toContain("不需要先搜索工具、读文件、加载技能或查参考资料");
     expect(context).not.toContain("Markdown 表格");
     expect(context).toContain("用简体中文，语气简洁");
   });

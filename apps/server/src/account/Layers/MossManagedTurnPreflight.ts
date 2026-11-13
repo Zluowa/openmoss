@@ -55,6 +55,21 @@ export function makeMossManagedTurnPreflight(input: {
         yield* Effect.logInfo("Moss lane rotation still running; sending with the current bearer", {
           instanceId,
         });
+        // Say when it ends, so a log shows how long a slow rotation really took.
+        const startedAt = (input.now ?? Date.now)();
+        yield* Fiber.await(rotation).pipe(
+          Effect.flatMap((exit) =>
+            Effect.logInfo("Moss lane rotation that outlasted a send has finished", {
+              instanceId,
+              elapsedMs: (input.now ?? Date.now)() - startedAt,
+              outcome: Exit.isSuccess(exit) ? "rotated" : "failed",
+              ...(Exit.isFailure(exit)
+                ? { cause: describeMossErrorCauses({ cause: Cause.squash(exit.cause) }) }
+                : {}),
+            }),
+          ),
+          Effect.forkIn(input.scope),
+        );
       } else if (Exit.isFailure(settled.value)) {
         const failure = Cause.squash(settled.value.cause);
         yield* Effect.logWarning("Moss lane rotation before a send failed; sending anyway", {

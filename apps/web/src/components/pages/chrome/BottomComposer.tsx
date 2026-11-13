@@ -1,7 +1,8 @@
 // FILE: BottomComposer.tsx
 // Purpose: The page composer: a compact pill docked at the page's lower right. It sends one turn
 //          to the selected Moss agent with this page as context; the agent's edits come back as
-//          drafts in the page. While idle after a run, the pill shows how that run went.
+//          drafts in the page. While idle after a run, the pill shows how that run went, and
+//          offers 重试 after one that did not finish.
 // Layer: Space page chrome slot `bottomComposer` — owned by page-ai.
 
 import { useNavigate } from "@tanstack/react-router";
@@ -94,6 +95,22 @@ export function BottomComposer({ context }: PageChromeSlotProps) {
           }}
           className="min-w-0 flex-1 bg-transparent text-ui outline-none placeholder:text-muted-foreground"
         />
+        {latest?.status === "failed" && latest.prompt && editor && !value ? (
+          <button
+            type="button"
+            className="shrink-0 rounded-full px-2 text-ui-xs text-foreground hover:bg-muted"
+            onClick={(event) => {
+              event.stopPropagation();
+              void editor.startRun({
+                mode: latest.mode,
+                prompt: latest.prompt,
+                anchorBlockId: latest.anchorBlockId,
+              });
+            }}
+          >
+            {text.retry}
+          </button>
+        ) : null}
         {latest?.threadId && !value ? (
           <button
             type="button"

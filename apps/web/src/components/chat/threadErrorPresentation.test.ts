@@ -3,7 +3,10 @@
 // Layer: Web chat presentation tests
 
 import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
-import { formatProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
+import {
+  formatProviderDeliveryBlockDetail,
+  UNCONFIRMED_TURN_START_DETAIL,
+} from "@moss/shared/providerDeliveryBlock";
 import { describe, expect, it } from "vitest";
 
 import { WS_MESSAGE_NOT_SENT_DETAIL } from "../../wsTransportEvents";
@@ -526,6 +529,22 @@ describe("resolveThreadErrorPresentation", () => {
         "服务商暂时无法完成此请求，请稍后重试。",
       );
     }
+  });
+
+  it("says an unconfirmed start was not sent again and offers to send it, in both languages", () => {
+    for (const context of ["thread", "provider-start-failure"] as const) {
+      expect(
+        resolveThreadErrorPresentation(UNCONFIRMED_TURN_START_DETAIL, "zh-CN", context),
+      ).toMatchObject({
+        title: "Moss 没能确认服务商是否处理了这条消息，已停止等待，也没有重复发送。可以重试。",
+        retryable: true,
+      });
+    }
+    expect(resolveThreadErrorPresentation(UNCONFIRMED_TURN_START_DETAIL, "en")).toMatchObject({
+      title:
+        "Moss couldn't confirm what the provider did with this message, so it stopped waiting and didn't send it again. You can try again.",
+      retryable: true,
+    });
   });
 
   it("names Codex's own thread-start timeout in plain words and allows a retry", () => {

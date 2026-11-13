@@ -1,14 +1,19 @@
 // FILE: PageAiRunWatcher.tsx
 // Purpose: Follows the conversation a page AI run started. A 生成 run streams the agent's reply
 //          into the page as a draft and saves it as a reviewable draft when the turn ends; other
-//          runs only need to know when the agent finished so the page re-reads its drafts.
+//          runs only need to know when the agent finished so the page re-reads its drafts. A run
+//          that shows no sign of life for too long is stopped and reported as not finished.
 // Layer: Page AI (web)
 
 import type { PageDraftsMutateInput, SpaceId, ThreadId, TurnId } from "@moss/contracts";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { generatedMarkdown } from "~/lib/pageAi/pageAiPrompts";
-import { pageRunProgress } from "~/lib/pageAi/pageAssistantThread";
+import {
+  createPageRunStallGuard,
+  pageRunActivity,
+  pageRunProgress,
+} from "~/lib/pageAi/pageAssistantThread";
 import { isActiveRun, pageAiSession, type PageAiRun } from "~/lib/pageAi/pageAiSession";
 import { ensureNativeApi } from "~/nativeApi";
 import { useMossAccountGatewayState } from "~/components/auth/useMossGatewayUnreachable";
@@ -16,6 +21,7 @@ import { pageAiErrorText, pageAiLocale, pageAiText } from "./pageAiText";
 import { retainThreadDetailSubscription } from "~/threadDetailSubscriptionRetention";
 import { useStore } from "~/store";
 import { getThreadFromState } from "~/threadDerivation";
+import { newCommandId } from "~/lib/utils";
 
 function useRunProgress(threadId: ThreadId, baselineTurnId: TurnId | null, startedAt: number) {
   return useStore((state) => {
@@ -24,6 +30,63 @@ function useRunProgress(threadId: ThreadId, baselineTurnId: TurnId | null, start
     const progress = pageRunProgress(thread, baselineTurnId, startedAt);
     return `${progress.state}|${progress.reply}`;
   });
+}
+
+function runActivityKey(
+  state: ReturnType<typeof useStore.getState>,
+  threadId: ThreadId,
+  startedAt: number,
+) {
+  const thread = getThreadFromState(state, threadId);
+  if (!thread) return "idle|missing";
+  const activity = pageRunActivity(thread, startedAt);
+  return `${activity.toolOpen ? "tool" : "idle"}|${activity.mark}`;
+}
+
+function parseRunActivity(activity: string) {
+  const split = activity.indexOf("|");
+  return { toolOpen: activity.slice(0, split) === "tool", mark: activity.slice(split + 1) };
+}
+
+/** Stops the run's turn and reports it as not finished when it shows nothing for too long. */
+function useStallGuard(pageKey: string, run: PageAiRun & { threadId: ThreadId }) {
+  const activity = useStore((state) => runActivityKey(state, run.threadId, run.startedAt));
+  const guard = useRef<ReturnType<typeof createPageRunStallGuard> | null>(null);
+  useEffect(() => {
+    const next = createPageRunStallGuard({
+      onStall: (waitedMs) => {
+        const thread = getThreadFromState(useStore.getState(), run.threadId);
+        const turn = thread?.latestTurn;
+        const ownTurn = turn && turn.turnId !== (run.baselineTurnId ?? null) ? turn : null;
+        pageAiSession.updateRun(pageKey, run.id, {
+          status: "failed",
+          finishedAt: Date.now(),
+          error: pageAiText(pageAiLocale()).failedStalled(Math.round(waitedMs / 60_000)),
+        });
+        void ensureNativeApi()
+          .orchestration.dispatchCommand({
+            type: "thread.turn.interrupt",
+            commandId: newCommandId(),
+            threadId: run.threadId,
+            ...(ownTurn ? { turnId: ownTurn.turnId } : {}),
+            requestedBy: "system",
+            createdAt: new Date().toISOString(),
+          })
+          .catch(() => undefined);
+      },
+    });
+    guard.current = next;
+    next.observe(
+      parseRunActivity(runActivityKey(useStore.getState(), run.threadId, run.startedAt)),
+    );
+    return () => {
+      next.dispose();
+      if (guard.current === next) guard.current = null;
+    };
+  }, [pageKey, run.baselineTurnId, run.id, run.startedAt, run.threadId]);
+  useEffect(() => {
+    guard.current?.observe(parseRunActivity(activity));
+  }, [activity]);
 }
 
 function RunWatcher(props: {
@@ -48,6 +111,7 @@ function RunWatcher(props: {
   const state = progress.slice(0, split);
   const reply = progress.slice(split + 1);
   const { pageKey, run } = props;
+  useStallGuard(pageKey, run);
   useEffect(() => {
     const streamed = generatedMarkdown(reply);
     if (run.mode === "generate" && streamed !== (run.streamed ?? ""))

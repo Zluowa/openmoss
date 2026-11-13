@@ -74,6 +74,9 @@ export function pageAiPrompt(
       context: [
         `你正在处理${pageContext(document)}。为这个页面做一个可交互的可视化（图表、示意图或小工具）。用户说“表格”时也做成可交互的（例如可排序、可筛选的表格）。`,
         `只调用一次 moss_app_visualize 完成全部工作：${target}，title 用用户的语言写一个简短标题，html 放完整的 HTML（数据直接写进代码，样式和脚本内联；也可以把 CSS、JS 分别放进 css、js 字段）。它会发布应用页，并把页面里的可视化块作为修改建议交给用户审阅。`,
+        // Round 11: the model searched for the tool, got nothing back, then read two chart
+        // reference files before it called the tool, five minutes later.
+        "这个工具在 Moss 的 MCP 服务 moss 里，已经可以直接调用；有的智能体里它显示为 mcp__moss__moss_app_visualize 或 moss_moss_app_visualize。用户的要求和要画的数据都在这条消息里：不需要先搜索工具、读文件、加载技能或查参考资料，直接调用它。",
         "页面必须自包含：应用页没有网络，也不提供任何库。不要引用外部脚本、样式表、字体，不要发网络请求，不要用图表库（Chart.js、D3、ECharts、Plotly、Highcharts 等），只用原生 HTML/CSS/SVG 或 Canvas 和原生 JavaScript 来画。",
         `不需要先读页面，不要调用 moss_app_guide、moss_app_publish 或 moss_pages_draft，不要写本地文件，不要启动子智能体或后台任务。调用失败时按返回的提示改正，再调用一次 moss_app_visualize。${instructionsSection(document)}`,
         "完成后用一句话告诉用户做好了什么。",

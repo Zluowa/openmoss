@@ -223,3 +223,105 @@ export function pageRunProgress(
   const streaming = ownMessages.some((message) => message.streaming);
   return { state: streaming ? "running" : turn, reply };
 }
+
+/**
+ * How long a page run may show no sign of life at all (no reply text, no tool call, no thinking,
+ * no turn or agent state change) before Moss stops it. A healthy turn shows something within
+ * seconds and keeps doing so; Claude Code's own stream watchdog waits at least 5 minutes for a
+ * silent model stream. Acceptance round 11 saw a 可视化 turn sit at 「思考中…」 for 26 minutes.
+ */
+export const PAGE_RUN_STALL_MS = 180_000;
+/**
+ * While a tool call is open, Moss sees nothing until it finishes, and a model can take minutes to
+ * write a large tool input (a whole HTML page for 可视化). The run gets longer before it counts
+ * as stuck; the tools themselves keep their own time limits.
+ */
+export const PAGE_RUN_OPEN_TOOL_STALL_MS = 600_000;
+
+const CLOSED_TOOL_ACTIVITY_KINDS = new Set(["tool.completed", "tool.summary"]);
+
+/**
+ * Everything of a page run that shows the agent is alive, as one comparable mark, and whether
+ * a tool call is still open.
+ */
+export function pageRunActivity(
+  thread: {
+    readonly latestTurn: { readonly turnId: TurnId; readonly state: string } | null;
+    readonly session: { readonly status: string } | null;
+    readonly messages: ReadonlyArray<{
+      readonly role: string;
+      readonly text: string;
+      readonly createdAt: string;
+      readonly streaming: boolean;
+    }>;
+    readonly activities: ReadonlyArray<{
+      readonly id: string;
+      readonly kind: string;
+      readonly createdAt: string;
+    }>;
+  },
+  startedAt: number,
+): { readonly mark: string; readonly toolOpen: boolean } {
+  // Same clock-skew allowance as pageRunProgress.
+  const ownSince = startedAt - 5_000;
+  const messages = thread.messages.filter((message) => Date.parse(message.createdAt) >= ownSince);
+  const activities = thread.activities.filter(
+    (activity) => Date.parse(activity.createdAt) >= ownSince,
+  );
+  const lastTool = activities.findLast((activity) => activity.kind.startsWith("tool."));
+  const mark = [
+    thread.latestTurn ? `${thread.latestTurn.turnId}:${thread.latestTurn.state}` : "",
+    thread.session?.status ?? "",
+    messages.length,
+    messages.reduce((length, message) => length + message.text.length, 0),
+    messages.filter((message) => message.streaming).length,
+    activities.length,
+    activities.at(-1)?.id ?? "",
+  ].join("|");
+  return { mark, toolOpen: !!lastTool && !CLOSED_TOOL_ACTIVITY_KINDS.has(lastTool.kind) };
+}
+
+export interface PageRunStallGuardDeps {
+  /** Called once, when the run has shown nothing for `waitedMs`. */
+  readonly onStall: (waitedMs: number) => void;
+  readonly stallMs?: number;
+  readonly openToolStallMs?: number;
+  readonly setTimer?: (run: () => void, ms: number) => unknown;
+  readonly clearTimer?: (timer: unknown) => void;
+}
+
+export interface PageRunStallGuard {
+  /** The run's current activity; a mark different from the last one restarts the wait. */
+  readonly observe: (activity: { readonly mark: string; readonly toolOpen: boolean }) => void;
+  readonly dispose: () => void;
+}
+
+export function createPageRunStallGuard(deps: PageRunStallGuardDeps): PageRunStallGuard {
+  const stallMs = deps.stallMs ?? PAGE_RUN_STALL_MS;
+  const openToolStallMs = deps.openToolStallMs ?? PAGE_RUN_OPEN_TOOL_STALL_MS;
+  const setTimer = deps.setTimer ?? ((run, ms) => setTimeout(run, ms));
+  const clearTimer =
+    deps.clearTimer ?? ((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
+  let timer: unknown = null;
+  let last: string | null = null;
+  let done = false;
+  return {
+    observe: ({ mark, toolOpen }) => {
+      if (done || mark === last) return;
+      last = mark;
+      if (timer !== null) clearTimer(timer);
+      const waitMs = toolOpen ? openToolStallMs : stallMs;
+      timer = setTimer(() => {
+        timer = null;
+        if (done) return;
+        done = true;
+        deps.onStall(waitMs);
+      }, waitMs);
+    },
+    dispose: () => {
+      done = true;
+      if (timer !== null) clearTimer(timer);
+      timer = null;
+    },
+  };
+}

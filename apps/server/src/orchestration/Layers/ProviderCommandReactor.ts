@@ -85,6 +85,8 @@ import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadat
 import {
   formatProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
+  PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+  UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import { buildStalePendingRequestFailureDetail } from "@moss/shared/threadSummary";
 import { resolveThreadWorkspaceState } from "@moss/shared/threadEnvironment";
@@ -728,6 +730,22 @@ const PROVIDER_COMMAND_INTERRUPT_TIMEOUT = Duration.seconds(10);
 const PROVIDER_COMMAND_STOP_TIMEOUT = Duration.seconds(15);
 /** A turn start may first start the provider session; that must fit well inside this. */
 export const PROVIDER_COMMAND_EVENT_TIMEOUT = Duration.seconds(120);
+/**
+ * Bounds for a sent message the provider has not taken up (see TurnStartBounds).
+ * - Notice after 20 s: past an ordinary cold start, well before the start timeout.
+ * - Not-sent after the start timeout: a message still waiting to be delivered has waited
+ *   as long as any start may take; it has sent nothing, so it fails as a plain retry.
+ * - An uncertain start is resolved one claim lease (30 s) after it was settled, so at most
+ *   start timeout + 30 s after the send. The wait lets a provider that answered late
+ *   report its turn before Moss decides; the lease is the time after which this reactor
+ *   already treats a silent owner as gone.
+ */
+const DEFAULT_TURN_START_BOUNDS: Omit<TurnStartBounds, "failAfterMs"> = {
+  noticeAfterMs: 20_000,
+  uncertainSettleAfterMs: PROVIDER_COMMAND_CLAIM_LEASE_MS,
+  tickMs: 1_000,
+  now: () => Date.now(),
+};
 const PRE_TURN_BASELINE_TIMEOUT = Duration.seconds(5);
 const GATEWAY_OPERATION_COMPLETION_NEGATIVE_CACHE_TTL = Duration.seconds(30);
 
@@ -1034,6 +1052,33 @@ export interface ProviderCommandReactorLiveOptions {
   readonly cacheResponseTimeout?: Duration.Duration;
   readonly gatewayOperationCompletionWaitTimeout?: Duration.Duration;
   readonly gatewayOperationCompletionNegativeCacheTtl?: Duration.Duration;
+  /** Tests shorten the turn-start bounds and may drive their clock (see TurnStartBounds). */
+  readonly turnStartBounds?: Partial<TurnStartBounds>;
+}
+
+/**
+ * How long a sent message may go without the provider taking it up before Moss says so.
+ * Every bound counts active time (`activeTimeStepMs`), read from `now` once per `tickMs`.
+ */
+export interface TurnStartBounds {
+  /** A message not yet taken up by its provider gets a "still starting" notice. */
+  readonly noticeAfterMs: number;
+  /** A message the reactor has not even begun to deliver is settled as not sent. */
+  readonly failAfterMs: number;
+  /** An uncertain start is resolved this long after it was settled uncertain. */
+  readonly uncertainSettleAfterMs: number;
+  readonly tickMs: number;
+  readonly now: () => number;
+}
+
+/**
+ * The part of the time since the last tick that counts towards a deadline. A tick that
+ * arrives late, because the event loop stalled or the machine slept, counts as at most
+ * two ticks: nothing in this process could progress during that gap, so a deadline
+ * measured this way cannot expire on a turn that is starting, only on one that is stuck.
+ */
+export function activeTimeStepMs(lastTickAt: number, now: number, tickMs: number): number {
+  return Math.min(Math.max(0, now - lastTickAt), 2 * tickMs);
 }
 
 interface ProviderCommandReactorConfigShape {
@@ -1042,6 +1087,7 @@ interface ProviderCommandReactorConfigShape {
   readonly cacheResponseTimeout: Duration.Duration;
   readonly gatewayOperationCompletionWaitTimeout: Duration.Duration;
   readonly gatewayOperationCompletionNegativeCacheTtl: Duration.Duration;
+  readonly turnStartBounds: TurnStartBounds;
 }
 
 class ProviderCommandReactorConfig extends ServiceMap.Service<
@@ -1076,6 +1122,7 @@ const make = Effect.gen(function* () {
     cacheResponseTimeout,
     gatewayOperationCompletionWaitTimeout,
     gatewayOperationCompletionNegativeCacheTtl,
+    turnStartBounds,
   } = yield* ProviderCommandReactorConfig;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const deliveryRepository = yield* OrchestrationEventDeliveryRepository;
@@ -3548,6 +3595,8 @@ const make = Effect.gen(function* () {
         provider: steerProvider,
         operation: "thread.turn.start",
       });
+      // The steer carries the message: from here a failure may have delivered it.
+      yield* markProviderTurnDispatched(input);
       yield* providerService.steerSubagent({
         threadId: providerThread.id,
         providerThreadId: subagentProviderThreadId,
@@ -8081,11 +8130,16 @@ const make = Effect.gen(function* () {
   // start is reported, in words the chat shows as a plain "try again" error.
   const surfaceUndeliveredTurnStart = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+    options?: {
+      readonly withinMs: number;
+      /** Another start on this thread is still in progress and owns the session row. */
+      readonly sessionOwnedElsewhere: boolean;
+    },
   ) {
     const createdAt = new Date().toISOString();
-    const detail = `The provider did not finish starting within ${Duration.toMillis(
-      commandEventTimeout,
-    )}ms, so the message was not sent.`;
+    const detail = `The provider did not finish starting within ${
+      options?.withinMs ?? Duration.toMillis(commandEventTimeout)
+    }ms, so the message was not sent.`;
     if (event.payload.initialGoalStartedAt !== undefined) {
       yield* pauseActiveThreadGoal({
         threadId: event.payload.threadId,
@@ -8102,7 +8156,7 @@ const make = Effect.gen(function* () {
     });
     const session = (yield* resolveThreadShell(event.payload.threadId))?.session;
     // A turn that began meanwhile owns the session row.
-    if (session?.activeTurnId != null) return;
+    if (session?.activeTurnId != null || options?.sessionOwnedElsewhere === true) return;
     yield* setThreadSessionError({
       threadId: event.payload.threadId,
       runtimeMode: event.payload.runtimeMode,
@@ -8115,6 +8169,69 @@ const make = Effect.gen(function* () {
         : {}),
       createdAt,
     });
+  });
+
+  // A sent message its provider has not taken up yet. The chat says so instead of only
+  // "Thinking"; the row stays as the record that this start was slow.
+  const surfaceDelayedTurnStart = (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+  ) => {
+    const createdAt = new Date().toISOString();
+    return orchestrationEngine.dispatch({
+      type: "thread.activity.append",
+      commandId: serverCommandId("provider-turn-start-delayed"),
+      threadId: event.payload.threadId,
+      activity: {
+        id: EventId.makeUnsafe(`provider-turn-start-delayed:${event.sequence}`),
+        tone: "info",
+        kind: PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+        summary: "The provider has not taken up this message yet",
+        payload: { messageId: event.payload.messageId },
+        turnId: null,
+        createdAt,
+      },
+      createdAt,
+    });
+  };
+
+  // An uncertain start Moss stopped waiting for. It may have reached the provider, so the
+  // words never say "not sent", only that Moss did not send it again.
+  const surfaceUnconfirmedTurnStart = Effect.fnUntraced(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+  ) {
+    const createdAt = new Date().toISOString();
+    if (event.payload.initialGoalStartedAt !== undefined) {
+      yield* pauseActiveThreadGoal({
+        threadId: event.payload.threadId,
+        expectedGoalStartedAt: event.payload.initialGoalStartedAt,
+      });
+    }
+    yield* appendProviderFailureActivity({
+      threadId: event.payload.threadId,
+      kind: "provider.turn.start.failed",
+      summary: "Provider turn start was not confirmed",
+      detail: UNCONFIRMED_TURN_START_DETAIL,
+      turnId: null,
+      createdAt,
+    });
+    const session = (yield* resolveThreadShell(event.payload.threadId))?.session;
+    if (!session) return;
+    // The provider reports no live turn, so a projected one is stale: clearing it here is
+    // what ends "Thinking". A session another writer moved on loses this conditional write.
+    yield* setThreadSessionError({
+      threadId: event.payload.threadId,
+      runtimeMode: event.payload.runtimeMode,
+      detail: UNCONFIRMED_TURN_START_DETAIL,
+      expectedSession: { status: session.status, updatedAt: session.updatedAt },
+      createdAt,
+    }).pipe(
+      Effect.catchTag("OrchestrationCommandInvariantError", (error) =>
+        error.detail ===
+        `Thread '${event.payload.threadId}' session changed before the conditional update.`
+          ? Effect.void
+          : Effect.fail(error),
+      ),
+    );
   });
 
   const surfaceTimedOutGoalContinuation = Effect.fnUntraced(function* (
@@ -8543,6 +8660,20 @@ const make = Effect.gen(function* () {
     // A different lane can pin the global ACK below work already skipped here.
     // Keep this quarantine fence separate from disposable runtime/session caches.
     const quarantinedProcessedThrough = new Map<string, number>();
+    // Sent messages whose start the reactor has not finished (see TurnStartBounds). Only
+    // two owners decide a watch, each with one synchronous step: the reactor takes it
+    // ("waiting" -> "taken") before any delivery write, or the watchdog expires it
+    // ("waiting" -> "expiring") before writing the delivery as settled. So a message is
+    // either delivered or reported as not sent, never both.
+    type TurnStartWatch = {
+      readonly event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>;
+      activeMs: number;
+      noticed: boolean;
+      state: "waiting" | "taken" | "expiring" | "expired";
+      readonly decided: Deferred.Deferred<void>;
+    };
+    const turnStartWatches = new Map<number, TurnStartWatch>();
+    const uncertainTurnStartSettlements = new Set<number>();
     const intentPriority = (event: OrchestrationEvent) =>
       isProviderIntentEvent(event) && isQuarantineExemptProviderIntent(event)
         ? 0
@@ -8817,6 +8948,9 @@ const make = Effect.gen(function* () {
       }
       yield* recordQuarantinedProcessed(input.event);
       yield* requireCursorAdvance(input.event);
+      if (input.state === "uncertain" && input.event.type === "thread.turn-start-requested") {
+        yield* scheduleUncertainTurnStartSettlement(input.event);
+      }
     });
 
     const skipQuarantinedSideEffect = Effect.fnUntraced(function* (event: ProviderIntentEvent) {
@@ -9328,7 +9462,16 @@ const make = Effect.gen(function* () {
     // boundary. In particular, operator-authorized safe retries bypass the
     // ordered event stream, but a successfully retried queued-turn enqueue
     // still needs its post-settlement recovery drain.
-    const processClaimedProviderIntentWithRecovery = Effect.fnUntraced(function* (
+    const processClaimedProviderIntentWithRecovery = (event: ProviderIntentEvent) =>
+      Effect.gen(function* () {
+        const watch = turnStartWatches.get(event.sequence);
+        // Take the watch before any delivery read or claim. An expiry already under way
+        // settles the delivery first; the durable record below then decides.
+        if (watch?.state === "waiting") watch.state = "taken";
+        else if (watch?.state === "expiring") yield* Deferred.await(watch.decided);
+        yield* processClaimedProviderIntentCore(event);
+      }).pipe(Effect.ensuring(Effect.sync(() => turnStartWatches.delete(event.sequence))));
+    const processClaimedProviderIntentCore = Effect.fnUntraced(function* (
       event: ProviderIntentEvent,
     ) {
       if (yield* skipUnavailableProviderOwner(event)) return;
@@ -9680,6 +9823,205 @@ const make = Effect.gen(function* () {
         );
       }) as ReturnType<ProviderCommandReactorShape["reconcileDelivery"]>;
 
+    const waitActiveTime = (ms: number) =>
+      Effect.gen(function* () {
+        let active = 0;
+        let last = turnStartBounds.now();
+        while (active < ms) {
+          yield* Effect.sleep(Duration.millis(Math.min(turnStartBounds.tickMs, ms - active)));
+          const now = turnStartBounds.now();
+          active += activeTimeStepMs(last, now, turnStartBounds.tickMs);
+          last = now;
+        }
+      });
+
+    // An uncertain turn start resolves without a person (TurnStartBounds), and never by
+    // sending it again. A turn the provider reports running, or one that already started
+    // and finished, is adopted. Otherwise the start settles as failed: the thread's later
+    // work is released and the person decides whether to send the message again.
+    // "Unblock thread" remains for every other blocker and for anything declined here.
+    const settleUncertainTurnStart = Effect.fnUntraced(function* (
+      event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+    ) {
+      const threadId = event.payload.threadId;
+      const reconcile = (outcome: "accepted" | "abandon", note: string) =>
+        reconcileDelivery({
+          eventSequence: event.sequence,
+          threadId,
+          expectedState: "uncertain",
+          outcome,
+          reconciledBy: "system:provider-command-reactor",
+          note,
+        });
+      // A provider still connecting gets one more period; then the bound holds.
+      for (let check = 1; check <= 2; check += 1) {
+        yield* waitActiveTime(turnStartBounds.uncertainSettleAfterMs);
+        const delivery = yield* deliveryRepository.getDelivery({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          eventSequence: event.sequence,
+        });
+        if (Option.isNone(delivery) || delivery.value.state !== "uncertain") return;
+        const live = yield* resolveLiveProviderSession(threadId);
+        const latestTurn = (yield* resolveThreadShell(threadId))?.latestTurn;
+        const startedAndSettled =
+          latestTurn?.startedAt != null &&
+          latestTurn.startedAt >= event.occurredAt &&
+          latestTurn.state !== "running";
+        if ((live?.status === "running" && live.activeTurnId !== undefined) || startedAndSettled) {
+          yield* reconcile(
+            "accepted",
+            live?.activeTurnId !== undefined
+              ? `The provider reports turn ${live.activeTurnId} running; adopted without replay.`
+              : `Turn ${latestTurn?.turnId} started after this request and settled; adopted without replay.`,
+          );
+          yield* Effect.logInfo("uncertain provider turn start adopted", {
+            eventSequence: event.sequence,
+            threadId,
+          });
+          return;
+        }
+        if (live?.status !== "connecting") break;
+      }
+      yield* surfaceUnconfirmedTurnStart(event);
+      const reconciled = yield* reconcile(
+        "abandon",
+        "The provider reported no live turn for this start; settled as failed without replay.",
+      );
+      if (reconciled === null) return;
+      yield* Effect.logWarning("uncertain provider turn start settled as failed", {
+        eventSequence: event.sequence,
+        threadId,
+      });
+      // Messages queued behind the projected turn wait for a terminal event that will not come.
+      yield* drainQueuedTurnsForSession(threadId);
+    });
+    const scheduleUncertainTurnStartSettlement = (
+      event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
+    ) =>
+      Effect.suspend(() => {
+        if (uncertainTurnStartSettlements.has(event.sequence)) return Effect.void;
+        uncertainTurnStartSettlements.add(event.sequence);
+        return settleUncertainTurnStart(event).pipe(
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning(
+                  "could not settle an uncertain turn start; Unblock thread remains",
+                  {
+                    eventSequence: event.sequence,
+                    threadId: event.payload.threadId,
+                    cause: Cause.pretty(cause),
+                  },
+                ),
+          ),
+          Effect.ensuring(Effect.sync(() => uncertainTurnStartSettlements.delete(event.sequence))),
+          Effect.forkIn(providerIntentScope),
+          Effect.asVoid,
+        );
+      });
+
+    // A sent message the reactor has not begun to deliver fails as not sent once it has
+    // waited the start timeout. Its delivery is written settled first, so a reactor that
+    // reaches it later skips it, here or after a restart.
+    const expireTurnStartWatch = (watch: TurnStartWatch) =>
+      Effect.gen(function* () {
+        const event = watch.event;
+        const key = {
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          eventSequence: event.sequence,
+        };
+        // A record from an earlier attempt or process belongs to the delivery path.
+        if (Option.isSome(yield* deliveryRepository.getDelivery(key))) {
+          if (watch.state === "waiting") watch.state = "taken";
+          return;
+        }
+        if (watch.state !== "waiting") return;
+        watch.state = "expiring";
+        const claimOwner = `${processOwner}:${event.sequence}`;
+        const settledAt = new Date().toISOString();
+        const settled = yield* deliveryRepository
+          .claim({
+            ...key,
+            threadId: event.payload.threadId,
+            claimOwner,
+            claimedAt: settledAt,
+            claimExpiresAt: new Date(Date.now() + PROVIDER_COMMAND_CLAIM_LEASE_MS).toISOString(),
+          })
+          .pipe(
+            Effect.flatMap((claimed) =>
+              Option.isNone(claimed)
+                ? Effect.succeed(false)
+                : deliveryRepository.complete({ ...key, claimOwner, completedAt: settledAt }),
+            ),
+          );
+        watch.state = settled ? "expired" : "taken";
+        if (!settled) return;
+        yield* Effect.logWarning("provider turn start not taken up in time; settled as not sent", {
+          eventSequence: event.sequence,
+          threadId: event.payload.threadId,
+          waitedActiveMs: watch.activeMs,
+        });
+        yield* surfaceUndeliveredTurnStart(event, {
+          withinMs: turnStartBounds.failAfterMs,
+          sessionOwnedElsewhere: [...turnStartWatches.values()].some(
+            (other) =>
+              other !== watch &&
+              other.state === "taken" &&
+              other.event.payload.threadId === event.payload.threadId,
+          ),
+        });
+      }).pipe(
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.logWarning("could not settle a turn start that was not taken up", {
+                eventSequence: watch.event.sequence,
+                cause: Cause.pretty(cause),
+              }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            // A write that failed midway leaves the record to the delivery path.
+            if (watch.state === "expiring") watch.state = "taken";
+            if (watch.state === "expired") turnStartWatches.delete(watch.event.sequence);
+          }).pipe(Effect.andThen(Deferred.succeed(watch.decided, undefined))),
+        ),
+      );
+    const runTurnStartWatchdog = Effect.gen(function* () {
+      let last = turnStartBounds.now();
+      while (true) {
+        yield* Effect.sleep(Duration.millis(turnStartBounds.tickMs));
+        const now = turnStartBounds.now();
+        const step = activeTimeStepMs(last, now, turnStartBounds.tickMs);
+        last = now;
+        for (const watch of turnStartWatches.values()) {
+          if (watch.state !== "waiting" && watch.state !== "taken") continue;
+          const wasBelowFail = watch.activeMs < turnStartBounds.failAfterMs;
+          watch.activeMs += step;
+          if (!watch.noticed && watch.activeMs >= turnStartBounds.noticeAfterMs) {
+            watch.noticed = true;
+            yield* surfaceDelayedTurnStart(watch.event).pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("could not show a slow turn start", {
+                  eventSequence: watch.event.sequence,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+              Effect.forkIn(providerIntentScope),
+            );
+          }
+          // One expiry attempt per watch, at the moment it crosses the bound.
+          if (
+            watch.state === "waiting" &&
+            wasBelowFail &&
+            watch.activeMs >= turnStartBounds.failAfterMs
+          ) {
+            yield* expireTurnStartWatch(watch).pipe(Effect.forkIn(providerIntentScope));
+          }
+        }
+      }
+    });
+
     const countSkippedPrompts = (input: {
       readonly threadId: ThreadId;
       readonly afterSequence: number;
@@ -9791,6 +10133,25 @@ const make = Effect.gen(function* () {
                 Effect.catchCause((cause) =>
                   Effect.logWarning("failed to surface quarantined-thread block at startup", {
                     threadId: blocker.threadId,
+                    cause: Cause.pretty(cause),
+                  }),
+                ),
+              );
+            }
+            // A restart must not leave an uncertain turn start for a person to clear.
+            if (
+              blocker.state === "uncertain" &&
+              blocker.eventType === "thread.turn-start-requested"
+            ) {
+              yield* readProviderIntentEvent(blocker.eventSequence).pipe(
+                Effect.flatMap((intent) =>
+                  intent.type === "thread.turn-start-requested"
+                    ? scheduleUncertainTurnStartSettlement(intent)
+                    : Effect.void,
+                ),
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("could not schedule an uncertain turn start at startup", {
+                    eventSequence: blocker.eventSequence,
                     cause: Cause.pretty(cause),
                   }),
                 ),
@@ -9957,6 +10318,15 @@ const make = Effect.gen(function* () {
               : Effect.void,
           ),
           Effect.andThen(requireCursorAdvance(event)),
+          // Paths that settle an intent without a claim (already acknowledged, skipped
+          // behind a quarantine fence) end its watch here.
+          Effect.ensuring(
+            Effect.sync(() => {
+              const watch = turnStartWatches.get(event.sequence);
+              if (watch?.state === "waiting" || watch?.state === "taken")
+                turnStartWatches.delete(event.sequence);
+            }),
+          ),
         ),
       );
     const sourceFailure = yield* Deferred.make<never, Cause.Cause<unknown>>();
@@ -9993,6 +10363,7 @@ const make = Effect.gen(function* () {
       ),
       Effect.forkScoped,
     );
+    yield* runTurnStartWatchdog.pipe(Effect.forkScoped);
     const intentWorker = yield* makeKeyedDrainableWorker(
       (lane: ProviderSourceLane) =>
         Effect.gen(function* () {
@@ -10156,6 +10527,15 @@ const make = Effect.gen(function* () {
           admittedThroughSequence = event.sequence;
           yield* requireCursorAdvance(event);
           return;
+        }
+        if (event.type === "thread.turn-start-requested" && !turnStartWatches.has(event.sequence)) {
+          turnStartWatches.set(event.sequence, {
+            event,
+            activeMs: 0,
+            noticed: false,
+            state: "waiting",
+            decided: Deferred.makeUnsafe<void>(),
+          });
         }
         const existing = sourceLanes.get(event.aggregateId);
         if (existing !== undefined) {
@@ -10556,15 +10936,22 @@ export const makeProviderCommandReactorLive = (options?: ProviderCommandReactorL
       throw new RangeError(`${name} must be positive and finite.`);
     }
   }
+  const commandEventTimeout = options?.commandEventTimeout ?? PROVIDER_COMMAND_EVENT_TIMEOUT;
+  const turnStartBounds: TurnStartBounds = {
+    ...DEFAULT_TURN_START_BOUNDS,
+    failAfterMs: Duration.toMillis(commandEventTimeout),
+    ...options?.turnStartBounds,
+  };
   return Layer.effect(ProviderCommandReactor, make).pipe(
     Layer.provide(ProjectionThreadMessageRepositoryLive),
     Layer.provide(
       Layer.succeed(ProviderCommandReactorConfig, {
-        commandEventTimeout: options?.commandEventTimeout ?? PROVIDER_COMMAND_EVENT_TIMEOUT,
+        commandEventTimeout,
         preTurnBaselineTimeout,
         cacheResponseTimeout,
         gatewayOperationCompletionWaitTimeout,
         gatewayOperationCompletionNegativeCacheTtl,
+        turnStartBounds,
       }),
     ),
     Layer.provideMerge(OrchestrationEventDeliveryRepositoryLive),

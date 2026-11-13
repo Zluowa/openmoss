@@ -51,6 +51,7 @@ import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
 import { pluralize, stripTerminalControlSequences } from "@moss/shared/text";
 import { suppressCoordinatorCheckinMessages } from "@moss/shared/coordinatorCheckin";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
+import { PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND } from "@moss/shared/providerDeliveryBlock";
 import type { HtmlRenderReference } from "@moss/shared/htmlRender";
 import { HTML_RENDER_ACTIVITY_KIND, htmlRenderFromActivity } from "@moss/shared/htmlRenderActivity";
 import { placeHtmlRenders } from "./lib/htmlRenderSurfaces";
@@ -1505,6 +1506,10 @@ function shouldKeepActivityForWorkLog(
   }
   // A waiting secret card is the only way to answer the agent blocked on it.
   if (activity.kind === SECRET_REQUEST_ACTIVITY_KIND) {
+    return true;
+  }
+  // A slow start comes before its turn has an id; it says why "Thinking" is taking long.
+  if (activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND) {
     return true;
   }
 

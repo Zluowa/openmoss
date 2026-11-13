@@ -888,6 +888,8 @@ const EN_TRANSLATIONS = {
   "chat.systemError.generic": "Something went wrong. Please try again.",
   "chat.systemError.capacityRetry.retry": "Retry",
   "chat.error.retry": "Retry",
+  "chat.turnStart.delayed":
+    "The provider is taking longer than usual to take up this message. Moss keeps waiting and says so here if it can't start.",
   "chat.error.showDetails": "Show details",
   "chat.error.hideDetails": "Hide details",
   "chat.error.copy": "Copy error",
@@ -5193,6 +5195,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.systemError.generic": "出了点问题，请稍后重试。",
   "chat.systemError.capacityRetry.retry": "重试",
   "chat.error.retry": "重试",
+  "chat.turnStart.delayed":
+    "服务商接收这条消息比平时慢。Moss 会继续等待；如果没能开始，会在这里告诉你。",
   "chat.error.showDetails": "显示详情",
   "chat.error.hideDetails": "收起详情",
   "chat.error.copy": "复制错误信息",

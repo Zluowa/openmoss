@@ -133,6 +133,8 @@ const zh = {
   failedMossSession: "Moss 刚更新了登录状态，请再试一次。",
   failedSlow: "智能体启动太久，没有响应。稍后再试，或查看对话里的详情。",
   failedOther: "智能体没能完成。查看对话里的详情，或再试一次。",
+  failedStalled: (minutes: number) => `智能体 ${minutes} 分钟没有任何动静，已停下。可以重试。`,
+  retry: "重试",
   openChat: "查看对话",
 };
 type Text = typeof zh;
@@ -243,6 +245,9 @@ const en: Text = {
   failedSlow:
     "The agent took too long to start. Try again in a moment, or see the chat for details.",
   failedOther: "The agent couldn't finish. See the chat for details, or try again.",
+  failedStalled: (minutes: number) =>
+    `The agent showed no activity for ${minutes} minutes, so Moss stopped it. You can retry.`,
+  retry: "Retry",
   openChat: "Open chat",
 };
 

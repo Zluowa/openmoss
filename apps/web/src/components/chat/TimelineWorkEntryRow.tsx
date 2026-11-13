@@ -7,6 +7,7 @@ import { conversationDisclosureStyle } from "~/lib/disclosureMotion";
 import { ConversationShimmer } from "./ConversationShimmer";
 import { ThreadId, type ModelSelection, type TurnId } from "@moss/contracts";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
+import { PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND } from "@moss/shared/providerDeliveryBlock";
 import { motion } from "motion/react";
 import {
   createElement,
@@ -945,9 +946,15 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               ? "mcp"
               : undefined;
   const isQuotaExhaustedActivity = workEntry.activityKind === "account.quota-exhausted";
+  const isTurnStartDelayedActivity =
+    workEntry.activityKind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND;
+  // Rows whose whole text is Moss's own sentence, in the reader's language.
+  const isFixedTextActivity = isQuotaExhaustedActivity || isTurnStartDelayedActivity;
   const heading = isQuotaExhaustedActivity
     ? t("mossQuota.exhausted.activity")
-    : toolWorkEntryHeading(workEntry, locale);
+    : isTurnStartDelayedActivity
+      ? t("chat.turnStart.delayed")
+      : toolWorkEntryHeading(workEntry, locale);
   const rawPreview = workEntry.monitorNotification
     ? null
     : workEntry.mcpToolResult &&
@@ -977,7 +984,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             : "thread",
         ).title
       : null;
-  const displayText = isQuotaExhaustedActivity
+  const displayText = isFixedTextActivity
     ? heading
     : historicalThreadError
       ? historicalThreadError
@@ -1001,7 +1008,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     (openShellByDefault && rawCommand
       ? { kind: "command" as const, title: "Shell", command: rawCommand }
       : undefined);
-  const hoverText = isQuotaExhaustedActivity
+  const hoverText = isFixedTextActivity
     ? heading
     : historicalThreadError
       ? historicalThreadError

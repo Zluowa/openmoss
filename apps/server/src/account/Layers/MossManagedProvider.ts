@@ -51,7 +51,7 @@ import {
   mossAccessLaneForAuthority,
   mossLaneEngineLineup,
 } from "@moss/shared/mossRealmCatalog";
-import { Effect, FileSystem, Layer, Option, Path } from "effect";
+import { Cause, Duration, Effect, Exit, Fiber, FileSystem, Layer, Option, Path } from "effect";
 
 import { writeFileStringAtomically } from "../../atomicWrite";
 import { PRIVATE_DIRECTORY_MODE, supportsPosixPermissions } from "../../privatePathPermissions";
@@ -745,10 +745,9 @@ export function buildMossManagedClaudeInstance(input: {
     environment: [
       { name: "ANTHROPIC_BASE_URL", value: gatewayBaseUrl, sensitive: false },
       { name: "ANTHROPIC_AUTH_TOKEN", value: input.accessToken, sensitive: true },
-      // The trusted Moss gateway is preflighted for Anthropic's deferred-tool
-      // beta. Without this explicit opt-in Claude Code inlines every Moss MCP
-      // schema for a custom base URL, consuming roughly half the context and
-      // making even tiny child turns vulnerable to the edge read timeout.
+      // Part of the stored shape every Moss build verifies. The launch turns
+      // tool search off whatever this says (claudeEnvironment.ts,
+      // MOSS_MANAGED_CLAUDE_LAUNCH_TOOL_SEARCH_ENV_VALUE).
       {
         name: MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY,
         value: MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE,
@@ -1432,6 +1431,19 @@ export const stopMossManagedPiProviderRuntimes = (
   providerService: Parameters<typeof stopMossManagedCompanionRuntimes>[0],
 ) => stopMossManagedCompanionRuntimes(providerService, "pi", MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID);
 
+const MOSS_MANAGED_RUNTIME_STOP_TIMEOUT_MS = 20_000;
+const MOSS_MANAGED_RUNTIME_STOP_TIMEOUT_ENV_KEY = "MOSS_MANAGED_RUNTIME_STOP_TIMEOUT_MS";
+
+/** How long a lane change waits for the previous runtimes to stop before going on without them. */
+export function mossManagedRuntimeStopTimeoutMs(
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  const configured = Number.parseInt(env[MOSS_MANAGED_RUNTIME_STOP_TIMEOUT_ENV_KEY] ?? "", 10);
+  return Number.isFinite(configured) && configured >= 50 && configured <= 600_000
+    ? configured
+    : MOSS_MANAGED_RUNTIME_STOP_TIMEOUT_MS;
+}
+
 export const runMossManagedDisableSteps = (input: {
   readonly disableProviderSettings: () => Effect.Effect<void, MossCloudAccountServiceError>;
   readonly stopRuntimes: () => Effect.Effect<void, MossCloudAccountServiceError>;
@@ -1943,7 +1955,7 @@ export const MossManagedProviderLive = Layer.effect(
           );
     };
 
-    const stopVerifiedManagedRuntimesAndWait = (input: {
+    const stopVerifiedManagedRuntimesUnbounded = (input: {
       readonly stopCodex: boolean;
       readonly runtimeGeneration: string | undefined;
       readonly checkClaude: boolean;
@@ -2094,6 +2106,44 @@ export const MossManagedProviderLive = Layer.effect(
           });
         }
       }).pipe(Effect.asVoid);
+
+    // Every await in a runtime stop can wait on something outside Moss's control: a launch
+    // that never finishes, a thread lifecycle a hung turn holds, a process tree Windows will
+    // not prove gone. Unbounded, one such runtime held the account's maintenance (and every
+    // later rotation behind it) for good. The stop keeps running in the background, so a late
+    // exit is still recorded; the caller gets a failure it can act on: a same-account
+    // rotation goes live without it (see sameAuthorityRotation), sign-out stays fenced.
+    const stopVerifiedManagedRuntimesAndWait = (
+      input: Parameters<typeof stopVerifiedManagedRuntimesUnbounded>[0],
+    ): Effect.Effect<void, unknown> =>
+      Effect.gen(function* () {
+        const timeoutMs = mossManagedRuntimeStopTimeoutMs(process.env);
+        const stop = yield* Effect.forkDetach(stopVerifiedManagedRuntimesUnbounded(input));
+        const settled = yield* Fiber.await(stop).pipe(
+          Effect.timeoutOption(Duration.millis(timeoutMs)),
+        );
+        if (Option.isSome(settled)) {
+          return yield* Exit.isSuccess(settled.value)
+            ? Effect.void
+            : Effect.failCause(settled.value.cause);
+        }
+        yield* Fiber.await(stop).pipe(
+          Effect.flatMap((exit) =>
+            Effect.logInfo("a Moss runtime stop that timed out has finished", {
+              outcome: Exit.isSuccess(exit) ? "stopped" : "failed",
+              ...(Exit.isFailure(exit)
+                ? { cause: describeMossErrorCauses({ cause: Cause.squash(exit.cause) }) }
+                : {}),
+            }),
+          ),
+          Effect.forkDetach,
+        );
+        return yield* Effect.fail(
+          new Error(
+            `Moss runtimes did not stop within ${Math.round(timeoutMs / 1000)} s; the stop goes on in the background.`,
+          ),
+        );
+      });
 
     const removeManagedAccountOverlay = () =>
       removeMossCodexAccountOverlay(fs, {

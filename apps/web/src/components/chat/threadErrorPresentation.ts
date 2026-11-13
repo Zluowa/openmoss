@@ -7,7 +7,10 @@ import {
   MOSS_GATEWAY_SESSION_REJECTED_MESSAGE,
   MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
 } from "@moss/shared/mossManagedSession";
-import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
+import {
+  isProviderDeliveryBlockDetail,
+  isUnconfirmedTurnStartDetail,
+} from "@moss/shared/providerDeliveryBlock";
 
 import type { MossLocaleCode } from "~/appSettings";
 import { HERMES_COMPATIBILITY_STATUS } from "~/localization/zhCNProviderStatus";
@@ -24,7 +27,10 @@ export interface ThreadErrorPresentation {
   readonly recoveryAction?: "manage-providers";
   /** Historical provider-start failures already have an inline transcript row. */
   readonly surface?: "toast" | "history";
-  /** The request never reached the provider, so sending it again is safe. */
+  /**
+   * Moss will not send the request again by itself, so offer it: either it never reached
+   * the provider, or Moss stopped waiting for a start it could not confirm.
+   */
   readonly retryable?: boolean;
   /**
    * Continuing on the same model fails the same way; another model is the next
@@ -227,6 +233,12 @@ function deliveryBlockError(locale: MossLocaleCode): string {
     : "Moss couldn't confirm the last message reached the provider, so this chat is paused to avoid running it twice. Choose Unblock thread to continue.";
 }
 
+function unconfirmedTurnStartError(locale: MossLocaleCode): string {
+  return locale === "zh-CN"
+    ? "Moss 没能确认服务商是否处理了这条消息，已停止等待，也没有重复发送。可以重试。"
+    : "Moss couldn't confirm what the provider did with this message, so it stopped waiting and didn't send it again. You can try again.";
+}
+
 function repeatRequestRefusedError(locale: MossLocaleCode): string {
   return locale === "zh-CN"
     ? "刚刚已经发送过完全相同的请求，Moss 不会重复发送，以免重复计费。请改一下消息内容，或等大约 15 分钟后再试。"
@@ -298,6 +310,10 @@ export function resolveThreadErrorPresentation(
     safeText = missingWorkingDirectory;
   } else if (isProviderDeliveryBlockDetail(raw)) {
     safeText = deliveryBlockError(locale);
+  } else if (isUnconfirmedTurnStartDetail(raw)) {
+    // Moss stopped waiting and sent nothing again; sending again is the person's choice.
+    safeText = unconfirmedTurnStartError(locale);
+    retryable = true;
   } else if (isMossManagedSessionRejected(raw)) {
     // A Moss lane whose bearer lapsed mid-task. Moss renews it on its own and the next send
     // starts on the renewed one, so the fix is to send again, never to sign in to the CLI.

@@ -773,6 +773,40 @@ describe("Moss-managed Claude launches", () => {
     assert.equal(probe.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, "1");
   });
 
+  it("starts a Moss-managed session with every tool loaded, no tool search", () => {
+    // The stored instance says ENABLE_TOOL_SEARCH=true; the launch overrides it.
+    const env = launch(managedEnvironment, MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID);
+    assert.equal(env.ENABLE_TOOL_SEARCH, "false");
+    const probe = buildManagedClaudeProcessEnv({
+      environment: managedEnvironment,
+      env: baseEnvironment,
+      homeDir: "/home/server",
+      platform: "linux",
+      providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
+      hasClaudeCliCredentials: false,
+    });
+    assert.equal(probe.ENABLE_TOOL_SEARCH, "false");
+  });
+
+  it("leaves a person's own Claude account on Claude Code's default tool search", () => {
+    // 本机账号: no tool-search setting at all, so Claude Code decides.
+    assert.equal(launch(undefined, undefined).ENABLE_TOOL_SEARCH, undefined);
+    assert.equal(
+      launch({ ANTHROPIC_AUTH_TOKEN: "personal-token" }, "claude_personal").ENABLE_TOOL_SEARCH,
+      undefined,
+    );
+    // A person's own relay keeps whatever it chose, even under the managed id.
+    const relay = {
+      ...managedEnvironment,
+      ANTHROPIC_BASE_URL: "https://proxy.example/v1",
+    };
+    assert.equal(
+      launch(relay, MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID).ENABLE_TOOL_SEARCH,
+      MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE,
+    );
+    assert.equal(launch(managedEnvironment, "claude_personal").ENABLE_TOOL_SEARCH, "true");
+  });
+
   it("leaves a personal Claude setup's own retry behaviour alone", () => {
     for (const [environment, providerInstanceId] of [
       [{ ANTHROPIC_AUTH_TOKEN: "personal-token" }, "claude_personal"],

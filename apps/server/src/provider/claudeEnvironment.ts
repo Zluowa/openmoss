@@ -225,7 +225,7 @@ export function buildClaudeInstanceProcessEnv(
       options?.baseEnvironment,
     )
   ) {
-    Object.assign(processEnv, MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT);
+    applyMossManagedClaudeLaunchSettings(processEnv);
   }
   return processEnv;
 }
@@ -244,7 +244,28 @@ export const MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY = "CLAUDE_CODE_MAX_RETRIES"
 export const MOSS_MANAGED_CLAUDE_DISABLE_NONSTREAMING_FALLBACK_ENV_KEY =
   "CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK";
 export const MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY = CLAUDE_TOOL_SEARCH_ENV_KEY;
+/**
+ * The value stored in a provisioned claude_moss instance. It is kept as is so every Moss build,
+ * older ones included, still verifies the same stored instance; the launch overrides it below.
+ */
 export const MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_VALUE = "true";
+
+/**
+ * Every claude_moss launch turns Claude Code's tool search off, so every tool is in the request
+ * from the first turn. With it on, Claude Code sends Moss's MCP tools (and some of its own) only
+ * by name and answers ToolSearch with `tool_reference` blocks, which only Anthropic's API expands.
+ * The Moss gateway serves DeepSeek, GLM and Kimi over Chat Completions, where those blocks become
+ * an empty tool result: the model searched, saw nothing and went looking for other ways
+ * (acceptance round 11). Claude Code 2.1.318 reads `false` as its "standard" mode: no ToolSearch
+ * tool and no deferred tools. The measured cost is about 27k more input tokens per request
+ * (103 inlined tools, ~144 KB of schemas, against 14 tools and ~39 KB with search on).
+ */
+export const MOSS_MANAGED_CLAUDE_LAUNCH_TOOL_SEARCH_ENV_VALUE = "false";
+
+function applyMossManagedClaudeLaunchSettings(env: NodeJS.ProcessEnv): void {
+  Object.assign(env, MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT);
+  env[MOSS_MANAGED_CLAUDE_TOOL_SEARCH_ENV_KEY] = MOSS_MANAGED_CLAUDE_LAUNCH_TOOL_SEARCH_ENV_VALUE;
+}
 
 /**
  * One Moss send must be exactly one paid Gateway POST. Claude Code otherwise retries failures
@@ -673,7 +694,7 @@ export function buildClaudeProcessEnv(input?: {
       // explicitly empty API key prevents an inherited account key from
       // winning that precedence check while retaining the managed token.
       env.ANTHROPIC_API_KEY = "";
-      Object.assign(env, MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT);
+      applyMossManagedClaudeLaunchSettings(env);
     }
   }
 
