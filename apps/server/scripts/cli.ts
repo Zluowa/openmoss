@@ -16,6 +16,7 @@ import {
   parseBunLockPackages,
   PATCHED_RUNTIME_DIRECTORY,
 } from "../../../scripts/lib/runtime-shrinkwrap.ts";
+import { createPackTarCommandPlan } from "./pack-tar.ts";
 import rootPackageJson from "../../../package.json" with { type: "json" };
 import serverPackageJson from "../package.json" with { type: "json" };
 
@@ -350,26 +351,23 @@ const packCmd = Command.make(
         : path.join(process.cwd(), config.out);
       yield* fs.makeDirectory(outDir, { recursive: true });
 
-      const tarballPath = path.join(outDir, `moss-server-${version}.tar.gz`);
+      const tarballName = `moss-server-${version}.tar.gz`;
+      const tarballPath = path.join(outDir, tarballName);
+      const tarCommand = createPackTarCommandPlan({
+        stagedPackageDir,
+        outDir,
+        tarballName,
+        patchedRuntimeDirectory:
+          runtimeLock.files.length > 0 ? PATCHED_RUNTIME_DIRECTORY : undefined,
+      });
       yield* runCommand(
-        ChildProcess.make(
-          "tar",
-          [
-            "-czf",
-            tarballPath,
-            "dist",
-            "package.json",
-            "npm-shrinkwrap.json",
-            ...(runtimeLock.files.length ? [PATCHED_RUNTIME_DIRECTORY] : []),
-          ],
-          {
-            cwd: stagedPackageDir,
-            stdout: "inherit",
-            stderr: "inherit",
-            // Windows needs shell mode to resolve .cmd shims.
-            shell: process.platform === "win32",
-          },
-        ),
+        ChildProcess.make("tar", tarCommand.args, {
+          cwd: tarCommand.cwd,
+          stdout: "inherit",
+          stderr: "inherit",
+          // Windows needs shell mode to resolve .cmd shims.
+          shell: process.platform === "win32",
+        }),
       );
 
       yield* Effect.log(`[cli] Wrote server tarball: ${tarballPath}`);
