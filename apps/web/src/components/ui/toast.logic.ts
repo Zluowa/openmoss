@@ -5,6 +5,9 @@ export const DEFAULT_TOAST_TIMEOUT_MS = 10_000;
 export type ToastCopyItem = {
   readonly label: string;
   readonly text: string;
+  /** Translated button text before and after copying; default "Copy {label}" / "Copied". */
+  readonly copyLabel?: string;
+  readonly copiedText?: string;
 };
 
 // Compact toasts have no description or actions row.

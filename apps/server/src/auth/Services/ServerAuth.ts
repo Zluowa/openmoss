@@ -80,6 +80,20 @@ export interface ServerAuthShape {
    * pairing code still open. Used when "Allow phone connections" is off.
    */
   readonly revokeOwnerDeviceAccess: () => Effect.Effect<number, AuthError>;
+  /**
+   * The session of a phone a person at this computer allowed in through account sign-in:
+   * an owner device, listed and revocable, whose subject records the realm and account.
+   */
+  readonly issueAccountDeviceBearerSession: (input: {
+    readonly realm: string;
+    readonly accountKey: string;
+    readonly client: AuthClientMetadata;
+  }) => Effect.Effect<AuthBearerBootstrapResult, AuthError>;
+  /** Signs out the phones account sign-in let in, for one realm or one account of it. */
+  readonly revokeAccountDeviceSessions: (scope: {
+    readonly realm: string;
+    readonly accountKey?: string;
+  }) => Effect.Effect<number, AuthError>;
   readonly logoutSession: (sessionId: AuthSessionId) => Effect.Effect<boolean, AuthError>;
   readonly authenticateHttpRequest: (
     request: AuthRequest,

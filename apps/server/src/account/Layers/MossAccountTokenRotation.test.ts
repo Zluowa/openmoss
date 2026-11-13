@@ -244,6 +244,7 @@ describe("Moss phone session with a live managed runtime", () => {
           return authSession(`access-${refreshed + 1}`, now + HOUR);
         },
         getUser: async () => authSession("unused", now + HOUR).user,
+        updateUserMetadata: async () => authSession("unused", now + HOUR).user,
         logout: async () => ({ accepted: true }),
       },
     };

@@ -1476,6 +1476,23 @@ export type DesktopBackendLinkEvent =
   | { readonly phase: "down"; readonly reason: DesktopBackendLinkDropReason }
   | { readonly phase: "up" };
 
+/** The desktop stopped restarting its local backend after repeated failed starts. */
+export interface DesktopBackendStartupFailure {
+  /** Consecutive failed starts before the desktop gave up. */
+  readonly failures: number;
+  /** Plain-text details for support (version, exit reason, last error lines, log file). */
+  readonly details: string;
+}
+
+export interface DesktopBackendStartupBridge {
+  /** The current give-up state, or null while the backend is starting or running. */
+  getFailure: () => Promise<DesktopBackendStartupFailure | null>;
+  onFailure: (listener: (failure: DesktopBackendStartupFailure | null) => void) => () => void;
+  /** Starts the backend again with a fresh restart budget. */
+  retry: () => Promise<void>;
+  openLogFolder: () => Promise<void>;
+}
+
 export interface DesktopBridge {
   ssh?: import("./ssh").DesktopSshBridge;
   remoteComputers?: import("./remoteComputers").DesktopRemoteComputersBridge;
@@ -1498,6 +1515,11 @@ export interface DesktopBridge {
   getWsUrl: () => string | null;
   /** Lets main log one line per drop of the link to its backend, with reason and duration. */
   reportBackendLink?: (event: DesktopBackendLinkEvent) => void;
+  /**
+   * Lets the window replace its loading state when the backend cannot start.
+   * Absent on builds that predate it; those get a native dialog instead.
+   */
+  backendStartup?: DesktopBackendStartupBridge;
   /**
    * Absolute filesystem path for a File from drag/drop or file inputs.
    * Electron only (`webUtils.getPathForFile`). Returns null when unavailable.

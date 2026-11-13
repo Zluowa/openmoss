@@ -78,6 +78,8 @@ function makeServerAuth(): ServerAuthShape {
         sessionToken: "bearer-token",
       }),
     revokeOwnerDeviceAccess: () => Effect.succeed(0),
+    issueAccountDeviceBearerSession: () => Effect.die("account sign-in is not used in this test"),
+    revokeAccountDeviceSessions: () => Effect.succeed(0),
     issuePairingCredential: () =>
       Effect.succeed({ id: "pairing-id", credential: "PAIRINGTOKEN", expiresAt }),
     listPairingLinks: () => Effect.succeed([]),

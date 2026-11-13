@@ -35,6 +35,8 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
+  redactSchemaError,
+  redactSchemaErrorsInCause,
   toPersistenceSqlError,
   type OrchestrationEventStoreError,
   type PersistenceSqlError,
@@ -240,7 +242,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     Effect.logWarning("sidebar order rebuild skipped an unreadable event").pipe(
       Effect.annotateLogs({
         sequence,
-        cause: Cause.isCause(cause) ? Cause.pretty(cause) : String(cause),
+        cause: Cause.isCause(cause)
+          ? Cause.pretty(redactSchemaErrorsInCause(cause))
+          : String(redactSchemaError(cause)),
       }),
     );
 
@@ -1711,7 +1715,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       Cause.hasInterruptsOnly(cause)
         ? Effect.failCause(cause)
         : Effect.logWarning("sidebar order rebuild failed; keeping the stored order").pipe(
-            Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+            Effect.annotateLogs({ cause: Cause.pretty(redactSchemaErrorsInCause(cause)) }),
           ),
     ),
   );

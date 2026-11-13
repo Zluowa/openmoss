@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isPairedPhoneSession,
   isPlaintextOrigin,
   phoneAccessProblemKey,
   phoneOriginLabel,
@@ -42,5 +43,13 @@ describe("phonePairingModel", () => {
     expect(phoneAccessProblemKey({ unavailableReason: null, error: "restart-failed" })).toBe(
       "settings.phone.access.error.restart",
     );
+  });
+  it("lists phones paired by code and phones admitted through the Moss account", () => {
+    const session = (subject: string, current = false) =>
+      ({ subject, current }) as Parameters<typeof isPairedPhoneSession>[0];
+    expect(isPairedPhoneSession(session("owner-device"))).toBe(true);
+    expect(isPairedPhoneSession(session("owner-device:account:memfire-phone:key-a"))).toBe(true);
+    expect(isPairedPhoneSession(session("owner-device", true))).toBe(false);
+    expect(isPairedPhoneSession(session("owner-bootstrap"))).toBe(false);
   });
 });

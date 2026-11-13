@@ -7,20 +7,30 @@
 // too, but it is not this computer. With the switch off no phone keeps access.
 
 import { WsRpcError } from "@moss/contracts";
+import { isOwnerDeviceSubject } from "@moss/shared/ownerDeviceSession";
 import { Effect } from "effect";
 
 import { isLocalOnlyAccess, type LocalAccessConfig } from "../startupAccess";
 import { CurrentWsAuthenticatedSession, CurrentWsLocalAccess } from "../wsConnectionSessions";
-import { OWNER_DEVICE_PAIRING_SUBJECT } from "./Layers/ServerAuth";
 import type { ServerAuthShape } from "./Services/ServerAuth";
 
-export const requireOwnerDeviceCodeAccess = (config: LocalAccessConfig) =>
+/**
+ * The current WebSocket connection came straight from this computer and is not one of the
+ * owner's phones (paired by code or admitted through a Moss account).
+ */
+export const isFromThisComputer = (config: LocalAccessConfig) =>
   Effect.gen(function* () {
     const localAccess = yield* CurrentWsLocalAccess;
     const session = yield* CurrentWsAuthenticatedSession;
-    const fromThisComputer =
+    return (
       (localAccess ?? isLocalOnlyAccess(config, undefined)) &&
-      session?.subject !== OWNER_DEVICE_PAIRING_SUBJECT;
+      !(session && isOwnerDeviceSubject(session.subject))
+    );
+  });
+
+export const requireOwnerDeviceCodeAccess = (config: LocalAccessConfig) =>
+  Effect.gen(function* () {
+    const fromThisComputer = yield* isFromThisComputer(config);
     if (config.desktopPhoneAccess === true && fromThisComputer) return;
     return yield* Effect.fail(
       new WsRpcError({

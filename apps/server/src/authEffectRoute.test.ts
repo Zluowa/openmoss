@@ -44,6 +44,11 @@ import {
   type ProviderAdapterRegistryShape,
 } from "./provider/Services/ProviderAdapterRegistry";
 import { ServerSettingsService } from "./serverSettings";
+import {
+  MossAccountPhoneAccess,
+  MossAccountPhoneAccessRefused,
+  type MossAccountPhoneAccessShape,
+} from "./account/Services/MossAccountPhoneAccess";
 
 const currentSessionId = AuthSessionId.makeUnsafe("11111111-1111-4111-8111-111111111111");
 const otherSessionId = AuthSessionId.makeUnsafe("22222222-2222-4222-8222-222222222222");
@@ -96,6 +101,8 @@ function makeServerAuth(sideEffects: { count: number }): ServerAuthShape {
     revokeClientSession: () => mutate(true),
     revokeOtherClientSessions: () => mutate(1),
     revokeOwnerDeviceAccess: () => Effect.succeed(0),
+    issueAccountDeviceBearerSession: () => Effect.die("account sign-in is not used in this test"),
+    revokeAccountDeviceSessions: () => Effect.succeed(0),
     logoutSession: () => mutate(true),
     authenticateHttpRequest: (request) => {
       const bearer = request.headers.authorization === "Bearer bearer-token";
@@ -132,6 +139,7 @@ async function withAuthEffectServer(
     readonly serverSettingsLayer?: Layer.Layer<ServerSettingsService, unknown>;
     readonly projectAgentRepository?: ProjectAgentRepositoryShape;
     readonly snapshotQuery?: ProjectionSnapshotQueryShape;
+    readonly accountPhoneAccess?: MossAccountPhoneAccessShape;
   },
 ): Promise<void> {
   const scope = await Effect.runPromise(Scope.make("sequential"));
@@ -170,6 +178,9 @@ async function withAuthEffectServer(
               } as unknown as ProjectionSnapshotQueryShape),
           ),
           ManagedAttachmentRepositoryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),
+          overrides?.accountPhoneAccess
+            ? Layer.succeed(MossAccountPhoneAccess, overrides.accountPhoneAccess)
+            : Layer.empty,
           NodeServices.layer,
         ),
         scope,
@@ -810,5 +821,199 @@ describe("binaryUploadEffectRouteLayer", () => {
       fs.rmSync(config.stateDir, { recursive: true, force: true });
       fs.rmSync(groupsRoot, { recursive: true, force: true });
     }
+  });
+});
+
+describe("account sign-in routes", () => {
+  const paths = [
+    "/api/auth/account/challenge",
+    "/api/auth/account/request",
+    "/api/auth/account/status",
+  ];
+  const desktop = (desktopPhoneAccess: boolean) =>
+    ({
+      mode: "desktop",
+      host: desktopPhoneAccess ? "0.0.0.0" : "127.0.0.1",
+      publicUrl: undefined,
+      desktopPhoneAccess,
+    }) as ServerConfigShape;
+  const calls: string[] = [];
+  const fakeAccess = {
+    createChallenge: (input) =>
+      Effect.sync(() => {
+        calls.push(`challenge:${input.realm}:${input.source.address}`);
+        return {
+          challengeId: "challenge-1",
+          code: "fake-challenge-code",
+          expiresAt: DateTime.makeUnsafe(Date.UTC(2026, 10, 13)),
+        };
+      }),
+    requestAccess: () =>
+      Effect.fail(
+        new MossAccountPhoneAccessRefused({
+          reason: "account_mismatch",
+          status: 403,
+          message: "This computer is signed in to a different Moss account.",
+        }),
+      ),
+    requestStatus: () =>
+      Effect.fail(
+        new MossAccountPhoneAccessRefused({
+          reason: "request_denied",
+          status: 403,
+          message: "The person at this computer did not allow this phone.",
+        }),
+      ),
+  } as Partial<MossAccountPhoneAccessShape> as MossAccountPhoneAccessShape;
+  const post = (origin: string, path: string, body: unknown = { realm: "memfire-phone" }) =>
+    fetch(`${origin}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  /** POST with an explicit Host header, which fetch does not let a caller set. */
+  const postWithHost = (origin: string, path: string, host: string, body: unknown) =>
+    new Promise<{ status: number; body: string; headers: Record<string, unknown> }>(
+      (resolve, reject) => {
+        const url = new URL(path, origin);
+        const payload = JSON.stringify(body);
+        const request = http.request(
+          {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.pathname,
+            method: "POST",
+            headers: {
+              Host: host,
+              "Content-Type": "application/json",
+              "Content-Length": Buffer.byteLength(payload),
+            },
+          },
+          (response) => {
+            let text = "";
+            response.setEncoding("utf8");
+            response.on("data", (chunk: string) => (text += chunk));
+            response.once("end", () =>
+              resolve({ status: response.statusCode ?? 0, body: text, headers: response.headers }),
+            );
+          },
+        );
+        request.once("error", reject);
+        request.end(payload);
+      },
+    );
+  /** Everything a response says, apart from when it was sent. */
+  const shape = async (response: Response) => {
+    const headers = Object.fromEntries(response.headers);
+    delete headers.date;
+    return { status: response.status, body: await response.text(), headers };
+  };
+  const unknownRoute = (origin: string) =>
+    fetch(`${origin}/api/auth/no-such-route`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ realm: "memfire-phone" }),
+    }).then(shape);
+
+  it("answers exactly like an unknown route while phone access is off, in every mode", async () => {
+    const configs = [
+      desktop(false),
+      // A desktop started from a shell that had a public URL, switch off.
+      { ...desktop(false), publicUrl: new URL("https://moss.example.test") } as ServerConfigShape,
+      { ...desktop(false), mode: "web", desktopPhoneAccess: undefined } as ServerConfigShape,
+      {
+        ...desktop(false),
+        mode: "web",
+        host: "0.0.0.0",
+        desktopPhoneAccess: undefined,
+        publicUrl: new URL("https://moss.example.test"),
+      } as ServerConfigShape,
+    ];
+    for (const config of configs) {
+      await withAuthEffectServer(
+        config,
+        makeServerAuth({ count: 0 }),
+        async (origin) => {
+          const expected = await unknownRoute(origin);
+          expect(expected.status).toBe(404);
+          for (const path of [...paths, "/api/auth/account", "/api/auth/account/anything"]) {
+            const answer = await shape(await post(origin, path));
+            expect(answer, path).toEqual(expected);
+            expect(answer.body).not.toMatch(/phone|confirm|reason/iu);
+          }
+          const get = await shape(await fetch(`${origin}/api/auth/account/challenge`));
+          expect(get.status).toBe(404);
+          expect(get.body).toBe(expected.body);
+        },
+        authEffectRouteLayer,
+        { accountPhoneAccess: fakeAccess },
+      );
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("answers like an unknown route where the server has no account sign-in", async () => {
+    await withAuthEffectServer(desktop(true), makeServerAuth({ count: 0 }), async (origin) => {
+      expect(await shape(await post(origin, paths[0]!))).toEqual(await unknownRoute(origin));
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("answers only requests that name the computer by an address", async () => {
+    await withAuthEffectServer(
+      desktop(true),
+      makeServerAuth({ count: 0 }),
+      async (origin) => {
+        const expected = await unknownRoute(origin);
+        for (const host of ["moss.example.test", "moss.example.test:3773", "evil.localhost"]) {
+          const answer = await postWithHost(origin, paths[0]!, host, { realm: "memfire-phone" });
+          expect(answer.status, host).toBe(404);
+          expect(answer.body, host).toBe(expected.body);
+        }
+        for (const host of ["192.168.1.20:3773", "127.0.0.1", "localhost:4113", "[::1]:3773"]) {
+          const answer = await postWithHost(origin, paths[0]!, host, { realm: "memfire-phone" });
+          expect(answer.status, host).toBe(200);
+        }
+      },
+      authEffectRouteLayer,
+      { accountPhoneAccess: fakeAccess },
+    );
+    expect(calls).toHaveLength(4);
+    calls.length = 0;
+  });
+
+  it("answers with the service's result or its typed refusal, never caching", async () => {
+    await withAuthEffectServer(
+      desktop(true),
+      makeServerAuth({ count: 0 }),
+      async (origin) => {
+        const challenge = await post(origin, paths[0]!);
+        expect(challenge.status).toBe(200);
+        expect(challenge.headers.get("cache-control")).toBe("no-store");
+        expect(await challenge.json()).toMatchObject({ challengeId: "challenge-1" });
+
+        const request = await post(origin, paths[1]!, {
+          realm: "memfire-phone",
+          challengeId: "challenge-1",
+          deviceName: "Pixel",
+        });
+        expect(request.status).toBe(403);
+        expect(await request.json()).toEqual({
+          error: "This computer is signed in to a different Moss account.",
+          reason: "account_mismatch",
+        });
+
+        const status = await post(origin, paths[2]!, { requestId: "request-1" });
+        expect(await status.json()).toMatchObject({ reason: "request_denied" });
+
+        const invalid = await post(origin, paths[0]!, { realm: "elsewhere" });
+        expect(invalid.status).toBe(400);
+      },
+      authEffectRouteLayer,
+      { accountPhoneAccess: fakeAccess },
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatch(/^challenge:memfire-phone:(::ffff:)?127[.]0[.]0[.]1$/u);
   });
 });

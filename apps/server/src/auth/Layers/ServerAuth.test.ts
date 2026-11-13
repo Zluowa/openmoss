@@ -424,4 +424,65 @@ describe("ServerAuthLive", () => {
       }),
     );
   });
+  it("records how an account phone got in, and signs out exactly that account's phones", async () => {
+    await runServerAuthTest(
+      Effect.gen(function* () {
+        const serverAuth = yield* ServerAuth;
+        const mobile = { ...requestMetadata, deviceType: "mobile" as const, label: "Pixel" };
+        const phoneA = yield* serverAuth.issueAccountDeviceBearerSession({
+          realm: "memfire-phone",
+          accountKey: "key-a",
+          client: mobile,
+        });
+        const phoneB = yield* serverAuth.issueAccountDeviceBearerSession({
+          realm: "memfire-phone",
+          accountKey: "key-b",
+          client: mobile,
+        });
+        const googlePhone = yield* serverAuth.issueAccountDeviceBearerSession({
+          realm: "supabase-google",
+          accountKey: "key-a",
+          client: mobile,
+        });
+        const pairedCode = yield* serverAuth.issuePairingCredential({ access: "ownerDevice" });
+        const paired = yield* serverAuth.exchangeBootstrapCredentialForBearerSession(
+          pairedCode.credential,
+          mobile,
+        );
+        const bearer = (token: string) => ({
+          headers: { authorization: `Bearer ${token}` },
+          cookies: {},
+        });
+        const verified = yield* serverAuth.authenticateHttpRequest(bearer(phoneA.sessionToken));
+        expect(verified.role).toBe("owner");
+        expect(verified.subject).toBe("owner-device:account:memfire-phone:key-a");
+
+        expect(
+          yield* serverAuth.revokeAccountDeviceSessions({
+            realm: "memfire-phone",
+            accountKey: "key-a",
+          }),
+        ).toBe(1);
+        const alive = (token: string) =>
+          serverAuth.authenticateHttpRequest(bearer(token)).pipe(
+            Effect.as(true),
+            Effect.catch(() => Effect.succeed(false)),
+          );
+        expect(yield* alive(phoneA.sessionToken)).toBe(false);
+        expect(yield* alive(phoneB.sessionToken)).toBe(true);
+        expect(yield* alive(googlePhone.sessionToken)).toBe(true);
+        expect(yield* alive(paired.sessionToken)).toBe(true);
+
+        // Account phones are revocable paired phones, and switching phone access off ends them.
+        const listed = yield* serverAuth.listClientSessions();
+        const phoneBSession = listed.find((entry) => entry.subject.endsWith("key-b"));
+        expect(yield* serverAuth.revokeClientSession(undefined, phoneBSession!.sessionId)).toBe(
+          true,
+        );
+        expect(yield* serverAuth.revokeOwnerDeviceAccess()).toBe(2);
+        expect(yield* alive(googlePhone.sessionToken)).toBe(false);
+        expect(yield* alive(paired.sessionToken)).toBe(false);
+      }),
+    );
+  });
 });

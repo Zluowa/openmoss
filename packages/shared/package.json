@@ -629,6 +629,22 @@
       "types": "./src/mossDownloadChannel.ts",
       "import": "./src/mossDownloadChannel.ts"
     },
+    "./mossAccountComputers": {
+      "types": "./src/mossAccountComputers.ts",
+      "import": "./src/mossAccountComputers.ts"
+    },
+    "./mossAccountSealedDelivery": {
+      "types": "./src/mossAccountSealedDelivery.ts",
+      "import": "./src/mossAccountSealedDelivery.ts"
+    },
+    "./ownerDeviceSession": {
+      "types": "./src/ownerDeviceSession.ts",
+      "import": "./src/ownerDeviceSession.ts"
+    },
+    "./supabaseMossAuth": {
+      "types": "./src/supabaseMossAuth.ts",
+      "import": "./src/supabaseMossAuth.ts"
+    },
     "./mossProductionPublicConfig": {
       "types": "./src/mossProductionPublicConfig.ts",
       "import": "./src/mossProductionPublicConfig.ts"

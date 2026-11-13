@@ -202,6 +202,7 @@ const publicRuntimeRoots = [
   "apps/desktop/src",
   "apps/marketing/content",
   "apps/marketing/src",
+  "apps/mobile/src",
   "apps/realtime-relay/src",
   "apps/server/scripts",
   "apps/server/src",

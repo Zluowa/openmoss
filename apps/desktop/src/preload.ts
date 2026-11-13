@@ -252,6 +252,21 @@ const desktopBridge = {
   },
   setErrorReportsEnabled: (enabled) => ipcRenderer.invoke(IPC.errorReports.set, enabled),
   reportBackendLink: (event) => ipcRenderer.send(IPC.backendLink, event),
+  backendStartup: {
+    getFailure: () => ipcRenderer.invoke(IPC.backendStartup.getFailure),
+    onFailure: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, failure: unknown) => {
+        if (typeof failure !== "object") return;
+        listener(failure as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.backendStartup.failure, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IPC.backendStartup.failure, wrappedListener);
+      };
+    },
+    retry: () => ipcRenderer.invoke(IPC.backendStartup.retry),
+    openLogFolder: () => ipcRenderer.invoke(IPC.backendStartup.openLogFolder),
+  },
   // Absolute path for OS-dropped File objects (folders with spaces/parens, etc.).
   getPathForFile: (file: File) => {
     try {

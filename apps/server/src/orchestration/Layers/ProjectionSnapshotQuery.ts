@@ -61,6 +61,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
 import {
+  describeSchemaIssue,
   isPersistenceError,
   ProjectionStateIncompleteError,
   toPersistenceDecodeError,
@@ -69,6 +70,15 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { normalizePersistedModelSelection } from "../../persistence/modelSelectionCompatibility.ts";
+import {
+  decodeEachSkippingUndecodable,
+  findAllSkippingUndecodable,
+  makeUndecodableRowReporter,
+  readRowDeleted,
+  readRowId,
+  type DecodedRows,
+  type UndecodableRow,
+} from "../../persistence/undecodableRows.ts";
 import { deriveThreadSummaryMetadata } from "@moss/shared/threadSummary";
 import { HTML_RENDER_ACTIVITY_KIND } from "@moss/shared/htmlRenderActivity";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
@@ -389,16 +399,6 @@ function decodeProjectionThreadRows(
   settings?: ServerSettings,
 ): Effect.Effect<ReadonlyArray<ProjectionThreadDbRow>, ProjectionRepositoryError> {
   return Effect.forEach(rows, (row) => decodeProjectionThreadRow(row, settings)).pipe(
-    Effect.mapError(toPersistenceDecodeError(operation)),
-  );
-}
-
-function decodeProjectionThreadShellRows(
-  rows: ReadonlyArray<ProjectionThreadShellDbRowRaw>,
-  operation: string,
-  settings?: ServerSettings,
-): Effect.Effect<ReadonlyArray<ProjectionThreadShellDbRow>, ProjectionRepositoryError> {
-  return Effect.forEach(rows, (row) => decodeProjectionThreadShellRow(row, settings)).pipe(
     Effect.mapError(toPersistenceDecodeError(operation)),
   );
 }
@@ -1029,13 +1029,115 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError(`${operation}:getSettings`)),
     );
 
-  const decodeProjectionProjectRowsForCurrentSettings = (
-    rows: ReadonlyArray<ProjectionProjectDbRowRaw>,
+  // The whole-database readers below (the startup command read model, the shell
+  // every client loads, the full snapshot) leave out a row that does not decode
+  // and log it, instead of failing; the row itself is never rewritten. Only
+  // `projection_state` and the sidebar repositories stay strict.
+  const reportUndecodableRows = makeUndecodableRowReporter();
+  const keepDecodedRows =
+    (table: string, reader: string) =>
+    <A>(decoded: DecodedRows<A>): Effect.Effect<Array<A>> =>
+      reportUndecodableRows({ table, reader, skipped: decoded.skipped }).pipe(
+        Effect.as(decoded.rows),
+      );
+
+  const decodeModelSelectionsSkippingUndecodable = <
+    Raw extends { readonly deletedAt?: string | null | undefined },
+    Row,
+  >(
+    decoded: DecodedRows<Raw>,
     operation: string,
-  ) =>
+    decodeRow: (row: Raw, settings: ServerSettings) => Effect.Effect<Row, Schema.SchemaError>,
+    rowId: (row: Raw) => string,
+  ): Effect.Effect<DecodedRows<Row>, ProjectionRepositoryError> =>
     readSettingsForModelSelectionDecode(operation).pipe(
-      Effect.flatMap((settings) => decodeProjectionProjectRows(rows, operation, settings)),
+      Effect.flatMap((settings) =>
+        decodeEachSkippingUndecodable({
+          rows: decoded.rows,
+          decodeAll: (rows) => Effect.forEach(rows, (row) => decodeRow(row, settings)),
+          decodeOne: (row) => decodeRow(row, settings),
+          rowId,
+          rowDeleted: (row) => row.deletedAt != null,
+          describe: (error) => describeSchemaIssue(error.issue),
+        }),
+      ),
+      Effect.map((modelDecoded) => ({
+        rows: modelDecoded.rows,
+        skipped: [...decoded.skipped, ...modelDecoded.skipped],
+      })),
     );
+
+  // Threads the full-row readers (the command read model, the full snapshot)
+  // could not read. The shell reads fewer columns, so without this a thread
+  // whose full row is broken would show in the sidebar and then fail to open.
+  // The engine loads the command read model before any client connects.
+  let threadsUnreadableInFullRow: ReadonlyArray<UndecodableRow> = [];
+  const FULL_ROW_READERS = new Set(["getCommandReadModel", "getSnapshot"]);
+  const MAX_REPORTED_UNREADABLE_THREADS = 50;
+
+  /**
+   * Reports skipped project and thread rows, and leaves out the threads of a
+   * project that could not be read, so no reader ever sees a thread without its
+   * project. The shell also leaves out threads a full-row reader could not read.
+   */
+  const settleProjectAndThreadRows = <
+    Thread extends {
+      readonly threadId: ThreadId;
+      readonly projectId: ProjectId;
+      readonly deletedAt: string | null;
+    },
+  >(
+    reader: string,
+    projects: DecodedRows<ProjectionProjectDbRow>,
+    threads: DecodedRows<Thread>,
+  ) =>
+    Effect.suspend(() => {
+      const unreadableProjectIds = new Set(projects.skipped.map((row) => row.id));
+      const alreadySkipped = new Set(threads.skipped.map((row) => row.id));
+      const unreadableInFullRow =
+        reader === "getShellSnapshot"
+          ? new Map(
+              threadsUnreadableInFullRow
+                .filter((row) => !alreadySkipped.has(row.id))
+                .map((row) => [row.id, row.reason] as const),
+            )
+          : new Map<string, string>();
+      const extraSkipped: Array<UndecodableRow> = [];
+      const threadRows =
+        unreadableProjectIds.size === 0 && unreadableInFullRow.size === 0
+          ? threads.rows
+          : threads.rows.filter((row) => {
+              if (unreadableProjectIds.has(row.projectId)) {
+                extraSkipped.push({
+                  id: row.threadId,
+                  reason: `its project ${row.projectId} could not be read`,
+                  ...(row.deletedAt !== null ? { deleted: true } : {}),
+                });
+                return false;
+              }
+              const fullRowReason = unreadableInFullRow.get(row.threadId);
+              if (fullRowReason !== undefined) {
+                extraSkipped.push({ id: row.threadId, reason: fullRowReason });
+                return false;
+              }
+              return true;
+            });
+      const skippedThreads = [...threads.skipped, ...extraSkipped];
+      if (FULL_ROW_READERS.has(reader)) threadsUnreadableInFullRow = skippedThreads;
+      return Effect.all([
+        reportUndecodableRows({ table: "projection_projects", reader, skipped: projects.skipped }),
+        reportUndecodableRows({ table: "projection_threads", reader, skipped: skippedThreads }),
+      ]).pipe(
+        Effect.as({
+          projectRows: projects.rows,
+          threadRows,
+          unreadableThreads: skippedThreads
+            .filter((row) => row.deleted !== true)
+            .slice(0, MAX_REPORTED_UNREADABLE_THREADS)
+            .map(({ id, reason }) => ({ id, reason })),
+        }),
+      );
+    });
 
   const decodeProjectionThreadRowsForCurrentSettings = (
     rows: ReadonlyArray<ProjectionThreadDbRowRaw>,
@@ -1043,14 +1145,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   ) =>
     readSettingsForModelSelectionDecode(operation).pipe(
       Effect.flatMap((settings) => decodeProjectionThreadRows(rows, operation, settings)),
-    );
-
-  const decodeProjectionThreadShellRowsForCurrentSettings = (
-    rows: ReadonlyArray<ProjectionThreadShellDbRowRaw>,
-    operation: string,
-  ) =>
-    readSettingsForModelSelectionDecode(operation).pipe(
-      Effect.flatMap((settings) => decodeProjectionThreadShellRows(rows, operation, settings)),
     );
 
   const decodeProjectionProjectOptionForCurrentSettings = (
@@ -1080,7 +1174,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     thread_id IN (SELECT thread_id FROM projection_threads WHERE deleted_at IS NULL)
   `;
 
-  const listSpaceRows = SqlSchema.findAll({
+  const listSpaceRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "spaceId"),
     Request: Schema.Void,
     Result: ProjectionSpace,
     execute: () =>
@@ -1098,7 +1193,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listProjectRows = SqlSchema.findAll({
+  const listProjectRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "projectId"),
     Request: Schema.Void,
     Result: ProjectionProjectDbRowSchema,
     execute: () =>
@@ -1127,7 +1223,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       AND project_import_origins.status = 'completed'
   )`;
 
-  const listThreadRows = SqlSchema.findAll({
+  const listThreadRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "threadId"),
+    rowDeleted: readRowDeleted,
     Request: Schema.Void,
     Result: ProjectionThreadDbRowSchema,
     execute: () =>
@@ -1191,7 +1289,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listThreadShellRows = SqlSchema.findAll({
+  const listThreadShellRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "threadId"),
+    rowDeleted: readRowDeleted,
     Request: Schema.Void,
     Result: ProjectionThreadShellDbRowSchema,
     execute: () =>
@@ -1345,7 +1445,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listThreadMessageRows = SqlSchema.findAll({
+  const listThreadMessageRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "messageId"),
     Request: Schema.Void,
     Result: ProjectionThreadMessageDbRowSchema,
     execute: () =>
@@ -1434,7 +1535,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       ),
     );
 
-  const listThreadProposedPlanRows = SqlSchema.findAll({
+  const listThreadProposedPlanRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "planId"),
     Request: Schema.Void,
     Result: ProjectionThreadProposedPlanDbRowSchema,
     execute: () =>
@@ -1468,7 +1570,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     )
   `);
 
-  const listThreadActivityRows = SqlSchema.findAll({
+  const listThreadActivityRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "activityId"),
     Request: Schema.Void,
     Result: ProjectionThreadActivityDbRowSchema,
     execute: () =>
@@ -1616,7 +1719,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listCheckpointRevertLifecycleActivityRows = SqlSchema.findAll({
+  const listCheckpointRevertLifecycleActivityRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "activityId"),
     Request: Schema.Void,
     Result: ProjectionThreadActivityDbRowSchema,
     execute: () =>
@@ -1656,7 +1760,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listPendingInteractionRows = SqlSchema.findAll({
+  const listPendingInteractionRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "threadId", "requestId"),
     Request: Schema.Void,
     Result: OrchestrationPendingInteraction,
     execute: () => sql`
@@ -1678,7 +1783,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     `,
   });
 
-  const listThreadSessionRows = SqlSchema.findAll({
+  const listThreadSessionRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "threadId"),
     Request: Schema.Void,
     Result: ProjectionThreadSessionDbRowSchema,
     execute: () =>
@@ -1701,7 +1807,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  const listCheckpointRows = SqlSchema.findAll({
+  const listCheckpointRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "threadId", "turnId"),
     Request: Schema.Void,
     Result: ProjectionCheckpointDbRowSchema,
     execute: () =>
@@ -1728,7 +1835,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   // Seek one turn per thread using the existing (thread_id, requested_at) index.
   // Keep the history timestamp as a scalar aggregate instead of decoding every
   // historical turn merely to discard it in collectProjectedLatestTurns.
-  const listLatestTurnRows = SqlSchema.findAll({
+  const listLatestTurnRows = findAllSkippingUndecodable({
+    rowId: (row) => readRowId(row, "threadId", "turnId"),
     Request: Schema.Void,
     Result: ProjectionLatestTurnDbRowSchema,
     execute: () =>
@@ -2975,8 +3083,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.gen(function* () {
           const [
             spaceRows,
-            projectRows,
-            threadRows,
+            projectResult,
+            threadResult,
             messageRows,
             proposedPlanRows,
             activityRows,
@@ -2996,6 +3104,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listSpaces:decodeRows",
                 ),
               ),
+              Effect.flatMap(keepDecodedRows("projection_spaces", "getSnapshot.listSpaces")),
             ),
             listProjectRows(undefined).pipe(
               Effect.mapError(
@@ -3004,10 +3113,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listProjects:decodeRows",
                 ),
               ),
-              Effect.flatMap((rows) =>
-                decodeProjectionProjectRowsForCurrentSettings(
-                  rows,
+              Effect.flatMap((decoded) =>
+                decodeModelSelectionsSkippingUndecodable(
+                  decoded,
                   "ProjectionSnapshotQuery.getSnapshot:listProjects:decodeModelSelections",
+                  decodeProjectionProjectRow,
+                  (row) => row.projectId,
                 ),
               ),
             ),
@@ -3018,10 +3129,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listThreads:decodeRows",
                 ),
               ),
-              Effect.flatMap((rows) =>
-                decodeProjectionThreadRowsForCurrentSettings(
-                  rows,
+              Effect.flatMap((decoded) =>
+                decodeModelSelectionsSkippingUndecodable(
+                  decoded,
                   "ProjectionSnapshotQuery.getSnapshot:listThreads:decodeModelSelections",
+                  decodeProjectionThreadRow,
+                  (row) => row.threadId,
                 ),
               ),
             ),
@@ -3032,12 +3145,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listThreadMessages:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows("projection_thread_messages", "getSnapshot.listThreadMessages"),
+              ),
             ),
             listThreadProposedPlanRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
                   "ProjectionSnapshotQuery.getSnapshot:listThreadProposedPlans:query",
                   "ProjectionSnapshotQuery.getSnapshot:listThreadProposedPlans:decodeRows",
+                ),
+              ),
+              Effect.flatMap(
+                keepDecodedRows(
+                  "projection_thread_proposed_plans",
+                  "getSnapshot.listThreadProposedPlans",
                 ),
               ),
             ),
@@ -3048,12 +3170,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listThreadActivities:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows("projection_thread_activities", "getSnapshot.listThreadActivities"),
+              ),
             ),
             listPendingInteractionRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
                   "ProjectionSnapshotQuery.getSnapshot:listPendingInteractions:query",
                   "ProjectionSnapshotQuery.getSnapshot:listPendingInteractions:decodeRows",
+                ),
+              ),
+              Effect.flatMap(
+                keepDecodedRows(
+                  "projection_pending_interactions",
+                  "getSnapshot.listPendingInteractions",
                 ),
               ),
             ),
@@ -3064,6 +3195,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listThreadSessions:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows("projection_thread_sessions", "getSnapshot.listThreadSessions"),
+              ),
             ),
             listCheckpointRows(undefined).pipe(
               Effect.mapError(
@@ -3072,6 +3206,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listCheckpoints:decodeRows",
                 ),
               ),
+              Effect.flatMap(keepDecodedRows("projection_turns", "getSnapshot.listCheckpoints")),
             ),
             listLatestTurnRows(undefined).pipe(
               Effect.mapError(
@@ -3080,6 +3215,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getSnapshot:listLatestTurns:decodeRows",
                 ),
               ),
+              Effect.flatMap(keepDecodedRows("projection_turns", "getSnapshot.listLatestTurns")),
             ),
             projectionSidebarSectionRepository.listAll(),
             projectionSidebarOrderRepository.getState(),
@@ -3094,6 +3230,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ]);
 
+          const { projectRows, threadRows } = yield* settleProjectAndThreadRows(
+            "getSnapshot",
+            projectResult,
+            threadResult,
+          );
           const segmentRows = yield* loadMessageSegments(
             messageRows,
             "ProjectionSnapshotQuery.getSnapshot",
@@ -3174,8 +3315,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.gen(function* () {
           const [
             spaceRows,
-            projectRows,
-            threadRows,
+            projectResult,
+            threadResult,
             proposedPlanRows,
             checkpointRevertActivityRows,
             sessionRows,
@@ -3192,6 +3333,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getCommandReadModel:listSpaces:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows("projection_spaces", "getCommandReadModel.listSpaces"),
+              ),
             ),
             listProjectRows(undefined).pipe(
               Effect.mapError(
@@ -3200,10 +3344,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getCommandReadModel:listProjects:decodeRows",
                 ),
               ),
-              Effect.flatMap((rows) =>
-                decodeProjectionProjectRowsForCurrentSettings(
-                  rows,
+              Effect.flatMap((decoded) =>
+                decodeModelSelectionsSkippingUndecodable(
+                  decoded,
                   "ProjectionSnapshotQuery.getCommandReadModel:listProjects:decodeModelSelections",
+                  decodeProjectionProjectRow,
+                  (row) => row.projectId,
                 ),
               ),
             ),
@@ -3214,10 +3360,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getCommandReadModel:listThreads:decodeRows",
                 ),
               ),
-              Effect.flatMap((rows) =>
-                decodeProjectionThreadRowsForCurrentSettings(
-                  rows,
+              Effect.flatMap((decoded) =>
+                decodeModelSelectionsSkippingUndecodable(
+                  decoded,
                   "ProjectionSnapshotQuery.getCommandReadModel:listThreads:decodeModelSelections",
+                  decodeProjectionThreadRow,
+                  (row) => row.threadId,
                 ),
               ),
             ),
@@ -3228,12 +3376,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getCommandReadModel:listThreadProposedPlans:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows(
+                  "projection_thread_proposed_plans",
+                  "getCommandReadModel.listThreadProposedPlans",
+                ),
+              ),
             ),
             listCheckpointRevertLifecycleActivityRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
                   "ProjectionSnapshotQuery.getCommandReadModel:listCheckpointRevertActivities:query",
                   "ProjectionSnapshotQuery.getCommandReadModel:listCheckpointRevertActivities:decodeRows",
+                ),
+              ),
+              Effect.flatMap(
+                keepDecodedRows(
+                  "projection_thread_activities",
+                  "getCommandReadModel.listCheckpointRevertActivities",
                 ),
               ),
             ),
@@ -3244,6 +3404,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getCommandReadModel:listThreadSessions:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows(
+                  "projection_thread_sessions",
+                  "getCommandReadModel.listThreadSessions",
+                ),
+              ),
             ),
             listLatestTurnRows(undefined).pipe(
               Effect.mapError(
@@ -3251,6 +3417,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getCommandReadModel:listLatestTurns:query",
                   "ProjectionSnapshotQuery.getCommandReadModel:listLatestTurns:decodeRows",
                 ),
+              ),
+              Effect.flatMap(
+                keepDecodedRows("projection_turns", "getCommandReadModel.listLatestTurns"),
               ),
             ),
             projectionSidebarSectionRepository.listAll(),
@@ -3266,6 +3435,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ]);
 
+          const { projectRows, threadRows } = yield* settleProjectAndThreadRows(
+            "getCommandReadModel",
+            projectResult,
+            threadResult,
+          );
           const proposedPlans = collectProjectedProposedPlans(proposedPlanRows);
           const checkpointRevertActivities = collectProjectedActivities(
             checkpointRevertActivityRows,
@@ -3336,8 +3510,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         Effect.gen(function* () {
           const [
             spaceRows,
-            projectRows,
-            threadRows,
+            projectResult,
+            threadResult,
             sessionRows,
             latestTurnRows,
             sidebarSectionRows,
@@ -3352,6 +3526,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getShellSnapshot:listSpaces:decodeRows",
                 ),
               ),
+              Effect.flatMap(keepDecodedRows("projection_spaces", "getShellSnapshot.listSpaces")),
             ),
             listProjectRows(undefined).pipe(
               Effect.mapError(
@@ -3360,10 +3535,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getShellSnapshot:listProjects:decodeRows",
                 ),
               ),
-              Effect.flatMap((rows) =>
-                decodeProjectionProjectRowsForCurrentSettings(
-                  rows,
+              Effect.flatMap((decoded) =>
+                decodeModelSelectionsSkippingUndecodable(
+                  decoded,
                   "ProjectionSnapshotQuery.getShellSnapshot:listProjects:decodeModelSelections",
+                  decodeProjectionProjectRow,
+                  (row) => row.projectId,
                 ),
               ),
             ),
@@ -3374,10 +3551,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeRows",
                 ),
               ),
-              Effect.flatMap((rows) =>
-                decodeProjectionThreadShellRowsForCurrentSettings(
-                  rows,
+              Effect.flatMap((decoded) =>
+                decodeModelSelectionsSkippingUndecodable(
+                  decoded,
                   "ProjectionSnapshotQuery.getShellSnapshot:listThreads:decodeModelSelections",
+                  decodeProjectionThreadShellRow,
+                  (row) => row.threadId,
                 ),
               ),
             ),
@@ -3388,6 +3567,12 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getShellSnapshot:listThreadSessions:decodeRows",
                 ),
               ),
+              Effect.flatMap(
+                keepDecodedRows(
+                  "projection_thread_sessions",
+                  "getShellSnapshot.listThreadSessions",
+                ),
+              ),
             ),
             listLatestTurnRows(undefined).pipe(
               Effect.mapError(
@@ -3395,6 +3580,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:query",
                   "ProjectionSnapshotQuery.getShellSnapshot:listLatestTurns:decodeRows",
                 ),
+              ),
+              Effect.flatMap(
+                keepDecodedRows("projection_turns", "getShellSnapshot.listLatestTurns"),
               ),
             ),
             projectionSidebarSectionRepository.listAll(),
@@ -3410,6 +3598,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ),
           ]);
 
+          const { projectRows, threadRows, unreadableThreads } = yield* settleProjectAndThreadRows(
+            "getShellSnapshot",
+            projectResult,
+            threadResult,
+          );
           const latestTurns = collectProjectedLatestTurns(latestTurnRows);
           const sessions = collectProjectedSessions(sessionRows);
 
@@ -3460,6 +3653,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             sidebarOrderRevision: sidebarOrderState.revision,
             sidebarOrderMigrationState: sidebarOrderState.migrationState,
             sidebarOrderItems,
+            ...(unreadableThreads.length > 0 ? { unreadableThreads } : {}),
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 

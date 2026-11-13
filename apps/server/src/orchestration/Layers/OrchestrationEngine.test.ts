@@ -483,6 +483,86 @@ describe("OrchestrationEngine", () => {
     }
   });
 
+  it("starts when one thread row no longer decodes and treats that thread as missing", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = asProjectId("bad-row-startup-project");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.makeUnsafe("bad-row-startup-create-project"),
+          projectId,
+          title: "Bad row",
+          workspaceRoot: "/tmp/bad-row-startup",
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      for (const name of ["good", "bad"]) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(`bad-row-startup-create-${name}`),
+            threadId: ThreadId.makeUnsafe(`bad-row-startup-${name}`),
+            projectId,
+            title: `Bad row ${name}`,
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            interactionMode: "default",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          }),
+        );
+      }
+      // The 1.0.5 upgrade rehearsal's row: no Moss build writes it, but it made
+      // engine construction fail and the backend exit on every start.
+      await system.run(system.sql`UPDATE projection_threads SET model_selection_json = NULL
+        WHERE thread_id = 'bad-row-startup-bad'`);
+
+      const restarted = await system.startAnotherEngine();
+      try {
+        const model = await system.run(restarted.engine.getReadModel());
+        expect(model.threads.map((thread) => thread.id)).toEqual(["bad-row-startup-good"]);
+
+        // A command addressed to the skipped thread fails like any unknown thread.
+        await expect(
+          system.run(
+            restarted.engine.dispatch({
+              type: "thread.meta.update",
+              commandId: CommandId.makeUnsafe("bad-row-startup-rename-bad"),
+              threadId: ThreadId.makeUnsafe("bad-row-startup-bad"),
+              title: "Renamed",
+            }),
+          ),
+        ).rejects.toThrow("does not exist");
+        await system.run(
+          restarted.engine.dispatch({
+            type: "thread.meta.update",
+            commandId: CommandId.makeUnsafe("bad-row-startup-rename-good"),
+            threadId: ThreadId.makeUnsafe("bad-row-startup-good"),
+            title: "Renamed",
+          }),
+        );
+        const renamed = await system.run(restarted.engine.getReadModel());
+        expect(renamed.threads.map((thread) => [thread.id, thread.title])).toEqual([
+          ["bad-row-startup-good", "Renamed"],
+        ]);
+        const stored = await system.run(
+          system.sql<{ modelSelection: string | null; title: string }>`
+            SELECT model_selection_json AS "modelSelection", title FROM projection_threads
+            WHERE thread_id = 'bad-row-startup-bad'`,
+        );
+        expect(stored).toEqual([{ modelSelection: null, title: "Bad row bad" }]);
+      } finally {
+        await restarted.stop();
+      }
+    } finally {
+      await system.dispose();
+    }
+  });
+
   it("commits the metadata snapshot cursor before publishing its accepted event", async () => {
     const system = await createOrchestrationSystem();
     const commandId = CommandId.makeUnsafe("metadata-phase-commit");

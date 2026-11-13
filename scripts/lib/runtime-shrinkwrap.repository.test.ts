@@ -14,6 +14,10 @@ const repoRoot = Path.resolve(Path.dirname(fileURLToPath(import.meta.url)), "../
 const readJson = (file: string) => JSON.parse(FS.readFileSync(Path.join(repoRoot, file), "utf8"));
 type Entry = { readonly name?: string; readonly version: string; readonly resolved: string };
 
+// Each case packs the whole server runtime once or twice. That takes 2–4 s alone and went past
+// vitest's default 5 s whenever another lane ran beside it (red in two merge candidates on 11-13).
+const BUILD_TIMEOUT_MS = 60_000;
+
 describe("server runtime lock for this repository", () => {
   const rootPackageJson = readJson("package.json");
   const serverPackageJson = readJson("apps/server/package.json");
@@ -36,33 +40,41 @@ describe("server runtime lock for this repository", () => {
   const entries = (lock: ReturnType<typeof build>) =>
     Object.entries(lock.shrinkwrap.packages).filter(([location]) => location) as [string, Entry][];
 
-  it("installs every patched package the runtime uses from its patched copy", () => {
-    // Find runtime packages with a bun patch independently, from the unpatched lock:
-    // a patch key is `name@version` or `name@<tarball url>`.
-    const upstream = entries(build());
-    const patchedLocations = upstream
-      .filter(([location, entry]) => {
-        const name = entry.name ?? location.slice(location.lastIndexOf("node_modules/") + 13);
-        return Object.keys(patchedDependencies).some(
-          (key) => key === `${name}@${entry.version}` || key === `${name}@${entry.resolved}`,
-        );
-      })
-      .map(([location]) => location);
-    // The server runtime does use patched packages today (platform-node-shared, diffs).
-    expect(patchedLocations.length).toBeGreaterThan(0);
+  it(
+    "installs every patched package the runtime uses from its patched copy",
+    () => {
+      // Find runtime packages with a bun patch independently, from the unpatched lock:
+      // a patch key is `name@version` or `name@<tarball url>`.
+      const upstream = entries(build());
+      const patchedLocations = upstream
+        .filter(([location, entry]) => {
+          const name = entry.name ?? location.slice(location.lastIndexOf("node_modules/") + 13);
+          return Object.keys(patchedDependencies).some(
+            (key) => key === `${name}@${entry.version}` || key === `${name}@${entry.resolved}`,
+          );
+        })
+        .map(([location]) => location);
+      // The server runtime does use patched packages today (platform-node-shared, diffs).
+      expect(patchedLocations.length).toBeGreaterThan(0);
 
-    // A newly patched runtime package that is not shipped patched fails here,
-    // and the pack itself throws when an installed copy lacks its patch.
-    const shipped = new Map(entries(build(patchedDependencies)));
-    for (const location of patchedLocations)
-      expect(shipped.get(location)?.resolved, location).toMatch(/^file:patched\/.+\.tgz$/u);
-  });
+      // A newly patched runtime package that is not shipped patched fails here,
+      // and the pack itself throws when an installed copy lacks its patch.
+      const shipped = new Map(entries(build(patchedDependencies)));
+      for (const location of patchedLocations)
+        expect(shipped.get(location)?.resolved, location).toMatch(/^file:patched\/.+\.tgz$/u);
+    },
+    BUILD_TIMEOUT_MS,
+  );
 
-  it("puts the process-group kill guard into the shipped platform-node-shared copy", () => {
-    const file = build(patchedDependencies).files.find((entry) =>
-      entry.path.includes("platform-node-shared"),
-    );
-    expect(file).toBeDefined();
-    expect(Zlib.gunzipSync(file!.contents).toString("utf8")).toContain("pid <= 1");
-  });
+  it(
+    "puts the process-group kill guard into the shipped platform-node-shared copy",
+    () => {
+      const file = build(patchedDependencies).files.find((entry) =>
+        entry.path.includes("platform-node-shared"),
+      );
+      expect(file).toBeDefined();
+      expect(Zlib.gunzipSync(file!.contents).toString("utf8")).toContain("pid <= 1");
+    },
+    BUILD_TIMEOUT_MS,
+  );
 });

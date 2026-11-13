@@ -10,6 +10,7 @@ import { execFile } from "node:child_process";
 
 import {
   CommandId,
+  ACCOUNT_SIGN_IN_WS_METHODS,
   AUTH_MANAGEMENT_WS_METHODS,
   COMPUTER_HISTORY_WS_METHODS,
   COMPUTER_WS_METHODS,
@@ -192,6 +193,12 @@ import {
 } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { makeAuthWsRpcHandlers } from "./auth/wsRpc";
+import {
+  guardCloudAccountChanges,
+  guardPhoneAccountChanges,
+  makeAccountSignInWsRpcHandlers,
+} from "./account/accountSignInWsRpc";
+import { MossAccountPhoneAccess } from "./account/Services/MossAccountPhoneAccess";
 import { ownerRoleRequired, ownerOnlyWsRpcHandler } from "./wsOwnerAuthorization";
 export { ownerRoleRequired, ownerOnlyWsRpcHandler } from "./wsOwnerAuthorization";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
@@ -280,7 +287,7 @@ import { listProjectImportedConversationKeys } from "./orchestration/importedCon
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProviderCommandReactor } from "./orchestration/Services/ProviderCommandReactor";
 import { SidechatExpiryReactor } from "./orchestration/Services/SidechatExpiryReactor";
-import { ProjectionStateIncompleteError } from "./persistence/Errors";
+import { PersistenceDecodeError, ProjectionStateIncompleteError } from "./persistence/Errors";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
@@ -1047,6 +1054,24 @@ export function toWsRpcError(cause: unknown, fallbackMessage: string) {
   });
 }
 
+/**
+ * A thread whose stored rows no longer decode cannot be loaded by any client,
+ * however often it asks. Answer with the existing terminal "no snapshot" code:
+ * clients stop after their bounded bootstrap retry and fall back as for a
+ * missing thread. A generic error is read as a socket fault instead, and the
+ * client reconnects and resubscribes every 500 ms for as long as it is open.
+ */
+export function toThreadSnapshotRpcError(threadId: string, cause: unknown): WsRpcError {
+  if (Schema.is(PersistenceDecodeError)(cause)) {
+    return new WsRpcError({
+      message: `Thread ${threadId} could not be read.`,
+      code: "THREAD_SNAPSHOT_NOT_FOUND",
+      retryable: false,
+    });
+  }
+  return toWsRpcError(cause, "Failed to load thread snapshot");
+}
+
 // Process-wide so a subscriber's restart chain survives its own reconnects
 // (the client id is stable across a socket reconnect), but keyed per
 // subscriber inside the tracker — see makeResnapshotEscalationTracker.
@@ -1169,6 +1194,10 @@ const makeWsRpcHandlersLayer = () =>
       const automationService = yield* AutomationService;
       const todoService = yield* TodoService;
       const secretRequests = Option.getOrUndefined(yield* Effect.serviceOption(SecretRequests));
+      // Embedded and test servers may run without account sign-in for phones.
+      const mossAccountPhoneAccess = Option.getOrUndefined(
+        yield* Effect.serviceOption(MossAccountPhoneAccess),
+      );
       const guestShareService = yield* GuestShareService;
       const libraryService = yield* LibraryService;
       const pagesService = Option.getOrUndefined(yield* Effect.serviceOption(PagesService));
@@ -2152,6 +2181,7 @@ const makeWsRpcHandlersLayer = () =>
 
       const sessionCredentialService = yield* SessionCredentialService;
       const authHandlers = makeAuthWsRpcHandlers(yield* ServerAuth, config);
+      const accountSignInHandlers = makeAccountSignInWsRpcHandlers(mossAccountPhoneAccess, config);
       const projectionAuthorityFactory = yield* MossProjectionAuthorityFactoryService;
       const resourceImportWorkspaceAuthorizationRegistry =
         yield* MossResourceImportWorkspaceAuthorizationRegistry;
@@ -2998,7 +3028,7 @@ const makeWsRpcHandlersLayer = () =>
                         }),
                     }),
                   ),
-                  Effect.mapError((cause) => toWsRpcError(cause, "Failed to load thread snapshot")),
+                  Effect.mapError((cause) => toThreadSnapshotRpcError(input.threadId, cause)),
                 ),
                 snapshotSequence: (snapshot) => snapshot.snapshotSequence,
                 getHighWaterSequence: getOrchestrationHighWaterSequence,
@@ -4746,6 +4776,17 @@ const makeWsRpcHandlersLayer = () =>
               )
             : Stream.fail(tasksUnavailableError()),
 
+        // Account sign-in from the owner's phone: the Moss window on this computer decides.
+        [ACCOUNT_SIGN_IN_WS_METHODS.subscribe]: (_, { clientId }) =>
+          streamAdmission.guard(
+            clientId,
+            { key: "auth.account-sign-in" },
+            accountSignInHandlers[ACCOUNT_SIGN_IN_WS_METHODS.subscribe](),
+          ),
+        [ACCOUNT_SIGN_IN_WS_METHODS.approve]:
+          accountSignInHandlers[ACCOUNT_SIGN_IN_WS_METHODS.approve],
+        [ACCOUNT_SIGN_IN_WS_METHODS.deny]: accountSignInHandlers[ACCOUNT_SIGN_IN_WS_METHODS.deny],
+
         // Share with guest: the owner's side. Guests never reach this server directly.
         [GUEST_SHARE_WS_METHODS.create]: (input) =>
           guestShareRpcEffect(
@@ -5354,8 +5395,9 @@ const makeWsRpcHandlersLayer = () =>
         ),
         // A phone sign-in, sign-out, or realm switch changes which service
         // plugin skills (phone accounts only) belong on disk.
-        ...makeMossPhoneAccountRpcHandlers(mossPhoneAccountService, () =>
-          mcpConnectors.servicePlugins.resync(),
+        ...makeMossPhoneAccountRpcHandlers(
+          guardPhoneAccountChanges(mossPhoneAccountService, mossAccountPhoneAccess),
+          () => mcpConnectors.servicePlugins.resync(),
         ),
         [WS_METHODS.serverMossAccountSelectRealm]: (input: MossAccountSelectRealmInput) =>
           input.realm === "cn"
@@ -5387,8 +5429,9 @@ const makeWsRpcHandlersLayer = () =>
                     retryable: false,
                   }),
                 ),
-        ...makeMossCloudAccountRpcHandlers(mossCloudAccountService, () =>
-          mcpConnectors.servicePlugins.resync(),
+        ...makeMossCloudAccountRpcHandlers(
+          guardCloudAccountChanges(mossCloudAccountService, mossAccountPhoneAccess),
+          () => mcpConnectors.servicePlugins.resync(),
         ),
         ...makeMossPayRpcHandlers(mossPayService),
         ...makeRealtimeVoiceRpcHandlers(realtimeVoiceService),
@@ -5522,6 +5565,9 @@ const makeWsRpcHandlersLayer = () =>
       // accidentally bypass the authorization policy.
       const ownerOnlyMethods = new Set([
         ...AUTH_MANAGEMENT_WS_METHODS,
+        ACCOUNT_SIGN_IN_WS_METHODS.subscribe,
+        ACCOUNT_SIGN_IN_WS_METHODS.approve,
+        ACCOUNT_SIGN_IN_WS_METHODS.deny,
         WS_METHODS.githubInboxConnection,
         WS_METHODS.serverMossAccountSession,
         WS_METHODS.serverMossAccountSelectRealm,

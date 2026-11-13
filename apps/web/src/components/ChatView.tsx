@@ -492,6 +492,7 @@ import {
   resolveQuotaOwnedThreadError,
 } from "./chat/threadErrorPresentation";
 import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
+import { useUnreadableThread } from "./UnreadableThreadsNotice";
 import { ChatThreadFindHost } from "./chat/ThreadFindBar";
 import { resolveTraitsTriggerSummary } from "./chat/TraitsPicker";
 import { TranscriptSelectionActionLayer } from "./chat/TranscriptSelectionActionLayer";
@@ -2451,6 +2452,7 @@ export default function ChatView({
   // Before treating an empty timeline as a genuinely new thread, wait for the
   // detail snapshot: a server thread whose history has not synced yet must show
   // a loading (or failed) transcript state instead of the empty landing.
+  const unreadableThread = useUnreadableThread(threadId);
   const threadDetailHydration = resolveThreadDetailHydration({
     isServerThread,
     hasTimelineEntries: timelineEntries.length > 0,
@@ -2476,6 +2478,7 @@ export default function ChatView({
         <ThreadDetailHydrationState
           onRetry={handleRetryThreadDetailSync}
           state={threadDetailHydration}
+          unreadable={unreadableThread}
         />
       );
     }
@@ -2486,6 +2489,7 @@ export default function ChatView({
     hasPendingThreadWork,
     isEditorRail,
     threadDetailHydration,
+    unreadableThread,
   ]);
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
   // Home-scoped chats get the global "What should we build?" copy plus the project picker,

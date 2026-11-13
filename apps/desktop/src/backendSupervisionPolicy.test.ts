@@ -5,7 +5,9 @@ import {
   BACKEND_RESTART_MAX_DELAY_MS,
   BackendOutputTailDetector,
   BackendSupervisionPolicy,
+  backendExitLogDetail,
   backendRestartDelayMs,
+  formatBackendStartupFailureDetails,
   summarizeBackendFailureOutput,
 } from "./backendSupervisionPolicy";
 
@@ -245,5 +247,69 @@ describe("summarizeBackendFailureOutput", () => {
 
   it("returns an empty string for empty output", () => {
     expect(summarizeBackendFailureOutput("   \n\n")).toBe("");
+  });
+});
+
+// What the server writes to stderr when its startup fails (see the server's
+// desktopFatalExit.ts): the full cause, then one closing line.
+const SERVER_FATAL_OUTPUT = [
+  "[17:00:12.401] INFO (#69): Running all migrations...",
+  "[17:00:12.408] INFO (#69): Migrations ran successfully { migrations: [] }",
+  "Error: Decode error in ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:decodeRows: Expected string, got null",
+  "    at file:///app/server.mjs:1:1",
+  "[moss-server] fatal error, stopping: PersistenceDecodeError: Decode error in ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:decodeRows: Expected string, got null",
+  "",
+].join("\n");
+
+describe("backendExitLogDetail", () => {
+  it("puts the server's closing fatal line into one desktop log line", () => {
+    const detector = new BackendOutputTailDetector();
+    detector.push(SERVER_FATAL_OUTPUT);
+    expect(backendExitLogDetail(detector.read())).toBe(
+      "[moss-server] fatal error, stopping: PersistenceDecodeError: Decode error in ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:decodeRows: Expected string, got null",
+    );
+  });
+
+  it("joins a multi-line error onto one bounded line", () => {
+    expect(backendExitLogDetail("TypeError: boom\n    at a (x.js:1:1)\n")).toBe(
+      "TypeError: boom at a (x.js:1:1)",
+    );
+    expect(backendExitLogDetail(`Error: ${"x".repeat(5_000)}`)).toHaveLength(1_001);
+    expect(backendExitLogDetail("")).toBe("");
+  });
+});
+
+describe("formatBackendStartupFailureDetails", () => {
+  it("names the version, the exit, the last error and the log file", () => {
+    expect(
+      formatBackendStartupFailureDetails({
+        appVersion: "1.0.5",
+        platform: "win32 x64",
+        failures: 5,
+        reason: "code=1 signal=null",
+        output: SERVER_FATAL_OUTPUT,
+        logFilePath: "/logs/server-child.log",
+      }),
+    ).toBe(
+      [
+        "Moss 1.0.5 (win32 x64)",
+        "The local service failed to start 5 times in a row (last exit: code=1 signal=null).",
+        "Last error:\n[moss-server] fatal error, stopping: PersistenceDecodeError: Decode error in ProjectionSnapshotQuery.getCommandReadModel:listProjectionState:decodeRows: Expected string, got null",
+        "Log file: /logs/server-child.log",
+      ].join("\n\n"),
+    );
+  });
+
+  it("says so when the backend wrote nothing", () => {
+    expect(
+      formatBackendStartupFailureDetails({
+        appVersion: "1.0.5",
+        platform: "darwin arm64",
+        failures: 5,
+        reason: "code=1 signal=null",
+        output: "",
+        logFilePath: "/logs/server-child.log",
+      }),
+    ).toContain("The local service wrote no error.");
   });
 });

@@ -33,6 +33,8 @@ import {
   type MossPhoneAccountServiceShape,
 } from "./account/Services/MossPhoneAccountService";
 import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
+import { MossAccountPhoneAccess } from "./account/Services/MossAccountPhoneAccess";
+import { startMossAccountComputerRegistry } from "./account/Layers/MossAccountPhoneAccess";
 import { MossEnterpriseKeyAccount } from "./account/Services/MossEnterpriseKeyAccount";
 import { describeMossErrorCauses } from "./account/mossAccountErrors";
 import { retireMossByokSettings } from "./account/retiredMossByokCleanup";
@@ -703,6 +705,17 @@ export const createEffectServer = Effect.fn(function* (
     startMossPhoneAccountSessionMaintenance(mossPhoneAccount),
     subscriptionsScope,
   );
+  // Phone access on: list this computer in its Moss account. Off: remove what an earlier run
+  // listed, and publish nothing. Embedded and test servers may run without the service.
+  const mossAccountPhoneAccess = Option.getOrUndefined(
+    yield* Effect.serviceOption(MossAccountPhoneAccess),
+  );
+  if (mossAccountPhoneAccess) {
+    yield* Scope.provide(
+      startMossAccountComputerRegistry(mossAccountPhoneAccess, config),
+      subscriptionsScope,
+    );
+  }
   // When the CN gateway entry in use changes, lanes provisioned with the old entry are
   // re-provisioned on the new one through the same-authority path.
   yield* Scope.provide(

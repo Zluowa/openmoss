@@ -57,6 +57,7 @@ import {
   COMPUTER_WS_METHODS,
   type ComputerEvent,
   type DialogsPickFolderResult,
+  ACCOUNT_SIGN_IN_WS_METHODS,
   GUEST_SHARE_WS_METHODS,
   PAGE_TYPES_WS_METHODS,
   PAGE_SHARING_WS_METHODS,
@@ -75,6 +76,8 @@ import {
   type PageSitesListInput,
   type PageSitesListResult,
   type GuestShareCloseInput,
+  type AuthAccountDecisionInput,
+  type AuthAccountPendingRequests,
   type GuestShareCreateInput,
   type GuestShareCreateResult,
   type GuestShareOwnerEvent,
@@ -138,7 +141,20 @@ export interface PageSharingOwnerApi {
   siteMutate: (input: PageSiteMutateInput) => Promise<PageSiteMutateResult>;
 }
 
+/**
+ * The confirmation side of account sign-in from the owner's phone
+ * (`auth.accountSignIn.*`). Only the local owner, in the Moss window on this computer,
+ * is admitted by the server.
+ */
+export interface AccountSignInOwnerApi {
+  /** The phones waiting now, then on every change. */
+  onRequests: (callback: (requests: AuthAccountPendingRequests) => void) => () => void;
+  approve: (input: AuthAccountDecisionInput) => Promise<void>;
+  deny: (input: AuthAccountDecisionInput) => Promise<void>;
+}
+
 export interface WsNativeApi extends NativeApi {
+  accountSignIn: AccountSignInOwnerApi;
   guestShare: GuestShareOwnerApi;
   pageSharing: PageSharingOwnerApi;
 }
@@ -1581,6 +1597,11 @@ export function createWsNativeApi(): WsNativeApi {
       get panel() {
         return window.desktopBridge?.browser.panel;
       },
+    },
+    accountSignIn: {
+      onRequests: (callback) => transport.subscribeAccountSignInRequests(callback),
+      approve: (input) => transport.request<void>(ACCOUNT_SIGN_IN_WS_METHODS.approve, input),
+      deny: (input) => transport.request<void>(ACCOUNT_SIGN_IN_WS_METHODS.deny, input),
     },
     guestShare: {
       // Creating a link registers the share with the relay over the network.

@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { gunzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Exit } from "effect";
+import { Effect, Exit, Layer } from "effect";
 
 import { MigrationLineageError } from "./Errors.ts";
 import {
@@ -28,6 +28,10 @@ import * as NodeSqliteClient from "./NodeSqliteClient.ts";
 import { ProjectionThreadMessageRepository } from "./Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadMessageRepositoryLive } from "./Layers/ProjectionThreadMessages.ts";
 import { migrationRepairFailurePath } from "@moss/shared/migrationRecovery";
+import { ORCHESTRATION_PROJECTOR_NAMES } from "../orchestration/Layers/ProjectionPipeline.ts";
+import { OrchestrationProjectionSnapshotQueryLive } from "../orchestration/Layers/ProjectionSnapshotQuery.ts";
+import { ProjectionSnapshotQuery } from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import {
   T3CODE_V54_FIXTURE_COUNTS,
   T3CODE_V54_FIXTURE_MESSAGE,
@@ -202,6 +206,73 @@ describe("T3 Code import lineage", () => {
     // The next launch has nothing left to ask.
     const again = await runWithDatabase(dbPath, runWithPreMigrationBackup(dbPath, runMigrations()));
     expect(Exit.isSuccess(again)).toBe(true);
+  });
+
+  it("starts the read model when an imported thread has no model selection", async () => {
+    // Migration 16 backfilled NULL model selections in Moss's own lineage, but an
+    // import replays only from 17, so a T3 Code thread without one arrives as is.
+    const dbPath = await makeImportedDatabase((database) => {
+      seedT3CodeV54Import(database);
+      database
+        .prepare(
+          `INSERT INTO projection_threads
+            (thread_id, project_id, title, created_at, updated_at, model_selection_json)
+           VALUES ('imported-without-model', 'fixture-project-1', 'No model', ?, ?, NULL)`,
+        )
+        .run("2026-09-01T08:00:00.000Z", "2026-09-01T08:00:00.000Z");
+    });
+    const consent = await consentTokenFor(dbPath);
+    const migrated = await runWithDatabase(
+      dbPath,
+      runWithPreMigrationBackup(dbPath, runMigrations(), { divergenceConsent: consent }),
+    );
+    expect(Exit.isSuccess(migrated)).toBe(true);
+    // What the projection bootstrap does first on an empty journal: give every
+    // projector a cursor.
+    const cursors = new DatabaseSync(dbPath);
+    try {
+      const insert = cursors.prepare(
+        `INSERT INTO projection_state (projector, last_applied_sequence, updated_at)
+         VALUES (?, 0, '2026-09-01T08:00:00.000Z') ON CONFLICT (projector) DO NOTHING`,
+      );
+      for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) insert.run(projector);
+    } finally {
+      cursors.close();
+    }
+
+    const readModel = await runWithDatabase(
+      dbPath,
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        return yield* query.getCommandReadModel();
+      }).pipe(
+        Effect.provide(
+          OrchestrationProjectionSnapshotQueryLive.pipe(
+            Layer.provide(ServerSettingsService.layerTest()),
+          ),
+        ),
+      ),
+    );
+    expect(Exit.isSuccess(readModel)).toBe(true);
+    if (Exit.isSuccess(readModel)) {
+      expect(readModel.value.threads.map((thread) => thread.id).toSorted()).toEqual([
+        "fixture-thread-1",
+        "fixture-thread-2",
+        "fixture-thread-3",
+      ]);
+    }
+    const database = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      expect(
+        database
+          .prepare(
+            "SELECT model_selection_json AS model FROM projection_threads WHERE thread_id = 'imported-without-model'",
+          )
+          .get(),
+      ).toEqual({ model: null });
+    } finally {
+      database.close();
+    }
   });
 
   it("rolls a failed replay back whole, says so once, and doesn't offer the same repair again", async () => {

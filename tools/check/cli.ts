@@ -16,7 +16,7 @@ import {
   waitForHeavyLane,
   type LoadReport,
 } from "./lib/load.ts";
-import { groupTests, select, unitTestCommand } from "./lib/plan.ts";
+import { groupTests, MOBILE_DIR, select, unitTestCommand } from "./lib/plan.ts";
 import {
   buildResolver,
   changedFiles,
@@ -441,7 +441,26 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(port ? { env: { VITEST_BROWSER_API_PORT: port } } : {}),
     });
   }
-  if (options.tests && tests.length === 0) {
+  if (selection.mobile) {
+    // The phone app has its own npm install; without it its lane cannot run, and says so.
+    const script = options.tests ? "mobile:check" : "mobile:typecheck";
+    if (existsSync(join(repoRoot, MOBILE_DIR, "node_modules"))) {
+      testSteps.push({
+        name: "mobile",
+        cwd: ".",
+        command: [bun, "run", script],
+        detail: options.tests ? "phone app types and tests" : "phone app types",
+      });
+    } else {
+      emit({
+        name: "mobile",
+        status: "skipped",
+        seconds: 0,
+        detail: `phone app lane skipped: ${MOBILE_DIR}/node_modules is missing. Run bun run mobile:install, then bun run ${script}`,
+      });
+    }
+  }
+  if (options.tests && tests.length === 0 && !selection.mobile) {
     emit({
       name: "tests",
       status: "skipped",

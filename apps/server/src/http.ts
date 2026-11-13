@@ -65,6 +65,7 @@ import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { deriveAuthClientMetadata } from "./auth/utils";
+import { ACCOUNT_SIGN_IN_PATH_PREFIX, accountSignInResponse } from "./account/accountSignInRoute";
 import {
   codexConfiguredHomePathsFromSettings,
   type CodexGeneratedImageHomeCandidate,
@@ -990,6 +991,19 @@ export const authEffectRouteLayer = HttpRouter.add(
           }),
         }),
       );
+    }
+
+    // Account sign-in from the owner's phone: no credential, refused unless phone access is
+    // on, and nothing granted until a person at this computer allows it.
+    if (
+      url.pathname === ACCOUNT_SIGN_IN_PATH_PREFIX ||
+      url.pathname.startsWith(`${ACCOUNT_SIGN_IN_PATH_PREFIX}/`)
+    ) {
+      return yield* accountSignInResponse({
+        request,
+        url,
+        readJson: (body) => readEffectJson(body, "Invalid account sign-in payload."),
+      });
     }
 
     const authenticatedMutationSession = requireAuthenticatedMutationRequest;

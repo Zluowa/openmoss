@@ -167,6 +167,7 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
         verifyPhoneOtp: async () => authSession("access-1", ISSUED_AT + 3 * HOUR),
         refresh: async () => authSession("access-2", now + 3 * HOUR),
         getUser: async () => authSession("unused", now + HOUR).user,
+        updateUserMetadata: async () => authSession("unused", now + HOUR).user,
         logout: async () => ({ accepted: true }),
       },
     };
