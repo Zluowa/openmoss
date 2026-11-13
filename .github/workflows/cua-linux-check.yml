@@ -10,6 +10,16 @@ on:
       - apps/desktop/src/linuxCua*
       - apps/desktop/src/linuxEscapeKillSwitchMonitor*
       - packages/shared/src/cuaDriver*
+  push:
+    branches:
+      - ci/**
+    paths:
+      - .github/scripts/cua-linux-smoke.ts
+      - apps/desktop/patches/cua-driver/**
+      - apps/desktop/src/cuaDriverHost*
+      - apps/desktop/src/linuxCua*
+      - apps/desktop/src/linuxEscapeKillSwitchMonitor*
+      - packages/shared/src/cuaDriver*
   workflow_dispatch: {}
 permissions:
   contents: read
