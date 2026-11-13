@@ -139,4 +139,47 @@ describe("createRealtimeVoiceMediaRequestPolicy", () => {
       }),
     ).toBeNull();
   });
+
+  it("allows the media upgrade on every listed relay entry, and on nothing else", () => {
+    const policy = createRealtimeVoiceMediaRequestPolicy({
+      realtimeRelayUrl: "https://rt.mossbotai.com",
+      realtimeRelayFallbackUrls: [RELAY_ORIGIN, "not a url", "http://plain.example"],
+      trustedRendererUrl: "moss://app/index.html",
+    });
+    const upgrade = (url: string) =>
+      policy?.(
+        mediaRequest({
+          url,
+          requestHeaders: {
+            Origin: "moss://app",
+            "Sec-WebSocket-Protocol": `moss-realtime-pcm16-v1, moss-ticket.${TICKET}`,
+          },
+        }),
+      );
+    // The new entry and the old one: the server hands the renderer the entry in use.
+    expect(upgrade("wss://rt.mossbotai.com/v1/realtime/media")).not.toHaveProperty("Origin");
+    expect(upgrade(MEDIA_URL)).not.toHaveProperty("Origin");
+    for (const url of [
+      "wss://rt-global.mossbotai.com/v1/realtime/media",
+      "wss://moss-global-realtime.inkcomicai.com/v1/realtime/media",
+      "wss://rt.mossbotai.com.evil.example/v1/realtime/media",
+      "wss://evil-mossbotai.com/v1/realtime/media",
+      "wss://plain.example/v1/realtime/media",
+      "wss://rt.mossbotai.com/v1/realtime/control",
+      "ws://rt.mossbotai.com/v1/realtime/media",
+    ]) {
+      expect(upgrade(url)).toHaveProperty("Origin", "moss://app");
+    }
+  });
+
+  it("keeps a release that lists one relay entry exactly as before", () => {
+    const policy = createRealtimeVoiceMediaRequestPolicy({
+      realtimeRelayUrl: RELAY_ORIGIN,
+      trustedRendererUrl: "moss://app/index.html",
+    });
+    const upgrade = (url: string) =>
+      policy?.(mediaRequest({ url, requestHeaders: { Origin: "moss://app" } }));
+    expect(upgrade(MEDIA_URL)).not.toHaveProperty("Origin");
+    expect(upgrade("wss://rt.mossbotai.com/v1/realtime/media")).toHaveProperty("Origin");
+  });
 });

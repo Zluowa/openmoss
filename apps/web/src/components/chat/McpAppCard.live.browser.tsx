@@ -19,6 +19,7 @@ import {
   selectMcpAppDockEntry,
   useMcpAppDockEntries,
 } from "~/lib/mcpAppDockRegistry";
+import { setMcpAppInitializeCapForTests } from "~/lib/mcpAppHost";
 import { resetMcpAppLiveWidgetsForTests } from "~/lib/mcpApps/liveWidgets";
 import { resetMcpAppResourceCacheForTests } from "~/lib/mcpApps/resourceCache";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
@@ -322,6 +323,38 @@ describe("live widget frame placement", () => {
     await expect.element(page.getByText("工具调用失败。")).toBeInTheDocument();
     expect(sandbox.registrations.length).toBe(before);
     await second.screen.unmount();
+  });
+});
+
+describe("a widget that has not started yet", () => {
+  afterEach(() => setMcpAppInitializeCapForTests(null));
+
+  it("keeps loading while it may still start, then shows the text result at the cap", async () => {
+    await page.viewport(1_140, 520);
+    // The real cap is 120 s of visible time; the test shortens it.
+    setMcpAppInitializeCapForTests(1_500);
+    sandbox = installMcpAppFakeSandbox({ neverInitialize: true });
+    const { screen } = await mount(() => (
+      <McpAppCard projection={projection()} threadId={THREAD} theme="light" />
+    ));
+    await vi.waitFor(() => expect(sandbox!.widgets).toHaveLength(1));
+    // The header shimmers 「正在加载 fixture 的小组件」 while the widget may still start.
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector('[data-mcp-app-header] [data-conversation-shimmer="true"]')
+          ?.firstChild?.textContent,
+      ).toBe("正在加载 fixture 的小组件"),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(document.querySelector("[data-mcp-app-card]")?.getAttribute("data-mcp-app-phase")).toBe(
+      "loading",
+    );
+    await expect
+      .element(page.getByText("小组件加载失败，已改为显示文字结果。"))
+      .toBeInTheDocument();
+    await expect.element(page.getByText("Hello, Moss!")).toBeInTheDocument();
+    expect(document.querySelector('[data-mcp-app-frame-wrapper="true"]')).toBeNull();
+    await screen.unmount();
   });
 });
 
