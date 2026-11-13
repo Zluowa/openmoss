@@ -13,6 +13,7 @@ describe("mossBuiltInAppForTool", () => {
     ["moss_pages_mutate", "moss.space"],
     ["moss_space_create_item", "moss.space"],
     ["moss_sheet_write_range", "moss.space"],
+    ["moss_design_write_boards", "moss.space"],
     ["moss_slides_create", "moss.slides"],
     ["moss_app_publish", "moss.page-apps"],
     ["moss_app_db", "moss.page-apps"],

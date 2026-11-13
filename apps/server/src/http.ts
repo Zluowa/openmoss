@@ -19,12 +19,15 @@ import {
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   ProviderInstanceId,
   ProviderKind,
+  LIBRARY_IMPORT_FILE_MAX_BYTES,
+  LibraryImportInput,
   SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BYTES,
   ThreadId,
 } from "@moss/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
+  LIBRARY_IMPORT_ROUTE_PATH,
   LIBRARY_UPLOAD_ROUTE_PATH,
   VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH,
 } from "@moss/shared/binaryTransfer";
@@ -94,6 +97,7 @@ import { ProjectAgentRepository } from "./persistence/Services/ProjectAgentRepos
 import { resolveCachedEditorIcon } from "./editorAppIcons";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
 import { libraryImageEffectRouteLayer } from "./library/libraryImageRoute.ts";
+import { LibraryService } from "./library/Services/LibraryService.ts";
 import { mcpAppsRouteLayer } from "./mcpApps/routes";
 import {
   LOCAL_HTML_PREVIEW_PREFIX,
@@ -180,6 +184,7 @@ const HTML_DOCUMENT_SECURITY_HEADERS = {
 const isHtmlDocumentPath = (relativePath: string) => /\.html?$/iu.test(relativePath);
 export const AUTH_JSON_BODY_MAX_BYTES = 16 * 1024;
 const decodeBootstrapInput = Schema.decodeUnknownEffect(AuthBootstrapInput);
+const decodeLibraryImportInput = Schema.decodeUnknownEffect(LibraryImportInput);
 const decodeCreatePairingCredentialInput = Schema.decodeUnknownEffect(
   AuthCreatePairingCredentialInput,
 );
@@ -1654,6 +1659,50 @@ const binaryUploadEffectHandler = Effect.gen(function* () {
     );
   }
 
+  // One file into the owner's 资料库, sent as raw bytes: `library.import` goes over the
+  // WebSocket, whose 2 MiB message cap stops base64 files of about 1.5 MB.
+  if (url.pathname === LIBRARY_IMPORT_ROUTE_PATH) {
+    if (mutationSession !== null && mutationSession.role !== "owner") {
+      return HttpServerResponse.jsonUnsafe(
+        { error: "Owner authorization is required for this operation." },
+        { status: 403, headers: corsHeaders },
+      );
+    }
+    const name = url.searchParams.get("name") ?? "";
+    const mimeType = url.searchParams.get("mimeType") ?? "";
+    return yield* Effect.gen(function* () {
+      const bytes = yield* readEffectBinary(request, LIBRARY_IMPORT_FILE_MAX_BYTES);
+      const input = yield* decodeLibraryImportInput({
+        files: [
+          {
+            name,
+            ...(mimeType ? { mimeType } : {}),
+            dataBase64: Buffer.from(bytes).toString("base64"),
+          },
+        ],
+      }).pipe(
+        Effect.mapError(() => ({ message: "Library import metadata is invalid.", status: 400 })),
+      );
+      // Looked up here, not required by the handler: test servers mount these routes without it.
+      const library = yield* Effect.serviceOption(LibraryService);
+      if (Option.isNone(library))
+        return yield* Effect.fail({ message: "The library is not available.", status: 503 });
+      return yield* library.value.importFiles(input);
+    }).pipe(
+      Effect.map((result) =>
+        HttpServerResponse.jsonUnsafe(result, { status: 201, headers: corsHeaders }),
+      ),
+      Effect.catch((cause) =>
+        Effect.succeed(
+          HttpServerResponse.jsonUnsafe(
+            { error: cause.message || "Library import failed." },
+            { status: "status" in cause ? cause.status : 500, headers: corsHeaders },
+          ),
+        ),
+      ),
+    );
+  }
+
   if (url.pathname === LIBRARY_UPLOAD_ROUTE_PATH) {
     const projectIdParam = url.searchParams.get("projectId")?.trim() ?? "";
     const relativeDirectory = url.searchParams.get("relativePath")?.trim() ?? "";
@@ -1988,6 +2037,7 @@ export const binaryUploadEffectRouteLayer = Layer.mergeAll(
   HttpRouter.add("*", ATTACHMENT_CANCEL_ROUTE_PATH, binaryUploadEffectHandler),
   HttpRouter.add("*", VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH, binaryUploadEffectHandler),
   HttpRouter.add("*", LIBRARY_UPLOAD_ROUTE_PATH, binaryUploadEffectHandler),
+  HttpRouter.add("*", LIBRARY_IMPORT_ROUTE_PATH, binaryUploadEffectHandler),
 );
 
 /**

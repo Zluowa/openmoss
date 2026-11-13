@@ -27,6 +27,15 @@ const zh = {
   comments: "评论",
   closeComments: "收起评论",
   noComments: "还没有评论。",
+  textComments: "文字评论",
+  wholePageComments: "整页评论",
+  commentOnWords: "评论",
+  replyPlaceholder: "回复",
+  resolvedCount: (n: number) => `另有 ${n} 条已解决`,
+  tabs: "标签页",
+  untitledTab: "未命名标签页",
+  moss: "Moss",
+  cancel: "取消",
   yourName: "你的名字",
   commentPlaceholder: "写下评论",
   send: "发送",
@@ -104,7 +113,9 @@ const zh = {
 type Copy = {
   readonly [K in keyof typeof zh]: (typeof zh)[K] extends string
     ? string
-    : { readonly [P in keyof (typeof zh)[K]]: string };
+    : (typeof zh)[K] extends (...args: infer A) => string
+      ? (...args: A) => string
+      : { readonly [P in keyof (typeof zh)[K]]: string };
 };
 
 const en: Copy = {
@@ -123,6 +134,15 @@ const en: Copy = {
   comments: "Comments",
   closeComments: "Hide comments",
   noComments: "No comments yet.",
+  textComments: "Comments on text",
+  wholePageComments: "On the whole page",
+  commentOnWords: "Comment",
+  replyPlaceholder: "Reply",
+  resolvedCount: (n: number) => `${n} more resolved`,
+  tabs: "Tabs",
+  untitledTab: "Untitled tab",
+  moss: "Moss",
+  cancel: "Cancel",
   yourName: "Your name",
   commentPlaceholder: "Write a comment",
   send: "Send",

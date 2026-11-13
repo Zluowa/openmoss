@@ -174,7 +174,12 @@ tests("typed 资料空间 items", (it) => {
       );
       assert.deepStrictEqual(
         listed.templates.map((template) => template.id),
-        ["builtin:kpi-dashboard", "builtin:tracker", "builtin:poll-signup"],
+        [
+          "builtin:sales-dashboard",
+          "builtin:kpi-dashboard",
+          "builtin:tracker",
+          "builtin:poll-signup",
+        ],
       );
       const sheet = yield* h.create("sheet", { templateId: "builtin:budget-sheet" });
       const template = yield* h.types.saveTemplate(

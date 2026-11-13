@@ -9,6 +9,7 @@ import { AuthSessionId } from "@moss/contracts";
 import {
   ATTACHMENT_CANCEL_ROUTE_PATH,
   ATTACHMENT_UPLOAD_ROUTE_PATH,
+  LIBRARY_IMPORT_ROUTE_PATH,
   LIBRARY_UPLOAD_ROUTE_PATH,
   VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH,
 } from "@moss/shared/binaryTransfer";
@@ -757,6 +758,67 @@ describe("binaryUploadEffectRouteLayer", () => {
     } finally {
       fs.rmSync(config.stateDir, { recursive: true, force: true });
     }
+  });
+
+  it("guards 资料库 imports sent as raw bytes and keeps CORS headers on errors", async () => {
+    await withAuthEffectServer(
+      { host: "0.0.0.0", publicUrl: new URL("https://moss.example.test/") } as ServerConfigShape,
+      makeServerAuth({ count: 0 }),
+      async (serverOrigin) => {
+        const params = new URLSearchParams({ name: "sales.csv", mimeType: "text/csv" });
+        const url = `${serverOrigin}${LIBRARY_IMPORT_ROUTE_PATH}?${params.toString()}`;
+        const trusted = {
+          Authorization: "Bearer bearer-token",
+          Origin: "https://moss.example.test",
+        };
+
+        const unauthenticated = await fetch(url, { method: "POST", body: Uint8Array.from([1]) });
+        expect(unauthenticated.status).toBe(401);
+
+        const oversizedStatus = await new Promise<number>((resolve, reject) => {
+          const target = new URL(url);
+          const request = http.request(
+            {
+              hostname: target.hostname,
+              port: target.port,
+              path: `${target.pathname}${target.search}`,
+              method: "POST",
+              headers: {
+                Authorization: "Bearer bearer-token",
+                "Content-Length": String(64 * 1024 * 1024 + 1),
+              },
+            },
+            (response) => {
+              response.resume();
+              response.once("end", () => resolve(response.statusCode ?? 0));
+            },
+          );
+          request.once("error", reject);
+          request.end();
+        });
+        expect(oversizedStatus).toBe(413);
+
+        // A dot file is not a library file name: rejected before the library is touched.
+        const hidden = await fetch(
+          `${serverOrigin}${LIBRARY_IMPORT_ROUTE_PATH}?${new URLSearchParams({ name: ".env" })}`,
+          { method: "POST", headers: trusted, body: Uint8Array.from([1]) },
+        );
+        expect(hidden.status).toBe(400);
+        expect(hidden.headers.get("access-control-allow-origin")).toBe("https://moss.example.test");
+
+        // This test server mounts the routes without the library service.
+        const unavailable = await fetch(url, {
+          method: "POST",
+          headers: trusted,
+          body: new TextEncoder().encode("month,revenue\n2026-10,1\n"),
+        });
+        expect(unavailable.status).toBe(503);
+        expect(unavailable.headers.get("access-control-allow-origin")).toBe(
+          "https://moss.example.test",
+        );
+      },
+      binaryUploadEffectRouteLayer,
+    );
   });
 
   it("rejects a name containing a slash and keeps CORS headers on error responses", async () => {

@@ -7,11 +7,22 @@
 import type {
   PageGuestAppReference,
   PageGuestComment,
+  PageGuestCommentsResult,
+  PageGuestTextThread,
   PageGuestView,
   PageId,
   PageShareRole,
 } from "@moss/contracts";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { MossLogoMark } from "~/components/MossLogoMark";
 import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
@@ -179,6 +190,45 @@ function SharedPage(props: {
 }) {
   const { copy, view } = props;
   const [commentsOpen, setCommentsOpen] = useState(view.canComment);
+  const [textThreads, setTextThreads] = useState<ReadonlyArray<PageGuestTextThread>>([]);
+  const [focusedThread, setFocusedThread] = useState<string | null>(null);
+  const [textDraft, setTextDraft] = useState<{ blockId: string; quote: string } | null>(null);
+  const [selectionAsk, setSelectionAsk] = useState<{
+    left: number;
+    top: number;
+    blockId: string;
+    quote: string;
+  } | null>(null);
+  const openComments = useMemo(
+    () => new Set(textThreads.filter((thread) => !thread.resolved).map((thread) => thread.id)),
+    [textThreads],
+  );
+  /** Selected words inside one block of the page offer 评论. */
+  const onSelectWords = () => {
+    if (view.mode !== "share" || !view.canComment) return;
+    const selection = window.getSelection();
+    const quote = selection?.toString().replace(/\s+/gu, " ").trim() ?? "";
+    if (!selection || selection.isCollapsed || !quote) {
+      setSelectionAsk(null);
+      return;
+    }
+    const block = (node: Node | null) =>
+      (node instanceof Element ? node : node?.parentElement)?.closest<HTMLElement>(
+        "[data-guest-block]",
+      ) ?? null;
+    const from = block(selection.anchorNode);
+    if (!from || from !== block(selection.focusNode)) {
+      setSelectionAsk(null);
+      return;
+    }
+    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    setSelectionAsk({
+      left: rect.left + rect.width / 2,
+      top: rect.top,
+      blockId: from.dataset.guestBlock ?? "",
+      quote: quote.slice(0, 400),
+    });
+  };
   const [editing, setEditing] = useState(false),
     [dirty, setDirty] = useState(false),
     [saved, setSaved] = useState(false);
@@ -265,7 +315,11 @@ function SharedPage(props: {
           </nav>
         ) : null}
         <main className="min-w-0 flex-1 overflow-y-auto">
-          <article className="mx-auto w-full max-w-3xl px-6 py-10 md:px-10">
+          <article
+            className="mx-auto w-full max-w-3xl px-6 py-10 md:px-10"
+            onMouseUp={onSelectWords}
+            onKeyUp={onSelectWords}
+          >
             {showNav ? (
               <select
                 aria-label={copy.pages}
@@ -354,6 +408,18 @@ function SharedPage(props: {
               ) : (
                 <PageRichView
                   key={`${view.page.id}:${view.page.revision}`}
+                  openComments={openComments}
+                  focusedComment={focusedThread}
+                  onOpenComment={(threadId) => {
+                    setCommentsOpen(true);
+                    setFocusedThread(threadId);
+                  }}
+                  revealBlockId={
+                    textThreads.find((thread) => thread.id === focusedThread)?.anchor.blockId ??
+                    null
+                  }
+                  tabsLabel={copy.tabs}
+                  untitledTab={copy.untitledTab}
                   richContent={view.page.richContent}
                   content={view.page.content}
                   imageLabel={copy.image}
@@ -402,9 +468,32 @@ function SharedPage(props: {
             <footer className="mt-16 text-ui-xs text-muted-foreground">{copy.brand}</footer>
           </article>
         </main>
+        {selectionAsk ? (
+          <Button
+            size="xs"
+            variant="outline"
+            className="fixed z-20 -translate-x-1/2 -translate-y-full shadow-sm"
+            style={{ left: selectionAsk.left, top: selectionAsk.top - 6 }}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setTextDraft({ blockId: selectionAsk.blockId, quote: selectionAsk.quote });
+              setCommentsOpen(true);
+              setSelectionAsk(null);
+              window.getSelection()?.removeAllRanges();
+            }}
+            data-guest-comment-selection=""
+          >
+            {copy.commentOnWords}
+          </Button>
+        ) : null}
         {view.mode === "share" && commentsOpen ? (
           <CommentsPanel
             key={view.page.id}
+            textDraft={textDraft}
+            onTextDraftDone={() => setTextDraft(null)}
+            focusedThread={focusedThread}
+            onFocusThread={setFocusedThread}
+            onTextThreads={setTextThreads}
             copy={copy}
             entry={props.entry}
             transport={props.transport}
@@ -420,6 +509,11 @@ function SharedPage(props: {
 }
 
 function CommentsPanel(props: {
+  textDraft: { blockId: string; quote: string } | null;
+  onTextDraftDone: () => void;
+  focusedThread: string | null;
+  onFocusThread: (threadId: string | null) => void;
+  onTextThreads: (threads: ReadonlyArray<PageGuestTextThread>) => void;
   copy: PageGuestCopy;
   entry: PageGuestEntry;
   transport: PageGuestTransport;
@@ -430,6 +524,44 @@ function CommentsPanel(props: {
 }) {
   const { copy, entry, transport } = props;
   const [comments, setComments] = useState<ReadonlyArray<PageGuestComment>>([]);
+  const [threads, setThreads] = useState<ReadonlyArray<PageGuestTextThread>>([]);
+  const [replies, setReplies] = useState<Readonly<Record<string, string>>>({});
+  const [draftText, setDraftText] = useState("");
+  const onTextThreads = props.onTextThreads;
+  const applyResult = (value: PageGuestCommentsResult) => {
+    setComments(value.comments);
+    // Comments on words are for links that may comment; a view-only link shows none.
+    const next = props.canComment ? (value.textThreads ?? []) : [];
+    setThreads(next);
+    onTextThreads(next);
+  };
+  const sendText = async (
+    request:
+      | { action: "add-text"; anchor: { blockId: string; quote: string } }
+      | { action: "reply-text"; threadId: string },
+    content: string,
+  ) => {
+    const author = props.viewerName ?? name.trim();
+    if (!content.trim() || !author) return false;
+    setSending(true);
+    setError(null);
+    const result = await transport.comments({
+      ...base,
+      ...request,
+      content: content.trim(),
+      ...(props.viewerName === null ? { name: author } : {}),
+    });
+    setSending(false);
+    if (result.ok) {
+      applyResult(result.value);
+      if (props.viewerName === null) rememberGuestName(author);
+      return true;
+    }
+    setError(
+      result.failure.kind === "refused" ? copy.errors[result.failure.reason] : copy.commentFailed,
+    );
+    return false;
+  };
   const [name, setName] = useState(() => rememberedGuestName());
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -444,7 +576,7 @@ function CommentsPanel(props: {
     let live = true;
     const refresh = () =>
       void transport.comments({ ...base, action: "list" }).then((result) => {
-        if (live && result.ok) setComments(result.value.comments);
+        if (live && result.ok) applyResult(result.value);
       });
     refresh();
     const timer = window.setInterval(refresh, 20_000);
@@ -470,7 +602,7 @@ function CommentsPanel(props: {
     });
     setSending(false);
     if (result.ok) {
-      setComments(result.value.comments);
+      applyResult(result.value);
       setText("");
       if (props.viewerName === null) rememberGuestName(author);
     } else {
@@ -486,6 +618,156 @@ function CommentsPanel(props: {
       className="flex w-80 shrink-0 flex-col border-l border-border max-md:absolute max-md:inset-y-11 max-md:right-0 max-md:z-10 max-md:bg-background"
     >
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {props.canComment && (threads.length || props.textDraft) ? (
+          <section
+            aria-label={copy.textComments}
+            className="mb-5 flex flex-col gap-3"
+            data-guest-text-comments=""
+          >
+            <h2 className="text-ui-xs font-medium text-muted-foreground">{copy.textComments}</h2>
+            {props.textDraft && props.canComment ? (
+              <form
+                className="flex flex-col gap-2 rounded-card border border-ring p-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void sendText({ action: "add-text", anchor: props.textDraft! }, draftText).then(
+                    (sent) => {
+                      if (!sent) return;
+                      setDraftText("");
+                      props.onTextDraftDone();
+                    },
+                  );
+                }}
+              >
+                <p className="line-clamp-2 border-s-2 border-border ps-2 text-ui-xs text-muted-foreground">
+                  {props.textDraft.quote}
+                </p>
+                {props.viewerName === null ? (
+                  <Input
+                    size="sm"
+                    aria-label={copy.yourName}
+                    placeholder={copy.yourName}
+                    maxLength={60}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                ) : null}
+                <Textarea
+                  autoFocus
+                  aria-label={copy.commentPlaceholder}
+                  placeholder={copy.commentPlaceholder}
+                  maxLength={4000}
+                  value={draftText}
+                  onChange={(event) => setDraftText(event.target.value)}
+                  className="min-h-16"
+                />
+                <div className="flex justify-end gap-2">
+                  <Button type="button" size="xs" variant="ghost" onClick={props.onTextDraftDone}>
+                    {copy.cancel}
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="xs"
+                    disabled={
+                      sending || !draftText.trim() || (props.viewerName === null && !name.trim())
+                    }
+                  >
+                    {sending ? copy.sending : copy.send}
+                  </Button>
+                </div>
+              </form>
+            ) : null}
+            {threads
+              .filter((thread) => !thread.resolved)
+              .map((thread) => (
+                <article
+                  key={thread.id}
+                  className={cn(
+                    "flex flex-col gap-2 rounded-card border border-border p-3",
+                    props.focusedThread === thread.id && "border-ring",
+                  )}
+                  data-guest-thread={thread.id}
+                  ref={(node) => {
+                    if (node && props.focusedThread === thread.id)
+                      node.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                  }}
+                  onClick={() => props.onFocusThread(thread.id)}
+                >
+                  <p className="line-clamp-2 border-s-2 border-border ps-2 text-ui-xs text-muted-foreground">
+                    {thread.anchor.quote}
+                  </p>
+                  <ol className="flex flex-col gap-2">
+                    {thread.messages.map((message) => (
+                      <li key={message.id} className="flex flex-col gap-0.5">
+                        <span className="text-ui-xs text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {message.authorKind === "agent"
+                              ? copy.moss
+                              : message.authorKind === "owner"
+                                ? message.authorName || copy.owner
+                                : message.authorName}
+                          </span>
+                          {message.createdAt
+                            ? ` · ${new Date(message.createdAt).toLocaleString([], {
+                                month: "numeric",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}`
+                            : ""}
+                        </span>
+                        <p className="whitespace-pre-wrap text-ui-sm">{message.body}</p>
+                      </li>
+                    ))}
+                  </ol>
+                  {props.canComment ? (
+                    <form
+                      className="flex gap-2"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void sendText(
+                          { action: "reply-text", threadId: thread.id },
+                          replies[thread.id] ?? "",
+                        ).then((sent) => {
+                          if (sent) setReplies((current) => ({ ...current, [thread.id]: "" }));
+                        });
+                      }}
+                    >
+                      <Input
+                        size="sm"
+                        aria-label={copy.replyPlaceholder}
+                        placeholder={copy.replyPlaceholder}
+                        maxLength={4000}
+                        value={replies[thread.id] ?? ""}
+                        onChange={(event) =>
+                          setReplies((current) => ({ ...current, [thread.id]: event.target.value }))
+                        }
+                      />
+                      <Button
+                        type="submit"
+                        size="xs"
+                        disabled={
+                          sending ||
+                          !(replies[thread.id] ?? "").trim() ||
+                          (props.viewerName === null && !name.trim())
+                        }
+                      >
+                        {copy.send}
+                      </Button>
+                    </form>
+                  ) : null}
+                </article>
+              ))}
+            {threads.some((thread) => thread.resolved) ? (
+              <p className="text-ui-xs text-muted-foreground">
+                {copy.resolvedCount(threads.filter((thread) => thread.resolved).length)}
+              </p>
+            ) : null}
+            <h2 className="mt-2 text-ui-xs font-medium text-muted-foreground">
+              {copy.wholePageComments}
+            </h2>
+          </section>
+        ) : null}
         {comments.length === 0 ? (
           <p className="text-ui-sm text-muted-foreground">{copy.noComments}</p>
         ) : (

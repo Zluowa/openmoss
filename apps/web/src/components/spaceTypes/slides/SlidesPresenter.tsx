@@ -7,7 +7,7 @@
 //          (上一张 · 第 N 张，共 M 张 · 下一张 · 结束) appears when the pointer moves.
 // Layer: 资料空间 幻灯片
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import {
@@ -18,7 +18,7 @@ import {
   type SlidesDeck,
 } from "@moss/shared/spaceItems/slidesDeck";
 
-import { SlideView } from "./SlideView";
+import { BUILD_KEYFRAMES, buildSteps, SlideView } from "./SlideView";
 
 const NEXT_KEYS = new Set(["ArrowRight", "ArrowDown", "PageDown", " ", "n", "N"]);
 const PREVIOUS_KEYS = new Set(["ArrowLeft", "ArrowUp", "PageUp", "Backspace", "p", "P"]);
@@ -52,6 +52,8 @@ function FittedSlide(props: {
   slide: Slide | undefined;
   width: number;
   height: number;
+  /** The build step showing (逐个出现); 0 before the first. */
+  step?: number;
 }) {
   const { slide } = props;
   const width = Math.min(props.width, (props.height * SLIDE_WIDTH) / SLIDE_HEIGHT);
@@ -77,7 +79,14 @@ function FittedSlide(props: {
           slide.transition === "none" ? "none" : "opacity 360ms ease, transform 360ms ease",
       }}
     >
-      <SlideView slide={slide} theme={props.deck.theme} width={width} />
+      <style>{BUILD_KEYFRAMES}</style>
+      <SlideView
+        slide={slide}
+        theme={props.deck.theme}
+        width={width}
+        live
+        build={{ step: props.step ?? 0 }}
+      />
     </div>
   );
 }
@@ -214,7 +223,36 @@ export function SlidesPresenter(props: {
         );
   });
   const last = shown.length - 1;
-  const go = useCallback((next: number) => setPosition(Math.max(0, Math.min(last, next))), [last]);
+  // 逐个出现: `revealed` build groups of the current slide are showing.
+  const [revealed, setRevealed] = useState(0);
+  const go = useCallback(
+    (next: number) => {
+      setPosition(Math.max(0, Math.min(last, next)));
+      setRevealed(0);
+    },
+    [last],
+  );
+  const currentSlide = shown[position];
+  const steps = useMemo(() => (currentSlide ? buildSteps(currentSlide) : []), [currentSlide]);
+  const step = revealed > 0 ? (steps[revealed - 1] ?? 0) : 0;
+  const forward = () => {
+    if (revealed < steps.length) setRevealed(revealed + 1);
+    else go(position + 1);
+  };
+  const back = () => {
+    if (revealed > 0) setRevealed(revealed - 1);
+    else go(position - 1);
+  };
+  // A group whose elements are all `auto` arrives by itself shortly after the one before.
+  useEffect(() => {
+    const slide = currentSlide;
+    const nextOrder = steps[revealed];
+    if (!slide || nextOrder === undefined) return;
+    const group = slide.elements.filter((e) => e.build?.order === nextOrder);
+    if (!group.length || !group.every((e) => e.build?.auto === true)) return;
+    const timer = setTimeout(() => setRevealed((n) => n + 1), revealed === 0 ? 600 : 520);
+    return () => clearTimeout(timer);
+  }, [currentSlide, revealed, steps]);
   const root = useRef<HTMLDivElement>(null);
   const viewport = useViewport(window);
   const [controls, setControls] = useState(false);
@@ -293,8 +331,8 @@ export function SlidesPresenter(props: {
         go(Number(digits.current) - 1);
         digits.current = "";
       } else if (event.key === "Escape") onClose();
-      else if (NEXT_KEYS.has(event.key) || event.key === "Enter") go(position + 1);
-      else if (PREVIOUS_KEYS.has(event.key)) go(position - 1);
+      else if (NEXT_KEYS.has(event.key) || event.key === "Enter") forward();
+      else if (PREVIOUS_KEYS.has(event.key)) back();
       else if (event.key === "Home") go(0);
       else if (event.key === "End") go(last);
       else if (event.key === "f" || event.key === "F") {
@@ -315,7 +353,7 @@ export function SlidesPresenter(props: {
       for (const target of targets) target.removeEventListener("keydown", onKey, true);
       document.removeEventListener("fullscreenchange", onFullscreen);
     };
-  }, [go, last, notesWindow, onClose, position, shown.length]);
+  }, [go, last, notesWindow, onClose, position, shown.length, revealed, steps.length]);
 
   useEffect(() => {
     if (!notesWindow) return;
@@ -340,7 +378,7 @@ export function SlidesPresenter(props: {
       paused={runningSince === null}
       onPause={togglePause}
       onReset={resetTimer}
-      onGo={(step) => go(position + step)}
+      onGo={(delta) => (delta < 0 ? back() : forward())}
       onEnd={onClose}
       compact={compact}
     />
@@ -364,13 +402,14 @@ export function SlidesPresenter(props: {
     >
       <div
         className="flex min-h-0 flex-1 cursor-pointer items-center justify-center"
-        onClick={(event) => go(position + (event.clientX < window.innerWidth / 4 ? -1 : 1))}
+        onClick={(event) => (event.clientX < window.innerWidth / 4 ? back() : forward())}
       >
         <FittedSlide
           deck={deck}
           slide={current}
           width={viewport.width}
           height={viewport.height - notesHeight}
+          step={step}
         />
       </div>
       {notesBelow ? <div style={{ height: notesHeight }}>{notes(true)}</div> : null}
@@ -379,23 +418,13 @@ export function SlidesPresenter(props: {
         style={{ opacity: controls ? 1 : 0, bottom: notesHeight + 16 }}
         data-present-controls
       >
-        <button
-          type="button"
-          className={button}
-          onClick={() => go(position - 1)}
-          aria-label="上一张"
-        >
+        <button type="button" className={button} onClick={back} aria-label="上一张">
           ‹
         </button>
         <span className="px-1 text-ui text-white/80">
           第 {position + 1} 张，共 {shown.length} 张
         </span>
-        <button
-          type="button"
-          className={button}
-          onClick={() => go(position + 1)}
-          aria-label="下一张"
-        >
+        <button type="button" className={button} onClick={forward} aria-label="下一张">
           ›
         </button>
         <button type="button" className={button} onClick={onClose}>

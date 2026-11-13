@@ -57,7 +57,7 @@ export function normalizeRichContent(value: unknown): { richContent: string } | 
   return { richContent: JSON.stringify(nodes) };
 }
 
-const OP_KINDS = new Set(["insert", "replace", "delete", "replace-all", "deck"]);
+const OP_KINDS = new Set(["insert", "replace", "delete", "replace-all", "deck", "replace-text"]);
 
 function normalizeOp(raw: unknown, index: number): { op: Args } | { hint: string } {
   let op = raw;
@@ -77,8 +77,10 @@ function normalizeOp(raw: unknown, index: number): { op: Args } | { hint: string
   }
   if (typeof next.kind !== "string" || !OP_KINDS.has(next.kind))
     return {
-      hint: `ops[${index}].kind must be "insert", "replace", "delete" or "replace-all".`,
+      hint: `ops[${index}].kind must be "insert", "replace", "delete", "replace-text" or "replace-all".`,
     };
+  // Words in place: resolved against the page into a block replace (pageTextEdits.ts).
+  if (next.kind === "replace-text") return { op: next };
   if ((next.kind === "replace" || next.kind === "delete") && next.blockId === undefined) {
     if (typeof next.id === "string") next.blockId = next.id;
     else if (typeof next.block_id === "string") next.blockId = next.block_id;

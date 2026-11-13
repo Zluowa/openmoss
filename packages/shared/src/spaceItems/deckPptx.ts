@@ -107,6 +107,8 @@ import {
   type SlidesDeck,
   type SlideTransition,
   type TextBody,
+  MAX_LIST_LEVEL,
+  type ListLevel,
 } from "./slidesDeck";
 
 /** A 16:9 PowerPoint slide is 12 192 000 EMU wide; 1920 px → 6350 EMU per px. */
@@ -181,11 +183,38 @@ export interface PptxExportReport {
   readonly notes: string[];
 }
 
+/** Turns an icon into PNG bytes in its colour (the web exporter supplies one). */
+export type IconLoader = (name: string, color: string) => Promise<Uint8Array | null>;
+const ICON_LOADERS = new WeakMap<SlidesDeck, IconLoader>();
+
+/** Decks being written with 基础字体: every face becomes one that any computer has. */
+const BASIC_FONT_DECKS = new WeakSet<SlidesDeck>();
+const SERIF_FACE =
+  /serif|song|ming|宋|明|georgia|times|garamond|baskerville|lora|playfair|domine|bitter|cormorant/iu;
+const MONO_FACE = /mono|code|courier|consol/iu;
+
+/** The basic face for a font name: Latin text and Chinese text separately. */
+export function basicFontFor(font: string | undefined): { latin: string; eastAsian: string } {
+  const name = font ?? "";
+  if (MONO_FACE.test(name)) return { latin: "Courier New", eastAsian: "Microsoft YaHei" };
+  if (SERIF_FACE.test(name) && !/sans/iu.test(name))
+    return { latin: "Georgia", eastAsian: "SimSun" };
+  return { latin: "Arial", eastAsian: "Microsoft YaHei" };
+}
+
+function fontsFor(
+  deck: SlidesDeck,
+  font: string | undefined,
+): { font?: string | undefined; fontEastAsian?: string | undefined } {
+  if (!BASIC_FONT_DECKS.has(deck)) return { font, fontEastAsian: font };
+  const basic = basicFontFor(font);
+  return { font: basic.latin, fontEastAsian: basic.eastAsian };
+}
+
 function runFormat(run: Run, body: TextBody, deck: SlidesDeck): TextFormat {
   const style = resolveTextStyle(body, deck.theme);
   return compact({
-    font: run.font ?? style.font,
-    fontEastAsian: run.font ?? style.font,
+    ...fontsFor(deck, run.font ?? style.font),
     size: pt(run.size ?? style.size),
     color: hex(run.color ?? style.color),
     bold: run.bold ?? style.weight >= 600,
@@ -287,14 +316,24 @@ const TRANSITION: Record<SlideTransition, string | null> = {
   fade: "fade",
   push: "push",
   wipe: "wipe",
+  // PowerPoint's own morph needs matching object names; a fade keeps the slide change calm.
+  magic: "fade",
 };
 
 /** Deck → .pptx bytes plus notes on what PowerPoint shows differently. */
 export async function exportDeckToPptx(
   deck: SlidesDeck,
-  options: { loadImage?: ImageLoader; slideIds?: readonly string[] } = {},
+  options: {
+    loadImage?: ImageLoader;
+    slideIds?: readonly string[];
+    /** `basic`: 基础字体 — Arial / Georgia / Courier New and 微软雅黑 / 宋体, on any computer. */
+    fonts?: "current" | "basic";
+    loadIcon?: IconLoader;
+  } = {},
 ): Promise<PptxExportReport> {
   deck = resolveDeckColors(deck);
+  if (options.fonts === "basic") BASIC_FONT_DECKS.add(deck);
+  if (options.loadIcon) ICON_LOADERS.set(deck, options.loadIcon);
   const load = options.loadImage ?? defaultLoader;
   const notes = new Set<string>();
   const pres = createPresentation({ size: "16:9" });
@@ -454,7 +493,7 @@ async function writeElement(
                   : (first?.color ?? cell.body.color ?? deck.theme.colors.text),
               ),
               bold: header || first?.bold === true || undefined,
-              font: resolveTextStyle(cell.body, deck.theme).font,
+              font: fontsFor(deck, resolveTextStyle(cell.body, deck.theme).font).font,
             }) as TextFormat,
           );
         }),
@@ -494,6 +533,30 @@ async function writeElement(
       });
       return;
     }
+    case "icon": {
+      // PowerPoint gets a picture of the icon in its colour (the web side rasterises it).
+      const bytes =
+        (await ICON_LOADERS.get(deck)?.(element.name, element.color ?? deck.theme.colors.text)) ??
+        null;
+      if (!bytes) {
+        notes.add("图标没有导出到 PowerPoint。");
+        return;
+      }
+      addSlideImage(slide, bytes, { ...box, fit: "contain", name: element.name || "图标" });
+      return;
+    }
+    case "video": {
+      const poster = element.poster
+        ? (inlineImage(element.poster) ?? (await load(element.poster)))
+        : null;
+      notes.add("视频在 PowerPoint 中显示为封面图，不会播放。");
+      if (poster)
+        addSlideImage(slide, poster, { ...box, fit: "contain", name: element.alt || "视频" });
+      return;
+    }
+    case "embed":
+      notes.add("网页嵌入在 PowerPoint 中没有保留。");
+      return;
   }
 }
 
@@ -613,7 +676,7 @@ export async function importPptxToDeck(
         );
       }
       const bullet = getParagraphBullet(shape, p);
-      const level = Math.min(3, getParagraphLevel(shape, p)) as 0 | 1 | 2 | 3;
+      const level = Math.min(MAX_LIST_LEVEL, getParagraphLevel(shape, p)) as ListLevel;
       const align = ALIGN_IN[getParagraphAlignment(shape, p) ?? ""] ?? undefined;
       paragraphs.push(
         compact({

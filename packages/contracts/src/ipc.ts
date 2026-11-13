@@ -15,6 +15,10 @@ import { Schema } from "effect";
 import type {
   PagesCommentsInput,
   PagesCommentsResult,
+  PagesTextCommentMutateInput,
+  PagesTextCommentMutateResult,
+  PagesTextCommentsInput,
+  PagesTextCommentsResult,
   PagesListInput,
   PagesListResult,
   PagesMutateInput,
@@ -2364,6 +2368,11 @@ export interface NativeApi {
     read: (input: PagesReadInput) => Promise<PagesReadResult>;
     versions: (input: PagesVersionsInput) => Promise<PagesVersionsResult>;
     comments: (input: PagesCommentsInput) => Promise<PagesCommentsResult>;
+    /** Comment threads on words, stored with the page. */
+    textComments: (input: PagesTextCommentsInput) => Promise<PagesTextCommentsResult>;
+    textCommentMutate: (
+      input: PagesTextCommentMutateInput,
+    ) => Promise<PagesTextCommentMutateResult>;
     mutate: (input: PagesMutateInput) => Promise<PagesMutateResult>;
     realtimeToken: (input: PagesRealtimeTokenInput) => Promise<PagesRealtimeTokenResult>;
     drafts: (input: PageDraftsListInput) => Promise<PageDraftsListResult>;

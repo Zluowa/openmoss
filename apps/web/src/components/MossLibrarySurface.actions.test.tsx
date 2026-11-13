@@ -230,17 +230,40 @@ describe("Library runtime actions", () => {
     expect(calls.canvas?.threadId).toBe("thread-a");
     expect(calls.canvas?.prepareThread).toBe(prepare);
     fireEvent.click(document.querySelector("[data-moss-library-canvas-save]")!);
-    await waitFor(() =>
-      expect(calls.importFiles).toHaveBeenCalledExactlyOnceWith([
-        { name: "selected.png", mimeType: "image/png", dataBase64: "AQMHCQ==" },
-      ]),
-    );
+    await waitFor(() => expect(calls.importFiles).toHaveBeenCalledOnce());
+    const [[sent]] = calls.importFiles.mock.calls as unknown as [
+      [{ name: string; mimeType?: string; data: Blob }[]],
+    ];
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ name: "selected.png", mimeType: "image/png" });
+    expect([...new Uint8Array(await sent[0]!.data.arrayBuffer())]).toEqual([1, 3, 7, 9]);
     expect(calls.flush).toHaveBeenCalledTimes(1);
     expect(calls.readSelection).toHaveBeenCalledExactlyOnceWith(selection.items[0], binding);
     await waitFor(() =>
       expect(document.querySelector("[data-moss-library-canvas-picker]")).toBeNull(),
     );
     expect(guard).toHaveBeenLastCalledWith(null);
+  });
+  it("hands a 3 MB Canvas selection to the 资料库 as the file itself, not base64", async () => {
+    const big = new File([new Uint8Array(3 * 1024 * 1024).fill(9)], "board.png", {
+      type: "image/png",
+    });
+    calls.readSelection.mockResolvedValueOnce(big);
+    render(
+      <MossLibrarySurface
+        onClose={() => undefined}
+        initialItems={[image]}
+        threadId="thread-a"
+        prepareThread={async () => "thread-a"}
+      />,
+    );
+    await openCanvas();
+    fireEvent.click(document.querySelector("[data-moss-library-canvas-save]")!);
+    await waitFor(() =>
+      expect(calls.importFiles).toHaveBeenCalledExactlyOnceWith([
+        { name: "board.png", mimeType: "image/png", data: big },
+      ]),
+    );
   });
   it("keeps the Canvas selection on import failure and never retries automatically", async () => {
     calls.importFiles.mockRejectedValueOnce(new Error("storage unavailable"));

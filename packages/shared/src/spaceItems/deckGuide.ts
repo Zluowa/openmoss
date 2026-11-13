@@ -6,7 +6,7 @@
 import { LAYOUT_LABELS } from "./deckLayouts";
 import { DECK_THEMES } from "./deckThemes";
 import { DECK_TEMPLATES } from "./deckTemplates";
-import { SLIDE_LAYOUTS } from "./slidesDeck";
+import { SLIDE_ICON_NAMES, SLIDE_LAYOUTS } from "./slidesDeck";
 
 export const DECK_AGENT_GUIDE = `# Making Moss decks (幻灯片)
 
@@ -39,5 +39,5 @@ Themes: ${DECK_THEMES.map((entry) => `${entry.id} (${entry.theme.name})`).join("
 Templates: ${DECK_TEMPLATES.map((t) => `${t.id} (${t.title})`).join(", ")}.
 Ops: add-slide {layout?, index?, sectionId?, content?, notes?} · update-slide {slideId, set:{background?, transition?, hidden?, notes?, sectionId?, layout?}, content?} · delete-slide {slideId} · move-slide {slideId, index} · duplicate-slide {slideId} · add-element {slideId, element, index?} · update-element {slideId, elementId, set} · delete-element {slideId, elementId} · reorder-element {slideId, elementId, index} · set-text {slideId, elementId, text} · apply-theme {theme: id or fields, restyle?} · upsert-section {section:{id,title}, index?} · delete-section {sectionId} · set-cover {slideId}. Skip a slide in present mode: update-slide set:{hidden:true}.
 Content fields: title, subtitle, body, bullets[], left, right, leftTitle, rightTitle, quote, attribution, image, imageAlt, caption, table[][], eyebrow.
-Elements: text {x,y,w,h, role?, text or body:{paragraphs:[{runs:[{text,bold?,color?}], list?, level?}], style, size?, color?, align, vAlign, autofit}} · image {src, fit, crop?} · shape {shape: rect|roundRect|ellipse|diamond|triangle|arrowRight|arrowLeft|arrowUp|arrowDown, fill, text?} · line {points:[{x,y},{x,y}], stroke:{color,width}, endArrow?} · table {rows:[[...cells]], header?, banded?} · chart {kind: column|bar|line|pie|donut, labels[], series:[{name, values[]}], showValues?}. Common: fill, border, radius, shadow, opacity, rotation.
+Elements: text {x,y,w,h, role?, text or body:{paragraphs:[{runs:[{text,bold?,color?}], list?, level?}], style, size?, color?, align, vAlign, autofit}} · image {src, fit, crop?} · shape {shape: rect|roundRect|ellipse|diamond|triangle|arrowRight|arrowLeft|arrowUp|arrowDown, fill, text?} · line {points:[{x,y},{x,y}], stroke:{color,width}, endArrow?} · table {rows:[[...cells]], header?, banded?} · chart {kind: column|bar|line|pie|donut, labels[], series:[{name, values[]}], showValues?} · icon {name: one of ${SLIDE_ICON_NAMES.join(", ")}; color?} (at least 48 px) · video {src: a Moss /api/ media path or https file, poster?, autoplay?, loop?, muted?, start?} · embed {html ≤ 16 KB: one small self-contained page, no network, system fonts, text ≥ 24 px; title?}. Common: fill, border, radius, shadow, opacity, rotation, build {effect: fade|rise|drop|left|right|scale|pop, order 1–50, auto?} (演示 only: arrives one step at a time; same order = together). Lists nest to level 8. Slide transition magic (神奇移动): keep an element's id the same on two consecutive slides and it moves into its new place.
 `;

@@ -450,7 +450,29 @@ export const SlideAddIcon: LucideIcon = centralIconWrapper("slides-wide-add");
 export const SpreadsheetIcon: LucideIcon = centralIconWrapper("table");
 export const WhiteboardIcon: LucideIcon = centralIconWrapper("whiteboard");
 export const DashboardLayoutIcon: LucideIcon = centralIconWrapper("layout-dashboard");
+/** 数据看板: the create entry, its cards and the dashboard editor. */
+export const DataDashboardIcon: LucideIcon = centralIconWrapper("analytics");
+export const PaletteIcon: LucideIcon = centralIconWrapper("color-palette");
+export const DatabaseIcon: LucideIcon = centralIconWrapper("storage");
+export const PointerIcon: LucideIcon = centralIconWrapper("cursor-1");
 export const TemplateGridIcon: LucideIcon = centralIconWrapper("layout-grid-1");
 export const ShapesIcon: LucideIcon = centralIconWrapper("shapes-plus-x-square-circle");
 export const TextBoxIcon: LucideIcon = centralIconWrapper("text-1");
 export const PictureIcon: LucideIcon = centralIconWrapper("images-1");
+
+// 设计 (design canvas) editor tools (the kind glyph is PaletteIcon).
+export const HandToolIcon: LucideIcon = centralIconWrapper("hand-5-finger");
+export const ArtboardToolIcon: LucideIcon = centralIconWrapper("focus-square");
+export const StickyNoteIcon: LucideIcon = centralIconWrapper("sticker");
+export const LayersIcon: LucideIcon = centralIconWrapper("layers-two");
+export const ZoomInIcon: LucideIcon = centralIconWrapper("zoom-in");
+export const ZoomOutIcon: LucideIcon = centralIconWrapper("zoom-out");
+export const CornerRadiusIcon: LucideIcon = centralIconWrapper("corner-radius");
+export const LineHeightIcon: LucideIcon = centralIconWrapper("line-height");
+export const RotateIcon: LucideIcon = centralIconWrapper("rotate");
+export const ComponentsIcon: LucideIcon = centralIconWrapper("components");
+export const ColorPickerIcon: LucideIcon = centralIconWrapper("color-picker");
+export const FlipHorizontalIcon: LucideIcon = centralIconWrapper("arrow-expand-hor");
+export const PenToolIcon: LucideIcon = centralIconWrapper("bezier-curve");
+export const CropIcon: LucideIcon = centralIconWrapper("crop");
+export const VideoIcon: LucideIcon = centralIconWrapper("video-2");

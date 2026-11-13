@@ -2,7 +2,8 @@
 // Purpose: Opens a 幻灯片 in the Moss Canvas deck editor (iframe /canvas/deck-editor.html) and
 //          serves it: saves its changes, runs its AI change requests through the selected Moss
 //          agent, relays the agent's proposed changes for review, uploads/generates pictures,
-//          exports PPTX/PDF/PNG, presents, and opens sharing. When the editor cannot load (an
+//          exports PPTX (current or basic fonts) / PDF / web page / PNG, presents, copies slide
+//          links, and opens sharing. When the editor cannot load (an
 //          older Canvas build), the same deck opens in Moss's own viewer with review, AI
 //          requests, present and export, so nothing is lost.
 // Layer: 资料空间 幻灯片 (host side of slides/DECK-SCHEMA.md §4)
@@ -26,9 +27,12 @@ import {
   DeckEditorChannel,
   type DeckEditorDraft,
   type DeckEditorEvent,
+  type DeckExportQuality,
   type DeckTarget,
   type DeckViewContext,
 } from "~/lib/deckEditorChannel";
+import { spacePageSlideLink, takeStartSlide } from "~/lib/spacePageLink";
+import { uploadLibraryFiles } from "~/lib/libraryUpload";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 import { ensureNativeApi } from "~/nativeApi";
 import { usePageComments, usePageCommentsStore, type PageCommentAuthor } from "~/pageCommentsStore";
@@ -439,19 +443,14 @@ export function DeckEditorHost(props: {
   /** Stores a picture in 资料库; the deck refers to its durable /api/ preview path. */
   const storeImage = useCallback(
     async (file: { name: string; type: string; data: ArrayBuffer }) => {
-      const bytes = new Uint8Array(file.data);
-      let binary = "";
-      for (let start = 0; start < bytes.length; start += 8192)
-        binary += String.fromCharCode(...bytes.subarray(start, start + 8192));
-      const result = await ensureNativeApi().library.importFiles({
-        files: [
-          {
-            name: file.name.replace(/^\.+/u, "") || "image.png",
-            ...(file.type ? { mimeType: file.type } : {}),
-            dataBase64: btoa(binary),
-          },
-        ],
-      });
+      // Raw bytes over HTTP: the WebSocket's 2 MiB message cap stops base64 files of ~1.5 MB.
+      const result = await uploadLibraryFiles([
+        {
+          name: file.name.replace(/^\.+/u, "") || "image.png",
+          ...(file.type ? { mimeType: file.type } : {}),
+          data: new Blob([file.data], file.type ? { type: file.type } : {}),
+        },
+      ]);
       const entry = result.items[0];
       if (!entry?.previewPath) throw new Error("图片已上传，但没有可用的预览地址。");
       return { src: entry.previewPath, alt: entry.title };
@@ -466,8 +465,14 @@ export function DeckEditorHost(props: {
 
   const exportAs = useCallback(
     async (
-      format: "pptx" | "pdf" | "png",
-      options: { slideIds?: string[]; slideId?: string; includeNotes?: boolean } = {},
+      format: "pptx" | "pdf" | "png" | "html",
+      options: {
+        slideIds?: string[];
+        slideId?: string;
+        includeNotes?: boolean;
+        fonts?: "current" | "basic";
+        quality?: DeckExportQuality;
+      } = {},
     ) => {
       const { slideIds, slideId } = options;
       const current = latest.current;
@@ -475,7 +480,10 @@ export function DeckEditorHost(props: {
       try {
         if (format === "pptx") {
           const { exportDeckToPptx } = await import("./slidesPptx");
-          const report = await exportDeckToPptx(current.deck, slideIds ? { slideIds } : {});
+          const report = await exportDeckToPptx(current.deck, {
+            ...(slideIds ? { slideIds } : {}),
+            fonts: options.fonts ?? "current",
+          });
           downloadBlob(
             new Blob([report.bytes as BlobPart], {
               type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -493,10 +501,21 @@ export function DeckEditorHost(props: {
           const bytes = await exportDeckToPdf(current.deck, undefined, {
             ...(slideIds ? { slideIds } : {}),
             includeNotes: options.includeNotes === true,
+            quality: options.quality ?? "best",
           });
           downloadBlob(
             new Blob([bytes as BlobPart], { type: "application/pdf" }),
             fileName(title, "pdf"),
+          );
+        } else if (format === "html") {
+          const { exportDeckToHtml } = await import("./slidesHtml");
+          const html = await exportDeckToHtml(current.deck, title, {
+            ...(slideIds ? { slideIds } : {}),
+            quality: options.quality ?? "best",
+          });
+          downloadBlob(
+            new Blob([html], { type: "text/html;charset=utf-8" }),
+            fileName(title, "html"),
           );
         } else {
           const { exportSlideToPng } = await import("./slidesPdf");
@@ -602,8 +621,25 @@ export function DeckEditorHost(props: {
           void exportAs(event.format, {
             ...(event.slideIds ? { slideIds: event.slideIds } : {}),
             ...(event.includeNotes ? { includeNotes: true } : {}),
+            ...(event.fonts ? { fonts: event.fonts } : {}),
+            ...(event.quality ? { quality: event.quality } : {}),
           });
           return;
+        case "copy-slide-link": {
+          // 拷贝幻灯片链接: a 资料空间 link that opens this deck on that slide (in chats too).
+          const link = spacePageSlideLink(page.id, event.slideNumber);
+          void navigator.clipboard
+            .writeText(link)
+            .then(() => toastManager.add({ type: "success", title: "已拷贝这张幻灯片的链接" }))
+            .catch(() =>
+              toastManager.add({
+                type: "error",
+                title: "没能拷贝链接",
+                description: "请再试一次。",
+              }),
+            );
+          return;
+        }
         case "request-present":
           // The editor presents full screen itself; 演讲者视图 (speaker notes window) is Moss's.
           if (event.surface === "presenter") present(event.startSlideId, "presenter");
@@ -684,9 +720,15 @@ export function DeckEditorHost(props: {
     };
   }, [channel, origin]);
 
+  // A slide link (moss://space-page/<id>#slide-N) asked for this deck: open on slide N.
+  const [startSlideId] = useState(() => {
+    const n = takeStartSlide(page.id);
+    return n ? (props.deck.slides[n - 1]?.id ?? null) : null;
+  });
   // Load (and reload after an outside replacement: conflict reload or a Moss-side accept).
   useEffect(() => {
     channel.load({
+      ...(startSlideId ? { startSlideId } : {}),
       // The same key replaces the deck in place (view, selection and undo are kept).
       documentKey: page.id,
       deck: latest.current.deck,
