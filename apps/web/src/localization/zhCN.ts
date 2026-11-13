@@ -649,7 +649,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   AppSnap: "应用截图",
   "Not now": "暂不设置",
   "Set up AppSnap": "设置应用截图",
-  "Moss AppSnaps are live!": "应用截图已启用！",
+  "Moss AppSnaps are live!": "应用截图现已推出！",
   "Press both Option keys (⌥ ⌥) to snap any app’s window into the task you’re working in.":
     "同时按下两个 Option 键（⌥ ⌥），即可把任意应用窗口捕捉到当前任务中。",
   "Toggle thread sidebar": "切换对话侧边栏",

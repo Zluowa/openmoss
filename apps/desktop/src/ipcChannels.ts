@@ -90,6 +90,7 @@ export const DESKTOP_IPC_CHANNELS = {
   zoomFactorChanged: "desktop:zoom-factor-changed",
   wsUrl: "desktop:get-ws-url",
   backendLink: "desktop:backend-link",
+  flushStorage: "desktop:flush-storage",
   backendStartup: {
     getFailure: "desktop:backend-startup-get-failure",
     failure: "desktop:backend-startup-failure",

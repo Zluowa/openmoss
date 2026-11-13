@@ -1516,6 +1516,12 @@ export interface DesktopBridge {
   /** Lets main log one line per drop of the link to its backend, with reason and duration. */
   reportBackendLink?: (event: DesktopBackendLinkEvent) => void;
   /**
+   * Asks main to write this window's pending localStorage to disk now. Chromium commits
+   * localStorage a few seconds after a write, so a hard stop right after a one-time
+   * acknowledgement would otherwise lose it.
+   */
+  flushStorage?: () => void;
+  /**
    * Lets the window replace its loading state when the backend cannot start.
    * Absent on builds that predate it; those get a native dialog instead.
    */

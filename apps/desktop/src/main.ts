@@ -240,6 +240,7 @@ import {
 } from "./windowMaterial";
 import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
 import { BackendLinkDropLog } from "./backendLinkDropLog";
+import { createRendererStorageFlusher } from "./rendererStorageFlush";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
 import {
   handleDesktopSecondInstance,
@@ -805,6 +806,7 @@ let backendLifecycleDialogInFlight: Promise<void> | null = null;
 let backendListeningDetector: ServerListeningDetector | null = null;
 const backendSupervision = new BackendSupervisionPolicy();
 const backendLinkDropLog = new BackendLinkDropLog(writeDesktopLogHeader);
+const flushRendererStorage = createRendererStorageFlusher({});
 // Survives window recreation on purpose: a renderer that keeps dying must not refill
 // its reload budget just because the crash produced a new window.
 const rendererCrashPolicy = new RendererCrashPolicy();
@@ -7414,6 +7416,12 @@ function registerIpcHandlers(): void {
       return;
     }
     backendLinkDropLog.receive(input);
+  });
+
+  ipcMain.removeAllListeners(IPC.flushStorage);
+  ipcMain.on(IPC.flushStorage, (event: IpcMainEvent) => {
+    if (event.sender.isDestroyed()) return;
+    flushRendererStorage(event.sender.session);
   });
 
   ipcMain.removeAllListeners(IPC.zoomFactor);

@@ -1,5 +1,6 @@
 // FILE: AuthenticatedAppSnapWelcomeDialog.tsx
-// Purpose: Keep the first-run AppSnap introduction behind Moss account authentication.
+// Purpose: Keep the first-run AppSnap introduction behind Moss account authentication, so
+// it never covers the sign-in pages; the startup surfaces it wraps still render.
 // Layer: Root web overlay authentication gate
 
 import type {
@@ -8,6 +9,7 @@ import type {
   MossEnterpriseKeyState,
 } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 import {
   serverMossAccountSessionQueryOptions,
@@ -28,20 +30,16 @@ export function hasAuthenticatedMossAccount(input: {
   );
 }
 
-export function AuthenticatedAppSnapWelcomeDialog() {
+export function AuthenticatedAppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
   const phoneAccountQuery = useQuery(serverMossAccountSessionQueryOptions());
   const cloudAccountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
   const enterpriseKeyQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
 
-  if (
-    !hasAuthenticatedMossAccount({
-      phone: phoneAccountQuery.data,
-      cloud: cloudAccountQuery.data,
-      enterprise: enterpriseKeyQuery.data,
-    })
-  ) {
-    return null;
-  }
+  const signedIn = hasAuthenticatedMossAccount({
+    phone: phoneAccountQuery.data,
+    cloud: cloudAccountQuery.data,
+    enterprise: enterpriseKeyQuery.data,
+  });
 
-  return <AppSnapWelcomeDialog />;
+  return <AppSnapWelcomeDialog deferred={!signedIn}>{children}</AppSnapWelcomeDialog>;
 }

@@ -211,8 +211,30 @@ describe("SidebarAccountMenu", () => {
       ).toContain("circle-person.svg");
       await page.screenshot({ path: "../../../../output/playwright/account-sign-in.png" });
       expect(page.getByRole("menuitem", { name: "退出登录" }).length).toBe(0);
+      // Signed out there is no usage to show and no plan to upgrade.
+      expect(page.getByRole("menuitem", { name: "剩余用量" }).length).toBe(0);
+      expect(page.getByRole("menuitem", { name: "升级以获享更高限额" }).length).toBe(0);
+      await expect.element(page.getByRole("menuitem", { name: /设置/ })).toBeVisible();
       await page.getByRole("menuitem", { name: "登录" }).click();
       expect(callbacks.onOpenAccount).toHaveBeenCalledOnce();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("offers no usage or upgrade for a remembered account that is signed out", async () => {
+    const { screen } = await renderAccountMenu({
+      kind: "saved",
+      label: "qwer",
+      initials: "QW",
+      title: "qwer@example.com",
+    });
+
+    try {
+      await openAccountMenu();
+      await expect.element(page.getByRole("menuitem", { name: "选择账号" })).toBeVisible();
+      expect(page.getByRole("menuitem", { name: "剩余用量" }).length).toBe(0);
+      expect(page.getByRole("menuitem", { name: "升级以获享更高限额" }).length).toBe(0);
     } finally {
       await screen.unmount();
     }

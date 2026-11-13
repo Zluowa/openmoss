@@ -357,3 +357,73 @@ it("closes an automatic tour when another window acknowledges this installation"
   );
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });
+
+it("keeps the highlights away from a fresh profile whose first run recorded this installation", async () => {
+  // First-run completion (useOnboarding) records the installation before announcements mount.
+  localStorage.setItem(tourKey, JSON.stringify([installation]));
+  await show();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("writes the tour dismissal to disk at once so an upgraded profile sees it only once", async () => {
+  const flushStorage = vi.fn();
+  window.desktopBridge = { ...originalBridge, flushStorage } as unknown as NonNullable<
+    typeof window.desktopBridge
+  >;
+  const screen = await show();
+  await expect
+    .element(page.getByRole("dialog", { name: "A new home for your work" }))
+    .toBeVisible();
+  await page.getByRole("button", { name: "Skip tour" }).click();
+  expect(flushStorage).toHaveBeenCalled();
+  await screen.unmount();
+  screens.splice(screens.indexOf(screen), 1);
+  await show();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("remembers AppSnap's Not now across launches and writes it to disk at once", async () => {
+  const flushStorage = vi.fn();
+  window.desktopBridge = {
+    ...originalBridge,
+    flushStorage,
+    appSnap: { getState: async () => ({ supported: true, platform: "windows" }) },
+  } as unknown as NonNullable<typeof window.desktopBridge>;
+  localStorage.setItem(tourKey, JSON.stringify([installation]));
+  const screen = await show(<AppSnapWelcomeDialog />);
+  await expect.element(page.getByRole("dialog", { name: "Moss AppSnaps are live!" })).toBeVisible();
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  expect(flushStorage).toHaveBeenCalled();
+  expect(JSON.parse(localStorage.getItem("moss:appsnap-welcome:v1") ?? "{}")).toEqual({
+    acknowledged: true,
+  });
+  await screen.unmount();
+  screens.splice(screens.indexOf(screen), 1);
+  await show(<AppSnapWelcomeDialog />);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+});
+
+it("holds the AppSnap introduction while signed out without holding back the startup surfaces", async () => {
+  window.desktopBridge = {
+    ...originalBridge,
+    appSnap: { getState: async () => ({ supported: true, platform: "windows" }) },
+  } as unknown as NonNullable<typeof window.desktopBridge>;
+  await show(
+    <AppSnapWelcomeDialog deferred>
+      <FeatureTourDialog />
+    </AppSnapWelcomeDialog>,
+  );
+  await expect
+    .element(page.getByRole("dialog", { name: "A new home for your work" }))
+    .toBeVisible();
+  expect(page.getByRole("dialog", { name: "Moss AppSnaps are live!" }).length).toBe(0);
+  await page.getByRole("button", { name: "Skip tour" }).click();
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
+  // Not acknowledged: it still introduces itself once the person signs in.
+  expect(localStorage.getItem("moss:appsnap-welcome:v1")).toBeNull();
+});

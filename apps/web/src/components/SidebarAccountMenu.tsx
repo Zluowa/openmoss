@@ -291,7 +291,8 @@ interface SidebarAccountMenuPopupSectionsProps {
   readonly onSignOut: () => void;
 }
 
-/** Codex account menu body: plan header, then 剩余用量 / 升级 / 设置 / 退出登录 (no Mini). */
+/** Codex account menu body: plan header, then 剩余用量 / 升级 / 设置 / 退出登录 (no Mini).
+ *  Signed out: 设置 and 登录 / 选择账号 only. */
 function SidebarAccountMenuPopupSections({
   identity,
   labels,
@@ -338,18 +339,23 @@ function SidebarAccountMenuPopupSections({
       <MenuSeparator className="mx-2 my-1" />
 
       <MenuGroup>
-        <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUsage}>
-          <GaugeIcon aria-hidden="true" className="size-4" />
-          <span className="min-w-0 flex-1 truncate">{labels.remainingUsage}</span>
-          <ChevronRightIcon
-            aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground/70"
-          />
-        </MenuItem>
-        <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUpgrade}>
-          <SparklesIcon aria-hidden="true" className="size-4" />
-          <span className="min-w-0 flex-1 truncate">{labels.upgrade}</span>
-        </MenuItem>
+        {/* Usage and plan belong to a signed-in account; signed out there is nothing to show. */}
+        {identity.kind === "authenticated" ? (
+          <>
+            <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUsage}>
+              <GaugeIcon aria-hidden="true" className="size-4" />
+              <span className="min-w-0 flex-1 truncate">{labels.remainingUsage}</span>
+              <ChevronRightIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground/70"
+              />
+            </MenuItem>
+            <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUpgrade}>
+              <SparklesIcon aria-hidden="true" className="size-4" />
+              <span className="min-w-0 flex-1 truncate">{labels.upgrade}</span>
+            </MenuItem>
+          </>
+        ) : null}
         <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenSettings}>
           <SettingsIcon aria-hidden="true" className="size-4" />
           <span className="min-w-0 flex-1 truncate">{labels.settings}</span>

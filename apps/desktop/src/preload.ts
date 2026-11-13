@@ -252,6 +252,7 @@ const desktopBridge = {
   },
   setErrorReportsEnabled: (enabled) => ipcRenderer.invoke(IPC.errorReports.set, enabled),
   reportBackendLink: (event) => ipcRenderer.send(IPC.backendLink, event),
+  flushStorage: () => ipcRenderer.send(IPC.flushStorage),
   backendStartup: {
     getFailure: () => ipcRenderer.invoke(IPC.backendStartup.getFailure),
     onFailure: (listener) => {

@@ -45,7 +45,7 @@ import {
   publishUnreadableThreads,
 } from "../components/UnreadableThreadsNotice";
 import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
-import { AppSnapWelcomeDialog } from "../components/AppSnapWelcomeDialog";
+import { AuthenticatedAppSnapWelcomeDialog } from "../components/AuthenticatedAppSnapWelcomeDialog";
 import { GitHubSignInIntroduction } from "../onboarding/GitHubSignInIntroduction";
 import { BetaWelcomeDialog } from "../components/BetaWelcomeDialog";
 import { ErrorReportsPreferenceSync } from "../components/ErrorReportsPreferenceSync";
@@ -379,9 +379,9 @@ function RootRouteView() {
           <BetaWelcomeDialog />
           <GitHubSignInIntroduction />
           <SafariAccessOnboarding startup>
-            <AppSnapWelcomeDialog>
+            <AuthenticatedAppSnapWelcomeDialog>
               <FeatureTourDialog />
-            </AppSnapWelcomeDialog>
+            </AuthenticatedAppSnapWelcomeDialog>
           </SafariAccessOnboarding>
           <GlobalOnboardingDialog />
           <ProjectImportAnnouncementDialog />

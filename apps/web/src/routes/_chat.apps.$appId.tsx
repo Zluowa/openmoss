@@ -10,7 +10,8 @@ function AppPageRoute() {
   const { appId } = Route.useParams();
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <AppPageFrame appPageId={appId} mode="full" />
+      {/* Nothing sits above this view, so the frame's header is the window's top bar. */}
+      <AppPageFrame appPageId={appId} mode="full" topBar />
     </div>
   );
 }

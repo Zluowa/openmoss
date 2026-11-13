@@ -1,14 +1,16 @@
 // FILE: AppSnapWelcomeDialog.tsx
 // Purpose: Introduce AppSnap once on supported desktop installs and route users
-// directly to its opt-in setup panel.
+// directly to its opt-in setup panel. Either answer is remembered for good; Settings →
+// AppSnap stays the way back.
 // Layer: Root web overlay
 //
-// Rendered through the shared AnnouncementSheet.
+// Rendered through the shared AnnouncementSheet. `AuthenticatedAppSnapWelcomeDialog`
+// defers it until a Moss account is signed in.
 
 import { Schema } from "effect";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { useLocalStorage } from "../hooks/useLocalStorage";
+import { flushLocalStorageToDisk, useLocalStorage } from "../hooks/useLocalStorage";
 import { useOnboardingDialogStore } from "../onboarding/onboardingDialogStore";
 import { CentralIcon } from "../lib/central-icons";
 import { useAnnouncementSheetSlotStore } from "./announcementSheetSlot";
@@ -24,7 +26,14 @@ type AppSnapWelcomeStorage = typeof AppSnapWelcomeStorageSchema.Type;
 
 const INITIAL_STORAGE: AppSnapWelcomeStorage = { acknowledged: false };
 
-export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
+export function AppSnapWelcomeDialog({
+  children,
+  deferred = false,
+}: {
+  children?: ReactNode;
+  /** Signed out: the sheet waits (unacknowledged) and does not hold the children back. */
+  deferred?: boolean;
+}) {
   const [storage, setStorage] = useLocalStorage(
     APP_SNAP_WELCOME_STORAGE_KEY,
     INITIAL_STORAGE,
@@ -74,6 +83,8 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
   const acknowledge = () => {
     setOpen(false);
     setStorage({ acknowledged: true });
+    // A stop within Chromium's delayed commit would otherwise bring the sheet back.
+    flushLocalStorageToDisk();
   };
 
   const openSettings = () => {
@@ -83,7 +94,7 @@ export function AppSnapWelcomeDialog({ children }: { children?: ReactNode }) {
 
   // Derived instead of synced: acknowledging closes the dialog in the same
   // render, so the effect never needs a synchronous setOpen(false).
-  const dialogOpen = open && !storage.acknowledged && !onboardingBlocking;
+  const dialogOpen = open && !storage.acknowledged && !onboardingBlocking && !deferred;
 
   return (
     <>
