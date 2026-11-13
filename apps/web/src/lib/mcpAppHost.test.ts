@@ -9,8 +9,10 @@ import {
   mapMossMcpResultToCallToolResult,
   normalizeMcpToolArguments,
   requestMcpAppTeardown,
+  watchMcpAppGuestDeath,
   type McpAppHostOptions,
 } from "./mcpAppHost";
+import { MCP_APP_INITIALIZE_HARD_CAP_MS } from "./mcpApps/constants";
 import type { McpAppBinding, McpAppToolResultResponse } from "./mcpApps/contracts";
 import type { WorkLogMcpToolResult } from "./toolCallDetails";
 
@@ -356,7 +358,11 @@ describe("MCP App host timers and permissions", () => {
       expect(internals.initializeTimer).toBeNull();
       controller.updateProjection(projection({ status: "completed", durationMs: 3 }));
       expect(internals.initializeTimer).not.toBeNull();
-      await vi.advanceTimersByTimeAsync(14_999);
+      // A slow widget that is still loading (the map fetches CesiumJS first) is not failed at
+      // the old 15 s; only a widget that never starts is, at the cap.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(controller.getSnapshot().phase).not.toBe("failed");
+      await vi.advanceTimersByTimeAsync(MCP_APP_INITIALIZE_HARD_CAP_MS - 15_001);
       expect(controller.getSnapshot().phase).not.toBe("failed");
       await vi.advanceTimersByTimeAsync(1);
       await vi.waitFor(() => expect(controller.getSnapshot().phase).toBe("failed"));
@@ -636,6 +642,32 @@ describe("MCP App suspension (side-panel residency)", () => {
     const controller = makeController();
     await controller.suspend();
     expect(controller.getSnapshot().phase).toBe("idle");
+  });
+});
+
+describe("a widget guest that is gone", () => {
+  it("is reported once, on a crash or a failed page load, not on an aborted navigation", () => {
+    const webview = new EventTarget();
+    const onDead = vi.fn();
+    watchMcpAppGuestDeath(webview, onDead);
+    webview.dispatchEvent(
+      Object.assign(new Event("did-fail-load"), { errorCode: -3, isMainFrame: true }),
+    );
+    webview.dispatchEvent(
+      Object.assign(new Event("did-fail-load"), { errorCode: -105, isMainFrame: false }),
+    );
+    expect(onDead).not.toHaveBeenCalled();
+    webview.dispatchEvent(
+      Object.assign(new Event("did-fail-load"), { errorCode: -105, isMainFrame: true }),
+    );
+    webview.dispatchEvent(new Event("render-process-gone"));
+    expect(onDead).toHaveBeenCalledTimes(1);
+
+    const crashed = new EventTarget();
+    const onCrash = vi.fn();
+    watchMcpAppGuestDeath(crashed, onCrash);
+    crashed.dispatchEvent(new Event("render-process-gone"));
+    expect(onCrash).toHaveBeenCalledTimes(1);
   });
 });
 
