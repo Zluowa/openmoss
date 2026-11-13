@@ -18,6 +18,11 @@ import { MARKUP_COLORS } from "../markup/markup.logic";
 
 const WIDTH = 900;
 const PAGE_HEIGHT = 560;
+// Chromium encodes a canvas PNG (toBlob, convertToBlob) in an idle period, and this
+// headless page gets one only after a frame. On a page that has stopped changing no frame
+// comes, so the encode waits for Chromium's 1000 ms fallback timer: as long as a default
+// wait. Waits on an encode (the page still, the marked page) allow for that.
+const PNG_ENCODE_TIMEOUT_MS = 5_000;
 
 async function stillOfPage(): Promise<Uint8Array> {
   const canvas = new OffscreenCanvas(WIDTH, PAGE_HEIGHT);
@@ -187,15 +192,14 @@ for (const theme of ["light", "dark"] as const) {
       await expect.element(page.getByRole("button", { name: "Add to chat" })).toBeDisabled();
 
       // Drawing freezes the page on its still and leaves the element picker. The still is
-      // taken a moment after the bar opens, and a test frame in the background runs its
-      // timers late, so this waits longer than the default second.
+      // taken a moment after the bar opens, and encoded as a PNG.
       const overlay = await vi.waitFor(
         () => {
           const element = document.querySelector("[data-markup-canvas] img");
           expect(element).not.toBeNull();
           return document.querySelector("[data-markup-canvas]")!;
         },
-        { timeout: 5_000 },
+        { timeout: PNG_ENCODE_TIMEOUT_MS },
       );
       expect(document.querySelector("[data-picker-active]")).toBeNull();
       drag(overlay, [
@@ -236,7 +240,9 @@ for (const theme of ["light", "dark"] as const) {
       await expect.element(page.getByRole("button", { name: "Redo" })).toBeEnabled();
       const drawnWidth = overlay.clientWidth;
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await vi.waitFor(() => expect(attached).toHaveLength(1));
+      await vi.waitFor(() => expect(attached).toHaveLength(1), {
+        timeout: PNG_ENCODE_TIMEOUT_MS,
+      });
 
       const file = attached[0]!;
       expect(file.type).toBe("image/png");
@@ -271,7 +277,7 @@ for (const theme of ["light", "dark"] as const) {
       // The still is taken a moment after the bar opens (see above).
       await vi.waitFor(
         () => expect(document.querySelector("[data-markup-canvas] img")).not.toBeNull(),
-        { timeout: 5_000 },
+        { timeout: PNG_ENCODE_TIMEOUT_MS },
       );
       drag(document.querySelector("[data-markup-canvas]")!, [
         [80, 300],
@@ -335,7 +341,7 @@ for (const [panelWidth, theme] of [
           expect(document.querySelector("[data-markup-canvas] img")).not.toBeNull();
           return document.querySelector("[data-markup-canvas]")!;
         },
-        { timeout: 5_000 },
+        { timeout: PNG_ENCODE_TIMEOUT_MS },
       );
       drag(overlay, [
         [40, 60],
@@ -403,7 +409,11 @@ for (const [panelWidth, theme] of [
       ]);
       const drawnWidth = overlay.clientWidth;
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await vi.waitFor(() => expect(attached).toHaveLength(1));
+      // The bar is still here (a closed menu, its tooltip gone), so the encode often waits
+      // for the fallback timer (see PNG_ENCODE_TIMEOUT_MS).
+      await vi.waitFor(() => expect(attached).toHaveLength(1), {
+        timeout: PNG_ENCODE_TIMEOUT_MS,
+      });
       const bitmap = await createImageBitmap(attached[0]!);
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const ctx = canvas.getContext("2d")!;

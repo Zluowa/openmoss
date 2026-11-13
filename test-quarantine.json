@@ -351,15 +351,6 @@
     "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/chat.log), full-872e13f22."
   },
   {
-    "id": "components:apps/web/src/components/browser/BrowserSketch.browser.tsx > fits the armed bar in a",
-    "platform": "win32",
-    "reason": "Load flake: the armed-bar layout cases fail in the full components lane under load; pass alone.",
-    "owner": "web",
-    "added": "2026-11-11",
-    "expires": "2026-11-25",
-    "evidence": "Failed in verify-full 2f2bf3fb7 and fbb0202b4 (11-11); BrowserSketch passed alone 6/6 and 2x (merge log 11-11)."
-  },
-  {
     "id": "components:apps/web/src/components/EventRouter.browser.tsx > EventRouter scoped orchestration sync > snapshot ordering against queued and buffered events > resyncs instead of applying buffered events after the pre-snapshot buffer overflowed",
     "platform": "win32",
     "reason": "Load flake: fails in the full components lane under load (1 of 3 on a candidate); passes alone on main.",
