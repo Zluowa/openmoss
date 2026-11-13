@@ -38,6 +38,8 @@ export interface PageCommentReply {
   readonly agentThreadId?: string;
   /** Agent replies on slides: the message that conversation was sent, to find its answer. */
   readonly request?: { readonly body: string; readonly sentAt: string };
+  /** Emoji reactions: emoji → the names of who reacted. */
+  readonly reactions?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface PageComment {
@@ -53,6 +55,20 @@ export interface PageComment {
   readonly replies: readonly PageCommentReply[];
   readonly read: boolean;
   readonly resolved?: boolean;
+  /** Emoji reactions on the thread's first message: emoji → the names of who reacted. */
+  readonly reactions?: Readonly<Record<string, readonly string[]>>;
+}
+
+/** Adds or removes one person's reaction; an emoji nobody uses any more goes. */
+export function toggledReactions(
+  reactions: Readonly<Record<string, readonly string[]>> | undefined,
+  emoji: string,
+  who: string,
+): Readonly<Record<string, readonly string[]>> {
+  const current = reactions?.[emoji] ?? [];
+  const next = current.includes(who) ? current.filter((name) => name !== who) : [...current, who];
+  const { [emoji]: _removed, ...rest } = reactions ?? {};
+  return next.length ? { ...rest, [emoji]: next } : rest;
 }
 
 interface PageCommentsState {
@@ -66,6 +82,14 @@ interface PageCommentsState {
     patch: Partial<Pick<PageCommentReply, "body" | "status" | "createdAt" | "agentThreadId">>,
   ) => void;
   readonly setResolved: (pageKey: string, commentId: string, resolved: boolean) => void;
+  /** Toggles a reaction on the thread's first message (`messageId` = the comment id) or a reply. */
+  readonly toggleReaction: (
+    pageKey: string,
+    commentId: string,
+    messageId: string,
+    emoji: string,
+    who: string,
+  ) => void;
   readonly deleteComment: (pageKey: string, commentId: string) => void;
   readonly markPageRead: (pageKey: string) => void;
 }
@@ -133,6 +157,21 @@ export const usePageCommentsStore = create<PageCommentsState>()(
       setResolved: (pageKey, commentId, resolved) =>
         set((state) =>
           updateComment(state, pageKey, commentId, (comment) => ({ ...comment, resolved })),
+        ),
+      toggleReaction: (pageKey, commentId, messageId, emoji, who) =>
+        set((state) =>
+          updateComment(state, pageKey, commentId, (comment) =>
+            messageId === comment.id
+              ? { ...comment, reactions: toggledReactions(comment.reactions, emoji, who) }
+              : {
+                  ...comment,
+                  replies: comment.replies.map((reply) =>
+                    reply.id === messageId
+                      ? { ...reply, reactions: toggledReactions(reply.reactions, emoji, who) }
+                      : reply,
+                  ),
+                },
+          ),
         ),
       deleteComment: (pageKey, commentId) =>
         set((state) => {

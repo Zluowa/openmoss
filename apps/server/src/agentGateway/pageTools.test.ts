@@ -23,6 +23,8 @@ function harness() {
     mutate,
     versions: () => Effect.succeed({ versions: [] }),
     comments: () => Effect.succeed({ comments: [] }),
+    textComments: () => Effect.succeed({ comments: [] }),
+    textCommentMutate: () => Effect.succeed({ ok: true }),
     outputs: () => Effect.succeed({ outputs: [] }),
     outputState: () => Effect.void,
   };
@@ -60,11 +62,12 @@ describe("shared Pages gateway catalog", () => {
       "moss_pages_spaces",
       "moss_pages_list",
       "moss_pages_read",
+      "moss_pages_outline",
       "moss_pages_versions",
       "moss_pages_comments",
       "moss_pages_mutate",
     ]);
-    expect(h.tools.slice(0, 5).every((tool) => tool.requiredCapability === "thread:read")).toBe(
+    expect(h.tools.slice(0, 6).every((tool) => tool.requiredCapability === "thread:read")).toBe(
       true,
     );
     expect(h.byName.get("moss_pages_mutate")?.requiredCapability).toBe("thread:write");
@@ -336,6 +339,8 @@ describe("shared Pages gateway catalog", () => {
         mutate: h.mutate,
         versions: () => Effect.succeed({ versions: [] }),
         comments: () => Effect.succeed({ comments: [] }),
+        textComments: () => Effect.succeed({ comments: [] }),
+        textCommentMutate: () => Effect.succeed({ ok: true }),
         outputs: () => Effect.succeed({ outputs: [] }),
         outputState: () => Effect.void,
       },

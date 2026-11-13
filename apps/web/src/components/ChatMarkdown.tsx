@@ -6,7 +6,13 @@
 import { StreamingMarkdownProvider, StreamingMarkdownText } from "./chat/StreamingMarkdownText";
 import { THREAD_OUTPUT_ROUTE, threadOutputHref } from "@moss/shared/threadWorkspace";
 import { downloadUrlAsBlob } from "~/lib/browserDownload";
-import { openSpacePage, SPACE_PAGE_LINK_PREFIX, spacePageIdOfLink } from "~/lib/spacePageLink";
+import {
+  openSpacePage,
+  rememberStartSlide,
+  SPACE_PAGE_LINK_PREFIX,
+  spacePageIdOfLink,
+  spacePageSlideOfLink,
+} from "~/lib/spacePageLink";
 import { ChatDeckCardPagesContext, openSpacePageFromChat } from "~/lib/chatSpacePageLink";
 import { ensureNativeApi } from "~/nativeApi";
 import { ChatOutputFileCard, openDeckInSidePanel } from "./chat/ChatArtifactCards";
@@ -2092,8 +2098,10 @@ const MARKDOWN_COMPONENTS: Components = {
         ? decodeMossThreadLinkTarget(restoredHref.slice("moss://thread/".length))
         : null;
     const spacePageId = spacePageIdOfLink(restoredHref);
-    // One entry per deck: the card under this answer is it, so its link is not drawn again.
-    if (spacePageId && cardedDeckPages.has(spacePageId)) return null;
+    const spacePageSlide = spacePageSlideOfLink(restoredHref);
+    // One entry per deck: the card under this answer is it, so its link is not drawn again
+    // (a link to one of its slides still is).
+    if (spacePageId && spacePageSlide === null && cardedDeckPages.has(spacePageId)) return null;
     // A guest has no 资料空间 to open, and a malformed id opens nothing: plain text then.
     if (restoredHref?.startsWith(SPACE_PAGE_LINK_PREFIX) && (!spacePageId || sharedViewer))
       return <span>{linkedChildren}</span>;
@@ -2104,7 +2112,8 @@ const MARKDOWN_COMPONENTS: Components = {
           type="button"
           data-space-page-link=""
           className="inline p-0 text-inherit underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground/70"
-          onClick={() =>
+          onClick={() => {
+            if (spacePageSlide !== null) rememberStartSlide(spacePageId, spacePageSlide);
             // In a chat a deck opens in the right panel; other pages open 资料空间.
             void openSpacePageFromChat(spacePageId, chatThreadId, {
               readPage: (input) => ensureNativeApi().pages.read(input),
@@ -2113,8 +2122,8 @@ const MARKDOWN_COMPONENTS: Components = {
                 if (chatThreadId) openDeckInSidePanel(chatThreadId, deck);
               },
               openSpacePage,
-            })
-          }
+            });
+          }}
         >
           {linkedChildren}
         </button>

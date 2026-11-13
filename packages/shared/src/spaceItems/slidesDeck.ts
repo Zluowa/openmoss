@@ -56,8 +56,81 @@ export const TEXT_STYLE_IDS = [
   "label",
 ] as const;
 export type TextStyleId = (typeof TEXT_STYLE_IDS)[number];
-export const SLIDE_TRANSITIONS = ["none", "fade", "push", "wipe"] as const;
+/** How a slide leaves for the next one in 演示; `magic` moves elements that share an id
+ *  between the two slides into their new place (神奇移动), the rest fade. */
+export const SLIDE_TRANSITIONS = ["none", "fade", "push", "wipe", "magic"] as const;
 export type SlideTransition = (typeof SLIDE_TRANSITIONS)[number];
+/** How an element arrives in 演示 (逐个出现), one step per `order`. */
+export const BUILD_EFFECTS = ["fade", "rise", "drop", "left", "right", "scale", "pop"] as const;
+export type BuildEffect = (typeof BUILD_EFFECTS)[number];
+export interface ElementBuild {
+  readonly effect: BuildEffect;
+  /** 1–50; elements with the same order arrive together. */
+  readonly order: number;
+  /** Arrives by itself shortly after the slide (or the previous step) instead of on a click. */
+  readonly auto?: boolean;
+}
+/** List paragraphs nest up to nine levels (0–8). */
+export const MAX_LIST_LEVEL = 8;
+export type ListLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+const LIST_LEVELS = [0, 1, 2, 3, 4, 5, 6, 7, 8] as const;
+/** Moss's own icon set (Central outline names, served at /central-icons-reversed/<name>.svg). */
+export const ICON_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/u;
+/** The icons a slide can hold: a closed set, like Claude's, so every one ships in the app. */
+export const SLIDE_ICON_NAMES = [
+  "heart-beat",
+  "book",
+  "chart-2",
+  "bubble-text",
+  "checkmark-1",
+  "circle-check",
+  "clock",
+  "cloud",
+  "code-brackets",
+  "server",
+  "globe",
+  "graduate-cap",
+  "home",
+  "key-2",
+  "light-bulb",
+  "lightning",
+  "chain-link-1",
+  "lock",
+  "paper-plane",
+  "play",
+  "magnifying-glass",
+  "settings-gear-1",
+  "star",
+  "thumbs-up",
+  "hammer",
+  "shield-check",
+  "people",
+  "exclamation-triangle",
+  "rocket",
+  "target",
+  "trophy",
+  "flag-1",
+  "calendar-1",
+  "heart",
+  "user-group",
+] as const;
+export type SlideIconName = (typeof SLIDE_ICON_NAMES)[number];
+/** A web embed is one small sandboxed page: no network, no forms, no navigation. */
+export const EMBED_HTML_LIMIT = 16_000;
+
+/** Where an icon element's glyph is served (same origin as the deck editor and viewer). */
+export function slideIconUrl(name: string): string | null {
+  return ICON_NAME.test(name) ? `/central-icons-reversed/${name}.svg` : null;
+}
+/** The document a web embed runs as, inside an iframe with `sandbox="allow-scripts"` only:
+ *  a CSP with no network at all, a transparent page, and the embed's own markup. */
+export function embedDocument(html: string): string {
+  // Its own <meta> (a refresh could load a web page into the frame) and <base> are dropped.
+  const body = html.replace(/<\/?(?:meta|base)\b[^>]*>/giu, "");
+  const csp =
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><style>html,body{margin:0;height:100%;background:transparent;overflow:hidden;font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}</style></head><body>${body}</body></html>`;
+}
 export const CHART_KINDS = ["bar", "column", "line", "pie", "donut"] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
 
@@ -134,7 +207,7 @@ export interface Paragraph {
   readonly runs: readonly Run[];
   readonly align?: TextAlign;
   readonly list?: "bullet" | "number";
-  readonly level?: 0 | 1 | 2 | 3;
+  readonly level?: ListLevel;
 }
 export interface TextBody {
   readonly paragraphs: readonly Paragraph[];
@@ -168,6 +241,8 @@ interface ElementBase {
   readonly radius?: number;
   readonly shadow?: Shadow;
   readonly padding?: number;
+  /** 演示 only: how and when the element arrives (逐个出现). */
+  readonly build?: ElementBuild;
 }
 export interface TextElement extends ElementBase {
   readonly type: "text";
@@ -241,13 +316,41 @@ export interface ChartElement extends ElementBase {
   readonly legend: boolean;
   readonly showValues: boolean;
 }
+/** One icon of Moss's icon set, drawn in one colour. */
+export interface IconElement extends ElementBase {
+  readonly type: "icon";
+  readonly name: string;
+  readonly color?: string;
+}
+/** A video clip: a Moss /api/ media path or an https file. The poster stands in for it in exports. */
+export interface VideoElement extends ElementBase {
+  readonly type: "video";
+  readonly src: string;
+  readonly poster?: string;
+  readonly alt?: string;
+  /** Plays by itself when its slide appears in 演示. */
+  readonly autoplay?: boolean;
+  readonly loop?: boolean;
+  readonly muted?: boolean;
+  /** Seconds into the clip where it starts. */
+  readonly start?: number;
+}
+/** A small live web page (HTML, CSS and script, no network), sandboxed; a still in exports. */
+export interface EmbedElement extends ElementBase {
+  readonly type: "embed";
+  readonly html: string;
+  readonly title?: string;
+}
 export type SlideElement =
   | TextElement
   | ImageElement
   | ShapeElement
   | LineElement
   | TableElement
-  | ChartElement;
+  | ChartElement
+  | IconElement
+  | VideoElement
+  | EmbedElement;
 export type SlideElementType = SlideElement["type"];
 
 export interface DeckSection {
@@ -448,6 +551,12 @@ function imageSrc(value: unknown, where: string): string {
     fail(`${where} must be an https URL, a Moss /api/ media path or an inline image`);
   return src;
 }
+function videoSrc(value: unknown, where: string): string {
+  const src = string(value, where, 4_000);
+  if (src.startsWith("data:") || !isDurableSlideImageSource(src))
+    fail(`${where} must be an https URL or a Moss /api/ media path`);
+  return src;
+}
 function safeUrl(value: unknown, where: string): string {
   const text = string(value, where, 2_000);
   try {
@@ -536,18 +645,17 @@ function paragraph(raw: unknown, where: string): Paragraph {
     runs,
     align: opt(value.align, (v) => oneOf(v, ALIGNS, `${where}.align`)),
     list: opt(value.list, (v) => oneOf(v, ["bullet", "number"] as const, `${where}.list`)),
-    level: opt(value.level, (v) => oneOf(v, [0, 1, 2, 3] as const, `${where}.level`)),
+    level: opt(value.level, (v) => oneOf(v, LIST_LEVELS, `${where}.level`)),
   });
 }
 
 /** Plain text (one paragraph per line; "- " / "1. " lines become list items) as paragraphs. */
 export function paragraphsFromText(text: string): Paragraph[] {
   return text.split(/\r?\n/u).map((line): Paragraph => {
-    const level = Math.min(3, Math.floor((/^\s*/u.exec(line)?.[0].length ?? 0) / 2)) as
-      | 0
-      | 1
-      | 2
-      | 3;
+    const level = Math.min(
+      MAX_LIST_LEVEL,
+      Math.floor((/^\s*/u.exec(line)?.[0].length ?? 0) / 2),
+    ) as ListLevel;
     const bullet = /^\s*[-*•]\s+(.*)$/u.exec(line);
     if (bullet)
       return compact({
@@ -655,6 +763,14 @@ export function parseSlideElement(raw: unknown, where = "element"): SlideElement
     radius: opt(value.radius, (v) => number(v, `${where}.radius`, 0, 1000)),
     shadow: opt(value.shadow, (v) => shadow(v, `${where}.shadow`)),
     padding: opt(value.padding, (v) => number(v, `${where}.padding`, 0, 400)),
+    build: opt(value.build, (v): ElementBuild => {
+      const build = record(v, `${where}.build`);
+      return compact({
+        effect: oneOf(build.effect ?? "fade", BUILD_EFFECTS, `${where}.build.effect`),
+        order: Math.round(number(build.order ?? 1, `${where}.build.order`, 1, 50)),
+        auto: build.auto === true ? true : undefined,
+      });
+    }),
   });
   switch (value.type) {
     case "text": {
@@ -792,8 +908,38 @@ export function parseSlideElement(raw: unknown, where = "element"): SlideElement
         showValues: value.showValues === true,
       };
     }
+    case "icon": {
+      const name = oneOf(value.name, SLIDE_ICON_NAMES, `${where}.name`);
+      return compact({
+        ...box,
+        type: "icon" as const,
+        name,
+        color: opt(value.color, (v) => color(v, `${where}.color`)),
+      });
+    }
+    case "video":
+      return compact({
+        ...box,
+        type: "video" as const,
+        src: videoSrc(value.src, `${where}.src`),
+        poster: opt(value.poster, (v) => imageSrc(v, `${where}.poster`)),
+        alt: opt(value.alt, (v) => string(v, `${where}.alt`, 1_000)),
+        autoplay: value.autoplay === true ? true : undefined,
+        loop: value.loop === true ? true : undefined,
+        muted: value.muted === true ? true : undefined,
+        start: opt(value.start, (v) => number(v, `${where}.start`, 0, 86_400)) || undefined,
+      });
+    case "embed":
+      return compact({
+        ...box,
+        type: "embed" as const,
+        html: string(value.html, `${where}.html`, EMBED_HTML_LIMIT),
+        title: opt(value.title, (v) => string(v, `${where}.title`, 200)),
+      });
     default:
-      return fail(`${where}.type must be text, image, shape, line, table or chart`);
+      return fail(
+        `${where}.type must be text, image, shape, line, table, chart, icon, video or embed`,
+      );
   }
 }
 
@@ -1175,6 +1321,12 @@ export function elementText(part: SlideElement): string {
       return part.alt ? `[图片] ${part.alt}` : "";
     case "line":
       return "";
+    case "icon":
+      return `[图标] ${part.name}`;
+    case "video":
+      return part.alt ? `[视频] ${part.alt}` : "[视频]";
+    case "embed":
+      return part.title ? `[网页嵌入] ${part.title}` : "[网页嵌入]";
   }
 }
 

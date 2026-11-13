@@ -198,4 +198,28 @@ describe("canonical Page Plate content", () => {
     expect(result.content).toContain("```` ```<script>data</script> ````");
     expect(result.content).toContain("````\n```\n````");
   });
+
+  it("reads a dropdown chip as its chosen label", () => {
+    const nodes = [
+      {
+        type: "p",
+        children: [
+          { text: "Status: " },
+          { type: "moss_dropdown", options: ["To do", "Done"], value: 1, children: [{ text: "" }] },
+          { text: " · " },
+          { type: "moss_dropdown", options: ["A"], value: null, children: [{ text: "" }] },
+        ],
+      },
+    ];
+    expect(projectPageRichNodes(nodes as never).trim()).toBe("Status: Done ·");
+  });
+
+  it("reads a tab block as its title, a top heading before the tab's blocks", () => {
+    const nodes = [
+      { type: "moss_tab", title: "Plan", level: 0, children: [{ text: "" }] },
+      { type: "p", children: [{ text: "Ship it" }] },
+      { type: "moss_tab", title: "", level: 1, children: [{ text: "" }] },
+    ];
+    expect(projectPageRichNodes(nodes as never)).toBe("# Plan\n\nShip it");
+  });
 });

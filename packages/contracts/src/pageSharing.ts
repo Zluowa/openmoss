@@ -169,6 +169,22 @@ export const PageGuestComment = Schema.Struct({
   createdAt: IsoDateTime,
 });
 export type PageGuestComment = typeof PageGuestComment.Type;
+/** A comment thread on words in a shared page, as its guests see it. */
+export const PageGuestTextThread = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  anchor: Schema.Struct({ blockId: Schema.String, quote: Schema.String }),
+  resolved: Schema.Boolean,
+  messages: Schema.Array(
+    Schema.Struct({
+      id: TrimmedNonEmptyString,
+      authorKind: Schema.Literals(["owner", "member", "guest", "agent"]),
+      authorName: Schema.String,
+      body: Schema.String,
+      createdAt: Schema.String,
+    }),
+  ),
+});
+export type PageGuestTextThread = typeof PageGuestTextThread.Type;
 export const PAGE_GUEST_COMMENT_MAX_LENGTH = 4_000;
 
 // ── Sites ───────────────────────────────────────────────────────────
@@ -686,10 +702,33 @@ export const PageGuestCommentsRequest = Schema.Union([
     name: Schema.optional(ShareName),
     content: TrimmedNonEmptyString.check(Schema.isMaxLength(PAGE_GUEST_COMMENT_MAX_LENGTH)),
   }),
+  /** A new comment on words: the block and the words it hangs on. */
+  Schema.Struct({
+    ...GuestEntryFields,
+    action: Schema.Literal("add-text"),
+    pageId: PageId,
+    name: Schema.optional(ShareName),
+    anchor: Schema.Struct({
+      blockId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+      quote: TrimmedNonEmptyString.check(Schema.isMaxLength(400)),
+    }),
+    content: TrimmedNonEmptyString.check(Schema.isMaxLength(PAGE_GUEST_COMMENT_MAX_LENGTH)),
+  }),
+  /** A reply in a thread on words. */
+  Schema.Struct({
+    ...GuestEntryFields,
+    action: Schema.Literal("reply-text"),
+    pageId: PageId,
+    name: Schema.optional(ShareName),
+    threadId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    content: TrimmedNonEmptyString.check(Schema.isMaxLength(PAGE_GUEST_COMMENT_MAX_LENGTH)),
+  }),
 ]);
 export type PageGuestCommentsRequest = typeof PageGuestCommentsRequest.Type;
 export const PageGuestCommentsResult = Schema.Struct({
   comments: Schema.Array(PageGuestComment),
+  /** Comment threads on words. Owners before these existed omit it. */
+  textThreads: Schema.optional(Schema.Array(PageGuestTextThread)),
 });
 export type PageGuestCommentsResult = typeof PageGuestCommentsResult.Type;
 

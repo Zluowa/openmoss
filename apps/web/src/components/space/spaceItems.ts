@@ -158,6 +158,7 @@ export type SpaceKindFilter =
   | "page"
   | "slides"
   | "sheet"
+  | "design"
   | "site"
   | "app"
   | "image"
@@ -168,6 +169,7 @@ export const SPACE_KIND_FILTERS: ReadonlyArray<{ id: SpaceKindFilter; label: str
   { id: "page", label: "页面" },
   { id: "slides", label: "幻灯片" },
   { id: "sheet", label: "电子表格" },
+  { id: "design", label: "设计" },
   { id: "site", label: "站点" },
   { id: "app", label: "应用页" },
   { id: "image", label: "图像" },
@@ -237,6 +239,7 @@ const FILTERED_KINDS: ReadonlySet<string> = new Set([
   "page",
   "slides",
   "sheet",
+  "design",
   "site",
   "app",
   "image",

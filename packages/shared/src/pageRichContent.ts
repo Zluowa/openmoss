@@ -245,6 +245,20 @@ export function projectPageRichNodes(nodes: readonly PageRichNode[]): string {
           .join("\n") +
         "\n\n"
       );
+    if (type === "moss_tab") {
+      // A tab of the page: its title as a top heading, the tab's blocks follow.
+      const title = typeof node.title === "string" ? node.title.trim() : "";
+      return title ? `# ${escapeText(title)}\n\n` : "";
+    }
+    if (type === "moss_dropdown") {
+      // 下拉选项: the chosen label is the text.
+      const options = Array.isArray(node.options) ? node.options : [];
+      const label =
+        typeof node.value === "number" && typeof options[node.value] === "string"
+          ? (options[node.value] as string)
+          : "";
+      return label;
+    }
     if (type === "moss_visualization") {
       const label = escapeText(
         typeof node.title === "string" && node.title ? node.title : "可视化",

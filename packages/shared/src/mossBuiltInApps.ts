@@ -25,7 +25,7 @@ export interface MossBuiltInApp {
 export const MOSS_BUILT_IN_APPS = [
   {
     id: "moss.space",
-    toolPrefixes: ["moss_pages_", "moss_space_", "moss_sheet_"],
+    toolPrefixes: ["moss_pages_", "moss_space_", "moss_sheet_", "moss_design_"],
     toolPatterns: [],
     panel: "library",
   },

@@ -50,6 +50,12 @@ export const SPACE_TYPED_KINDS: Record<TypedItemKind, SpaceTypedKindDefinition> 
     description: "仪表盘、跟踪表、投票等可运行页面",
     templates: true,
   },
+  design: {
+    kind: "design",
+    defaultTitle: "未命名设计",
+    description: "网页、应用界面、海报：在画布上排画板",
+    templates: true,
+  },
 };
 
 /** True for kinds whose content is a typed payload (opened by SpaceTypedItemView). */
@@ -61,6 +67,7 @@ export const TEMPLATE_KIND_LABELS: Record<SpaceTemplateKind, string> = {
   slides: "幻灯片",
   sheet: "电子表格",
   app: "仪表盘与应用页",
+  design: "设计",
 };
 
 export const pageTypesQueryKeys = {

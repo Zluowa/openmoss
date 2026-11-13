@@ -4,6 +4,7 @@
 
 import type { LucideIcon } from "~/lib/icons";
 import {
+  PaletteIcon,
   FileChartIcon,
   FileIcon,
   FilePdfIcon,
@@ -31,6 +32,7 @@ const KINDS: Record<string, SpaceKindMeta> = {
   slides: { label: "幻灯片", icon: SlidesIcon },
   sheet: { label: "电子表格", icon: TableIcon },
   board: { label: "白板", icon: SketchPenIcon },
+  design: { label: "设计", icon: PaletteIcon },
   site: { label: "站点", icon: GlobeIcon },
   image: { label: "图像", icon: ImagesIcon },
   file: { label: "文件", icon: FileIcon },

@@ -813,6 +813,34 @@
       "types": "./src/spaceItems/deckLayoutCheck.ts",
       "import": "./src/spaceItems/deckLayoutCheck.ts"
     },
+    "./spaceItems/designCanvas": {
+      "types": "./src/spaceItems/designCanvas.ts",
+      "import": "./src/spaceItems/designCanvas.ts"
+    },
+    "./spaceItems/designSystems": {
+      "types": "./src/spaceItems/designSystems.ts",
+      "import": "./src/spaceItems/designSystems.ts"
+    },
+    "./spaceItems/designTemplates": {
+      "types": "./src/spaceItems/designTemplates.ts",
+      "import": "./src/spaceItems/designTemplates.ts"
+    },
+    "./spaceItems/designMarkup": {
+      "types": "./src/spaceItems/designMarkup.ts",
+      "import": "./src/spaceItems/designMarkup.ts"
+    },
+    "./spaceItems/designFonts": {
+      "types": "./src/spaceItems/designFonts.ts",
+      "import": "./src/spaceItems/designFonts.ts"
+    },
+    "./spaceItems/designDraw": {
+      "types": "./src/spaceItems/designDraw.ts",
+      "import": "./src/spaceItems/designDraw.ts"
+    },
+    "./spaceItems/designGuide": {
+      "types": "./src/spaceItems/designGuide.ts",
+      "import": "./src/spaceItems/designGuide.ts"
+    },
     "./spaceItems/slidesDeck": {
       "types": "./src/spaceItems/slidesDeck.ts",
       "import": "./src/spaceItems/slidesDeck.ts"
@@ -820,6 +848,42 @@
     "./spaceItems/sheetWorkbook": {
       "types": "./src/spaceItems/sheetWorkbook.ts",
       "import": "./src/spaceItems/sheetWorkbook.ts"
+    },
+    "./spaceItems/dashboard": {
+      "types": "./src/spaceItems/dashboard.ts",
+      "import": "./src/spaceItems/dashboard.ts"
+    },
+    "./spaceItems/dashboardFrame": {
+      "types": "./src/spaceItems/dashboardFrame.ts",
+      "import": "./src/spaceItems/dashboardFrame.ts"
+    },
+    "./spaceItems/dashboardTemplates": {
+      "types": "./src/spaceItems/dashboardTemplates.ts",
+      "import": "./src/spaceItems/dashboardTemplates.ts"
+    },
+    "./spaceItems/sheetValues": {
+      "types": "./src/spaceItems/sheetValues.ts",
+      "import": "./src/spaceItems/sheetValues.ts"
+    },
+    "./spaceItems/sheetFormulaRefs": {
+      "types": "./src/spaceItems/sheetFormulaRefs.ts",
+      "import": "./src/spaceItems/sheetFormulaRefs.ts"
+    },
+    "./spaceItems/sheetFormulas": {
+      "types": "./src/spaceItems/sheetFormulas.ts",
+      "import": "./src/spaceItems/sheetFormulas.ts"
+    },
+    "./spaceItems/sheetEdits": {
+      "types": "./src/spaceItems/sheetEdits.ts",
+      "import": "./src/spaceItems/sheetEdits.ts"
+    },
+    "./spaceItems/sheetRules": {
+      "types": "./src/spaceItems/sheetRules.ts",
+      "import": "./src/spaceItems/sheetRules.ts"
+    },
+    "./spaceItems/sheetGuide": {
+      "types": "./src/spaceItems/sheetGuide.ts",
+      "import": "./src/spaceItems/sheetGuide.ts"
     },
     "./spaceItems/itemData": {
       "types": "./src/spaceItems/itemData.ts",
@@ -877,6 +941,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fortune-sheet/formula-parser": "0.2.13",
     "@moss/contracts": "workspace:*",
     "@office-kit/pptx": "0.12.0",
     "effect": "catalog:",

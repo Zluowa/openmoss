@@ -1,14 +1,16 @@
 // FILE: itemData.ts
-// Purpose: One entry point for the typed 资料空间 item payloads (slides, sheet, board, app):
+// Purpose: One entry point for the typed 资料空间 item payloads (slides, sheet, board, app, design):
 //          validate by kind, create an empty payload, and derive the readable text projection.
 // Layer: Shared model
 // Why: The server stores payloads it does not render. It still has to reject malformed agent
 //      input and keep `content` (search, agent reads, the page list) in step with the payload.
 
+import { createDesignCanvas, parseDesignCanvas, projectDesignCanvas } from "./designCanvas";
+import { isDashboardPayload, parseDashboard, projectDashboard } from "./dashboard";
 import { createSheetWorkbook, parseSheetWorkbook, projectSheetWorkbook } from "./sheetWorkbook";
 import { createSlidesDeck, parseSlidesDeck, projectSlidesDeck } from "./slidesDeck";
 
-export const TYPED_ITEM_KINDS = ["slides", "sheet", "board", "app"] as const;
+export const TYPED_ITEM_KINDS = ["slides", "sheet", "board", "app", "design"] as const;
 export type TypedItemKind = (typeof TYPED_ITEM_KINDS)[number];
 export const isTypedItemKind = (kind: unknown): kind is TypedItemKind =>
   typeof kind === "string" && (TYPED_ITEM_KINDS as readonly string[]).includes(kind);
@@ -106,6 +108,11 @@ export function parseItemData(kind: TypedItemKind, input: string, title = ""): P
       return { data: JSON.stringify(board), content: board.note ?? `白板 ${title}`.trim() };
     }
     case "app": {
+      // A 数据看板 is an `app` item with a version-2 payload; v1 应用页 keep their HTML body.
+      if (isDashboardPayload(input)) {
+        const dashboard = parseDashboard(input);
+        return { data: JSON.stringify(dashboard), content: projectDashboard(dashboard, title) };
+      }
       const app = parseAppItem(input);
       const text = app.html
         .replace(/<(script|style)[\s\S]*?<\/\1>/giu, " ")
@@ -114,6 +121,10 @@ export function parseItemData(kind: TypedItemKind, input: string, title = ""): P
         .trim()
         .slice(0, 4_000);
       return { data: JSON.stringify(app), content: text };
+    }
+    case "design": {
+      const canvas = parseDesignCanvas(input);
+      return { data: JSON.stringify(canvas), content: projectDesignCanvas(canvas, title) };
     }
   }
 }
@@ -138,5 +149,7 @@ export function emptyItemData(
         html: "<!doctype html><title>应用页</title><main><h1>应用页</h1></main>",
         capabilities: [],
       } satisfies AppItem);
+    case "design":
+      return JSON.stringify(createDesignCanvas());
   }
 }

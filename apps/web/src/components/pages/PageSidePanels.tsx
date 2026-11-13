@@ -15,7 +15,9 @@ import type { LibraryItem, Page, PageId, PageVersion, SpaceId } from "@moss/cont
 import { ensureNativeApi } from "~/nativeApi";
 import { useTranslation } from "~/localization";
 import type { PageCommentFeedItem } from "~/lib/pageCommentFeed";
+import type { PageComment } from "~/pageCommentsStore";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
+import { diffPageLines, historyDayLabel } from "~/lib/pageVersionDiff";
 import { cn } from "~/lib/utils";
 
 import ChatMarkdown from "../ChatMarkdown";
@@ -152,8 +154,11 @@ export function PageHistoryPanel(props: {
   page: Page;
   busy: boolean;
   onRestore: (revision: number) => Promise<void>;
+  /** 复制为新页面: a new page holding this version. */
+  onCopy?: (revision: number) => Promise<void>;
 }) {
   const translation = useTranslation();
+  const [showChanges, setShowChanges] = useState(false);
   const versions = useVersionSummaries({
     account: props.account,
     scopeSpaceId: props.scopeSpaceId,
@@ -179,6 +184,31 @@ export function PageHistoryPanel(props: {
     staleTime: Number.POSITIVE_INFINITY,
   });
   const list = versions.data?.pages.flatMap((page) => page.versions) ?? [];
+  // The version before the one previewed: the next one down the list (newest first).
+  const previewIndex = preview === null ? -1 : list.findIndex((v) => v.page.revision === preview);
+  const previous = previewIndex >= 0 ? (list[previewIndex + 1] ?? null) : null;
+  const previousBody = useQuery({
+    queryKey: [
+      ...pagesQueryKeys.read(props.account, props.scopeSpaceId, props.page.id),
+      "revision",
+      previous?.page.revision ?? null,
+    ],
+    queryFn: () =>
+      ensureNativeApi().pages.read({
+        scopeSpaceId: props.scopeSpaceId,
+        pageId: props.page.id,
+        revision: previous!.page.revision,
+      }),
+    enabled: showChanges && previous !== null,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const changes = useMemo(
+    () =>
+      showChanges && body.data && (previous === null || previousBody.data)
+        ? diffPageLines(previousBody.data?.content ?? "", body.data.content)
+        : null,
+    [showChanges, body.data, previous, previousBody.data],
+  );
   return (
     <div className="flex flex-col gap-2" data-page-panel="history">
       <PanelStatus
@@ -187,12 +217,19 @@ export function PageHistoryPanel(props: {
         onRetry={() => void versions.refetch()}
       />
       <ol className="flex flex-col gap-0.5" aria-label="版本历史">
-        {list.map((version) => {
+        {list.map((version, index) => {
           const revision = version.page.revision;
           const open = preview === revision;
           const current = revision === props.page.revision;
+          const day = historyDayLabel(version.createdAt);
+          const firstOfDay = index === 0 || historyDayLabel(list[index - 1]!.createdAt) !== day;
           return (
             <li key={revision} className="rounded-row">
+              {firstOfDay ? (
+                <h3 className="px-2 pt-2 pb-1 text-ui-sm font-medium text-muted-foreground">
+                  {day}
+                </h3>
+              ) : null}
               <button
                 type="button"
                 className={cn(
@@ -217,7 +254,36 @@ export function PageHistoryPanel(props: {
               </button>
               {open ? (
                 <div className="mx-2 mt-1 mb-2 flex flex-col gap-2 rounded-card border border-border p-3">
-                  {body.data ? (
+                  {body.data && changes ? (
+                    <div
+                      className="max-h-72 overflow-auto font-mono text-ui-sm whitespace-pre-wrap"
+                      aria-label="与上一版本相比的更改"
+                      data-page-version-diff
+                    >
+                      {changes.every((line) => line.kind === "same") ? (
+                        <p className="font-sans text-muted-foreground">
+                          与上一版本相比没有文字更改。
+                        </p>
+                      ) : (
+                        changes.map((line, lineIndex) => (
+                          <div
+                            key={lineIndex}
+                            data-diff={line.kind}
+                            className={cn(
+                              "min-h-5 px-1",
+                              line.kind === "added" && "bg-success/12",
+                              line.kind === "removed" &&
+                                "bg-destructive/12 text-muted-foreground line-through",
+                              line.kind === "same" && "text-muted-foreground",
+                            )}
+                          >
+                            {line.kind === "added" ? "+ " : line.kind === "removed" ? "− " : "  "}
+                            {line.text}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ) : body.data && !showChanges ? (
                     <div className="max-h-72 overflow-auto text-ui-sm">
                       <ChatMarkdown text={body.data.content || "空页面"} cwd={undefined} />
                     </div>
@@ -228,15 +294,40 @@ export function PageHistoryPanel(props: {
                       onRetry={() => void body.refetch()}
                     />
                   )}
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    className="self-start"
-                    disabled={props.busy || current || props.page.trashedAt !== null}
-                    onClick={() => void props.onRestore(revision)}
-                  >
-                    恢复此版本
-                  </Button>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={props.busy || current || props.page.trashedAt !== null}
+                      onClick={() => void props.onRestore(revision)}
+                    >
+                      恢复此版本
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      aria-pressed={showChanges}
+                      onClick={() => setShowChanges(!showChanges)}
+                      data-page-version-changes
+                    >
+                      {showChanges ? "隐藏更改" : "显示更改"}
+                    </Button>
+                    {props.onCopy ? (
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        disabled={props.busy}
+                        onClick={() => void props.onCopy?.(revision)}
+                      >
+                        复制为新页面
+                      </Button>
+                    ) : null}
+                  </div>
+                  {current ? null : (
+                    <p className="text-ui-sm text-muted-foreground">
+                      恢复会以这个版本的内容新建一个版本，当前内容仍保留在历史里。
+                    </p>
+                  )}
                 </div>
               ) : null}
             </li>
@@ -299,8 +390,117 @@ function commentAuthorLabel(
   );
 }
 
+type ThreadFilter = "all" | "open" | "resolved";
+const THREAD_FILTERS: readonly { id: ThreadFilter; label: string }[] = [
+  { id: "all", label: "全部" },
+  { id: "open", label: "未解决" },
+  { id: "resolved", label: "已解决" },
+];
+
+/** Comments on words in the page: one row per thread, newest first; a click opens its card. */
+export function PageThreadList(props: {
+  threads: readonly PageComment[];
+  focusedThreadId: string | null;
+  onOpen: (threadId: string) => void;
+  onResolve: (threadId: string, resolved: boolean) => void;
+}) {
+  const [filter, setFilter] = useState<ThreadFilter>("open");
+  const [now] = useState(() => Date.now());
+  const shown = [...props.threads]
+    .filter((thread) =>
+      filter === "all" ? true : filter === "open" ? !thread.resolved : thread.resolved === true,
+    )
+    .reverse();
+  return (
+    <section className="flex flex-col gap-2" aria-label="文字评论" data-page-thread-list>
+      <div className="flex items-center gap-1" role="tablist" aria-label="筛选评论">
+        {THREAD_FILTERS.map((entry) => (
+          <Button
+            key={entry.id}
+            size="xs"
+            variant="ghost"
+            role="tab"
+            aria-selected={filter === entry.id}
+            className={cn(
+              "text-muted-foreground",
+              filter === entry.id && "bg-accent text-foreground",
+            )}
+            onClick={() => setFilter(entry.id)}
+          >
+            {entry.label}
+          </Button>
+        ))}
+      </div>
+      {shown.length === 0 ? (
+        <p className="text-ui-sm text-muted-foreground">
+          {filter === "resolved" ? "还没有已解决的评论。" : "选中页面里的文字，点“评论”即可评论。"}
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-1">
+          {shown.map((thread) => {
+            const agentWorking = thread.replies.some(
+              (reply) => reply.kind === "agent" && reply.status === "thinking",
+            );
+            const last = thread.replies.at(-1);
+            return (
+              <li key={thread.id}>
+                <div
+                  className={cn(
+                    "group flex flex-col gap-1 rounded-card border border-border p-3 hover:bg-accent/50",
+                    props.focusedThreadId === thread.id && "border-ring",
+                  )}
+                  data-page-thread={thread.id}
+                >
+                  <Button
+                    variant="ghost"
+                    className="h-auto flex-col items-start gap-1 p-0 text-left font-normal whitespace-normal hover:bg-transparent"
+                    onClick={() => props.onOpen(thread.id)}
+                  >
+                    <span className="line-clamp-2 border-s-2 border-border ps-2 text-ui-sm text-muted-foreground">
+                      {thread.anchor.text}
+                    </span>
+                    <span className="text-ui-sm text-muted-foreground">
+                      {thread.author.name} · {formatRelativeTime(thread.createdAt, now)}
+                      {thread.replies.length ? ` · ${thread.replies.length} 条回复` : ""}
+                      {agentWorking ? " · Moss 正在处理…" : ""}
+                    </span>
+                    <span className="line-clamp-3 text-ui whitespace-pre-wrap">
+                      {thread.sentToAgentAt ? <span className="text-primary">@Moss </span> : null}
+                      {thread.body}
+                    </span>
+                    {last && last.kind === "agent" && last.status === "done" ? (
+                      <span className="line-clamp-2 text-ui-sm text-muted-foreground">
+                        Moss：{last.body}
+                      </span>
+                    ) : null}
+                  </Button>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="self-start"
+                    onClick={() => props.onResolve(thread.id, !thread.resolved)}
+                  >
+                    {thread.resolved ? "重新打开" : "解决"}
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
+
 export function PageCommentsPanel(props: {
   comments: readonly PageCommentFeedItem[];
+  /** Comments on words in the page (kept on this device); omitted where the page has none. */
+  threads?: {
+    items: readonly PageComment[];
+    focusedThreadId: string | null;
+    onOpen: (threadId: string) => void;
+    onResolve: (threadId: string, resolved: boolean) => void;
+  };
   localStatus: PageCommentSourceStatus;
   shareStatus: PageCommentSourceStatus;
   readOnly: boolean;
@@ -314,6 +514,17 @@ export function PageCommentsPanel(props: {
   const [now] = useState(() => Date.now());
   return (
     <div className="flex flex-col gap-3" data-page-panel="comments">
+      {props.threads ? (
+        <>
+          <PageThreadList
+            threads={props.threads.items}
+            focusedThreadId={props.threads.focusedThreadId}
+            onOpen={props.threads.onOpen}
+            onResolve={props.threads.onResolve}
+          />
+          <h3 className="mt-1 text-ui-sm font-medium text-muted-foreground">整页评论</h3>
+        </>
+      ) : null}
       <PageCommentStatuses localStatus={props.localStatus} shareStatus={props.shareStatus} />
       {props.comments.length === 0 &&
       !props.localStatus.loading &&

@@ -12,6 +12,10 @@ import type {
   PagesReadResult,
   PagesScopeInput,
   PagesSpacesResult,
+  PagesTextCommentMutateInput,
+  PagesTextCommentMutateResult,
+  PagesTextCommentsInput,
+  PagesTextCommentsResult,
   PagesVersionsInput,
   PagesVersionsResult,
   ThreadId,
@@ -61,6 +65,15 @@ export interface PagesServiceShape {
     input: PagesMutateInput,
     principal: PagesPrincipal,
   ) => Effect.Effect<PagesMutateResult, PagesServiceError>;
+  /** Comment threads on words in a page (stored as the web app's thread JSON). */
+  readonly textComments: (
+    input: PagesTextCommentsInput,
+    principal: PagesPrincipal,
+  ) => Effect.Effect<PagesTextCommentsResult, PagesServiceError>;
+  readonly textCommentMutate: (
+    input: PagesTextCommentMutateInput,
+    principal: PagesPrincipal,
+  ) => Effect.Effect<PagesTextCommentMutateResult, PagesServiceError>;
   /** Files agents wrote in chat turns of this scope (auto-ingest; nothing is copied). */
   readonly outputs: (
     input: PagesOutputsInput,

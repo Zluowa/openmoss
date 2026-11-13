@@ -1297,6 +1297,8 @@ export function createWsNativeApi(): WsNativeApi {
       read: (input) => transport.request(WS_METHODS.pagesRead, input),
       versions: (input) => transport.request(WS_METHODS.pagesVersions, input),
       comments: (input) => transport.request(WS_METHODS.pagesComments, input),
+      textComments: (input) => transport.request(WS_METHODS.pagesTextComments, input),
+      textCommentMutate: (input) => transport.request(WS_METHODS.pagesTextCommentMutate, input),
       mutate: (input) => transport.request(WS_METHODS.pagesMutate, input),
       realtimeToken: (input) => transport.request(WS_METHODS.pagesRealtimeToken, input),
       drafts: (input) => transport.request(WS_METHODS.pagesDrafts, input),
@@ -1308,6 +1310,10 @@ export function createWsNativeApi(): WsNativeApi {
       read: (input) => transport.request(PAGE_TYPES_WS_METHODS.read, input),
       create: (input) => transport.request(PAGE_TYPES_WS_METHODS.create, input),
       save: (input) => transport.request(PAGE_TYPES_WS_METHODS.save, input),
+      dashboard: {
+        query: (input) => transport.request(PAGE_TYPES_WS_METHODS.dashboardQuery, input),
+        report: (input) => transport.request(PAGE_TYPES_WS_METHODS.dashboardReport, input),
+      },
       templates: {
         list: (input) => transport.request(PAGE_TYPES_WS_METHODS.templatesList, input),
         save: (input) => transport.request(PAGE_TYPES_WS_METHODS.templatesSave, input),

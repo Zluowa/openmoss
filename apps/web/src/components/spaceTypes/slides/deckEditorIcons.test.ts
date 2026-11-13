@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { SLIDE_ICON_NAMES } from "@moss/shared/spaceItems/slidesDeck";
+
 import { DECK_EDITOR_ICON_NAMES } from "./deckEditorIcons";
 
 const publicIcons = path.resolve(
@@ -17,5 +19,9 @@ describe("deck editor icons", () => {
       (name) => !existsSync(path.join(publicIcons, `${name}.svg`)),
     );
     expect(missing).toEqual([]);
+  });
+  it("lists every icon a slide can hold, so production keeps them", () => {
+    const listed = new Set<string>(DECK_EDITOR_ICON_NAMES);
+    expect(SLIDE_ICON_NAMES.filter((name) => !listed.has(name))).toEqual([]);
   });
 });
