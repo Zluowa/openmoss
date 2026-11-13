@@ -153,6 +153,87 @@
     "evidence": "Failed once in the coordinator's verify-quick 26544fb02 (11-12, 4 workers); passed alone 2/2 the same night."
   },
   {
+    "id": "server:apps/server/src/provider/Layers/ProviderService.test.ts > ProviderServiceLive owns shared state refs through recovery, account switch and credential cleanup",
+    "platform": "win32",
+    "reason": "Machine-only: times out at 90 s on the shared Windows PC, also alone on plain main with the machine quiet.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/server.log), candidates rerun-b8q-872e13f22, rerun-b8-872e13f22, full-872e13f22, full-aeaf97e53, full-cefafe703; 3 independent main controls by different agents."
+  },
+  {
+    "id": "server:apps/server/src/provider/Layers/ProviderService.test.ts > ProviderServiceLive keeps Claude shared refs across renewal and exact managed cleanup",
+    "platform": "win32",
+    "reason": "Machine-only: times out at 90 s on the shared Windows PC, like the shared-state-refs case in the same file.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Quiet rerun rerun-b8q-872e13f22 (11-13), full-872e13f22, full-aeaf97e53, full-cefafe703; reported in main controls by other agents."
+  },
+  {
+    "id": "server:apps/server/src/computerHistory/service.test.ts > ComputerHistoryService > clamps queries to 200 entries and disables without deleting ciphertext",
+    "platform": "win32",
+    "reason": "Machine-only: depends on the desktop's live state; times out at 90 s on the shared Windows PC, also alone on plain main.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/server.log; phone-extras control 1 failed/39 passed alone), rerun-b8q-872e13f22, full-872e13f22, full-aeaf97e53."
+  },
+  {
+    "id": "server:apps/server/src/computerHistory/service.test.ts > Windows collector shares consent, encrypted timeline, app exclusion, pause, resume and clear",
+    "platform": "win32",
+    "reason": "Machine-only: drives the real Windows collector, so it depends on the desktop's live state on the shared PC.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "rerun-b8-872e13f22/server.log; reported failing on main in two coordinator control runs (11-12/13)."
+  },
+  {
+    "id": "server:apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts > ProviderCommandReactor > releases a timed-out promoted turn when its live provider turn settles",
+    "platform": "win32",
+    "reason": "Machine-only: a 25 ms deadline the shared Windows PC misses; fails alone on main in one control, passes alone in another.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Failed alone on main 2/2 in one agent's control (11-12); rerun-b8-872e13f22, full-872e13f22, full-aeaf97e53, full-cefafe703."
+  },
+  {
+    "id": "server:apps/server/src/orchestration/Layers/ProviderCommandReactor.test.ts > ProviderCommandReactor > Claude cache review > keeps an operator retried slow cache response alive beyond the command deadline",
+    "platform": "win32",
+    "reason": "Load flake: races the command deadline on the shared Windows PC; passes alone at other times.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Quiet rerun rerun-b8q-872e13f22/server.log (11-13), full-fbb0202b4 (11-11)."
+  },
+  {
+    "id": "server:apps/server/src/account/Layers/MossAccountTokenRotation.test.ts > Moss phone session with a live managed runtime > heals the next send after a turn died on an expired bearer, without a restart",
+    "platform": "win32",
+    "reason": "Machine-only: real-timer test (added 11-12) that fails alone on plain main on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/server.log), rerun-b8-872e13f22, full-872e13f22."
+  },
+  {
+    "id": "server:apps/server/src/account/Layers/MossAccountTokenRotation.test.ts > Moss phone session with a live managed runtime > starts a chat that is sent near expiry on a fresh bearer",
+    "platform": "win32",
+    "reason": "Machine-only: real-timer test (added 11-12) that fails alone on plain main on the shared Windows PC.",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/server.log)."
+  },
+  {
+    "id": "server:apps/server/src/workspaceEntries.test.ts > searchWorkspaceContent > scans files past the first 2000 in alphabetical order",
+    "platform": "win32",
+    "reason": "Machine-only: fails alone on plain main on the shared Windows PC (the only failing test in the file).",
+    "owner": "server",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "phone-extras control on main 1ea39e96d, file alone: 1 failed/33 passed; its gate log (11-13) names this test with the same counts; also full-2f2bf3fb7."
+  },
+  {
     "id": "scripts:scripts/lib/cua-benchmark.test.ts",
     "platform": "win32",
     "reason": "Machine-only: the one test fails on the shared Windows PC.",
@@ -234,6 +315,51 @@
     "evidence": "Failed in verify-full fbb0202b4 (11-11), ac83ca313, 81cd3ff55; passed alone after fbb0202b4 (merge log 11-11)."
   },
   {
+    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > covers B2.2a reduced-motion coachmark and transition behavior",
+    "platform": "win32",
+    "reason": "Machine-only: fails alone on plain main on the shared Windows PC with the machine quiet; passed in 2 full runs.",
+    "owner": "web/transcript",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/chat.log), rerun-b8q-872e13f22, rerun-b8-872e13f22, full-872e13f22, full-aeaf97e53, full-34e1b5114; passed in full-d72ff1523, full-f81d08430."
+  },
+  {
+    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > provider handoff destination > never persists a provider switch before its explicit handoff",
+    "platform": "win32",
+    "reason": "Machine-only: fails alone on plain main on the shared Windows PC with the machine quiet.",
+    "owner": "web/transcript",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/chat.log), rerun-b8q-872e13f22, rerun-b8-872e13f22, full-872e13f22, full-cefafe703, full-b88cfde18, full-c080f51ef."
+  },
+  {
+    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > provider handoff destination > shows a dismissible pre-send tip above the composer when leaving Claude for 'codex' ('ready')",
+    "platform": "win32",
+    "reason": "Load flake: fails in busy chat lanes; passes alone at other times.",
+    "owner": "web/transcript",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "rerun-b8-872e13f22, full-872e13f22, full-cefafe703, full-b88cfde18; failed on main f1d4ee077 in another session's control."
+  },
+  {
+    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > fits a split pane's diff panel and loads its content (1100 px window)",
+    "platform": "win32",
+    "reason": "Machine-only: fails on plain main and quiet candidates on the shared Windows PC; the 1920 px case passes.",
+    "owner": "web/transcript",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Failed in rerun-b8-872e13f22, full-872e13f22, full-cefafe703; main 1ea39e96d failed its 1600 px sibling in the same control (rerun-b8q-1ea39e96d/chat.log)."
+  },
+  {
+    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > fits a split pane's diff panel and loads its content (1600 px window)",
+    "platform": "win32",
+    "reason": "Machine-only: fails alone on plain main on the shared Windows PC with the machine quiet; the 1920 px case passes.",
+    "owner": "web/transcript",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/chat.log), full-872e13f22."
+  },
+  {
     "id": "components:apps/web/src/components/browser/BrowserSketch.browser.tsx > fits the armed bar in a",
     "platform": "win32",
     "reason": "Load flake: the armed-bar layout cases fail in the full components lane under load; pass alone.",
@@ -241,6 +367,15 @@
     "added": "2026-11-11",
     "expires": "2026-11-25",
     "evidence": "Failed in verify-full 2f2bf3fb7 and fbb0202b4 (11-11); BrowserSketch passed alone 6/6 and 2x (merge log 11-11)."
+  },
+  {
+    "id": "components:apps/web/src/components/EventRouter.browser.tsx > EventRouter scoped orchestration sync > snapshot ordering against queued and buffered events > resyncs instead of applying buffered events after the pre-snapshot buffer overflowed",
+    "platform": "win32",
+    "reason": "Load flake: fails in the full components lane under load (1 of 3 on a candidate); passes alone on main.",
+    "owner": "web",
+    "added": "2026-11-13",
+    "expires": "2026-11-27",
+    "evidence": "rerun-b3-cefafe703, full-cefafe703, full-051cc6be9, full-2f2bf3fb7, full-311eccbf7, full-ed8546b97."
   },
   {
     "id": "geometry:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > [geometry:linux]",

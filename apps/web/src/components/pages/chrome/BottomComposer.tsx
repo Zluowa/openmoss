@@ -12,6 +12,8 @@ import { ComposerSendArrowIcon } from "~/lib/icons";
 import { isActiveRun, pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
 import { cn } from "~/lib/utils";
 
+import { Button } from "../../ui/button";
+
 import { pageAiLocale, pageAiText } from "../ai/pageAiText";
 import type { PageChromeSlotProps } from "./pageChromeContext";
 
@@ -96,9 +98,10 @@ export function BottomComposer({ context }: PageChromeSlotProps) {
           className="min-w-0 flex-1 bg-transparent text-ui outline-none placeholder:text-muted-foreground"
         />
         {latest?.status === "failed" && latest.prompt && editor && !value ? (
-          <button
-            type="button"
-            className="shrink-0 rounded-full px-2 text-ui-xs text-foreground hover:bg-muted"
+          <Button
+            size="xs"
+            variant="ghost"
+            className="shrink-0"
             onClick={(event) => {
               event.stopPropagation();
               void editor.startRun({
@@ -109,7 +112,7 @@ export function BottomComposer({ context }: PageChromeSlotProps) {
             }}
           >
             {text.retry}
-          </button>
+          </Button>
         ) : null}
         {latest?.threadId && !value ? (
           <button

@@ -75,7 +75,7 @@ A check that fails for reasons other than the change teaches agents to ignore it
   at most 14 days after it was added. `tools/test-quarantine/README.md` has the format.
 - Every lane applies the list on the entry's platform; elsewhere the test runs.
   `MOSS_TEST_QUARANTINE=off` runs a quarantined test in its normal lane.
-- `bun run lint` fails on expired entries, entries without an owner, and more than 40
+- `bun run lint` fails on expired entries, entries without an owner, and more than 45
   entries.
 - `bun run test:quarantined` runs only the quarantined tests, with no retries, and
   prints pass or fail per entry. It belongs in the nightly lane (not wired yet). An

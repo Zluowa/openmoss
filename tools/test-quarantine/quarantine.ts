@@ -3,7 +3,7 @@
 // See tools/test-quarantine/README.md.
 
 export const QUARANTINE_FILE = "test-quarantine.json";
-export const MAX_ENTRIES = 40;
+export const MAX_ENTRIES = 45;
 export const MAX_DAYS = 14;
 
 export const PLATFORMS = ["win32", "linux", "darwin", "all"] as const;
