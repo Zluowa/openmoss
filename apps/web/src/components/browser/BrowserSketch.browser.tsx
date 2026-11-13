@@ -18,6 +18,12 @@ import { MARKUP_COLORS } from "../markup/markup.logic";
 
 const WIDTH = 900;
 const PAGE_HEIGHT = 560;
+// Chromium encodes a canvas PNG (toBlob, convertToBlob) in an idle period. Right after this
+// page has painted and gone still it can get none until another frame, so the encode waits
+// for Chromium's 1000 ms fallback timer: as long as a default wait. The marked page asks for
+// a frame (composeMarkupPng); the harness's page still does not. Waits on an encode allow
+// for the fallback.
+const PNG_ENCODE_TIMEOUT_MS = 5_000;
 
 async function stillOfPage(): Promise<Uint8Array> {
   const canvas = new OffscreenCanvas(WIDTH, PAGE_HEIGHT);
@@ -187,15 +193,14 @@ for (const theme of ["light", "dark"] as const) {
       await expect.element(page.getByRole("button", { name: "Add to chat" })).toBeDisabled();
 
       // Drawing freezes the page on its still and leaves the element picker. The still is
-      // taken a moment after the bar opens, and a test frame in the background runs its
-      // timers late, so this waits longer than the default second.
+      // taken a moment after the bar opens, and encoded as a PNG.
       const overlay = await vi.waitFor(
         () => {
           const element = document.querySelector("[data-markup-canvas] img");
           expect(element).not.toBeNull();
           return document.querySelector("[data-markup-canvas]")!;
         },
-        { timeout: 5_000 },
+        { timeout: PNG_ENCODE_TIMEOUT_MS },
       );
       expect(document.querySelector("[data-picker-active]")).toBeNull();
       drag(overlay, [
@@ -236,7 +241,9 @@ for (const theme of ["light", "dark"] as const) {
       await expect.element(page.getByRole("button", { name: "Redo" })).toBeEnabled();
       const drawnWidth = overlay.clientWidth;
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await vi.waitFor(() => expect(attached).toHaveLength(1));
+      await vi.waitFor(() => expect(attached).toHaveLength(1), {
+        timeout: PNG_ENCODE_TIMEOUT_MS,
+      });
 
       const file = attached[0]!;
       expect(file.type).toBe("image/png");
@@ -271,7 +278,7 @@ for (const theme of ["light", "dark"] as const) {
       // The still is taken a moment after the bar opens (see above).
       await vi.waitFor(
         () => expect(document.querySelector("[data-markup-canvas] img")).not.toBeNull(),
-        { timeout: 5_000 },
+        { timeout: PNG_ENCODE_TIMEOUT_MS },
       );
       drag(document.querySelector("[data-markup-canvas]")!, [
         [80, 300],
@@ -321,8 +328,15 @@ for (const [panelWidth, theme] of [
   it(`fits the armed bar in a ${panelWidth}px browser panel (${theme})`, async () => {
     await page.viewport(panelWidth, 640);
     const attached: File[] = [];
+    let attachedAt = 0;
     const screen = await render(
-      <Harness width={panelWidth} onAttach={(file) => attached.push(file)} />,
+      <Harness
+        width={panelWidth}
+        onAttach={(file) => {
+          attached.push(file);
+          attachedAt = performance.now();
+        }}
+      />,
     );
     await switchAppTheme(theme);
     try {
@@ -335,7 +349,7 @@ for (const [panelWidth, theme] of [
           expect(document.querySelector("[data-markup-canvas] img")).not.toBeNull();
           return document.querySelector("[data-markup-canvas]")!;
         },
-        { timeout: 5_000 },
+        { timeout: PNG_ENCODE_TIMEOUT_MS },
       );
       drag(overlay, [
         [40, 60],
@@ -396,14 +410,28 @@ for (const [panelWidth, theme] of [
       await expect.element(page.getByRole("button", { name: "Add to chat" })).toBeDisabled();
       await userEvent.keyboard("{Escape}");
       await expect.element(page.getByRole("menuitem", { name: "Undo" })).not.toBeInTheDocument();
+      // A pause before the next mark: no focus ring or tooltip, nothing animating, and long
+      // enough after that for no frame to be pending. Add to chat still sends at once, not
+      // after Chromium's 1 s idle fallback (see PNG_ENCODE_TIMEOUT_MS).
+      (document.activeElement as HTMLElement | null)?.blur();
+      await vi.waitFor(() => expect(document.getAnimations()).toHaveLength(0));
+      await new Promise((resolve) => setTimeout(resolve, 600));
       // The new ink is the one the next mark takes, and Add to chat sends it.
       drag(overlay, [
         [40, 200],
         [260, 200],
       ]);
       const drawnWidth = overlay.clientWidth;
+      let clickedAt = 0;
+      document.addEventListener("click", () => (clickedAt = performance.now()), {
+        capture: true,
+        once: true,
+      });
       await page.getByRole("button", { name: "Add to chat" }).click();
-      await vi.waitFor(() => expect(attached).toHaveLength(1));
+      await vi.waitFor(() => expect(attached).toHaveLength(1), {
+        timeout: PNG_ENCODE_TIMEOUT_MS,
+      });
+      expect(attachedAt - clickedAt).toBeLessThan(700);
       const bitmap = await createImageBitmap(attached[0]!);
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
       const ctx = canvas.getContext("2d")!;
