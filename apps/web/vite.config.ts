@@ -289,8 +289,10 @@ export default defineConfig({
   },
   resolve: {
     // Packages linked in from outside the workspace (the spreadsheet engine) resolve React from
-    // their real path; dedupe keeps them on the app's one React like the aliases below.
-    dedupe: ["react", "react-dom"],
+    // their real path; dedupe keeps them on the app's one React like the aliases below. The
+    // engine's formula parser is deduped too: Moss adds functions to the one parser class the
+    // engine and the shared sheet code both use (sheetFormulaFunctions.ts).
+    dedupe: ["react", "react-dom", "@fortune-sheet/formula-parser"],
     // Workspace hoisting can place peer-only packages at the repository root,
     // while Node's package resolver starts from that package's real path. Pin
     // React to the web app's single runtime copy so peer imports (notably

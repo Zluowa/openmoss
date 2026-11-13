@@ -79,15 +79,7 @@ export class ProviderAdapterProcessError extends Schema.TaggedErrorClass<Provide
     threadId: Schema.String,
     detail: Schema.String,
     // startup-failed is only valid after cleanup proves the process stopped.
-    // previous-runtime-not-stopped: the start ended before spawning anything,
-    // because the thread's previous runtime could not be proven stopped.
-    reason: Schema.optional(
-      Schema.Literals([
-        "resume-state-unavailable",
-        "startup-failed",
-        "previous-runtime-not-stopped",
-      ]),
-    ),
+    reason: Schema.optional(Schema.Literals(["resume-state-unavailable", "startup-failed"])),
     cause: Schema.optional(Schema.Defect),
   },
 ) {

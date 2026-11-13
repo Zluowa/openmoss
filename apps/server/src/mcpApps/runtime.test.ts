@@ -5,8 +5,7 @@ import type http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { CodexMcpToolCallProjection, ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
-import { Option, Schema } from "effect";
+import { ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { startHttp } from "../../test-fixtures/mcp-apps/server.mjs";
@@ -185,78 +184,6 @@ describe("binding MCP rows", () => {
       state: "failed",
       error: "returned a malformed result",
     });
-  });
-
-  it("projects a failed Claude row (isError, string content) as a readable failed projection", () => {
-    // The Claude CLI hands an isError MCP result back as a tool_result whose content is one
-    // string. The row must still decode as the projection the web reads, or the card never
-    // learns the call failed and keeps loading.
-    const service = makeMcpAppServiceState({ resultsDirectory: tmp("bind-failed-text-") });
-    service.recordProviderTools("thread-1", "debug", [uiTool("debug-tool")]);
-    for (const type of ["item.updated", "item.completed"]) {
-      const bound = service.enrichRuntimeEvent(
-        event(type, {
-          itemType: "mcp_tool_call",
-          status: "failed",
-          data: {
-            toolCallId: "toolu_err",
-            toolName: "mcp__debug__debug-tool",
-            input: { simulateError: true },
-            result: {
-              type: "tool_result",
-              tool_use_id: "toolu_err",
-              content: "Debug text content #1\nDebug text content #2",
-              is_error: true,
-            },
-          },
-        }),
-      );
-      const data = (bound.payload as { data: Record<string, unknown> }).data;
-      const decoded = Schema.decodeUnknownOption(CodexMcpToolCallProjection)(data);
-      expect(Option.isSome(decoded)).toBe(true);
-      expect(data).toMatchObject({
-        status: "failed",
-        result: {
-          content: [{ type: "text", text: "Debug text content #1\nDebug text content #2" }],
-        },
-        error: { message: "Debug text content #1\nDebug text content #2" },
-      });
-      expect((data.result as Record<string, unknown>).type).toBeUndefined();
-    }
-    expect(service.results.peek("thread-1", "toolu_err")?.state).toBe("failed");
-  });
-
-  it("never changes an earlier call of the same tool when a later one fails", () => {
-    const service = makeMcpAppServiceState({ resultsDirectory: tmp("bind-two-calls-") });
-    service.recordProviderTools("thread-1", "debug", [uiTool("debug-tool")]);
-    const row = (callId: string, status: "completed" | "failed", result: unknown) =>
-      event("item.completed", {
-        itemType: "mcp_tool_call",
-        status,
-        data: {
-          toolCallId: callId,
-          toolName: "mcp__debug__debug-tool",
-          input: {},
-          result: { type: "tool_result", tool_use_id: callId, ...(result as object) },
-        },
-      });
-    service.enrichRuntimeEvent(
-      row("toolu_b", "completed", { content: [{ type: "text", text: "live" }] }),
-    );
-    service.modelContext.update({
-      threadId: "thread-1",
-      callId: "toolu_b",
-      toolName: "mcp__debug__debug-tool",
-      blocks: [{ type: "text", text: "Current app state info" }],
-    });
-    service.enrichRuntimeEvent(row("toolu_f", "failed", { content: "boom", is_error: true }));
-    expect(service.results.peek("thread-1", "toolu_b")).toMatchObject({
-      state: "ready",
-      result: { content: [{ type: "text", text: "live" }] },
-    });
-    expect(service.results.peek("thread-1", "toolu_f")?.state).toBe("failed");
-    expect(service.isCallPending("thread-1", "toolu_b")).toBe(false);
-    expect(service.modelContext.snapshotForSend("thread-1")).toEqual(["mcp__debug__debug-tool"]);
   });
 
   it("binds gateway tools as first-party and never matches unknown names", () => {

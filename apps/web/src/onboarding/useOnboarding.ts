@@ -15,7 +15,7 @@ import {
   FEATURE_TOUR_STORAGE_KEY,
   FeatureTourSeenSchema,
 } from "../featureTour/store";
-import { flushLocalStorageToDisk, useLocalStorage } from "../hooks/useLocalStorage";
+import { useLocalStorage } from "../hooks/useLocalStorage";
 import { serverConfigQueryOptions, serverSettingsQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
 import {
@@ -199,10 +199,6 @@ export function useOnboarding(): UseOnboardingResult {
           seen.includes(installationKey) ? seen : [...seen, installationKey],
         );
       }
-      // The server marker below lands on disk at once; these local ones would otherwise
-      // wait for Chromium's delayed commit, and a stop in between would replay the
-      // highlights and announcements to a brand-new user on the next launch.
-      flushLocalStorageToDisk();
     }
     closeStore();
     if (serverCompletedAt === null) {

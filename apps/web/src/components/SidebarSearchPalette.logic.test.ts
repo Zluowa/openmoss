@@ -1,6 +1,4 @@
-import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { assert, describe, it } from "vitest";
-import { translateMoss } from "../localization";
 import { translateZhCnPresentationText } from "../localization/zhCN";
 
 import {
@@ -10,7 +8,6 @@ import {
   matchSidebarSearchProjects,
   matchSidebarSearchThemes,
   matchSidebarSearchThreads,
-  sidebarSearchMessageText,
   type SidebarSearchAction,
   type SidebarSearchProject,
   type SidebarSearchTheme,
@@ -179,34 +176,6 @@ const threads: SidebarSearchThread[] = [
 ];
 
 describe("SidebarSearchPalette.logic", () => {
-  it("shows a continuation in the sidebar search as the person's zh-CN line", () => {
-    const continuationVisibleText = translateMoss("zh-CN", "chat.continuation.visibleText");
-    assert.equal(continuationVisibleText, "继续刚才的任务。");
-    const thread: SidebarSearchThread = {
-      ...threads[0]!,
-      id: "thread-continued",
-      title: "Stopped task",
-      messages: [
-        { text: sidebarSearchMessageText("Plain request", continuationVisibleText) },
-        {
-          text: sidebarSearchMessageText(
-            INTERRUPTED_TASK_CONTINUATION_PROMPT,
-            continuationVisibleText,
-          ),
-        },
-      ],
-    };
-    const [match] = matchSidebarSearchThreads([thread], "继续");
-    assert.equal(match?.matchKind, "message");
-    assert.equal(match?.snippet, "继续刚才的任务。");
-    // The hidden instruction is neither shown nor found.
-    assert.deepEqual(matchSidebarSearchThreads([thread], "repeating"), []);
-  });
-
-  it("keeps ordinary message text unchanged", () => {
-    assert.equal(sidebarSearchMessageText("继续写", "继续刚才的任务。"), "继续写");
-  });
-
   it("keeps suggested actions in source order for an empty query", () => {
     const result = matchSidebarSearchActions(actions, "");
 

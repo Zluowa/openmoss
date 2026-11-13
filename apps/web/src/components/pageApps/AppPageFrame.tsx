@@ -18,7 +18,6 @@ import type {
 } from "@moss/shared/pageAppCapabilityPlugin";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { RouteSurfaceHeader } from "~/components/RouteSurface";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import {
@@ -32,7 +31,6 @@ import {
 } from "~/components/ui/dialog";
 import { RefreshCwIcon, SlidersIcon, SparklesIcon, StarFilledIcon, StarIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
-import { useTranslation } from "~/localization";
 
 import { PageAppBroker, type PageAppConsentPrompt } from "./broker";
 import { PAGE_APP_SHELL_PLUGINS } from "./capabilities";
@@ -44,15 +42,11 @@ export interface AppPageFrameProps {
   readonly mode: "full" | "embed" | "guest";
   readonly height?: number;
   readonly className?: string;
-  /**
-   * The frame is its own route, so its header is the window's top bar: it takes the shared
-   * route top bar, which drags the window and clears the window buttons and traffic lights.
-   */
-  readonly topBar?: boolean;
 }
 
 const EMBED_MIN_HEIGHT = 120;
 const EMBED_MAX_HEIGHT = 1_600;
+const BYLINE = "AI 生成的内容，使用前请核对";
 const DECLINED: PageAppConfirmResult = { confirmed: false, remember: false };
 
 type Pending<T, R> = { readonly request: T; readonly resolve: (value: R) => void } | null;
@@ -65,18 +59,9 @@ export function pageAppIframeSandbox(ownOrigin: boolean): string {
     : "allow-scripts allow-forms allow-modals allow-popups";
 }
 
-export function AppPageFrame({
-  appPageId,
-  mode,
-  height,
-  className,
-  topBar = false,
-}: AppPageFrameProps) {
-  const { t, format } = useTranslation();
+export function AppPageFrame({ appPageId, mode, height, className }: AppPageFrameProps) {
   const [frame, setFrame] = useState<PageAppsOpenFrameResult | null>(null);
-  // `message: null` is a failure without its own message; the frame names it in the UI language.
-  const [failure, setFailure] = useState<{ readonly message: string | null } | null>(null);
-  const error = failure ? (failure.message ?? t("pageApps.frame.openFailed")) : null;
+  const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [loadedFrameKey, setLoadedFrameKey] = useState<string | null>(null);
   const [contentHeight, setContentHeight] = useState<number | null>(null);
@@ -123,7 +108,7 @@ export function AppPageFrame({
     let cancelled = false;
     setFrame(null);
     setLoadedFrameKey(null);
-    setFailure(null);
+    setError(null);
     pageAppsClient
       .openFrame({
         appId: appPageId as never,
@@ -137,7 +122,7 @@ export function AppPageFrame({
         setFavorite(result.app.favorite);
       })
       .catch((cause: { message?: string }) => {
-        if (!cancelled) setFailure({ message: cause?.message ?? null });
+        if (!cancelled) setError(cause?.message ?? "无法打开这个应用页。");
       });
     return () => {
       cancelled = true;
@@ -259,51 +244,6 @@ export function AppPageFrame({
     [frame],
   );
 
-  const headerContent = (
-    <>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-ui font-medium text-[var(--color-text-foreground)]">
-          {frame?.app.title ?? (error ? t("pageApps.frame.untitled") : t("pageApps.frame.opening"))}
-        </div>
-      </div>
-      <span className="hidden shrink-0 items-center gap-1 text-ui-sm text-[var(--color-text-foreground-tertiary)] sm:inline-flex">
-        <SparklesIcon className="size-3" aria-hidden />
-        {t("pageApps.frame.byline")}
-      </span>
-      {mode === "full" ? (
-        <Button
-          variant="chrome"
-          size="icon-xs"
-          aria-label={favorite ? t("pageApps.frame.unfavorite") : t("pageApps.frame.favorite")}
-          title={favorite ? t("pageApps.frame.unfavorite") : t("pageApps.frame.favorite")}
-          disabled={!frame}
-          onClick={() => void toggleFavorite()}
-        >
-          {favorite ? <StarFilledIcon /> : <StarIcon />}
-        </Button>
-      ) : null}
-      <Button
-        variant="chrome"
-        size="icon-xs"
-        aria-label={t("pageApps.frame.permissions")}
-        title={t("pageApps.frame.permissions")}
-        disabled={!frame}
-        onClick={() => setPermissionsOpen(() => () => undefined)}
-      >
-        <SlidersIcon />
-      </Button>
-      <Button
-        variant="chrome"
-        size="icon-xs"
-        aria-label={t("pageApps.frame.reload")}
-        title={t("pageApps.frame.reload")}
-        onClick={() => setReloadKey((key) => key + 1)}
-      >
-        <RefreshCwIcon />
-      </Button>
-    </>
-  );
-
   return (
     <div
       className={cn(
@@ -316,11 +256,48 @@ export function AppPageFrame({
       data-page-app-mode={mode}
       data-testid="app-page-frame"
     >
-      {mode !== "embed" && topBar ? (
-        <RouteSurfaceHeader>{headerContent}</RouteSurfaceHeader>
-      ) : mode !== "embed" ? (
+      {mode !== "embed" ? (
         <header className="flex h-10 shrink-0 items-center gap-2 border-b border-[color:var(--color-border-light)] px-3">
-          {headerContent}
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-ui font-medium text-[var(--color-text-foreground)]">
+              {frame?.app.title ?? (error ? "应用页" : "正在打开…")}
+            </div>
+          </div>
+          <span className="hidden shrink-0 items-center gap-1 text-ui-sm text-[var(--color-text-foreground-tertiary)] sm:inline-flex">
+            <SparklesIcon className="size-3" aria-hidden />
+            {BYLINE}
+          </span>
+          {mode === "full" ? (
+            <Button
+              variant="chrome"
+              size="icon-xs"
+              aria-label={favorite ? "取消收藏" : "收藏"}
+              title={favorite ? "取消收藏" : "收藏"}
+              disabled={!frame}
+              onClick={() => void toggleFavorite()}
+            >
+              {favorite ? <StarFilledIcon /> : <StarIcon />}
+            </Button>
+          ) : null}
+          <Button
+            variant="chrome"
+            size="icon-xs"
+            aria-label="权限"
+            title="权限"
+            disabled={!frame}
+            onClick={() => setPermissionsOpen(() => () => undefined)}
+          >
+            <SlidersIcon />
+          </Button>
+          <Button
+            variant="chrome"
+            size="icon-xs"
+            aria-label="重新加载"
+            title="重新加载"
+            onClick={() => setReloadKey((key) => key + 1)}
+          >
+            <RefreshCwIcon />
+          </Button>
         </header>
       ) : null}
 
@@ -329,7 +306,7 @@ export function AppPageFrame({
           role="status"
           className="shrink-0 border-b border-[color:var(--color-border-light)] px-3 py-1 text-ui-sm text-[var(--color-text-foreground-secondary)]"
         >
-          {t("pageApps.frame.offlineWarning")}
+          部分资源需要联网，离线时可能无法运行。
         </p>
       ) : null}
       <div
@@ -350,7 +327,7 @@ export function AppPageFrame({
           />
         ) : (
           <div className="flex size-full min-h-[120px] items-center justify-center text-ui text-[var(--color-text-foreground-tertiary)]">
-            {error ?? t("pageApps.frame.openingPage")}
+            {error ?? "正在打开应用页…"}
           </div>
         )}
       </div>
@@ -359,12 +336,12 @@ export function AppPageFrame({
         <div className="flex h-7 shrink-0 items-center gap-1 border-t border-[color:var(--color-border-light)] px-2 text-ui-sm text-[var(--color-text-foreground-tertiary)]">
           <SparklesIcon className="size-3" aria-hidden />
           <span className="min-w-0 flex-1 truncate">
-            {frame?.app.title ?? t("pageApps.frame.untitled")} · {t("pageApps.frame.byline")}
+            {frame?.app.title ?? "应用页"} · {BYLINE}
           </span>
           <Button
             variant="chrome"
             size="icon-chip"
-            aria-label={t("pageApps.frame.permissions")}
+            aria-label="权限"
             disabled={!frame}
             onClick={() => setPermissionsOpen(() => () => undefined)}
           >
@@ -385,10 +362,10 @@ export function AppPageFrame({
           data-testid="page-app-consent"
         >
           <DialogHeader>
-            <DialogTitle>
-              {format("pageApps.frame.consent.title", { title: consentView?.appTitle ?? "" })}
-            </DialogTitle>
-            <DialogDescription>{t("pageApps.frame.consent.description")}</DialogDescription>
+            <DialogTitle>允许「{consentView?.appTitle}」使用这些功能？</DialogTitle>
+            <DialogDescription>
+              这个应用页由 AI 生成。你的选择只对这个应用页有效，可以随时在权限里更改。
+            </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             <ul className="flex flex-col gap-2">
@@ -412,10 +389,10 @@ export function AppPageFrame({
               variant="outline"
               onClick={() => setConsentPrompt((pending) => (pending?.resolve(false), null))}
             >
-              {t("pageApps.frame.deny")}
+              不允许
             </Button>
             <Button onClick={() => setConsentPrompt((pending) => (pending?.resolve(true), null))}>
-              {t("pageApps.frame.allow")}
+              允许
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -464,7 +441,7 @@ export function AppPageFrame({
               variant="outline"
               onClick={() => setConfirmPrompt((pending) => (pending?.resolve(DECLINED), null))}
             >
-              {t("pageApps.frame.cancel")}
+              取消
             </Button>
             <Button
               variant={confirmView?.tone === "danger" ? "destructive" : "default"}
@@ -480,7 +457,7 @@ export function AppPageFrame({
                 )
               }
             >
-              {confirmView?.confirmLabel ?? t("pageApps.frame.confirm")}
+              {confirmView?.confirmLabel ?? "确定"}
             </Button>
           </DialogFooter>
         </DialogPopup>
@@ -498,15 +475,15 @@ export function AppPageFrame({
       >
         <DialogPopup className="max-w-[420px]" data-testid="page-app-permissions">
           <DialogHeader>
-            <DialogTitle>{t("pageApps.frame.permissions")}</DialogTitle>
+            <DialogTitle>权限</DialogTitle>
             <DialogDescription>
-              {format("pageApps.frame.permissions.description", { title: frame?.app.title ?? "" })}
+              「{frame?.app.title}」可以使用的功能。保存文件每次都会单独询问。
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
             {standingCapabilities.length === 0 ? (
               <p className="text-ui text-[var(--color-text-foreground-secondary)]">
-                {t("pageApps.frame.permissions.none")}
+                这个应用页不需要额外权限。
               </p>
             ) : (
               <ul className="flex flex-col gap-2">
@@ -532,9 +509,9 @@ export function AppPageFrame({
                       >
                         {(
                           [
-                            ["granted", t("pageApps.frame.allow")],
-                            [null, t("pageApps.frame.ask")],
-                            ["denied", t("pageApps.frame.deny")],
+                            ["granted", "允许"],
+                            [null, "询问"],
+                            ["denied", "不允许"],
                           ] as const
                         ).map(([value, label]) => (
                           <Button

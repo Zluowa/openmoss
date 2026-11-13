@@ -9,7 +9,6 @@ import type {
   MossCloudAccountState,
 } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,9 +22,7 @@ import {
 } from "./AuthenticatedAppSnapWelcomeDialog";
 
 vi.mock("./AppSnapWelcomeDialog", () => ({
-  AppSnapWelcomeDialog: ({ children, deferred }: { children?: ReactNode; deferred?: boolean }) => (
-    <div data-appsnap-welcome={deferred ? "deferred" : "open"}>{children}</div>
-  ),
+  AppSnapWelcomeDialog: () => <div data-appsnap-welcome="true" />,
 }));
 
 const TEST_TIMESTAMP = "2026-08-21T00:00:00.000Z";
@@ -102,9 +99,7 @@ function renderGate(input: { phoneAuthenticated: boolean; cloudAuthenticated: bo
 
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
-      <AuthenticatedAppSnapWelcomeDialog>
-        <span data-startup-child="true" />
-      </AuthenticatedAppSnapWelcomeDialog>
+      <AuthenticatedAppSnapWelcomeDialog />
     </QueryClientProvider>,
   );
 }
@@ -120,16 +115,14 @@ describe("AuthenticatedAppSnapWelcomeDialog", () => {
     ).toBe(false);
   });
 
-  it("defers the AppSnap introduction over sign-in but keeps the startup surfaces it wraps", () => {
-    const markup = renderGate({ phoneAuthenticated: false, cloudAuthenticated: false });
-    expect(markup).toContain('data-appsnap-welcome="deferred"');
-    expect(markup).toContain('data-startup-child="true"');
+  it("does not mount the AppSnap introduction over sign-in", () => {
+    expect(renderGate({ phoneAuthenticated: false, cloudAuthenticated: false })).toBe("");
   });
 
   it.each([
     { phoneAuthenticated: true, cloudAuthenticated: false },
     { phoneAuthenticated: false, cloudAuthenticated: true },
   ])("mounts after either Moss login authority authenticates", (accountState) => {
-    expect(renderGate(accountState)).toContain('data-appsnap-welcome="open"');
+    expect(renderGate(accountState)).toContain('data-appsnap-welcome="true"');
   });
 });

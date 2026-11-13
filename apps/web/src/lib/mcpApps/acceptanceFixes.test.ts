@@ -4,14 +4,13 @@ import { isMcpAppApprovalForBinding } from "./awaitingApproval";
 import { computeMcpAppFrameClip } from "./frameTracker";
 import {
   acquireMcpAppWidget,
-  mcpAppRowStartState,
   peekMcpAppWidget,
   releaseMcpAppWidget,
   resetMcpAppLiveWidgetsForTests,
 } from "./liveWidgets";
 import { readMcpAppResourceOnce, resetMcpAppResourceCacheForTests } from "./resourceCache";
 import type { McpAppResourceRead } from "./contracts";
-import type { McpAppHostController, McpAppHostSnapshot } from "../mcpAppHost";
+import type { McpAppHostController } from "../mcpAppHost";
 
 afterEach(() => {
   resetMcpAppLiveWidgetsForTests();
@@ -85,32 +84,6 @@ describe("live widgets", () => {
     vi.advanceTimersByTime(1);
     expect(dispose).toHaveBeenCalledTimes(1);
     expect(peekMcpAppWidget("w")).toBeUndefined();
-  });
-
-  it("starts a remounted row from the running widget, at its height", () => {
-    // Without this a remounted row commits at 0 px and animates back up on every remount
-    // (the 89 → 142 → 252 → … → 424 px steps of the real-data dry run).
-    const snapshot = { phase: "ready", height: 424, sized: true } as McpAppHostSnapshot;
-    acquireMcpAppWidget("live", {}, () => ({
-      controller: { getSnapshot: () => snapshot } as unknown as McpAppHostController,
-      dispose: () => undefined,
-    }));
-    expect(mcpAppRowStartState("live", 120)).toEqual({ snapshot, started: true, height: 424 });
-
-    const idle = { phase: "idle", height: 0, sized: false } as McpAppHostSnapshot;
-    acquireMcpAppWidget("suspended", {}, () => ({
-      controller: { getSnapshot: () => idle } as unknown as McpAppHostController,
-      dispose: () => undefined,
-    }));
-    expect(mcpAppRowStartState("suspended", 300).started).toBe(false);
-
-    // A first mount (or one after the widget was torn down) reserves the remembered height.
-    expect(mcpAppRowStartState("new", 300)).toEqual({
-      snapshot: null,
-      started: false,
-      height: 300,
-    });
-    expect(mcpAppRowStartState("new", null).height).toBe(0);
   });
 });
 

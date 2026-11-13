@@ -90,13 +90,6 @@ export const DESKTOP_IPC_CHANNELS = {
   zoomFactorChanged: "desktop:zoom-factor-changed",
   wsUrl: "desktop:get-ws-url",
   backendLink: "desktop:backend-link",
-  flushStorage: "desktop:flush-storage",
-  backendStartup: {
-    getFailure: "desktop:backend-startup-get-failure",
-    failure: "desktop:backend-startup-failure",
-    retry: "desktop:backend-startup-retry",
-    openLogFolder: "desktop:backend-startup-open-log-folder",
-  },
   transcribeVoice: "desktop:server-transcribe-voice",
   computerPreviewFrame: "computerPreview.frame",
   // Renderer preview demand for the native frame tap: the helper captures only

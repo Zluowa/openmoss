@@ -25,7 +25,12 @@ const RequestId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 const TemplateId = TrimmedNonEmptyString.check(Schema.isMaxLength(128));
 const Title = TrimmedNonEmptyString.check(Schema.isMaxLength(256));
 
-export const PageTypesReadInput = Schema.Struct({ scopeSpaceId: PageScopeSpaceId, pageId: PageId });
+export const PageTypesReadInput = Schema.Struct({
+  scopeSpaceId: PageScopeSpaceId,
+  pageId: PageId,
+  /** An earlier page revision: the payload as it was then (数据看板 history). */
+  revision: Schema.optional(PositiveInt),
+});
 export type PageTypesReadInput = typeof PageTypesReadInput.Type;
 export const PageTypedItem = Schema.Struct({
   page: Page,

@@ -6,12 +6,6 @@ import type {
   AuthSessionState,
   AuthWebSocketTokenResult,
 } from "@moss/contracts";
-import {
-  OWNER_DEVICE_SUBJECT,
-  accountDeviceSubject,
-  isAccountDeviceSubject,
-  isOwnerDeviceSubject,
-} from "@moss/shared/ownerDeviceSession";
 import { DateTime, Effect, Layer } from "effect";
 
 import { AuthControlPlane } from "../Services/AuthControlPlane";
@@ -44,17 +38,14 @@ const WEBSOCKET_TOKEN_QUERY_PARAM = "wsToken";
 /** The startup link that establishes the first owner session; never listed. */
 const OWNER_BOOTSTRAP_PAIRING_SUBJECT = "owner-bootstrap";
 /** A listed, revocable code that pairs another device of the owner. */
-export const OWNER_DEVICE_PAIRING_SUBJECT = OWNER_DEVICE_SUBJECT;
+export const OWNER_DEVICE_PAIRING_SUBJECT = "owner-device";
 
-/**
- * Paired clients and the owner's phones (paired by code or admitted through a Moss
- * account); never the primary owner session.
- */
+/** Paired clients and the owner's paired phones; never the primary owner session. */
 function isRevocablePairedSession(session: {
   readonly role: string;
   readonly subject: string;
 }): boolean {
-  return session.role === "client" || isOwnerDeviceSubject(session.subject);
+  return session.role === "client" || session.subject === OWNER_DEVICE_PAIRING_SUBJECT;
 }
 
 export function toBootstrapExchangeAuthError(cause: BootstrapCredentialError): AuthError {
@@ -376,7 +367,7 @@ export const makeServerAuth = Effect.gen(function* () {
       );
       const active = yield* authControlPlane.listSessions();
       const revoked = yield* Effect.forEach(
-        active.filter((session) => isOwnerDeviceSubject(session.subject)),
+        active.filter((session) => session.subject === OWNER_DEVICE_PAIRING_SUBJECT),
         (session) => authControlPlane.revokeSession(session.sessionId),
         { concurrency: 1 },
       );
@@ -386,57 +377,6 @@ export const makeServerAuth = Effect.gen(function* () {
         (cause) =>
           new AuthError({
             message: "Failed to sign out paired phones.",
-            status: 500,
-            cause,
-          }),
-      ),
-    );
-
-  const issueAccountDeviceBearerSession: ServerAuthShape["issueAccountDeviceBearerSession"] = (
-    input,
-  ) =>
-    sessions
-      .issue({
-        method: "bearer-session-token",
-        subject: accountDeviceSubject(input.realm, input.accountKey),
-        role: "owner",
-        client: input.client,
-      })
-      .pipe(
-        Effect.mapError(
-          (cause) =>
-            new AuthError({
-              message: "Failed to issue authenticated session.",
-              status: 500,
-              cause,
-            }),
-        ),
-        Effect.map(
-          (session) =>
-            ({
-              authenticated: true,
-              role: session.role,
-              sessionMethod: "bearer-session-token",
-              expiresAt: DateTime.toUtc(session.expiresAt),
-              sessionToken: session.token,
-            }) satisfies AuthBearerBootstrapResult,
-        ),
-      );
-
-  const revokeAccountDeviceSessions: ServerAuthShape["revokeAccountDeviceSessions"] = (scope) =>
-    authControlPlane.listSessions().pipe(
-      Effect.flatMap((active) =>
-        Effect.forEach(
-          active.filter((session) => isAccountDeviceSubject(session.subject, scope)),
-          (session) => authControlPlane.revokeSession(session.sessionId),
-          { concurrency: 1 },
-        ),
-      ),
-      Effect.map((revoked) => revoked.filter(Boolean).length),
-      Effect.mapError(
-        (cause) =>
-          new AuthError({
-            message: "Failed to sign out phones.",
             status: 500,
             cause,
           }),
@@ -548,8 +488,6 @@ export const makeServerAuth = Effect.gen(function* () {
     revokeClientSession,
     revokeOtherClientSessions,
     revokeOwnerDeviceAccess,
-    issueAccountDeviceBearerSession,
-    revokeAccountDeviceSessions,
     logoutSession,
     authenticateHttpRequest: authenticateRequest,
     authenticateWebSocketUpgrade,

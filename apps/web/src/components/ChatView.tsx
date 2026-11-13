@@ -376,8 +376,6 @@ import { ChatComposerFooter } from "./chat/ChatComposerFooter";
 import { GuestPendingMessages } from "./chat/guestShare/GuestPendingMessages";
 import { ChatComposerSendButton } from "./chat/ChatProviderSendControl";
 import {
-  classifyComposerResumeRefusal,
-  composerResumeRefusalMessageKey,
   hasComposerResumeProjectionAdvancedSince,
   isComposerResumeEligible,
   isComposerResumePendingForThread,
@@ -494,7 +492,6 @@ import {
   resolveQuotaOwnedThreadError,
 } from "./chat/threadErrorPresentation";
 import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
-import { useUnreadableThread } from "./UnreadableThreadsNotice";
 import { ChatThreadFindHost } from "./chat/ThreadFindBar";
 import { resolveTraitsTriggerSummary } from "./chat/TraitsPicker";
 import { TranscriptSelectionActionLayer } from "./chat/TranscriptSelectionActionLayer";
@@ -2454,7 +2451,6 @@ export default function ChatView({
   // Before treating an empty timeline as a genuinely new thread, wait for the
   // detail snapshot: a server thread whose history has not synced yet must show
   // a loading (or failed) transcript state instead of the empty landing.
-  const unreadableThread = useUnreadableThread(threadId);
   const threadDetailHydration = resolveThreadDetailHydration({
     isServerThread,
     hasTimelineEntries: timelineEntries.length > 0,
@@ -2480,7 +2476,6 @@ export default function ChatView({
         <ThreadDetailHydrationState
           onRetry={handleRetryThreadDetailSync}
           state={threadDetailHydration}
-          unreadable={unreadableThread}
         />
       );
     }
@@ -2491,7 +2486,6 @@ export default function ChatView({
     hasPendingThreadWork,
     isEditorRail,
     threadDetailHydration,
-    unreadableThread,
   ]);
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
   // Home-scoped chats get the global "What should we build?" copy plus the project picker,
@@ -6863,12 +6857,6 @@ export default function ChatView({
   // component. The compiler memoizes this derivation itself.
   const composerResumeEligible = isComposerResumeEligible({
     thread: activeThread,
-    session: activeThread?.session
-      ? {
-          status: activeThread.session.orchestrationStatus,
-          activeTurnId: activeThread.session.activeTurnId ?? null,
-        }
-      : null,
     provider: activeThread?.session?.provider ?? activeThreadProvider,
     isServerThread,
     // A quote waiting in the composer keeps the send button; it is not a resume.
@@ -6919,17 +6907,16 @@ export default function ChatView({
     const currentThreadId = activeThread.id;
     const turnId = activeThread.latestTurn?.turnId;
     if (!turnId || !composerResumeEligible) {
-      setThreadError(currentThreadId, t("chat.composer.resume.refused.unavailable"));
+      setThreadError(currentThreadId, "The latest Codex turn is not resumable.");
       return;
     }
-    // A second press while the first is on its way changes nothing; the button
-    // already shows the pending state.
     if (resumeInFlightTurnIdRef.current !== null) {
+      setThreadError(currentThreadId, "A Resume request is already in flight.");
       return;
     }
     const api = readNativeApi();
     if (!api) {
-      setThreadError(currentThreadId, t("chat.composer.resume.refused.unavailable"));
+      setThreadError(currentThreadId, "Native orchestration is unavailable.");
       return;
     }
     resumeInFlightTurnIdRef.current = turnId;
@@ -6955,16 +6942,13 @@ export default function ChatView({
       if (isCurrentResumeStillInFlight()) {
         setResumeDispatchAccepted(true);
       }
-    } catch (error) {
+    } catch {
       if (isCurrentResumeStillInFlight()) {
         clearResumeInFlight();
       }
-      setThreadError(
-        currentThreadId,
-        t(composerResumeRefusalMessageKey(classifyComposerResumeRefusal(error))),
-      );
+      setThreadError(currentThreadId, "Unable to resume the interrupted turn.");
     }
-  }, [activeThread, clearResumeInFlight, composerResumeEligible, setThreadError, t]);
+  }, [activeThread, clearResumeInFlight, composerResumeEligible, setThreadError]);
   useEffect(() => {
     const pendingTurnId = resumeInFlightTurnIdRef.current;
     const pendingThreadId = resumeInFlightThreadIdRef.current;

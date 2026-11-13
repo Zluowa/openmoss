@@ -70,17 +70,6 @@ describe("ProviderStartupLifecycle", () => {
       "ExitedDuringStartup",
     );
   });
-
-  it("does not report an unproven stop of the previous runtime as a new process exiting", () => {
-    // The message seen when a rotation could not retire the old Codex tree.
-    expect(
-      classifyProviderStartupFailure(
-        new Error(
-          "Provider adapter process error (codex) for thread t: Failed to prove Codex app-server process-tree exit for 't': Provider process tree 44568 did not prove exit (rootExited=false, captureComplete=true; no captured descendants remain).",
-        ),
-      ),
-    ).toBe("PreviousRuntimeNotStopped");
-  });
 });
 
 describe("observeProviderStartup", () => {

@@ -39,13 +39,8 @@ import { APP_DISPLAY_NAME, APP_VERSION } from "../branding";
 import { isBetaFeatureOn } from "../betaFeatures";
 import { DesktopWindowControls } from "../components/DesktopWindowControls";
 import { RunningChatsQuitCoordinator } from "../components/RunningChatsQuitCoordinator";
-import { BackendStartupFailureOverlay } from "../components/BackendStartupFailureView";
-import {
-  UnreadableThreadsNotice,
-  publishUnreadableThreads,
-} from "../components/UnreadableThreadsNotice";
 import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
-import { AuthenticatedAppSnapWelcomeDialog } from "../components/AuthenticatedAppSnapWelcomeDialog";
+import { AppSnapWelcomeDialog } from "../components/AppSnapWelcomeDialog";
 import { GitHubSignInIntroduction } from "../onboarding/GitHubSignInIntroduction";
 import { BetaWelcomeDialog } from "../components/BetaWelcomeDialog";
 import { ErrorReportsPreferenceSync } from "../components/ErrorReportsPreferenceSync";
@@ -181,7 +176,6 @@ import { useComputerEventBridge } from "../hooks/useComputerEventBridge";
 import { useDeviceEventBridge } from "../hooks/useDeviceEventBridge";
 import { useGuestShareEventBridge } from "../hooks/useGuestShareEventBridge";
 import { GuestShareDialogHost } from "../components/chat/guestShare/GuestShareDialogHost";
-import { AccountSignInRequestHost } from "../components/auth/AccountSignInRequestHost";
 import { LaunchRunExitLogDialogHost } from "../components/browser/BrowserDevServerLogsDialog";
 import {
   PROVIDER_AUTH_REFRESH_MIN_INTERVAL_MS,
@@ -323,7 +317,6 @@ function RootRouteView() {
   const desktopChrome = (
     <>
       <RunningChatsQuitCoordinator />
-      <BackendStartupFailureOverlay />
       {desktopWindowControls}
     </>
   );
@@ -368,20 +361,18 @@ function RootRouteView() {
           <DevsReportConfirmDialog />
           <GlobalWorkspaceImportDialog />
           <GuestShareDialogHost />
-          <AccountSignInRequestHost />
           <LaunchRunExitLogDialogHost />
           <GlobalWhatsNewSurface />
           <ErrorReportsPreferenceSync />
-          <UnreadableThreadsNotice />
           <TaskCompletionNotifications />
           <QueuedComposerDrainCoordinator />
           {/* Beta welcome must resolve the first-run gate even while Safari is queued. */}
           <BetaWelcomeDialog />
           <GitHubSignInIntroduction />
           <SafariAccessOnboarding startup>
-            <AuthenticatedAppSnapWelcomeDialog>
+            <AppSnapWelcomeDialog>
               <FeatureTourDialog />
-            </AuthenticatedAppSnapWelcomeDialog>
+            </AppSnapWelcomeDialog>
           </SafariAccessOnboarding>
           <GlobalOnboardingDialog />
           <ProjectImportAnnouncementDialog />
@@ -1550,7 +1541,6 @@ function EventRouter() {
       const promotedDraftThreadIds = collectSubscribedDraftsInShell(snapshot.threads);
       shellSnapshotSequence = snapshot.snapshotSequence;
       syncServerShellSnapshot(snapshot);
-      publishUnreadableThreads(snapshot.unreadableThreads);
       reconcilePromotedDraftsFromShellThreads(snapshot.threads);
       flushShellBuffer(snapshot.snapshotSequence);
       removeOrphanedTerminalsForCurrentState();
@@ -2080,7 +2070,6 @@ function EventRouter() {
         const promotedDraftThreadIds = collectSubscribedDraftsInShell(item.snapshot.threads);
         shellSnapshotSequence = item.snapshot.snapshotSequence;
         syncServerShellSnapshot(item.snapshot);
-        publishUnreadableThreads(item.snapshot.unreadableThreads);
         reconcilePromotedDraftsFromShellThreads(item.snapshot.threads);
         flushShellBuffer(item.snapshot.snapshotSequence);
         removeOrphanedTerminalsForCurrentState();
@@ -2795,7 +2784,6 @@ function DesktopProjectBootstrap() {
         if (!needsRepair) {
           if (!ownsAttempt() || !attempt.complete()) return;
           useStore.getState().syncServerShellSnapshot(snapshot);
-          publishUnreadableThreads(snapshot.unreadableThreads);
           return;
         }
         return api.orchestration.repairState().then((repairedSnapshot) => {

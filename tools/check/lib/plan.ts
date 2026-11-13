@@ -78,22 +78,6 @@ export interface Selection {
   readonly changedPackages: string[];
   /** Packages holding a changed file or a file that imports one, directly or not. */
   readonly affectedPackages: string[];
-  /** Whether the phone app's own lane (`bun run mobile:check`) has to run. */
-  readonly mobile: boolean;
-}
-
-/**
- * The phone app: not a workspace package (root `workspaces` lists `!apps/mobile`; it has its
- * own npm install), so it has its own lane. Its tests read the contracts' source.
- */
-export const MOBILE_DIR = "apps/mobile";
-
-export function touchesMobile(changed: readonly string[], reached: Iterable<string>): boolean {
-  const inApp = (path: string) => path.startsWith(`${MOBILE_DIR}/`);
-  return (
-    changed.some((path) => inApp(path) || path.startsWith("packages/contracts/src/")) ||
-    [...reached].some(inApp)
-  );
 }
 
 export function select(
@@ -111,8 +95,7 @@ export function select(
   }
   // Only code can change a package's types or tests: a README in scripts/ affects nothing.
   const affected = new Set<string>();
-  const reachedFiles = [...reached];
-  for (const file of reachedFiles) {
+  for (const file of reached) {
     const pkg = packageOf(file, packages);
     if (pkg && CODE.test(file)) affected.add(pkg.name);
   }
@@ -128,10 +111,6 @@ export function select(
     ).map(({ script }) => script),
     changedPackages: inOrder(changedPackages),
     affectedPackages: inOrder(affected),
-    mobile: touchesMobile(
-      changed.map((file) => file.path),
-      reachedFiles,
-    ),
   };
 }
 

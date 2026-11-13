@@ -9,7 +9,7 @@ import {
   resolveSpecifier,
   specifiersOf,
 } from "../lib/graph.ts";
-import { groupTests, isRootConfig, select, touchesMobile, unitTestCommand } from "../lib/plan.ts";
+import { groupTests, isRootConfig, select, unitTestCommand } from "../lib/plan.ts";
 import { packageOf, type WorkspacePackage } from "../lib/workspace.ts";
 
 const pkg = (
@@ -87,43 +87,6 @@ function selectFor(changed: string[]) {
     tests: affectedTests(reached),
   };
 }
-
-describe("the phone app's lane", () => {
-  const mobileSources = [
-    ...sources,
-    { path: "apps/mobile/src/moss/apps.ts", text: 'import "@moss/shared/process";' },
-  ];
-  const mobileImporters = reverseGraph(
-    importsOf(mobileSources, resolver, new Set(mobileSources.map((source) => source.path))),
-  );
-  const mobileFor = (changed: string[]) =>
-    select(
-      changed.map((path) => ({ path, exists: true })),
-      packages,
-      {},
-      reach(changed, mobileImporters),
-    );
-
-  it("runs for a change in the app, a file the app imports, or the contracts its tests read", () => {
-    expect(mobileFor(["apps/mobile/src/app/index.tsx"]).mobile).toBe(true);
-    expect(mobileFor(["packages/shared/src/process.ts"]).mobile).toBe(true);
-    expect(mobileFor(["packages/contracts/src/thread.ts"]).mobile).toBe(true);
-    expect(touchesMobile(["apps/mobile/README.md"], [])).toBe(true);
-  });
-
-  it("does not run for a change the app cannot see", () => {
-    expect(mobileFor(["apps/web/src/lib/run.ts"]).mobile).toBe(false);
-    expect(mobileFor(["apps/desktop/src/main.ts"]).mobile).toBe(false);
-  });
-
-  it("is not a package, so its files get no package typecheck or test step", () => {
-    const selection = mobileFor(["apps/mobile/src/app/index.tsx"]);
-    expect(selection.changedPackages).toEqual([]);
-    expect(selection.affectedPackages).toEqual([]);
-    expect(selection.format).toEqual(["apps/mobile/src/app/index.tsx"]);
-    expect(selection.lint).toEqual(["apps/mobile/src/app/index.tsx"]);
-  });
-});
 
 describe("file to package", () => {
   it("maps a file to the package whose folder holds it, longest folder first", () => {

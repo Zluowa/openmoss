@@ -289,7 +289,7 @@ function gatewayCredentials() {
     revokeSessionToken: vi.fn((_token: string) => undefined),
     connectionForThread: vi.fn(() => ({
       url: "http://127.0.0.1:3773/mcp",
-      bearerToken: `pi-test-bearer-${++sequence}`,
+      bearerToken: `lease-${++sequence}`,
     })),
     stdioProxy: { command: process.execPath, args: [] },
   } satisfies AgentGatewayCredentialsShape;
@@ -674,9 +674,7 @@ describe("PiAdapter Moss gateway tools", () => {
           expect.objectContaining({ name: "moss_list_threads" }),
         ]);
         // No bearer ever reaches Pi's environment.
-        // A token prefix no path, branch or CI variable carries: the whole inherited
-        // environment is checked, and "lease-" matched "release-…" branch names.
-        expect(JSON.stringify(fake.env)).not.toContain("pi-test-bearer-");
+        expect(JSON.stringify(fake.env)).not.toContain("lease-");
 
         fake.send({
           type: "extension_ui_request",
@@ -693,7 +691,7 @@ describe("PiAdapter Moss gateway tools", () => {
         await waitFor(() => expect(fake.uiResponses).toHaveLength(1));
         expect(JSON.parse(String(fake.uiResponses[0]!.value))).toMatchObject({
           ok: true,
-          content: [{ type: "text", text: "called with Bearer pi-test-bearer-1" }],
+          content: [{ type: "text", text: "called with Bearer lease-1" }],
         });
         // A forged title never reaches the person or the gateway.
         fake.send({
@@ -710,10 +708,10 @@ describe("PiAdapter Moss gateway tools", () => {
         const turn = await send();
         await waitFor(() => expect(completions(events)).toHaveLength(1));
         expect(credentials.retireSessionTurn).toHaveBeenCalledExactlyOnceWith(
-          "pi-test-bearer-1",
+          "lease-1",
           turn.turnId,
         );
-        expect(credentials.revokeSessionToken).toHaveBeenCalledWith("pi-test-bearer-1");
+        expect(credentials.revokeSessionToken).toHaveBeenCalledWith("lease-1");
         expect(credentials.connectionForThread).toHaveBeenCalledTimes(2);
 
         fake.send({
@@ -729,7 +727,7 @@ describe("PiAdapter Moss gateway tools", () => {
           }),
         });
         await waitFor(() => expect(fake.uiResponses).toHaveLength(3));
-        expect(String(fake.uiResponses[2]!.value)).toContain("Bearer pi-test-bearer-2");
+        expect(String(fake.uiResponses[2]!.value)).toContain("Bearer lease-2");
       },
       { credentials },
     );

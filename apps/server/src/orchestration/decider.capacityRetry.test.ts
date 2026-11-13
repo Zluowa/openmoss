@@ -5,12 +5,14 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@moss/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { decideOrchestrationCommand } from "./decider.ts";
+import { projectEvent } from "./projector.ts";
 
 const NOW = "2026-08-29T00:00:00.000Z";
 const FAILED_AT = "2026-08-29T00:00:10.000Z";
@@ -110,20 +112,116 @@ function capacityCommand(overrides: Record<string, unknown> = {}) {
 }
 
 describe("capacity retry decider", () => {
-  // No provider handler runs a capacity retry any more, so accepting one would leave
-  // the chat "starting" forever. Even the exact case it was built for is refused.
-  it("refuses even a current typed Codex overload, pointing at resume", async () => {
+  it("accepts only the current typed Codex overload and emits a minimal event", async () => {
+    const event = await Effect.runPromise(
+      decideOrchestrationCommand({ command: capacityCommand(), readModel: makeReadModel() }),
+    );
+    expect(event).toMatchObject({
+      type: "thread.turn-capacity-retry-requested",
+      payload: {
+        threadId: THREAD_ID,
+        turnId: TURN_ID,
+        trigger: "capacity_retry_manual",
+        createdAt: FAILED_AT,
+      },
+    });
+    expect(Object.keys((event as Omit<OrchestrationEvent, "sequence">).payload)).toEqual([
+      "threadId",
+      "turnId",
+      "trigger",
+      "createdAt",
+    ]);
+  });
+
+  const rejectionCases: ReadonlyArray<
+    readonly [string, Partial<OrchestrationReadModel["threads"][number]>]
+  > = [
+    [
+      "stale turn",
+      { latestTurn: { ...makeThread().latestTurn!, turnId: TurnId.makeUnsafe("turn-old") } },
+    ],
+    [
+      "usage limit",
+      {
+        activities: [
+          {
+            ...makeThread().activities[0]!,
+            payload: { state: "failed", errorInfo: "usageLimitExceeded" },
+          },
+        ],
+      },
+    ],
+    [
+      "generic error",
+      {
+        activities: [
+          { ...makeThread().activities[0]!, payload: { state: "failed", errorInfo: "other" } },
+        ],
+      },
+    ],
+    ["non-Codex provider", { session: { ...makeThread().session!, providerName: "claudeAgent" } }],
+    ["starting session", { session: { ...makeThread().session!, status: "starting" } }],
+    ["running session", { session: { ...makeThread().session!, status: "running" } }],
+    ["archived thread", { archivedAt: FAILED_AT }],
+    ["deleted thread", { deletedAt: FAILED_AT }],
+    ["child thread", { parentThreadId: ThreadId.makeUnsafe("thread-parent") }],
+    [
+      "routed provider thread",
+      { session: { ...makeThread().session!, threadId: ThreadId.makeUnsafe("provider-child") } },
+    ],
+    ["unbound queued user message", { messages: [{ ...makeThread().messages[0]!, turnId: null }] }],
+  ];
+
+  it.each(rejectionCases)("rejects %s", async (_label, overrides) => {
     await expect(
       Effect.runPromise(
-        Effect.flip(
-          decideOrchestrationCommand({ command: capacityCommand(), readModel: makeReadModel() }),
-        ),
+        decideOrchestrationCommand({
+          command: capacityCommand(),
+          readModel: makeReadModel(makeThread(overrides)),
+        }),
       ),
-    ).resolves.toMatchObject({
-      _tag: "OrchestrationCommandInvariantError",
-      commandType: "thread.turn.capacity-retry",
-      detail:
-        "'thread.turn.capacity-retry' is no longer supported: no provider handler runs it. Use 'thread.turn.resume' or send a message.",
+    ).rejects.toThrow();
+  });
+
+  it("rejects a newer terminal error even when an older overload row exists", async () => {
+    const thread = makeThread({
+      activities: [
+        makeThread().activities[0]!,
+        {
+          ...makeThread().activities[0]!,
+          id: EventId.makeUnsafe("activity-capacity-newer"),
+          sequence: 3,
+          payload: { state: "failed", errorInfo: "other" },
+        },
+      ],
     });
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: capacityCommand(),
+          readModel: makeReadModel(thread),
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects the duplicate after the accepted intent projects starting", async () => {
+    const first = await Effect.runPromise(
+      decideOrchestrationCommand({ command: capacityCommand(), readModel: makeReadModel() }),
+    );
+    const projected = await Effect.runPromise(
+      projectEvent(makeReadModel(), {
+        ...(first as Omit<OrchestrationEvent, "sequence">),
+        sequence: 3,
+      } as OrchestrationEvent),
+    );
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: capacityCommand({ commandId: CommandId.makeUnsafe("command-capacity-2") }),
+          readModel: projected,
+        }),
+      ),
+    ).rejects.toThrow();
   });
 });

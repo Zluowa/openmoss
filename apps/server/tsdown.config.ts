@@ -36,8 +36,18 @@ const shared = {
   },
   noExternal: (id) => id.startsWith("@moss/"),
   inlineOnly: false,
-  // Keep upstream notices beside bundled code, once in its owning chunk.
-  outputOptions: { legalComments: "inline" },
+  outputOptions: {
+    // Keep upstream notices beside bundled code, once in its owning chunk.
+    legalComments: "inline",
+    // The bundler's helpers (__exportAll, __commonJSMin, …) get a chunk of their own that
+    // imports nothing. Left to itself the bundler may put them in index.mjs, and a chunk that
+    // index.mjs loads first then reads them before index.mjs has defined them ("__exportAll is
+    // not a function" at start). Bundled CommonJS packages, such as the 电子表格 formula
+    // parser, make that happen.
+    codeSplitting: {
+      groups: [{ name: "rolldown-runtime", test: /rolldown[\\/]runtime/u }],
+    },
+  },
   banner: {
     js: "#!/usr/bin/env node\n",
   },

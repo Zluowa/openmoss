@@ -53,20 +53,6 @@ export const removeLocalStorageItem = (key: string) => {
   isomorphicLocalStorage.removeItem(key);
 };
 
-/**
- * Asks the desktop shell to write pending localStorage to disk now. Call it after a write
- * that must survive a crash or a kill right afterwards (a one-time acknowledgement):
- * Chromium otherwise commits a few seconds later. A no-op in a plain browser.
- */
-export function flushLocalStorageToDisk(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.desktopBridge?.flushStorage?.();
-  } catch {
-    // Persisting early is best effort; the regular commit still follows.
-  }
-}
-
 const LOCAL_STORAGE_CHANGE_EVENT = "moss:local_storage_change";
 
 interface LocalStorageChangeDetail {

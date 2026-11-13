@@ -32,7 +32,6 @@ import {
   type OrchestrationSettleTurnDispatchResult,
   DEVICE_WS_CHANNELS,
   DEVICE_WS_METHODS,
-  ACCOUNT_SIGN_IN_WS_METHODS,
   GUEST_SHARE_WS_METHODS,
   COMPUTER_WS_CHANNELS,
   COMPUTER_WS_METHODS,
@@ -65,7 +64,6 @@ import {
   type ProjectAgentStreamEvent,
   type ProjectDevServerEvent,
   type GuestShareOwnerEvent,
-  type AuthAccountPendingRequests,
   type RealtimeVoiceEvent,
   type ProjectFileChangeEvent,
   type ProjectWatchFileInput,
@@ -1042,9 +1040,6 @@ export class WsTransport {
   >();
   private readonly realtimeVoiceListeners = new Set<(event: RealtimeVoiceEvent) => void>();
   private readonly guestShareListeners = new Set<(event: GuestShareOwnerEvent) => void>();
-  private readonly accountSignInListeners = new Set<
-    (requests: AuthAccountPendingRequests) => void
-  >();
   private readonly projectFileSubscriptions = new Map<string, ProjectFileChangeSubscription>();
   private readonly projectAgentSubscriptions = new Map<string, unknown>();
   private compatibility: WsBootstrapNegotiateResult | null = null;
@@ -1538,30 +1533,6 @@ export class WsTransport {
     };
   }
 
-  /**
-   * Phones waiting for the person at this computer (account sign-in). The server admits
-   * only the local owner; one stream per connection, replayed after a reconnect.
-   */
-  subscribeAccountSignInRequests(
-    listener: (requests: AuthAccountPendingRequests) => void,
-  ): () => void {
-    const shouldStart = this.accountSignInListeners.size === 0;
-    this.accountSignInListeners.add(listener);
-    if (shouldStart) {
-      void this.getClient()
-        .then((client) => this.startAccountSignInStream(client))
-        .catch((error) => {
-          if (!this.disposed && this.accountSignInListeners.size > 0) {
-            console.warn("WebSocket RPC account sign-in stream failed to start", error);
-          }
-        });
-    }
-    return () => {
-      this.accountSignInListeners.delete(listener);
-      if (this.accountSignInListeners.size === 0) void this.stopStream("auth.accountSignIn");
-    };
-  }
-
   onStateChange(
     listener: (state: WsTransportState) => void,
     options?: { readonly replayCurrent?: boolean },
@@ -1659,7 +1630,6 @@ export class WsTransport {
     this.normalizedSessionSubscriptions.clear();
     this.realtimeVoiceListeners.clear();
     this.guestShareListeners.clear();
-    this.accountSignInListeners.clear();
     this.listeners.clear();
     this.latestPushByChannel.clear();
     this.resetAllStreamCapacityRetries();
@@ -2101,9 +2071,6 @@ export class WsTransport {
         if (this.guestShareListeners.size > 0) {
           this.startGuestShareStream(client);
         }
-        if (this.accountSignInListeners.size > 0) {
-          this.startAccountSignInStream(client);
-        }
         for (const [key, subscription] of this.projectFileSubscriptions) {
           this.startProjectFileChangeStream(client, key, subscription);
         }
@@ -2534,34 +2501,6 @@ export class WsTransport {
             listener(event);
           } catch {
             // One surface must not break the window-wide guest share stream.
-          }
-        }
-      },
-      restart,
-    );
-  }
-
-  private startAccountSignInStream(client: RpcClientInstance): void {
-    const restart = () => {
-      if (this.disposed || this.accountSignInListeners.size === 0) return;
-      void this.getClient()
-        .then((nextClient) => this.startAccountSignInStream(nextClient))
-        .catch((error) => {
-          if (!this.disposed) {
-            console.warn("WebSocket RPC account sign-in stream failed to restart", error);
-          }
-        });
-    };
-    this.startStream(
-      client,
-      "auth.accountSignIn",
-      client[ACCOUNT_SIGN_IN_WS_METHODS.subscribe]({}),
-      (requests: AuthAccountPendingRequests) => {
-        for (const listener of this.accountSignInListeners) {
-          try {
-            listener(requests);
-          } catch {
-            // One surface must not break the window-wide confirmation stream.
           }
         }
       },

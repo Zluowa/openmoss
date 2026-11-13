@@ -215,22 +215,6 @@ export function MarkupCanvas(props: {
   );
 }
 
-/**
- * The canvas as a PNG. Chromium encodes it in an idle period. Right after the page has
- * painted (a mark, a click) and then gone still, it can get none until another frame, so the
- * encode waits for Chromium's 1 s fallback timer. Asking for one frame lets it start at once.
- * A hidden window runs no frames and keeps the fallback.
- */
-function encodePng(canvas: HTMLCanvasElement): Promise<Blob | null> {
-  return new Promise((resolve) => {
-    const frame = requestAnimationFrame(() => {});
-    canvas.toBlob((blob) => {
-      cancelAnimationFrame(frame);
-      resolve(blob);
-    }, "image/png");
-  });
-}
-
 /** Paints marks over the image at the image's own pixel scale, as a PNG. */
 export async function composeMarkupPng(input: {
   /** The image the marks were drawn on (any type the browser decodes). */
@@ -253,7 +237,7 @@ export async function composeMarkupPng(input: {
       MARKUP_PAINT_STYLE,
       input.drawnWidth > 0 ? bitmap.width / input.drawnWidth : 1,
     );
-    const blob = await encodePng(canvas);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
     if (!blob) throw new Error("The marked image could not be prepared.");
     return blob;
   } finally {
