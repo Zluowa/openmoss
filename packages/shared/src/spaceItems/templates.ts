@@ -1,16 +1,18 @@
 // FILE: templates.ts
-// Purpose: Built-in 从模板开始 templates for every creatable kind (page, slides, sheet, app),
+// Purpose: Built-in 从模板开始 templates for every creatable kind (page, slides, sheet, app, design),
 //          and the shape both built-in and personal templates share.
 // Layer: Shared model (web gallery lists them; server instantiates them, including for agents)
 
 import { KPI_DASHBOARD_HTML, POLL_SIGNUP_HTML, TRACKER_HTML } from "./appTemplateHtml";
+import { SALES_DASHBOARD } from "./dashboardTemplates";
 import type { AppItem } from "./itemData";
 import type { SheetCell, SheetWorkbook } from "./sheetWorkbook";
 import { DECK_TEMPLATES, deckTemplateData } from "./deckTemplates";
+import { DESIGN_TEMPLATES, designTemplateData } from "./designTemplates";
 
-export const TEMPLATE_KINDS = ["page", "slides", "sheet", "app"] as const;
+export const TEMPLATE_KINDS = ["page", "slides", "sheet", "app", "design"] as const;
 export type TemplateKind = (typeof TEMPLATE_KINDS)[number];
-export const TEMPLATE_CATEGORIES = ["工作", "规划", "数据", "仪表盘", "活动"] as const;
+export const TEMPLATE_CATEGORIES = ["工作", "规划", "数据", "仪表盘", "活动", "设计"] as const;
 export type TemplateCategory = (typeof TEMPLATE_CATEGORIES)[number];
 
 export interface SpaceTemplateDefinition {
@@ -142,6 +144,14 @@ export const BUILT_IN_TEMPLATES: readonly SpaceTemplateDefinition[] = [
     ),
   },
   {
+    id: "builtin:sales-dashboard",
+    kind: "app",
+    title: "销售看板",
+    description: "数据看板：指标、趋势图、区域筛选和明细，数字都能查到来源",
+    category: "仪表盘",
+    data: SALES_DASHBOARD,
+  },
+  {
     id: "builtin:kpi-dashboard",
     kind: "app",
     title: "KPI 仪表盘",
@@ -165,6 +175,16 @@ export const BUILT_IN_TEMPLATES: readonly SpaceTemplateDefinition[] = [
     category: "活动",
     data: app(POLL_SIGNUP_HTML, ["db", "user"]),
   },
+  ...DESIGN_TEMPLATES.map(
+    (template): SpaceTemplateDefinition => ({
+      id: template.id,
+      kind: "design",
+      title: template.title,
+      description: template.description,
+      category: "设计",
+      data: designTemplateData(template),
+    }),
+  ),
 ];
 
 export const findBuiltInTemplate = (id: string) =>

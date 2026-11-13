@@ -34,7 +34,7 @@ it.layer(NodeSqliteClient.layerMemory())("published Mossbot 161 upgrade", (it) =
         const messages = yield* sql`SELECT * FROM projection_thread_messages`;
         const plan = yield* inspectMigrationBackupPlan;
         assert.equal(plan?.sourceClassification, "mossbot-161-prefix");
-        assert.equal(plan?.targetVersion, 167);
+        assert.equal(plan?.targetVersion, 169);
         const unauthorized = yield* Effect.flip(runMigrations());
         assert.instanceOf(unauthorized, MigrationBackupRequiredError);
         assert.deepStrictEqual(
@@ -46,7 +46,7 @@ it.layer(NodeSqliteClient.layerMemory())("published Mossbot 161 upgrade", (it) =
         );
         assert.deepStrictEqual(
           executed.map(([id]) => id),
-          [161, 162, 163, 164, 165, 166, 167],
+          [161, 162, 163, 164, 165, 166, 167, 168, 169],
         );
         assert.deepStrictEqual(yield* sql`SELECT * FROM project_agent_configs`, before);
         const afterMessages =

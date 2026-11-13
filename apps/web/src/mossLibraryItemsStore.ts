@@ -14,6 +14,7 @@ import type {
 } from "@moss/contracts";
 
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
+import { uploadLibraryFiles, type LibraryUploadFile } from "~/lib/libraryUpload";
 import { readNativeApi } from "~/nativeApi";
 import { readWsServerCapabilities } from "~/wsNativeApi";
 
@@ -73,9 +74,8 @@ interface MossLibraryItemsStoreState {
   createFolderOnServer: (title: string) => Promise<MossLibraryItem | null>;
   renameFolderOnServer: (id: string, title: string) => Promise<boolean>;
   deleteFolderOnServer: (id: string) => Promise<boolean>;
-  importFileBlobs: (
-    files: readonly { name: string; mimeType?: string; dataBase64: string }[],
-  ) => Promise<MossLibraryImportResult>;
+  /** Puts files into the 资料库 as raw bytes over HTTP (no 2 MiB WebSocket cap). */
+  importFileBlobs: (files: readonly LibraryUploadFile[]) => Promise<MossLibraryImportResult>;
   /** Lazily resolve a servable thumbnail URL for an image item with a path. */
   ensureThumbnail: (item: MossLibraryItem) => void;
   /** Legacy compat shims (local/test mode and demo fixtures). */
@@ -323,13 +323,7 @@ export const useMossLibraryItemsStore = create<MossLibraryItemsStoreState>()((se
       const api = readNativeApi();
       if (!api || !libraryServerAvailable()) throw new Error("资料库连接尚未就绪，请稍后重试。");
       const version = accountVersion;
-      const result = await api.library.importFiles({
-        files: files.map((file) => ({
-          name: file.name,
-          dataBase64: file.dataBase64,
-          ...(file.mimeType ? { mimeType: file.mimeType } : {}),
-        })),
-      });
+      const result = await uploadLibraryFiles(files);
       if (version !== accountVersion) throw new DOMException("账号已切换。", "AbortError");
       await get().refresh();
       if (version !== accountVersion) throw new DOMException("账号已切换。", "AbortError");

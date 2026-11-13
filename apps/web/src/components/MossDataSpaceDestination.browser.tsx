@@ -21,6 +21,7 @@ import { readMossImagesAccountIdentity } from "~/lib/mossImagesAccountBoundary";
 import { isMacNavigatorPlatform } from "~/lib/utils";
 import { mossServerQueryKeys } from "./auth/mossServerReactQuery";
 import { useStore } from "~/store";
+import { usePageCommentsStore } from "~/pageCommentsStore";
 import { initialState } from "~/storeState";
 import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
 
@@ -31,7 +32,7 @@ let previousApi: NativeApi | undefined;
 function account(id: string) {
   client.setQueryData(mossServerQueryKeys.mossAccountSession(), {
     authenticated: true,
-    session: { user: { id } },
+    session: { user: { id, phoneNumber: "+8613800000000", displayName: null } },
     activeRealm: "cn",
   });
 }
@@ -85,6 +86,9 @@ async function openPage(title = "Research page") {
     .element(page.getByText("页面编辑器尚未连接，请重试。已保存内容仍然保留。", { exact: true }))
     .not.toBeInTheDocument();
 }
+
+/** Where the document-tool checks save screenshots for a PR, when a folder is given. */
+const SHOTS = import.meta.env.VITE_MOSS_PAGE_EDITOR_SHOTS as string | undefined;
 
 const editorFrame = () => page.frameLocator(page.getByTitle("页面富文本编辑器", { exact: true }));
 const hostTitle = () => page.getByRole("textbox", { name: "页面标题", exact: true });
@@ -659,5 +663,119 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
             localStorage.getItem(key!)?.includes('"pending":{'),
         ),
     ).toBe(true);
+  });
+
+  // ── Document tools (docs/design/docs-claude-teardown.md) ──────────────────────────────────
+  const shot = async (name: string) => {
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }).catch(() => undefined);
+  };
+
+  it("draws the 资料空间 shell in light and dark (layout evidence for the PR)", async () => {
+    const variant =
+      (import.meta.env.VITE_MOSS_PAGE_EDITOR_SHOTS_VARIANT as string | undefined) ?? "branch";
+    fixture.put(pageDocument("page-one", "Research page", "Saved page content"));
+    for (const theme of ["light", "dark"] as const) {
+      localStorage.setItem("moss:theme", theme);
+      await mount();
+      await shot(`shell-home-${theme}-${variant}`);
+      await openPage();
+      await shot(`shell-page-${theme}-${variant}`);
+      await cleanup();
+    }
+  });
+
+  it("offers starting layouts on an empty page, previews one and fills it in", async () => {
+    fixture.put(pageDocument("empty-page", "空白页", ""));
+    await mount();
+    await openPage("空白页");
+    const row = editorFrame().getByRole("toolbar", { name: "从版式开始", exact: true });
+    await expect.element(row).toBeVisible();
+    await row.getByRole("button", { name: "项目计划", exact: true }).hover();
+    await expect.element(editorFrame().getByTestId("page-layout-preview")).toBeVisible();
+    await shot("docs-layout-preview-light");
+    await row.getByRole("button", { name: "项目计划", exact: true }).click();
+    await expect
+      .element(editorFrame().getByRole("heading", { name: "时间线", exact: true }))
+      .toBeVisible();
+    await expect.element(editorFrame().getByText("里程碑", { exact: true })).toBeVisible();
+    await expect.element(row).not.toBeInTheDocument();
+    await shot("docs-layout-applied-light");
+  });
+
+  it("finds and replaces words in the page with Ctrl+H", async () => {
+    fixture.put(pageDocument("page-one", "Research page", "Saved page content and more content"));
+    await mount();
+    await openPage();
+    await editorFrame().getByText("Saved page content and more content").click();
+    await userEvent.keyboard("{Control>}h{/Control}");
+    const bar = editorFrame().getByRole("search", { name: "查找和替换", exact: true });
+    await expect.element(bar).toBeVisible();
+    await bar.getByRole("textbox", { name: "在页面中查找", exact: true }).fill("content");
+    await expect.element(bar.getByTestId("page-find-count")).toHaveTextContent("1/2");
+    await bar.getByRole("textbox", { name: "替换为", exact: true }).fill("notes");
+    await shot("docs-find-replace-light");
+    await bar.getByRole("button", { name: "全部替换", exact: true }).click();
+    await expect.element(editorFrame().getByText("Saved page notes and more notes")).toBeVisible();
+    await expect.element(bar.getByTestId("page-find-outcome")).toHaveTextContent("已替换 2 处");
+  });
+
+  it("comments on selected words, keeps the thread and lists it in 评论", async () => {
+    localStorage.setItem("moss:theme", "dark");
+    fixture.put(pageDocument("page-one", "Research page", "Saved page content"));
+    await mount();
+    await openPage();
+    await editorFrame().getByText("Saved page content").click({ clickCount: 3 });
+    await editorFrame()
+      .getByTestId("page-floating-toolbar")
+      .getByRole("button", { name: "评论", exact: true })
+      .click();
+    const input = editorFrame().getByTestId("page-comment-new").getByRole("textbox");
+    await input.fill("这句要写得更具体");
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() =>
+      expect(usePageCommentsStore.getState().commentsByPage["doc:page-one"]).toEqual([
+        expect.objectContaining({
+          body: "这句要写得更具体",
+          anchor: expect.objectContaining({ text: "Saved page content" }),
+        }),
+      ]),
+    );
+    // The thread is kept with the page, not only in this window.
+    await vi.waitFor(() =>
+      expect(fixture.textComments.get(PageId.makeUnsafe("page-one"))?.size).toBe(1),
+    );
+    await expect.element(editorFrame().getByTestId("page-comment-thread")).toBeVisible();
+    await shot("docs-comment-thread-dark");
+    await page
+      .getByRole("toolbar", { name: "页面工具栏", exact: true })
+      .getByRole("button", { name: "评论", exact: true })
+      .click();
+    const panel = page.getByRole("region", { name: "文字评论", exact: true });
+    await panel.getByRole("tab", { name: "全部", exact: true }).click();
+    await expect.element(panel.getByText("这句要写得更具体")).toBeVisible();
+    await shot("docs-comments-panel-dark");
+  });
+
+  it("widens the page from the title menu and opens the keyboard shortcuts", async () => {
+    fixture.put(pageDocument("page-one", "Research page", "Saved page content"));
+    await mount();
+    await openPage();
+    await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+    await page.getByRole("menuitem", { name: "页面宽度", exact: true }).hover();
+    await page.getByRole("menuitemradio", { name: "宽页面", exact: true }).click();
+    await vi.waitFor(() =>
+      expect(fixture.mutate.mock.calls.at(-1)?.[0]).toMatchObject({
+        op: "page-appearance",
+        docStyle: { width: "wide", headingFont: "sans", textFont: "sans" },
+      }),
+    );
+    expect(fixture.documents().get(PageId.makeUnsafe("page-one"))?.page.docStyle).toMatchObject({
+      width: "wide",
+    });
+    await shot("docs-wide-page-light");
+    await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+    await page.getByRole("menuitem", { name: "键盘快捷键", exact: true }).click();
+    await expect.element(page.getByRole("dialog", { name: "键盘快捷键" })).toBeVisible();
+    await expect.element(page.getByText("查找和替换", { exact: true })).toBeVisible();
   });
 });

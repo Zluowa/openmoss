@@ -294,8 +294,22 @@ export function makeServerRuntimeServicesLayer(
   // One instance for the gateway tool that asks and the secretRequest.answer RPC that answers.
   const secretRequestsLayer = SecretRequestsLive.pipe(Layer.provide(runtimeServicesLayer));
   const libraryServiceLayer = LibraryServiceLive.pipe(Layer.provideMerge(LibraryRepositoryLive));
+  // Connectors publish their proxies into the same credential registry the
+  // provider adapters read, so new sessions pick them up.
+  const mcpConnectorsLayer = McpConnectorsLive.pipe(
+    Layer.provideMerge(ServerSecretStoreLive),
+    Layer.provideMerge(agentGatewayCredentialsLayer),
+    // Mainland China presets are gated on a signed-in phone account.
+    Layer.provide(mossPhoneAccountLayer),
+  );
   // Typed items save through the realtime-wrapped PagesService, so open viewers see them.
-  const pagesServiceLayer = PageTypesServiceLive.pipe(Layer.provideMerge(PagesRealtimeLive));
+  // 数据看板 live queries use the same connector proxy as 应用页.
+  const pagesServiceLayer = PageTypesServiceLive.pipe(
+    Layer.provideMerge(PagesRealtimeLive),
+    Layer.provide(mcpConnectorsLayer),
+    // Large 数据看板 files are kept in the 资料库.
+    Layer.provide(libraryServiceLayer),
+  );
   const pageDraftsServiceLayer = PageDraftsServiceLive.pipe(Layer.provideMerge(pagesServiceLayer));
   const realtimeVoiceLayer = RealtimeVoiceServiceLive.pipe(
     Layer.provide(mossCloudAccountLayer),
@@ -332,14 +346,6 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(AgentGatewayOperationRepositoryLive),
     Layer.provideMerge(serverSettingsLayer),
     Layer.provideMerge(providerHealthLayer),
-  );
-  // Connectors publish their proxies into the same credential registry the
-  // provider adapters read, so new sessions pick them up.
-  const mcpConnectorsLayer = McpConnectorsLive.pipe(
-    Layer.provideMerge(ServerSecretStoreLive),
-    Layer.provideMerge(agentGatewayCredentialsLayer),
-    // Mainland China presets are gated on a signed-in phone account.
-    Layer.provide(mossPhoneAccountLayer),
   );
   const pageAppsServiceLayer = PageAppsServiceLive.pipe(
     Layer.provide(mossEnterpriseKeyLayer),

@@ -84,7 +84,16 @@ beforeAll(async () => {
 });
 
 it("upgrades actual 164 artifacts byte-for-byte, creates five empty stores, and reopens with one tracker entry", async () => {
-  expect(legacyContents(migrated)).toEqual(legacyContents(template));
+  // Later migrations may add columns (169 adds pages_documents.doc_style); the 164 data itself
+  // must come through unchanged.
+  const before = legacyContents(template);
+  const after = legacyContents(migrated).map((rows, table) =>
+    rows.map((row, index) => {
+      const keys = Object.keys(before[table]?.[index] ?? (row as object));
+      return Object.fromEntries(keys.map((key) => [key, (row as Record<string, unknown>)[key]]));
+    }),
+  );
+  expect(after).toEqual(before);
   expect(await start(migrated)).toEqual([{ migration_id: 165, name: "PageRoomPrivateStores" }]);
   const sql = db(migrated);
   try {

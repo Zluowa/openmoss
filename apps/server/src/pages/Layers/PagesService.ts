@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   Page,
   PageComment,
+  PageDocStyle,
   PageId,
   PageSpace,
   PageSpaceId,
@@ -15,6 +16,9 @@ import {
   PagesOutputsInput,
   PagesReadInput,
   PagesScopeInput,
+  PagesTextCommentMutateInput,
+  PagesTextCommentsInput,
+  PageTextComment,
   PagesVersionsInput,
   SPACE_TRASH_RETENTION_DAYS,
   type SpaceId,
@@ -49,6 +53,7 @@ type DocumentRow = {
   title: string;
   icon: string | null;
   cover: string | null;
+  doc_style?: string | null;
   revision: number;
   pinned: number;
   trashed_at: string | null;
@@ -103,6 +108,15 @@ const decode = <S extends Schema.Top & { readonly DecodingServices: never }>(
         cause,
       }),
   });
+/** A stored doc style that no longer decodes is treated as none, never as a broken page. */
+const parseDocStyle = (raw: string): unknown => {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Schema.is(PageDocStyle)(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
 const pageFromRow = (row: DocumentRow) =>
   Schema.decodeUnknownSync(Page)({
     id: row.page_id,
@@ -114,6 +128,7 @@ const pageFromRow = (row: DocumentRow) =>
     title: row.title,
     ...(row.icon == null ? {} : { icon: row.icon }),
     ...(row.cover == null ? {} : { cover: row.cover }),
+    ...(row.doc_style == null ? {} : { docStyle: parseDocStyle(row.doc_style) }),
     revision: row.revision,
     pinned: row.pinned !== 0,
     trashedAt: row.trashed_at,
@@ -401,6 +416,7 @@ export const makePagesServiceShape = (
         const key = scopeKey(scope);
         for (const id of ids) {
           yield* sql`DELETE FROM pages_comments WHERE page_id = ${id}`;
+          yield* sql`DELETE FROM pages_text_comments WHERE page_id = ${id}`;
           yield* sql`DELETE FROM pages_versions WHERE page_id = ${id}`;
           yield* sql`DELETE FROM pages_spaces WHERE root_page_id = ${id} AND scope_key = ${key}`;
           yield* sql`DELETE FROM pages_documents WHERE page_id = ${id} AND scope_key = ${key}`;
@@ -509,6 +525,50 @@ export const makePagesServiceShape = (
               }),
             ),
           };
+        }),
+      );
+    const textComments: PagesServiceShape["textComments"] = (raw, principal) =>
+      protect(
+        Effect.gen(function* () {
+          const input = yield* decode(PagesTextCommentsInput, raw);
+          yield* authorize(input.scopeSpaceId, principal);
+          yield* document(input.pageId, input.scopeSpaceId);
+          const rows = yield* sql<{
+            comment_id: string;
+            page_id: string;
+            thread_json: string;
+            updated_at: string;
+          }>`SELECT comment_id, page_id, thread_json, updated_at FROM pages_text_comments
+            WHERE page_id = ${input.pageId} ORDER BY updated_at, comment_id`;
+          return {
+            comments: rows.map((row) =>
+              Schema.decodeUnknownSync(PageTextComment)({
+                id: row.comment_id,
+                pageId: row.page_id,
+                thread: row.thread_json,
+                updatedAt: row.updated_at,
+              }),
+            ),
+          };
+        }),
+      );
+    const textCommentMutate: PagesServiceShape["textCommentMutate"] = (raw, principal) =>
+      protect(
+        Effect.gen(function* () {
+          const input = yield* decode(PagesTextCommentMutateInput, raw);
+          yield* authorize(input.scopeSpaceId, principal);
+          yield* document(input.pageId, input.scopeSpaceId);
+          if (input.op === "delete") {
+            yield* sql`DELETE FROM pages_text_comments
+              WHERE page_id = ${input.pageId} AND comment_id = ${input.commentId}`;
+            return { ok: true };
+          }
+          const timestamp = now();
+          yield* sql`INSERT INTO pages_text_comments (comment_id, page_id, thread_json, updated_at)
+            VALUES (${input.commentId}, ${input.pageId}, ${input.thread}, ${timestamp})
+            ON CONFLICT (page_id, comment_id) DO UPDATE SET thread_json = excluded.thread_json,
+              updated_at = excluded.updated_at`;
+          return { ok: true };
         }),
       );
     const mutate: PagesServiceShape["mutate"] = (raw, principal) =>
@@ -789,6 +849,7 @@ export const makePagesServiceShape = (
                         ...next,
                         ...(input.icon === undefined ? {} : { icon: input.icon }),
                         ...(input.cover === undefined ? {} : { cover: input.cover }),
+                        ...(input.docStyle === undefined ? {} : { docStyle: input.docStyle }),
                       };
                     } else if (input.op === "restore-version") {
                       const old = yield* version(original.id, input.revision);
@@ -951,6 +1012,8 @@ export const makePagesServiceShape = (
       versions,
       comments,
       mutate,
+      textComments,
+      textCommentMutate,
       outputs,
       outputState,
     } satisfies PagesServiceShape;

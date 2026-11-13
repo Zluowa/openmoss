@@ -14,6 +14,7 @@ import { parsePageRichContent } from "@moss/shared/pageRichContent";
 
 import type { PageDraftsServiceShape } from "../pages/drafts/Services/PageDraftsService";
 import { PagesServiceError, type PagesServiceShape } from "../pages/Services/PagesService";
+import { pageBlockOutline } from "./pageTextEdits";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol";
 import { errorText, ToolInputError } from "./toolInput";
 import { READ_ONLY_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime";
@@ -220,6 +221,43 @@ export function makePageTools({
       { pageId: { type: "string" }, revision: { type: "integer", minimum: 1 } },
       ["pageId"],
       readWithInstructions,
+    ),
+    readTool(
+      "moss_pages_outline",
+      "Read a page as a short outline: one line per top-level block with its id, type and first 120 characters (plus revision and assistantInstructions). Cheaper than moss_pages_read when you only need block ids to anchor moss_pages_draft ops, or to see where things are. A `moss_tab` block starts a tab of the page (text = the tab title, tabLevel 1 = a sub-tab); the blocks after it, up to the next `moss_tab`, are that tab's content.",
+      PagesReadInput,
+      { pageId: { type: "string" }, revision: { type: "integer", minimum: 1 } },
+      ["pageId"],
+      (input, principal) =>
+        readWithInstructions(input, principal).pipe(
+          Effect.map((result) => {
+            let blocks: ReturnType<typeof pageBlockOutline> = [];
+            try {
+              blocks = result.richContent
+                ? pageBlockOutline(parsePageRichContent(result.richContent).nodes)
+                : result.content
+                    .split(/\n{2,}/u)
+                    .filter((part) => part.trim())
+                    .map((part) => ({
+                      id: null,
+                      type: "markdown",
+                      text: part.trim().slice(0, 120),
+                    }));
+            } catch {
+              blocks = [];
+            }
+            return {
+              page: result.page,
+              ...("assistantInstructions" in result
+                ? {
+                    assistantInstructions: (result as { assistantInstructions?: unknown })
+                      .assistantInstructions,
+                  }
+                : {}),
+              blocks,
+            };
+          }),
+        ),
     ),
     readTool(
       "moss_pages_versions",

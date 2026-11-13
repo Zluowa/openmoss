@@ -16,7 +16,7 @@ export type PageSpaceId = typeof PageSpaceId.Type;
 
 /**
  * What a 资料空间 item is. Every item is a row in pages_documents; `page` is the rich document,
- * the others are owned by their streams (app = 应用页, slides, sheet, board, site) or come from
+ * the others are owned by their streams (app = 应用页, slides, sheet, board, site, design = 设计) or come from
  * agent outputs (file, image). Clients render a kind they do not know as a generic card.
  * Add a kind only in a small separate commit and tell the space lead.
  */
@@ -29,6 +29,7 @@ export const SpaceItemKind = Schema.Literals([
   "site",
   "file",
   "image",
+  "design",
 ]);
 export type SpaceItemKind = typeof SpaceItemKind.Type;
 export const SPACE_ITEM_KINDS = SpaceItemKind.literals;
@@ -50,6 +51,16 @@ export const PAGE_COVER_IDS = [
 ] as const;
 export const PageCover = Schema.Literals(PAGE_COVER_IDS);
 export type PageCover = typeof PageCover.Type;
+/** The languages a page can be marked as (文档语言), for screen readers and spelling. */
+export const PAGE_DOC_LANGUAGES = ["zh-CN", "zh-TW", "en", "ja", "ko", "fr", "de", "es"] as const;
+/** How a page is laid out for everyone who opens it: column width, fonts and language. */
+export const PageDocStyle = Schema.Struct({
+  width: Schema.Literals(["default", "wide"]),
+  headingFont: Schema.Literals(["sans", "serif"]),
+  textFont: Schema.Literals(["sans", "serif"]),
+  lang: Schema.optional(Schema.Literals(PAGE_DOC_LANGUAGES)),
+});
+export type PageDocStyle = typeof PageDocStyle.Type;
 /** Trashed items are purged this many days after they were trashed. */
 export const SPACE_TRASH_RETENTION_DAYS = 30;
 const PageContent = Schema.String.check(Schema.isMaxLength(2_000_000));
@@ -94,6 +105,8 @@ export const Page = Schema.Struct({
   /** Absent = no icon / no cover. */
   icon: Schema.optional(Schema.NullOr(PageIcon)),
   cover: Schema.optional(Schema.NullOr(PageCover)),
+  /** Absent = the default width and fonts in the app's language. */
+  docStyle: Schema.optional(Schema.NullOr(PageDocStyle)),
   revision: PositiveInt,
   pinned: Schema.Boolean,
   trashedAt: Schema.NullOr(IsoDateTime),
@@ -271,6 +284,48 @@ export type PagesCommentsInput = typeof PagesCommentsInput.Type;
 export const PagesCommentsResult = Schema.Struct({ comments: Schema.Array(PageComment) });
 export type PagesCommentsResult = typeof PagesCommentsResult.Type;
 
+/**
+ * A comment thread on words in a page (评论 on a selection): kept with the page in Moss's
+ * database. `thread` is the web app's thread record as JSON (messages, replies, reactions,
+ * resolved, Moss's answers); the server stores it as given and never interprets it.
+ */
+export const PageTextCommentId = TrimmedNonEmptyString.check(
+  Schema.isMaxLength(128),
+  Schema.isPattern(/^[A-Za-z0-9_-]+$/u),
+);
+export const PageTextComment = Schema.Struct({
+  id: PageTextCommentId,
+  pageId: PageId,
+  thread: Schema.String.check(Schema.isMaxLength(200_000)),
+  updatedAt: IsoDateTime,
+});
+export type PageTextComment = typeof PageTextComment.Type;
+export const PagesTextCommentsInput = Schema.Struct({
+  scopeSpaceId: PageScopeSpaceId,
+  pageId: PageId,
+});
+export type PagesTextCommentsInput = typeof PagesTextCommentsInput.Type;
+export const PagesTextCommentsResult = Schema.Struct({ comments: Schema.Array(PageTextComment) });
+export type PagesTextCommentsResult = typeof PagesTextCommentsResult.Type;
+export const PagesTextCommentMutateInput = Schema.Union([
+  Schema.Struct({
+    op: Schema.Literal("save"),
+    scopeSpaceId: PageScopeSpaceId,
+    pageId: PageId,
+    commentId: PageTextCommentId,
+    thread: Schema.String.check(Schema.isMaxLength(200_000)),
+  }),
+  Schema.Struct({
+    op: Schema.Literal("delete"),
+    scopeSpaceId: PageScopeSpaceId,
+    pageId: PageId,
+    commentId: PageTextCommentId,
+  }),
+]);
+export type PagesTextCommentMutateInput = typeof PagesTextCommentMutateInput.Type;
+export const PagesTextCommentMutateResult = Schema.Struct({ ok: Schema.Boolean });
+export type PagesTextCommentMutateResult = typeof PagesTextCommentMutateResult.Type;
+
 const CreateFields = {
   requestId: PageRequestId,
   scopeSpaceId: PageScopeSpaceId,
@@ -327,12 +382,13 @@ export const PagesMutateInput = Schema.Union([
     ...MutationFields,
     icon: Schema.NullOr(PageSpaceIcon),
   }),
-  /** Sets or clears a page's icon and cover; a field left out keeps its value. */
+  /** Sets or clears a page's icon, cover and doc style; a field left out keeps its value. */
   Schema.Struct({
     op: Schema.Literal("page-appearance"),
     ...MutationFields,
     icon: Schema.optional(Schema.NullOr(PageIcon)),
     cover: Schema.optional(Schema.NullOr(PageCover)),
+    docStyle: Schema.optional(Schema.NullOr(PageDocStyle)),
   }),
   Schema.Struct({
     op: Schema.Literal("restore-version"),

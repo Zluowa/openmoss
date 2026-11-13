@@ -160,6 +160,7 @@ import { PageDraftsService } from "../../pages/drafts/Services/PageDraftsService
 import { makePageDraftTools } from "../pageDraftTools";
 import { makePageVisualizeTool } from "../pageVisualizeTool";
 import { makeSlidesTools } from "../slidesTools";
+import { makeDesignTools } from "../designTools";
 import { isServerGroupsEnabled } from "../../projectAgent/groupsBetaGate.ts";
 import { isServerBetaFeatureEnabled } from "../../betaFeatureGate.ts";
 import { makeThreadReadTools } from "../threadReadTools.ts";
@@ -1906,6 +1907,7 @@ export const makeAgentGateway = Effect.gen(function* () {
           ...(pageAppsService ? { apps: pageAppsService } : {}),
         })
       : []),
+    ...(pageTypesService ? makeDesignTools({ types: pageTypesService }) : []),
     ...(pageTypesService
       ? makeSlidesTools({
           types: pageTypesService,

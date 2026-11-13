@@ -101,19 +101,6 @@ interface LibraryContextMenuState {
   readonly itemId: string;
 }
 
-/** Read a picked/dropped file as raw base64 for the server import channel. */
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
 function LibraryCardThumb({
   item,
   thumbUrl,
@@ -896,14 +883,11 @@ export function MossLibrarySurface({
     const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
     const accepted = files.filter((file) => file.size > 0 && file.size <= MAX_IMPORT_BYTES);
     const skipped = files.length - accepted.length;
-    const blobs = await Promise.all(
-      accepted.map(async (file) => ({
-        name: file.name,
-        dataBase64: await fileToBase64(file),
-        ...(file.type ? { mimeType: file.type } : {}),
-      })),
-    );
-    assertCurrent();
+    const blobs = accepted.map((file) => ({
+      name: file.name,
+      data: file,
+      ...(file.type ? { mimeType: file.type } : {}),
+    }));
     const result = await importFileBlobs(blobs);
     assertCurrent();
     const total = result.imported;

@@ -1,7 +1,7 @@
 // FILE: TopBarQuickActions.tsx
-// Purpose: Icon-only quick actions beside the page title pill: 生成, 图像, 可视化 and ＋ (the
-//          page's insert menu, which also holds 子页面). Each opens its card at the cursor, or
-//          at the end of the page.
+// Purpose: Icon-only quick actions beside the page title pill: 生成, 图像, 可视化, 听写 and ＋
+//          (the page's insert menu, which also holds 子页面). Each opens its card at the cursor,
+//          or at the end of the page; 听写 types what was said at the cursor.
 // Layer: Space page chrome slot `topBarQuickActions` — owned by page-ai. The slot sits in an
 //        icon-only capsule (PageTopBar), so every action is a 28px PageChromeButton square.
 
@@ -10,6 +10,7 @@ import { pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
 
 import { pageAiLocale, pageAiText } from "../ai/pageAiText";
 import { PageChromeButton } from "./PageChromeButton";
+import { PageDictationButton } from "./PageDictationButton";
 import { PAGE_INSERT_SUBPAGE, PageInsertMenu } from "./PageInsertMenu";
 import type { PageChromeSlotProps } from "./pageChromeContext";
 
@@ -38,6 +39,11 @@ export function TopBarQuickActions({ context }: PageChromeSlotProps) {
           onClick={() => editor?.openAiInput(action.mode)}
         />
       ))}
+      <PageDictationButton
+        pageKey={pageAiKey(context.account, context.scopeSpaceId, context.page.id)}
+        disabled={!editor?.insertText}
+        onText={(text) => editor?.insertText?.(text)}
+      />
       <PageInsertMenu
         editorReady={!!editor}
         onRun={(value) =>

@@ -79,6 +79,8 @@ export interface DeckViewContext {
   selection: { id: string; kind: string; label?: string }[];
 }
 
+export type DeckExportQuality = "good" | "better" | "best";
+
 export type DeckEditorEvent =
   | { event: "change"; deck: SlidesDeck; title?: string }
   | {
@@ -101,12 +103,17 @@ export type DeckEditorEvent =
     }
   | {
       event: "request-export";
-      format: "pptx" | "pdf" | "png";
-      /** 范围: the slides to export; all when absent. */
+      format: "pptx" | "pdf" | "png" | "html";
+      /** The slides to export (the editor sends the ones not skipped); all when absent. */
       slideIds?: string[];
-      /** 包含备注: PDF gets a notes page per slide, PPTX keeps notes either way. */
+      /** 包含演讲备注: PDF gets a notes page per slide, PPTX keeps notes either way. */
       includeNotes?: boolean;
+      /** PowerPoint: `basic` swaps every typeface for one any computer has. */
+      fonts?: "current" | "basic";
+      /** PDF and web page picture quality (图片质量 好 / 更好 / 最佳). */
+      quality?: DeckExportQuality;
     }
+  | { event: "copy-slide-link"; slideId: string; slideNumber: number }
   | {
       event: "request-present";
       startSlideId: string | null;
@@ -196,9 +203,11 @@ export function parseDeckEditorEvent(value: Message): DeckEditorEvent | null {
         file === undefined ||
         (short(file.name, 256) &&
           short(file.type, 128) &&
-          String(file.type).startsWith("image/") &&
           file.data instanceof ArrayBuffer &&
-          file.data.byteLength <= 25 * 1024 * 1024);
+          // Pictures up to 25 MB; video clips (插入视频) up to 20 MB, as in Claude.
+          ((String(file.type).startsWith("image/") && file.data.byteLength <= 25 * 1024 * 1024) ||
+            (/^video\/(?:mp4|webm|quicktime)$/u.test(String(file.type)) &&
+              file.data.byteLength <= 20 * 1024 * 1024)));
       return short(value.requestId, 128) &&
         (value.mode === "upload" || value.mode === "generate" || value.mode === "space") &&
         validFile &&
@@ -227,13 +236,28 @@ export function parseDeckEditorEvent(value: Message): DeckEditorEvent | null {
         : null;
     }
     case "request-export":
-      return ["pptx", "pdf", "png"].includes(String(value.format)) &&
+      return ["pptx", "pdf", "png", "html"].includes(String(value.format)) &&
         (value.slideIds === undefined || idList(value.slideIds, 300))
         ? {
             event: "request-export",
             format: value.format as "pptx",
             ...(value.slideIds ? { slideIds: value.slideIds as string[] } : {}),
             ...(value.includeNotes === true ? { includeNotes: true } : {}),
+            ...(value.fonts === "basic" || value.fonts === "current" ? { fonts: value.fonts } : {}),
+            ...(value.quality === "good" || value.quality === "better" || value.quality === "best"
+              ? { quality: value.quality }
+              : {}),
+          }
+        : null;
+    case "copy-slide-link":
+      return short(value.slideId, 128) &&
+        Number.isSafeInteger(value.slideNumber) &&
+        Number(value.slideNumber) >= 1 &&
+        Number(value.slideNumber) <= 10_000
+        ? {
+            event: "copy-slide-link",
+            slideId: value.slideId as string,
+            slideNumber: Number(value.slideNumber),
           }
         : null;
     case "request-present":

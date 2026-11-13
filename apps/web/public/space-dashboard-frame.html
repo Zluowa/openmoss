@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- 数据看板 frame host. Loaded in an opaque-origin sandbox; receives one document and runs it.
+     The page may not reach the network: connect-src, frames, forms and objects are all closed. -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; media-src data: blob:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; manifest-src 'none'; form-action 'none'; base-uri 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>数据看板</title>
+    <script>
+      (function () {
+        var protocol = "moss-dashboard-frame-v1";
+        var params = new URLSearchParams(location.hash.slice(1));
+        var nonce = params.get("nonce");
+        var parentOrigin = params.get("parentOrigin");
+        if (
+          params.get("protocol") !== protocol ||
+          !nonce ||
+          !/^[a-zA-Z0-9-]{16,128}$/.test(nonce) ||
+          !parentOrigin ||
+          parent === window
+        )
+          return;
+        var host = parent;
+        var targetOrigin = parentOrigin === "null" ? "*" : parentOrigin;
+        function send(kind) {
+          host.postMessage({ protocol: protocol, nonce: nonce, kind: kind }, targetOrigin);
+        }
+        function receive(event) {
+          if (event.source !== host || event.origin !== parentOrigin) return;
+          var data = event.data;
+          if (
+            !data ||
+            data.protocol !== protocol ||
+            data.nonce !== nonce ||
+            data.kind !== "document" ||
+            typeof data.html !== "string" ||
+            data.html.length > 6000000
+          )
+            return;
+          window.removeEventListener("message", receive);
+          document.open();
+          document.write(data.html);
+          document.close();
+        }
+        window.addEventListener("message", receive);
+        send("ready");
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

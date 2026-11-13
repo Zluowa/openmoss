@@ -1,6 +1,6 @@
 // FILE: TemplatePickerDialog.tsx
 // Purpose: 从模板开始: a gallery of Moss templates and the user's saved templates for pages,
-//          幻灯片, 电子表格 and 应用页 (dashboards, trackers, polls); picking one creates the item.
+//          幻灯片, 电子表格, 应用页 (dashboards, trackers, polls) and 设计; picking one creates the item.
 // Layer: 资料空间 types stream. space-ui's 创建 menu opens it.
 
 import type {
@@ -10,6 +10,8 @@ import type {
   SpaceTemplate,
   SpaceTemplateKind,
 } from "@moss/contracts";
+import { parseDesignCanvas } from "@moss/shared/spaceItems/designCanvas";
+import { isDashboardPayload } from "@moss/shared/spaceItems/dashboard";
 import { parseAppItem } from "@moss/shared/spaceItems/itemData";
 import { parseSheetWorkbook, readSheetRange } from "@moss/shared/spaceItems/sheetWorkbook";
 import { parseSlidesDeck } from "@moss/shared/spaceItems/slidesDeck";
@@ -20,6 +22,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ensureNativeApi } from "~/nativeApi";
 import {
   DashboardLayoutIcon,
+  PaletteIcon,
   PageTextIcon,
   SlideDeckIcon,
   SpreadsheetIcon,
@@ -30,6 +33,8 @@ import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../../ui/dialog";
 import { ReadonlyAppItemFrame } from "../app/ReadonlyAppItemFrame";
+import { DesignThumbnail } from "../design/DesignThumbnail";
+import { DashboardThumbnail } from "../dashboard/DashboardPanels";
 import { coverSlide, SlideView } from "../slides/SlideView";
 import { createSpaceItem, pageTypesQueryKeys, TEMPLATE_KIND_LABELS } from "../spaceItemTypes";
 
@@ -43,6 +48,7 @@ const KIND_ICONS: Record<SpaceTemplateKind, LucideIcon> = {
   slides: SlideDeckIcon,
   sheet: SpreadsheetIcon,
   app: DashboardLayoutIcon,
+  design: PaletteIcon,
 };
 const FILTERS: ReadonlyArray<{ id: SpaceTemplateKind | "all"; label: string }> = [
   { id: "all", label: "全部" },
@@ -50,6 +56,7 @@ const FILTERS: ReadonlyArray<{ id: SpaceTemplateKind | "all"; label: string }> =
   { id: "slides", label: "幻灯片" },
   { id: "sheet", label: "电子表格" },
   { id: "app", label: "仪表盘" },
+  { id: "design", label: "设计" },
 ];
 const builtInData = new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template]));
 function builtInApp(id: string) {
@@ -99,6 +106,9 @@ function TemplatePreview({ template }: { template: SpaceTemplate }) {
           </table>
         );
       }
+      if (source.kind === "app" && source.data && isDashboardPayload(source.data)) {
+        return <DashboardThumbnail />;
+      }
       if (source.kind === "app" && source.data) {
         const app = parseAppItem(source.data);
         return (
@@ -115,6 +125,14 @@ function TemplatePreview({ template }: { template: SpaceTemplate }) {
               className="h-[520px] w-[928px] origin-top-left scale-25 border-0"
             />
           </div>
+        );
+      }
+      if (source.kind === "design" && source.data) {
+        return (
+          <DesignThumbnail
+            canvas={parseDesignCanvas(source.data)}
+            className="flex h-[130px] w-full items-center justify-center overflow-hidden"
+          />
         );
       }
       if (source.kind === "page" && source.content) {

@@ -115,6 +115,8 @@ export interface PageRichEditorHeader {
   /** A Central glyph name or one emoji; null = none. */
   icon: string | null;
   cover: PageCover | null;
+  /** The pages under this one (Claude's tabs), listed beside the headings in the page outline. */
+  subpages?: PageRichEditorHeaderLink[];
 }
 /** A header edit carries only the fields that changed. */
 export type PageEditorHeaderEvent =
@@ -125,6 +127,72 @@ const pageIcon = (value: unknown): value is string | null =>
   (typeof value === "string" && value.trim() === value && value !== "" && value.length <= 32);
 const pageCover = (value: unknown): value is PageCover | null =>
   value === null || (PAGE_COVER_IDS as readonly unknown[]).includes(value);
+
+/** Comments on words in the page (the editor marks the words, Moss keeps the threads). */
+export type PageEditorDocEvent =
+  | {
+      event: "comment-post";
+      threadId: string;
+      anchor: { blockId: string; quote: string };
+      body: string;
+      sendToAgent: boolean;
+    }
+  | { event: "comment-reply"; threadId: string; body: string; sendToAgent: boolean }
+  | { event: "comment-resolve"; threadId: string; resolved: boolean }
+  | { event: "comment-delete"; threadId: string }
+  | { event: "comment-open"; threadId: string }
+  /** Toggles the person's emoji reaction on one message of a thread. */
+  | { event: "comment-react"; threadId: string; messageId: string; emoji: string }
+  /** 建议模式 went on or off in the page. */
+  | { event: "suggesting-changed"; on: boolean };
+
+/** The emoji a person can react with (the editor offers these, Moss accepts only these). */
+export const PAGE_COMMENT_REACTIONS = ["👍", "❤️", "🎉", "👀", "✅", "🙏"] as const;
+
+/** A thread as the editor draws it: the words it hangs on and its messages. */
+export interface PageEditorCommentThread {
+  id: string;
+  anchor: { blockId: string; quote: string };
+  resolved: boolean;
+  working?: boolean;
+  messages: Array<{
+    id: string;
+    kind: "person" | "agent";
+    author: string;
+    initials: string;
+    body: string;
+    createdAt: string;
+    status?: "thinking" | "done" | "failed";
+    sentToAgent?: boolean;
+    reactions?: Array<{ emoji: string; count: number; mine: boolean; names: string[] }>;
+  }>;
+}
+
+/** The page's width, fonts and language on this device (页面宽度 / 字体 / 文档语言). */
+export interface PageEditorDocStyle {
+  width: "default" | "wide";
+  headingFont: "sans" | "serif";
+  textFont: "sans" | "serif";
+  /** BCP 47 tag for screen readers and spelling; absent = the app's language. */
+  lang?: PageDocLanguage;
+}
+
+/** The languages 文档语言 offers, with their names in that language. */
+export const PAGE_DOC_LANGUAGES = [
+  { tag: "zh-CN", name: "简体中文" },
+  { tag: "zh-TW", name: "繁體中文" },
+  { tag: "en", name: "English" },
+  { tag: "ja", name: "日本語" },
+  { tag: "ko", name: "한국어" },
+  { tag: "fr", name: "Français" },
+  { tag: "de", name: "Deutsch" },
+  { tag: "es", name: "Español" },
+] as const;
+export type PageDocLanguage = (typeof PAGE_DOC_LANGUAGES)[number]["tag"];
+/** A change to the page style; `lang: undefined` goes back to the app's language. */
+export type PageEditorDocStylePatch = {
+  [K in keyof PageEditorDocStyle]?: PageEditorDocStyle[K] | undefined;
+};
 
 const shortString = (value: unknown, max: number): value is string =>
   typeof value === "string" && value.length <= max;
@@ -202,6 +270,66 @@ export function parsePageEditorAiEvent(value: Message): PageEditorAiEvent | null
 }
 
 /** Header edits and clicks from the editor; the host still checks what it acts on. */
+const threadIdOf = (value: unknown): value is string =>
+  typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(value);
+export function parsePageEditorDocEvent(value: Message): PageEditorDocEvent | null {
+  const body = (text: unknown) => shortString(text, 4000) && text.trim() !== "";
+  switch (value.event) {
+    case "comment-post": {
+      const anchor = value.anchor as Message | null;
+      return threadIdOf(value.threadId) &&
+        !!anchor &&
+        typeof anchor === "object" &&
+        shortString(anchor.blockId, 256) &&
+        shortString(anchor.quote, 400) &&
+        body(value.body) &&
+        typeof value.sendToAgent === "boolean"
+        ? {
+            event: "comment-post",
+            threadId: value.threadId,
+            anchor: { blockId: anchor.blockId, quote: anchor.quote },
+            body: value.body as string,
+            sendToAgent: value.sendToAgent,
+          }
+        : null;
+    }
+    case "comment-reply":
+      return threadIdOf(value.threadId) &&
+        body(value.body) &&
+        typeof value.sendToAgent === "boolean"
+        ? {
+            event: "comment-reply",
+            threadId: value.threadId,
+            body: value.body as string,
+            sendToAgent: value.sendToAgent,
+          }
+        : null;
+    case "comment-resolve":
+      return threadIdOf(value.threadId) && typeof value.resolved === "boolean"
+        ? { event: "comment-resolve", threadId: value.threadId, resolved: value.resolved }
+        : null;
+    case "comment-react":
+      return threadIdOf(value.threadId) &&
+        threadIdOf(value.messageId) &&
+        typeof value.emoji === "string" &&
+        (PAGE_COMMENT_REACTIONS as readonly string[]).includes(value.emoji)
+        ? {
+            event: "comment-react",
+            threadId: value.threadId,
+            messageId: value.messageId,
+            emoji: value.emoji,
+          }
+        : null;
+    case "suggesting-changed":
+      return typeof value.on === "boolean" ? { event: "suggesting-changed", on: value.on } : null;
+    case "comment-delete":
+    case "comment-open":
+      return threadIdOf(value.threadId) ? { event: value.event, threadId: value.threadId } : null;
+    default:
+      return null;
+  }
+}
+
 export function parsePageEditorHeaderEvent(value: Message): PageEditorHeaderEvent | null {
   if (value.event === "header-change") {
     const change: {
@@ -244,6 +372,11 @@ export class PageRichEditorChannel {
   /** The loaded editor speaks the page AI protocol (drafts, slash AI items). */
   aiSupported = false;
   onAiEvent: (event: PageEditorAiEvent) => void = () => {};
+  /** The editor marks comments on words and opens their cards (capability `doc-comments`). */
+  docSupported = false;
+  onDocEvent: (event: PageEditorDocEvent) => void = () => {};
+  private commentThreads: readonly PageEditorCommentThread[] | null = null;
+  private docStyle: PageEditorDocStyle | null = null;
   /** The page's media cards: their jobs run through Moss's media API (usePageMediaBridge). */
   onMediaEvent: (event: PageEditorMediaEvent) => void = () => {};
   private header: PageRichEditorHeader | null = null;
@@ -338,6 +471,33 @@ export class PageRichEditorChannel {
   resolveDrafts = (draftIds: string[] | "all", resolution: "accept" | "discard") => {
     if (this.ready && this.loaded && this.aiSupported && !this.disposed)
       this.post("resolve-drafts", { draftIds, resolution });
+  };
+  setComments = (threads: readonly PageEditorCommentThread[]) => {
+    this.commentThreads = threads;
+    if (this.ready && this.docSupported && !this.disposed) this.post("set-comments", { threads });
+  };
+  openComment = (threadId: string) => {
+    if (this.ready && this.loaded && this.docSupported && !this.disposed)
+      this.post("open-comment", { threadId });
+  };
+  setDocStyle = (style: PageEditorDocStyle) => {
+    this.docStyle = style;
+    if (this.ready && this.docSupported && !this.disposed) this.post("set-doc-style", { style });
+  };
+  /** 建议模式: the person's edits become proposals (an editor with that capability only). */
+  suggestingSupported = false;
+  setSuggesting = (on: boolean) => {
+    if (this.ready && this.loaded && this.suggestingSupported && !this.disposed)
+      this.post("set-suggesting", { on });
+  };
+  /** 听写: types the words at the caret (an editor with the document tools only). */
+  insertText = (text: string) => {
+    if (this.ready && this.loaded && this.docSupported && !this.disposed && text.trim())
+      this.post("insert-text", { text: text.slice(0, 20_000) });
+  };
+  openFind = (replace: boolean) => {
+    if (this.ready && this.loaded && this.docSupported && !this.disposed)
+      this.post("open-find", { replace });
   };
   openAiInput = (mode: "generate" | "visualize" | "image" | "insert") => {
     if (this.ready && this.loaded && this.aiSupported && !this.disposed)
@@ -440,6 +600,11 @@ export class PageRichEditorChannel {
       this.onReady(false);
       if (this.aiContext && this.aiSupported)
         this.post("set-ai-context", { context: this.aiContext });
+      this.docSupported = (value.capabilities as unknown[]).includes("doc-comments");
+      this.suggestingSupported = (value.capabilities as unknown[]).includes("doc-suggesting");
+      if (this.docSupported && this.commentThreads)
+        this.post("set-comments", { threads: this.commentThreads });
+      if (this.docSupported && this.docStyle) this.post("set-doc-style", { style: this.docStyle });
       if (this.document) this.documentSeq = this.post("load", { ...this.document });
       return true;
     }
@@ -511,6 +676,21 @@ export class PageRichEditorChannel {
         this.childSeq = value.seq as number;
         if (!this.document.readOnly || headerEvent.event === "header-action")
           this.onHeaderEvent(headerEvent);
+        return true;
+      }
+    }
+    if (
+      this.ready &&
+      this.loaded &&
+      this.docSupported &&
+      this.document &&
+      value.documentKey === this.document.documentKey &&
+      value.documentSeq === this.documentSeq
+    ) {
+      const docEvent = parsePageEditorDocEvent(value);
+      if (docEvent) {
+        this.childSeq = value.seq as number;
+        this.onDocEvent(docEvent);
         return true;
       }
     }

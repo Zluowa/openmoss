@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { ensureNativeApi } from "~/nativeApi";
+import { uploadPickedLibraryFiles } from "~/lib/libraryUpload";
 import { pageAiPrompt } from "~/lib/pageAi/pageAiPrompts";
 import {
   createPageAssistantKeeper,
@@ -75,14 +76,6 @@ const blockAuthorThreads = (document: PagesReadResult): string[] => {
     return [];
   }
 };
-
-const readAsBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-    reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/u, ""));
-    reader.readAsDataURL(file);
-  });
 
 const pickFile = (accept: string) =>
   new Promise<File | null>((resolve) => {
@@ -310,9 +303,14 @@ export function usePageAiBridge(
   }, [refreshDrafts, savedRevision]);
 
   const startRun = useCallback(
-    async (input: { mode: PageAiRunMode; prompt: string; anchorBlockId: string | null }) => {
+    async (input: {
+      mode: PageAiRunMode;
+      prompt: string;
+      anchorBlockId: string | null;
+      quote?: string;
+    }): Promise<ThreadId | null> => {
       const current = latest.current;
-      if (!current || !key) return;
+      if (!current || !key) return null;
       const id = newCommandId();
       pageAiSession.addRun(key, {
         id,
@@ -330,7 +328,7 @@ export function usePageAiBridge(
         const saved = latest.current?.document ?? current.document;
         const { threadId, baselineTurnId } = await threadsRef.current.startPageAssistantTurn(
           saved,
-          pageAiPrompt(input.mode, input.prompt, saved, input.anchorBlockId),
+          pageAiPrompt(input.mode, input.prompt, saved, input.anchorBlockId, input.quote),
           current.isCurrent,
           key,
           text.pageChatTitle(saved.page.title),
@@ -342,10 +340,12 @@ export function usePageAiBridge(
           status: "running",
           baseRevision: saved.page.revision,
         });
+        return threadId;
       } catch (cause) {
         const message = pageAiErrorText(cause instanceof Error ? cause.message : undefined, text);
         pageAiSession.updateRun(key, id, { status: "failed", error: message });
         toastManager.add({ type: "error", title: text.runFailed, description: message });
+        return null;
       }
     },
     [key, text],
@@ -387,15 +387,10 @@ export function usePageAiBridge(
       const file = await pickFile(kind === "image" ? "image/*" : "*/*");
       if (!file) return;
       try {
-        const result = await ensureNativeApi().library.importFiles({
-          files: [
-            {
-              name: file.name.replace(/^\.+/u, "") || "file",
-              ...(file.type ? { mimeType: file.type } : {}),
-              dataBase64: await readAsBase64(file),
-            },
-          ],
-        });
+        // Raw bytes over HTTP: the WebSocket's 2 MiB message cap stops base64 files of ~1.5 MB.
+        const result = await uploadPickedLibraryFiles([
+          new File([file], file.name.replace(/^\.+/u, "") || "file", { type: file.type }),
+        ]);
         const item = result.items[0];
         if (!item?.previewPath) throw new Error(text.uploadNoPreview);
         channel.insertMedia({ kind, url: item.previewPath, name: item.title, anchorBlockId });
@@ -468,11 +463,29 @@ export function usePageAiBridge(
       focusEditor();
       channel.runInsertItem(value);
     };
-    pageAiSession.registerEditor(key, { openAiInput, runInsertItem, startRun, prepare });
+    const openComment = (threadId: string) => channel.openComment(threadId);
+    const openFind = (replace: boolean) => {
+      focusEditor();
+      channel.openFind(replace);
+    };
+    const insertText = (text: string) => {
+      focusEditor();
+      channel.insertText(text);
+    };
+    pageAiSession.registerEditor(key, {
+      openAiInput,
+      runInsertItem,
+      startRun,
+      prepare,
+      openComment,
+      openFind,
+      insertText,
+      setSuggesting: (on: boolean) => channel.setSuggesting(on),
+    });
     return () => pageAiSession.registerEditor(key, null);
     // focusEditor reads a ref; it does not need to re-register the commands.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, key, prepare, startRun]);
 
-  return { key, runs: session.runs, refreshDrafts };
+  return { key, runs: session.runs, refreshDrafts, startRun, agentReady: !!agent };
 }

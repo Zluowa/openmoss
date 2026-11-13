@@ -174,7 +174,12 @@ tests("typed 资料空间 items", (it) => {
       );
       assert.deepStrictEqual(
         listed.templates.map((template) => template.id),
-        ["builtin:kpi-dashboard", "builtin:tracker", "builtin:poll-signup"],
+        [
+          "builtin:sales-dashboard",
+          "builtin:kpi-dashboard",
+          "builtin:tracker",
+          "builtin:poll-signup",
+        ],
       );
       const sheet = yield* h.create("sheet", { templateId: "builtin:budget-sheet" });
       const template = yield* h.types.saveTemplate(
@@ -292,6 +297,83 @@ tests("typed 资料空间 items", (it) => {
         readSheetRange(parseSheetWorkbook(item.data!), undefined, "A1").values,
         [["item"]],
       );
+
+      // The moss_sheet_* protocol: typed reads with worked-out formulas, edits against a base.
+      const guide = yield* call("moss_sheet_guide", { scopeSpaceId: h.scopeSpaceId });
+      assert.include(guide.body.guide, "moss_sheet_apply_edits");
+      const sheets = yield* call("moss_sheet_read", {
+        scopeSpaceId: h.scopeSpaceId,
+        pageId: sheet.body.pageId,
+        payload: { kind: "readSheets" },
+      });
+      assert.strictEqual(sheets.body.revision, wrote.body.revision);
+      assert.strictEqual(sheets.body.sheets[0].filledRange, "A1:B4");
+      const applied = yield* call("moss_sheet_apply_edits", {
+        requestId: "agent-edits",
+        scopeSpaceId: h.scopeSpaceId,
+        pageId: sheet.body.pageId,
+        base: sheets.body.revision,
+        edits: [
+          { kind: "writeCells", sheet: "工作表1", topLeft: "C1", rows: [["share"], ["=B2/B4"]] },
+          {
+            kind: "formatCells",
+            sheet: "工作表1",
+            ranges: ["C2"],
+            format: { numberFormat: { pattern: "0%" } },
+          },
+        ],
+      });
+      assert.isFalse(applied.error, JSON.stringify(applied.body));
+      const cells = yield* call("moss_sheet_read", {
+        scopeSpaceId: h.scopeSpaceId,
+        pageId: sheet.body.pageId,
+        payload: { kind: "readCells", sheet: "工作表1", range: "B4:C4" },
+      });
+      assert.deepStrictEqual(cells.body.rows["4"], [{ formula: "=SUM(B2:B3)", value: 5 }]);
+      const share = yield* call("moss_sheet_read", {
+        scopeSpaceId: h.scopeSpaceId,
+        pageId: sheet.body.pageId,
+        payload: { kind: "readCells", sheet: "工作表1", range: "C2" },
+      });
+      assert.deepStrictEqual(share.body.rows["2"], [
+        { formula: "=B2/B4", value: { number: 0.4, shown: "40%" } },
+      ]);
+      const late = yield* call("moss_sheet_apply_edits", {
+        requestId: "agent-edits-late",
+        scopeSpaceId: h.scopeSpaceId,
+        pageId: sheet.body.pageId,
+        base: sheets.body.revision,
+        edits: [{ kind: "addSheet", name: "Notes" }],
+      });
+      assert.isTrue(late.error);
+      assert.strictEqual(late.body.error.refusal, "baseIsNotTheRevision");
+      const refused = yield* call("moss_sheet_apply_edits", {
+        requestId: "agent-edits-bad",
+        scopeSpaceId: h.scopeSpaceId,
+        pageId: sheet.body.pageId,
+        base: applied.body.revision,
+        edits: [
+          { kind: "addSheet", name: "Notes" },
+          { kind: "writeCell", sheet: "Notes" },
+        ],
+      });
+      assert.isTrue(refused.error);
+      assert.strictEqual(refused.body.error.refusal, "kindNotKnown");
+      assert.strictEqual(refused.body.error.editIndex, 1);
+
+      // 版本历史: the sheet as it was at an earlier revision; the page row stays current.
+      const before = yield* h.types.read(
+        { scopeSpaceId: h.scopeSpaceId, pageId: sheet.body.pageId, revision: wrote.body.revision },
+        user,
+      );
+      assert.strictEqual(before.page.revision, applied.body.revision);
+      assert.strictEqual(before.dataRevision, wrote.body.revision);
+      assert.isFalse(before.data!.includes("share"));
+      const now = yield* h.types.read(
+        { scopeSpaceId: h.scopeSpaceId, pageId: sheet.body.pageId },
+        user,
+      );
+      assert.isTrue(now.data!.includes("share"));
     }),
   );
 

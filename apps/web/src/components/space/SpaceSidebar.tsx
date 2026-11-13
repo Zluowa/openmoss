@@ -50,6 +50,7 @@ import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { SidebarMenu, SidebarMenuItem } from "../ui/sidebar";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
+import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
 import { SpaceSyncMenuItem } from "./SpaceSyncMenuItem";
 import {
   formatRelativeTime,
@@ -58,7 +59,6 @@ import {
   type SpaceKindSection,
   type SpaceSection,
 } from "./spaceItems";
-import { spaceItemMeta } from "./spaceKinds";
 
 const KIND_ROWS: ReadonlyArray<{ kind: SpaceKindSection; label: string; icon: LucideIcon }> = [
   { kind: "page", label: "页面", icon: PageTextIcon },
@@ -229,12 +229,11 @@ export function SpaceSidebar(props: {
             </h3>
             <SidebarMenu className="gap-0.5">
               {props.recent.map((item) => {
-                const meta = spaceItemMeta(item);
                 const untitled = item.title.trim() === "";
                 return (
-                  <NavRow
+                  <RecentRow
                     key={item.key}
-                    icon={meta.icon}
+                    item={item}
                     label={spaceItemDisplayTitle(item)}
                     // An untitled row also says when it was made, so two of them differ.
                     detail={untitled ? formatRelativeTime(item.updatedAt, Date.now()) : undefined}
@@ -348,6 +347,12 @@ export function SpaceSidebar(props: {
 }
 
 /** One 资料空间 nav row: the main sidebar's primary action row, so both panels match. */
+/** A recent item's row: its icon follows what the item is (a 数据看板 reads as one). */
+function RecentRow(props: Omit<Parameters<typeof NavRow>[0], "icon"> & { item: SpaceItem }) {
+  const { item, ...rest } = props;
+  return <NavRow {...rest} icon={useSpaceItemMeta(item).icon} />;
+}
+
 function NavRow(props: {
   icon: LucideIcon;
   label: string;
