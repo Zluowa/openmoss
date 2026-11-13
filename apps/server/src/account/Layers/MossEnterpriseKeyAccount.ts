@@ -23,10 +23,10 @@ import {
   type MossManagedBinding,
 } from "../mossAccountLifecycleLock";
 import {
+  fetchMossGatewayCatalogViaEntries,
   fetchMossGatewayModelIds,
   type FetchMossGatewayModelIds,
   type MossGatewayModelCatalogStatus,
-  normalizeMossGatewayModelCatalog,
 } from "../mossGatewayModels";
 import { mossCnModelGatewayEntries, type MossServiceEntryRouter } from "../mossServiceEntries";
 import {
@@ -195,11 +195,21 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
       ),
     );
 
-  /** Ask the gateway which models the key may use; only a ready catalog admits it. */
+  /**
+   * Ask the gateway which models the key may use; only a ready catalog admits it. A request
+   * that fails below HTTP is asked once more on the next usable entry, and `url` is the entry
+   * that answered: the lanes are provisioned with it. Only an HTTP 401 or 403 answer becomes
+   * "auth-denied" (and so `key_rejected`); no answer at all stays "transport-degraded".
+   */
   const verify = (apiKey: string, url: string) =>
-    fetchGatewayModels({ gatewayBaseUrl: url, accessToken: apiKey }).pipe(
-      Effect.map(normalizeMossGatewayModelCatalog),
-      Effect.tap((catalog) =>
+    fetchMossGatewayCatalogViaEntries({
+      fetchGatewayModels,
+      entries: gatewayEntries(),
+      gatewayBaseUrl: url,
+      accessToken: apiKey,
+    }).pipe(
+      Effect.map(({ catalog, gatewayBaseUrl }) => ({ catalog, url: gatewayBaseUrl })),
+      Effect.tap(({ catalog }) =>
         Effect.sync(() => {
           modelGatewayStatus = catalog.status;
         }),
@@ -259,8 +269,7 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
             message: "请输入以 moss_sk_ 开头的完整企业 API Key。",
           });
         }
-        const url = yield* requireGateway();
-        const catalog = yield* verify(apiKey, url);
+        const { catalog, url } = yield* verify(apiKey, yield* requireGateway());
         if (catalog.status !== "ready") return yield* catalogError(catalog.status);
 
         const previous = yield* readStored();
@@ -302,8 +311,7 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
             message: "请先登录企业 API Key。",
           });
         }
-        const url = yield* requireGateway();
-        const catalog = yield* verify(stored.apiKey, url);
+        const { catalog, url } = yield* verify(stored.apiKey, yield* requireGateway());
         if (catalog.status !== "ready") return yield* catalogError(catalog.status);
         yield* provision({
           apiKey: stored.apiKey,
@@ -357,7 +365,8 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
         if (reconcile === "collision") {
           return yield* persistenceFailed(new Error("managed provider collision"));
         }
-        const catalog = yield* verify(stored.apiKey, url);
+        const verified = yield* verify(stored.apiKey, url);
+        const catalog = verified.catalog;
         if (catalog.status === "auth-denied") {
           // A revoked key must not keep a credential-bearing surface around.
           yield* release(stored.apiKey);
@@ -367,7 +376,7 @@ export const makeMossEnterpriseKeyAccount = Effect.fn(function* (
         if (catalog.status !== "ready") return;
         yield* provision({
           apiKey: stored.apiKey,
-          url,
+          url: verified.url,
           models: catalog.models,
           selectionPolicy: "preserve",
         });

@@ -1,11 +1,13 @@
 // FILE: providerDeliveryBlock.ts
 // Purpose: Single source for the provider-delivery messages the server writes and the web app
-//          matches: the quarantine block, an unconfirmed turn start, a slow turn start and
+//          matches: the quarantine block, an unconfirmed turn start, a start that sent
+//          nothing because the previous process had not stopped, a slow turn start and
 //          a silent running turn.
 // Layer: Shared runtime utilities
 // Exports: PROVIDER_DELIVERY_BLOCK_SUMMARY, formatProviderDeliveryBlockDetail,
 //          isProviderDeliveryBlockDetail, UNCONFIRMED_TURN_START_DETAIL,
-//          isUnconfirmedTurnStartDetail, PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+//          isUnconfirmedTurnStartDetail, PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
+//          isPreviousRuntimeNotStoppedDetail, PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
 //          PROVIDER_TURN_SILENT_ACTIVITY_KIND
 
 /**
@@ -17,6 +19,18 @@ export const UNCONFIRMED_TURN_START_DETAIL =
 
 export function isUnconfirmedTurnStartDetail(detail: string | null | undefined): boolean {
   return typeof detail === "string" && detail.includes(UNCONFIRMED_TURN_START_DETAIL);
+}
+
+/**
+ * Written when a start ended before spawning anything because the thread's previous agent
+ * process could not be proven stopped. Nothing reached the provider, so the words say
+ * "not sent" and the web app offers to send the message again at once.
+ */
+export const PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL =
+  "The previous agent process had not stopped yet, so this message was not sent.";
+
+export function isPreviousRuntimeNotStoppedDetail(detail: string | null | undefined): boolean {
+  return typeof detail === "string" && detail.includes(PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL);
 }
 
 /** Activity kind for a sent message its provider has not taken up yet ("still starting"). */

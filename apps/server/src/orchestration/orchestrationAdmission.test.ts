@@ -29,6 +29,7 @@ describe("orchestration command admission policy", () => {
 
   it.each([
     "thread.turn.start",
+    "thread.turn.resume",
     "thread.create",
     "thread.checkpoint.revert",
     "thread.conversation.rollback",

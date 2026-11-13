@@ -47,7 +47,10 @@ import {
   maintainMossPhoneAccountSession,
   startMossPhoneAccountSessionMaintenance,
 } from "./account/Layers/MossPhoneAccountService";
-import { startMossServiceEntryMaintenance } from "./account/mossServiceEntries";
+import {
+  reportMossLaneConnectionFailures,
+  startMossServiceEntryMaintenance,
+} from "./account/mossServiceEntries";
 import {
   clearPersistedServerRuntimeState,
   makePersistedServerRuntimeState,
@@ -732,6 +735,23 @@ export const createEffectServer = Effect.fn(function* (
           ),
         ),
       ),
+    }),
+    subscriptionsScope,
+  );
+  // A Moss Codex lane's turn that failed before any HTTP response reports its gateway entry.
+  yield* Scope.provide(
+    reportMossLaneConnectionFailures({
+      events: providerService.streamEvents,
+      gatewayBaseUrlOf: (instanceId) =>
+        serverSettings.getSettings.pipe(
+          Effect.map((settings) => {
+            const config = settings.providerInstances[instanceId]?.config as
+              | Record<string, unknown>
+              | undefined;
+            return typeof config?.gatewayBaseUrl === "string" ? config.gatewayBaseUrl : null;
+          }),
+          Effect.orElseSucceed(() => null),
+        ),
     }),
     subscriptionsScope,
   );

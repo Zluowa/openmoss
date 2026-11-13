@@ -42,6 +42,7 @@ afterEach(async () => {
 });
 
 const gateway = "https://gateway.example/functions/v1/moss-model-gateway/v1";
+const fallbackGateway = "https://fallback.example/functions/v1/moss-model-gateway/v1";
 const modelId = "gpt-image-2.5-flare";
 const body = { modelId, prompt: "A blue sailboat", idempotencyKey: "route-operation" };
 
@@ -64,6 +65,7 @@ function harness(
 ) {
   const state = {
     accountId: "account-a",
+    gateway,
     signedOut: false,
     submissions: 0,
     textSubmissions: 0,
@@ -76,6 +78,7 @@ function harness(
   const directory = mkdtempSync(join(tmpdir(), "moss-media-route-"));
   cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
   vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", gateway);
+  vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS", fallbackGateway);
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
     if (url.endsWith("/v1/models")) {
@@ -156,7 +159,7 @@ function harness(
               ? null
               : {
                   realm: "memfire-phone",
-                  gatewayBaseUrl: gateway,
+                  gatewayBaseUrl: state.gateway,
                   account: { id: state.accountId, realm: "memfire-phone" },
                 },
           };
@@ -178,7 +181,7 @@ function harness(
             return Effect.fail(new Error("Authentication service unavailable"));
           return Effect.succeed({
             realm: "memfire-phone",
-            gatewayBaseUrl: gateway,
+            gatewayBaseUrl: state.gateway,
             issuer: "https://auth.example",
             realtimeRelayUrl: "wss://relay.example",
             accessToken: `header.${Buffer.from(JSON.stringify({ sub: state.accountId })).toString("base64url")}.signature`,
@@ -1268,6 +1271,18 @@ describe("Moss media HTTP route", () => {
     expect(await response.json()).toMatchObject({ error: { code: "account_changed" } });
     expect(app.state.quotaReads).toBe(0);
     expect(app.fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Canvas identity when only the gateway entry changes during its read", async () => {
+    let app: ReturnType<typeof harness>;
+    app = harness({
+      sessionGate: async (read) => {
+        if (read === 2) app.state.gateway = fallbackGateway;
+      },
+    });
+    const response = await app.request("/api/moss/media/canvas/account");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ authenticated: true, realm: "memfire-phone" });
   });
 
   it("withholds local Canvas identity after its conversation directory changes", async () => {

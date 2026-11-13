@@ -61,6 +61,7 @@ import {
 import { LOCAL_IMAGE_ROUTE_PATH } from "@moss/shared/localPreviewFiles";
 import { MOSS_CODEX_RESPONSES_MODEL_IDS } from "@moss/shared/mossManagedModelCatalog";
 import { resolveProviderInstance } from "@moss/shared/providerInstances";
+import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
 import { Schema } from "effect";
 import { HttpResponse, http, ws } from "msw";
@@ -1828,6 +1829,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
 
 function installDeterministicSendNativeApi(options?: {
   rejectTurnStart?: boolean;
+  /** The server's refusal text for a `thread.turn.resume`. */
+  rejectResume?: string;
   beforeWorktreeCreation?: () => Promise<void>;
   beforeTurnStart?: () => Promise<void>;
   projectThreadCommands?: boolean;
@@ -1887,6 +1890,9 @@ function installDeterministicSendNativeApi(options?: {
           if (command.type === "thread.turn.start") await options?.beforeTurnStart?.();
           if (options?.rejectTurnStart && command.type === "thread.turn.start") {
             throw new Error("Turn start failed for test.");
+          }
+          if (options?.rejectResume !== undefined && command.type === "thread.turn.resume") {
+            throw new Error(options.rejectResume);
           }
           if (options?.projectThreadCommands && command.type === "thread.create") {
             const snapshot = addThreadToSnapshot(fixture.snapshot, command.threadId);
@@ -19412,6 +19418,87 @@ describe("ChatView transcript geometry (full app)", () => {
       diagnostics.dispose();
     }
   });
+
+  it("offers Continue after Stop and explains a refusal in plain words", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi({
+      rejectResume: `Orchestration command invariant failed (thread.turn.resume): Thread '${THREAD_ID}' already has an active or queued turn.`,
+    });
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    // The stopped turn's own message carries no turn id, as every plain send leaves it.
+    const snapshot = updateInterruptedThreadSnapshot(
+      createSnapshotWithInterruptedTurn(),
+      (thread) => ({
+        ...thread,
+        messages: thread.messages.map((message) =>
+          message.role === "user" ? { ...message, turnId: null } : message,
+        ),
+      }),
+    );
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+    try {
+      const resumeButton = await waitForElement(
+        () =>
+          document.querySelector<HTMLButtonElement>(
+            'button[data-moss-visible-resume-control="true"]',
+          ),
+        "Continue is not offered after Stop.",
+      );
+      resumeButton.click();
+      await vi.waitFor(() =>
+        expect(
+          wsRequests.some(
+            (request) =>
+              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              (request as { command?: { type?: string } }).command?.type === "thread.turn.resume",
+          ),
+        ).toBe(true),
+      );
+      await expect
+        .element(page.getByText("这个对话还在运行，或还有消息在排队。等它结束后再继续。"))
+        .toBeInTheDocument();
+      expect(document.body.textContent ?? "").not.toContain("already has an active or queued turn");
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+      localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+    }
+  });
+
+  it.each([
+    ["zh-CN", "继续刚才的任务。"],
+    ["en", INTERRUPTED_TASK_CONTINUATION_PROMPT],
+  ] as const)(
+    "shows a continuation as the person's own line in %s",
+    async (localeOverride, visibleLine) => {
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride }));
+      const snapshot = updateInterruptedThreadSnapshot(
+        createSnapshotWithInterruptedTurn(),
+        (thread) => ({
+          ...thread,
+          messages: thread.messages.map((message) =>
+            // The newest person message, so the transcript renders it at the bottom.
+            message.id === "msg-user-21"
+              ? { ...message, text: INTERRUPTED_TASK_CONTINUATION_PROMPT }
+              : message,
+          ),
+        }),
+      );
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+
+      try {
+        await expect.element(page.getByText(visibleLine, { exact: true })).toBeInTheDocument();
+        if (localeOverride === "zh-CN") {
+          expect(document.body.textContent ?? "").not.toContain(
+            INTERRUPTED_TASK_CONTINUATION_PROMPT,
+          );
+        }
+      } finally {
+        await mounted.cleanup();
+        localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+      }
+    },
+  );
 
   it("marks the empty shell state and keeps context controls on the composer centerline", async () => {
     seedProjectDraftThreadForLandingTest();

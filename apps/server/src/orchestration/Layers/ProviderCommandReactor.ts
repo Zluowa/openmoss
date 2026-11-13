@@ -84,6 +84,7 @@ import { claudeCacheForModel } from "../../provider/claudeCacheObservation.ts";
 import { providerSupportsNativeTurnSteering } from "@moss/shared/providerMetadata";
 import {
   formatProviderDeliveryBlockDetail,
+  PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
   PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
   UNCONFIRMED_TURN_START_DETAIL,
@@ -284,10 +285,14 @@ export function classifyProviderAttemptOutcome(
     case "ProviderUnsupportedError":
     case "ProviderSessionNotFoundError":
       return { _tag: "rejected", detail };
-    case "ProviderAdapterProcessError":
-      return (failure.value as ProviderAdapterProcessError).reason === "startup-failed"
+    case "ProviderAdapterProcessError": {
+      // Only reasons that prove nothing reached the provider settle at once; every
+      // other process failure stays uncertain until the bound settles it.
+      const reason = (failure.value as ProviderAdapterProcessError).reason;
+      return reason === "startup-failed" || reason === "previous-runtime-not-stopped"
         ? { _tag: "rejected", detail }
         : { _tag: "uncertain", detail };
+    }
     case "ProviderAdapterRequestError":
       // Session setup never carries the user's message (`startSession` takes no
       // prompt), so a failure there proves nothing was sent: an agent that isn't
@@ -5349,7 +5354,15 @@ const make = Effect.gen(function* () {
                 const cancelledCompaction =
                   failure instanceof ProviderAdapterValidationError &&
                   failure.operation === "startClaudeCompaction.cancelled";
-                const detail = Cause.pretty(cause);
+                // Nothing was spawned or sent: say so in Moss's words, so the chat
+                // offers to send again now (the raw cause is logged on rejection).
+                const previousRuntimeNotStopped =
+                  cause.reasons.length === 1 &&
+                  failure instanceof ProviderAdapterProcessError &&
+                  failure.reason === "previous-runtime-not-stopped";
+                const detail = previousRuntimeNotStopped
+                  ? PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL
+                  : Cause.pretty(cause);
                 if (event.payload.initialGoalStartedAt !== undefined) {
                   yield* pauseActiveThreadGoal({
                     threadId: event.payload.threadId,

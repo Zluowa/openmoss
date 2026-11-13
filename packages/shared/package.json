@@ -301,6 +301,10 @@
       "types": "./src/threadSummary.ts",
       "import": "./src/threadSummary.ts"
     },
+    "./turnResume": {
+      "types": "./src/turnResume.ts",
+      "import": "./src/turnResume.ts"
+    },
     "./pendingInteractions": {
       "types": "./src/pendingInteractions.ts",
       "import": "./src/pendingInteractions.ts"

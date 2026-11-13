@@ -3,6 +3,7 @@
 // Layer: Web UI state
 // Exports: localization provider, translation hook, and pure locale helpers
 
+import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 
 import { useAppSettings } from "./appSettings";
@@ -820,6 +821,12 @@ const EN_TRANSLATIONS = {
   "chat.composer.send.sending": "Sending",
   "chat.composer.send.message": "Send message",
   "chat.composer.send.resume": "Resume",
+  "chat.composer.resume.refused.busy":
+    "This chat is still working or has a message waiting. Continue once it finishes.",
+  "chat.composer.resume.refused.pendingInteraction":
+    "Answer the approval or question that is waiting first, then continue.",
+  "chat.composer.resume.refused.unavailable":
+    "This task can't be continued from here. Send a message to keep going.",
   "chat.permissions.approvalRequired": "Ask for approval",
   "chat.permissions.approvalRequiredDescription":
     "Always ask to edit external files and use the internet",
@@ -915,6 +922,8 @@ const EN_TRANSLATIONS = {
   "chat.error.copied": "Copied error",
   "chat.error.copiedShort": "Copied",
   "chat.error.continueTask": "Continue task",
+  // What a continuation shows as the person's message; the provider reads the instruction.
+  "chat.continuation.visibleText": INTERRUPTED_TASK_CONTINUATION_PROMPT,
   "chat.error.changeModel": "Change model",
   "chat.error.unblocking": "Unblocking…",
   "chat.error.unblockThread": "Unblock thread",
@@ -5229,6 +5238,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.composer.send.sending": "正在发送",
   "chat.composer.send.message": "发送消息",
   "chat.composer.send.resume": "继续运行",
+  "chat.composer.resume.refused.busy": "这个对话还在运行，或还有消息在排队。等它结束后再继续。",
+  "chat.composer.resume.refused.pendingInteraction": "先处理正在等待的批准或问题，再继续。",
+  "chat.composer.resume.refused.unavailable": "这个任务没法从这里继续了。发一条消息就能接着做。",
   "chat.permissions.approvalRequired": "需要批准",
   "chat.permissions.approvalRequiredDescription": "编辑外部文件和使用互联网时始终请求批准",
   "chat.permissions.auto": "自动批准",
@@ -5320,6 +5332,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.error.copied": "已复制错误信息",
   "chat.error.copiedShort": "已复制",
   "chat.error.continueTask": "继续任务",
+  "chat.continuation.visibleText": "继续刚才的任务。",
   "chat.error.changeModel": "更换模型",
   "chat.error.unblocking": "正在解除…",
   "chat.error.unblockThread": "解除阻止",

@@ -259,11 +259,21 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
+// The widget could not take the result (it failed to load): the call's own text is shown.
 const failedProjection = {
   ...projection,
+  result: {
+    content: [
+      { type: "text", text: "fixture_bad_structured 返回的结果不符合格式要求，未能交给小组件。" },
+    ],
+  },
+} as WorkLogMcpToolResult;
+// The tool itself returned an error: its text in place, and 「工具调用失败。」.
+const toolErrorProjection = {
+  ...projection,
   status: "failed",
-  result: undefined,
-  error: { message: "fixture_bad_structured 返回的结果不符合格式要求，未能交给小组件。" },
+  result: { content: [{ type: "text", text: "Debug text content #1" }] },
+  error: { message: "Debug text content #1" },
 } as WorkLogMcpToolResult;
 const structuredProjection = {
   ...projection,
@@ -291,6 +301,20 @@ for (const theme of ["light", "dark"] as const) {
       expect(fallback.textContent).not.toMatch(/json/iu);
       await shot("parity-01-failed-call-text", theme);
       await screen.unmount();
+
+      const toolError = await render(
+        <Harness>
+          <McpAppBlockView {...view({ phase: "failed", projection: toolErrorProjection })} />
+        </Harness>,
+      );
+      const errorFallback = document.querySelector<HTMLElement>('[data-mcp-app-fallback="true"]')!;
+      expect(errorFallback.querySelector('[data-mcp-app-fallback-text="true"]')!.textContent).toBe(
+        "Debug text content #1",
+      );
+      expect(errorFallback.querySelector('[data-mcp-app-footnote="true"]')!.textContent).toBe(
+        "工具调用失败。",
+      );
+      await toolError.unmount();
 
       const structured = await render(
         <Harness>

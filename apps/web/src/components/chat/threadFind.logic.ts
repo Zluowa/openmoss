@@ -106,11 +106,16 @@ function messageHasVisibleMedia(message: ChatMessage): boolean {
   );
 }
 
-export function resolveThreadFindDocumentText(message: ChatMessage, text = message.text): string {
+export function resolveThreadFindDocumentText(
+  message: ChatMessage,
+  text = message.text,
+  continuationVisibleText?: string,
+): string {
   if (message.role === "user") {
     const displayed = deriveDisplayedUserMessageState(text, {
       hideImageOnlyBootstrapPrompt: messageHasVisibleMedia(message),
       messageId: message.id,
+      ...(continuationVisibleText !== undefined ? { continuationVisibleText } : {}),
     });
     return resolveUserMessageMarkdownText(displayed.visibleText, displayed.contexts);
   }

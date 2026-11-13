@@ -121,7 +121,9 @@ easy to undo by accident. Keep them when you upgrade or refactor.
   evidence to the command-line comparison; they are not proof of PID ownership
   (POSIX start times have second resolution, and observing then signaling is not
   atomic). Root signaling still requires the caller to own the live process.
-  Cancelling a directly owned child must work even without process-table tools.
+  Cancelling a directly owned child must work even without process-table tools:
+  on Windows, when `taskkill /T` did not end the root (it timed out or could not
+  run), teardown ends it through the owned child handle, never by PID.
 - **`ELECTRON_RUN_AS_NODE`.** Desktop stdio MCP proxies reuse Electron's
   executable and must set `ELECTRON_RUN_AS_NODE=1` in their own launch
   configuration. Provider child environments strip the inherited flag, so relying

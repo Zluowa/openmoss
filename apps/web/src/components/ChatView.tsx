@@ -376,6 +376,8 @@ import { ChatComposerFooter } from "./chat/ChatComposerFooter";
 import { GuestPendingMessages } from "./chat/guestShare/GuestPendingMessages";
 import { ChatComposerSendButton } from "./chat/ChatProviderSendControl";
 import {
+  classifyComposerResumeRefusal,
+  composerResumeRefusalMessageKey,
   hasComposerResumeProjectionAdvancedSince,
   isComposerResumeEligible,
   isComposerResumePendingForThread,
@@ -6861,6 +6863,12 @@ export default function ChatView({
   // component. The compiler memoizes this derivation itself.
   const composerResumeEligible = isComposerResumeEligible({
     thread: activeThread,
+    session: activeThread?.session
+      ? {
+          status: activeThread.session.orchestrationStatus,
+          activeTurnId: activeThread.session.activeTurnId ?? null,
+        }
+      : null,
     provider: activeThread?.session?.provider ?? activeThreadProvider,
     isServerThread,
     // A quote waiting in the composer keeps the send button; it is not a resume.
@@ -6911,16 +6919,17 @@ export default function ChatView({
     const currentThreadId = activeThread.id;
     const turnId = activeThread.latestTurn?.turnId;
     if (!turnId || !composerResumeEligible) {
-      setThreadError(currentThreadId, "The latest Codex turn is not resumable.");
+      setThreadError(currentThreadId, t("chat.composer.resume.refused.unavailable"));
       return;
     }
+    // A second press while the first is on its way changes nothing; the button
+    // already shows the pending state.
     if (resumeInFlightTurnIdRef.current !== null) {
-      setThreadError(currentThreadId, "A Resume request is already in flight.");
       return;
     }
     const api = readNativeApi();
     if (!api) {
-      setThreadError(currentThreadId, "Native orchestration is unavailable.");
+      setThreadError(currentThreadId, t("chat.composer.resume.refused.unavailable"));
       return;
     }
     resumeInFlightTurnIdRef.current = turnId;
@@ -6946,13 +6955,16 @@ export default function ChatView({
       if (isCurrentResumeStillInFlight()) {
         setResumeDispatchAccepted(true);
       }
-    } catch {
+    } catch (error) {
       if (isCurrentResumeStillInFlight()) {
         clearResumeInFlight();
       }
-      setThreadError(currentThreadId, "Unable to resume the interrupted turn.");
+      setThreadError(
+        currentThreadId,
+        t(composerResumeRefusalMessageKey(classifyComposerResumeRefusal(error))),
+      );
     }
-  }, [activeThread, clearResumeInFlight, composerResumeEligible, setThreadError]);
+  }, [activeThread, clearResumeInFlight, composerResumeEligible, setThreadError, t]);
   useEffect(() => {
     const pendingTurnId = resumeInFlightTurnIdRef.current;
     const pendingThreadId = resumeInFlightThreadIdRef.current;

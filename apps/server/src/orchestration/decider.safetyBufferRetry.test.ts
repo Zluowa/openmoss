@@ -5,7 +5,6 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
-  type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@moss/contracts";
 import { Effect } from "effect";
@@ -146,96 +145,21 @@ function command(commandId = "command-safety") {
   };
 }
 
-describe("safety buffering retry decider", () => {
-  it("derives the faster model from the latest typed activity and fences duplicates", async () => {
-    expect(projectedSafetyActivity().payload).toMatchObject({
-      threadId: THREAD_ID,
-    });
-    expect(PROVIDER_THREAD_ID).not.toBe(THREAD_ID);
-    const events = await Effect.runPromise(
-      decideOrchestrationCommand({ command: command(), readModel: readModel() }),
-    );
-    expect(events).toMatchObject([
-      {
-        type: "thread.activity-appended",
-        payload: { activity: { kind: "model.safety-buffering.retry-requested" } },
-      },
-      {
-        type: "thread.turn-safety-buffer-retry-requested",
-        payload: {
-          turnId: TURN_ID,
-          messageId: "message-safety-source",
-          sourceActivityId: SOURCE_ACTIVITY_ID,
-          targetModel: "gpt-5.5-codex",
-          modelSelection: {
-            provider: "codex",
-            instanceId: "codex",
-            model: "gpt-5.5-codex",
-            options: { reasoningEffort: "high" },
-          },
-        },
-      },
-    ]);
-
-    let projected = readModel();
-    for (const [index, event] of (events as Omit<OrchestrationEvent, "sequence">[]).entries()) {
-      projected = await Effect.runPromise(
-        projectEvent(projected, { ...event, sequence: 8 + index } as OrchestrationEvent),
-      );
-    }
+describe("safety buffering retry", () => {
+  // No provider handler runs a safety-buffer retry any more, so accepting one would
+  // leave the chat "starting" forever. Even the exact case it was built for is refused.
+  it("refuses even an active typed safety-buffering target, pointing at resume", async () => {
+    expect(projectedSafetyActivity().payload).toMatchObject({ threadId: THREAD_ID });
     await expect(
       Effect.runPromise(
-        decideOrchestrationCommand({
-          command: command("command-safety-duplicate"),
-          readModel: projected,
-        }),
+        Effect.flip(decideOrchestrationCommand({ command: command(), readModel: readModel() })),
       ),
-    ).rejects.toThrow(/already requested/);
-  });
-
-  it("rejects hidden, stale, non-Codex, and targetless notifications", async () => {
-    for (const thread of [
-      makeThread({
-        activities: [projectedSafetyActivity({ showBufferingUi: false, sequence: 8 })],
-      }),
-      makeThread({
-        latestTurn: { ...makeThread().latestTurn!, turnId: TurnId.makeUnsafe("newer") },
-      }),
-      makeThread({ session: { ...makeThread().session!, providerName: "claudeAgent" } }),
-      makeThread({
-        activities: [projectedSafetyActivity({ fasterModel: null })],
-      }),
-      makeThread({
-        activities: [
-          projectProviderRuntimeActivities(
-            {
-              type: "model.safety-buffering.updated",
-              eventId: SOURCE_ACTIVITY_ID,
-              provider: "codex",
-              createdAt: BUFFERED_AT,
-              threadId: ThreadId.makeUnsafe("other-moss-thread"),
-              turnId: TURN_ID,
-              payload: {
-                threadId: PROVIDER_THREAD_ID,
-                turnId: TURN_ID,
-                model: "gpt-5.6-codex",
-                reasons: ["latency"],
-                showBufferingUi: true,
-                useCases: ["long_running"],
-                fasterModel: "gpt-5.5-codex",
-              },
-            },
-            7,
-          )[0]!,
-        ],
-      }),
-    ]) {
-      await expect(
-        Effect.runPromise(
-          decideOrchestrationCommand({ command: command(), readModel: readModel(thread) }),
-        ),
-      ).rejects.toThrow();
-    }
+    ).resolves.toMatchObject({
+      _tag: "OrchestrationCommandInvariantError",
+      commandType: "thread.turn.safety-buffer-retry",
+      detail:
+        "'thread.turn.safety-buffer-retry' is no longer supported: no provider handler runs it. Use 'thread.turn.resume' or send a message.",
+    });
   });
 
   it("removes only the superseded turn while preserving source and queued messages", async () => {

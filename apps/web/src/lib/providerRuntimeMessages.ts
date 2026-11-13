@@ -55,6 +55,40 @@ function localizeSummaryDisclosure(disclosure: string): string {
     .join("；");
 }
 
+// Why a turn ended (ClaudeAdapter's reasons and its fallbacks). The model service, not a
+// provider, is named; the "Claude …" wordings older builds recorded read the same way.
+export const ZH_CN_TURN_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
+  "The model service rate limit was reached. Wait briefly, then retry.":
+    "模型服务已达到速率限制，请稍等后重试。",
+  "Claude rate limit reached. Wait briefly, then retry.": "模型服务已达到速率限制，请稍等后重试。",
+  "The model service rejected the request as invalid.": "模型服务认为这次请求无效，已拒绝。",
+  "Claude rejected the request as invalid.": "模型服务认为这次请求无效，已拒绝。",
+  "The selected model is unavailable for this account.": "当前账号不能使用所选模型。",
+  "The selected Claude model is unavailable for this account.": "当前账号不能使用所选模型。",
+  "The model reached the maximum output length before completing the turn.":
+    "模型在完成这一轮之前达到了输出长度上限。",
+  "Claude reached the maximum output length before completing the turn.":
+    "模型在完成这一轮之前达到了输出长度上限。",
+  "The model service failed to complete the turn.": "模型服务没能完成这一轮。",
+  "Claude failed to complete the turn.": "模型服务没能完成这一轮。",
+  "The model service could not load its cloud credentials. Check or refresh them, then retry.":
+    "模型服务没能加载云端凭据，请检查或刷新后重试。",
+  "Claude could not load its cloud credentials. Check or refresh them, then retry.":
+    "模型服务没能加载云端凭据，请检查或刷新后重试。",
+  "Claude returned a server error. Retry in a moment.": "模型服务返回了服务器错误，请稍后重试。",
+  "Claude is temporarily overloaded. Retry in a moment.": "模型服务暂时过载，请稍后重试。",
+  "The turn was interrupted.": "这一轮已中断。",
+  "Claude runtime interrupted.": "这一轮已中断。",
+  "The turn failed.": "这一轮没有完成。",
+  "Claude turn failed.": "这一轮没有完成。",
+  "The agent stopped and will resume on your next message.":
+    "智能体已停止，你发送下一条消息时会继续。",
+  "Claude runtime stopped and will resume on your next message.":
+    "智能体已停止，你发送下一条消息时会继续。",
+  "Claude runtime stream failed.": "这一轮没有完成。",
+  "Claude runtime stream ended.": "这一轮已中断。",
+};
+
 const ZH_CN_EXACT_MESSAGES: Readonly<Record<string, string>> = {
   ...ZH_CN_CONTEXT_LIFECYCLE_MESSAGES,
   // Send failures around a backend restart. The first is wsTransportEvents'
@@ -69,15 +103,7 @@ const ZH_CN_EXACT_MESSAGES: Readonly<Record<string, string>> = {
   "The model service is temporarily overloaded. Retry in a moment.":
     "模型服务暂时过载，请稍后重试。",
   // Older turns recorded these with the provider's name; they read the same as above.
-  "Claude returned a server error. Retry in a moment.": "模型服务返回了服务器错误，请稍后重试。",
-  "Claude is temporarily overloaded. Retry in a moment.": "模型服务暂时过载，请稍后重试。",
-  "Claude rate limit reached. Wait briefly, then retry.": "Claude 已达到速率限制，请稍等后重试。",
-  "Claude rejected the request as invalid.": "Claude 认为这次请求无效，已拒绝。",
-  "The selected Claude model is unavailable for this account.":
-    "当前账号不能使用所选的 Claude 模型。",
-  "Claude reached the maximum output length before completing the turn.":
-    "Claude 在完成这一轮之前达到了输出长度上限。",
-  "Claude failed to complete the turn.": "Claude 没能完成这一轮。",
+  ...ZH_CN_TURN_FAILURE_MESSAGES,
   "The connection to the model service dropped. Try again.": "与模型服务的连接中断了，请重试。",
   // A Moss Codex chat whose sign-in runtime is missing or revoked (threadErrorPresentation).
   "Moss's models aren't ready for this chat. Sign in to Moss again, or switch to another provider, then retry.":

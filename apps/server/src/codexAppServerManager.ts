@@ -168,6 +168,7 @@ import {
   type AgentGatewaySessionLease,
 } from "./agentGateway/sessionLease.ts";
 import {
+  CodexPreviousRuntimeNotStoppedError,
   CodexSessionStartError,
   codexErrorMessage,
   isNonFatalCodexErrorMessage,
@@ -4349,6 +4350,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           method: "session/startFailed",
           message,
         });
+      }
+      // Only stopping the previous session can fail before previousSessionStopped:
+      // nothing was spawned for this start and no turn was sent.
+      if (!previousSessionStopped && !context) {
+        throw new CodexPreviousRuntimeNotStoppedError(message, { cause });
       }
       // A post-exit snapshot can miss reparented children even when cleanup
       // succeeds. Only pre-exit capture can certify a safe startup rejection.

@@ -2,6 +2,7 @@ import { isThreadDetailAwaitingVerification } from "../../threadDetailAuthority"
 import { MessageId, ThreadId, type ProviderKind, type TurnId } from "@moss/contracts";
 import { resolveTailUserMessageEditTarget } from "@moss/shared/conversationEdit";
 import { deriveAssociatedWorktreeMetadata } from "@moss/shared/threadWorkspace";
+import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { useNavigate } from "@tanstack/react-router";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { useCallback } from "react";
@@ -477,8 +478,7 @@ export function useChatTurnFollowUps({
         current.hasPendingUserInput
       )
         return false;
-      const prompt =
-        "Continue the interrupted task from the existing conversation and working state. First verify which operations have already completed; avoid repeating them and resume the remaining work.";
+      const prompt = INTERRUPTED_TASK_CONTINUATION_PROMPT;
       return handlers.send(undefined, "queue", {
         id: randomUUID(),
         kind: "chat",

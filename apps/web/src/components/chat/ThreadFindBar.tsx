@@ -17,11 +17,13 @@ import {
   createThreadFindDocumentTextCache,
   findThreadMatches,
   normalizeFindQuery,
+  resolveThreadFindDocumentText,
   resolveThreadFindJump,
   stepThreadFindIndex,
   type ThreadFindHighlight,
   type ThreadFindMatch,
 } from "./threadFind.logic";
+import { useTranslation } from "~/localization";
 
 interface ThreadFindBarProps {
   open: boolean;
@@ -63,7 +65,16 @@ export function ThreadFindBar({
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [documentTextCache] = useState(createThreadFindDocumentTextCache);
+  const { t } = useTranslation();
+  // Find searches what the bubbles show, so a continuation matches its localized line.
+  const continuationVisibleText = t("chat.continuation.visibleText");
+  const documentTextCache = useMemo(
+    () =>
+      createThreadFindDocumentTextCache((message, text) =>
+        resolveThreadFindDocumentText(message, text, continuationVisibleText),
+      ),
+    [continuationVisibleText],
+  );
   const documents = useMemo(
     () => (open ? collectThreadFindDocuments(timelineEntries, documentTextCache) : []),
     [documentTextCache, open, timelineEntries],

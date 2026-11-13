@@ -74,6 +74,8 @@ export interface McpAppBlockViewProps {
  */
 function McpAppFallbackResult(props: {
   readonly projection: WorkLogMcpToolResult;
+  /** The tool itself failed: its footnote already says so, so Moss's default says nothing. */
+  readonly toolFailed: boolean;
   readonly onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
 }) {
   const { t } = useTranslation();
@@ -95,8 +97,14 @@ function McpAppFallbackResult(props: {
   // A server's or CLI's own error is shown as written; Moss's own default is in the UI language.
   const rawError = props.projection.error?.message.trim();
   const errorText =
-    rawError === MCP_APP_DEFAULT_CALL_FAILED_MESSAGE ? t("mcpApp.callFailed") : rawError;
-  if (texts.length === 0 && structured === undefined && errorText) {
+    rawError === MCP_APP_DEFAULT_CALL_FAILED_MESSAGE
+      ? props.toolFailed
+        ? undefined
+        : t("mcpApp.callFailed")
+      : rawError;
+  // A failed call says what went wrong in its own words; any structured data it carried is not
+  // the answer (Claude shows the failed call's text in place).
+  if (texts.length === 0 && (structured === undefined || props.toolFailed) && errorText) {
     texts.push(errorText);
   }
   if (texts.length > 0) {
@@ -127,6 +135,9 @@ export function McpAppBlockView(props: McpAppBlockViewProps) {
   const { t, format } = useTranslation();
   const { binding, phase, open, hidden, docked } = props;
   const fallback = phase === "failed" || phase === "browser_unavailable";
+  // A call that failed shows what it returned and 「工具调用失败。」; a widget that failed to load
+  // shows the call's result and says the widget is shown as text.
+  const toolFailed = props.projection.status === "failed";
   const initializing = props.loading;
   const promptWaiting = props.prompt !== null;
   const serverName = binding.isFirstParty ? "Moss" : binding.serverLabel;
@@ -285,9 +296,21 @@ export function McpAppBlockView(props: McpAppBlockViewProps) {
 
       {open && fallback ? (
         <div className="flex min-w-0 flex-col gap-1" data-mcp-app-fallback="true">
-          <McpAppFallbackResult projection={props.projection} onImageExpand={props.onImageExpand} />
-          <p className="block ps-1 text-ui-sm text-muted-foreground" data-mcp-app-footnote="true">
-            {phase === "browser_unavailable" ? t("mcpApp.desktopOnly") : t("mcpApp.fallbackNote")}
+          <McpAppFallbackResult
+            projection={props.projection}
+            toolFailed={toolFailed}
+            onImageExpand={props.onImageExpand}
+          />
+          <p
+            className="block ps-1 text-ui-sm text-muted-foreground"
+            data-mcp-app-footnote="true"
+            data-mcp-app-call-failed={toolFailed ? "true" : undefined}
+          >
+            {toolFailed
+              ? t("mcpApp.callFailed")
+              : phase === "browser_unavailable"
+                ? t("mcpApp.desktopOnly")
+                : t("mcpApp.fallbackNote")}
           </p>
         </div>
       ) : null}

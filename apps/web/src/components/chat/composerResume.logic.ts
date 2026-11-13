@@ -1,9 +1,13 @@
 import {
   isRetryableCodexTurnFailure,
+  type OrchestrationSession,
   type OrchestrationThread,
   type ProviderKind,
   type TurnId,
 } from "@moss/contracts";
+import { threadHasActiveOrQueuedTurn } from "@moss/shared/turnResume";
+
+import type { TranslationKey } from "~/localization";
 
 type ResumeThread = Pick<
   OrchestrationThread,
@@ -34,6 +38,8 @@ function latestTurnCompletion(
 
 export interface ComposerResumeEligibilityInput {
   readonly thread: ResumeThread | null | undefined;
+  /** The server's view of the session (`orchestrationStatus` on the client). */
+  readonly session: Pick<OrchestrationSession, "status" | "activeTurnId"> | null;
   readonly provider: ProviderKind | null;
   readonly isServerThread: boolean;
   readonly hasSendableContent: boolean;
@@ -70,7 +76,13 @@ export function isComposerResumeEligible(input: ComposerResumeEligibilityInput):
     input.hasPendingInteraction ||
     input.hasPlanFollowUp ||
     input.providerAdmissionState !== "ready" ||
-    input.isLoading
+    input.isLoading ||
+    // The server's own admission rule: never offer what it would refuse.
+    threadHasActiveOrQueuedTurn({
+      session: input.session,
+      latestTurn,
+      activities: thread.activities,
+    })
   ) {
     return false;
   }
@@ -89,6 +101,39 @@ export function isComposerResumeEligible(input: ComposerResumeEligibilityInput):
       errorMessage: payload.errorMessage,
     })
   );
+}
+
+/** Why a resume did not go through, in terms a person can act on. */
+export type ComposerResumeRefusal = "busy" | "pending-interaction" | "unavailable";
+
+/**
+ * Sorts a refused or failed resume into one of the reasons the composer explains.
+ * The server's own words name threads and turn ids, so they never reach the person.
+ */
+export function classifyComposerResumeRefusal(error: unknown): ComposerResumeRefusal {
+  const text = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  if (
+    /already has an active or queued turn|requires a terminal latest turn|has an active goal continuation/u.test(
+      text,
+    )
+  ) {
+    return "busy";
+  }
+  if (/has a pending approval or user input interaction/u.test(text)) {
+    return "pending-interaction";
+  }
+  return "unavailable";
+}
+
+export function composerResumeRefusalMessageKey(refusal: ComposerResumeRefusal): TranslationKey {
+  switch (refusal) {
+    case "busy":
+      return "chat.composer.resume.refused.busy";
+    case "pending-interaction":
+      return "chat.composer.resume.refused.pendingInteraction";
+    case "unavailable":
+      return "chat.composer.resume.refused.unavailable";
+  }
 }
 
 export function hasComposerResumeProjectionAdvancedSince(

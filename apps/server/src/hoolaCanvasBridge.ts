@@ -3,6 +3,7 @@
 // Provider credentials remain in the gateway; this broker only receives one live Moss account authority.
 
 import type { MossManagedGatewayAuthority } from "./provider/mossManagedGatewayTrust";
+import { fetchViaMossServiceEntries } from "./account/mossServiceEntries";
 import { createHash, randomUUID } from "node:crypto";
 import {
   chmodSync,
@@ -888,7 +889,7 @@ export class HoolaCanvasBridgeBroker {
     const operationId = `hoola-canvas:${stableId(`${record.input.projectId}\0${record.input.idempotencyKey}`)}`;
     // Completion is durable. A late bill check cannot resubmit, erase assets,
     // downgrade the visual result, or release a hold on a transport failure.
-    const queried = await this.#post(credential, "/v1/canvas/media/query", {
+    const queried = await this.#post(credential, "status", "/v1/canvas/media/query", {
       ...(record.taskToken ? { taskToken: record.taskToken } : {}),
       operationId,
     });
@@ -906,23 +907,36 @@ export class HoolaCanvasBridgeBroker {
     return snapshot(record);
   }
 
+  /**
+   * One gateway call on the CN entry in use. `kind` says whether it may be asked again on the
+   * next entry after a failure below HTTP: "status" calls (`/v1/canvas/media/query`, which only
+   * reads a task's state and bill) may; "submit" calls (a generation, which starts paid work)
+   * never are, they report the failure and end in reconciliation as before. The 130 s timeout
+   * is not reported: a slow answer says nothing about the path.
+   */
   async #post(
     credential: HoolaCanvasAuthorityCredential,
+    kind: "submit" | "status",
     path: string,
     body: Readonly<Record<string, unknown>>,
     operationId?: string,
   ): Promise<{ readonly response: Response; readonly data: unknown }> {
-    const gatewayRoot = credential.gatewayBaseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
-    const response = await this.#fetch(`${gatewayRoot}${path}`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${credential.accessToken}`,
-        "content-type": "application/json",
-        ...(operationId ? { "x-moss-operation-id": operationId } : {}),
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(130_000),
-      redirect: "error",
+    const response = await fetchViaMossServiceEntries({
+      entry: credential.gatewayBaseUrl,
+      retryOnNextEntry: kind === "status",
+      timeoutIsConnectionFailure: false,
+      send: (entry) =>
+        this.#fetch(`${entry.replace(/\/+$/u, "").replace(/\/v1$/u, "")}${path}`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${credential.accessToken}`,
+            "content-type": "application/json",
+            ...(operationId ? { "x-moss-operation-id": operationId } : {}),
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(130_000),
+          redirect: "error",
+        }),
     });
     const raw = await response.text();
     let data: unknown = {};
@@ -948,6 +962,7 @@ export class HoolaCanvasBridgeBroker {
         const isVideo = record.input.operation === "video";
         const created = await this.#post(
           credential,
+          "submit",
           isVideo ? "/v1/canvas/videos/generations" : "/v1/canvas/images/generations",
           {
             modelId: record.input.modelId,
@@ -1040,7 +1055,7 @@ export class HoolaCanvasBridgeBroker {
 
       const deadline = this.#now() + this.#timeoutMs;
       while (this.#now() < deadline) {
-        const queried = await this.#post(credential, "/v1/canvas/media/query", {
+        const queried = await this.#post(credential, "status", "/v1/canvas/media/query", {
           ...(record.taskToken ? { taskToken: record.taskToken } : {}),
           operationId,
         });

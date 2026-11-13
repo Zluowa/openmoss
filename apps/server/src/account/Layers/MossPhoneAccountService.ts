@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import type {
   MossAccountActiveRealmState,
-  MossAccountSelectRealmInput,
   MossAccountSessionId,
   MossAccountSessionState,
   MossAccountSmsChallengeId,
@@ -39,9 +38,9 @@ import { mossManagedCodexModelsForLane } from "./MossManagedProvider";
 import {
   type FetchMossGatewayModelIds,
   type MossGatewayModelCatalogStatus,
+  fetchMossGatewayCatalogViaEntries,
   fetchMossGatewayModelIds,
   mossGatewayCatalogAllowsProvisioning,
-  normalizeMossGatewayModelCatalog,
 } from "../mossGatewayModels";
 
 const SESSION_SECRET_NAME = "moss.phone.session";
@@ -506,25 +505,16 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
   /** The gateway entry the lanes and every gateway call use now. */
   const currentGatewayBaseUrl = () => gatewayEntries?.current() ?? "";
   /**
-   * The catalog from the entry in use. When the request fails below HTTP the entries are
-   * checked again, and a working other entry answers instead and becomes the one in use.
+   * The catalog from the entry in use. When the request fails below HTTP it is reported and
+   * asked once more on the next usable entry, which becomes the one in use.
    */
   const fetchCatalogWithFailover = (gatewayBaseUrl: string, accessToken: string) =>
-    fetchGatewayModels({ gatewayBaseUrl, accessToken }).pipe(
-      Effect.flatMap((rawCatalog) =>
-        rawCatalog !== null || !gatewayEntries
-          ? Effect.succeed({ rawCatalog, gatewayBaseUrl })
-          : Effect.promise(() => gatewayEntries.reportConnectionFailure(gatewayBaseUrl)).pipe(
-              Effect.flatMap((next) =>
-                next === gatewayBaseUrl
-                  ? Effect.succeed({ rawCatalog, gatewayBaseUrl })
-                  : fetchGatewayModels({ gatewayBaseUrl: next, accessToken }).pipe(
-                      Effect.map((retried) => ({ rawCatalog: retried, gatewayBaseUrl: next })),
-                    ),
-              ),
-            ),
-      ),
-    );
+    fetchMossGatewayCatalogViaEntries({
+      fetchGatewayModels,
+      entries: gatewayEntries,
+      gatewayBaseUrl,
+      accessToken,
+    });
   let managedBinding: MossManagedBinding | null = null;
   let modelGatewayStatus: MossGatewayModelCatalogStatus | undefined;
   let activeRealm: "cn" | null = null;
@@ -782,8 +772,7 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
   ): Effect.Effect<MossGatewayModelCatalogStatus | undefined, MossAccountServiceError> => {
     const reconcile = gatewayBaseUrl
       ? fetchCatalogWithFailover(gatewayBaseUrl, stored.accessToken).pipe(
-          Effect.flatMap(({ rawCatalog, gatewayBaseUrl }) => {
-            const catalog = normalizeMossGatewayModelCatalog(rawCatalog);
+          Effect.flatMap(({ catalog, gatewayBaseUrl }) => {
             const status = catalog.status;
             return Effect.sync(() => {
               modelGatewayStatus = status;
@@ -840,8 +829,8 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
                 Effect.andThen(
                   modelGatewayStatus === "transport-degraded"
                     ? fetchCatalogWithFailover(gatewayBaseUrl, stored.accessToken).pipe(
-                        Effect.map(({ rawCatalog }) => {
-                          modelGatewayStatus = normalizeMossGatewayModelCatalog(rawCatalog).status;
+                        Effect.map(({ catalog }) => {
+                          modelGatewayStatus = catalog.status;
                           return modelGatewayStatus;
                         }),
                       )

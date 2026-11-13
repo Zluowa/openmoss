@@ -9,6 +9,7 @@ vi.mock("../mossGatewayModels", async (importOriginal) => {
   const { mossManagedCodexModelsForLane } = await import("./MossManagedProvider");
   return {
     mossGatewayCatalogAllowsProvisioning: actual.mossGatewayCatalogAllowsProvisioning,
+    fetchMossGatewayCatalogViaEntries: actual.fetchMossGatewayCatalogViaEntries,
     fetchMossGatewayModelIds: () =>
       Effect.succeed({
         status: "ready",

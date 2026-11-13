@@ -215,6 +215,8 @@ export interface ProviderServiceLiveOptions {
   /** Test override for supervised event retry timing. */
   readonly runtimeEventRetryBaseDelayMs?: number;
   readonly runtimeEventRetryMaxDelayMs?: number;
+  /** Test override for the wait before a failed background credential rotation is retried. */
+  readonly proactiveGatewayRotationRetryDelayMs?: number;
   /** Bounded grace period for Codex terminal journaling after Stop/interrupt ACK. */
   readonly codexInterruptSettlementTimeoutMs?: number;
   /** Server-authoritative start gate. Omit only in isolated tests and embedded callers. */
@@ -343,6 +345,9 @@ type InteractionResponse =
  */
 export const PROVIDER_START_SESSION_TIMEOUT = Duration.seconds(100);
 const PROVIDER_STOP_SESSION_TIMEOUT = Duration.seconds(10);
+// Long enough for a busy machine's process-tree helper to finish, short enough
+// that the retry lands while the person is still reading the last reply.
+const PROACTIVE_GATEWAY_ROTATION_RETRY_DELAY_MS = 5_000;
 
 /** An adapter's own account of a pending start; a broken one never changes the outcome. */
 function readPendingStartup(
@@ -4247,24 +4252,63 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
         retiredGatewaySessionRecoveries.add(event.threadId);
 
+        const rotate = (input: { readonly onlyIfStillRequired: boolean }) =>
+          Effect.gen(function* () {
+            const binding = Option.getOrUndefined(yield* directory.getBinding(event.threadId));
+            if (!binding) return;
+            // A turn or Stop since the first attempt may already have rotated or
+            // retired the runtime; a retry never starts one nobody asked for.
+            if (
+              input.onlyIfStillRequired &&
+              runtimePayloadRecord(binding.runtimePayload)[
+                AGENT_GATEWAY_CREDENTIAL_ROTATION_REQUIRED
+              ] !== true
+            )
+              return;
+            yield* recoverSessionForThread({
+              binding,
+              operation: "ProviderService.proactiveGatewayCredentialRotation",
+            });
+          });
+
         return Effect.gen(function* () {
           // The terminal event is already durable and published. Rotate the
           // retired bearer now, while the user is reading the response, so the
           // next turn does not pay for process teardown and thread/resume.
           yield* Effect.yieldNow;
-          const binding = Option.getOrUndefined(yield* directory.getBinding(event.threadId));
-          if (!binding) return;
-          yield* recoverSessionForThread({
-            binding,
-            operation: "ProviderService.proactiveGatewayCredentialRotation",
-          });
+          yield* rotate({ onlyIfStillRequired: false });
         }).pipe(
+          // Rotation is housekeeping. When the old runtime could not be proven
+          // gone (a busy machine, a slow process-tree helper), try once more
+          // while the person is still reading, so their next message does not
+          // have to retire the old process tree first.
           Effect.catchCause((cause) =>
-            Effect.logWarning("provider.session.proactive_gateway_rotation_failed", {
-              threadId: event.threadId,
-              provider: event.provider,
-              cause: Cause.pretty(cause),
-            }),
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("provider.session.proactive_gateway_rotation_retrying", {
+                  threadId: event.threadId,
+                  provider: event.provider,
+                  cause: Cause.pretty(cause),
+                }).pipe(
+                  Effect.andThen(
+                    Effect.sleep(
+                      Duration.millis(
+                        options?.proactiveGatewayRotationRetryDelayMs ??
+                          PROACTIVE_GATEWAY_ROTATION_RETRY_DELAY_MS,
+                      ),
+                    ),
+                  ),
+                  Effect.andThen(rotate({ onlyIfStillRequired: true })),
+                ),
+          ),
+          Effect.catchCause((cause) =>
+            Cause.hasInterruptsOnly(cause)
+              ? Effect.failCause(cause)
+              : Effect.logWarning("provider.session.proactive_gateway_rotation_failed", {
+                  threadId: event.threadId,
+                  provider: event.provider,
+                  cause: Cause.pretty(cause),
+                }),
           ),
           Effect.ensuring(
             Effect.sync(() => {

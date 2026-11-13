@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { promoteMossCanvasOwnedMediaAsset, type PromotionFetch } from "./mossCanvasMediaPromotion";
+import {
+  makeMossServiceEntryRouter,
+  mossModelGatewayHealthUrl,
+  registerMossServiceEntryRouterForTest,
+  resetMossServiceEntryRoutersForTest,
+} from "./account/mossServiceEntries";
 
 const TOKEN = "server-account-token-never-sent-to-storage";
 const NOW = Date.parse("2026-10-16T00:00:00Z");
@@ -264,5 +270,50 @@ describe("owner/workspace-bound Canvas media promotion", () => {
         expectedStorageOrigin: "https://another-project.example",
       }),
     ).rejects.toMatchObject({ code: "canvas_asset_upload_invalid_response" });
+  });
+});
+
+/** The CN gateway entries in use: both pass their health checks, the primary is in use. */
+const CN_PRIMARY = "https://moss-models.example.cn/functions/v1/moss-model-gateway/v1";
+const CN_FALLBACK = "https://moss-cn-models.example.com/functions/v1/moss-model-gateway/v1";
+const cnEntriesInUse = async () => {
+  const router = makeMossServiceEntryRouter({
+    service: "CN model gateway",
+    entries: [CN_PRIMARY, CN_FALLBACK],
+    healthUrl: mossModelGatewayHealthUrl,
+    probe: async () => true,
+  });
+  await router.ensure();
+  registerMossServiceEntryRouterForTest(router);
+  return router;
+};
+const resetError = () =>
+  Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+  });
+const onPrimary = (url: string | URL | Request) =>
+  String(url instanceof Request ? url.url : url).startsWith(new URL(CN_PRIMARY).origin);
+
+describe("Canvas media promotion across CN gateway entries", () => {
+  afterEach(() => resetMossServiceEntryRoutersForTest());
+
+  it("never uploads (paid work) to a second entry, but reports the reset", async () => {
+    const router = await cnEntriesInUse();
+    const { readAsset, now } = fixture();
+    const fetchImpl = vi.fn<PromotionFetch>(async (url) => {
+      if (onPrimary(url)) throw resetError();
+      return Response.json(success());
+    });
+    await expect(
+      promoteMossCanvasOwnedMediaAsset(
+        input,
+        { ...credential, gatewayBaseUrl: CN_PRIMARY },
+        scope,
+        readAsset,
+        { fetchImpl, now },
+      ),
+    ).rejects.toMatchObject({ code: "canvas_asset_upload_transport_uncertain" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(router.current()).toBe(CN_FALLBACK);
   });
 });

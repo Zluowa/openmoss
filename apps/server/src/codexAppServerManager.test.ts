@@ -79,6 +79,7 @@ import {
   resolveCodexModelForAccount,
 } from "./codexAppServerManager";
 import { formatMissingCodexWorkingDirectoryError } from "./codexWorkingDirectory";
+import { CodexPreviousRuntimeNotStoppedError } from "./codexErrorClassification.ts";
 import {
   CodexAppServerTransportError,
   CodexJsonlFramer,
@@ -1090,8 +1091,28 @@ function createSendTurnHarness(runtimeMode: RuntimeMode = "full-access") {
   return { manager, context, requireSession, sendRequest, updateSession };
 }
 
-function createThreadControlHarness() {
-  const manager = new CodexAppServerManager();
+/**
+ * Retires a real fake app-server through its own handle and waits for its exit
+ * event, with no proof window. Fork cases test what Moss asks Codex, not process
+ * teardown (supervisedProcessTeardown.test.ts owns that); racing the real
+ * three-second Windows proof against a busy machine made them flaky.
+ */
+const retireOwnedChildWithoutProofWindow: typeof supervisedTeardown.teardownProviderProcessTree =
+  async (input) => {
+    input.terminateRoot?.();
+    await input.rootExited;
+    return { escalated: false, signalErrors: [] };
+  };
+
+function createThreadControlHarness(
+  options: {
+    readonly teardownProcessTree?: typeof supervisedTeardown.teardownProviderProcessTree;
+  } = {},
+) {
+  const manager = new CodexAppServerManager(
+    undefined,
+    options.teardownProcessTree ? { teardownProcessTree: options.teardownProcessTree } : undefined,
+  );
   const context = {
     lifecycleGeneration: "generation-request-a",
     session: {
@@ -6216,7 +6237,9 @@ describe("thread checkpoint control", () => {
       writeFileSync(path.join(homePath, "app-server"), "process.stdin.resume();\n");
       const previousMossHome = process.env.MOSS_HOME;
       process.env.MOSS_HOME = path.join(homePath, "moss-home");
-      const { manager, sendRequest } = createThreadControlHarness();
+      const { manager, sendRequest } = createThreadControlHarness({
+        teardownProcessTree: retireOwnedChildWithoutProofWindow,
+      });
       vi.spyOn(
         manager as unknown as { assertSupportedCodexCliVersion: () => Promise<void> },
         "assertSupportedCodexCliVersion",
@@ -6325,7 +6348,9 @@ describe("thread checkpoint control", () => {
     writeFileSync(path.join(homePath, "app-server"), "process.stdin.resume();\n");
     const previousMossHome = process.env.MOSS_HOME;
     process.env.MOSS_HOME = path.join(homePath, "moss-home");
-    const { manager, sendRequest } = createThreadControlHarness();
+    const { manager, sendRequest } = createThreadControlHarness({
+      teardownProcessTree: retireOwnedChildWithoutProofWindow,
+    });
     vi.spyOn(
       manager as unknown as { assertSupportedCodexCliVersion: () => Promise<void> },
       "assertSupportedCodexCliVersion",
@@ -9352,5 +9377,45 @@ describe("collab child routing after the parent turn ends", () => {
     expect(harness.context.collabReceiverTurns.size).toBeLessThanOrEqual(200);
     expect(harness.context.collabReceiverParents.has("child_provider_249")).toBe(true);
     expect(harness.context.collabReceiverParents.has("child_provider_0")).toBe(false);
+  });
+});
+
+describe("start after an unproven stop of the previous runtime", () => {
+  it("ends before spawning, says so with its own error, and starts once the stop is proven", async () => {
+    const fake = createSyntheticCodexAppServer();
+    const { manager, teardownProcessTree } = createSyntheticCodexManager(fake);
+    const threadId = asThreadId("previous-runtime-not-stopped");
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "synara-codex-previous-runtime-"));
+    const start = () =>
+      manager.startSession({
+        threadId,
+        provider: "codex",
+        cwd,
+        runtimeMode: "full-access",
+        agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+      });
+    const unproven = () =>
+      new supervisedTeardown.ProviderProcessExitUnprovenError({
+        rootPid: 44568,
+        rootExited: false,
+        remainingDescendantPids: [],
+        captureComplete: true,
+      });
+    try {
+      await start();
+      teardownProcessTree.mockRejectedValueOnce(unproven());
+      await expect(manager.stopSession(threadId)).rejects.toThrow("did not prove exit");
+
+      teardownProcessTree.mockRejectedValueOnce(unproven());
+      const failure = await start().catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(CodexPreviousRuntimeNotStoppedError);
+      expect(fake.children).toHaveLength(1);
+
+      await start();
+      expect(fake.children).toHaveLength(2);
+    } finally {
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });

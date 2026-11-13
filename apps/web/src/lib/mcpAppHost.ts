@@ -781,9 +781,15 @@ export class McpAppHostController {
       void this.start(container).catch(() => undefined);
       return;
     }
-    if (this.running && this.snapshot.displayMode === "inline") {
+    if (this.snapshot.displayMode !== "inline") return;
+    if (this.running) {
       this.layoutFrameTo(container, "inline");
+      return;
     }
+    // Still starting (the row remounted before `initialized`): the parked frame follows the new
+    // slot too. Left on the old, detached slot it is hidden with display:none, the guest stops
+    // being laid out, and the widget never finishes starting (the 15 s timeout then fails it).
+    this.tracker?.follow(container, "inline");
   }
 
   /** The row unmounted; keep the widget but hide its frame until a slot comes back. */
@@ -1547,8 +1553,11 @@ export class McpAppHostController {
 
   private async fail(): Promise<void> {
     if (this.snapshot.phase === "failed") return;
-    await this.teardown();
+    // The card shows its text result at once; the guest's teardown (a goodbye to the widget
+    // and an unregister round trip to the desktop shell) finishes behind it.
+    const teardown = this.teardown();
     this.setSnapshot({ phase: "failed" });
+    await teardown;
   }
 
   private setSnapshot(partial: Partial<McpAppHostSnapshot>): void {

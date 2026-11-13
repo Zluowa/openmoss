@@ -2170,6 +2170,32 @@ describe("deriveMessagesTimelineRows", () => {
       ).toBeNull();
     });
 
+    it("leaves why a turn ended to the failure card, in old and new wordings", () => {
+      // Real-data dry run: the header read 「已中断，用时 141 毫秒 · Claude failed to complete the
+      // turn.」 above a card that already said 「…没能完成这一轮。」.
+      for (const message of [
+        "The model service failed to complete the turn.",
+        "Claude failed to complete the turn.",
+        "The model service returned a server error. Retry in a moment.",
+        "The selected model is unavailable for this account.",
+        "The model service rejected the request as invalid.",
+        "The model reached the maximum output length before completing the turn.",
+        "The model service could not load its cloud credentials. Check or refresh them, then retry.",
+        "The turn failed.",
+        "Claude runtime interrupted.",
+      ]) {
+        expect(summarizeTurnFailureReason({ message })).toBeNull();
+      }
+      expect(
+        formatTurnHeaderLabel({
+          outcome: "interrupted",
+          elapsed: "141ms",
+          reason: null,
+          resumedBy: null,
+        }),
+      ).toBe("Interrupted after 141ms");
+    });
+
     it("clips unknown provider reasons to one short line", () => {
       expect(summarizeTurnFailureReason({ errorCode: "server_overloaded" })).toBe(
         "model at capacity",

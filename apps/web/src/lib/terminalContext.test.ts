@@ -1,5 +1,8 @@
 import { MessageId, ThreadId } from "@moss/contracts";
+import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { describe, expect, it } from "vitest";
+
+import { translateMoss } from "~/localization";
 
 import {
   appendOriginalComposerPromptBlocks,
@@ -281,6 +284,37 @@ describe("terminalContext", () => {
       pullRequestContexts: [],
       browserAnnotations: [],
     });
+  });
+
+  it.each([
+    ["zh-CN", "继续刚才的任务。"],
+    ["en", INTERRUPTED_TASK_CONTINUATION_PROMPT],
+  ] as const)(
+    "shows a continuation as the person's own line in %s while the provider keeps the instruction",
+    (locale, expected) => {
+      const continuationVisibleText = translateMoss(locale, "chat.continuation.visibleText");
+      expect(continuationVisibleText).toBe(expected);
+      const displayed = deriveDisplayedUserMessageState(INTERRUPTED_TASK_CONTINUATION_PROMPT, {
+        messageId: BROWSER_ANNOTATION_MESSAGE_ID,
+        continuationVisibleText,
+      });
+      expect(displayed.visibleText).toBe(expected);
+      expect(displayed.copyText).toBe(expected);
+    },
+  );
+
+  it("never recalls the continuation instruction into the composer without a display line", () => {
+    const displayed = deriveDisplayedUserMessageState(INTERRUPTED_TASK_CONTINUATION_PROMPT, {
+      messageId: BROWSER_ANNOTATION_MESSAGE_ID,
+    });
+    expect(displayed.copyText).toBe("");
+    // Ordinary messages are untouched by the option.
+    expect(
+      deriveDisplayedUserMessageState("please continue", {
+        messageId: BROWSER_ANNOTATION_MESSAGE_ID,
+        continuationVisibleText: "继续刚才的任务。",
+      }).visibleText,
+    ).toBe("please continue");
   });
 
   it("hides the image-only bootstrap prompt when requested for transcript display", () => {

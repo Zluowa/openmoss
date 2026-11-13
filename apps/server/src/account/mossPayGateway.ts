@@ -1,7 +1,7 @@
 import { Data } from "effect";
 import type { MossManagedGatewayAuthority } from "../provider/mossManagedGatewayTrust";
 import {
-  isMossConnectionLevelFailure,
+  fetchViaMossServiceEntries,
   mossCnPayEntries,
   type MossServiceEntryRouter,
 } from "./mossServiceEntries";
@@ -119,20 +119,19 @@ export async function mossPayFetch(input: {
       message: "The Moss payment service is unreachable right now.",
       cause,
     });
+  // Below HTTP only, the entry becomes suspect and the entries are re-checked. A read (GET:
+  // catalog, order status) is tried once on the next usable entry; anything else, an order
+  // above all, is never sent twice: it reports the outage and the next attempt uses it.
   let resp: Response;
   try {
-    resp = await send(base);
-  } catch (cause) {
-    // Below HTTP only: re-check the entries. A read moves to the next working entry at once;
-    // an order is never sent twice, so it reports the outage and the next attempt uses it.
-    const next =
-      phoneEntries && isMossConnectionLevelFailure(cause)
-        ? await phoneEntries.reportConnectionFailure(base)
-        : base;
-    if (input.method !== "GET" || next === base) throw unreachable(cause);
-    resp = await send(next).catch((retryCause: unknown) => {
-      throw unreachable(retryCause);
+    resp = await fetchViaMossServiceEntries({
+      entry: base,
+      send,
+      retryOnNextEntry: input.method === "GET",
+      router: phoneEntries,
     });
+  } catch (cause) {
+    throw unreachable(cause);
   }
   const json = await parseJson(resp);
   if (resp.status === 401 || resp.status === 403) {

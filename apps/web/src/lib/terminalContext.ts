@@ -1,4 +1,5 @@
 import { type MessageId, type ThreadId } from "@moss/contracts";
+import { isInterruptedTaskContinuationPrompt } from "@moss/shared/turnResume";
 import {
   extractTrailingAssistantSelections,
   type ParsedAssistantSelectionEntry,
@@ -71,6 +72,13 @@ const TRAILING_SERIALIZED_COMPOSER_BLOCK_PATTERNS = [
 
 interface DisplayedUserMessageOptions {
   hideImageOnlyBootstrapPrompt?: boolean;
+  /**
+   * The person's own words for "continue the stopped task", in the app language. A
+   * message that is exactly the model-facing continuation instruction shows this line;
+   * the stored text, which the provider reads, stays as it is. Without it the
+   * instruction is shown but never copied or recalled into the composer.
+   */
+  continuationVisibleText?: string;
   messageId: MessageId | undefined;
 }
 
@@ -320,16 +328,24 @@ export function deriveDisplayedUserMessageState(
   const extractedAssistantSelections = extractTrailingAssistantSelections(
     extractedContexts.promptText,
   );
+  const promptText = extractedAssistantSelections.promptText;
   const hidePrompt =
     options.hideImageOnlyBootstrapPrompt === true &&
-    extractedAssistantSelections.promptText.trim() === IMAGE_ONLY_BOOTSTRAP_PROMPT;
+    promptText.trim() === IMAGE_ONLY_BOOTSTRAP_PROMPT;
+  const isContinuation = isInterruptedTaskContinuationPrompt(promptText);
   return {
-    // Keep the internal bootstrap prompt hidden while still giving image-only
-    // user messages a visible bubble in the transcript.
+    // Keep internal prompts hidden while still giving their messages a visible
+    // bubble: image-only sends show a placeholder, a continuation the person's line.
     visibleText: hidePrompt
       ? IMAGE_ONLY_VISIBLE_PLACEHOLDER
-      : extractedAssistantSelections.promptText,
-    copyText: hidePrompt ? "" : extractedAssistantSelections.promptText,
+      : isContinuation
+        ? (options.continuationVisibleText ?? promptText)
+        : promptText,
+    copyText: hidePrompt
+      ? ""
+      : isContinuation
+        ? (options.continuationVisibleText ?? "")
+        : promptText,
     contextCount: extractedContexts.contextCount,
     previewTitle: extractedContexts.previewTitle,
     contexts: extractedContexts.contexts,

@@ -5,9 +5,10 @@
 //          frame moves to whichever slot is mounted. A widget with no row for a short grace
 //          period is torn down.
 // Layer: Web MCP App host state
-// Exports: acquireMcpAppWidget, releaseMcpAppWidget, McpAppLiveWidget, resetMcpAppLiveWidgetsForTests
+// Exports: acquireMcpAppWidget, releaseMcpAppWidget, peekMcpAppWidget, mcpAppRowStartState,
+//          McpAppLiveWidget, resetMcpAppLiveWidgetsForTests
 
-import type { McpAppHostController } from "../mcpAppHost";
+import type { McpAppHostController, McpAppHostSnapshot } from "../mcpAppHost";
 
 /** How long a widget outlives its last row (a remount arrives well within this). */
 export const MCP_APP_WIDGET_RELEASE_GRACE_MS = 1_500;
@@ -75,6 +76,29 @@ export function releaseMcpAppWidget(
 
 export function peekMcpAppWidget(id: string): McpAppLiveWidget<unknown> | undefined {
   return widgets.get(id);
+}
+
+/**
+ * What a row should show on its very first render. A row that remounts (its turn folded into
+ * 「已工作」, or finished) gets the call's running widget only in a layout effect; drawn from an
+ * empty state until then, its card would commit at 0 px and animate back to its height on every
+ * remount, and its frame would be parked for a frame. With a running widget the row starts from
+ * that widget's state and attaches at once; otherwise it reserves the remembered height.
+ */
+export function mcpAppRowStartState(
+  id: string,
+  rememberedHeight: number | null,
+): {
+  readonly snapshot: McpAppHostSnapshot | null;
+  readonly started: boolean;
+  readonly height: number;
+} {
+  const snapshot = widgets.get(id)?.controller.getSnapshot() ?? null;
+  return {
+    snapshot,
+    started: snapshot !== null && snapshot.phase !== "idle",
+    height: snapshot?.height ?? rememberedHeight ?? 0,
+  };
 }
 
 export function resetMcpAppLiveWidgetsForTests(): void {

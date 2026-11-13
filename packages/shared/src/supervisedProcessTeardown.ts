@@ -2,7 +2,7 @@
 // Purpose: Owns graceful, forced, and verified teardown for provider/runtime process trees.
 // Layer: Shared platform runtime
 
-import { Effect, type Scope } from "effect";
+import { Duration, Effect, type Scope } from "effect";
 import type { ChildProcess } from "node:child_process";
 import { didProcessFailToSpawn } from "@moss/shared/processRuntime";
 
@@ -36,6 +36,13 @@ export interface SupervisedProcessTeardownInput {
   readonly rootPid: number;
   /** Must resolve only after the owned root process has emitted its terminal exit. */
   readonly rootExited: Promise<unknown>;
+  /**
+   * Terminates the root through the caller's own process handle. Node holds that
+   * handle open until the exit is reaped, so this cannot reach a reused PID. On
+   * Windows the tree helper (taskkill) is otherwise the only thing that stops the
+   * root, and on a busy machine it can time out without delivering anything.
+   */
+  readonly terminateRoot?: () => void;
   readonly termGraceMs?: number;
   readonly forceExitMs?: number;
   readonly pollMs?: number;
@@ -48,11 +55,18 @@ export interface ProcessExitHandle {
   readonly signalCode: NodeJS.Signals | null;
   once(event: "exit", listener: () => void): unknown;
   removeListener(event: "exit", listener: () => void): unknown;
+  kill?(signal?: NodeJS.Signals): boolean;
 }
 
 export interface EffectProcessExitHandle {
   readonly pid: number;
   readonly exitCode: Effect.Effect<unknown, unknown>;
+  /**
+   * The spawner's own kill. On Windows it runs its tree kill and, when that
+   * fails, terminates the child through the spawner's handle, never by a PID
+   * this module chose.
+   */
+  kill?(options?: { readonly killSignal?: "SIGKILL" }): Effect.Effect<void, unknown>;
 }
 
 export interface SupervisedProcessTeardownResult {
@@ -290,6 +304,7 @@ export class ProviderProcessExitUnprovenError extends Error {
   readonly remainingDescendantPids: ReadonlyArray<number> | null;
   readonly captureComplete: boolean;
   readonly snapshotFailure: WindowsSnapshotFailure | undefined;
+  readonly signalErrors: ReadonlyArray<Error>;
 
   constructor(input: {
     readonly rootPid: number;
@@ -297,6 +312,7 @@ export class ProviderProcessExitUnprovenError extends Error {
     readonly remainingDescendantPids: ReadonlyArray<number> | null;
     readonly captureComplete: boolean;
     readonly snapshotFailure?: WindowsSnapshotFailure;
+    readonly signalErrors?: ReadonlyArray<Error>;
   }) {
     const descendantDetail =
       input.remainingDescendantPids === null
@@ -312,7 +328,15 @@ export class ProviderProcessExitUnprovenError extends Error {
             (input.snapshotFailure.phase
               ? `, snapshotPhase=${input.snapshotFailure.phase}, snapshotPhaseElapsedMs=${input.snapshotFailure.phaseElapsedMs}.`
               : ".")
-          : "."),
+          : ".") +
+        // Which signal did not land (a timed-out taskkill, a denied PID) is the
+        // first thing to know about a tree that would not stop.
+        (input.signalErrors && input.signalErrors.length > 0
+          ? ` Signal errors (${input.signalErrors.length}): ${input.signalErrors[0]!.message.replace(
+              /\s+/g,
+              " ",
+            ).slice(0, 200)}`
+          : ""),
     );
     this.name = "ProviderProcessExitUnprovenError";
     this.rootPid = input.rootPid;
@@ -320,6 +344,7 @@ export class ProviderProcessExitUnprovenError extends Error {
     this.remainingDescendantPids = input.remainingDescendantPids;
     this.captureComplete = input.captureComplete;
     this.snapshotFailure = input.snapshotFailure;
+    this.signalErrors = input.signalErrors ?? [];
   }
 }
 
@@ -337,6 +362,12 @@ function waitForOwnedProcessExit(process: ProcessExitHandle): Promise<void> {
       resolve();
     }
   });
+}
+
+function terminateOwnedRoot(process: ProcessExitHandle): void {
+  // An exited handle has nothing to terminate (Node reports a late kill as ESRCH).
+  if (process.exitCode !== null || process.signalCode !== null) return;
+  process.kill?.("SIGKILL");
 }
 
 export async function teardownChildProcessTree(
@@ -358,13 +389,21 @@ export async function teardownChildProcessTree(
       const input = {
         rootPid: process.pid,
         rootExited: waitForOwnedProcessExit(process),
+        ...(typeof process.kill === "function"
+          ? { terminateRoot: () => terminateOwnedRoot(process) }
+          : {}),
       };
+      const preparedObserver = prepared
+        ? { windowsSnapshotObserver: prepared.observer }
+        : undefined;
+      // Hand the worker prepared at spawn to every teardown, not only this module's
+      // own: the server's wrapper otherwise starts a cold PowerShell/CIM observer
+      // inside the proof window, which is slowest exactly when the PC is busy.
       return await (teardownProcessTree === teardownProviderProcessTree
-        ? teardownProcessTree(input, {
-            ...options,
-            ...(prepared ? { windowsSnapshotObserver: prepared.observer } : {}),
-          })
-        : teardownProcessTree(input));
+        ? teardownProcessTree(input, { ...options, ...preparedObserver })
+        : preparedObserver
+          ? teardownProcessTree(input, preparedObserver)
+          : teardownProcessTree(input));
     } finally {
       if (prepared) {
         if (preparedChildObservers.get(process) === prepared)
@@ -404,6 +443,24 @@ export function completeObservedChildProcessExit<A, E, R>(
   return platform === "win32" ? ownerDisposal.pipe(Effect.asVoid) : Effect.void;
 }
 
+/** A last-resort root terminator through the Effect owner's kill, bounded so it never hangs. */
+function effectRootTerminator(
+  process: EffectProcessExitHandle,
+  boundMs: number,
+): { readonly terminateRoot?: () => void } {
+  const kill = process.kill;
+  if (typeof kill !== "function") return {};
+  return {
+    terminateRoot: () => {
+      Effect.runFork(
+        kill
+          .call(process, { killSignal: "SIGKILL" })
+          .pipe(Effect.timeoutOption(Duration.millis(boundMs)), Effect.ignore),
+      );
+    },
+  };
+}
+
 export function teardownEffectProcessTree(
   process: EffectProcessExitHandle,
   teardownProcessTree: typeof teardownProviderProcessTree = teardownProviderProcessTree,
@@ -413,6 +470,7 @@ export function teardownEffectProcessTree(
     {
       rootPid: Number(process.pid),
       rootExited: Effect.runPromise(Effect.exit(process.exitCode)),
+      ...effectRootTerminator(process, DEFAULT_FORCE_EXIT_MS),
     },
     dependencies,
   );
@@ -426,16 +484,24 @@ export function teardownEffectProcessTree(
 export async function forceTeardownEffectProcessTree(
   process: EffectProcessExitHandle,
   forceExitMs = DEFAULT_FORCE_EXIT_MS,
+  /** Test seam for the Windows path. */
+  dependencies: Partial<SupervisedProcessTeardownDependencies> = {},
 ): Promise<void> {
   const rootPid = Number(process.pid);
   const rootExitedPromise = Effect.runPromise(Effect.exit(process.exitCode));
-  if (globalThis.process.platform === "win32") {
-    await teardownProviderProcessTree({
-      rootPid,
-      rootExited: rootExitedPromise,
-      termGraceMs: 1,
-      forceExitMs,
-    });
+  if ((dependencies.platform ?? globalThis.process.platform) === "win32") {
+    // As in the main teardown: when taskkill did not end the root, the owner's
+    // own kill does, as a last resort.
+    await teardownProviderProcessTree(
+      {
+        rootPid,
+        rootExited: rootExitedPromise,
+        ...effectRootTerminator(process, forceExitMs),
+        termGraceMs: 1,
+        forceExitMs,
+      },
+      dependencies,
+    );
     return;
   }
 
@@ -704,9 +770,23 @@ export async function teardownProviderProcessTree(
       }
     }
 
+    // The tree helper (taskkill /T on Windows) goes first: it can only walk the
+    // tree from a live root. When it has not ended the root (it timed out or
+    // failed on a busy machine), end the root through the owned handle, so the
+    // root's exit never depends on the helper alone.
+    const terminateRootIfHelperDidNot = (): void => {
+      if (platform !== "win32" || rootExited || !input.terminateRoot) return;
+      try {
+        input.terminateRoot();
+      } catch (error) {
+        signalErrors.push(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
     // Windows must finish its bounded taskkill helper before the grace window
     // starts; spawning the helper has not yet delivered a termination request.
     await signal("SIGTERM", !rootExited, termTree, termDescendantsVerified);
+    terminateRootIfHelperDidNot();
     const graceful = await waitForExitProof(
       positiveDuration(input.termGraceMs, DEFAULT_TERM_GRACE_MS),
     );
@@ -739,6 +819,7 @@ export async function teardownProviderProcessTree(
     // Once the root has exited, never signal its numeric PID again: it may have
     // been reused. Force only descendants verified immediately before escalation.
     await signal("SIGKILL", !rootExited, forceTree, forceDescendantsVerified);
+    terminateRootIfHelperDidNot();
     const forced = await waitForExitProof(
       positiveDuration(input.forceExitMs, DEFAULT_FORCE_EXIT_MS),
     );
@@ -750,6 +831,7 @@ export async function teardownProviderProcessTree(
       remainingDescendantPids:
         forced.remainingDescendants?.map((descendant) => descendant.pid) ?? null,
       captureComplete: tree.captureComplete !== false,
+      signalErrors,
       ...((initialSnapshotFailure ?? windowsObserver?.lastFailure?.())
         ? { snapshotFailure: (initialSnapshotFailure ?? windowsObserver?.lastFailure?.())! }
         : {}),

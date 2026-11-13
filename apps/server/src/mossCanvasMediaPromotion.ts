@@ -2,6 +2,7 @@
 // cannot select an upload destination, raw path, Storage key or bearer token.
 import { createHash } from "node:crypto";
 import { MossMediaJobsError, type MossMediaCredential } from "./mossMediaJobsService";
+import { fetchViaMossServiceEntries } from "./account/mossServiceEntries";
 
 interface PromotionScope {
   readonly threadId: string;
@@ -9,6 +10,13 @@ interface PromotionScope {
 }
 
 type ReadAsset = (name: string) => Promise<{ bytes: Uint8Array; contentType: string }>;
+/** The promotion endpoint of a gateway entry. */
+function promotionEndpoint(entry: string): URL {
+  return new URL(
+    `${entry.replace(/\/+$/u, "").replace(/\/v1$/u, "")}/v1/canvas/assets/promote-media`,
+  );
+}
+
 export type PromotionFetch = (
   input: string | URL | Request,
   init?: RequestInit,
@@ -126,7 +134,6 @@ export async function promoteMossCanvasOwnedMediaAsset(
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,191}$/u.test(operationId)
   )
     throw new MossMediaJobsError("canvas_asset_invalid", 400);
-  let endpoint: URL;
   try {
     const root = new URL(credential.gatewayBaseUrl);
     if (
@@ -139,9 +146,7 @@ export async function promoteMossCanvasOwnedMediaAsset(
       /\s/u.test(credential.accessToken)
     )
       throw new Error("invalid_gateway");
-    endpoint = new URL(
-      `${root.href.replace(/\/+$/u, "").replace(/\/v1$/u, "")}/v1/canvas/assets/promote-media`,
-    );
+    promotionEndpoint(root.href);
   } catch {
     throw new MossMediaJobsError("media_gateway_unavailable", 503);
   }
@@ -177,16 +182,24 @@ export async function promoteMossCanvasOwnedMediaAsset(
   ).toString("base64url");
   let upstream: Response;
   try {
-    upstream = await (options.fetchImpl ?? fetch)(endpoint, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${credential.accessToken}`,
-        "content-type": expectedMime,
-        "x-moss-media-promotion": promotion,
-      },
-      body: Uint8Array.from(asset.bytes),
-      redirect: "error",
-      signal: AbortSignal.timeout(90_000),
+    // An upload that may start paid work: on the CN entry in use, never sent to a second
+    // entry; a reset is reported so the next attempt uses the entry that works.
+    upstream = await fetchViaMossServiceEntries({
+      entry: credential.gatewayBaseUrl,
+      retryOnNextEntry: false,
+      timeoutIsConnectionFailure: false,
+      send: (entry) =>
+        (options.fetchImpl ?? fetch)(promotionEndpoint(entry), {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${credential.accessToken}`,
+            "content-type": expectedMime,
+            "x-moss-media-promotion": promotion,
+          },
+          body: Uint8Array.from(asset.bytes),
+          redirect: "error",
+          signal: AbortSignal.timeout(90_000),
+        }),
     });
   } catch {
     throw new MossMediaJobsError("canvas_asset_upload_transport_uncertain", 503);

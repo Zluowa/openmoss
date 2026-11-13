@@ -41,6 +41,7 @@ import type { McpAppBinding } from "~/lib/mcpApps/contracts";
 import { mcpAppStylesForThemePacks } from "~/lib/mcpApps/hostStyles";
 import {
   acquireMcpAppWidget,
+  mcpAppRowStartState,
   releaseMcpAppWidget,
   type McpAppLiveWidget,
 } from "~/lib/mcpApps/liveWidgets";
@@ -50,6 +51,7 @@ import {
   setMcpAppToolClosed,
   useMcpAppPreferences,
 } from "~/lib/mcpApps/preferences";
+import { mcpAppHeightKey, readRememberedMcpAppHeight } from "~/lib/mcpApps/sizing";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
 import { useTranslation } from "~/localization";
 import { toastManager } from "../ui/toast";
@@ -212,15 +214,22 @@ function McpAppBlock(props: McpAppCardProps & { readonly binding: McpAppBinding 
     binding,
     projection.status === "inProgress",
   );
-  const [started, setStarted] = useState(false);
-  useEffect(() => {
-    if (open && !awaitingApproval) setStarted(true);
-  }, [awaitingApproval, open]);
-
   const entryId = useMemo(
     () => makeMcpAppDockEntryId(threadId, projection.callId, binding.resourceUri),
     [binding.resourceUri, projection.callId, threadId],
   );
+  // A row that remounts (its turn folded or finished) starts from the call's running widget, so
+  // it keeps its height and takes the frame back before it paints (see mcpAppRowStartState).
+  const [startState] = useState(() =>
+    mcpAppRowStartState(
+      entryId,
+      readRememberedMcpAppHeight(mcpAppHeightKey(threadId, projection.callId)),
+    ),
+  );
+  const [started, setStarted] = useState(startState.started);
+  useEffect(() => {
+    if (open && !awaitingApproval) setStarted(true);
+  }, [awaitingApproval, open]);
   const dockTitle = binding.toolTitle ?? binding.serverLabel;
   const context: WidgetContext = { format, t, navigate, open };
   const createInput = useRef({ projection, theme, locale, styles });
@@ -247,7 +256,14 @@ function McpAppBlock(props: McpAppCardProps & { readonly binding: McpAppBinding 
     (listener: () => void) => controller?.subscribe(listener) ?? noSubscription(),
     [controller],
   );
-  const getSnapshot = useCallback(() => controller?.getSnapshot() ?? IDLE_SNAPSHOT, [controller]);
+  const startSnapshot = useMemo<McpAppHostSnapshot>(
+    () => startState.snapshot ?? { ...IDLE_SNAPSHOT, height: startState.height },
+    [startState],
+  );
+  const getSnapshot = useCallback(
+    () => controller?.getSnapshot() ?? startSnapshot,
+    [controller, startSnapshot],
+  );
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const dockEntry = useMcpAppDockEntries(threadId).find((entry) => entry.id === entryId);
   const dockState = useRightDockStore(

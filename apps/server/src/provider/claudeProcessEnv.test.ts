@@ -15,6 +15,7 @@ import {
   readClaudeCliCredentialsContentSummary,
   resolveClaudeCredentialsPaths,
   withClaudeArtifactOptIn,
+  withClaudeMcpTimeoutDefault,
 } from "./claudeProcessEnv.ts";
 import {
   buildClaudeInstanceProcessEnv,
@@ -724,6 +725,19 @@ describe("claudeProcessEnv", () => {
     assert.deepStrictEqual(withClaudeArtifactOptIn({ ...env, CLAUDE_CODE_ARTIFACT: "1" }, false), {
       PATH: "/usr/bin",
     });
+  });
+
+  it("gives MCP servers 120 s to connect unless the user set MCP_TIMEOUT", () => {
+    const env = { PATH: "/usr/bin" };
+    assert.deepStrictEqual(withClaudeMcpTimeoutDefault(env), {
+      PATH: "/usr/bin",
+      MCP_TIMEOUT: "120000",
+    });
+    assert.deepStrictEqual(env, { PATH: "/usr/bin" });
+    const chosen = { PATH: "/usr/bin", MCP_TIMEOUT: "45000" };
+    assert.strictEqual(withClaudeMcpTimeoutDefault(chosen), chosen);
+    // A blank value is not a choice.
+    assert.strictEqual(withClaudeMcpTimeoutDefault({ MCP_TIMEOUT: " " }).MCP_TIMEOUT, "120000");
   });
 });
 

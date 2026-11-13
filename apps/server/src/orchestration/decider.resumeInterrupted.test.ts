@@ -5,8 +5,10 @@ import {
   ProjectId,
   ThreadId,
   TurnId,
+  type OrchestrationEvent,
   type OrchestrationReadModel,
 } from "@moss/contracts";
+import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -115,27 +117,115 @@ function failureActivity(
   };
 }
 
+async function decideResume(
+  thread = makeThread(),
+  commandOverrides: Record<string, unknown> = {},
+): Promise<ReadonlyArray<OrchestrationEvent["type"]>> {
+  const decided = await Effect.runPromise(
+    decideOrchestrationCommand({
+      command: resumeCommand(commandOverrides),
+      readModel: makeReadModel(thread),
+    }),
+  );
+  return (Array.isArray(decided) ? decided : [decided]).map(
+    (event: { readonly type: OrchestrationEvent["type"] }) => event.type,
+  );
+}
+
 describe("resume interrupted turn decider", () => {
-  it("accepts interrupted turns without a completion activity and emits only the event payload", async () => {
-    const event = await Effect.runPromise(
+  it("continues an interrupted turn as an ordinary turn the provider reactor starts", async () => {
+    const decided = await Effect.runPromise(
       decideOrchestrationCommand({
         command: resumeCommand(),
         readModel: makeReadModel(),
       }),
     );
-    expect(event).toMatchObject({
-      type: "thread.turn-resume-requested",
+    const events = (Array.isArray(decided) ? decided : [decided]) as ReadonlyArray<
+      Omit<OrchestrationEvent, "sequence">
+    >;
+    expect(events.map((event) => event.type)).toEqual([
+      "thread.message-sent",
+      "thread.turn-start-requested",
+    ]);
+    expect(events[0]).toMatchObject({
+      commandId: "command-resume-decider",
       payload: {
         threadId: THREAD_ID,
-        turnId: TURN_ID,
-        createdAt: DONE,
+        messageId: "resume:command-resume-decider",
+        role: "user",
+        text: INTERRUPTED_TASK_CONTINUATION_PROMPT,
+        dispatchOrigin: "user",
+        turnId: null,
+        source: "native",
       },
     });
-    expect(Object.keys((event as { payload: Record<string, unknown> }).payload)).toEqual([
-      "threadId",
-      "turnId",
-      "createdAt",
-    ]);
+    expect(events[1]).toMatchObject({
+      payload: {
+        threadId: THREAD_ID,
+        messageId: "resume:command-resume-decider",
+        dispatchMode: "queue",
+        runtimeMode: "full-access",
+        interactionMode: "debug",
+      },
+    });
+  });
+
+  it("does not count the settled turn's own person message as queued work", async () => {
+    // Every plain send leaves its message without a turn id (the shape the mobile
+    // run's database held). Once that turn settles the message is history.
+    const settledMessage = {
+      ...makeThread().messages[0]!,
+      turnId: null,
+    };
+    await expect(decideResume(makeThread({ messages: [settledMessage] }))).resolves.toContain(
+      "thread.turn-start-requested",
+    );
+    // A native steer that rode the live turn never gets a turn id either.
+    await expect(
+      decideResume(
+        makeThread({
+          messages: [
+            settledMessage,
+            {
+              ...settledMessage,
+              id: MessageId.makeUnsafe("message-resume-decider-steer"),
+              dispatchMode: "steer",
+              startsNewTurn: false,
+              createdAt: DONE,
+              updatedAt: DONE,
+            },
+          ],
+          latestUserMessageAt: "2026-08-30T00:00:09.000Z",
+        }),
+      ),
+    ).resolves.toContain("thread.turn-start-requested");
+  });
+
+  it("reports a refusal from the continuation under the resume command", async () => {
+    // A checkpoint revert is checked by the turn start, not by resume itself.
+    const revertStarted = {
+      id: EventId.makeUnsafe("activity-resume-decider-revert"),
+      tone: "info" as const,
+      kind: "checkpoint.revert.started",
+      summary: "Reverting",
+      payload: {},
+      turnId: null,
+      sequence: 3,
+      createdAt: DONE,
+    };
+    await expect(
+      Effect.runPromise(
+        Effect.flip(
+          decideOrchestrationCommand({
+            command: resumeCommand(),
+            readModel: makeReadModel(makeThread({ activities: [revertStarted] })),
+          }),
+        ),
+      ),
+    ).resolves.toMatchObject({
+      _tag: "OrchestrationCommandInvariantError",
+      commandType: "thread.turn.resume",
+    });
   });
 
   it.each([
@@ -151,11 +241,7 @@ describe("resume interrupted turn decider", () => {
       latestTurn: { ...makeThread().latestTurn!, state: "error" },
       activities: [failureActivity(errorInfo)],
     });
-    await expect(
-      Effect.runPromise(
-        decideOrchestrationCommand({ command: resumeCommand(), readModel: makeReadModel(thread) }),
-      ),
-    ).resolves.toMatchObject({ type: "thread.turn-resume-requested" });
+    await expect(decideResume(thread)).resolves.toContain("thread.turn-start-requested");
   });
 
   it("accepts only the two frozen legacy messages for other failures", async () => {
@@ -167,14 +253,7 @@ describe("resume interrupted turn decider", () => {
         latestTurn: { ...makeThread().latestTurn!, state: "error" },
         activities: [failureActivity("other", errorMessage)],
       });
-      await expect(
-        Effect.runPromise(
-          decideOrchestrationCommand({
-            command: resumeCommand(),
-            readModel: makeReadModel(thread),
-          }),
-        ),
-      ).resolves.toMatchObject({ type: "thread.turn-resume-requested" });
+      await expect(decideResume(thread)).resolves.toContain("thread.turn-start-requested");
     }
   });
 
@@ -233,22 +312,10 @@ describe("resume interrupted turn decider", () => {
     ["stale turn", { turnId: TurnId.makeUnsafe("turn-old") }],
     ["live session", { thread: { session: { ...makeThread().session!, status: "running" } } }],
     [
-      "unbound queued user message",
+      "queued follow-up already promoted and starting",
       {
         thread: {
-          messages: [
-            ...makeThread().messages,
-            {
-              id: MessageId.makeUnsafe("message-resume-decider-queued"),
-              role: "user" as const,
-              text: "queued",
-              turnId: null,
-              streaming: false,
-              source: "native" as const,
-              createdAt: DONE,
-              updatedAt: DONE,
-            },
-          ],
+          session: { ...makeThread().session!, status: "starting", activeTurnId: null },
         },
       },
     ],

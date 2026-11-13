@@ -19,6 +19,8 @@ export type ProviderStartupFailureReason =
   | "ExecutableNotFound"
   | "SpawnFailed"
   | "ExitedDuringStartup"
+  /** The thread's previous runtime could not be proven stopped, so nothing new was spawned. */
+  | "PreviousRuntimeNotStopped"
   | "HandshakeTimeout"
   | "AuthenticationFailed"
   | "ProtocolFailure"
@@ -164,6 +166,9 @@ export function classifyProviderStartupFailure(cause: unknown): ProviderStartupF
   if (cause instanceof Error && cause.name === "AbortError") return "Cancelled";
   const message =
     cause instanceof Error ? cause.message.toLowerCase() : String(cause).toLowerCase();
+  // Before the "exit" heuristic: this text names the old process tree's exit
+  // proof, not a new process that exited while starting.
+  if (message.includes("did not prove exit")) return "PreviousRuntimeNotStopped";
   if (message.includes("auth") || message.includes("login")) return "AuthenticationFailed";
   if (message.includes("spawn")) return "SpawnFailed";
   if (message.includes("exit") || message.includes("closed before")) return "ExitedDuringStartup";

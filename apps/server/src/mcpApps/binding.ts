@@ -286,7 +286,8 @@ export function bindMcpToolRow(
       status,
       arguments: input,
       mcpAppUi: { resourceUri: definition.resourceUri },
-      result: result ?? null,
+      // A failed call keeps the text it returned, so its card can show it in place.
+      result: result ?? (failed ? rebuildResultFromRow(data) : null),
       error: failed ? { message: errorMessageFromRaw(data) } : null,
     },
     lifecycle,
@@ -302,13 +303,17 @@ export function bindMcpToolRow(
     }),
   );
   if (!binding) return undefined;
+  // The provider's own `result` (a Claude tool_result block, whose content may be a plain
+  // string) never stays beside the projection: the web reads `data` as the projection, and a
+  // result that is not MCP-shaped makes it unreadable, so a failed call would stay "running".
+  const { result: _providerResult, ...providerData } = data;
   return {
     event: {
       ...event,
       payload: {
         ...payload,
         itemType: "mcp_tool_call",
-        data: { ...data, ...projection, app: binding },
+        data: { ...providerData, ...projection, app: binding },
       },
     } as ProviderRuntimeEvent,
     threadId,

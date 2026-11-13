@@ -13,6 +13,7 @@ import {
   type MossManagedProviderShape,
 } from "../Services/MossManagedProvider";
 import { MossEnterpriseKeyError } from "../Services/MossEnterpriseKeyAccount";
+import { makeMossServiceEntryRouter, type MossServiceEntryRouter } from "../mossServiceEntries";
 import {
   makeMossEnterpriseKeyAccount,
   MOSS_ENTERPRISE_KEY_SECRET_NAME,
@@ -38,6 +39,10 @@ const makeSecretStore = () => {
 
 const makeHarness = (
   catalog: MossGatewayModelCatalog = { status: "ready", models: ALL_VENDORS },
+  options: {
+    readonly byEntry?: Record<string, MossGatewayModelCatalog>;
+    readonly modelGatewayEntries?: MossServiceEntryRouter;
+  } = {},
 ) => {
   const secrets = makeSecretStore();
   let activeAccessToken: string | null = null;
@@ -58,7 +63,9 @@ const makeHarness = (
     getProvisioningState: (input) =>
       Effect.sync(() => (activeAccessToken === input.accessToken ? "ready" : "stale")),
   };
-  const fetchGatewayModels: FetchMossGatewayModelIds = vi.fn(() => Effect.succeed(catalog));
+  const fetchGatewayModels: FetchMossGatewayModelIds = vi.fn((input) =>
+    Effect.succeed(options.byEntry?.[input.gatewayBaseUrl] ?? catalog),
+  );
   const layer = Layer.merge(
     Layer.succeed(ServerSecretStore, secrets.service),
     Layer.succeed(MossManagedProvider, managedProvider),
@@ -72,6 +79,7 @@ const makeHarness = (
       env: ENV,
       fetchGatewayModels,
       now: () => 1_800_000_000_000,
+      ...(options.modelGatewayEntries ? { modelGatewayEntries: options.modelGatewayEntries } : {}),
     }).pipe(Effect.flatMap(use), Effect.provide(layer), Effect.runPromise);
   return {
     secrets,
@@ -252,5 +260,92 @@ describe("MossEnterpriseKeyAccount", () => {
 
     expect(state).toMatchObject({ authenticated: true, modelGatewayStatus: "auth-denied" });
     expect(harness.secrets.values.has(MOSS_ENTERPRISE_KEY_SECRET_NAME)).toBe(true);
+  });
+
+  describe("when an entry resets the connection", () => {
+    const CN_FALLBACK = "https://moss-cn-models.example.com/functions/v1/moss-model-gateway";
+    const RESET: MossGatewayModelCatalog = {
+      status: "transport-degraded",
+      models: [],
+      connectionFailed: true,
+    };
+    const twoEntries = () =>
+      makeMossServiceEntryRouter({
+        service: "CN model gateway",
+        entries: [CN_GATEWAY, CN_FALLBACK],
+        healthUrl: (entry) => `${new URL(entry).origin}/healthz`,
+        probe: async () => true,
+      });
+    const askedEntries = (harness: ReturnType<typeof makeHarness>) =>
+      vi.mocked(harness.fetchGatewayModels).mock.calls.map(([input]) => input.gatewayBaseUrl);
+
+    it("rejects the key only on the HTTP 401 of the entry that answered", async () => {
+      const harness = makeHarness(undefined, {
+        byEntry: { [CN_GATEWAY]: RESET, [CN_FALLBACK]: { status: "auth-denied", models: [] } },
+        modelGatewayEntries: twoEntries(),
+      });
+
+      const error = await harness.run((account) =>
+        account.signIn({ apiKey: KEY }).pipe(Effect.flip),
+      );
+
+      expect(error.code).toBe("key_rejected");
+      expect(askedEntries(harness)).toEqual([CN_GATEWAY, CN_FALLBACK]);
+      expect(harness.secrets.values.has(MOSS_ENTERPRISE_KEY_SECRET_NAME)).toBe(false);
+    });
+
+    it("signs in on the next entry and provisions the lanes with it", async () => {
+      const harness = makeHarness(undefined, {
+        byEntry: { [CN_GATEWAY]: RESET, [CN_FALLBACK]: { status: "ready", models: ALL_VENDORS } },
+        modelGatewayEntries: twoEntries(),
+      });
+
+      const state = await harness.run((account) => account.signIn({ apiKey: KEY }));
+
+      expect(state).toMatchObject({
+        authenticated: true,
+        active: true,
+        modelGatewayStatus: "ready",
+      });
+      expect(askedEntries(harness)).toEqual([CN_GATEWAY, CN_FALLBACK]);
+      expect(harness.provision).toHaveBeenCalledWith(
+        expect.objectContaining({ gatewayBaseUrl: CN_FALLBACK, accessToken: KEY }),
+      );
+    });
+
+    it("activates on the next entry too", async () => {
+      const router = twoEntries();
+      const harness = makeHarness(undefined, { modelGatewayEntries: router });
+      await harness.run((account) => account.signIn({ apiKey: KEY }));
+      vi.mocked(harness.provision).mockClear();
+      vi.mocked(harness.fetchGatewayModels).mockImplementation((input) =>
+        Effect.succeed(
+          input.gatewayBaseUrl === CN_GATEWAY ? RESET : { status: "ready", models: ALL_VENDORS },
+        ),
+      );
+
+      const state = await harness.run((account) => account.activate());
+
+      expect(state).toMatchObject({ authenticated: true, active: true });
+      expect(harness.provision).toHaveBeenCalledWith(
+        expect.objectContaining({ gatewayBaseUrl: CN_FALLBACK }),
+      );
+      expect(router.current()).toBe(CN_FALLBACK);
+    });
+
+    it("reports the gateway unavailable when no entry answers", async () => {
+      const harness = makeHarness(undefined, {
+        byEntry: { [CN_GATEWAY]: RESET, [CN_FALLBACK]: RESET },
+        modelGatewayEntries: twoEntries(),
+      });
+
+      const error = await harness.run((account) =>
+        account.signIn({ apiKey: KEY }).pipe(Effect.flip),
+      );
+
+      expect(error.code).toBe("gateway_unavailable");
+      expect(askedEntries(harness)).toEqual([CN_GATEWAY, CN_FALLBACK]);
+      expect(harness.provision).not.toHaveBeenCalled();
+    });
   });
 });

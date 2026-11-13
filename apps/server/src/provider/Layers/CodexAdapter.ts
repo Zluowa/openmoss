@@ -119,6 +119,7 @@ import {
   sanitizeNestedCodexGeneratedImagePayloads,
 } from "../../codexGeneratedImages.ts";
 import {
+  CodexPreviousRuntimeNotStoppedError,
   CodexSessionStartError,
   codexErrorMessage,
   isNonFatalCodexErrorMessage,
@@ -4155,7 +4156,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             detail: toMessage(cause, "Failed to start Codex adapter session."),
             ...(cause instanceof CodexSessionStartError
               ? { reason: "startup-failed" as const }
-              : {}),
+              : cause instanceof CodexPreviousRuntimeNotStoppedError
+                ? { reason: "previous-runtime-not-stopped" as const }
+                : {}),
             cause,
           }),
       });

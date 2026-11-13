@@ -24,6 +24,7 @@ import {
   isOrdinaryProjectRow as isSharedOrdinaryProjectRow,
 } from "@moss/shared/projectContainers";
 import { normalizeWorkspaceRootForComparison } from "@moss/shared/threadWorkspace";
+import { threadHasInFlightTurn } from "@moss/shared/turnResume";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -35,26 +36,8 @@ function invariantError(commandType: string, detail: string): OrchestrationComma
   });
 }
 
-/**
- * True when the thread still has an in-flight / unsettled turn:
- * session mid-lifecycle ("starting"/"running"), a non-error session with an
- * activeTurnId, or a latestTurn still projected as "running".
- *
- * Runtime errors can retain the failed turn id for attribution even though the
- * session and turn are terminal, so an errored session's activeTurnId is stale.
- */
-export function threadHasInFlightTurn(thread: {
-  readonly session: Pick<OrchestrationSession, "status" | "activeTurnId"> | null;
-  readonly latestTurn: Pick<OrchestrationLatestTurn, "state"> | null;
-}): boolean {
-  const session = thread.session;
-  return (
-    (session?.status !== "error" && session?.activeTurnId != null) ||
-    session?.status === "starting" ||
-    session?.status === "running" ||
-    thread.latestTurn?.state === "running"
-  );
-}
+// The rule lives in @moss/shared so clients that offer Continue apply the same one.
+export { threadHasInFlightTurn };
 
 export function checkpointRevertActiveTurnDetail(threadId: ThreadId): string {
   return `Thread '${threadId}' has an active turn. Interrupt the current turn before reverting checkpoints.`;

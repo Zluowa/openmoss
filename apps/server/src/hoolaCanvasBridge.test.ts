@@ -10,13 +10,19 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   HoolaCanvasBridgeBroker,
   hoolaCanvasRequestIdentity,
   type HoolaCanvasJobSnapshot,
 } from "./hoolaCanvasBridge";
+import {
+  makeMossServiceEntryRouter,
+  mossModelGatewayHealthUrl,
+  registerMossServiceEntryRouterForTest,
+  resetMossServiceEntryRoutersForTest,
+} from "./account/mossServiceEntries";
 
 const credential = {
   realm: "memfire-phone" as const,
@@ -756,5 +762,80 @@ describe("HoolaCanvasBridgeBroker", () => {
     const completed = await broker.run(created.jobId, credential);
     expect(completed.status).toBe("succeeded");
     expect(calls).toBe(3);
+  });
+});
+
+/** The CN gateway entries in use: both pass their health checks, the primary is in use. */
+const CN_PRIMARY = "https://moss-models.example.cn/functions/v1/moss-model-gateway/v1";
+const CN_FALLBACK = "https://moss-cn-models.example.com/functions/v1/moss-model-gateway/v1";
+const cnEntriesInUse = async () => {
+  const router = makeMossServiceEntryRouter({
+    service: "CN model gateway",
+    entries: [CN_PRIMARY, CN_FALLBACK],
+    healthUrl: mossModelGatewayHealthUrl,
+    probe: async () => true,
+  });
+  await router.ensure();
+  registerMossServiceEntryRouterForTest(router);
+  return router;
+};
+const resetError = () =>
+  Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+  });
+const onPrimary = (url: string | URL | Request) =>
+  String(url instanceof Request ? url.url : url).startsWith(new URL(CN_PRIMARY).origin);
+
+const job = (broker: HoolaCanvasBridgeBroker, key: string) =>
+  broker.create({
+    projectId: "p",
+    operation: "text_to_image",
+    modelId: "gpt-image-2-official",
+    prompt: "A cat",
+    idempotencyKey: key,
+  });
+const where = (url: string | URL | Request) => {
+  const parsed = new URL(String(url));
+  return `${parsed.host}${parsed.pathname}`;
+};
+
+describe("HoolaCanvasBridgeBroker across CN gateway entries", () => {
+  afterEach(() => resetMossServiceEntryRoutersForTest());
+  const cnCredential = { ...credential, gatewayBaseUrl: CN_PRIMARY };
+  it("never submits a generation (paid work) to a second entry", async () => {
+    const router = await cnEntriesInUse();
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      if (onPrimary(url)) throw resetError();
+      return Response.json({ taskToken: "task-1", pending: true }, { status: 202 });
+    });
+    const broker = new HoolaCanvasBridgeBroker({ pollMs: 0, fetchImpl });
+    const created = job(broker, "submit-reset");
+    const result = await broker.run(created.jobId, cnCredential);
+    expect(result.status).toBe("reconciliation_required");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(router.current()).toBe(CN_FALLBACK);
+  });
+
+  it("asks a status query (a read) once more on the next entry", async () => {
+    const router = await cnEntriesInUse();
+    let submitted = false;
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      if (new URL(String(url)).pathname.endsWith("/generations")) {
+        submitted = true;
+        return Response.json({ taskToken: "task-1", pending: true }, { status: 202 });
+      }
+      if (submitted && onPrimary(url)) throw resetError();
+      return Response.json({ pending: false, imageUrl: "https://assets.example/cat.png" });
+    });
+    const broker = new HoolaCanvasBridgeBroker({ pollMs: 0, fetchImpl });
+    const created = job(broker, "query-reset");
+    const result = await broker.run(created.jobId, cnCredential);
+    expect(result.status).toBe("succeeded");
+    expect(fetchImpl.mock.calls.map(([url]) => where(url))).toEqual([
+      "moss-models.example.cn/functions/v1/moss-model-gateway/v1/canvas/images/generations",
+      "moss-models.example.cn/functions/v1/moss-model-gateway/v1/canvas/media/query",
+      "moss-cn-models.example.com/functions/v1/moss-model-gateway/v1/canvas/media/query",
+    ]);
+    expect(router.current()).toBe(CN_FALLBACK);
   });
 });

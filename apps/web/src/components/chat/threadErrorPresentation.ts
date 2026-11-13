@@ -8,6 +8,7 @@ import {
   MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
 } from "@moss/shared/mossManagedSession";
 import {
+  isPreviousRuntimeNotStoppedDetail,
   isProviderDeliveryBlockDetail,
   isUnconfirmedTurnStartDetail,
 } from "@moss/shared/providerDeliveryBlock";
@@ -19,6 +20,7 @@ import {
   localizeProviderRuntimeMessage,
   normalizeProviderRuntimeMessage,
   PERSONAL_CODEX_USAGE_LIMIT_MESSAGE,
+  ZH_CN_TURN_FAILURE_MESSAGES,
 } from "~/lib/providerRuntimeMessages";
 
 export interface ThreadErrorPresentation {
@@ -124,6 +126,13 @@ const KNOWN_FAILURE_SENTENCES = [
   "This request id is already in use.",
   MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING,
 ] as const;
+// Why a turn ended, as a whole message (ClaudeAdapter's reasons and fallbacks, old and new
+// wordings). The card says it in the UI language, so the turn header adds no raw copy of it.
+const TURN_FAILURE_SENTENCES: ReadonlySet<string> = new Set([
+  ...Object.keys(ZH_CN_TURN_FAILURE_MESSAGES),
+  "The model service returned a server error. Retry in a moment.",
+  "The model service is temporarily overloaded. Retry in a moment.",
+]);
 // PiAdapter's sentence for a model whose provider this Pi account has no sign-in for.
 const PI_MODEL_SIGN_IN_MISSING_PATTERN =
   /This Pi account has no sign-in for ([^\r\n]{1,120}?)\. Switch to Moss or another model to continue\./u;
@@ -132,6 +141,8 @@ const MODEL_BOUND_FAILURE_SENTENCES: ReadonlySet<string> = new Set([
   "The model cannot represent these tool definitions or tool choices.",
   "The selected model is not available from this region or provider account.",
   "This model is not available for this Moss sign-in method.",
+  "The selected model is unavailable for this account.",
+  "The selected Claude model is unavailable for this account.",
 ]);
 const PROVIDER_ADAPTER_REQUEST_FAILED_PREFIX =
   /^Provider adapter request failed \([^)]+\) for [^:]+:\s*/u;
@@ -168,7 +179,8 @@ export function isExplainedProviderFailure(error: string): boolean {
     STREAM_DROPPED_PATTERN.test(error) ||
     MOSS_MANAGED_RUNTIME_MISSING_PATTERN.test(error) ||
     PI_MODEL_SIGN_IN_MISSING_PATTERN.test(error) ||
-    KNOWN_FAILURE_SENTENCES.some((sentence) => error.includes(sentence))
+    KNOWN_FAILURE_SENTENCES.some((sentence) => error.includes(sentence)) ||
+    TURN_FAILURE_SENTENCES.has(error.trim())
   );
 }
 
@@ -262,6 +274,12 @@ function unconfirmedTurnStartError(locale: MossLocaleCode): string {
     : "Moss couldn't confirm what the provider did with this message, so it stopped waiting and didn't send it again. You can try again.";
 }
 
+function previousRuntimeNotStoppedError(locale: MossLocaleCode): string {
+  return locale === "zh-CN"
+    ? "上一个智能体进程还没停下，这条消息没有发出。可以重新发送。"
+    : "The previous agent process hadn't stopped yet, so this message wasn't sent. You can send it again.";
+}
+
 function repeatRequestRefusedError(locale: MossLocaleCode): string {
   return locale === "zh-CN"
     ? "刚刚已经发送过完全相同的请求，Moss 不会重复发送，以免重复计费。请改一下消息内容，或等大约 15 分钟后再试。"
@@ -322,7 +340,9 @@ export function resolveThreadErrorPresentation(
 ): ThreadErrorPresentation {
   const raw = error.trim();
   const missingWorkingDirectory = workingDirectoryNotFoundError(raw, locale);
-  const knownFailureSentence = KNOWN_FAILURE_SENTENCES.find((sentence) => raw.includes(sentence));
+  const knownFailureSentence =
+    KNOWN_FAILURE_SENTENCES.find((sentence) => raw.includes(sentence)) ??
+    (TURN_FAILURE_SENTENCES.has(raw) ? raw : undefined);
   let safeText: string;
   let recoveryAction: ThreadErrorPresentation["recoveryAction"];
   let retryable = false;
@@ -333,6 +353,10 @@ export function resolveThreadErrorPresentation(
     safeText = missingWorkingDirectory;
   } else if (isProviderDeliveryBlockDetail(raw)) {
     safeText = deliveryBlockError(locale);
+  } else if (isPreviousRuntimeNotStoppedDetail(raw)) {
+    // Nothing reached the provider, so sending again cannot run it twice.
+    safeText = previousRuntimeNotStoppedError(locale);
+    retryable = true;
   } else if (isUnconfirmedTurnStartDetail(raw)) {
     // Moss stopped waiting and sent nothing again; sending again is the person's choice.
     safeText = unconfirmedTurnStartError(locale);

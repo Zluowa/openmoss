@@ -508,6 +508,7 @@ import { retainThreadDetailSubscription } from "../threadDetailSubscriptionReten
 import { useWorkspacePathsStore } from "../workspacePathsStore";
 import {
   areSidebarSearchThreadListsEqual,
+  sidebarSearchMessageText,
   type SidebarSearchAction,
   type SidebarSearchProject,
   type SidebarSearchThread,
@@ -7786,16 +7787,24 @@ export default function Sidebar() {
 // store keeps reference-stable while that thread's messages are unchanged.
 const searchPaletteMessagesByThreadMessages = new WeakMap<
   Thread["messages"],
-  SidebarSearchThread["messages"]
+  { readonly continuationVisibleText: string; readonly messages: SidebarSearchThread["messages"] }
 >();
 
-function searchPaletteMessagesFor(thread: Thread): SidebarSearchThread["messages"] {
+function searchPaletteMessagesFor(
+  thread: Thread,
+  continuationVisibleText: string,
+): SidebarSearchThread["messages"] {
   const cached = searchPaletteMessagesByThreadMessages.get(thread.messages);
-  if (cached) {
-    return cached;
+  if (cached && cached.continuationVisibleText === continuationVisibleText) {
+    return cached.messages;
   }
-  const projected = thread.messages.map((message) => ({ text: message.text }));
-  searchPaletteMessagesByThreadMessages.set(thread.messages, projected);
+  const projected = thread.messages.map((message) => ({
+    text: sidebarSearchMessageText(message.text, continuationVisibleText),
+  }));
+  searchPaletteMessagesByThreadMessages.set(thread.messages, {
+    continuationVisibleText,
+    messages: projected,
+  });
   return projected;
 }
 
@@ -7819,6 +7828,8 @@ function SidebarSearchPaletteController(props: {
   onImportThread: (target: ThreadImportTarget, externalId: string) => Promise<void>;
   onOpenThread: (threadId: string) => void;
 }) {
+  const { t } = useTranslation();
+  const continuationVisibleText = t("chat.continuation.visibleText");
   const selectAllThreads = useMemo(() => createAllThreadsSelector(), []);
   // Search keeps automation-run threads as an intent-driven escape hatch, while
   // structurally nested side chats stay out of standalone thread results.
@@ -7865,11 +7876,11 @@ function SidebarSearchPaletteController(props: {
           provider: thread.modelSelection.provider,
           createdAt: thread.createdAt,
           updatedAt: thread.updatedAt,
-          messages: searchPaletteMessagesFor(thread),
+          messages: searchPaletteMessagesFor(thread, continuationVisibleText),
         },
       ];
     });
-  }, [props.projectById, sidebarDisplayThreads, threads]);
+  }, [continuationVisibleText, props.projectById, sidebarDisplayThreads, threads]);
   const searchPaletteThreads = useStableValue(
     rebuiltSearchPaletteThreads,
     areSidebarSearchThreadListsEqual,

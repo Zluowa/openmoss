@@ -11869,3 +11869,108 @@ startDeadline.layer("provider start deadline", (it) => {
     }),
   );
 });
+
+const rotationStopRetry = makeProviderServiceLayer({ proactiveGatewayRotationRetryDelayMs: 20 });
+rotationStopRetry.layer("ProviderServiceLive rotation whose old runtime will not stop", (it) => {
+  // The 2026-11-13 sequence: the account-token rotation after a turn could not
+  // prove the old Codex tree gone, and the person's next message failed on the
+  // same stop. Rotation is housekeeping: it tries again on its own, off the
+  // person's path, and never changes the chosen model.
+  it.effect("retries the rotation, then the next turn starts at once on the chosen model", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const codex = rotationStopRetry.codex;
+      const threadId = asThreadId("thread-rotation-stop-unproven");
+      const chosen = { provider: "codex" as const, model: "gpt-6-luna" };
+
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project",
+        modelSelection: chosen,
+        runtimeMode: "full-access",
+      });
+      const lifecycleGeneration = Option.getOrUndefined(
+        yield* directory.getBinding(threadId),
+      )?.lifecycleGeneration;
+      yield* codex.waitForRuntimeSubscribers();
+      yield* provider.sendTurn({ threadId, input: "turn A", attachments: [] });
+
+      const stopsBefore = codex.stopSession.mock.calls.length;
+      const startsBefore = codex.startSession.mock.calls.length;
+      codex.stopSession.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            detail:
+              "Failed to prove Codex app-server process-tree exit: Provider process tree 44568 did not prove exit (rootExited=false, captureComplete=true; descendants still running: 49076).",
+          }),
+        ),
+      );
+      codex.emit({
+        type: "turn.completed",
+        eventId: asEventId("rotation-stop-unproven-turn-a-completed"),
+        provider: "codex",
+        createdAt: "2026-11-13T10:41:23.174Z",
+        threadId,
+        turnId: asTurnId(`turn-${threadId}`),
+        lifecycleGeneration,
+        payload: { state: "completed" },
+        raw: {
+          source: "codex.app-server.notification",
+          method: "turn/completed",
+          payload: { [AGENT_GATEWAY_TURN_AUTHORITY_RETIRED]: true },
+        },
+      });
+
+      // The first stop fails and nothing replaces the runtime yet.
+      yield* waitUntil(
+        () => codex.stopSession.mock.calls.length === stopsBefore + 1,
+        1_000,
+        10,
+        "first rotation stop",
+      );
+      yield* sleep(20);
+      assert.equal(codex.startSession.mock.calls.length, startsBefore);
+      // After the retry delay, the retry stops the old runtime and starts the
+      // replacement before the person sends anything.
+      yield* TestClock.adjust("20 millis");
+      yield* waitUntilEffect(
+        () =>
+          directory
+            .getBinding(threadId)
+            .pipe(
+              Effect.map(
+                (binding) =>
+                  codex.stopSession.mock.calls.length === stopsBefore + 2 &&
+                  codex.startSession.mock.calls.length === startsBefore + 1 &&
+                  asRuntimePayloadRecord(Option.getOrUndefined(binding)?.runtimePayload)
+                    .agentGatewayCredentialRotationRequired === false,
+              ),
+            ),
+        1_000,
+        10,
+        "rotation retried after an unproven stop",
+      );
+      assert.equal(codex.startSession.mock.calls.at(-1)?.[0].modelSelection?.model, "gpt-6-luna");
+
+      const stopsBeforeB = codex.stopSession.mock.calls.length;
+      const startsBeforeB = codex.startSession.mock.calls.length;
+      const sendsBeforeB = codex.sendTurn.mock.calls.length;
+      yield* provider.sendTurn({ threadId, input: "turn B", attachments: [] });
+      assert.equal(codex.stopSession.mock.calls.length, stopsBeforeB);
+      assert.equal(codex.startSession.mock.calls.length, startsBeforeB);
+      assert.equal(codex.sendTurn.mock.calls.length, sendsBeforeB + 1);
+      const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+      assert.equal(
+        (asRuntimePayloadRecord(binding?.runtimePayload).modelSelection as { model?: string })
+          ?.model,
+        "gpt-6-luna",
+      );
+
+      yield* provider.stopSession({ threadId });
+    }).pipe(Effect.timeout("3 seconds")),
+  );
+});
