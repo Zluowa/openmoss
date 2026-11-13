@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SpaceId } from "@moss/contracts";
 import { useTheme } from "~/hooks/useTheme";
 import { useAppSettings } from "~/appSettings";
@@ -22,6 +22,11 @@ import { Button } from "./ui/button";
 import { PageAiRunWatchers } from "./pages/ai/PageAiRunWatcher";
 import { usePageAiBridge, type PageAiHostOptions } from "./pages/ai/usePageAiBridge";
 import { usePageMediaBridge } from "./pages/media/usePageMediaBridge";
+import {
+  PageDocBridge,
+  pageDocStyleOf,
+  type DocCommentAsk,
+} from "./pages/comments/pageDocComments";
 
 /** A Page with a live room: edits sync through the room instead of the parent's autosave. */
 export interface MossPageRealtimeTarget {
@@ -65,6 +70,10 @@ export function MossPageRichEditor(props: {
         onAction: (id: string) => void;
       })
     | null;
+  /** A comment thread on words was opened in the page (the 评论 panel follows it). */
+  onOpenCommentThread?: (threadId: string) => void;
+  /** 建议模式 went on or off inside the page. */
+  onSuggestingChange?: (on: boolean) => void;
   /** Whether the loaded editor draws the header, so the page does not draw a second one. */
   onHeaderSupportChange?: (supported: boolean) => void;
 }) {
@@ -145,6 +154,16 @@ export function MossPageRichEditor(props: {
     frame.current?.focus();
     frame.current?.contentWindow?.focus();
   });
+  const askFromComment = useCallback<DocCommentAsk>(
+    ({ body, blockId, quote }) =>
+      pageAi.startRun({
+        mode: "comment",
+        prompt: body,
+        anchorBlockId: blockId || null,
+        quote,
+      }),
+    [pageAi.startRun],
+  );
   useEffect(() => {
     channel.onHeaderSupportChange = setHeaderSupported;
     channel.onHeaderEvent = (event) => {
@@ -182,6 +201,7 @@ export function MossPageRichEditor(props: {
         props.header.links,
         props.header.icon,
         props.header.cover,
+        props.header.subpages ?? [],
       ])
     : null;
   useEffect(() => {
@@ -195,6 +215,7 @@ export function MossPageRichEditor(props: {
       links: header.links,
       icon: header.icon,
       cover: header.cover,
+      ...(header.subpages ? { subpages: header.subpages } : {}),
     });
   }, [channel, headerKey]);
   useEffect(() => {
@@ -359,6 +380,18 @@ export function MossPageRichEditor(props: {
           live.current.relay?.restart();
         }}
       />
+      {props.ai ? (
+        <PageDocBridge
+          channel={channel}
+          pageId={props.ai.document.page.id}
+          scopeSpaceId={props.ai.scopeSpaceId}
+          docStyle={pageDocStyleOf(props.ai.document.page)}
+          ready={ready}
+          ask={pageAi.agentReady && !props.readOnly ? askFromComment : null}
+          onOpenThread={props.onOpenCommentThread}
+          onSuggestingChange={props.onSuggestingChange}
+        />
+      ) : null}
       {props.ai ? (
         <PageAiRunWatchers
           pageKey={pageAi.key}

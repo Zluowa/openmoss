@@ -297,6 +297,8 @@ export const MOSS_RELEASED_DESCRIPTOR: ReadonlyArray<readonly [number, string]> 
   [165, "PageRoomPrivateStores"],
   [166, "Mossbot"],
   [167, "UsageAnalyticsDeletedTokens"],
+  [168, "PageItemKindsOpen"],
+  [169, "PageDocStyleAndTextComments"],
 ]);
 
 export const UPSTREAM_3CEFD5A_DESCRIPTOR: ReadonlyArray<readonly [number, string]> = Object.freeze([

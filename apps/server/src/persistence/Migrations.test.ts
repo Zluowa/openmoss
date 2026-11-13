@@ -97,8 +97,8 @@ it.effect("appends upstream cursor invalidation without reusing Moss migration 9
       "PageRoomPrivateStores",
     ]);
     assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [
-      167,
-      "UsageAnalyticsDeletedTokens",
+      169,
+      "PageDocStyleAndTextComments",
     ]);
     assert.equal(new Set(migrationEntries.map(([id]) => id)).size, migrationEntries.length);
   }),

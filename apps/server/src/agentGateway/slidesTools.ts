@@ -147,6 +147,9 @@ function elementSummary(element: SlideElement) {
     ...(element.type === "image"
       ? { src: element.src.startsWith("data:") ? "(inline image)" : element.src }
       : {}),
+    ...(element.type === "icon" ? { icon: element.name } : {}),
+    ...(element.type === "video" ? { src: element.src } : {}),
+    ...(element.build ? { build: element.build } : {}),
   };
 }
 

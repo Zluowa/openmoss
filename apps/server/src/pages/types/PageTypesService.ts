@@ -29,10 +29,23 @@ import {
   type TypedItemKind,
 } from "@moss/shared/spaceItems/itemData";
 import { BUILT_IN_TEMPLATES, findBuiltInTemplate } from "@moss/shared/spaceItems/templates";
-import { Effect, Layer, Schema, ServiceMap } from "effect";
+import { readFile } from "node:fs/promises";
+
+import { DASHBOARD_LIBRARY_FILE_MAX_BYTES } from "@moss/shared/spaceItems/dashboard";
+import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { stableGatewayDigest } from "../../agentGateway/creationUtils";
+import { ServerConfig } from "../../config";
+import { McpConnectors } from "../../mcpConnectors/Services/McpConnectors";
+import { makePageAppMcpSources, type PageAppMcpSources } from "../apps/extensions/mcpSources";
+import { LibraryService } from "../../library/Services/LibraryService";
+import {
+  makeDashboardRuntime,
+  readLibraryDataFile,
+  type DashboardLibraryFiles,
+  type DashboardRuntime,
+} from "./dashboardRuntime";
 import {
   PagesService,
   PagesServiceError,
@@ -69,6 +82,8 @@ export interface PageTypesServiceShape {
    * Who wrote the payload of the page's latest data revision. Server-only: the slides tools
    * let an agent edit its own untouched deck directly and turn every other edit into a draft.
    */
+  /** 数据看板 live queries and the last report of an open dashboard. */
+  readonly dashboard: DashboardRuntime;
   readonly dataAuthor: (
     pageId: PageId,
   ) => Effect.Effect<
@@ -126,7 +141,11 @@ const templateFromRow = (row: TemplateRow): SpaceTemplate =>
 
 export const makePageTypesServiceShape = (
   pages: PagesServiceShape,
-  options: { readonly now?: () => string } = {},
+  options: {
+    readonly now?: () => string;
+    readonly mcpSources?: PageAppMcpSources | null;
+    readonly libraryFiles?: DashboardLibraryFiles | null;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -162,8 +181,16 @@ export const makePageTypesServiceShape = (
       protect(
         Effect.gen(function* () {
           const input = yield* decode(PageTypesReadInput, raw);
-          const result = yield* pages.read(input, principal);
-          return itemFrom(result.page, yield* latestData(result.page.id, result.page.revision));
+          const result = yield* pages.read(
+            { scopeSpaceId: input.scopeSpaceId, pageId: input.pageId },
+            principal,
+          );
+          // An earlier revision reads the payload as it was then; the page row stays current.
+          const at =
+            input.revision === undefined
+              ? result.page.revision
+              : Math.min(input.revision, result.page.revision);
+          return itemFrom(result.page, yield* latestData(result.page.id, at));
         }),
       );
 
@@ -409,6 +436,12 @@ export const makePageTypesServiceShape = (
       listTemplates,
       saveTemplate,
       deleteTemplate,
+      dashboard: makeDashboardRuntime({
+        types: { read },
+        sources: options.mcpSources ?? null,
+        library: options.libraryFiles ?? null,
+        now,
+      }),
       dataAuthor,
     } satisfies PageTypesServiceShape;
   });
@@ -417,6 +450,36 @@ export const PageTypesServiceLive = Layer.effect(
   PageTypesService,
   Effect.gen(function* () {
     const pages = yield* PagesService;
-    return yield* makePageTypesServiceShape(pages);
+    // Optional so test layers without config or connectors still build; live queries then
+    // answer that this build cannot run them.
+    const config = Option.getOrNull(yield* Effect.serviceOption(ServerConfig));
+    const connectors = yield* Effect.serviceOption(McpConnectors);
+    const mcpSources = config
+      ? makePageAppMcpSources({ connectors: Option.getOrNull(connectors), baseDir: config.baseDir })
+      : null;
+    if (mcpSources) yield* Effect.addFinalizer(() => Effect.promise(() => mcpSources.dispose()));
+    // 数据看板 files larger than the item can hold live in the 资料库.
+    const library = Option.getOrNull(yield* Effect.serviceOption(LibraryService));
+    const libraryFiles: DashboardLibraryFiles | null = library
+      ? {
+          read: async (itemId) => {
+            const listed = await Effect.runPromise(library.list({ includeTrashed: false }));
+            return readLibraryDataFile(listed.items.find((item) => item.id === itemId));
+          },
+          add: async (path) => {
+            const bytes = await readFile(path);
+            if (bytes.length > DASHBOARD_LIBRARY_FILE_MAX_BYTES)
+              throw new Error("文件超过 15 MB，看板载不下");
+            const name = path.split(/[\\/]/u).pop() || "data.csv";
+            const result = await Effect.runPromise(
+              library.importFiles({ files: [{ name, dataBase64: bytes.toString("base64") }] }),
+            );
+            const item = result.items[0];
+            if (!item) throw new Error("文件放不进资料库");
+            return { itemId: item.id, size: bytes.length, name };
+          },
+        }
+      : null;
+    return yield* makePageTypesServiceShape(pages, { mcpSources, libraryFiles });
   }),
 );

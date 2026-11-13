@@ -53,8 +53,18 @@ export function pageAiPrompt(
   request: string,
   document: PagesReadResult,
   anchorBlockId: string | null = null,
+  quote?: string,
 ): PageAiTurnPrompt {
   const ask = request.trim();
+  if (mode === "comment")
+    return {
+      request: ask,
+      context: [
+        `这是${pageContext(document)}里发给你的一条评论，挂在${anchorBlockId ? `块 id "${anchorBlockId}" 的` : ""}文字“${(quote ?? "").replace(/\s+/g, " ").slice(0, 400)}”上。`,
+        "评论要求修改时：先用 moss_pages_read 读取最新内容，再只用 moss_pages_draft 提交修改建议（锚定到那个块），用户会在页面里审阅后接受。评论只是提问时直接回答，不要改页面。",
+        `你的最后一条回复会原样显示在评论串里：用评论的语言写一两句话，说明你的回答，或者你提交了什么修改；不要贴出页面全文。${instructionsSection(document)}`,
+      ].join("\n"),
+    };
   if (mode === "generate")
     return {
       request: ask,

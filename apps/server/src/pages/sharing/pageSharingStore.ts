@@ -206,7 +206,35 @@ export const makePageSharingStore = Effect.gen(function* () {
         Effect.asVoid,
       ),
 
+    // ── Comment threads on words (pages_text_comments, written by the owner's Moss) ──
+    listTextComments: (pageId: string) =>
+      sql<{
+        comment_id: string;
+        thread_json: string;
+      }>`SELECT comment_id, thread_json FROM pages_text_comments
+        WHERE page_id = ${pageId} ORDER BY updated_at, comment_id LIMIT 500`,
+    getTextComment: (pageId: string, commentId: string) =>
+      sql<{ thread_json: string }>`SELECT thread_json FROM pages_text_comments
+        WHERE page_id = ${pageId} AND comment_id = ${commentId}`.pipe(
+        Effect.map((rows) => rows[0]?.thread_json ?? null),
+      ),
+    saveTextComment: (pageId: string, commentId: string, thread: string, updatedAt: string) =>
+      sql`INSERT INTO pages_text_comments (comment_id, page_id, thread_json, updated_at)
+        VALUES (${commentId}, ${pageId}, ${thread}, ${updatedAt})
+        ON CONFLICT (page_id, comment_id) DO UPDATE SET thread_json = excluded.thread_json,
+          updated_at = excluded.updated_at`.pipe(Effect.asVoid),
+
     // ── Events ───────────────────────────────────────────────────
+    countRecentEventsByVisitor: (
+      pageId: string,
+      visitorId: string,
+      action: string,
+      since: string,
+    ) =>
+      sql<{ count: number }>`SELECT COUNT(*) AS count FROM pages_share_events
+        WHERE page_id = ${pageId} AND visitor_id = ${visitorId} AND action = ${action} AND created_at > ${since}`.pipe(
+        Effect.map((rows) => rows[0]?.count ?? 0),
+      ),
     insertEvent: (row: EventRow) =>
       sql`INSERT INTO pages_share_events (event_id, target_kind, target_id, page_id, action, actor_kind, actor_name, visitor_id, created_at)
         VALUES (${row.event_id}, ${row.target_kind}, ${row.target_id}, ${row.page_id}, ${row.action}, ${row.actor_kind}, ${row.actor_name}, ${row.visitor_id}, ${row.created_at})`.pipe(

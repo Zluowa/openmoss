@@ -103,6 +103,9 @@ const APP_COPY: Readonly<Record<string, string>> = {
   "Unpin thread": "取消固定对话",
   "Pin message": "固定消息",
   "Stop generation": "停止生成",
+  // 数据看板 toolbar (the en copy in dashboardCopy.ts; zh uses its own strings).
+  "Hide sources": "隐藏数据来源",
+  "Stop reading": "停止朗读",
   "Start of conversation": "对话开始",
   "Thread model": "对话模型",
   "Thread effort": "对话思考强度",

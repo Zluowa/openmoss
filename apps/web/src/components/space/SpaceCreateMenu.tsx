@@ -7,6 +7,8 @@ import type { ReactElement } from "react";
 
 import {
   CloudUploadIcon,
+  PaletteIcon,
+  DataDashboardIcon,
   FoldersIcon,
   GlobeIcon,
   ImagesIcon,
@@ -29,6 +31,8 @@ export type SpaceCreateAction =
   | "slides"
   | "sheet"
   | "board"
+  | "design"
+  | "dashboard"
   | "site"
   | "app"
   | "image"
@@ -45,6 +49,8 @@ const GROUPS: ReadonlyArray<
     { id: "slides", label: "幻灯片", icon: SlidesIcon },
     { id: "sheet", label: "电子表格", icon: TableIcon },
     { id: "board", label: "白板", icon: SketchPenIcon },
+    { id: "design", label: "设计", icon: PaletteIcon },
+    { id: "dashboard", label: "数据看板", icon: DataDashboardIcon },
     { id: "site", label: "站点", icon: GlobeIcon },
     { id: "app", label: "应用页", icon: WindowAppIcon },
     { id: "image", label: "图像", icon: ImagesIcon },

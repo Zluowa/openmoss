@@ -9,8 +9,10 @@
 import { memo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
+  embedDocument,
   MOSS_FONT_FALLBACK,
   resolveColor,
+  slideIconUrl,
   resolveTextStyle,
   SLIDE_HEIGHT,
   SLIDE_WIDTH,
@@ -593,7 +595,51 @@ function ChartView({ element, theme }: { element: ChartElement; theme: DeckTheme
   );
 }
 
-function ElementView(props: { element: SlideElement; theme: DeckTheme; highlight: boolean }) {
+/** An icon element: Moss's glyph as a mask, painted in the element's colour. */
+function IconView(props: { name: string; color: string }) {
+  const url = slideIconUrl(props.name);
+  const mask = url ? `url("${url}") center / contain no-repeat` : undefined;
+  return (
+    <span
+      aria-hidden
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: props.color,
+        mask,
+        WebkitMask: mask,
+      }}
+    />
+  );
+}
+
+/** A still for an embed outside a live view (thumbnails, PDF): it cannot be painted to pixels. */
+function EmbedStill(props: { title: string | undefined; theme: DeckTheme }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: `color-mix(in srgb, ${props.theme.colors.text} 5%, transparent)`,
+        color: props.theme.colors.muted,
+        fontSize: 28,
+      }}
+    >
+      {props.title ? `网页嵌入 · ${props.title}` : "网页嵌入"}
+    </div>
+  );
+}
+
+function ElementView(props: {
+  element: SlideElement;
+  theme: DeckTheme;
+  highlight: boolean;
+  live: boolean;
+  build: BuildState | undefined;
+}) {
   const { element, theme } = props;
   if (element.type === "line") return <LineView element={element} theme={theme} />;
   const framed = element.type !== "shape";
@@ -665,11 +711,116 @@ function ElementView(props: { element: SlideElement; theme: DeckTheme; highlight
     case "chart":
       content = <ChartView element={element} theme={theme} />;
       break;
+    case "icon":
+      content = (
+        <IconView name={element.name} color={resolveColor(element.color ?? "@text", theme)} />
+      );
+      break;
+    case "video":
+      content = props.live ? (
+        <video
+          src={element.src}
+          poster={element.poster}
+          autoPlay={element.autoplay === true}
+          loop={element.loop === true}
+          muted={element.muted === true}
+          controls
+          playsInline
+          onLoadedMetadata={(event) => {
+            if (element.start) event.currentTarget.currentTime = element.start;
+          }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+          }}
+        />
+      ) : element.poster ? (
+        <img
+          alt={element.alt ?? ""}
+          src={element.poster}
+          draggable={false}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "contain",
+          }}
+        />
+      ) : (
+        <div style={{ position: "absolute", inset: 0, background: "rgb(17 17 16)" }} />
+      );
+      break;
+    case "embed":
+      content = props.live ? (
+        <iframe
+          title={element.title ?? "网页嵌入"}
+          sandbox="allow-scripts"
+          srcDoc={embedDocument(element.html)}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            border: 0,
+            pointerEvents: "none",
+          }}
+        />
+      ) : (
+        <EmbedStill title={element.title} theme={theme} />
+      );
+      break;
   }
+  const build = props.build ? buildStyle(element, props.build) : null;
   return (
-    <div style={style} data-element-id={element.id}>
+    <div
+      style={build ? { ...style, ...build } : style}
+      data-element-id={element.id}
+      data-build={build ? (element.build?.effect ?? undefined) : undefined}
+    >
       {content}
     </div>
+  );
+}
+
+/** 演示 builds: the step shown now; elements with a later `order` are not there yet. */
+export interface BuildState {
+  readonly step: number;
+}
+const BUILD_FROM: Record<string, string> = {
+  fade: "none",
+  rise: "translateY(48px)",
+  drop: "translateY(-48px)",
+  left: "translateX(-96px)",
+  right: "translateX(96px)",
+  scale: "scale(0.85)",
+  pop: "scale(0.6)",
+};
+function buildStyle(element: SlideElement, state: BuildState): CSSProperties | null {
+  const build = element.build;
+  if (!build) return null;
+  if (build.order > state.step) return { opacity: 0, visibility: "hidden" };
+  if (build.order === state.step)
+    return {
+      animation: `moss-build-${build.effect} ${build.effect === "pop" ? 420 : 520}ms cubic-bezier(0.2, 0.8, 0.2, 1) both`,
+      ["--moss-build-from" as string]: BUILD_FROM[build.effect] ?? "none",
+    };
+  return null;
+}
+/** Keyframes the build animations use (one copy per page). */
+export const BUILD_KEYFRAMES = Object.keys(BUILD_FROM)
+  .map(
+    (effect) =>
+      `@keyframes moss-build-${effect}{from{opacity:0;transform:var(--moss-build-from)}to{opacity:1;transform:none}}`,
+  )
+  .join("\n");
+/** The build steps a slide has (sorted orders), for paging through it in 演示. */
+export function buildSteps(slide: Slide): number[] {
+  return [...new Set(slide.elements.flatMap((e) => (e.build ? [e.build.order] : [])))].sort(
+    (a, b) => a - b,
   );
 }
 
@@ -680,6 +831,10 @@ export const SlideView = memo(function SlideView(props: {
   width: number;
   highlight?: ReadonlySet<string>;
   className?: string;
+  /** Plays videos and runs web embeds (演示, the viewer); off for thumbnails and exports. */
+  live?: boolean;
+  /** 演示 only: which build step is showing. */
+  build?: BuildState;
 }) {
   const scale = props.width / SLIDE_WIDTH;
   return (
@@ -712,6 +867,8 @@ export const SlideView = memo(function SlideView(props: {
             element={element}
             theme={props.theme}
             highlight={props.highlight?.has(element.id) ?? false}
+            live={props.live === true}
+            build={props.build}
           />
         ))}
       </div>

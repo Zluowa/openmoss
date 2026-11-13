@@ -75,7 +75,7 @@ const BROWSER_COPY: Readonly<Record<string, string>> = {
   "New comment": "新评论",
   "Ask Moss about this…": "问问 Moss…",
   "Add a comment…": "添加评论…",
-  "Send to Moss": "发给 Moss",
+  "Send to Moss": "发送给 Moss",
   "Post comment": "发表评论",
   "Post (Enter)": "发表（回车）",
   Dictate: "语音输入",
@@ -91,7 +91,7 @@ const BROWSER_COPY: Readonly<Record<string, string>> = {
   "No comments yet. Turn on comment mode, then click anywhere on the page.":
     "还没有评论。打开评论模式，然后点击页面上的任意位置。",
   "1 reply": "1 条回复",
-  "Sent to Moss": "已发给 Moss",
+  "Sent to Moss": "已发送给 Moss",
   You: "你",
 
   // Saved logins

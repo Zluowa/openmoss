@@ -13,6 +13,7 @@ import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { LocalImagePreview } from "../LocalImagePreview";
 import { SidebarIconButton } from "../SidebarIconButton";
+import { DesignCardPreview } from "../spaceTypes/design/DesignThumbnail";
 import { SlidesCardPreview } from "../spaceTypes/slides/SlidesCardPreview";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import {
@@ -21,7 +22,8 @@ import {
   spaceMossMediaPath,
   type SpaceItem,
 } from "./spaceItems";
-import { isHtmlOutput, spaceItemMeta } from "./spaceKinds";
+import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
+import { isHtmlOutput } from "./spaceKinds";
 
 export interface SpaceItemActions {
   onOpen: (item: SpaceItem) => void;
@@ -41,7 +43,7 @@ export function SpaceItemCard(
   },
 ) {
   const { item } = props;
-  const meta = spaceItemMeta(item);
+  const meta = useSpaceItemMeta(item);
   const Icon = meta.icon;
   const time = formatRelativeTime(item.updatedAt, props.now);
   const actions = <SpaceItemMenu {...props} />;
@@ -190,6 +192,9 @@ function SpaceItemPreview({ item }: { item: SpaceItem }) {
   }
   if (item.source.type === "page" && item.source.page.kind === "slides") {
     return <SlidesCardPreview page={item.source.page} />;
+  }
+  if (item.source.type === "page" && item.source.page.kind === "design") {
+    return <DesignCardPreview page={item.source.page} />;
   }
   if (item.source.type === "app" && item.source.app.thumbnail) {
     return (

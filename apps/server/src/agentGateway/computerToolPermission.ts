@@ -227,6 +227,7 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "moss_pages_spaces",
   "moss_pages_list",
   "moss_pages_read",
+  "moss_pages_outline",
   "moss_pages_versions",
   "moss_pages_comments",
   "moss_pages_mutate",

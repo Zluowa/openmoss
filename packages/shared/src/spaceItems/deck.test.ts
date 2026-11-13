@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { applyDeckOps, deckFromOutline, diffDecks } from "./deckOps";
-import { exportDeckToPptx, importPptxToDeck } from "./deckPptx";
+import { basicFontFor, exportDeckToPptx, importPptxToDeck } from "./deckPptx";
 import { DECK_TEMPLATES, deckTemplateData } from "./deckTemplates";
 import { DECK_THEMES } from "./deckThemes";
 import {
   bodyText,
   createSlidesDeck,
+  embedDocument,
+  parseSlideElement,
   parseSlidesDeck,
   projectSlidesDeck,
   resolveColor,
@@ -327,5 +329,99 @@ describe("deck v2 model", () => {
     expect(Math.abs(title.w - original.w)).toBeLessThanOrEqual(1);
     const table = back.deck.slides[3]!.elements.find((e) => e.type === "table");
     expect(table && table.type === "table" && bodyText(table.rows[1]!.cells[1]!.body)).toBe("2");
+  });
+  it("writes PowerPoint with basic fonts on request (基础字体)", async () => {
+    expect(basicFontFor("Noto Sans SC")).toEqual({ latin: "Arial", eastAsian: "Microsoft YaHei" });
+    expect(basicFontFor("Noto Serif SC")).toEqual({ latin: "Georgia", eastAsian: "SimSun" });
+    expect(basicFontFor("JetBrains Mono")).toEqual({
+      latin: "Courier New",
+      eastAsian: "Microsoft YaHei",
+    });
+    const deck = deckFromOutline({
+      title: "字体",
+      sections: [{ title: "一", slides: [{ title: "要点", bullets: ["甲", "乙"] }] }],
+    });
+    const fontsOf = async (fonts: "current" | "basic") => {
+      const back = await importPptxToDeck((await exportDeckToPptx(deck, { fonts })).bytes);
+      return new Set(
+        back.deck.slides.flatMap((slide) =>
+          slide.elements.flatMap((e) =>
+            e.type === "text"
+              ? e.body.paragraphs.flatMap((p) => p.runs.map((r) => r.font ?? ""))
+              : [],
+          ),
+        ),
+      );
+    };
+    const basic = await fontsOf("basic");
+    expect(
+      [...basic].filter(Boolean).every((font) => ["Microsoft YaHei", "SimSun"].includes(font)),
+    ).toBe(true);
+    expect([...(await fontsOf("current"))]).not.toContain("Microsoft YaHei");
+  });
+  it("reads icons, videos, web embeds, builds, magic move and nine list levels", () => {
+    const box = { id: "e1", x: 0, y: 0, w: 160, h: 160 };
+    expect(
+      parseSlideElement({ ...box, type: "icon", name: "rocket", color: "@accent" }),
+    ).toMatchObject({
+      type: "icon",
+      name: "rocket",
+    });
+    expect(() => parseSlideElement({ ...box, type: "icon", name: "../x" })).toThrow();
+    expect(() => parseSlideElement({ ...box, type: "icon", name: "not-in-the-set" })).toThrow();
+    expect(
+      parseSlideElement({
+        ...box,
+        type: "video",
+        src: "/api/moss/media/assets/job1/0",
+        autoplay: true,
+      }),
+    ).toMatchObject({ type: "video", autoplay: true });
+    expect(() =>
+      parseSlideElement({ ...box, type: "video", src: "data:video/mp4;base64,AAAA" }),
+    ).toThrow();
+    expect(() => parseSlideElement({ ...box, type: "embed", html: "x".repeat(16_001) })).toThrow();
+    const built = parseSlideElement({
+      ...box,
+      type: "icon",
+      name: "star",
+      build: { effect: "pop", order: 2.4, auto: true },
+    });
+    expect(built.build).toEqual({ effect: "pop", order: 2, auto: true });
+    expect(() =>
+      parseSlideElement({ ...box, type: "icon", name: "star", build: { effect: "spin" } }),
+    ).toThrow();
+    const deck = parseSlidesDeck({
+      version: 2,
+      slides: [
+        {
+          id: "s1",
+          transition: "magic",
+          elements: [
+            {
+              id: "t1",
+              type: "text",
+              x: 0,
+              y: 0,
+              w: 400,
+              h: 400,
+              body: { paragraphs: [{ runs: [{ text: "深" }], list: "bullet", level: 8 }] },
+            },
+          ],
+        },
+      ],
+    });
+    expect(deck.slides[0]!.transition).toBe("magic");
+    const text = deck.slides[0]!.elements[0]!;
+    expect(text.type === "text" && text.body.paragraphs[0]!.level).toBe(8);
+  });
+
+  it("runs a web embed with no network and without its own meta or base tags", () => {
+    const doc = embedDocument(
+      '<meta http-equiv="refresh" content="0;url=https://x.example"><base href="https://x.example/"><p>hi</p>',
+    );
+    expect(doc).toContain("default-src 'none'");
+    expect(doc).not.toContain("x.example");
+    expect(doc).toContain("<p>hi</p>");
   });
 });

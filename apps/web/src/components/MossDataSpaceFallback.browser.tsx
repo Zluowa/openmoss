@@ -28,7 +28,8 @@ let previousApi: NativeApi | undefined;
 function account(id: string) {
   client.setQueryData(mossServerQueryKeys.mossAccountSession(), {
     authenticated: true,
-    session: { user: { id } },
+    // A real phone session always carries the number; page comments sign with this identity.
+    session: { user: { id, phoneNumber: "+8613800000000", displayName: null } },
     activeRealm: "cn",
   });
 }
