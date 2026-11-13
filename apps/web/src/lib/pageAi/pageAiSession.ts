@@ -7,7 +7,8 @@
 import type { PageDraftOp, ThreadId, TurnId } from "@moss/contracts";
 import { useSyncExternalStore } from "react";
 
-export type PageAiRunMode = "compose" | "generate" | "visualize" | "image" | "prompt";
+/** `comment`: a comment on words was sent to Moss; its answer goes back into the thread. */
+export type PageAiRunMode = "compose" | "generate" | "visualize" | "image" | "prompt" | "comment";
 export interface PageAiRun {
   readonly id: string;
   readonly mode: PageAiRunMode;
@@ -36,11 +37,22 @@ export interface PageAiEditorCommands {
   readonly runInsertItem: (value: string) => void;
   /** The person is about to ask the page's assistant: start its agent. */
   readonly prepare: () => void;
+  /** Resolves to the conversation that answers, once it has started (null when it did not). */
   readonly startRun: (input: {
     mode: PageAiRunMode;
     prompt: string;
     anchorBlockId: string | null;
-  }) => Promise<void>;
+    /** For `comment`: the words the comment hangs on. */
+    quote?: string;
+  }) => Promise<ThreadId | null>;
+  /** Opens a comment thread's card in the page and scrolls to its words. */
+  readonly openComment?: (threadId: string) => void;
+  /** 查找 / 查找和替换 inside the page. */
+  readonly openFind?: (replace: boolean) => void;
+  /** 听写: types transcribed words at the caret. */
+  readonly insertText?: (text: string) => void;
+  /** 建议模式 on or off; absent when the loaded editor cannot. */
+  readonly setSuggesting?: (on: boolean) => void;
 }
 
 interface PageAiPageState {

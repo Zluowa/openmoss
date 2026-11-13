@@ -33,9 +33,12 @@ import { PageRealtimeService } from "../realtime/PageRealtimeService";
 import { makeGuestPageProjectionService } from "../guestEditing/GuestPageProjectionService";
 import { visibleParagraphs } from "../guestEditing/guestProjectionContent";
 import { PageGuestEditHttp } from "../guestEditing/pageGuestEditHttp";
+import { isDashboardPayload, parseDashboard } from "@moss/shared/spaceItems/dashboard";
+import { buildDashboardSnapshotDocument } from "@moss/shared/spaceItems/dashboardFrame";
 import { parseAppItem } from "@moss/shared/spaceItems/itemData";
 import { parsePageRichContent } from "@moss/shared/pageRichContent";
 import { pageGuestLibraryImageIds } from "./pageGuestMediaReferences.ts";
+import { guestTextThreadOf, newGuestTextThread, withGuestReply } from "./pageGuestTextThreads.ts";
 
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService.ts";
 import { MossPhoneAccountService } from "../../account/Services/MossPhoneAccountService.ts";
@@ -934,6 +937,74 @@ const make = Effect.gen(function* () {
       if (entry.mode === "site" || !entry.pages.some((page) => page.id === request.pageId)) {
         return yield* pageGuestFailure("forbidden");
       }
+      if (request.action === "add-text" || request.action === "reply-text") {
+        if (!pageShareRoleCanComment(entry.role)) return yield* pageGuestFailure("forbidden");
+        const name = entry.member?.name ?? request.name;
+        if (name === undefined) return yield* pageGuestFailure("invalid");
+        // Every comment a visitor leaves on this page, whole-page or on words, is a "commented" event.
+        const recent = yield* guestStorage(
+          store.countRecentEventsByVisitor(
+            request.pageId,
+            request.visitor,
+            "commented",
+            ago(60 * 60 * 1000),
+          ),
+        );
+        if (recent >= PAGE_GUEST_LIMITS.commentsPerVisitorPerHour) {
+          return yield* pageGuestFailure("rate-limited");
+        }
+        const author = {
+          kind: entry.member === null ? ("guest" as const) : ("member" as const),
+          name,
+        };
+        const createdAt = now();
+        if (request.action === "add-text") {
+          const id = `g${randomUUID().replaceAll("-", "")}`;
+          yield* guestStorage(
+            store.saveTextComment(
+              request.pageId,
+              id,
+              newGuestTextThread({
+                id,
+                pageId: request.pageId,
+                anchor: request.anchor,
+                author,
+                body: request.content,
+                createdAt,
+              }),
+              createdAt,
+            ),
+          );
+        } else {
+          const stored = yield* guestStorage(
+            store.getTextComment(request.pageId, request.threadId),
+          );
+          const thread = stored === null ? null : guestTextThreadOf(stored);
+          if (stored === null || thread === null || thread.resolved)
+            return yield* pageGuestFailure("invalid");
+          const next = withGuestReply(stored, {
+            id: randomUUID(),
+            author,
+            body: request.content,
+            createdAt,
+          });
+          if (next === null) return yield* pageGuestFailure("invalid");
+          yield* guestStorage(
+            store.saveTextComment(request.pageId, request.threadId, next, createdAt),
+          );
+        }
+        yield* guestStorage(
+          recordEvent({
+            target_kind: entry.target.kind,
+            target_id: entry.target.id,
+            page_id: request.pageId,
+            action: "commented",
+            actor_kind: author.kind,
+            actor_name: name,
+            visitor_id: request.visitor,
+          }),
+        );
+      }
       if (request.action === "add") {
         if (!pageShareRoleCanComment(entry.role)) return yield* pageGuestFailure("forbidden");
         const name = entry.member?.name ?? request.name;
@@ -969,7 +1040,18 @@ const make = Effect.gen(function* () {
         );
       }
       const rows = yield* guestStorage(store.listGuestComments(request.pageId));
-      return { comments: rows.map(guestCommentOf) };
+      // Comments on words include the owner's own review notes and Moss's answers: only links
+      // that may comment see them. A view-only link gets the page, not the conversation about it.
+      const threads = pageShareRoleCanComment(entry.role)
+        ? yield* guestStorage(store.listTextComments(request.pageId))
+        : [];
+      return {
+        comments: rows.map(guestCommentOf),
+        textThreads: threads.flatMap((row) => {
+          const thread = guestTextThreadOf(row.thread_json);
+          return thread ? [thread] : [];
+        }),
+      };
     });
 
   const access = (
@@ -1244,8 +1326,17 @@ const make = Effect.gen(function* () {
         store.getAppDataAtRevision(authorized.page.id, authorized.page.revision),
       );
       if (!row) return yield* pageGuestFailure("unavailable");
+      // A 数据看板 is shared as a snapshot: its page with the files' rows inlined.
       const app = yield* Effect.try({
-        try: () => parseAppItem(row.data),
+        try: () =>
+          isDashboardPayload(row.data)
+            ? {
+                html: buildDashboardSnapshotDocument(
+                  parseDashboard(row.data),
+                  "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js",
+                ),
+              }
+            : parseAppItem(row.data),
         catch: (cause) => pageGuestFailure("unavailable", cause),
       });
       return {

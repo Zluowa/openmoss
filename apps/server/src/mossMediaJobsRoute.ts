@@ -117,6 +117,38 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
             },
           })
         : json(403, { error: { code: "trusted_origin_required" } });
+    const localCanvasRequest =
+      (request.method === "GET" &&
+        (url.pathname === PREFIX ||
+          url.pathname === "/api/moss/media/history" ||
+          /^\/api\/moss\/media\/conversations\/mossconv_[a-f0-9]{32}$/u.test(url.pathname) ||
+          /^\/api\/moss\/media\/projects\/((?:thread(?::|%3[Aa]))?[A-Za-z0-9_-]{1,256})\/jobs\/open$/u.test(
+            url.pathname,
+          ) ||
+          /^\/api\/moss\/media\/jobs\/moss_[A-Za-z0-9_-]{1,128}\/canvas-origin$/u.test(
+            url.pathname,
+          ) ||
+          /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/[0-9]{1,2}$/u.test(
+            url.pathname,
+          ) ||
+          url.pathname === "/api/moss/media/canvas/account" ||
+          /^\/api\/moss\/media\/canvas\/(?:assets\/[a-f0-9]{64}\.(?:png|jpg|webp|gif|avif|mp4|webm|mp3|wav|ogg)|knowledge\/.+)$/u.test(
+            url.pathname,
+          ))) ||
+      (request.method === "POST" &&
+        ["/api/moss/media/canvas/storage", "/api/moss/media/canvas/import-job"].includes(
+          url.pathname,
+        ));
+    const localCanvasHostRequest =
+      (request.method === "GET" &&
+        (url.pathname === "/api/moss/media/canvas/account" ||
+          /^\/api\/moss\/media\/canvas\/(?:assets\/[a-f0-9]{64}\.(?:png|jpg|webp|gif|avif|mp4|webm|mp3|wav|ogg)|knowledge\/.+)$/u.test(
+            url.pathname,
+          ))) ||
+      (request.method === "POST" &&
+        ["/api/moss/media/canvas/storage", "/api/moss/media/canvas/import-job"].includes(
+          url.pathname,
+        ));
     const auth = yield* ServerAuth;
     // Hosted Canvas keeps the same startup secret in memory and sends it as
     // a bearer header. Legacy desktop asset URLs still carry the query token.
@@ -131,9 +163,18 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       configured.length > 0 &&
       supplied.length === configured.length &&
       timingSafeEqual(supplied, configured);
-    const authenticated = desktopTokenAuthorized
-      ? null
-      : yield* Effect.result(auth.authenticateHttpRequest(makeEffectAuthRequest(request)));
+    // A web-mode server on loopback has no startup bearer by design. The web
+    // host still needs to reach its account-scoped Canvas store, while every
+    // other media route keeps the normal HTTP authentication boundary.
+    const localWebCanvasAuthorized =
+      localCanvasHostRequest &&
+      config.mode === "web" &&
+      !config.authToken &&
+      isLocalOnlyAccess(config, requestPeer(request));
+    const authenticated =
+      desktopTokenAuthorized || localWebCanvasAuthorized
+        ? null
+        : yield* Effect.result(auth.authenticateHttpRequest(makeEffectAuthRequest(request)));
     // Keep this route's CORS headers on auth failures: a trusted cross-origin
     // renderer must read the 401 (signed-out Images) instead of a network error.
     if (authenticated !== null && authenticated._tag === "Failure")
@@ -170,28 +211,6 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       })
     )
       return json(403, { error: { code: "trusted_origin_required" } });
-    const localCanvasRequest =
-      (request.method === "GET" &&
-        (url.pathname === PREFIX ||
-          url.pathname === "/api/moss/media/history" ||
-          /^\/api\/moss\/media\/conversations\/mossconv_[a-f0-9]{32}$/u.test(url.pathname) ||
-          /^\/api\/moss\/media\/projects\/((?:thread(?::|%3[Aa]))?[A-Za-z0-9_-]{1,256})\/jobs\/open$/u.test(
-            url.pathname,
-          ) ||
-          /^\/api\/moss\/media\/jobs\/moss_[A-Za-z0-9_-]{1,128}\/canvas-origin$/u.test(
-            url.pathname,
-          ) ||
-          /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/[0-9]{1,2}$/u.test(
-            url.pathname,
-          ) ||
-          url.pathname === "/api/moss/media/canvas/account" ||
-          /^\/api\/moss\/media\/canvas\/(?:assets\/[a-f0-9]{64}\.(?:png|jpg|webp|gif|avif|mp4|webm|mp3|wav|ogg)|knowledge\/.+)$/u.test(
-            url.pathname,
-          ))) ||
-      (request.method === "POST" &&
-        ["/api/moss/media/canvas/storage", "/api/moss/media/canvas/import-job"].includes(
-          url.pathname,
-        ));
     const cloudResult = localCanvasRequest
       ? null
       : yield* Effect.result(resolveMossMediaCredential);

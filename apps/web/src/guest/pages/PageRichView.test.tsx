@@ -50,4 +50,43 @@ describe("PageRichView", () => {
   it("falls back to the Markdown projection", () => {
     expect(render(undefined, "第一段\n\n第二段")).toContain("第二段");
   });
+
+  it("shows the first tab with a tab bar, chips as their label, and highlights open comments", () => {
+    const html = renderToStaticMarkup(
+      <PageRichView
+        richContent={JSON.stringify([
+          { type: "moss_tab", id: "t1", title: "计划", level: 0, children: [{ text: "" }] },
+          {
+            type: "p",
+            id: "b1",
+            children: [
+              { text: "上线 " },
+              { text: "十月", comment: true, comment_c1: true },
+              { text: " · " },
+              {
+                type: "moss_dropdown",
+                options: ["未开始", "进行中"],
+                value: 1,
+                children: [{ text: "" }],
+              },
+            ],
+          },
+          { type: "moss_tab", id: "t2", title: "数据", level: 0, children: [{ text: "" }] },
+          { type: "p", id: "b2", children: [{ text: "第二个标签页" }] },
+        ])}
+        content=""
+        imageLabel="图片"
+        imageNotShared="图片不随分享页面提供"
+        openComments={new Set(["c1"])}
+        tabsLabel="标签页"
+      />,
+    );
+    expect(html).toContain('aria-label="标签页"');
+    expect(html).toContain("计划");
+    expect(html).toContain("数据");
+    expect(html).not.toContain("第二个标签页");
+    expect(html).toContain('data-guest-comment="c1"');
+    expect(html).toContain('data-guest-block="b1"');
+    expect(html).toContain("进行中");
+  });
 });

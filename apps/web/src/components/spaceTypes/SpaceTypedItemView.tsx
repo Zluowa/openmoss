@@ -1,11 +1,17 @@
 // FILE: SpaceTypedItemView.tsx
-// Purpose: Opens a typed 资料空间 item (幻灯片, 电子表格, 白板, 应用页): loads its payload,
+// Purpose: Opens a typed 资料空间 item (幻灯片, 电子表格, 白板, 数据看板, 应用页, 设计): loads its payload,
 //          shows the editor for its kind, and saves edits against the item's revision.
 // Layer: 资料空间 types stream. space-ui's page view renders this for typed kinds.
 // Why: Every typed editor is a plain value editor; saving, retry, conflicts, the title and
 //      "存为模板" are decided here once.
 
 import type { PageId, PageTypedItem, SpaceId } from "@moss/contracts";
+import { parseDesignCanvas, type DesignCanvas } from "@moss/shared/spaceItems/designCanvas";
+import {
+  isDashboardPayload,
+  parseDashboard,
+  type DashboardItem,
+} from "@moss/shared/spaceItems/dashboard";
 import { parseSheetWorkbook, type SheetWorkbook } from "@moss/shared/spaceItems/sheetWorkbook";
 import { parseSlidesDeck, type SlidesDeck } from "@moss/shared/spaceItems/slidesDeck";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -16,11 +22,15 @@ import { TemplateGridIcon } from "~/lib/icons";
 import { Button } from "../ui/button";
 import { AppItemView } from "./app/AppItemView";
 import { BoardItemView } from "./board/BoardItemView";
+import { DashboardItemView } from "./dashboard/DashboardItemView";
 import { DeckEditorHost } from "./slides/DeckEditorHost";
 import { pageTypesQueryKeys } from "./spaceItemTypes";
 
-const SheetEditor = lazy(() =>
-  import("./sheet/SheetEditor").then((module) => ({ default: module.SheetEditor })),
+const DesignEditor = lazy(() =>
+  import("./design/DesignEditor").then((module) => ({ default: module.DesignEditor })),
+);
+const SheetEditorHost = lazy(() =>
+  import("./sheet/SheetEditorHost").then((module) => ({ default: module.SheetEditorHost })),
 );
 
 const SAVE_DELAY_MS = 700;
@@ -259,6 +269,77 @@ function TypedItemEditor(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epoch, item.kind]);
 
+  const design = useMemo<DesignCanvas | null>(() => {
+    if (item.kind !== "design") return null;
+    try {
+      return parseDesignCanvas(draft);
+    } catch {
+      return null;
+    }
+    // The editor owns live state; only a replaced payload re-seeds it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epoch, item.kind]);
+  const dashboard = useMemo<DashboardItem | null>(() => {
+    if (item.kind !== "app" || !isDashboardPayload(draft)) return null;
+    try {
+      return parseDashboard(draft);
+    } catch {
+      return null;
+    }
+  }, [draft, item.kind]);
+
+  const titleField = (
+    <input
+      aria-label="标题"
+      value={title}
+      readOnly={readOnly}
+      maxLength={256}
+      onChange={(event) => {
+        setTitle(event.target.value);
+        latest.current.title = event.target.value;
+        if (event.target.value.trim()) schedule();
+      }}
+      className="min-w-0 flex-1 truncate bg-transparent text-ui-lg font-medium outline-none"
+    />
+  );
+  const saveStatus = (
+    <span
+      role="status"
+      className="shrink-0 text-ui-sm text-muted-foreground"
+      data-save-state={state}
+    >
+      {readOnly ? "只读" : SAVE_LABELS[state]}
+    </span>
+  );
+
+  if (dashboard) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col" data-typed-item={item.kind}>
+        <DashboardItemView
+          account={props.account}
+          scopeSpaceId={props.scopeSpaceId}
+          item={item}
+          dashboard={dashboard}
+          title={title}
+          readOnly={readOnly}
+          header={
+            <>
+              {titleField}
+              {templateNote ? (
+                <span className="shrink-0 text-ui-sm text-muted-foreground">{templateNote}</span>
+              ) : null}
+              {saveStatus}
+            </>
+          }
+          onChange={(next) => change(JSON.stringify(next))}
+          flush={save}
+          revision={() => latest.current.revision}
+          reloadIfChanged={reloadIfChanged}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-typed-item={item.kind}>
       {props.hideHeader ? null : (
@@ -314,16 +395,37 @@ function TypedItemEditor(
         />
       ) : item.kind === "sheet" && workbook ? (
         <Suspense fallback={<p className="p-8 text-muted-foreground">正在载入表格…</p>}>
-          <SheetEditor
-            key={epoch}
+          <SheetEditorHost
+            account={props.account}
+            item={item}
             workbook={workbook}
             title={title}
             readOnly={readOnly}
+            epoch={epoch}
             onChange={(next) => change(JSON.stringify(next))}
             onReplace={(next) => {
               change(JSON.stringify(next));
               setEpoch((value) => value + 1);
             }}
+            flush={save}
+            revision={() => latest.current.revision}
+            reloadIfChanged={reloadIfChanged}
+          />
+        </Suspense>
+      ) : item.kind === "design" && design ? (
+        <Suspense fallback={<p className="p-8 text-muted-foreground">正在载入设计…</p>}>
+          <DesignEditor
+            account={props.account}
+            scopeSpaceId={props.scopeSpaceId}
+            item={item}
+            canvas={design}
+            title={title}
+            readOnly={readOnly}
+            epoch={epoch}
+            onChange={(next) => change(JSON.stringify(next))}
+            flush={save}
+            revision={() => latest.current.revision}
+            reloadIfChanged={reloadIfChanged}
           />
         </Suspense>
       ) : item.kind === "board" && item.data ? (

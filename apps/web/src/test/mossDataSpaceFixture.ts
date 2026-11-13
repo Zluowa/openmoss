@@ -60,6 +60,7 @@ export function createDataSpaceFixture() {
   const receipts = new Map<string, PagesMutateResult>();
   const versions = new Map<PageId, PageVersion[]>();
   const comments = new Map<PageId, PageComment[]>();
+  const textComments = new Map<PageId, Map<string, string>>();
   const automations = new Map<string, AutomationDefinition[]>();
   const automationReceipts = new Map<string, AutomationDefinition>();
   const ownedDocuments = () => {
@@ -155,6 +156,16 @@ export function createDataSpaceFixture() {
         };
       } else if (input.op === "pin")
         document = { ...document, page: { ...document.page, pinned: input.pinned } };
+      else if (input.op === "page-appearance")
+        document = {
+          ...document,
+          page: {
+            ...document.page,
+            ...(input.icon === undefined ? {} : { icon: input.icon }),
+            ...(input.cover === undefined ? {} : { cover: input.cover }),
+            ...(input.docStyle === undefined ? {} : { docStyle: input.docStyle }),
+          },
+        };
       else if (input.op === "comment") {
         comment = {
           id: `comment-${input.requestId}`,
@@ -277,6 +288,27 @@ export function createDataSpaceFixture() {
       comments: vi.fn(async ({ pageId }: { pageId: PageId }) => ({
         comments: comments.get(pageId) ?? [],
       })),
+      textComments: vi.fn(async ({ pageId }: { pageId: PageId }) => ({
+        comments: [...(textComments.get(pageId)?.entries() ?? [])].map(([id, thread]) => ({
+          id,
+          pageId,
+          thread,
+          updatedAt: NOW,
+        })),
+      })),
+      textCommentMutate: vi.fn(
+        async (
+          input:
+            | { op: "save"; pageId: PageId; commentId: string; thread: string }
+            | { op: "delete"; pageId: PageId; commentId: string },
+        ) => {
+          const threads = textComments.get(input.pageId) ?? new Map<string, string>();
+          if (input.op === "save") threads.set(input.commentId, input.thread);
+          else threads.delete(input.commentId);
+          textComments.set(input.pageId, threads);
+          return { ok: true };
+        },
+      ),
       drafts: vi.fn(async () => ({ drafts: [] })),
       draftsMutate: vi.fn(async () => ({ drafts: [] })),
       outputs: vi.fn(async () => ({ outputs: [] })),
@@ -328,6 +360,7 @@ export function createDataSpaceFixture() {
     libraryList,
     libraryImport,
     documents: ownedDocuments,
+    textComments,
     api: api as unknown as NativeApi,
   };
 }

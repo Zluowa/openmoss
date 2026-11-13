@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { parseSheetWorkbook } from "@moss/shared/spaceItems/sheetWorkbook";
 
 import { fromEngineSheets, toEngineSheets } from "./sheet/sheetEngine";
-import { computeWorkbookFormulas } from "./sheet/sheetFormulas";
+import { computeWorkbookFormulas } from "@moss/shared/spaceItems/sheetFormulas";
 import {
+  appendImportedSheets,
   csvToWorkbook,
   workbookSheetToCsv,
   workbookToXlsx,
@@ -143,6 +144,141 @@ describe("电子表格 xlsx and csv", () => {
     expect(
       csvToWorkbook(csv).sheets[0]!.cells.find((cell) => cell.r === 3 && cell.c === 1)?.v,
     ).toBe(165);
+  });
+
+  it("reads CSV and TSV fields as typed, and keeps formulas as text", () => {
+    const read = csvToWorkbook(
+      "项目\t金额\t日期\n房租\t$1,200\t2026-03-15\n公式\t=B2*2\t50%",
+      "导入",
+    );
+    const cells = read.sheets[0]!.cells;
+    expect(cells.find((cell) => cell.r === 1 && cell.c === 1)).toMatchObject({
+      v: 1200,
+      s: { format: "$#,##0.00" },
+    });
+    expect(cells.find((cell) => cell.r === 1 && cell.c === 2)).toMatchObject({
+      v: 46096,
+      s: { format: "yyyy-mm-dd" },
+    });
+    expect(cells.find((cell) => cell.r === 2 && cell.c === 1)).toMatchObject({ v: "=B2*2" });
+    expect(cells.find((cell) => cell.r === 2 && cell.c === 2)).toMatchObject({ v: 0.5 });
+  });
+
+  it("adds imported sheets after the ones there, renaming a taken name", () => {
+    const imported = csvToWorkbook("a,b\n1,2", "预算");
+    const next = appendImportedSheets(workbook, imported);
+    expect(next.sheets.map((sheet) => sheet.name)).toEqual(["预算", "预算 (2)"]);
+    const blank = appendImportedSheets(
+      parseSheetWorkbook({ version: 1, sheets: [{ id: "sheet1", name: "工作表1", cells: [] }] }),
+      imported,
+    );
+    expect(blank.sheets.map((sheet) => [sheet.id, sheet.name])).toEqual([["sheet1", "预算"]]);
+  });
+
+  it("round-trips looks, borders, merges, sizes, freeze and dropdowns through xlsx", async () => {
+    const rich = parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "sheet1",
+          name: "任务",
+          frozenRows: 1,
+          frozenColumns: 1,
+          gridlinesHidden: true,
+          rowHeights: { "2": 40 },
+          merges: [{ r0: 4, c0: 0, r1: 4, c1: 2 }],
+          dropdowns: [
+            {
+              id: "d",
+              ranges: [{ r0: 1, c0: 1, r1: 3, c1: 1 }],
+              options: [
+                { id: "o1", label: "完成" },
+                { id: "o2", label: "待办" },
+              ],
+            },
+          ],
+          cells: [
+            {
+              r: 0,
+              c: 0,
+              v: "任务",
+              s: {
+                bold: true,
+                underline: "single",
+                strike: true,
+                size: 14,
+                valign: "middle",
+                wrap: true,
+                border: { b: { style: "medium" } },
+              },
+            },
+            { r: 1, c: 1, v: "完成" },
+            { r: 4, c: 0, v: "合并" },
+          ],
+        },
+      ],
+    });
+    const back = await xlsxToWorkbook((await workbookToXlsx(rich)).buffer as ArrayBuffer);
+    const sheet = back.sheets[0]!;
+    expect(sheet).toMatchObject({
+      frozenRows: 1,
+      frozenColumns: 1,
+      gridlinesHidden: true,
+      merges: [{ r0: 4, c0: 0, r1: 4, c1: 2 }],
+    });
+    expect(sheet.rowHeights?.["2"]).toBeGreaterThanOrEqual(39);
+    expect(sheet.cells.find((cell) => cell.r === 0 && cell.c === 0)?.s).toMatchObject({
+      bold: true,
+      underline: "single",
+      strike: true,
+      size: 14,
+      valign: "middle",
+      wrap: true,
+      border: { b: { style: "medium" } },
+    });
+    expect(sheet.dropdowns?.[0]?.options.map((option) => option.label)).toEqual(["完成", "待办"]);
+  });
+});
+
+describe("电子表格 engine mapping of looks and layers", () => {
+  it("round-trips borders, merges, row heights, frozen columns, gridlines and the layers", () => {
+    const rich = parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "sheet1",
+          name: "表",
+          frozenColumns: 2,
+          gridlinesHidden: true,
+          rowHeights: { "1": 40 },
+          merges: [{ r0: 0, c0: 0, r1: 0, c1: 1 }],
+          checkboxes: [{ r0: 2, c0: 0, r1: 3, c1: 0 }],
+          table: { c0: 0, c1: 1, headerR0: 0, headerR1: 0 },
+          cells: [
+            {
+              r: 0,
+              c: 0,
+              v: "标题",
+              s: {
+                italic: true,
+                underline: "double",
+                size: 12,
+                valign: "bottom",
+                color: "#C2352A",
+                border: { t: { style: "thin" }, l: { style: "dashed", color: "#2A6AC9" } },
+              },
+            },
+            { r: 2, c: 0, v: true },
+            { r: 3, c: 0, v: false },
+            { r: 5, c: 3, v: null, s: { border: { r: { style: "double" } } } },
+          ],
+        },
+      ],
+    });
+    const layers = new Map([
+      ["sheet1", { checkboxes: rich.sheets[0]!.checkboxes!, table: rich.sheets[0]!.table! }],
+    ]);
+    expect(fromEngineSheets(toEngineSheets(rich), layers)).toEqual(rich);
   });
 });
 

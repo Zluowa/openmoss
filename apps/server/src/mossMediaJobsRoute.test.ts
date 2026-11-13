@@ -57,6 +57,7 @@ function harness(
     desktopToken?: boolean;
     remote?: boolean;
     role?: "owner" | "client";
+    webNoAuth?: boolean;
     query?: () => Promise<Response>;
     submit?: () => Promise<Response>;
     textCatalogGate?: () => Promise<void>;
@@ -134,7 +135,8 @@ function harness(
     Layer.succeed(ServerConfig, {
       stateDir: directory,
       host: options.remote ? "0.0.0.0" : "127.0.0.1",
-      authToken: "desktop-startup-secret",
+      mode: options.webNoAuth ? "web" : "desktop",
+      authToken: options.webNoAuth ? undefined : "desktop-startup-secret",
     } as ServiceMap.Service.Shape<typeof ServerConfig>),
     Layer.succeed(ServerAuth, {
       authenticateHttpRequest: (request: AuthRequest) =>
@@ -256,7 +258,9 @@ function harness(
           ...init,
           headers: {
             host: "127.0.0.1:3773",
-            ...(options.desktopToken ? {} : { authorization: "Bearer native-session" }),
+            ...(options.desktopToken || options.webNoAuth
+              ? {}
+              : { authorization: "Bearer native-session" }),
             ...init.headers,
           },
         },
@@ -507,6 +511,27 @@ describe("Moss media HTTP route", () => {
     expect(saved.status).toBe(200);
     expect(store.request).toHaveBeenCalledOnce();
     expect(app.state.submissions).toBe(0);
+  });
+
+  it("allows the loopback web host to use local Canvas storage without a startup bearer", async () => {
+    const app = harness({ webNoAuth: true });
+    const account = await app.request("/api/moss/media/canvas/account");
+    expect(account.status).toBe(200);
+    expect(await account.json()).toMatchObject({ authenticated: true, user: { id: "account-a" } });
+    const store = canvasStore();
+    vi.spyOn(canvasStorage, "mossCanvasStorageFor").mockResolvedValue(store);
+    const saved = await app.request("/api/moss/media/canvas/storage", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: storageBody(),
+    });
+    expect(saved.status).toBe(200);
+    expect(store.request).toHaveBeenCalledOnce();
+    expect(app.fetchMock).not.toHaveBeenCalled();
+    expect((await app.request("/api/moss/media/history")).status).toBe(401);
+
+    const remote = harness({ webNoAuth: true, remote: true });
+    expect((await remote.request("/api/moss/media/canvas/account")).status).toBe(401);
   });
 
   it("keeps the startup bearer local and rejects untrusted browser origins", async () => {

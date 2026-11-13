@@ -19,7 +19,12 @@ import {
 import { writeJpegPdf, type JpegPage } from "./jpegPdf";
 import { SlideView } from "./SlideView";
 
-const PIXEL_RATIO = 1;
+/** 好 / 更好 / 最佳: smaller pages and stronger JPEG compression make a smaller file. */
+const PDF_QUALITY = {
+  good: { ratio: 0.75, jpeg: 0.72 },
+  better: { ratio: 1, jpeg: 0.85 },
+  best: { ratio: 1.5, jpeg: 0.92 },
+} as const;
 
 function dataUrlToBytes(url: string): Uint8Array {
   const binary = atob(url.slice(url.indexOf(",") + 1));
@@ -87,7 +92,7 @@ function notesPage(deck: SlidesDeck, slide: Slide, number: number): ReactElement
   );
 }
 
-async function paint<T>(
+export async function paint<T>(
   deck: SlidesDeck,
   slides: readonly Slide[],
   render: (node: HTMLElement, slide: Slide) => Promise<T>,
@@ -122,8 +127,15 @@ const background = (deck: SlidesDeck, slide: Slide) =>
 export async function exportDeckToPdf(
   deck: SlidesDeck,
   onProgress?: (done: number, total: number) => void,
-  options: { includeHidden?: boolean; slideIds?: readonly string[]; includeNotes?: boolean } = {},
+  options: {
+    includeHidden?: boolean;
+    slideIds?: readonly string[];
+    includeNotes?: boolean;
+    /** 图片质量: pixel density and JPEG quality of each page (最佳 by default). */
+    quality?: "good" | "better" | "best";
+  } = {},
 ) {
+  const { ratio, jpeg } = PDF_QUALITY[options.quality ?? "best"];
   const wanted = options.slideIds?.length ? new Set(options.slideIds) : null;
   const slides = deck.slides.filter((slide) =>
     wanted ? wanted.has(slide.id) : options.includeHidden || !slide.hidden,
@@ -134,8 +146,8 @@ export async function exportDeckToPdf(
     list,
     async (node, slide) => {
       const url = await toJpeg(node, {
-        quality: 0.92,
-        pixelRatio: PIXEL_RATIO,
+        quality: jpeg,
+        pixelRatio: ratio,
         width: SLIDE_WIDTH,
         height: SLIDE_HEIGHT,
         backgroundColor: background(deck, slide),
@@ -145,8 +157,8 @@ export async function exportDeckToPdf(
       });
       return {
         jpeg: dataUrlToBytes(url),
-        width: SLIDE_WIDTH * PIXEL_RATIO,
-        height: SLIDE_HEIGHT * PIXEL_RATIO,
+        width: Math.round(SLIDE_WIDTH * ratio),
+        height: Math.round(SLIDE_HEIGHT * ratio),
       };
     },
     onProgress,

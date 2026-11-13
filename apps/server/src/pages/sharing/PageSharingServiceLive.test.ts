@@ -3307,6 +3307,76 @@ describe("PageSharingService", () => {
     expect((await openPage(harness, rotated.linkUrl!)).status).toBe(200);
   });
 
+  it("shows comments on words only to links that may comment", async () => {
+    const page = await harness.createPage("评审", "Q3 launch is firm.");
+    // The owner's own review note, with Moss's answer, as the owner's Moss syncs it.
+    await harness.run(
+      harness.pages.textCommentMutate(
+        {
+          op: "save",
+          scopeSpaceId: null,
+          pageId: page.id,
+          commentId: "cowner1" as never,
+          thread: JSON.stringify({
+            id: "cowner1",
+            anchor: { selector: "b1", label: "Q3", text: "Q3 launch" },
+            author: { name: "我", initials: "我" },
+            body: "Private note: check with finance",
+            createdAt: "2026-11-13T01:00:00.000Z",
+            replies: [
+              {
+                id: "r1",
+                kind: "agent",
+                author: { name: "我" },
+                body: "Finance signed off.",
+                status: "done",
+                createdAt: "2026-11-13T01:01:00.000Z",
+              },
+            ],
+          }),
+        },
+        LOCAL_PAGES_PRINCIPAL,
+      ),
+    );
+    const linkWith = async (role: "view" | "comment") => {
+      const current = await harness.run(
+        harness.sharing.get({ scopeSpaceId: null, target: pageTarget(page.id) }),
+      );
+      const state = await harness.run(
+        harness.sharing.mutate({
+          op: "set-link",
+          scopeSpaceId: null,
+          target: pageTarget(page.id),
+          expectedVersion: current.version,
+          setting: { access: "anyone", role },
+        }),
+      );
+      return entryOf(state.linkUrl!);
+    };
+    const list = async (entry: ReturnType<typeof entryOf>) => {
+      const { shareId, ...proof } = entry;
+      return guest(harness, shareId, "page-comments", {
+        ...proof,
+        action: "list",
+        pageId: page.id,
+      });
+    };
+
+    const viewOnly = await list(await linkWith("view"));
+    expect(viewOnly.status).toBe(200);
+    expect(viewOnly.body.textThreads ?? []).toEqual([]);
+    expect(JSON.stringify(viewOnly.body)).not.toContain("Private note");
+    expect(JSON.stringify(viewOnly.body)).not.toContain("Finance signed off");
+
+    const commenter = await list(await linkWith("comment"));
+    expect(commenter.status).toBe(200);
+    expect(commenter.body.textThreads).toHaveLength(1);
+    expect(commenter.body.textThreads[0].messages.map((m: { body: string }) => m.body)).toEqual([
+      "Private note: check with finance",
+      "Finance signed off.",
+    ]);
+  });
+
   it("lets invited people in through their personal link until they are removed", async () => {
     const page = await harness.createPage("合同", "条款");
     const state = await harness.run(

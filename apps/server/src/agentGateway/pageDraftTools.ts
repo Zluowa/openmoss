@@ -10,7 +10,10 @@ import { Effect, Schema } from "effect";
 
 import type { PageDraftsServiceShape } from "../pages/drafts/Services/PageDraftsService";
 import { PagesServiceError, type PagesServiceShape } from "../pages/Services/PagesService";
+import { parsePageRichContent } from "@moss/shared/pageRichContent";
+
 import { normalizePageDraftArgs } from "./pageDraftInput";
+import { resolveTextReplacements } from "./pageTextEdits";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol";
 import { errorText, ToolInputError } from "./toolInput";
 import { READ_ONLY_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime";
@@ -99,7 +102,7 @@ export function makePageDraftTools({
       definition: {
         name: "moss_pages_draft",
         description:
-          "Propose changes to an existing page body. This is how you edit a page: the changes are shown to the person as a highlighted draft with Accept / Discard, and nothing changes until they accept. Read the page first (moss_pages_read) and anchor changes to block ids from its richContent (each top-level node's `id`). ops: insert (afterBlockId, or atStart, or neither to append), replace (blockId), delete (blockId), replace-all (only when rewriting the whole page). Send richContent as a JSON array of nodes, never as an escaped string. To put a chart into a 可视化 block use moss_app_visualize instead (one call does it). Follow any 助手说明 (assistant instructions) blocks on the page. Give a short summary of what you changed in the person's language.",
+          "Propose changes to an existing page body. This is how you edit a page: the changes are shown to the person as a highlighted draft with Accept / Discard, and nothing changes until they accept. Read the page first (moss_pages_read) and anchor changes to block ids from its richContent (each top-level node's `id`), or read moss_pages_outline for just the ids. ops: insert (afterBlockId, or atStart, or neither to append), replace (blockId), delete (blockId), replace-text (find: words quoted exactly as they stand, replacement: the new words, blockId and nth optional; formatting around them is kept — the cheapest way to fix a word, a number or a sentence), replace-all (only when rewriting the whole page). Send richContent as a JSON array of nodes, never as an escaped string. To put a chart into a 可视化 block use moss_app_visualize instead (one call does it). Follow any 助手说明 (assistant instructions) blocks on the page. Give a short summary of what you changed in the person's language.",
         inputSchema: {
           type: "object",
           properties: {
@@ -128,11 +131,21 @@ export function makePageDraftTools({
                     properties: {
                       kind: {
                         type: "string",
-                        enum: ["insert", "replace", "delete", "replace-all"],
+                        enum: ["insert", "replace", "delete", "replace-text", "replace-all"],
                       },
                       afterBlockId: { type: "string" },
                       atStart: { type: "boolean" },
                       blockId: { type: "string" },
+                      find: { type: "string", description: "replace-text: the words to change." },
+                      replacement: {
+                        type: "string",
+                        description: 'replace-text: what replaces them ("" deletes them).',
+                      },
+                      nth: {
+                        type: "integer",
+                        minimum: 1,
+                        description: "replace-text with blockId: which occurrence (default 1).",
+                      },
                       ...body,
                     },
                     required: ["kind"],
@@ -157,6 +170,26 @@ export function makePageDraftTools({
             kind: "agent" as const,
             threadId: ThreadId.makeUnsafe(context.callerThreadId),
           };
+          const ops = fields.ops as Record<string, unknown>[];
+          if (ops.some((op) => op.kind === "replace-text")) {
+            if (!pages)
+              return yield* Effect.fail(
+                new ToolInputError("replace-text needs the page; send replace ops instead."),
+              );
+            const read = yield* pages.read(
+              {
+                scopeSpaceId: fields.scopeSpaceId as never,
+                pageId: fields.pageId as never,
+              },
+              principal,
+            );
+            const nodes = read.richContent ? parsePageRichContent(read.richContent).nodes : [];
+            const resolved = resolveTextReplacements(ops, nodes);
+            if ("hint" in resolved)
+              return yield* Effect.fail(new ToolInputError(`${resolved.hint} ${RESEND_HINT}`));
+            fields.ops = resolved.ops;
+            fields.baseRevision ??= read.page.revision;
+          }
           if (fields.baseRevision === undefined) {
             if (!pages)
               return yield* Effect.fail(

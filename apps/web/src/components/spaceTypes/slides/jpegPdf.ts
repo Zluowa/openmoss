@@ -10,6 +10,8 @@ export interface JpegPage {
   /** Pixel size of the JPEG. */
   readonly width: number;
   readonly height: number;
+  /** This page's size in PDF points; pages without one use the document's pageSize. */
+  readonly pageSize?: { readonly width: number; readonly height: number };
 }
 
 const encoder = new TextEncoder();
@@ -46,10 +48,11 @@ export function writeJpegPdf(
   );
   pages.forEach((page, index) => {
     const id = pageId(index);
-    const draw = `q ${pageSize.width} 0 0 ${pageSize.height} 0 0 cm /Im0 Do Q`;
+    const size = page.pageSize ?? pageSize;
+    const draw = `q ${size.width} 0 0 ${size.height} 0 0 cm /Im0 Do Q`;
     object(id, () =>
       push(
-        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageSize.width} ${pageSize.height}] ` +
+        `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${size.width} ${size.height}] ` +
           `/Resources << /XObject << /Im0 ${id + 2} 0 R >> >> /Contents ${id + 1} 0 R >>`,
       ),
     );

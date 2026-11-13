@@ -13,6 +13,8 @@ import {
 } from "./auth";
 import {
   PagesCommentsInput,
+  PagesTextCommentMutateInput,
+  PagesTextCommentsInput,
   PagesListInput,
   PagesMutateInput,
   PagesOutputStateInput,
@@ -658,6 +660,8 @@ export const WS_METHODS = {
   pagesRead: "pages.read",
   pagesVersions: "pages.versions",
   pagesComments: "pages.comments",
+  pagesTextComments: "pages.textComments",
+  pagesTextCommentMutate: "pages.textCommentMutate",
   pagesMutate: "pages.mutate",
   pagesRealtimeToken: "pages.realtimeToken",
   pagesDrafts: "pages.drafts",
@@ -1165,6 +1169,10 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.pagesRead, PagesReadInput),
   tagRequestBody(WS_METHODS.pagesVersions, PagesVersionsInput),
   tagRequestBody(WS_METHODS.pagesComments, PagesCommentsInput),
+  tagRequestBody(WS_METHODS.pagesTextComments, PagesTextCommentsInput),
+  PagesTextCommentMutateInput.mapMembers(
+    Tuple.map(Schema.fieldsAssign({ _tag: Schema.tag(WS_METHODS.pagesTextCommentMutate) })),
+  ),
   tagRequestBody(WS_METHODS.pagesRealtimeToken, PagesRealtimeTokenInput),
   PagesMutateInput.mapMembers(
     Tuple.map(Schema.fieldsAssign({ _tag: Schema.tag(WS_METHODS.pagesMutate) })),

@@ -31,6 +31,10 @@ import { Schema } from "effect";
 import {
   PagesCommentsInput,
   PagesCommentsResult,
+  PagesTextCommentMutateInput,
+  PagesTextCommentMutateResult,
+  PagesTextCommentsInput,
+  PagesTextCommentsResult,
   PagesListInput,
   PagesListResult,
   PagesMutateInput,
@@ -2886,6 +2890,16 @@ export const WsPagesCommentsRpc = Rpc.make(WS_METHODS.pagesComments, {
   success: PagesCommentsResult,
   error: PagesRpcError,
 });
+export const WsPagesTextCommentsRpc = Rpc.make(WS_METHODS.pagesTextComments, {
+  payload: PagesTextCommentsInput,
+  success: PagesTextCommentsResult,
+  error: PagesRpcError,
+});
+export const WsPagesTextCommentMutateRpc = Rpc.make(WS_METHODS.pagesTextCommentMutate, {
+  payload: PagesTextCommentMutateInput,
+  success: PagesTextCommentMutateResult,
+  error: PagesRpcError,
+});
 export const WsPagesMutateRpc = Rpc.make(WS_METHODS.pagesMutate, {
   payload: PagesMutateInput,
   success: PagesMutateResult,
@@ -2926,6 +2940,8 @@ export const WsPagesRpcGroup = RpcGroup.make(
   WsPagesReadRpc,
   WsPagesVersionsRpc,
   WsPagesCommentsRpc,
+  WsPagesTextCommentsRpc,
+  WsPagesTextCommentMutateRpc,
   WsPagesMutateRpc,
   WsPagesRealtimeTokenRpc,
   WsPagesDraftsRpc,

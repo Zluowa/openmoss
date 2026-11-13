@@ -32,6 +32,9 @@ import { pageReadQueryOptions, pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { AutomationCreateDialog } from "~/routes/-automations.list";
 import { useAutomations } from "~/routes/-automations.shared";
 import { useStore } from "~/store";
+import { pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
+import { readAloudSupported, useReadAloud } from "../chat/transcript/readAloud";
+import { usePageComments, usePageCommentsStore } from "~/pageCommentsStore";
 
 import { CodeEditorPane } from "../codeEditor/CodeEditorPane";
 import { MossPageRichEditor } from "../MossPageRichEditor";
@@ -40,6 +43,8 @@ import { spaceKindMeta } from "../space/spaceKinds";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { BottomComposer } from "./chrome/BottomComposer";
+import { PageShortcutsDialog } from "./chrome/PageShortcutsDialog";
+import { docCommentsKey, nextPageDocStyle, pageDocStyleOf } from "./comments/pageDocComments";
 import type { PageChromeContext, PageSidePanel } from "./chrome/pageChromeContext";
 import { PageTitleMenu } from "./chrome/PageTitleMenu";
 import { PageTopBar } from "./chrome/PageTopBar";
@@ -210,6 +215,16 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     }
   };
   const [panel, setPanel] = useState<Panel | null>(null);
+  const [focusedThreadId, setFocusedThreadId] = useState<string | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const page = state.document.page;
+  const docThreads = usePageComments(docCommentsKey(page.id));
+  const docStyle = pageDocStyleOf(page);
+  const readAloud = useReadAloud(`page:${page.id}`, () => state.content);
+  const editorCommands = usePageAiSession(
+    pageAiKey(props.account, props.scopeSpaceId, page.id),
+  ).editor;
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [targetParent, setTargetParent] = useState("");
@@ -217,7 +232,6 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
   const [editorHeaderSupport, setEditorHeaderSupport] = useState(false);
   const [reloadConfirm, setReloadConfirm] = useState(false);
   const requestedEnabled = useRef(true);
-  const page = state.document.page;
   const readOnly = page.trashedAt !== null;
   const projects = useStore((store) => store.projects);
   const scopedProjects = projects.filter(
@@ -487,6 +501,10 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     ],
     icon: page.icon ?? null,
     cover: page.cover ?? null,
+    subpages: props.pages
+      .filter((item) => item.parentPageId === page.id && item.trashedAt === null)
+      .slice(0, 50)
+      .map((item) => ({ id: `page:${item.id}`, label: item.title || "未命名页面" })),
     onTitleChange: (title: string) => session.change({ title }),
     onAppearanceChange: (change: { icon?: string | null; cover?: PageCover | null }) =>
       void perform((saved) => mutate(saved, { op: "page-appearance", ...change })),
@@ -522,6 +540,30 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
             }}
             onDuplicate={() => void duplicate()}
             onDownload={(format) => void download(format)}
+            onFind={
+              editorCommands?.openFind && !sourceEditing
+                ? (replace) => editorCommands.openFind?.(replace && !readOnly)
+                : undefined
+            }
+            docStyle={docStyle}
+            onDocStyle={(patch) =>
+              void perform((saved) =>
+                mutate(saved, {
+                  op: "page-appearance",
+                  docStyle: nextPageDocStyle(pageDocStyleOf(saved.page), patch),
+                }),
+              )
+            }
+            onShortcuts={() => setShortcutsOpen(true)}
+            readAloud={readAloudSupported() ? readAloud : undefined}
+            suggesting={
+              editorCommands?.setSuggesting && !sourceEditing
+                ? {
+                    on: suggesting,
+                    toggle: () => editorCommands.setSuggesting?.(!suggesting),
+                  }
+                : undefined
+            }
             onOpenInNewWindow={() =>
               void flushPage().then((saved) => {
                 if (saved) props.onOpenInNewWindow(page.id);
@@ -761,6 +803,8 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                 }}
                 header={editorHeader}
                 onHeaderSupportChange={setEditorHeaderSupport}
+                onOpenCommentThread={setFocusedThreadId}
+                onSuggestingChange={setSuggesting}
               />
             )}
           </div>
@@ -793,10 +837,53 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                   onRestore={async (revision) => {
                     await perform((saved) => mutate(saved, { op: "restore-version", revision }));
                   }}
+                  onCopy={async (revision) => {
+                    try {
+                      const version = await ensureNativeApi().pages.read({
+                        scopeSpaceId: props.scopeSpaceId,
+                        pageId: page.id,
+                        revision,
+                      });
+                      const copy = await ensureNativeApi().pages.mutate({
+                        op: "create",
+                        requestId: crypto.randomUUID(),
+                        scopeSpaceId: props.scopeSpaceId,
+                        title:
+                          `${version.page.title || "未命名页面"}（版本 ${revision} 副本）`.slice(
+                            0,
+                            256,
+                          ),
+                        ...(version.richContent
+                          ? { richContent: version.richContent }
+                          : { content: version.content }),
+                        spaceId: page.spaceId,
+                        parentPageId: page.parentPageId ?? (page.spaceId ? page.id : null),
+                      });
+                      if (!current.current()) return;
+                      await props.onChanged();
+                      props.onOpenCreated(copy);
+                    } catch (cause) {
+                      setActionError(
+                        cause instanceof Error ? cause.message : "没能复制这个版本，请重试。",
+                      );
+                    }
+                  }}
                 />
               ) : panel === "comments" ? (
                 <PageCommentsPanel
                   comments={commentFeed}
+                  threads={{
+                    items: docThreads,
+                    focusedThreadId,
+                    onOpen: (threadId) => {
+                      setFocusedThreadId(threadId);
+                      editorCommands?.openComment?.(threadId);
+                    },
+                    onResolve: (threadId, resolved) =>
+                      usePageCommentsStore
+                        .getState()
+                        .setResolved(docCommentsKey(page.id), threadId, resolved),
+                  }}
                   localStatus={localCommentStatus}
                   shareStatus={shareCommentStatus}
                   readOnly={readOnly}
@@ -892,6 +979,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
           </aside>
         ) : null}
       </div>
+      <PageShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       <AutomationCreateDialog
         key={page.id}
         open={scheduleOpen}

@@ -448,9 +448,96 @@ export const VolumeOffIcon: LucideIcon = centralIconWrapper("volume-off");
 export const SlideDeckIcon: LucideIcon = centralIconWrapper("slides-wide");
 export const SlideAddIcon: LucideIcon = centralIconWrapper("slides-wide-add");
 export const SpreadsheetIcon: LucideIcon = centralIconWrapper("table");
+
+// ─── 电子表格 editor tools ──────────────────────────────────────────────────────
+// Cell looks, number formats and charts use Central glyphs; the grid-specific ones
+// (borders, merge, insert lines, freeze, decimals, the formula sign) are drawn in
+// `public/moss-icons` on the same grid and stroke.
+export const TextBoldIcon: LucideIcon = centralIconWrapper("bold");
+export const TextItalicIcon: LucideIcon = centralIconWrapper("italic");
+export const TextUnderlineIcon: LucideIcon = centralIconWrapper("underline");
+export const TextStrikeIcon: LucideIcon = centralIconWrapper("strike-through");
+export const TextColorIcon: LucideIcon = centralIconWrapper("text-color");
+export const TextSizeIcon: LucideIcon = centralIconWrapper("text-size");
+export const FillColorIcon: LucideIcon = centralIconWrapper("paint-bucket");
+export const AlignLeftIcon: LucideIcon = centralIconWrapper("alignment-left");
+export const AlignCenterIcon: LucideIcon = centralIconWrapper("alignment-center");
+export const AlignRightIcon: LucideIcon = centralIconWrapper("alignment-right");
+export const AlignTopIcon: LucideIcon = centralIconWrapper("horizontal-alignment-top");
+export const AlignMiddleIcon: LucideIcon = centralIconWrapper("horizontal-alignment-center");
+export const AlignBottomIcon: LucideIcon = centralIconWrapper("horizontal-alignment-bottom");
+export const PercentIcon: LucideIcon = centralIconWrapper("percent");
+export const CurrencyIcon: LucideIcon = centralIconWrapper("currency-yen");
+export const ZoomInIcon: LucideIcon = centralIconWrapper("zoom-in");
+export const ZoomOutIcon: LucideIcon = centralIconWrapper("zoom-out");
+export const SortAscendingIcon: LucideIcon = centralIconWrapper("block-sort-ascending");
+export const SortDescendingIcon: LucideIcon = centralIconWrapper("block-sort-descending");
+export const ChartBarIcon: LucideIcon = centralIconWrapper("chart-1");
+export const ChartStackedIcon: LucideIcon = centralIconWrapper("stacked-bar-chart");
+export const ChartLineIcon: LucideIcon = centralIconWrapper("line-chart-1");
+export const ChartPieIcon: LucideIcon = centralIconWrapper("pie-chart-1");
+export const SheetFunctionIcon: LucideIcon = centralIconWrapper("sheet-function", "moss");
+export const SheetBorderAllIcon: LucideIcon = centralIconWrapper("sheet-border-all", "moss");
+export const SheetBorderOuterIcon: LucideIcon = centralIconWrapper("sheet-border-outer", "moss");
+export const SheetBorderInnerIcon: LucideIcon = centralIconWrapper("sheet-border-inner", "moss");
+export const SheetBorderHorizontalIcon: LucideIcon = centralIconWrapper(
+  "sheet-border-horizontal",
+  "moss",
+);
+export const SheetBorderVerticalIcon: LucideIcon = centralIconWrapper(
+  "sheet-border-vertical",
+  "moss",
+);
+export const SheetBorderTopIcon: LucideIcon = centralIconWrapper("sheet-border-top", "moss");
+export const SheetBorderBottomIcon: LucideIcon = centralIconWrapper("sheet-border-bottom", "moss");
+export const SheetBorderLeftIcon: LucideIcon = centralIconWrapper("sheet-border-left", "moss");
+export const SheetBorderRightIcon: LucideIcon = centralIconWrapper("sheet-border-right", "moss");
+export const SheetBorderNoneIcon: LucideIcon = centralIconWrapper("sheet-border-none", "moss");
+export const SheetMergeIcon: LucideIcon = centralIconWrapper("sheet-merge", "moss");
+export const SheetUnmergeIcon: LucideIcon = centralIconWrapper("sheet-unmerge", "moss");
+export const SheetRowInsertAboveIcon: LucideIcon = centralIconWrapper(
+  "sheet-row-insert-above",
+  "moss",
+);
+export const SheetRowInsertBelowIcon: LucideIcon = centralIconWrapper(
+  "sheet-row-insert-below",
+  "moss",
+);
+export const SheetColumnInsertLeftIcon: LucideIcon = centralIconWrapper(
+  "sheet-column-insert-left",
+  "moss",
+);
+export const SheetColumnInsertRightIcon: LucideIcon = centralIconWrapper(
+  "sheet-column-insert-right",
+  "moss",
+);
+export const SheetRowDeleteIcon: LucideIcon = centralIconWrapper("sheet-row-delete", "moss");
+export const SheetFreezeIcon: LucideIcon = centralIconWrapper("sheet-freeze", "moss");
+export const SheetDecimalMoreIcon: LucideIcon = centralIconWrapper("sheet-decimal-more", "moss");
+export const SheetDecimalLessIcon: LucideIcon = centralIconWrapper("sheet-decimal-less", "moss");
 export const WhiteboardIcon: LucideIcon = centralIconWrapper("whiteboard");
 export const DashboardLayoutIcon: LucideIcon = centralIconWrapper("layout-dashboard");
+/** 数据看板: the create entry, its cards and the dashboard editor. */
+export const DataDashboardIcon: LucideIcon = centralIconWrapper("analytics");
+export const PaletteIcon: LucideIcon = centralIconWrapper("color-palette");
+export const DatabaseIcon: LucideIcon = centralIconWrapper("storage");
+export const PointerIcon: LucideIcon = centralIconWrapper("cursor-1");
 export const TemplateGridIcon: LucideIcon = centralIconWrapper("layout-grid-1");
 export const ShapesIcon: LucideIcon = centralIconWrapper("shapes-plus-x-square-circle");
 export const TextBoxIcon: LucideIcon = centralIconWrapper("text-1");
 export const PictureIcon: LucideIcon = centralIconWrapper("images-1");
+
+// 设计 (design canvas) editor tools (the kind glyph is PaletteIcon).
+export const HandToolIcon: LucideIcon = centralIconWrapper("hand-5-finger");
+export const ArtboardToolIcon: LucideIcon = centralIconWrapper("focus-square");
+export const StickyNoteIcon: LucideIcon = centralIconWrapper("sticker");
+export const LayersIcon: LucideIcon = centralIconWrapper("layers-two");
+export const CornerRadiusIcon: LucideIcon = centralIconWrapper("corner-radius");
+export const LineHeightIcon: LucideIcon = centralIconWrapper("line-height");
+export const RotateIcon: LucideIcon = centralIconWrapper("rotate");
+export const ComponentsIcon: LucideIcon = centralIconWrapper("components");
+export const ColorPickerIcon: LucideIcon = centralIconWrapper("color-picker");
+export const FlipHorizontalIcon: LucideIcon = centralIconWrapper("arrow-expand-hor");
+export const PenToolIcon: LucideIcon = centralIconWrapper("bezier-curve");
+export const CropIcon: LucideIcon = centralIconWrapper("crop");
+export const VideoIcon: LucideIcon = centralIconWrapper("video-2");

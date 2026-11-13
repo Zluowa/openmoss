@@ -27,6 +27,16 @@ describe("page AI prompts", () => {
     expect(prompt).toContain("用简体中文，语气简洁");
   });
 
+  it("sends a comment with the words it hangs on, and asks for a short reply for the thread", () => {
+    const { request, context } = pageAiPrompt("comment", "这句改短", document, "a", "周报  正文");
+    expect(request).toBe("这句改短");
+    expect(context).toContain('块 id "a"');
+    expect(context).toContain("“周报 正文”");
+    expect(context).toContain("moss_pages_draft");
+    expect(context).toContain("评论串");
+    expect(context).toContain("用简体中文，语气简洁");
+  });
+
   it("asks a 生成 turn for the text alone, with the page as reference", () => {
     const { request, context: prompt } = pageAiPrompt("generate", "写一段下周计划", document);
     expect(request).toBe("写一段下周计划");

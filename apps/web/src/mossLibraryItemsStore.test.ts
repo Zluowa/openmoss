@@ -113,14 +113,30 @@ describe("Library recovery", () => {
     expect(await mutation).toBe(false);
     expect(calls.list).not.toHaveBeenCalled();
   });
-  it("forwards the original imported bytes and reports the actual returned counts", async () => {
-    calls.importFiles.mockResolvedValueOnce({ imported: 1, skipped: 1 });
-    const files = [{ name: "synthetic.png", mimeType: "image/png", dataBase64: "AQMHCQ==" }];
-    expect(await useMossLibraryItemsStore.getState().importFileBlobs(files)).toEqual({
-      imported: 1,
-      skipped: 1,
+  it("uploads a 3 MB file's own bytes over HTTP, not the WebSocket, and reports the returned counts", async () => {
+    // The WebSocket caps a message at 2 MiB, so `library.import` could not carry this file.
+    const data = new File([new Uint8Array(3 * 1024 * 1024).fill(7)], "big.png", {
+      type: "image/png",
     });
-    expect(calls.importFiles).toHaveBeenCalledExactlyOnceWith({ files });
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ items: [], imported: 1, skipped: 1 }), { status: 201 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(
+        await useMossLibraryItemsStore
+          .getState()
+          .importFileBlobs([{ name: "big.png", mimeType: "image/png", data }]),
+      ).toEqual({ imported: 1, skipped: 1 });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(calls.importFiles).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(new URL(url, "http://localhost").pathname).toBe("/api/library/import");
+    expect(init.body).toBe(data);
   });
   it("reports a failed read instead of interpreting it as an empty library", async () => {
     calls.list.mockRejectedValueOnce(new Error("connection unavailable"));

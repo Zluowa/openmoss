@@ -6,11 +6,11 @@
 //      Space lists them as one set of items (`space/spaceItems.ts`) so people find a thing
 //      where they expect it, whichever store holds it.
 
+import { createDashboard } from "@moss/shared/spaceItems/dashboard";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  LIBRARY_IMPORT_FILE_MAX_BYTES,
   type Page,
   PageId,
   type PageSpace,
@@ -21,6 +21,7 @@ import {
 } from "@moss/contracts";
 
 import { ensureNativeApi } from "~/nativeApi";
+import { uploadPickedLibraryFiles } from "~/lib/libraryUpload";
 import { cn } from "~/lib/utils";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
@@ -437,7 +438,23 @@ function DataSpaceWorkspace({
       setNewDeck(true);
       return;
     }
-    if (action === "sheet" || action === "board") {
+    if (action === "dashboard") {
+      // 数据看板: an empty dashboard; its empty state asks what to show and hands it to Moss.
+      const spaceId = section.type === "space" ? section.spaceId : null;
+      await run("创建", async () => {
+        const created = await createSpaceItem(ensureNativeApi(), {
+          scopeSpaceId,
+          kind: "app",
+          title: "未命名数据看板",
+          spaceId,
+          data: JSON.stringify(createDashboard("")),
+        });
+        await refresh();
+        setOpen(openPageState(created.page));
+      });
+      return;
+    }
+    if (action === "sheet" || action === "board" || action === "design") {
       const spaceId = section.type === "space" ? section.spaceId : null;
       await run("创建", async () => {
         const created = await createSpaceItem(ensureNativeApi(), {
@@ -521,19 +538,8 @@ function DataSpaceWorkspace({
     if (!files?.length) return;
     void run("上传", async () => {
       const picked = [...files];
-      const tooLarge = picked.find((file) => file.size > LIBRARY_IMPORT_FILE_MAX_BYTES);
-      if (tooLarge)
-        throw new Error(
-          `“${tooLarge.name}”超过 ${LIBRARY_IMPORT_FILE_MAX_BYTES / 1024 / 1024} MB。`,
-        );
-      const encoded = await Promise.all(
-        picked.map(async (file) => ({
-          name: file.name,
-          ...(file.type ? { mimeType: file.type } : {}),
-          dataBase64: await fileToBase64(file),
-        })),
-      );
-      await ensureNativeApi().library.importFiles({ files: encoded });
+      // Raw bytes over HTTP: `library.import` goes through the 2 MiB-capped WebSocket.
+      await uploadPickedLibraryFiles(picked);
       await client.invalidateQueries({
         queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "library"],
       });
@@ -896,12 +902,4 @@ function DataSpaceWorkspace({
 
 function isSpaceRoot(page: Page): boolean {
   return page.spaceId !== null && page.rootPageId === page.id;
-}
-
-async function fileToBase64(file: File): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 0x8000)
-    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
-  return btoa(binary);
 }
