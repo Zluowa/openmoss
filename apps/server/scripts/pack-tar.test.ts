@@ -3,6 +3,27 @@ import { describe, expect, it } from "vitest";
 import { createPackTarCommandPlan } from "./pack-tar.ts";
 
 describe("createPackTarCommandPlan", () => {
+  it("uses POSIX path semantics for POSIX staging and output directories", () => {
+    const outDir = "/var/tmp/moss-105-out";
+    const stagedPackageDir = "/tmp/moss-cli-publish-123";
+
+    const plan = createPackTarCommandPlan({
+      stagedPackageDir,
+      outDir,
+      tarballName: "moss-server-1.0.5.tar.gz",
+    });
+
+    expect(plan.args).toEqual([
+      "-czf",
+      "moss-server-1.0.5.tar.gz",
+      "-C",
+      "../../../tmp/moss-cli-publish-123",
+      "dist",
+      "package.json",
+      "npm-shrinkwrap.json",
+    ]);
+  });
+
   it("uses a relative archive name from the output directory", () => {
     const outDir = "C:\\DevTemp\\moss-105-out";
     const stagedPackageDir = "C:\\Users\\runner\\AppData\\Local\\Temp\\moss-cli-publish-123";

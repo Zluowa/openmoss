@@ -12,15 +12,25 @@ export interface PackTarCommandPlanInput {
   readonly patchedRuntimeDirectory?: string;
 }
 
+const usesWindowsPathSyntax = (value: string) => /^(?:[A-Za-z]:[\\/]|\\\\)/.test(value);
+
 export function createPackTarCommandPlan(input: PackTarCommandPlanInput) {
-  const relativeStagedPackageDir = path.relative(input.outDir, input.stagedPackageDir);
-  const stagedPackagePath = path.isAbsolute(relativeStagedPackageDir)
+  // Tests and release tooling can pass Windows paths even when the plan is
+  // evaluated on Linux (for example in the public mirror's Linux runner).
+  // Select the path flavor from the inputs so drive-letter paths keep their
+  // Windows volume semantics without changing how real POSIX paths are packed.
+  const pathApi =
+    usesWindowsPathSyntax(input.outDir) || usesWindowsPathSyntax(input.stagedPackageDir)
+      ? path.win32
+      : path.posix;
+  const relativeStagedPackageDir = pathApi.relative(input.outDir, input.stagedPackageDir);
+  const stagedPackagePath = pathApi.isAbsolute(relativeStagedPackageDir)
     ? input.stagedPackageDir
     : relativeStagedPackageDir;
 
   return {
     args: [
-      ...(path.isAbsolute(relativeStagedPackageDir) ? ["--force-local"] : []),
+      ...(pathApi.isAbsolute(relativeStagedPackageDir) ? ["--force-local"] : []),
       "-czf",
       input.tarballName,
       "-C",

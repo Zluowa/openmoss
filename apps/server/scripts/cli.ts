@@ -357,8 +357,9 @@ const packCmd = Command.make(
         stagedPackageDir,
         outDir,
         tarballName,
-        patchedRuntimeDirectory:
-          runtimeLock.files.length > 0 ? PATCHED_RUNTIME_DIRECTORY : undefined,
+        ...(runtimeLock.files.length > 0
+          ? { patchedRuntimeDirectory: PATCHED_RUNTIME_DIRECTORY }
+          : {}),
       });
       yield* runCommand(
         ChildProcess.make("tar", tarCommand.args, {
