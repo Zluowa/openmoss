@@ -141,7 +141,7 @@ function clearProviderInstanceConfigKey(
   };
 }
 
-function providerEnvironmentSecretName(input: {
+export function providerEnvironmentSecretName(input: {
   readonly instanceId: string;
   readonly name: string;
 }): string {

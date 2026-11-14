@@ -456,7 +456,7 @@ const managedSelectionFallbackFromSettings = (
     settings.providerInstances[MOSS_MANAGED_PROVIDER_INSTANCE_ID]?.config,
   );
 
-const withManagedCleanupState = (
+export const withManagedCleanupState = (
   instance: ProviderInstanceConfig,
   state: typeof MOSS_MANAGED_CLEANUP_PENDING | typeof MOSS_MANAGED_CLEANUP_COMPLETE,
 ): ProviderInstanceConfig => ({
