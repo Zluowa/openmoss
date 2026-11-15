@@ -126,15 +126,15 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function mount(overrides: Partial<Props> = {}) {
+async function mount(overrides: Partial<Props> = {}, standalone = false) {
   const props = {
-    threadId: "thread-a",
+    threadId: standalone ? null : "thread-a",
     onClose: vi.fn(),
     onImportStateChange: vi.fn(),
     onSelectionChange: vi.fn(),
     onLeaveGuardChange: vi.fn(),
     onComposeContextChange: vi.fn(),
-    localImages: local(1),
+    ...(standalone ? {} : { localImages: local(1) }),
     ...overrides,
   };
   let view!: ReturnType<typeof render>;
@@ -183,6 +183,29 @@ describe("Canvas conversation preparation", () => {
     expect(screen.getByRole("status").textContent).toBe("正在加载画布…");
     await host.ready();
     expect(screen.queryByRole("status")).toBeNull();
+  });
+  it("ends the bootstrap spinner when the hosted Canvas reports authentication is required", async () => {
+    const host = await mount();
+    expect(screen.getByRole("status").textContent).toBe("正在加载画布…");
+    await host.emit({
+      type: "moss-canvas-bootstrap-error",
+      version: 1,
+      code: "authentication_required",
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("登录 Moss 账号")).toBeTruthy();
+  });
+  it("ends the bootstrap spinner when a standalone board iframe finishes loading", async () => {
+    const host = await mount({}, true);
+    expect(screen.getByRole("status").textContent).toBe("正在加载画布…");
+    fireEvent.load(host.iframe);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+  it("binds a standalone board iframe to its Canvas project", async () => {
+    const host = await mount({ canvasProjectKey: "space-board-demo" }, true);
+    const url = new URL(host.iframe.src);
+    expect(url.searchParams.get("projectId")).toBe("space-board-demo");
+    expect(url.searchParams.get("projectKey")).toBe("space-board-demo");
   });
   it("starts a reopened Canvas's frame on the first commit, probing alongside it", async () => {
     const { view } = await mount();

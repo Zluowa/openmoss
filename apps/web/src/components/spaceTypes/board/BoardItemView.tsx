@@ -33,6 +33,7 @@ export function BoardItemView(props: {
     <div className="flex min-h-0 flex-1 flex-col" data-board-item={board.canvasProjectKey}>
       <MossCanvasWebSurface
         embedded
+        canvasProjectKey={board.canvasProjectKey}
         onClose={() => setOpen(false)}
         {...(props.onLeaveGuardChange ? { onLeaveGuardChange: props.onLeaveGuardChange } : {})}
       />
