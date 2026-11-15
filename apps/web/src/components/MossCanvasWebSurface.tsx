@@ -176,6 +176,7 @@ export function MossCanvasWebSurface({
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [imageImportError, setImageImportError] = useState("");
   const [contextError, setContextError] = useState("");
   const frameKey = JSON.stringify([src, boundary.key]);
@@ -325,6 +326,7 @@ export function MossCanvasWebSurface({
     failedFocus.current = null;
     setClosing(false);
     setSaveError("");
+    setBootstrapError(null);
     setImageImportError("");
     setContextError("");
     setHistoryWarning("");
@@ -544,6 +546,16 @@ export function MossCanvasWebSurface({
       )
         return;
       if (!boundary.isCurrent()) return;
+      if (
+        event.data?.type === "moss-canvas-bootstrap-error" &&
+        event.data.version === 1 &&
+        typeof event.data.code === "string"
+      ) {
+        setBootstrapError(event.data.code);
+        if (event.data.code === "authentication_required") setSignedOutKey(frameKey);
+        setReadyFrameKey(null);
+        return;
+      }
       if (
         event.data?.type === "moss-canvas-ready" &&
         event.data.version === 1 &&
@@ -908,6 +920,26 @@ export function MossCanvasWebSurface({
             <p>{MOSS_CANVAS_SIGN_IN_MESSAGE}</p>
             <Button size="sm" onClick={() => void navigate({ to: "/account" })}>
               登录 Moss 账号
+            </Button>
+          </div>
+        ) : bootstrapError ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-ui-sm text-muted-foreground">
+            <p>
+              {bootstrapError === "authentication_required" || bootstrapError === "account_recovery_required"
+                ? "Moss 登录状态未恢复"
+                : "画布启动失败"}
+            </p>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (bootstrapError === "authentication_required" || bootstrapError === "account_recovery_required") {
+                  void navigate({ to: "/account" });
+                } else {
+                  window.location.reload();
+                }
+              }}
+            >
+              {bootstrapError === "authentication_required" || bootstrapError === "account_recovery_required" ? "登录 Moss 账号" : "重新打开画布"}
             </Button>
           </div>
         ) : state === "ready" && src ? (

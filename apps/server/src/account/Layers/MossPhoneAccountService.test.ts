@@ -1382,6 +1382,42 @@ describe("MossPhoneAccountService", () => {
     ).rejects.toMatchObject({ code: "persistence_failed" });
   });
 
+  it("preserves verified phone identity when managed authority reconciliation is temporarily unavailable", async () => {
+    const now = 1_800_000_000_000;
+    const auth = availableAuth(
+      makeClient({
+        sendPhoneOtp: async () => ({ accepted: true }),
+        verifyPhoneOtp: async () => phoneSession({ expiresAt: now + 3_000_000 }),
+        getUser: async () => phoneSession().user,
+      }),
+    );
+    const secrets = makeSecretStore();
+    const dependencies = makePhoneServiceDependencies(secrets.service);
+    const identity = await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({ auth, now: () => now });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+      const binding = JSON.parse(
+        new TextDecoder().decode(secrets.values.get("moss.managed.binding") ?? new Uint8Array()),
+      ) as Record<string, unknown>;
+      secrets.values.set(
+        "moss.managed.binding",
+        new TextEncoder().encode(JSON.stringify({ ...binding, state: "pending" })),
+      );
+      return yield* service.getLocalAuthority();
+    }).pipe(Effect.provide(dependencies.layer), Effect.runPromise);
+
+    expect(identity.activeRealm).toBe("cn");
+    expect(identity.identity).toMatchObject({
+      realm: "memfire-phone",
+      account: { realm: "memfire-phone" },
+    });
+  });
+
   it("fails closed when selecting the CN realm while auth configuration is unavailable", async () => {
     const secrets = makeSecretStore();
     const dependencies = makePhoneServiceDependencies(secrets.service);
@@ -1978,7 +2014,7 @@ describe("MossPhoneAccountService", () => {
   });
 
   it.each(["pending", "corrupt"] as const)(
-    "rejects local phone selection with a %s durable binding despite a cached active realm",
+    "preserves verified local phone identity with a %s durable binding despite reconciliation failure",
     async (state) => {
       const now = 1_800_000_000_000;
       const refresh = vi.fn(unexpected);
@@ -2013,11 +2049,13 @@ describe("MossPhoneAccountService", () => {
         vi.mocked(dependencies.provision).mockClear();
         vi.mocked(dependencies.getProvisioningState).mockClear();
 
-        const failure = yield* service.getLocalAuthority().pipe(Effect.flip);
-        expect(failure).toMatchObject({ code: "persistence_failed" });
+        const local = yield* service.getLocalAuthority();
+        expect(local.activeRealm).toBe("cn");
+        expect(local.identity?.account).toEqual({ id: "user-1", realm: "memfire-phone" });
         const restarted = yield* makeMossPhoneAccountService({ auth, now: () => now + 1_000 });
-        const restartFailure = yield* restarted.getLocalAuthority().pipe(Effect.flip);
-        expect(restartFailure).toMatchObject({ code: "persistence_failed" });
+        const restartedLocal = yield* restarted.getLocalAuthority();
+        expect(restartedLocal.activeRealm).toBe("cn");
+        expect(restartedLocal.identity?.account).toEqual({ id: "user-1", realm: "memfire-phone" });
         expect(secrets.values.get("moss.managed.binding")).toEqual(changed);
         expect(dependencies.provision).not.toHaveBeenCalled();
         expect(dependencies.getProvisioningState).not.toHaveBeenCalled();
