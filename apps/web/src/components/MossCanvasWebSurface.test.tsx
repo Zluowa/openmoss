@@ -184,6 +184,23 @@ describe("Canvas conversation preparation", () => {
     await host.ready();
     expect(screen.queryByRole("status")).toBeNull();
   });
+  it("ends the bootstrap spinner when the hosted Canvas reports authentication is required", async () => {
+    const host = await mount();
+    expect(screen.getByRole("status").textContent).toBe("正在加载画布…");
+    await host.emit({
+      type: "moss-canvas-bootstrap-error",
+      version: 1,
+      code: "authentication_required",
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByText("登录 Moss 账号")).toBeTruthy();
+  });
+  it("ends the bootstrap spinner when a standalone board iframe finishes loading", async () => {
+    const host = await mount({ threadId: null, localImages: undefined });
+    expect(screen.getByRole("status").textContent).toBe("正在加载画布…");
+    fireEvent.load(host.iframe);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
   it("starts a reopened Canvas's frame on the first commit, probing alongside it", async () => {
     const { view } = await mount();
     expect(fetch).toHaveBeenCalledOnce();

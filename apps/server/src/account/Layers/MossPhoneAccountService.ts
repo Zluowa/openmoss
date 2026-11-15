@@ -1291,9 +1291,22 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
       if (revision === null) return { identity: null };
       if (yield* readLogoutPending()) return { identity: null };
       const stored = yield* readStoredSession();
-      const selected = yield* managedProviderCoordinator
-        .getLocalActiveAuthority()
-        .pipe(Effect.mapError(mapManagedProviderError));
+      const selectedResult = yield* Effect.result(
+        managedProviderCoordinator
+          .getLocalActiveAuthority()
+          .pipe(Effect.mapError(mapManagedProviderError)),
+      );
+      const selected = selectedResult._tag === "Success" ? selectedResult.success : "memfire-phone";
+      if (selectedResult._tag === "Failure") {
+        if (selectedResult.failure.code !== "persistence_failed")
+          return yield* Effect.fail(selectedResult.failure);
+        yield* Effect.logWarning(
+          "Moss phone local authority preserved while managed provider reconciliation is unavailable",
+          {
+            code: selectedResult.failure.code,
+          },
+        );
+      }
       const current = yield* readStoredSession();
       if (yield* readLogoutPending()) return { identity: null };
       if (readMossLocalAuthorityRevision(secretStore) !== revision) return { identity: null };
