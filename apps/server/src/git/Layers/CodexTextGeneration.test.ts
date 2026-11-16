@@ -27,6 +27,7 @@ import { issueCodexCredentialFence } from "../../codexHomeIdentity.ts";
 import {
   CodexTextGenerationLive,
   codexAuthenticationFailureDetail,
+  codexIsolatedTextGenerationSupport,
   codexTextGenerationPlatformError,
   makeCodexTextGenerationLive,
   minimumCodexAuthValidityMs,
@@ -910,6 +911,119 @@ for (const operation of [
     },
   );
 }
+
+it.effect("serves composer predictions in isolation wherever the CLI may run", () =>
+  Effect.sync(() => {
+    expect(codexIsolatedTextGenerationSupport("darwin", false)).toEqual({ kind: "supported" });
+    expect(codexIsolatedTextGenerationSupport("linux", false)).toEqual({ kind: "supported" });
+    expect(codexIsolatedTextGenerationSupport("win32", true)).toEqual({ kind: "supported" });
+    expect(codexIsolatedTextGenerationSupport("win32", false)).toEqual({
+      kind: "platform-blocked",
+      platform: "win32",
+    });
+  }),
+);
+
+it.effect.runIf(process.platform === "win32")(
+  "tells which Windows accounts the isolated prediction path can serve, without spawning or requesting",
+  () => {
+    let spawnCalls = 0;
+    const spawner = Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() =>
+        Effect.sync(() => {
+          spawnCalls += 1;
+          throw new Error("Windows auxiliary Codex fixture must never spawn");
+        }),
+      ),
+    );
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "moss-codex-win-support-" });
+      const cwd = path.join(root, "project");
+      const signedIn = path.join(root, "signed-in");
+      const keyOnly = path.join(root, "key-only");
+      yield* fs.makeDirectory(cwd);
+      yield* fs.makeDirectory(signedIn);
+      yield* fs.makeDirectory(keyOnly);
+      yield* fs.writeFileString(path.join(signedIn, "config.toml"), 'model = "gpt-6-astra"\n');
+      yield* fs.writeFileString(
+        path.join(keyOnly, "config.toml"),
+        [
+          'model = "deepseek-v4-flash"',
+          'model_provider = "moss"',
+          "",
+          "[model_providers.moss]",
+          'name = "Moss"',
+          'base_url = "https://moss-models.example/functions/v1/moss-model-gateway/v1"',
+          'env_key = "OPENAI_API_KEY"',
+          'wire_api = "responses"',
+          "requires_openai_auth = false",
+          "",
+        ].join("\n"),
+      );
+      const service = yield* TextGeneration;
+      const support = service.getComposerPredictionSupport!;
+      const binaryPath = path.join(root, "must-not-execute-codex");
+
+      // The person's own signed-in account: the CLI would be needed, so the path refuses it.
+      expect(
+        yield* support({
+          cwd,
+          modelSelection: { provider: "codex", instanceId: "codex", model: "gpt-6-astra" },
+          providerOptions: { codex: { homePath: signedIn, binaryPath } },
+        }),
+      ).toEqual({ kind: "platform-blocked", platform: "win32" });
+      // No account home at all is refused the same way.
+      expect(
+        yield* support({
+          cwd,
+          modelSelection: { provider: "codex", instanceId: "codex", model: "gpt-6-astra" },
+        }),
+      ).toEqual({ kind: "platform-blocked", platform: "win32" });
+      // An endpoint with a key (a Moss-managed account) is reached directly.
+      expect(
+        yield* support({
+          cwd,
+          modelSelection: {
+            provider: "codex",
+            instanceId: "codex_moss",
+            model: "deepseek-v4-flash",
+          },
+          providerOptions: {
+            codex: {
+              homePath: keyOnly,
+              binaryPath,
+              environment: { OPENAI_API_KEY: "moss-access-token-fixture" },
+            },
+          },
+        }),
+      ).toEqual({ kind: "supported" });
+      // The same endpoint without its key is not.
+      expect(
+        yield* support({
+          cwd,
+          modelSelection: {
+            provider: "codex",
+            instanceId: "codex_moss",
+            model: "deepseek-v4-flash",
+          },
+          providerOptions: { codex: { homePath: keyOnly, binaryPath } },
+        }),
+      ).toEqual({ kind: "platform-blocked", platform: "win32" });
+      expect(spawnCalls).toBe(0);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    }).pipe(
+      Effect.ensuring(Effect.sync(() => fetchSpy.mockRestore())),
+      Effect.provide(CodexTextGenerationLive),
+      Effect.provide(spawner),
+      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "moss-codex-win-support-" })),
+      Effect.provide(NodeServices.layer),
+    );
+  },
+);
 
 it.effect.runIf(process.platform === "win32")(
   "titles a Windows chat by asking a key-only provider directly, without the CLI",

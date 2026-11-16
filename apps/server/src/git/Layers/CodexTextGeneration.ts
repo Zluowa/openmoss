@@ -60,6 +60,7 @@ import {
   type BranchNameGenerationResult,
   type CommitMessageGenerationResult,
   type ComposerPredictionGenerationResult,
+  type IsolatedTextGenerationSupport,
   type DiffSummaryGenerationResult,
   type PrContentGenerationResult,
   type ThreadTitleGenerationResult,
@@ -148,6 +149,20 @@ export function codexTextGenerationPlatformError(
     detail:
       "Auxiliary Codex text generation is unavailable on Windows because descendant process containment cannot be guaranteed; use the configured text-generation fallback.",
   });
+}
+
+/**
+ * Whether the isolated path serves a request on `platform`: everywhere the CLI may run, and
+ * on Windows only for an account that is a direct endpoint with a key.
+ */
+export function codexIsolatedTextGenerationSupport(
+  platform: NodeJS.Platform,
+  hasDirectProviderRoute: boolean,
+): IsolatedTextGenerationSupport {
+  return codexTextGenerationPlatformError(platform, "generateComposerPrediction") === undefined ||
+    hasDirectProviderRoute
+    ? { kind: "supported" }
+    : { kind: "platform-blocked", platform };
 }
 
 function signalCodexProcessGroup(
@@ -624,6 +639,67 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     });
   };
 
+  /**
+   * The direct HTTP route of a Codex account that is only an endpoint and a key: its own
+   * home's provider and that provider's credential. Undefined when the account has none,
+   * so the CLI would be needed. Reads the account's own home only; writes and spawns nothing.
+   */
+  const resolveDirectProviderRoute = (input: {
+    readonly operation: TextGenerationOperation;
+    readonly codexHomePath?: string;
+    readonly modelSelection?: BranchNameGenerationInput["modelSelection"];
+    readonly providerOptions?: BranchNameGenerationInput["providerOptions"];
+  }) =>
+    Effect.gen(function* () {
+      const { operation, providerOptions, modelSelection } = input;
+      const accountHomePath = resolveCodexHomePath(input.codexHomePath, providerOptions);
+      if (!accountHomePath) return undefined;
+      const credentialFence = yield* Effect.try({
+        try: () => readCodexCredentialFence(providerOptions?.codex),
+        catch: (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: "Codex 账户绑定已失效，请重新选择账户。",
+            cause,
+          }),
+      });
+      const config: Effect.Effect<string | undefined, TextGenerationError> = credentialFence
+        ? prepareAccountAuth(
+            operation,
+            providerOptions,
+            {
+              ...withoutProviderCredentialEnvironment(process.env),
+              ...providerOptions?.codex?.environment,
+            },
+            accountHomePath,
+          ).pipe(Effect.map((tracking) => tracking.sourceConfigSnapshot))
+        : fileSystem
+            .readFileString(path.join(accountHomePath, "config.toml"))
+            .pipe(Effect.catch(() => Effect.succeed(undefined)));
+      const direct = yield* config.pipe(
+        Effect.map((source) => {
+          if (source === undefined) return undefined;
+          try {
+            return buildCodexTextGenerationConfig(source);
+          } catch {
+            return undefined;
+          }
+        }),
+      );
+      const provider = direct?.directHttpProvider;
+      const envKey = direct?.providerEnvKey;
+      const accountScoped =
+        Boolean(resolveCodexAccountId(providerOptions)) ||
+        (modelSelection?.provider === "codex" && modelSelection.instanceId !== "codex");
+      const credential = envKey
+        ? (
+            providerOptions?.codex?.environment?.[envKey] ??
+            (accountScoped ? undefined : process.env[envKey])
+          )?.trim()
+        : undefined;
+      return provider && credential ? { provider, credential } : undefined;
+    });
+
   const runCodexJson = <S extends Schema.Top>({
     operation,
     cwd,
@@ -663,52 +739,14 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         // person's default Codex home), and nothing is written or spawned.
         const platformError = codexTextGenerationPlatformError(process.platform, operation);
         if (platformError) {
-          const accountHomePath = resolveCodexHomePath(codexHomePath, providerOptions);
-          if (!accountHomePath) return yield* platformError;
-          const credentialFence = yield* Effect.try({
-            try: () => readCodexCredentialFence(providerOptions?.codex),
-            catch: (cause) =>
-              new TextGenerationError({
-                operation,
-                detail: "Codex 账户绑定已失效，请重新选择账户。",
-                cause,
-              }),
+          const directRoute = yield* resolveDirectProviderRoute({
+            operation,
+            ...(codexHomePath ? { codexHomePath } : {}),
+            ...(modelSelection ? { modelSelection } : {}),
+            ...(providerOptions ? { providerOptions } : {}),
           });
-          const config: Effect.Effect<string | undefined, TextGenerationError> = credentialFence
-            ? prepareAccountAuth(
-                operation,
-                providerOptions,
-                {
-                  ...withoutProviderCredentialEnvironment(process.env),
-                  ...providerOptions?.codex?.environment,
-                },
-                accountHomePath,
-              ).pipe(Effect.map((tracking) => tracking.sourceConfigSnapshot))
-            : fileSystem
-                .readFileString(path.join(accountHomePath, "config.toml"))
-                .pipe(Effect.catch(() => Effect.succeed(undefined)));
-          const direct = yield* config.pipe(
-            Effect.map((source) => {
-              if (source === undefined) return undefined;
-              try {
-                return buildCodexTextGenerationConfig(source);
-              } catch {
-                return undefined;
-              }
-            }),
-          );
-          const provider = direct?.directHttpProvider;
-          const envKey = direct?.providerEnvKey;
-          const accountScoped =
-            Boolean(resolveCodexAccountId(providerOptions)) ||
-            (modelSelection?.provider === "codex" && modelSelection.instanceId !== "codex");
-          const credential = envKey
-            ? (
-                providerOptions?.codex?.environment?.[envKey] ??
-                (accountScoped ? undefined : process.env[envKey])
-              )?.trim()
-            : undefined;
-          if (!provider || !credential) return yield* platformError;
+          if (!directRoute) return yield* platformError;
+          const { provider, credential } = directRoute;
           const predictionRequest = operation === "generateComposerPrediction";
           const json = yield* Effect.tryPromise({
             try: () =>
@@ -1199,6 +1237,29 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
   };
 
+  const getComposerPredictionSupport: NonNullable<
+    TextGenerationShape["getComposerPredictionSupport"]
+  > = (input) => {
+    if (
+      codexTextGenerationPlatformError(process.platform, "generateComposerPrediction") === undefined
+    ) {
+      return Effect.succeed(codexIsolatedTextGenerationSupport(process.platform, false));
+    }
+    return resolveDirectProviderRoute({
+      operation: "generateComposerPrediction",
+      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
+      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+    }).pipe(
+      Effect.map((route) =>
+        codexIsolatedTextGenerationSupport(process.platform, route !== undefined),
+      ),
+      // An account whose binding cannot be read is not a platform question: the generation
+      // reports that failure itself, as it did before.
+      Effect.orElseSucceed((): IsolatedTextGenerationSupport => ({ kind: "supported" })),
+    );
+  };
+
   const generateProjectDigest: TextGenerationShape["generateProjectDigest"] = (input) => {
     const { prompt, outputSchemaJson } = buildProjectDigestPrompt({
       ...(input.previousSummary ? { previousSummary: input.previousSummary } : {}),
@@ -1262,6 +1323,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     generateThreadTitle,
     generateThreadRecap,
     generateComposerPrediction,
+    getComposerPredictionSupport,
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,

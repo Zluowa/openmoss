@@ -106,6 +106,8 @@ function makeProviderServiceStub(input: {
     getCapabilities: () => unsupported(),
     rollbackConversation: () => unsupported(),
     compactThread: () => unsupported(),
+    getNextUserMessagePredictionSupport: () => unsupported(),
+    predictNextUserMessage: () => unsupported(),
     closeRuntimeEvents: Effect.void,
     streamEvents: Stream.empty,
   };

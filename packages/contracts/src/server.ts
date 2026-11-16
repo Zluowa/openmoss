@@ -639,10 +639,12 @@ export type ServerGenerateComposerPredictionInput =
   typeof ServerGenerateComposerPredictionInput.Type;
 
 /**
- * `suggested`: `suggestion` holds the prediction. `none`: the model answered with no
- * suggestion for this turn, so asking again cannot help. `unavailable`: no answer this
- * time (timeout, provider failure, a busy or moved-on thread, no usable route); a later
- * request for the same turn may still get one.
+ * `suggested`: `suggestion` holds the prediction. `none`: there is no suggestion for this
+ * turn and asking again cannot help, either because the model answered with none or because
+ * nothing can generate one for this chat during the turn (its provider has no text
+ * generation, or the platform refuses its account and no live prediction fork exists).
+ * `unavailable`: no answer this time (timeout, provider failure, a busy or moved-on thread,
+ * a route that may still appear); a later request for the same turn may still get one.
  */
 export const ComposerPredictionOutcome = Schema.Literals(["suggested", "none", "unavailable"]);
 export type ComposerPredictionOutcome = typeof ComposerPredictionOutcome.Type;

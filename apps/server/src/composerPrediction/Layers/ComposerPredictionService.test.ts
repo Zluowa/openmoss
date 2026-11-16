@@ -12,11 +12,22 @@ import { TestClock } from "effect/testing";
 import { describe, expect, it, vi } from "vitest";
 
 import { TextGenerationError } from "../../git/Errors.ts";
-import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
+import {
+  TextGeneration,
+  type IsolatedTextGenerationSupport,
+  type TextGenerationShape,
+} from "../../git/Services/TextGeneration.ts";
+import { buildComposerPredictionForkPrompt } from "../../git/textGenerationShared.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
+import type { ProviderNextUserMessagePredictionSupport } from "../../provider/Services/ProviderAdapter.ts";
+import {
+  ProviderService,
+  type ProviderServiceShape,
+} from "../../provider/Services/ProviderService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ComposerPredictionService } from "../Services/ComposerPredictionService.ts";
 import {
@@ -30,6 +41,7 @@ const FINAL_REPLY = MessageId.makeUnsafe("assistant-final");
 const NOW = "2026-11-10T10:00:00.000Z";
 const INPUT = { threadId: THREAD_ID, expectedTurnId: TURN_ID };
 const UNAVAILABLE = { suggestion: null, outcome: "unavailable" };
+const NONE = { suggestion: null, outcome: "none" };
 
 function makeThread(modelSelection: ModelSelection, turnId = TURN_ID): OrchestrationThreadShell {
   return {
@@ -83,6 +95,10 @@ function makeHarness(
     readonly modelSelection?: ModelSelection;
     /** The production delay where a test is about it; none elsewhere, so timings stay exact. */
     readonly startDelay?: Duration.Input;
+    /** What the isolated path says about the chat's instance; supported when left out. */
+    readonly isolatedSupport?: IsolatedTextGenerationSupport;
+    /** What the live thread says about a native prediction fork. */
+    readonly nativeSupport?: ProviderNextUserMessagePredictionSupport;
   } = {},
 ) {
   const state = {
@@ -111,6 +127,18 @@ function makeHarness(
   const generateComposerPrediction = vi.fn<TextGenerationShape["generateComposerPrediction"]>(() =>
     Effect.succeed({ suggestion: "Fix the fixture and rerun that test." }),
   );
+  const getComposerPredictionSupport = vi.fn<
+    NonNullable<TextGenerationShape["getComposerPredictionSupport"]>
+  >(() => Effect.succeed(options.isolatedSupport ?? { kind: "supported" }));
+  const getNextUserMessagePredictionSupport = vi.fn<
+    ProviderServiceShape["getNextUserMessagePredictionSupport"]
+  >(() => Effect.succeed(options.nativeSupport ?? { kind: "supported" }));
+  const predictNextUserMessage = vi.fn<ProviderServiceShape["predictNextUserMessage"]>(() =>
+    Effect.succeed({
+      kind: "predicted",
+      text: '{"suggestion":"Fix the fixture and rerun that test."}',
+    }),
+  );
   const logs: Array<{ readonly level: string; readonly message: unknown }> = [];
   const logger = Logger.make(({ logLevel, message }) => logs.push({ level: logLevel, message }));
   const layer = makeComposerPredictionServiceLive({
@@ -120,7 +148,14 @@ function makeHarness(
     Layer.provide(
       Layer.succeed(TextGeneration, {
         generateComposerPrediction,
+        getComposerPredictionSupport,
       } as unknown as TextGenerationShape),
+    ),
+    Layer.provide(
+      Layer.succeed(ProviderService, {
+        getNextUserMessagePredictionSupport,
+        predictNextUserMessage,
+      } as unknown as ProviderServiceShape),
     ),
     Layer.provide(ServerSettingsService.layerTest()),
     Layer.provideMerge(TestClock.layer()),
@@ -144,6 +179,9 @@ function makeHarness(
     state,
     logs,
     generateComposerPrediction,
+    getComposerPredictionSupport,
+    getNextUserMessagePredictionSupport,
+    predictNextUserMessage,
     run,
     generate,
     generateFor,
@@ -265,13 +303,14 @@ describe("ComposerPredictionServiceLive", () => {
     expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(2);
   });
 
-  it("is unavailable, and never falls back to the Git-writing model, for a chat provider without text generation", async () => {
+  it("answers none once, and never falls back to the Git-writing model, for a chat provider without text generation", async () => {
     const harness = makeHarness({
       modelSelection: { provider: "grok", instanceId: "grok", model: "grok-4.6" } as ModelSelection,
     });
 
-    await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
+    await expect(harness.run(harness.generate)).resolves.toEqual(NONE);
     expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
   });
 
   it("is none when the model answers without a suggestion", async () => {
@@ -578,7 +617,12 @@ describe("ComposerPredictionServiceLive", () => {
         level: "Warn",
         message: [
           "Composer prediction unavailable",
-          { threadId: THREAD_ID, expectedTurnId: TURN_ID, reason: "generation-failed" },
+          {
+            threadId: THREAD_ID,
+            expectedTurnId: TURN_ID,
+            reason: "generation-failed",
+            route: "isolated",
+          },
         ],
       },
     ]);
@@ -619,4 +663,339 @@ describe("ComposerPredictionServiceLive", () => {
     ]);
     expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(2);
   });
+});
+
+const CODEX_CHAT = {
+  provider: "codex",
+  instanceId: "codex",
+  model: "gpt-6-astra",
+  options: { reasoningEffort: "high" },
+} as ModelSelection;
+const WINDOWS_BLOCKED = { kind: "platform-blocked", platform: "win32" } as const;
+const FORK_SUGGESTION = {
+  suggestion: "Fix the fixture and rerun that test.",
+  outcome: "suggested",
+};
+
+/** The person's own Codex account on Windows: the isolated path refuses it. */
+const makeNativeHarness = (
+  options: Omit<Parameters<typeof makeHarness>[0] & object, "modelSelection"> = {},
+) => makeHarness({ modelSelection: CODEX_CHAT, isolatedSupport: WINDOWS_BLOCKED, ...options });
+
+describe("ComposerPredictionServiceLive on Codex's native prediction fork", () => {
+  it("forks the live thread with the shared rules at the lowest effort, never the isolated path", async () => {
+    const harness = makeNativeHarness();
+
+    await expect(harness.run(harness.generate)).resolves.toEqual(FORK_SUGGESTION);
+    expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+    expect(harness.getNextUserMessagePredictionSupport).toHaveBeenCalledWith(THREAD_ID);
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+    expect(harness.predictNextUserMessage).toHaveBeenCalledWith(THREAD_ID, {
+      prompt: buildComposerPredictionForkPrompt(),
+      sourceTurnId: TURN_ID,
+      generationTrigger: "live",
+      effort: "low",
+      timeoutMs: 20_000,
+    });
+  });
+
+  it("keeps the isolated path first where it serves the chat's instance", async () => {
+    const harness = makeHarness({ modelSelection: CODEX_CHAT });
+
+    await expect(harness.run(harness.generate)).resolves.toEqual(FORK_SUGGESTION);
+    expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(1);
+    expect(harness.getNextUserMessagePredictionSupport).not.toHaveBeenCalled();
+    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("treats a fork reply that is not the JSON answer as a failed generation", async () => {
+    const harness = makeNativeHarness();
+    harness.predictNextUserMessage.mockReturnValue(
+      Effect.succeed({ kind: "predicted", text: "Fix the fixture and rerun that test." }),
+    );
+
+    await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
+    expect(harness.logs).toEqual([
+      {
+        level: "Warn",
+        message: [
+          "Composer prediction unavailable",
+          {
+            threadId: THREAD_ID,
+            expectedTurnId: TURN_ID,
+            reason: "native-invalid-reply",
+            route: "native",
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("sanitizes the fork's suggestion and remembers its null answer for the turn", async () => {
+    const harness = makeNativeHarness();
+    harness.predictNextUserMessage
+      .mockReturnValueOnce(Effect.succeed({ kind: "predicted", text: '{"suggestion":"/clear"}' }))
+      .mockReturnValueOnce(Effect.succeed({ kind: "predicted", text: '{"suggestion":null}' }));
+
+    const results = await harness.run(
+      Effect.gen(function* () {
+        const slash = yield* harness.generate;
+        const declined = yield* harness.generateForNextTurn("turn-3");
+        const declinedAgain = yield* harness.generateFor(TurnId.makeUnsafe("turn-3"));
+        return [slash, declined, declinedAgain];
+      }),
+    );
+
+    expect(results).toEqual([NONE, NONE, NONE]);
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("logs a failed fork with its route and no provider detail", async () => {
+    const harness = makeNativeHarness();
+    harness.predictNextUserMessage.mockReturnValue(
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "thread/fork",
+          detail: "User: secret prompt text",
+        }),
+      ),
+    );
+
+    await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
+    expect(harness.logs).toEqual([
+      {
+        level: "Warn",
+        message: [
+          "Composer prediction unavailable",
+          {
+            threadId: THREAD_ID,
+            expectedTurnId: TURN_ID,
+            reason: "generation-failed",
+            route: "native",
+          },
+        ],
+      },
+    ]);
+    expect(JSON.stringify(harness.logs)).not.toContain("secret");
+  });
+
+  it.each([
+    ["native-parent-busy", "Info", { kind: "skipped", reason: "parent_turn_active" }],
+    ["native-parent-busy", "Info", { kind: "skipped", reason: "prediction_in_flight" }],
+    ["native-fork-unavailable", "Info", { kind: "unsupported", reason: "no_live_session" }],
+    ["native-fork-rejected", "Warn", { kind: "unsupported", reason: "prediction_fork_rejected" }],
+  ] as const)("is unavailable (%s) when the fork does not run", async (reason, level, result) => {
+    const harness = makeNativeHarness();
+    harness.predictNextUserMessage.mockReturnValue(Effect.succeed(result));
+
+    await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
+    expect(harness.logs).toEqual([
+      {
+        level,
+        message: [
+          "Composer prediction unavailable",
+          { threadId: THREAD_ID, expectedTurnId: TURN_ID, reason, route: "native" },
+        ],
+      },
+    ]);
+  });
+
+  it("starts no second, racing fork and gives up at the timeout", async () => {
+    const harness = makeNativeHarness();
+    let interrupted = false;
+    harness.predictNextUserMessage.mockReturnValue(
+      Effect.never.pipe(
+        Effect.onInterrupt(() =>
+          Effect.sync(() => {
+            interrupted = true;
+          }),
+        ),
+      ),
+    );
+
+    const result = await harness.run(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(harness.generate);
+        yield* TestClock.adjust("19 seconds");
+        expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+        yield* TestClock.adjust("1 second");
+        return yield* Fiber.join(fiber);
+      }),
+    );
+
+    expect(result).toEqual(UNAVAILABLE);
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+    expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+    expect(interrupted).toBe(true);
+  });
+
+  it("shares one fork between concurrent requests and stops it after the last caller leaves", async () => {
+    const harness = makeNativeHarness();
+    const started = Deferred.makeUnsafe<void>();
+    const release = Deferred.makeUnsafe<void>();
+    harness.predictNextUserMessage.mockReturnValue(
+      Effect.yieldNow.pipe(
+        Effect.andThen(Deferred.succeed(started, undefined)),
+        Effect.andThen(Deferred.await(release)),
+        Effect.as({ kind: "predicted" as const, text: '{"suggestion":"Shared fork"}' }),
+      ),
+    );
+
+    const shared = await harness.run(
+      Effect.gen(function* () {
+        const first = yield* Effect.forkChild(harness.generate);
+        const second = yield* Effect.forkChild(harness.generate);
+        yield* Deferred.await(started);
+        yield* Deferred.succeed(release, undefined);
+        return [yield* Fiber.join(first), yield* Fiber.join(second)];
+      }),
+    );
+    expect(shared).toEqual([
+      { suggestion: "Shared fork", outcome: "suggested" },
+      { suggestion: "Shared fork", outcome: "suggested" },
+    ]);
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+
+    const abandoned = makeNativeHarness();
+    const abandonedStarted = Deferred.makeUnsafe<void>();
+    let interrupted = false;
+    abandoned.predictNextUserMessage.mockReturnValue(
+      Effect.yieldNow.pipe(
+        Effect.andThen(Deferred.succeed(abandonedStarted, undefined)),
+        Effect.andThen(Effect.never),
+        Effect.onInterrupt(() =>
+          Effect.sync(() => {
+            interrupted = true;
+          }),
+        ),
+      ),
+    );
+    const exit = await abandoned.run(
+      Effect.gen(function* () {
+        const only = yield* Effect.forkChild(abandoned.generate);
+        yield* Deferred.await(abandonedStarted);
+        yield* Fiber.interrupt(only);
+        return yield* Fiber.await(only);
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(interrupted).toBe(true);
+  });
+
+  it("forks nothing for a request abandoned within the start delay", async () => {
+    const harness = makeNativeHarness({ startDelay: COMPOSER_PREDICTION_START_DELAY });
+
+    const exit = await harness.run(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(harness.generate);
+        yield* TestClock.adjust(
+          Duration.millis(Duration.toMillis(COMPOSER_PREDICTION_START_DELAY) - 1),
+        );
+        yield* Fiber.interrupt(fiber);
+        yield* TestClock.adjust(COMPOSER_PREDICTION_START_DELAY);
+        return yield* Fiber.await(fiber);
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("is unavailable when the session turns busy during the start delay, without forking", async () => {
+    const harness = makeNativeHarness({ startDelay: COMPOSER_PREDICTION_START_DELAY });
+
+    const result = await harness.run(
+      Effect.gen(function* () {
+        const fiber = yield* Effect.forkChild(harness.generate);
+        const thread = harness.state.thread;
+        harness.state.thread = {
+          ...thread,
+          session: { ...thread.session, status: "running" },
+        } as OrchestrationThreadShell;
+        yield* TestClock.adjust(COMPOSER_PREDICTION_START_DELAY);
+        return yield* Fiber.join(fiber);
+      }),
+    );
+
+    expect(result).toEqual(UNAVAILABLE);
+    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("discards a fork's suggestion when a new turn starts during generation, and keeps no answer", async () => {
+    const harness = makeNativeHarness();
+    harness.predictNextUserMessage.mockImplementationOnce(() =>
+      Effect.sync(() => {
+        harness.state.thread = makeThread(CODEX_CHAT, TurnId.makeUnsafe("turn-3"));
+        return { kind: "predicted" as const, text: '{"suggestion":"Stale suggestion"}' };
+      }),
+    );
+
+    const results = await harness.run(
+      Effect.gen(function* () {
+        const stale = yield* harness.generate;
+        harness.state.thread = makeThread(CODEX_CHAT);
+        return [stale, yield* harness.generate];
+      }),
+    );
+
+    expect(results).toEqual([UNAVAILABLE, FORK_SUGGESTION]);
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not serve a fork's answer once the isolated path can serve the chat", async () => {
+    const support = { current: WINDOWS_BLOCKED as IsolatedTextGenerationSupport };
+    const harness = makeNativeHarness();
+    harness.getComposerPredictionSupport.mockImplementation(() =>
+      Effect.sync(() => support.current),
+    );
+    harness.predictNextUserMessage.mockReturnValue(
+      Effect.succeed({ kind: "predicted", text: '{"suggestion":"From the fork"}' }),
+    );
+    harness.generateComposerPrediction.mockReturnValue(
+      Effect.succeed({ suggestion: "From the isolated path" }),
+    );
+
+    const results = await harness.run(
+      Effect.gen(function* () {
+        const fromFork = yield* harness.generate;
+        support.current = { kind: "supported" };
+        return [fromFork, yield* harness.generate];
+      }),
+    );
+
+    expect(results).toEqual([
+      { suggestion: "From the fork", outcome: "suggested" },
+      { suggestion: "From the isolated path", outcome: "suggested" },
+    ]);
+  });
+
+  it.each([
+    ["native-no-live-session", { kind: "unsupported", reason: "no_live_session" }],
+    ["native-cli-too-old", { kind: "unsupported", reason: "app_server_without_prediction_fork" }],
+  ] as const)(
+    "answers none at once and logs it once at Info when no route can serve the chat (%s)",
+    async (reason, nativeSupport) => {
+      const harness = makeNativeHarness({
+        nativeSupport,
+        startDelay: COMPOSER_PREDICTION_START_DELAY,
+      });
+
+      // No start delay: the answer is known before anything would start.
+      const results = await harness.run(Effect.all([harness.generate, harness.generate]));
+
+      expect(results).toEqual([NONE, NONE]);
+      expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+      expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+      expect(harness.logs).toEqual([
+        {
+          level: "Info",
+          message: [
+            "Composer prediction has no route for this chat",
+            { threadId: THREAD_ID, expectedTurnId: TURN_ID, reason },
+          ],
+        },
+      ]);
+    },
+  );
 });

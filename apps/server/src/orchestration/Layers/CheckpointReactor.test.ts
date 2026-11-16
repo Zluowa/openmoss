@@ -165,6 +165,8 @@ function createProviderServiceHarness(
     getCapabilities: () => Effect.succeed({ sessionModelSwitch: "in-session" }),
     rollbackConversation,
     compactThread: () => unsupported(),
+    getNextUserMessagePredictionSupport: () => unsupported(),
+    predictNextUserMessage: () => unsupported(),
     getLaunchPlan: (input) =>
       Effect.succeed({ threadId: input.threadId, planHash: null, launchPlan: null }),
     getLoopLedgerDashboardSnapshot: () => unsupported(),

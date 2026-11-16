@@ -10,7 +10,9 @@ import {
 import { MOSS_ACCESS_LANES, mossLaneEngineModelIds } from "@moss/shared/mossRealmCatalog";
 import { describe, expect, it } from "vitest";
 
+import { codexIsolatedTextGenerationSupport } from "../git/Layers/CodexTextGeneration.ts";
 import { COMPOSER_PREDICTION_CONTEXT_BUDGET } from "../git/textGenerationShared.ts";
+import type { ProviderNextUserMessagePredictionSupport } from "../provider/Services/ProviderAdapter.ts";
 import {
   buildComposerPredictionConversation,
   isComposerPredictionTurnCurrent,
@@ -18,7 +20,9 @@ import {
   COMPOSER_PREDICTION_DEFAULT_HEDGE_DELAY_MS,
   COMPOSER_PREDICTION_MIN_HEDGE_DELAY_MS,
   resolveComposerPredictionHedgeDelayMs,
+  resolveComposerPredictionRoute,
   resolveComposerPredictionRouting,
+  resolveComposerPredictionRoutingResult,
   resolveComposerPredictionTurnBlocker,
   resolveMossManagedPredictionModel,
 } from "./composerPrediction.ts";
@@ -641,5 +645,170 @@ describe("resolveComposerPredictionHedgeDelayMs", () => {
     expect(
       resolveComposerPredictionHedgeDelayMs({ recentDurationsMs: [9_000, 11_000], timeoutMs }),
     ).toBeNull();
+  });
+});
+
+describe("resolveComposerPredictionRoutingResult", () => {
+  it.each([
+    [
+      "no-dedicated-provider",
+      {
+        modelSelection: { provider: "grok", instanceId: "grok", model: "grok-4.6" },
+        session: null,
+      },
+      settings({
+        providerInstances: {
+          grok: { driver: "grok", enabled: true, config: {} },
+        } as ServerSettings["providerInstances"],
+      }),
+    ],
+    [
+      "instance-unavailable",
+      claudeChat,
+      settings({
+        providerInstances: {
+          claudeAgent: { driver: "claudeAgent", enabled: false, config: {} },
+        } as ServerSettings["providerInstances"],
+      }),
+    ],
+    [
+      "session-instance-mismatch",
+      { ...claudeChat, session: session({ providerInstanceId: "claude_other" }) },
+      settings(),
+    ],
+  ] as const)("names why a chat is unrouted: %s", (reason, thread, serverSettings) => {
+    expect(
+      resolveComposerPredictionRoutingResult({
+        thread: thread as typeof claudeChat,
+        settings: serverSettings,
+      }),
+    ).toEqual({ kind: "unrouted", reason });
+  });
+});
+
+describe("resolveComposerPredictionRoute", () => {
+  const codexThread = (instanceId: string) => ({
+    modelSelection: {
+      provider: "codex",
+      instanceId,
+      // The person's own account on the model of the observed defect; the managed lane on a
+      // Moss gateway model.
+      model: instanceId === "codex_moss" ? "gpt-5.6-sol" : "gpt-6-astra",
+      options: { reasoningEffort: "high" },
+    } as ModelSelection,
+    session: session({ providerName: "codex", providerInstanceId: instanceId }),
+  });
+  const codexSettings = settings({
+    providerInstances: {
+      codex_moss: { driver: "codex", enabled: true, config: {} },
+    } as ServerSettings["providerInstances"],
+  });
+  const liveFork = { kind: "supported" } as const;
+  /**
+   * The route on `platform` for a chat on `instanceId`: the isolated path's own platform rule
+   * (a Moss-managed account is a direct endpoint with a key, the person's default Codex
+   * account is not) and the live thread's native fork support.
+   */
+  const routeOn = (
+    platform: NodeJS.Platform,
+    instanceId: string,
+    nativeSupport: ProviderNextUserMessagePredictionSupport | undefined,
+    thread: { modelSelection: ModelSelection; session: OrchestrationSession | null } = codexThread(
+      instanceId,
+    ),
+  ) =>
+    resolveComposerPredictionRoute({
+      routing: resolveComposerPredictionRoutingResult({ thread, settings: codexSettings }),
+      chatModel: thread.modelSelection.model,
+      isolatedSupport: codexIsolatedTextGenerationSupport(platform, instanceId === "codex_moss"),
+      nativeSupport,
+    });
+
+  it("forks the live thread for the default Codex account on Windows, at the lowest effort", () => {
+    const route = routeOn("win32", "codex", liveFork);
+
+    expect(route).toMatchObject({
+      kind: "native",
+      effort: "low",
+      routing: { modelSelection: { provider: "codex", instanceId: "codex" } },
+    });
+  });
+
+  it("keeps a Moss-managed instance on the isolated path on Windows, live session or not", () => {
+    expect(routeOn("win32", "codex_moss", liveFork)).toMatchObject({
+      kind: "isolated",
+      routing: { source: "moss-managed-cheapest" },
+    });
+  });
+
+  it.each([
+    ["darwin", "codex"],
+    ["linux", "codex"],
+    ["darwin", "codex_moss"],
+  ] as const)("keeps %s on the isolated path for %s", (platform, instanceId) => {
+    expect(routeOn(platform, instanceId, liveFork)).toMatchObject({ kind: "isolated" });
+  });
+
+  it.each([
+    ["native-no-live-session", { kind: "unsupported", reason: "no_live_session" }],
+    ["native-cli-too-old", { kind: "unsupported", reason: "app_server_without_prediction_fork" }],
+    ["native-missing-thread", { kind: "unsupported", reason: "missing_provider_thread" }],
+    ["native-not-offered", { kind: "unsupported", reason: "provider_without_native_prediction" }],
+    ["native-not-offered", undefined],
+  ] as const)(
+    "has no route (%s) for the default Codex account on Windows without a usable fork",
+    (reason, nativeSupport) => {
+      expect(routeOn("win32", "codex", nativeSupport)).toEqual({ kind: "no-route", reason });
+    },
+  );
+
+  it("never forks a non-Codex chat, even where its isolated path is refused", () => {
+    const claudeRouting = resolveComposerPredictionRoutingResult({
+      thread: claudeChat,
+      settings: settings(),
+    });
+    expect(
+      resolveComposerPredictionRoute({
+        routing: claudeRouting,
+        chatModel: claudeChat.modelSelection.model,
+        isolatedSupport: { kind: "platform-blocked", platform: "win32" },
+        nativeSupport: liveFork,
+      }),
+    ).toEqual({ kind: "no-route", reason: "isolated-platform-blocked" });
+    expect(
+      resolveComposerPredictionRoute({
+        routing: claudeRouting,
+        chatModel: claudeChat.modelSelection.model,
+        isolatedSupport: { kind: "supported" },
+        nativeSupport: liveFork,
+      }),
+    ).toMatchObject({ kind: "isolated" });
+  });
+
+  it("has no route for a provider without text generation, and retries other unrouted chats", () => {
+    expect(
+      resolveComposerPredictionRoute({
+        routing: { kind: "unrouted", reason: "no-dedicated-provider" },
+        chatModel: "grok-4.6",
+      }),
+    ).toEqual({ kind: "no-route", reason: "no-dedicated-provider" });
+    expect(
+      resolveComposerPredictionRoute({
+        routing: { kind: "unrouted", reason: "session-instance-mismatch" },
+        chatModel: "gpt-6-astra",
+        nativeSupport: liveFork,
+      }),
+    ).toEqual({ kind: "unrouted", reason: "session-instance-mismatch" });
+  });
+
+  it("never forks for a chat whose live session runs on another account", () => {
+    const thread = {
+      ...codexThread("codex"),
+      session: session({ providerName: "codex", providerInstanceId: "codex_work" }),
+    };
+    expect(routeOn("win32", "codex", liveFork, thread)).toEqual({
+      kind: "unrouted",
+      reason: "session-instance-mismatch",
+    });
   });
 });

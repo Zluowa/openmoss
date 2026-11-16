@@ -76,6 +76,7 @@ import type {
   ServerVoiceTranscriptionResult,
   ThreadId,
   ProviderTurnStartResult,
+  NextMessagePredictionGenerationTrigger,
   TurnId,
 } from "@moss/contracts";
 import type { ServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
@@ -188,6 +189,35 @@ export type ProviderAdapterSessionStartInput = ProviderSessionStartInput &
   ProviderContinuationLaunchRequirements;
 export type ProviderAdapterForkThreadInput = ProviderForkThreadInput &
   ProviderContinuationLaunchRequirements;
+
+export interface ProviderPredictNextUserMessageInput {
+  /** The complete prediction prompt, already ending with its response-schema instruction. */
+  readonly prompt: string;
+  /** The thread's latest settled turn, which the prediction continues from. */
+  readonly sourceTurnId: TurnId;
+  readonly generationTrigger: NextMessagePredictionGenerationTrigger;
+  /** The reasoning effort of the prediction turn; null keeps the thread's own. */
+  readonly effort: string | null;
+  readonly timeoutMs: number;
+}
+
+/**
+ * Whether the thread's live native runtime can fork a prediction now. `unsupported` names
+ * why not with a content-free code; it never starts or recovers a runtime to find out.
+ */
+export type ProviderNextUserMessagePredictionSupport =
+  | { readonly kind: "supported" }
+  | { readonly kind: "unsupported"; readonly reason: string };
+
+/**
+ * - `unsupported`: this runtime has no native prediction now.
+ * - `skipped`: the native thread is busy, so this request should show no prediction.
+ * - `predicted`: the model's raw final message, or null when it produced none.
+ */
+export type ProviderNextUserMessagePrediction =
+  | { readonly kind: "unsupported"; readonly reason: string }
+  | { readonly kind: "skipped"; readonly reason: string }
+  | { readonly kind: "predicted"; readonly text: string | null };
 
 /** Interactive connectors: one CLI-own MCP server and its tool definitions. */
 export interface ProviderMcpAppServerTools {
@@ -460,6 +490,23 @@ export interface ProviderAdapterShape<TError> {
   readonly forkThread?: (
     input: ProviderAdapterForkThreadInput,
   ) => Effect.Effect<ProviderForkThreadResult, TError>;
+
+  /**
+   * Whether {@link predictNextUserMessage} can serve the thread now. Reads in-memory session
+   * state only. Adapters without a native prediction omit both methods.
+   */
+  readonly getNextUserMessagePredictionSupport?: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ProviderNextUserMessagePredictionSupport>;
+
+  /**
+   * Predict the user's next message from the live native thread, as Codex's composer
+   * prediction fork does. Never starts or recovers a runtime.
+   */
+  readonly predictNextUserMessage?: (
+    threadId: ThreadId,
+    input: ProviderPredictNextUserMessageInput,
+  ) => Effect.Effect<ProviderNextUserMessagePrediction, TError>;
 
   /**
    * Stop all sessions owned by this adapter.

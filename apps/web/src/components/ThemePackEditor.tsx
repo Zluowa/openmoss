@@ -447,6 +447,13 @@ function ThemeCssSection({
     onCommitRef.current = onCommit;
   }, [onCommit]);
 
+  // The draft only stands while its commit is on the way. Once the stored CSS has caught up
+  // it is dropped, so a later change from outside the editor (the reset shortcut, a theme an
+  // agent published, another window) shows in the box instead of the text typed earlier.
+  useEffect(() => {
+    setDraft((current) => (current === css ? null : current));
+  }, [css]);
+
   // Closing Settings mid-pause still saves what was typed.
   useEffect(
     () => () => {
