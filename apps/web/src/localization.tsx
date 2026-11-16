@@ -790,7 +790,6 @@ const EN_TRANSLATIONS = {
   "chat.composer.placeholder.followUpAttachments": "Ask for follow-up changes or attach images",
   "chat.composer.placeholder.askAnything":
     "Ask anything, @tag files/folders, or use / to show available commands",
-  "chat.composer.prediction.pressTabToAccept": "Press Tab to accept",
   "chat.composer.extras": "Add files and more",
   "composer.dictation.aria": "Dictate",
   "chat.composer.addFiles": "Add files",
@@ -3639,7 +3638,7 @@ const EN_TRANSLATIONS = {
   "settings.general.newThreads.aria": "Default thread mode",
   "settings.general.composerPrediction.title": "Show predictions",
   "settings.general.composerPrediction.description":
-    "Predict your next message based on the conversation",
+    "After a reply finishes, show a predicted next message in the empty composer. Tab or Right Arrow puts it in as a draft; nothing is sent.",
   "settings.general.composerPrediction.resetLabel": "show predictions",
   "settings.general.composerPrediction.aria": "Show predictions",
   "settings.general.threadEnv.local": "Local",
@@ -5229,7 +5228,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.composer.imageModelUnsupported.action": "换模型",
   "chat.composer.placeholder.followUpAttachments": "输入后续修改或附加图片",
   "chat.composer.placeholder.askAnything": "输入问题，@ 标记文件/文件夹，或输入 / 查看可用命令",
-  "chat.composer.prediction.pressTabToAccept": "按 Tab 键接受",
   "chat.composer.extras": "添加文件及更多内容",
   "composer.dictation.aria": "听写",
   "chat.composer.addFiles": "添加文件",
@@ -7898,7 +7896,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.general.newThreads.resetLabel": "新对话",
   "settings.general.newThreads.aria": "默认对话模式",
   "settings.general.composerPrediction.title": "显示预测消息",
-  "settings.general.composerPrediction.description": "根据对话预测你接下来要发送的消息",
+  "settings.general.composerPrediction.description":
+    "回复结束后，在空的输入框里用灰字显示你可能要发的下一条消息。按 Tab 或右方向键放进输入框，不会自动发送。",
   "settings.general.composerPrediction.resetLabel": "显示预测消息",
   "settings.general.composerPrediction.aria": "显示预测消息",
   "settings.general.threadEnv.local": "本地",

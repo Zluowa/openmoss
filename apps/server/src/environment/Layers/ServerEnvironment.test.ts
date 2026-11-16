@@ -30,6 +30,8 @@ describe("ServerEnvironmentLive", () => {
       expect(first.environmentId).toBe(second.environmentId);
       expect(first.serverVersion).toMatch(/^\d+\.\d+\.\d+/);
       expect(second.capabilities.repositoryIdentity).toBe(true);
+      // Remote clients check this before calling server.generateComposerPrediction.
+      expect(second.capabilities.composerPredictions).toBe(true);
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped, Effect.runPromise);
   });
 });

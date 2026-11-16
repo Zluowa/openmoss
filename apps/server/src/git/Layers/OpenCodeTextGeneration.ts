@@ -46,13 +46,14 @@ import {
   buildDiffSummaryPrompt,
   buildPrContentPrompt,
   buildThreadRecapPrompt,
-  buildNextMessagePredictionPrompt,
+  buildComposerPredictionPrompt,
   buildProjectDigestPrompt,
   buildThreadTitlePrompt,
   decodeStructuredTextGenerationOutput,
   type RawTextFallback,
   sanitizeCommitSubject,
   sanitizeDiffSummary,
+  sanitizeComposerPrediction,
   sanitizeThreadRecap,
   sanitizePrTitle,
 } from "../textGenerationShared.ts";
@@ -748,29 +749,32 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       };
     });
 
-    const generateNextMessagePrediction: TextGenerationShape["generateNextMessagePrediction"] =
-      Effect.fn(`${config.serviceName}.generateNextMessagePrediction`)(function* (input) {
-        const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
-        if (!modelSelection) {
-          return yield* new TextGenerationError({
-            operation: "generateNextMessagePrediction",
-            detail: `Invalid ${config.displayName} model selection.`,
-          });
-        }
-        const { prompt, outputSchemaJson } = buildNextMessagePredictionPrompt({
-          transcript: input.transcript,
+    const generateComposerPrediction: TextGenerationShape["generateComposerPrediction"] = Effect.fn(
+      `${config.serviceName}.generateComposerPrediction`,
+    )(function* (input) {
+      const modelSelection = resolveOpenCodeCompatibleModelSelection(config, input);
+      if (!modelSelection) {
+        return yield* new TextGenerationError({
+          operation: "generateComposerPrediction",
+          detail: `Invalid ${config.displayName} model selection.`,
         });
-        const generated = yield* runOpenCodeJson({
-          operation: "generateNextMessagePrediction",
-          cwd: input.cwd,
-          prompt,
-          outputSchemaJson,
-          rawTextFallback: { key: "suggestion" },
-          modelSelection,
-          ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-        });
-        return { text: generated.suggestion?.trim() ?? "" };
+      }
+
+      const { prompt, outputSchemaJson, rawTextFallback } = buildComposerPredictionPrompt({
+        conversation: input.conversation,
       });
+      const generated = yield* runOpenCodeJson({
+        operation: "generateComposerPrediction",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson,
+        rawTextFallback,
+        modelSelection,
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+      });
+
+      return { suggestion: sanitizeComposerPrediction(generated.suggestion) };
+    });
 
     const generateProjectDigest: TextGenerationShape["generateProjectDigest"] = Effect.fn(
       `${config.serviceName}.generateProjectDigest`,
@@ -853,7 +857,7 @@ const makeOpenCodeCompatibleTextGeneration = (config: OpenCodeCompatibleTextGene
       generateBranchName,
       generateThreadTitle,
       generateThreadRecap,
-      generateNextMessagePrediction,
+      generateComposerPrediction,
       generateProjectDigest,
       generateAutomationIntent,
       evaluateAutomationCompletion,

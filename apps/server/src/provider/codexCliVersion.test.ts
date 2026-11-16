@@ -13,7 +13,6 @@ import {
   formatCodexCliUpgradeMessage,
   isCodexCliVersionSupported,
   MINIMUM_CODEX_CLI_VERSION,
-  MINIMUM_CODEX_PREDICTION_FORK_CLI_VERSION,
   parseCodexAppServerUserAgentVersion,
   parseCodexCliVersion,
 } from "./codexCliVersion.ts";
@@ -41,8 +40,7 @@ describe("codexCliVersion", () => {
     assert.equal(parseCodexAppServerUserAgentVersion(undefined), null);
   });
 
-  it("gates the prediction fork on Codex desktop's experimentalPredictionForkMode floor", () => {
-    assert.equal(MINIMUM_CODEX_PREDICTION_FORK_CLI_VERSION, "0.162.0-alpha.20");
+  it("orders prerelease builds below their release", () => {
     assert.ok(compareCodexCliVersions("0.162.0-alpha.19", "0.162.0-alpha.20") < 0);
     assert.ok(compareCodexCliVersions("0.161.9", "0.162.0-alpha.20") < 0);
     assert.equal(compareCodexCliVersions("0.162.0-alpha.20", "0.162.0-alpha.20"), 0);

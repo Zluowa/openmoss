@@ -76,7 +76,6 @@ import type {
   ServerVoiceTranscriptionResult,
   ThreadId,
   ProviderTurnStartResult,
-  NextMessagePredictionGenerationTrigger,
   TurnId,
 } from "@moss/contracts";
 import type { ServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
@@ -189,25 +188,6 @@ export type ProviderAdapterSessionStartInput = ProviderSessionStartInput &
   ProviderContinuationLaunchRequirements;
 export type ProviderAdapterForkThreadInput = ProviderForkThreadInput &
   ProviderContinuationLaunchRequirements;
-
-export interface ProviderPredictNextUserMessageInput {
-  /** The complete prediction prompt, already ending with its response-schema instruction. */
-  readonly prompt: string;
-  /** The thread's latest settled turn, which the prediction continues from. */
-  readonly sourceTurnId: TurnId;
-  readonly generationTrigger: NextMessagePredictionGenerationTrigger;
-  readonly timeoutMs: number;
-}
-
-/**
- * - `unsupported`: this runtime has no native prediction now; the caller may use its fallback.
- * - `skipped`: the native thread is busy, so this request should show no prediction.
- * - `predicted`: the model's raw final message, or null when it produced none.
- */
-export type ProviderNextUserMessagePrediction =
-  | { readonly kind: "unsupported"; readonly reason: string }
-  | { readonly kind: "skipped"; readonly reason: string }
-  | { readonly kind: "predicted"; readonly text: string | null };
 
 /** Interactive connectors: one CLI-own MCP server and its tool definitions. */
 export interface ProviderMcpAppServerTools {
@@ -480,16 +460,6 @@ export interface ProviderAdapterShape<TError> {
   readonly forkThread?: (
     input: ProviderAdapterForkThreadInput,
   ) => Effect.Effect<ProviderForkThreadResult, TError>;
-
-  /**
-   * Predict the user's next message from the live native thread, as Codex's composer
-   * prediction fork does. Never starts or recovers a runtime; adapters without a native
-   * prediction omit it and callers fall back to a provider-neutral transcript prediction.
-   */
-  readonly predictNextUserMessage?: (
-    threadId: ThreadId,
-    input: ProviderPredictNextUserMessageInput,
-  ) => Effect.Effect<ProviderNextUserMessagePrediction, TError>;
 
   /**
    * Stop all sessions owned by this adapter.

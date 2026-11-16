@@ -105,10 +105,6 @@
       "types": "./src/KeyedSingleFlightCache.ts",
       "import": "./src/KeyedSingleFlightCache.ts"
     },
-    "./nextMessagePrediction": {
-      "types": "./src/nextMessagePrediction.ts",
-      "import": "./src/nextMessagePrediction.ts"
-    },
     "./errorMessages": {
       "types": "./src/errorMessages.ts",
       "import": "./src/errorMessages.ts"

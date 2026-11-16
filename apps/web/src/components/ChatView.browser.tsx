@@ -83,6 +83,7 @@ import { cleanup, render } from "vitest-browser-react";
 
 import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
 import { createPastedTextDraft } from "../lib/composerPastedText";
+import { composerPredictionStore } from "../lib/composerPrediction";
 import { createEmptyThreadDraft } from "../composerDraftDomain";
 import { setFeatureFlagEnabled } from "../featureFlags";
 import {
@@ -488,6 +489,8 @@ const wsRequests: WsRequestEnvelope["body"][] = [];
 // Per-test override for the Moss cloud account read (the default is signed out). The
 // rail's Images destination gates on it, so the gate test flips this before mounting.
 let mossCloudAccountStateOverride: MossCloudAccountState | null = null;
+// Per-test composer prediction. By default the model has nothing to suggest.
+let composerPredictionSuggestion: string | null = null;
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
 
 interface ViewportSpec {
@@ -1571,9 +1574,11 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
     }
     return { sequence: fixture.snapshot.snapshotSequence + 1 };
   }
-  if (tag === ORCHESTRATION_WS_METHODS.predictNextMessage) {
-    // The model abstains unless a test asks otherwise, like a real low-confidence prediction.
-    return { text: "", latestTurnId: body.latestTurnId };
+  if (tag === WS_METHODS.serverGenerateComposerPrediction) {
+    // The model has nothing to suggest unless a test asks otherwise.
+    return composerPredictionSuggestion === null
+      ? { suggestion: null, outcome: "none" }
+      : { suggestion: composerPredictionSuggestion, outcome: "suggested" };
   }
   if (tag === WS_METHODS.automationCreate) {
     return createAutomationDefinitionFromCreateRequest(body);
@@ -4227,6 +4232,8 @@ describe("ChatView transcript geometry (full app)", () => {
     });
     document.body.innerHTML = "";
     wsRequests.length = 0;
+    composerPredictionSuggestion = null;
+    composerPredictionStore.setState({ entries: new Map(), settledKeys: new Set() });
     localImageDownloadRequests.length = 0;
     useRightDockStore.setState({
       dockStateByThreadId: {},
@@ -19776,56 +19783,86 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  function snapshotWithSettledTurn(latestTurnId: TurnId) {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("prediction-idle-target"),
+      targetText: "prediction idle thread",
+      messagePairCount: 2,
+    });
+    return {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === THREAD_ID
+          ? {
+              ...thread,
+              latestTurn: {
+                turnId: latestTurnId,
+                state: "completed" as const,
+                requestedAt: isoAt(10),
+                startedAt: isoAt(11),
+                completedAt: isoAt(12),
+                assistantMessageId: MessageId.makeUnsafe("msg-assistant-1"),
+              },
+            }
+          : thread,
+      ),
+    };
+  }
+
   it.each([false, true])(
-    "asks for a catch-up prediction when it opens an idle thread (StrictMode: %s)",
+    "asks for a composer prediction when it opens an idle thread (StrictMode: %s)",
     async (strictMode) => {
       const latestTurnId = TurnId.makeUnsafe("turn-prediction-idle");
-      const base = createSnapshotForTargetUser({
-        targetMessageId: MessageId.makeUnsafe("prediction-idle-target"),
-        targetText: "prediction idle thread",
-        messagePairCount: 2,
-      });
       const mounted = await mountChatView({
         viewport: DEFAULT_VIEWPORT,
         // StrictMode's dev remount aborts the first request; the composer must ask again.
         strictMode,
-        snapshot: {
-          ...base,
-          threads: base.threads.map((thread) =>
-            thread.id === THREAD_ID
-              ? {
-                  ...thread,
-                  latestTurn: {
-                    turnId: latestTurnId,
-                    state: "completed",
-                    requestedAt: isoAt(10),
-                    startedAt: isoAt(11),
-                    completedAt: isoAt(12),
-                    assistantMessageId: MessageId.makeUnsafe("msg-assistant-1"),
-                  },
-                }
-              : thread,
-          ),
-        },
+        snapshot: snapshotWithSettledTurn(latestTurnId),
       });
 
       try {
         await vi.waitFor(() =>
           expect(
             wsRequests.find(
-              (request) => request._tag === ORCHESTRATION_WS_METHODS.predictNextMessage,
+              (request) => request._tag === WS_METHODS.serverGenerateComposerPrediction,
             ),
-          ).toMatchObject({
-            threadId: THREAD_ID,
-            latestTurnId,
-            generationTrigger: "catch_up",
-          }),
+          ).toMatchObject({ threadId: THREAD_ID, expectedTurnId: latestTurnId }),
         );
+        // The model had nothing for this turn: no ghost text, the placeholder stays.
+        await expect.element(page.getByTestId("composer-prediction")).not.toBeInTheDocument();
       } finally {
         await mounted.cleanup();
       }
     },
   );
+
+  it("shows the suggestion as ghost text and Tab makes it an unsent draft", async () => {
+    composerPredictionSuggestion = "继续把剩下的两个测试也修好";
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: snapshotWithSettledTurn(TurnId.makeUnsafe("turn-prediction-accept")),
+    });
+
+    try {
+      const ghost = page.getByTestId("composer-prediction");
+      await expect.element(ghost).toHaveTextContent("继续把剩下的两个测试也修好Tab");
+      const editor = page.getByTestId("composer-editor");
+      await editor.click();
+      const requestsBeforeAccept = wsRequests.length;
+      await userEvent.keyboard("{Tab}");
+
+      await expect.element(editor).toHaveTextContent("继续把剩下的两个测试也修好");
+      await expect.element(ghost).not.toBeInTheDocument();
+      // Accepting only fills the composer: nothing is sent.
+      expect(
+        wsRequests
+          .slice(requestsBeforeAccept)
+          .some((request) => request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand),
+      ).toBe(false);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 
   it("names zh-CN rail destinations with the Codex terms, not the 已定时 status", async () => {
     localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));

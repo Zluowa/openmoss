@@ -143,15 +143,22 @@ export interface ThreadRecapGenerationResult {
   recap: string;
 }
 
-export interface NextMessagePredictionGenerationInput {
+export interface ComposerPredictionGenerationInput {
   cwd: string;
-  transcript: string;
+  /** Recent visible user/assistant text, oldest first; untrusted transcript data. */
+  conversation: string;
+  codexHomePath?: string;
+  /** Model to use for generation. The caller always routes to the chat's own provider instance. */
+  model?: string;
+  /** Optional provider-aware selection for providers that need more than a raw model slug. */
   modelSelection?: ModelSelection;
+  /** Optional provider startup overrides, such as custom binary paths or server URLs. */
   providerOptions?: ProviderStartOptions;
 }
 
-export interface NextMessagePredictionGenerationResult {
-  text: string;
+export interface ComposerPredictionGenerationResult {
+  /** One predicted next user message, or null when no single continuation is clear. */
+  suggestion: string | null;
 }
 
 export interface AutomationIntentGenerationInput {
@@ -221,7 +228,7 @@ export type TextGenerationOperation =
   | "generateBranchName"
   | "generateThreadTitle"
   | "generateThreadRecap"
-  | "generateNextMessagePrediction"
+  | "generateComposerPrediction"
   | "generateProjectDigest"
   | "generateAutomationIntent"
   | "evaluateAutomationCompletion";
@@ -272,9 +279,12 @@ export interface TextGenerationShape {
     input: ThreadRecapGenerationInput,
   ) => Effect.Effect<ThreadRecapGenerationResult, TextGenerationError>;
 
-  readonly generateNextMessagePrediction: (
-    input: NextMessagePredictionGenerationInput,
-  ) => Effect.Effect<NextMessagePredictionGenerationResult, TextGenerationError>;
+  /**
+   * Predict the user's next chat message from recent conversation text.
+   */
+  readonly generateComposerPrediction: (
+    input: ComposerPredictionGenerationInput,
+  ) => Effect.Effect<ComposerPredictionGenerationResult, TextGenerationError>;
   readonly generateProjectDigest: (
     input: ProjectDigestGenerationInput,
   ) => Effect.Effect<ProjectDigestGenerationResult, TextGenerationError>;

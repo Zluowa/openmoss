@@ -25,6 +25,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   // (dialogs.pickFolder), letting browser clients use the picker layout
   // instead of typing a path.
   folderPicker: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  /** Whether `server.generateComposerPrediction` is served; absent on servers that predate it. */
+  composerPredictions: Schema.optional(Schema.Boolean),
 });
 export type ExecutionEnvironmentCapabilities = typeof ExecutionEnvironmentCapabilities.Type;
 

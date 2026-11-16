@@ -25,11 +25,12 @@ import {
   buildDiffSummaryPrompt,
   buildPrContentPrompt,
   buildThreadRecapPrompt,
-  buildNextMessagePredictionPrompt,
+  buildComposerPredictionPrompt,
   buildProjectDigestPrompt,
   buildThreadTitlePrompt,
   sanitizeCommitSubject,
   sanitizeDiffSummary,
+  sanitizeComposerPrediction,
   sanitizeThreadRecap,
   sanitizePrTitle,
 } from "../textGenerationShared.ts";
@@ -325,30 +326,33 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     };
   });
 
-  const generateNextMessagePrediction: TextGenerationShape["generateNextMessagePrediction"] =
-    Effect.fn("CursorTextGeneration.generateNextMessagePrediction")(function* (input) {
-      const modelSelection = resolveCursorModelSelection(input);
-      if (!modelSelection) {
-        return yield* new TextGenerationError({
-          operation: "generateNextMessagePrediction",
-          detail: "Invalid Cursor model selection.",
-        });
-      }
-      const { prompt, outputSchemaJson } = buildNextMessagePredictionPrompt({
-        transcript: input.transcript,
+  const generateComposerPrediction: TextGenerationShape["generateComposerPrediction"] = Effect.fn(
+    "CursorTextGeneration.generateComposerPrediction",
+  )(function* (input) {
+    const modelSelection = resolveCursorModelSelection(input);
+    if (!modelSelection) {
+      return yield* new TextGenerationError({
+        operation: "generateComposerPrediction",
+        detail: "Invalid Cursor model selection.",
       });
-      const generated = yield* runAcpTextGeneration(cursorAcpConfig, {
-        childProcessSpawner,
-        operation: "generateNextMessagePrediction",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        rawTextFallback: { key: "suggestion" },
-        modelSelection,
-        providerOptions: input.providerOptions,
-      });
-      return { text: generated.suggestion?.trim() ?? "" };
+    }
+
+    const { prompt, outputSchemaJson, rawTextFallback } = buildComposerPredictionPrompt({
+      conversation: input.conversation,
     });
+    const generated = yield* runAcpTextGeneration(cursorAcpConfig, {
+      childProcessSpawner,
+      operation: "generateComposerPrediction",
+      cwd: input.cwd,
+      prompt,
+      outputSchemaJson,
+      rawTextFallback,
+      modelSelection,
+      providerOptions: input.providerOptions,
+    });
+
+    return { suggestion: sanitizeComposerPrediction(generated.suggestion) };
+  });
 
   const generateProjectDigest: TextGenerationShape["generateProjectDigest"] = Effect.fn(
     "CursorTextGeneration.generateProjectDigest",
@@ -434,7 +438,7 @@ const makeCursorTextGeneration = Effect.gen(function* () {
     generateBranchName,
     generateThreadTitle,
     generateThreadRecap,
-    generateNextMessagePrediction,
+    generateComposerPrediction,
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,

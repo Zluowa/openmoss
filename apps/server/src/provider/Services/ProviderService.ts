@@ -60,8 +60,6 @@ import type {
   ProviderMcpAppServerInput,
   ProviderMcpAppServerTools,
   ProviderMcpAppToolCallInput,
-  ProviderNextUserMessagePrediction,
-  ProviderPredictNextUserMessageInput,
   ProviderTurnDispatchOptions,
 } from "./ProviderAdapter.ts";
 
@@ -408,15 +406,6 @@ export interface ProviderServiceShape {
   readonly compactThread: (input: {
     readonly threadId: ThreadId;
   }) => Effect.Effect<void, ProviderServiceError>;
-
-  /**
-   * Predict the user's next message from the thread's live native runtime. Never starts or
-   * recovers a session: `unsupported` asks the caller to use its provider-neutral fallback.
-   */
-  readonly predictNextUserMessage: (
-    threadId: ThreadId,
-    input: ProviderPredictNextUserMessageInput,
-  ) => Effect.Effect<ProviderNextUserMessagePrediction, ProviderServiceError>;
 
   /**
    * Read the latest redacted Moss launch plan persisted for a thread.

@@ -25,11 +25,12 @@ import {
   buildPrContentPrompt,
   buildProjectDigestPrompt,
   buildThreadRecapPrompt,
-  buildNextMessagePredictionPrompt,
+  buildComposerPredictionPrompt,
   buildThreadTitlePrompt,
   sanitizeCommitSubject,
   sanitizeDiffSummary,
   sanitizePrTitle,
+  sanitizeComposerPrediction,
   sanitizeThreadRecap,
   toJsonSchemaObject,
 } from "../textGenerationShared.ts";
@@ -524,25 +525,26 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     } satisfies ThreadRecapGenerationResult;
   });
 
-  const generateNextMessagePrediction: TextGenerationShape["generateNextMessagePrediction"] =
-    Effect.fn("ClaudeTextGeneration.generateNextMessagePrediction")(function* (input) {
-      const modelSelection = yield* requireClaudeModelSelection(
-        "generateNextMessagePrediction",
-        input.modelSelection,
-      );
-      const { prompt, outputSchemaJson } = buildNextMessagePredictionPrompt({
-        transcript: input.transcript,
-      });
-      const generated = yield* runClaudeJson({
-        operation: "generateNextMessagePrediction",
-        cwd: input.cwd,
-        prompt,
-        outputSchemaJson,
-        modelSelection,
-        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      });
-      return { text: generated.suggestion?.trim() ?? "" };
+  const generateComposerPrediction: TextGenerationShape["generateComposerPrediction"] = Effect.fn(
+    "ClaudeTextGeneration.generateComposerPrediction",
+  )(function* (input) {
+    const modelSelection = yield* requireClaudeModelSelection(
+      "generateComposerPrediction",
+      input.modelSelection,
+    );
+    const { prompt, outputSchemaJson } = buildComposerPredictionPrompt({
+      conversation: input.conversation,
     });
+    const generated = yield* runClaudeJson({
+      operation: "generateComposerPrediction",
+      cwd: input.cwd,
+      prompt,
+      outputSchemaJson,
+      modelSelection,
+      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+    });
+    return { suggestion: sanitizeComposerPrediction(generated.suggestion) };
+  });
 
   const generateProjectDigest: TextGenerationShape["generateProjectDigest"] = Effect.fn(
     "ClaudeTextGeneration.generateProjectDigest",
@@ -613,7 +615,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
     generateBranchName,
     generateThreadTitle,
     generateThreadRecap,
-    generateNextMessagePrediction,
+    generateComposerPrediction,
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,

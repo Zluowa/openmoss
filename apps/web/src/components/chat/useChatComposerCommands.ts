@@ -10,13 +10,19 @@ import { useCallback } from "react";
 import { formatComposerMentionToken, skillMentionPrefix } from "~/lib/composerMentions";
 import type { AppSettings } from "../../appSettings";
 import { resolveFollowUpDispatchMode } from "../../appSettings";
-import { collapseExpandedComposerCursor, detectComposerTrigger } from "../../composer-logic";
+import {
+  collapseExpandedComposerCursor,
+  detectComposerTrigger,
+  type ComposerCommandKey,
+} from "../../composer-logic";
 import {
   captureComposerPromptHistorySavedDraft,
   type QueuedComposerChatTurn,
 } from "../../composerDraftStore";
 import { useComposerSlashCommands } from "../../hooks/useComposerSlashCommands";
 import { extractChatAutomationInvocation } from "../../lib/automationIntent";
+import { shouldAcceptComposerPrediction } from "../../lib/composerPrediction";
+import type { ComposerPredictionController } from "../../hooks/useComposerPrediction";
 import { syncTerminalContextsByIds, terminalContextIdListsEqual } from "../../lib/terminalContext";
 import {
   promptStillMatchesActiveHistoryBrowse,
@@ -124,6 +130,9 @@ interface ChatComposerCommandsInput {
   isComposerApprovalState: boolean;
   pendingUserInputs: ReturnType<typeof useChatPendingInteractions>["pendingUserInputs"];
   composerDraft: ReturnType<typeof useChatComposerDraft>["composerDraft"];
+  composerEditorRef: ReturnType<typeof useChatComposerDraft>["composerEditorRef"];
+  /** Present only where composer predictions can show; Tab or Right Arrow accepts the shown one. */
+  composerPrediction?: ComposerPredictionController | undefined;
 }
 
 export function useChatComposerCommands({
@@ -177,6 +186,8 @@ export function useChatComposerCommands({
   isComposerApprovalState,
   pendingUserInputs,
   composerDraft,
+  composerEditorRef,
+  composerPrediction,
 }: ChatComposerCommandsInput) {
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
@@ -439,10 +450,58 @@ export function useChatComposerCommands({
     ],
   );
 
-  const onComposerCommandKey = (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Slash",
-    event: KeyboardEvent,
-  ) => {
+  // The shown prediction a key may act on, re-read from the editor and the store at key
+  // time (render state may be a frame behind); null when the key keeps its normal behavior.
+  const readActionableComposerPrediction = (event: KeyboardEvent) => {
+    if (!composerPrediction) return null;
+    const editor = composerEditorRef.current;
+    const prediction = composerPrediction.readVisible();
+    if (
+      !editor ||
+      !prediction ||
+      !shouldAcceptComposerPrediction({
+        event,
+        editorFocused: editor.isFocused(),
+        snapshot: editor.readSnapshot(),
+        prediction,
+        entry: composerPrediction.readEntry(prediction.key),
+      })
+    ) {
+      return null;
+    }
+    return prediction;
+  };
+
+  // Escape drops a shown prediction for its turn, as T3 Code's suggestion does.
+  const dismissComposerPrediction = (event: KeyboardEvent): boolean => {
+    const prediction = readActionableComposerPrediction(event);
+    if (!prediction || !composerPrediction) return false;
+    composerPrediction.dismiss(prediction);
+    return true;
+  };
+
+  // Tab or Right Arrow takes a shown prediction as the draft; Enter never does.
+  const acceptComposerPrediction = (event: KeyboardEvent): boolean => {
+    const prediction = readActionableComposerPrediction(event);
+    if (!prediction || !composerPrediction) return false;
+    composerPrediction.accept(prediction);
+    // An ordinary editable draft with the cursor at the end; sending stays a separate
+    // gesture. The focused editor applies the cursor when the controlled value lands.
+    promptRef.current = prediction.suggestion;
+    setPrompt(prediction.suggestion);
+    setComposerCursor(
+      collapseExpandedComposerCursor(prediction.suggestion, prediction.suggestion.length),
+    );
+    setComposerTrigger(null);
+    return true;
+  };
+
+  const onComposerCommandKey = (key: ComposerCommandKey, event: KeyboardEvent) => {
+    // Right Arrow means nothing else here; a prediction only shows in an empty composer,
+    // where no menu or trigger can be open, so it skips the rest.
+    if (key === "ArrowRight") return acceptComposerPrediction(event);
+    if (key === "Escape") return dismissComposerPrediction(event);
+
     if (key === "Slash" && !event.metaKey && !event.ctrlKey && !event.altKey) {
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       const slashTriggerText =
@@ -518,6 +577,8 @@ export function useChatComposerCommands({
         }
       }
     }
+
+    if (key === "Tab" && acceptComposerPrediction(event)) return true;
 
     if (
       shouldHandlePromptHistoryNavigationKey({

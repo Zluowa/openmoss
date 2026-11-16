@@ -81,6 +81,7 @@ export const makeServerEnvironment = Effect.fn(function* () {
     capabilities: {
       repositoryIdentity: true,
       folderPicker,
+      composerPredictions: true,
     },
   };
 

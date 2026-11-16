@@ -26,11 +26,12 @@ import {
   buildDiffSummaryPrompt,
   buildPrContentPrompt,
   buildThreadRecapPrompt,
-  buildNextMessagePredictionPrompt,
+  buildComposerPredictionPrompt,
   buildProjectDigestPrompt,
   buildThreadTitlePrompt,
   sanitizeCommitSubject,
   sanitizeDiffSummary,
+  sanitizeComposerPrediction,
   sanitizeThreadRecap,
   sanitizePrTitle,
   type RawTextFallback,
@@ -264,13 +265,13 @@ const makeDroidTextGeneration = Effect.gen(function* () {
         }),
       );
     }),
-    generateNextMessagePrediction: Effect.fn("DroidTextGeneration.generateNextMessagePrediction")(
-      function* (input: OperationInputOf<"generateNextMessagePrediction">) {
+    generateComposerPrediction: Effect.fn("DroidTextGeneration.generateComposerPrediction")(
+      function* (input: OperationInputOf<"generateComposerPrediction">) {
         return yield* runDroidAcpOperation(
-          "generateNextMessagePrediction",
+          "generateComposerPrediction",
           input,
-          (input) => buildNextMessagePredictionPrompt({ transcript: input.transcript }),
-          (generated) => ({ text: generated.suggestion?.trim() ?? "" }),
+          (input) => buildComposerPredictionPrompt({ conversation: input.conversation }),
+          (generated) => ({ suggestion: sanitizeComposerPrediction(generated.suggestion) }),
         );
       },
     ),

@@ -6,6 +6,16 @@ import {
 } from "./lib/composerMentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
+/** Keys the composer editor hands to its owner before its own handling. */
+export type ComposerCommandKey =
+  | "ArrowDown"
+  | "ArrowUp"
+  | "ArrowRight"
+  | "Enter"
+  | "Escape"
+  | "Tab"
+  | "Slash";
+
 export type ComposerTriggerKind = "mention" | "slash-command" | "slash-model" | "skill";
 
 export interface ComposerTrigger {
