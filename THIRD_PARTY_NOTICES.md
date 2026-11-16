@@ -28,6 +28,29 @@ Moss-only adaptations, because this repository does not have the upstream pieces
 - Page links open like Moss chat links (`linkContextMenu.ts`), page images open in Moss's image viewer, and the shortcuts a page may forward are Moss's own view commands (`apps/web/src/lib/htmlRenderShortcuts.ts`), matched with Moss's key alias table in `packages/shared/src/keybindingRules.ts`.
 - Not carried over: T3's mobile, guest-sharing, MCP-app, and Antigravity ACP changes, which have no Moss counterpart, and its headless-Chrome launch reporting, since Moss previews through Playwright. Moss already hands pages sRGB theme colors (T3 #16325) and emulates the preview appearance (T3 #24521).
 
+## Theme CSS and agent restyling from T3 Code
+
+Custom CSS in theme packs, the CSS guard, and the agent tools that restyle Moss (`moss_theme_read`, `moss_theme_set`) are adapted from T3 Code's theme CSS.
+
+- Source: https://github.com/pingdotgg/t3code
+- Ported up to: 1d1489d0b8 (2026-11-16), with #35247 (theme colors and CSS for agents), #36656 (50,000-character CSS), #36696 (url() inside a quoted data: address) and #37259 (the tool says which clients switch). The own-key lookup of #31318 is applied to theme labels.
+- License: MIT. Copyright (c) 2026 T3 Tools Inc. (text in the "Server browser streaming and takeover from T3 Code" section)
+
+Carried over with Moss names:
+
+- the remote-load checks (`themeCssValueFetches`, `themeCssLoadsRemoteFiles`) and their tests in `packages/shared/src/themeCss.ts`
+- the client guard that lets the browser parse theme CSS first and drops every declaration that could load a file, in `apps/web/src/theme/themeCss.ts`, and its hostile-CSS browser test in `apps/web/src/lib/themeCss.browser.ts`
+- the custom CSS code box in `apps/web/src/components/settings/ThemeCssEditor.tsx`
+- the stable-selector list, the agent styling guide and the test that fails when a selector leaves the source (`apps/web/src/theme/themeCssHooks.test.ts`)
+
+Moss-only adaptations:
+
+- Moss themes are per-appearance packs (accent, background, foreground, sidebar, contrast, fonts) stored on each client, so CSS is a field of a pack, Moss's share string carries it, and the selector list and guide describe Moss's DOM. There is no theme file service: `moss_theme_set` stores one published theme in server settings, and each client applies each published revision once to its own theme store (`apps/web/src/components/AgentThemeSync.tsx`). Clients cannot publish a theme through the settings RPC (`apps/server/src/reservedSettingsBoundary.ts`).
+- The guard is stricter: it also drops `@font-face` and every at-rule it does not walk, and theme CSS cannot write text (`content`, `quotes`, `list-style` and `text-overflow` take only empty strings).
+- A safe way back that does not depend on the themed UI: Ctrl+Alt+Shift+Backspace restores the default look, and Settings > Appearance has "Restore default look".
+- `moss_theme_set` needs a full-access caller thread with a live turn, like T3's environment settings, and acts only on the local server.
+- Not carried over: T3's theme files on disk, the `t3 theme` command line and its dev-home fix (#34700), the import conflict dialog (#37493 keeps CSS in its "Keep both" copy; Moss imports one share string into one pack), the stored copy of published themes for the first frame (#36042; Moss clients apply a published theme into the theme store they already paint from at launch), and the mobile app.
+
 ## Server browser streaming and takeover from T3 Code
 
 Moss's server-hosted agent browser, streamed to viewers with take-over control, is adapted from T3 Code's server preview browser.
