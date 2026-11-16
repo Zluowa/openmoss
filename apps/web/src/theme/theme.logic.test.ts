@@ -3,9 +3,18 @@
 // Layer: Web appearance domain tests
 // Exports: Vitest coverage for theme.logic.
 
+import { THEME_CSS_MAX_LENGTH, type MossPublishedTheme } from "@moss/contracts";
+import { MOSS_THEME_PRESETS } from "@moss/shared/themeCss";
 import { describe, expect, it } from "vitest";
 import {
+  CODE_THEME_OPTIONS,
   DEFAULT_THEME_STATE,
+  applyPublishedTheme,
+  areThemePacksEqual,
+  codeThemeLabel,
+  normalizeThemeCss,
+  serializeThemeState,
+  setThemeCss,
   buildResolvedThemeTokens,
   buildThemeCssVariables,
   canParseThemeShareString,
@@ -665,5 +674,143 @@ describe("window translucency", () => {
     expect(resetThemeVariant(edited, "dark").translucency.dark).toEqual(
       DEFAULT_THEME_STATE.translucency.dark,
     );
+  });
+});
+
+describe("theme pack custom CSS", () => {
+  const CSS = "[data-chat-header] { border-bottom: 1px solid red; }";
+
+  it("leaves Moss's default look and stored format untouched", () => {
+    expect(DEFAULT_THEME_STATE.chromeThemes.dark.css).toBeUndefined();
+    expect(DEFAULT_THEME_STATE.chromeThemes.light.css).toBeUndefined();
+    expect(serializeThemeState(DEFAULT_THEME_STATE)).not.toContain('"css"');
+    expect(parseStoredThemeState(serializeThemeState(DEFAULT_THEME_STATE))).toEqual(
+      DEFAULT_THEME_STATE,
+    );
+  });
+
+  it("stores CSS only when there is some, and drops CSS over the limit whole", () => {
+    expect(normalizeThemeCss("")).toBeUndefined();
+    expect(normalizeThemeCss("  \n ")).toBeUndefined();
+    expect(normalizeThemeCss(42)).toBeUndefined();
+    expect(normalizeThemeCss(CSS)).toBe(CSS);
+    expect(normalizeThemeCss("a".repeat(THEME_CSS_MAX_LENGTH))).toHaveLength(THEME_CSS_MAX_LENGTH);
+    expect(normalizeThemeCss("a".repeat(THEME_CSS_MAX_LENGTH + 1))).toBeUndefined();
+  });
+
+  it("sets, clears and compares a pack's CSS", () => {
+    const styled = setThemeCss(DEFAULT_THEME_STATE, "dark", CSS);
+    expect(styled.chromeThemes.dark.css).toBe(CSS);
+    expect(styled.chromeThemes.light.css).toBeUndefined();
+    expect(
+      areThemePacksEqual(
+        resolveThemePack(styled, "dark"),
+        resolveThemePack(DEFAULT_THEME_STATE, "dark"),
+      ),
+    ).toBe(false);
+    const cleared = setThemeCss(styled, "dark", "");
+    expect(cleared.chromeThemes.dark).toEqual(DEFAULT_THEME_STATE.chromeThemes.dark);
+    expect("css" in cleared.chromeThemes.dark).toBe(false);
+  });
+
+  it("keeps CSS across a reload, a preset change and a share string round trip", () => {
+    const styled = setThemeCss(DEFAULT_THEME_STATE, "dark", CSS);
+    expect(parseStoredThemeState(serializeThemeState(styled)).chromeThemes.dark.css).toBe(CSS);
+    expect(setThemeCodeThemeId(styled, "dark", "nord").chromeThemes.dark.css).toBe(CSS);
+
+    const shared = createThemeShareString("dark", resolveThemePack(styled, "dark"));
+    expect(parseThemeShareString(shared).theme.css).toBe(CSS);
+    const imported = updateThemePackFromShareString(DEFAULT_THEME_STATE, shared, "dark");
+    expect(imported.chromeThemes.dark.css).toBe(CSS);
+    // A theme without CSS still exports a plain share string.
+    expect(
+      createThemeShareString("dark", resolveThemePack(DEFAULT_THEME_STATE, "dark")),
+    ).not.toContain('"css"');
+  });
+
+  it("Reset removes the CSS with the rest of the pack", () => {
+    const styled = setThemeCss(DEFAULT_THEME_STATE, "light", CSS);
+    expect(resetThemeVariant(styled, "light").chromeThemes.light).toEqual(
+      DEFAULT_THEME_STATE.chromeThemes.light,
+    );
+  });
+});
+
+describe("applyPublishedTheme", () => {
+  const published = (theme: Partial<MossPublishedTheme>): MossPublishedTheme => ({
+    revision: "r1",
+    publishedAt: "2026-11-17T00:00:00.000Z",
+    ...theme,
+  });
+
+  it("applies a preset, colors, fonts and CSS to one pack and switches the appearance", () => {
+    const next = applyPublishedTheme(
+      DEFAULT_THEME_STATE,
+      published({
+        appearance: "dark",
+        dark: {
+          preset: "nord",
+          accent: "#88c0d0",
+          sidebar: "#20242c",
+          contrast: 40,
+          uiFont: "Inter",
+          skill: "#b48ead",
+          css: "[data-chat-header] { letter-spacing: 0.02em; }",
+        },
+      }),
+    );
+    expect(next.mode).toBe("dark");
+    expect(next.codeThemeIds.dark).toBe("nord");
+    expect(next.chromeThemes.dark.accent).toBe("#88c0d0");
+    expect(next.chromeThemes.dark.surface).toBe(getCodeThemeSeed("nord", "dark").surface);
+    expect(next.chromeThemes.dark.sidebar).toBe("#20242c");
+    expect(next.chromeThemes.dark.contrast).toBe(40);
+    expect(next.chromeThemes.dark.fonts.ui).toBe("Inter");
+    expect(next.systemUiFont).toBe(false);
+    expect(next.chromeThemes.dark.semanticColors.skill).toBe("#b48ead");
+    expect(next.chromeThemes.dark.css).toContain("letter-spacing");
+    expect(next.chromeThemes.light).toEqual(DEFAULT_THEME_STATE.chromeThemes.light);
+  });
+
+  it("keeps the person's other values unless the theme asks for a reset", () => {
+    const styled = setThemeCss(
+      setThemeCodeThemeId(DEFAULT_THEME_STATE, "light", "solarized"),
+      "light",
+      "body { color: red; }",
+    );
+    const kept = applyPublishedTheme(styled, published({ light: { accent: "#123456" } }));
+    expect(kept.codeThemeIds.light).toBe("solarized");
+    expect(kept.chromeThemes.light.css).toBe("body { color: red; }");
+    expect(kept.chromeThemes.light.accent).toBe("#123456");
+
+    const undone = applyPublishedTheme(styled, published({ reset: true }));
+    expect(undone.chromeThemes).toEqual(DEFAULT_THEME_STATE.chromeThemes);
+    expect(undone.codeThemeIds).toEqual(DEFAULT_THEME_STATE.codeThemeIds);
+    expect(undone.mode).toBe(styled.mode);
+  });
+
+  it("ignores values the theme store would not accept", () => {
+    const next = applyPublishedTheme(
+      DEFAULT_THEME_STATE,
+      published({ light: { preset: "nord", accent: "red" as `#${string}` } }),
+    );
+    // Nord has no light pack, and "red" is not a hex color.
+    expect(next.codeThemeIds.light).toBe(DEFAULT_THEME_STATE.codeThemeIds.light);
+    expect(next.chromeThemes.light.accent).toBe(DEFAULT_THEME_STATE.chromeThemes.light.accent);
+  });
+});
+
+describe("theme presets", () => {
+  it("lists the same presets the agent tools offer", () => {
+    expect(
+      CODE_THEME_OPTIONS.map((option) => ({ id: option.id, variants: [...option.variants] })),
+    ).toEqual(
+      MOSS_THEME_PRESETS.map((preset) => ({ id: preset.id, variants: [...preset.variants] })),
+    );
+  });
+
+  it("reads labels from its own table only", () => {
+    expect(codeThemeLabel("constructor", "zh-CN")).toBe("constructor");
+    expect(codeThemeLabel("nord", "zh-CN")).toBe("霜蓝");
   });
 });

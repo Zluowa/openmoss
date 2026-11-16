@@ -249,6 +249,9 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "openui_reference",
   // Turn-end next-step box (wrapUpTool.ts): validates its input, changes nothing.
   "moss_wrap_up",
+  // Moss's own theme (themeTools.ts). The set tool checks a full-access caller itself.
+  "moss_theme_read",
+  "moss_theme_set",
   // Static visual guide (visualGuideTool.ts). place_photos reaches the network,
   // so it stays with html_preview outside this auto-approved set.
   "visual_guide",

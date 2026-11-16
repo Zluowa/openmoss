@@ -84,6 +84,7 @@ import {
 import { SettingsRow, SettingsSection, SettingsSectionShell } from "./SettingsPanelPrimitives";
 import { ThemeModePicker } from "./ThemeModePicker";
 import { ThemePackEditor } from "~/components/ThemePackEditor";
+import { clearPublishedAgentTheme } from "~/components/AgentThemeSync";
 import {
   Autocomplete,
   AutocompleteEmpty,
@@ -356,13 +357,21 @@ export function SettingsContent({
     isDefaultThemePack,
     resetAllThemes,
     resolvedTheme,
+    restoreDefaultLook,
     theme,
     setTheme,
     systemUiFont,
     setSystemUiFont,
   } = useTheme();
-  const { settings, defaults, updateSettings, updateSettingsAndWait, resetSettings } =
-    useAppSettings();
+  const {
+    settings,
+    defaults,
+    updateSettings,
+    updateSettingsAndWait,
+    resetSettings,
+    serverSettings,
+  } = useAppSettings();
+  const publishedAgentTheme = serverSettings?.agentTheme;
   const keepAwake = useKeepAwakeState();
   const [releaseHistoryOpen, setReleaseHistoryOpen] = useState(false);
   const [resetEpoch, setResetEpoch] = useState(0);
@@ -623,6 +632,7 @@ export function SettingsContent({
 
     setTheme("system");
     resetAllThemes();
+    void clearPublishedAgentTheme(publishedAgentTheme);
     setDefaultDiffRenderMode(DEFAULT_DIFF_RENDER_MODE);
     await resetSettings();
     setResetEpoch((current) => current + 1);
@@ -1004,8 +1014,27 @@ export function SettingsContent({
       <SettingsSectionShell
         title="Theme"
         action={
-          theme !== "system" ? (
-            <SettingResetButton label="theme" onClick={() => setTheme("system")} />
+          theme !== "system" || !isDefaultThemePack("light") || !isDefaultThemePack("dark") ? (
+            <div className="flex items-center gap-1">
+              {theme !== "system" ? (
+                <SettingResetButton label="theme" onClick={() => setTheme("system")} />
+              ) : null}
+              {!isDefaultThemePack("light") || !isDefaultThemePack("dark") ? (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="text-muted-foreground"
+                  data-theme-restore-default-look=""
+                  onClick={() => {
+                    // Both packs, custom CSS included, and the theme an agent last published.
+                    restoreDefaultLook();
+                    void clearPublishedAgentTheme(publishedAgentTheme);
+                  }}
+                >
+                  Restore default look
+                </Button>
+              ) : null}
+            </div>
           ) : null
         }
       >

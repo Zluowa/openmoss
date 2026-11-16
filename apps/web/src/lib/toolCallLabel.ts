@@ -650,6 +650,8 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_create_kanban_draft: presentMossTool("drafting board tasks", "drafted board tasks"),
   moss_set_kanban_goal: presentMossTool("setting the board goal", "set the board goal"),
   moss_set_thread_goal: presentMossTool("setting a thread goal", "set a thread goal"),
+  moss_theme_read: presentMossTool("reading the theme guide", "read the theme guide"),
+  moss_theme_set: presentMossTool("restyling Moss", "restyled Moss"),
   moss_set_thread_pull_request: presentMossTool("linking a pull request", "linked a pull request"),
   moss_show_visual: presentMossTool("showing a visual", "showed a visual"),
   moss_e2e_review: presentMossTool(
@@ -730,6 +732,8 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_set_thread_title: ["正在重命名对话", "已重命名对话", "无法重命名对话"],
   moss_set_thread_archived: ["正在更新对话", "已更新对话", "无法更新对话"],
   moss_set_thread_goal: ["正在设置对话目标", "已设置对话目标", "无法设置对话目标"],
+  moss_theme_read: ["正在读取主题指南", "已读取主题指南", "无法读取主题指南"],
+  moss_theme_set: ["正在更换 Moss 外观", "已更换 Moss 外观", "无法更换 Moss 外观"],
   moss_set_thread_pull_request: ["正在关联拉取请求", "已关联拉取请求", "无法关联拉取请求"],
   moss_create_automation: ["正在创建自动化", "已创建自动化", "无法创建自动化"],
   moss_list_automations: ["正在列出自动化", "已列出自动化", "无法列出自动化"],

@@ -417,6 +417,10 @@
       "types": "./src/themePalettes.ts",
       "import": "./src/themePalettes.ts"
     },
+    "./themeCss": {
+      "types": "./src/themeCss.ts",
+      "import": "./src/themeCss.ts"
+    },
     "./binaryTransfer": {
       "types": "./src/binaryTransfer.ts",
       "import": "./src/binaryTransfer.ts"

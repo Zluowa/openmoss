@@ -49,6 +49,7 @@ import { AuthenticatedAppSnapWelcomeDialog } from "../components/AuthenticatedAp
 import { GitHubSignInIntroduction } from "../onboarding/GitHubSignInIntroduction";
 import { BetaWelcomeDialog } from "../components/BetaWelcomeDialog";
 import { ErrorReportsPreferenceSync } from "../components/ErrorReportsPreferenceSync";
+import { AgentThemeSync } from "../components/AgentThemeSync";
 import { useOnboarding } from "../onboarding/useOnboarding";
 import { ProjectImportAnnouncementDialog } from "../projectImport/ProjectImportAnnouncementDialog";
 import { useProjectImportDialogStore } from "../projectImport/projectImportDialogStore";
@@ -372,6 +373,7 @@ function RootRouteView() {
           <LaunchRunExitLogDialogHost />
           <GlobalWhatsNewSurface />
           <ErrorReportsPreferenceSync />
+          <AgentThemeSync />
           <UnreadableThreadsNotice />
           <TaskCompletionNotifications />
           <QueuedComposerDrainCoordinator />
