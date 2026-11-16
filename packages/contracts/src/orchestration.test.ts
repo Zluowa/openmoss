@@ -10,6 +10,7 @@ import {
   OrchestrationCommand,
   OrchestrationGetTurnDiffInput,
   OrchestrationReadModel,
+  OrchestrationShellSnapshot,
   ProjectCreatedPayload,
   OrchestrationProposedPlan,
   OrchestrationSession,
@@ -829,5 +830,31 @@ it.effect("ThreadHandoff decodes legacy provider names instead of failing the ro
       bootstrapStatus: "completed",
     });
     assert.equal(current.sourceProvider, "codex");
+  }),
+);
+
+// Ported from upstream #2135. Moss decodes a missing sidebarSections as [], so the
+// expected values carry it.
+it.effect("preserves optional empty thread shell verification across versions", () =>
+  Effect.gen(function* () {
+    const decode = Schema.decodeUnknownEffect(OrchestrationShellSnapshot);
+    const snapshot = {
+      snapshotSequence: 0,
+      spaces: [],
+      projects: [],
+      threads: [],
+      updatedAt: "2026-10-13T10:00:00.000Z",
+    };
+    assert.deepStrictEqual(yield* decode(snapshot), { ...snapshot, sidebarSections: [] });
+    for (const emptyThreadShellVerified of [true, false]) {
+      const input = { ...snapshot, emptyThreadShellVerified };
+      assert.deepStrictEqual(yield* decode(input), { ...input, sidebarSections: [] });
+    }
+    for (const emptyThreadShellVerified of ["true", 1, null]) {
+      assert.equal(
+        yield* decode({ ...snapshot, emptyThreadShellVerified }).pipe(Effect.isFailure),
+        true,
+      );
+    }
   }),
 );

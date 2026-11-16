@@ -154,6 +154,13 @@ const MOVE_AWARE_WORKING_TREE_STATUS_TIMEOUT_MS = 15_000;
 const AUTO_DETACHED_WORKTREE_DIRNAME = "moss";
 const WORKTREE_OWNERSHIP_MARKER = "moss-agent-gateway-owner.json";
 const WORKTREE_TRANSFER_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+// Copying a checkout's changes into a new worktree walks every file in it, so it
+// scales with checkout size and disk speed (an external drive can take minutes).
+// Bound the captured patch, not the time; caller interruption still kills Git.
+const WORKTREE_TRANSFER_READ_OPTIONS = {
+  timeoutMs: null,
+  maxOutputBytes: WORKTREE_TRANSFER_MAX_OUTPUT_BYTES,
+} as const;
 const NON_REPOSITORY_STATUS_DETAILS = Object.freeze({
   isRepo: false,
   hasOriginRemote: false,
@@ -3456,6 +3463,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           : ["worktree", "add", worktreePath, input.branch];
 
         yield* executeGit("GitCore.createWorktree", input.cwd, args, {
+          ...GIT_MUTATION_OPTIONS,
           fallbackErrorMessage: "git worktree add failed",
         });
 
@@ -3488,13 +3496,16 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       }
     };
 
-    const listWorktreeTransferPaths = (cwd: string) =>
+    const listWorktreeTransferPaths = (
+      cwd: string,
+      readOptions: ExecuteGitOptions = { maxOutputBytes: WORKTREE_TRANSFER_MAX_OUTPUT_BYTES },
+    ) =>
       Effect.gen(function* () {
         const untracked = yield* executeGit(
           "GitCore.listWorktreeTransferPaths.untracked",
           cwd,
           ["ls-files", "--others", "--exclude-standard", "-z"],
-          { maxOutputBytes: WORKTREE_TRANSFER_MAX_OUTPUT_BYTES },
+          readOptions,
         ).pipe(Effect.map((result) => parseNullSeparatedPaths(result.stdout)));
         const includeFile = nodePath.join(cwd, ".worktreeinclude");
         const hasIncludeFile = yield* Effect.tryPromise({
@@ -3520,7 +3531,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
               "GitCore.listWorktreeTransferPaths.included",
               cwd,
               ["ls-files", "--others", "--ignored", "--exclude-from=.worktreeinclude", "-z"],
-              { maxOutputBytes: WORKTREE_TRANSFER_MAX_OUTPUT_BYTES },
+              readOptions,
             ).pipe(Effect.map((result) => parseNullSeparatedPaths(result.stdout)))
           : [];
         return [...new Set([...untracked, ...included])].sort();
@@ -3605,9 +3616,9 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                 "HEAD",
                 "--",
               ],
-              { maxOutputBytes: WORKTREE_TRANSFER_MAX_OUTPUT_BYTES },
+              WORKTREE_TRANSFER_READ_OPTIONS,
             ).pipe(Effect.map((result) => result.stdout)),
-            listWorktreeTransferPaths(sourceCwd),
+            listWorktreeTransferPaths(sourceCwd, WORKTREE_TRANSFER_READ_OPTIONS),
           ],
           { concurrency: "unbounded" },
         );
@@ -3654,7 +3665,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                   "GitCore.copyCheckoutChanges.apply",
                   worktreePath,
                   ["apply", "--whitespace=nowarn", patchPath],
-                  { timeoutMs: 30_000 },
+                  GIT_MUTATION_OPTIONS,
                 );
               }),
             (temporaryDirectory) =>
@@ -3982,12 +3993,15 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           ]);
         }
         yield* onPhase("worktree");
+        // Checkout time scales with repository size and disk speed, so the
+        // 30s default would fail slow (e.g. external) drives mid-checkout.
         const addWorktree = executeGit(
           "GitCore.createDetachedWorktree",
           input.cwd,
           newBranch
             ? ["worktree", "add", worktreePath, newBranch]
             : ["worktree", "add", "--detach", worktreePath, resolvedRef],
+          GIT_MUTATION_OPTIONS,
         );
         yield* newBranch
           ? addWorktree.pipe(

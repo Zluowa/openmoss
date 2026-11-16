@@ -1,6 +1,12 @@
 import type { OrchestrationReadModel, OrchestrationShellSnapshot } from "@moss/contracts";
 
-type EmptyRouteRestoreRefreshHandler = () => Promise<boolean>;
+/**
+ * "restored": threads are now in the store. "verified-empty": the server proved there is
+ * no thread and no thread history, so route restore need not wait. "unknown": neither.
+ */
+export type EmptyRouteRestoreRefreshResult = "restored" | "verified-empty" | "unknown";
+
+type EmptyRouteRestoreRefreshHandler = () => Promise<EmptyRouteRestoreRefreshResult>;
 
 /** Wait for projection catch-up before a full rebuild on large state DBs. */
 export const EMPTY_ROUTE_PROJECTION_POLL_ATTEMPTS = 12;
@@ -11,7 +17,7 @@ let activeEmptyRouteRestoreRefreshHandler: EmptyRouteRestoreRefreshHandler | nul
 export function registerEmptyRouteRestoreRefresh(
   handler: EmptyRouteRestoreRefreshHandler,
 ): () => void {
-  let inFlight: Promise<boolean> | null = null;
+  let inFlight: Promise<EmptyRouteRestoreRefreshResult> | null = null;
   const singleFlightHandler = () => {
     if (inFlight) {
       return inFlight;
@@ -35,8 +41,8 @@ export function registerEmptyRouteRestoreRefresh(
   };
 }
 
-export function requestEmptyRouteRestoreRefresh(): Promise<boolean> {
-  return activeEmptyRouteRestoreRefreshHandler?.() ?? Promise.resolve(false);
+export function requestEmptyRouteRestoreRefresh(): Promise<EmptyRouteRestoreRefreshResult> {
+  return activeEmptyRouteRestoreRefreshHandler?.() ?? Promise.resolve("unknown");
 }
 
 function delay(ms: number): Promise<void> {
@@ -56,18 +62,21 @@ export async function runEmptyRouteRestoreRefresh(input: {
   readonly getShellSnapshot: () => Promise<OrchestrationShellSnapshot>;
   readonly getSnapshot: () => Promise<OrchestrationReadModel>;
   readonly repairState: () => Promise<OrchestrationReadModel>;
-  readonly applyShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
+  /** Returns whether EventRouter's shell fence accepted the snapshot. */
+  readonly applyShellSnapshot: (snapshot: OrchestrationShellSnapshot) => boolean;
   readonly hasThreads: () => boolean;
-}): Promise<boolean> {
-  const applyFreshShellSnapshot = async () => {
+}): Promise<EmptyRouteRestoreRefreshResult> {
+  const applyFreshShellSnapshot = async (): Promise<EmptyRouteRestoreRefreshResult> => {
     const snapshot = await input.getShellSnapshot();
-    input.applyShellSnapshot(snapshot);
-    return input.hasThreads();
+    const accepted = input.applyShellSnapshot(snapshot);
+    if (input.hasThreads()) return "restored";
+    return accepted && snapshot.emptyThreadShellVerified === true ? "verified-empty" : "unknown";
   };
 
   for (let attempt = 0; attempt < EMPTY_ROUTE_PROJECTION_POLL_ATTEMPTS; attempt += 1) {
-    if (await applyFreshShellSnapshot()) {
-      return true;
+    const result = await applyFreshShellSnapshot();
+    if (result !== "unknown") {
+      return result;
     }
 
     if (attempt + 1 < EMPTY_ROUTE_PROJECTION_POLL_ATTEMPTS) {

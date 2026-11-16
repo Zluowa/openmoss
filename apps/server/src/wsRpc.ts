@@ -2775,7 +2775,9 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(
             gateOrchestrationReadUntilStartup(
               runtimeStartup,
-              projectionReadModelQuery.getShellSnapshot(),
+              // Queried snapshots carry an empty-thread proof so an empty app's route
+              // restore can skip its recovery wait; streamed snapshots omit it.
+              projectionReadModelQuery.getShellSnapshot({ verifyEmptyThreads: true }),
             ),
             "Failed to load orchestration shell snapshot",
           ),

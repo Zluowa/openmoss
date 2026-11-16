@@ -17,6 +17,11 @@ describe("wsRequestClass", () => {
       "import-scan": 2,
     });
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.dispatchCommand)).toBe("control");
+    // Both halves of "Unblock thread" share the control budget (upstream #2119).
+    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.listProviderDeliveryBlockers)).toBe(
+      "control",
+    );
+    expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.reconcileProviderDelivery)).toBe("control");
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.replayEvents)).toBe("expensive-read");
     expect(classifyWsRequest(WS_METHODS.statsGetUsageAnalytics)).toBe("expensive-read");
     expect(classifyWsRequest(WS_METHODS.gitListBranches)).toBe("standard");

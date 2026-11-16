@@ -549,6 +549,10 @@
       "types": "./src/computerGrants.ts",
       "import": "./src/computerGrants.ts"
     },
+    "./byteAccumulator": {
+      "types": "./src/byteAccumulator.ts",
+      "import": "./src/byteAccumulator.ts"
+    },
     "./computerAppPolicy": {
       "types": "./src/computerAppPolicy.ts",
       "import": "./src/computerAppPolicy.ts"

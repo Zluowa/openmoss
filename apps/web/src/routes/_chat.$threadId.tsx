@@ -132,14 +132,25 @@ function ChatThreadRouteContent() {
             setMissingThreadRecoveryState("pending");
           }
         }, 0);
-        void Promise.all([
-          refreshEmptyRouteRestoreSnapshot(readNativeApi()).catch(() => false),
-          waitForEmptyRouteRestoreFallbackDelay(),
-        ]).finally(() => {
+        let recoverySettled = false;
+        const settleRecovery = () => {
+          if (recoverySettled) return;
+          recoverySettled = true;
           window.clearTimeout(pendingTimer);
           if (mountedRef.current && missingThreadRecoveryRunRef.current === recoveryRun) {
             setMissingThreadRecoveryState("done");
           }
+        };
+        const refresh = refreshEmptyRouteRestoreSnapshot(readNativeApi()).catch(
+          () => "unknown" as const,
+        );
+        // Every result still waits for both the refresh and the fallback delay, settling
+        // exactly when it did before; only a server-verified empty shell settles early.
+        void Promise.all([refresh, waitForEmptyRouteRestoreFallbackDelay()]).finally(
+          settleRecovery,
+        );
+        void refresh.then((result) => {
+          if (result === "verified-empty") settleRecovery();
         });
         return;
       }

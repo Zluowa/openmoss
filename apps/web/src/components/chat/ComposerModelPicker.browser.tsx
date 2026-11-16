@@ -1339,6 +1339,79 @@ describe("ComposerModelPicker with several accounts", () => {
     }
   });
 
+  // Ported from upstream #2143: new-thread warming covers only the starting account, so
+  // the picker loads a starred account's catalog itself once it opens on Starred.
+  it("loads the starred Pi account on open and makes its dynamic preset selectable", async () => {
+    const piModel = "pi:example" as ModelSlug;
+    const otherPiModel = "pi:another" as ModelSlug;
+    const piInstanceId = "pi_work";
+    const onRefreshModels = vi.fn().mockResolvedValue(undefined);
+    const onProviderModelChange = vi.fn();
+    const props: HarnessProps = {
+      onRefreshModels,
+      onProviderModelChange,
+      providers: [
+        readyProvider("codex"),
+        readyProvider("claudeAgent"),
+        readyProvider("pi"),
+        { ...readyProvider("pi"), instanceId: piInstanceId },
+      ],
+      providerInstances: [
+        CODEX_ACCOUNTS[0]!,
+        { instanceId: "pi", provider: "pi", label: "Pi", enabled: true, isDefault: true },
+        {
+          instanceId: piInstanceId,
+          provider: "pi",
+          label: "Work",
+          enabled: true,
+          isDefault: false,
+        },
+      ],
+    };
+    localStorage.setItem(
+      STARRED_MODELS_STORAGE_KEY,
+      JSON.stringify(
+        [piModel, otherPiModel].map((model) => ({
+          provider: "pi",
+          instanceId: piInstanceId,
+          model,
+          effort: null,
+          fastMode: null,
+          thinking: null,
+        })),
+      ),
+    );
+    const screen = await render(withQueryClient(<Harness {...props} />));
+    try {
+      expect(onRefreshModels).not.toHaveBeenCalled();
+      await page.getByRole("button", { name: "Change model and reasoning" }).click();
+      // Moss lists Starred in the Agent column rather than as a tab.
+      await expectActiveAgent("Starred");
+      await vi.waitFor(() =>
+        expect(onRefreshModels).toHaveBeenCalledExactlyOnceWith("pi", piInstanceId, "if-stale"),
+      );
+      await screen.rerender(
+        withQueryClient(
+          <Harness
+            {...props}
+            modelOptionsByProviderInstance={{
+              [piInstanceId]: [{ slug: piModel, name: "Example Pi" }],
+            }}
+          />,
+        ),
+      );
+      await page.getByRole("menuitem", { name: /Example Pi/u }).click();
+      expect(onProviderModelChange).toHaveBeenCalledWith(
+        "pi",
+        piModel,
+        expect.objectContaining({ instanceId: piInstanceId }),
+      );
+      expect(onRefreshModels).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("offers a started thread only its own account's starred presets", async () => {
     const screen = await mountPicker({ ...multiAccount, lockedProvider: "codex" }, undefined, [
       { provider: "codex", model: GPT_5_4, effort: null, fastMode: null, thinking: null },

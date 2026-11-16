@@ -2745,7 +2745,7 @@ export default function Sidebar() {
   // Warm model discovery before ChatView mounts so new-thread composers skip
   // the "Loading models" skeleton when React Query already has a fresh cache hit.
   const prefetchModelsForProjectNewThread = useCallback(
-    (projectId: ProjectId, options?: { includeDroid?: boolean }) => {
+    (projectId: ProjectId, options?: { includeDroid?: boolean; passive?: boolean }) => {
       const project = projects.find((candidate) => candidate.id === projectId);
       if (!project) {
         return;
@@ -2780,6 +2780,7 @@ export default function Sidebar() {
         statusesReconciled: hasReconciledServerProviderStatuses(queryClient),
         providerOrder: appSettings.providerOrder,
         includeDroid: options?.includeDroid === true,
+        passive: options?.passive === true,
       });
     },
     [appSettings, projects, providerStatuses, queryClient, serverCwd, serverSettings],
@@ -2791,14 +2792,16 @@ export default function Sidebar() {
     }
     // Idle hover/focus must not spin Droid's expensive per-model ACP discovery;
     // only explicit new-thread intent (the click path below) warms Droid.
-    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId);
+    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, { passive: true });
   }, [prefetchModelsForProjectNewThread, primaryNewThreadTarget]);
 
   useEffect(() => {
     if (!primaryNewThreadTarget) {
       return;
     }
-    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId);
+    // Opening a thread changes this target. Warming every provider here started
+    // their CLIs and servers for a new thread nobody asked for.
+    prefetchModelsForProjectNewThread(primaryNewThreadTarget.projectId, { passive: true });
   }, [prefetchModelsForProjectNewThread, primaryNewThreadTarget]);
 
   const handlePrimaryNewThread = useCallback(() => {
@@ -5413,10 +5416,10 @@ export default function Sidebar() {
           tooltipSide="top"
           data-testid="new-thread-button"
           onMouseEnter={() => {
-            prefetchModelsForProjectNewThread(project.id);
+            prefetchModelsForProjectNewThread(project.id, { passive: true });
           }}
           onFocus={() => {
-            prefetchModelsForProjectNewThread(project.id);
+            prefetchModelsForProjectNewThread(project.id, { passive: true });
           }}
           onClick={(event) => {
             event.preventDefault();

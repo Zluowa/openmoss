@@ -1627,6 +1627,8 @@ export type OrchestrationUnreadableThread = typeof OrchestrationUnreadableThread
 export const OrchestrationShellSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   requiresEmptyProjectShellRepair: Schema.optional(Schema.Boolean),
+  /** Queried shell snapshots only: true when no live thread and no thread history exists. */
+  emptyThreadShellVerified: Schema.optional(Schema.Boolean),
   spaces: Schema.Array(OrchestrationSpaceShell),
   projects: Schema.Array(OrchestrationProjectShell),
   threads: Schema.Array(OrchestrationThreadShell),

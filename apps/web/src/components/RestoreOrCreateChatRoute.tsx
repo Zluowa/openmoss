@@ -116,10 +116,13 @@ export function RestoreOrCreateChatRoute({
         })
       ) {
         setEmptyRestoreRecoveryState("pending");
-        await Promise.all([
-          refreshEmptyRouteRestoreSnapshot(readNativeApi()).catch(() => false),
-          waitForEmptyRouteRestoreFallbackDelay(),
-        ]);
+        // A server-verified empty shell (no thread, no thread history) has nothing left
+        // to restore, so it skips the fallback wait; every other result still waits.
+        const fallbackDelay = waitForEmptyRouteRestoreFallbackDelay();
+        const result = await refreshEmptyRouteRestoreSnapshot(readNativeApi()).catch(
+          () => "unknown" as const,
+        );
+        if (result !== "verified-empty") await fallbackDelay;
         if (mountedRef.current) {
           // Snapshot repair may briefly expose a thread, reset this state to idle, then retract
           // it and start another recovery before this one settles. Any completed bounded refresh
