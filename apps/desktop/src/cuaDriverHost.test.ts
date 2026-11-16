@@ -3,7 +3,8 @@ import { mkdtemp, writeFile, chmod, rm, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createConnection } from "node:net";
-import { spawn, type SpawnOptions } from "node:child_process";
+import { once } from "node:events";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { CuaDriverHost, ESCAPE_INPUT_COOLDOWN_MS } from "./cuaDriverHost";
 import { cuaHostProcessIsAlive } from "./cuaRuntimeOwnership";
 import type { ComputerInputMonitorState } from "./escapeKillSwitchMonitor";
@@ -123,6 +124,7 @@ async function fixture(
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const log = join(directory, "events.jsonl");
   const binary = join(directory, "driver.cjs");
+  const children: ChildProcess[] = [];
   options = { ...options, deathFlag: join(directory, "session-died") };
   await writeFile(
     binary,
@@ -253,8 +255,11 @@ process.stdin.resume(); process.stdin.on('end',retire);
       : { testOnlyPolicyPlatform: options.platform ?? "darwin" }),
     // Keep a real child, NDJSON protocol, and OS-native socket transport.
     // Windows cannot launch a Unix shebang directly.
-    testOnlySpawn: ((path: string, args: readonly string[], spawnOptions: SpawnOptions) =>
-      spawn(process.execPath, [path, ...args], spawnOptions)) as typeof spawn,
+    testOnlySpawn: ((path: string, args: readonly string[], spawnOptions: SpawnOptions) => {
+      const child = spawn(process.execPath, [path, ...args], spawnOptions);
+      children.push(child);
+      return child;
+    }) as typeof spawn,
     ...(options.checkPermissions ? { checkPermissions: options.checkPermissions } : {}),
     ...(options.releaseHeldInput ? { releaseHeldInput: options.releaseHeldInput } : {}),
     ...(options.inputMonitorState ? { inputMonitorState: options.inputMonitorState } : {}),
@@ -275,26 +280,31 @@ process.stdin.resume(); process.stdin.on('end',retire);
       .trim()
       .split("\n")
       .map((row) => JSON.parse(row));
-  cleanups.push(async () => {
+  const cleanup = async () => {
     try {
       await host.dispose();
     } catch (error) {
       if (!options.cleanup && !options.crash && !options.browserCleanupUnconfirmed) throw error;
+    } finally {
+      // A deliberately invalid cleanup ACK may leave a fixture driver alive.
+      // Retain its owned handle: a PID copied from the event log can be reused.
+      await Promise.all(
+        children.map(async (child) => {
+          if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null)
+            return;
+          const exited = once(child, "exit", { signal: AbortSignal.timeout(1_000) });
+          try {
+            child.kill("SIGKILL");
+          } finally {
+            await exited;
+          }
+        }),
+      );
     }
-    // These are fake executables created by this test, with no OS input API.
-    // A deliberately invalid cleanup acknowledgement must leave them alive.
-    for (const event of await events().catch(() => [])) {
-      if (event.event === "start") {
-        try {
-          process.kill(event.pid, "SIGKILL");
-        } catch {
-          /* Already exited. */
-        }
-      }
-    }
-  });
+  };
+  cleanups.push(cleanup);
   const endpoint = await host.listen();
-  return { host, endpoint, events };
+  return { host, endpoint, events, cleanup, children };
 }
 /** Wait for a real driver event; a missed barrier must fail the test. */
 /**
@@ -347,6 +357,24 @@ async function waitForEvent(
 }
 
 describe("Cua macOS host retirement", () => {
+  it("cleans up retained child handles without signaling historical event PIDs", async () => {
+    const f = await fixture(capability, { cleanup: "incomplete" });
+    await expect(
+      cuaRequest(f.endpoint, { method: "call", name: "press_key", args: {} }),
+    ).resolves.toMatchObject({ ok: true, result: {} });
+    const processKill = vi.spyOn(process, "kill");
+    try {
+      await f.cleanup();
+      expect(processKill.mock.calls.some(([, signal]) => signal === "SIGKILL")).toBe(false);
+      expect(f.children).toHaveLength(1);
+      expect(
+        f.children.every((child) => child.exitCode !== null || child.signalCode !== null),
+      ).toBe(true);
+    } finally {
+      processKill.mockRestore();
+    }
+  });
+
   it("keeps the real host platform and IPC transport when policy is not overridden", async () => {
     const platform = process.platform;
     const f = await fixture(capability, { platform: "native" });

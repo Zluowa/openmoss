@@ -21,7 +21,7 @@
     },
     "apps/desktop": {
       "name": "@moss/desktop",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "dependencies": {
         "@openai/codex": "0.166.0",
         "@sentry/electron": "7.18.0",
@@ -44,7 +44,7 @@
     },
     "apps/server": {
       "name": "@moss/cli",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "bin": {
         "moss": "dist/index.mjs",
         "moss-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
@@ -95,7 +95,7 @@
     },
     "apps/web": {
       "name": "@moss/web",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "dependencies": {
         "@base-ui/react": "^1.5.0",
         "@dnd-kit/core": "^6.3.1",
@@ -206,7 +206,7 @@
     },
     "packages/contracts": {
       "name": "@moss/contracts",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "dependencies": {
         "effect": "catalog:",
       },

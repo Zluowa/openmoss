@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { vi } from "vitest";
 
 import { createRejectedFileAlias } from "../fixtures/filesystem-links.ts";
 
@@ -117,6 +118,62 @@ async function rejectionMessage(promise) {
 }
 
 describe("auditWindowsNativePayloads", () => {
+  it("hashes every byte of a large native file with bounded allocations", () => {
+    withFixture((fixture) => {
+      const contents = Buffer.alloc(2 * 1024 * 1024 + 17, 0x73);
+      contents[contents.length - 1] = 0x81;
+      writeFileSync(fixture.preservedPath, contents);
+      fixture.manifest.windows.x64.preservedPayloads[0].sha256 = sha256(contents);
+      const originalAllocate = Buffer.allocUnsafe;
+      const allocation = vi.spyOn(Buffer, "allocUnsafe").mockImplementation((size) => {
+        assert.ok(size <= 1024 * 1024, "native auditing must not allocate whole payloads");
+        return originalAllocate(size);
+      });
+      try {
+        const result = audit(fixture);
+        assert.equal(result.preservedPayloads[0].sha256, sha256(contents));
+        writeFileSync(fixture.preservedPath, contents.subarray(0, contents.length - 1));
+        assert.throws(() => audit(fixture), /SHA-256 mismatch/);
+      } finally {
+        allocation.mockRestore();
+      }
+    });
+  });
+
+  it("finds and hashes a large disguised PE in ASAR without extracting whole entries", async () => {
+    await withFixture(async (fixture) => {
+      const asarSource = path.join(fixture.root, "asar-source");
+      const contents = Buffer.alloc(2 * 1024 * 1024 + 17, 0x73);
+      contents.write("MZ", 0, "ascii");
+      contents.writeUInt32LE(1024 * 1024 + 5, 0x3c);
+      contents.write("PE\0\0", 1024 * 1024 + 5, "binary");
+      mkdirSync(asarSource);
+      writeFileSync(path.join(asarSource, "hidden.bin"), contents);
+      writeFileSync(path.join(asarSource, "large-data.txt"), Buffer.alloc(contents.length, 0x61));
+      await createPackage(asarSource, path.join(fixture.appOutDir, "resources", "app.asar"));
+      const expectedHash = sha256(contents);
+      const originalAllocate = Buffer.allocUnsafe;
+      const allocation = vi.spyOn(Buffer, "allocUnsafe").mockImplementation((size) => {
+        assert.ok(size <= 1024 * 1024, "ASAR auditing must not allocate whole entries");
+        return originalAllocate(size);
+      });
+      const originalZeroAllocate = Buffer.alloc;
+      const zeroAllocation = vi.spyOn(Buffer, "alloc").mockImplementation((size, ...args) => {
+        assert.ok(size <= 1024 * 1024, "ASAR auditing must not allocate whole entries");
+        return originalZeroAllocate(size, ...args);
+      });
+      try {
+        assert.throws(
+          () => audit(fixture),
+          new RegExp(`resources/app\\.asar/hidden\\.bin:${expectedHash}`),
+        );
+      } finally {
+        zeroAllocation.mockRestore();
+        allocation.mockRestore();
+      }
+    });
+  });
+
   it("accepts the exact schema v2 signing and byte-preserved sets", () => {
     withFixture((fixture) => {
       const result = audit(fixture);

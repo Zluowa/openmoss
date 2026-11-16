@@ -23,37 +23,56 @@ function normalizeRelativePath(value) {
 }
 
 function sha256(filePath) {
-  return createHash("sha256").update(FS.readFileSync(filePath)).digest("hex");
+  const descriptor = FS.openSync(filePath, "r");
+  try {
+    return sha256Range(descriptor, 0, FS.fstatSync(descriptor).size);
+  } finally {
+    FS.closeSync(descriptor);
+  }
 }
 
-function sha256Buffer(contents) {
-  return createHash("sha256").update(contents).digest("hex");
+function sha256Range(descriptor, start, size) {
+  const hash = createHash("sha256");
+  const buffer = Buffer.allocUnsafe(Math.min(1024 * 1024, size));
+  let offset = 0;
+  while (offset < size) {
+    const read = FS.readSync(
+      descriptor,
+      buffer,
+      0,
+      Math.min(buffer.length, size - offset),
+      start + offset,
+    );
+    if (read === 0) throw new Error("Packaged Windows native audit encountered a truncated file.");
+    hash.update(buffer.subarray(0, read));
+    offset += read;
+  }
+  return hash.digest("hex");
 }
 
-function isPortableExecutableBuffer(contents) {
-  if (contents.length < 64) return false;
-  if (contents[0] !== 0x4d || contents[1] !== 0x5a) return false;
-  const peOffset = contents.readUInt32LE(0x3c);
-  if (peOffset > contents.length - 4) return false;
-  return contents.subarray(peOffset, peOffset + 4).equals(Buffer.from([0x50, 0x45, 0x00, 0x00]));
+function isPortableExecutableRange(descriptor, start, size) {
+  if (size < 64) return false;
+  const dosHeader = Buffer.alloc(64);
+  if (FS.readSync(descriptor, dosHeader, 0, dosHeader.length, start) !== dosHeader.length) {
+    return false;
+  }
+  if (dosHeader[0] !== 0x4d || dosHeader[1] !== 0x5a) return false;
+  const peOffset = dosHeader.readUInt32LE(0x3c);
+  if (peOffset > size - 4) return false;
+  const signature = Buffer.alloc(4);
+  if (
+    FS.readSync(descriptor, signature, 0, signature.length, start + peOffset) !== signature.length
+  ) {
+    return false;
+  }
+  return signature.equals(Buffer.from([0x50, 0x45, 0x00, 0x00]));
 }
 
 function isPortableExecutable(filePath, size) {
   if (size < 64) return false;
   const descriptor = FS.openSync(filePath, "r");
   try {
-    const dosHeader = Buffer.alloc(64);
-    if (FS.readSync(descriptor, dosHeader, 0, dosHeader.length, 0) !== dosHeader.length) {
-      return false;
-    }
-    if (dosHeader[0] !== 0x4d || dosHeader[1] !== 0x5a) return false;
-    const peOffset = dosHeader.readUInt32LE(0x3c);
-    if (peOffset > size - 4) return false;
-    const signature = Buffer.alloc(4);
-    if (FS.readSync(descriptor, signature, 0, signature.length, peOffset) !== signature.length) {
-      return false;
-    }
-    return signature.equals(Buffer.from([0x50, 0x45, 0x00, 0x00]));
+    return isPortableExecutableRange(descriptor, 0, size);
   } finally {
     FS.closeSync(descriptor);
   }
@@ -76,7 +95,9 @@ function collectAsarNativeFiles(rootDirectory) {
   // afterSign run in the same electron-builder process, so force every audit
   // to read the archive currently present at this path.
   uncacheFilesystem(archivePath);
+  const descriptor = FS.openSync(archivePath, "r");
   try {
+    const payloadStart = 8 + asar.getRawHeader(archivePath).headerSize;
     const nativeFiles = [];
     for (const rawEntryPath of asar.listPackage(archivePath, { isPack: false })) {
       const entryPath = rawEntryPath.replace(/^[/\\]+/, "").replaceAll("\\", "/");
@@ -101,17 +122,29 @@ function collectAsarNativeFiles(rootDirectory) {
         throw new Error(`Packaged Windows app.asar rejects symbolic links: ${entryPath}.`);
       }
       if ("files" in entry || entry.unpacked === true) continue;
-      const contents = asar.extractFile(archivePath, archiveLookupPath, false);
+      const offset = Number(entry.offset);
+      const start = payloadStart + offset;
+      if (
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        !Number.isSafeInteger(entry.size) ||
+        entry.size < 0 ||
+        !Number.isSafeInteger(start + entry.size) ||
+        start + entry.size > archiveStat.size
+      ) {
+        throw new Error(`Packaged Windows app.asar contains an invalid file range: ${entryPath}.`);
+      }
       const trackedExtension = TRACKED_EXTENSIONS.has(path.posix.extname(entryPath).toLowerCase());
-      if (!trackedExtension && !isPortableExecutableBuffer(contents)) continue;
+      if (!trackedExtension && !isPortableExecutableRange(descriptor, start, entry.size)) continue;
       nativeFiles.push({
         absolutePath: `${archivePath}:${entryPath}`,
         path: `resources/app.asar/${entryPath}`,
-        sha256: sha256Buffer(contents),
+        sha256: sha256Range(descriptor, start, entry.size),
       });
     }
     return nativeFiles;
   } finally {
+    FS.closeSync(descriptor);
     uncacheFilesystem(archivePath);
   }
 }
