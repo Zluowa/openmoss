@@ -5,6 +5,7 @@
 // Layer: Server domain logic (no IO)
 // Exports: resolveComposerPredictionTurnBlocker, isComposerPredictionTurnCurrent,
 //          buildComposerPredictionConversation, resolveComposerPredictionRouting,
+//          resolveComposerPredictionRoutingResult, resolveComposerPredictionRoute,
 //          lowestSupportedEffort, resolveMossManagedPredictionModel,
 //          resolveComposerPredictionHedgeDelayMs
 
@@ -31,7 +32,9 @@ import {
   resolveProviderInstance,
 } from "@moss/shared/providerInstances";
 
+import type { IsolatedTextGenerationSupport } from "../git/Services/TextGeneration.ts";
 import { COMPOSER_PREDICTION_CONTEXT_BUDGET } from "../git/textGenerationShared.ts";
+import type { ProviderNextUserMessagePredictionSupport } from "../provider/Services/ProviderAdapter.ts";
 import {
   hasDedicatedTextGenerationProvider,
   resolveTextGenerationInputForSelection,
@@ -352,26 +355,51 @@ export type ComposerPredictionRouting = TextGenerationProviderInput & {
 };
 
 /**
+ * Why a chat has no prediction routing. `no-dedicated-provider` holds for the turn (the
+ * chat's provider has no text generation at all); the others follow settings, or a session
+ * that may still catch up with the chat, so a later request may route.
+ */
+export type ComposerPredictionRoutingFailure =
+  | "session-instance-mismatch"
+  | "instance-unavailable"
+  | "selection-mismatch"
+  | "no-dedicated-provider"
+  | "selection-unresolved";
+
+export type ComposerPredictionRoutingResult =
+  | { readonly kind: "routed"; readonly routing: ComposerPredictionRouting }
+  | { readonly kind: "unrouted"; readonly reason: ComposerPredictionRoutingFailure };
+
+const unrouted = (reason: ComposerPredictionRoutingFailure): ComposerPredictionRoutingResult => ({
+  kind: "unrouted",
+  reason,
+});
+
+/**
  * Routes a prediction to the chat's own provider instance (its account). On a Moss-managed
  * instance it runs the cheapest model of the chat model's family at that model's lowest
  * effort. Elsewhere the configured Git-writing model is used only when it resolves to that
- * same instance, otherwise the chat's model; either one at its lowest catalog effort. Null
- * when the instance is missing or disabled, its driver has no dedicated text generation,
- * or the session and the thread disagree about the instance. Never another account.
+ * same instance, otherwise the chat's model; either one at its lowest catalog effort.
+ * `unrouted` when the instance is missing or disabled, its driver has no dedicated text
+ * generation, or the session and the thread disagree about the instance. Never another
+ * account.
  */
-export function resolveComposerPredictionRouting(input: {
+export function resolveComposerPredictionRoutingResult(input: {
   readonly thread: Pick<OrchestrationThreadShell, "modelSelection" | "session">;
   readonly settings: ServerSettings;
-}): ComposerPredictionRouting | null {
+}): ComposerPredictionRoutingResult {
   const chatSelection = input.thread.modelSelection;
   const chatInstanceId = resolveModelSelectionInstanceId(chatSelection);
   const sessionInstanceId = input.thread.session?.providerInstanceId;
-  if (sessionInstanceId !== undefined && sessionInstanceId !== chatInstanceId) return null;
+  if (sessionInstanceId !== undefined && sessionInstanceId !== chatInstanceId) {
+    return unrouted("session-instance-mismatch");
+  }
 
   const instance = resolveProviderInstance(input.settings, { instanceId: chatInstanceId });
-  if (!instance || !instance.enabled) return null;
+  if (!instance || !instance.enabled) return unrouted("instance-unavailable");
   const driver = instance.driver;
-  if (!hasDedicatedTextGenerationProvider(driver) || driver !== chatSelection.provider) return null;
+  if (driver !== chatSelection.provider) return unrouted("selection-mismatch");
+  if (!hasDedicatedTextGenerationProvider(driver)) return unrouted("no-dedicated-provider");
 
   const managedModel = resolveMossManagedPredictionModel({
     instanceId: instance.instanceId,
@@ -405,14 +433,98 @@ export function resolveComposerPredictionRouting(input: {
     { ...selection, provider: driver, instanceId: instance.instanceId } as ModelSelection,
     providerStartOptionsFromInstance(instance),
   );
-  if (!routed) return null;
+  if (!routed) return unrouted("selection-unresolved");
   return {
-    ...routed,
-    source:
-      managedModel !== null
-        ? "moss-managed-cheapest"
-        : useConfigured
-          ? "git-writing-model"
-          : "chat-model",
+    kind: "routed",
+    routing: {
+      ...routed,
+      source:
+        managedModel !== null
+          ? "moss-managed-cheapest"
+          : useConfigured
+            ? "git-writing-model"
+            : "chat-model",
+    },
+  };
+}
+
+/** {@link resolveComposerPredictionRoutingResult}, or null when the chat is unrouted. */
+export function resolveComposerPredictionRouting(input: {
+  readonly thread: Pick<OrchestrationThreadShell, "modelSelection" | "session">;
+  readonly settings: ServerSettings;
+}): ComposerPredictionRouting | null {
+  const result = resolveComposerPredictionRoutingResult(input);
+  return result.kind === "routed" ? result.routing : null;
+}
+
+/**
+ * Why neither generation route can serve a chat, for a reason that holds for the rest of the
+ * turn: the provider has no text generation, or the isolated route is refused on this
+ * platform and the live thread offers no native prediction fork (no live session, a Codex
+ * build below the fork floor, no persisted provider thread, or a runtime without one).
+ */
+export type ComposerPredictionNoRouteReason =
+  | "no-dedicated-provider"
+  | "isolated-platform-blocked"
+  | "native-no-live-session"
+  | "native-cli-too-old"
+  | "native-missing-thread"
+  | "native-not-offered";
+
+/**
+ * - `isolated`: the isolated text-generation path on the chat's own instance (first choice).
+ * - `native`: Codex's prediction fork of the live thread, at the chat model's lowest catalog
+ *   effort (null keeps the thread's own); only for a `codex` chat the isolated path refuses.
+ * - `no-route`: nothing can serve the chat this turn, for a reason that will not change.
+ * - `unrouted`: no routing right now, for a reason that may change within the turn.
+ */
+export type ComposerPredictionRoute =
+  | { readonly kind: "isolated"; readonly routing: ComposerPredictionRouting }
+  | {
+      readonly kind: "native";
+      readonly routing: ComposerPredictionRouting;
+      readonly effort: string | null;
+    }
+  | { readonly kind: "no-route"; readonly reason: ComposerPredictionNoRouteReason }
+  | { readonly kind: "unrouted"; readonly reason: ComposerPredictionRoutingFailure };
+
+const NATIVE_UNSUPPORTED_REASONS: Readonly<Record<string, ComposerPredictionNoRouteReason>> = {
+  no_live_session: "native-no-live-session",
+  app_server_without_prediction_fork: "native-cli-too-old",
+  missing_provider_thread: "native-missing-thread",
+};
+
+/**
+ * Which route generates a prediction, decided up front from what is known before anything
+ * is generated. The isolated path stays first wherever it can serve the chat's own instance;
+ * Codex's native fork is used only for a `codex` chat that the isolated path refuses on this
+ * platform, and only when the thread's live session offers the fork. `isolatedSupport` is read
+ * only for a routed chat and `nativeSupport` only for a refused `codex` one, so a caller may
+ * leave out what the decision does not need.
+ */
+export function resolveComposerPredictionRoute(input: {
+  readonly routing: ComposerPredictionRoutingResult;
+  readonly chatModel: string;
+  readonly isolatedSupport?: IsolatedTextGenerationSupport | undefined;
+  readonly nativeSupport?: ProviderNextUserMessagePredictionSupport | undefined;
+}): ComposerPredictionRoute {
+  if (input.routing.kind === "unrouted") {
+    return input.routing.reason === "no-dedicated-provider"
+      ? { kind: "no-route", reason: "no-dedicated-provider" }
+      : input.routing;
+  }
+  const routing = input.routing.routing;
+  if (input.isolatedSupport?.kind !== "platform-blocked") return { kind: "isolated", routing };
+  if (routing.modelSelection.provider !== "codex") {
+    return { kind: "no-route", reason: "isolated-platform-blocked" };
+  }
+  const native = input.nativeSupport;
+  if (native?.kind === "supported") {
+    return { kind: "native", routing, effort: lowestSupportedEffort("codex", input.chatModel) };
+  }
+  return {
+    kind: "no-route",
+    reason:
+      (native ? NATIVE_UNSUPPORTED_REASONS[native.reason] : undefined) ?? "native-not-offered",
   };
 }

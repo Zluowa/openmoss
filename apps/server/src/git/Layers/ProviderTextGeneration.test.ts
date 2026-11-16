@@ -814,4 +814,58 @@ describe("ProviderTextGenerationLive", () => {
     expect(cursor.generateComposerPrediction).not.toHaveBeenCalled();
     expect(codex.generateComposerPrediction).not.toHaveBeenCalled();
   });
+
+  it("asks the routed instance's own implementation whether it can serve a prediction", async () => {
+    const { layer, codex } = makeProviderTextGenerationTestLayer({
+      providerInstances: {
+        codex_work: { driver: "codex", enabled: true, config: { homePath: "/tmp/codex-work" } },
+      },
+    });
+    const getComposerPredictionSupport = vi.fn<
+      NonNullable<TextGenerationShape["getComposerPredictionSupport"]>
+    >(() => Effect.succeed({ kind: "platform-blocked", platform: "win32" }));
+    (codex.service as { getComposerPredictionSupport?: unknown }).getComposerPredictionSupport =
+      getComposerPredictionSupport;
+
+    const [codexSupport, claudeSupport, unroutable] = await Effect.runPromise(
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+        const support = textGeneration.getComposerPredictionSupport!;
+        return [
+          yield* support({
+            cwd: "/repo",
+            modelSelection: { provider: "codex", instanceId: "codex_work", model: "gpt-5.5" },
+          }),
+          // An implementation without a platform rule serves everywhere.
+          yield* support({
+            cwd: "/repo",
+            modelSelection: {
+              provider: "claudeAgent",
+              instanceId: "claudeAgent",
+              model: "claude-opus-4-8",
+            },
+          }),
+          // A request that cannot be routed is left to the generation to report.
+          yield* support({
+            cwd: "/repo",
+            modelSelection: { provider: "codex", instanceId: "codex_gone", model: "gpt-5.5" },
+          }),
+        ] as const;
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(codexSupport).toEqual({ kind: "platform-blocked", platform: "win32" });
+    expect(claudeSupport).toEqual({ kind: "supported" });
+    expect(unroutable).toEqual({ kind: "supported" });
+    expect(getComposerPredictionSupport).toHaveBeenCalledTimes(1);
+    expect(getComposerPredictionSupport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelSelection: expect.objectContaining({ instanceId: "codex_work" }),
+        providerOptions: expect.objectContaining({
+          codex: expect.objectContaining({ homePath: "/tmp/codex-work" }),
+        }),
+      }),
+    );
+    expect(codex.generateComposerPrediction).not.toHaveBeenCalled();
+  });
 });

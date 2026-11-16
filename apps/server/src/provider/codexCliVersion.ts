@@ -14,6 +14,9 @@ export const CODEX_CLI_UNPARSEABLE_VERSION_MESSAGE = `Codex CLI version check su
 export const MINIMUM_CODEX_AUTO_REVIEW_CLI_VERSION = "0.124.0";
 // `excludeTurns` for thread/resume and thread/fork shipped in rust-v0.125.0.
 export const MINIMUM_CODEX_EXCLUDE_TURNS_CLI_VERSION = "0.125.0";
+// `thread/fork` accepts `experimentalPredictionMode` from this build; Codex desktop gates its
+// `experimentalPredictionForkMode` capability on the same floor.
+export const MINIMUM_CODEX_PREDICTION_FORK_CLI_VERSION = "0.162.0-alpha.20";
 
 function parseSemver(version: string): ParsedCliVersion | null {
   const normalized = normalizeCliVersion(version);

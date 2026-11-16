@@ -996,6 +996,8 @@ describe("ProviderCommandReactor", () => {
         }),
       rollbackConversation,
       compactThread: () => unsupported(),
+      getNextUserMessagePredictionSupport: () => unsupported(),
+      predictNextUserMessage: () => unsupported(),
       ...(input?.getClaudeCacheObservation
         ? { getClaudeCacheObservation: input.getClaudeCacheObservation }
         : {}),

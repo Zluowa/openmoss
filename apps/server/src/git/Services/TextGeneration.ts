@@ -161,6 +161,23 @@ export interface ComposerPredictionGenerationResult {
   suggestion: string | null;
 }
 
+/** What {@link TextGenerationShape.getComposerPredictionSupport} needs: the routed request. */
+export type ComposerPredictionSupportInput = Omit<
+  ComposerPredictionGenerationInput,
+  "conversation"
+>;
+
+/**
+ * Whether the isolated text-generation path can serve a composer prediction for this
+ * provider instance on this platform, known without generating anything.
+ * `platform-blocked`: the platform rule refuses this instance (auxiliary Codex on Windows
+ * for an account that is not a direct endpoint with a key); it holds until the instance's
+ * configuration changes.
+ */
+export type IsolatedTextGenerationSupport =
+  | { readonly kind: "supported" }
+  | { readonly kind: "platform-blocked"; readonly platform: NodeJS.Platform };
+
 export interface AutomationIntentGenerationInput {
   cwd: string;
   message: string;
@@ -285,6 +302,13 @@ export interface TextGenerationShape {
   readonly generateComposerPrediction: (
     input: ComposerPredictionGenerationInput,
   ) => Effect.Effect<ComposerPredictionGenerationResult, TextGenerationError>;
+  /**
+   * Whether {@link generateComposerPrediction} can serve this routed request here, without
+   * generating anything. Implementations without a platform rule omit it: supported.
+   */
+  readonly getComposerPredictionSupport?: (
+    input: ComposerPredictionSupportInput,
+  ) => Effect.Effect<IsolatedTextGenerationSupport>;
   readonly generateProjectDigest: (
     input: ProjectDigestGenerationInput,
   ) => Effect.Effect<ProjectDigestGenerationResult, TextGenerationError>;

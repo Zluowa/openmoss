@@ -60,6 +60,9 @@ import type {
   ProviderMcpAppServerInput,
   ProviderMcpAppServerTools,
   ProviderMcpAppToolCallInput,
+  ProviderNextUserMessagePrediction,
+  ProviderNextUserMessagePredictionSupport,
+  ProviderPredictNextUserMessageInput,
   ProviderTurnDispatchOptions,
 } from "./ProviderAdapter.ts";
 
@@ -406,6 +409,23 @@ export interface ProviderServiceShape {
   readonly compactThread: (input: {
     readonly threadId: ThreadId;
   }) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
+   * Whether the thread's live native runtime can fork a composer prediction now. Never
+   * starts or recovers a session.
+   */
+  readonly getNextUserMessagePredictionSupport: (
+    threadId: ThreadId,
+  ) => Effect.Effect<ProviderNextUserMessagePredictionSupport, ProviderServiceError>;
+
+  /**
+   * Predict the user's next message from the thread's live native runtime (Codex's
+   * prediction fork). Never starts or recovers a session: `unsupported` when there is none.
+   */
+  readonly predictNextUserMessage: (
+    threadId: ThreadId,
+    input: ProviderPredictNextUserMessageInput,
+  ) => Effect.Effect<ProviderNextUserMessagePrediction, ProviderServiceError>;
 
   /**
    * Read the latest redacted Moss launch plan persisted for a thread.

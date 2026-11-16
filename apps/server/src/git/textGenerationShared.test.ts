@@ -12,14 +12,22 @@ import {
   buildAutomationCompletionEvaluationPrompt,
   buildAutomationIntentPrompt,
   buildCommitMessagePrompt,
+  buildComposerPredictionForkPrompt,
   buildComposerPredictionPrompt,
   buildPrContentPrompt,
   buildProjectDigestPrompt,
   buildThreadTitlePrompt,
   COMPOSER_PREDICTION_CONTEXT_BUDGET,
+  COMPOSER_PREDICTION_EXAMPLE_LINES,
+  composerPredictionRuleLines,
   decodeStructuredTextGenerationOutput,
+  parseComposerPredictionForkReply,
   sanitizeComposerPrediction,
 } from "./textGenerationShared.ts";
+
+/** A prediction prompt's rules and examples, up to the blank line after the examples. */
+const rulesAndExamples = (prompt: string) =>
+  prompt.slice(prompt.indexOf("Rules:"), prompt.indexOf("\n\n", prompt.indexOf("Examples:")));
 
 describe("textGenerationShared", () => {
   const commitInput = {
@@ -269,6 +277,63 @@ describe("textGenerationShared", () => {
           }),
         ),
       ).toEqual({ suggestion: null });
+    });
+
+    it("gives Codex's prediction fork the same rules and examples, without a transcript", () => {
+      const { prompt: transcriptPrompt } = buildComposerPredictionPrompt({
+        conversation: "User: hi\n\nAssistant: hello",
+      });
+      const forkPrompt = buildComposerPredictionForkPrompt();
+
+      // The two rule sections differ only in what the context is called.
+      expect(rulesAndExamples(forkPrompt)).toBe(
+        rulesAndExamples(transcriptPrompt).replaceAll("the transcript", "the conversation"),
+      );
+      expect(composerPredictionRuleLines("conversation")).toEqual(
+        composerPredictionRuleLines("transcript").map((line) =>
+          line.replaceAll("the transcript", "the conversation"),
+        ),
+      );
+      for (const line of [
+        ...composerPredictionRuleLines("conversation"),
+        ...COMPOSER_PREDICTION_EXAMPLE_LINES,
+      ]) {
+        expect(forkPrompt).toContain(line);
+      }
+      for (const line of [
+        ...composerPredictionRuleLines("transcript"),
+        ...COMPOSER_PREDICTION_EXAMPLE_LINES,
+      ]) {
+        expect(transcriptPrompt).toContain(line);
+      }
+      expect(forkPrompt).toContain("Return a JSON object with key: suggestion.");
+      expect(forkPrompt).toContain("do not run commands, call tools, or change anything");
+      expect(forkPrompt).not.toContain("TRANSCRIPT>>>");
+      expect(forkPrompt.trimEnd()).toMatch(/Return only JSON matching this schema: \{.*\}\.$/u);
+    });
+
+    it.each([
+      [
+        '{"suggestion":"Fix the fixture and rerun that test."}',
+        "Fix the fixture and rerun that test.",
+      ],
+      [' {"suggestion":null} ', null],
+      ['{"suggestion":"/clear"}', null],
+      ['{"suggestion":"  \\"Ship it\\"  "}', "Ship it"],
+    ])("reads the fork reply %j as the answer %j", (raw, suggestion) => {
+      expect(parseComposerPredictionForkReply(raw)).toEqual({ ok: true, suggestion });
+    });
+
+    it.each([
+      [null],
+      [""],
+      ["Fix the fixture and rerun that test."],
+      ['```json\n{"suggestion":"Ship it"}\n```'],
+      ['{"text":"Ship it"}'],
+      ['{"suggestion":42}'],
+      ['["Ship it"]'],
+    ])("treats the fork reply %j as a failed generation", (raw) => {
+      expect(parseComposerPredictionForkReply(raw)).toEqual({ ok: false });
     });
 
     it("keeps the newest transcript text when a caller exceeds the budget", () => {

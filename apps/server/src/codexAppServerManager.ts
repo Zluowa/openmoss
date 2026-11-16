@@ -110,6 +110,7 @@ import {
   isCodexCliVersionSupported,
   MINIMUM_CODEX_AUTO_REVIEW_CLI_VERSION,
   MINIMUM_CODEX_EXCLUDE_TURNS_CLI_VERSION,
+  MINIMUM_CODEX_PREDICTION_FORK_CLI_VERSION,
   parseCodexAppServerUserAgentVersion,
   parseCodexCliVersion,
 } from "./provider/codexCliVersion";
@@ -183,7 +184,12 @@ import {
   type CodexProcessEnvInput,
   type PreparedCodexAuthTracking,
 } from "./codexProcessEnv.ts";
-import type { ProviderAdapterForkThreadInput } from "./provider/Services/ProviderAdapter.ts";
+import type {
+  ProviderAdapterForkThreadInput,
+  ProviderNextUserMessagePrediction,
+  ProviderNextUserMessagePredictionSupport,
+  ProviderPredictNextUserMessageInput,
+} from "./provider/Services/ProviderAdapter.ts";
 import { withoutProviderCredentialEnvironment } from "./providerChildEnvironment.ts";
 import { resolveCodexServiceTier } from "./codexServiceTier.ts";
 import { assertCodexWorkingDirectoryExists } from "./codexWorkingDirectory.ts";
@@ -365,8 +371,19 @@ type CodexSessionApprovalOverride = {
 
 export class CodexSessionAuthInvalidatedError extends Error {}
 
+/** Codex's `threadSource` for a composer prediction fork and `turnTrigger` of its turn. */
+export const CODEX_PREDICTION_THREAD_SOURCE = "composer_predictions";
 /** Payload flag on a compaction item that belongs to a requested (manual) compaction. */
 export const CODEX_MANUAL_COMPACTION_MARKER = "mossManualCompaction";
+/** Retired prediction forks remembered per app-server so their late events stay fenced. */
+const CODEX_RETIRED_PREDICTION_THREAD_LIMIT = 64;
+
+interface CodexPredictionThreadCollector {
+  readonly notify: (notification: JsonRpcNotification) => void;
+  /** The app-server is going away; no further notification will arrive for the fork. */
+  readonly close: (error: Error) => void;
+}
+
 interface CodexSessionContext {
   registeredStopScope?: CodexRegisteredRuntimeStopScope;
   authInvalidation?: string;
@@ -430,6 +447,14 @@ interface CodexSessionContext {
   codexOptions?: CodexDiscoveryOptions;
   /** App-server build from the `initialize` userAgent; gates experimental requests. */
   appServerVersion?: string;
+  /**
+   * Ephemeral `composer_predictions` forks hosted by this app-server, keyed by provider thread
+   * id. A fork maps to its collector while its prediction turn runs and to null once retired,
+   * so none of its notifications or requests ever reach the parent conversation.
+   */
+  predictionThreads?: Map<string, CodexPredictionThreadCollector | null>;
+  /** True while a composer prediction fork of this session is being created or runs. */
+  predictionForkInFlight?: boolean;
   authTracking?: PreparedCodexAuthTracking;
   authFingerprint?: string;
   /** Bound to the server-generated launch environment, never a client path. */
@@ -5477,6 +5502,295 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   /**
+   * Whether {@link predictNextUserMessage} could fork this thread now: a live, routable
+   * app-server session whose auth is current, on a build at or above the prediction-fork
+   * floor, with a persisted provider thread. Reads in-memory state only; never starts,
+   * resumes or recovers a runtime.
+   */
+  getNextUserMessagePredictionSupport(
+    threadId: ThreadId,
+  ): ProviderNextUserMessagePredictionSupport {
+    const context = this.sessions.get(threadId);
+    if (
+      !context ||
+      !this.isContextRoutable(context) ||
+      this.contextAuthStalenessMessage(context) !== undefined
+    ) {
+      return { kind: "unsupported", reason: "no_live_session" };
+    }
+    if (
+      !context.appServerVersion ||
+      compareCodexCliVersions(context.appServerVersion, MINIMUM_CODEX_PREDICTION_FORK_CLI_VERSION) <
+        0
+    ) {
+      return { kind: "unsupported", reason: "app_server_without_prediction_fork" };
+    }
+    if (!readResumeThreadId({ resumeCursor: context.session.resumeCursor })) {
+      return { kind: "unsupported", reason: "missing_provider_thread" };
+    }
+    return { kind: "supported" };
+  }
+
+  /**
+   * Composer prediction: fork the idle parent into an ephemeral
+   * `experimentalPredictionMode` thread so the turn reuses the parent's history and prompt
+   * cache, run one structured turn on it, then unsubscribe. A rejected fork never falls back
+   * to a fresh thread, and at most one prediction fork of a session runs at a time.
+   */
+  async predictNextUserMessage(
+    threadId: ThreadId,
+    input: ProviderPredictNextUserMessageInput & { readonly effort: string | null },
+    signal?: AbortSignal,
+  ): Promise<ProviderNextUserMessagePrediction> {
+    signal?.throwIfAborted();
+    const support = this.getNextUserMessagePredictionSupport(threadId);
+    const context = this.sessions.get(threadId);
+    if (support.kind === "unsupported" || !context) {
+      return support.kind === "unsupported"
+        ? support
+        : { kind: "unsupported", reason: "no_live_session" };
+    }
+    const sourceThreadId = readResumeThreadId({ resumeCursor: context.session.resumeCursor });
+    if (!sourceThreadId) {
+      return { kind: "unsupported", reason: "missing_provider_thread" };
+    }
+    if (context.session.activeTurnId !== undefined) {
+      return { kind: "skipped", reason: "parent_turn_active" };
+    }
+    // Two forks of one live thread would run two prediction turns against one conversation.
+    if (context.predictionForkInFlight) {
+      return { kind: "skipped", reason: "prediction_in_flight" };
+    }
+    context.predictionForkInFlight = true;
+    try {
+      return await this.forkAndPredict(context, threadId, sourceThreadId, input, signal);
+    } finally {
+      context.predictionForkInFlight = false;
+    }
+  }
+
+  private async forkAndPredict(
+    context: CodexSessionContext,
+    threadId: ThreadId,
+    sourceThreadId: string,
+    input: ProviderPredictNextUserMessageInput & { readonly effort: string | null },
+    signal: AbortSignal | undefined,
+  ): Promise<ProviderNextUserMessagePrediction> {
+    let forkThreadId: string | undefined;
+    try {
+      // Prediction mode inherits the loaded parent's effective config, so it rejects any
+      // configuration override; it also requires a persisted parent and `ephemeral: true`.
+      const forkResponse = await this.sendRequest(context, "thread/fork", {
+        threadId: sourceThreadId,
+        experimentalPredictionMode: true,
+        ephemeral: true,
+        excludeTurns: true,
+        threadSource: CODEX_PREDICTION_THREAD_SOURCE,
+      });
+      forkThreadId = this.readString(this.readObject(forkResponse, "thread"), "id");
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!this.isContextRoutable(context)) throw error;
+      log.info("codex prediction fork rejected", { threadId, error });
+      return { kind: "unsupported", reason: "prediction_fork_rejected" };
+    }
+    if (!forkThreadId) {
+      throw new Error("Codex returned a prediction fork without a thread id.");
+    }
+
+    try {
+      const text = await this.runPredictionTurn(
+        context,
+        forkThreadId,
+        {
+          ...input,
+          responsesapiClientMetadata: {
+            prediction_source_thread_id: sourceThreadId,
+            prediction_source_turn_id: input.sourceTurnId,
+            prediction_trigger: input.generationTrigger,
+          },
+        },
+        signal,
+      );
+      return { kind: "predicted", text };
+    } finally {
+      this.retirePredictionThread(context, forkThreadId);
+      if (this.isContextRoutable(context)) {
+        void this.sendRequest(context, "thread/unsubscribe", { threadId: forkThreadId }).catch(
+          () => undefined,
+        );
+      }
+    }
+  }
+
+  /** Codex's structured-turn runner for prediction forks; resolves the final agent message. */
+  private runPredictionTurn(
+    context: CodexSessionContext,
+    forkThreadId: string,
+    input: ProviderPredictNextUserMessageInput & {
+      readonly effort: string | null;
+      readonly responsesapiClientMetadata: Readonly<Record<string, string>>;
+    },
+    signal: AbortSignal | undefined,
+  ): Promise<string | null> {
+    return new Promise<string | null>((resolve, reject) => {
+      let turnId: string | undefined;
+      let text: string | undefined;
+      let lastError: unknown;
+      let settled = false;
+      let abandoned = false;
+      let interruptRequested = false;
+      const interrupt = () => {
+        if (interruptRequested || turnId === undefined || !this.isContextRoutable(context)) return;
+        interruptRequested = true;
+        void this.sendRequest(context, "turn/interrupt", { threadId: forkThreadId, turnId }).catch(
+          () => undefined,
+        );
+      };
+      const settle = (complete: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        complete();
+      };
+      const abandon = (error: Error) => {
+        abandoned = true;
+        interrupt();
+        settle(() => reject(error));
+      };
+      const onAbort = () =>
+        abandon(new DOMException("The prediction request was aborted.", "AbortError"));
+      const timeout = setTimeout(
+        () => abandon(new Error("Timed out waiting for the Codex prediction.")),
+        input.timeoutMs,
+      );
+      // Unscoped deltas belong to the turn only until its id is known.
+      const isForeignTurn = (notificationTurnId: string | undefined) =>
+        notificationTurnId === undefined
+          ? turnId !== undefined
+          : turnId !== undefined && notificationTurnId !== turnId;
+      const predictionThreads = (context.predictionThreads ??= new Map());
+      predictionThreads.set(forkThreadId, {
+        close: (error) => settle(() => reject(error)),
+        notify: (notification) => {
+          const params = this.readObject(notification.params);
+          const notificationTurnId = this.readString(params, "turnId");
+          switch (notification.method) {
+            case "error":
+              if (turnId !== undefined && notificationTurnId !== turnId) return;
+              turnId ??= notificationTurnId;
+              lastError = this.readObject(params, "error") ?? lastError;
+              return;
+            case "turn/started":
+              turnId = this.readString(this.readObject(params, "turn"), "id") ?? turnId;
+              return;
+            case "item/agentMessage/delta":
+              if (isForeignTurn(notificationTurnId)) return;
+              text = `${text ?? ""}${this.readString(params, "delta") ?? ""}`;
+              return;
+            case "item/completed": {
+              if (isForeignTurn(notificationTurnId)) return;
+              const item = this.readObject(params, "item");
+              if (this.readString(item, "type") === "agentMessage") {
+                text = this.readString(item, "text") ?? text;
+              }
+              return;
+            }
+            case "turn/completed": {
+              const turn = this.readObject(params, "turn");
+              const completedTurnId = this.readString(turn, "id");
+              if (turnId !== undefined && completedTurnId !== turnId) return;
+              turnId = completedTurnId;
+              const status = this.readString(turn, "status") ?? "unknown";
+              if (status !== "completed") {
+                const detail = codexErrorMessage(this.readObject(turn, "error") ?? lastError);
+                settle(() =>
+                  reject(
+                    new Error(
+                      detail
+                        ? `Codex prediction turn ended as ${status}: ${detail}`
+                        : `Codex prediction turn ended as ${status}.`,
+                    ),
+                  ),
+                );
+                return;
+              }
+              settle(() => resolve(text?.trim() || null));
+              return;
+            }
+            default:
+              return;
+          }
+        },
+      });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+      this.sendRequest(context, "turn/start", {
+        threadId: forkThreadId,
+        turnTrigger: CODEX_PREDICTION_THREAD_SOURCE,
+        responsesapiClientMetadata: input.responsesapiClientMetadata,
+        clientUserMessageId: randomUUID(),
+        input: [{ type: "text", text: input.prompt, text_elements: [] }],
+        effort: input.effort,
+        outputSchema: null,
+      }).then(
+        (response) => {
+          turnId ??= this.readString(this.readObject(response, "turn"), "id");
+          // The deadline or an abort can win before the turn id is known.
+          if (abandoned) interrupt();
+        },
+        (error: unknown) =>
+          settle(() => reject(error instanceof Error ? error : new Error(String(error)))),
+      );
+    });
+  }
+
+  /**
+   * Fences a prediction fork: its later notifications (`thread/closed`, a late delta) are
+   * dropped instead of reaching the parent. The oldest retired forks are forgotten first.
+   */
+  private retirePredictionThread(context: CodexSessionContext, forkThreadId: string): void {
+    const predictionThreads = (context.predictionThreads ??= new Map());
+    predictionThreads.delete(forkThreadId);
+    predictionThreads.set(forkThreadId, null);
+    for (const [candidate, collector] of predictionThreads) {
+      if (predictionThreads.size <= CODEX_RETIRED_PREDICTION_THREAD_LIMIT) break;
+      if (collector === null) predictionThreads.delete(candidate);
+    }
+  }
+
+  /**
+   * Claims every notification of a prediction fork. A fork is recognised by the `threadSource`
+   * app-server echoes on `thread/started`, which can overtake the `thread/fork` response.
+   */
+  private claimPredictionThreadNotification(
+    context: CodexSessionContext,
+    notification: JsonRpcNotification,
+  ): boolean {
+    const providerThreadId = this.readProviderConversationId(notification.params);
+    if (!providerThreadId) return false;
+    const predictionThreads = context.predictionThreads;
+    if (predictionThreads?.has(providerThreadId)) {
+      predictionThreads.get(providerThreadId)?.notify(notification);
+      return true;
+    }
+    if (
+      notification.method === "thread/started" &&
+      this.readString(this.readObject(notification.params, "thread"), "threadSource") ===
+        CODEX_PREDICTION_THREAD_SOURCE
+    ) {
+      // Unclaimed until its `thread/fork` response arrives; retired if it never does.
+      this.retirePredictionThread(context, providerThreadId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * True for an `item/*` compaction notification of the turn an idle `compactThread`
    * started. Codex names that turn only in its notifications, so the first
    * compaction item after the request claims it; the claim ends with the turn.
@@ -5822,6 +6136,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   private rejectPendingRequests(context: CodexSessionContext, error: Error): void {
+    for (const collector of context.predictionThreads?.values() ?? []) collector?.close(error);
     if (context.rpcRequests) {
       context.rpcRequests.rejectAll(error);
       return;
@@ -7347,6 +7662,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     incomingNotification: JsonRpcNotification,
   ): void {
     const notification = this.withAbandonedTurnReason(context, incomingNotification);
+    if (this.claimPredictionThreadNotification(context, notification)) return;
     const rawRoute = this.readRouteFields(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const resolvedCollaborationRoute = this.resolveCollaborationRoute(context, notification.params);
@@ -7652,6 +7968,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     context: CodexSessionContext,
     request: JsonRpcRequest,
   ): Promise<void> {
+    const requestThreadId = this.readProviderConversationId(request.params);
+    if (requestThreadId !== undefined && context.predictionThreads?.has(requestThreadId)) {
+      // A prediction fork must never surface an approval or question in the parent thread.
+      await this.writeMessage(context, {
+        id: request.id,
+        error: {
+          code: -32601,
+          message: `Moss declines ${request.method} from a composer prediction thread.`,
+        },
+      });
+      return;
+    }
     const rawRoute = this.readRouteFields(request.params);
     const resolvedCollaborationRoute = this.resolveCollaborationRoute(context, request.params);
     const {

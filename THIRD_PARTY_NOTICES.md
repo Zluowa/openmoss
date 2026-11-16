@@ -163,6 +163,10 @@ composer, accepted with Tab or Right Arrow) is adapted from Synara PR #2094
 budget, routing, client store, hook, ghost component and their tests. Moss routes a
 chat on a Moss-managed lane to the cheapest model of the chat model's vendor and keeps
 the existing `composerPredictionsEnabled` setting.
+For a Codex chat that this generation cannot serve (on Windows, an account that is not a
+direct endpoint with a key), Moss runs the same rules on the Codex app-server's own
+prediction fork of the live thread (`thread/fork` with `experimentalPredictionMode`), the
+Moss code that predates the port; see the OpenAI Codex CLI section for the CLI's license.
 
 Three rules come from T3 Code's "Suggest next prompt"
 (https://github.com/pingdotgg/t3code, MIT, Copyright (c) 2026 T3 Tools Inc.; PR #28047

@@ -4356,6 +4356,19 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         catch: (cause) => toRequestError(input.sourceThreadId, "thread/fork", cause),
       });
 
+    const getNextUserMessagePredictionSupport: NonNullable<
+      CodexAdapterShape["getNextUserMessagePredictionSupport"]
+    > = (threadId) => Effect.sync(() => manager.getNextUserMessagePredictionSupport(threadId));
+
+    const predictNextUserMessage: NonNullable<CodexAdapterShape["predictNextUserMessage"]> = (
+      threadId,
+      input,
+    ) =>
+      Effect.tryPromise({
+        try: (signal) => manager.predictNextUserMessage(threadId, input, signal),
+        catch: (cause) => toRequestError(threadId, "thread/fork", cause),
+      });
+
     const respondToRequest: CodexAdapterShape["respondToRequest"] = (
       threadId,
       requestId,
@@ -5057,6 +5070,8 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       readExternalThreadPage,
       rollbackThread,
       compactThread,
+      getNextUserMessagePredictionSupport,
+      predictNextUserMessage,
       forkThread,
       respondToRequest,
       respondToUserInput,

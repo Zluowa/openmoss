@@ -291,6 +291,17 @@ const makeProviderTextGeneration = Effect.gen(function* () {
       dispatch("generateComposerPrediction", input, (service, routedInput) =>
         service.generateComposerPrediction(routedInput),
       ),
+    // Routed exactly like the generation it answers for. A request that cannot even be
+    // routed is left to the generation, which reports why, as before.
+    getComposerPredictionSupport: (input) =>
+      resolveInvocation("generateComposerPrediction", input).pipe(
+        Effect.flatMap(({ implementation, input: routedInput }) =>
+          implementation.getComposerPredictionSupport
+            ? implementation.getComposerPredictionSupport(routedInput)
+            : Effect.succeed<TextGen.IsolatedTextGenerationSupport>({ kind: "supported" }),
+        ),
+        Effect.orElseSucceed((): TextGen.IsolatedTextGenerationSupport => ({ kind: "supported" })),
+      ),
     generateProjectDigest: (input) =>
       dispatch("generateProjectDigest", input, (service, routedInput) =>
         service.generateProjectDigest(routedInput),
