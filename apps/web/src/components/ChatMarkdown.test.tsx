@@ -588,6 +588,36 @@ $$
     expect(markup).not.toContain('class="katex"');
   });
 
+  it("puts images that share a paragraph with prose on their own row", async () => {
+    const markup = await renderMarkdown(
+      "Retry:\n![a](https://example.com/a.png)\n![b](https://example.com/b.png)  \nAfter.\n\n" +
+        "![solo](https://example.com/solo.png) ![pair](https://example.com/pair.png)",
+    );
+
+    expect(markup).toContain(
+      '<p>Retry:\n<span class="chat-markdown-image-row"><img src="https://example.com/a.png" alt="a" loading="lazy"/>\n<img src="https://example.com/b.png" alt="b" loading="lazy"/></span>After.</p>',
+    );
+    // Image-only paragraphs already stand alone and keep their inline flow.
+    expect(markup).toContain(
+      '<p><img src="https://example.com/solo.png" alt="solo" loading="lazy"/> <img src="https://example.com/pair.png" alt="pair" loading="lazy"/></p>',
+    );
+  });
+
+  it("keeps the image row class in sanitized authored previews", async () => {
+    const { default: ChatMarkdown } = await import("./ChatMarkdown");
+    const rendered = renderWithQueryClient(
+      <ChatMarkdown
+        text={'Shot: ![a](https://example.com/a.png)\n\n<span class="evil">x</span>'}
+        cwd={undefined}
+        isStreaming={false}
+        parseHtml
+      />,
+    );
+
+    expect(rendered).toContain('<span class="chat-markdown-image-row"><img');
+    expect(rendered).not.toContain('class="evil"');
+  });
+
   it("preserves bracketed TeX that also resembles a dollar-free Markdown link", async () => {
     const markup = await renderMarkdown("Math $[f](x)$ and $2[f](x)$.");
 
@@ -675,9 +705,29 @@ $$
     );
 
     expect(markup).toContain("<table>");
-    expect(markup).toContain("<th>Studio</th>");
-    expect(markup).toContain("<td>Purpose</td>");
+    expect(markup).toContain('<th data-table-column="text">Studio</th>');
+    expect(markup).toContain('<td data-table-column="short">Purpose</td>');
     expect(markup).not.toContain("|---|");
+  });
+
+  it("marks table columns by content and offers a copy button", async () => {
+    const markup = await renderMarkdown(
+      [
+        "| | Peak memory | Time | Cost |",
+        "|---|---|---|---|",
+        "| Reading the transcript for the prediction (largest seeded thread) | 290 MB | 3.1–4.9 s | $12.50 |",
+        "| Opening a chat | – | 0.7 s | $123,456.789–$234,567.890 |",
+      ].join("\n"),
+    );
+
+    expect(markup).toContain('class="chat-markdown-table"');
+    expect(markup).toContain('aria-label="Copy table"');
+    expect(markup).toContain('<th data-table-column="numeric">Time</th>');
+    expect(markup).toContain('<td data-table-column="numeric">3.1–4.9 s</td>');
+    expect(markup).toContain('<td data-table-cell="empty" data-table-column="numeric">–</td>');
+    expect(markup).toContain('<td data-table-column="numeric">$12.50</td>');
+    expect(markup).toContain('<td data-table-column="numeric">$123,456.789–$234,567.890</td>');
+    expect(markup).toMatch(/<td data-table-column="text">Reading the transcript/);
   });
 
   it("keeps pipe-and-dash lines inside code fences out of table repair", async () => {

@@ -476,6 +476,7 @@ import { resolveProviderModelLabel } from "./chat/ProviderModelPicker";
 import {
   RateLimitBanner,
   deriveLatestRateLimitStatus,
+  resolveVisibleRateLimitStatus,
   type RateLimitStatus,
 } from "./chat/RateLimitBanner";
 import { ImageGenerationLimitBanner } from "./chat/ImageGenerationLimitBanner";
@@ -1292,10 +1293,10 @@ export default function ChatView({
     () => getRateLimitBannerDismissalKey(activeRateLimitStatus, activeThread?.id ?? null),
     [activeRateLimitStatus, activeThread?.id],
   );
-  const visibleActiveRateLimitStatus =
-    activeRateLimitBannerDismissalKey === dismissedRateLimitBannerKey
-      ? null
-      : activeRateLimitStatus;
+  const visibleActiveRateLimitStatus = resolveVisibleRateLimitStatus(activeRateLimitStatus, {
+    dismissed: activeRateLimitBannerDismissalKey === dismissedRateLimitBannerKey,
+    showWarnings: settings.showRateLimitWarnings,
+  });
   const latestTurnSettledByProvider = isLatestTurnSettled(
     activeLatestTurn,
     activeThread?.session ?? null,

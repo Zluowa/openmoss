@@ -369,6 +369,16 @@ const COMPOSED_RULES: ReadonlyArray<ComposedRule> = [
     ([variant = ""]) => `已更新${themeVariant(variant)}主题包。`,
   ],
 
+  // Settings → Restore defaults: `SettingsContent` lists every changed setting in one line.
+  [
+    /^This will reset: (.+)\.$/,
+    ([labels = ""], t) =>
+      `将重置：${labels
+        .split(", ")
+        .map((label) => t(label))
+        .join("、")}。`,
+  ],
+
   // Shortcut sheet, profile and project scripts
   [/^Jump to space ([1-9])$/, ([slot = ""]) => `跳转到空间 ${slot}`],
   [/^(.+) setup script$/, ([name = ""]) => `${name} 设置脚本`],

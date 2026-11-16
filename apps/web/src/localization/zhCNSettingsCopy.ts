@@ -91,6 +91,9 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   'Hide a finished turn\'s tool calls and intermediate messages behind a single "Worked for…" line. A turn stays open while it runs or while its background subagents are still working. Turn this off to keep every step visible.':
     "把已完成回合的工具调用和中间消息折叠到一行“已工作…”里。回合运行时，或后台子智能体还在工作时，回合保持展开。关闭后每一步都会显示。",
   "Effort slider": "思考强度滑块",
+  "Rate limit warnings": "速率限制提醒",
+  "rate limit warnings": "速率限制提醒",
+  "Show rate limit warnings": "显示速率限制提醒",
   "Show effort as a slider at the bottom of the composer's model picker, with fast mode and reset alongside it, instead of separate Effort and Speed rows.":
     "在输入框模型选择器底部用滑块显示思考强度，并把快速模式和重置放在旁边，不再分成思考强度和速度两行。",
   "Automatically open simulator": "自动打开模拟器",
@@ -792,6 +795,8 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "What Enter does while you dictate.": "听写时按 Enter 的作用。",
   "Show replies as they are written.": "边写边显示回复。",
   "Pick thinking effort with a slider.": "用滑块选择思考强度。",
+  "Warn when a usage limit is close. A reached limit always shows.":
+    "用量接近上限时提醒。达到上限时始终提示。",
   "Let the message marks move with sound.": "让消息标记随声音律动。",
   "Open the Simulator pane when an agent uses it.": "智能体使用模拟器时打开模拟器面板。",
   "Stacked or side by side.": "上下排列或左右并排。",

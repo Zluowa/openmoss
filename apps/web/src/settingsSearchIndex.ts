@@ -453,6 +453,13 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "Show reasoning effort as a slider in the composer model menu once a chat has started. fast mode reasoning thinking level picker",
   },
   {
+    id: "behavior:rate-limit-warnings",
+    section: "behavior",
+    title: "Rate limit warnings",
+    keywords:
+      "Show a banner when a provider says you are close to a usage limit. A banner still shows when you reach the limit. approaching usage quota",
+  },
+  {
     id: "behavior:auto-open-simulator",
     section: "behavior",
     title: "Automatically open simulator",

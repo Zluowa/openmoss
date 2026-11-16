@@ -75,4 +75,12 @@ describe("composed labels in zh-CN", () => {
       "这台服务器运行在 win32 上。电脑控制需要 macOS，或 Linux 上的 Wayland 桌面（KWin、Hyprland 或 Moss 自带的嵌套桌面）。",
     );
   });
+
+  it("lists every setting Restore defaults will reset in Chinese", () => {
+    expect(
+      translateZhCnPresentationText(
+        "This will reset: Theme, Dark theme pack, Light theme pack, Default UI font.",
+      ),
+    ).toBe("将重置：主题、深色主题包、浅色主题包、默认界面字体。");
+  });
 });

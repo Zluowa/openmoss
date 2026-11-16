@@ -10,6 +10,8 @@ import {
   resolvePersistedRightDockWidthRatio,
   resolveRightDockWidthBounds,
   resolveRightDockWidthFromRatio,
+  resolveStoredRightDockWidth,
+  rightDockThreadWidthStorageKey,
 } from "./rightDockSizing.logic";
 
 describe("Codex right dock sizing contract", () => {
@@ -112,5 +114,19 @@ describe("Codex right dock sizing contract", () => {
         widthMode: "regular",
       }),
     ).toBeCloseTo(normalizeRightDockWidth(adaptiveWidth, 1_600, "regular"));
+  });
+
+  it("remembers the resized width per chat and falls back to the last shared width", () => {
+    expect(rightDockThreadWidthStorageKey("thread-a")).toBe(
+      "app-shell:right-panel-width:v3:thread:thread-a",
+    );
+    expect(rightDockThreadWidthStorageKey("thread-a")).not.toBe(
+      rightDockThreadWidthStorageKey("thread-b"),
+    );
+    expect(resolveStoredRightDockWidth({ threadValue: 0.2, sharedValue: 0.8 })).toBe(0.2);
+    expect(resolveStoredRightDockWidth({ threadValue: 0, sharedValue: 0.8 })).toBe(0);
+    expect(resolveStoredRightDockWidth({ threadValue: null, sharedValue: 0.8 })).toBe(0.8);
+    expect(resolveStoredRightDockWidth({ threadValue: Number.NaN, sharedValue: null })).toBeNull();
+    expect(resolveStoredRightDockWidth({ threadValue: null, sharedValue: null })).toBeNull();
   });
 });

@@ -56,6 +56,7 @@ import {
   resolvePersistedRightDockWidthRatio,
   resolveRightDockWidthBounds,
   resolveRightDockWidthFromRatio,
+  resolveStoredRightDockWidth,
 } from "./rightDockSizing.logic";
 import { resolveRightDockChromeContract } from "./rightDockFullWidth.logic";
 import {
@@ -122,6 +123,8 @@ interface RightDockProps {
   /** @deprecated RightDock now owns the Codex 600px adaptive baseline. */
   defaultWidth: number | string;
   shouldAcceptWidth: (context: { nextWidth: number; wrapper: HTMLElement }) => boolean;
+  /** Per-chat key for the resized width; without it the dock only uses the shared width. */
+  widthStorageKey?: string | undefined;
   paneLabelOverrides?: Record<string, string | undefined>;
   // Per-pane tab glyph overrides (same shape as label overrides) — e.g. a pull request pane
   // swapping the generic kind icon for its live state glyph.
@@ -351,9 +354,13 @@ function RightDockSurface(
   // Codex keeps the right panel as a sibling pane by default, including the
   // empty quick-start state. The width button is the explicit full-width mode.
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const regularWidthRatioRef = useRef<number | undefined>(undefined);
+  // The cached ratio belongs to one chat's width key; another chat brings its own width.
+  const regularWidthRatioRef = useRef<
+    { readonly key: string | undefined; readonly ratio: number } | undefined
+  >(undefined);
   const minWidth = props.minWidth;
   const activePaneKind = activePane?.kind ?? null;
+  const widthStorageKey = props.widthStorageKey;
 
   useLayoutEffect(() => {
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
@@ -395,7 +402,11 @@ function RightDockSurface(
       const preferredWidth = activePaneKind
         ? RIGHT_DOCK_PREFERRED_WIDTH[activePaneKind]
         : undefined;
-      const storedValue = getLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, Schema.Finite);
+      // This chat's own resized width first, then the last width resized in any chat.
+      const storedValue = resolveStoredRightDockWidth({
+        threadValue: widthStorageKey ? getLocalStorageItem(widthStorageKey, Schema.Finite) : null,
+        sharedValue: getLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, Schema.Finite),
+      });
       if (preferredWidth !== undefined && storedValue == null) {
         setInlineStyleIfChanged(
           wrapper,
@@ -405,21 +416,22 @@ function RightDockSurface(
         return;
       }
 
-      if (regularWidthRatioRef.current === undefined) {
-        regularWidthRatioRef.current = resolvePersistedRightDockWidthRatio({
-          storedValue,
-          defaultWidth: RIGHT_DOCK_DEFAULT_WIDTH,
-          mainContentWidth,
-          shellHeight,
-          widthMode: "regular",
-        });
+      let cached = regularWidthRatioRef.current;
+      if (cached === undefined || cached.key !== widthStorageKey) {
+        cached = {
+          key: widthStorageKey,
+          ratio: resolvePersistedRightDockWidthRatio({
+            storedValue,
+            defaultWidth: RIGHT_DOCK_DEFAULT_WIDTH,
+            mainContentWidth,
+            shellHeight,
+            widthMode: "regular",
+          }),
+        };
+        regularWidthRatioRef.current = cached;
       }
 
-      const nextWidth = resolveRightDockWidthFromRatio(
-        regularWidthRatioRef.current,
-        mainContentWidth,
-        "regular",
-      );
+      const nextWidth = resolveRightDockWidthFromRatio(cached.ratio, mainContentWidth, "regular");
       setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextWidth}px`);
     };
 
@@ -446,6 +458,7 @@ function RightDockSurface(
     props.layoutHostRef,
     props.mainContentRef,
     props.state.open,
+    widthStorageKey,
   ]);
 
   const shouldAcceptRegularWidth = (context: {
@@ -473,8 +486,9 @@ function RightDockSurface(
       return;
     }
     const ratio = normalizeRightDockWidth(width, shellWidth, "regular");
-    regularWidthRatioRef.current = ratio;
+    regularWidthRatioRef.current = { key: widthStorageKey, ratio };
     setLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, ratio, Schema.Finite);
+    if (widthStorageKey) setLocalStorageItem(widthStorageKey, ratio, Schema.Finite);
   };
   // Double-clicking the divider shares the space evenly between the chat and the panel,
   // as Claude's divider does, within both sides' minimum widths.
