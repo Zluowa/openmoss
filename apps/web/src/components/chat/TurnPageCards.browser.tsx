@@ -7,7 +7,7 @@ import "../../index.css";
 
 import type { NativeApi, ProjectReadFileResult } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { page } from "vitest/browser";
 import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -43,15 +43,19 @@ async function withHarness(
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const screen = await render(
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceFileOpenerContext.Provider value={opener}>
-        <div className="w-[560px] p-6 text-chat">{children}</div>
-      </WorkspaceFileOpenerContext.Provider>
-    </QueryClientProvider>,
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceFileOpenerContext.Provider value={opener}>
+          <div className="w-[560px] p-6 text-chat">{children}</div>
+        </WorkspaceFileOpenerContext.Provider>
+      </QueryClientProvider>
+    </StrictMode>,
   );
   return {
     screen,
-    cleanup: () => {
+    cleanup: async () => {
+      await screen.unmount();
+      await queryClient.cancelQueries();
       queryClient.clear();
       if (previousApi) Object.defineProperty(window, "nativeApi", previousApi);
       else Reflect.deleteProperty(window, "nativeApi");
@@ -102,7 +106,7 @@ it("shows a created page by its own title and opens it in the panel", async () =
     await card.click();
     expect(opener.openFile).toHaveBeenCalledWith("simple-page/index.html");
   } finally {
-    cleanup();
+    await cleanup();
   }
 });
 
@@ -141,6 +145,6 @@ it("shows kind, name and the file's path on a hovered file chip", async () => {
     await chip.click();
     expect(opener.openFile).toHaveBeenCalled();
   } finally {
-    cleanup();
+    await cleanup();
   }
 });

@@ -3677,40 +3677,66 @@ function setImageLimitFixtureTheme(theme: "light" | "dark") {
   window.dispatchEvent(new StorageEvent("storage", { key: "moss:theme", newValue: theme }));
 }
 
-// A click on a generated image opens the lightbox; the 画布 chip opens the
+// These fixtures do not host the Canvas runtime. A dev-server HTML fallback
+// must not create a frame that cannot acknowledge the real save guard.
+async function withMissingCanvasBundle(work: () => Promise<void>): Promise<void> {
+  const originalFetch = window.fetch;
+  window.fetch = (input, init) => {
+    const url = new URL(
+      input instanceof Request ? input.url : String(input),
+      window.location.origin,
+    );
+    if (url.origin === window.location.origin && url.pathname === "/canvas/") {
+      return Promise.resolve(new Response("Canvas bundle missing", { status: 503 }));
+    }
+    return originalFetch.call(window, input, init);
+  };
+  try {
+    await work();
+  } finally {
+    window.fetch = originalFetch;
+  }
+}
+
+// A click on a generated image opens the lightbox; the Canvas chip opens the
 // image workspace in Canvas view, and its view toggle returns to the focused image.
 async function openGeneratedImageFocusPane(preview: HTMLElement): Promise<void> {
-  const chip = await waitForElement(
-    () =>
-      preview.parentElement?.querySelector<HTMLButtonElement>(
-        '[data-testid="generated-image-open-canvas"]',
-      ) ?? null,
-    "Unable to find the generated image Canvas chip.",
-  );
-  chip.click();
-  const pane = () =>
-    document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]');
-  // The chip opens the Canvas view; wait until it has settled there before
-  // switching, or a remembered focused view would be replaced right after.
-  await vi.waitFor(
-    () => {
-      expect(pane()?.getAttribute("data-generated-image-preview-view")).toBe("playground");
-      expect(pane()?.getAttribute("data-generated-image-preview-transitioning")).toBe("false");
-    },
-    { timeout: 8_000, interval: 16 },
-  );
-  await vi.waitFor(
-    () => {
-      const focusView = document.querySelector<HTMLButtonElement>(
-        '[data-testid="generated-image-preview-view-single"]',
-      );
-      if (pane()?.getAttribute("data-generated-image-preview-view") !== "single") {
-        if (focusView && !focusView.disabled) focusView.click();
-      }
-      expect(pane()?.getAttribute("data-generated-image-preview-view")).toBe("single");
-    },
-    { timeout: 8_000, interval: 50 },
-  );
+  await withMissingCanvasBundle(async () => {
+    const chip = await waitForElement(
+      () =>
+        preview.parentElement?.querySelector<HTMLButtonElement>(
+          '[data-testid="generated-image-open-canvas"]',
+        ) ?? null,
+      "Unable to find the generated image Canvas chip.",
+    );
+    chip.click();
+    const pane = () =>
+      document.querySelector<HTMLElement>('[data-testid="generated-image-preview-pane"]');
+    // Settle the Canvas view and its missing-bundle response before switching.
+    // Otherwise a dev-server fallback can race this click and invoke a save
+    // guard for an iframe that is not a Canvas editor.
+    await vi.waitFor(
+      () => {
+        expect(pane()?.getAttribute("data-generated-image-preview-view")).toBe("playground");
+        expect(pane()?.getAttribute("data-generated-image-preview-transitioning")).toBe("false");
+      },
+      { timeout: 8_000, interval: 16 },
+    );
+    await expect.element(page.getByText("画布工作区暂不可用", { exact: true })).toBeVisible();
+    expect(document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
+    await vi.waitFor(
+      () => {
+        const focusView = document.querySelector<HTMLButtonElement>(
+          '[data-testid="generated-image-preview-view-single"]',
+        );
+        if (pane()?.getAttribute("data-generated-image-preview-view") !== "single") {
+          if (focusView && !focusView.disabled) focusView.click();
+        }
+        expect(pane()?.getAttribute("data-generated-image-preview-view")).toBe("single");
+      },
+      { timeout: 8_000, interval: 50 },
+    );
+  });
 }
 
 function expectGeneratedImagePreviewReceipt(options?: { mobile?: boolean }): HTMLElement {
@@ -3813,20 +3839,7 @@ async function openGeneratedImageEditorFromGallery(): Promise<void> {
     () => document.querySelector<HTMLButtonElement>('[data-testid="generated-image-open-canvas"]'),
     "Unable to find the loaded gallery's Canvas chip.",
   );
-  // These fixtures do not host the Canvas runtime. A dev-server HTML fallback
-  // would mount an iframe that cannot acknowledge the save guard on view change.
-  const originalFetch = window.fetch;
-  window.fetch = (input, init) => {
-    const url = new URL(
-      input instanceof Request ? input.url : String(input),
-      window.location.origin,
-    );
-    if (url.origin === window.location.origin && url.pathname === "/canvas/") {
-      return Promise.resolve(new Response("Canvas bundle missing", { status: 503 }));
-    }
-    return originalFetch.call(window, input, init);
-  };
-  try {
+  await withMissingCanvasBundle(async () => {
     await page.getByTestId("generated-image-open-canvas").click();
     await vi.waitFor(() => {
       const pane = document.querySelector<HTMLElement>(
@@ -3845,9 +3858,7 @@ async function openGeneratedImageEditorFromGallery(): Promise<void> {
       expect(pane?.dataset.generatedImagePreviewTransitioning).toBe("false");
     });
     await waitForGeneratedImagePreviewControlsReady();
-  } finally {
-    window.fetch = originalFetch;
-  }
+  });
 }
 
 async function waitForGeneratedImagePreviewControlsReady(): Promise<void> {
@@ -5767,6 +5778,17 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
       await rail.getByRole("button", { name: "Scheduled", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/automations");
+      // location changes before the route commits. Home reads the committed
+      // section, so finish opening Scheduled before asking it to return.
+      await expect
+        .element(
+          page.getByText(
+            "Pick an automation in the panel to see its runs, or schedule a new one.",
+            { exact: true },
+          ),
+        )
+        .toBeVisible();
+      await expect.poll(() => mounted.router.state.isLoading).toBe(false);
       await rail.getByRole("button", { name: "Home", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
     } finally {
