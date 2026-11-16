@@ -24,12 +24,16 @@ import {
 } from "@moss/contracts";
 import {
   emptyItemData,
+  parseBoardItem,
   isTypedItemKind,
   parseItemData,
   type TypedItemKind,
 } from "@moss/shared/spaceItems/itemData";
 import { BUILT_IN_TEMPLATES, findBuiltInTemplate } from "@moss/shared/spaceItems/templates";
 import { readFile } from "node:fs/promises";
+import { createLogger } from "../../logger";
+import { resolveMossCanvasBundleRoot } from "../../mossCanvasStorage";
+import { registerLegacyCanvasBoards } from "../../mossCanvasBoardStorage";
 
 import { DASHBOARD_LIBRARY_FILE_MAX_BYTES } from "@moss/shared/spaceItems/dashboard";
 import { Effect, Layer, Option, Schema, ServiceMap } from "effect";
@@ -255,6 +259,16 @@ export const makePageTypesServiceShape = (
           const kind = input.kind;
           // Validate before creating so a bad payload never leaves an empty page behind.
           const supplied = input.data ?? template?.data;
+          if (kind === "board" && supplied !== undefined) {
+            const b = yield* Effect.try({
+              try: () => parseBoardItem(supplied),
+              catch: () => failure("invalid", "Invalid board"),
+            });
+            if (b.version !== 2)
+              return yield* Effect.fail(
+                failure("invalid", "New boards require isolated version 2 storage"),
+              );
+          }
           const parsed = supplied === undefined ? null : yield* parse(kind, supplied, input.title);
           return yield* sql.withTransaction(
             Effect.gen(function* () {
@@ -302,6 +316,20 @@ export const makePageTypesServiceShape = (
           }
           const kind = current.kind;
           const parsed = yield* parse(kind, input.data, input.title ?? current.page.title);
+          if (kind === "board") {
+            const { before, after } = yield* Effect.try({
+              try: () => ({
+                before: parseBoardItem(current.data!),
+                after: parseBoardItem(parsed.data),
+              }),
+              catch: () => failure("invalid", "Board storage identity is invalid"),
+            });
+            if (
+              before.version !== after.version ||
+              before.canvasProjectKey !== after.canvasProjectKey
+            )
+              return yield* Effect.fail(failure("invalid", "Board storage identity is immutable"));
+          }
           return yield* sql.withTransaction(
             Effect.gen(function* () {
               const updated = yield* pages.mutate(
@@ -453,6 +481,58 @@ export const PageTypesServiceLive = Layer.effect(
     // Optional so test layers without config or connectors still build; live queries then
     // answer that this build cannot run them.
     const config = Option.getOrNull(yield* Effect.serviceOption(ServerConfig));
+    if (config) {
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql<{
+        page_id: string;
+        scope_key: string;
+        data: string;
+      }>`SELECT d.page_id,d.scope_key,i.data FROM pages_documents d JOIN pages_item_data i ON i.page_id=d.page_id WHERE d.kind='board' AND i.revision=(SELECT MAX(x.revision) FROM pages_item_data x WHERE x.page_id=d.page_id AND x.revision<=d.revision)`;
+      let invalidCount = 0;
+      const boards = rows.flatMap((r) => {
+        try {
+          const b = parseBoardItem(r.data);
+          return b.version === 1
+            ? [
+                {
+                  pageId: r.page_id,
+                  canvasProjectKey: b.canvasProjectKey,
+                  scopeSpaceId:
+                    r.scope_key === "local-default"
+                      ? null
+                      : r.scope_key.startsWith("project-space:")
+                        ? r.scope_key.slice(14)
+                        : (() => {
+                            throw new Error("Invalid legacy board scope");
+                          })(),
+                },
+              ]
+            : [];
+        } catch {
+          invalidCount++;
+          return [];
+        } // Preserve damaged rows. Their own reads fail; unrelated data stays usable.
+      });
+      if (invalidCount)
+        createLogger("page-types").warn("Legacy board payloads invalid; records preserved", {
+          invalidCount,
+        });
+      // A failed registry must block legacy-board initialization, not unrelated chat/page startup.
+      yield* Effect.tryPromise({
+        try: async () =>
+          registerLegacyCanvasBoards(config.stateDir, boards, await resolveMossCanvasBundleRoot()),
+        catch: () => failure("storage", "Legacy board registry unavailable"),
+      }).pipe(
+        Effect.catch(() =>
+          Effect.sync(() =>
+            createLogger("page-types").warn(
+              "Legacy board registry unavailable; legacy boards remain blocked",
+              { category: "registry-io-or-integrity" },
+            ),
+          ),
+        ),
+      );
+    }
     const connectors = yield* Effect.serviceOption(McpConnectors);
     const mcpSources = config
       ? makePageAppMcpSources({ connectors: Option.getOrNull(connectors), baseDir: config.baseDir })

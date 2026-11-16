@@ -56,6 +56,7 @@ interface MossCanvasWebSurfaceProps {
   readonly projectKey?: string;
   /** Board-owned Canvas project key; used when no conversation thread is present. */
   readonly canvasProjectKey?: string;
+  readonly boardScope?: { pageId: string; canvasProjectKey: string; scopeSpaceId: string | null };
   readonly prepareThread?: () => Promise<string | null>;
   readonly image?: MossCanvasImageFocus;
   readonly returnSurface?: "images";
@@ -84,6 +85,7 @@ function canvasFrame(
   threadId?: string | null,
   projectKey?: string,
   canvasProjectKey?: string,
+  boardScope?: MossCanvasWebSurfaceProps["boardScope"],
   image?: MossCanvasImageFocus,
   returnSurface?: "images",
 ): { src: string; token: string } | null {
@@ -120,6 +122,13 @@ function canvasFrame(
       url.searchParams.set("projectKey", standaloneProjectKey);
     }
   }
+  if (boardScope) {
+    if (threadId || boardScope.canvasProjectKey !== canvasProjectKey)
+      throw new Error("Invalid board scope");
+    url.searchParams.set("moss_board", boardScope.pageId);
+    url.searchParams.set("moss_board_key", boardScope.canvasProjectKey);
+    url.searchParams.set("moss_board_space", boardScope.scopeSpaceId ?? "");
+  }
   if (image) {
     url.searchParams.set("moss_image_job", image.jobId);
     url.searchParams.set("moss_image_index", String(image.imageIndex));
@@ -136,6 +145,7 @@ export function MossCanvasWebSurface({
   threadId,
   projectKey,
   canvasProjectKey,
+  boardScope,
   prepareThread,
   image,
   returnSurface,
@@ -184,9 +194,26 @@ export function MossCanvasWebSurface({
   const connection = useMemo(
     () =>
       prepared
-        ? canvasFrame(resolvedThread, projectKey, canvasProjectKey, image, returnSurface)
+        ? canvasFrame(
+            resolvedThread,
+            projectKey,
+            canvasProjectKey,
+            boardScope,
+            image,
+            returnSurface,
+          )
         : null,
-    [prepared, resolvedThread, projectKey, canvasProjectKey, image, returnSurface],
+    [
+      prepared,
+      resolvedThread,
+      projectKey,
+      canvasProjectKey,
+      boardScope?.pageId,
+      boardScope?.canvasProjectKey,
+      boardScope?.scopeSpaceId,
+      image,
+      returnSurface,
+    ],
   );
   const src = connection?.src ?? null;
   const frame = useRef<HTMLIFrameElement>(null);

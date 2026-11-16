@@ -17,7 +17,8 @@ export const isTypedItemKind = (kind: unknown): kind is TypedItemKind =>
 
 /** 白板: the item only names the Moss Canvas project that holds the drawing. */
 export interface BoardItem {
-  readonly version: 1;
+  readonly version: 1 | 2;
+  readonly storage?: "isolated";
   /** Stable Canvas project key, `space-board-<pageId>` for boards made here. */
   readonly canvasProjectKey: string;
   readonly note?: string;
@@ -44,7 +45,9 @@ function record(value: unknown, what: string): Record<string, unknown> {
 
 export function parseBoardItem(input: string | unknown): BoardItem {
   const value = record(typeof input === "string" ? JSON.parse(input) : input, "board");
-  if (value.version !== 1) throw new Error("Invalid board: version must be 1");
+  if (value.version !== 1 && value.version !== 2) throw new Error("Invalid board version");
+  if (value.version === 2 && value.storage !== "isolated")
+    throw new Error("Invalid isolated board storage");
   if (
     typeof value.canvasProjectKey !== "string" ||
     !/^[A-Za-z0-9:_-]{1,128}$/u.test(value.canvasProjectKey)
@@ -55,7 +58,8 @@ export function parseBoardItem(input: string | unknown): BoardItem {
     throw new Error("Invalid board: note must be at most 2000 characters");
   }
   return {
-    version: 1,
+    version: value.version,
+    ...(value.version === 2 ? { storage: "isolated" as const } : {}),
     canvasProjectKey: value.canvasProjectKey,
     ...(value.note ? { note: value.note as string } : {}),
   };
@@ -140,7 +144,8 @@ export function emptyItemData(
       return JSON.stringify(createSheetWorkbook());
     case "board":
       return JSON.stringify({
-        version: 1,
+        version: 2,
+        storage: "isolated",
         canvasProjectKey: `space-board-${(options.pageKey ?? "new").replace(/[^A-Za-z0-9_-]/gu, "").slice(0, 100)}`,
       } satisfies BoardItem);
     case "app":

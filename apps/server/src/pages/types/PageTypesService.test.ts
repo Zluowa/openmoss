@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { assert, it } from "@effect/vitest";
 import { SpaceId, ThreadId } from "@moss/contracts";
@@ -13,6 +16,7 @@ import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite";
 import { PagesServiceLive } from "../Layers/PagesService";
 import { LOCAL_PAGES_PRINCIPAL as user, PagesService } from "../Services/PagesService";
 import { PageTypesService, PageTypesServiceLive } from "./PageTypesService";
+import { ServerConfig } from "../../config";
 
 const tests = it.layer(
   PageTypesServiceLive.pipe(
@@ -57,6 +61,123 @@ const harness = Effect.gen(function* () {
 });
 
 tests("typed 资料空间 items", (it) => {
+  it.effect(
+    "keeps the actual configured service layer available after a registry filesystem refusal and preserves a damaged board",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness,
+          good = yield* h.create("board"),
+          bad = yield* h.create("board");
+        const legacy = JSON.stringify({ version: 1, canvasProjectKey: "space-board-startup-good" });
+        yield* h.sql`UPDATE pages_item_data SET data=${legacy} WHERE page_id=${good.page.id}`;
+        yield* h.sql`UPDATE pages_item_data SET data=${"{damaged"} WHERE page_id=${bad.page.id}`;
+        const root = yield* Effect.promise(() =>
+          mkdtemp(join(process.env.MOSS_BOARD_TEST_ROOT ?? tmpdir(), "board-startup-")),
+        );
+        const bundle = join(root, "bundle");
+        yield* Effect.promise(async () => {
+          await mkdir(join(bundle, "apps/codex-canvas/server"), { recursive: true });
+          await writeFile(
+            join(bundle, "apps/codex-canvas/server/hosted-storage.mjs"),
+            "// Unused bundle availability marker for registry startup test.\n",
+          );
+          // A directory at the registry file path is a real filesystem refusal, not a stubbed Promise.
+          await mkdir(join(root, "moss-canvas-board-legacy-registry.json"));
+        });
+        const previous = process.env.MOSS_CANVAS_BUNDLE_DIR;
+        process.env.MOSS_CANVAS_BUNDLE_DIR = bundle;
+        const reload = Effect.gen(function* () {
+          const types = yield* PageTypesService;
+          const ordinary = yield* types.create(
+            {
+              requestId: randomUUID(),
+              scopeSpaceId: h.scopeSpaceId,
+              kind: "page",
+              title: "Ordinary page remains usable",
+              spaceId: null,
+              parentPageId: null,
+            },
+            user,
+          );
+          assert.strictEqual(ordinary.kind, "page");
+          const read = yield* types.read(
+            { scopeSpaceId: h.scopeSpaceId, pageId: good.page.id },
+            user,
+          );
+          assert.strictEqual(read.data, legacy);
+          const failed = yield* Effect.result(
+            types.save(
+              {
+                requestId: randomUUID(),
+                scopeSpaceId: h.scopeSpaceId,
+                pageId: bad.page.id,
+                expectedRevision: bad.page.revision,
+                data: JSON.stringify({
+                  version: 2,
+                  storage: "isolated",
+                  canvasProjectKey: "replacement",
+                }),
+              },
+              user,
+            ),
+          );
+          assert.strictEqual(failed._tag, "Failure");
+          const rows = yield* h.sql<{
+            data: string;
+          }>`SELECT data FROM pages_item_data WHERE page_id=${bad.page.id}`;
+          assert.strictEqual(rows[0]!.data, "{damaged");
+        }).pipe(
+          Effect.provide(
+            PageTypesServiceLive.pipe(
+              Layer.provide(
+                Layer.succeed(ServerConfig, { stateDir: root, baseDir: root } as never),
+              ),
+            ),
+          ),
+        );
+        yield* reload.pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (previous === undefined) delete process.env.MOSS_CANVAS_BUNDLE_DIR;
+              else process.env.MOSS_CANVAS_BUNDLE_DIR = previous;
+            }),
+          ),
+        );
+      }),
+  );
+  it.effect("creates isolated boards only and refuses storage identity changes", () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      const board = yield* h.create("board");
+      const payload = JSON.parse(board.data!);
+      assert.strictEqual(payload.version, 2);
+      assert.strictEqual(payload.storage, "isolated");
+      const legacy = yield* Effect.exit(
+        h.create("board", {
+          data: JSON.stringify({ version: 1, canvasProjectKey: "space-board-legacy" }),
+        }),
+      );
+      assert.strictEqual(legacy._tag, "Failure");
+      const changed = yield* Effect.exit(
+        h.types.save(
+          {
+            requestId: randomUUID(),
+            scopeSpaceId: h.scopeSpaceId,
+            pageId: board.page.id,
+            expectedRevision: board.page.revision,
+            data: JSON.stringify({ ...payload, canvasProjectKey: "another-key" }),
+          },
+          user,
+        ),
+      );
+      assert.strictEqual(changed._tag, "Failure");
+      const read = yield* h.types.read(
+        { scopeSpaceId: h.scopeSpaceId, pageId: board.page.id },
+        user,
+      );
+      assert.strictEqual(read.data, board.data);
+    }),
+  );
   it.effect("creates each typed kind with a valid empty payload and the page kind", () =>
     Effect.gen(function* () {
       const h = yield* harness;
