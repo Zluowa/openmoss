@@ -1,12 +1,72 @@
 import { ORCHESTRATION_WS_METHODS, WS_METHODS } from "@moss/contracts";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber, Layer, Logger } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it } from "vitest";
 
 import { classifyWsRequest } from "@moss/shared/wsRequestClass";
 
-import { makeWsRequestAdmission } from "./wsRequestAdmission";
+import { makeWsRequestAdmission, WS_REQUEST_REJECTION_LOG_INTERVAL_MS } from "./wsRequestAdmission";
 
 describe("WsRequestAdmission", () => {
+  // Ported from upstream #2119.
+  it("logs what holds a saturated class, at most once per client and class per interval", async () => {
+    const logs: Array<{ readonly level: string; readonly message: unknown }> = [];
+    const logger = Logger.make(({ logLevel, message }) => logs.push({ level: logLevel, message }));
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const admission = yield* makeWsRequestAdmission;
+        yield* admission.acquire(1, ORCHESTRATION_WS_METHODS.getSnapshot);
+        yield* TestClock.adjust("1500 millis");
+        yield* admission.acquire(1, WS_METHODS.statsGetProfileStats);
+        yield* TestClock.adjust("500 millis");
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          yield* admission.acquire(1, WS_METHODS.gitStatus).pipe(Effect.exit);
+        }
+
+        expect(logs).toEqual([
+          {
+            level: "Warn",
+            message: [
+              "WebSocket request rejected: class capacity in use",
+              {
+                clientId: 1,
+                method: WS_METHODS.gitStatus,
+                requestClass: "expensive-read",
+                limit: 2,
+                heldBy: [
+                  { method: ORCHESTRATION_WS_METHODS.getSnapshot, heldForMs: 2000 },
+                  { method: WS_METHODS.statsGetProfileStats, heldForMs: 500 },
+                ],
+                suppressedSinceLastLog: 0,
+              },
+            ],
+          },
+        ]);
+
+        // Another client's lane is its own and is reported on its own.
+        yield* admission.acquire(2, ORCHESTRATION_WS_METHODS.getSnapshot);
+        yield* admission.acquire(2, ORCHESTRATION_WS_METHODS.getSnapshot);
+        yield* admission.acquire(2, WS_METHODS.gitStatus).pipe(Effect.exit);
+        expect(logs).toHaveLength(2);
+
+        // After the interval the next rejection logs again with the skipped count.
+        yield* TestClock.adjust(WS_REQUEST_REJECTION_LOG_INTERVAL_MS);
+        yield* admission.acquire(1, WS_METHODS.gitStatus).pipe(Effect.exit);
+        expect(logs).toHaveLength(3);
+        expect(logs[2]?.message).toEqual([
+          "WebSocket request rejected: class capacity in use",
+          expect.objectContaining({ clientId: 1, suppressedSinceLastLog: 2 }),
+        ]);
+        expect((yield* admission.snapshot).rejectedTotal).toBe(5);
+      }).pipe(
+        Effect.provide(
+          Layer.merge(Logger.layer([logger], { mergeWithExisting: false }), TestClock.layer()),
+        ),
+        Effect.scoped,
+      ),
+    );
+  });
+
   it("gives the import panel's scan its own lane beside an expensive-read flood", async () => {
     expect(classifyWsRequest(ORCHESTRATION_WS_METHODS.listProjectImports)).toBe("import-scan");
     await Effect.runPromise(

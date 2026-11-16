@@ -345,4 +345,13 @@ describe("translateZhCnRuntimeUiText", () => {
       ),
     ).toBe("开始新对话并清除当前对话上下文");
   });
+
+  it("translates provider retry and reconnect notices", () => {
+    expect(translateZhCnPresentationText("OpenCode is retrying the request.")).toBe(
+      "OpenCode 正在重试请求。",
+    );
+    expect(translateZhCnPresentationText("OpenCode event stream disconnected; reconnecting.")).toBe(
+      "OpenCode 事件流已断开，正在重新连接。",
+    );
+  });
 });

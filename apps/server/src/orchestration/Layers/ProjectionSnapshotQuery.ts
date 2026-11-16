@@ -1907,6 +1907,16 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const readThreadEventExists = SqlSchema.findOne({
+    Request: Schema.Void,
+    Result: Schema.Struct({ exists: Schema.Number }),
+    execute: () => sql`
+      SELECT EXISTS (
+        SELECT 1 FROM orchestration_events WHERE aggregate_kind = 'thread'
+      ) AS "exists"
+    `,
+  });
+
   // Cheap targeted reads avoid hydrating the full snapshot for startup and diff lookups.
   const readProjectionCounts = SqlSchema.findOne({
     Request: Schema.Void,
@@ -2252,23 +2262,23 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM (
+          -- The newest maxMessages rows, read straight off the (thread_id, sequence)
+          -- index instead of ranking every message of the thread. SQLite sorts NULL
+          -- below every value, so "sequence DESC" keeps sequenced rows ahead of
+          -- unsequenced ones exactly like the former ROW_NUMBER() rank did.
           SELECT
             thread_id,
-            message_id,
-            ROW_NUMBER() OVER (
-              PARTITION BY thread_id
-              ORDER BY
-                CASE WHEN sequence IS NULL THEN 0 ELSE 1 END DESC,
-                sequence DESC,
-                created_at DESC,
-                message_id DESC
-            ) AS message_rank
+            message_id
           FROM projection_thread_messages
           WHERE thread_id = ${threadId}
-        ) AS ranks
+          ORDER BY sequence DESC, created_at DESC, message_id DESC
+          LIMIT CASE
+            WHEN ${maxMessages} IS NULL THEN -1
+            ELSE MAX(0, CAST(${maxMessages} AS INTEGER))
+          END
+        ) AS tail
         JOIN projection_thread_messages USING (thread_id, message_id)
         WHERE thread_id = ${threadId}
-          AND (${maxMessages} IS NULL OR message_rank <= ${maxMessages})
           AND ${messageIds === undefined ? sql`1 = 1` : messageIds.length === 0 ? sql`1 = 0` : sql.in("message_id", messageIds)}
         ORDER BY
           CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
@@ -3504,7 +3514,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
-  const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = () =>
+  const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = (options) =>
     sql
       .withTransaction(
         Effect.gen(function* () {
@@ -3616,9 +3626,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           updatedAt = maxOptionalIso(updatedAt, latestTurns.updatedAt);
           updatedAt = maxOptionalIso(updatedAt, sessions.updatedAt);
 
+          const hasLiveThreads = threadRows.some((row) => row.deletedAt === null);
           const shellIsEmpty =
-            !projectRows.some((row) => row.deletedAt === null) &&
-            !threadRows.some((row) => row.deletedAt === null);
+            !projectRows.some((row) => row.deletedAt === null) && !hasLiveThreads;
           const requiresEmptyProjectShellRepair = shellIsEmpty
             ? yield* readEmptyProjectShellRepair(undefined).pipe(
                 Effect.mapError(
@@ -3631,9 +3641,26 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               )
             : false;
 
+          // No thread history means there is nothing for a thread projector to catch up on.
+          // Only queried snapshots request this proof; subscription snapshots omit it.
+          const emptyThreadShellVerified = options?.verifyEmptyThreads
+            ? !hasLiveThreads &&
+              !requiresEmptyProjectShellRepair &&
+              (yield* readThreadEventExists(undefined).pipe(
+                Effect.mapError(
+                  toPersistenceSqlOrDecodeError(
+                    "ProjectionSnapshotQuery.getShellSnapshot:threadEventExists:query",
+                    "ProjectionSnapshotQuery.getShellSnapshot:threadEventExists:decodeRow",
+                  ),
+                ),
+                Effect.map((row) => row.exists === 0),
+              ))
+            : undefined;
+
           const snapshot = {
             snapshotSequence: yield* computeSnapshotSequence(stateRows),
             requiresEmptyProjectShellRepair,
+            ...(emptyThreadShellVerified === undefined ? {} : { emptyThreadShellVerified }),
             spaces: spaceRows.filter((row) => row.deletedAt === null).map(toProjectedSpaceShell),
             projects: projectRows
               .filter((row) => row.deletedAt === null)
@@ -4316,7 +4343,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ? yield* sql<{
             revisionSequence: number;
           }>`SELECT COALESCE(MAX(sequence),0) AS "revisionSequence" FROM orchestration_events
-        WHERE aggregate_kind = 'thread' AND stream_id = ${threadId} AND event_type IN ('thread.reverted','thread.conversation-rolled-back') AND sequence <= COALESCE((SELECT MIN(last_applied_sequence) FROM projection_state WHERE ${sql.in("projector", REQUIRED_SNAPSHOT_PROJECTORS)}),0)`.pipe(
+        -- Unary plus: seek the (event_type, stream_id) index, not every event of the stream.
+        WHERE +aggregate_kind = 'thread' AND stream_id = ${threadId} AND event_type IN ('thread.reverted','thread.conversation-rolled-back') AND sequence <= COALESCE((SELECT MIN(last_applied_sequence) FROM projection_state WHERE ${sql.in("projector", REQUIRED_SNAPSHOT_PROJECTORS)}),0)`.pipe(
             Effect.mapError(
               toPersistenceSqlOrDecodeError(
                 `${options.tracePrefix}:historyRevision:query`,
@@ -4604,7 +4632,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sql<{ historyRevisionSequence: number }>`
             SELECT COALESCE(MAX(sequence), 0) AS "historyRevisionSequence"
             FROM orchestration_events
-            WHERE aggregate_kind = 'thread' AND stream_id = ${threadId}
+            -- The unary plus keeps SQLite off the per-stream index, which would walk every
+            -- event of the thread. It then seeks the (event_type, stream_id) index instead.
+            WHERE +aggregate_kind = 'thread' AND stream_id = ${threadId}
               AND event_type IN ('thread.reverted', 'thread.conversation-rolled-back')
               AND sequence <= COALESCE((
                 SELECT MIN(last_applied_sequence) FROM projection_state

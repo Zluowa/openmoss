@@ -87,6 +87,37 @@ it("expands and collapses finished rows without leaving hidden buttons reachable
   }
 });
 
+it("shows the model and effort on running and finished rows", async () => {
+  const screen = await render(
+    <SubagentsList
+      roster={{
+        active: [runningSubagentRosterItem("Scout", { modelLabel: "Opus 5.5 · high" })],
+        previous: [
+          subagentRosterItem("Done", { modelLabel: "GPT-5.5 · high" }),
+          subagentRosterItem("Plain"),
+        ],
+      }}
+      parent={null}
+      nowMs={0}
+      onOpen={() => {}}
+      onStop={() => {}}
+      onBackground={() => {}}
+    />,
+  );
+  try {
+    await expect.element(page.getByText("Opus 5.5 · high", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("GPT-5.5 · high", { exact: true })).toBeVisible();
+    expect(
+      page
+        .getByRole("button", { name: "Open subagent Plain (Completed)" })
+        .element()
+        .textContent?.includes("·"),
+    ).toBe(false);
+  } finally {
+    await screen.unmount();
+  }
+});
+
 it.each(["Stop subagent Scout", "Run Scout in background"])(
   "reports rejected %s commands",
   async (label) => {

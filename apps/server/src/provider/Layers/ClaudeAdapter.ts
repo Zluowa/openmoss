@@ -1583,6 +1583,7 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
     "Do not present the host app as Claude Code unless the user is explicitly asking about Claude Code.",
     "Treat the current working directory as the active workspace for the task.",
     "When the user asks about the current project, codebase, or repository, proactively inspect files in the current working directory before asking the user where to look.",
+    "Do the work yourself by default. Spawn subagents only when the user asks for them or when independent pieces of work clearly benefit from running in parallel; every subagent draws on the same usage limits as this conversation, whichever model it runs.",
     "When spawning subagents, set the Agent tool's `model` parameter and pick reasoning effort by choosing a worker-<tier> subagent type (worker-low, worker-medium, worker-high, worker-xhigh).",
     "Honor explicit user instructions about a subagent's model or effort verbatim; otherwise match task complexity: mechanical work → haiku or worker-low, standard work → sonnet or worker-medium, hard reasoning → opus or fable with worker-high and above.",
     renderMossHarnessPolicy({
@@ -2199,6 +2200,25 @@ function sdkNativeItemId(message: SDKMessage): string | undefined {
   return undefined;
 }
 
+// Claude reports each running main-agent tool's liveness every 30 s as a
+// heartbeat `tool_progress`: its id is the synthetic `<tool id>-heartbeat-<n>`
+// and its parent is the tool itself. It is progress of that tool, not of a
+// child, so it routes and projects under the tool's own id.
+function claudeHeartbeatOwnToolUseId(
+  message: Extract<SDKMessage, { type: "tool_progress" }>,
+): string | undefined {
+  const toolUseId = message.parent_tool_use_id;
+  return typeof toolUseId === "string" &&
+    toolUseId.length > 0 &&
+    message.tool_use_id.startsWith(`${toolUseId}-heartbeat-`)
+    ? toolUseId
+    : undefined;
+}
+
+function toolProgressToolUseId(message: Extract<SDKMessage, { type: "tool_progress" }>): string {
+  return claudeHeartbeatOwnToolUseId(message) ?? message.tool_use_id;
+}
+
 function parentToolUseId(message: SDKMessage): string | undefined {
   if (
     message.type !== "assistant" &&
@@ -2206,6 +2226,9 @@ function parentToolUseId(message: SDKMessage): string | undefined {
     message.type !== "stream_event" &&
     message.type !== "tool_progress"
   ) {
+    return undefined;
+  }
+  if (message.type === "tool_progress" && claudeHeartbeatOwnToolUseId(message) !== undefined) {
     return undefined;
   }
   return typeof message.parent_tool_use_id === "string" && message.parent_tool_use_id.length > 0
@@ -6141,7 +6164,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             ...base,
             type: "tool.progress",
             payload: {
-              toolUseId: message.tool_use_id,
+              toolUseId: toolProgressToolUseId(message),
               toolName: message.tool_name,
               elapsedSeconds: message.elapsed_time_seconds,
               ...(message.task_id ? { summary: `task:${message.task_id}` } : {}),
@@ -6228,8 +6251,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         // Progress of a tool a subagent opened (async Bash progress carries the
         // Bash id, not the Task id) belongs on that subagent's child thread.
         if (message.type === "tool_progress") {
+          const progressToolUseId = toolProgressToolUseId(message);
           const ownerToolUseId =
-            context.subagentToolOwners.get(message.tool_use_id) ??
+            context.subagentToolOwners.get(progressToolUseId) ??
             (typeof message.parent_tool_use_id === "string"
               ? context.subagentToolOwners.get(message.parent_tool_use_id)
               : undefined);
@@ -6243,10 +6267,15 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             }
             return;
           }
+          // A heartbeat only beats while its call runs: one that lands after the
+          // call finished is stale and must not reopen its row.
           if (
-            !findInFlightTool(context, message.tool_use_id) &&
-            !parentToolUseId(message) &&
-            !Array.from(context.subagentToolUseIdByTaskId.values()).includes(message.tool_use_id)
+            !findInFlightTool(context, progressToolUseId) &&
+            (claudeHeartbeatOwnToolUseId(message) !== undefined ||
+              (!parentToolUseId(message) &&
+                !Array.from(context.subagentToolUseIdByTaskId.values()).includes(
+                  progressToolUseId,
+                )))
           ) {
             return;
           }

@@ -353,7 +353,7 @@ export function SettingsContent({
       : null;
 
   const {
-    isDefaultActiveTheme,
+    isDefaultThemePack,
     resetAllThemes,
     resolvedTheme,
     theme,
@@ -469,7 +469,10 @@ export function SettingsContent({
 
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
-    ...(!isDefaultActiveTheme ? [`${resolvedTheme === "dark" ? "Dark" : "Light"} theme pack`] : []),
+    // resetAllThemes() restores both theme packs and the default-UI-font preference.
+    ...(!isDefaultThemePack("dark") ? ["Dark theme pack"] : []),
+    ...(!isDefaultThemePack("light") ? ["Light theme pack"] : []),
+    ...(!systemUiFont ? ["Default UI font"] : []),
     ...(settings.defaultProvider !== defaults.defaultProvider ? ["Default provider"] : []),
     ...(settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ? ["New thread mode"] : []),
     ...(settings.composerPredictionsEnabled !== defaults.composerPredictionsEnabled
@@ -523,6 +526,9 @@ export function SettingsContent({
       ? ["Fold finished turns"]
       : []),
     ...(settings.composerEffortSlider !== defaults.composerEffortSlider ? ["Effort slider"] : []),
+    ...(settings.showRateLimitWarnings !== defaults.showRateLimitWarnings
+      ? ["Rate limit warnings"]
+      : []),
     ...(settings.messageTrailAudioSource !== defaults.messageTrailAudioSource
       ? ["Message trail sound"]
       : []),
@@ -1484,6 +1490,14 @@ export function SettingsContent({
           description: "Pick thinking effort with a slider.",
           resetLabel: "effort slider",
           ariaLabel: "Show effort slider in the composer",
+        })}
+
+        {renderBooleanSettingRow({
+          settingKey: "showRateLimitWarnings",
+          title: "Rate limit warnings",
+          description: "Warn when a usage limit is close. A reached limit always shows.",
+          resetLabel: "rate limit warnings",
+          ariaLabel: "Show rate limit warnings",
         })}
 
         {isAudioLevelAvailable() ? (

@@ -141,9 +141,14 @@ async function installAppliesToCwd(
  */
 export async function discoverClaudePluginSkillRoots(input: {
   readonly homeDir: string;
+  /** Active Claude profile's config dir; defaults to `~/.claude`. */
+  readonly claudeConfigDir?: string;
   readonly cwd?: string | null;
 }): Promise<ClaudePluginSkillRoot[]> {
-  const claudePluginsDir = nodePath.join(input.homeDir, ".claude", "plugins");
+  const claudePluginsDir = nodePath.join(
+    input.claudeConfigDir ?? nodePath.join(input.homeDir, ".claude"),
+    "plugins",
+  );
   const [manifestRaw, canonicalCacheRoot] = await Promise.all([
     fs
       .readFile(nodePath.join(claudePluginsDir, "installed_plugins.json"), "utf8")

@@ -820,6 +820,11 @@ const BENIGN_ERROR_LOG_SNIPPETS = [
   "state db record_discrepancy: find_thread_path_by_id_str_in_subdir, falling_back",
 ];
 const BENIGN_PROCESS_OUTPUT_REGEXES = [/^(?:\^C)?Token usage:/i];
+// Plain (non-log) stderr is mostly progress chatter; only error-like lines are worth a row.
+// The Windows launcher (cmd.exe) reports a missing or blocked program in the system
+// language, so its English and Simplified Chinese wording counts too.
+const CODEX_ERROR_LIKE_PLAIN_LINE_REGEX =
+  /error|failed|fatal|panic|exception|denied|refused|not recognized|cannot find|not found|错误|失败|拒绝|无法|找不到|不是内部或外部命令/i;
 // Codex's MCP client failing OAuth for a server from the user's own
 // config.toml (e.g. an expired Stripe grant). That is the user's Codex setup,
 // not this chat, so it stays out of the transcript; Moss's own server and
@@ -1752,6 +1757,10 @@ export function classifyCodexStderrLine(rawLine: string): { message: string } | 
     return null;
   }
 
+  if (!CODEX_ERROR_LIKE_PLAIN_LINE_REGEX.test(line)) {
+    logCodexDiagnosticLine(line);
+    return null;
+  }
   return { message: normalizeCodexUserVisibleErrorMessage(line) };
 }
 

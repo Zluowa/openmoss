@@ -140,6 +140,9 @@ export const translateZhCnConversationCopyText = phraseTranslator(CONVERSATION_C
     },
   ],
   [/^- hash (\S+)$/, "- 哈希 $1"],
+  // Provider runtime notices (OpenCode retries and event-stream reconnects)
+  [/^(.+) is retrying the request\.$/, "$1 正在重试请求。"],
+  [/^(.+) event stream disconnected; reconnecting\.$/, "$1 事件流已断开，正在重新连接。"],
 
   // Subagents
   [/^(\d+) running$/, "$1 个运行中"],

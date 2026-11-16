@@ -101,8 +101,8 @@ afterEach(() => {
 
 describe("missing chat thread route recovery", () => {
   it("ignores a previous thread's completion while the new thread is recovering", async () => {
-    const previousSnapshot = deferred<boolean>();
-    const currentSnapshot = deferred<boolean>();
+    const previousSnapshot = deferred<"restored" | "verified-empty" | "unknown">();
+    const currentSnapshot = deferred<"restored" | "verified-empty" | "unknown">();
     const previousDelay = deferred<void>();
     const currentDelay = deferred<void>();
     harness.refreshSnapshot
@@ -129,21 +129,21 @@ describe("missing chat thread route recovery", () => {
         </StrictMode>,
       );
       await vi.waitFor(() => expect(harness.refreshSnapshot).toHaveBeenCalledTimes(3));
-      previousSnapshot.resolve(false);
+      previousSnapshot.resolve("unknown");
       previousDelay.resolve();
       await Promise.all([previousSnapshot.promise, previousDelay.promise]);
       // Allow the obsolete completion to render if it incorrectly bypasses the run guard.
       await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       expect(harness.navigate).not.toHaveBeenCalled();
-      currentSnapshot.resolve(false);
+      currentSnapshot.resolve("unknown");
       currentDelay.resolve();
       await vi.waitFor(() =>
         expect(harness.navigate).toHaveBeenCalledExactlyOnceWith({ to: "/", replace: true }),
       );
     } finally {
-      previousSnapshot.resolve(false);
+      previousSnapshot.resolve("unknown");
       previousDelay.resolve();
-      currentSnapshot.resolve(false);
+      currentSnapshot.resolve("unknown");
       currentDelay.resolve();
       await screen.unmount();
     }
@@ -152,7 +152,7 @@ describe("missing chat thread route recovery", () => {
   it.each(["empty", "failed"] as const)(
     "does not let a deferred route reset overwrite completed %s recovery",
     async (outcome) => {
-      const snapshot = deferred<boolean>();
+      const snapshot = deferred<"restored" | "verified-empty" | "unknown">();
       const delay = deferred<void>();
       harness.refreshSnapshot.mockReturnValue(snapshot.promise);
       harness.waitForFallbackDelay.mockReturnValue(delay.promise);
@@ -169,7 +169,7 @@ describe("missing chat thread route recovery", () => {
         });
         expect(harness.navigate).not.toHaveBeenCalled();
         if (outcome === "failed") snapshot.reject(new Error("Snapshot refresh failed"));
-        else snapshot.resolve(false);
+        else snapshot.resolve("unknown");
         delay.resolve();
         await Promise.all([snapshot.promise.catch(() => false), delay.promise]);
         await Promise.resolve();
@@ -182,7 +182,7 @@ describe("missing chat thread route recovery", () => {
         );
       } finally {
         timers.restore();
-        snapshot.resolve(false);
+        snapshot.resolve("unknown");
         delay.resolve();
         await screen?.unmount();
       }
@@ -192,7 +192,7 @@ describe("missing chat thread route recovery", () => {
   it.each(["empty", "failed"] as const)(
     "falls back after StrictMode effect replay when snapshot recovery is %s",
     async (outcome) => {
-      const snapshot = deferred<boolean>();
+      const snapshot = deferred<"restored" | "verified-empty" | "unknown">();
       const delay = deferred<void>();
       harness.refreshSnapshot.mockReturnValue(snapshot.promise);
       harness.waitForFallbackDelay.mockReturnValue(delay.promise);
@@ -213,7 +213,7 @@ describe("missing chat thread route recovery", () => {
         if (outcome === "failed") {
           snapshot.reject(new Error("Snapshot refresh failed"));
         } else {
-          snapshot.resolve(false);
+          snapshot.resolve("unknown");
         }
         await snapshot.promise.catch(() => false);
         expect(harness.navigate).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("missing chat thread route recovery", () => {
           expect(harness.navigate).toHaveBeenCalledExactlyOnceWith({ to: "/", replace: true }),
         );
       } finally {
-        snapshot.resolve(false);
+        snapshot.resolve("unknown");
         delay.resolve();
         await screen.unmount();
       }

@@ -596,6 +596,16 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+// A stable activity keeps its first createdAt so its row stays anchored; the
+// payload carries when this update was observed so live rows can report recent
+// activity and elapsed time from the latest update, not the first.
+function withLastActivityAt(
+  payload: OrchestrationThreadActivity["payload"],
+  lastActivityAt: string,
+): OrchestrationThreadActivity["payload"] {
+  return isJsonObject(payload) ? { ...payload, lastActivityAt } : payload;
+}
+
 function normalizeNonEmptyString(value: string | undefined): string | undefined {
   return value?.trim() || undefined;
 }
@@ -625,6 +635,19 @@ function asString(value: unknown): string | undefined {
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
   return isJsonObject(value) ? value : undefined;
+}
+
+function stableActivityState(activity: {
+  readonly createdAt: string;
+  readonly sequence?: number | undefined;
+  readonly payload: unknown;
+}) {
+  const status = asObject(activity.payload)?.status;
+  return {
+    createdAt: activity.createdAt,
+    sequence: activity.sequence,
+    terminalStatus: status === "failed" || status === "completed" ? status : undefined,
+  };
 }
 
 /**
@@ -1142,7 +1165,10 @@ const make = Effect.gen(function* () {
   });
   // Keep row identity after the text buffer is consumed. On a cache miss the
   // durable activity restores ordering and terminal state across recovery.
-  const stableActivityById = yield* Cache.make<string, OrchestrationThreadActivity | undefined>({
+  const stableActivityById = yield* Cache.make<
+    string,
+    ReturnType<typeof stableActivityState> | undefined
+  >({
     capacity: BUFFERED_REASONING_SUMMARY_BY_KEY_CACHE_CAPACITY,
     timeToLive: BUFFERED_REASONING_SUMMARY_BY_KEY_TTL,
     lookup: () => Effect.succeed(undefined),
@@ -1249,6 +1275,7 @@ const make = Effect.gen(function* () {
       event.payload.itemType === "reasoning";
     const hasStableActivity =
       isClaudeReasoning || providerRuntimeCommandProgressKey(event) !== undefined;
+    let updatedAt: string | undefined;
     if (hasStableActivity) {
       const cached = Option.getOrUndefined(yield* Cache.getOption(stableActivityById, activity.id));
       const durable = cached
@@ -1259,30 +1286,18 @@ const make = Effect.gen(function* () {
               activityId: activity.id,
             }),
           );
-      const previous: OrchestrationThreadActivity | undefined =
-        cached ??
-        (durable
-          ? {
-              id: durable.activityId,
-              createdAt: durable.createdAt,
-              tone: durable.tone,
-              kind: durable.kind,
-              summary: durable.summary,
-              payload: durable.payload as OrchestrationThreadActivity["payload"],
-              turnId: durable.turnId,
-              ...(durable.sequence !== undefined ? { sequence: durable.sequence } : {}),
-            }
-          : undefined);
+      const previous = cached ?? (durable ? stableActivityState(durable) : undefined);
       if (previous) {
         yield* Cache.set(stableActivityById, activity.id, previous);
         // Interruption/failure is final; a delayed delta must not reopen a
         // completed block either. Completed snapshots may refine its detail.
         if (
-          asObject(previous.payload)?.status === "failed" ||
-          (asObject(previous.payload)?.status === "completed" &&
+          previous.terminalStatus === "failed" ||
+          (previous.terminalStatus === "completed" &&
             asObject(activity.payload)?.status !== "completed")
         )
           return;
+        updatedAt = activity.createdAt;
         activity = { ...activity, createdAt: previous.createdAt, sequence: previous.sequence };
       }
     }
@@ -1293,6 +1308,10 @@ const make = Effect.gen(function* () {
       if (Option.isSome(previous) && previous.value === fingerprint) {
         return;
       }
+    }
+    // Stamped after the fingerprint: a repeated identical snapshot stays a duplicate.
+    if (updatedAt !== undefined) {
+      activity = { ...activity, payload: withLastActivityAt(activity.payload, updatedAt) };
     }
 
     yield* orchestrationEngine.dispatch({
@@ -1307,7 +1326,7 @@ const make = Effect.gen(function* () {
       createdAt: activity.createdAt,
     });
     if (hasStableActivity) {
-      yield* Cache.set(stableActivityById, activity.id, activity);
+      yield* Cache.set(stableActivityById, activity.id, stableActivityState(activity));
     }
     if (key && fingerprint) {
       yield* Cache.set(latestActivityUpdateFingerprintByKey, key, fingerprint);

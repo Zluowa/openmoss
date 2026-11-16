@@ -14,6 +14,8 @@ export function ModelCatalogRefresh(props: {
   onRefresh: ProviderModelCatalog["refreshModels"];
   /** The server's last discovery error for this account, if any. */
   failure?: string | null | undefined;
+  /** Refresh in the background only; never render the failure row (Starred accounts). */
+  silent?: boolean;
 }) {
   const { provider, instanceId, onRefresh } = props;
   const [pending, setPending] = useState(false);
@@ -58,7 +60,7 @@ export function ModelCatalogRefresh(props: {
   }, [provider, instanceId]);
 
   const serverFailure = props.failure && props.failure !== recoveredFrom ? props.failure : null;
-  if (!failed && serverFailure === null) return null;
+  if (props.silent || (!failed && serverFailure === null)) return null;
 
   return (
     <div className="flex items-center justify-end gap-2 border-t border-border px-2 py-1">
