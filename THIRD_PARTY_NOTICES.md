@@ -129,6 +129,27 @@ names the scopes "In Moss" and "This computer", draws the series in its own them
 colors, and keeps every string in its zh-CN and en localization. Synara's Billing tab
 is not included.
 
+## Synara and T3 Code composer predictions (absorbed)
+
+The composer prediction (one predicted next message shown as ghost text in the empty
+composer, accepted with Tab or Right Arrow) is adapted from Synara PR #2094
+(https://github.com/Emanuele-web04/synara/pull/2094, MIT, commit
+9a4000fdd15b92ed5d2b670739cd2554aa9e9485) and the then-unmerged Synara PR #2175
+(https://github.com/Emanuele-web04/synara/pull/2175, MIT, commit
+20f30d00b31f94628bbebe71265df2db5a77c984): the server service, prompt, context
+budget, routing, client store, hook, ghost component and their tests. Moss routes a
+chat on a Moss-managed lane to the cheapest model of the chat model's vendor and keeps
+the existing `composerPredictionsEnabled` setting.
+
+Three rules come from T3 Code's "Suggest next prompt"
+(https://github.com/pingdotgg/t3code, MIT, Copyright (c) 2026 T3 Tools Inc.; PR #28047
+at b24959d579b7ec2b527eeeccf043c74a95ab705a and PR #37292 at
+f1919eb1e297cab345ac6785e5a6a26332a2b0bb): Escape drops the suggestion for its turn,
+devices without a keyboard or fine pointer do not ask for one, and user-role messages
+sent by an automation or another agent are left out of what the model reads so it does
+not imitate them. T3 Code's provider-native suggestion sources (the Claude Agent SDK
+`promptSuggestions` option and Codex `thread/sample`) are not used.
+
 ## OpenUI Lang and open-intelligent-ui components (absorbed)
 
 Moss uses OpenUI Lang and selected browser-only components adapted from

@@ -25,7 +25,7 @@ import {
 } from "@moss/contracts";
 import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
-import { NEXT_MESSAGE_PREDICTION_TIMEOUT_MS } from "@moss/shared/nextMessagePrediction";
+import { getModelSelectionStringOptionValue } from "@moss/shared/model";
 import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -59,6 +59,7 @@ import {
   type BranchNameGenerationInput,
   type BranchNameGenerationResult,
   type CommitMessageGenerationResult,
+  type ComposerPredictionGenerationResult,
   type DiffSummaryGenerationResult,
   type PrContentGenerationResult,
   type ThreadTitleGenerationResult,
@@ -75,11 +76,13 @@ import {
   buildDiffSummaryPrompt,
   buildPrContentPrompt,
   buildThreadRecapPrompt,
-  buildNextMessagePredictionPrompt,
+  buildComposerPredictionPrompt,
   buildProjectDigestPrompt,
   buildThreadTitlePrompt,
+  COMPOSER_PREDICTION_TIMEOUT_MS,
   sanitizeCommitSubject,
   sanitizeDiffSummary,
+  sanitizeComposerPrediction,
   sanitizeThreadRecap,
   sanitizePrTitle,
   toJsonSchemaObject,
@@ -630,6 +633,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     model,
     modelSelection,
     providerOptions,
+    reasoningEffort,
   }: {
     operation: TextGenerationOperation;
     cwd: string;
@@ -639,6 +643,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     model?: string;
     modelSelection?: BranchNameGenerationInput["modelSelection"];
     providerOptions?: BranchNameGenerationInput["providerOptions"];
+    /** Overrides the default effort; only plain effort identifiers are accepted. */
+    reasoningEffort?: string | undefined;
   }): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -703,7 +709,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
               )?.trim()
             : undefined;
           if (!provider || !credential) return yield* platformError;
-          const predictionRequest = operation === "generateNextMessagePrediction";
+          const predictionRequest = operation === "generateComposerPrediction";
           const json = yield* Effect.tryPromise({
             try: () =>
               requestCodexProviderJson({
@@ -715,12 +721,14 @@ const makeCodexTextGeneration = Effect.gen(function* () {
                 prompt,
                 jsonSchema: toJsonSchemaObject(outputSchemaJson),
                 // A title or a prediction is wanted in seconds, not after deep thought.
-                reasoningEffort:
+                reasoningEffort: resolveCodexReasoningEffort(
+                  reasoningEffort,
                   predictionRequest || operation === "generateThreadTitle"
                     ? "low"
                     : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
+                ),
                 timeoutMs: predictionRequest
-                  ? NEXT_MESSAGE_PREDICTION_TIMEOUT_MS
+                  ? COMPOSER_PREDICTION_TIMEOUT_MS
                   : timing.requestTimeoutMs,
               }),
             catch: (cause) =>
@@ -871,7 +879,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             isolatedCodexHome.workDirectoryPath,
             env,
           );
-          const predictionRequest = operation === "generateNextMessagePrediction";
+          const predictionRequest = operation === "generateComposerPrediction";
           const args = [
             "exec",
             "--ephemeral",
@@ -882,7 +890,10 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             selectedModel,
             ...buildCodexTextGenerationCliConfigArgs(isolatedCodexHome.modelCatalogPath),
             "--config",
-            `model_reasoning_effort="${predictionRequest ? "low" : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT}"`,
+            `model_reasoning_effort="${resolveCodexReasoningEffort(
+              reasoningEffort,
+              predictionRequest ? "low" : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
+            )}"`,
             "--output-schema",
             schemaPath,
             "--output-last-message",
@@ -934,7 +945,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
                     child,
                     operation,
                     timeoutMs: predictionRequest
-                      ? NEXT_MESSAGE_PREDICTION_TIMEOUT_MS
+                      ? COMPOSER_PREDICTION_TIMEOUT_MS
                       : timing.requestTimeoutMs,
                     timeoutDetail: "Codex CLI request timed out.",
                   });
@@ -1161,20 +1172,31 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
   };
 
-  const generateNextMessagePrediction: TextGenerationShape["generateNextMessagePrediction"] = (
-    input,
-  ) => {
-    const { prompt, outputSchemaJson } = buildNextMessagePredictionPrompt({
-      transcript: input.transcript,
+  const generateComposerPrediction: TextGenerationShape["generateComposerPrediction"] = (input) => {
+    const { prompt, outputSchemaJson } = buildComposerPredictionPrompt({
+      conversation: input.conversation,
     });
+
     return runCodexJson({
-      operation: "generateNextMessagePrediction",
+      operation: "generateComposerPrediction",
       cwd: input.cwd,
       prompt,
       outputSchemaJson,
+      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
+      ...(input.model ? { model: input.model } : {}),
       ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    }).pipe(Effect.map((generated) => ({ text: generated.suggestion?.trim() ?? "" })));
+      // Predictions run at the effort the caller routed (the selected model's
+      // lowest); other operations keep their defaults.
+      reasoningEffort: getModelSelectionStringOptionValue(input.modelSelection, "reasoningEffort"),
+    }).pipe(
+      Effect.map(
+        (generated) =>
+          ({
+            suggestion: sanitizeComposerPrediction(generated.suggestion),
+          }) satisfies ComposerPredictionGenerationResult,
+      ),
+    );
   };
 
   const generateProjectDigest: TextGenerationShape["generateProjectDigest"] = (input) => {
@@ -1239,7 +1261,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     generateBranchName,
     generateThreadTitle,
     generateThreadRecap,
-    generateNextMessagePrediction,
+    generateComposerPrediction,
     generateProjectDigest,
     generateAutomationIntent,
     evaluateAutomationCompletion,
@@ -1272,6 +1294,18 @@ function resolveCodexAccountId(
 ): string | undefined {
   const resolved = providerOptions?.codex?.accountId?.trim();
   return resolved && resolved.length > 0 ? resolved : undefined;
+}
+
+const CODEX_REASONING_EFFORT_PATTERN = /^[a-z][a-z0-9_-]{0,31}$/iu;
+
+// The value is interpolated into a TOML string passed on the command line, so
+// anything but a plain effort identifier falls back to the operation's default.
+function resolveCodexReasoningEffort(
+  reasoningEffort: string | undefined,
+  fallback: string,
+): string {
+  const trimmed = reasoningEffort?.trim();
+  return trimmed && CODEX_REASONING_EFFORT_PATTERN.test(trimmed) ? trimmed : fallback;
 }
 
 function resolveCodexModel(

@@ -133,7 +133,6 @@ function createProviderServiceHarness(options?: { readonly persistedStream?: boo
       }),
     rollbackConversation: () => unsupported(),
     compactThread: () => unsupported(),
-    predictNextUserMessage: () => unsupported(),
     closeRuntimeEvents: Effect.void,
     streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     // Only the already-persisted path uses this; when present the ingestion

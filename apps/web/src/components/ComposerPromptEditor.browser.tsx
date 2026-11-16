@@ -1,16 +1,15 @@
-import { useRef, useState } from "react";
-import * as Schema from "effect/Schema";
+import "../index.css";
+
+import { createRef, useRef, useState, type ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
-import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY } from "./chat/composerPrediction";
+import { COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME } from "./chat/composerPickerStyles";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 
 afterEach(async () => {
   await cleanup();
-  localStorage.removeItem(COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY);
 });
 
 function ComposerHarness({ onSend }: { onSend: (text: string) => void }) {
@@ -148,282 +147,210 @@ describe("multiline composer submission", () => {
   });
 });
 
-function PredictionHarness({
-  showHint = true,
-  onAccept,
-  initialValue = "Please rev",
-}: {
-  showHint?: boolean;
-  onAccept: () => void;
-  initialValue?: string;
-}) {
-  const [draft, setDraft] = useState({
-    value: initialValue,
-    cursor: initialValue.length,
-  });
-  const predictionValue = "Please review the current changes";
-  return (
-    <ComposerPromptEditor
-      {...draft}
-      terminalContexts={[]}
-      disabled={false}
-      placeholder="Prompt"
-      prediction={{
-        base: draft.value,
-        suffix: predictionValue.slice(draft.value.length),
-        hint: "Press Tab to accept",
-        showHint,
-        onAccept: () => {
-          setDraft({ value: predictionValue, cursor: predictionValue.length });
-          onAccept();
-        },
-      }}
-      onRemoveTerminalContext={() => {}}
-      onPaste={() => {}}
-      onChange={(value, cursor) => setDraft({ value, cursor })}
-    />
+const overlay = () => document.querySelector<HTMLElement>('[data-testid="composer-prediction"]');
+const field = () =>
+  document.querySelector<HTMLElement>('[data-testid="composer-editor"]')!.parentElement!;
+const footer = () => document.querySelector<HTMLElement>('[data-testid="composer-footer"]')!;
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+type EditorProps = ComponentProps<typeof ComposerPromptEditor>;
+
+/** Mounts the editor at a fixed width with a stand-in for the controls below it. */
+async function mountPredictionEditor(
+  props: Partial<EditorProps>,
+  options: { readonly width?: number } = {},
+) {
+  const ref = createRef<ComposerPromptEditorHandle>();
+  let current: EditorProps = {
+    value: "",
+    cursor: 0,
+    terminalContexts: [],
+    disabled: false,
+    placeholder: "Write a message",
+    ariaLabel: "Message",
+    onRemoveTerminalContext: vi.fn(),
+    onChange: vi.fn(),
+    onPaste: vi.fn(),
+    ...props,
+  };
+  const content = () => (
+    <div style={{ width: options.width ?? 640 }}>
+      <ComposerPromptEditor {...current} ref={ref} />
+      <div data-testid="composer-footer" style={{ height: 32 }} />
+    </div>
   );
+  const screen = await render(content());
+  await expect.poll(() => (current.prediction ? overlay() : field())).not.toBeNull();
+  await nextFrame();
+  return {
+    ref,
+    editor: document.querySelector<HTMLElement>('[data-testid="composer-editor"]')!,
+    update: async (updates: Partial<EditorProps>) => {
+      current = { ...current, ...updates };
+      await screen.rerender(content());
+      await nextFrame();
+    },
+  };
 }
 
-function EmptyPredictionHarness({
-  onAccept,
-  predictionValue = "Please review the current changes",
-}: {
-  onAccept: () => void;
-  predictionValue?: string;
-}) {
-  const [draft, setDraft] = useState({ value: "", cursor: 0 });
-  return (
-    <ComposerPromptEditor
-      {...draft}
-      terminalContexts={[]}
-      disabled={false}
-      placeholder="Prompt"
-      prediction={{
-        base: "",
-        suffix: predictionValue,
-        hint: "Press Tab to accept",
-        showHint: true,
-        onAccept: () => {
-          setDraft({ value: predictionValue, cursor: predictionValue.length });
-          onAccept();
-        },
-      }}
-      onRemoveTerminalContext={() => {}}
-      onPaste={() => {}}
-      onChange={(value, cursor) => setDraft({ value, cursor })}
-    />
-  );
+function lineHeightOf(element: HTMLElement): number {
+  return Number.parseFloat(getComputedStyle(element).lineHeight);
 }
 
-function PersistentPredictionHarness() {
-  const [hasAccepted, setHasAccepted] = useLocalStorage(
-    COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY,
-    false,
-    Schema.Boolean,
-  );
-  return <PredictionHarness showHint={!hasAccepted} onAccept={() => setHasAccepted(true)} />;
+function ghostRows(): number {
+  return Math.round(overlay()!.getBoundingClientRect().height / lineHeightOf(overlay()!));
 }
 
-describe("composer prediction", () => {
-  it("renders an independent Tab hint and accepts the gray completion", async () => {
-    const onAccept = vi.fn();
-    await render(<PredictionHarness onAccept={onAccept} />);
+function ghostParts() {
+  const box = overlay()!;
+  const text = box.querySelector<HTMLElement>("[data-prediction-text]")!;
+  const chip = box.querySelector<HTMLElement>("kbd")!;
+  const range = document.createRange();
+  range.selectNodeContents(text);
+  const textRows = Array.from(range.getClientRects());
+  return { box, text, chip, lastTextRow: textRows[textRows.length - 1]! };
+}
 
-    await expect
-      .element(page.getByTestId("composer-prediction-text"))
-      .toHaveTextContent("iew the current changes");
-    await expect
-      .element(page.getByTestId("composer-prediction-hint"))
-      .toHaveTextContent("Press Tab to accept");
-    const descriptionId = page
-      .getByTestId("composer-editor")
-      .element()
-      .getAttribute("aria-describedby");
-    expect(descriptionId).not.toBeNull();
-    expect(document.getElementById(descriptionId!)?.textContent).toContain("Press Tab to accept");
+/** The chip is fully inside the ghost and sits after the last word, never over it. */
+function expectChipAttachedToText() {
+  const { box, chip, lastTextRow } = ghostParts();
+  const boxRect = box.getBoundingClientRect();
+  const chipRect = chip.getBoundingClientRect();
+  expect(chipRect.right).toBeLessThanOrEqual(boxRect.right + 0.5);
+  expect(chipRect.bottom).toBeLessThanOrEqual(boxRect.bottom + 0.5);
+  const sameRow = chipRect.top < lastTextRow.bottom && chipRect.bottom > lastTextRow.top;
+  if (sameRow) expect(chipRect.left).toBeGreaterThanOrEqual(lastTextRow.right);
+  else expect(chipRect.top).toBeGreaterThanOrEqual(lastTextRow.bottom - 0.5);
+}
 
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{Tab}");
+describe("composer prediction ghost", () => {
+  const prediction = "Fix the fixture and rerun that test.";
 
-    expect(onAccept).toHaveBeenCalledOnce();
-    await expect
-      .element(page.getByTestId("composer-editor"))
-      .toHaveTextContent("Please review the current changes");
+  it("shows the ghost text and a Tab chip instead of the placeholder", async () => {
+    const mounted = await mountPredictionEditor({ prediction });
+
+    await expect.poll(() => overlay()?.textContent).toBe(`${prediction}Tab`);
+    expect(overlay()?.querySelector('kbd[aria-label="Tab"]')).not.toBeNull();
+    expect(document.body.textContent).not.toContain("Write a message");
+    expect(mounted.editor.getAttribute("aria-placeholder")).toBe(prediction);
+    // Drawn in the editor's cell only: the document and the draft stay empty.
+    expect(mounted.editor.textContent).toBe("");
+    expect(mounted.ref.current?.readSnapshot().value).toBe("");
   });
 
-  it("renders the gray prediction with the chips the accepted prompt gets", async () => {
-    const onAccept = vi.fn();
-    await render(
-      <EmptyPredictionHarness
-        onAccept={onAccept}
-        predictionValue="Use $check-code on @AGENTS.md please"
-      />,
+  it("uses the placeholder tone and the shared shortcut capsule", async () => {
+    await mountPredictionEditor({ prediction });
+
+    const { text, chip } = ghostParts();
+    expect(text.className).toContain(COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME);
+    expect(chip.getAttribute("data-slot")).toBe("kbd");
+    expect(chip.className).toContain("rounded-full");
+  });
+
+  it("keeps the normal placeholder when there is no prediction", async () => {
+    const mounted = await mountPredictionEditor({});
+
+    await expect.poll(() => document.body.textContent).toContain("Write a message");
+    expect(overlay()).toBeNull();
+    expect(mounted.editor.getAttribute("aria-placeholder")).toBe("Write a message");
+  });
+
+  it("anchors an RTL prediction on the right with the Tab chip after it", async () => {
+    await mountPredictionEditor({ prediction: "مرحبا بالعالم" });
+
+    const { box, chip, lastTextRow } = ghostParts();
+    expect(box.getBoundingClientRect().right - lastTextRow.right).toBeLessThan(1);
+    expect(chip.getBoundingClientRect().right).toBeLessThan(lastTextRow.left);
+  });
+
+  it("hides the ghost text once the editor has content", async () => {
+    const mounted = await mountPredictionEditor({ prediction });
+    await expect.poll(() => overlay()).not.toBeNull();
+
+    await mounted.update({ value: "My own message", cursor: 3 });
+
+    await expect.poll(() => overlay()).toBeNull();
+    expect(mounted.editor.textContent).toBe("My own message");
+  });
+
+  it("hides the ghost text while an IME composition is open", async () => {
+    const mounted = await mountPredictionEditor({ prediction });
+    await expect.poll(() => overlay()).not.toBeNull();
+    mounted.editor.focus();
+
+    mounted.editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    await expect.poll(() => overlay()).toBeNull();
+
+    mounted.editor.dispatchEvent(
+      new CompositionEvent("compositionend", { bubbles: true, data: "" }),
     );
-
-    const ghost = page.getByTestId("composer-prediction-text");
-    await expect.element(ghost).toHaveTextContent("Use Check Code on AGENTS.md please");
-    const ghostChips = [...ghost.element().querySelectorAll('[contenteditable="false"]')];
-    expect(ghostChips.map((chip) => chip.textContent)).toEqual(["Check Code", "AGENTS.md"]);
-
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{Tab}");
-    expect(onAccept).toHaveBeenCalledOnce();
-    await expect.element(page.getByTestId("composer-prediction")).not.toBeInTheDocument();
-    const editorChips = [
-      ...page
-        .getByTestId("composer-editor")
-        .element()
-        .querySelectorAll('[contenteditable="false"]'),
-    ];
-    // Same builder, same DOM: the ghost previewed exactly what the prompt now shows. Lexical
-    // only adds its own text-node marker to the editor's chips.
-    expect(
-      editorChips.map((chip) => {
-        expect(chip.getAttribute("data-lexical-text")).toBe("true");
-        const copy = chip.cloneNode(true) as Element;
-        copy.removeAttribute("data-lexical-text");
-        return copy.outerHTML;
-      }),
-    ).toEqual(ghostChips.map((chip) => chip.outerHTML));
+    await expect.poll(() => overlay()).not.toBeNull();
   });
 
-  it("accepts an empty-composer prediction with Enter", async () => {
-    const onAccept = vi.fn();
-    await render(<EmptyPredictionHarness onAccept={onAccept} />);
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{Enter}");
+  describe.each([
+    ["block composer", false],
+    ["single-row composer", true],
+  ])("in the %s", (_layout, singleLine) => {
+    it("draws a one-row suggestion without changing the field's height", async () => {
+      const mounted = await mountPredictionEditor({ singleLine });
+      const emptyHeight = field().getBoundingClientRect().height;
 
-    expect(onAccept).toHaveBeenCalledOnce();
-    await expect
-      .element(page.getByTestId("composer-editor"))
-      .toHaveTextContent("Please review the current changes");
-  });
+      await mounted.update({ prediction });
 
-  it("does not accept a prediction from Shift+Tab and can hide only the hint", async () => {
-    const onAccept = vi.fn();
-    await render(<PredictionHarness showHint={false} onAccept={onAccept} />);
-
-    await expect.element(page.getByTestId("composer-prediction")).toBeVisible();
-    expect(page.getByTestId("composer-prediction-hint").query()).toBeNull();
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
-    expect(onAccept).not.toHaveBeenCalled();
-  });
-
-  it("hides and does not accept a prediction while text is selected", async () => {
-    const onAccept = vi.fn();
-    await render(<PredictionHarness onAccept={onAccept} />);
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{Shift>}{ArrowLeft}{/Shift}");
-    await expect.element(page.getByTestId("composer-prediction")).not.toBeInTheDocument();
-
-    await userEvent.keyboard("{Tab}");
-    expect(onAccept).not.toHaveBeenCalled();
-  });
-
-  it("rejects a stale prediction when a pending paste arrives before Tab", async () => {
-    const onAccept = vi.fn();
-    await render(<PredictionHarness onAccept={onAccept} />);
-    await page.getByTestId("composer-editor").click();
-    paste("iew");
-    page
-      .getByTestId("composer-editor")
-      .element()
-      .dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Tab",
-          code: "Tab",
-          keyCode: 9,
-          bubbles: true,
-          cancelable: true,
-        }),
+      await expect.poll(() => overlay()?.textContent).toBe(`${prediction}Tab`);
+      expect(ghostRows()).toBe(1);
+      expect(field().getBoundingClientRect().height).toBeCloseTo(emptyHeight, 1);
+      const { chip, lastTextRow } = ghostParts();
+      // Inline right after the last word, centered on its row.
+      const chipRect = chip.getBoundingClientRect();
+      expect(chipRect.left - lastTextRow.right).toBeGreaterThan(4);
+      expect(chipRect.left - lastTextRow.right).toBeLessThan(10);
+      expect((chipRect.top + chipRect.bottom) / 2).toBeCloseTo(
+        overlay()!.getBoundingClientRect().top + lineHeightOf(overlay()!) / 2,
+        0,
       );
 
-    expect(onAccept).not.toHaveBeenCalled();
-  });
+      await mounted.update({ prediction: null });
+      expect(field().getBoundingClientRect().height).toBeCloseTo(emptyHeight, 1);
+    });
 
-  it("hides the gray completion while an IME composition is open", async () => {
-    const onAccept = vi.fn();
-    await render(<PredictionHarness onAccept={onAccept} />);
-    const editor = page.getByTestId("composer-editor").element();
-    await expect.element(page.getByTestId("composer-prediction")).toBeVisible();
+    it("wraps a two-row suggestion in full and grows the field above the controls", async () => {
+      const twoRows =
+        "Go ahead with the schema change and the backfill script, both look safe to me, and leave the index rebuild for later.";
+      await mountPredictionEditor({ singleLine, prediction: twoRows });
 
-    editor.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
-    await expect.element(page.getByTestId("composer-prediction")).not.toBeInTheDocument();
+      await expect.poll(() => ghostRows()).toBe(2);
+      expect(ghostParts().text.textContent).toBe(twoRows);
+      expectChipAttachedToText();
+      expect(field().getBoundingClientRect().height).toBeGreaterThanOrEqual(
+        overlay()!.getBoundingClientRect().height - 0.5,
+      );
+      expect(footer().getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        overlay()!.getBoundingClientRect().bottom - 0.5,
+      );
+    });
 
-    editor.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "Tab",
-        code: "Tab",
-        keyCode: 9,
-        isComposing: true,
-        bubbles: true,
-        cancelable: true,
-      }),
+    it.each([640, 375])(
+      "ends a longer suggestion with an ellipsis on the third row at %ipx",
+      async (width) => {
+        const longSuggestion =
+          "ok go ahead with the first two steps, but leave the third out for now, I do not want to touch the production table until we have a backup. tell me when both are done so I can check, and also rerun the migration dry run against staging before you open the pull request for review please";
+        const mounted = await mountPredictionEditor(
+          { singleLine, prediction: longSuggestion },
+          { width },
+        );
+
+        await expect.poll(() => ghostRows()).toBe(3);
+        const shown = ghostParts().text.textContent ?? "";
+        expect(shown.endsWith("…")).toBe(true);
+        expect(longSuggestion.startsWith(shown.slice(0, -1).trimEnd())).toBe(true);
+        expectChipAttachedToText();
+        expect(footer().getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          overlay()!.getBoundingClientRect().bottom - 0.5,
+        );
+        // Screen readers and Tab still get the whole suggestion.
+        expect(mounted.editor.getAttribute("aria-placeholder")).toBe(longSuggestion);
+      },
     );
-    expect(onAccept).not.toHaveBeenCalled();
-
-    editor.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "" }));
-    await expect.element(page.getByTestId("composer-prediction")).toBeVisible();
-    await expect
-      .element(page.getByTestId("composer-prediction-text"))
-      .toHaveTextContent("iew the current changes");
-  });
-
-  it("accepts the gray completion with ArrowRight", async () => {
-    const onAccept = vi.fn();
-    await render(<PredictionHarness onAccept={onAccept} />);
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{ArrowRight}");
-
-    expect(onAccept).toHaveBeenCalledOnce();
-    await expect
-      .element(page.getByTestId("composer-editor"))
-      .toHaveTextContent("Please review the current changes");
-  });
-
-  it.each(["Shift", "Control", "Alt", "Meta"])(
-    "does not accept the gray completion from %s+ArrowRight",
-    async (modifier) => {
-      const onAccept = vi.fn();
-      await render(<PredictionHarness onAccept={onAccept} />);
-      await page.getByTestId("composer-editor").click();
-      await userEvent.keyboard(`{${modifier}>}{ArrowRight}{/${modifier}}`);
-      expect(onAccept).not.toHaveBeenCalled();
-      await expect.element(page.getByTestId("composer-editor")).toHaveTextContent("Please rev");
-    },
-  );
-
-  it("uses the Codex hint treatment with text-sm=12px via text-ui-sm", async () => {
-    await render(<PredictionHarness onAccept={() => {}} />);
-    const hint = page.getByTestId("composer-prediction-hint").element();
-    expect(hint.className).toContain("bg-text/3");
-    expect(hint.className).toContain("px-1.75");
-    expect(hint.className).toContain("py-0.5");
-    expect(hint.className).toContain("leading-4");
-    expect(hint.className).toContain("rounded-row");
-    expect(hint.className).toContain("font-normal");
-    expect(hint.className).toContain("inline-block");
-    expect(hint.className).toContain("text-tertiary/50");
-    expect(hint.className).toContain("whitespace-nowrap");
-    expect(hint.className).toContain("text-ui-sm");
-    expect(page.getByTestId("composer-prediction-text").element().className).toContain(
-      "text-tertiary",
-    );
-  });
-
-  it("remembers the first acceptance and keeps later predictions without the hint", async () => {
-    await render(<PersistentPredictionHarness />);
-    await page.getByTestId("composer-editor").click();
-    await userEvent.keyboard("{Tab}");
-    await vi.waitFor(() =>
-      expect(localStorage.getItem(COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY)).toBe("true"),
-    );
-
-    await cleanup();
-    await render(<PersistentPredictionHarness />);
-    await expect.element(page.getByTestId("composer-prediction")).toBeVisible();
-    expect(page.getByTestId("composer-prediction-hint").query()).toBeNull();
   });
 });

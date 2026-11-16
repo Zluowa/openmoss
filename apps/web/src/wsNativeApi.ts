@@ -84,7 +84,6 @@ import {
   type GuestShareResolveMessageInput,
 } from "@moss/contracts";
 import { VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH } from "@moss/shared/binaryTransfer";
-import { NEXT_MESSAGE_PREDICTION_TIMEOUT_MS } from "@moss/shared/nextMessagePrediction";
 import { Schema } from "effect";
 
 import { showConfirmDialogFallback } from "./confirmDialogFallback";
@@ -963,6 +962,13 @@ export function createWsNativeApi(): WsNativeApi {
         transport.request(WS_METHODS.serverGenerateThreadRecap, input, {
           timeoutMs: null,
         }),
+      // The server bounds generation itself; aborting interrupts it there too.
+      generateComposerPrediction: (input, options) =>
+        transport.request(
+          WS_METHODS.serverGenerateComposerPrediction,
+          input,
+          options?.signal ? { signal: options.signal } : undefined,
+        ),
       generateAutomationIntent: (input) =>
         transport.request(WS_METHODS.serverGenerateAutomationIntent, input, {
           timeoutMs: null,
@@ -1148,11 +1154,6 @@ export function createWsNativeApi(): WsNativeApi {
       regenerateThreadTitle: (input) =>
         transport.request(ORCHESTRATION_WS_METHODS.regenerateThreadTitle, input, {
           timeoutMs: null,
-        }),
-      predictNextMessage: (input, options) =>
-        transport.request(ORCHESTRATION_WS_METHODS.predictNextMessage, input, {
-          timeoutMs: NEXT_MESSAGE_PREDICTION_TIMEOUT_MS,
-          ...(options?.signal ? { signal: options.signal } : {}),
         }),
       repairState: () => transport.request(ORCHESTRATION_WS_METHODS.repairState),
       getTurnDiff: (input) => transport.request(ORCHESTRATION_WS_METHODS.getTurnDiff, input),

@@ -32,7 +32,7 @@ import {
   type TextGenerationShape,
   TextGeneration,
   type ThreadRecapGenerationInput,
-  type NextMessagePredictionGenerationInput,
+  type ComposerPredictionGenerationInput,
   type ProjectDigestGenerationInput,
   type ProjectDigestGenerationResult,
 } from "../Services/TextGeneration.ts";
@@ -95,9 +95,9 @@ interface FakeGitTextGeneration {
   generateThreadRecap: (
     input: ThreadRecapGenerationInput,
   ) => Effect.Effect<{ recap: string }, TextGenerationError>;
-  generateNextMessagePrediction: (
-    input: NextMessagePredictionGenerationInput,
-  ) => Effect.Effect<{ text: string }, TextGenerationError>;
+  generateComposerPrediction: (
+    input: ComposerPredictionGenerationInput,
+  ) => Effect.Effect<{ suggestion: string | null }, TextGenerationError>;
   generateProjectDigest: (
     input: ProjectDigestGenerationInput,
   ) => Effect.Effect<ProjectDigestGenerationResult, TextGenerationError>;
@@ -210,7 +210,7 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
       Effect.succeed({
         recap: "Update workflow recap",
       }),
-    generateNextMessagePrediction: () => Effect.succeed({ text: "Continue workflow" }),
+    generateComposerPrediction: () => Effect.succeed({ suggestion: "Continue workflow" }),
     generateProjectDigest: () =>
       Effect.succeed({
         summary: "Update workflow digest",
@@ -306,12 +306,12 @@ function createTextGeneration(overrides: Partial<FakeGitTextGeneration> = {}): T
             }),
         ),
       ),
-    generateNextMessagePrediction: (input) =>
-      implementation.generateNextMessagePrediction(input).pipe(
+    generateComposerPrediction: (input) =>
+      implementation.generateComposerPrediction(input).pipe(
         Effect.mapError(
           (cause) =>
             new TextGenerationError({
-              operation: "generateNextMessagePrediction",
+              operation: "generateComposerPrediction",
               detail: "fake text generation failed",
               ...(cause !== undefined ? { cause } : {}),
             }),

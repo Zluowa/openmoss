@@ -57,7 +57,6 @@ import { pendingRequestInstanceKey } from "@moss/shared/threadSummary";
 import { deriveAssociatedWorktreeMetadata } from "@moss/shared/threadWorkspace";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import * as Schema from "effect/Schema";
 import {
   Suspense,
   lazy,
@@ -85,6 +84,13 @@ import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
 import { htmlRenderSurfacePaneUpdates, type RightDockHtmlDocument } from "~/rightDockStore.logic";
 import { latestHtmlRenderBySurface } from "~/lib/htmlRenderSurfaces";
 import { formatComposerMentionToken } from "~/lib/composerMentions";
+import { useComposerPrediction } from "~/hooks/useComposerPrediction";
+import {
+  canShowComposerPrediction,
+  deviceCanAcceptComposerPrediction,
+  resolveComposerPredictionInstanceId,
+  resolveComposerPredictionTarget,
+} from "~/lib/composerPrediction";
 import {
   GIT_WORKING_TREE_DIFF_LIVE_REFETCH_INTERVAL_MS,
   gitBranchesQueryOptions,
@@ -435,12 +441,6 @@ import { ComposerComputerControlEffortHint } from "./chat/ComposerComputerContro
 import { ComposerTipRow } from "./chat/ComposerTipRow";
 import { COMPOSER_STACKED_PANEL_ICON_CLASS_NAME } from "./chat/composerStackedPanelStyles";
 import { ComposerPullRequestAutoFixHint } from "./chat/ComposerPullRequestAutoFixHint";
-import {
-  applyComposerPrediction,
-  createPredictionTriggerTracker,
-  COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY,
-  deriveModelComposerPrediction,
-} from "./chat/composerPrediction";
 import { ComposerImageModelNotice } from "./chat/ComposerImageModelNotice";
 import { ComposerQuoteRows } from "./chat/ComposerQuoteRows";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
@@ -1049,11 +1049,6 @@ export default function ChatView({
     (PullRequestDialogState & { threadId: ThreadId }) | null
   >(null);
 
-  const [hasAcceptedComposerPrediction, setHasAcceptedComposerPrediction] = useLocalStorage(
-    COMPOSER_PREDICTION_ACCEPTED_STORAGE_KEY,
-    false,
-    Schema.Boolean,
-  );
   const [dismissedProviderHealthBannerKeys, setDismissedProviderHealthBannerKeys] = useLocalStorage(
     DISMISSED_PROVIDER_HEALTH_BANNERS_KEY,
     EMPTY_DISMISSED_PROVIDER_HEALTH_BANNERS,
@@ -3424,40 +3419,6 @@ export default function ChatView({
     },
     onGuardWarning: warnVoiceGuard,
   });
-  const composerPredictionEnabled =
-    // 有意偏离：多 CLI — non-Codex providers still predict.
-    interactionMode !== "plan" &&
-    !hasLiveTurn &&
-    !isComposerEditorDisabled &&
-    !composerOverlayOpen &&
-    composerTrigger === null &&
-    activePendingProgress === null &&
-    pendingUserInputs.length === 0 &&
-    !showPlanFollowUpPrompt &&
-    !isVoiceRecording &&
-    !isVoiceTranscribing &&
-    composerAssistantSelections.length === 0 &&
-    composerBrowserAnnotations.length === 0 &&
-    composerFileComments.length === 0 &&
-    composerFiles.length === 0 &&
-    composerImages.length === 0 &&
-    composerMentions.length === 0 &&
-    composerPastedTexts.length === 0 &&
-    composerPullRequestContexts.length === 0 &&
-    composerSkills.length === 0 &&
-    composerTerminalContexts.length === 0;
-  const [modelComposerPrediction, setModelComposerPrediction] = useState<{
-    readonly key: string;
-    readonly text: string;
-  } | null>(null);
-  const modelPredictionRequestKeyRef = useRef<string | null>(null);
-  const modelPredictionAbortRef = useRef<AbortController | null>(null);
-  const [predictionRefreshNonce, setPredictionRefreshNonce] = useState(0);
-  const dismissedPredictionTurnIdRef = useRef<string | null>(null);
-  const predictionIneligibleLogRef = useRef<string | null>(null);
-  const [predictionTriggerTracker] = useState(createPredictionTriggerTracker);
-  const modelPredictionKey =
-    activeThreadId && activeLatestTurnId ? `${activeThreadId}:${activeLatestTurnId}` : null;
   // While the latest turn's Moss image or video is still being made, the conversation is
   // not over: no suggested reply (a "thank you") until it lands or fails.
   const latestTurnMediaPending = agentActivityTimelineState.timelineWorkEntries.some(
@@ -3466,138 +3427,54 @@ export default function ChatView({
       entry.generatedImage?.state === "pending" &&
       entry.generatedImage.jobId !== undefined,
   );
-  // Live completion, mount catch-up, and window-focus recovery all share the
-  // same request path. Domain events supply the turn-completed signal; the key
-  // guard still coalesces duplicate delivery.
-  useEffect(() => {
-    const api = readNativeApi();
-    if (!api) return;
-    return api.orchestration.onDomainEvent((event) => {
-      const candidate = event as {
-        readonly aggregateId?: string;
-        readonly type?: string;
-        readonly payload?: { readonly threadId?: string };
-      };
-      if (
-        (candidate.aggregateId === activeThreadId ||
-          candidate.payload?.threadId === activeThreadId) &&
-        typeof candidate.type === "string" &&
-        (candidate.type.includes("turn") || candidate.type.includes("message"))
-      ) {
-        modelPredictionRequestKeyRef.current = null;
-        setPredictionRefreshNonce((value) => value + 1);
-      }
-    });
-  }, [activeThreadId]);
-  useEffect(() => {
-    const handleFocus = () => {
-      modelPredictionRequestKeyRef.current = null;
-      setPredictionRefreshNonce((value) => value + 1);
-    };
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, []);
-  useEffect(() => {
-    if (!settings.composerPredictionsEnabled || modelPredictionKey === null) {
-      modelPredictionRequestKeyRef.current = null;
-      setModelComposerPrediction((current) => (current === null ? current : null));
-      return;
-    }
-    const ineligibleReason = !latestTurnSettled
-      ? "turn-active"
-      : latestTurnMediaPending
-        ? "media-pending"
-        : interactionMode === "plan"
-          ? "plan-mode"
-          : null;
-    if (ineligibleReason !== null) {
-      modelPredictionRequestKeyRef.current = null;
-      if (ineligibleReason === "turn-active") {
-        predictionTriggerTracker.observeActiveTurn(modelPredictionKey);
-      }
-      const logKey = `${modelPredictionKey}:${ineligibleReason}`;
-      if (import.meta.env.DEV && predictionIneligibleLogRef.current !== logKey) {
-        predictionIneligibleLogRef.current = logKey;
-        console.debug("[prediction] ineligible", { reason: ineligibleReason });
-      }
-      return;
-    }
-    predictionIneligibleLogRef.current = null;
-    if (modelPredictionRequestKeyRef.current === modelPredictionKey) return;
-    const api = readNativeApi();
-    if (!api) return;
-    if (activeThreadId === null || activeLatestTurnId === null) return;
-    modelPredictionRequestKeyRef.current = modelPredictionKey;
-    modelPredictionAbortRef.current?.abort();
-    const controller = new AbortController();
-    modelPredictionAbortRef.current = controller;
-    const generationTrigger = predictionTriggerTracker.takeTrigger(modelPredictionKey);
-    let finished = false;
-    const startedAt = performance.now();
-    void api.orchestration
-      .predictNextMessage(
-        {
-          threadId: activeThreadId,
-          latestTurnId: activeLatestTurnId,
-          generationTrigger,
-        },
-        { signal: controller.signal },
-      )
-      .then((result) => {
-        if (result.latestTurnId !== activeLatestTurnId || controller.signal.aborted) return;
-        if (dismissedPredictionTurnIdRef.current === activeLatestTurnId) return;
-        const text = result.text.trim();
-        if (text.length === 0) {
-          if (import.meta.env.DEV) {
-            console.debug("[prediction] abstained", {
-              durationMs: Math.round(performance.now() - startedAt),
-            });
-          }
-          return;
-        }
-        if (import.meta.env.DEV) {
-          console.debug("[prediction] shown", {
-            durationMs: Math.round(performance.now() - startedAt),
-          });
-        }
-        setModelComposerPrediction({ key: modelPredictionKey, text });
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        finished = true;
-        if (modelPredictionAbortRef.current === controller) modelPredictionAbortRef.current = null;
-      });
-    return () => {
-      controller.abort();
-      if (finished) return;
-      // A request cut short here (StrictMode's dev remount, a dependency re-run) is asked
-      // again by the next run, with its trigger, instead of being skipped by the key guard.
-      if (modelPredictionRequestKeyRef.current === modelPredictionKey) {
-        modelPredictionRequestKeyRef.current = null;
-      }
-      if (generationTrigger === "live") {
-        predictionTriggerTracker.observeActiveTurn(modelPredictionKey);
-      }
-    };
-  }, [
-    activeLatestTurnId,
-    activeThreadId,
-    interactionMode,
-    latestTurnMediaPending,
-    latestTurnSettled,
-    modelPredictionKey,
-    predictionRefreshNonce,
-    predictionTriggerTracker,
-    settings.composerPredictionsEnabled,
-  ]);
-  const modelPrediction = deriveModelComposerPrediction({
+  // Predict for the chat in the main view, on its own account, once the latest turn settled;
+  // the ghost text shows only in an empty, idle, writable composer. Plan mode and a pending
+  // plan follow-up have their own next step, so they get none.
+  const composerPrediction = useComposerPrediction({
+    target: resolveComposerPredictionTarget({
+      enabled:
+        settings.composerPredictionsEnabled &&
+        deviceCanAcceptComposerPrediction() &&
+        isServerThread &&
+        !isEditorRail &&
+        !isSubagentPanel &&
+        !isQuickChat &&
+        !isInactiveSplitPane &&
+        !activeThreadIsSidechat &&
+        interactionMode !== "plan" &&
+        !latestTurnMediaPending,
+      hostId: null,
+      threadId: activeThread?.id ?? null,
+      // Resolved like the server routes it, so a chat without an instance id still has one.
+      providerInstanceId: resolveComposerPredictionInstanceId(activeThread),
+      latestTurn: activeLatestTurn,
+      latestTurnSettled,
+      hasStreamingAssistant: hasStreamingAssistantText,
+    }),
+    canShow: canShowComposerPrediction({
+      prompt,
+      hasAttachments:
+        composerImages.length > 0 ||
+        composerFiles.length > 0 ||
+        composerTerminalContexts.length > 0 ||
+        composerPastedTexts.length > 0 ||
+        composerAssistantSelections.length > 0 ||
+        composerBrowserAnnotations.length > 0 ||
+        composerPullRequestContexts.length > 0 ||
+        composerFileComments.length > 0 ||
+        composerMentions.length > 0 ||
+        composerSkills.length > 0,
+      menuOpen: composerOverlayOpen || composerTrigger !== null,
+      hasLiveTurn: isWorking,
+      hasQueuedTurns: queuedComposerTurns.length > 0,
+      hasPendingUserInput:
+        pendingUserInputs.length > 0 || activePendingProgress !== null || showPlanFollowUpPrompt,
+      isApprovalState: isComposerApprovalState,
+      // Dictation owns the composer while it records or transcribes.
+      isReadOnly: isComposerEditorDisabled || isVoiceRecording || isVoiceTranscribing,
+    }),
     prompt,
-    text:
-      composerPredictionEnabled && modelComposerPrediction?.key === modelPredictionKey
-        ? modelComposerPrediction.text
-        : null,
   });
-  const composerPrediction = modelPrediction;
   // Bumped when Enter finishes a voice note under the "send" setting, or a
   // visual's follow-up choice fills the composer; the effect next to the late
   // send handlers sends once the new prompt commits.
@@ -4159,6 +4036,8 @@ export default function ChatView({
   const composerSingleRow = useComposerSingleRow({
     formRef: composerFormRef,
     prompt,
+    // A suggestion that would wrap gets the block's room, like a long draft.
+    prediction: composerPrediction.ghost,
     eligible:
       !isCenteredEmptyLanding &&
       !showsDevsReportHint &&
@@ -5878,22 +5757,13 @@ export default function ChatView({
       // Keep the choice captured for this send: later picker changes belong to the
       // next message. Automatic queue drains must not acknowledge a new draft choice.
       const switchKeyForSend = claudeSwitchKey;
-      if (activeLatestTurnId !== null) {
-        modelPredictionAbortRef.current?.abort();
-        modelPredictionAbortRef.current = null;
-        dismissedPredictionTurnIdRef.current = activeLatestTurnId;
-        setModelComposerPrediction(null);
-        if (import.meta.env.DEV) {
-          console.debug("[prediction] ignored", { turnId: activeLatestTurnId });
-        }
-      }
       const accepted = await submitComposerTurn(...args);
       if (accepted && switchKeyForSend !== null && args[2] === undefined) {
         setSubmittedClaudeSwitchKey(switchKeyForSend);
       }
       return accepted;
     },
-    [activeLatestTurnId, claudeSwitchKey, submitComposerTurn, threadId],
+    [claudeSwitchKey, submitComposerTurn, threadId],
   );
   // Reply card "Send reply" (Ctrl/⌘+Enter): the quote and the reader's reply go out as one
   // message. It is offered only while the composer holds nothing else, so the reader's own
@@ -6413,6 +6283,8 @@ export default function ChatView({
     isComposerApprovalState,
     pendingUserInputs,
     composerDraft,
+    composerEditorRef,
+    composerPrediction: composerPrediction.controller,
   });
   const onExpandTimelineImage = useCallback(
     async (preview: ExpandedImagePreview) => {
@@ -6810,25 +6682,6 @@ export default function ChatView({
   const handlePromptChange = useStableCallback(onPromptChange);
   const handleComposerCommandKey = useStableCallback(onComposerCommandKey);
   const handleComposerPaste = useStableCallback(onComposerPaste);
-  const acceptComposerPrediction = useStableCallback(() => {
-    if (!composerPrediction) return;
-    const currentPrompt = promptRef.current;
-    const nextPrompt = applyComposerPrediction(currentPrompt, composerPrediction);
-    if (nextPrompt === currentPrompt) return;
-    discardPromptHistoryNavigationForComposerMutation();
-    setComposerPromptValue(nextPrompt);
-    if (import.meta.env.DEV) console.debug("[prediction] accepted");
-    setHasAcceptedComposerPrediction(true);
-  });
-  const composerPromptPrediction = composerPrediction
-    ? {
-        base: prompt,
-        suffix: composerPrediction.suffix,
-        hint: t("chat.composer.prediction.pressTabToAccept"),
-        showHint: !hasAcceptedComposerPrediction,
-        onAccept: acceptComposerPrediction,
-      }
-    : null;
   const handleCollapsePastedText = useStableCallback(addPastedTextToDraft);
   const handleEnvModeChange = useStableCallback(onEnvModeChange);
   const handleHandoffToWorktree = useStableCallback(onHandoffToWorktree);
@@ -8066,7 +7919,7 @@ export default function ChatView({
                     onChange={handlePromptChange}
                     onCommandKeyDown={handleComposerCommandKey}
                     onPaste={handleComposerPaste}
-                    prediction={composerPromptPrediction}
+                    prediction={composerPrediction.ghost}
                     {...(canCollapsePastedTextToDraft
                       ? { onCollapsePastedText: handleCollapsePastedText }
                       : {})}

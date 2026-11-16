@@ -7296,21 +7296,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         );
       });
 
-    const predictNextUserMessage: ProviderServiceShape["predictNextUserMessage"] = (
-      threadId,
-      input,
-    ) =>
-      Effect.gen(function* () {
-        const live = yield* findLiveSession(threadId);
-        if (!live) {
-          return { kind: "unsupported", reason: "no_live_session" } as const;
-        }
-        if (!live.adapter.predictNextUserMessage) {
-          return { kind: "unsupported", reason: "provider_without_native_prediction" } as const;
-        }
-        return yield* live.adapter.predictNextUserMessage(threadId, input);
-      });
-
     const runStopAll = () =>
       Effect.gen(function* () {
         const stoppedAt = new Date().toISOString();
@@ -7461,7 +7446,6 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       cancelClaudeCompactionDiscovery,
       rollbackConversation,
       compactThread,
-      predictNextUserMessage,
       closeRuntimeEvents,
       getRuntimeEventPumpHealth: () => Effect.sync(runtimeEventPumpHealth.snapshot),
       // Each access creates a fresh PubSub subscription so that multiple

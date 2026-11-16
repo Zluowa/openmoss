@@ -231,7 +231,7 @@ function renderAgentMentionChipDom(container: HTMLElement, alias: string, color:
 }
 
 /** An inline chip as the composer renders it, independent of any Lexical editor. */
-export type ComposerInlineChip =
+type ComposerInlineChip =
   | {
       readonly type: "mention";
       readonly path: string;
@@ -250,11 +250,8 @@ function createInlineChipHost(className: string): HTMLSpanElement {
   return dom;
 }
 
-/**
- * Builds the exact DOM a chip node renders in the editor, so read-only surfaces such as the
- * composer's gray prediction show the same chips the prompt gets once accepted.
- */
-export function createComposerInlineChipDom(chip: ComposerInlineChip): HTMLSpanElement {
+/** Builds the DOM a chip node renders in the editor. */
+function createComposerInlineChipDom(chip: ComposerInlineChip): HTMLSpanElement {
   switch (chip.type) {
     case "mention": {
       const dom = createInlineChipHost(COMPOSER_EDITOR_INLINE_CHIP_CLASS_NAME);
@@ -280,7 +277,7 @@ export function createComposerInlineChipDom(chip: ComposerInlineChip): HTMLSpanE
 }
 
 /** The link chip a `ComposerLinkNode` decorates its inline host with. */
-export function ComposerLinkChip(props: { url: string }) {
+function ComposerLinkChip(props: { url: string }) {
   return <InlineLinkChip url={props.url} />;
 }
 

@@ -60,7 +60,6 @@ import { Cause, Effect, Layer, Option, Queue, Schema, ServiceMap, Stream } from 
 import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
 import { isMossAppsServer, mossAppsToolTitle } from "@moss/shared/mossAppsPresentation";
 import { decodeSubagentActivity, normalizeSubagentToolData } from "@moss/shared/subagentTool";
-import { NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT } from "@moss/shared/nextMessagePrediction";
 import { assertServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
 import { sanitizeUserFacingErrorMessage } from "@moss/shared/errorMessages";
 import { mossPluginCatalogRoot } from "../../pluginCatalog/mossPluginCatalogStore.ts";
@@ -4357,20 +4356,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         catch: (cause) => toRequestError(input.sourceThreadId, "thread/fork", cause),
       });
 
-    const predictNextUserMessage: NonNullable<CodexAdapterShape["predictNextUserMessage"]> = (
-      threadId,
-      input,
-    ) =>
-      Effect.tryPromise({
-        try: (signal) =>
-          manager.predictNextUserMessage(
-            threadId,
-            { ...input, effort: NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT },
-            signal,
-          ),
-        catch: (cause) => toRequestError(threadId, "thread/fork", cause),
-      });
-
     const respondToRequest: CodexAdapterShape["respondToRequest"] = (
       threadId,
       requestId,
@@ -5072,7 +5057,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       readExternalThreadPage,
       rollbackThread,
       compactThread,
-      predictNextUserMessage,
       forkThread,
       respondToRequest,
       respondToUserInput,

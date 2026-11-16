@@ -406,6 +406,8 @@ import type {
   ServerReadThreadDiagnosticsResult,
   ServerGenerateAutomationIntentInput,
   ServerGenerateAutomationIntentResult,
+  ServerGenerateComposerPredictionInput,
+  ServerGenerateComposerPredictionResult,
   ServerGenerateThreadRecapInput,
   ServerGenerateThreadRecapResult,
   ServerGetEnvironmentResult,
@@ -482,8 +484,6 @@ import type {
   OrchestrationImportThreadResult,
   OrchestrationRegenerateThreadTitleInput,
   OrchestrationRegenerateThreadTitleResult,
-  OrchestrationPredictNextMessageInput,
-  OrchestrationPredictNextMessageResult,
   OrchestrationListProviderDeliveryBlockersInput,
   OrchestrationListProviderDeliveryBlockersResult,
   OrchestrationReconcileProviderDeliveryInput,
@@ -2031,6 +2031,10 @@ export interface NativeApi {
     generateThreadRecap: (
       input: ServerGenerateThreadRecapInput,
     ) => Promise<ServerGenerateThreadRecapResult>;
+    generateComposerPrediction: (
+      input: ServerGenerateComposerPredictionInput,
+      options?: { readonly signal?: AbortSignal },
+    ) => Promise<ServerGenerateComposerPredictionResult>;
     generateAutomationIntent: (
       input: ServerGenerateAutomationIntentInput,
     ) => Promise<ServerGenerateAutomationIntentResult>;
@@ -2235,10 +2239,6 @@ export interface NativeApi {
     regenerateThreadTitle: (
       input: OrchestrationRegenerateThreadTitleInput,
     ) => Promise<OrchestrationRegenerateThreadTitleResult>;
-    predictNextMessage: (
-      input: OrchestrationPredictNextMessageInput,
-      options?: { readonly signal?: AbortSignal },
-    ) => Promise<OrchestrationPredictNextMessageResult>;
     repairState: () => Promise<OrchestrationReadModel>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getInlineVisual: (

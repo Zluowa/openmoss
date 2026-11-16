@@ -1,7 +1,6 @@
 import { MossbotRooms } from "./mossbotRooms/service";
 import { toMossbotRoomRpcError } from "./mossbotRooms/errors";
 import { DevsReports } from "./devsReports";
-import { predictNextMessage } from "./git/nextMessagePrediction";
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { listMossMediaLibrary } from "./mossMediaLibrary";
 import { makeGitActionRunner } from "./git/gitActionRunner";
@@ -211,8 +210,6 @@ import { isGroupContainerKind } from "@moss/shared/projectContainers";
 import { PROJECT_FOLDERS_WORKTREE_ISSUE } from "@moss/shared/projectFolders";
 import { workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 import { WORKSPACE_FILE_WRITE_CONFLICT_CODE } from "@moss/shared/workspaceFileWrite";
-import { makeKeyedSingleFlightCache } from "@moss/shared/KeyedSingleFlightCache";
-import { NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT } from "@moss/shared/nextMessagePrediction";
 import {
   mergeProviderStartOptions,
   providerStartOptionsFromInstance,
@@ -385,6 +382,7 @@ import {
   makeResnapshotEscalationTracker,
 } from "./wsSnapshotLiveStream";
 import { PullRequestService } from "./pullRequests/Services/PullRequestService";
+import { ComposerPredictionService } from "./composerPrediction/Services/ComposerPredictionService";
 import { PullRequestAutoFixService } from "./pullRequestAutoFix/Services/PullRequestAutoFixService";
 import {
   GitHubInboxRateLimitedError,
@@ -1333,13 +1331,7 @@ const makeWsRpcHandlersLayer = () =>
       const keepAwake = yield* KeepAwakeService;
       const terminalManager = yield* TerminalManager;
       const textGeneration = yield* TextGeneration;
-      const nextMessagePredictionCache = yield* makeKeyedSingleFlightCache<
-        { readonly text: string },
-        unknown
-      >({
-        maxEntries: 64,
-        ttlMs: Number.POSITIVE_INFINITY,
-      });
+      const composerPrediction = yield* ComposerPredictionService;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const threadDiagnostics = yield* ThreadDiagnosticsQuery;
@@ -2712,55 +2704,18 @@ const makeWsRpcHandlersLayer = () =>
             providerCommandReactor.regenerateThreadTitle(input),
             "Failed to regenerate thread title",
           ),
+        // The retired prediction RPC, kept for older clients: it answers from the same
+        // composer prediction service as `server.generateComposerPrediction`.
         [ORCHESTRATION_WS_METHODS.predictNextMessage]: (input) =>
           rpcEffect(
-            Effect.gen(function* () {
-              const detail = yield* projectionReadModelQuery.getThreadDetailSnapshotById(
-                input.threadId,
-              );
-              if (Option.isNone(detail)) {
-                return yield* new WsRpcError({ message: "Thread was not found." });
-              }
-              const thread = detail.value.thread;
-              const modelSelection = thread.modelSelection;
-              const settings = yield* serverSettings.getSettings;
-              const routing = resolveTextGenerationRouting(settings, {
-                textGenerationModelSelection: modelSelection,
-              });
-              const routedModelSelection = routing.modelSelection ?? modelSelection;
-              const text = yield* predictNextMessage({
-                request: {
-                  threadId: input.threadId,
+            composerPrediction
+              .generate({ threadId: input.threadId, expectedTurnId: input.latestTurnId })
+              .pipe(
+                Effect.map((result) => ({
+                  text: result.suggestion ?? "",
                   latestTurnId: input.latestTurnId,
-                  generationTrigger: input.generationTrigger ?? "catch_up",
-                },
-                thread,
-                modelKey: routedModelSelection.model,
-                cache: nextMessagePredictionCache,
-                // Codex's prediction fork of the live native thread; it never starts a runtime.
-                predictNatively: (prediction) =>
-                  providerService.predictNextUserMessage(input.threadId, prediction),
-                predictFromTranscript: (transcript) =>
-                  textGeneration.generateNextMessagePrediction({
-                    cwd: thread.workingDirectory ?? process.cwd(),
-                    transcript,
-                    modelSelection:
-                      routedModelSelection.provider === "codex"
-                        ? {
-                            ...routedModelSelection,
-                            options: {
-                              ...routedModelSelection.options,
-                              reasoningEffort: NEXT_MESSAGE_PREDICTION_CODEX_REASONING_EFFORT,
-                            },
-                          }
-                        : routedModelSelection,
-                    ...(routing.providerOptions
-                      ? { providerOptions: routing.providerOptions }
-                      : {}),
-                  }),
-              });
-              return { text, latestTurnId: input.latestTurnId };
-            }),
+                })),
+              ),
             "Failed to predict next message",
           ),
         [ORCHESTRATION_WS_METHODS.getSnapshot]: () =>
@@ -4012,6 +3967,10 @@ const makeWsRpcHandlersLayer = () =>
             ),
             "Voice transcription failed",
           ),
+        // Thread-scoped like the other thread reads. The service derives the
+        // conversation and provider settings from the supplied IDs.
+        [WS_METHODS.serverGenerateComposerPrediction]: (input) =>
+          rpcEffect(composerPrediction.generate(input), "Failed to generate a composer suggestion"),
         [WS_METHODS.serverGenerateThreadRecap]: (input) =>
           rpcEffect(
             Effect.gen(function* () {

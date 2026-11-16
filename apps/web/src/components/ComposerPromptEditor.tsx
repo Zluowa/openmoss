@@ -22,12 +22,9 @@ import {
   KEY_ARROW_UP_COMMAND,
   KEY_DOWN_COMMAND,
   KEY_ENTER_COMMAND,
+  KEY_ESCAPE_COMMAND,
   KEY_TAB_COMMAND,
-  COMPOSITION_START_COMMAND,
-  COMPOSITION_END_COMMAND,
-  BLUR_COMMAND,
   COMMAND_PRIORITY_HIGH,
-  COMMAND_PRIORITY_LOW,
   KEY_BACKSPACE_COMMAND,
   PASTE_COMMAND,
   PASTE_TAG,
@@ -42,17 +39,13 @@ import {
 import {
   createContext,
   forwardRef,
-  Fragment,
-  memo,
   useCallback,
   useContext,
   useEffect,
-  useId,
   useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
   type ClipboardEventHandler,
   type Ref,
 } from "react";
@@ -62,6 +55,7 @@ import {
   collapseExpandedComposerCursor,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToInlineToken,
+  type ComposerCommandKey,
 } from "~/composer-logic";
 import {
   matchComposerLinkToken,
@@ -98,13 +92,9 @@ import {
   $createComposerLinkNode,
   isComposerInlineTokenNode,
   COMPOSER_NODE_CLASSES,
-  ComposerLinkChip,
-  createComposerInlineChipDom,
-  normalizeComposerSkillName,
-  type ComposerInlineChip,
   type ComposerInlineTokenNode,
 } from "./composer-nodes";
-import { COMPOSER_INLINE_DECORATOR_HOST_CLASS_NAME } from "./composerInlineChip";
+import { ComposerPredictionGhost } from "./ComposerPredictionGhost";
 
 const COMPOSER_EDITOR_HMR_KEY = `composer-editor-${Math.random().toString(36).slice(2)}`;
 
@@ -472,81 +462,6 @@ function composerSkillSegmentName(segment: ComposerPromptSegmentOf<"skill">): st
   return `${segment.prefix ?? "$"}${segment.name}`;
 }
 
-const ComposerPredictionChip = memo(
-  function ComposerPredictionChip({ chip }: { readonly chip: ComposerInlineChip }) {
-    const mountChip = useCallback(
-      (host: HTMLSpanElement | null) => host?.replaceChildren(createComposerInlineChipDom(chip)),
-      [chip],
-    );
-    return <span ref={mountChip} />;
-  },
-  (previous, next) => JSON.stringify(previous.chip) === JSON.stringify(next.chip),
-);
-
-/**
- * Codex renders its gray prediction as the parsed prompt, so mentions, skills and commands
- * already look like the chips the composer creates when the prediction is accepted.
- */
-function ComposerPredictionContent({
-  text,
-  mentionReferences,
-}: {
-  readonly text: string;
-  readonly mentionReferences: ReadonlyArray<ProviderMentionReference>;
-}) {
-  return splitPromptIntoComposerSegments(text, [], mentionReferences).map((segment, index) => {
-    const key = `${index}:${segment.type}`;
-    switch (segment.type) {
-      case "text":
-        return <Fragment key={key}>{segment.text}</Fragment>;
-      case "mention":
-        return (
-          <ComposerPredictionChip
-            key={key}
-            chip={{
-              type: "mention",
-              path: segment.path,
-              kind: segment.kind ?? "path",
-              provider: resolveMentionSegmentProvider(segment),
-            }}
-          />
-        );
-      case "skill":
-        return (
-          <ComposerPredictionChip
-            key={key}
-            chip={{
-              type: "skill",
-              name: normalizeComposerSkillName(composerSkillSegmentName(segment)),
-            }}
-          />
-        );
-      case "slash-command":
-        return (
-          <ComposerPredictionChip
-            key={key}
-            chip={{ type: "slash-command", command: segment.command }}
-          />
-        );
-      case "agent-mention":
-        return (
-          <ComposerPredictionChip
-            key={key}
-            chip={{ type: "agent-mention", alias: segment.alias, color: segment.color }}
-          />
-        );
-      case "link":
-        return (
-          <span key={key} className={COMPOSER_INLINE_DECORATOR_HOST_CLASS_NAME}>
-            <ComposerLinkChip url={segment.url} />
-          </span>
-        );
-      case "terminal-context":
-        return null;
-    }
-  });
-}
-
 function $setComposerEditorPrompt(
   prompt: string,
   terminalContexts: ReadonlyArray<TerminalContextDraft>,
@@ -606,14 +521,6 @@ function collectTerminalContextIds(node: LexicalNode): string[] {
   return [];
 }
 
-export interface ComposerPromptPrediction {
-  base: string;
-  suffix: string;
-  hint: string;
-  showHint: boolean;
-  onAccept: () => void;
-}
-
 export interface ComposerPromptEditorHandle {
   blur: () => void;
   focus: () => void;
@@ -640,7 +547,13 @@ interface ComposerPromptEditorProps {
   className?: string;
   /** One-line field for the single-row composer: one line tall, placeholder truncated. */
   singleLine?: boolean;
-  prediction?: ComposerPromptPrediction | null;
+  /**
+   * A predicted next message to show instead of the placeholder while the editor is empty:
+   * dimmed ghost text followed by a Tab key chip, wrapping up to three rows (the field grows
+   * to fit them) and ending with an ellipsis past them. It never enters the Lexical document
+   * or the draft; the owner decides what Tab or Right Arrow does with it.
+   */
+  prediction?: string | null | undefined;
   onRemoveTerminalContext: (contextId: string) => void;
   /**
    * Invoked when a sufficiently large text paste should collapse into an attachment
@@ -654,10 +567,7 @@ interface ComposerPromptEditorProps {
     cursorAdjacentToMention: boolean,
     terminalContextIds: string[],
   ) => void;
-  onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Slash",
-    event: KeyboardEvent,
-  ) => boolean;
+  onCommandKeyDown?: (key: ComposerCommandKey, event: KeyboardEvent) => boolean;
   onPaste: ClipboardEventHandler<HTMLElement>;
 }
 
@@ -666,19 +576,12 @@ interface ComposerPromptEditorInnerProps extends ComposerPromptEditorProps {
 }
 
 function ComposerCommandKeyPlugin(props: {
-  prediction?: ComposerPromptPrediction | null;
-  onCommandKeyDown?: (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Slash",
-    event: KeyboardEvent,
-  ) => boolean;
+  onCommandKeyDown?: (key: ComposerCommandKey, event: KeyboardEvent) => boolean;
 }) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    const handleCommand = (
-      key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Slash",
-      event: KeyboardEvent | null,
-    ): boolean => {
+    const handleCommand = (key: ComposerCommandKey, event: KeyboardEvent | null): boolean => {
       if (!props.onCommandKeyDown || !event) {
         return false;
       }
@@ -688,45 +591,6 @@ function ComposerCommandKeyPlugin(props: {
         event.stopPropagation();
       }
       return handled;
-    };
-
-    const acceptPrediction = (
-      event: KeyboardEvent | null,
-      options?: { readonly emptyOnly?: boolean },
-    ): boolean => {
-      const prediction = props.prediction;
-      if (
-        !prediction ||
-        !event ||
-        event.shiftKey ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.altKey ||
-        event.isComposing
-      ) {
-        return false;
-      }
-      if (options?.emptyOnly && prediction.base.length > 0) return false;
-      let matches = false;
-      // A paste can still be sitting in the pending update when Tab arrives.
-      // Reading only the committed state would accept a completion for text
-      // the user has already replaced.
-      const pendingEditorState = (editor as unknown as { _pendingEditorState?: EditorState | null })
-        ._pendingEditorState;
-      (pendingEditorState ?? editor.getEditorState()).read(() => {
-        const selection = $getSelection();
-        const currentValue = $getRoot().getTextContent();
-        matches =
-          $isRangeSelection(selection) &&
-          selection.isCollapsed() &&
-          $readSelectionOffsetFromEditorState(currentValue.length) === currentValue.length &&
-          currentValue === prediction.base;
-      });
-      if (!matches) return false;
-      prediction.onAccept();
-      event.preventDefault();
-      event.stopPropagation();
-      return true;
     };
 
     const unregisterArrowDown = editor.registerCommand(
@@ -739,20 +603,27 @@ function ComposerCommandKeyPlugin(props: {
       (event) => handleCommand("ArrowUp", event),
       COMMAND_PRIORITY_HIGH,
     );
+    // Only for the owner's accept of a composer prediction, which needs an empty editor; the
+    // owner returns false otherwise, so the inline-token arrow handling still applies.
+    const unregisterArrowRight = editor.registerCommand(
+      KEY_ARROW_RIGHT_COMMAND,
+      (event) => handleCommand("ArrowRight", event),
+      COMMAND_PRIORITY_HIGH,
+    );
     const unregisterEnter = editor.registerCommand(
       KEY_ENTER_COMMAND,
-      (event) =>
-        acceptPrediction(event, { emptyOnly: true }) ? true : handleCommand("Enter", event),
+      (event) => handleCommand("Enter", event),
       COMMAND_PRIORITY_HIGH,
     );
     const unregisterTab = editor.registerCommand(
       KEY_TAB_COMMAND,
-      (event) => (acceptPrediction(event) ? true : handleCommand("Tab", event)),
+      (event) => handleCommand("Tab", event),
       COMMAND_PRIORITY_HIGH,
     );
-    const unregisterArrowRight = editor.registerCommand(
-      KEY_ARROW_RIGHT_COMMAND,
-      (event) => acceptPrediction(event),
+    // Only for dismissing a shown composer prediction; the owner returns false otherwise.
+    const unregisterEscape = editor.registerCommand(
+      KEY_ESCAPE_COMMAND,
+      (event) => handleCommand("Escape", event),
       COMMAND_PRIORITY_HIGH,
     );
     const unregisterSlash = editor.registerCommand(
@@ -765,51 +636,13 @@ function ComposerCommandKeyPlugin(props: {
     return () => {
       unregisterArrowDown();
       unregisterArrowUp();
+      unregisterArrowRight();
       unregisterEnter();
       unregisterTab();
-      unregisterArrowRight();
+      unregisterEscape();
       unregisterSlash();
     };
   }, [editor, props]);
-
-  return null;
-}
-
-function ComposerPredictionCompositionPlugin(props: {
-  onComposingChange: (composing: boolean) => void;
-}) {
-  const [editor] = useLexicalComposerContext();
-  const onComposingChangeRef = useRef(props.onComposingChange);
-  useEffect(() => {
-    onComposingChangeRef.current = props.onComposingChange;
-  }, [props.onComposingChange]);
-
-  useEffect(() => {
-    const report = (composing: boolean) => {
-      onComposingChangeRef.current(composing);
-      return false;
-    };
-    const unregisterStart = editor.registerCommand(
-      COMPOSITION_START_COMMAND,
-      () => report(true),
-      COMMAND_PRIORITY_LOW,
-    );
-    const unregisterEnd = editor.registerCommand(
-      COMPOSITION_END_COMMAND,
-      () => report(false),
-      COMMAND_PRIORITY_LOW,
-    );
-    const unregisterBlur = editor.registerCommand(
-      BLUR_COMMAND,
-      () => report(false),
-      COMMAND_PRIORITY_LOW,
-    );
-    return () => {
-      unregisterStart();
-      unregisterEnd();
-      unregisterBlur();
-    };
-  }, [editor]);
 
   return null;
 }
@@ -1124,11 +957,6 @@ function ComposerPromptEditorInner({
   const [editor] = useLexicalComposerContext();
   const onChangeRef = useRef(onChange);
   const initialCursor = clampCollapsedComposerCursor(value, cursor);
-  const [predictionSelectionEligible, setPredictionSelectionEligible] = useState(
-    () => initialCursor === value.length,
-  );
-  const [isPredictionComposing, setIsPredictionComposing] = useState(false);
-  const predictionDescriptionId = useId();
   const terminalContextsSignature = terminalContextSignature(terminalContexts);
   const terminalContextsSignatureRef = useRef(terminalContextsSignature);
   const mentionsSignature = mentionReferencesSignature(mentionReferences);
@@ -1188,7 +1016,6 @@ function ComposerPromptEditorInner({
       selectionCollapsed: true,
       terminalContextIds: terminalContexts.map((context) => context.id),
     };
-    setPredictionSelectionEligible(normalizedCursor === value.length);
     terminalContextsSignatureRef.current = terminalContextsSignature;
     mentionsSignatureRef.current = mentionsSignature;
 
@@ -1238,7 +1065,6 @@ function ComposerPromptEditorInner({
         selectionCollapsed: true,
         terminalContextIds: snapshotRef.current.terminalContextIds,
       };
-      setPredictionSelectionEligible(boundedCursor === snapshotRef.current.value.length);
       onChangeRef.current(
         snapshotRef.current.value,
         boundedCursor,
@@ -1387,7 +1213,6 @@ function ComposerPromptEditorInner({
         selectionCollapsed,
         terminalContextIds,
       };
-      setPredictionSelectionEligible(selectionCollapsed && nextCursor === nextValue.length);
       if (contentSnapshotUnchanged) {
         return;
       }
@@ -1404,61 +1229,12 @@ function ComposerPromptEditorInner({
     });
   }, []);
 
-  const activePrediction =
-    !isPredictionComposing && predictionSelectionEligible && prediction?.suffix ? prediction : null;
   return (
     <ComposerRemoveTerminalContextContext.Provider value={onRemoveTerminalContext}>
+      {/* The editor and its ghost text share one grid cell, so the field is as tall as
+          whichever is taller: the ghost's rows grow the composer instead of spilling over
+          the controls below. */}
       <div className="relative grid">
-        {activePrediction ? (
-          <div
-            aria-hidden="true"
-            onMouseDown={(event) => {
-              // Codex keeps a visible prediction from stealing the editor's
-              // selection: a primary click only focuses the composer.
-              if (event.button === 0) {
-                event.preventDefault();
-                editor.focus();
-              }
-            }}
-            className={cn(
-              "relative z-0 col-start-1 row-start-1 block w-full whitespace-pre-wrap break-words",
-              COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
-              singleLine && "min-h-[1lh]",
-              className,
-            )}
-            data-testid="composer-prediction"
-          >
-            <span className="invisible">{value}</span>
-            <span
-              className="me-1.5 text-tertiary"
-              data-testid="composer-prediction-text"
-              style={{ opacity: "var(--composer-editor-placeholder-opacity, .5)" }}
-            >
-              {activePrediction.base.length === 0 ? (
-                <ComposerPredictionContent
-                  text={activePrediction.suffix}
-                  mentionReferences={mentionReferences}
-                />
-              ) : (
-                // A completion of typed text cannot know the token boundaries it continues.
-                activePrediction.suffix
-              )}
-            </span>
-            {activePrediction.showHint ? (
-              <span
-                className="inline-block rounded-row whitespace-nowrap bg-text/3 px-1.75 py-0.5 text-ui-sm leading-4 font-normal text-tertiary/50"
-                data-testid="composer-prediction-hint"
-              >
-                {activePrediction.hint}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-        {activePrediction ? (
-          <span className="sr-only" id={predictionDescriptionId}>
-            {activePrediction.hint}: {activePrediction.suffix}
-          </span>
-        ) : null}
         <PlainTextPlugin
           contentEditable={
             <ContentEditable
@@ -1471,15 +1247,20 @@ function ComposerPromptEditorInner({
                 className,
               )}
               data-testid="composer-editor"
-              aria-placeholder={placeholder}
+              aria-placeholder={prediction || placeholder}
               aria-label={ariaLabel}
-              aria-describedby={activePrediction ? predictionDescriptionId : undefined}
               placeholder={<span />}
               onPaste={onPaste}
             />
           }
           placeholder={
-            terminalContexts.length > 0 || activePrediction ? null : (
+            terminalContexts.length > 0 ? null : prediction ? (
+              <ComposerPredictionGhost
+                suggestion={prediction}
+                layoutKey={singleLine ? "row" : "block"}
+                className="col-start-1 row-start-1 self-start"
+              />
+            ) : (
               <div
                 className={cn(
                   "pointer-events-none absolute inset-0",
@@ -1495,11 +1276,7 @@ function ComposerPromptEditorInner({
           ErrorBoundary={LexicalErrorBoundary}
         />
         <OnChangePlugin onChange={handleEditorChange} />
-        <ComposerCommandKeyPlugin
-          {...(activePrediction ? { prediction: activePrediction } : {})}
-          {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
-        />
-        <ComposerPredictionCompositionPlugin onComposingChange={setIsPredictionComposing} />
+        <ComposerCommandKeyPlugin {...(onCommandKeyDown ? { onCommandKeyDown } : {})} />
         <ComposerInlineTokenArrowPlugin />
         <ComposerInlineTokenSelectionNormalizePlugin />
         <ComposerInlineTokenBackspacePlugin />
@@ -1571,7 +1348,7 @@ export const ComposerPromptEditor = forwardRef<
         onChange={onChange}
         onPaste={onPaste}
         editorRef={ref}
-        {...(prediction ? { prediction } : {})}
+        prediction={prediction}
         {...(onCollapsePastedText ? { onCollapsePastedText } : {})}
         {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
         {...(className ? { className } : {})}

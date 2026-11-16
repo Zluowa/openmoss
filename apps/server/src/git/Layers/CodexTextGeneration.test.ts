@@ -801,7 +801,7 @@ for (const operation of [
   "generateBranchName",
   "generateThreadTitle",
   "generateThreadRecap",
-  "generateNextMessagePrediction",
+  "generateComposerPrediction",
   "generateProjectDigest",
   "generateAutomationIntent",
   "evaluateAutomationCompletion",
@@ -869,9 +869,9 @@ for (const operation of [
             ...common,
             newMaterial: "Owned change",
           }),
-          generateNextMessagePrediction: service.generateNextMessagePrediction({
+          generateComposerPrediction: service.generateComposerPrediction({
             ...common,
-            transcript: "User: Review owned change",
+            conversation: "User: Review owned change",
           }),
           generateProjectDigest: service.generateProjectDigest({
             ...common,

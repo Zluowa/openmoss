@@ -4136,20 +4136,23 @@ export type OrchestrationRegenerateThreadTitleResult =
   typeof OrchestrationRegenerateThreadTitleResult.Type;
 
 /**
- * Why a prediction was requested: `live` right after the thread's latest turn completes,
- * `catch_up` when the composer mounts or the window regains focus on an already idle thread.
+ * Retired with the old next-message prediction; kept only so requests from older clients
+ * still decode. The server ignores it.
  */
 export const NextMessagePredictionGenerationTrigger = Schema.Literals(["live", "catch_up"]);
 export type NextMessagePredictionGenerationTrigger =
   typeof NextMessagePredictionGenerationTrigger.Type;
 
+/**
+ * `orchestration.predictNextMessage` is the retired prediction RPC, kept on the wire for older
+ * clients only. The server answers it from the same composer prediction service as
+ * `server.generateComposerPrediction`; current clients call that instead.
+ */
 export const OrchestrationPredictNextMessageInput = Schema.Struct({
   threadId: ThreadId,
   latestTurnId: TurnId,
-  // Retained for wire compatibility with older clients; the server always uses
-  // the active thread model, matching Codex's model:null prediction fork.
+  // Both retained for wire compatibility with older clients; the server ignores them.
   model: Schema.optional(TrimmedNonEmptyString),
-  // Older clients omit it; the server then treats the request as a catch-up.
   generationTrigger: Schema.optional(NextMessagePredictionGenerationTrigger),
 });
 export type OrchestrationPredictNextMessageInput = typeof OrchestrationPredictNextMessageInput.Type;
