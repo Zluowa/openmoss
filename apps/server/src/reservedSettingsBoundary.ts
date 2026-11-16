@@ -63,14 +63,26 @@ export function userChangedManagedSelection(patch: ServerSettingsPatch): boolean
 }
 
 /**
+ * Only `moss_theme_set` publishes a theme, after it validates it. A client (or an imported
+ * workspace) may clear the published theme, as "restore the default look" does, but a theme it
+ * sends is dropped.
+ */
+function withoutClientPublishedTheme(patch: ServerSettingsPatch): ServerSettingsPatch {
+  if (patch.agentTheme === undefined || patch.agentTheme === null) return patch;
+  const { agentTheme: _dropped, ...rest } = patch;
+  return rest;
+}
+
+/**
  * Protects server-managed Moss records at the untrusted client WS boundary.
  * Internal services deliberately bypass this helper so they can maintain the
  * reserved records themselves.
  */
 export function protectReservedSettingsPatch(
   current: ServerSettings,
-  patch: ServerSettingsPatch,
+  inputPatch: ServerSettingsPatch,
 ): ServerSettingsPatch {
+  const patch = withoutClientPublishedTheme(inputPatch);
   const incomingAccounts = patch.providers?.codex?.accounts;
   const incomingProviderInstances = patch.providerInstances;
   // Selection-only edits stay minimal. The server settings transaction clears

@@ -195,6 +195,57 @@ export const ComputerServerSettings = Schema.Struct({
 });
 export type ComputerServerSettings = typeof ComputerServerSettings.Type;
 
+/**
+ * Longest custom CSS a theme pack may carry, in characters. The theme editor, theme share
+ * strings and `moss_theme_set` all read this value.
+ */
+export const THEME_CSS_MAX_LENGTH = 50_000;
+
+const ThemeHexColor = Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/));
+const ThemeFontSetting = Schema.NullOr(TrimmedString.check(Schema.isMaxLength(200)));
+
+/**
+ * One appearance of a theme an agent publishes: an optional preset to start from, then the
+ * same fields the theme editor has. Clients normalize every value again when they apply it.
+ */
+export const MossThemePackSpec = Schema.Struct({
+  preset: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(32))),
+  accent: Schema.optionalKey(ThemeHexColor),
+  surface: Schema.optionalKey(ThemeHexColor),
+  ink: Schema.optionalKey(ThemeHexColor),
+  sidebar: Schema.optionalKey(Schema.NullOr(ThemeHexColor)),
+  contrast: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 100 }))),
+  opaqueWindows: Schema.optionalKey(Schema.Boolean),
+  uiFont: Schema.optionalKey(ThemeFontSetting),
+  codeFont: Schema.optionalKey(ThemeFontSetting),
+  diffAdded: Schema.optionalKey(ThemeHexColor),
+  diffRemoved: Schema.optionalKey(ThemeHexColor),
+  skill: Schema.optionalKey(ThemeHexColor),
+  css: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(THEME_CSS_MAX_LENGTH))),
+});
+export type MossThemePackSpec = typeof MossThemePackSpec.Type;
+
+export const MossThemeAppearance = Schema.Literals(["light", "dark", "system"]);
+export type MossThemeAppearance = typeof MossThemeAppearance.Type;
+
+/**
+ * The last theme an agent set with `moss_theme_set`. Each client applies a revision once to
+ * its own theme store and then treats it like any theme the person made, so resetting the
+ * theme in Settings undoes it. Only the gateway tool writes a theme here; a client may only
+ * clear it (see `protectReservedSettingsPatch`).
+ */
+export const MossPublishedTheme = Schema.Struct({
+  revision: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+  publishedAt: IsoDateTime,
+  name: Schema.optionalKey(TrimmedString.check(Schema.isMaxLength(48))),
+  /** Start from Moss's default look instead of the client's current theme. */
+  reset: Schema.optionalKey(Schema.Boolean),
+  appearance: Schema.optionalKey(MossThemeAppearance),
+  light: Schema.optionalKey(MossThemePackSpec),
+  dark: Schema.optionalKey(MossThemePackSpec),
+});
+export type MossPublishedTheme = typeof MossPublishedTheme.Type;
+
 // Keep-awake behaviour for macOS `caffeinate`. "agent" keeps the machine awake
 // only while at least one agent turn is running.
 export const KeepAwakeMode = Schema.Literals(["always", "agent", "off"]);
@@ -246,6 +297,8 @@ export const ServerSettings = Schema.Struct({
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   apps: AppsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   computer: ComputerServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  // The theme an agent last published; absent or null when there is none.
+  agentTheme: Schema.optionalKey(Schema.NullOr(MossPublishedTheme)),
   // When the first-run welcome tour was completed or skipped. Server-backed so a
   // browser-storage reset does not replay setup on an already configured install.
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
@@ -420,6 +473,8 @@ export const ServerSettingsPatch = Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(128)))),
     }),
   ),
+  // Replaced whole, never merged. Clients may only send `null`.
+  agentTheme: Schema.optionalKey(Schema.NullOr(MossPublishedTheme)),
   onboardingCompletedAt: Schema.optionalKey(Schema.NullOr(IsoDateTime)),
 });
 export type ServerSettingsPatch = typeof ServerSettingsPatch.Type;

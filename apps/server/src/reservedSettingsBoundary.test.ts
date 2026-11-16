@@ -349,4 +349,22 @@ describe("protectReservedSettingsPatch", () => {
     });
     expect(result.providerInstances).toBeUndefined();
   });
+
+  it("lets a client clear the published theme but never publish one", () => {
+    const published: ServerSettingsPatch["agentTheme"] = {
+      revision: "client-forged",
+      publishedAt: "2026-11-17T00:00:00.000Z",
+      dark: { css: "body { background: url(https://example.com/a) }" },
+    };
+
+    expect(
+      protectReservedSettingsPatch(currentSettings, {
+        agentTheme: published,
+        keepAwakeMode: "off",
+      }),
+    ).toEqual({ keepAwakeMode: "off" });
+    expect(protectReservedSettingsPatch(currentSettings, { agentTheme: null })).toEqual({
+      agentTheme: null,
+    });
+  });
 });

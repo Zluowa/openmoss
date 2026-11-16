@@ -59,10 +59,15 @@ export function applyServerSettingsPatch(
 ): ServerSettings {
   const selectionPatch = patch.textGenerationModelSelection;
   const merged = deepMerge(current, patch as DeepPartial<ServerSettings>);
-  const next: ServerSettings =
+  const withInstances: ServerSettings =
     patch.providerInstances !== undefined
       ? { ...merged, providerInstances: patch.providerInstances }
       : merged;
+  // A published theme is one revision: a new one replaces the old, never merges into it.
+  const next: ServerSettings =
+    patch.agentTheme !== undefined
+      ? { ...withInstances, agentTheme: patch.agentTheme }
+      : withInstances;
   if (!selectionPatch) {
     return next;
   }

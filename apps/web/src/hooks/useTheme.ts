@@ -3,11 +3,15 @@
 // Layer: Web appearance state hook
 // Exports: useTheme for mode, resolved variant, theme-pack import/export, and active theme metadata.
 
+import type { MossPublishedTheme } from "@moss/contracts";
 import { useEffect, useSyncExternalStore } from "react";
 import { isElectron } from "../env";
 import { isMacNavigatorPlatform } from "../lib/utils";
+import { applyThemeCss } from "../theme/themeCss";
 import {
   DEFAULT_THEME_STATE,
+  applyPublishedTheme,
+  setThemeCss as setThemeCssState,
   type ChromeTheme,
   type ThemeFonts,
   type ThemeMode,
@@ -203,6 +207,9 @@ function applyThemeState(state: ThemeState, suppressTransitions = false) {
     }
     root.style.setProperty(name, value);
   }
+  // The active pack's custom CSS, checked rule by rule. On module load this runs before React
+  // mounts, so a stored theme paints with its CSS from the first frame.
+  applyThemeCss(activeTheme.theme.css);
 
   const startupBackgrounds = {
     light: resolveThemePack(state, "light").theme.surface,
@@ -276,6 +283,38 @@ if (typeof document !== "undefined") {
   applyThemeState(readStoredThemeState());
 }
 
+// ─── Safe way back ────────────────────────────────────────────────────────
+
+/**
+ * Ctrl+Alt+Shift+Backspace (Cmd on macOS also works) restores Moss's default look: both theme
+ * packs, their custom CSS and window glass. It listens on the window itself, so it works when
+ * theme CSS has hidden or covered every control, including Settings.
+ */
+export function isThemeResetShortcut(event: KeyboardEvent): boolean {
+  return (
+    (event.ctrlKey || event.metaKey) &&
+    event.altKey &&
+    event.shiftKey &&
+    (event.code === "Backspace" || event.key === "Backspace")
+  );
+}
+
+function handleThemeResetShortcut(event: KeyboardEvent) {
+  if (!isThemeResetShortcut(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  restoreDefaultLook();
+}
+
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("keydown", handleThemeResetShortcut, { capture: true });
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() =>
+      window.removeEventListener("keydown", handleThemeResetShortcut, { capture: true }),
+    );
+  }
+}
+
 // ─── Public hook ──────────────────────────────────────────────────────────
 
 function setTheme(nextTheme: ThemeMode) {
@@ -298,6 +337,33 @@ function resetThemeVariant(variant: ThemeVariant) {
 
 function resetAllThemes() {
   updateStoredThemeState(() => DEFAULT_THEME_STATE);
+}
+
+/** Moss's default look for both packs, custom CSS cleared. Keeps light/dark/system. */
+function restoreDefaultLook() {
+  updateStoredThemeState((state) => ({ ...DEFAULT_THEME_STATE, mode: state.mode }));
+}
+
+function setThemeCss(variant: ThemeVariant, css: string) {
+  updateStoredThemeState((state) => setThemeCssState(state, variant, css));
+}
+
+const APPLIED_AGENT_THEME_KEY = "moss:theme:agent-revision";
+
+/**
+ * Apply a theme an agent published, once per revision on this client. Later edits, Reset and
+ * the reset shortcut win over it until an agent publishes again. Returns whether it applied.
+ */
+export function adoptPublishedTheme(published: MossPublishedTheme): boolean {
+  if (!hasThemeStorage()) return false;
+  try {
+    if (localStorage.getItem(APPLIED_AGENT_THEME_KEY) === published.revision) return false;
+    localStorage.setItem(APPLIED_AGENT_THEME_KEY, published.revision);
+  } catch {
+    return false;
+  }
+  updateStoredThemeState((state) => applyPublishedTheme(state, published));
+  return true;
 }
 
 function updateThemePack(variant: ThemeVariant, patch: Partial<ChromeTheme>) {
@@ -389,8 +455,10 @@ export function useTheme() {
     resetAllThemes,
     resetThemeVariant,
     resolvedTheme,
+    restoreDefaultLook,
     setCodeThemeId,
     setTheme,
+    setThemeCss,
     setWindowTranslucency,
     theme,
     themeState: snapshot.state,
