@@ -1831,6 +1831,40 @@ describe("classifyCodexStderrLine", () => {
     });
   });
 
+  it.each([
+    "Loading plugins from cache",
+    "Connecting to MCP server stripe",
+    JSON.stringify({ level: "WARN", message: "Check the project configuration" }),
+  ])("keeps non-error plain stderr lines out of the transcript: %s", (line) => {
+    expect(classifyCodexStderrLine(line)).toBeNull();
+  });
+
+  it.each([
+    "thread/resume failed: no rollout found",
+    "FATAL: cannot open sandbox",
+    "thread 'main' panicked at src/lib.rs:10",
+    "Unhandled exception in worker",
+    "connection refused by upstream",
+    "Access denied for the workspace",
+    // The Windows launcher reports a missing program in the system language.
+    "'codex' is not recognized as an internal or external command,",
+    "'codex' 不是内部或外部命令，也不是可运行的程序",
+    "系统找不到指定的路径。",
+  ])("keeps error-like plain stderr lines: %s", (line) => {
+    expect(classifyCodexStderrLine(line)).toEqual({ message: line });
+  });
+
+  it("keeps the mirrored user-config notice out of the transcript", () => {
+    // Codex can rediscover the overlay's source config.toml as a project config and
+    // say user-only keys were ignored there. Moss loads them at user level already.
+    const line = codexJsonLogRecord(
+      "ERROR",
+      "codex_app_server",
+      "Ignored unsupported project-local config keys in C:\\Users\\me\\.codex\\config.toml: notify. If you want these settings to apply, manually set them in your user-level config.toml.",
+    );
+    expect(classifyCodexStderrLine(line)).toBeNull();
+  });
+
   it("normalizes duplicate tool argument parse failures", () => {
     const line =
       "2026-04-11T23:48:45.012578Z ERROR codex_core::tools::router: error=failed to parse function arguments: duplicate field `yield_time_ms` at line 1 column 114";

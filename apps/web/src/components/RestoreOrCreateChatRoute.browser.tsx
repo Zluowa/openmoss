@@ -79,8 +79,8 @@ afterEach(() => {
 
 describe("RestoreOrCreateChatRoute", () => {
   it("releases pending recovery after a repaired thread is transiently added then removed", async () => {
-    const firstRecovery = deferred<boolean>();
-    const successorRecovery = deferred<boolean>();
+    const firstRecovery = deferred<"restored" | "verified-empty" | "unknown">();
+    const successorRecovery = deferred<"restored" | "verified-empty" | "unknown">();
     harness.refreshSnapshot
       .mockImplementationOnce(() => firstRecovery.promise)
       .mockImplementationOnce(() => successorRecovery.promise);
@@ -108,17 +108,58 @@ describe("RestoreOrCreateChatRoute", () => {
       setThreadIds([]);
       await vi.waitFor(() => expect(harness.refreshSnapshot).toHaveBeenCalledTimes(2));
 
-      firstRecovery.resolve(false);
+      firstRecovery.resolve("unknown");
       await vi.waitFor(() => expect(harness.createFreshChat).toHaveBeenCalledTimes(1));
     } finally {
-      successorRecovery.resolve(false);
+      successorRecovery.resolve("unknown");
       await screen.unmount();
+    }
+  });
+
+  it("skips the fallback wait only when the server verifies there is no thread", async () => {
+    const fallbackDelay = deferred<void>();
+    harness.waitForFallbackDelay.mockReturnValue(fallbackDelay.promise);
+    harness.createFreshChat.mockResolvedValue({ ok: true, threadId: null });
+
+    harness.refreshSnapshot.mockResolvedValue("unknown");
+    const waiting = await render(
+      <RestoreOrCreateChatRoute
+        resolveRestoreRoute={() => null}
+        createFreshChat={harness.createFreshChat}
+      />,
+    );
+    try {
+      await vi.waitFor(() => expect(harness.refreshSnapshot).toHaveBeenCalledTimes(1));
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+      // Without an empty-thread proof the route keeps holding for the fallback delay.
+      expect(harness.createFreshChat).not.toHaveBeenCalled();
+      fallbackDelay.resolve();
+      await vi.waitFor(() => expect(harness.createFreshChat).toHaveBeenCalledTimes(1));
+    } finally {
+      await waiting.unmount();
+    }
+
+    harness.createFreshChat.mockClear();
+    harness.refreshSnapshot.mockReset();
+    harness.waitForFallbackDelay.mockReturnValue(new Promise<void>(() => undefined));
+    harness.refreshSnapshot.mockResolvedValue("verified-empty");
+    const verified = await render(
+      <RestoreOrCreateChatRoute
+        resolveRestoreRoute={() => null}
+        createFreshChat={harness.createFreshChat}
+      />,
+    );
+    try {
+      // The fallback delay never resolves here, so only the proof can release the route.
+      await vi.waitFor(() => expect(harness.createFreshChat).toHaveBeenCalledTimes(1));
+    } finally {
+      await verified.unmount();
     }
   });
 
   it("navigates to a persisted kanban target without minting a fresh chat", async () => {
     harness.waitForFallbackDelay.mockResolvedValue(undefined);
-    harness.refreshSnapshot.mockResolvedValue(false);
+    harness.refreshSnapshot.mockResolvedValue("unknown");
     harness.createFreshChat.mockResolvedValue({ ok: true, threadId: null });
     harness.threadStore = { ...harness.threadStore, threadIds: ["thread-live"] };
 
@@ -147,7 +188,7 @@ describe("RestoreOrCreateChatRoute", () => {
 
   it("bypasses an existing remembered thread after authentication", async () => {
     harness.waitForFallbackDelay.mockResolvedValue(undefined);
-    harness.refreshSnapshot.mockResolvedValue(false);
+    harness.refreshSnapshot.mockResolvedValue("unknown");
     harness.createFreshChat.mockResolvedValue({ ok: true, threadId: null });
     harness.threadStore = { ...harness.threadStore, threadIds: ["thread-stale"] };
     const resolveRestoreRoute = vi.fn(() => ({ threadId: "thread-stale" }));

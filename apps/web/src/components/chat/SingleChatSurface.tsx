@@ -96,6 +96,7 @@ import { FloatingBrowserPanel } from "./FloatingBrowserPanel";
 import { shouldRenderFloatingBrowserPanel } from "./floatingBrowserPanel.logic";
 import { PanelStateMessage } from "./PanelStateMessage";
 import { RightDock } from "./RightDock";
+import { rightDockThreadWidthStorageKey } from "./rightDockSizing.logic";
 import { SidechatDockPane } from "./SidechatDockPane";
 import {
   closeMcpAppDockEntry,
@@ -1567,6 +1568,7 @@ export function SingleChatSurface(props: {
           state={dockState}
           minWidth={SINGLE_PANEL_MIN_WIDTH}
           defaultWidth={DIFF_INLINE_DEFAULT_WIDTH}
+          widthStorageKey={rightDockThreadWidthStorageKey(props.threadId)}
           shouldAcceptWidth={shouldAcceptDockWidth}
           addMenuKinds={RIGHT_DOCK_ADD_MENU_KINDS}
           launcherItems={dockLauncherItems}

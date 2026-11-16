@@ -42,6 +42,7 @@ import {
   ProviderHealth,
   type ProviderHealthShape,
 } from "../src/provider/Services/ProviderHealth.ts";
+import { ProviderDiscoveryServiceLive } from "../src/provider/Layers/ProviderDiscoveryService.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
 import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
@@ -365,7 +366,14 @@ export const makeOrchestrationIntegrationHarness = (
       updateProvider: () => Effect.die("updateProvider unsupported in harness"),
       streamChanges: Stream.empty,
     } as unknown as ProviderHealthShape);
+    // Match the application graph: discovery uses the same adapter and settings as turn dispatch.
+    const providerDiscoveryLayer = ProviderDiscoveryServiceLive.pipe(
+      Layer.provide(fakeRegistry ?? realCodexRegistry),
+      Layer.provide(providerHealthLayer),
+      Layer.provide(ServerSettingsService.layerTest(options?.serverSettings)),
+    );
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
+      Layer.provide(providerDiscoveryLayer),
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(providerHealthLayer),
       Layer.provideMerge(hubOutputReactorLayer),

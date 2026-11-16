@@ -93,8 +93,18 @@ describe("translateZhCnWorkspaceUiText", () => {
       "归档“Moss Desktop”中的 12 个对话？",
     );
     expect(translateZhCnWorkspaceUiText("Approaching rate limit (82% used). Resets in 7m.")).toBe(
-      "即将达到速率限制（已使用 82%）。将在 7m 后重置。",
+      "即将达到速率限制（已使用 82%）。将在 7 分钟后重置。",
     );
+    expect(translateZhCnWorkspaceUiText("Rate limit reached. Resets in 6d 6h.")).toBe(
+      "已达到速率限制。将在 6 天 6 小时后重置。",
+    );
+    expect(translateZhCnWorkspaceUiText("Approaching rate limit. Resets in 2h 16m.")).toBe(
+      "即将达到速率限制。将在 2 小时 16 分钟后重置。",
+    );
+    expect(translateZhCnWorkspaceUiText("Rate limit reached. Resets soon.")).toBe(
+      "已达到速率限制。即将重置。",
+    );
+    expect(translateZhCnWorkspaceUiText("Rate limit reached.")).toBe("已达到速率限制。");
     expect(
       translateZhCnWorkspaceUiText(
         "Automatic installation has failed 3 times. Download 0.5.5 manually to finish updating.",

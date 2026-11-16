@@ -43,6 +43,12 @@ const makeFilePane = (id: string) => ({
   pullRequestInitialTab: null,
 });
 
+const measureDockWidth = () =>
+  Math.round(
+    document.querySelector<HTMLElement>("[data-slot='sidebar-container']")!.getBoundingClientRect()
+      .width,
+  );
+
 function renderDock(content: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
   return render(<QueryClientProvider client={client}>{content}</QueryClientProvider>);
@@ -216,6 +222,64 @@ it("keeps each file tab mounted so switching tabs preserves its scroll position"
   expect(document.querySelector('[data-testid="file-pane-a"]')).toBe(firstPane);
   expect(firstPane.scrollTop).toBe(240);
   await screen.unmount();
+});
+
+it("opens each chat's dock at its own remembered width and falls back to the shared width", async () => {
+  await page.viewport(1280, 800);
+  const { useState } = await import("react");
+  const { RIGHT_DOCK_WIDTH_STORAGE_KEY, rightDockThreadWidthStorageKey } =
+    await import("./rightDockSizing.logic");
+  // Stored values are ratios of the regular range: 320px (0) to 1000 - 352 = 648px (1).
+  localStorage.setItem(rightDockThreadWidthStorageKey("a"), "0");
+  localStorage.setItem(rightDockThreadWidthStorageKey("b"), "1");
+  localStorage.setItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, "0.5");
+  localStorage.removeItem(rightDockThreadWidthStorageKey("c"));
+  function Harness() {
+    const [thread, setThread] = useState("a");
+    return (
+      <>
+        {["a", "b", "c"].map((id) => (
+          <button key={id} type="button" onClick={() => setThread(id)}>
+            Open chat {id}
+          </button>
+        ))}
+        <div style={{ display: "flex", width: 1000, height: 600 }}>
+          <div style={{ flex: 1 }}>Chat {thread}</div>
+          <RightDock
+            state={{ open: true, activePaneId: "a", panes: [makeFilePane("a")] }}
+            motionKey={thread}
+            widthStorageKey={rightDockThreadWidthStorageKey(thread)}
+            minWidth={300}
+            defaultWidth="500px"
+            shouldAcceptWidth={() => true}
+            addMenuKinds={[]}
+            onClosePane={() => {}}
+            onCollapse={() => {}}
+            onOpenChange={() => {}}
+            onAddPane={() => {}}
+            renderPane={() => <div>Panel content</div>}
+          />
+        </div>
+      </>
+    );
+  }
+
+  const screen = await renderDock(<Harness />);
+  const measure = measureDockWidth;
+  try {
+    await expect.poll(measure).toBe(320);
+    await screen.getByRole("button", { name: "Open chat b", exact: true }).click();
+    await expect.poll(measure).toBe(648);
+    // A chat that was never resized follows the last width resized anywhere.
+    await screen.getByRole("button", { name: "Open chat c", exact: true }).click();
+    await expect.poll(measure).toBe(484);
+    await screen.getByRole("button", { name: "Open chat a", exact: true }).click();
+    await expect.poll(measure).toBe(320);
+  } finally {
+    await screen.unmount();
+    for (const id of ["a", "b"]) localStorage.removeItem(rightDockThreadWidthStorageKey(id));
+    localStorage.removeItem(RIGHT_DOCK_WIDTH_STORAGE_KEY);
+  }
 });
 
 it.skip("keeps the whole dock maximized across selecting, opening and closing documents", async () => {

@@ -13,11 +13,13 @@ import { isLocalAbsolutePath, isWindowsAbsolutePath } from "@moss/shared/path";
 
 import { resolveWsHttpUrl } from "./wsHttpUrl";
 
-function normalizeMarkdownImagePath(src: string): string {
+export function normalizeMarkdownImagePath(src: string): string {
   const trimmed = src.trim();
   if (trimmed.startsWith("file://")) {
     try {
-      return decodeURIComponent(new URL(trimmed).pathname);
+      const pathname = decodeURIComponent(new URL(trimmed).pathname);
+      // `file:///C:/dir` parses to `/C:/dir`; drop the slash so the drive path stays native.
+      return /^\/[A-Za-z]:[\\/]/.test(pathname) ? pathname.slice(1) : pathname;
     } catch {
       return trimmed;
     }

@@ -539,6 +539,8 @@ export const AppSettingsSchema = Schema.Struct({
   // Started threads: show reasoning effort as a stepped slider card in the composer's
   // model menu instead of radio rows. New chats keep the split model/effort pickers.
   composerEffortSlider: Schema.Boolean.pipe(withDefaults(() => true)),
+  // Off hides the early "Approaching rate limit" banner. A reached limit still shows.
+  showRateLimitWarnings: Schema.Boolean.pipe(withDefaults(() => true)),
   // Local-only preference for Codex-style next-message predictions.
   composerPredictionsEnabled: Schema.Boolean.pipe(withDefaults(() => true)),
   // Legacy dropdown preference; normalizeAppSettings migrates it to the boolean above.

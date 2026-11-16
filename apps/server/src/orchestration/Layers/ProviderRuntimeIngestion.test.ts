@@ -1264,10 +1264,12 @@ describe("ProviderRuntimeIngestion", () => {
         (entry) => entry.kind === "tool.updated",
       );
       expect(activities).toHaveLength(1);
+      // The row stays anchored at the first update and records when the
+      // latest one arrived, so live timing reads from the latest update.
       expect(activities[0]).toMatchObject({
         createdAt: firstAt,
         sequence: first.sequence,
-        payload: { data: { elapsedSeconds: 2 } },
+        payload: { data: { elapsedSeconds: 2 }, lastActivityAt: "2026-10-06T12:00:02.000Z" },
       });
       // A replacement runtime can reuse IDs and an identical snapshot. Neither
       // row identity nor the dedupe fingerprint may suppress its first update.
@@ -4203,6 +4205,45 @@ describe("ProviderRuntimeIngestion", () => {
           terminal.status === "completed" ? "Late completion" : "Checking the remaining cases.",
       },
     });
+  });
+
+  it("retains changed completed reasoning across small and large duplicate fingerprints", async () => {
+    const harness = await createHarness({ startIngestion: false });
+    const details = ["First", "x".repeat(2_000), "Last"];
+    const firstAt = "2026-10-03T10:02:00.000Z";
+    let firstSequence: number | undefined;
+    await harness.startIngestion();
+    for (const [index, detail] of details.flatMap((detail) => [detail, detail]).entries()) {
+      const row = await Effect.runPromise(
+        harness.runtimeEventRepository.append({
+          type: "item.completed",
+          provider: "claudeAgent",
+          eventId: asEventId(`sized-reasoning-${index}`),
+          threadId: asThreadId("thread-1"),
+          turnId: asTurnId("sized-turn"),
+          itemId: asItemId("sized-thought"),
+          createdAt: index === 0 ? firstAt : "2026-10-03T10:02:01.000Z",
+          payload: { itemType: "reasoning", status: "completed", detail },
+        }),
+      );
+      firstSequence ??= row.sequence;
+      await harness.drain();
+    }
+    const updates = Array.from(
+      await Effect.runPromise(Stream.runCollect(harness.engine.readEvents(0))),
+    ).flatMap((event) =>
+      event.type === "thread.activity-appended" &&
+      event.payload.activity.id === "provider-reasoning:thread-1:sized-thought"
+        ? [event.payload.activity]
+        : [],
+    );
+    expect(updates).toHaveLength(3);
+    for (const [index, activity] of updates.entries())
+      expect(activity).toMatchObject({
+        createdAt: firstAt,
+        sequence: firstSequence,
+        payload: { status: "completed", detail: details[index] },
+      });
   });
 
   it.each([0, 2_001])(

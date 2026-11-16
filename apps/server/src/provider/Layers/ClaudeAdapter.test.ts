@@ -1689,6 +1689,7 @@ describe("ClaudeAdapterLive", () => {
       }
       assert.equal(systemPrompt.preset, "claude_code");
       assert.equal(systemPrompt.excludeDynamicSections, true);
+      assert.include(systemPrompt.append ?? "", "Do the work yourself by default.");
       assert.include(systemPrompt.append ?? "", "When spawning subagents");
       assert.include(systemPrompt.append ?? "", "worker-<tier>");
       assert.include(systemPrompt.append ?? "", MOSS_HARNESS_POLICY_MARKER);
@@ -3608,6 +3609,18 @@ describe("ClaudeAdapterLive", () => {
         },
       } as unknown as SDKMessage);
 
+      // A heartbeat already in flight when the command finished.
+      harness.query.emit({
+        type: "tool_progress",
+        tool_use_id: "tool-bash-1-heartbeat-1",
+        tool_name: "Bash",
+        parent_tool_use_id: "tool-bash-1",
+        elapsed_time_seconds: 60,
+        heartbeat: true,
+        session_id: "sdk-session-async-bash",
+        uuid: "tool-progress-async-bash-2",
+      } as unknown as SDKMessage);
+
       harness.query.emit({
         type: "result",
         subtype: "success",
@@ -3622,11 +3635,14 @@ describe("ClaudeAdapterLive", () => {
         runtimeEvents.some((event) => event.providerRefs?.providerThreadId !== undefined),
         false,
       );
-      const progress = runtimeEvents.find(
-        (event) => event.type === "tool.progress" && event.payload.toolName === "Bash",
+      // Heartbeats report on the Bash call itself, so they update its row
+      // instead of opening one row per heartbeat; a late one cannot reopen it.
+      const progress = runtimeEvents.flatMap((event) =>
+        event.type === "tool.progress" ? [event.payload] : [],
       );
-      assert.equal(progress?.type, "tool.progress");
-      assert.equal(progress?.providerRefs?.providerThreadId, undefined);
+      assert.deepEqual(progress, [
+        { toolUseId: "tool-bash-1", toolName: "Bash", elapsedSeconds: 30 },
+      ]);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

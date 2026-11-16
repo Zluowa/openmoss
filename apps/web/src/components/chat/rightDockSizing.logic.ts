@@ -1,6 +1,25 @@
 export const RIGHT_DOCK_DEFAULT_WIDTH = 600;
 export const RIGHT_DOCK_MIN_WIDTH = 320;
 export const RIGHT_DOCK_WIDTH_STORAGE_KEY = "app-shell:right-panel-width:v3";
+const RIGHT_DOCK_THREAD_WIDTH_STORAGE_KEY_PREFIX = "app-shell:right-panel-width:v3:thread:";
+
+/** Where one chat keeps its own resized dock width (a ratio, like the shared key). */
+export function rightDockThreadWidthStorageKey(threadId: string): string {
+  return `${RIGHT_DOCK_THREAD_WIDTH_STORAGE_KEY_PREFIX}${threadId}`;
+}
+
+/**
+ * A chat reopens its dock at the width it was last resized to. A chat that was never resized
+ * follows the last width resized anywhere, then the adaptive default.
+ */
+export function resolveStoredRightDockWidth(input: {
+  readonly threadValue: number | null;
+  readonly sharedValue: number | null;
+}): number | null {
+  if (input.threadValue !== null && Number.isFinite(input.threadValue)) return input.threadValue;
+  if (input.sharedValue !== null && Number.isFinite(input.sharedValue)) return input.sharedValue;
+  return null;
+}
 
 const RIGHT_DOCK_ADAPTIVE_MAIN_CONTENT_RESERVE = 500;
 const RIGHT_DOCK_ADAPTIVE_MAX_WIDTH = 640;

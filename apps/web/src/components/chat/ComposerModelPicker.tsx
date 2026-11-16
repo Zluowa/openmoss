@@ -417,6 +417,21 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
   const tabAccount = tab === STARRED_TAB ? null : (openProviderTab ?? fallbackProviderTab);
   const openTab: ComposerModelPickerTab =
     tab === STARRED_TAB ? STARRED_TAB : (tabAccount?.instanceId ?? STARRED_TAB);
+  // New-thread warming covers only the account the thread starts on, so load the
+  // accounts represented in Starred on demand, once the picker opens on that tab.
+  const starredAccounts =
+    isMenuOpen && openTab === STARRED_TAB
+      ? providerTabs.filter(
+          (account) =>
+            composerSourceListsModels(account) &&
+            usableStarredModels.some(
+              (entry) =>
+                entry.provider === account.provider &&
+                starredModelInstanceId(entry) === account.instanceId,
+            ),
+        )
+      : [];
+  const refreshStarredModels = props.onRefreshModels;
   // A provider that cannot run yet explains itself with one action instead of a model list.
   const noticeSource =
     tabAccount === null || composerSourceListsModels(tabAccount) ? null : tabAccount;
@@ -579,10 +594,9 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
 
     const selection = traitSelectionFor(row.provider, model);
     // Slider mode: switching to a model with an effort ladder keeps the panel open so the
-    // footer slider can set its effort. Presets already carry their effort, and picking
-    // the current model again is the "done" gesture, so both close.
-    const keepOpen =
-      usesEffortSlider && row.preset === null && !row.selected && selection.effortLevels.length > 0;
+    // footer slider can adjust its effort, including after a starred preset is applied.
+    // Picking the current selection again is the "done" gesture.
+    const keepOpen = usesEffortSlider && !row.selected && selection.effortLevels.length > 0;
     commitRow(
       row,
       model,
@@ -909,6 +923,17 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                   onRefresh={props.onRefreshModels}
                 />
               ) : null}
+              {refreshStarredModels
+                ? starredAccounts.map((account) => (
+                    <ModelCatalogRefresh
+                      key={account.instanceId}
+                      provider={account.provider}
+                      instanceId={account.instanceId}
+                      onRefresh={refreshStarredModels}
+                      silent
+                    />
+                  ))
+                : null}
               <ComposerModelPickerTraitRows
                 provider={props.provider}
                 providerInstanceId={props.selectedProviderInstanceId}

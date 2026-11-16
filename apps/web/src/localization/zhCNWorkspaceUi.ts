@@ -12,6 +12,19 @@ import { lookupPhrase } from "./zhCNPhraseTable";
 
 type DynamicTranslation = readonly [pattern: RegExp, translate: (match: RegExpExecArray) => string];
 
+// `formatRateLimitResetCountdown` ("6d 6h", "2h 16m", "7m") as read in the rate-limit banner.
+function rateLimitResetSentence(kind: string | undefined, when: string | undefined): string {
+  if (!kind) return "";
+  if (kind === "soon") return "即将重置。";
+  if (kind === "at") return `将于 ${when ?? ""} 重置。`;
+  const duration = (when ?? "")
+    .replace(/(\d+)d\b/g, "$1 天")
+    .replace(/(\d+)h\b/g, "$1 小时")
+    .replace(/(\d+)m\b/g, "$1 分钟")
+    .replace(/(\d+)s\b/g, "$1 秒");
+  return `将在 ${duration}后重置。`;
+}
+
 const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   // App, browser, window, and generic route chrome.
   "Back (": "后退 (",
@@ -74,6 +87,10 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "from your PATH. Cursor editor CLI paths are accepted too.":
     "（来自 PATH）。也支持 Cursor 编辑器 CLI 路径。",
   "default UI font": "默认界面字体",
+  // Restore-defaults confirmation labels (SettingsContent `changedSettingLabels`).
+  "Default UI font": "默认界面字体",
+  "Dark theme pack": "深色主题包",
+  "Light theme pack": "浅色主题包",
   "Import thread from provider": "从服务商导入对话",
   "Create a local app thread and resume it from an existing provider id.":
     "创建本地应用对话，并从已有的服务商 ID 恢复。",
@@ -1209,20 +1226,14 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [/^Sign in for (.+)$/, (match) => `登录 ${match[1]}`],
   [/^Cancel sign-in for (.+)$/, (match) => `取消 ${match[1]} 的登录`],
   [
-    /^Rate limit reached\.(?: Resets (in|at) (.+)\.)?$/,
-    (match) => {
-      if (!match[1]) return "已达到速率限制。";
-      const reset = match[1] === "in" ? `将在 ${match[2]} 后重置。` : `将于 ${match[2]} 重置。`;
-      return `已达到速率限制。${reset}`;
-    },
+    /^Rate limit reached\.(?: Resets (in|at|soon) ?(.*)\.)?$/,
+    (match) => `已达到速率限制。${rateLimitResetSentence(match[1], match[2])}`,
   ],
   [
-    /^Approaching rate limit(?: \((\d+)% used\))?\.(?: Resets (in|at) (.+)\.)?$/,
+    /^Approaching rate limit(?: \((\d+)% used\))?\.(?: Resets (in|at|soon) ?(.*)\.)?$/,
     (match) => {
       const utilization = match[1] ? `（已使用 ${match[1]}%）` : "";
-      if (!match[2]) return `即将达到速率限制${utilization}。`;
-      const reset = match[2] === "in" ? `将在 ${match[3]} 后重置。` : `将于 ${match[3]} 重置。`;
-      return `即将达到速率限制${utilization}。${reset}`;
+      return `即将达到速率限制${utilization}。${rateLimitResetSentence(match[2], match[3])}`;
     },
   ],
 

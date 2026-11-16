@@ -5,6 +5,7 @@ import {
   isLocalImageMarkdownSrc,
   localImageAbsolutePath,
   localImageFileName,
+  normalizeMarkdownImagePath,
   resolvePluginArtworkUrl,
 } from "./localImageUrls";
 
@@ -26,6 +27,18 @@ describe("local image URL helpers", () => {
     for (const src of ["./shot.png", "../shot.png", "shot.png", "https://example.com/shot.png"]) {
       expect(localImageAbsolutePath(src)).toBeNull();
     }
+  });
+
+  it("drops the leading slash from Windows file URLs", () => {
+    expect(normalizeMarkdownImagePath("file:///C:/Users/me/shot%20one.png")).toBe(
+      "C:/Users/me/shot one.png",
+    );
+    expect(normalizeMarkdownImagePath("file:///Users/me/shot.png")).toBe("/Users/me/shot.png");
+    expect(isLocalImageMarkdownSrc("file:///C:/Users/me/shot.png")).toBe(true);
+    expect(localImageAbsolutePath("file:///C:/Users/me/shot%20one.png")).toBe(
+      "C:/Users/me/shot one.png",
+    );
+    expect(localImageFileName("file:///C:/Users/me/shot%20one.png")).toBe("shot one.png");
   });
 
   it("detects local markdown image paths", () => {

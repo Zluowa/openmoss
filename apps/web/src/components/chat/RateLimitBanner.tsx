@@ -7,6 +7,7 @@ import type { OrchestrationThreadActivity } from "@moss/contracts";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { IconButton } from "../ui/icon-button";
 import { CircleAlertIcon, XIcon } from "~/lib/icons";
+import { formatRateLimitResetCountdown } from "~/lib/rateLimits";
 import { ChatColumnBannerFrame } from "./ChatColumnBannerFrame";
 
 export type RateLimitStatus = {
@@ -44,13 +45,21 @@ export function deriveLatestRateLimitStatus(
   return null;
 }
 
-function formatResetsAt(resetsAt: string): string {
-  const ms = Date.parse(resetsAt);
-  if (Number.isNaN(ms)) return "";
-  const secondsLeft = Math.max(0, Math.ceil((ms - Date.now()) / 1000));
-  if (secondsLeft < 60) return ` Resets in ${secondsLeft}s.`;
-  const minutesLeft = Math.ceil(secondsLeft / 60);
-  return ` Resets in ${minutesLeft}m.`;
+// A dismissed banner stays hidden; the "Rate limit warnings" setting hides only the early
+// warning, so a reached limit always shows.
+export function resolveVisibleRateLimitStatus(
+  status: RateLimitStatus | null,
+  options: { readonly dismissed: boolean; readonly showWarnings: boolean },
+): RateLimitStatus | null {
+  if (!status || options.dismissed) return null;
+  if (status.status === "allowed_warning" && !options.showWarnings) return null;
+  return status;
+}
+
+// Share the usage popovers' countdown so a weekly limit reads "Resets in 6d 6h", not "9044m".
+export function formatResetsAt(resetsAt: string): string {
+  const countdown = formatRateLimitResetCountdown(resetsAt);
+  return countdown ? ` ${countdown}.` : "";
 }
 
 export const RateLimitBanner = function RateLimitBanner({
