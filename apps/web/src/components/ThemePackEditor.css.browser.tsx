@@ -97,6 +97,8 @@ it("Ctrl+Alt+Shift+Backspace restores the default look from anywhere", async () 
   const stored = parseStoredThemeState(localStorage.getItem("moss:theme"));
   expect(stored.chromeThemes).toEqual(DEFAULT_THEME_STATE.chromeThemes);
   expect(stored.mode).toBe("light");
+  // The box shows what is stored now, not the CSS typed before the reset.
+  await expect.element(editor).toHaveValue("");
 });
 
 it("applies a theme an agent published once, and the person's Reset wins after it", async () => {
