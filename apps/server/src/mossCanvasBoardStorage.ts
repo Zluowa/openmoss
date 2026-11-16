@@ -1,6 +1,7 @@
 // Board storage identities are resolved by the pages service, never by filesystem input.
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, open, readdir, rename } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, toNamespacedPath } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { BoardItem } from "@moss/shared/spaceItems/itemData";
@@ -290,13 +291,31 @@ async function readManifest(root: string) {
 }
 // Only known storage metadata is relocated. User text and the immutable source archive
 // are never searched/replaced. The hosted store already rejects paths outside its root.
+//
+// A path written before the store last moved (a relocated or copied profile, an older state
+// directory) lies outside `source`. That must not keep the board from opening (2026-11-16: a
+// profile copied from another folder left every old board on "restoring" forever). Such a path
+// is re-anchored by its tail below the store root when the copy holds that file; otherwise it
+// names nothing in this store: a recent-file entry is dropped and an asset row keeps its value.
+const STORE_ROOT_ENTRIES: ReadonlySet<string> = new Set(["workspace", "assets"]);
+function tailInStore(target: string, value: string): string | null {
+  const parts = value.replaceAll("\\", "/").split("/");
+  for (let i = 1; i < parts.length - 1; i++) {
+    if (!STORE_ROOT_ENTRIES.has(parts[i]!)) continue;
+    const tail = parts.slice(i);
+    if (tail.some((part) => !part || part === "." || part === ".." || part.includes(":"))) continue;
+    if (existsSync(join(target, ...tail))) return join(...tail);
+  }
+  return null;
+}
 async function relocateBoardMetadata(target: string, source: string, destination: string) {
-  const relocate = (value: string | null): string | null => {
+  /** `undefined`: an absolute path that names nothing in this store. */
+  const relocate = (value: string | null): string | null | undefined => {
     if (value === null || !isAbsolute(value)) return value;
     const rel = relative(resolve(source), resolve(value));
-    if (rel.startsWith("..") || isAbsolute(rel))
-      throw new Error("canvas_legacy_metadata_path_outside_source");
-    return join(destination, rel);
+    if (!rel.startsWith("..") && !isAbsolute(rel)) return join(destination, rel);
+    const tail = tailInStore(target, value);
+    return tail === null ? undefined : join(destination, tail);
   };
   const recentPath = join(target, "workspace/.hoola/canvas/recent-tldr-files.json");
   try {
@@ -312,9 +331,10 @@ async function relocateBoardMetadata(target: string, source: string, destination
       await f.close();
     }
     if (!Array.isArray(entries)) throw new Error("canvas_legacy_recent_invalid");
-    const updated = entries.map((e) => {
+    const updated = entries.flatMap((e) => {
       if (!e || typeof e.filePath !== "string") throw new Error("canvas_legacy_recent_invalid");
-      return { ...e, filePath: relocate(e.filePath) };
+      const filePath = relocate(e.filePath);
+      return filePath === undefined ? [] : [{ ...e, filePath }];
     });
     const out = await open(recentPath, "r+");
     try {
@@ -346,12 +366,15 @@ async function relocateBoardMetadata(target: string, source: string, destination
           .all() as { asset_id: string; local_path: string; preview_path: string | null }[];
         db.exec("BEGIN IMMEDIATE");
         try {
-          for (const r of rows)
+          for (const r of rows) {
+            const local = relocate(r.local_path),
+              preview = relocate(r.preview_path);
             db.prepare("UPDATE assets_meta SET local_path=?,preview_path=? WHERE asset_id=?").run(
-              relocate(r.local_path),
-              relocate(r.preview_path),
+              local === undefined ? r.local_path : local,
+              preview === undefined ? r.preview_path : preview,
               r.asset_id,
             );
+          }
           db.exec("COMMIT");
         } catch (e) {
           db.exec("ROLLBACK");
@@ -463,22 +486,29 @@ export async function initializeCanvasBoard(
       await safeDirectory(state, parent);
       const temporary = `${target}.pending-${randomUUID()}`;
       await mkdir(temporary);
-      let sourceDigest: string | null = null;
-      if (board.version === 1) {
-        await assertLegacyBoard(state, board);
-        const source = await freezeLegacyBoardSource(state, identity, bundle),
-          manifest = await readManifest(source);
-        await copyVerified(source, temporary, manifest.files);
-        sourceDigest = manifest.digest;
-        // Use the final destination in persistent paths, never the staging directory.
-        await relocateBoardMetadata(temporary, manifest.source, target);
+      try {
+        let sourceDigest: string | null = null;
+        if (board.version === 1) {
+          await assertLegacyBoard(state, board);
+          const source = await freezeLegacyBoardSource(state, identity, bundle),
+            manifest = await readManifest(source);
+          await copyVerified(source, temporary, manifest.files);
+          sourceDigest = manifest.digest;
+          // Use the final destination in persistent paths, never the staging directory.
+          await relocateBoardMetadata(temporary, manifest.source, target);
+        }
+        await writeJson(join(temporary, "board-initialization.json"), {
+          ...board,
+          sourceDigest,
+          initializedAt: new Date().toISOString(),
+        });
+        await rename(temporary, target);
+      } catch (error) {
+        // The staging copy holds nothing the frozen snapshot does not: remove it, so a board
+        // that cannot be seeded does not leave one more full copy behind on every open.
+        await rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+        throw error;
       }
-      await writeJson(join(temporary, "board-initialization.json"), {
-        ...board,
-        sourceDigest,
-        initializedAt: new Date().toISOString(),
-      });
-      await rename(temporary, target);
       return target;
     });
   });

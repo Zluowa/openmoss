@@ -270,4 +270,45 @@ describe("independent board storage migration", () => {
     );
     expect(await readFile(join(f.projects, "old.tldr"), "utf8")).toBe(f.drawing);
   });
+  it("opens an old board whose stored paths predate a moved profile: re-anchors what the copy holds and drops the rest", async () => {
+    const f = await fixture();
+    // The store was copied here from another folder; its metadata still names the old place.
+    const elsewhere = join(f.state, "profile-before-move", "moss-canvas", "scope");
+    await writeFile(
+      join(f.canvas, "recent-tldr-files.json"),
+      JSON.stringify([
+        { filePath: join(elsewhere, "workspace/.hoola/projects/old.tldr"), fileName: "old.tldr" },
+        { filePath: join(elsewhere, "workspace/.hoola/projects/gone.tldr"), fileName: "gone.tldr" },
+      ]),
+    );
+    const source = new DatabaseSync(join(f.source, "hoola-canvas.sqlite3"));
+    source
+      .prepare("UPDATE assets_meta SET local_path=?,preview_path=?")
+      .run(join(elsewhere, "assets/original.png"), join(elsewhere, "assets/never-copied.png"));
+    source.close();
+    const a = await initializeCanvasBoard(f.state, identity, oldA, f.bundle);
+    expect(
+      JSON.parse(await readFile(join(a, "workspace/.hoola/canvas/recent-tldr-files.json"), "utf8")),
+    ).toEqual([{ filePath: join(a, "workspace/.hoola/projects/old.tldr"), fileName: "old.tldr" }]);
+    const copy = new DatabaseSync(toNamespacedPath(join(a, "hoola-canvas.sqlite3")));
+    try {
+      expect(copy.prepare("SELECT local_path,preview_path FROM assets_meta").get()).toEqual({
+        local_path: join(a, "assets/original.png"),
+        preview_path: join(elsewhere, "assets/never-copied.png"),
+      });
+    } finally {
+      copy.close();
+    }
+    expect(await readFile(join(a, "workspace/.hoola/projects/old.tldr"), "utf8")).toBe(f.drawing);
+    expect((await readdir(join(a, ".."))).filter((name) => name.includes(".pending-"))).toEqual([]);
+  });
+  it("leaves no staging copy behind when an old board cannot be seeded", async () => {
+    const f = await fixture();
+    await writeFile(join(f.canvas, "recent-tldr-files.json"), "{}");
+    await expect(initializeCanvasBoard(f.state, identity, oldA, f.bundle)).rejects.toThrow(
+      "canvas_legacy_recent_invalid",
+    );
+    const parent = join(mossCanvasBoardDirectory(f.state, identity, oldA), "..");
+    expect(await readdir(parent)).toEqual([]);
+  });
 });
