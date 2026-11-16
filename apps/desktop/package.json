@@ -1,6 +1,6 @@
 {
   "name": "@moss/desktop",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "license": "MIT",
   "main": "dist-electron/main.js",
