@@ -12,6 +12,8 @@ const srcPath = fileURLToPath(new URL("./src", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const chromiumExecutablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH?.trim();
 const browserCacheDir = process.env.MOSS_BROWSER_VITE_CACHE_DIR?.trim();
+// Open while a test bypasses service workers; the bypass lasts as long as its session.
+const serviceWorkerBypasses = new WeakMap<object, import("playwright").CDPSession>();
 const appThumbnailProbes = new WeakMap<
   object,
   {
@@ -107,6 +109,23 @@ export default mergeConfig(
             await probe.stop();
             appThumbnailProbes.delete(context.page);
             return probe.requests;
+          },
+          // A mock service worker that an earlier test file registered keeps answering this
+          // page's requests, and `page.route` never sees a request a service worker handles.
+          // A request probe that must see every load turns the bypass on around its window.
+          async setServiceWorkerBypass(context, bypass: boolean) {
+            const open = serviceWorkerBypasses.get(context.page);
+            if (bypass) {
+              const session = open ?? (await context.context.newCDPSession(context.page));
+              serviceWorkerBypasses.set(context.page, session);
+              await session.send("Network.enable");
+              await session.send("Network.setBypassServiceWorker", { bypass: true });
+              return;
+            }
+            if (!open) return;
+            serviceWorkerBypasses.delete(context.page);
+            await open.send("Network.setBypassServiceWorker", { bypass: false }).catch(() => {});
+            await open.detach().catch(() => {});
           },
           async writeAppThumbnailEvidence(context, thumbnail: string) {
             if (

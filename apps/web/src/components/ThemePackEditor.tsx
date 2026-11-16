@@ -4,6 +4,7 @@
 // Exports: ThemePackEditor
 
 import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@moss/contracts";
+import { themeCssLoadsRemoteFiles } from "@moss/shared/themeCss";
 import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 import { Button } from "./ui/button";
@@ -26,6 +27,7 @@ import { Textarea } from "./ui/textarea";
 import { toastManager } from "./ui/toast";
 import { SettingsSegmentedControl } from "./settings/SettingControls";
 import { SettingsCard, SettingsSelectPopup } from "./settings/SettingsPanelPrimitives";
+import { ThemeCssEditor } from "./settings/ThemeCssEditor";
 import { copyTextToClipboard } from "../hooks/useCopyToClipboard";
 import { type ChromeTheme, type ThemeMode, type ThemeVariant, useTheme } from "../hooks/useTheme";
 import { cn } from "../lib/utils";
@@ -46,6 +48,7 @@ import {
   getCodeThemeSeed,
   resolveThemePack,
 } from "../theme/theme.logic";
+import { inspectThemeCss } from "../theme/themeCss";
 
 type ThemePackEditorProps = {
   isActive?: boolean;
@@ -80,6 +83,7 @@ export function ThemePackEditor({
     resetThemeVariant,
     setCodeThemeId,
     setTheme,
+    setThemeCss,
     resolvedTheme,
     theme: themeMode,
     systemUiFont,
@@ -401,8 +405,115 @@ export function ThemePackEditor({
             ariaLabel={`${titleLabel} contrast`}
           />
         </ThemeRow>
+
+        <ThemeCssSection
+          key={variant}
+          css={theme.css ?? ""}
+          titleLabel={titleLabel}
+          onCommit={(next) => setThemeCss(variant, next)}
+        />
       </div>
     </SettingsCard>
+  );
+}
+
+// ── Custom CSS ────────────────────────────────────────────────────────────
+
+const THEME_CSS_COMMIT_DELAY_MS = 350;
+
+/**
+ * The pack's custom CSS. Typing commits after a short pause, so the active pack previews live
+ * in the whole window; the safety check runs on every commit (see theme/themeCss.ts).
+ */
+function ThemeCssSection({
+  css,
+  titleLabel,
+  onCommit,
+}: {
+  css: string;
+  titleLabel: string;
+  onCommit: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(css.length > 0);
+  const [draftRaw, setDraft] = useState<string | null>(null);
+  // Once the stored CSS catches up with the draft, the draft dissolves in the same render.
+  const draft = draftRaw === css ? null : draftRaw;
+  const value = draft ?? css;
+  const commitTimerRef = useRef<number | null>(null);
+  const pendingRef = useRef<string | null>(null);
+  const onCommitRef = useRef(onCommit);
+
+  useEffect(() => {
+    onCommitRef.current = onCommit;
+  }, [onCommit]);
+
+  // Closing Settings mid-pause still saves what was typed.
+  useEffect(
+    () => () => {
+      if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current);
+      if (pendingRef.current !== null) onCommitRef.current(pendingRef.current);
+    },
+    [],
+  );
+
+  const handleChange = (next: string) => {
+    setDraft(next);
+    pendingRef.current = next;
+    if (commitTimerRef.current !== null) window.clearTimeout(commitTimerRef.current);
+    commitTimerRef.current = window.setTimeout(() => {
+      commitTimerRef.current = null;
+      pendingRef.current = null;
+      onCommit(next);
+    }, THEME_CSS_COMMIT_DELAY_MS);
+  };
+
+  const loadsFiles = value.length > 0 && themeCssLoadsRemoteFiles(value);
+  // Counted on the saved CSS, so it follows the pause before each save rather than each key.
+  const inspected = useMemo(() => inspectThemeCss(css), [css]);
+  const removedCount = inspected.droppedDeclarations + inspected.droppedRules;
+
+  return (
+    <div data-theme-css-section="">
+      <ThemeRow label="Custom CSS">
+        <span className="text-ui-sm text-muted-foreground">{css.length > 0 ? "On" : "Off"}</span>
+        <Button
+          variant="outline"
+          size="xs"
+          aria-expanded={open}
+          aria-label={`${titleLabel} custom CSS`}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {open ? "Hide" : "Edit"}
+        </Button>
+      </ThemeRow>
+      <DisclosureRegion open={open}>
+        <div className="space-y-2 border-t border-[color:var(--color-border)] px-4 py-3">
+          <p className="text-ui-sm leading-snug text-muted-foreground">
+            Applies after Moss's own styles while this theme is in use. It cannot load files from
+            other sites or add text.
+          </p>
+          <ThemeCssEditor
+            value={value}
+            ariaLabel={`${titleLabel} custom CSS editor`}
+            onChange={handleChange}
+          />
+          {loadsFiles ? (
+            <p className="text-ui-sm leading-snug text-warning">
+              Rules that load files are removed: @import, image-set(), and url() other than data: or
+              #id.
+            </p>
+          ) : null}
+          {removedCount > 0 ? (
+            <p
+              className="text-ui-sm leading-snug text-muted-foreground"
+              data-theme-css-removed={removedCount}
+            >
+              <span>Rules removed by the safety check:</span> <span>{removedCount}</span>
+            </p>
+          ) : null}
+        </div>
+      </DisclosureRegion>
+    </div>
   );
 }
 

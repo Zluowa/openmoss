@@ -1,7 +1,7 @@
 import { DEFAULT_SERVER_SETTINGS, ProviderSessionStartInput } from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { providerStartOptionsFromServerSettings } from "./serverSettings";
+import { applyServerSettingsPatch, providerStartOptionsFromServerSettings } from "./serverSettings";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 
@@ -202,4 +202,33 @@ describe("providerStartOptionsFromServerSettings", () => {
       });
     },
   );
+});
+
+describe("applyServerSettingsPatch: published theme", () => {
+  it("replaces the theme an agent published instead of merging into it, and clears it", () => {
+    const first = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      agentTheme: {
+        revision: "one",
+        publishedAt: "2026-11-17T00:00:00.000Z",
+        light: { accent: "#111111", css: "body { color: red; }" },
+      },
+    });
+    const second = applyServerSettingsPatch(first, {
+      agentTheme: {
+        revision: "two",
+        publishedAt: "2026-11-17T00:01:00.000Z",
+        dark: { accent: "#222222" },
+      },
+    });
+    expect(second.agentTheme).toEqual({
+      revision: "two",
+      publishedAt: "2026-11-17T00:01:00.000Z",
+      dark: { accent: "#222222" },
+    });
+    expect(applyServerSettingsPatch(second, { agentTheme: null }).agentTheme).toBeNull();
+    // A patch that does not name it leaves it alone.
+    expect(applyServerSettingsPatch(second, { keepAwakeMode: "off" }).agentTheme).toEqual(
+      second.agentTheme,
+    );
+  });
 });

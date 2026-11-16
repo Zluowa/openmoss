@@ -3,7 +3,13 @@
 // Layer: Web appearance domain logic
 // Exports: Theme types, normalization helpers, import/export utilities, and CSS variable builders.
 
-import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@moss/contracts";
+import {
+  DESKTOP_WINDOW_BLUR_RADIUS_MAX,
+  DESKTOP_WINDOW_BLUR_RADIUS_MIN,
+  THEME_CSS_MAX_LENGTH,
+  type MossPublishedTheme,
+  type MossThemePackSpec,
+} from "@moss/contracts";
 import { THEME_SEED_CATALOG } from "./theme.seed.generated";
 import {
   normalizeFontFamilyCssValue,
@@ -40,10 +46,16 @@ export interface ChromeTheme {
    */
   sidebar: string | null;
   surface: string;
+  /**
+   * Custom CSS applied after Moss's own styles while this pack is active. The key is left out
+   * when there is none, so a theme without CSS stores and shares exactly as before.
+   * apps/web/src/theme/themeCss.ts drops every rule that could load a file or write text.
+   */
+  css?: string;
 }
 
 /** A catalog seed: the chrome theme with the sidebar tone optional, since most seeds have none. */
-export type ChromeThemeSeed = Omit<ChromeTheme, "sidebar"> & { sidebar?: string };
+export type ChromeThemeSeed = Omit<ChromeTheme, "sidebar" | "css"> & { sidebar?: string };
 
 export interface ThemePack {
   codeThemeId: string;
@@ -149,7 +161,7 @@ export interface ResolvedThemeTokens {
 }
 
 type ChromeThemeSeedPatch = Partial<
-  Pick<ChromeTheme, "accent" | "contrast" | "ink" | "opaqueWindows" | "sidebar" | "surface">
+  Pick<ChromeTheme, "accent" | "contrast" | "css" | "ink" | "opaqueWindows" | "sidebar" | "surface">
 > & {
   fonts?: Partial<ThemeFonts>;
   semanticColors?: Partial<ThemeSemanticColors>;
@@ -313,7 +325,11 @@ const ZH_CN_CODE_THEME_LABELS: Readonly<Record<string, string>> = {
 };
 
 export function codeThemeLabel(codeThemeId: string, locale = "en"): string {
-  if (locale.toLowerCase().startsWith("zh")) {
+  // Own keys only: an id such as "constructor" must not read Object's members (as T3 Code #31318).
+  if (
+    locale.toLowerCase().startsWith("zh") &&
+    Object.hasOwn(ZH_CN_CODE_THEME_LABELS, codeThemeId)
+  ) {
     const zh = ZH_CN_CODE_THEME_LABELS[codeThemeId];
     if (zh) return zh;
   }
@@ -459,11 +475,25 @@ export function normalizeSemanticColors(
   };
 }
 
+/**
+ * Theme CSS as stored: a string within the limit with something in it, else nothing. CSS over
+ * the limit is dropped whole, since a cut-off rule would apply half a theme.
+ */
+export function normalizeThemeCss(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    value.length <= THEME_CSS_MAX_LENGTH &&
+    value.trim().length > 0
+    ? value
+    : undefined;
+}
+
 export function normalizeChromeTheme(value: unknown, variant: ThemeVariant): ChromeTheme {
   const fallback = DEFAULT_CHROME_THEME_BY_VARIANT[variant];
   const theme = isRecord(value) ? value : {};
+  const css = normalizeThemeCss(theme.css);
 
   return {
+    ...(css === undefined ? {} : { css }),
     accent: normalizeHexColor(theme.accent) ?? fallback.accent,
     contrast: normalizeStoredContrast(theme.contrast, fallback.contrast),
     fonts: normalizeThemeFonts(theme.fonts),
@@ -929,8 +959,82 @@ export function areThemePacksEqual(left: ThemePack, right: ThemePack): boolean {
     left.theme.semanticColors.diffRemoved === right.theme.semanticColors.diffRemoved &&
     left.theme.semanticColors.skill === right.theme.semanticColors.skill &&
     left.theme.sidebar === right.theme.sidebar &&
-    left.theme.surface === right.theme.surface
+    left.theme.surface === right.theme.surface &&
+    (left.theme.css ?? "") === (right.theme.css ?? "")
   );
+}
+
+/** Set or clear one pack's custom CSS. */
+export function setThemeCss(state: ThemeState, variant: ThemeVariant, css: string): ThemeState {
+  const { css: _previous, ...theme } = state.chromeThemes[variant];
+  return {
+    ...state,
+    chromeThemes: {
+      ...state.chromeThemes,
+      [variant]: normalizeChromeTheme({ ...theme, css }, variant),
+    },
+  };
+}
+
+/** The fields a published pack sets. A value the store would not accept keeps the current one. */
+function packSpecPatch(spec: MossThemePackSpec, current: ChromeTheme): Partial<ChromeTheme> {
+  const patch: Partial<ChromeTheme> = {};
+  const accent = normalizeHexColor(spec.accent);
+  const surface = normalizeHexColor(spec.surface);
+  const ink = normalizeHexColor(spec.ink);
+  if (accent !== null) patch.accent = accent;
+  if (surface !== null) patch.surface = surface;
+  if (ink !== null) patch.ink = ink;
+  if (spec.sidebar === null || normalizeHexColor(spec.sidebar) !== null) {
+    patch.sidebar = spec.sidebar === null ? null : normalizeHexColor(spec.sidebar);
+  }
+  if (typeof spec.contrast === "number") patch.contrast = spec.contrast;
+  if (typeof spec.opaqueWindows === "boolean") patch.opaqueWindows = spec.opaqueWindows;
+  if (spec.uiFont !== undefined || spec.codeFont !== undefined) {
+    patch.fonts = {
+      ui: spec.uiFont === undefined ? current.fonts.ui : spec.uiFont,
+      code: spec.codeFont === undefined ? current.fonts.code : spec.codeFont,
+    };
+  }
+  if (spec.diffAdded !== undefined || spec.diffRemoved !== undefined || spec.skill !== undefined) {
+    patch.semanticColors = {
+      diffAdded: normalizeHexColor(spec.diffAdded) ?? current.semanticColors.diffAdded,
+      diffRemoved: normalizeHexColor(spec.diffRemoved) ?? current.semanticColors.diffRemoved,
+      skill: normalizeHexColor(spec.skill) ?? current.semanticColors.skill,
+    };
+  }
+  return patch;
+}
+
+/**
+ * The theme store after a client applies a theme an agent published (`moss_theme_set`). The
+ * result is an ordinary theme: the editor shows it, export shares it and Reset undoes it.
+ * Every value passes the same normalization as a theme the person edits.
+ */
+export function applyPublishedTheme(state: ThemeState, published: MossPublishedTheme): ThemeState {
+  let next: ThemeState =
+    published.reset === true
+      ? {
+          ...state,
+          chromeThemes: DEFAULT_THEME_STATE.chromeThemes,
+          codeThemeIds: DEFAULT_THEME_STATE.codeThemeIds,
+          translucency: DEFAULT_THEME_STATE.translucency,
+        }
+      : state;
+  for (const variant of ["light", "dark"] as const) {
+    const spec = published[variant];
+    if (spec === undefined) continue;
+    if (spec.preset !== undefined && isCodeThemeAvailable(spec.preset, variant)) {
+      next = setThemeCodeThemeId(next, variant, spec.preset);
+    }
+    next = updateChromeTheme(next, variant, packSpecPatch(spec, next.chromeThemes[variant]));
+    if (spec.css !== undefined) next = setThemeCss(next, variant, spec.css);
+    // A font the agent chose is meant to show.
+    if (typeof spec.uiFont === "string" && spec.uiFont.trim().length > 0) {
+      next = { ...next, systemUiFont: false };
+    }
+  }
+  return published.appearance === undefined ? next : { ...next, mode: published.appearance };
 }
 
 // ─── Theme derivation ─────────────────────────────────────────────────────
@@ -1574,8 +1678,17 @@ function parseStrictChromeTheme(value: unknown): ChromeTheme {
   if (!isRecord(value)) {
     throw new Error("Theme share theme must be an object.");
   }
+  // Optional: a Moss share string carries the pack's custom CSS when it has some.
+  if (value.css !== undefined && typeof value.css !== "string") {
+    throw new Error("Theme css must be a string.");
+  }
+  if (typeof value.css === "string" && value.css.length > THEME_CSS_MAX_LENGTH) {
+    throw new Error(`Theme css must be at most ${THEME_CSS_MAX_LENGTH} characters.`);
+  }
+  const css = normalizeThemeCss(value.css);
 
   return {
+    ...(css === undefined ? {} : { css }),
     accent: parseRequiredHexColor(value.accent, "Theme accent"),
     contrast: parseRequiredContrast(value.contrast),
     fonts: parseStrictThemeFonts(value.fonts),

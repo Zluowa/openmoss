@@ -36,11 +36,35 @@ const layer = it.layer(
   ).pipe(Layer.provideMerge(LibraryRepositoryLive), Layer.provideMerge(SqlitePersistenceMemory)),
 );
 
+// Every write gets its own modification time, one second after the last. A permanently
+// deleted file is remembered by source, path, size and modification time, and the tests
+// rewrite the same path with the same bytes right after `resetLibrary` deleted it. Windows
+// stamps files from a clock that ticks about every 15 ms, so two such writes could share a
+// time and the rewritten file was then skipped as the deleted one.
+let nextWriteTimeMs = 1_750_000_000_000;
+
 async function writeFile(relative: string, contents: string = "x"): Promise<string> {
   const full = path.join(tempDir, relative);
   await fs.mkdir(path.dirname(full), { recursive: true });
   await fs.writeFile(full, contents);
+  nextWriteTimeMs += 1_000;
+  const writtenAt = new Date(nextWriteTimeMs);
+  await fs.utimes(full, writtenAt, writtenAt);
   return full;
+}
+
+// Files the service writes itself (imports) take the filesystem's own time, so a reset
+// also waits for that clock to move on: nothing written afterwards can share a
+// modification time with a file an earlier test deleted.
+async function waitForNextFileTimestamp(): Promise<void> {
+  const probe = path.join(tempDir, "clock-probe");
+  await fs.writeFile(probe, "");
+  const first = (await fs.stat(probe)).mtimeMs;
+  for (;;) {
+    await fs.writeFile(probe, "");
+    if ((await fs.stat(probe)).mtimeMs !== first) break;
+  }
+  await fs.rm(probe, { force: true });
 }
 
 afterAll(async () => {
@@ -62,6 +86,7 @@ const resetLibrary = Effect.gen(function* () {
     for (const entry of await fs.readdir(tempDir)) {
       await fs.rm(path.join(tempDir, entry), { recursive: true, force: true });
     }
+    await waitForNextFileTimestamp();
   });
   clockMs = 1_760_000_000_000;
 });

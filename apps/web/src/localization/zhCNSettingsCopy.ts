@@ -65,6 +65,24 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Sidebar only": "仅侧边栏",
   Opacity: "不透明度",
   Blur: "模糊",
+  // Theme editor: custom CSS
+  "Custom CSS": "自定义 CSS",
+  "Dark theme custom CSS": "深色主题自定义 CSS",
+  "Light theme custom CSS": "浅色主题自定义 CSS",
+  "Dark theme custom CSS editor": "深色主题自定义 CSS 编辑框",
+  "Light theme custom CSS editor": "浅色主题自定义 CSS 编辑框",
+  "Applies after Moss's own styles while this theme is in use. It cannot load files from other sites or add text.":
+    "使用此主题时，在 Moss 自身样式之后生效。它不能从其他网站加载文件，也不能添加文字。",
+  "Rules that load files are removed: @import, image-set(), and url() other than data: or #id.":
+    "会加载文件的规则会被移除：@import、image-set()，以及 data: 或 #id 以外的 url()。",
+  "Rules removed by the safety check:": "被安全检查移除的规则：",
+  "Tab indents. Shift+Tab unindents. Press Escape, then Tab to leave.":
+    "Tab 缩进，Shift+Tab 取消缩进。先按 Esc，再按 Tab 可离开编辑框。",
+  "Tab moves to the next control.": "Tab 会移到下一个控件。",
+  "If custom CSS makes Moss unusable, press": "如果自定义 CSS 让 Moss 无法使用，请按",
+  "to restore the default look.": "恢复默认外观。",
+  "Clear CSS": "清除 CSS",
+  "Restore default look": "恢复默认外观",
   "Theme imported": "主题已导入",
   "Unable to import that theme string.": "无法导入这个主题字符串。",
   "Theme share string": "主题分享字符串",
