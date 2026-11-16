@@ -8,6 +8,8 @@ import { outboundHttp } from "@moss/shared/outboundHttp";
 import { MossMediaAssetStore } from "./mossMediaAssets";
 import { mediaAccountScope } from "./mossMediaJobsService";
 import * as canvasStorage from "./mossCanvasStorage";
+import { PageTypesService, type PageTypesServiceShape } from "./pages/types/PageTypesService";
+import { PagesServiceError } from "./pages/Services/PagesService";
 import * as canvasWorkspace from "./mossCanvasWorkspace";
 import * as mediaPromotion from "./mossCanvasMediaPromotion";
 import { MossPhoneAccountService } from "./account/Services/MossPhoneAccountService";
@@ -48,6 +50,7 @@ const body = { modelId, prompt: "A blue sailboat", idempotencyKey: "route-operat
 
 function harness(
   options: {
+    boardRead?: PageTypesServiceShape["read"];
     cookie?: boolean;
     installed?: boolean;
     catalogGate?: () => Promise<void>;
@@ -132,6 +135,14 @@ function harness(
     url: String(request.url),
   }));
   const services = Layer.mergeAll(
+    Layer.succeed(PageTypesService, {
+      read:
+        options.boardRead ??
+        (() =>
+          Effect.fail(
+            new PagesServiceError({ code: "not-found", message: "Missing board fixture" }),
+          )),
+    } as unknown as PageTypesServiceShape),
     Layer.succeed(ServerConfig, {
       stateDir: directory,
       host: options.remote ? "0.0.0.0" : "127.0.0.1",
@@ -1480,5 +1491,65 @@ describe("Moss media HTTP route", () => {
     expect(unbound.status).toBe(503);
     expect(stores).not.toHaveBeenCalled();
     expect(app.fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// These assertions exercise the real HTTP route and its safe error mapping. The
+// Pages read seam controls invalid identities; persistence is covered separately.
+describe("Canvas board route identity boundaries", () => {
+  const scope = { pageId: "board-one", canvasProjectKey: "space-board-one", scopeSpaceId: null };
+  const query = new URLSearchParams({
+    canvasBoard: scope.pageId,
+    canvasBoardKey: scope.canvasProjectKey,
+    canvasBoardSpace: "",
+  }).toString();
+  const accountPath = `/api/moss/media/canvas/account?${query}`;
+  const boardRead =
+    (extra: Record<string, unknown> = {}): PageTypesServiceShape["read"] =>
+    () =>
+      Effect.succeed({
+        kind: "board",
+        page: { id: scope.pageId, kind: "board", scopeSpaceId: null, trashedAt: null, ...extra },
+        data: JSON.stringify({
+          version: 2,
+          storage: "isolated",
+          canvasProjectKey: scope.canvasProjectKey,
+        }),
+        dataRevision: 1,
+      } as never);
+  it("returns safe 404 for a missing board without an unhandled service error", async () => {
+    const app = harness();
+    const response = await app.request(accountPath);
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ error: { code: "canvas_board_not_found" } });
+  });
+  it("returns safe 409 for a trashed board and never opens storage", async () => {
+    const stores = vi.spyOn(canvasStorage, "mossCanvasStorageFor");
+    const app = harness({ boardRead: boardRead({ trashedAt: "2026-11-16T00:00:00.000Z" }) });
+    const response = await app.request(accountPath);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "canvas_board_changed" } });
+    expect(stores).not.toHaveBeenCalled();
+  });
+  it("binds successful account/catalog responses and rejects a mismatched expectedBoard before opening storage", async () => {
+    const app = harness({ boardRead: boardRead() });
+    const response = await app.request(accountPath);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ boardScope: scope });
+    expect(JSON.parse(decodeURIComponent(response.headers.get("X-Moss-Canvas-Board")!))).toEqual(
+      scope,
+    );
+    const stores = vi.spyOn(canvasStorage, "mossCanvasStorageFor");
+    const wrong = await app.request(`/api/moss/media/canvas/storage?${query}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        method: "projects.active",
+        expectedAccount: { id: "account-a", realm: "memfire-phone" },
+        expectedBoard: { ...scope, pageId: "board-two" },
+      }),
+    });
+    expect(wrong.status).toBe(409);
+    expect(stores).not.toHaveBeenCalled();
   });
 });

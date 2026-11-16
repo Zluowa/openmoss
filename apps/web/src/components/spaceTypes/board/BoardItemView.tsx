@@ -12,6 +12,8 @@ import { MossCanvasWebSurface } from "../../MossCanvasWebSurface";
 
 export function BoardItemView(props: {
   data: string;
+  pageId: string;
+  scopeSpaceId: string | null;
   onLeaveGuardChange?: (guard: (() => Promise<boolean>) | null) => void;
 }) {
   const board = useMemo(() => {
@@ -34,6 +36,11 @@ export function BoardItemView(props: {
       <MossCanvasWebSurface
         embedded
         canvasProjectKey={board.canvasProjectKey}
+        boardScope={{
+          pageId: props.pageId,
+          canvasProjectKey: board.canvasProjectKey,
+          scopeSpaceId: props.scopeSpaceId,
+        }}
         onClose={() => setOpen(false)}
         {...(props.onLeaveGuardChange ? { onLeaveGuardChange: props.onLeaveGuardChange } : {})}
       />

@@ -16,6 +16,12 @@ import {
 } from "./mossMediaJobsService";
 import type { MossCanvasWorkspace } from "./mossCanvasWorkspace";
 import { createIdleResourcePool } from "./idleResourcePool";
+import {
+  freezeLegacyBoardSource,
+  initializeCanvasBoard,
+  mossCanvasBoardDirectory,
+  type CanvasBoardBinding,
+} from "./mossCanvasBoardStorage";
 
 interface CanvasStorage {
   request(method: string, input?: Record<string, unknown>): Promise<unknown>;
@@ -201,12 +207,21 @@ export function mossCanvasStorageFor(
   stateDirectory: string,
   credential: MossMediaIdentity,
   workspace?: MossCanvasWorkspace | null,
+  board?: CanvasBoardBinding | null,
 ): Promise<CanvasStorage> {
-  const target = mossCanvasStorageDirectory(stateDirectory, credential, workspace);
+  if (board && workspace) throw new Error("invalid_canvas_board");
+  const target = board
+    ? mossCanvasBoardDirectory(stateDirectory, credential, board)
+    : mossCanvasStorageDirectory(stateDirectory, credential, workspace);
   const handle = stores.handle(target, async () => {
     // A Canvas saved under a legacy scope moves into the account scope before it opens.
     await adoptMediaAccountScope(stateDirectory, credential);
-    let directory = target;
+    const bundle = await resolveMossCanvasBundleRoot();
+    // Freeze the original account bytes before ANY new-version account writer opens.
+    if (!workspace && !board) await freezeLegacyBoardSource(stateDirectory, credential, bundle);
+    let directory = board
+      ? await initializeCanvasBoard(stateDirectory, credential, board, bundle)
+      : target;
     if (workspace && !(await isRealDirectory(target))) {
       // A Canvas made before 2026-11-11 lives in the project; bring it over once.
       const legacy = await realLegacyDirectory(credential, workspace);

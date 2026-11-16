@@ -429,7 +429,7 @@ function TypedItemEditor(
           />
         </Suspense>
       ) : item.kind === "board" && item.data ? (
-        <BoardItemView data={item.data} />
+        <BoardItemView data={item.data} pageId={item.page.id} scopeSpaceId={props.scopeSpaceId} />
       ) : item.kind === "app" && item.data ? (
         <AppItemView
           pageId={item.page.id}

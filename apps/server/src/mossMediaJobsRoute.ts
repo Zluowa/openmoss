@@ -1,4 +1,13 @@
 import { Cause, Effect, FileSystem } from "effect";
+import { PageId, SpaceId } from "@moss/contracts";
+import { parseBoardItem } from "@moss/shared/spaceItems/itemData";
+import { PageTypesService } from "./pages/types/PageTypesService";
+import { LOCAL_PAGES_PRINCIPAL } from "./pages/Services/PagesService";
+import {
+  canvasBoardScopeFromUrl,
+  matchesCanvasBoard,
+  type CanvasBoardBinding,
+} from "./mossCanvasBoardStorage";
 import { timingSafeEqual } from "node:crypto";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
@@ -104,8 +113,60 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           }
         : {}),
     };
+    let boardScope: ReturnType<typeof canvasBoardScopeFromUrl>;
+    try {
+      boardScope = canvasBoardScopeFromUrl(url);
+    } catch {
+      return HttpServerResponse.jsonUnsafe(
+        { error: { code: "invalid_canvas_board" } },
+        { status: 400, headers },
+      );
+    }
+    if (boardScope) headers["X-Moss-Canvas-Board"] = encodeURIComponent(JSON.stringify(boardScope));
     const json = (status: number, body: unknown) =>
-      HttpServerResponse.jsonUnsafe(body, { status, headers });
+      HttpServerResponse.jsonUnsafe(
+        boardScope && status >= 200 && status < 300 && body && typeof body === "object"
+          ? { ...body, boardScope }
+          : body,
+        { status, headers },
+      );
+    let canvasBoard: CanvasBoardBinding | null = null;
+    const validateBoard = () =>
+      Effect.gen(function* () {
+        if (!boardScope) return;
+        const types = yield* Effect.serviceOption(PageTypesService);
+        if (types._tag === "None")
+          return yield* Effect.fail(new MossMediaJobsError("canvas_board_unavailable", 503));
+        const item = yield* types.value
+          .read(
+            {
+              pageId: PageId.makeUnsafe(boardScope.pageId),
+              scopeSpaceId:
+                boardScope.scopeSpaceId === null
+                  ? null
+                  : SpaceId.makeUnsafe(boardScope.scopeSpaceId),
+            },
+            LOCAL_PAGES_PRINCIPAL,
+          )
+          .pipe(Effect.mapError(() => new MossMediaJobsError("canvas_board_not_found", 404)));
+        if (
+          item.kind !== "board" ||
+          item.page.trashedAt !== null ||
+          item.page.scopeSpaceId !== boardScope.scopeSpaceId ||
+          !item.data
+        )
+          return yield* Effect.fail(new MossMediaJobsError("canvas_board_changed", 409));
+        const b = yield* Effect.try({
+          try: () => parseBoardItem(item.data!),
+          catch: () => new MossMediaJobsError("canvas_board_changed", 409),
+        });
+        if (
+          b.canvasProjectKey !== boardScope.canvasProjectKey ||
+          (canvasBoard && b.version !== canvasBoard.version)
+        )
+          return yield* Effect.fail(new MossMediaJobsError("canvas_board_changed", 409));
+        canvasBoard = { ...boardScope, version: b.version };
+      });
     if (request.method === "OPTIONS")
       return trustedOrigin
         ? HttpServerResponse.empty({
@@ -211,6 +272,19 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       })
     )
       return json(403, { error: { code: "trusted_origin_required" } });
+    const checkedBoard = yield* Effect.result(validateBoard());
+    if (checkedBoard._tag === "Failure")
+      return json(
+        checkedBoard.failure instanceof MossMediaJobsError ? checkedBoard.failure.status : 400,
+        {
+          error: {
+            code:
+              checkedBoard.failure instanceof MossMediaJobsError
+                ? checkedBoard.failure.code
+                : "canvas_board_changed",
+          },
+        },
+      );
     const cloudResult = localCanvasRequest
       ? null
       : yield* Effect.result(resolveMossMediaCredential);
@@ -337,6 +411,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           });
     const service = mossMediaJobsServiceFor(config.stateDir);
     return yield* Effect.gen(function* () {
+      yield* validateBoard();
       const workspaceThread =
         url.pathname.startsWith("/api/moss/media/canvas/") ||
         (url.pathname === PREFIX && request.method === "POST")
@@ -373,6 +448,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
             if (mossCanvasWorkspaceFingerprint(currentWorkspace) !== canvasWorkspaceFingerprint)
               return yield* Effect.fail(new MossMediaJobsError("canvas_workspace_changed", 409));
           }
+          yield* validateBoard();
           return current;
         });
       if (request.method === "GET" && url.pathname === "/api/moss/media/canvas/text/models") {
@@ -434,6 +510,8 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         )
           return json(409, { error: { code: "canvas_workspace_changed" } });
         const input = body as Record<string, unknown>;
+        if (!matchesCanvasBoard(input.expectedBoard, boardScope))
+          return json(409, { error: { code: "canvas_board_changed" } });
         const expected = input.expectedAccount;
         if (
           !expected ||
@@ -480,7 +558,8 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           )
             return json(409, { error: { code: "account_changed" } });
           const store = yield* Effect.tryPromise({
-            try: () => mossCanvasStorageFor(config.stateDir, credential, canvasWorkspace),
+            try: () =>
+              mossCanvasStorageFor(config.stateDir, credential, canvasWorkspace, canvasBoard),
             catch: (error) => error,
           });
           const asset = yield* Effect.tryPromise({
@@ -504,6 +583,8 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         if (!body || typeof body !== "object" || Array.isArray(body))
           return json(400, { error: { code: "canvas_request_invalid" } });
         const input = body as Record<string, unknown>;
+        if (!matchesCanvasBoard(input.expectedBoard, boardScope))
+          return json(409, { error: { code: "canvas_board_changed" } });
         if (typeof input.method === "string" && input.method.startsWith("host.sync"))
           return json(403, { error: { code: "canvas_host_operation_required" } });
         const expectedWorkspace = input.expectedWorkspace;
@@ -552,6 +633,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
                     status: "available",
                     apiReachable: true,
                     authenticated: true,
+                    ...(boardScope ? { boardScope } : {}),
                     modelCount: models.filter((model) => model.available).length,
                   }
                 : {
@@ -580,7 +662,8 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           });
         }
         const store = yield* Effect.tryPromise({
-          try: () => mossCanvasStorageFor(config.stateDir, credential, canvasWorkspace),
+          try: () =>
+            mossCanvasStorageFor(config.stateDir, credential, canvasWorkspace, canvasBoard),
           catch: (error) => error,
         });
         yield* currentAccount();
@@ -613,7 +696,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
             ),
         });
         yield* currentAccount();
-        return json(200, { result: output });
+        return json(200, { result: output, ...(boardScope ? { boardScope } : {}) });
       }
       const segmentJob = url.pathname.match(
         /^\/api\/moss\/media\/canvas\/segments\/jobs\/(seg_[A-Za-z0-9_-]{16,96})$/u,
@@ -638,6 +721,8 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           if (!body || typeof body !== "object" || Array.isArray(body))
             return json(400, { error: { code: "canvas_request_invalid" } });
           raw = body as Record<string, unknown>;
+          if (!matchesCanvasBoard(raw.expectedBoard, boardScope))
+            return json(409, { error: { code: "canvas_board_changed" } });
           const expected = raw.expectedAccount;
           if (
             !expected ||
@@ -656,7 +741,8 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           const store =
             "assetName" in raw && canvasWorkspace
               ? yield* Effect.tryPromise({
-                  try: () => mossCanvasStorageFor(config.stateDir, credential, canvasWorkspace),
+                  try: () =>
+                    mossCanvasStorageFor(config.stateDir, credential, canvasWorkspace, canvasBoard),
                   catch: (error) => error,
                 })
               : null;
@@ -734,6 +820,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
         const identity = yield* currentAccount();
         return json(200, {
           authenticated: true,
+          ...(boardScope ? { boardScope } : {}),
           ...(canvasWorkspace
             ? {
                 workspace: {
