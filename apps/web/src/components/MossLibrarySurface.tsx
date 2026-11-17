@@ -14,6 +14,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { useMossLibraryItemsStore } from "~/mossLibraryItemsStore";
 import {
@@ -207,6 +208,7 @@ function LibraryCardTitle({
       className="w-full rounded-row border border-border/70 bg-background px-1.5 py-0.5 text-ui-sm font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/70"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => {
+        if (isImeComposingKeyEvent(event)) return;
         if (event.key === "Enter") {
           event.preventDefault();
           onCommitRename(event.currentTarget.value);

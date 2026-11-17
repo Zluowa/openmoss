@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "helper": "moss-job-launch.exe",
+  "target": "x86_64-pc-windows-msvc",
+  "llvm": {
+    "version": "23.1.2",
+    "release": "https://github.com/llvm/llvm-project/releases/tag/llvmorg-23.1.2",
+    "archive": "clang+llvm-23.1.2-x86_64-pc-windows-msvc.tar.zst",
+    "archiveSha256": "ceaee048142fece144752c6f6431cb0905a7a6160f78ab8cf5cf0b6216f99418"
+  },
+  "sha256": "682572ffd7ee4dc4aa5223830e5a93fe16c96a5fde181f9d7ce6f62cd567c5ec",
+  "size": 4096
+}

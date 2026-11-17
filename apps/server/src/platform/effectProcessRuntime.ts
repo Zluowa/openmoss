@@ -17,6 +17,7 @@ import {
 import { Effect, PlatformError } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
 import { providerProcessPriorityEnabled } from "../providerProcessPriority";
+import { windowsJobLauncherEnv } from "./windowsKillOnCloseJob";
 import { trackOwnedProviderProcess } from "./windowsProviderProcessGuard";
 
 /** Keep agent CPU scheduling in the same boundary as process launch planning. */
@@ -92,7 +93,16 @@ export type EffectProcessRuntimeOptions = Omit<
   ChildProcess.CommandOptions,
   "shell" | "windowsVerbatimArguments"
 > &
-  ProcessPlanningOptions;
+  ProcessPlanningOptions & {
+    /**
+     * Windows only: the path of `moss-job-launch.exe`. The program then runs inside its own
+     * kill-on-close Job Object (`windowsKillOnCloseJob.ts`), so everything it starts ends when
+     * it ends, when the launcher is stopped, or when this backend dies. Spawn the result with
+     * `windowsJobLauncherSpawner`. The launcher is never detached. No effect on other
+     * platforms or for a WSL workspace, whose processes live in the Linux guest.
+     */
+    readonly windowsJobLauncher?: string;
+  };
 
 /**
  * Creates an Effect command without leaking `.cmd`, `cmd.exe`, WSL,
@@ -117,7 +127,7 @@ function prepareEffectProcessCommand(
   args: ReadonlyArray<string>,
   options: EffectProcessRuntimeOptions,
 ): { command: ReturnType<typeof ChildProcess.make>; priorityBeforeExec: boolean } {
-  const { platform, lowerPriority, ...commandOptions } = options;
+  const { platform, lowerPriority, windowsJobLauncher, ...commandOptions } = options;
   const effectivePlatform = platform ?? process.platform;
 
   // Effect's ChildProcessSpawner is injectable. Keep executable existence and
@@ -151,6 +161,25 @@ function prepareEffectProcessCommand(
     ...(plan.windowsHide ? { windowsHide: true } : {}),
     ...(plan.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   };
+
+  if (windowsJobLauncher && effectivePlatform === "win32" && plan.executionBackend === "native") {
+    const launcherEnv = windowsJobLauncherEnv({
+      command: plan.command,
+      args: plan.args,
+      ...(plan.windowsVerbatimArguments ? { verbatimArguments: true } : {}),
+    });
+    return {
+      command: ChildProcess.make(windowsJobLauncher, [], {
+        ...effectOptions,
+        env: { ...(effectOptions.env as Record<string, string>), ...launcherEnv },
+        // The launcher must stay in this backend's own job so it dies with it.
+        detached: false,
+        windowsHide: true,
+        windowsVerbatimArguments: false,
+      } as EffectWindowsCommandOptions),
+      priorityBeforeExec: false,
+    };
+  }
 
   return {
     command: ChildProcess.make(plan.command, plan.args, effectOptions),

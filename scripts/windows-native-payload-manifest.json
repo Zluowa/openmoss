@@ -295,6 +295,11 @@
           "path": "resources/cua-driver/cua_driver_node_runtime.node",
           "sha256": "93f220e8a5cbf25aff23321f20a868368a204f1026b8dce45c5a4f84290de09f",
           "source": "cua-driver-rs@0.28.2 windows-x86_64 upstream release (trycua/cua), archive verified against the release checksums.txt"
+        },
+        {
+          "path": "resources/moss-job-launch/moss-job-launch.exe",
+          "sha256": "682572ffd7ee4dc4aa5223830e5a93fe16c96a5fde181f9d7ce6f62cd567c5ec",
+          "source": "Moss apps/server/native/moss-job-launch built with LLVM 23.1.2 (x86_64-pc-windows-msvc, no C runtime, -Brepro); pin in moss-job-launch.pin.json"
         }
       ]
     }

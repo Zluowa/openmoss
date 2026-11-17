@@ -1,5 +1,6 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
 import { useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import type { RoomBot } from "./host";
 import { RoomDialog } from "./host";
 import { useMossbotCopy } from "../mossbot.copy";
@@ -77,7 +78,7 @@ export function NewRoomPanel({
         value={name}
         onChange={(e) => setName(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.nativeEvent.isComposing) void create();
+          if (e.key === "Enter" && !isImeComposingKeyEvent(e)) void create();
         }}
         aria-label={t("Group name")}
         placeholder={t("Name this conversation")}
@@ -88,7 +89,7 @@ export function NewRoomPanel({
         maxLength={60}
         onChange={(e) => setSection(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.nativeEvent.isComposing) void create();
+          if (e.key === "Enter" && !isImeComposingKeyEvent(e)) void create();
         }}
         placeholder={t("Context (optional)")}
         aria-label={t("Group context")}

@@ -10,6 +10,7 @@
 //      out, and every structural change goes through the same edit model agents use.
 
 import "@fortune-sheet/react/dist/index.css";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import "./sheetEditor.css";
 
 import { Workbook } from "@fortune-sheet/react";
@@ -2535,6 +2536,7 @@ export function SheetEditor(props: {
           onBlur={() => commitDraft()}
           onKeyDown={(event) => {
             event.stopPropagation();
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key === "F4" && !readOnly) {
               const field = event.currentTarget;
               const next = toggleReferenceAt(

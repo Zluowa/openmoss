@@ -10,6 +10,7 @@ import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
 import { MossbotAvatar } from "./MossbotAvatar";
 import { MossbotAssistantMenu } from "./MossbotAssistantMenu";
 import { useMossbotCopy } from "./mossbot.copy";
+import { mossbotCompanionState } from "./mossbot.logic";
 
 const MossbotProfile = lazy(() =>
   import("./MossbotProfile").then((module) => ({ default: module.MossbotProfile })),
@@ -52,6 +53,8 @@ export function MossbotConversationIdentity({
         <MossbotAvatar
           icon={assistant.coordinatorIcon}
           color={assistant.coordinatorColor}
+          state={mossbotCompanionState(assistant)}
+          live
           className="size-5"
         />
         <span className="truncate text-ui font-medium">{assistant.coordinatorName}</span>

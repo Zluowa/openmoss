@@ -1,0 +1,21 @@
+; Import names for moss-job-launch.exe. The import library is generated from this file with
+; llvm-dlltool at build time instead of linking the Windows SDK's kernel32.lib, so the bytes of
+; the launcher do not depend on which SDK the build machine has.
+LIBRARY kernel32.dll
+EXPORTS
+  CloseHandle
+  CreateJobObjectW
+  CreateProcessW
+  ExitProcess
+  GetEnvironmentVariableW
+  GetExitCodeProcess
+  GetLastError
+  GetProcessHeap
+  GetStdHandle
+  HeapAlloc
+  InitializeProcThreadAttributeList
+  SetEnvironmentVariableW
+  SetInformationJobObject
+  UpdateProcThreadAttribute
+  WaitForSingleObject
+  WriteFile

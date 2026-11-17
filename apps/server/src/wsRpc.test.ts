@@ -234,7 +234,10 @@ describe("wsRpc archive-cohort shell publication", () => {
       }),
     );
     expect(projectionReadModelQuery.getShellSnapshot).toHaveBeenCalledOnce();
-    expect(projectionReadModelQuery.getThreadShellById).toHaveBeenCalledWith(rootThreadId);
+    // The shell a client receives carries its reply preview; the sections read does not need one.
+    expect(projectionReadModelQuery.getThreadShellById).toHaveBeenCalledWith(rootThreadId, {
+      includeLatestReplyPreview: true,
+    });
   });
 });
 

@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { BUNDLED_CLAUDE_RUNTIME_DIR } from "./bundled-claude-runtime.ts";
 import { BUNDLED_CODEX_RUNTIME_DIR } from "./bundled-codex-runtime.ts";
 import { BUNDLED_CUA_DRIVER_DIR } from "./bundled-cua-driver.ts";
+import { WINDOWS_JOB_LAUNCHER_ASAR_EXCLUSION } from "./windows-native-job-launcher.ts";
 
 export const MICROPHONE_USAGE_DESCRIPTION =
   "Moss needs microphone access for voice notes, transcription, and real-time voice conversations.";
@@ -264,8 +265,9 @@ export function createDesktopPlatformBuildConfig(
     ...nativePackaging,
     // Bundled agent runtimes are copied once through extraResources. Keeping
     // their source directories out of app.asar prevents duplicate executable
-    // payloads from escaping the closed Windows native manifest.
-    files: applicationFiles,
+    // payloads from escaping the closed Windows native manifest. The same holds
+    // for the job launcher (resources/moss-job-launch).
+    files: [...applicationFiles, WINDOWS_JOB_LAUNCHER_ASAR_EXCLUSION],
     // The frozen stage install already selected and smoke-tested win32/<arch>
     // native payloads. A second @electron/rebuild would mutate those reviewed
     // bytes after lockfile verification (and cannot cross-compile reliably).

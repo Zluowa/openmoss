@@ -223,6 +223,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan &&
+    left.latestReplyPreview === right.latestReplyPreview &&
     left.pendingInteractions === right.pendingInteractions &&
     left.lastVisitedAt === right.lastVisitedAt
   );
@@ -2052,6 +2053,10 @@ export function normalizeThreadFromReadModel(
     ...(resolvedHasActionableProposedPlan !== undefined
       ? { hasActionableProposedPlan: resolvedHasActionableProposedPlan }
       : {}),
+    // Only thread shells carry the server's reply preview; detail keeps it.
+    ...(previous?.latestReplyPreview !== undefined
+      ? { latestReplyPreview: previous.latestReplyPreview }
+      : {}),
     turnDiffSummaries,
     activities,
     ...(pendingInteractions !== undefined ? { pendingInteractions } : {}),
@@ -2203,6 +2208,9 @@ export function normalizeThreadShellSnapshot(
       : {}),
     ...(incoming.hasActionableProposedPlan !== undefined
       ? { hasActionableProposedPlan: incoming.hasActionableProposedPlan }
+      : {}),
+    ...(incoming.latestReplyPreview !== undefined
+      ? { latestReplyPreview: incoming.latestReplyPreview }
       : {}),
     ...(previous?.pendingInteractions !== undefined
       ? { pendingInteractions: previous.pendingInteractions }

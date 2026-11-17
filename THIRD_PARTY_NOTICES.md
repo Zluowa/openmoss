@@ -165,6 +165,18 @@ at Synara 1.6.1 (commit 68e4589be), with their tests. Moss keeps its own Chinese
 tool labels and icons, the wrap-up box and the connector widget block, and adds the
 Windows PowerShell and `cmd` launcher unwrapping.
 
+## Synara Activity reply preview (absorbed)
+
+The latest reply preview under each Activity row's title is adapted from Synara PR #2195
+(https://github.com/Emanuele-web04/synara/pull/2195, MIT, commit
+8ab2c8fadf5311be0b86a7807cc082fb3d3d8b17, which includes the bounded reply read of
+f230f03ba): the bounded projection read and `threadLatestReplyPreview.ts`, the shell's
+`latestReplyPreview` field, the shared `markdownPlainText.ts` that chat notifications now
+use too, the row's two-line reply and title emphasis, and their tests. Moss also takes
+OpenUI programs, visual tags, HTML and table rules out of the preview and masks
+credentials on the server. The pull request count (Synara's multi-PR links, PR #2132) is
+not included.
+
 ## Synara and T3 Code composer predictions (absorbed)
 
 The composer prediction (one predicted next message shown as ghost text in the empty
@@ -509,6 +521,8 @@ The behaviour layer under Moss's shared components in `apps/web/src/components/u
 - Source: https://github.com/vercel-labs/ui
 - License: Apache License 2.0. The full text ships in each package as `LICENSE`; the packages carry no `NOTICE` file.
 - These are public open-source packages. Vercel's Public Beta Agreement covers Vercel products used through a Vercel account and says open-source components are licensed under their own license (section 3), so it does not restrict shipping these packages in Moss.
+
+Moss's tests of its in-app browser WebMCP host also run a project-settings page built with UI SDK in a real Electron guest. That built page is vendored, unmodified, under `third_party/ui-sdk-webmcp-fixture/` with its pinned versions, hashes and licence (`NOTICE.md`, `LICENSE`): `@ui-sdk/web` and `@ui-sdk/core` 0.1.0-beta.6, Apache License 2.0. It is a test fixture only and is not shipped in the Moss app.
 
 ## OpenMausBot (Mossbot group chats, adapted)
 
