@@ -4,6 +4,7 @@
 // Depends on: shared input styling plus caller-provided content slots.
 
 import { useEffect, useRef, type ReactNode } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { SearchIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { Input } from "../ui/input";
@@ -133,7 +134,9 @@ export function PickerPanelShell(props: {
               onKeyDownCapture={
                 stopSearchKeyPropagation
                   ? (event) => {
-                      if (!MENU_NAVIGATION_KEYS.has(event.key)) {
+                      // The input method's keys (the Enter that confirms a candidate) stay in
+                      // the field: the menu would pick its highlighted row on them.
+                      if (isImeComposingKeyEvent(event) || !MENU_NAVIGATION_KEYS.has(event.key)) {
                         event.stopPropagation();
                       }
                     }

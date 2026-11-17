@@ -17,6 +17,7 @@ import {
   type ServerProviderStatus,
   type ThreadId,
 } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   useDeferredValue,
   useEffect,
@@ -802,7 +803,15 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
               providerTabs={providerTabs}
               onSelectTab={chooseTab}
             />
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 *:min-w-0">
+            <div
+              className="flex shrink-0 items-center gap-2 border-b border-border px-3 *:min-w-0"
+              // Runs before the search field's own handler: an input-method key (the Enter
+              // that confirms a candidate, in any platform's shape) picks the candidate, never
+              // the top model. Not prevented, so the input method commits its text.
+              onKeyDownCapture={(event) => {
+                if (isImeComposingKeyEvent(event)) event.stopPropagation();
+              }}
+            >
               <SearchIcon
                 aria-hidden="true"
                 className={PICKER_PANEL_PLAIN_SEARCH_ICON_CLASS_NAME}
@@ -819,13 +828,6 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDownCapture={(event) => {
-                  // A key that belongs to an input method's composition (the Enter that confirms
-                  // a pinyin candidate: `key: "Enter"` with isComposing on macOS and Linux, keyCode
-                  // 229 everywhere) picks the candidate, never a model.
-                  if (event.nativeEvent.isComposing || event.keyCode === 229) {
-                    event.stopPropagation();
-                    return;
-                  }
                   if (event.key === "Enter") {
                     // Focus is still in the field, so no row is highlighted: take the top hit.
                     event.preventDefault();

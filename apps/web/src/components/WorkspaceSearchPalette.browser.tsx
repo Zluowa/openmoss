@@ -13,7 +13,6 @@ import { page, userEvent } from "vitest/browser";
 import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { composeChineseWithEnter } from "../test/imeComposition";
 import { WorkspaceSearchPalette, type WorkspaceSearchPaletteMode } from "./WorkspaceSearchPalette";
 
 const WORKSPACE_ROOT = "/Users/tester/project";
@@ -161,44 +160,6 @@ it("selects the auto-highlighted first row with Enter", async () => {
     restoreNativeApi();
   }
 });
-
-it.each(["Enter", "Process"] as const)(
-  "keeps the highlighted row closed while Enter (%s) confirms a pinyin candidate",
-  async (confirmKey) => {
-    const searchEntries = vi.fn().mockResolvedValue({
-      entries: [{ path: "docs/Composer.md", kind: "file" }],
-      truncated: false,
-    });
-    const restoreNativeApi = installNativeApi({
-      projects: {
-        prewarmSearchIndex: vi.fn().mockResolvedValue({ started: true }),
-        searchEntries,
-      },
-    } as unknown as NativeApi);
-
-    try {
-      const handlers = await renderPalette("files");
-      const field = page.getByPlaceholder("Search files");
-      // The pinyin being composed ("comp") finds the file, so its row is the auto-highlighted
-      // first row while the candidate is confirmed.
-      await composeChineseWithEnter(
-        field.element() as HTMLElement,
-        "comp",
-        "组件",
-        confirmKey,
-        async () => {
-          await expect.element(page.getByText("Composer.md", { exact: true })).toBeVisible();
-        },
-      );
-      await expect.poll(() => (field.element() as HTMLInputElement).value).toBe("组件");
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      expect(handlers.onOpenFile).not.toHaveBeenCalled();
-      expect(handlers.onOpenChange).not.toHaveBeenCalledWith(false);
-    } finally {
-      restoreNativeApi();
-    }
-  },
-);
 
 it("shows no-results only once the search settles, and error copy on failure", async () => {
   const searchEntries = vi

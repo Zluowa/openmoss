@@ -6,6 +6,7 @@
 //      point at 资料空间 items (`moss://space-page/<id>`) or web pages.
 
 import type { SpaceId } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type CSSProperties } from "react";
 
@@ -119,6 +120,7 @@ export function DesignLinkDialog(props: {
           className={FIELD}
           onChange={(event) => setUrl(event.target.value)}
           onKeyDown={(event) => {
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key === "Enter") addUrl();
           }}
         />

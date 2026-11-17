@@ -3,6 +3,7 @@
 // Layer: Chat surface presentation
 
 import type { RealtimeVoiceQuotaSnapshot, RealtimeVoiceState } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { type FormEvent, type KeyboardEvent, useId } from "react";
 
 import type { RealtimeVoiceOutputSignal } from "../../lib/realtimeVoiceWebRtc";
@@ -56,7 +57,7 @@ function submitRealtimeVoiceTextarea(event: KeyboardEvent<HTMLTextAreaElement>):
   if (
     event.key !== "Enter" ||
     event.shiftKey ||
-    event.nativeEvent.isComposing ||
+    isImeComposingKeyEvent(event) ||
     nativeKeyCode === 229 ||
     event.defaultPrevented
   ) {

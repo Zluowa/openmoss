@@ -4,6 +4,7 @@ import {
   MEMORY_THREAD_DOCUMENT_PREFIX,
 } from "@moss/shared/projectAgent";
 import { useEffect, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
 import type { useProjectInstructionsAutosave } from "~/components/chat/environment/EnvironmentProjectInstructionsSection";
@@ -274,7 +275,7 @@ export function GroupMemorySection(props: {
               value={noteDraft}
               onChange={(event) => setNoteDraft(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                if (event.key === "Enter" && !isImeComposingKeyEvent(event)) {
                   event.preventDefault();
                   submitNote();
                 }

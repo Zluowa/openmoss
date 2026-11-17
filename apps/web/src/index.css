@@ -1,7 +1,3 @@
-/* UI SDK (the behaviour layer under components/ui) adds a little CSS of its own at runtime, in a
-   cascade layer named ui-sdk. Declaring it first makes it the lowest layer, so Moss's own styles
-   and theme CSS always win over it wherever the page inserts it. */
-@layer ui-sdk;
 @import "tailwindcss";
 
 @custom-variant dark (&:is(.dark, .dark *));

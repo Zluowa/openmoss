@@ -32,6 +32,7 @@ vi.mock("../nativeApi", async (importOriginal) => ({
   }),
 }));
 
+import { composeChineseWithEnter } from "../test/imeComposition";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 
 type CreateProjectDialogProps = ComponentProps<typeof CreateProjectDialog>;
@@ -185,6 +186,31 @@ describe("CreateProjectDialog (Codex form)", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(await blockingAxeViolations()).toEqual([]);
   });
+
+  // The Enter that confirms a pinyin candidate in the name must not create the project.
+  it.each(["Enter", "Process"] as const)(
+    "types a Chinese project name without creating it early (%s), then Enter creates",
+    async (confirmKey) => {
+      nativeApi.pickFolder.mockResolvedValue("/Users/test/Developer/moss-app");
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      await renderDialog("en", { open: true, onOpenChange: vi.fn(), onSubmit });
+      await page.getByRole("button", { name: "Add", exact: true }).click();
+      await vi.waitFor(() => expect(nativeApi.pickFolder).toHaveBeenCalledOnce());
+      const nameInput = page.getByRole("textbox", { name: "Project name", exact: true });
+      await composeChineseWithEnter(
+        nameInput.element() as HTMLElement,
+        "xiangmu",
+        "项目",
+        confirmKey,
+      );
+      await expect.poll(() => (nameInput.element() as HTMLInputElement).value).toBe("项目");
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(onSubmit).not.toHaveBeenCalled();
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(onSubmit.mock.calls[0]?.[0]).toMatchObject({ name: "项目" });
+    },
+  );
 
   it("aborts the in-flight submit when the dialog is closed", async () => {
     const submittedSignals: AbortSignal[] = [];
