@@ -297,10 +297,6 @@
       "types": "./src/threadSummary.ts",
       "import": "./src/threadSummary.ts"
     },
-    "./threadPullRequestLinks": {
-      "types": "./src/threadPullRequestLinks.ts",
-      "import": "./src/threadPullRequestLinks.ts"
-    },
     "./turnResume": {
       "types": "./src/turnResume.ts",
       "import": "./src/turnResume.ts"

@@ -5,7 +5,6 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
-  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 import { GitPullRequestMergeability } from "./git";
@@ -270,8 +269,6 @@ export const PullRequestActionInput = Schema.Struct({
   number: PositiveInt,
   action: PullRequestAction,
   mergeMethod: Schema.optional(PullRequestMergeMethod),
-  /** The chat whose existing link should reflect a successful reopen. */
-  threadId: Schema.optional(ThreadId),
 });
 export type PullRequestActionInput = typeof PullRequestActionInput.Type;
 

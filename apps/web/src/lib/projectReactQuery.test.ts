@@ -221,3 +221,11 @@ describe("project read file capacity retry", () => {
     }
   });
 });
+
+describe("project search capacity retry", () => {
+  const capacityError = {
+    code: "RPC_EXPENSIVE_READ_CAPACITY_EXCEEDED",
+    retryable: true,
+    retryAfterMs: 375,
+  };
+});

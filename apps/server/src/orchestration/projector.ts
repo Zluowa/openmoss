@@ -22,10 +22,6 @@ import { clearRemovedAsyncUserInputResponses } from "@moss/shared/asyncUserInput
 import { isGroupContainerKind } from "@moss/shared/projectContainers";
 import { isSidechatThread } from "@moss/shared/sidechatThread";
 import {
-  pullRequestLinksFromEventPayload,
-  resolveCurrentPullRequest,
-} from "@moss/shared/threadPullRequestLinks";
-import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
@@ -1075,25 +1071,6 @@ function deriveNextMessageTextSegments(
   return undefined;
 }
 
-/**
- * PR links and the current PR written by a `thread.meta-updated` payload. A payload with only
- * `lastKnownPr` (a build without links) applies to the thread's previous links by the same
- * rule as the projection and the live read; the current PR always follows the links.
- */
-function pullRequestLinksPatch(
-  payload: {
-    readonly pullRequests?: Parameters<typeof pullRequestLinksFromEventPayload>[0]["pullRequests"];
-    readonly lastKnownPr?: Parameters<typeof pullRequestLinksFromEventPayload>[0]["lastKnownPr"];
-    readonly updatedAt: string;
-  },
-  previous: Parameters<typeof pullRequestLinksFromEventPayload>[2],
-) {
-  const pullRequests = pullRequestLinksFromEventPayload(payload, payload.updatedAt, previous);
-  return pullRequests === undefined
-    ? {}
-    : { pullRequests, lastKnownPr: resolveCurrentPullRequest(pullRequests) };
-}
-
 export function projectEvent(
   model: OrchestrationReadModel,
   event: OrchestrationEvent,
@@ -1540,7 +1517,6 @@ export function projectEvent(
             sidechatLastActivityAt: payload.sidechatLastActivityAt,
             sidechatExpiredAt: payload.sidechatExpiredAt,
             lastKnownPr: payload.lastKnownPr ?? null,
-            pullRequests: pullRequestLinksFromEventPayload(payload, payload.createdAt) ?? [],
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,
@@ -1790,7 +1766,6 @@ export function projectEvent(
                 : {}),
               ...(payload.subagentRole !== undefined ? { subagentRole: payload.subagentRole } : {}),
               ...(payload.lastKnownPr !== undefined ? { lastKnownPr: payload.lastKnownPr } : {}),
-              ...pullRequestLinksPatch(payload, existingThread?.pullRequests),
               ...(payload.handoff !== undefined ? { handoff: payload.handoff } : {}),
               ...(payload.pinnedMessages !== undefined
                 ? { pinnedMessages: payload.pinnedMessages }

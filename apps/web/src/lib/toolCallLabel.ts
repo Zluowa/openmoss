@@ -654,10 +654,6 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_theme_read: presentMossTool("reading the theme guide", "read the theme guide"),
   moss_theme_set: presentMossTool("restyling Moss", "restyled Moss"),
   moss_set_thread_pull_request: presentMossTool("linking a pull request", "linked a pull request"),
-  moss_unlink_thread_pull_request: presentMossTool(
-    "unlinking a pull request",
-    "unlinked a pull request",
-  ),
   moss_show_visual: presentMossTool("showing a visual", "showed a visual"),
   moss_e2e_review: presentMossTool(
     "reading the end-to-end test guide",
@@ -740,11 +736,6 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_theme_read: ["正在读取主题指南", "已读取主题指南", "无法读取主题指南"],
   moss_theme_set: ["正在更换 Moss 外观", "已更换 Moss 外观", "无法更换 Moss 外观"],
   moss_set_thread_pull_request: ["正在关联拉取请求", "已关联拉取请求", "无法关联拉取请求"],
-  moss_unlink_thread_pull_request: [
-    "正在取消关联拉取请求",
-    "已取消关联拉取请求",
-    "无法取消关联拉取请求",
-  ],
   moss_create_automation: ["正在创建自动化", "已创建自动化", "无法创建自动化"],
   moss_list_automations: ["正在列出自动化", "已列出自动化", "无法列出自动化"],
   moss_view_automation: ["正在查看自动化", "已查看自动化", "无法查看自动化"],

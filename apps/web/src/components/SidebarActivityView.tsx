@@ -49,7 +49,7 @@ import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { ProviderIcon } from "./ProviderIcon";
 import { SnoozeCountdown } from "./SnoozeCountdown";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
-import { PrStateChip, PrStateCountChip } from "./pullRequest/PrStateChip";
+import { PrStateChip } from "./pullRequest/PrStateChip";
 import {
   createSidebarThreadHoverAnchorId,
   resolveSidebarThreadListPaging,
@@ -71,7 +71,6 @@ import {
   resolveActivityPriority,
   resolveActivityPriorityTier,
   resolveActivityRowEmphasis,
-  resolveActivityRowPullRequests,
   resolveActivityScope,
   resolveActivityThreadReadAt,
   splitActivityThreadsByDateBucket,
@@ -120,9 +119,6 @@ function stopRowActivation(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
 }
-
-const ACTIVITY_ROW_PULL_REQUEST_CLASS_NAME =
-  "min-h-5 min-w-5 justify-center [&_svg,&_[data-slot=central-icon]]:size-3";
 
 export function ActivityThreadRow({
   thread,
@@ -182,11 +178,6 @@ export function ActivityThreadRow({
     threadId: thread.id,
   });
   const actionToneClassName = "text-muted-foreground/42";
-  // Several linked PRs share one chip that lists them (upstream #2195).
-  const [rowPullRequest, ...otherPullRequests] = resolveActivityRowPullRequests(
-    pr,
-    thread.pullRequests,
-  );
   // One trailing slot, top-right, shared by every status: the accent dot for an
   // unread completion and the running spinner (or state dot) for everything
   // else — same rule and same glyphs the classic thread/project rows use.
@@ -323,17 +314,11 @@ export function ActivityThreadRow({
                   />
                 </span>
               ) : null}
-              {rowPullRequest && otherPullRequests.length > 0 ? (
-                <PrStateCountChip
-                  pullRequests={[rowPullRequest, ...otherPullRequests]}
-                  className={ACTIVITY_ROW_PULL_REQUEST_CLASS_NAME}
-                  onOpen={onOpenPullRequest}
-                />
-              ) : rowPullRequest ? (
+              {pr ? (
                 <PrStateChip
-                  pr={rowPullRequest}
-                  className={ACTIVITY_ROW_PULL_REQUEST_CLASS_NAME}
-                  onOpen={(event) => onOpenPullRequest(event, rowPullRequest)}
+                  pr={pr}
+                  className="min-h-5 min-w-5 justify-center [&_svg,&_[data-slot=central-icon]]:size-3"
+                  onOpen={(event) => onOpenPullRequest(event, pr)}
                 />
               ) : null}
               {branch ? (
@@ -991,7 +976,6 @@ export function SidebarActivityView({
               branch: thread.branch,
               hasDedicatedWorktree: thread.worktreePath !== null,
               lastKnownPr: thread.lastKnownPr ?? null,
-              pullRequests: thread.pullRequests,
             })
       }
       status={resolveThreadStatus(thread)}

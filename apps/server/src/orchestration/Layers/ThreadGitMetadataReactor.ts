@@ -1,22 +1,6 @@
-import { access } from "node:fs/promises";
-
-import {
-  CommandId,
-  type OrchestrationThreadPullRequest,
-  type ProviderRuntimeEvent,
-  type ThreadId,
-} from "@moss/contracts";
+import { CommandId, type ProviderRuntimeEvent, type ThreadId } from "@moss/contracts";
 import { makeDrainableWorker, startDrainableWorkerProducers } from "@moss/shared/DrainableWorker";
-import {
-  findPullRequestLink,
-  isExplicitPullRequestLinkSource,
-  isPullRequestLinkVisible,
-  pullRequestLinkKey,
-  resolveBranchManagedPullRequest,
-  threadPullRequestsEqual,
-  visiblePullRequestLinks,
-} from "@moss/shared/threadPullRequestLinks";
-import { Cause, Effect, Layer, Option, Schedule, Stream } from "effect";
+import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
@@ -33,21 +17,8 @@ import {
   deriveThreadGitMetadataPatch,
   type ThreadPullRequestLookup,
 } from "../threadGitMetadata.ts";
-import { detectCreatedPullRequestUrls } from "../pullRequestCommandDetection.ts";
-import {
-  makePullRequestRefreshState,
-  planPullRequestRefreshes,
-  recordPullRequestRefresh,
-} from "../pullRequestRefreshSchedule.ts";
 
 const THREAD_GIT_METADATA_REACTOR_CAPACITY = 128;
-const PULL_REQUEST_LINK_WORKER_CAPACITY = 64;
-// Linked PRs are re-read on the server so every surface (sidebar, kanban, agents) sees the
-// current state without a client polling it. What is read when, the caps and the back-off live
-// in pullRequestRefreshSchedule.ts. A failed read keeps the last known state.
-const PULL_REQUEST_REFRESH_INITIAL_DELAY = "45 seconds";
-const PULL_REQUEST_REFRESH_TICK = "1 minute";
-const PULL_REQUEST_REFRESH_CONCURRENCY = 2;
 
 type StartedEvent = Extract<ProviderRuntimeEvent, { type: "turn.started" }>;
 type TerminalEvent = Extract<
@@ -55,12 +26,6 @@ type TerminalEvent = Extract<
   { type: "turn.completed" | "turn.aborted" | "session.exited" | "runtime.error" }
 >;
 type VcsStateChangedEvent = Extract<ProviderRuntimeEvent, { type: "vcs.state.changed" }>;
-type ItemCompletedEvent = Extract<ProviderRuntimeEvent, { type: "item.completed" }>;
-
-interface CommandCreatedPullRequests {
-  readonly threadId: ThreadId;
-  readonly urls: ReadonlyArray<string>;
-}
 
 interface ThreadWorkspaceContext {
   readonly threadId: ThreadId;
@@ -309,7 +274,7 @@ const make = Effect.gen(function* () {
 
     const patch = deriveThreadGitMetadataPatch({
       currentBranch: thread.branch,
-      currentPullRequest: resolveBranchManagedPullRequest(thread.pullRequests),
+      currentPullRequest: thread.lastKnownPr ?? null,
       observedBranch: captured.observedBranch,
       pullRequestLookup,
       ...(captured.hasDedicatedWorktree
@@ -324,23 +289,12 @@ const make = Effect.gen(function* () {
     });
     if (!patch) return;
 
-    const { discoveredPullRequest, ...workspacePatch } = patch;
-    if (Object.keys(workspacePatch).length > 0) {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.meta.update",
-        commandId: serverCommandId(),
-        threadId: captured.threadId,
-        ...workspacePatch,
-      });
-    }
-    if (discoveredPullRequest !== undefined) {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.pull-request.sync",
-        commandId: serverCommandId(),
-        threadId: captured.threadId,
-        discovered: discoveredPullRequest,
-      });
-    }
+    yield* orchestrationEngine.dispatch({
+      type: "thread.meta.update",
+      commandId: serverCommandId(),
+      threadId: captured.threadId,
+      ...patch,
+    });
   });
 
   const processCapturedMetadataSafely = (captured: CapturedThreadGitMetadata) =>
@@ -365,141 +319,7 @@ const make = Effect.gen(function* () {
     capacity: THREAD_GIT_METADATA_REACTOR_CAPACITY,
   });
 
-  // Preserve command-created PRs across branch changes, even if discovery linked them first.
-  const linkCommandCreatedPullRequests = Effect.fnUntraced(function* (
-    job: CommandCreatedPullRequests,
-  ) {
-    const threadOption = yield* projectionSnapshotQuery.getThreadShellById(job.threadId);
-    const thread = Option.getOrUndefined(threadOption);
-    if (!thread || thread.archivedAt != null) return;
-    const pending = job.urls.filter((url) => {
-      const link = findPullRequestLink(thread.pullRequests, url);
-      return (
-        link === null ||
-        (isPullRequestLinkVisible(link) && !isExplicitPullRequestLinkSource(link.source))
-      );
-    });
-    if (pending.length === 0) return;
-    const context = yield* resolveWorkspaceContext(job.threadId);
-    if (!context) return;
-    for (const url of pending) {
-      const resolved = yield* gitManager
-        .resolvePullRequest({ cwd: context.cwd, reference: url })
-        .pipe(
-          Effect.map((result) => result.pullRequest),
-          Effect.catch((error) =>
-            Effect.logDebug("command-created pull request could not be resolved", {
-              threadId: job.threadId,
-              url,
-              error: error.message,
-            }).pipe(Effect.as(null)),
-          ),
-        );
-      if (!resolved) continue;
-      yield* orchestrationEngine.dispatch({
-        type: "thread.pull-request.link",
-        commandId: CommandId.makeUnsafe(`server:command-pr:${crypto.randomUUID()}`),
-        threadId: job.threadId,
-        pullRequest: resolved,
-        source: "created",
-      });
-    }
-  });
-
-  const linkCommandCreatedPullRequestsSafely = (job: CommandCreatedPullRequests) =>
-    linkCommandCreatedPullRequests(job).pipe(
-      Effect.catchCause((cause) => {
-        if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-        return Effect.logWarning("command-created pull request link failed", {
-          threadId: job.threadId,
-          cause: Cause.pretty(cause),
-        });
-      }),
-    );
-
-  const pullRequestLinkWorker = yield* makeDrainableWorker(linkCommandCreatedPullRequestsSafely, {
-    capacity: PULL_REQUEST_LINK_WORKER_CAPACITY,
-  });
-
-  const captureCommandCreatedPullRequests = (event: ItemCompletedEvent) => {
-    const urls = detectCreatedPullRequestUrls(event.payload);
-    if (urls.length === 0) return Effect.void;
-    return pullRequestLinkWorker.enqueue({ threadId: event.threadId, urls }).pipe(Effect.asVoid);
-  };
-
-  const refreshState = makePullRequestRefreshState();
-  const workspaceExists = (cwd: string) =>
-    Effect.tryPromise(() => access(cwd)).pipe(
-      Effect.as(true),
-      Effect.catch(() => Effect.succeed(false)),
-    );
-
-  const refreshLinkedPullRequests = Effect.gen(function* () {
-    const readModel = yield* orchestrationEngine.getReadModel();
-    const projectsById = new Map(readModel.projects.map((project) => [project.id, project]));
-    const planned = planPullRequestRefreshes({
-      threads: readModel.threads,
-      resolveCwd: (thread) => {
-        const full = readModel.threads.find((candidate) => candidate.id === thread.id);
-        const project = full ? projectsById.get(full.projectId) : undefined;
-        return full && project
-          ? (resolveThreadWorkspaceCwd({ thread: full, projects: [project] }) ?? null)
-          : null;
-      },
-      now: Date.now(),
-      state: refreshState,
-    });
-    yield* Effect.forEach(
-      planned,
-      (refresh) =>
-        Effect.gen(function* () {
-          // A chat's worktree can be gone; another chat linking the same PR may still have one.
-          let cwd: string | null = null;
-          for (const candidate of refresh.cwds) {
-            if (yield* workspaceExists(candidate)) {
-              cwd = candidate;
-              break;
-            }
-          }
-          const resolved = cwd
-            ? yield* gitManager
-                .resolvePullRequest({ cwd, reference: refresh.url }, { background: true })
-                .pipe(
-                  Effect.map((result) => result.pullRequest),
-                  Effect.catch(() => Effect.succeed(null)),
-                )
-            : null;
-          recordPullRequestRefresh(refreshState, refresh.key, Date.now(), resolved !== null);
-          if (!resolved) return;
-          for (const [threadId, snapshot] of refresh.snapshotsByThread) {
-            if (threadPullRequestsEqual(snapshot, resolved)) continue;
-            yield* orchestrationEngine
-              .dispatch({
-                type: "thread.pull-request.sync",
-                commandId: CommandId.makeUnsafe(`server:pr-refresh:${crypto.randomUUID()}`),
-                threadId,
-                snapshots: [resolved],
-              })
-              .pipe(Effect.catch(() => Effect.void));
-          }
-        }),
-      { concurrency: PULL_REQUEST_REFRESH_CONCURRENCY, discard: true },
-    );
-  });
-
-  const refreshLinkedPullRequestsSafely = refreshLinkedPullRequests.pipe(
-    Effect.catchCause((cause) => {
-      if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
-      return Effect.logWarning("linked pull request refresh failed", {
-        cause: Cause.pretty(cause),
-      });
-    }),
-  );
-
   const processProviderEvent = (event: ProviderRuntimeEvent) => {
-    // A PR created inside a native subagent still belongs to the parent thread's work, so this
-    // runs before the subagent filter below.
-    if (event.type === "item.completed") return captureCommandCreatedPullRequests(event);
     // Native subagent lifecycle events carry the parent Moss thread id and the child identity
     // in providerRefs. Treating them as parent turns would make shared-root ownership ambiguous
     // and suppress reconciliation when the actual parent turn completes.
@@ -529,31 +349,18 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const start: ThreadGitMetadataReactorShape["start"] = Effect.gen(function* () {
-    // Registered first so it runs last: producers stop, then the metadata worker, then this one.
-    yield* Effect.addFinalizer(() => pullRequestLinkWorker.stop);
-    yield* startDrainableWorkerProducers(
-      worker,
-      Effect.gen(function* () {
-        yield* Effect.forkScoped(
-          Stream.runForEach(providerService.streamEvents, processProviderEventSafely),
-        );
-        yield* Effect.forkScoped(
-          Effect.sleep(PULL_REQUEST_REFRESH_INITIAL_DELAY).pipe(
-            Effect.andThen(
-              refreshLinkedPullRequestsSafely.pipe(
-                Effect.repeat(Schedule.spaced(PULL_REQUEST_REFRESH_TICK)),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  });
+  const start: ThreadGitMetadataReactorShape["start"] = startDrainableWorkerProducers(
+    worker,
+    Effect.gen(function* () {
+      yield* Effect.forkScoped(
+        Stream.runForEach(providerService.streamEvents, processProviderEventSafely),
+      );
+    }),
+  );
 
   return {
     start,
-    drain: Effect.andThen(worker.drain, pullRequestLinkWorker.drain),
+    drain: worker.drain,
   } satisfies ThreadGitMetadataReactorShape;
 });
 

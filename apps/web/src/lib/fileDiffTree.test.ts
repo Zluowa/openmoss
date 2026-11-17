@@ -1,6 +1,6 @@
 // FILE: fileDiffTree.test.ts
-// Purpose: Guards flat-to-tree conversion, single-chain compression and ordering (search
-//          filtering before the tree is covered in DiffPanel.logic.test.ts).
+// Purpose: Guards flat-to-tree conversion, single-chain compression, ordering,
+//          and the search → tree pipeline used by the review file tree panel.
 // Layer: Web diff utilities tests
 
 import type { FileDiffMetadata } from "@pierre/diffs/react";
@@ -88,4 +88,12 @@ describe("buildFileDiffTree", () => {
     ]);
     expect(names(tree)).toEqual(["File1.ts", "file2.ts", "file10.ts"]);
   });
+});
+
+describe("search → tree pipeline", () => {
+  const files = [
+    createFileDiff("apps/server/src/codex.ts"),
+    createFileDiff("apps/web/src/ChatView.tsx"),
+    createFileDiff("packages/shared/src/model.ts"),
+  ];
 });

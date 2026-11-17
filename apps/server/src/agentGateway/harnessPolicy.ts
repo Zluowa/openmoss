@@ -13,7 +13,7 @@ import {
 } from "@moss/shared/mossMediaPlugins";
 
 /** Canonical, versioned host policy delivered to every supported provider. */
-export const MOSS_HARNESS_POLICY_VERSION = "2026-11-18.1";
+export const MOSS_HARNESS_POLICY_VERSION = "2026-11-13.1";
 export const MOSS_HARNESS_POLICY_MARKER = `[Moss harness policy ${MOSS_HARNESS_POLICY_VERSION}]`;
 
 /**
@@ -53,7 +53,7 @@ export function renderMossHarnessPolicy(capabilities: MossHarnessCapabilities): 
         "For any-language requests involving Moss's integrated, embedded, or in-app browser, use browser_* autonomously as its canonical, complete control surface; never substitute Chrome, Computer Use, Playwright, OS-automation tools/skills, or change the user's active chat. Detailed rules live in each tool description.",
         "For any-language iOS app or simulator request, call device_* directly and autonomously as the canonical, complete control surface; never use xcrun simctl, AppleScript, Appium, idb, open Simulator.app, or substitute mobile/OS-automation tools/skills, because the user watches the streamed pane. Detailed rules live in each tool description.",
         "For thread discovery and diagnosis, use moss_list_threads, moss_read_thread, moss_read_thread_activity, moss_read_thread_events, moss_read_thread_runtime_events, and moss_diagnose_thread before SQLite or process logs. Use host storage only when tool coverage says required evidence is unavailable.",
-        "Link each PR you create or push to for this thread's work with moss_set_thread_pull_request (full URL, each stack PR); links add up. Never link PRs you only read, review, or mention.",
+        "For the current thread's own deliverable, after creating a pull request call moss_set_thread_pull_request; never associate one the thread only reviews, references, or discusses.",
         "Provider-native subagent or Task tools are implementation details: they do not create Moss threads and must not substitute for an explicit request to create Moss threads.",
         "For a plural thread request, submit one exact moss_create_threads plan. The array length is the exact requested count.",
         "If moss_create_threads fails before returning an operationId, correct the rejected plan and reuse its requestId; no durable task was created.",

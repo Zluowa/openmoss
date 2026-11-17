@@ -119,11 +119,6 @@ function renderActivity(input: {
   prByThreadId?: ReadonlyMap<ThreadId, OrchestrationThreadPullRequest | null>;
   onVisibleThreadIdsChange?: (threadIds: readonly ThreadId[]) => void;
   onOpenThread?: (threadId: ThreadId) => void;
-  onOpenThreadPullRequest?: (
-    event: unknown,
-    thread: SidebarThreadSummary,
-    pr: OrchestrationThreadPullRequest,
-  ) => void;
   onSetThreadSettled?: (threadId: ThreadId, settled: boolean) => void;
   onReturnSnoozedThread?: (threadId: ThreadId) => void;
   onMarkThreadRead?: (threadId: ThreadId, completedAt?: string) => void;
@@ -160,7 +155,7 @@ function ActivityHarness(input: Parameters<typeof renderActivity>[0]) {
       onVisibleThreadIdsChange={input.onVisibleThreadIdsChange ?? (() => {})}
       resolveThreadStatus={input.resolveThreadStatus ?? (() => null)}
       onOpenThread={input.onOpenThread ?? (() => {})}
-      onOpenThreadPullRequest={input.onOpenThreadPullRequest ?? (() => {})}
+      onOpenThreadPullRequest={() => {}}
       onSetThreadSettled={input.onSetThreadSettled ?? (() => {})}
       onReturnSnoozedThread={input.onReturnSnoozedThread ?? (() => {})}
       onToggleThreadPinned={() => {}}
@@ -1149,110 +1144,5 @@ describe("SidebarActivityView", () => {
       document.documentElement.style.cssText = previousStyle;
     }
     await mounted.unmount();
-  });
-
-  it("counts a chat's several PRs in the row's state color and lists them instead of opening one", async () => {
-    // Ported from upstream #2195 (the count needs the links of #2132).
-    const pullRequest = (
-      number: number,
-      title: string,
-      state: OrchestrationThreadPullRequest["state"],
-    ): OrchestrationThreadPullRequest => ({
-      number,
-      title,
-      url: `https://github.com/example/moss/pull/${number}`,
-      baseBranch: "main",
-      headBranch: `branch-${number}`,
-      state,
-    });
-    const merged = pullRequest(96, "检查 iOS 拉取请求", "merged");
-    const open = pullRequest(97, "修复小组件快照", "open");
-    const closed = pullRequest(95, "放弃的尝试", "closed");
-    const several = makeThread(820, {
-      title: "多个拉取请求",
-      pullRequests: [
-        { pullRequest: merged, source: "agent", linkedAt: "2026-08-02T08:00:00.000Z" },
-        { pullRequest: closed, source: "user", linkedAt: "2026-08-02T09:00:00.000Z" },
-        { pullRequest: open, source: "created", linkedAt: "2026-08-02T07:00:00.000Z" },
-      ],
-    });
-    const singlePr = pullRequest(2186, "一个拉取请求", "open");
-    const single = makeThread(821, {
-      title: "一个拉取请求",
-      pullRequests: [
-        { pullRequest: singlePr, source: "agent", linkedAt: "2026-08-02T08:00:00.000Z" },
-      ],
-    });
-    const onOpenThread = vi.fn();
-    // Like the sidebar's handler, which takes the press over to open the PR pane.
-    const onOpenThreadPullRequest = vi.fn((event: unknown) => {
-      (event as Event).preventDefault?.();
-      (event as Event).stopPropagation?.();
-    });
-    const onRenameThread = vi.fn();
-    await page.viewport(320, 360);
-    const mounted = await render(
-      <div className="w-[300px] bg-background p-1 text-foreground">
-        {renderActivity({
-          threads: [several, single],
-          // The row's own PR, with its live state, decides the glyph and color.
-          prByThreadId: new Map([
-            [several.id, merged],
-            [single.id, singlePr],
-          ]),
-          onOpenThread,
-          onOpenThreadPullRequest,
-          onRenameThread,
-        })}
-      </div>,
-    );
-    try {
-      const countChip = page.getByRole("button", { name: "3 pull requests", exact: true });
-      await expect.element(countChip).toBeVisible();
-      const countElement = countChip.element() as HTMLElement;
-      expect(countElement.textContent).toBe("3");
-      countElement.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-      expect(onRenameThread).not.toHaveBeenCalled();
-
-      // A press lists every PR (its own first, then open, then newest); none opens by itself.
-      await countChip.click();
-      const items = page.getByRole("menuitem");
-      await expect
-        .poll(() => items.elements().map((item) => item.textContent))
-        .toEqual(["#96 检查 iOS 拉取请求", "#97 修复小组件快照", "#95 放弃的尝试"]);
-      expect(onOpenThreadPullRequest).not.toHaveBeenCalled();
-      expect(onOpenThread).not.toHaveBeenCalled();
-      await page.screenshot({ path: "__screenshots__/activity-pr-count/light.png" });
-      const previousStyle = document.documentElement.style.cssText;
-      const { variables } = buildThemeCssVariables(
-        { codeThemeId: "codex", theme: DEFAULT_CHROME_THEME_BY_VARIANT.dark },
-        "dark",
-      );
-      document.documentElement.classList.add("dark");
-      for (const [name, value] of Object.entries(variables)) {
-        document.documentElement.style.setProperty(name, value);
-      }
-      try {
-        await page.screenshot({ path: "__screenshots__/activity-pr-count/dark.png" });
-      } finally {
-        document.documentElement.classList.remove("dark");
-        document.documentElement.style.cssText = previousStyle;
-      }
-
-      await page.getByRole("menuitem", { name: "#97 修复小组件快照" }).click();
-      expect(onOpenThreadPullRequest).toHaveBeenCalledOnce();
-      expect(onOpenThreadPullRequest.mock.calls[0]?.slice(1)).toEqual([several, open]);
-      expect(onOpenThread).not.toHaveBeenCalled();
-      expect(onRenameThread).not.toHaveBeenCalled();
-      await expect.poll(() => items.elements().length).toBe(0);
-
-      // One PR keeps its #number and opens directly.
-      const singleChip = page.getByText("#2186", { exact: true });
-      await singleChip.click();
-      expect(onOpenThreadPullRequest).toHaveBeenCalledTimes(2);
-      expect(onOpenThreadPullRequest.mock.calls[1]?.slice(1)).toEqual([single, singlePr]);
-    } finally {
-      await mounted.unmount();
-    }
   });
 });

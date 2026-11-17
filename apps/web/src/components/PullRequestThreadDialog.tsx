@@ -23,32 +23,25 @@ import {
 import { Input } from "./ui/input";
 import { Spinner } from "./ui/spinner";
 
-type ResolvedPullRequest = NonNullable<GitResolvePullRequestResult["pullRequest"]>;
-
-type PullRequestThreadDialogProps = {
+interface PullRequestThreadDialogProps {
   open: boolean;
   cwd: string | null;
   initialReference: string | null;
   onOpenChange: (open: boolean) => void;
-} & (
-  | {
-      /** Check the PR out into a new draft thread (local branch or worktree). */
-      mode?: "checkout";
-      onPrepared: (input: {
-        branch: string;
-        worktreePath: string | null;
-        pullRequest: ResolvedPullRequest;
-      }) => Promise<void> | void;
-    }
-  | {
-      /** Only associate the PR with the current thread; nothing is checked out. */
-      mode: "link";
-      onLink: (pullRequest: ResolvedPullRequest) => Promise<void> | void;
-    }
-);
+  onPrepared: (input: {
+    branch: string;
+    worktreePath: string | null;
+    pullRequest: NonNullable<GitResolvePullRequestResult["pullRequest"]>;
+  }) => Promise<void> | void;
+}
 
-export function PullRequestThreadDialog(props: PullRequestThreadDialogProps) {
-  const { open, onOpenChange } = props;
+export function PullRequestThreadDialog({
+  open,
+  cwd,
+  initialReference,
+  onOpenChange,
+  onPrepared,
+}: PullRequestThreadDialogProps) {
   // Mirrors the content's prepare-in-flight state so the close guard can live
   // up here while all form state resets by unmounting below DialogPopup.
   const [busy, setBusy] = useState(false);
@@ -62,26 +55,32 @@ export function PullRequestThreadDialog(props: PullRequestThreadDialogProps) {
       }}
     >
       <DialogPopup className="max-w-xl">
-        <PullRequestThreadDialogContent {...props} onBusyChange={setBusy} />
+        <PullRequestThreadDialogContent
+          cwd={cwd}
+          initialReference={initialReference}
+          onOpenChange={onOpenChange}
+          onPrepared={onPrepared}
+          onBusyChange={setBusy}
+        />
       </DialogPopup>
     </Dialog>
   );
 }
 
-function PullRequestThreadDialogContent(
-  props: PullRequestThreadDialogProps & {
-    onBusyChange: (busy: boolean) => void;
-  },
-) {
-  const { cwd, initialReference, onOpenChange, onBusyChange } = props;
-  const linkMode = props.mode === "link";
+function PullRequestThreadDialogContent({
+  cwd,
+  initialReference,
+  onOpenChange,
+  onPrepared,
+  onBusyChange,
+}: Omit<PullRequestThreadDialogProps, "open"> & {
+  onBusyChange: (busy: boolean) => void;
+}) {
   const queryClient = useQueryClient();
   const referenceInputRef = useRef<HTMLInputElement>(null);
   const [reference, setReference] = useState(initialReference ?? "");
   const [referenceDirty, setReferenceDirty] = useState(false);
   const [preparingMode, setPreparingMode] = useState<"local" | "worktree" | null>(null);
-  const [linking, setLinking] = useState(false);
-  const [linkError, setLinkError] = useState<string | null>(null);
   const [debouncedReference, referenceDebouncer] = useDebouncedValue(
     reference,
     { wait: 450 },
@@ -148,39 +147,14 @@ function PullRequestThreadDialogContent(
 
   // Promise chain instead of async/try-finally: React Compiler does not yet
   // support try/finally, and it would skip optimizing this whole component.
-  const handleLink = () => {
-    if (!parsedReference) {
-      setReferenceDirty(true);
-      return;
-    }
-    if (props.mode !== "link" || !resolvedPullRequest || linking) {
-      return;
-    }
-    setLinking(true);
-    setLinkError(null);
-    onBusyChange(true);
-    void Promise.resolve(props.onLink(resolvedPullRequest))
-      .then(() => {
-        onOpenChange(false);
-      })
-      .catch((error: unknown) => {
-        setLinkError(error instanceof Error ? error.message : "Couldn't link the pull request.");
-      })
-      .finally(() => {
-        setLinking(false);
-        onBusyChange(false);
-      });
-  };
-
   const handleConfirm = (mode: "local" | "worktree") => {
     if (!parsedReference) {
       setReferenceDirty(true);
       return;
     }
-    if (props.mode === "link" || !parsedReference || !resolvedPullRequest || !cwd) {
+    if (!parsedReference || !resolvedPullRequest || !cwd) {
       return;
     }
-    const { onPrepared } = props;
     setPreparingMode(mode);
     onBusyChange(true);
     void preparePullRequestThreadMutation
@@ -215,7 +189,6 @@ function PullRequestThreadDialogContent(
         : null;
   const errorMessage =
     validationMessage ??
-    linkError ??
     (resolvedPullRequest === null && resolvePullRequestQuery.isError
       ? resolvePullRequestQuery.error instanceof Error
         ? resolvePullRequestQuery.error.message
@@ -229,11 +202,10 @@ function PullRequestThreadDialogContent(
   return (
     <>
       <DialogHeader>
-        <DialogTitle>{linkMode ? "Link Pull Request" : "Checkout Pull Request"}</DialogTitle>
+        <DialogTitle>Checkout Pull Request</DialogTitle>
         <DialogDescription>
-          {linkMode
-            ? "Link a GitHub pull request to this chat. Nothing is checked out and the pull request is not changed."
-            : "Resolve a GitHub pull request, then create the draft thread in the main repo or in a dedicated worktree."}
+          Resolve a GitHub pull request, then create the draft thread in the main repo or in a
+          dedicated worktree.
         </DialogDescription>
       </DialogHeader>
       <DialogPanel className="space-y-4">
@@ -253,10 +225,6 @@ function PullRequestThreadDialogContent(
                 return;
               }
               event.preventDefault();
-              if (linkMode) {
-                if (!isResolving) handleLink();
-                return;
-              }
               if (!isResolving && !preparePullRequestThreadMutation.isPending) {
                 void handleConfirm("local");
               }
@@ -300,54 +268,41 @@ function PullRequestThreadDialogContent(
           variant="outline"
           size="sm"
           onClick={() => onOpenChange(false)}
-          disabled={preparePullRequestThreadMutation.isPending || linking}
+          disabled={preparePullRequestThreadMutation.isPending}
         >
           Cancel
         </Button>
-        {linkMode ? (
-          <Button
-            type="button"
-            size="sm"
-            onClick={handleLink}
-            disabled={!resolvedPullRequest || isResolving || linking}
-          >
-            {linking ? "Linking..." : "Link to chat"}
-          </Button>
-        ) : (
-          <>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                void handleConfirm("local");
-              }}
-              disabled={
-                !cwd ||
-                !resolvedPullRequest ||
-                isResolving ||
-                preparePullRequestThreadMutation.isPending
-              }
-            >
-              {preparingMode === "local" ? "Preparing local..." : "Local"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                void handleConfirm("worktree");
-              }}
-              disabled={
-                !cwd ||
-                !resolvedPullRequest ||
-                isResolving ||
-                preparePullRequestThreadMutation.isPending
-              }
-            >
-              {preparingMode === "worktree" ? "Preparing worktree..." : "Worktree"}
-            </Button>
-          </>
-        )}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void handleConfirm("local");
+          }}
+          disabled={
+            !cwd ||
+            !resolvedPullRequest ||
+            isResolving ||
+            preparePullRequestThreadMutation.isPending
+          }
+        >
+          {preparingMode === "local" ? "Preparing local..." : "Local"}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => {
+            void handleConfirm("worktree");
+          }}
+          disabled={
+            !cwd ||
+            !resolvedPullRequest ||
+            isResolving ||
+            preparePullRequestThreadMutation.isPending
+          }
+        >
+          {preparingMode === "worktree" ? "Preparing worktree..." : "Worktree"}
+        </Button>
       </DialogFooter>
     </>
   );

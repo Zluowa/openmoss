@@ -7,7 +7,6 @@ import type {
   ModelSelection,
   NativeApi,
   ProviderStartOptions,
-  ThreadId,
 } from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
@@ -874,8 +873,6 @@ export function gitRunStackedActionMutationOptions(input: {
       prBody?: string;
       prDraft?: boolean;
       allowDirtyWorkingTree?: boolean;
-      /** Thread the action runs for; the server links the PR it creates or pushes to. */
-      threadId?: ThreadId;
     },
     Awaited<ReturnType<NativeApi["git"]["runStackedAction"]>>
   >({
@@ -898,14 +895,12 @@ export function gitRunStackedActionMutationOptions(input: {
         prBody,
         prDraft,
         allowDirtyWorkingTree,
-        threadId,
       },
     ) =>
       api.git.runStackedAction({
         actionId,
         cwd,
         action,
-        ...(threadId ? { threadId } : {}),
         ...(commitMessage ? { commitMessage } : {}),
         ...(featureBranch ? { featureBranch } : {}),
         ...(filePaths ? { filePaths } : {}),

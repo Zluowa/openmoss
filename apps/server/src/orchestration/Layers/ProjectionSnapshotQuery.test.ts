@@ -869,7 +869,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           sidechatLastActivityAt: null,
           sidechatExpiredAt: null,
           lastKnownPr: null,
-          pullRequests: [],
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           latestHumanMessageAt: null,
           // A present empty pending-interaction projection is authoritative;
@@ -2256,118 +2255,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.number, 1);
       assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.headBranch, "moss/greeting-1");
-
-      // A row the link backfill never reached exposes its single PR as a legacy link.
-      assert.deepEqual(
-        shellSnapshot.threads[0]?.pullRequests?.map((link) => [link.source, link.linkedAt]),
-        [["legacy", "2026-02-25T00:00:03.000Z"]],
-      );
-      assert.equal(snapshot.threads[0]?.pullRequests?.[0]?.pullRequest.number, 1);
-
-      // Stored links win over the legacy slot (this build writes the slot as their current PR).
-      const second = {
-        pullRequest: {
-          number: 2,
-          title: "Second",
-          url: "https://github.com/Emanuele-web04/openclap/pull/2",
-          baseBranch: "main",
-          headBranch: "moss/second",
-          state: "merged",
-        },
-        source: "agent",
-        linkedAt: "2026-02-25T00:00:04.000Z",
-      };
-      const firstPullRequest = shellSnapshot.threads[0]!.lastKnownPr!;
-      yield* sql`
-        UPDATE projection_threads
-        SET pull_requests_json = ${JSON.stringify([second])},
-          last_known_pr_json = ${JSON.stringify(second.pullRequest)}
-        WHERE thread_id = 'thread-pr'
-      `;
-      const relinked = yield* snapshotQuery.getShellSnapshot();
-      assert.deepEqual(
-        relinked.threads[0]?.pullRequests?.map((link) => [link.source, link.pullRequest.number]),
-        [["agent", 2]],
-      );
-
-      // Moss: after a downgrade, 1.0.7 (no links) replaced the single slot. Upgraded again,
-      // that replacement applies as a branch-managed link; the explicit link stays.
-      yield* sql`
-        UPDATE projection_threads SET last_known_pr_json = ${JSON.stringify(firstPullRequest)}
-        WHERE thread_id = 'thread-pr'
-      `;
-      const afterDowngrade = yield* snapshotQuery.getShellSnapshot();
-      assert.deepEqual(
-        afterDowngrade.threads[0]?.pullRequests?.map((link) => [
-          link.source,
-          link.pullRequest.number,
-        ]),
-        [
-          ["agent", 2],
-          ["discovered", 1],
-        ],
-      );
-
-      // The current PR the row shows follows the reconciled links, not 1.0.7's raw slot:
-      // links [A by an agent, open; B discovered, open], then 1.0.7 refreshes B to merged.
-      const prA = {
-        ...firstPullRequest,
-        number: 11,
-        url: firstPullRequest.url.replace(/\/1$/u, "/11"),
-      };
-      const prB = {
-        ...firstPullRequest,
-        number: 12,
-        url: firstPullRequest.url.replace(/\/1$/u, "/12"),
-      };
-      yield* sql`
-        UPDATE projection_threads
-        SET pull_requests_json = ${JSON.stringify([
-          { pullRequest: prB, source: "discovered", linkedAt: "2026-02-25T00:00:05.000Z" },
-          { pullRequest: prA, source: "agent", linkedAt: "2026-02-25T00:00:06.000Z" },
-        ])},
-          last_known_pr_json = ${JSON.stringify({ ...prB, state: "merged" })}
-        WHERE thread_id = 'thread-pr'
-      `;
-      const refreshed = (yield* snapshotQuery.getShellSnapshot()).threads[0]!;
-      assert.equal(refreshed.lastKnownPr?.number, 11);
-      assert.equal(
-        refreshed.pullRequests?.find((link) => link.pullRequest.number === 12)?.pullRequest.state,
-        "merged",
-      );
-      // A PR the person unlinked and 1.0.7 rediscovered stays unlinked and is not shown.
-      yield* sql`
-        UPDATE projection_threads
-        SET pull_requests_json = ${JSON.stringify([
-          { pullRequest: prA, source: "agent", linkedAt: "2026-02-25T00:00:06.000Z" },
-          {
-            pullRequest: prB,
-            source: "user",
-            linkedAt: "2026-02-25T00:00:05.000Z",
-            dismissedAt: "2026-02-25T00:00:07.000Z",
-          },
-        ])},
-          last_known_pr_json = ${JSON.stringify(prB)}
-        WHERE thread_id = 'thread-pr'
-      `;
-      const rediscovered = (yield* snapshotQuery.getShellSnapshot()).threads[0]!;
-      assert.equal(rediscovered.lastKnownPr?.number, 11);
-      yield* sql`
-        UPDATE projection_threads SET last_known_pr_json = ${JSON.stringify(firstPullRequest)}
-        WHERE thread_id = 'thread-pr'
-      `;
-
-      // A list this build cannot fully decode is not fatal: it reads as the legacy slot.
-      yield* sql`
-        UPDATE projection_threads
-        SET pull_requests_json = ${JSON.stringify([second, { source: "future-source" }])}
-        WHERE thread_id = 'thread-pr'
-      `;
-      const undecodable = yield* snapshotQuery.getShellSnapshot();
-      assert.deepEqual(
-        undecodable.threads[0]?.pullRequests?.map((link) => [link.source, link.pullRequest.number]),
-        [["legacy", 1]],
-      );
     }),
   );
 
@@ -2898,7 +2785,6 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           sidechatLastActivityAt: null,
           sidechatExpiredAt: null,
           lastKnownPr: null,
-          pullRequests: [],
           goal: "",
           goalStartedAt: null,
           goalPausedAt: null,

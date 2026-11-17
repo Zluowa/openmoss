@@ -154,19 +154,6 @@ names the scopes "In Moss" and "This computer", draws the series in its own them
 colors, and keeps every string in its zh-CN and en localization. Synara's Billing tab
 is not included.
 
-## Synara pull request links (absorbed)
-
-A chat linking several pull requests is adapted from Synara PR #2132
-(https://github.com/Emanuele-web04/synara/pull/2132, MIT, commit
-85af28bc50887c828e959c4b4081b602d201e49b): the link contracts and commands, the shared
-link helpers, the migration (upstream 144, Moss 170), the decider, projector, repository and
-snapshot reads, the git metadata reactor's linking and refresh, the agent link and unlink
-tools, the environment panel's linked PRs and link dialog, and their tests. The Activity
-row's PR count chip and its menu come from Synara PR #2195
-(https://github.com/Emanuele-web04/synara/pull/2195, MIT, commit
-8ab2c8fadf5311be0b86a7807cc082fb3d3d8b17). Moss declares the migration additive under its
-reader floor and reconciles links after a downgrade to a build without them.
-
 ## Synara tool-call rows (absorbed)
 
 How the transcript's tool, command and reasoning rows fold, open and summarise follows
@@ -187,8 +174,8 @@ f230f03ba): the bounded projection read and `threadLatestReplyPreview.ts`, the s
 `latestReplyPreview` field, the shared `markdownPlainText.ts` that chat notifications now
 use too, the row's two-line reply and title emphasis, and their tests. Moss also takes
 OpenUI programs, visual tags, HTML and table rules out of the preview and masks
-credentials on the server. The row's pull request count arrived with Synara's multi-PR
-links (see "Synara pull request links").
+credentials on the server. The pull request count (Synara's multi-PR links, PR #2132) is
+not included.
 
 ## Synara and T3 Code composer predictions (absorbed)
 

@@ -2704,8 +2704,7 @@ const makeGitHubCli = Effect.gen(function* () {
     getPullRequest: (input) =>
       execute({
         cwd: input.cwd,
-        // `--` ends the options: a stored reference can never be read as a `gh` flag.
-        args: ["pr", "view", "--json", PULL_REQUEST_SUMMARY_JSON_FIELDS, "--", input.reference],
+        args: ["pr", "view", input.reference, "--json", PULL_REQUEST_SUMMARY_JSON_FIELDS],
       }).pipe(
         Effect.map((result) => result.stdout.trim()),
         Effect.flatMap((raw) =>

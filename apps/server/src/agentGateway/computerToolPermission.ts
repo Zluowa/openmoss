@@ -207,7 +207,6 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "moss_interrupt_thread",
   "moss_set_thread_title",
   "moss_set_thread_pull_request",
-  "moss_unlink_thread_pull_request",
   "moss_set_thread_archived",
   "moss_set_thread_goal",
   // Thread diagnostics (threadDiagnosticTools.ts)

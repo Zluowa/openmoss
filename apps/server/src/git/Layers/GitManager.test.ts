@@ -1961,11 +1961,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       expect(result.pr.status).toBe("opened_existing");
       expect(result.pr.number).toBe(82);
       expect(ghCalls.some((call) => call.includes("pr create --base main"))).toBe(true);
-      expect(
-        ghCalls.some(
-          (call) => call.startsWith("pr view --json ") && call.endsWith(` -- ${existingPrUrl}`),
-        ),
-      ).toBe(true);
+      expect(ghCalls.some((call) => call.startsWith(`pr view ${existingPrUrl}`))).toBe(true);
     }),
   );
 
@@ -2174,9 +2170,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         deletions: null,
         changedFiles: null,
       });
-      expect(
-        ghCalls.some((call) => call === `pr view --json ${PULL_REQUEST_SUMMARY_JSON_FIELDS} -- 42`),
-      ).toBe(true);
+      expect(ghCalls.some((call) => call.startsWith("pr view 42 "))).toBe(true);
     }),
   );
 

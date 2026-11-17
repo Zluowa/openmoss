@@ -14,11 +14,6 @@ import { isSidechatThread } from "@moss/shared/sidechatThread";
 import { clearRemovedAsyncUserInputResponses } from "@moss/shared/asyncUserInput";
 import { isGroupContainerKind } from "@moss/shared/projectContainers";
 import {
-  pullRequestLinksFromEventPayload,
-  resolveCurrentPullRequest,
-} from "@moss/shared/threadPullRequestLinks";
-import { resolveStoredPullRequestLinks } from "../../persistence/pullRequestLinksColumn.ts";
-import {
   addPinnedMessage,
   removePinnedMessage,
   setPinnedMessageDone,
@@ -621,8 +616,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             sidechatLastActivityAt: event.payload.sidechatLastActivityAt,
             sidechatExpiredAt: event.payload.sidechatExpiredAt,
             lastKnownPr: event.payload.lastKnownPr ?? null,
-            pullRequests:
-              pullRequestLinksFromEventPayload(event.payload, event.payload.createdAt) ?? [],
             latestTurnId: null,
             handoff: event.payload.handoff,
             pinnedMessages: null,
@@ -657,15 +650,6 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               })
             : Option.none();
           const isStudio = Option.isSome(project) && isGroupContainerKind(project.value.kind);
-          // A payload with only `lastKnownPr` applies to the stored links by the same rule the
-          // live read uses, so a rebuilt projection matches the live one.
-          const pullRequests = pullRequestLinksFromEventPayload(
-            event.payload,
-            event.payload.updatedAt,
-            Option.isSome(currentThread)
-              ? resolveStoredPullRequestLinks(currentThread.value)
-              : null,
-          );
           return yield* updateThreadProjection(event.payload.threadId, (thread) => {
             const nextCreateBranchFlowCompleted =
               event.payload.createBranchFlowCompleted !== undefined
@@ -745,11 +729,9 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.subagentRole !== undefined
                 ? { subagentRole: event.payload.subagentRole }
                 : {}),
-              ...(pullRequests !== undefined
-                ? { pullRequests, lastKnownPr: resolveCurrentPullRequest(pullRequests) }
-                : event.payload.lastKnownPr !== undefined
-                  ? { lastKnownPr: event.payload.lastKnownPr }
-                  : {}),
+              ...(event.payload.lastKnownPr !== undefined
+                ? { lastKnownPr: event.payload.lastKnownPr }
+                : {}),
               ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
               ...(event.payload.pinnedMessages !== undefined
                 ? { pinnedMessages: event.payload.pinnedMessages }

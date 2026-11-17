@@ -91,7 +91,7 @@ layer("GitHubCliLive", (it) => {
       });
       expect(mockedRunProcess).toHaveBeenCalledWith(
         "gh",
-        ["pr", "view", "--json", PULL_REQUEST_SUMMARY_JSON_FIELDS, "--", "#42"],
+        ["pr", "view", "#42", "--json", PULL_REQUEST_SUMMARY_JSON_FIELDS],
         expect.objectContaining({ cwd: "/repo" }),
       );
     }),
