@@ -2085,6 +2085,20 @@ export function isNeutralInitialChatIndexLocation(input: {
   );
 }
 
+/**
+ * Whether Home (or a pinned project) on the rail has to bring the thread view back. The section is read
+ * from the route on screen, which trails a navigation still loading: after a click on Mossbot the old
+ * thread is still shown until Mossbot's route commits. A click made meanwhile must win over that pending
+ * navigation, so while the router is on its way somewhere else the thread view is always reopened.
+ */
+export function shouldReopenThreadsViewFromRail(input: {
+  readonly onThreadsSection: boolean;
+  readonly committedPathname: string;
+  readonly latestPathname: string;
+}): boolean {
+  return !input.onThreadsSection || input.latestPathname !== input.committedPathname;
+}
+
 export function resolveSidebarRoutePersistence(input: {
   readonly currentLastThreadRoute: LastThreadRoute | null;
   readonly currentSafeMainNavigationTarget: SafeMainNavigationTarget | null;

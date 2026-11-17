@@ -46,10 +46,25 @@ export function MossbotWorkspace() {
   useEffect(() => {
     if (empty && !onboardingSkipped) setOnboarding(true);
   }, [empty, onboardingSkipped]);
+  // The onboarding lives in the same content card as every other Mossbot view: the shared top bar keeps the
+  // title-bar band (window controls, traffic lights, drag region) and the stage starts under it.
   if (onboarding)
     return (
       <RouteInsetSurface>
-        <MossbotOnboarding onLeave={() => setOnboarding(false)} />
+        <div
+          data-mossbot-workspace
+          className={cn(
+            "mossbot-home flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+            CHAT_BACKGROUND_CLASS_NAME,
+          )}
+        >
+          <RouteSurfaceHeader divider={false}>
+            <span className="min-w-0 flex-1 truncate text-ui font-medium md:invisible">
+              Mossbot
+            </span>
+          </RouteSurfaceHeader>
+          <MossbotOnboarding onLeave={() => setOnboarding(false)} />
+        </div>
       </RouteInsetSurface>
     );
   return (

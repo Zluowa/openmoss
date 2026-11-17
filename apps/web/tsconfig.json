@@ -28,6 +28,7 @@
     "vite.config.ts",
     "../../tools/test-quarantine/vitest.ts",
     "../../tools/test-quarantine/context.ts",
-    "../../tools/test-quarantine/quarantine.ts"
+    "../../tools/test-quarantine/quarantine.ts",
+    "../../tools/test-quarantine/emptySuites.ts"
   ]
 }
