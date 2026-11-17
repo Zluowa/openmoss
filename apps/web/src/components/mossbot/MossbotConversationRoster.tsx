@@ -27,7 +27,7 @@ import { MossbotRoomMenu } from "./MossbotRoomMenu";
 import { useMossbotRoomList } from "./MossbotRooms";
 import { MossbotFolderSection } from "./MossbotConversationFolders";
 import { useMossbotCopy } from "./mossbot.copy";
-import { isMossbot, mossbotStatus } from "./mossbot.logic";
+import { isMossbot, mossbotCompanionState, mossbotStatus } from "./mossbot.logic";
 
 /** Right-click opens the row's own menu. */
 function openMenu(event: MouseEvent<HTMLLIElement>) {
@@ -170,6 +170,7 @@ function AssistantRow({
 }) {
   const { t } = useMossbotCopy();
   const id = assistant.coordinatorThreadId;
+  const companionState = mossbotCompanionState(assistant);
   const thread = useStore((state) => (id ? state.sidebarThreadSummaryById[id] : undefined));
   const preview = useStore((state) => {
     if (!id) return undefined;
@@ -196,6 +197,8 @@ function AssistantRow({
         <MossbotAvatar
           icon={assistant.coordinatorIcon}
           color={assistant.coordinatorColor}
+          state={companionState}
+          live={companionState === "working" || companionState === "waiting"}
           className={sidebar ? "mossbot-row-avatar" : "mossbot-list-avatar"}
         />
       }

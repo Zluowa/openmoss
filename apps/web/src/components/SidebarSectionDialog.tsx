@@ -3,6 +3,7 @@
 // Layer: Web production component
 
 import { SIDEBAR_SECTION_NAME_MAX_LENGTH } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import type { MossLocaleCode } from "../uiLocale";
 import { sidebarSectionManagementCopy } from "./sidebarSectionManagement";
@@ -71,6 +72,7 @@ export function SidebarSectionDialog(props: {
             aria-describedby={validationMessage ? "sidebar-section-name-error" : undefined}
             onChange={(event) => onNameChange(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposingKeyEvent(event)) return;
               if (event.key === "Enter") {
                 event.preventDefault();
                 void onSubmit();

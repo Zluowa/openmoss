@@ -510,6 +510,8 @@ The behaviour layer under Moss's shared components in `apps/web/src/components/u
 - License: Apache License 2.0. The full text ships in each package as `LICENSE`; the packages carry no `NOTICE` file.
 - These are public open-source packages. Vercel's Public Beta Agreement covers Vercel products used through a Vercel account and says open-source components are licensed under their own license (section 3), so it does not restrict shipping these packages in Moss.
 
+Moss's tests of its in-app browser WebMCP host also run a project-settings page built with UI SDK in a real Electron guest. That built page is vendored, unmodified, under `third_party/ui-sdk-webmcp-fixture/` with its pinned versions, hashes and licence (`NOTICE.md`, `LICENSE`): `@ui-sdk/web` and `@ui-sdk/core` 0.1.0-beta.6, Apache License 2.0. It is a test fixture only and is not shipped in the Moss app.
+
 ## OpenMausBot (Mossbot group chats, adapted)
 
 Mossbot's group-chat mention grammar and routing, room member picker, sequential speaker queue, room layout and conversation-section components adapt OpenMausBot. Moss supplies its own artwork, execution, persistence and permissions. The adapted files and changes are listed in `third_party/openmaus/NOTICE.md` and `third_party/openmaus/UI-PORTS.md`.

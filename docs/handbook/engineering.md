@@ -50,6 +50,83 @@ changes with fake CLIs and fake credentials in an isolated profile (the
   cleared. Anything started at boot that outlives shutdown is a release blocker.
   `apps/desktop/src/backendShutdown.windows.integration.test.ts` must stay green.
 
+## Database migrations
+
+Migrations live in `apps/server/src/persistence/Migrations.ts` and are only ever
+appended: never renumber, rename or edit one a release shipped
+(`bun run migrations:check`, the "Migration Lineage" CI job).
+
+**Going back a version.** A person who installs a newer Moss and then goes back
+to an older one must still be able to start it. The database records a reader
+floor in SQLite's `PRAGMA user_version`: the lowest migration a build must know
+to open the database, together with the newest migration it was written for.
+Every start that finds the database at exactly its own newest migration writes
+its floor if the stored one differs, so a start that committed its migrations
+and then stopped is repaired by the next one.
+
+An older build opens a database with migrations it does not know only when the
+floor was written for the database's newest migration and is at or below the
+older build's own newest migration. Otherwise it shows "This database is newer
+than Moss", as before. The floor admits every build at or above it, not only
+the previous release: a database with two releases' additive migrations opens
+in the oldest build the floor names.
+
+**Declaring a migration additive.** A new migration raises the floor unless you
+add it to `MIGRATIONS_OLDER_READERS_MAY_IGNORE`. List it there only when all of
+these hold.
+
+1. **It only adds things an older build never touches:**
+   - a nullable column on an existing table, or one with a constant default;
+   - a new table, or a non-unique index.
+
+   On an existing table, none of these are allowed:
+   - a UNIQUE or partial-unique index, because an older build's INSERT can fail on it;
+   - a trigger, because older writes would then do more than they did;
+   - a NOT NULL column without a default, because older INSERTs fail;
+   - a foreign key into the table from a new table or column, unless it is
+     `ON DELETE CASCADE` or `SET NULL`, because with `foreign_keys = ON` an older
+     build's DELETE can fail.
+
+   It also drops, renames and rewrites nothing that existed. A backfill may only
+   set the columns it adds.
+
+2. **Older code works without it, and its writes keep it intact.** Projection rows
+   are updated by named columns, never by `INSERT OR REPLACE` or by delete and
+   re-insert. Anything stored only in the new column can be rebuilt from events.
+3. **Older code can still read every event the new code writes.** A new optional
+   field on an existing event is fine. A new event type, a new value in an enum
+   an older decoder knows, or a field an older decider requires is not.
+4. **The new code reconciles rows the older build wrote, on every start.** Nothing
+   records that an older build opened the database. Example: the older build
+   keeps updating `lastKnownPr` while the new list of linked pull requests goes
+   stale, so on every read the new build compares the two and takes the older
+   build's value.
+
+`checkAdditiveMigration` enforces rule 1 for every migration on the list, in
+`MigrationReaderFloor.test.ts`, and names the rule a migration breaks. Rules 2 to
+4 are the author's claim; the tests below show them.
+
+The list is an unbroken run at the end of the migrations, and the floor is the
+migration just before it. When a migration that is not additive lands after
+additive ones, it raises the floor to itself: empty the list, and let later
+additive migrations start a new run. If any rule is in doubt, leave the
+migration off the list. Older versions then refuse the database with the usual
+dialog, which is safe.
+
+**Test it.** Every additive migration gets a test against the floor release,
+which is the oldest build the floor admits, with every additive migration above
+the floor applied together:
+
+1. Migrate with `runMigrations()`.
+2. Open the database with `runMigrationsAsFloorRelease()` from
+   `persistence/migrationReaderFloorTesting.ts`. Use `runMigrationsAsRelease(id)`
+   for any release in between.
+3. Run that release's writes against the database.
+4. Check the reconciliation when the new build starts again.
+
+`persistence/MigrationReaderFloor.test.ts` shows each step, including a
+database two newer releases migrated, opened by the floor release.
+
 ## Reuse before you build
 
 Before adding a component, hook, store or helper, search for one that already
