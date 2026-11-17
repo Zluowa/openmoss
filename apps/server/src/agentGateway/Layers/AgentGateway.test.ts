@@ -2324,6 +2324,7 @@ describe("AgentGateway", () => {
         "moss_interrupt_thread",
         "moss_set_thread_title",
         "moss_set_thread_pull_request",
+        "moss_unlink_thread_pull_request",
         "moss_set_thread_archived",
         "moss_set_thread_goal",
         "moss_request_secret",
@@ -2426,9 +2427,14 @@ describe("AgentGateway", () => {
       const setThreadPullRequest = tools.find(
         (tool) => tool.name === "moss_set_thread_pull_request",
       );
-      assert.include(setThreadPullRequest?.description ?? "", "own deliverable");
-      assert.include(setThreadPullRequest?.description ?? "", "only reviews");
+      assert.include(setThreadPullRequest?.description ?? "", "never replaces other links");
+      assert.include(setThreadPullRequest?.description ?? "", "only read, review, or mention");
       assert.deepEqual(setThreadPullRequest?.inputSchema.required, ["reference"]);
+      const unlinkThreadPullRequest = tools.find(
+        (tool) => tool.name === "moss_unlink_thread_pull_request",
+      );
+      assert.include(unlinkThreadPullRequest?.description ?? "", "does not close");
+      assert.deepEqual(unlinkThreadPullRequest?.inputSchema.required, ["url"]);
 
       const createAutomation = tools.find((tool) => tool.name === "moss_create_automation");
       assert.include(createAutomation?.description ?? "", "self-contained future-run brief");
@@ -6396,10 +6402,11 @@ describe("AgentGateway", () => {
       });
       const dispatched = harness.dispatched[0] as unknown as Record<string, unknown>;
       assert.deepInclude(dispatched, {
-        type: "thread.meta.update",
+        type: "thread.pull-request.link",
         threadId: "thread-parent",
+        source: "agent",
       });
-      assert.deepInclude(dispatched.lastKnownPr as Record<string, unknown>, {
+      assert.deepInclude(dispatched.pullRequest as Record<string, unknown>, {
         number: 841,
         headBranch: "fix/created-at-thread-order",
         state: "open",

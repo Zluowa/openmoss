@@ -20,6 +20,8 @@ import {
 } from "./Errors.ts";
 import {
   MigrationBackupAuthorization,
+  MigrationReaderLatestId,
+  encodeMigrationReaderFloor,
   inspectCurrentMigrationLineage,
   isAdoptedImportLineage,
   type MigrationLineageClassification,
@@ -229,6 +231,7 @@ import Migration0166 from "./Migrations/166_Mossbot.ts";
 import Migration0167 from "./Migrations/167_UsageAnalyticsDeletedTokens.ts";
 import Migration0168 from "./Migrations/168_PageItemKindsOpen.ts";
 import Migration0169 from "./Migrations/169_PageDocStyleAndTextComments.ts";
+import Migration0170 from "./Migrations/170_ProjectionThreadsPullRequestLinks.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -412,6 +415,7 @@ export const migrationEntries = [
   [167, "UsageAnalyticsDeletedTokens", Migration0167],
   [168, "PageItemKindsOpen", Migration0168],
   [169, "PageDocStyleAndTextComments", Migration0169],
+  [170, "ProjectionThreadsPullRequestLinks", Migration0170],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -437,6 +441,60 @@ export const makeMigrationLoader = (throughId?: number) =>
  */
 export const LAST_SHARED_LINEAGE_MIGRATION_ID = 16;
 export const LATEST_MIGRATION_ID = Math.max(...migrationEntries.map(([id]) => id));
+
+/**
+ * Migrations an older Moss may leave unapplied and still run correctly on the database
+ * (the rules: docs/handbook/engineering.md, "Database migrations"). Each entry is the
+ * author's reviewed claim that the migration is additive, and `checkAdditiveMigration`
+ * (migrationReaderFloorTesting.ts) enforces the schema part in MigrationReaderFloor.test.ts:
+ *
+ * - it adds a nullable column (or one with a constant default) to an existing table, or a new
+ *   table, or a non-unique index; on an existing table it adds no UNIQUE or partial-unique
+ *   index (an older build's INSERT could fail), no trigger (older writes would do more), no
+ *   NOT NULL column without a default (older INSERTs fail), and no foreign key into an
+ *   existing table unless it is ON DELETE CASCADE or SET NULL (an older build's DELETE could
+ *   fail); it drops, renames and rewrites nothing an older build reads;
+ * - older code never needs the new column or table, and its own writes keep it intact
+ *   (UPDATE/UPSERT of named columns, never `INSERT OR REPLACE` or delete-and-reinsert of a
+ *   row that carries it), and it reads every event the new code writes;
+ * - the new code reconciles rows an older build wrote, on every start (nothing records that
+ *   an older build opened the database), for example a field the older build kept updating
+ *   while the new column went stale.
+ *
+ * The list is an unbroken run at the end of `migrationEntries`, so the floor below is the
+ * migration just before it. When a migration that is not additive lands after additive
+ * ones, the floor rises to it: empty this list (entries below the floor no longer let any
+ * older build in) and start a new run after it. Entries are `[id, name]` exactly as in
+ * `migrationEntries`.
+ */
+export const MIGRATIONS_OLDER_READERS_MAY_IGNORE: ReadonlyArray<readonly [number, string]> = [
+  // A new nullable `pull_requests_json`, backfilled from `last_known_pr_json`, which stays the
+  // current PR older builds read and write. Links also ride on `thread.meta-updated` as an
+  // optional field older decoders drop. After a downgrade the newer build takes a
+  // `lastKnownPr` the older build changed (see `resolveStoredPullRequestLinks`).
+  [170, "ProjectionThreadsPullRequestLinks"],
+];
+
+/**
+ * The lowest migration a build must know to open a database this build migrated: the newest
+ * migration not declared additive above. Written into the database after this build applies
+ * migrations (`PRAGMA user_version`, see `MigrationReaderFloor` in MigrationLineage.ts).
+ */
+export const MIGRATION_READER_FLOOR = Math.max(
+  ...migrationEntries
+    .filter(([id]) => !MIGRATIONS_OLDER_READERS_MAY_IGNORE.some(([additive]) => additive === id))
+    .map(([id]) => id),
+);
+
+/**
+ * The `user_version` this build records. Encoded here, at module load, so a migration ID
+ * the marker cannot hold (32,768 or more) fails every start and every test before anything
+ * is migrated, never after a migration has committed.
+ */
+export const MIGRATION_READER_FLOOR_MARKER = encodeMigrationReaderFloor(
+  MIGRATION_READER_FLOOR,
+  LATEST_MIGRATION_ID,
+);
 
 const canonicalMigrationNamesById: ReadonlyMap<number, string> = new Map(
   migrationEntries.map(([id, name]) => [id, name] as const),
@@ -639,6 +697,30 @@ export const reconcileMigrationLineage = Effect.gen(function* () {
 });
 
 /**
+ * Records this build's reader floor when the tracker is exactly this build's migrations
+ * through its newest one and the stored value differs; otherwise leaves `user_version` alone.
+ */
+const writeMigrationReaderFloorIfDue = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const { classification, readerFloor } = yield* inspectCurrentMigrationLineage;
+  if (
+    classification.kind !== "moss-prefix" ||
+    classification.highWaterMark !== LATEST_MIGRATION_ID ||
+    classification.newerMigrationsIgnoredFrom !== undefined
+  ) {
+    return;
+  }
+  if (
+    readerFloor.kind === "floor" &&
+    readerFloor.floor === MIGRATION_READER_FLOOR &&
+    readerFloor.writtenAt === LATEST_MIGRATION_ID
+  ) {
+    return;
+  }
+  yield* sql.unsafe(`PRAGMA user_version = ${MIGRATION_READER_FLOOR_MARKER}`);
+});
+
+/**
  * Migrator run function - no schema dumping needed
  * Uses the base Migrator.make without platform dependencies
  */
@@ -666,7 +748,26 @@ export const runMigrations = ({
 }: RunMigrationsOptions = {}) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
+    // Test-only: read and migrate as an earlier release whose newest migration this is.
+    const readerLatestId = yield* MigrationReaderLatestId;
+    const throughId =
+      readerLatestId === undefined
+        ? toMigrationInclusive
+        : Math.min(readerLatestId, toMigrationInclusive ?? readerLatestId);
     const before = yield* inspectCurrentMigrationLineage;
+    if (
+      before.classification.kind === "moss-prefix" &&
+      before.classification.newerMigrationsIgnoredFrom !== undefined
+    ) {
+      yield* Effect.logWarning(
+        "Opening a database a newer Moss migrated; its reader floor allows this build",
+      ).pipe(
+        Effect.annotateLogs({
+          databaseMigrationId: before.classification.highWaterMark,
+          ignoredFrom: before.classification.newerMigrationsIgnoredFrom,
+        }),
+      );
+    }
     if (
       isAdoptedImportLineage(before.classification) &&
       toMigrationInclusive !== undefined &&
@@ -689,7 +790,7 @@ export const runMigrations = ({
           ? "Running all migrations..."
           : `Running migrations 1 through ${toMigrationInclusive}...`,
       );
-      const executed = yield* run({ loader: makeMigrationLoader(toMigrationInclusive) });
+      const executed = yield* run({ loader: makeMigrationLoader(throughId) });
       if (isAdoptedImportLineage(classification)) {
         const after = yield* inspectCurrentMigrationLineage;
         if (
@@ -710,6 +811,17 @@ export const runMigrations = ({
     const executedMigrations = isAdoptedImportLineage(before.classification)
       ? yield* sql.withTransaction(migrationUnit)
       : yield* migrationUnit;
+    // The build at a database's newest migration states which builds may still open it. Any
+    // start may do it, not only the one that migrated: a start that committed its migrations
+    // and then stopped (crash, full disk, a failed write) leaves the next one with nothing to
+    // run, and the marker must still be written then. A partial run, a database with
+    // migrations this build does not know, and a test reading as an older release write none.
+    if (
+      readerLatestId === undefined &&
+      (throughId === undefined || throughId >= LATEST_MIGRATION_ID)
+    ) {
+      yield* writeMigrationReaderFloorIfDue;
+    }
     yield* Effect.log("Migrations ran successfully").pipe(
       Effect.annotateLogs({ migrations: executedMigrations.map(([id, name]) => `${id}_${name}`) }),
     );

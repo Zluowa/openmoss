@@ -69,6 +69,8 @@ export function buildMossbotConfigureInput(input: {
   modelSelection: ModelSelection;
   userLocale?: "en" | "zh-CN";
   avatar?: string;
+  /** Assistant colour key (coordinatorColor); the default face takes it as its tone. */
+  color?: string;
 }): ProjectAgentConfigureInput {
   const name = input.name.trim();
   if (!name || name.length > 160) throw new Error("Choose a name of 1–160 characters.");
@@ -90,6 +92,7 @@ export function buildMossbotConfigureInput(input: {
         ...baseline.draft,
         name,
         coordinatorIcon: input.avatar ?? "mossbot-pebble",
+        ...(input.color ? { coordinatorColor: input.color } : {}),
         coordinatorModelSelection: input.modelSelection,
         workerModelSelection: input.modelSelection,
         autoMemoryEnabled: true,
@@ -100,6 +103,24 @@ export function buildMossbotConfigureInput(input: {
     agentKind: "mossbot",
     coordinatorName: name,
   };
+}
+
+/** The companion's state for an assistant: it works with a spinning sprout, waits for you, or sleeps. */
+export function mossbotCompanionState(
+  summary: ProjectAgentSummary,
+): "idle" | "working" | "waiting" | "sleeping" {
+  switch (mossbotStatus(summary)) {
+    case "Working":
+      return "working";
+    case "Needs you":
+      return "waiting";
+    case "Archived":
+    case "Paused":
+    case "Stopped":
+      return "sleeping";
+    default:
+      return "idle";
+  }
 }
 
 export function mossbotStatus(summary: ProjectAgentSummary): string {

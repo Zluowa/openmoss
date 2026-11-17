@@ -7,6 +7,8 @@ import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { Effect, FileSystem } from "effect";
+
+import { retryWhileWindowsReleasesFolder } from "../../platform/windowsKillOnCloseJob.ts";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import {
@@ -918,7 +920,16 @@ export function acquireSecureTempDirectory(input: {
 }) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const directoryPath = yield* fileSystem.makeTempDirectoryScoped(input);
+    // As makeTempDirectoryScoped, except on Windows: processes ended through a job (a timed-out
+    // CLI) release their working folder a moment after the launcher exits, and until then the
+    // removal fails with EBUSY. Retry for up to about five seconds there; the folder holds a
+    // private credential snapshot, so it is never left behind silently.
+    const remove = (directoryPath: string) =>
+      retryWhileWindowsReleasesFolder(fileSystem.remove(directoryPath, { recursive: true }));
+    const directoryPath = yield* Effect.acquireRelease(
+      fileSystem.makeTempDirectory(input),
+      (directoryPath) => Effect.orDie(remove(directoryPath)),
+    );
     yield* fileSystem.chmod(directoryPath, PRIVATE_DIRECTORY_MODE);
     return directoryPath;
   });

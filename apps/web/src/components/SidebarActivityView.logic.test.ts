@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { ProjectId, ThreadId } from "@moss/contracts";
+import {
+  ProjectId,
+  ThreadId,
+  type OrchestrationThreadPullRequest,
+  type OrchestrationThreadPullRequestLink,
+} from "@moss/contracts";
 
 import type { SidebarThreadSummary, ThreadSession } from "../types";
 
@@ -17,6 +22,8 @@ import {
   resolveActivityDateBucket,
   resolveActivityPriority,
   resolveActivityPriorityTier,
+  resolveActivityRowEmphasis,
+  resolveActivityRowPullRequests,
   resolveActivityScope,
   resolveActivitySectionRows,
   resolveActivityThreadReadAt,
@@ -716,6 +723,32 @@ describe("resolveActivityScope", () => {
   });
 });
 
+describe("resolveActivityRowEmphasis", () => {
+  // Ported from upstream #2195.
+  it("emphasizes rows that wait on the user or hold unseen news, and quiets seen replies", () => {
+    for (const label of [
+      "Pending Approval",
+      "Awaiting Input",
+      "Plan Ready",
+      "Completed",
+      "Reminder",
+    ] as const) {
+      expect(resolveActivityRowEmphasis({ label })).toEqual({
+        titleEmphasized: true,
+        replySeen: false,
+      });
+    }
+    // A running row keeps a regular title but its reply stays at full secondary ink.
+    for (const label of ["Working", "Connecting", "Preparing worktree", "In Background"] as const) {
+      expect(resolveActivityRowEmphasis({ label })).toEqual({
+        titleEmphasized: false,
+        replySeen: false,
+      });
+    }
+    expect(resolveActivityRowEmphasis(null)).toEqual({ titleEmphasized: false, replySeen: true });
+  });
+});
+
 describe("resolveActivityPriority", () => {
   const nowMs = Date.parse("2026-08-02T12:00:00.000Z");
   const working = (id: string, latestHumanMessageAt: string, overrides = {}) =>
@@ -1155,5 +1188,58 @@ describe("findNextThreadNeedingAttention", () => {
     });
     const running = makeThread({ id: "running", hasLiveTailWork: true });
     expect(findNextThreadNeedingAttention([snoozed, archived, running], null, tier)).toBeNull();
+  });
+});
+
+describe("resolveActivityRowPullRequests", () => {
+  // Ported from upstream #2195.
+  const pullRequest = (
+    number: number,
+    state: OrchestrationThreadPullRequest["state"],
+  ): OrchestrationThreadPullRequest => ({
+    number,
+    title: `PR ${number}`,
+    url: `https://github.com/acme/moss/pull/${number}`,
+    baseBranch: "main",
+    headBranch: `branch-${number}`,
+    state,
+  });
+  const link = (
+    pr: OrchestrationThreadPullRequest,
+    linkedAt: string,
+    dismissedAt?: string,
+  ): OrchestrationThreadPullRequestLink => ({
+    pullRequest: pr,
+    source: "user",
+    linkedAt,
+    ...(dismissedAt ? { dismissedAt } : {}),
+  });
+  const numbers = (prs: readonly OrchestrationThreadPullRequest[]) => prs.map((pr) => pr.number);
+
+  it("lists a row's PRs: its own first, then the other visible links, open and newest first", () => {
+    const links = [
+      link(pullRequest(1, "merged"), "2026-08-01T10:00:00.000Z"),
+      link(pullRequest(2, "closed"), "2026-08-01T12:00:00.000Z"),
+      link(pullRequest(3, "open"), "2026-08-01T09:00:00.000Z"),
+      link(pullRequest(4, "open"), "2026-08-01T11:00:00.000Z", "2026-08-01T11:30:00.000Z"),
+      link(pullRequest(5, "open"), "2026-08-01T13:00:00.000Z"),
+    ];
+
+    // The row's own PR (here with a live state newer than its stored link) leads and decides
+    // the glyph; the unlinked #4 stays out; the rest go open first, then newest first.
+    const live = { ...pullRequest(5, "merged"), url: "https://github.com/ACME/moss/pull/5/" };
+    const listed = resolveActivityRowPullRequests(live, links);
+    expect(numbers(listed)).toEqual([5, 3, 2, 1]);
+    expect(listed[0]).toBe(live);
+    // A PR found from the branch but not linked still leads.
+    expect(numbers(resolveActivityRowPullRequests(pullRequest(9, "open"), links))).toEqual([
+      9, 5, 3, 2, 1,
+    ]);
+    // One PR stays one; a row whose PR was ruled out shows none, links or not.
+    expect(numbers(resolveActivityRowPullRequests(pullRequest(1, "merged"), [links[0]!]))).toEqual([
+      1,
+    ]);
+    expect(resolveActivityRowPullRequests(pullRequest(1, "merged"), undefined)).toHaveLength(1);
+    expect(resolveActivityRowPullRequests(null, links)).toEqual([]);
   });
 });

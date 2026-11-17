@@ -95,6 +95,8 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
   "Wait for browser condition": "等待浏览器条件",
   "Evaluate browser expression": "执行浏览器表达式",
   "Close browser tab": "关闭浏览器标签页",
+  "Discover page WebMCP tools": "查看网页提供的工具",
+  "Call page WebMCP tool": "调用网页提供的工具",
   "Rendering an HTML page": "正在渲染 HTML 页面",
   "Rendered an HTML page": "已渲染 HTML 页面",
   "Couldn't render an HTML page": "无法渲染 HTML 页面",
@@ -313,12 +315,11 @@ interface MossMcpToolPresentation {
   readonly failed: string;
 }
 
-// Historical messages still contain retired tools; presentation does not expose them to agents.
+// Historical messages still contain retired tools (snapshot and element actions); presentation
+// does not expose them to agents. The WebMCP tools are live again and come from BROWSER_TOOL_TITLES.
 const BROWSER_HISTORY_TITLES = {
   ...BROWSER_TOOL_TITLES,
   browser_snapshot: "Snapshot browser page",
-  browser_webmcp_tools: "Discover page WebMCP tools",
-  browser_webmcp_call: "Call page WebMCP tool",
   browser_click: "Click browser target",
   browser_hover: "Hover browser target",
   browser_drag: "Drag between browser targets",
@@ -653,6 +654,10 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_theme_read: presentMossTool("reading the theme guide", "read the theme guide"),
   moss_theme_set: presentMossTool("restyling Moss", "restyled Moss"),
   moss_set_thread_pull_request: presentMossTool("linking a pull request", "linked a pull request"),
+  moss_unlink_thread_pull_request: presentMossTool(
+    "unlinking a pull request",
+    "unlinked a pull request",
+  ),
   moss_show_visual: presentMossTool("showing a visual", "showed a visual"),
   moss_e2e_review: presentMossTool(
     "reading the end-to-end test guide",
@@ -735,6 +740,11 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_theme_read: ["正在读取主题指南", "已读取主题指南", "无法读取主题指南"],
   moss_theme_set: ["正在更换 Moss 外观", "已更换 Moss 外观", "无法更换 Moss 外观"],
   moss_set_thread_pull_request: ["正在关联拉取请求", "已关联拉取请求", "无法关联拉取请求"],
+  moss_unlink_thread_pull_request: [
+    "正在取消关联拉取请求",
+    "已取消关联拉取请求",
+    "无法取消关联拉取请求",
+  ],
   moss_create_automation: ["正在创建自动化", "已创建自动化", "无法创建自动化"],
   moss_list_automations: ["正在列出自动化", "已列出自动化", "无法列出自动化"],
   moss_view_automation: ["正在查看自动化", "已查看自动化", "无法查看自动化"],

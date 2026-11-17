@@ -13,6 +13,7 @@ import {
   readHtmlRenderCommentPick,
   readHtmlRenderCommentRects,
 } from "@moss/shared/htmlRender";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import type { ThreadId } from "@moss/contracts";
 import {
   useCallback,
@@ -239,7 +240,7 @@ export function NewCommentCard(props: {
               }
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
                 event.preventDefault();
                 post();
               } else if (event.key === "Escape") {
@@ -397,7 +398,7 @@ export function ThreadCard(props: {
           className="w-full resize-none bg-transparent text-ui leading-5 outline-none [field-sizing:content] max-h-24 placeholder:text-muted-foreground/70"
           onChange={(event) => setReply(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
               event.preventDefault();
               if (reply.trim()) {
                 props.onReply(reply.trim());

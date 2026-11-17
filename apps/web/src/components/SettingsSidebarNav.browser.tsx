@@ -7,6 +7,7 @@ import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { composeChineseWithEnter } from "../test/imeComposition";
 import { SettingsSidebarNav } from "./SettingsSidebarNav";
 
 describe("SettingsSidebarNav search", () => {
@@ -62,4 +63,36 @@ describe("SettingsSidebarNav search", () => {
       await screen.unmount();
     }
   });
+
+  // The Enter that confirms a pinyin candidate must not jump to the top result.
+  it.each(["Enter", "Process"] as const)(
+    "confirms a pinyin candidate without choosing a result (%s), then Enter chooses",
+    async (confirmKey) => {
+      const onSelectSection = vi.fn();
+      const screen = await render(
+        <SettingsSidebarNav activeSection="history" onSelectSection={onSelectSection} />,
+      );
+      try {
+        const input = page.getByRole("textbox", { name: "Search settings" });
+        // The query is typed through the input method; results show while it composes.
+        await composeChineseWithEnter(
+          input.element() as HTMLElement,
+          "picker",
+          "picker",
+          confirmKey,
+          async () => {
+            await expect
+              .element(page.getByRole("list", { name: "Settings search results" }))
+              .toBeVisible();
+          },
+        );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(onSelectSection).not.toHaveBeenCalled();
+        await userEvent.keyboard("{Enter}");
+        expect(onSelectSection).toHaveBeenCalledTimes(1);
+      } finally {
+        await screen.unmount();
+      }
+    },
+  );
 });

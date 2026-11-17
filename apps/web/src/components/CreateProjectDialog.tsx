@@ -6,6 +6,7 @@
 // Exports: CreateProjectDialog, CreateProjectSubmitValue, CreateProjectSubmitOptions
 
 import { useQuery } from "@tanstack/react-query";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 
 import { isElectron } from "../env";
@@ -220,6 +221,7 @@ export function CreateProjectDialog(props: {
   };
 
   const submitOnEnter = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key !== "Enter") return;
     event.preventDefault();
     void submit();

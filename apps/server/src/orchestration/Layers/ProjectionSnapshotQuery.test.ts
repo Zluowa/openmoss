@@ -869,6 +869,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           sidechatLastActivityAt: null,
           sidechatExpiredAt: null,
           lastKnownPr: null,
+          pullRequests: [],
           latestUserMessageAt: "2026-02-24T00:00:03.500Z",
           latestHumanMessageAt: null,
           // A present empty pending-interaction projection is authoritative;
@@ -2255,6 +2256,118 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       const shellSnapshot = yield* snapshotQuery.getShellSnapshot();
       assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.number, 1);
       assert.equal(shellSnapshot.threads[0]?.lastKnownPr?.headBranch, "moss/greeting-1");
+
+      // A row the link backfill never reached exposes its single PR as a legacy link.
+      assert.deepEqual(
+        shellSnapshot.threads[0]?.pullRequests?.map((link) => [link.source, link.linkedAt]),
+        [["legacy", "2026-02-25T00:00:03.000Z"]],
+      );
+      assert.equal(snapshot.threads[0]?.pullRequests?.[0]?.pullRequest.number, 1);
+
+      // Stored links win over the legacy slot (this build writes the slot as their current PR).
+      const second = {
+        pullRequest: {
+          number: 2,
+          title: "Second",
+          url: "https://github.com/Emanuele-web04/openclap/pull/2",
+          baseBranch: "main",
+          headBranch: "moss/second",
+          state: "merged",
+        },
+        source: "agent",
+        linkedAt: "2026-02-25T00:00:04.000Z",
+      };
+      const firstPullRequest = shellSnapshot.threads[0]!.lastKnownPr!;
+      yield* sql`
+        UPDATE projection_threads
+        SET pull_requests_json = ${JSON.stringify([second])},
+          last_known_pr_json = ${JSON.stringify(second.pullRequest)}
+        WHERE thread_id = 'thread-pr'
+      `;
+      const relinked = yield* snapshotQuery.getShellSnapshot();
+      assert.deepEqual(
+        relinked.threads[0]?.pullRequests?.map((link) => [link.source, link.pullRequest.number]),
+        [["agent", 2]],
+      );
+
+      // Moss: after a downgrade, 1.0.7 (no links) replaced the single slot. Upgraded again,
+      // that replacement applies as a branch-managed link; the explicit link stays.
+      yield* sql`
+        UPDATE projection_threads SET last_known_pr_json = ${JSON.stringify(firstPullRequest)}
+        WHERE thread_id = 'thread-pr'
+      `;
+      const afterDowngrade = yield* snapshotQuery.getShellSnapshot();
+      assert.deepEqual(
+        afterDowngrade.threads[0]?.pullRequests?.map((link) => [
+          link.source,
+          link.pullRequest.number,
+        ]),
+        [
+          ["agent", 2],
+          ["discovered", 1],
+        ],
+      );
+
+      // The current PR the row shows follows the reconciled links, not 1.0.7's raw slot:
+      // links [A by an agent, open; B discovered, open], then 1.0.7 refreshes B to merged.
+      const prA = {
+        ...firstPullRequest,
+        number: 11,
+        url: firstPullRequest.url.replace(/\/1$/u, "/11"),
+      };
+      const prB = {
+        ...firstPullRequest,
+        number: 12,
+        url: firstPullRequest.url.replace(/\/1$/u, "/12"),
+      };
+      yield* sql`
+        UPDATE projection_threads
+        SET pull_requests_json = ${JSON.stringify([
+          { pullRequest: prB, source: "discovered", linkedAt: "2026-02-25T00:00:05.000Z" },
+          { pullRequest: prA, source: "agent", linkedAt: "2026-02-25T00:00:06.000Z" },
+        ])},
+          last_known_pr_json = ${JSON.stringify({ ...prB, state: "merged" })}
+        WHERE thread_id = 'thread-pr'
+      `;
+      const refreshed = (yield* snapshotQuery.getShellSnapshot()).threads[0]!;
+      assert.equal(refreshed.lastKnownPr?.number, 11);
+      assert.equal(
+        refreshed.pullRequests?.find((link) => link.pullRequest.number === 12)?.pullRequest.state,
+        "merged",
+      );
+      // A PR the person unlinked and 1.0.7 rediscovered stays unlinked and is not shown.
+      yield* sql`
+        UPDATE projection_threads
+        SET pull_requests_json = ${JSON.stringify([
+          { pullRequest: prA, source: "agent", linkedAt: "2026-02-25T00:00:06.000Z" },
+          {
+            pullRequest: prB,
+            source: "user",
+            linkedAt: "2026-02-25T00:00:05.000Z",
+            dismissedAt: "2026-02-25T00:00:07.000Z",
+          },
+        ])},
+          last_known_pr_json = ${JSON.stringify(prB)}
+        WHERE thread_id = 'thread-pr'
+      `;
+      const rediscovered = (yield* snapshotQuery.getShellSnapshot()).threads[0]!;
+      assert.equal(rediscovered.lastKnownPr?.number, 11);
+      yield* sql`
+        UPDATE projection_threads SET last_known_pr_json = ${JSON.stringify(firstPullRequest)}
+        WHERE thread_id = 'thread-pr'
+      `;
+
+      // A list this build cannot fully decode is not fatal: it reads as the legacy slot.
+      yield* sql`
+        UPDATE projection_threads
+        SET pull_requests_json = ${JSON.stringify([second, { source: "future-source" }])}
+        WHERE thread_id = 'thread-pr'
+      `;
+      const undecodable = yield* snapshotQuery.getShellSnapshot();
+      assert.deepEqual(
+        undecodable.threads[0]?.pullRequests?.map((link) => [link.source, link.pullRequest.number]),
+        [["legacy", 1]],
+      );
     }),
   );
 
@@ -2394,6 +2507,198 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       if (firstThreadId._tag === "Some") {
         assert.equal(firstThreadId.value, ThreadId.makeUnsafe("thread-first"));
       }
+    }),
+  );
+
+  it.effect(
+    "previews each client shell's newest finished reply with text, and only when asked",
+    () =>
+      Effect.gen(function* () {
+        const query = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`INSERT INTO projection_projects
+          (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+          VALUES ('reply-preview-project', 'Reply preview', '/tmp/reply-preview', '[]',
+            '2026-11-16T10:00:00.000Z', '2026-11-16T10:00:00.000Z')`;
+        const threads = {
+          replied: asThreadId("reply-preview-replied"),
+          streaming: asThreadId("reply-preview-streaming"),
+          toolOnly: asThreadId("reply-preview-tool-only"),
+          userOnly: asThreadId("reply-preview-user-only"),
+          archived: asThreadId("reply-preview-archived"),
+          encoded: asThreadId("reply-preview-encoded"),
+          longEncoded: asThreadId("reply-preview-long-encoded"),
+          long: asThreadId("reply-preview-long"),
+        };
+        for (const threadId of Object.values(threads)) {
+          const archivedAt = threadId === threads.archived ? "2026-11-16T11:00:00.000Z" : null;
+          yield* sql`INSERT INTO projection_threads
+            (thread_id, project_id, title, model_selection_json, created_at, updated_at, archived_at)
+            VALUES (${threadId}, 'reply-preview-project', 'Reply preview',
+              '{"provider":"codex","model":"gpt-5"}', '2026-11-16T10:00:00.000Z',
+              '2026-11-16T10:00:00.000Z', ${archivedAt})`;
+        }
+        let sequence = 0;
+        const message = (
+          threadId: ThreadId,
+          role: "user" | "assistant" | "system",
+          text: string,
+          minute: number,
+          options: { readonly streaming?: boolean; readonly textJson?: string } = {},
+        ) => {
+          sequence += 1;
+          const at = `2026-11-16T10:${String(minute).padStart(2, "0")}:00.000Z`;
+          return sql`INSERT INTO projection_thread_messages
+            (message_id, thread_id, turn_id, role, text, text_json, is_streaming, source,
+             sequence, created_at, updated_at)
+            VALUES (${`${threadId}-${sequence}`}, ${threadId}, NULL, ${role}, ${text},
+              ${options.textJson ?? null}, ${options.streaming ? 1 : 0}, 'native', ${sequence},
+              ${at}, ${at})`;
+        };
+        yield* message(threads.replied, "assistant", "An earlier reply.", 1);
+        yield* message(threads.replied, "user", "Merge them all", 2);
+        yield* message(
+          threads.replied,
+          "assistant",
+          "## Done\n\nAll four PRs are **merged** into `main`.\n- Rerun the snapshot test",
+          3,
+        );
+        // A reply still streaming never moves the preview; the last finished one stays.
+        yield* message(threads.streaming, "assistant", "Finished answer.", 1);
+        yield* message(threads.streaming, "assistant", "Still typ", 2, { streaming: true });
+        // A turn that ended in tools only, then failed: its empty assistant row and the
+        // system notice are skipped for the newest reply that said something.
+        yield* message(threads.toolOnly, "assistant", "Here is the plan.", 1);
+        yield* message(threads.toolOnly, "user", "Go ahead", 2);
+        yield* message(threads.toolOnly, "assistant", "", 3);
+        yield* message(threads.toolOnly, "system", "Turn failed: provider error", 4);
+        yield* message(threads.userOnly, "user", "Anyone there?", 1);
+        yield* message(threads.archived, "assistant", "Archived reply.", 1);
+        yield* message(threads.encoded, "assistant", "lossy copy", 1, {
+          textJson: JSON.stringify("Encoded **reply** text"),
+        });
+        yield* message(threads.longEncoded, "assistant", "lossy copy", 1, {
+          textJson: JSON.stringify(`Encoded **reply** text${" ".repeat(8_000)}\u0000tail`),
+        });
+        yield* message(threads.long, "assistant", "word ".repeat(400), 1);
+
+        const expected: Record<string, string | undefined> = {
+          [threads.replied]: "Done All four PRs are merged into main. · Rerun the snapshot test",
+          [threads.streaming]: "Finished answer.",
+          [threads.toolOnly]: "Here is the plan.",
+          [threads.userOnly]: undefined,
+          [threads.archived]: undefined,
+          [threads.encoded]: "Encoded reply text",
+          [threads.longEncoded]: "Encoded reply text…",
+        };
+        const ids = Object.values(threads);
+        const snapshot = yield* query.getShellSnapshot({ includeLatestReplyPreview: true });
+        const batch = yield* query.getThreadShellsByIds(ids, {
+          includeLatestReplyPreview: true,
+          includeLatestMessageActivity: true,
+        });
+        for (const [threadId, preview] of Object.entries(expected)) {
+          const id = asThreadId(threadId);
+          const single = Option.getOrThrow(
+            yield* query.getThreadShellById(id, { includeLatestReplyPreview: true }),
+          );
+          assert.equal(single.latestReplyPreview, preview, `single ${threadId}`);
+          assert.equal(
+            snapshot.threads.find((thread) => thread.id === id)?.latestReplyPreview,
+            preview,
+            `snapshot ${threadId}`,
+          );
+          assert.equal(
+            batch.find((thread) => thread.id === id)?.latestReplyPreview,
+            preview,
+            `batch ${threadId}`,
+          );
+        }
+        const long = Option.getOrThrow(
+          yield* query.getThreadShellById(threads.long, { includeLatestReplyPreview: true }),
+        ).latestReplyPreview;
+        assert.equal(long?.length, 240);
+        assert.isTrue(long?.endsWith("word…"));
+
+        // Internal reads skip the message read entirely.
+        const internal = yield* query.getShellSnapshot();
+        assert.isTrue(internal.threads.every((thread) => thread.latestReplyPreview === undefined));
+        const internalSingle = Option.getOrThrow(yield* query.getThreadShellById(threads.replied));
+        assert.equal(internalSingle.latestReplyPreview, undefined);
+      }),
+  );
+
+  // Moss: the preview read must stay one indexed seek per chat. With thousands of chats and
+  // many messages each it must never scan projection_thread_messages.
+  it.effect("reads reply previews by index seek, never a message scan, at list scale", () =>
+    Effect.gen(function* () {
+      const query = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`INSERT INTO projection_projects
+        (project_id, title, workspace_root, scripts_json, created_at, updated_at)
+        VALUES ('reply-plan-project', 'Reply plan', '/tmp/reply-plan', '[]',
+          '2026-11-16T10:00:00.000Z', '2026-11-16T10:00:00.000Z')`;
+      yield* sql`INSERT INTO projection_threads
+        (thread_id, project_id, title, model_selection_json, created_at, updated_at)
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000)
+        SELECT 'reply-plan-' || i, 'reply-plan-project', 'Chat ' || i,
+          '{"provider":"codex","model":"gpt-5"}', '2026-11-16T10:00:00.000Z',
+          '2026-11-16T10:00:00.000Z'
+        FROM n`;
+      yield* sql`INSERT INTO projection_thread_messages
+        (message_id, thread_id, turn_id, role, text, text_json, is_streaming, source,
+         sequence, created_at, updated_at)
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 20000)
+        SELECT 'reply-plan-message-' || i, 'reply-plan-' || (1 + (i % 2000)), NULL,
+          CASE WHEN i % 2 = 0 THEN 'assistant' ELSE 'user' END,
+          'Reply number ' || i || ' ' || printf('%.2000c', 'x'), NULL, 0, 'native', i,
+          printf('2026-11-16T%02d:%02d:00.000Z', 10 + (i / 3600) % 10, (i / 60) % 60),
+          '2026-11-16T10:00:00.000Z'
+        FROM n`;
+
+      let checked = 0;
+      const plans: string[] = [];
+      const recordPlan: Statement.Transformer = (statement) =>
+        Effect.gen(function* () {
+          const [text, parameters] = statement.compile();
+          if (!text.includes('AS "encodedTextTruncated"')) return statement;
+          checked += 1;
+          const plan = yield* sql
+            .unsafe<{ detail: string }>(`EXPLAIN QUERY PLAN ${text}`, parameters)
+            .pipe(Effect.provideService(Statement.CurrentTransformer, undefined), Effect.orDie);
+          plans.push(...plan.map((row) => row.detail));
+          return statement;
+        });
+
+      const startedAt = performance.now();
+      const snapshot = yield* query
+        .getShellSnapshot({ includeLatestReplyPreview: true })
+        .pipe(Effect.provideService(Statement.CurrentTransformer, recordPlan));
+      const elapsedMs = performance.now() - startedAt;
+
+      assert.equal(checked, 1);
+      // The candidate lookup seeks (thread_id, role, created_at DESC); the outer read joins by key.
+      assert.isTrue(
+        plans.some((detail) =>
+          detail.includes("idx_projection_thread_messages_thread_role_created_desc"),
+        ),
+        plans.join("\n"),
+      );
+      assert.isFalse(
+        plans.some((detail) => /\bSCAN (candidate|messages)\b/u.test(detail)),
+        plans.join("\n"),
+      );
+      // The layer's database is shared with the tests above; count only this test's chats.
+      const previews = snapshot.threads.filter(
+        (thread) => thread.id.startsWith("reply-plan-") && thread.latestReplyPreview !== undefined,
+      );
+      // Even-numbered messages are replies and land on odd-numbered chats: half have one.
+      assert.equal(previews.length, 1000);
+      // Only the head of each 2,000-character reply is read and shown.
+      assert.isTrue(previews.every((thread) => (thread.latestReplyPreview?.length ?? 0) <= 240));
+      // Not a timing assertion: measured once for the pull request (about 470 ms with previews
+      // against 320 ms without, in-memory SQLite, 2,000 chats).
+      void elapsedMs;
     }),
   );
 
@@ -2593,6 +2898,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           sidechatLastActivityAt: null,
           sidechatExpiredAt: null,
           lastKnownPr: null,
+          pullRequests: [],
           goal: "",
           goalStartedAt: null,
           goalPausedAt: null,

@@ -1,5 +1,6 @@
 import type { ModelSelection } from "@moss/contracts";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { resolveNewConversationDefaultModelSelection, useAppSettings } from "~/appSettings";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
@@ -134,7 +135,7 @@ export function MossImagesComposer(props: {
           }}
           onPaste={() => {}}
           onCommandKeyDown={(key, event) => {
-            if (key !== "Enter" || event.shiftKey || event.isComposing) return false;
+            if (key !== "Enter" || event.shiftKey || isImeComposingKeyEvent(event)) return false;
             send();
             return true;
           }}

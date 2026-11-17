@@ -12,7 +12,15 @@ export type MigrationSchemaDataFingerprint = {
 
 export type MigrationLineageClassification =
   | { readonly kind: "fresh-or-untracked" }
-  | { readonly kind: "moss-prefix"; readonly highWaterMark: number }
+  | {
+      readonly kind: "moss-prefix";
+      readonly highWaterMark: number;
+      /**
+       * Set when a newer Moss wrote migrations from this ID on and its reader floor lets this
+       * build open the database without them; nothing at or above it runs or is undone.
+       */
+      readonly newerMigrationsIgnoredFrom?: number;
+    }
   | {
       readonly kind: "mossbot-161-prefix";
       readonly highWaterMark: 161;
@@ -299,6 +307,7 @@ export const MOSS_RELEASED_DESCRIPTOR: ReadonlyArray<readonly [number, string]> 
   [167, "UsageAnalyticsDeletedTokens"],
   [168, "PageItemKindsOpen"],
   [169, "PageDocStyleAndTextComments"],
+  [170, "ProjectionThreadsPullRequestLinks"],
 ]);
 
 export const UPSTREAM_3CEFD5A_DESCRIPTOR: ReadonlyArray<readonly [number, string]> = Object.freeze([
@@ -610,9 +619,73 @@ const unknown = (
   };
 };
 
+/**
+ * Reader floor: the lowest Moss migration a build must know to open a database safely.
+ *
+ * A build that finds a database at exactly its own newest migration records it in SQLite's
+ * header field `PRAGMA user_version` (no table, so a build that only reads it needs no
+ * migration), together with that newest migration. A build whose own migrations stop below the
+ * database's newest one opens it anyway when the marker was written for exactly that newest
+ * migration and its floor is at or below this build's own newest migration. It then leaves
+ * the migrations it does not know alone: the build that wrote them declared them additive
+ * (`MIGRATIONS_OLDER_READERS_MAY_IGNORE` in `Migrations.ts`). No marker, a marker written for
+ * another migration (a later migration recorded without its own marker), or a value in any
+ * other shape keeps today's refusal ("database newer than Moss").
+ *
+ * Encoding: `writtenAt * 65536 + floor`, both 1–32767 with `floor <= writtenAt`, so the value
+ * stays a positive 32-bit integer and another program's `user_version` is almost never valid.
+ */
+const MIGRATION_READER_FLOOR_LIMIT = 0x7fff;
+
+export type MigrationReaderFloor =
+  | { readonly kind: "absent" }
+  | { readonly kind: "floor"; readonly floor: number; readonly writtenAt: number }
+  | { readonly kind: "invalid"; readonly raw: number };
+
+const isMarkerId = (value: number) =>
+  Number.isSafeInteger(value) && value >= 1 && value <= MIGRATION_READER_FLOOR_LIMIT;
+
+export const encodeMigrationReaderFloor = (floor: number, writtenAt: number): number => {
+  if (!isMarkerId(floor) || !isMarkerId(writtenAt) || floor > writtenAt) {
+    throw new Error(`Migration reader floor out of range: ${floor} at ${writtenAt}`);
+  }
+  return writtenAt * 0x10000 + floor;
+};
+
+export const decodeMigrationReaderFloor = (raw: unknown): MigrationReaderFloor => {
+  if (raw === 0 || raw === 0n || raw === undefined || raw === null) return { kind: "absent" };
+  const value = typeof raw === "bigint" ? Number(raw) : raw;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return { kind: "invalid", raw: Number(value) };
+  }
+  const floor = value % 0x10000;
+  const writtenAt = Math.floor(value / 0x10000);
+  return isMarkerId(floor) && isMarkerId(writtenAt) && floor <= writtenAt
+    ? { kind: "floor", floor, writtenAt }
+    : { kind: "invalid", raw: value };
+};
+
+/**
+ * Test-only: the newest migration this build reads as. Set it to an earlier release's newest
+ * migration to open a database the way that release would (see `migrationReaderFloorTesting.ts`).
+ * Undefined in the product: the build reads as itself.
+ */
+export const MigrationReaderLatestId = ServiceMap.Reference<number | undefined>(
+  "@moss/persistence/MigrationReaderLatestId",
+  { defaultValue: () => undefined },
+);
+
+export interface MigrationLineageReadOptions {
+  /** The database's reader floor marker; absent unless given. */
+  readonly readerFloor?: MigrationReaderFloor;
+  /** The newest migration this build knows; defaults to the whole released Moss descriptor. */
+  readonly latestKnownMigrationId?: number;
+}
+
 export function classifyMigrationLineage(
   tracker: ReadonlyArray<MigrationTrackerRow>,
   fingerprint: MigrationSchemaDataFingerprint,
+  options: MigrationLineageReadOptions = {},
 ): MigrationLineageClassification {
   if (tracker.length === 0) return { kind: "fresh-or-untracked" };
   if (tracker.some((row, index) => row.migration_id !== index + 1)) {
@@ -620,8 +693,36 @@ export function classifyMigrationLineage(
   }
 
   const highWaterMark = tracker[tracker.length - 1]!.migration_id;
-  const mossPrefix = prefixMatches(tracker, MOSS_RELEASED_DESCRIPTOR);
+  const knownDescriptor =
+    options.latestKnownMigrationId === undefined
+      ? MOSS_RELEASED_DESCRIPTOR
+      : MOSS_RELEASED_DESCRIPTOR.slice(0, options.latestKnownMigrationId);
+  const mossPrefix = prefixMatches(tracker, knownDescriptor);
   if (mossPrefix) return { kind: "moss-prefix", highWaterMark };
+  if (
+    highWaterMark > knownDescriptor.length &&
+    prefixMatches(tracker.slice(0, knownDescriptor.length), knownDescriptor)
+  ) {
+    const readerFloor = options.readerFloor ?? { kind: "absent" };
+    // A newer Moss wrote migrations this build does not know. Open the database only when
+    // the build that applied the newest one said a reader of this age may.
+    if (
+      readerFloor.kind === "floor" &&
+      readerFloor.writtenAt === highWaterMark &&
+      readerFloor.floor <= knownDescriptor.length
+    ) {
+      return {
+        kind: "moss-prefix",
+        highWaterMark,
+        newerMigrationsIgnoredFrom: knownDescriptor.length + 1,
+      };
+    }
+    return {
+      kind: "too-new",
+      highWaterMark,
+      latestSupportedMigrationId: knownDescriptor.length,
+    };
+  }
   // The published personal-assistant branch used 161 before main appended 161–165.
   // Recognize only its complete, exact tracker plus the actual assistant column.
   // The existing backed-up, transactional adoption path replays main's tail and
@@ -635,16 +736,6 @@ export function classifyMigrationLineage(
       return unknown(tracker, "Mossbot 161 schema fingerprint is missing agent_kind");
     }
     return { kind: "mossbot-161-prefix", highWaterMark: 161, firstDivergedId: 161 };
-  }
-  if (
-    highWaterMark > MOSS_RELEASED_DESCRIPTOR.length &&
-    prefixMatches(tracker.slice(0, MOSS_RELEASED_DESCRIPTOR.length), MOSS_RELEASED_DESCRIPTOR)
-  ) {
-    return {
-      kind: "too-new",
-      highWaterMark,
-      latestSupportedMigrationId: MOSS_RELEASED_DESCRIPTOR.length,
-    };
   }
 
   const upstreamPrefix = prefixMatches(tracker, UPSTREAM_V084_DESCRIPTOR);
@@ -725,6 +816,10 @@ export const inspectCurrentMigrationLineage = Effect.gen(function* () {
   `;
   const tableNames = master.filter(({ type }) => type === "table").map(({ name }) => name);
   const trackerExists = tableNames.includes("effect_sql_migrations");
+  const readerFloor = decodeMigrationReaderFloor(
+    (yield* sql<{ readonly user_version: unknown }>`PRAGMA user_version`)[0]?.user_version,
+  );
+  const latestKnownMigrationId = yield* MigrationReaderLatestId;
   const tracker = trackerExists
     ? yield* sql<MigrationTrackerRow>`
         SELECT migration_id, name
@@ -843,7 +938,15 @@ export const inspectCurrentMigrationLineage = Effect.gen(function* () {
       ({ type, name }) => type === "table" && name !== "effect_sql_migrations",
     ),
     tracker,
+    readerFloor,
     fingerprint: { effects: [...effects].sort() },
-    classification: classifyMigrationLineage(tracker, { effects: [...effects] }),
+    classification: classifyMigrationLineage(
+      tracker,
+      { effects: [...effects] },
+      {
+        readerFloor,
+        ...(latestKnownMigrationId === undefined ? {} : { latestKnownMigrationId }),
+      },
+    ),
   } as const;
 });

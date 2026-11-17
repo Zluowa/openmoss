@@ -642,6 +642,8 @@ describe("deriveMossMcpToolTitle", () => {
     expect(zh("moss_media_generate", "completed")).toBe("已提交生成");
     expect(zh("moss_media_get", "cancelled")).toBe("已停止查询生成进度");
     expect(zh("moss_context", "completed")).toBe("已检查上下文");
+    expect(zh("moss_unlink_thread_pull_request", "completed")).toBe("已取消关联拉取请求");
+    expect(zh("moss_unlink_thread_pull_request", "failed")).toBe("无法取消关联拉取请求");
     expect(zh("mcp__moss__moss_list_threads", "completed")).toBe("已列出对话");
     // An action without its own copy still reads as Chinese, never "Moss handled …".
     expect(zh("moss_future_action", "completed")).toBe("已使用 Moss 工具");
@@ -670,6 +672,16 @@ describe("deriveMossMcpToolTitle", () => {
       ["moss_interrupt_thread", "Moss is interrupting a thread", "Moss interrupted a thread"],
       ["moss_set_thread_title", "Moss is renaming a thread", "Moss renamed a thread"],
       ["moss_set_thread_archived", "Moss is updating a thread", "Moss updated a thread"],
+      [
+        "moss_set_thread_pull_request",
+        "Moss is linking a pull request",
+        "Moss linked a pull request",
+      ],
+      [
+        "moss_unlink_thread_pull_request",
+        "Moss is unlinking a pull request",
+        "Moss unlinked a pull request",
+      ],
       ["moss_create_automation", "Moss is creating an automation", "Moss created an automation"],
       ["moss_list_automations", "Moss is listing automations", "Moss listed automations"],
       ["moss_cancel_automation", "Moss is stopping an automation", "Moss stopped an automation"],

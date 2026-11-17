@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   modelSelectionOfEvent,
+  GUEST_THREAD_FIELD_DECISIONS,
   sanitizeGuestThread,
   sanitizeGuestThreadEvent,
   sanitizeGuestThreadSnapshot,
@@ -159,6 +160,39 @@ describe("sanitizeGuestThread", () => {
     ]) {
       expect(sanitized).not.toHaveProperty(key);
     }
+  });
+});
+
+describe("guest thread field decisions", () => {
+  it("holds every field a guest receives to its recorded decision", () => {
+    const pullRequest = {
+      number: 7,
+      title: "Private repository work",
+      url: "https://github.com/acme/private-repo/pull/7",
+      baseBranch: "main",
+      headBranch: "feat/private",
+      state: "open" as const,
+    };
+    const thread = makeThread({
+      lastKnownPr: pullRequest,
+      pullRequests: [{ pullRequest, source: "agent", linkedAt: "2026-11-18T00:00:00.000Z" }],
+    });
+    const sanitized = sanitizeGuestThread(thread) as unknown as Record<string, unknown>;
+    const original = thread as unknown as Record<string, unknown>;
+    const decisions: Record<string, string> = GUEST_THREAD_FIELD_DECISIONS;
+    // Nothing reaches a guest without an explicit decision.
+    for (const key of Object.keys(sanitized)) {
+      expect(decisions, `undecided guest field ${key}`).toHaveProperty(key);
+    }
+    for (const [key, decision] of Object.entries(decisions)) {
+      const value = sanitized[key];
+      if (decision === "removed") expect(sanitized, key).not.toHaveProperty(key);
+      if (decision === "cleared") {
+        expect(value === null || (Array.isArray(value) && value.length === 0), key).toBe(true);
+      }
+      if (decision === "kept") expect(value, key).toEqual(original[key]);
+    }
+    expect(sanitized.pullRequests).toEqual([]);
   });
 });
 

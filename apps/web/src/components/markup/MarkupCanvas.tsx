@@ -7,6 +7,7 @@
 // Spec: docs/design/annotate-and-comment/SPEC.md, "Drawing tools".
 
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -199,7 +200,7 @@ export function MarkupCanvas(props: {
           onChange={(event) => setTextDraft({ ...textDraft, value: event.target.value })}
           onBlur={commitText}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
               event.preventDefault();
               commitText();
             } else if (event.key === "Escape") {
