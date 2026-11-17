@@ -12,6 +12,10 @@ import {
   takeSlot,
   waitForHeavyLane,
   type LoadSettings,
+  unitWorkers,
+  UNIT_WORKERS,
+  UNIT_WORKERS_BESIDE_HEAVY,
+  withWorkers,
 } from "../lib/load.ts";
 
 const roots: string[] = [];
@@ -132,6 +136,38 @@ describe("heavy lane", () => {
       log: () => {},
     });
     expect(wait).toEqual({ waitedMs: 0, gaveUp: false });
+  });
+});
+
+describe("unit tests beside a heavy lane", () => {
+  it("run at once on fewer workers instead of waiting for the lane", async () => {
+    const settings = machine();
+    expect(unitWorkers(heavyLane(settings, "me", {}))).toBe(UNIT_WORKERS);
+    holdHeavy(settings, "coordinator");
+    expect(unitWorkers(heavyLane(settings, "me", {}))).toBe(UNIT_WORKERS_BESIDE_HEAVY);
+    expect(UNIT_WORKERS_BESIDE_HEAVY).toBeLessThan(UNIT_WORKERS);
+  });
+
+  it("rewrites only the worker count of a Vitest command", () => {
+    const command = [
+      "bun",
+      "x",
+      "vitest",
+      "run",
+      "--passWithNoTests",
+      "--maxWorkers=4",
+      "a.test.ts",
+    ];
+    expect(withWorkers(command, 2)).toEqual([
+      "bun",
+      "x",
+      "vitest",
+      "run",
+      "--passWithNoTests",
+      "--maxWorkers=2",
+      "a.test.ts",
+    ]);
+    expect(withWorkers(["--maxWorkers=4x"], 2)).toEqual(["--maxWorkers=4x"]);
   });
 });
 

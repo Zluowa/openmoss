@@ -28,28 +28,30 @@ It is `bun run ws <command>`; `tools/ws/README.md` has the flags. The
 
 ## Limits
 
-| Resource         | Rule                                                                                                                          |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Worktrees        | One root, on the drive with space. One per task. Created and removed only by `ws`. Released within an hour of the PR merging. |
-| Branches         | `<type>/<slug>`. Deleted on merge. `main` is the only long-lived branch.                                                      |
-| Heavy lanes      | Full test lanes and builds: one at a time per machine, through `ws lane`.                                                     |
-| Quick gate       | At most two `bun run check` at once per machine. A third waits; tests wait for a heavy lane.                                  |
-| Ports            | Only the leased offset. Never the defaults, which belong to the owner's own Moss.                                             |
-| Processes        | Every process a task starts is stopped by that task. `ws release` checks.                                                     |
-| Scratch          | One scratch root, one folder per task, wiped on release. Never the system temp folder.                                        |
-| Builds           | One builds root. Keep the current release, the previous release and the latest candidate.                                     |
-| Evidence         | Attached to the PR. Kept locally only for the latest acceptance round.                                                        |
-| Rollback sources | Listed by name in the operations runbook. Never reaped.                                                                       |
-| Sessions         | Archived when their PR merges or closes.                                                                                      |
-| Disk floor       | No heavy lane or build starts below the floor set in the machine profile.                                                     |
+| Resource         | Rule                                                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Worktrees        | One root, on the drive with space. One per task. Created and removed only by `ws`. Released within an hour of the PR merging.   |
+| Branches         | `<type>/<slug>`. Deleted on merge. `main` is the only long-lived branch.                                                        |
+| Heavy lanes      | Full test lanes and builds: one at a time per machine, through `ws lane`.                                                       |
+| Quick gate       | At most two `bun run check` at once per machine. A third waits; beside a heavy lane unit tests run on 2 workers, browser waits. |
+| Ports            | Only the leased offset. Never the defaults, which belong to the owner's own Moss.                                               |
+| Processes        | Every process a task starts is stopped by that task. `ws release` checks.                                                       |
+| Scratch          | One scratch root, one folder per task, wiped on release. Never the system temp folder.                                          |
+| Builds           | One builds root. Keep the current release, the previous release and the latest candidate.                                       |
+| Evidence         | Attached to the PR. Kept locally only for the latest acceptance round.                                                          |
+| Rollback sources | Listed by name in the operations runbook. Never reaped.                                                                         |
+| Sessions         | Archived when their PR merges or closes.                                                                                        |
+| Disk floor       | No heavy lane or build starts below the floor set in the machine profile.                                                       |
 
 ## Load
 
 A machine runs one heavy job at a time (`bun run ws lane`) and at most two quick
 gates (`bun run check`) at once. More than that has crashed the type checker and
 turned hundreds of tests into false timeouts. The tools enforce both: `ws lane`
-queues heavy jobs, and `bun run check` waits for a slot and holds its tests while
-another owner's heavy lane runs (`tools/check/README.md`). Do not work around
+queues heavy jobs, and `bun run check` waits for a slot; while another owner's heavy
+lane runs, its unit tests run on fewer workers and its browser tests wait
+(`tools/check/README.md`). An agent's own check before a pull request is
+`bun run check`, not a heavy lane. Do not work around
 them: no second heavy job outside `ws lane`, no hand-run test sweeps beside one.
 
 A quick gate that fails under load proves nothing in either direction. Before

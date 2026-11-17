@@ -71,17 +71,19 @@ hidden.
 
 ## Load
 
-A machine allows at most two runs at once and no tests during another owner's heavy lane
+A machine allows at most two runs at once, and beside another owner's heavy lane only light tests
 (`docs/handbook/resources.md`, "Load"). The locks are the workspace tool's
 (`tools/ws/lib/lock.ts`), in the machine profile's state folder (`~/.moss-ws/locks` by default):
 
 - **Slots.** A run takes `check-1` or `check-2` before its first step. A third waits in
   `check.queue` and prints one line naming the runs it waits for. A slot whose process is gone is
   broken like a stale heavy lock.
-- **Heavy lane.** While `locks/heavy` is held by another owner, the static steps and types run
-  at once and the tests wait for the lane to end (one line says whose lane). `--no-wait` runs them
-  anyway; after `--max-wait` minutes (45 by default) they run anyway and the summary says so. The
-  reruns wait the same way. A command started by `ws lane` (it sets `MOSS_WS_LANE`) never waits
+- **Heavy lane.** While `locks/heavy` is held by another owner, the static steps, types and unit
+  tests run at once; the unit tests use 2 Vitest workers instead of 4 (one line says whose lane),
+  so two gates leave the lane twelve of the machine's sixteen threads. The browser step (a
+  Chromium and a Vite server per run) waits for the lane to end. `--no-wait` runs it anyway;
+  after `--max-wait` minutes (45 by default) it runs anyway and the summary says so. The reruns
+  of failing files wait the same way, so a load flake is told from a failure on a quiet machine. A command started by `ws lane` (it sets `MOSS_WS_LANE`) never waits
   for its own lane; the owner comes from `MOSS_WS_OWNER`, else `CLAUDE_SESSION_NAME`, else the
   checkout's folder name.
 - The last line says whether the run waited for a slot or a heavy lane, and whether its steps

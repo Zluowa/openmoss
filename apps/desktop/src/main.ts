@@ -271,6 +271,11 @@ import {
 import { ServerListeningDetector } from "./serverListeningDetector";
 import { BackendStartupBlockDetector, type BackendStartupBlock } from "./backendStartupBlock";
 import {
+  databaseLockedStartupFailure,
+  STARTUP_BLOCK_RENDERER_WAIT_MS,
+  waitForStartupFailureRenderer,
+} from "./backendStartupBlockPresentation";
+import {
   BACKEND_MAX_CONSECUTIVE_START_FAILURES,
   BackendOutputTailDetector,
   BackendSupervisionPolicy,
@@ -6093,6 +6098,15 @@ function hasBackendStartupFailureRenderer(): boolean {
   );
 }
 
+const backendStartupFailureRendererListeners = new Set<() => void>();
+
+function onBackendStartupFailureRenderer(listener: () => void): () => void {
+  backendStartupFailureRendererListeners.add(listener);
+  return () => {
+    backendStartupFailureRendererListeners.delete(listener);
+  };
+}
+
 function trackBackendStartupFailureRenderer(contents: Electron.WebContents): void {
   if (backendStartupFailureRenderers.has(contents.id)) return;
   const id = contents.id;
@@ -6102,11 +6116,20 @@ function trackBackendStartupFailureRenderer(contents: Electron.WebContents): voi
   contents.once("did-start-loading", forget);
   contents.once("render-process-gone", forget);
   contents.once("destroyed", forget);
+  for (const listener of [...backendStartupFailureRendererListeners]) listener();
+}
+
+/** The window a startup dialog belongs to, so the dialog cannot open behind it. */
+function startupDialogParent(): BrowserWindow | null {
+  const window = mainWindow;
+  return window && !window.isDestroyed() && window.isVisible() ? window : null;
 }
 
 async function retryBackendAfterStartupFailure(): Promise<void> {
   if (backendStartupFailure === null || isQuitting) return;
-  writeDesktopLogHeader("backend start retried from the window after supervision gave up");
+  writeDesktopLogHeader(
+    `backend start retried from the window kind=${backendStartupFailure.kind ?? "gave-up"}`,
+  );
   await restartBackendAfterCrash("manual retry after backend startup failure", "lifecycle");
 }
 
@@ -6118,7 +6141,9 @@ async function retryBackendAfterStartupFailure(): Promise<void> {
 function presentBackendStartupGiveUp(reason: string, failures: number): void {
   if (isQuitting) return;
   setBackendStartupFailure({
+    kind: "gave-up",
     failures,
+    logFilePath: Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME),
     details: formatBackendStartupFailureDetails({
       appVersion: app.getVersion(),
       platform: `${process.platform} ${process.arch}`,
@@ -6134,19 +6159,25 @@ function presentBackendStartupGiveUp(reason: string, failures: number): void {
   const detail = backendFailureDialogDetail(reason);
   const task = (async () => {
     for (;;) {
-      const result = await dialog.showMessageBox({
-        type: "error",
-        title: nativeText("Moss's backend didn't start", "Moss 后端没有启动"),
-        message: nativeText(
-          `Moss's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
-          `Moss 后端连续 ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} 次启动失败。`,
-        ),
-        detail,
-        buttons: nativeDialogButtons(["Try again", "Open logs", "Quit"]),
-        defaultId: 0,
-        cancelId: 2,
-        noLink: true,
-      });
+      const result = await showDiagnosticStartupDialog(
+        {
+          type: "error",
+          title: nativeText("Moss's backend didn't start", "Moss 后端没有启动"),
+          message: nativeText(
+            `Moss's backend failed to start ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} times in a row.`,
+            `Moss 后端连续 ${BACKEND_MAX_CONSECUTIVE_START_FAILURES} 次启动失败。`,
+          ),
+          detail,
+          buttons: nativeDialogButtons(["Try again", "Open logs", "Quit"]),
+          defaultId: 0,
+          cancelId: 2,
+          noLink: true,
+        },
+        null,
+        null,
+        nativeText,
+        startupDialogParent(),
+      );
 
       if (result.response === 1) {
         await openDesktopLogDirectory();
@@ -6294,6 +6325,7 @@ async function handleDesktopSchemaTooNewRecovery(
         diagnosticId,
         betaDiagnostics,
         nativeText,
+        startupDialogParent(),
       );
       return choices[result.response]?.decision ?? "quit";
     },
@@ -6338,7 +6370,13 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
         : {}),
     }) ?? null;
   const showBlockDialog = (options: MessageBoxOptions) =>
-    showDiagnosticStartupDialog(options, diagnosticId, betaDiagnostics, nativeText);
+    showDiagnosticStartupDialog(
+      options,
+      diagnosticId,
+      betaDiagnostics,
+      nativeText,
+      startupDialogParent(),
+    );
   const task = (async () => {
     if (block.kind === "migration-schema-too-new") {
       await handleDesktopSchemaTooNewRecovery(block.block, diagnosticId);
@@ -6545,6 +6583,32 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
       return;
     }
 
+    // The window draws the block itself (Chinese copy, retry, log location). The
+    // native dialog is only the fallback for a window that never loads.
+    setBackendStartupFailure(
+      databaseLockedStartupFailure({
+        ownerPid: block.ownerPid,
+        appVersion: app.getVersion(),
+        platform: `${process.platform} ${process.arch}`,
+        output: lastBackendFailureDetail ?? "",
+        logFilePath: Path.join(LOG_DIR, BACKEND_LOG_FILE_NAME),
+      }),
+    );
+    const shownInWindow = await waitForStartupFailureRenderer({
+      isPresent: hasBackendStartupFailureRenderer,
+      subscribe: onBackendStartupFailureRenderer,
+      timeoutMs: STARTUP_BLOCK_RENDERER_WAIT_MS,
+    });
+    writeDesktopLogHeader(
+      `database lifecycle lock blocked startup ownerPid=${block.ownerPid ?? "unknown"} shownIn=${shownInWindow ? "window" : "native-dialog"}`,
+    );
+    if (shownInWindow || isQuitting) return;
+    // A window that loads while the native dialog is open takes over: the
+    // dialog closes and the person answers in the window instead.
+    const windowTookOver = new AbortController();
+    const stopWatchingWindow = onBackendStartupFailureRenderer(() => {
+      if (hasBackendStartupFailureRenderer()) windowTookOver.abort();
+    });
     const processDetail =
       block.ownerPid === null
         ? nativeText(
@@ -6583,11 +6647,17 @@ function handleBackendStartupBlock(block: BackendStartupBlock): void {
         defaultId: 0,
         cancelId: 2,
         noLink: true,
+        signal: windowTookOver.signal,
       });
+      if (windowTookOver.signal.aborted) {
+        stopWatchingWindow();
+        return;
+      }
       if (result.response === 1) {
         await openDesktopLogDirectory();
         continue;
       }
+      stopWatchingWindow();
       if (result.response === 0) {
         // Let a fast failed retry present the block again instead of racing this
         // dialog task's finalizer and leaving the window inert.
@@ -6836,6 +6906,8 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
       if (isQuitting || backendChildrenStoppedOnPurpose.has(child)) return;
       const startupBlock = startupBlockDetector.read();
       if (startupBlock) {
+        // The window's "copy details" shows the backend's own error lines.
+        lastBackendFailureDetail = outputTailDetector.read();
         handleBackendStartupBlock(startupBlock);
         return;
       }

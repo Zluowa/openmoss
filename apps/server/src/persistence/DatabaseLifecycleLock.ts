@@ -7,14 +7,32 @@ import { Effect } from "effect";
 
 import { supportsPosixPermissions, syncDirectoryEntry } from "@moss/shared/filesystemPlatform";
 import { PRIVATE_DIRECTORY_MODE, PRIVATE_FILE_MODE } from "../privatePathPermissions.ts";
+import {
+  probeProcessIdentity,
+  type ObservedProcessIdentity,
+  type ProcessIdentityProbe,
+} from "./processIdentity.ts";
 
 const OWNER_FILE_NAME = "owner.json";
+// A process that the operating system started this long after the lock was
+// written cannot be the process that wrote it. The margin absorbs clock
+// rounding between the OS start time and the owner's own clock reading.
+const STARTED_AFTER_LOCK_TOLERANCE_MS = 2_000;
 
 type DatabaseLifecycleLockOwner = {
   readonly pid: number;
   readonly token: string;
   readonly createdAt: string;
+  /**
+   * When the owner process started, from its own clock. Absent in locks written
+   * by Moss 1.0.7 and earlier.
+   */
+  readonly processStartedAt?: string;
+  /** The owner's executable name, e.g. `Moss.exe`. Absent in locks written by 1.0.7 and earlier. */
+  readonly executable?: string;
 };
+
+type OwnerProcessState = "live" | "dead" | "unknown";
 
 export type DatabaseLifecycleLock = {
   readonly dbPath: string;
@@ -87,14 +105,69 @@ async function readOwner(lockPath: string): Promise<DatabaseLifecycleLockOwner> 
     owner.pid! <= 0 ||
     typeof owner.token !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(owner.token) ||
-    typeof owner.createdAt !== "string"
+    typeof owner.createdAt !== "string" ||
+    (owner.processStartedAt !== undefined && typeof owner.processStartedAt !== "string") ||
+    (owner.executable !== undefined && typeof owner.executable !== "string")
   ) {
     throw new Error("lock owner metadata is invalid");
   }
   return owner as DatabaseLifecycleLockOwner;
 }
 
-function ownerProcessState(pid: number): "live" | "dead" | "unknown" {
+function currentProcessStartedAtMs(): number {
+  return Date.now() - Math.round(process.uptime() * 1_000);
+}
+
+function makeOwner(): DatabaseLifecycleLockOwner {
+  return {
+    pid: process.pid,
+    token: randomUUID(),
+    createdAt: new Date().toISOString(),
+    processStartedAt: new Date(currentProcessStartedAtMs()).toISOString(),
+    executable: path.basename(process.execPath),
+  };
+}
+
+function normalizedExecutableName(name: string): string {
+  const base = path.win32.basename(name).toLowerCase();
+  return base.endsWith(".exe") ? base.slice(0, -4) : base;
+}
+
+/**
+ * Decides whether the process now holding the owner's pid is the owner.
+ *
+ * A process the OS started after the lock was written cannot have written it:
+ * its pid was reused after the owner died. That rule needs only `createdAt`, so
+ * it also clears locks written by Moss 1.0.7 and earlier. On Windows a different
+ * executable name proves the same; POSIX processes can rename themselves, so the
+ * name is not used there.
+ */
+export function classifyLockOwnerProcess(
+  owner: Pick<DatabaseLifecycleLockOwner, "createdAt" | "executable">,
+  observed: ObservedProcessIdentity,
+  platform: NodeJS.Platform = process.platform,
+): OwnerProcessState {
+  if (observed.state !== "live") return observed.state;
+  if (
+    platform === "win32" &&
+    owner.executable !== undefined &&
+    observed.executable !== undefined &&
+    normalizedExecutableName(owner.executable) !== normalizedExecutableName(observed.executable)
+  ) {
+    return "dead";
+  }
+  const createdAtMs = Date.parse(owner.createdAt);
+  if (
+    observed.startedAtMs !== undefined &&
+    Number.isFinite(createdAtMs) &&
+    observed.startedAtMs > createdAtMs + STARTED_AFTER_LOCK_TOLERANCE_MS
+  ) {
+    return "dead";
+  }
+  return "live";
+}
+
+function signalProcessState(pid: number): OwnerProcessState {
   try {
     process.kill(pid, 0);
     return "live";
@@ -103,6 +176,35 @@ function ownerProcessState(pid: number): "live" | "dead" | "unknown" {
     if (code === "ESRCH") return "dead";
     return "unknown";
   }
+}
+
+let processIdentityProbe: ProcessIdentityProbe = probeProcessIdentity;
+
+/** Test seam: replaces the operating-system probe. Returns a restore function. */
+export function setProcessIdentityProbeForTesting(probe: ProcessIdentityProbe): () => void {
+  const previous = processIdentityProbe;
+  processIdentityProbe = probe;
+  return () => {
+    processIdentityProbe = previous;
+  };
+}
+
+async function ownerProcessState(owner: DatabaseLifecycleLockOwner): Promise<OwnerProcessState> {
+  const signalState = signalProcessState(owner.pid);
+  if (signalState === "dead") return "dead";
+  if (owner.pid === process.pid) {
+    // This process is alive by definition, but it may have inherited the pid of
+    // a dead owner; its own start time answers without asking the OS.
+    return classifyLockOwnerProcess(owner, {
+      state: "live",
+      startedAtMs: currentProcessStartedAtMs(),
+      executable: path.basename(process.execPath),
+    });
+  }
+  const observed = await processIdentityProbe(owner.pid);
+  // An unreadable identity keeps the old answer: never take a lock on a guess.
+  if (observed.state === "unknown") return signalState;
+  return classifyLockOwnerProcess(owner, observed);
 }
 
 async function writeOwner(lockPath: string, owner: DatabaseLifecycleLockOwner): Promise<void> {
@@ -213,11 +315,7 @@ async function acquireReaperGuard(dbPath: string, lockPath: string): Promise<Rea
   const retiredPaths: string[] = [];
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const owner: DatabaseLifecycleLockOwner = {
-      pid: process.pid,
-      token: randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
+    const owner = makeOwner();
     if (await tryPublishOwnedDirectory(reaperPath, owner)) {
       return { path: reaperPath, owner, retiredPaths };
     }
@@ -233,7 +331,7 @@ async function acquireReaperGuard(dbPath: string, lockPath: string): Promise<Rea
         `stale-lock recovery owner is unknown: ${detail}`,
       );
     }
-    const state = ownerProcessState(existingOwner.pid);
+    const state = await ownerProcessState(existingOwner);
     if (state !== "dead") {
       throw new DatabaseLifecycleLockedError(
         dbPath,
@@ -254,7 +352,7 @@ async function acquireReaperGuard(dbPath: string, lockPath: string): Promise<Rea
       const currentOwner = await readOwner(reaperPath);
       if (
         currentOwner.token !== existingOwner.token ||
-        ownerProcessState(currentOwner.pid) !== "dead"
+        (await ownerProcessState(currentOwner)) !== "dead"
       ) {
         throw new DatabaseLifecycleLockedError(
           dbPath,
@@ -308,7 +406,7 @@ async function reapDeadOwner(
     const currentOwner = await readOwner(lockPath);
     if (
       currentOwner.token !== observedOwner.token ||
-      ownerProcessState(currentOwner.pid) !== "dead"
+      (await ownerProcessState(currentOwner)) !== "dead"
     ) {
       throw new DatabaseLifecycleLockedError(
         dbPath,
@@ -331,11 +429,7 @@ async function acquire(dbPath: string): Promise<DatabaseLifecycleLock> {
   const lockPath = `${canonicalDbPath}.lifecycle-lock`;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const owner: DatabaseLifecycleLockOwner = {
-      pid: process.pid,
-      token: randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
+    const owner = makeOwner();
     const published = await tryPublishOwnedDirectory(lockPath, owner);
 
     if (!published) {
@@ -350,7 +444,7 @@ async function acquire(dbPath: string): Promise<DatabaseLifecycleLock> {
           `owner is live or unknown: ${detail}`,
         );
       }
-      const state = ownerProcessState(existingOwner.pid);
+      const state = await ownerProcessState(existingOwner);
       if (state !== "dead") {
         throw new DatabaseLifecycleLockedError(
           canonicalDbPath,

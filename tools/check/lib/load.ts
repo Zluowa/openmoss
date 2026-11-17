@@ -1,9 +1,11 @@
 // FILE: load.ts
-// Purpose: Keeps `bun run check` inside the machine's load limits: at most two runs at once, and
-//          its tests held while another owner's heavy lane (`ws lane`) runs.
+// Purpose: Keeps `bun run check` inside the machine's load limits: at most two runs at once; beside
+//          another owner's heavy lane (`ws lane`) its unit tests run on fewer workers, and its
+//          browser tests and reruns wait for the lane to end.
 // Layer: tools/check; the locks are the workspace tool's (tools/ws/lib/lock.ts).
-// Exports: CHECK_LOCK, CHECK_SLOTS, DEFAULT_MAX_WAIT_MINUTES, loadSettings, ownerName, takeSlot,
-//          heavyLane, waitForHeavyLane, describeLoad, LoadSettings, LoadReport
+// Exports: CHECK_LOCK, CHECK_SLOTS, DEFAULT_MAX_WAIT_MINUTES, UNIT_WORKERS, UNIT_WORKERS_BESIDE_HEAVY,
+//          loadSettings, ownerName, takeSlot, heavyLane, unitWorkers, withWorkers,
+//          waitForHeavyLane, describeLoad, LoadSettings, LoadReport
 // Why: more parallel gates than that crashed the type checker and turned tests into false
 //      timeouts; a rule in a document did not stop it.
 
@@ -23,6 +25,24 @@ import { loadProfile, profilePathFromEnv } from "../../ws/lib/profile.ts";
 export const CHECK_LOCK = "check";
 export const CHECK_SLOTS = 2;
 export const DEFAULT_MAX_WAIT_MINUTES = 45;
+/** Vitest workers of one gate's unit tests on a quiet machine. */
+export const UNIT_WORKERS = 4;
+/**
+ * ... and beside another owner's heavy lane. Two gates at two workers each leave the heavy lane
+ * twelve of the machine's sixteen threads; the selected unit tests (typically a handful of files)
+ * take a minute instead of waiting up to the lane's whole run (15 minutes on 2026-11-17, with three
+ * agents queued behind it).
+ */
+export const UNIT_WORKERS_BESIDE_HEAVY = 2;
+
+export function unitWorkers(heavy: LockOwner | undefined): number {
+  return heavy ? UNIT_WORKERS_BESIDE_HEAVY : UNIT_WORKERS;
+}
+
+/** The Vitest arguments with their worker count set to `workers`. */
+export function withWorkers(args: readonly string[], workers: number): string[] {
+  return args.map((arg) => (/^--maxWorkers=\d+$/.test(arg) ? `--maxWorkers=${workers}` : arg));
+}
 
 export interface LoadSettings {
   /** `<stateDir>/locks` of the machine profile. */

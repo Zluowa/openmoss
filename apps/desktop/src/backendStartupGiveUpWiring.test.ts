@@ -32,7 +32,7 @@ describe("backend give-up wiring in desktop main", () => {
     const body = functionBody("presentBackendStartupGiveUp");
     const publish = body.indexOf("setBackendStartupFailure({");
     const windowCheck = body.indexOf("if (hasBackendStartupFailureRenderer()) return;");
-    const nativeDialog = body.indexOf("dialog.showMessageBox(");
+    const nativeDialog = body.indexOf("showDiagnosticStartupDialog(");
     expect(publish).toBeGreaterThanOrEqual(0);
     expect(windowCheck).toBeGreaterThan(publish);
     expect(nativeDialog).toBeGreaterThan(windowCheck);
