@@ -19,6 +19,8 @@
   overflow: hidden;
   padding: 0 16px;
   color: var(--foreground);
+  /* the stage sits under the shared top bar, inside the content card: match the card body's corners */
+  border-radius: var(--app-rail-block-radii, 0);
 }
 .dark .mbo,
 .mbo:is(.dark *) {

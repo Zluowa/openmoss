@@ -103,6 +103,7 @@ import { extractTrailingBrowserAnnotations } from "../lib/browserAnnotations";
 import { isMacNavigatorPlatform } from "../lib/utils";
 import { STARRED_MODELS_STORAGE_KEY } from "../lib/starredModels";
 import { readNativeApi } from "../nativeApi";
+import { DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS } from "../hooks/useDesktopTopBarGutter";
 import { emitWsTransportState } from "../wsTransportEvents";
 import { dispatchKanbanDraftThread } from "../lib/kanbanDispatch";
 import {
@@ -1804,6 +1805,8 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.projectAgentListActivity) return { activity: [], nextCursor: null };
   if (tag === WS_METHODS.projectAgentListDocuments) return { documents: [] };
   if (tag === WS_METHODS.projectAgentListThreadIndex) return { threads: [] };
+  // A fresh install: no assistants and no group chats yet (what opens the Mossbot onboarding).
+  if (tag === WS_METHODS.projectAgentListSummaries) return { summaries: [] };
   if (tag === WS_METHODS.mossbotRoomList) return [];
   if (tag === WS_METHODS.projectAgentGetOverview) {
     const projectId = typeof body.projectId === "string" ? body.projectId : "";
@@ -5798,6 +5801,127 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.poll(() => mounted.router.state.isLoading).toBe(false);
       await rail.getByRole("button", { name: "Home", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("lets a rail click win over a destination that is still loading", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("rail-latest-wins"),
+        targetText: "Rail latest wins",
+      }),
+    });
+    try {
+      await waitForLayout();
+      const rail = page.getByRole("navigation", { name: "Primary", exact: true });
+      await expect.element(rail.getByRole("button", { name: "Home", exact: true })).toBeVisible();
+      const initialPath = mounted.router.state.location.pathname;
+      for (const open of [
+        () => page.getByRole("button", { name: "Mossbot", exact: true }).last(),
+        () => rail.getByRole("button", { name: "Scheduled", exact: true }),
+      ]) {
+        // Ask for a destination and press Home before its route has committed, as a person does on a
+        // slow first visit: Home is the latest request, so Home wins.
+        (open().element() as HTMLElement).click();
+        await expect.poll(() => mounted.router.state.location.pathname).not.toBe(initialPath);
+        (rail.getByRole("button", { name: "Home", exact: true }).element() as HTMLElement).click();
+        await expect.poll(() => mounted.router.state.isLoading).toBe(false);
+        await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
+        // and it stays there once every pending load has settled
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(mounted.router.state.location.pathname).toBe(initialPath);
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the Mossbot onboarding inside the content card, clear of the desktop window controls", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("mossbot-onboarding-shell"),
+        targetText: "Mossbot onboarding shell",
+      }),
+    });
+    const intersects = (a: DOMRect, b: DOMRect) =>
+      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    // On Windows and Linux the desktop window draws its own minimize/maximize/close in the title-bar band at the
+    // top right, as wide as the gutter every top bar keeps for them; on macOS the traffic lights sit at the top left.
+    const captionWidth = Number(
+      /pr-\[(\d+)px\]/.exec(DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS)?.[1],
+    );
+    expect(captionWidth).toBeGreaterThan(100);
+    try {
+      await waitForLayout();
+      await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
+      await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
+      // the owner's window, the acceptance window, maximized 2560x1440 at 150 % and at 100 %, 900 wide, the narrowest
+      for (const viewport of [
+        { name: "owner", width: 1386, height: 893 },
+        { name: "acceptance", width: 1100, height: 782 },
+        { name: "max-150", width: 1707, height: 960 },
+        { name: "max-100", width: 2560, height: 1440 },
+        { name: "900", width: 900, height: 700 },
+        { name: "narrowest", width: 840, height: 620 },
+      ]) {
+        for (const sidebarOpen of [true, false]) {
+          await setViewport(viewport);
+          const sidebar = () =>
+            document
+              .querySelector('[data-slot="sidebar"][data-side="left"]')
+              ?.getAttribute("data-state");
+          if ((sidebar() === "expanded") !== sidebarOpen) {
+            await page.getByRole("button", { name: "Toggle thread sidebar", exact: true }).click();
+            await expect.poll(sidebar).toBe(sidebarOpen ? "expanded" : "collapsed");
+          }
+          await waitForLayout();
+          const at = `${viewport.name}, sidebar ${sidebarOpen ? "open" : "closed"}`;
+          const stage = document.querySelector<HTMLElement>("[data-mossbot-onboarding]")!;
+          const card = stage.closest(".chat-content-card")!;
+          expect(card, at).not.toBeNull();
+          const band = parseFloat(
+            getComputedStyle(card).getPropertyValue("--app-top-strip-height"),
+          );
+          expect(band, at).toBeGreaterThan(20);
+          const stageBox = stage.getBoundingClientRect();
+          const cardBox = card.getBoundingClientRect();
+          // under the title-bar band, inside the card on every side, nothing to scroll
+          expect(stageBox.top, at).toBeGreaterThanOrEqual(cardBox.top + band - 0.5);
+          expect(stageBox.left, at).toBeGreaterThanOrEqual(cardBox.left - 0.5);
+          expect(stageBox.right, at).toBeLessThanOrEqual(cardBox.right + 0.5);
+          expect(stageBox.bottom, at).toBeLessThanOrEqual(
+            Math.min(cardBox.bottom, window.innerHeight) + 0.5,
+          );
+          expect(stage.scrollHeight, at).toBeLessThanOrEqual(stage.clientHeight + 1);
+          const caption = new DOMRect(window.innerWidth - captionWidth, 0, captionWidth, band);
+          const trafficLights = new DOMRect(0, 0, 80, band);
+          const controls = [...stage.querySelectorAll<HTMLElement>("button, nav")].filter(
+            (element) => {
+              const box = element.getBoundingClientRect();
+              return (
+                box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== "hidden"
+              );
+            },
+          );
+          // the skip pill, Next and the step dots at least
+          expect(controls.length, at).toBeGreaterThanOrEqual(3);
+          for (const control of controls) {
+            const box = control.getBoundingClientRect();
+            const name = `${at}: ${control.getAttribute("aria-label") ?? control.textContent?.trim()}`;
+            expect(box.top, name).toBeGreaterThanOrEqual(stageBox.top - 0.5);
+            expect(box.bottom, name).toBeLessThanOrEqual(stageBox.bottom + 0.5);
+            expect(box.left, name).toBeGreaterThanOrEqual(stageBox.left - 0.5);
+            expect(box.right, name).toBeLessThanOrEqual(stageBox.right + 0.5);
+            expect(intersects(box, caption), name).toBe(false);
+            expect(intersects(box, trafficLights), name).toBe(false);
+          }
+        }
+      }
     } finally {
       await mounted.cleanup();
     }

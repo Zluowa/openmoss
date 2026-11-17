@@ -13,6 +13,7 @@ import {
   validateQuarantine,
   type QuarantineEntry,
 } from "./quarantine";
+import { EmptySuiteReporter, isEmptySuiteReporter } from "./emptySuites";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../..");
@@ -42,7 +43,13 @@ export function readQuarantine(file = resolve(repoRoot, QUARANTINE_FILE)): Quara
 export function testQuarantine(options: TestQuarantineOptions = {}): Plugin {
   return {
     name: "moss:test-quarantine",
-    configureVitest({ project }) {
+    configureVitest({ project, vitest }) {
+      // Fails a run whose files hold suites without tests (silenced by --passWithNoTests).
+      if (!vitest.config.reporters.some(isEmptySuiteReporter)) {
+        vitest.config.reporters.push(
+          new EmptySuiteReporter({ root: options.repoRoot ?? repoRoot }),
+        );
+      }
       const mode = parseMode(
         project.config.env?.MOSS_TEST_QUARANTINE ?? process.env.MOSS_TEST_QUARANTINE,
       );
