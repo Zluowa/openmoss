@@ -66,7 +66,12 @@ import { useTranslation } from "~/localization";
 import type { FastModeNotice } from "~/lib/fastModeState";
 import { formatThreadModelSummaryLabel, resolveThreadModelSummary } from "~/lib/threadModelSummary";
 
-import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
+import {
+  formatClockDuration,
+  formatClockElapsed,
+  isFileChangeWorkLogEntry,
+  type WorkLogEntry,
+} from "../../session-logic";
 import { wasDeclinedByAutoReview, type WorkLogSubagent } from "../../workLog";
 import {
   formatAgentActivityEntryPreview,
@@ -77,7 +82,7 @@ import {
 } from "./agentActivity.logic";
 import { AutomationCreatedCard } from "./AutomationCreatedCard";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
-import { getChatTranscriptTextStyle } from "./chatTypography";
+import { INLINE_COMMAND_CHIP_CLASS_NAME } from "./chatTypography";
 import { SubagentRunCard } from "./SubagentRunCard";
 import { InlineSubagentActivity } from "./InlineSubagentActivity";
 import type { InlineSubagentStatus } from "./inlineSubagentActivity.logic";
@@ -332,74 +337,27 @@ function workEntryPreview(
   return null;
 }
 
-// Exact-match candidate for icon selection: the normalized tool name wins; the
-// title's first word is the fallback for ACP calls that arrive with only a
-// `kind` and no native name (e.g. Grok's "Read /home/x" / "Find in src").
-// From upstream #2178.
-function toolIdentityWord(workEntry: TimelineWorkEntry): string {
-  if (workEntry.toolName) {
-    return workEntry.toolName.toLowerCase().replace(/[^a-z]/g, "");
-  }
-  // A derived "Searched the web" label still describes a real web search.
-  if (workEntry.itemType === "web_search") return "";
-  const firstWord = workEntry.toolTitle?.trim().split(/\s+/, 1)[0] ?? "";
-  return firstWord.toLowerCase().replace(/[^a-z]/g, "");
-}
-
-// Provider read tools (Claude's `Read`, Grok/ACP `read_file`/`view`) arrive as
-// generic dynamic tool calls without a `file-read` requestKind, so match their
-// tool name to surface the file icon instead of the generic tool/wrench
-// fallback. The collapsed group summary shares the same read-name set in
-// toolCallGroup.logic.ts (READ_TOOL_NAMES).
+// Provider read tools (e.g. Claude's `Read`) arrive as generic dynamic tool calls
+// without a `file-read` requestKind, so match their tool name to surface the file icon
+// instead of the generic tool/wrench fallback.
 function isFileReadToolEntry(workEntry: TimelineWorkEntry): boolean {
-  const name = toolIdentityWord(workEntry);
-  return (
-    name === "read" ||
-    name === "reading" ||
-    name === "readfile" ||
-    name === "readfiles" ||
-    name === "readtextfile" ||
-    name === "view" ||
-    name === "viewfile" ||
-    name === "viewtextfile" ||
-    name === "hashlineread"
-  );
+  const name = (workEntry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  return name === "read" || name === "readfile" || name === "viewfile";
 }
 
-// Provider search tools (Claude's `Grep`/`Glob`, Grok/ACP `search`/`find`) wear
-// the magnifier like search commands do. Keep in sync with SEARCH_TOOL_NAMES
-// in toolCallGroup.logic.ts.
+// Provider search tools (Claude's `Grep`/`Glob`) wear the magnifier like
+// search commands do.
 function isSearchToolEntry(workEntry: TimelineWorkEntry): boolean {
-  const name = toolIdentityWord(workEntry);
-  return (
-    name === "grep" ||
-    name === "glob" ||
-    name === "search" ||
-    name === "searching" ||
-    name === "searched" ||
-    name === "find" ||
-    name === "finding" ||
-    name === "found" ||
-    name === "findfiles" ||
-    name === "searchfiles" ||
-    name === "searchtool" ||
-    name === "hashlinegrep"
-  );
+  const name = (workEntry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  return name === "grep" || name === "glob";
 }
 
 // Command rows reuse toolCallLabel's wrapper-aware classifier so reads wear the
 // file glyph, searches the magnifier, wrapped git/gh commands the GitHub mark,
-// and ordinary commands keep the terminal icon. Structured read/search actions
-// (Codex commandActions, ACP `read` kinds) carry no command string; their
-// derived title ("Read"/"Searched") picks the icon instead.
+// and ordinary commands keep the terminal icon.
 function commandWorkEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   const command = workEntry.command ?? workEntry.rawCommand;
-  if (!command) {
-    if (isFileReadToolEntry(workEntry)) return FileIcon;
-    if (isSearchToolEntry(workEntry)) return SearchIcon;
-    return TerminalIcon;
-  }
-  switch (resolveCommandVisualKind(command)) {
+  switch (command ? resolveCommandVisualKind(command) : "terminal") {
     case "read":
       return FileIcon;
     case "search":
@@ -453,14 +411,11 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.itemType === "file_change") {
     return PencilIcon;
   }
+  if (workEntry.itemType === "web_search") return WebSearchIcon;
   if (workEntry.itemType === "image_generation") return ZapIcon;
   if (workEntry.itemType === "image_view") return EyeIcon;
-  // Read/search names outrank the generic buckets: Pi maps its native
-  // `grep`/`find` to web_search, and ACP read/execute kinds land on
-  // dynamic_tool_call — the icon should follow what the tool actually is.
   if (isFileReadToolEntry(workEntry)) return FileIcon;
   if (isSearchToolEntry(workEntry)) return SearchIcon;
-  if (workEntry.itemType === "web_search") return WebSearchIcon;
 
   switch (workEntry.itemType) {
     case "mcp_tool_call":
@@ -628,9 +583,31 @@ function combineWorkEntryDisplayText(heading: string, preview: string | null): s
 // read of files says "Read <files>" instead, since that is exactly what it did.
 // A humanized guess ("Found current directory") is never shown. Approval and
 // status rows keep their own wording.
+function commandElapsedLabel(
+  workEntry: TimelineWorkEntry,
+  locale: string,
+  nowMs: number,
+): string | null {
+  const activity = workEntry.liveActivity;
+  if (activity?.startedAt) {
+    const endIso = isLiveActivityInProgress(activity)
+      ? new Date(nowMs).toISOString()
+      : activity.lastActivityAt;
+    const label = formatClockElapsed(activity.startedAt, endIso, locale);
+    if (label && label !== "0s" && label !== "0 秒") return label;
+  }
+  const seconds = activity?.elapsedSeconds;
+  if (seconds != null && Number.isFinite(seconds) && seconds >= 1) {
+    return formatClockDuration(seconds * 1000, locale);
+  }
+  return null;
+}
+
 function commandRowDisplay(
   workEntry: TimelineWorkEntry,
   locale: MossLocaleCode,
+  nowMs: number,
+  expanded: boolean,
 ): { heading: string; object: string; literal: boolean } | null {
   const command = workEntry.rawCommand ?? workEntry.command;
   if (
@@ -653,8 +630,31 @@ function commandRowDisplay(
       literal: false,
     };
   }
-  // Every other command names itself, folded or open; the details below the
-  // row hold the output, exit code and duration (upstream).
+  // An expanded unclassified shell says "Ran command in {elapsed}"
+  // and the argv lives in the Shell card. Collapsed rows still name the command.
+  if (resolveCommandVisualKind(command) === "terminal") {
+    if (!expanded) {
+      const literal = deriveLiteralCommand(command);
+      if (literal) {
+        const zh = locale === "zh-CN";
+        return {
+          heading: running ? (zh ? "正在运行" : "Running") : zh ? "已运行" : "Ran",
+          object: literal,
+          literal: true,
+        };
+      }
+    }
+    const summary = commandActivitySummary(
+      command,
+      workEntry.liveActivity,
+      commandElapsedLabel(workEntry, locale, nowMs),
+      locale,
+      true,
+    );
+    if (summary) {
+      return { heading: summary, object: "", literal: false };
+    }
+  }
   const literal = deriveLiteralCommand(command);
   return literal
     ? {
@@ -673,16 +673,17 @@ export interface WorkEntryDisplayParts {
   commandLiteral: string | null;
 }
 
-// Renders a row sentence. The command reads as part of the row's sentence, in
-// the row's own type: no code chip, so a tool call stays one plain line
-// (upstream #2159).
+// Renders a row sentence: plain text, or the heading plus the command chip.
 export function renderWorkEntrySentence(parts: WorkEntryDisplayParts): ReactNode {
   if (parts.commandLiteral === null) {
     return parts.displayText;
   }
   return (
     <>
-      {parts.heading} <span data-command-literal="true">{parts.commandLiteral}</span>
+      {parts.heading}{" "}
+      <code className={INLINE_COMMAND_CHIP_CLASS_NAME} data-command-literal="true">
+        {parts.commandLiteral}
+      </code>
     </>
   );
 }
@@ -694,8 +695,10 @@ export function renderWorkEntrySentence(parts: WorkEntryDisplayParts): ReactNode
 export function workEntryDisplayParts(
   workEntry: TimelineWorkEntry,
   locale: MossLocaleCode = "en",
+  nowMs = Date.now(),
+  expanded = false,
 ): WorkEntryDisplayParts {
-  const commandDisplay = commandRowDisplay(workEntry, locale);
+  const commandDisplay = commandRowDisplay(workEntry, locale, nowMs, expanded);
   if (commandDisplay) {
     return {
       heading: commandDisplay.heading,
@@ -734,23 +737,6 @@ export function workEntryDisplayParts(
 
 function isFileChangeWorkEntry(workEntry: TimelineWorkEntry): boolean {
   return isFileChangeWorkLogEntry(workEntry);
-}
-
-// Item-scoped reasoning (Codex reasoning items carry their item id) and tool-use
-// summaries are narration and keep their full prose. Legacy reasoning groups
-// (no item id) only carry a compact preview; they keep their opener (upstream #2009).
-function isProseWorkEntry(workEntry: TimelineWorkEntry): boolean {
-  return (
-    (isReasoningUpdateWorkEntry(workEntry) && Boolean(workEntry.toolCallId)) ||
-    workEntry.activityKind === "tool.summary"
-  );
-}
-
-function proseWorkEntryText(workEntry: TimelineWorkEntry): string | null {
-  const source = workEntry.detail ?? workEntry.preview ?? "";
-  // Codex summaries end in an empty `<!-- -->` block separator.
-  const text = source.replace(/<!--[\s\S]*?-->/gu, "").trim();
-  return text.length > 0 ? text : null;
 }
 
 function subagentPrimaryLabel(
@@ -883,8 +869,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   chatMetaFontSizePx: number;
   textFontSizePx?: number;
   density?: "default" | "compact";
-  /** Narration inside a settled turn's disclosure reads muted, like its other rows. */
-  mutedProse?: boolean;
   fileDiffStatByPath?: ReadonlyMap<string, { additions: number; deletions: number }>;
   markdownCwd: string | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -900,7 +884,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   onEnableComputerControl?: () => void;
   timestampFormat: TimestampFormat;
 }) {
-  const { locale, t, format } = useTranslation();
+  const { locale, t } = useTranslation();
   const mcpAppPlacement = useContext(McpAppRowPlacementContext);
   // Defaults are applied in the body (not in the destructuring pattern): a default
   // value inside a destructuring pattern makes React Compiler bail out on the whole
@@ -910,7 +894,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     chatMetaFontSizePx,
     textFontSizePx: textFontSizePxProp,
     density: densityProp,
-    mutedProse,
     fileDiffStatByPath,
     markdownCwd,
     onImageExpand,
@@ -1015,6 +998,16 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     Boolean(preview) &&
     normalizeToolTextForComparison(heading) !== normalizeToolTextForComparison(preview ?? "");
   const rawCommand = workEntry.rawCommand ?? workEntry.command;
+  const openShellByDefault = rawCommand
+    ? resolveCommandVisualKind(rawCommand) === "terminal" &&
+      deriveLiteralCommand(rawCommand).length > 72 &&
+      toolWorkEntryStatus(workEntry) !== "running"
+    : false;
+  const shellDetails =
+    workEntry.toolDetails ??
+    (openShellByDefault && rawCommand
+      ? { kind: "command" as const, title: "Shell", command: rawCommand }
+      : undefined);
   const hoverText = isFixedTextActivity
     ? heading
     : historicalThreadError
@@ -1067,8 +1060,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       : null;
   const failureMetaText = failure
     ? failure.exitCode !== null
-      ? format("chat.tool.failedWithExit", { code: failure.exitCode })
-      : t("chat.tool.failed")
+      ? `Failed · exit ${failure.exitCode}`
+      : "Failed"
     : null;
   // Reasoning and progress narration reads as prose: it wraps instead of
   // being cut to one line.
@@ -1174,28 +1167,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
         textFontSizePx={textFontSizePx}
         density={density}
       />
-    );
-  }
-
-  // Narration renders like the assistant's own text: full Markdown in the
-  // transcript type, with no glyph, disclosure or page to open (upstream #2009).
-  const proseText = isProseWorkEntry(workEntry) ? proseWorkEntryText(workEntry) : null;
-  if (proseText !== null) {
-    return (
-      <div className="py-1" data-work-entry-prose="true">
-        <ChatMarkdown
-          text={proseText}
-          cwd={markdownCwd}
-          {...(threadId ? { threadId } : {})}
-          directionMode="auto-blocks"
-          isStreaming={false}
-          style={{
-            ...getChatTranscriptTextStyle(textFontSizePx),
-            ...(mutedProse ? { color: MUTED_LABEL_TEXT_COLOR } : {}),
-          }}
-          onImageExpand={onImageExpand}
-        />
-      </div>
     );
   }
 
@@ -1401,14 +1372,22 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
         </div>
       ) : (
         (() => {
-          // A row reads the same folded or open: the details below it carry the
-          // command, output, exit code and duration (upstream).
-          const renderRowContentChildren = () => {
+          const renderRowContentChildren = (expanded: boolean) => {
             const commandParts =
               rawCommand && !declinedByAutoReview && !workEntry.backgroundTerminal
-                ? workEntryDisplayParts(workEntry, locale)
+                ? workEntryDisplayParts(workEntry, locale, liveActivityNowMs, expanded)
                 : null;
-            const summaryText = commandSummary ?? displayText;
+            const summaryText =
+              commandSummary && rawCommand
+                ? (commandActivitySummary(
+                    rawCommand,
+                    workEntry.liveActivity,
+                    commandElapsed,
+                    locale,
+                    expanded,
+                    commandSummaryOptions,
+                  ) ?? displayText)
+                : displayText;
             return (
               <>
                 {!isCodexStatusRow && !isPlainRuntimeNoticeRow ? (
@@ -1485,6 +1464,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                       )}
                       data-runtime-notice-row={isPlainRuntimeNoticeRow ? "true" : undefined}
                       data-codex-status-row={isCodexStatusRow ? "true" : undefined}
+                      data-tool-detail-summary-state={
+                        commandSummary ? (expanded ? "semantic" : "raw-command") : undefined
+                      }
                       style={{ fontSize: `${rowFontSizePx}px` }}
                     >
                       <ConversationShimmer
@@ -1513,10 +1495,10 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               </>
             );
           };
-          if (canOpenToolDetails) {
+          if (canOpenToolDetails || openShellByDefault) {
             const parentRow = (
               <ToolDetailsDisclosure
-                details={workEntry.toolDetails}
+                details={shellDetails}
                 mcpToolResult={workEntry.mcpToolResult}
                 activity={workEntry.liveActivity}
                 onImageExpand={onImageExpand}
@@ -1541,6 +1523,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 }
                 compact={compact}
                 timestampFormat={timestampFormat}
+                {...(commandSummary ? { semanticSummary: displayText } : {})}
                 tooltip={
                   rawCommand && resolveCommandVisualKind(rawCommand) === "terminal"
                     ? deriveLiteralCommand(rawCommand)
@@ -1554,8 +1537,20 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                     ? "command"
                     : "default"
                 }
+                defaultOpen={openShellByDefault}
+                afterSummary={
+                  failure?.excerpt ? (
+                    <p
+                      data-tool-failure-excerpt="true"
+                      className="pl-7 text-ui-sm text-muted-foreground"
+                    >
+                      {failure.excerpt}
+                    </p>
+                  ) : null
+                }
+                renderSummary={renderRowContentChildren}
               >
-                {renderRowContentChildren()}
+                {renderRowContentChildren(true)}
               </ToolDetailsDisclosure>
             );
             // A widget is its own block under the normal tool row (SPEC §3, surface B).
@@ -1609,27 +1604,23 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 },
               )}
             >
-              {renderRowContentChildren()}
+              {renderRowContentChildren(false)}
             </AgentActivityOpenSurface>
           );
 
-          // A row that opens the activity page has no Shell details to open, and
-          // that page does not show the tool's output: keep the error line here.
-          const unreachableFailure =
-            canOpenAgentActivity && (failure?.excerpt ?? null) !== null ? failure!.excerpt : null;
-          return unreachableFailure ? (
+          return (
             <>
               {rowContent}
-              <p
-                data-tool-failure-excerpt="true"
-                className="pl-7 text-ui-sm text-muted-foreground"
-                data-translation-skip="true"
-              >
-                {unreachableFailure}
-              </p>
+              {workEntry.tone === "error" &&
+              deriveToolFailureSummary(workEntry.toolDetails)?.excerpt ? (
+                <p
+                  data-tool-failure-excerpt="true"
+                  className="pl-7 text-ui-sm text-muted-foreground"
+                >
+                  {deriveToolFailureSummary(workEntry.toolDetails)?.excerpt}
+                </p>
+              ) : null}
             </>
-          ) : (
-            rowContent
           );
         })()
       )}

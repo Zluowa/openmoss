@@ -30,24 +30,8 @@ export function isWrapUpTimelineEntry(entry: TimelineEntry): boolean {
   return entry.kind === "work" && isWrapUpToolName(entry.entry.toolName);
 }
 
-// Claude reports the call as a `ToolName: {json}` detail string (cut at 400
-// characters; the full arguments ride on `wrapUpInput`); Codex reports an
-// MCP call with its arguments in `data.arguments` (object or JSON text) and no
-// detail. Every provider that can call the tool must draw the box.
 function readBox(entry: TimelineEntry): WrapUp | null {
-  if (entry.kind !== "work") return null;
-  // Claude's full arguments (its detail string is cut at 400 characters).
-  const wrapUpInput = entry.entry.wrapUpInput;
-  if (wrapUpInput) {
-    const box = parseWrapUp(wrapUpInput);
-    if (box) return box;
-  }
-  const mcpArguments = entry.entry.mcpToolResult?.arguments;
-  if (mcpArguments !== undefined && mcpArguments !== null) {
-    const box = parseWrapUp(mcpArguments);
-    if (box) return box;
-  }
-  if (!entry.entry.detail) return null;
+  if (entry.kind !== "work" || !entry.entry.detail) return null;
   return parseWrapUp(parseToolArgumentSummary(entry.entry.detail)?.args ?? null);
 }
 

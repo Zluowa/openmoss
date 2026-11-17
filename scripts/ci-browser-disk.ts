@@ -42,7 +42,7 @@ function identity(directory: string) {
 }
 
 export function browserDiskContext(env: Environment, platform: string = process.platform) {
-  const shard = /^([12])\/2$/u.exec(env.MOSS_CI_BROWSER_LANE ?? "")?.[1];
+  const shard = /^([1-4])\/4$/u.exec(env.MOSS_CI_BROWSER_LANE ?? "")?.[1];
   if (
     platform !== "linux" ||
     env.RUNNER_OS !== "Linux" ||

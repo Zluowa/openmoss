@@ -173,21 +173,23 @@ export function ToolCallGroupSummaryRow(
           className="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1 py-0.5 text-left transition-colors duration-200 hover:text-foreground"
           onClick={() => onToggle(!open)}
         >
-          {/* One glyph per kind, matching the rows it folds; a live line wears its
-            call's own mark (upstream). */}
-          <span
-            className="flex size-4 shrink-0 items-center justify-center"
-            aria-hidden
-            data-tool-group-icon={liveEntry ? undefined : (summary?.iconCategory ?? "custom")}
-          >
-            {showFavicon && iconWebFetchUrl ? (
-              <LinkChipIcon url={iconWebFetchUrl} className="size-4" />
-            ) : Icon === McpIcon && iconEntry?.mcpServer ? (
-              <McpServerIcon serverName={iconEntry.mcpServer} className="size-4" />
-            ) : (
-              renderWorkEntryIcon(Icon, "size-4")
-            )}
-          </span>
+          {/* The desktop chat's tool line carries no glyph: the words lead. A live
+            line keeps its call's mark so the running action stays recognizable. */}
+          {liveEntry ? (
+            <span
+              className="flex size-4 shrink-0 items-center justify-center"
+              aria-hidden
+              data-tool-group-icon={undefined}
+            >
+              {showFavicon && iconWebFetchUrl ? (
+                <LinkChipIcon url={iconWebFetchUrl} className="size-4" />
+              ) : Icon === McpIcon && iconEntry?.mcpServer ? (
+                <McpServerIcon serverName={iconEntry.mcpServer} className="size-4" />
+              ) : (
+                renderWorkEntryIcon(Icon, "size-4")
+              )}
+            </span>
+          ) : null}
           <span className="min-w-0 truncate" data-tool-group-live={liveEntry ? "true" : undefined}>
             {liveEntry ? (
               (liveMultiFileLabel ??

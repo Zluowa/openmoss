@@ -7,18 +7,17 @@
 //          buildComposerPredictionConversation, resolveComposerPredictionRouting,
 //          resolveComposerPredictionRoutingResult, resolveComposerPredictionRoute,
 //          lowestSupportedEffort, resolveMossManagedPredictionModel,
-//          resolveComposerPredictionHedgeDelayMs, readComposerPredictionClosingQuestion
+//          resolveComposerPredictionHedgeDelayMs
 
-import {
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
-  type GitTextGenerationProvider,
-  type MessageId,
-  type ModelSelection,
-  type OrchestrationMessage,
-  type OrchestrationThreadShell,
-  type ProviderKind,
-  type ServerSettings,
-  type TurnId,
+import type {
+  GitTextGenerationProvider,
+  MessageId,
+  ModelSelection,
+  OrchestrationMessage,
+  OrchestrationThreadShell,
+  ProviderKind,
+  ServerSettings,
+  TurnId,
 } from "@moss/contracts";
 import { MOSS_MANAGED_PROVIDER_INSTANCE_IDS } from "@moss/shared/mossDownloadChannel";
 import {
@@ -26,12 +25,7 @@ import {
   MOSS_REASONING_EFFORTS,
   type MossModelFamily,
 } from "@moss/shared/mossRealmCatalog";
-import {
-  EMPTY_MODEL_CAPABILITIES,
-  getModelCapabilities,
-  normalizeModelSlug,
-} from "@moss/shared/model";
-import { isWrapUpToolName, parseWrapUp } from "@moss/shared/wrapUp";
+import { getModelCapabilities } from "@moss/shared/model";
 import {
   providerStartOptionsFromInstance,
   resolveModelSelectionInstanceId,
@@ -113,77 +107,6 @@ interface ComposerPredictionExchange {
   reply: string | null;
 }
 
-/**
- * The question an agent left for the person in its turn-end box (`moss_wrap_up`), with the
- * answers it offered as buttons. The agent is told not to repeat it in its closing message,
- * so the reply alone often reads as finished work; without it a prediction answers "none"
- * exactly where a suggestion helps most.
- */
-export interface ComposerPredictionClosingQuestion {
-  readonly ask: string;
-  readonly actions: ReadonlyArray<string>;
-}
-
-/** A turn's tool activity as stored: its kind and payload. */
-export interface ComposerPredictionToolActivity {
-  readonly kind: string;
-  readonly payload: unknown;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-/**
- * The tool input of a stored `moss_wrap_up` call in either provider shape: Codex keeps the
- * tool name and arguments in `data.tool` / `data.arguments` (`codex.mcp_tool_call`); Claude
- * keeps them in `data.toolName` / `data.input`. Claude's `detail` (`ToolName: {json}`) is the
- * last resort: it is cut at 400 characters, which a recap with a question already passes.
- */
-function wrapUpToolInput(payload: unknown): unknown {
-  const record = asRecord(payload);
-  const data = asRecord(record?.data);
-  if (typeof data?.tool === "string" && isWrapUpToolName(data.tool)) return data.arguments;
-  if (typeof data?.toolName === "string" && isWrapUpToolName(data.toolName)) {
-    if (data.input !== undefined) return data.input;
-  }
-  const detail = typeof record?.detail === "string" ? record.detail : "";
-  const separator = detail.indexOf(":");
-  if (separator <= 0 || !isWrapUpToolName(detail.slice(0, separator).trim())) return undefined;
-  return detail.slice(separator + 1).trim();
-}
-
-/**
- * The question of the turn's last completed `moss_wrap_up` call, or null when the turn ended
- * without one or its last box asks nothing. Records are read oldest first.
- */
-export function readComposerPredictionClosingQuestion(
-  records: ReadonlyArray<ComposerPredictionToolActivity>,
-): ComposerPredictionClosingQuestion | null {
-  for (const record of records.toReversed()) {
-    if (record.kind !== "tool.completed") continue;
-    const input = wrapUpToolInput(record.payload);
-    if (input === undefined) continue;
-    const box = parseWrapUp(input);
-    if (box === null) continue;
-    return box.ask === null ? null : { ask: box.ask, actions: box.actions };
-  }
-  return null;
-}
-
-/** How a closing question reads at the end of the final reply in a prediction transcript. */
-export function formatComposerPredictionClosingQuestion(
-  question: ComposerPredictionClosingQuestion,
-): string {
-  const answers =
-    question.actions.length > 0
-      ? ` Answer buttons offered: ${question.actions.map((label) => `"${label}"`).join(", ")}.`
-      : "";
-  return `[The assistant then asked the user: "${question.ask}"${answers}]`;
-}
-
 const OMITTED_MARKER = "[...]";
 const USER_LABEL = "User: ";
 const ASSISTANT_LABEL = "Assistant: ";
@@ -222,8 +145,6 @@ function joinedLength(lines: ReadonlyArray<string>): number {
 export function buildComposerPredictionConversation(input: {
   readonly messages: ReadonlyArray<ComposerPredictionMessage>;
   readonly finalReplyMessageId: MessageId;
-  /** The turn-end box's question, read after the final reply; it always fits the budget. */
-  readonly closingQuestion?: ComposerPredictionClosingQuestion | null | undefined;
 }): string | null {
   const budget = COMPOSER_PREDICTION_CONTEXT_BUDGET;
   const finalIndex = input.messages.findIndex(
@@ -269,20 +190,12 @@ export function buildComposerPredictionConversation(input: {
     if (joinedLength([line, ...requestLines]) > budget.maxLatestRequestChars) break;
     requestLines.unshift(line);
   }
-  const closingLine = input.closingQuestion
-    ? formatComposerPredictionClosingQuestion(input.closingQuestion)
-    : null;
   const replyBudget =
     budget.maxChars -
     joinedLength(requestLines) -
     MESSAGE_SEPARATOR.length -
-    ASSISTANT_LABEL.length -
-    (closingLine === null ? 0 : closingLine.length + MESSAGE_SEPARATOR.length);
-  const latestLines = [
-    ...requestLines,
-    `${ASSISTANT_LABEL}${keepTail(latest.reply, replyBudget)}`,
-    ...(closingLine === null ? [] : [closingLine]),
-  ];
+    ASSISTANT_LABEL.length;
+  const latestLines = [...requestLines, `${ASSISTANT_LABEL}${keepTail(latest.reply, replyBudget)}`];
 
   // Older exchanges fill what is left, newest first, and only whole.
   const olderBlocks: string[][] = [];
@@ -438,50 +351,8 @@ export function resolveComposerPredictionHedgeDelayMs(input: {
 }
 
 export type ComposerPredictionRouting = TextGenerationProviderInput & {
-  readonly source:
-    | "git-writing-model"
-    | "prediction-model"
-    | "chat-model"
-    | "moss-managed-cheapest";
-  /**
-   * The chat's own model on the same instance, at its lowest effort, for a `prediction-model`
-   * route only: an account that serves just the chat's model (a gateway, a person's own key)
-   * fails the smaller one, and the prediction then tries this once.
-   */
-  readonly fallback?: TextGenerationProviderInput;
+  readonly source: "git-writing-model" | "chat-model" | "moss-managed-cheapest";
 };
-
-/**
- * Smaller model a provider predicts with on a person's own account when the Git-writing model
- * belongs to another instance, so a chat on a frontier model does not pay frontier rates for a
- * one-line guess after every turn. `replaces` names the chat models it is known to be cheaper
- * than: a prediction never moves to a dearer model, and a model Moss cannot place (a newer
- * one, a gateway's own) keeps the chat's.
- */
-const COMPOSER_PREDICTION_MODEL: Partial<
-  Record<GitTextGenerationProvider, { readonly model: string; readonly replaces: RegExp }>
-> = {
-  // Opus and Fable cost more than Sonnet; Sonnet and Haiku chats keep their own model.
-  claudeAgent: { model: "claude-sonnet-5-5", replaces: /^claude-(?:opus|fable)-/u },
-  // GPT-6 Luna is the small tier of its family; the larger GPT-6 tiers and the Pro models
-  // cost more. Older GPT-5 tiers are not compared and keep their own model.
-  codex: {
-    model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
-    replaces: /^gpt-6(?:\.\d+)?-(?:astra|sol|terra)$|^gpt-[\d.]+-pro$/u,
-  },
-};
-
-function isCatalogModel(provider: ProviderKind, model: string): boolean {
-  return getModelCapabilities(provider, model) !== EMPTY_MODEL_CAPABILITIES;
-}
-
-/** The smaller prediction model for a chat model it is known to be cheaper than, or null. */
-function smallerPredictionModel(provider: ProviderKind, chatModel: string): string | null {
-  const entry = COMPOSER_PREDICTION_MODEL[provider as GitTextGenerationProvider];
-  if (!entry || !isCatalogModel(provider, chatModel)) return null;
-  const slug = normalizeModelSlug(chatModel, provider) ?? chatModel;
-  return entry.replaces.test(slug) && slug !== entry.model ? entry.model : null;
-}
 
 /**
  * Why a chat has no prediction routing. `no-dedicated-provider` holds for the turn (the
@@ -539,14 +410,10 @@ export function resolveComposerPredictionRoutingResult(input: {
     managedModel === null &&
     configured.provider === driver &&
     resolveModelSelectionInstanceId(configured) === instance.instanceId;
-  const predictionModel =
-    managedModel === null && !useConfigured
-      ? smallerPredictionModel(driver, chatSelection.model)
-      : null;
   // Lowest effort on every path: a short prediction gains nothing from reasoning, and a
   // Git-writing selection without an effort would otherwise run at the Git-writing default.
-  // A managed route and the prediction model drop the chat's other options too: they belong
-  // to another model, and fast mode, for one, bills the priority tier.
+  // A managed route drops the chat's other options too: fast mode, for one, bills the
+  // priority tier.
   const selection =
     managedModel !== null
       ? withEffort(
@@ -560,44 +427,23 @@ export function resolveComposerPredictionRoutingResult(input: {
             // OpenCode names its own variants; never invent one.
             (driver === "opencode" ? null : lowestMossManagedEffort(managedModel)),
         )
-      : withLowestEffort(
-          useConfigured
-            ? configured
-            : predictionModel !== null
-              ? ({ provider: driver, model: predictionModel } as ModelSelection)
-              : chatSelection,
-          driver,
-        );
+      : withLowestEffort(useConfigured ? configured : chatSelection, driver);
   // Only the instance's own options: global defaults could name another account.
   const routed = resolveTextGenerationInputForSelection(
     { ...selection, provider: driver, instanceId: instance.instanceId } as ModelSelection,
     providerStartOptionsFromInstance(instance),
   );
   if (!routed) return unrouted("selection-unresolved");
-  const fallback =
-    predictionModel === null
-      ? null
-      : resolveTextGenerationInputForSelection(
-          {
-            ...withLowestEffort(chatSelection, driver),
-            provider: driver,
-            instanceId: instance.instanceId,
-          } as ModelSelection,
-          providerStartOptionsFromInstance(instance),
-        );
   return {
     kind: "routed",
     routing: {
       ...routed,
-      ...(fallback ? { fallback } : {}),
       source:
         managedModel !== null
           ? "moss-managed-cheapest"
           : useConfigured
             ? "git-writing-model"
-            : predictionModel !== null
-              ? "prediction-model"
-              : "chat-model",
+            : "chat-model",
     },
   };
 }
@@ -642,23 +488,6 @@ export type ComposerPredictionRoute =
   | { readonly kind: "no-route"; readonly reason: ComposerPredictionNoRouteReason }
   | { readonly kind: "unrouted"; readonly reason: ComposerPredictionRoutingFailure };
 
-/**
- * Every Codex reasoning model takes this effort. A fork otherwise inherits the chat's own,
- * which for a person's newest model (one Moss's catalog does not list yet) is often the
- * maximum: a one-line guess then thinks for longer than the prediction may take.
- */
-const NATIVE_PREDICTION_FALLBACK_EFFORT = "low";
-
-/**
- * The effort of a prediction on Codex's native fork: the lowest one the catalog lists for the
- * chat's model; `low` for a model the catalog does not know; null (the thread's own) for a
- * known model that takes no effort.
- */
-export function resolveNativePredictionEffort(chatModel: string): string | null {
-  if (!isCatalogModel("codex", chatModel)) return NATIVE_PREDICTION_FALLBACK_EFFORT;
-  return lowestSupportedEffort("codex", chatModel);
-}
-
 const NATIVE_UNSUPPORTED_REASONS: Readonly<Record<string, ComposerPredictionNoRouteReason>> = {
   no_live_session: "native-no-live-session",
   app_server_without_prediction_fork: "native-cli-too-old",
@@ -691,7 +520,7 @@ export function resolveComposerPredictionRoute(input: {
   }
   const native = input.nativeSupport;
   if (native?.kind === "supported") {
-    return { kind: "native", routing, effort: resolveNativePredictionEffort(input.chatModel) };
+    return { kind: "native", routing, effort: lowestSupportedEffort("codex", input.chatModel) };
   }
   return {
     kind: "no-route",

@@ -112,7 +112,6 @@ import {
   codexGeneratedImageArtifact,
   type CodexGeneratedImageHomeCandidate,
   type CodexGeneratedImageHomeContext,
-  extractCodexGeneratedImageCallId,
   extractCodexGeneratedImageReference,
   firstStringValue,
   isCodexGeneratedImageItemType,
@@ -2778,15 +2777,8 @@ export function mapCodexItemLifecycle(
       },
     };
   }
-  // Only a completed item proves the picture exists. A started or updated item
-  // knows at most the path Codex will write, and the transcript treats a typed
-  // artifact on an unfinished item as a broken record: it drew an empty box
-  // that the finished picture never replaced. Unfinished items carry the call
-  // id alone, which pairs them with their completion.
-  const isUnfinishedGeneratedImage =
-    itemType === "image_generation" && lifecycle !== "item.completed";
   const generatedImageReference =
-    itemType === "image_generation" && !isUnfinishedGeneratedImage
+    itemType === "image_generation"
       ? extractCodexGeneratedImageReference({
           value: source,
           threadId: codexGeneratedImageThreadId(event, payload) ?? canonicalThreadId,
@@ -2800,9 +2792,6 @@ export function mapCodexItemLifecycle(
   ) {
     return undefined;
   }
-  const unfinishedGeneratedImageCallId = isUnfinishedGeneratedImage
-    ? extractCodexGeneratedImageCallId(source)
-    : undefined;
 
   const canonicalItemType =
     lifecycle === "item.completed" && itemType === "review_exited" ? "assistant_message" : itemType;
@@ -2829,7 +2818,7 @@ export function mapCodexItemLifecycle(
       : Option.none();
 
   return {
-    ...(itemType === "image_generation"
+    ...(generatedImageReference
       ? withSanitizedGeneratedImageRaw(
           runtimeEventBase(event, canonicalThreadId),
           event,
@@ -2849,18 +2838,14 @@ export function mapCodexItemLifecycle(
       ...(title ? { title } : {}),
       ...(generatedImageReference
         ? { detail: generatedImageReference.path }
-        : detail && !isUnfinishedGeneratedImage
+        : detail
           ? { detail }
           : {}),
       ...(generatedImageReference
         ? { data: codexGeneratedImageArtifact(generatedImageReference) }
-        : isUnfinishedGeneratedImage
-          ? unfinishedGeneratedImageCallId
-            ? { data: { callId: unfinishedGeneratedImageCallId } }
-            : {}
-          : event.payload !== undefined
-            ? { data: event.payload }
-            : {}),
+        : event.payload !== undefined
+          ? { data: event.payload }
+          : {}),
     },
   };
 }

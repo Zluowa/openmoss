@@ -71,22 +71,10 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Light theme custom CSS": "浅色主题自定义 CSS",
   "Dark theme custom CSS editor": "深色主题自定义 CSS 编辑框",
   "Light theme custom CSS editor": "浅色主题自定义 CSS 编辑框",
-  "Dark theme picture file": "深色主题图片文件",
-  "Light theme picture file": "浅色主题图片文件",
   "Applies after Moss's own styles while this theme is in use. It cannot load files from other sites or add text.":
     "使用此主题时，在 Moss 自身样式之后生效。它不能从其他网站加载文件，也不能添加文字。",
-  "Rules that load files are removed: @import, image-set(), and url() other than data:, #id or a picture added here.":
-    "会加载文件的规则会被移除：@import、image-set()，以及 data:、#id 或在这里添加的图片以外的 url()。",
-  "Add picture": "添加图片",
-  "Adding picture…": "正在添加图片…",
-  "PNG, JPEG, WebP, GIF or AVIF, up to 10 MB, kept at full quality on this computer.":
-    "支持 PNG、JPEG、WebP、GIF 或 AVIF，最大 10 MB，以原画质保存在这台电脑上。",
-  "Picture added behind the chat:": "已把图片放到聊天背景：",
-  "Pictures added on this computer stay on this computer: the copy keeps their references, and on another computer they do not show.":
-    "在这台电脑上添加的图片只保存在这台电脑上：复制的内容只带图片的引用，在别的电脑上不会显示。",
-  "Pictures not on this computer": "图片不在这台电脑上",
-  "This theme uses pictures added on another computer. Rules that use them show nothing here; add the pictures again with Add picture.":
-    "这个主题用到了在另一台电脑上添加的图片。用到它们的规则在这里不会显示；请用“添加图片”重新添加。",
+  "Rules that load files are removed: @import, image-set(), and url() other than data: or #id.":
+    "会加载文件的规则会被移除：@import、image-set()，以及 data: 或 #id 以外的 url()。",
   "Rules removed by the safety check:": "被安全检查移除的规则：",
   "Tab indents. Shift+Tab unindents. Press Escape, then Tab to leave.":
     "Tab 缩进，Shift+Tab 取消缩进。先按 Esc，再按 Tab 可离开编辑框。",

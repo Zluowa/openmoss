@@ -85,7 +85,6 @@ import {
   BROWSER_SCRIPT_BATCH_GUIDANCE,
 } from "@moss/shared/browserAutomationCatalogue";
 import { normalizeModelSlug } from "@moss/shared/model";
-import { redactSensitiveText } from "@moss/shared/mossRuntimeContext";
 import {
   approvalSessionGrantWidensSessionPolicy,
   readProposedExecpolicyAmendment,
@@ -454,49 +453,15 @@ interface CodexSessionContext {
    * so none of its notifications or requests ever reach the parent conversation.
    */
   predictionThreads?: Map<string, CodexPredictionThreadCollector | null>;
-  /**
-   * The one fork of this session that is being created or runs. Predictions and titles share
-   * it; the order between them is decided in `predictNextUserMessage`.
-   */
-  forkInFlight?: CodexForkInFlight;
+  /** True while a composer prediction fork of this session is being created or runs. */
+  predictionForkInFlight?: boolean;
   authTracking?: PreparedCodexAuthTracking;
   authFingerprint?: string;
   /** Bound to the server-generated launch environment, never a client path. */
   codexRuntimeHomePath?: string;
   discovery?: boolean;
   discoveryKey?: string;
-  /**
-   * A discovery process's last error lines. Its stderr reaches no transcript, so without
-   * these an exit while answering a listing says nothing about why.
-   */
-  discoveryStderrTail?: string[];
 }
-
-interface CodexForkInFlight {
-  readonly purpose: "prediction" | "title";
-  readonly controller: AbortController;
-  /** Settles once the fork has been retired, whatever its outcome. */
-  readonly settled: Promise<void>;
-}
-
-/** A title fork a prediction stopped; the title request starts it again. */
-class TitleForkPreemptedError extends Error {
-  constructor() {
-    super("A composer prediction preempted the title fork.");
-  }
-}
-
-/** The abort reason of a title fork a prediction stopped. */
-const TITLE_FORK_PREEMPTED = new Error("A composer prediction preempted the title fork.");
-/** Times a title fork starts again after predictions stopped it, within one request. */
-const TITLE_FORK_MAX_PREEMPTIONS = 3;
-
-/** Items a prediction or title fork may produce; anything else is a tool and is stopped. */
-const FORK_ALLOWED_ITEM_TYPES: ReadonlySet<string> = new Set([
-  "agentMessage",
-  "reasoning",
-  "userMessage",
-]);
 
 /** Internal stop-only snapshot. Object identity is checked against a live context. */
 export interface CodexRegisteredRuntimeStopScope {
@@ -1721,49 +1686,6 @@ export function parseCodexUserInputQuestions(
   return parsedQuestions.length > 0 ? parsedQuestions : undefined;
 }
 
-/** Error lines kept per discovery process, and the length each keeps. */
-const DISCOVERY_STDERR_TAIL_LINES = 4;
-/** How long a discovery exit's log line waits for the rest of the process's stderr. */
-const DISCOVERY_EXIT_STDERR_WAIT_MS = 250;
-const DISCOVERY_STDERR_LINE_CHARS = 400;
-
-/**
- * Secret shapes a Codex error line can carry, beyond what `redactSensitiveText` knows: cookie
- * headers, credentials in a URL, bare JWTs, provider key prefixes (GitHub, AWS, Stripe, Moss)
- * and a flag followed by its value.
- */
-const DISCOVERY_STDERR_SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/\b((?:set-)?cookie\s*[:=]\s*).+$/giu, "$1[redacted]"],
-  [/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/giu, "$1[redacted]@"],
-  [/\beyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}(?:\.[A-Za-z0-9_-]+)?/gu, "[redacted-token]"],
-  [/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/gu, "[redacted-token]"],
-  [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/gu, "[redacted-key]"],
-  [/\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{8,}/gu, "[redacted-api-key]"],
-  [/\bmoss_sk_[A-Za-z0-9_-]+/gu, "[redacted-api-key]"],
-  [
-    /(--?(?:api[-_]?key|token|access[-_]?token|secret|password|passwd|auth(?:orization)?)(?:=|\s+))("[^"]*"|'[^']*'|\S+)/giu,
-    "$1[redacted]",
-  ],
-];
-
-/** A discovery stderr line as it may reach the server log: secrets masked, length capped. */
-export function discoveryStderrLogLine(line: string): string {
-  const redacted = DISCOVERY_STDERR_SECRET_PATTERNS.reduce(
-    (text, [pattern, replacement]) => text.replace(pattern, replacement),
-    redactSensitiveText(line),
-  );
-  return redacted.length > DISCOVERY_STDERR_LINE_CHARS
-    ? `${redacted.slice(0, DISCOVERY_STDERR_LINE_CHARS)}…`
-    : redacted;
-}
-
-/**
- * How long a failed plugin listing is answered from memory instead of starting another
- * process. A Codex that exits while listing (seen on Windows, 2026-11-17) otherwise started
- * a new app-server for every listing the open chat asked for, roughly once a minute.
- */
-export const CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS = 5 * 60 * 1000;
-
 /**
  * Codex writes one log entry over several lines: a timestamped header, then
  * indented detail. A detail line belongs to the entry above it, so it stays out
@@ -2171,20 +2093,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   /** Background image skill upgrades by managed home; see startManagedImageSkillUpgrade. */
   private readonly managedImageSkillUpgrades = new Map<string, Promise<void>>();
   private readonly pluginsCache = new Map<string, ProviderListPluginsResult>();
-  /** Recent plugin-listing failures by cache key; see CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS. */
-  private readonly pluginListFailures = new Map<
-    string,
-    { readonly error: unknown; readonly atMs: number }
-  >();
-
-  /**
-   * Forgets every plugin listing, the failed ones too: an install, repair or catalog download
-   * may be exactly what fixes a listing that failed a moment ago.
-   */
-  private clearPluginListings(): void {
-    this.pluginsCache.clear();
-    this.pluginListFailures.clear();
-  }
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
@@ -2583,7 +2491,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             },
           }),
         );
-        this.clearPluginListings();
+        this.pluginsCache.clear();
         this.pluginDetailCache.clear();
         this.skillsCache.clear();
       },
@@ -2982,7 +2890,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
         throw error;
       } finally {
-        this.clearPluginListings();
+        this.pluginsCache.clear();
         this.pluginDetailCache.clear();
         this.skillsCache.clear();
         this.appListCache.clear();
@@ -5646,95 +5554,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (!sourceThreadId) {
       return { kind: "unsupported", reason: "missing_provider_thread" };
     }
-    if (input.purpose === "title") {
-      return this.runTitleFork(context, threadId, sourceThreadId, input, signal);
-    }
     if (context.session.activeTurnId !== undefined) {
       return { kind: "skipped", reason: "parent_turn_active" };
     }
-    // Two forks of one live thread would run two turns against one conversation. The
-    // suggestion is what the person waits for: a running title fork gives way to it.
-    const running = context.forkInFlight;
-    if (running?.purpose === "prediction") {
+    // Two forks of one live thread would run two prediction turns against one conversation.
+    if (context.predictionForkInFlight) {
       return { kind: "skipped", reason: "prediction_in_flight" };
     }
-    if (running) {
-      running.controller.abort(TITLE_FORK_PREEMPTED);
-      await running.settled;
-      if (context.forkInFlight) return { kind: "skipped", reason: "prediction_in_flight" };
-      if (context.session.activeTurnId !== undefined) {
-        return { kind: "skipped", reason: "parent_turn_active" };
-      }
-    }
-    return this.runFork(context, "prediction", threadId, sourceThreadId, input, signal);
-  }
-
-  /**
-   * A title fork waits while any fork of the session runs, then runs itself; a prediction that
-   * arrives meanwhile stops it, and it starts again once that prediction is done. `skipped`
-   * when the parent thread is busy or predictions kept preempting it.
-   */
-  private async runTitleFork(
-    context: CodexSessionContext,
-    threadId: ThreadId,
-    sourceThreadId: string,
-    input: ProviderPredictNextUserMessageInput & { readonly effort: string | null },
-    signal: AbortSignal | undefined,
-  ): Promise<ProviderNextUserMessagePrediction> {
-    let preemptions = 0;
-    for (;;) {
-      signal?.throwIfAborted();
-      if (this.sessions.get(threadId) !== context || !this.isContextRoutable(context)) {
-        return { kind: "unsupported", reason: "no_live_session" };
-      }
-      if (context.session.activeTurnId !== undefined) {
-        return { kind: "skipped", reason: "parent_turn_active" };
-      }
-      const running = context.forkInFlight;
-      if (running) {
-        await running.settled;
-        continue;
-      }
-      try {
-        return await this.runFork(context, "title", threadId, sourceThreadId, input, signal);
-      } catch (error) {
-        if (!(error instanceof TitleForkPreemptedError)) throw error;
-        preemptions += 1;
-        if (preemptions > TITLE_FORK_MAX_PREEMPTIONS) {
-          return { kind: "skipped", reason: "prediction_in_flight" };
-        }
-      }
-    }
-  }
-
-  /** Runs one fork as the session's only fork; see {@link CodexForkInFlight}. */
-  private async runFork(
-    context: CodexSessionContext,
-    purpose: CodexForkInFlight["purpose"],
-    threadId: ThreadId,
-    sourceThreadId: string,
-    input: ProviderPredictNextUserMessageInput & { readonly effort: string | null },
-    signal: AbortSignal | undefined,
-  ): Promise<ProviderNextUserMessagePrediction> {
-    const controller = new AbortController();
-    const forwardAbort = () => controller.abort(signal?.reason);
-    signal?.addEventListener("abort", forwardAbort, { once: true });
-    let settle!: () => void;
-    const settled = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    context.forkInFlight = { purpose, controller, settled };
+    context.predictionForkInFlight = true;
     try {
-      return await this.forkAndPredict(context, threadId, sourceThreadId, input, controller.signal);
-    } catch (error) {
-      if (controller.signal.reason === TITLE_FORK_PREEMPTED && !signal?.aborted) {
-        throw new TitleForkPreemptedError();
-      }
-      throw error;
+      return await this.forkAndPredict(context, threadId, sourceThreadId, input, signal);
     } finally {
-      signal?.removeEventListener("abort", forwardAbort);
-      if (context.forkInFlight?.controller === controller) delete context.forkInFlight;
-      settle();
+      context.predictionForkInFlight = false;
     }
   }
 
@@ -5854,17 +5685,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             case "turn/started":
               turnId = this.readString(this.readObject(params, "turn"), "id") ?? turnId;
               return;
-            case "item/started": {
-              if (isForeignTurn(notificationTurnId)) return;
-              turnId ??= notificationTurnId;
-              const itemType = this.readString(this.readObject(params, "item"), "type");
-              if (itemType === undefined || FORK_ALLOWED_ITEM_TYPES.has(itemType)) return;
-              // A fork may only write its answer. In a full-access chat Codex asks no
-              // approval for a command or a patch, so nothing else would stop one.
-              log.warn("codex fork started a tool; interrupting it", { itemType });
-              abandon(new Error(`The Codex fork started a ${itemType} item.`));
-              return;
-            }
             case "item/agentMessage/delta":
               if (isForeignTurn(notificationTurnId)) return;
               text = `${text ?? ""}${this.readString(params, "delta") ?? ""}`;
@@ -6861,21 +6681,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           cached: true,
         };
       }
-      // A listing that just failed fails again without another process; asking to reload
-      // (or a changed account, path, or sign-in: another key) tries again at once.
-      const failure = this.pluginListFailures.get(cacheKey);
-      if (failure && Date.now() - failure.atMs < CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS) {
-        throw failure.error;
-      }
     }
-    const rememberFailure = (error: unknown) => {
-      this.pluginListFailures.delete(cacheKey);
-      this.pluginListFailures.set(cacheKey, { error, atMs: Date.now() });
-      for (const oldest of this.pluginListFailures.keys()) {
-        if (this.pluginListFailures.size <= 32) break;
-        this.pluginListFailures.delete(oldest);
-      }
-    };
 
     const context = await Promise.resolve(
       this.resolveContextForDiscovery(
@@ -6902,10 +6708,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         phase: "plugin/list",
         code: discoveryFailureCode(error),
       });
-      rememberFailure(error);
       throw error;
     });
-    this.pluginListFailures.delete(cacheKey);
     const parsed = parseCodexPluginListResponse(response);
     const result: ProviderListPluginsResult = {
       // Without kinds this is the whole remote directory; keep its cards light.
@@ -6935,7 +6739,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const root = this.mossPluginCatalogRoot;
     if (!isMossPluginCatalogMarketplacePath(root, marketplacePath)) return;
     if ((await ensureMossPluginCatalogPlugin({ root, name: pluginName })) === "downloaded") {
-      this.clearPluginListings();
+      this.pluginsCache.clear();
       this.pluginDetailCache.clear();
     }
   }
@@ -7673,28 +7477,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     // On Windows a launcher shim (cmd.exe) writes its errors in the system code page; decode
     // those lines with it so a provider error reads as text, not mojibake.
     const stderrDecoder = createNativeOutputDecoder();
-    let discoveryPartialLine = "";
-    const emitStderrText = (text: string, final = false) => {
-      if (context.stopping) {
+    const emitStderrText = (text: string) => {
+      if (context.stopping || text.length === 0) {
         return;
       }
-      let lines: string[];
-      if (context.discovery) {
-        // Whole lines only, so masking sees a secret together with what marks it.
-        const buffered = `${discoveryPartialLine}${text}`;
-        lines = buffered.split(/\r?\n/g);
-        discoveryPartialLine = final ? "" : (lines.pop() ?? "");
-        if (lines.every((line) => line.length === 0)) return;
-      } else {
-        if (text.length === 0) return;
-        lines = text.split(/\r?\n/g);
-      }
+      const lines = text.split(/\r?\n/g);
       for (const message of classifyCodexStderrLines(lines, stderrState)) {
-        if (context.discovery) {
-          const tail = (context.discoveryStderrTail ??= []);
-          tail.push(discoveryStderrLogLine(message));
-          if (tail.length > DISCOVERY_STDERR_TAIL_LINES) tail.shift();
-        }
         this.emitErrorEvent(context, "process/stderr", message);
       }
     };
@@ -7705,7 +7493,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       emitStderrText(stderrDecoder.write(chunk));
     });
     // A last line in the system code page without a line break is held until here.
-    context.child.stderr.once("end", () => emitStderrText(stderrDecoder.end(), true));
+    context.child.stderr.once("end", () => emitStderrText(stderrDecoder.end()));
 
     context.child.on("error", (error) => this.handleTransportFailure(context, error));
     // stdin errors close the JSONL writer, which owns that pipe; a broken stdout
@@ -7721,30 +7509,6 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const message = `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"}).`;
       const exitError = new Error(message);
-      if (context.discovery) {
-        // Ids and Codex's own error lines (masked) only: the request that was pending says
-        // what it was doing, the lines why it stopped. A process's last stderr can arrive
-        // after its exit, so the line waits briefly for the stream to end.
-        const pendingMethods = Array.from(
-          new Set(Array.from(context.pending.values(), (pending) => pending.method)),
-        );
-        let logged = false;
-        const logExit = () => {
-          if (logged) return;
-          logged = true;
-          clearTimeout(stderrWait);
-          log.warn("codex discovery app-server exited", {
-            code,
-            signal,
-            pendingMethods,
-            stderr: context.discoveryStderrTail ?? [],
-          });
-        };
-        const stderrWait = setTimeout(logExit, DISCOVERY_EXIT_STDERR_WAIT_MS);
-        stderrWait.unref?.();
-        if (context.child.stderr.readableEnded) logExit();
-        else context.child.stderr.once("end", logExit);
-      }
       const ownedContext = context.discovery
         ? this.discoverySessions.get(context.discoveryKey ?? "") === context
         : this.sessions.get(context.session.threadId) === context;

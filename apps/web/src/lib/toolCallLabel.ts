@@ -1371,33 +1371,7 @@ function collectDescriptorCandidates(
 // finds the magnifier; listings and everything else keep the terminal icon.
 // These sets are the single source of truth for both the command labels below
 // and the icon decision.
-// Readers per shell. `type` reads a file only under cmd and PowerShell (on POSIX
-// shells it says what a command is); PowerShell's `cat` and `gc` are aliases of
-// Get-Content.
-const POSIX_READ_FILE_COMMAND_TOOLS = new Set(["cat", "nl", "head", "tail", "sed", "less", "more"]);
-const POWERSHELL_READ_FILE_COMMAND_TOOLS = new Set(["get-content", "gc", "cat", "type"]);
-const CMD_READ_FILE_COMMAND_TOOLS = new Set(["type"]);
-const READ_FILE_COMMAND_TOOLS = new Set([
-  ...POSIX_READ_FILE_COMMAND_TOOLS,
-  ...POWERSHELL_READ_FILE_COMMAND_TOOLS,
-  ...CMD_READ_FILE_COMMAND_TOOLS,
-]);
-// Get-Content parameters a plain read may carry. Any other parameter (common
-// parameters such as -ErrorAction or -OutVariable, -Filter, -Include, an
-// abbreviation) makes the command unprovable as a read.
-const GET_CONTENT_SWITCHES = new Set(["-raw", "-force", "-wait", "-asbytestream"]);
-const GET_CONTENT_VALUE_OPTIONS = new Set([
-  "-totalcount",
-  "-head",
-  "-first",
-  "-tail",
-  "-last",
-  "-encoding",
-  "-delimiter",
-  "-readcount",
-  "-stream",
-]);
-const GET_CONTENT_PATH_OPTIONS = new Set(["-path", "-literalpath", "-lp", "-pspath"]);
+const READ_FILE_COMMAND_TOOLS = new Set(["cat", "nl", "head", "tail", "sed", "less", "more"]);
 const SEARCH_COMMAND_TOOLS = new Set(["rg", "grep", "ag", "ack"]);
 const FIND_COMMAND_TOOLS = new Set(["find", "fd"]);
 const LIST_COMMAND_TOOLS = new Set(["ls"]);
@@ -1412,23 +1386,10 @@ export function deriveReadableCommandDisplay(
   const primaryCommand = firstShellCommandSegment(command);
   const [tool, args] = splitToolAndArgs(primaryCommand);
 
-  // "Read <files>" only when the whole command is provably one read; any other
-  // reader command falls through to "Ran <command>".
-  const readTargets = READ_FILE_COMMAND_TOOLS.has(tool)
-    ? deriveCommandReadTargets(rawCommand)
-    : null;
-  if (readTargets) {
+  if (READ_FILE_COMMAND_TOOLS.has(tool)) {
     return {
       verb: localizeToolHeading(isRunning ? "Reading" : "Read", locale),
-      target: readTargets.join(", "),
-      fullCommand: rawCommand,
-    };
-  }
-  if (READ_FILE_COMMAND_TOOLS.has(tool)) {
-    // Not provably one read: name the whole command, never just its first stage.
-    return {
-      verb: localizeToolHeading(isRunning ? "Running" : "Ran", locale),
-      target: deriveLiteralCommand(rawCommand),
+      target: lastPathComponents(args, "file", locale),
       fullCommand: rawCommand,
     };
   }
@@ -1542,11 +1503,7 @@ export function resolveCommandVisualKind(rawCommand: string): CommandVisualKind 
   }
   const command = stripCommandDisplayWrappers(unwrapShellCommandIfPresent(rawCommand));
   const [tool] = splitToolAndArgs(firstShellCommandSegment(command));
-  // A search followed by anything else is not "a search".
-  if (
-    (SEARCH_COMMAND_TOOLS.has(tool) || FIND_COMMAND_TOOLS.has(tool)) &&
-    !hasCommandSeparator(deriveCommandScript(rawCommand), commandShellDialect(rawCommand))
-  ) {
+  if (SEARCH_COMMAND_TOOLS.has(tool) || FIND_COMMAND_TOOLS.has(tool)) {
     return "search";
   }
   if (tool === "git") {
@@ -1567,13 +1524,7 @@ export function deriveInlineCommandCall(rawCommand: string): string {
 // quoting stay verbatim, unlike `deriveInlineCommandCall`, which keeps only the
 // first pipeline stage for classification.
 export function deriveLiteralCommand(rawCommand: string): string {
-  return deriveCommandScript(rawCommand).replace(/\s+/g, " ").trim();
-}
-
-// The unwrapped command with its line breaks kept: line breaks separate
-// commands, so every "is this one read?" check runs on this text.
-function deriveCommandScript(rawCommand: string): string {
-  let value = unwrapWindowsShellCommand(rawCommand) ?? rawCommand.trim();
+  let value = rawCommand.trim();
   const lowered = value.toLowerCase();
   for (const prefix of SHELL_WRAPPER_PREFIXES) {
     if (!lowered.startsWith(prefix)) {
@@ -1589,116 +1540,23 @@ function deriveCommandScript(rawCommand: string): string {
     }
     break;
   }
-  return stripLeadingShellPreambles(value).trim();
-}
-
-type CommandShellDialect = "posix" | "powershell" | "cmd";
-
-// Which shell parses the command: the Windows launcher when there is one, a bare
-// PowerShell cmdlet, else a POSIX shell.
-function commandShellDialect(rawCommand: string): CommandShellDialect {
-  const executable = firstCommandExecutable(rawCommand).replace(/\.exe$/u, "");
-  if (unwrapWindowsShellCommand(rawCommand) !== null) {
-    return executable === "cmd" ? "cmd" : "powershell";
-  }
-  return executable === "get-content" || executable === "gc" ? "powershell" : "posix";
-}
-
-// Anything that could make a command do more than its first word says: chains,
-// pipes, redirects, line breaks, substitutions and, for PowerShell, grouping and
-// script blocks. Quoting follows the dialect (PowerShell has no `\` escape, and
-// expands `$(…)` inside double quotes).
-function hasCommandSeparator(script: string, dialect: CommandShellDialect): boolean {
-  let quote: '"' | "'" | null = null;
-  for (let index = 0; index < script.length; index += 1) {
-    const char = script[index]!;
-    const next = script[index + 1];
-    if (quote === "'") {
-      if (char === "'") quote = null;
-      continue;
-    }
-    if (quote === '"') {
-      if (dialect === "posix" && char === "\\") {
-        index += 1;
-        continue;
-      }
-      if (dialect === "powershell" && char === "`") {
-        index += 1;
-        continue;
-      }
-      if (char === '"') {
-        quote = null;
-        continue;
-      }
-      if (dialect !== "cmd" && char === "$" && (next === "(" || next === "{")) return true;
-      if (dialect === "posix" && char === "`") return true;
-      continue;
-    }
-    if (dialect === "posix" && char === "\\") {
-      index += 1;
-      continue;
-    }
-    if (char === '"' || (char === "'" && dialect !== "cmd")) {
-      quote = char;
-      continue;
-    }
-    if (
-      char === "\n" ||
-      char === "\r" ||
-      char === "|" ||
-      char === "&" ||
-      char === ";" ||
-      char === ">" ||
-      char === "<" ||
-      char === "`"
-    ) {
-      return true;
-    }
-    if (dialect === "posix" && char === "$" && next === "(") return true;
-    if (dialect === "powershell" && (char === "(" || char === "{" || char === ",")) return true;
-    if (dialect === "cmd" && (char === "(" || char === "^")) return true;
-  }
-  return false;
-}
-
-// Arguments as the dialect reads them; PowerShell and cmd keep backslashes.
-function tokenizeDialectArgs(args: string, dialect: CommandShellDialect): string[] {
-  if (dialect === "posix") return tokenizeCommandArgs(args);
-  const tokens: string[] = [];
-  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/gu;
-  for (const match of args.matchAll(pattern)) {
-    tokens.push(match[1] ?? match[2] ?? match[3] ?? "");
-  }
-  return tokens;
+  return stripLeadingShellPreambles(value).replace(/\s+/g, " ").trim();
 }
 
 // Files a command only reads, or null when the command does anything else.
 // A row may say "Read <file>" instead of the literal command only when that
-// is the whole story: one command, no pipes, chains, redirects, line breaks or
-// substitutions, only options the parser knows, and no in-place edit (`sed -i`).
+// is the whole story: no pipes, chains, redirects or substitutions, and no
+// in-place edit (`sed -i`).
 export function deriveCommandReadTargets(rawCommand: string): string[] | null {
-  const script = deriveCommandScript(rawCommand);
-  const dialect = commandShellDialect(rawCommand);
-  if (script.length === 0 || hasCommandSeparator(script, dialect)) {
+  const literal = deriveLiteralCommand(rawCommand);
+  if (literal.length === 0 || hasUnquotedShellOperator(literal)) {
     return null;
   }
-  const literal = script.replace(/\s+/g, " ").trim();
-  const [tool, args] = splitToolAndArgs(
-    dialect === "posix" ? stripCommandDisplayWrappers(literal) : literal,
-  );
-  const readers =
-    dialect === "powershell"
-      ? POWERSHELL_READ_FILE_COMMAND_TOOLS
-      : dialect === "cmd"
-        ? CMD_READ_FILE_COMMAND_TOOLS
-        : POSIX_READ_FILE_COMMAND_TOOLS;
-  if (!readers.has(tool)) {
+  const [tool, args] = splitToolAndArgs(stripCommandDisplayWrappers(literal));
+  if (!READ_FILE_COMMAND_TOOLS.has(tool)) {
     return null;
   }
-  const tokens = tokenizeDialectArgs(args, dialect);
-  if (dialect !== "posix") {
-    return readWindowsReadTargets(tokens, dialect);
-  }
+  const tokens = tokenizeCommandArgs(args);
   const files: string[] = [];
   let skipNext = false;
   let sedScriptPending = tool === "sed";
@@ -1738,168 +1596,6 @@ export function deriveCommandReadTargets(rawCommand: string): string[] | null {
   return files.length > 0 ? files : null;
 }
 
-// Get-Content (and PowerShell's / cmd's `type`) with known parameters only;
-// a variable or wildcard target is not a file the row can name.
-function readWindowsReadTargets(
-  tokens: ReadonlyArray<string>,
-  dialect: Exclude<CommandShellDialect, "posix">,
-): string[] | null {
-  const files: string[] = [];
-  for (let index = 0; index < tokens.length; index += 1) {
-    const token = tokens[index]!;
-    const option = token.toLowerCase();
-    if (dialect === "powershell" && token.startsWith("-") && token.length > 1) {
-      if (GET_CONTENT_SWITCHES.has(option)) continue;
-      if (GET_CONTENT_VALUE_OPTIONS.has(option)) {
-        if (tokens[index + 1] === undefined) return null;
-        index += 1;
-        continue;
-      }
-      if (GET_CONTENT_PATH_OPTIONS.has(option)) {
-        const path = tokens[index + 1];
-        if (path === undefined || !isPlainFileArgument(path)) return null;
-        files.push(compactPath(path));
-        index += 1;
-        continue;
-      }
-      return null;
-    }
-    if (dialect === "cmd" && token.startsWith("/")) return null;
-    if (!isPlainFileArgument(token)) return null;
-    files.push(compactPath(token));
-  }
-  return files.length > 0 ? files : null;
-}
-
-function isPlainFileArgument(token: string): boolean {
-  return token.length > 0 && !/[$*?%@[\]]/u.test(token);
-}
-
-// Codex on Windows launches every command through PowerShell (or cmd) and
-// reports the launcher line, quoted the POSIX way:
-//   "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw 'a.md'"
-// Returns the command the shell ran (`Get-Content -Raw 'a.md'`), or null when
-// the line is not such a wrapper, or when the launcher carries anything that
-// changes what runs (an execution policy, a working directory, `cmd /k`): then
-// the row shows the whole line. Whitespace inside the command is kept.
-export function unwrapWindowsShellCommand(rawCommand: string): string | null {
-  const trimmed = rawCommand.trim();
-  const executable = firstCommandExecutable(trimmed).replace(/\.exe$/u, "");
-  const isPowerShell = executable === "powershell" || executable === "pwsh";
-  if (!isPowerShell && executable !== "cmd") {
-    return null;
-  }
-  const argv = splitPosixQuotedArgv(trimmed);
-  if (!argv || argv.length < 2) {
-    return null;
-  }
-  for (let index = 1; index < argv.length; index += 1) {
-    const option = argv[index]!.toLowerCase();
-    if (isPowerShell) {
-      if (option === "-command" || option === "-c" || option === "/command" || option === "/c") {
-        const command = argv
-          .slice(index + 1)
-          .join(" ")
-          .trim();
-        return command.length > 0 ? command : null;
-      }
-      if (POWERSHELL_SWITCH_OPTIONS.has(option)) {
-        continue;
-      }
-      return null;
-    }
-    if (option === "/c") {
-      const command = argv
-        .slice(index + 1)
-        .join(" ")
-        .trim();
-      return command.length > 0 ? command : null;
-    }
-    if (CMD_SWITCH_OPTIONS.has(option)) {
-      continue;
-    }
-    return null;
-  }
-  return null;
-}
-
-// Launcher switches Codex and Moss pass that do not change what the command does.
-const POWERSHELL_SWITCH_OPTIONS = new Set([
-  "-noprofile",
-  "-nop",
-  "-nologo",
-  "-noninteractive",
-  "-noni",
-]);
-const CMD_SWITCH_OPTIONS = new Set(["/d", "/s", "/q"]);
-
-// Splits a launcher line into argv with POSIX shell quoting: '…' is literal,
-// "…" honours \\, \", \$ and \` escapes, and adjacent pieces join into one
-// argument (`'a'"'"'b'` is `a'b`). Null when a quote never closes, or when a
-// backslash stands outside quotes: that is a bare Windows path, not the quoted
-// form this splitter reads, so the line is left as it is.
-function splitPosixQuotedArgv(value: string): string[] | null {
-  const argv: string[] = [];
-  let current = "";
-  let inToken = false;
-  let index = 0;
-  while (index < value.length) {
-    const char = value[index]!;
-    if (char === " " || char === "\t" || char === "\n" || char === "\r") {
-      if (inToken) {
-        argv.push(current);
-        current = "";
-        inToken = false;
-      }
-      index += 1;
-      continue;
-    }
-    inToken = true;
-    if (char === "'") {
-      const end = value.indexOf("'", index + 1);
-      if (end === -1) return null;
-      current += value.slice(index + 1, end);
-      index = end + 1;
-      continue;
-    }
-    if (char === '"') {
-      index += 1;
-      let closed = false;
-      while (index < value.length) {
-        const inner = value[index]!;
-        if (inner === "\\" && index + 1 < value.length) {
-          const next = value[index + 1]!;
-          if (next === "\\" || next === '"' || next === "$" || next === "`") {
-            current += next;
-            index += 2;
-            continue;
-          }
-          if (next === "\n") {
-            index += 2;
-            continue;
-          }
-        }
-        if (inner === '"') {
-          closed = true;
-          index += 1;
-          break;
-        }
-        current += inner;
-        index += 1;
-      }
-      if (!closed) return null;
-      continue;
-    }
-    if (char === "\\") {
-      return null;
-    }
-    current += char;
-    index += 1;
-  }
-  if (inToken) argv.push(current);
-  return argv;
-}
-
 const SHELL_WRAPPER_PREFIXES = [
   "/usr/bin/bash -lc ",
   "/usr/bin/bash -c ",
@@ -1918,6 +1614,38 @@ const SHELL_WRAPPER_PREFIXES = [
   "sh -lc ",
   "sh -c ",
 ];
+
+// Pipes, chains, redirects, background jobs and substitutions outside quotes.
+function hasUnquotedShellOperator(value: string): boolean {
+  let quote: '"' | "'" | null = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "\\") {
+      index += 1;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (
+      char === "|" ||
+      char === "&" ||
+      char === ";" ||
+      char === ">" ||
+      char === "<" ||
+      char === "`" ||
+      (char === "$" && value[index + 1] === "(")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function humanizeGitCommand(
   args: string,
@@ -2276,7 +2004,7 @@ function splitToolAndArgs(command: string): [tool: string, args: string] {
 }
 
 function unwrapShellCommandIfPresent(rawCommand: string): string {
-  let value = unwrapWindowsShellCommand(rawCommand) ?? rawCommand.trim();
+  let value = rawCommand.trim();
   if (!value) {
     return value;
   }

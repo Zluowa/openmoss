@@ -25,7 +25,6 @@ import { scheduleMossCanvasPrewarm } from "~/lib/mossCanvasPrewarm";
 import { loadMossImageJob } from "~/lib/mossImagesClient";
 import { MOSS_MEDIA_MODEL_NAMES } from "@moss/shared/mossMediaPlugins";
 import { useIsSharedViewer } from "~/lib/sharedViewer";
-import { ImageIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
 import { Button } from "../ui/button";
@@ -171,39 +170,26 @@ const accountRestoreRetryDelays = [500, 1_500, 4_000, 12_000, 30_000];
 function GalleryImage({
   imagePath,
   cwd,
-  reloadKey,
   onLoad,
   onError,
-  onGiveUp,
   ...props
 }: Omit<ComponentProps<"img">, "src"> & {
   readonly imagePath: string;
   readonly cwd: string | undefined;
-  /** A person's reload: a new key asks for the file again, bypassing the cache. */
-  readonly reloadKey?: number | undefined;
-  /** Called when loading failed and no automatic retry follows. */
-  readonly onGiveUp?: (() => void) | undefined;
 }) {
   const base = buildLocalImageUrl({ src: imagePath, cwd });
   const [retry, setRetry] = useState({ base, count: 0 });
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const count = retry.base === base ? retry.count : 0;
-  const url =
-    count === 0 && !reloadKey
-      ? base
-      : buildLocalImageUrl({
-          src: imagePath,
-          cwd,
-          cacheKey: reloadKey ? `${reloadKey}.${count}` : count,
-        });
-  const autoRetries = isMossConversationImageSource(imagePath);
+  const url = count === 0 ? base : buildLocalImageUrl({ src: imagePath, cwd, cacheKey: count });
   useEffect(() => {
     // A restored chat can paint before its desktop account has been authenticated.
     const delay = accountRestoreRetryDelays[count];
-    if (!autoRetries || failedUrl !== url || delay === undefined) return;
+    if (!isMossConversationImageSource(imagePath) || failedUrl !== url || delay === undefined)
+      return;
     const timer = window.setTimeout(() => setRetry({ base, count: count + 1 }), delay);
     return () => window.clearTimeout(timer);
-  }, [autoRetries, base, count, failedUrl, url]);
+  }, [base, count, failedUrl, imagePath, url]);
   return (
     <img
       {...props}
@@ -211,7 +197,6 @@ function GalleryImage({
       onError={(event) => {
         setFailedUrl(url);
         onError?.(event);
-        if (!autoRetries || accountRestoreRetryDelays[count] === undefined) onGiveUp?.();
       }}
       onLoad={(event) => {
         setFailedUrl(null);
@@ -545,17 +530,10 @@ function GeneratedImageGalleryTile(props: {
   const previewUrl = buildLocalImageUrl({ src: image.path, cwd });
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const imageLoaded = loadedUrl === previewUrl;
-  // An image that cannot be fetched says so, with its file name and a reload,
-  // instead of leaving an empty box.
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const loadFailed = failedUrl === previewUrl && !imageLoaded;
-  const [reloadKey, setReloadKey] = useState(0);
-  const fileName = localImageFileName(image.path) || alt;
   const handleLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     const target = event.currentTarget;
     if (target.naturalWidth > 0 && target.naturalHeight > 0) {
       setLoadedUrl(previewUrl);
-      setFailedUrl(null);
       onAspectRatioChange(image.id, target.naturalWidth / target.naturalHeight);
     }
   };
@@ -588,51 +566,16 @@ function GeneratedImageGalleryTile(props: {
         <GalleryImage
           imagePath={image.path}
           cwd={cwd}
-          reloadKey={reloadKey}
           alt={alt}
           decoding="async"
           referrerPolicy="no-referrer"
           draggable
-          className={cn(
-            "block h-full w-full object-contain image-transparency-backdrop",
-            loadFailed && "invisible",
-          )}
+          className="block h-full w-full object-contain image-transparency-backdrop"
           onLoad={handleLoad}
           onError={() => setLoadedUrl(null)}
-          onGiveUp={() => setFailedUrl(previewUrl)}
           onDragStart={handleDragStart}
         />
       </button>
-      {loadFailed ? (
-        <div
-          data-testid="generated-image-load-failed"
-          role="status"
-          className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 rounded-card border border-border bg-surface px-4 text-center text-ui-sm text-muted-foreground"
-        >
-          <ImageIcon aria-hidden className="size-5 text-muted-foreground/70" />
-          <span className="text-foreground">{t("chat.generatedImage.loadFailed")}</span>
-          <span
-            className="max-w-full truncate font-chat-code text-ui-xs"
-            data-testid="generated-image-load-failed-name"
-            data-translation-skip="true"
-            title={image.path}
-          >
-            {fileName}
-          </span>
-          <Button
-            variant="outline"
-            size="xs"
-            className="mt-1"
-            data-testid="generated-image-reload"
-            onClick={() => {
-              setFailedUrl(null);
-              setReloadKey((key) => key + 1);
-            }}
-          >
-            {t("chat.generatedImage.reload")}
-          </Button>
-        </div>
-      ) : null}
       {imageLoaded && onOpenCanvas ? (
         <div className="pointer-events-none absolute end-2 bottom-2 z-10 opacity-0 group-focus-within/generated-image-gallery-controls:pointer-events-auto group-focus-within/generated-image-gallery-controls:opacity-100 group-hover/generated-image-gallery-controls:pointer-events-auto group-hover/generated-image-gallery-controls:opacity-100 print:hidden">
           <Button

@@ -9,7 +9,6 @@ import type { WorkLogLiveActivity } from "../../workLog";
 import type { WorkLogToolOutputDetails } from "../../lib/toolCallDetails";
 import { formatToolOutputText } from "../../lib/toolCallDetailsFormatting";
 import { isLiveActivityInProgress } from "../../lib/liveActivityPresentation";
-import { unwrapWindowsShellCommand } from "../../lib/toolCallLabel";
 
 export type TerminalDecoration =
   | "bold"
@@ -46,11 +45,6 @@ export function normalizeShellCommand(command: string): string {
   }
 
   const withoutPrompt = input.replace(/^\$\s+/, "").trim();
-  // Codex on Windows reports the PowerShell/cmd launcher line; show what it ran.
-  const windowsCommand = unwrapWindowsShellCommand(withoutPrompt);
-  if (windowsCommand !== null) {
-    return windowsCommand;
-  }
   const transport = /^(?:(?:\/[^\s/]+)*\/)?(?:bash|zsh)\s+-lc\s+([\s\S]+)$/iu.exec(withoutPrompt);
 
   return transport?.[1] ? unwrapTransportQuotes(transport[1]) : withoutPrompt;

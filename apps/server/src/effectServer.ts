@@ -101,7 +101,6 @@ import { ExternalMcpService } from "./externalMcp/Services/ExternalMcpService";
 import { mcpConnectorsRouteLayer } from "./mcpConnectors/httpRoute";
 import { pageAppsRouteLayer } from "./pages/apps/httpRoute";
 import { McpConnectors } from "./mcpConnectors/Services/McpConnectors";
-import { publishedThemeImageIds, sweepThemeImages, themeImagesDir } from "./themeImages";
 
 export interface ServerShape {
   readonly start: Effect.Effect<
@@ -688,23 +687,6 @@ export const createEffectServer = Effect.fn(function* (
         message: error.message,
         cause: describeMossErrorCauses(error),
       }),
-    ),
-    Effect.forkScoped,
-  );
-  // Theme pictures nothing refers to and nobody loaded for 30 days (see themeImages.ts). It waits
-  // ten minutes so windows opened with this server first load the pictures their themes use.
-  yield* Effect.sleep("10 minutes").pipe(
-    Effect.andThen(serverSettings.getSettings),
-    Effect.flatMap((settings) =>
-      Effect.tryPromise(() =>
-        sweepThemeImages(
-          themeImagesDir(config.stateDir),
-          new Set(publishedThemeImageIds(settings.agentTheme)),
-        ),
-      ),
-    ),
-    Effect.catch((error) =>
-      Effect.logWarning("failed to clean up unused theme pictures", { error: String(error) }),
     ),
     Effect.forkScoped,
   );

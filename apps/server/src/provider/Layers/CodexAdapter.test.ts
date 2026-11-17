@@ -1820,49 +1820,6 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
-  it.effect("keeps the predicted file off a generated image that has only started", () =>
-    Effect.gen(function* () {
-      const adapter = yield* CodexAdapter;
-      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
-
-      // The owner's 2026-11-17 chat: an unfinished image carried its predicted
-      // path as a full artifact, and the transcript drew an empty box for it.
-      lifecycleManager.emit("event", {
-        id: asEventId("evt-image-started"),
-        kind: "notification",
-        provider: "codex",
-        createdAt: new Date().toISOString(),
-        method: "item/started",
-        threadId: asThreadId("thread-1"),
-        providerThreadId: "provider-thread-1",
-        turnId: asTurnId("turn-1"),
-        itemId: asItemId("exec-image-1"),
-        payload: {
-          threadId: "provider-thread-1",
-          turnId: "turn-1",
-          item: {
-            type: "imageGeneration",
-            id: "exec-image-1",
-            status: "inProgress",
-            result: "partial-inline-base64",
-          },
-        },
-      } satisfies ProviderEvent);
-
-      const firstEvent = yield* Fiber.join(firstEventFiber);
-      assert.equal(firstEvent._tag, "Some");
-      if (firstEvent._tag !== "Some") return;
-      assert.equal(firstEvent.value.type, "item.started");
-      if (firstEvent.value.type !== "item.started") return;
-      assert.equal(firstEvent.value.payload.itemType, "image_generation");
-      assert.equal(firstEvent.value.payload.status, "inProgress");
-      assert.equal(firstEvent.value.payload.detail, undefined);
-      assert.deepStrictEqual(firstEvent.value.payload.data, { callId: "exec-image-1" });
-      const rawPayload = firstEvent.value.raw?.payload as { item?: { result?: string } };
-      assert.equal(rawPayload.item?.result, undefined);
-    }),
-  );
-
   it.effect("maps legacy image_generation_end notifications", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

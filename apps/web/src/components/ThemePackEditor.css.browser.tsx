@@ -1,6 +1,6 @@
 // FILE: ThemePackEditor.css.browser.tsx
 // Purpose: The theme editor's custom CSS: live preview, saved with the pack, the safety notice,
-//          Clear, the reset shortcut, a theme an agent published, and Add picture.
+//          Clear, the reset shortcut, and a theme an agent published.
 // Layer: Web browser test
 
 import "../index.css";
@@ -134,54 +134,4 @@ it("paints a stored theme's CSS when the theme module loads, before anything ren
   const freshThemeModule = "/src/hooks/useTheme.ts?first-frame";
   await import(/* @vite-ignore */ freshThemeModule);
   expect(probeColor()).toBe("rgb(9, 8, 7)");
-});
-
-it("Add picture stores the file and adds a chat background that keeps only its reference", async () => {
-  const id = `${"ab".repeat(32)}.png`;
-  const uploads: { url: string; bytes: number }[] = [];
-  const realFetch = window.fetch;
-  window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input instanceof Request ? input.url : input);
-    if (url.includes("/api/theme-image-upload")) {
-      const body = init?.body as Blob;
-      uploads.push({ url, bytes: body.size });
-      if (body.size < 100) {
-        return new Response(JSON.stringify({ error: "not a picture" }), { status: 400 });
-      }
-      return new Response(
-        JSON.stringify({
-          id,
-          reference: `moss-theme-image:${id}`,
-          width: 1024,
-          height: 1536,
-          bytes: body.size,
-        }),
-        { status: 201 },
-      );
-    }
-    return realFetch(input, init);
-  }) as typeof fetch;
-  try {
-    await render(<ThemePackEditor variant="light" />);
-    await openCssEditor();
-    const input = page.getByLabelText("Light theme picture file");
-    await userEvent.upload(
-      input,
-      new File([new Uint8Array(4096)], "girl.png", { type: "image/png" }),
-    );
-    await expect.element(page.getByText("1024 × 1536")).toBeVisible();
-    await expect.poll(storedLightCss).toContain(`url(moss-theme-image:${id})`);
-    const css = storedLightCss()!;
-    expect(css).toContain('[data-workspace-area="conversation"]');
-    // The pack keeps the reference, never the picture's bytes.
-    expect(css.length).toBeLessThan(400);
-    expect(uploads).toHaveLength(1);
-    expect(uploads[0]!.url).toMatch(/\/api\/theme-image-upload$/);
-
-    await userEvent.upload(input, new File(["<svg/>"], "bad.png", { type: "image/png" }));
-    await expect.element(page.getByText("不支持 SVG", { exact: false })).toBeVisible();
-    expect(storedLightCss()).toBe(css);
-  } finally {
-    window.fetch = realFetch;
-  }
 });

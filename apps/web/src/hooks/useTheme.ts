@@ -8,7 +8,6 @@ import { useEffect, useSyncExternalStore } from "react";
 import { isElectron } from "../env";
 import { isMacNavigatorPlatform } from "../lib/utils";
 import { applyThemeCss } from "../theme/themeCss";
-import { reportThemeImagesInUse } from "../theme/themeImages";
 import {
   DEFAULT_THEME_STATE,
   applyPublishedTheme,
@@ -211,11 +210,6 @@ function applyThemeState(state: ThemeState, suppressTransitions = false) {
   // The active pack's custom CSS, checked rule by rule. On module load this runs before React
   // mounts, so a stored theme paints with its CSS from the first frame.
   applyThemeCss(activeTheme.theme.css);
-  // Both packs: a picture only the inactive pack uses must still count as in use.
-  reportThemeImagesInUse([
-    resolveThemePack(state, "light").theme.css,
-    resolveThemePack(state, "dark").theme.css,
-  ]);
 
   const startupBackgrounds = {
     light: resolveThemePack(state, "light").theme.surface,

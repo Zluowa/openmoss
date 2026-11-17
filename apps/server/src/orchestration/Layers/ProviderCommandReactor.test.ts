@@ -584,10 +584,6 @@ describe("ProviderCommandReactor", () => {
     readonly prepareSharedAccountSwitch?: ProviderServiceShape["prepareSharedAccountSwitch"];
     readonly confirmNativeResume?: (resumeCursor: unknown) => boolean;
     readonly generateThreadTitle?: TextGenerationShape["generateThreadTitle"];
-    /** What the isolated text-generation path says per routed request; supported when left out. */
-    readonly getComposerPredictionSupport?: TextGenerationShape["getComposerPredictionSupport"];
-    readonly predictNextUserMessage?: ProviderServiceShape["predictNextUserMessage"];
-    readonly nativeTitleStartDelay?: Duration.Duration;
     readonly computerService?: ComputerServiceShape;
     readonly gatewaySessions?: AgentGatewaySessionRegistryShape;
     readonly managedTurnPreflight?: MossManagedTurnPreflightShape;
@@ -929,10 +925,6 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
     );
-    const predictNextUserMessage = vi.fn<ProviderServiceShape["predictNextUserMessage"]>(
-      input?.predictNextUserMessage ??
-        (() => Effect.succeed({ kind: "unsupported" as const, reason: "no_live_session" })),
-    );
     const generateThreadTitle = vi.fn<TextGenerationShape["generateThreadTitle"]>(
       input?.generateThreadTitle ??
         (() =>
@@ -1005,7 +997,7 @@ describe("ProviderCommandReactor", () => {
       rollbackConversation,
       compactThread: () => unsupported(),
       getNextUserMessagePredictionSupport: () => unsupported(),
-      predictNextUserMessage: predictNextUserMessage,
+      predictNextUserMessage: () => unsupported(),
       ...(input?.getClaudeCacheObservation
         ? { getClaudeCacheObservation: input.getClaudeCacheObservation }
         : {}),
@@ -1103,9 +1095,6 @@ describe("ProviderCommandReactor", () => {
         Layer.succeed(TextGeneration, {
           generateBranchName,
           generateThreadTitle,
-          ...(input?.getComposerPredictionSupport
-            ? { getComposerPredictionSupport: input.getComposerPredictionSupport }
-            : {}),
         } as unknown as TextGenerationShape),
       ),
       Layer.provideMerge(
@@ -1379,7 +1368,6 @@ describe("ProviderCommandReactor", () => {
       },
       drain,
       emitRuntimeEvent,
-      predictNextUserMessage,
       setRuntimeSessionTurnState,
       startReactor,
       restartReactor,
@@ -6017,12 +6005,10 @@ describe("ProviderCommandReactor", () => {
       expect.objectContaining({
         cwd: "/tmp/provider-project",
         context: "conversation",
-        // A title runs at the model's lowest effort, whatever the chat runs at.
         modelSelection: {
           provider: "codex",
           instanceId: "codex",
           model: "gpt-5-codex",
-          options: { reasoningEffort: "low" },
         },
         message: expect.stringContaining("User: Fix the backend authentication callback race"),
       }),
@@ -17170,248 +17156,6 @@ describe("ProviderCommandReactor", () => {
         "Summarize provider startup failures without Codex",
     );
     expect(harness.generateThreadTitle).toHaveBeenCalledTimes(1);
-  });
-
-  // The owner's 2026-11-17 chat: their own Codex account on Windows, gpt-6.1-terra at max.
-  const OWNER_CODEX_CHAT = {
-    provider: "codex",
-    instanceId: "codex",
-    model: "gpt-6.1-terra",
-    options: { reasoningEffort: "max" },
-  } as ModelSelection;
-  const OWNER_REQUEST = "把我moss的聊天背景生成一个二次元美少女替换成透明通道的图";
-  /** Windows: the isolated path refuses an own Codex account that is not a direct endpoint. */
-  const refuseCodexOnWindows: NonNullable<TextGenerationShape["getComposerPredictionSupport"]> = (
-    request,
-  ) =>
-    Effect.succeed(
-      request.modelSelection?.provider === "codex"
-        ? ({ kind: "platform-blocked", platform: "win32" } as const)
-        : ({ kind: "supported" } as const),
-    );
-
-  async function startOwnerTurn(harness: Awaited<ReturnType<typeof createHarness>>, id: string) {
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe(`cmd-thread-title-${id}`),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        title: "New thread",
-      }),
-    );
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.turn.start",
-        commandId: CommandId.makeUnsafe(`cmd-turn-start-${id}`),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        message: {
-          messageId: asMessageId(`user-message-${id}`),
-          role: "user",
-          text: OWNER_REQUEST,
-          attachments: [],
-        },
-        modelSelection: OWNER_CODEX_CHAT,
-        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
-        runtimeMode: "full-access",
-        createdAt: new Date().toISOString(),
-      }),
-    );
-  }
-
-  async function completeOwnerTurn(
-    harness: Awaited<ReturnType<typeof createHarness>>,
-    turn = "turn-owner",
-  ) {
-    await harness.emitRuntimeEvent({
-      eventId: asEventId(`evt-${turn}-completed`),
-      provider: "codex",
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      createdAt: new Date().toISOString(),
-      turnId: asTurnId(turn),
-      providerRefs: {},
-      type: "turn.completed",
-      payload: { state: "completed" },
-    } as ProviderRuntimeEvent);
-  }
-
-  it("titles a chat the platform refuses with the configured model, at low effort", async () => {
-    const harness = await createHarness({
-      threadModelSelection: OWNER_CODEX_CHAT,
-      getComposerPredictionSupport: refuseCodexOnWindows,
-      gitWritingModelSelection: {
-        provider: "claudeAgent",
-        instanceId: "claudeAgent",
-        model: "claude-sonnet-5-5",
-      } as ModelSelection,
-      generateThreadTitle: () => Effect.succeed({ title: "透明二次元聊天背景" }),
-    });
-
-    await startOwnerTurn(harness, "owner-configured");
-
-    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
-    expect(harness.generateThreadTitle.mock.calls[0]?.[0]).toMatchObject({
-      message: OWNER_REQUEST,
-      modelSelection: {
-        provider: "claudeAgent",
-        model: "claude-sonnet-5-5",
-        options: { effort: "low" },
-      },
-    });
-    await waitFor(async () => (await readHarnessThread(harness))?.title === "透明二次元聊天背景");
-    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
-  });
-
-  it("titles the chat on Codex's native fork once the first turn settles when nothing else can", async () => {
-    const harness = await createHarness({
-      threadModelSelection: OWNER_CODEX_CHAT,
-      // The default Git-writing model is on the same refused Codex account.
-      getComposerPredictionSupport: refuseCodexOnWindows,
-      nativeTitleStartDelay: Duration.millis(10),
-      predictNextUserMessage: () =>
-        Effect.succeed({ kind: "predicted", text: '{"title":"透明二次元聊天背景"}' }),
-    });
-
-    await startOwnerTurn(harness, "owner-native");
-    // Until the turn settles the chat carries the request's own words.
-    await waitFor(async () => (await readHarnessThread(harness))?.title === OWNER_REQUEST);
-    expect(harness.generateThreadTitle).not.toHaveBeenCalled();
-    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
-
-    await completeOwnerTurn(harness);
-
-    await waitFor(async () => (await readHarnessThread(harness))?.title === "透明二次元聊天背景");
-    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
-    const [threadId, request] = harness.predictNextUserMessage.mock.calls[0]!;
-    expect(threadId).toBe(ThreadId.makeUnsafe("thread-1"));
-    // A model the catalog does not know yet: low, never the chat's max.
-    expect(request).toMatchObject({
-      sourceTurnId: asTurnId("turn-owner"),
-      effort: "low",
-      // The Codex manager orders it after the turn's prediction fork.
-      purpose: "title",
-    });
-    // The fork holds the conversation; the request is never restated as a new instruction.
-    expect(request.prompt).not.toContain(OWNER_REQUEST);
-    expect(request.prompt).toContain("a title for the conversation above");
-    expect(request.prompt).toContain("do not run commands, call tools");
-    expect(harness.generateThreadTitle).not.toHaveBeenCalled();
-  });
-
-  it("keeps a name the person gave the chat while the native title waited", async () => {
-    const harness = await createHarness({
-      threadModelSelection: OWNER_CODEX_CHAT,
-      getComposerPredictionSupport: refuseCodexOnWindows,
-      nativeTitleStartDelay: Duration.millis(10),
-      predictNextUserMessage: () =>
-        Effect.succeed({ kind: "predicted", text: '{"title":"透明二次元聊天背景"}' }),
-    });
-
-    await startOwnerTurn(harness, "owner-renamed");
-    await waitFor(async () => (await readHarnessThread(harness))?.title === OWNER_REQUEST);
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.meta.update",
-        commandId: CommandId.makeUnsafe("cmd-thread-title-owner-manual"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        title: "我的背景图",
-      }),
-    );
-
-    await completeOwnerTurn(harness);
-
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    expect((await readHarnessThread(harness))?.title).toBe("我的背景图");
-    // A named chat needs no title: no fork is started for it.
-    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
-  });
-
-  it("keeps the title waiting while the session is busy and writes it after the next turn", async () => {
-    const harness = await createHarness({
-      threadModelSelection: OWNER_CODEX_CHAT,
-      getComposerPredictionSupport: refuseCodexOnWindows,
-      nativeTitleStartDelay: Duration.millis(10),
-    });
-    harness.predictNextUserMessage
-      .mockImplementationOnce(() =>
-        Effect.succeed({ kind: "skipped", reason: "parent_turn_active" }),
-      )
-      .mockImplementationOnce(() =>
-        Effect.succeed({ kind: "predicted", text: '{"title":"透明二次元聊天背景"}' }),
-      );
-
-    await startOwnerTurn(harness, "owner-busy");
-    await waitFor(async () => (await readHarnessThread(harness))?.title === OWNER_REQUEST);
-    await completeOwnerTurn(harness, "turn-owner-1");
-    await waitFor(() => harness.predictNextUserMessage.mock.calls.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect((await readHarnessThread(harness))?.title).toBe(OWNER_REQUEST);
-
-    // Not given up: the next completed turn tries again.
-    await completeOwnerTurn(harness, "turn-owner-2");
-    await waitFor(async () => (await readHarnessThread(harness))?.title === "透明二次元聊天背景");
-    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(2);
-  });
-
-  it("never overwrites a rename that lands while the native title is being written", async () => {
-    let renameDuringWrite = false;
-    const harness = await createHarness({
-      threadModelSelection: OWNER_CODEX_CHAT,
-      getComposerPredictionSupport: refuseCodexOnWindows,
-      nativeTitleStartDelay: Duration.millis(10),
-      predictNextUserMessage: () =>
-        Effect.sync(() => {
-          renameDuringWrite = true;
-          return { kind: "predicted" as const, text: '{"title":"透明二次元聊天背景"}' };
-        }),
-    });
-    // The person's rename is persisted between the title's two reads of the chat.
-    const readSequence = harness.engine.getThreadTitleHighWaterSequence;
-    vi.spyOn(harness.engine, "getThreadTitleHighWaterSequence").mockImplementation((id) => {
-      if (!renameDuringWrite) return readSequence(id);
-      renameDuringWrite = false;
-      return harness.engine
-        .dispatch({
-          type: "thread.meta.update",
-          commandId: CommandId.makeUnsafe("cmd-person-renames-during-title"),
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          title: "我的背景图",
-        })
-        .pipe(Effect.orDie, Effect.andThen(readSequence(id)));
-    });
-
-    await startOwnerTurn(harness, "owner-race");
-    await waitFor(async () => (await readHarnessThread(harness))?.title === OWNER_REQUEST);
-    await completeOwnerTurn(harness);
-
-    await waitFor(async () => (await readHarnessThread(harness))?.title === "我的背景图");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect((await readHarnessThread(harness))?.title).toBe("我的背景图");
-  });
-
-  it("forgets a waiting title when the chat is deleted", async () => {
-    const harness = await createHarness({
-      threadModelSelection: OWNER_CODEX_CHAT,
-      getComposerPredictionSupport: refuseCodexOnWindows,
-      nativeTitleStartDelay: Duration.millis(10),
-      predictNextUserMessage: () =>
-        Effect.succeed({ kind: "predicted", text: '{"title":"透明二次元聊天背景"}' }),
-    });
-
-    await startOwnerTurn(harness, "owner-deleted");
-    await waitFor(async () => (await readHarnessThread(harness))?.title === OWNER_REQUEST);
-    await Effect.runPromise(
-      harness.engine.dispatch({
-        type: "thread.delete",
-        commandId: CommandId.makeUnsafe("cmd-delete-owner-title"),
-        threadId: ThreadId.makeUnsafe("thread-1"),
-      }),
-    );
-    await harness.drain();
-
-    await completeOwnerTurn(harness);
-    // Longer than any start delay the title has had (1.5 s before this fix).
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
   });
 
   it("merges live provider instance options before first-turn title generation", async () => {

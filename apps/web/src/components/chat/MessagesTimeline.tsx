@@ -3012,7 +3012,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   workEntry={item.entry}
                   chatMetaFontSizePx={appTypographyScale.chatMetaPx}
                   textFontSizePx={normalizedChatFontSizePx}
-                  mutedProse
                   density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
                   markdownCwd={markdownCwd}
                   onImageExpand={onImageExpand}
@@ -3983,7 +3982,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     hasMessages || rows.length > 0 || canRenderForkSourceDivider;
   if (!hasRenderableTranscriptContent && !isWorking) {
     return (
-      <div className="flex h-full flex-col" data-messages-timeline-root="empty">
+      <div className="flex h-full flex-col">
         {historyHeader}
         <div className="flex flex-1 items-center justify-center">
           {emptyStateContent ?? (
@@ -3999,15 +3998,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   return (
     <BackgroundTaskStopContext.Provider value={onStopBackgroundTask ?? null}>
       <WorkingMarkContext.Provider value={workingMark}>
-        {/* `data-messages-timeline-root` is a theme hook ("message list area, behind the messages"), so
-            this wrapper needs a box of its own: a background set on it must paint behind the
-            list. It is sized exactly as the list was before it had this box: `h-full` with the
-            default flex basis, no `flex-1`. `flex-1` sets the basis to 0, so beside a sibling
-            that fills the column (the generated-image preview pane) the list got 0 px and drew
-            no rows. */}
         <div
           ref={timelineRootRef}
-          className="relative flex h-full min-h-0 min-w-0 flex-col"
+          className="contents"
           data-messages-timeline-root="true"
           onContextMenuCapture={handleGeneratedImageContextMenu}
         >

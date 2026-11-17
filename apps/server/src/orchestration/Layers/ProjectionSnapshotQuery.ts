@@ -135,8 +135,6 @@ const MAX_SNAPSHOT_THREAD_ACTIVITIES = 500;
 const MAX_THREAD_DETAIL_ACTIVITIES = 2_000;
 const MAX_THREAD_FILE_CHANGE_ACTIVITIES = 2_000;
 const MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS = 64;
-/** A turn ends with one wrap-up box; a few more cover an agent that called it again. */
-const MAX_TURN_WRAP_UP_ACTIVITY_RECORDS = 4;
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
   Struct.assign({
     defaultModelSelection: Schema.NullOr(ModelSelectionJsonUnknown),
@@ -3028,27 +3026,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
-  // The newest few, returned oldest first. `instr` keeps the tool name literal; both
-  // providers store it in the payload (Codex in `data.tool`, Claude in `detail`).
-  const listWrapUpActivityRowsByTurn = SqlSchema.findAll({
-    Request: ThreadTurnLookupInput,
-    Result: ProjectionGeneratedImageActivityDbRowSchema,
-    execute: ({ threadId, turnId }) =>
-      sql`
-        SELECT kind, payload FROM (
-          SELECT kind, payload_json AS "payload", created_at, activity_id
-          FROM projection_thread_activities
-          WHERE thread_id = ${threadId}
-            AND turn_id = ${turnId}
-            AND kind = 'tool.completed'
-            AND instr(payload_json, 'moss_wrap_up') > 0
-          ORDER BY created_at DESC, activity_id DESC
-          LIMIT ${MAX_TURN_WRAP_UP_ACTIVITY_RECORDS}
-        )
-        ORDER BY created_at ASC, activity_id ASC
-      `,
-  });
-
   // The (kind, thread_id, ...) activity index narrows this to the thread's published pages.
   const findHtmlRenderSurfaceRow = SqlSchema.findOneOption({
     Request: HtmlRenderSurfaceLookupInput,
@@ -4014,23 +3991,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         ),
       );
 
-  const listWrapUpActivitiesByTurn: ProjectionSnapshotQueryShape["listWrapUpActivitiesByTurn"] = (
-    threadId,
-    turnId,
-  ) =>
-    listWrapUpActivityRowsByTurn({ threadId, turnId }).pipe(
-      Effect.mapError(
-        toPersistenceSqlOrDecodeError(
-          "ProjectionSnapshotQuery.listWrapUpActivitiesByTurn:query",
-          "ProjectionSnapshotQuery.listWrapUpActivitiesByTurn:decodeRows",
-        ),
-      ),
-      Effect.map(
-        (rows): ReadonlyArray<ProjectionGeneratedImageActivityRecord> =>
-          rows.map((row) => ({ kind: row.kind, payload: row.payload })),
-      ),
-    );
-
   const hasHtmlRenderSurface: ProjectionSnapshotQueryShape["hasHtmlRenderSurface"] = (
     threadId,
     surface,
@@ -4817,7 +4777,6 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     getThreadCheckpointContext,
     getThreadTurnDiffContext,
     listGeneratedImageActivitiesByTurn,
-    listWrapUpActivitiesByTurn,
     hasHtmlRenderSurface,
     getFullThreadDiffContext,
     getThreadShellById,

@@ -286,19 +286,6 @@ export interface ProjectionSnapshotQueryShape {
   >;
 
   /**
-   * Read the completed `moss_wrap_up` calls of one turn, oldest first, in either provider's
-   * stored shape. Like the generated-image read, it ignores the bounded thread-detail window,
-   * so the question that closed a long turn is still found.
-   */
-  readonly listWrapUpActivitiesByTurn: (
-    threadId: ThreadId,
-    turnId: TurnId,
-  ) => Effect.Effect<
-    ReadonlyArray<ProjectionGeneratedImageActivityRecord>,
-    ProjectionRepositoryError
-  >;
-
-  /**
    * Whether the thread already published an `html_render` page on this surface.
    * Like the generated-image read, it ignores the bounded thread-detail window.
    */

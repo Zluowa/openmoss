@@ -293,14 +293,14 @@ describe("useComposerPrediction", () => {
     expect(nativeApi.generateComposerPrediction).toHaveBeenCalledTimes(2);
   });
 
-  it("retries a failed request silently, once: the server may have run the provider", async () => {
+  it("retries a failed request silently, on the same schedule", async () => {
     vi.useFakeTimers();
     nativeApi.generateComposerPrediction
       .mockRejectedValueOnce(new Error("socket closed"))
       .mockResolvedValueOnce({ suggestion: "Rerun that test", outcome: "suggested" });
     const hook = mountHook({ target: target("turn-1"), canShow: true, prompt: "" });
     await flush();
-    expect(entryOf()).toEqual({ status: "unavailable", attempts: 1, limitRetries: true });
+    expect(entryOf()).toEqual({ status: "unavailable", attempts: 1 });
     expect(hook.render().suggestion).toBeNull();
 
     vi.advanceTimersByTime(COMPOSER_PREDICTION_RETRY_DELAYS_MS[0]!);

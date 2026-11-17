@@ -131,14 +131,11 @@ export function useComposerPrediction(input: {
             .setEntry(key, composerPredictionEntryForResult(result, request.attempt));
         })
         .catch(() => {
-          // Silent: a dropped connection is no answer. The server may have run the provider
-          // for it, so it is retried like `generation-unavailable`: once.
+          // Silent: a dropped connection is no answer, so it is retried like `unavailable`.
           if (!isCurrent()) return;
-          composerPredictionStore.getState().setEntry(key, {
-            status: "unavailable",
-            attempts: request.attempt,
-            limitRetries: true,
-          });
+          composerPredictionStore
+            .getState()
+            .setEntry(key, { status: "unavailable", attempts: request.attempt });
         });
     };
     if (request.delayMs === 0) {

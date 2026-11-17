@@ -1,10 +1,7 @@
 import { MessageId, TurnId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
-import { makeActivity } from "~/storeTestFixtures";
-import { deriveTimelineEntries, deriveWorkLogEntries, type TimelineEntry } from "~/workLog";
-
-import { codexOwnerTimelineEntries } from "~/test/fixtures/codexOwnerImageTurn.timeline";
+import type { TimelineEntry } from "~/workLog";
 
 import { isWrapUpTimelineEntry, resolveWrapUpPlan } from "./wrapUpPlan";
 
@@ -116,91 +113,5 @@ describe("resolveWrapUpPlan", () => {
   it("recognizes wrap-up rows so they never show as tool calls", () => {
     expect(isWrapUpTimelineEntry(wrapUp("w1", asking))).toBe(true);
     expect(isWrapUpTimelineEntry(userMessage("u1", "hi"))).toBe(false);
-  });
-
-  // Codex reports an MCP call with its arguments in `data.arguments` and no
-  // `detail` string. The owner's 2026-11-17 chat asked a question this way and
-  // the box never drew.
-  it("reads the box from a Codex MCP call's arguments (real payload)", () => {
-    const entries = codexOwnerTimelineEntries();
-    const wrapUpEntries = entries.filter(isWrapUpTimelineEntry);
-    expect(wrapUpEntries.length).toBeGreaterThan(0);
-    const plan = resolveWrapUpPlan(entries);
-    expect(plan.live?.box.ask).toBe("现在的角色位置和大小合适吗？");
-    expect(plan.live?.box.actions).toEqual(["保持这样", "调整位置"]);
-    expect(plan.live?.box.recap).toContain("Moss");
-    const lastAssistant = entries.findLast(
-      (entry) => entry.kind === "message" && entry.message.role === "assistant",
-    );
-    expect(plan.live?.afterMessageId).toBe(lastAssistant?.id);
-  });
-
-  it("reads the box from a Codex MCP call whose arguments arrive as JSON text", () => {
-    const entry = wrapUp("w1", asking);
-    if (entry.kind !== "work") throw new Error("Expected a work entry");
-    const { detail: _detail, ...withoutDetail } = entry.entry;
-    const codexEntry: TimelineEntry = {
-      ...entry,
-      entry: {
-        ...withoutDetail,
-        mcpToolResult: {
-          callId: "call-1",
-          server: "moss",
-          tool: "moss_wrap_up",
-          status: "completed",
-          arguments: JSON.stringify(asking),
-        } as never,
-      },
-    };
-    expect(resolveWrapUpPlan([codexEntry]).live?.box.ask).toBe("Topped up?");
-  });
-
-  // Lead review of #648, item 8: Claude's stored detail is cut to 397 characters
-  // plus "..." (ClaudeAdapter summarizeToolRequest); the full arguments are in
-  // data.input. A long recap must still draw the box, whole.
-  it("draws the box for a Claude call whose arguments are longer than the stored detail", () => {
-    const input = {
-      recap: `${"已把聊天背景换成透明人物图，并在浅色和深色主题下各检查了一遍。".repeat(9)}完。`,
-      ask: `${"请看一下聊天窗口右下角的人物，".repeat(4)}现在的角色位置和大小合适吗？`,
-      actions: [{ label: "保持这样" }, { label: "调整位置" }],
-    };
-    const toolName = "mcp__moss__moss_wrap_up";
-    const serialized = JSON.stringify(input);
-    expect(serialized.length).toBeGreaterThan(400);
-    const detail = `${toolName}: ${serialized.slice(0, 397)}...`;
-    const payload = {
-      itemType: "mcp_tool_call",
-      status: "completed",
-      title: toolName,
-      detail,
-      data: { toolCallId: "toolu_wrap", callId: "toolu_wrap", toolName, input },
-    };
-    const activities = [
-      makeActivity({
-        id: "wrap-start",
-        createdAt: "2026-11-17T04:40:00.000Z",
-        kind: "tool.started",
-        summary: toolName,
-        turnId: "claude-turn",
-        payload: { ...payload, status: "inProgress" },
-      }),
-      makeActivity({
-        id: "wrap-done",
-        createdAt: "2026-11-17T04:40:01.000Z",
-        kind: "tool.completed",
-        summary: toolName,
-        turnId: "claude-turn",
-        payload,
-      }),
-    ];
-    const entries = deriveTimelineEntries(
-      [],
-      [],
-      deriveWorkLogEntries(activities, TurnId.makeUnsafe("claude-turn")),
-    );
-    const plan = resolveWrapUpPlan(entries);
-    expect(plan.live?.box.ask).toBe(input.ask);
-    expect(plan.live?.box.actions).toEqual(["保持这样", "调整位置"]);
-    expect(plan.live?.box.recap).toBe(input.recap);
   });
 });

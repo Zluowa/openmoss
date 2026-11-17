@@ -1,6 +1,6 @@
 // FILE: themeCssHooks.test.ts
-// Purpose: Every selector the theme guide promises still exists in Moss's web source and has a
-//          rendered check, and Moss's own styles never hand theme CSS a way to load a file.
+// Purpose: Every selector the theme guide promises still exists in Moss's web source, and Moss's
+//          own styles never hand theme CSS a way to load a file.
 // Layer: Web appearance tests (plain source scan)
 // Origin: apps/web/src/themeCssHooks.test.ts in T3 Code
 //   (https://github.com/pingdotgg/t3code, MIT) at 1d1489d0b8 (PR #35247).
@@ -10,14 +10,6 @@ import * as NodePath from "node:path";
 
 import { THEME_CSS_HOOKS } from "@moss/shared/themeCss";
 import { describe, expect, it } from "vitest";
-
-import {
-  CHAT_HOOKS,
-  MASK_PROBED_HOOKS,
-  OUTLINE_PROBED_HOOKS,
-  PRIMITIVE_HOOKS,
-  SETTINGS_HOOKS,
-} from "../test/themeHookCoverage";
 
 const sourceDirectory = NodePath.resolve(import.meta.dirname, "..");
 const sourceFiles = NodeFS.readdirSync(sourceDirectory, { recursive: true, encoding: "utf8" })
@@ -50,17 +42,6 @@ describe("theme CSS hooks", () => {
       expect(source).toMatch(pattern);
     },
   );
-
-  // The source scan only shows a hook is written somewhere. Whether a rule on it shows is
-  // proven on screen by the browser tests listed in test/themeHookCoverage.ts.
-  it("every hook has a rendered check, and every rendered check is a hook", () => {
-    const guide = THEME_CSS_HOOKS.map((hook) => hook.selector).toSorted();
-    const proven = [...CHAT_HOOKS, ...SETTINGS_HOOKS, ...PRIMITIVE_HOOKS].toSorted();
-    expect(proven).toEqual(guide);
-    for (const selector of [...OUTLINE_PROBED_HOOKS, ...MASK_PROBED_HOOKS]) {
-      expect(guide).toContain(selector);
-    }
-  });
 
   it("finds a hook that is not there", () => {
     expect(source).not.toMatch(sourcePattern("[data-theme-hook-that-does-not-exist]"));

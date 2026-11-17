@@ -133,7 +133,6 @@ import { makeAgentGatewayOpenUIReferenceTool } from "../openUIReferenceTool.ts";
 import { makeAgentGatewayPlacePhotoTool } from "../placePhotoTools.ts";
 import { makeAgentGatewayVisualGuideTool } from "../visualGuideTool.ts";
 import { makeAgentGatewayWrapUpTool } from "../wrapUpTool.ts";
-import { themeImagesDir } from "../../themeImages.ts";
 import { makeAgentGatewayThemeTools } from "../themeTools.ts";
 import { DeviceService } from "../../device/Services/DeviceService.ts";
 import { HtmlRender } from "../../htmlRender/HtmlRender.ts";
@@ -1956,11 +1955,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     makeAgentGatewayOpenUIReferenceTool(),
     makeAgentGatewayVisualGuideTool(),
     makeAgentGatewayWrapUpTool(),
-    ...makeAgentGatewayThemeTools({
-      settings: serverSettings,
-      requireThreadShell,
-      themeImagesDir: themeImagesDir(serverConfig.stateDir),
-    }),
+    ...makeAgentGatewayThemeTools({ settings: serverSettings, requireThreadShell }),
     ...(mcpApps === undefined ? [] : [makeReadWidgetContextTool(mcpApps)]),
     ...inlineVisualTools,
     ...(htmlRender === undefined

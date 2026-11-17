@@ -4,11 +4,7 @@
 // Exports: ThemePackEditor
 
 import { DESKTOP_WINDOW_BLUR_RADIUS_MAX, DESKTOP_WINDOW_BLUR_RADIUS_MIN } from "@moss/contracts";
-import {
-  THEME_IMAGE_CONTENT_TYPES,
-  themeCssImageIds,
-  themeCssLoadsRemoteFiles,
-} from "@moss/shared/themeCss";
+import { themeCssLoadsRemoteFiles } from "@moss/shared/themeCss";
 import { type CSSProperties, useEffect, useId, useMemo, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
 import { Button } from "./ui/button";
@@ -50,11 +46,9 @@ import {
   codeThemeLabel as resolveCodeThemeLabel,
   getAvailableCodeThemes,
   getCodeThemeSeed,
-  parseThemeShareString,
   resolveThemePack,
 } from "../theme/theme.logic";
 import { inspectThemeCss } from "../theme/themeCss";
-import { missingThemeImageIds, uploadThemeImage } from "../theme/themeImages";
 
 type ThemePackEditorProps = {
   isActive?: boolean;
@@ -134,16 +128,10 @@ export function ThemePackEditor({
   const handleCopy = async () => {
     try {
       await copyTextToClipboard(exportThemeString(variant));
-      const pictures = themeCssImageIds(
-        (variant === "dark" ? darkTheme : lightTheme).theme.css ?? "",
-      );
       toastManager.add({
         type: "success",
         title: "Theme copied",
-        description:
-          pictures.length > 0
-            ? "Pictures added on this computer stay on this computer: the copy keeps their references, and on another computer they do not show."
-            : `Copied the ${variant} theme share string.`,
+        description: `Copied the ${variant} theme share string.`,
       });
     } catch {
       toastManager.add({
@@ -516,16 +504,10 @@ function ThemeCssSection({
             ariaLabel={`${titleLabel} custom CSS editor`}
             onChange={handleChange}
           />
-          <ThemePictureButton
-            titleLabel={titleLabel}
-            onAdded={(rule) =>
-              handleChange(value.trimEnd().length > 0 ? `${value.trimEnd()}\n\n${rule}` : rule)
-            }
-          />
           {loadsFiles ? (
             <p className="text-ui-sm leading-snug text-warning">
-              Rules that load files are removed: @import, image-set(), and url() other than data:,
-              #id or a picture added here.
+              Rules that load files are removed: @import, image-set(), and url() other than data: or
+              #id.
             </p>
           ) : null}
           {removedCount > 0 ? (
@@ -538,85 +520,6 @@ function ThemeCssSection({
           ) : null}
         </div>
       </DisclosureRegion>
-    </div>
-  );
-}
-
-const THEME_PICTURE_ACCEPT = Object.values(THEME_IMAGE_CONTENT_TYPES).join(",");
-
-/**
- * Stores a picture the person picks at full quality (`POST /api/theme-image-upload`) and adds a
- * rule that shows it behind the chat. The CSS keeps a short reference, never the picture.
- */
-function ThemePictureButton({
-  titleLabel,
-  onAdded,
-}: {
-  titleLabel: string;
-  onAdded: (rule: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ kind: "added" | "error"; text: string } | null>(null);
-
-  const handleFile = async (file: File) => {
-    setBusy(true);
-    setStatus(null);
-    try {
-      const picture = await uploadThemeImage(file, file.name);
-      onAdded(
-        [
-          '[data-workspace-area="conversation"] {',
-          `  background: url(${picture.reference}) right 1.5rem bottom 1rem / auto min(80vh, ${picture.height ?? 900}px) no-repeat;`,
-          "}",
-        ].join("\n"),
-      );
-      setStatus({
-        kind: "added",
-        text:
-          picture.width !== null && picture.height !== null
-            ? `${picture.width} × ${picture.height}`
-            : file.name,
-      });
-    } catch (error) {
-      setStatus({ kind: "error", text: error instanceof Error ? error.message : String(error) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-2" data-theme-picture-control="">
-      <input
-        ref={inputRef}
-        type="file"
-        accept={THEME_PICTURE_ACCEPT}
-        className="hidden"
-        aria-label={`${titleLabel} picture file`}
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = "";
-          if (file) void handleFile(file);
-        }}
-      />
-      <Button variant="outline" size="xs" disabled={busy} onClick={() => inputRef.current?.click()}>
-        {busy ? "Adding picture…" : "Add picture"}
-      </Button>
-      <span className="text-ui-sm leading-snug text-muted-foreground">
-        PNG, JPEG, WebP, GIF or AVIF, up to 10 MB, kept at full quality on this computer.
-      </span>
-      {status ? (
-        <p
-          className={cn(
-            "w-full text-ui-sm leading-snug",
-            status.kind === "error" ? "text-destructive" : "text-muted-foreground",
-          )}
-          data-theme-picture-status={status.kind}
-        >
-          {status.kind === "added" ? <span>Picture added behind the chat:</span> : null}{" "}
-          <span data-translation-skip="true">{status.text}</span>
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -928,18 +831,6 @@ function ImportThemeDialog({
         title: "Theme imported",
         description: `Updated the ${variant} theme pack.`,
       });
-      const importedCss = parseThemeShareString(value).theme.css ?? "";
-      if (themeCssImageIds(importedCss).length > 0) {
-        void missingThemeImageIds(importedCss).then((missing) => {
-          if (missing.length === 0) return;
-          toastManager.add({
-            type: "warning",
-            title: "Pictures not on this computer",
-            description:
-              "This theme uses pictures added on another computer. Rules that use them show nothing here; add the pictures again with Add picture.",
-          });
-        });
-      }
       setValue("");
       setError(null);
       setOpen(false);
