@@ -7,6 +7,7 @@
 // Exports: ComposerAttachmentPreview, ComposerAttachmentPreviewTarget
 
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { formatBytes } from "@moss/shared/formatBytes";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
@@ -155,7 +156,7 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.isComposing) return;
+      if (isImeComposingKeyEvent(event)) return;
       const element = event.target instanceof Element ? event.target : null;
       if (event.key === "Escape") {
         if (element?.closest("[data-markup-canvas] textarea")) return;

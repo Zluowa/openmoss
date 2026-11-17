@@ -49,7 +49,7 @@ import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { ProviderIcon } from "./ProviderIcon";
 import { SnoozeCountdown } from "./SnoozeCountdown";
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
-import { PrStateChip } from "./pullRequest/PrStateChip";
+import { PrStateChip, PrStateCountChip } from "./pullRequest/PrStateChip";
 import {
   createSidebarThreadHoverAnchorId,
   resolveSidebarThreadListPaging,
@@ -70,6 +70,8 @@ import {
   isThreadSettledForActivity,
   resolveActivityPriority,
   resolveActivityPriorityTier,
+  resolveActivityRowEmphasis,
+  resolveActivityRowPullRequests,
   resolveActivityScope,
   resolveActivityThreadReadAt,
   splitActivityThreadsByDateBucket,
@@ -118,6 +120,9 @@ function stopRowActivation(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
 }
+
+const ACTIVITY_ROW_PULL_REQUEST_CLASS_NAME =
+  "min-h-5 min-w-5 justify-center [&_svg,&_[data-slot=central-icon]]:size-3";
 
 export function ActivityThreadRow({
   thread,
@@ -177,6 +182,11 @@ export function ActivityThreadRow({
     threadId: thread.id,
   });
   const actionToneClassName = "text-muted-foreground/42";
+  // Several linked PRs share one chip that lists them (upstream #2195).
+  const [rowPullRequest, ...otherPullRequests] = resolveActivityRowPullRequests(
+    pr,
+    thread.pullRequests,
+  );
   // One trailing slot, top-right, shared by every status: the accent dot for an
   // unread completion and the running spinner (or state dot) for everything
   // else — same rule and same glyphs the classic thread/project rows use.
@@ -185,6 +195,12 @@ export function ActivityThreadRow({
     isActive,
     slotOccupied: Boolean(threadJumpLabel),
   });
+  const emphasis = resolveActivityRowEmphasis(
+    resolveThreadStatusTrailingIndicator({ status, isActive }),
+  );
+  // The start of the newest finished reply, plain text from the server (no tool output,
+  // reasoning or credentials); it changes when a reply finishes, never per streamed word.
+  const replyPreview = thread.latestReplyPreview;
   // Rename/context-menu gestures live on the row wrapper (not the title button) so
   // they also fire over the trailing status and hover-action cluster, which are
   // absolutely positioned siblings of the button.
@@ -246,7 +262,8 @@ export function ActivityThreadRow({
             />
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-ui leading-5 font-normal",
+                "min-w-0 flex-1 truncate text-ui leading-5",
+                emphasis.titleEmphasized ? "font-medium" : "font-normal",
                 isActive ? "text-foreground" : SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
               )}
             >
@@ -267,6 +284,19 @@ export function ActivityThreadRow({
               />
             ) : null}
           </span>
+          {replyPreview ? (
+            // A span, not a paragraph: the row is a native button, which only holds phrasing content.
+            // Always two lines tall, so a newer reply of another length never moves the rows below.
+            <span
+              data-activity-reply-preview=""
+              className={cn(
+                "line-clamp-2 min-h-[2lh] min-w-0 text-ui-sm leading-snug wrap-break-word",
+                emphasis.replySeen ? "text-muted-foreground/80" : "text-muted-foreground",
+              )}
+            >
+              {replyPreview}
+            </span>
+          ) : null}
           <span className="flex min-w-0 items-center gap-1.5">
             {project?.cwd ? (
               <ProjectSidebarIcon
@@ -293,11 +323,17 @@ export function ActivityThreadRow({
                   />
                 </span>
               ) : null}
-              {pr ? (
+              {rowPullRequest && otherPullRequests.length > 0 ? (
+                <PrStateCountChip
+                  pullRequests={[rowPullRequest, ...otherPullRequests]}
+                  className={ACTIVITY_ROW_PULL_REQUEST_CLASS_NAME}
+                  onOpen={onOpenPullRequest}
+                />
+              ) : rowPullRequest ? (
                 <PrStateChip
-                  pr={pr}
-                  className="min-h-5 min-w-5 justify-center [&_svg,&_[data-slot=central-icon]]:size-3"
-                  onOpen={(event) => onOpenPullRequest(event, pr)}
+                  pr={rowPullRequest}
+                  className={ACTIVITY_ROW_PULL_REQUEST_CLASS_NAME}
+                  onOpen={(event) => onOpenPullRequest(event, rowPullRequest)}
                 />
               ) : null}
               {branch ? (
@@ -955,6 +991,7 @@ export function SidebarActivityView({
               branch: thread.branch,
               hasDedicatedWorktree: thread.worktreePath !== null,
               lastKnownPr: thread.lastKnownPr ?? null,
+              pullRequests: thread.pullRequests,
             })
       }
       status={resolveThreadStatus(thread)}

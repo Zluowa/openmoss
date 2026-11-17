@@ -6,6 +6,7 @@
 // Exports: SettingsSidebarNav
 
 import { settingsSectionTranslationKeys, useTranslation } from "../localization";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { type KeyboardEvent as ReactKeyboardEvent, useState } from "react";
 
 import { CentralIcon } from "~/lib/central-icons";
@@ -119,6 +120,7 @@ export function SettingsSidebarNav(props: {
   };
 
   const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       const topMatch = results[0];

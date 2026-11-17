@@ -23,6 +23,7 @@ import { GroupAutomationsSection } from "~/components/chat/project/GroupOverview
 import { collectGroupAutomations } from "~/components/chat/project/groupOverview.logic";
 import { useMossbotCopy } from "./mossbot.copy";
 import { MossbotAvatar } from "./MossbotAvatar";
+import { mossbotCompanionState } from "./mossbot.logic";
 import type { GroupSettingsSection } from "~/components/chat/group/groupSettingsDialog.logic";
 
 const GroupSettingsDialog = lazy(() =>
@@ -112,6 +113,9 @@ export function MossbotProfile({
             <MossbotAvatar
               icon={assistant.coordinatorIcon}
               color={assistant.coordinatorColor}
+              state={mossbotCompanionState(assistant)}
+              live
+              interactive
               className="mossbot-profile-avatar"
             />
             <DialogTitle className="mt-3 max-w-full break-words text-center text-ui-xl font-medium [overflow-wrap:anywhere]">

@@ -1,5 +1,6 @@
 // FILE: SidebarActivityView.browser.tsx
-// Purpose: Browser regressions for Activity paging, stateful actions, scope fallback, and live PR data.
+// Purpose: Browser regressions for Activity paging, stateful actions, scope fallback, live PR data,
+//          and the latest reply preview under each row's title.
 // Layer: Sidebar Activity UI test
 
 import "../index.css";
@@ -10,7 +11,17 @@ import { page, userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { THREAD_LATEST_REPLY_PREVIEW_MAX_LENGTH } from "@moss/contracts";
+import { truncatePlainText } from "@moss/shared/markdownPlainText";
+import { replyPreviewPlainText } from "@moss/shared/replyPreviewText";
+
 import type { Project, SidebarThreadSummary } from "../types";
+import {
+  codexOwnerImageTurn,
+  codexOwnerImageTurnMessages,
+  codexOwnerImageTurnThread,
+} from "../test/fixtures/codexOwnerImageTurn.fixture";
+import { buildThemeCssVariables, DEFAULT_CHROME_THEME_BY_VARIANT } from "../theme/theme.logic";
 import { DEFAULT_PROJECT_ICON, type ProjectAppearance } from "../lib/projectAppearance";
 import { resolveThreadStatusPill, type ThreadStatusPill } from "./Sidebar.logic";
 import { SidebarActivityView } from "./SidebarActivityView";
@@ -108,6 +119,11 @@ function renderActivity(input: {
   prByThreadId?: ReadonlyMap<ThreadId, OrchestrationThreadPullRequest | null>;
   onVisibleThreadIdsChange?: (threadIds: readonly ThreadId[]) => void;
   onOpenThread?: (threadId: ThreadId) => void;
+  onOpenThreadPullRequest?: (
+    event: unknown,
+    thread: SidebarThreadSummary,
+    pr: OrchestrationThreadPullRequest,
+  ) => void;
   onSetThreadSettled?: (threadId: ThreadId, settled: boolean) => void;
   onReturnSnoozedThread?: (threadId: ThreadId) => void;
   onMarkThreadRead?: (threadId: ThreadId, completedAt?: string) => void;
@@ -144,7 +160,7 @@ function ActivityHarness(input: Parameters<typeof renderActivity>[0]) {
       onVisibleThreadIdsChange={input.onVisibleThreadIdsChange ?? (() => {})}
       resolveThreadStatus={input.resolveThreadStatus ?? (() => null)}
       onOpenThread={input.onOpenThread ?? (() => {})}
-      onOpenThreadPullRequest={() => {}}
+      onOpenThreadPullRequest={input.onOpenThreadPullRequest ?? (() => {})}
       onSetThreadSettled={input.onSetThreadSettled ?? (() => {})}
       onReturnSnoozedThread={input.onReturnSnoozedThread ?? (() => {})}
       onToggleThreadPinned={() => {}}
@@ -1000,5 +1016,243 @@ describe("SidebarActivityView", () => {
     await vi.waitFor(() => expect(oldRows()).toHaveLength(0));
     await vi.waitFor(() => expect(onVisibleThreadIdsChange).toHaveBeenLastCalledWith([recent.id]));
     await mounted.unmount();
+  });
+
+  it("previews each chat's latest finished reply in two muted lines that never move the rows", async () => {
+    localizationTestState.locale = "zh-CN";
+    await page.viewport(320, 640);
+    // What the server sends (formatThreadLatestReplyPreview): the reply's words, Moss markup
+    // out, credentials masked, an ellipsis when only its start was read.
+    const serverPreview = (markdown: string, truncated = false) => {
+      const text = replyPreviewPlainText(markdown, truncated);
+      return truncatePlainText(
+        truncated ? `${text}…` : text,
+        THREAD_LATEST_REPLY_PREVIEW_MAX_LENGTH,
+      );
+    };
+    // The owner's real Codex turn: its final reply carries file links and a generated image.
+    const ownerReply = codexOwnerImageTurnMessages.find(
+      (message) => message.id === codexOwnerImageTurn.assistant_message_id,
+    )!.text;
+    const owner = makeThread(700, {
+      title: codexOwnerImageTurnThread.title,
+      latestReplyPreview: serverPreview(ownerReply),
+      lastVisitedAt: "2026-08-02T09:00:00.000Z",
+    });
+    const waiting = makeThread(701, {
+      title: "发布前检查",
+      modelSelection: { provider: "claudeAgent", model: "claude-opus-5-5" },
+      hasPendingApprovals: true,
+      latestReplyPreview: serverPreview(
+        "需要你批准一条命令：`bun run release:check`。它只读本地文件，不会发布。",
+      ),
+    });
+    // A running chat keeps showing its last finished reply until the new one finishes.
+    const running = makeThread(702, {
+      title: "整理侧边栏样式",
+      hasLiveTailWork: true,
+      latestReplyPreview: serverPreview("好的。"),
+    });
+    const seen = makeThread(703, {
+      title: "密钥轮换",
+      latestReplyPreview: serverPreview(
+        `新的密钥已写入：ghp_${"x".repeat(36)}。请把旧的作废，再把 MOSS_KEY=moss_sk_ab`,
+        true,
+      ),
+    });
+    const fresh = makeThread(704, { title: "新对话" });
+    const threads = [owner, waiting, running, seen, fresh];
+    const view = (items: readonly SidebarThreadSummary[]) => (
+      <div className="w-[300px] bg-background p-1 text-foreground">
+        {renderActivity({ threads: items, resolveThreadStatus: realThreadStatus })}
+      </div>
+    );
+    const mounted = await render(view(threads));
+    const row = (thread: SidebarThreadSummary) =>
+      document.querySelector<HTMLElement>(`[data-testid="activity-thread-${thread.id}"]`)!;
+    const reply = (thread: SidebarThreadSummary) =>
+      row(thread).querySelector<HTMLElement>("[data-activity-reply-preview]");
+    const title = (thread: SidebarThreadSummary) =>
+      [...row(thread).querySelectorAll<HTMLElement>("span.truncate")].find(
+        (element) => element.textContent === thread.title,
+      )!;
+
+    await vi.waitFor(() => expect(reply(owner)).not.toBeNull());
+    expect(reply(owner)!.textContent).toBe(
+      "已完成：透明通道已验证，并应用到 Moss 聊天区域右下角，浅色/深色主题都已生效。 · 原始透明 PNG · Moss 轻量版 WebP",
+    );
+    for (const thread of [owner, waiting, running, seen]) {
+      const text = reply(thread)!.textContent ?? "";
+      expect(text).not.toMatch(/!\[|\]\(|`|C:\/|\.png\)|ghp_|moss_sk_/u);
+    }
+    expect(reply(seen)!.textContent).toBe(
+      "新的密钥已写入：••••••。请把旧的作废，再把 MOSS_KEY=••••••…",
+    );
+    expect(reply(fresh)).toBeNull();
+
+    // Two lines at most, and always two lines tall.
+    const lineHeight = Number.parseFloat(getComputedStyle(reply(owner)!).lineHeight);
+    for (const thread of [owner, waiting, running, seen]) {
+      const style = getComputedStyle(reply(thread)!);
+      expect(style.webkitLineClamp).toBe("2");
+      expect(reply(thread)!.getBoundingClientRect().height).toBeCloseTo(2 * lineHeight, 0);
+    }
+    // A chat waiting on the person or holding an unseen reply reads louder; a seen one steps back.
+    const rootStyle = getComputedStyle(document.documentElement);
+    const medium = rootStyle.getPropertyValue("--font-weight-medium").trim();
+    const normal = rootStyle.getPropertyValue("--font-weight-normal").trim();
+    expect(Number(medium)).toBeGreaterThan(Number(normal));
+    expect(getComputedStyle(title(owner)).fontWeight).toBe(medium);
+    expect(getComputedStyle(title(waiting)).fontWeight).toBe(medium);
+    expect(getComputedStyle(title(running)).fontWeight).toBe(normal);
+    expect(getComputedStyle(title(seen)).fontWeight).toBe(normal);
+    expect(getComputedStyle(reply(seen)!).color).not.toBe(getComputedStyle(reply(owner)!).color);
+
+    await page.screenshot({ path: "__screenshots__/activity-reply-preview/light.png" });
+
+    // A longer message of the running chat finishes (a Codex progress note mid-turn, or the
+    // final reply): its preview changes, nothing below moves.
+    const tops = () => threads.map((thread) => row(thread).getBoundingClientRect().top);
+    const before = tops();
+    await mounted.rerender(
+      view(
+        threads.map((thread) =>
+          thread.id === running.id
+            ? {
+                ...thread,
+                latestReplyPreview: serverPreview(
+                  "侧边栏样式已整理：行高统一为 8 的倍数，悬停和选中状态改用同一组颜色，深色主题下的分隔线也调淡了。".repeat(
+                    3,
+                  ),
+                ),
+              }
+            : thread,
+        ),
+      ),
+    );
+    await vi.waitFor(() => expect(reply(running)!.textContent).toMatch(/^侧边栏样式已整理/u));
+    expect(tops()).toEqual(before);
+
+    const previousStyle = document.documentElement.style.cssText;
+    const { variables } = buildThemeCssVariables(
+      { codeThemeId: "codex", theme: DEFAULT_CHROME_THEME_BY_VARIANT.dark },
+      "dark",
+    );
+    document.documentElement.classList.add("dark");
+    for (const [name, value] of Object.entries(variables)) {
+      document.documentElement.style.setProperty(name, value);
+    }
+    try {
+      await page.screenshot({ path: "__screenshots__/activity-reply-preview/dark.png" });
+    } finally {
+      document.documentElement.classList.remove("dark");
+      document.documentElement.style.cssText = previousStyle;
+    }
+    await mounted.unmount();
+  });
+
+  it("counts a chat's several PRs in the row's state color and lists them instead of opening one", async () => {
+    // Ported from upstream #2195 (the count needs the links of #2132).
+    const pullRequest = (
+      number: number,
+      title: string,
+      state: OrchestrationThreadPullRequest["state"],
+    ): OrchestrationThreadPullRequest => ({
+      number,
+      title,
+      url: `https://github.com/example/moss/pull/${number}`,
+      baseBranch: "main",
+      headBranch: `branch-${number}`,
+      state,
+    });
+    const merged = pullRequest(96, "检查 iOS 拉取请求", "merged");
+    const open = pullRequest(97, "修复小组件快照", "open");
+    const closed = pullRequest(95, "放弃的尝试", "closed");
+    const several = makeThread(820, {
+      title: "多个拉取请求",
+      pullRequests: [
+        { pullRequest: merged, source: "agent", linkedAt: "2026-08-02T08:00:00.000Z" },
+        { pullRequest: closed, source: "user", linkedAt: "2026-08-02T09:00:00.000Z" },
+        { pullRequest: open, source: "created", linkedAt: "2026-08-02T07:00:00.000Z" },
+      ],
+    });
+    const singlePr = pullRequest(2186, "一个拉取请求", "open");
+    const single = makeThread(821, {
+      title: "一个拉取请求",
+      pullRequests: [
+        { pullRequest: singlePr, source: "agent", linkedAt: "2026-08-02T08:00:00.000Z" },
+      ],
+    });
+    const onOpenThread = vi.fn();
+    // Like the sidebar's handler, which takes the press over to open the PR pane.
+    const onOpenThreadPullRequest = vi.fn((event: unknown) => {
+      (event as Event).preventDefault?.();
+      (event as Event).stopPropagation?.();
+    });
+    const onRenameThread = vi.fn();
+    await page.viewport(320, 360);
+    const mounted = await render(
+      <div className="w-[300px] bg-background p-1 text-foreground">
+        {renderActivity({
+          threads: [several, single],
+          // The row's own PR, with its live state, decides the glyph and color.
+          prByThreadId: new Map([
+            [several.id, merged],
+            [single.id, singlePr],
+          ]),
+          onOpenThread,
+          onOpenThreadPullRequest,
+          onRenameThread,
+        })}
+      </div>,
+    );
+    try {
+      const countChip = page.getByRole("button", { name: "3 pull requests", exact: true });
+      await expect.element(countChip).toBeVisible();
+      const countElement = countChip.element() as HTMLElement;
+      expect(countElement.textContent).toBe("3");
+      countElement.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      expect(onRenameThread).not.toHaveBeenCalled();
+
+      // A press lists every PR (its own first, then open, then newest); none opens by itself.
+      await countChip.click();
+      const items = page.getByRole("menuitem");
+      await expect
+        .poll(() => items.elements().map((item) => item.textContent))
+        .toEqual(["#96 检查 iOS 拉取请求", "#97 修复小组件快照", "#95 放弃的尝试"]);
+      expect(onOpenThreadPullRequest).not.toHaveBeenCalled();
+      expect(onOpenThread).not.toHaveBeenCalled();
+      await page.screenshot({ path: "__screenshots__/activity-pr-count/light.png" });
+      const previousStyle = document.documentElement.style.cssText;
+      const { variables } = buildThemeCssVariables(
+        { codeThemeId: "codex", theme: DEFAULT_CHROME_THEME_BY_VARIANT.dark },
+        "dark",
+      );
+      document.documentElement.classList.add("dark");
+      for (const [name, value] of Object.entries(variables)) {
+        document.documentElement.style.setProperty(name, value);
+      }
+      try {
+        await page.screenshot({ path: "__screenshots__/activity-pr-count/dark.png" });
+      } finally {
+        document.documentElement.classList.remove("dark");
+        document.documentElement.style.cssText = previousStyle;
+      }
+
+      await page.getByRole("menuitem", { name: "#97 修复小组件快照" }).click();
+      expect(onOpenThreadPullRequest).toHaveBeenCalledOnce();
+      expect(onOpenThreadPullRequest.mock.calls[0]?.slice(1)).toEqual([several, open]);
+      expect(onOpenThread).not.toHaveBeenCalled();
+      expect(onRenameThread).not.toHaveBeenCalled();
+      await expect.poll(() => items.elements().length).toBe(0);
+
+      // One PR keeps its #number and opens directly.
+      const singleChip = page.getByText("#2186", { exact: true });
+      await singleChip.click();
+      expect(onOpenThreadPullRequest).toHaveBeenCalledTimes(2);
+      expect(onOpenThreadPullRequest.mock.calls[1]?.slice(1)).toEqual([single, singlePr]);
+    } finally {
+      await mounted.unmount();
+    }
   });
 });

@@ -106,10 +106,89 @@ export function sanitizeGuestThread(thread: OrchestrationThread): OrchestrationT
     gatewayOperationId: null,
     gatewayOperationIndex: null,
     lastKnownPr: null,
+    // Each linked pull request names its repository (possibly private), title and branches.
+    pullRequests: [],
     handoff: null,
     claudeCacheReview: null,
   };
 }
+
+type GuestThreadFieldDecision = "kept" | "cleared" | "removed" | "filtered";
+
+/**
+ * What a guest gets of every thread field: kept as is, cleared (null or empty), removed, or
+ * filtered (owner-only entries dropped). `satisfies` makes a field added to the thread
+ * contract fail to compile until it is decided here, and the sanitizer's test holds
+ * `sanitizeGuestThread` to this table.
+ */
+export const GUEST_THREAD_FIELD_DECISIONS = {
+  id: "kept",
+  projectId: "kept",
+  title: "kept",
+  modelSelection: "kept",
+  runtimeMode: "kept",
+  interactionMode: "kept",
+  envMode: "kept",
+  isProjectImport: "kept",
+  createBranchFlowCompleted: "kept",
+  isPinned: "kept",
+  parentThreadId: "kept",
+  creationSource: "kept",
+  sourceThreadId: "kept",
+  sourceTurnId: "kept",
+  subagentAgentId: "kept",
+  subagentNickname: "kept",
+  subagentRole: "kept",
+  forkSourceThreadId: "kept",
+  forkSourceMessageId: "kept",
+  sidechatSourceThreadId: "kept",
+  sidechatContext: "kept",
+  sidechatLastActivityAt: "kept",
+  sidechatExpiredAt: "kept",
+  latestTurn: "kept",
+  latestUserMessageAt: "kept",
+  latestHumanMessageAt: "kept",
+  hasPendingApprovals: "kept",
+  hasPendingUserInput: "kept",
+  hasActionableProposedPlan: "kept",
+  createdAt: "kept",
+  updatedAt: "kept",
+  archivedAt: "kept",
+  archivedByCommandId: "kept",
+  archivedSidebarDestination: "kept",
+  archivedSidebarSectionId: "kept",
+  archivedSidebarSectionCreatedAt: "kept",
+  archivedSidebarSortOrder: "kept",
+  settledAt: "kept",
+  snoozedUntil: "kept",
+  snoozeReminderAt: "kept",
+  deletedAt: "kept",
+  messages: "kept",
+  proposedPlans: "kept",
+  checkpoints: "kept",
+  session: "kept",
+  activities: "filtered",
+  branch: "cleared",
+  worktreePath: "cleared",
+  workingDirectory: "cleared",
+  associatedWorktreePath: "cleared",
+  associatedWorktreeBranch: "cleared",
+  associatedWorktreeRef: "cleared",
+  gatewayOperationId: "cleared",
+  gatewayOperationIndex: "cleared",
+  lastKnownPr: "cleared",
+  pullRequests: "cleared",
+  handoff: "cleared",
+  claudeCacheReview: "cleared",
+  notes: "removed",
+  pinnedMessages: "removed",
+  threadMarkers: "removed",
+  goal: "removed",
+  goalStartedAt: "removed",
+  goalPausedAt: "removed",
+  goalAchievements: "removed",
+  pendingInteractions: "removed",
+} as const satisfies Record<keyof OrchestrationThread, GuestThreadFieldDecision>;
 
 export interface GuestSnapshotBounds {
   /** Newest user turns kept; everything older is cut and not pageable. */

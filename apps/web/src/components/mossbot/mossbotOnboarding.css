@@ -1,0 +1,589 @@
+/* Mossbot first-run onboarding: one fixed stage (680×520 wide, 360×620 narrow) scaled to fit; the companion
+   springs between spots while the steps cross-fade around it. Colours come from the app tokens; the soft stage
+   picture is the one brand painting the onboarding is allowed. */
+.mbo {
+  --mbo-card: color-mix(in srgb, var(--card) 80%, transparent);
+  --mbo-line: color-mix(in srgb, var(--foreground) 10%, transparent);
+  --mbo-hover: color-mix(in srgb, var(--foreground) 5%, transparent);
+  --mbo-moss: #5a873b;
+  --mbo-shadow: 0 1px 2px rgb(20 20 19 / 0.06), 0 12px 32px -12px rgb(20 20 19 / 0.2);
+  --mbo-spring: cubic-bezier(0.34, 1.36, 0.5, 1);
+  --mbo-snap: cubic-bezier(0.32, 0.72, 0, 1);
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0 16px;
+  color: var(--foreground);
+}
+.dark .mbo,
+.mbo:is(.dark *) {
+  --mbo-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px -12px rgb(0 0 0 / 0.55);
+}
+.mbo-wall {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--background) url("./onboarding/stage-light.jpg") center / cover no-repeat;
+}
+.mbo:is(.dark *) .mbo-wall {
+  background-image: url("./onboarding/stage-dark.jpg");
+}
+
+.mbo-top {
+  display: flex;
+  height: 56px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+}
+.mbo-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.mbo-wrap {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+}
+.mbo-stage {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 680px;
+  height: 520px;
+  transform: translate(-50%, -50%) scale(var(--k, 1));
+}
+.mbo-stage.mbo-narrow {
+  width: 360px;
+  height: 620px;
+}
+.mbo-scene {
+  position: absolute;
+  inset: 0;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 0.3s ease,
+    visibility 0s linear 0.3s;
+}
+.mbo-scene[data-on] {
+  visibility: visible;
+  opacity: 1;
+  transition:
+    opacity 0.4s ease 0.1s,
+    visibility 0s;
+}
+.mbo-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 12px;
+  margin: 0;
+  text-align: center;
+  font-size: 26px;
+  line-height: 34px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.mbo-sub {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 54px;
+  margin: 0;
+  padding: 0 24px;
+  text-align: center;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 20px;
+  text-wrap: balance;
+}
+.mbo-narrow .mbo-title {
+  top: 8px;
+  padding: 0 12px;
+  font-size: 22px;
+  line-height: 30px;
+}
+.mbo-narrow .mbo-sub {
+  top: 76px;
+  font-size: 13px;
+  line-height: 19px;
+}
+.mbo-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) translate(var(--x, 0px), var(--y, 0px));
+}
+.mbo-scene[data-on] .mbo-rise {
+  animation: mbo-rise 0.7s var(--mbo-snap) both;
+  animation-delay: var(--d, 0ms);
+}
+@keyframes mbo-rise {
+  from {
+    translate: 0 14px;
+    opacity: 0;
+  }
+}
+.mbo-card {
+  border: 1px solid var(--mbo-line);
+  border-radius: 16px;
+  background: var(--mbo-card);
+  box-shadow: var(--mbo-shadow);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+/* the companion */
+.mbo-bot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  width: 140px;
+  height: 140px;
+  transform: translate(-50%, -50%) translate(var(--x, 0px), var(--y, 0px)) scale(var(--s, 1));
+  transition: transform 0.8s var(--mbo-spring);
+}
+.mbo-bot-body {
+  width: 100%;
+  height: 100%;
+}
+
+/* meet */
+.mbo-composer {
+  --y: 110px;
+  width: 420px;
+  padding: 14px 14px 10px 18px;
+}
+.mbo-narrow .mbo-composer {
+  --y: 120px;
+  width: 324px;
+}
+.mbo-composer-text {
+  min-height: 24px;
+  font-size: 16px;
+  line-height: 24px;
+}
+.mbo-placeholder {
+  color: var(--muted-foreground);
+}
+.mbo-composer-row {
+  display: flex;
+  margin-top: 12px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted-foreground);
+}
+.mbo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--mbo-line);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.mbo-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mbo-moss);
+}
+.mbo-send {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--foreground);
+  transition: opacity 0.2s ease;
+}
+.mbo-send.mbo-idle {
+  opacity: 0.25;
+}
+
+/* work */
+.mbo-tasks {
+  --x: 70px;
+  --y: 52px;
+  display: grid;
+  width: 380px;
+  gap: 8px;
+  padding: 14px;
+}
+.mbo-narrow .mbo-tasks {
+  --x: 0px;
+  --y: 120px;
+  width: 324px;
+}
+.mbo-task {
+  display: flex;
+  height: 40px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 0 12px;
+  background: var(--mbo-hover);
+  font-size: 14px;
+  color: var(--muted-foreground);
+  transition:
+    background 0.3s ease,
+    color 0.3s ease;
+}
+.mbo-task[data-state="done"] {
+  background: color-mix(in srgb, var(--mbo-moss) 14%, transparent);
+  color: var(--foreground);
+}
+.mbo-task[data-state="wait"] {
+  background: color-mix(in srgb, #b2833a 16%, transparent);
+  color: var(--foreground);
+}
+.mbo-task-mark {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  place-items: center;
+  border: 1.5px solid var(--mbo-line);
+  border-radius: 50%;
+}
+.mbo-task[data-state="done"] .mbo-task-mark {
+  border-color: var(--mbo-moss);
+  background: var(--mbo-moss);
+}
+.mbo-task[data-state="done"] .mbo-task-mark::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border: solid #fff;
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+.mbo-task[data-state="wait"] .mbo-task-mark {
+  border-style: dashed;
+  border-color: #b2833a;
+}
+
+/* team: helpers spring out of the companion */
+.mbo-mini {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52px;
+  height: 52px;
+  transform: translate(-50%, -50%) translate(var(--mx), var(--my));
+  transition:
+    transform 0.9s var(--mbo-spring) var(--md, 0ms),
+    opacity 0.3s ease var(--md, 0ms);
+}
+.mbo-scene:not([data-on]) .mbo-mini {
+  opacity: 0;
+  transform: translate(-50%, -50%) translate(0px, 34px) scale(0.3);
+  transition-delay: 0ms;
+}
+.mbo-float {
+  width: 100%;
+  height: 100%;
+  animation: mbo-float var(--period, 6s) ease-in-out var(--delay, 0s) infinite;
+}
+.mbo-mini-bot {
+  width: 100%;
+  height: 100%;
+}
+@keyframes mbo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(calc(var(--amp, 4px) * -1));
+  }
+}
+.mbo-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  border-radius: 999px;
+  padding: 6px 12px;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.mbo-mini-1 {
+  --mx: -220px;
+  --my: -30px;
+  --md: 80ms;
+  --period: 5.2s;
+  --delay: -1.2s;
+  --amp: 3px;
+}
+.mbo-mini-2 {
+  --mx: 220px;
+  --my: -10px;
+  --md: 160ms;
+  --period: 7.3s;
+  --delay: -4.7s;
+  --amp: 5px;
+}
+.mbo-mini-3 {
+  --mx: -160px;
+  --my: 170px;
+  --md: 240ms;
+  --period: 6.4s;
+  --delay: -2.6s;
+  --amp: 4px;
+}
+.mbo-mini-4 {
+  --mx: 170px;
+  --my: 180px;
+  --md: 320ms;
+  --period: 5.8s;
+  --delay: -0.6s;
+  --amp: 4px;
+}
+.mbo-narrow .mbo-mini-1 {
+  --mx: -90px;
+  --my: -110px;
+}
+.mbo-narrow .mbo-mini-2 {
+  --mx: 96px;
+  --my: -40px;
+}
+.mbo-narrow .mbo-mini-3 {
+  --mx: -90px;
+  --my: 170px;
+}
+.mbo-narrow .mbo-mini-4 {
+  --mx: 92px;
+  --my: 240px;
+}
+
+/* name and colour */
+.mbo-face {
+  --x: 140px;
+  --y: 40px;
+  display: grid;
+  width: 340px;
+  gap: 8px;
+  padding: 18px;
+}
+.mbo-narrow .mbo-face {
+  --x: 0px;
+  --y: 120px;
+  width: 324px;
+}
+.mbo-label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.mbo-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mbo .mbo-swatch {
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.08);
+}
+.mbo .mbo-swatch:hover {
+  background: var(--c);
+  filter: brightness(1.06);
+}
+.mbo .mbo-swatch[aria-pressed="true"] {
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--foreground);
+}
+
+/* purpose */
+.mbo-choices {
+  --y: 70px;
+  display: grid;
+  width: 520px;
+  gap: 10px;
+}
+.mbo-narrow .mbo-choices {
+  --y: 90px;
+  width: 324px;
+}
+.mbo .mbo-choice {
+  display: flex;
+  height: auto;
+  min-height: 64px;
+  justify-content: flex-start;
+  gap: 12px;
+  border-radius: 14px;
+  padding: 10px 16px;
+  text-align: left;
+  white-space: normal;
+}
+.mbo-choice-text {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+.mbo-choice-text > span {
+  color: var(--foreground);
+  font-size: 15px;
+}
+.mbo-choice-text small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 17px;
+}
+.mbo-tick {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  place-items: center;
+  border: 1.5px solid var(--mbo-line);
+  border-radius: 50%;
+}
+.mbo .mbo-choice[aria-checked="true"] {
+  border-color: var(--foreground);
+}
+.mbo-choice[aria-checked="true"] .mbo-tick {
+  border-color: var(--foreground);
+  background: var(--foreground);
+}
+.mbo-choice[aria-checked="true"] .mbo-tick::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border: solid var(--background);
+  border-width: 0 0 1.5px 1.5px;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+/* model */
+.mbo-model {
+  --y: 60px;
+  width: 520px;
+  padding: 6px 4px;
+}
+.mbo-narrow .mbo-model {
+  --y: 70px;
+  width: 340px;
+}
+
+/* create */
+.mbo-progress {
+  --y: 120px;
+  width: 300px;
+  text-align: center;
+}
+.mbo-progress-msg {
+  font-size: 14px;
+  color: var(--muted-foreground);
+}
+.mbo-track {
+  height: 4px;
+  margin-top: 12px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--mbo-line);
+}
+.mbo-fill {
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--foreground);
+  animation: mbo-slide 1.4s var(--mbo-snap) infinite;
+}
+@keyframes mbo-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.mbo-say {
+  --y: 92px;
+  width: 440px;
+  margin: 0;
+  padding: 16px 18px;
+  font-size: 15px;
+  line-height: 24px;
+  animation: mbo-rise 0.6s var(--mbo-snap) both;
+}
+.mbo-narrow .mbo-say {
+  --y: 90px;
+  width: 324px;
+}
+.mbo-error {
+  color: var(--destructive);
+}
+.mbo-endbtns {
+  --y: 186px;
+  display: flex;
+  gap: 8px;
+}
+
+/* bottom nav */
+.mbo-nav {
+  display: flex;
+  height: 76px;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  transition: opacity 0.3s ease;
+}
+.mbo-nav.mbo-gone {
+  pointer-events: none;
+  opacity: 0;
+}
+.mbo-nav-side {
+  display: flex;
+  width: 140px;
+}
+.mbo-nav-end {
+  justify-content: flex-end;
+}
+.mbo-dots {
+  display: flex;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 7px 9px;
+  background: var(--mbo-card);
+  backdrop-filter: blur(14px);
+}
+.mbo-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mbo-line);
+  transition:
+    width 0.3s var(--mbo-snap),
+    background 0.3s ease;
+}
+.mbo-dots i[data-on] {
+  width: 18px;
+  background: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mbo *,
+  .mbo *::before,
+  .mbo *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}

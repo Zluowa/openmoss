@@ -445,7 +445,7 @@ export function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       getPullRequest: (input) =>
         execute({
           cwd: input.cwd,
-          args: ["pr", "view", input.reference, "--json", PULL_REQUEST_SUMMARY_JSON_FIELDS],
+          args: ["pr", "view", "--json", PULL_REQUEST_SUMMARY_JSON_FIELDS, "--", input.reference],
         }).pipe(Effect.map((result) => JSON.parse(result.stdout) as GitHubPullRequestSummary)),
       getRepositoryCloneUrls: (input) =>
         execute({

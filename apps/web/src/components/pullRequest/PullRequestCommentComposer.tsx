@@ -8,6 +8,7 @@
 // Exports: PullRequestCommentComposer, GitHubCommentTarget, GitHubCommentMutation
 
 import { Button } from "~/components/ui/button";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { GLASS_RAISED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import type { PullRequestDetailInput } from "@moss/contracts";
 import { useRef, useState } from "react";
@@ -90,7 +91,7 @@ export function PullRequestCommentComposer({
         onChange={(event) => setBody(event.target.value)}
         onKeyDown={(event) => {
           // Enter during IME composition confirms the composition, not the comment.
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+          if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
             event.preventDefault();
             void submit();
           }

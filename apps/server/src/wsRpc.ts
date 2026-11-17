@@ -4,6 +4,11 @@ import { DevsReports } from "./devsReports";
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { listMossMediaLibrary } from "./mossMediaLibrary";
 import { makeGitActionRunner } from "./git/gitActionRunner";
+import {
+  gitActionPullRequestCommands,
+  pullRequestFromGitActionResult,
+  refreshReopenedThreadPullRequest,
+} from "./git/gitActionPullRequest";
 import { AgentGatewaySessionRegistry } from "./agentGateway/Services/AgentGatewaySessionRegistry";
 import { execFile } from "node:child_process";
 
@@ -44,6 +49,7 @@ import {
   type DeviceEvent,
   type ComputerEvent,
   type GitRemoveWorktreeInput,
+  type GitRunStackedActionResult,
   type GitHubProjectProvisionProgressEvent,
   type GitWorktreeSetupProgressEvent,
   type ModelSelection,
@@ -56,6 +62,7 @@ import {
   type OrchestrationShellStreamItem,
   type ProjectId,
   type OrchestrationThreadDetailSnapshot,
+  type OrchestrationThreadPullRequest,
   type OrchestrationThreadStreamItem,
   type ServerConfigStreamEvent,
   type ServerDiagnosticsResult,
@@ -103,6 +110,7 @@ import {
 } from "@moss/contracts";
 import { clamp } from "effect/Number";
 import {
+  Cause,
   DateTime,
   Effect,
   FileSystem,
@@ -860,7 +868,9 @@ export function toThreadUnarchivedShellEvent(
   ) {
     return Effect.all([
       projectionReadModelQuery.getShellSnapshot(),
-      projectionReadModelQuery.getThreadShellById(event.payload.threadId),
+      projectionReadModelQuery.getThreadShellById(event.payload.threadId, {
+        includeLatestReplyPreview: true,
+      }),
     ]).pipe(
       Effect.map(([snapshot, thread]) =>
         Option.some({
@@ -874,7 +884,9 @@ export function toThreadUnarchivedShellEvent(
     );
   }
   return projectionReadModelQuery
-    .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)))
+    .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)), {
+      includeLatestReplyPreview: true,
+    })
     .pipe(
       Effect.map((thread) =>
         Option.map(thread, (nextThread) => ({
@@ -1365,7 +1377,7 @@ const makeWsRpcHandlersLayer = () =>
         Effect.gen(function* () {
           const settings = yield* serverSettings.getSettings;
           const routing = resolveTextGenerationRouting(settings, input);
-          yield* gitManager.runStackedAction(
+          const result = yield* gitManager.runStackedAction(
             {
               ...input,
               ...(routing.modelSelection
@@ -1375,7 +1387,9 @@ const makeWsRpcHandlersLayer = () =>
             },
             { actionId: input.actionId, progressReporter: { publish } },
           );
-          yield* refreshGitStatusInBackground(input.cwd);
+          yield* input.threadId !== undefined
+            ? linkGitActionPullRequestInBackground(input.threadId, input.cwd, result)
+            : refreshGitStatusInBackground(input.cwd);
         }).pipe(
           Effect.catchCause((cause) => Effect.fail(toWsRpcError(cause, "Git action failed"))),
         ),
@@ -1814,6 +1828,37 @@ const makeWsRpcHandlersLayer = () =>
           Effect.asVoid,
         );
 
+      // The thread owns the PR its git action created, or the open PR it pushed to. Linking is
+      // server-side so a client that disconnects after the action cannot drop the association.
+      const linkGitActionPullRequestInBackground = (
+        threadId: ThreadId,
+        cwd: string,
+        result: GitRunStackedActionResult,
+      ) => {
+        return Effect.gen(function* () {
+          const created = pullRequestFromGitActionResult(result);
+          // Refresh first so the status shown matches what is recorded; a created PR does not
+          // need the branch's PR.
+          const status = yield* gitStatusBroadcaster.refreshStatus(cwd);
+          const commands = gitActionPullRequestCommands({
+            threadId,
+            result,
+            branchPullRequest: created ? null : (status.pr ?? null),
+            commandId: () => CommandId.makeUnsafe(`server:git-action-pr:${crypto.randomUUID()}`),
+          });
+          for (const command of commands) yield* orchestrationEngine.dispatch(command);
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("git action pull request link failed", {
+              threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+          Effect.forkDetach,
+          Effect.asVoid,
+        );
+      };
+
       const validateArchiveWorktreeRemoval = (input: GitRemoveWorktreeInput) =>
         Effect.gen(function* () {
           if (!input.archiveCleanup) return;
@@ -1981,7 +2026,9 @@ const makeWsRpcHandlersLayer = () =>
           default:
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
             return projectionReadModelQuery
-              .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)))
+              .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)), {
+                includeLatestReplyPreview: true,
+              })
               .pipe(
                 Effect.map((thread) =>
                   Option.map(thread, (nextThread) => ({
@@ -2732,7 +2779,10 @@ const makeWsRpcHandlersLayer = () =>
               runtimeStartup,
               // Queried snapshots carry an empty-thread proof so an empty app's route
               // restore can skip its recovery wait; streamed snapshots omit it.
-              projectionReadModelQuery.getShellSnapshot({ verifyEmptyThreads: true }),
+              projectionReadModelQuery.getShellSnapshot({
+                verifyEmptyThreads: true,
+                includeLatestReplyPreview: true,
+              }),
             ),
             "Failed to load orchestration shell snapshot",
           ),
@@ -2875,7 +2925,7 @@ const makeWsRpcHandlersLayer = () =>
                   onDroppedEvents: () => Effect.void,
                 },
                 snapshot: projectionReadModelQuery
-                  .getShellSnapshot()
+                  .getShellSnapshot({ includeLatestReplyPreview: true })
                   .pipe(
                     Effect.mapError((cause) =>
                       toWsRpcError(cause, "Failed to load shell snapshot"),
@@ -3409,7 +3459,37 @@ const makeWsRpcHandlersLayer = () =>
         [WS_METHODS.pullRequestsDiff]: (input) =>
           pullRequestsEffect(pullRequests.diff(input), "Failed to load pull request diff"),
         [WS_METHODS.pullRequestsAction]: (input) =>
-          pullRequestsEffect(pullRequests.action(input), "Pull request action failed"),
+          pullRequestsEffect(
+            pullRequests.action(input).pipe(
+              Effect.tap((result) => {
+                const threadId = input.threadId;
+                if (input.action !== "reopen" || !threadId) return Effect.void;
+                // GitHub has already accepted the reopen. Persist it even if the caller
+                // disconnects, and report local refresh failures without failing the action.
+                return Effect.gen(function* () {
+                  const thread = Option.getOrUndefined(
+                    yield* projectionReadModelQuery.getThreadShellById(threadId),
+                  );
+                  if (!thread || thread.projectId !== result.projectId) return;
+                  yield* refreshReopenedThreadPullRequest({
+                    thread,
+                    repository: result.repository,
+                    number: result.number,
+                    dispatch: orchestrationEngine.dispatch,
+                  });
+                }).pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("reopened pull request link refresh failed", {
+                      threadId,
+                      cause: Cause.pretty(cause),
+                    }),
+                  ),
+                  Effect.uninterruptible,
+                );
+              }),
+            ),
+            "Pull request action failed",
+          ),
         [WS_METHODS.pullRequestsComment]: (input) =>
           pullRequestsEffect(pullRequests.comment(input), "Could not post the comment"),
         [WS_METHODS.pullRequestsSetPinned]: (input) =>

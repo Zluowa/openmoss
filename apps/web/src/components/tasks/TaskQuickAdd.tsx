@@ -7,6 +7,7 @@
 // Exports: TaskQuickAdd
 
 import { type KeyboardEvent, type RefObject, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { cn } from "~/lib/utils";
 import {
@@ -38,7 +39,7 @@ export function TaskQuickAdd({
     return true;
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       addTask(false);

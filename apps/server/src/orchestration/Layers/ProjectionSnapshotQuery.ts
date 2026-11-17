@@ -71,6 +71,10 @@ import {
 } from "../../persistence/Errors.ts";
 import { normalizePersistedModelSelection } from "../../persistence/modelSelectionCompatibility.ts";
 import {
+  PullRequestLinksJsonColumn,
+  resolveStoredPullRequestState,
+} from "../../persistence/pullRequestLinksColumn.ts";
+import {
   decodeEachSkippingUndecodable,
   findAllSkippingUndecodable,
   makeUndecodableRowReporter,
@@ -101,6 +105,11 @@ import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.t
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
+  formatThreadLatestReplyPreview,
+  THREAD_LATEST_REPLY_PREVIEW_ENCODED_SOURCE_LENGTH,
+  THREAD_LATEST_REPLY_PREVIEW_SOURCE_LENGTH,
+} from "../threadLatestReplyPreview.ts";
+import {
   ProjectionSnapshotQuery,
   type ProjectionFullThreadDiffContext,
   type ProjectionGeneratedImageActivityRecord,
@@ -108,6 +117,7 @@ import {
   type ProjectionSnapshotCounts,
   type ProjectionSnapshotSequence,
   type ProjectionThreadCheckpointContext,
+  type ProjectionThreadShellReadOptions,
   type ProjectionThreadTurnDiffContext,
   type ProjectionSnapshotQueryShape,
   type OrchestrationThreadMentionContext,
@@ -135,6 +145,7 @@ const MAX_SNAPSHOT_THREAD_ACTIVITIES = 500;
 const MAX_THREAD_DETAIL_ACTIVITIES = 2_000;
 const MAX_THREAD_FILE_CHANGE_ACTIVITIES = 2_000;
 const MAX_TURN_GENERATED_IMAGE_ACTIVITY_RECORDS = 64;
+const EMPTY_LATEST_REPLY_PREVIEWS: ReadonlyMap<string, string> = new Map();
 /** A turn ends with one wrap-up box; a few more cover an agent that called it again. */
 const MAX_TURN_WRAP_UP_ACTIVITY_RECORDS = 4;
 const ProjectionProjectDbRowSchema = ProjectionProject.mapFields(
@@ -156,6 +167,7 @@ const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
       Schema.NullOr(Schema.fromJsonString(PendingClaudeCacheReview)),
     ),
     lastKnownPr: Schema.NullOr(Schema.fromJsonString(OrchestrationThreadPullRequest)),
+    pullRequests: Schema.optional(PullRequestLinksJsonColumn),
     sidechatContext: Schema.optional(Schema.NullOr(Schema.fromJsonString(ThreadSidechatContext))),
     pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
     goalAchievements: Schema.optional(
@@ -180,6 +192,7 @@ const ProjectionThreadShellDbRowSchema = Schema.Struct(ProjectionThreadShellFiel
       Schema.NullOr(Schema.fromJsonString(PendingClaudeCacheReview)),
     ),
     lastKnownPr: Schema.NullOr(Schema.fromJsonString(OrchestrationThreadPullRequest)),
+    pullRequests: Schema.optional(PullRequestLinksJsonColumn),
     sidechatContext: Schema.optional(Schema.NullOr(Schema.fromJsonString(ThreadSidechatContext))),
     modelSelection: ModelSelectionJsonUnknown,
   }),
@@ -204,6 +217,15 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
     sequenceSource: Schema.optional(Schema.NullOr(Schema.Literal("orchestration"))),
   }),
 );
+// Both text representations are bounded before they reach the JS read model.
+const ThreadLatestReplyDbRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  text: Schema.String,
+  textTruncated: Schema.Number,
+  encodedText: Schema.NullOr(Schema.String),
+  encodedTextTruncated: Schema.Number,
+});
+type ThreadLatestReplyDbRow = typeof ThreadLatestReplyDbRowSchema.Type;
 type PendingInteractionRow = typeof OrchestrationPendingInteraction.Type;
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
 const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
@@ -827,10 +849,28 @@ function toProjectedProjectShell(row: ProjectionProjectDbRow): OrchestrationProj
   };
 }
 
+function collectLatestReplyPreviews(
+  rows: ReadonlyArray<ThreadLatestReplyDbRow>,
+): Map<string, string> {
+  const previews = new Map<string, string>();
+  for (const row of rows) {
+    const preview = formatThreadLatestReplyPreview({
+      text: row.text,
+      textTruncated: row.textTruncated > 0,
+      encodedText: row.encodedText,
+      encodedTextTruncated: row.encodedTextTruncated > 0,
+    });
+    if (preview !== undefined) previews.set(row.threadId, preview);
+  }
+  return previews;
+}
+
 function toProjectedThreadShellFromStoredSummary(input: {
   readonly threadRow: ProjectionThreadShellDbRow;
   readonly latestTurn: OrchestrationLatestTurn | null;
   readonly session: OrchestrationSession | null;
+  /** Client-facing shells only; absent when the thread has no settled reply with text. */
+  readonly latestReplyPreview?: string | undefined;
 }): OrchestrationThreadShell {
   const { threadRow } = input;
   return {
@@ -866,7 +906,7 @@ function toProjectedThreadShellFromStoredSummary(input: {
     sidechatContext: threadRow.sidechatContext ?? null,
     sidechatLastActivityAt: threadRow.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: threadRow.sidechatExpiredAt ?? null,
-    lastKnownPr: threadRow.lastKnownPr,
+    ...resolveStoredPullRequestState(threadRow),
     latestTurn: input.latestTurn,
     latestUserMessageAt: threadRow.latestUserMessageAt,
     latestHumanMessageAt: threadRow.latestHumanMessageAt ?? null,
@@ -888,6 +928,9 @@ function toProjectedThreadShellFromStoredSummary(input: {
     goalStartedAt: threadRow.goalStartedAt ?? null,
     goalPausedAt: threadRow.goalPausedAt ?? null,
     session: input.session,
+    ...(input.latestReplyPreview !== undefined
+      ? { latestReplyPreview: input.latestReplyPreview }
+      : {}),
   };
 }
 
@@ -936,7 +979,7 @@ function toProjectedThread(input: {
     sidechatContext: threadRow.sidechatContext ?? null,
     sidechatLastActivityAt: threadRow.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: threadRow.sidechatExpiredAt ?? null,
-    lastKnownPr: threadRow.lastKnownPr,
+    ...resolveStoredPullRequestState(threadRow),
     latestTurn: input.latestTurn,
     createdAt: threadRow.createdAt,
     updatedAt: threadRow.updatedAt,
@@ -1270,6 +1313,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           ${projectImportProvenance} AS "isProjectImport",
@@ -1330,6 +1374,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           ${projectImportProvenance} AS "isProjectImport",
@@ -2117,6 +2162,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           ${projectImportProvenance} AS "isProjectImport",
@@ -2183,6 +2229,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           ${projectImportProvenance} AS "isProjectImport",
@@ -2741,6 +2788,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           ${projectImportProvenance} AS "isProjectImport",
@@ -2761,6 +2809,51 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         WHERE thread_id IN ${sql.in(threadIds)}
           AND deleted_at IS NULL
         ORDER BY created_at ASC, thread_id ASC
+      `,
+  });
+
+  // One indexed seek per live, unarchived thread (thread_id, role, created_at DESC) for its
+  // newest settled assistant reply that has text, then only the head of that reply. CROSS JOIN
+  // keeps the thread list as the outer loop so SQLite never scans every message. A reply still
+  // streaming is skipped, so the preview moves at message boundaries rather than per delta.
+  // Archived threads leave every list, so they skip the read and carry no preview.
+  const listLatestReplyRows = SqlSchema.findAll({
+    Request: Schema.Struct({ threadIds: Schema.NullOr(Schema.Array(ThreadId)) }),
+    Result: ThreadLatestReplyDbRowSchema,
+    execute: ({ threadIds }) =>
+      sql`
+        SELECT
+          latest.thread_id AS "threadId",
+          substr(messages.text, 1, ${THREAD_LATEST_REPLY_PREVIEW_SOURCE_LENGTH}) AS "text",
+          substr(messages.text, ${THREAD_LATEST_REPLY_PREVIEW_SOURCE_LENGTH + 1}, 1) <> ''
+            AS "textTruncated",
+          substr(messages.text_json, 1, ${THREAD_LATEST_REPLY_PREVIEW_ENCODED_SOURCE_LENGTH})
+            AS "encodedText",
+          coalesce(
+            substr(messages.text_json, ${THREAD_LATEST_REPLY_PREVIEW_ENCODED_SOURCE_LENGTH + 1}, 1) <> '',
+            0
+          ) AS "encodedTextTruncated"
+        FROM (
+          SELECT
+            threads.thread_id,
+            (
+              SELECT candidate.message_id
+              FROM projection_thread_messages AS candidate
+              WHERE candidate.thread_id = threads.thread_id
+                AND candidate.role = 'assistant'
+                AND candidate.is_streaming = 0
+                AND (candidate.text <> '' OR candidate.text_json IS NOT NULL)
+              ORDER BY candidate.created_at DESC, candidate.message_id DESC
+              LIMIT 1
+            ) AS message_id
+          FROM projection_threads AS threads
+          WHERE threads.deleted_at IS NULL
+            AND threads.archived_at IS NULL
+            ${threadIds === null ? sql`` : sql`AND threads.thread_id IN ${sql.in(threadIds)}`}
+        ) AS latest
+        CROSS JOIN projection_thread_messages AS messages
+        WHERE messages.thread_id = latest.thread_id
+          AND messages.message_id = latest.message_id
       `,
   });
 
@@ -3537,6 +3630,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         }),
       );
 
+  // Null ids read every live, unarchived thread (the shell snapshot).
+  const loadLatestReplyPreviews = (
+    threadIds: ReadonlyArray<ThreadId> | null,
+    tracePrefix: string,
+  ) =>
+    listLatestReplyRows({ threadIds }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          `${tracePrefix}:listLatestReplies:query`,
+          `${tracePrefix}:listLatestReplies:decodeRows`,
+        ),
+      ),
+      Effect.map(collectLatestReplyPreviews),
+    );
+
   const getShellSnapshot: ProjectionSnapshotQueryShape["getShellSnapshot"] = (options) =>
     sql
       .withTransaction(
@@ -3680,6 +3788,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ))
             : undefined;
 
+          const latestReplyPreviews = options?.includeLatestReplyPreview
+            ? yield* loadLatestReplyPreviews(null, "ProjectionSnapshotQuery.getShellSnapshot")
+            : EMPTY_LATEST_REPLY_PREVIEWS;
+
           const snapshot = {
             snapshotSequence: yield* computeSnapshotSequence(stateRows),
             requiresEmptyProjectShellRepair,
@@ -3695,6 +3807,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                   threadRow: row,
                   latestTurn: latestTurns.byThread.get(row.threadId) ?? null,
                   session: sessions.byThread.get(row.threadId) ?? null,
+                  latestReplyPreview: latestReplyPreviews.get(row.threadId),
                 }),
               ),
             sidebarSections: sidebarSectionRows.map((row) =>
@@ -4092,9 +4205,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       );
 
   // Three light row reads (thread, latest turn, session) and no transcript
-  // decode. Shared by `getThreadShellById` and the synthetic-subagent parent
-  // lookup so both stay equally cheap on the provider-event hot path.
-  const loadThreadShell = (threadId: ThreadId, tracePrefix: string) =>
+  // decode; client shells add one indexed read for the head of the newest reply.
+  // Shared by `getThreadShellById` and the synthetic-subagent parent lookup so
+  // both stay equally cheap on the provider-event hot path.
+  const loadThreadShell = (
+    threadId: ThreadId,
+    tracePrefix: string,
+    options?: Pick<ProjectionThreadShellReadOptions, "includeLatestReplyPreview">,
+  ) =>
     Effect.gen(function* () {
       const threadRow = yield* getThreadRowById({ threadId }).pipe(
         Effect.mapError(
@@ -4132,6 +4250,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           ),
         ),
       ]);
+      const latestReplyPreviews = options?.includeLatestReplyPreview
+        ? yield* loadLatestReplyPreviews([threadId], tracePrefix)
+        : EMPTY_LATEST_REPLY_PREVIEWS;
 
       return Option.some(
         toProjectedThreadShellFromStoredSummary({
@@ -4144,6 +4265,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             onNone: () => null,
             onSome: (row) => toProjectedSession(row),
           }),
+          latestReplyPreview: latestReplyPreviews.get(threadId),
         }),
       );
     });
@@ -4211,11 +4333,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const messageActivityByThread = new Map(
             messageActivityRows.map((row) => [row.threadId, row.updatedAt] as const),
           );
+          const latestReplyPreviews = options?.includeLatestReplyPreview
+            ? yield* loadLatestReplyPreviews(uniqueThreadIds, tracePrefix)
+            : EMPTY_LATEST_REPLY_PREVIEWS;
           return threadRows.map((threadRow) => {
             const thread = toProjectedThreadShellFromStoredSummary({
               threadRow,
               latestTurn: latestTurnByThread.get(threadRow.threadId) ?? null,
               session: sessionByThread.get(threadRow.threadId) ?? null,
+              latestReplyPreview: latestReplyPreviews.get(threadRow.threadId),
             });
             const messageActivityAt = messageActivityByThread.get(threadRow.threadId);
             return messageActivityAt === undefined
@@ -4243,7 +4369,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           Effect.map((threads) => Option.fromNullishOr(threads[0])),
         )
       : sql
-          .withTransaction(loadThreadShell(threadId, "ProjectionSnapshotQuery.getThreadShellById"))
+          .withTransaction(
+            loadThreadShell(threadId, "ProjectionSnapshotQuery.getThreadShellById", options),
+          )
           .pipe(
             Effect.mapError((error) => {
               if (isPersistenceError(error)) {

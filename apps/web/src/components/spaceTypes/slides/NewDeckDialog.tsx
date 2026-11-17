@@ -4,6 +4,7 @@
 // Layer: 资料空间 幻灯片
 
 import { useMemo, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import {
   CloudUploadIcon,
@@ -158,6 +159,7 @@ export function NewDeckDialog(props: {
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
                   onKeyDown={(event) => {
+                    if (isImeComposingKeyEvent(event)) return;
                     if (event.key === "Enter" && !event.shiftKey && prompt.trim()) {
                       event.preventDefault();
                       props.onGenerate(prompt.trim());

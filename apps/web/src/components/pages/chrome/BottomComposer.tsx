@@ -6,6 +6,7 @@
 // Layer: Space page chrome slot `bottomComposer` — owned by page-ai.
 
 import { useNavigate } from "@tanstack/react-router";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect, useRef, useState } from "react";
 
 import { ComposerSendArrowIcon } from "~/lib/icons";
@@ -90,7 +91,7 @@ export function BottomComposer({ context }: PageChromeSlotProps) {
           onFocus={() => editor?.prepare()}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !isImeComposingKeyEvent(event)) {
               event.preventDefault();
               submit();
             }
