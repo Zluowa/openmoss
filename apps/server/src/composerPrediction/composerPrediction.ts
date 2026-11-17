@@ -442,14 +442,131 @@ export type ComposerPredictionRouting = TextGenerationProviderInput & {
     | "git-writing-model"
     | "prediction-model"
     | "chat-model"
-    | "moss-managed-cheapest";
+    | "moss-managed-cheapest"
+    | "moss-model-for-own-account";
   /**
-   * The chat's own model on the same instance, at its lowest effort, for a `prediction-model`
-   * route only: an account that serves just the chat's model (a gateway, a person's own key)
-   * fails the smaller one, and the prediction then tries this once.
+   * A second selection tried once when the first fails. For a `prediction-model` route, the
+   * chat's own model on the same instance (an account that serves just the chat's model
+   * fails the smaller one); for `moss-model-for-own-account`, the Moss instance's default
+   * model (a lane that stopped serving the cheaper one).
    */
   readonly fallback?: TextGenerationProviderInput;
 };
+
+/** The signed-in Moss account's Codex instance: a direct HTTP endpoint, served on Windows. */
+const MOSS_CODEX_INSTANCE_ID = "codex_moss";
+
+/**
+ * Moss gateway models from cheapest up, by the reviewed text cost cards (input / output
+ * nano-USD per token, 2026-11-01). Used when the chat's own vendor has no model on the
+ * signed-in lane.
+ */
+const MOSS_PREDICTION_MODELS_BY_COST: ReadonlyArray<string> = [
+  "glm-5.3-flash",
+  "deepseek-v4-flash",
+  "gpt-5.6-luna",
+  "claude-haiku-4-5-20251001",
+  "minimax-m3",
+  "qwen3.8-max",
+  "kimi-k3",
+];
+
+const MODEL_FAMILY_PATTERNS: ReadonlyArray<readonly [RegExp, MossModelFamily]> = [
+  [/^(?:gpt-|o\d|codex-|chatgpt-)/u, "openai"],
+  [/^claude-/u, "claude"],
+  [/^deepseek-/u, "deepseek"],
+  [/^glm-/u, "glm"],
+  [/^(?:kimi-|moonshot-)/u, "kimi"],
+  [/^qwen/u, "qwen"],
+  [/^minimax-/u, "minimax"],
+];
+
+/** The vendor family of any model slug, Moss gateway model or not (`gpt-6.1-terra` is openai). */
+export function predictionModelFamily(model: string): MossModelFamily | null {
+  const slug = model
+    .trim()
+    .toLowerCase()
+    .replace(/^moss\//u, "");
+  const known = getMossManagedModelDefinition(slug)?.family;
+  if (known) return known;
+  return MODEL_FAMILY_PATTERNS.find(([pattern]) => pattern.test(slug))?.[1] ?? null;
+}
+
+function stringList(value: unknown): ReadonlyArray<string> {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+    : [];
+}
+
+/**
+ * The model a prediction runs on through the signed-in Moss account for a chat on someone's
+ * own account: the cheapest model of the chat model's vendor where the lane serves one, else
+ * the cheapest model the lane serves, else the Moss instance's default. `served` is the
+ * lane's list as Moss recorded it when the person signed in.
+ */
+export function resolveMossModelForOwnAccountChat(input: {
+  readonly chatModel: string;
+  readonly served: ReadonlyArray<string>;
+  readonly defaultModel: string | null;
+}): string | null {
+  const served = new Set(input.served);
+  const family = predictionModelFamily(input.chatModel);
+  const sameVendor = family ? MOSS_PREDICTION_MODEL_BY_FAMILY[family] : null;
+  if (sameVendor && served.has(sameVendor)) return sameVendor;
+  return (
+    MOSS_PREDICTION_MODELS_BY_COST.find((model) => served.has(model)) ?? input.defaultModel ?? null
+  );
+}
+
+/**
+ * Route 2 of a prediction: the isolated route on the signed-in Moss account's own model, for
+ * a chat whose own account cannot serve the isolated route (a person's own Codex account on
+ * Windows) or has no text generation at all. Null when the person is not signed in to Moss
+ * (the Moss instance is missing or disabled; sign-out disables it and clears its key), when
+ * the chat already runs on a Moss-managed instance (route 1 serves it), or when no model
+ * resolves. What leaves the person's own account: the short transcript the isolated route
+ * sends (the last exchanges and the turn's closing question), to a Moss model.
+ */
+export function resolveMossModelPredictionRouting(input: {
+  readonly thread: Pick<OrchestrationThreadShell, "modelSelection">;
+  readonly settings: ServerSettings;
+}): ComposerPredictionRouting | null {
+  const chatInstanceId = resolveModelSelectionInstanceId(input.thread.modelSelection);
+  if (MOSS_MANAGED_INSTANCE_IDS.has(chatInstanceId)) return null;
+  const instance = resolveProviderInstance(input.settings, { instanceId: MOSS_CODEX_INSTANCE_ID });
+  if (!instance || !instance.enabled || instance.driver !== "codex") return null;
+  const config = (instance.config ?? {}) as Record<string, unknown>;
+  if (config.managed !== true) return null;
+  const allowlist = stringList(config.modelAllowlist);
+  const served = allowlist.length > 0 ? allowlist : stringList(config.customModels);
+  const defaultModel =
+    typeof config.defaultModel === "string" && config.defaultModel.trim() !== ""
+      ? config.defaultModel.trim()
+      : (served[0] ?? null);
+  const model = resolveMossModelForOwnAccountChat({
+    chatModel: input.thread.modelSelection.model,
+    served,
+    defaultModel,
+  });
+  if (model === null) return null;
+  const select = (slug: string) =>
+    resolveTextGenerationInputForSelection(
+      withEffort(
+        { provider: "codex", instanceId: instance.instanceId, model: slug } as ModelSelection,
+        "codex",
+        lowestSupportedEffort("codex", slug) ?? lowestMossManagedEffort(slug),
+      ),
+      providerStartOptionsFromInstance(instance),
+    );
+  const routed = select(model);
+  if (!routed) return null;
+  const fallback = defaultModel !== null && defaultModel !== model ? select(defaultModel) : null;
+  return {
+    ...routed,
+    ...(fallback ? { fallback } : {}),
+    source: "moss-model-for-own-account",
+  };
+}
 
 /**
  * Smaller model a provider predicts with on a person's own account when the Git-writing model
@@ -626,7 +743,8 @@ export type ComposerPredictionNoRouteReason =
   | "native-not-offered";
 
 /**
- * - `isolated`: the isolated text-generation path on the chat's own instance (first choice).
+ * - `isolated`: the isolated text-generation path on the chat's own instance (first choice), or
+ *   on the signed-in Moss account's model when the chat's own account cannot serve it here.
  * - `native`: Codex's prediction fork of the live thread, at the chat model's lowest catalog
  *   effort (null keeps the thread's own); only for a `codex` chat the isolated path refuses.
  * - `no-route`: nothing can serve the chat this turn, for a reason that will not change.
@@ -667,25 +785,43 @@ const NATIVE_UNSUPPORTED_REASONS: Readonly<Record<string, ComposerPredictionNoRo
 
 /**
  * Which route generates a prediction, decided up front from what is known before anything
- * is generated. The isolated path stays first wherever it can serve the chat's own instance;
- * Codex's native fork is used only for a `codex` chat that the isolated path refuses on this
- * platform, and only when the thread's live session offers the fork. `isolatedSupport` is read
- * only for a routed chat and `nativeSupport` only for a refused `codex` one, so a caller may
- * leave out what the decision does not need.
+ * is generated. In order: (1) the isolated path on the chat's own instance wherever it can
+ * serve it; (2) when that is refused on this platform (a person's own Codex account on
+ * Windows) or the provider has no text generation, the isolated path on the signed-in Moss
+ * account's model, where it is served; (3) for a refused `codex` chat, Codex's native
+ * prediction fork of the live thread, when its live session offers one; (4) none.
+ * `isolatedSupport` is read only for a routed chat, `mossModel` only when route 1 is out, and
+ * `nativeSupport` only for a refused `codex` one, so a caller may leave out what the decision
+ * does not need.
  */
 export function resolveComposerPredictionRoute(input: {
   readonly routing: ComposerPredictionRoutingResult;
   readonly chatModel: string;
   readonly isolatedSupport?: IsolatedTextGenerationSupport | undefined;
+  /**
+   * Route 2: the signed-in Moss account's model (see {@link resolveMossModelPredictionRouting})
+   * and whether the isolated path serves it here. Read only when route 1 is refused or has
+   * no text generation.
+   */
+  readonly mossModel?:
+    | {
+        readonly routing: ComposerPredictionRouting;
+        readonly support: IsolatedTextGenerationSupport;
+      }
+    | undefined;
   readonly nativeSupport?: ProviderNextUserMessagePredictionSupport | undefined;
 }): ComposerPredictionRoute {
+  const mossModelRoute =
+    input.mossModel?.support.kind === "supported"
+      ? ({ kind: "isolated", routing: input.mossModel.routing } as const)
+      : null;
   if (input.routing.kind === "unrouted") {
-    return input.routing.reason === "no-dedicated-provider"
-      ? { kind: "no-route", reason: "no-dedicated-provider" }
-      : input.routing;
+    if (input.routing.reason !== "no-dedicated-provider") return input.routing;
+    return mossModelRoute ?? { kind: "no-route", reason: "no-dedicated-provider" };
   }
   const routing = input.routing.routing;
   if (input.isolatedSupport?.kind !== "platform-blocked") return { kind: "isolated", routing };
+  if (mossModelRoute) return mossModelRoute;
   if (routing.modelSelection.provider !== "codex") {
     return { kind: "no-route", reason: "isolated-platform-blocked" };
   }
