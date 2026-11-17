@@ -247,3 +247,43 @@ describe("makeEffectProcessCommand", () => {
     });
   });
 });
+
+const LAUNCHER = "C:\\Program Files\\Moss\\resources\\moss-job-launch\\moss-job-launch.exe";
+
+describe("makeEffectProcessCommand with windowsJobLauncher", () => {
+  it("runs a Windows program through the job launcher, never detached, no prompt on its command line", () => {
+    const command = makeEffectProcessCommand(
+      "C:\\Program Files\\Moss\\codex.exe",
+      ["exec", "--config", 'model_reasoning_effort="low"', "-"],
+      {
+        platform: "win32",
+        env: { SystemRoot: "C:\\Windows" },
+        detached: true,
+        windowsJobLauncher: LAUNCHER,
+      },
+    );
+    expect(command).toMatchObject({
+      command: LAUNCHER,
+      args: [],
+      options: { detached: false, windowsHide: true, shell: false },
+    });
+    const env = (command as unknown as { options: { env: Record<string, string> } }).options.env;
+    expect(env.MOSS_JOB_APP).toBe("C:\\Program Files\\Moss\\codex.exe");
+    expect(env.MOSS_JOB_CMDLINE).toBe(
+      '"C:\\Program Files\\Moss\\codex.exe" exec --config "model_reasoning_effort=\\"low\\"" -',
+    );
+  });
+
+  it("leaves other platforms, and the default, as they were", () => {
+    const posix = makeEffectProcessCommand("/usr/bin/codex", ["exec"], {
+      platform: "linux",
+      windowsJobLauncher: LAUNCHER,
+    });
+    expect(posix).toMatchObject({ command: "/usr/bin/codex", args: ["exec"] });
+    const windows = makeEffectProcessCommand("C:\\Moss\\codex.exe", ["exec"], {
+      platform: "win32",
+      env: { SystemRoot: "C:\\Windows" },
+    });
+    expect(windows).toMatchObject({ command: "C:\\Moss\\codex.exe" });
+  });
+});

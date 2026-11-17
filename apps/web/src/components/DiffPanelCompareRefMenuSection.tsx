@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { gitBranchesQueryOptions, gitRecentCommitsQueryOptions } from "~/lib/gitReactQuery";
 import { GitBranchIcon, GitCommitIcon } from "~/lib/icons";
@@ -122,6 +123,7 @@ export function DiffPanelCompareRefMenuSection(props: {
           value={refDraft}
           onChange={(event) => setRefDraft(event.target.value)}
           onKeyDownCapture={(event) => {
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key === "Enter") {
               event.preventDefault();
               event.stopPropagation();

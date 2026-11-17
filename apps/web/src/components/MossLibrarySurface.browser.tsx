@@ -14,6 +14,7 @@ import type { ReactElement, ReactNode } from "react";
 import { MossLocaleScope } from "~/localization";
 import { MOSS_LIBRARY_ITEMS_STORAGE_KEY, useMossLibraryItemsStore } from "~/mossLibraryItemsStore";
 
+import { composeChineseWithEnter } from "../test/imeComposition";
 import { MossLibrarySurface } from "./MossLibrarySurface";
 import {
   assignMossLibraryItemsToFolder,
@@ -305,6 +306,41 @@ describe("MossLibrarySurface Codex interactions", () => {
     });
     await expect.element(page.getByText("renamed-alpha.md")).toBeInTheDocument();
   });
+
+  // The Enter that confirms a pinyin candidate must not commit a half-typed name.
+  it.each(["Enter", "Process"] as const)(
+    "keeps renaming while a pinyin candidate is confirmed (%s), then Enter commits",
+    async (confirmKey) => {
+      const { items } = fixture();
+      await render(<MossLibrarySurface onClose={() => undefined} initialItems={items} now={NOW} />);
+      rightClick(document.querySelector('[data-moss-library-item="doc-alpha"]')!);
+      await vi.waitFor(() => {
+        expect(document.querySelector("[data-moss-library-context-menu]")).not.toBeNull();
+      });
+      document
+        .querySelector<HTMLButtonElement>('[data-moss-library-context-action="rename"]')
+        ?.click();
+      const input = await vi.waitFor(() => {
+        const found = document.querySelector<HTMLInputElement>("[data-moss-library-rename-input]");
+        expect(found).not.toBeNull();
+        return found!;
+      });
+      input.setSelectionRange(0, 0);
+      await composeChineseWithEnter(input, "biji", "笔记", confirmKey);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(document.querySelector("[data-moss-library-rename-input]")).not.toBeNull();
+      expect(input.value).toBe("笔记alpha.md");
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      await vi.waitFor(() => {
+        expect(document.querySelector("[data-moss-library-rename-input]")).toBeNull();
+      });
+      await vi.waitFor(() => {
+        expect(
+          document.querySelector('[data-moss-library-item="doc-alpha"]')?.textContent,
+        ).toContain("笔记alpha.md");
+      });
+    },
+  );
 
   it("groups the 全部 tab into 文件夹 and 项目, and drills into folders", async () => {
     const { items, folder } = fixture();

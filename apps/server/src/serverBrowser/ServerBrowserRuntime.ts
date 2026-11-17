@@ -1265,6 +1265,23 @@ export class ServerBrowserRuntime {
         return this.upload(tab, input, args);
       case "browser_run":
         return this.run(thread, tab, input, args);
+      // Page WebMCP tools need Moss's in-app browser bridge, which this
+      // headless server browser does not install: say so plainly.
+      case "browser_webmcp_tools":
+        return {
+          tabId: tab.tabId,
+          url: tab.page.url(),
+          contentTrust: "untrusted-web-page",
+          available: false,
+          implementation: "unavailable",
+          discoveryId: null,
+          tools: [],
+          totalToolCount: 0,
+          skippedToolCount: 0,
+          truncated: false,
+        };
+      case "browser_webmcp_call":
+        throw serverBrowserError("BrowserInputUnsupported");
       default:
         throw serverBrowserError("BrowserInvalidArguments");
     }

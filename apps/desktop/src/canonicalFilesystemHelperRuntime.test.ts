@@ -85,7 +85,9 @@ describe("canonical filesystem helper desktop runtime", () => {
   it("wires the controlled runtime env into backendEnv", () => {
     const mainSource = readFileSync(new URL("./main.ts", import.meta.url), "utf8");
 
-    expect(mainSource).toContain("...canonicalFilesystemHelperBackendEnv({");
+    // Wrapped by the Windows job launcher's env, which adds its own path on Windows only.
+    expect(mainSource).toContain("inheritedEnv: canonicalFilesystemHelperBackendEnv({");
+    expect(mainSource).toContain("...windowsJobLauncherBackendEnv({");
     expect(mainSource).toContain("inheritedEnv: process.env");
     expect(mainSource).toContain("isPackaged: app.isPackaged");
     expect(mainSource).toContain("resourcesPath: process.resourcesPath");
