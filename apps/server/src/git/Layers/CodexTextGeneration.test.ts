@@ -2937,3 +2937,111 @@ for (const [diagnostic, denyTermination, longCleanup] of [
       ),
   );
 }
+
+// Route 2 of a composer prediction on Windows: an own-Codex chat's suggestion comes from the
+// signed-in Moss account's model through the direct HTTP route, never the CLI. A real local
+// HTTP stub stands in for Moss's gateway, so the time measured is Moss's own overhead; the
+// model's own answer time comes on top.
+it.effect.runIf(process.platform === "win32")(
+  "predicts through the signed-in Moss model on Windows with one HTTP request, no CLI",
+  () => {
+    let spawnCalls = 0;
+    const spawner = Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() =>
+        Effect.sync(() => {
+          spawnCalls += 1;
+          throw new Error("Windows auxiliary Codex fixture must never spawn");
+        }),
+      ),
+    );
+    const requests: Array<{ readonly url: string; readonly body: Record<string, unknown> }> = [];
+    return Effect.gen(function* () {
+      const { createServer } = yield* Effect.promise(() => import("node:http"));
+      const server = createServer((request, response) => {
+        let body = "";
+        request.on("data", (chunk) => (body += chunk));
+        request.on("end", () => {
+          requests.push({ url: request.url ?? "", body: JSON.parse(body) });
+          response.setHeader("Content-Type", "application/json");
+          response.end(JSON.stringify({ output_text: '{"suggestion":"保持这样"}' }));
+        });
+      });
+      yield* Effect.promise(
+        () => new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve())),
+      );
+      yield* Effect.addFinalizer(() =>
+        Effect.promise(() => new Promise<void>((resolve) => server.close(() => resolve()))),
+      );
+      const port = (server.address() as { port: number }).port;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "moss-codex-win-predict-" });
+      const cwd = path.join(root, "project");
+      const homePath = path.join(root, "moss-codex-home");
+      yield* fs.makeDirectory(cwd);
+      yield* fs.makeDirectory(homePath);
+      yield* fs.writeFileString(
+        path.join(homePath, "config.toml"),
+        [
+          'model = "gpt-5.6-terra"',
+          'model_provider = "moss"',
+          "",
+          "[model_providers.moss]",
+          'name = "Moss"',
+          `base_url = "http://127.0.0.1:${port}/functions/v1/moss-model-gateway/v1"`,
+          'env_key = "OPENAI_API_KEY"',
+          'wire_api = "responses"',
+          "requires_openai_auth = false",
+          "",
+        ].join("\n"),
+      );
+      const service = yield* TextGeneration;
+      const input = {
+        cwd,
+        conversation:
+          'User: 把角色放到右下角\n\nAssistant: 已经放好了。\n\n[The assistant then asked the user: "现在的角色位置和大小合适吗？"]',
+        modelSelection: {
+          provider: "codex" as const,
+          instanceId: "codex_moss",
+          model: "gpt-5.6-luna",
+          options: { reasoningEffort: "low" },
+        },
+        providerOptions: {
+          codex: {
+            homePath,
+            binaryPath: path.join(root, "must-not-execute-codex"),
+            environment: { OPENAI_API_KEY: "moss-access-token-fixture" },
+          },
+        },
+      };
+      expect(yield* service.getComposerPredictionSupport!(input)).toEqual({ kind: "supported" });
+      const timings: number[] = [];
+      for (let round = 0; round < 3; round += 1) {
+        const startedAt = performance.now();
+        const result = yield* service.generateComposerPrediction(input);
+        timings.push(Math.round(performance.now() - startedAt));
+        expect(result.suggestion).toBe("保持这样");
+      }
+      expect(spawnCalls).toBe(0);
+      expect(requests).toHaveLength(3);
+      expect(requests[0]!.url).toBe("/functions/v1/moss-model-gateway/v1/responses");
+      expect(requests[0]!.body).toMatchObject({
+        model: "gpt-5.6-luna",
+        reasoning: { effort: "low" },
+      });
+      // The closing question travels in the transcript the Moss model reads.
+      expect(JSON.stringify(requests[0]!.body)).toContain("现在的角色位置和大小合适吗");
+      // Moss's own part of a prediction on this route stays far below the 5 s target.
+      expect(Math.max(...timings)).toBeLessThan(1_500);
+      const measureOut = process.env.MOSS_PREDICTION_MEASURE_OUT;
+      if (measureOut) yield* fs.writeFileString(measureOut, JSON.stringify({ timings }));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(CodexTextGenerationLive),
+      Effect.provide(spawner),
+      Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "moss-codex-win-predict-" })),
+      Effect.provide(NodeServices.layer),
+    );
+  },
+);

@@ -40,6 +40,7 @@ import {
   resolveComposerPredictionRoute,
   resolveComposerPredictionRoutingResult,
   resolveComposerPredictionTurnBlocker,
+  resolveMossModelPredictionRouting,
   type ComposerPredictionClosingQuestion,
   type ComposerPredictionNoRouteReason,
   type ComposerPredictionRoute,
@@ -116,6 +117,26 @@ class NativePredictionMiss {
   constructor(readonly reason: ComposerPredictionUnavailableReason) {}
 }
 
+/** The effort a selection carries, whichever option key its provider reads. */
+function selectionEffort(selection: { readonly options?: unknown }): string | undefined {
+  const keys = ["reasoningEffort", "effort", "variant"];
+  const options = selection.options;
+  if (Array.isArray(options)) {
+    const found = options.find(
+      (option: { readonly id?: unknown; readonly value?: unknown }) =>
+        typeof option?.id === "string" && keys.includes(option.id),
+    ) as { readonly value?: unknown } | undefined;
+    return typeof found?.value === "string" ? found.value : undefined;
+  }
+  if (options && typeof options === "object") {
+    for (const key of keys) {
+      const value = (options as Record<string, unknown>)[key];
+      if (typeof value === "string") return value;
+    }
+  }
+  return undefined;
+}
+
 /** The model's own answer: a suggestion, or its decision that there is none. */
 const modelAnswer = (suggestion: string | null): ComposerPredictionAnswer =>
   suggestion ? { suggestion, outcome: "suggested" } : { suggestion: null, outcome: "none" };
@@ -161,10 +182,8 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
   /** Everything the route decision needs, read without generating anything. */
   const decideRoute = (thread: OrchestrationThreadShell, cwd: string) =>
     Effect.gen(function* () {
-      const routing = resolveComposerPredictionRoutingResult({
-        thread,
-        settings: yield* serverSettings.getSettings,
-      });
+      const settings = yield* serverSettings.getSettings;
+      const routing = resolveComposerPredictionRoutingResult({ thread, settings });
       let isolatedSupport: IsolatedTextGenerationSupport | undefined;
       let nativeSupport: ProviderNextUserMessagePredictionSupport | undefined;
       if (routing.kind === "routed" && textGeneration.getComposerPredictionSupport) {
@@ -179,7 +198,29 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
             : {}),
         });
       }
+      // Route 2, only when route 1 is out: the signed-in Moss account's own model.
+      let mossModel: Parameters<typeof resolveComposerPredictionRoute>[0]["mossModel"];
+      const ownAccountOut =
+        (routing.kind === "routed" && isolatedSupport?.kind === "platform-blocked") ||
+        (routing.kind === "unrouted" && routing.reason === "no-dedicated-provider");
+      const mossRouting = ownAccountOut
+        ? resolveMossModelPredictionRouting({ thread, settings })
+        : null;
+      if (mossRouting && textGeneration.getComposerPredictionSupport) {
+        mossModel = {
+          routing: mossRouting,
+          support: yield* textGeneration.getComposerPredictionSupport({
+            cwd,
+            modelSelection: mossRouting.modelSelection,
+            ...(mossRouting.providerOptions
+              ? { providerOptions: mossRouting.providerOptions }
+              : {}),
+            ...(mossRouting.codexHomePath ? { codexHomePath: mossRouting.codexHomePath } : {}),
+          }),
+        };
+      }
       if (
+        mossModel?.support.kind !== "supported" &&
         routing.kind === "routed" &&
         isolatedSupport?.kind === "platform-blocked" &&
         routing.routing.modelSelection.provider === "codex"
@@ -197,6 +238,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
         routing,
         chatModel: thread.modelSelection.model,
         isolatedSupport,
+        mossModel,
         nativeSupport,
       });
     });
@@ -212,6 +254,8 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       route?: ComposerPredictionRouteKind;
       routingReason?: ComposerPredictionRoutingFailure;
       source?: string;
+      model?: string;
+      effort?: string;
       closingQuestion?: true;
       cached?: true;
       generationRan?: true;
@@ -232,9 +276,15 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
           ...(reason !== undefined && reason !== "cancelled" ? { reason } : {}),
           ...(facts.routingReason ? { routingReason: facts.routingReason } : {}),
           ...(facts.source ? { source: facts.source } : {}),
+          ...(facts.model ? { model: facts.model } : {}),
+          ...(facts.effort ? { effort: facts.effort } : {}),
           ...(facts.closingQuestion ? { closingQuestion: true } : {}),
           ...(facts.cached ? { cached: true } : {}),
-          ...(facts.fellBack ? { fellBackToChatModel: true } : {}),
+          ...(facts.fellBack
+            ? facts.source === "moss-model-for-own-account"
+              ? { fellBackToMossDefaultModel: true }
+              : { fellBackToChatModel: true }
+            : {}),
           durationMs,
         });
         return answer;
@@ -260,7 +310,11 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
     return Effect.gen(function* () {
       startedAtMs = yield* Clock.currentTimeMillis;
       const thread = yield* readThread(threadId);
-      const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
+      // The session's own state is checked once the route is known: only the native
+      // fork needs it idle.
+      const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId, {
+        needsIdleSession: false,
+      });
       if (blocker !== null) return yield* unavailable(blocker);
       const finalReplyMessageId = thread?.latestTurn?.assistantMessageId;
       if (!thread || !finalReplyMessageId) return yield* unavailable("turn-incomplete");
@@ -273,11 +327,22 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const route = yield* decideRoute(thread, cwd);
       facts.route = route.kind;
       if (route.kind === "no-route") return yield* noRoute(route.reason);
+      const needsIdleSession = route.kind === "native";
+      if (needsIdleSession) {
+        const sessionBlocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
+        if (sessionBlocker !== null) return yield* unavailable(sessionBlocker);
+      }
       if (route.kind === "unrouted") {
         facts.routingReason = route.reason;
         return yield* unavailable("no-routing");
       }
       facts.source = route.routing.source;
+      // The model and effort the generation runs on: the chat's own model on the native fork.
+      facts.model =
+        route.kind === "native" ? thread.modelSelection.model : route.routing.modelSelection.model;
+      const effort =
+        route.kind === "native" ? route.effort : selectionEffort(route.routing.modelSelection);
+      if (effort) facts.effort = effort;
       const routeKey = JSON.stringify([
         route.kind,
         route.routing.modelSelection.instanceId ?? route.routing.modelSelection.provider,
@@ -294,6 +359,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const delayedBlocker = resolveComposerPredictionTurnBlocker(
         yield* readThread(threadId),
         expectedTurnId,
+        { needsIdleSession },
       );
       if (delayedBlocker !== null) return yield* unavailable(delayedBlocker);
 
@@ -334,6 +400,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const settledBlocker = resolveComposerPredictionTurnBlocker(
         yield* readThread(threadId),
         expectedTurnId,
+        { needsIdleSession },
       );
       if (settledBlocker !== null) return yield* unavailable(settledBlocker);
       // Only a real answer from the model is remembered, "none" included.

@@ -3650,7 +3650,7 @@ const EN_TRANSLATIONS = {
   "settings.general.newThreads.aria": "Default thread mode",
   "settings.general.composerPrediction.title": "Show predictions",
   "settings.general.composerPrediction.description":
-    "After a reply finishes, show a predicted next message in the empty composer. Tab or Right Arrow puts it in as a draft; nothing is sent.",
+    "After a reply finishes, show a predicted next message in the empty composer. Tab or Right Arrow puts it in as a draft; nothing is sent. If a chat runs on your own account and that account cannot make the prediction on this computer, and you are signed in to Moss, the last few messages are sent to a small Moss model to make it. Turn this off to stop that.",
   "settings.general.composerPrediction.resetLabel": "show predictions",
   "settings.general.composerPrediction.aria": "Show predictions",
   "settings.general.threadEnv.local": "Local",
@@ -7921,7 +7921,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.general.newThreads.aria": "默认对话模式",
   "settings.general.composerPrediction.title": "显示预测消息",
   "settings.general.composerPrediction.description":
-    "回复结束后，在空的输入框里用灰字显示你可能要发的下一条消息。按 Tab 或右方向键放进输入框，不会自动发送。",
+    "回复结束后，在空的输入框里用灰字显示你可能要发的下一条消息。按 Tab 或右方向键放进输入框，不会自动发送。如果对话用的是你自己的账号，而这个账号在本机无法生成预测，在你已登录 Moss 时，会把最近几条消息发给 Moss 的小模型来生成。不想这样，关闭此项即可。",
   "settings.general.composerPrediction.resetLabel": "显示预测消息",
   "settings.general.composerPrediction.aria": "显示预测消息",
   "settings.general.threadEnv.local": "本地",
