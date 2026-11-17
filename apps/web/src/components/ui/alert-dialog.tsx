@@ -1,13 +1,24 @@
 "use client";
 
 import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
+import type * as React from "react";
 
 import { cn } from "~/lib/utils";
 import { dialogFooterButtonClassName } from "~/components/ui/dialog";
+import { keepOpenForInnerPopupEscape, useCloseMenusWhenOpen } from "./innerPopupEscape";
 
 const AlertDialogCreateHandle = AlertDialogPrimitive.createHandle;
 
-const AlertDialog = AlertDialogPrimitive.Root;
+function AlertDialog(props: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
+  useCloseMenusWhenOpen(props.open);
+  // Escape while one of its UI SDK menus, selects or popovers shows closes only that popup.
+  return (
+    <AlertDialogPrimitive.Root
+      {...props}
+      onOpenChange={keepOpenForInnerPopupEscape(props.onOpenChange)}
+    />
+  );
+}
 
 const AlertDialogPortal = AlertDialogPrimitive.Portal;
 

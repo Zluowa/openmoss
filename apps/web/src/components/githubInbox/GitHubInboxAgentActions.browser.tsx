@@ -645,6 +645,9 @@ describe("Ask", () => {
         finishCreation = () => resolve({ sequence: createdSidechats.length });
       });
     });
+    // A person clicks into the field first; that press closes the project menu, which stays open
+    // after a choice (UI SDK keeps focus in it, so a script's fill alone would not leave it).
+    await page.getByRole("textbox", { name: "Ask about this issue" }).click();
     await page.getByRole("textbox", { name: "Ask about this issue" }).fill("Why does this crash?");
     await page.getByRole("button", { name: "Ask in a side chat" }).click();
     await expect.poll(() => createdSidechats.length).toBe(1);

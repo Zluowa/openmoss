@@ -161,8 +161,8 @@ export function ComposerModelPickerRow(props: {
         onClick={() => props.onSelect(row)}
         onKeyDown={(event) => {
           if (event.key !== "Enter") return;
+          // preventDefault also keeps the submenu trigger's own Enter handling from running.
           event.preventDefault();
-          event.preventBaseUIHandler();
           props.onSelect(row);
         }}
       >

@@ -1,0 +1,13 @@
+diff --git a/dist/components/menu/menu-api.js b/dist/components/menu/menu-api.js
+index e34ddc25ab9895964ba9ba5886deb18647e50132..ecf2659bfec7827fb5d711076033e44a8fdb045e 100644
+--- a/dist/components/menu/menu-api.js
++++ b/dist/components/menu/menu-api.js
+@@ -181,7 +181,7 @@ function menuApiBody(context) {
+         // Submenus share their root's modality, and only the root hides the page.
+         modal: () => ({
+           ...modalTriple(root().modalSetting()),
+-          ...parent && { inertAndLock: false }
++          ...parent && { inertAndLock: false, consumeOutsidePress: false }
+         }),
+         // A modal menu in a menubar leaves the menubar usable, so another menu can take over.
+         persistent: () => {

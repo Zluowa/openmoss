@@ -33,7 +33,36 @@ export default mergeConfig(
     ...(browserCacheDir ? { cacheDir: browserCacheDir } : {}),
     server: { watch: { ignored: ["**/.vitest-attachments/**", "**/__screenshots__/**"] } },
     // Prebundle direct hook dependencies so restored caches cannot reload tests mid-run.
-    optimizeDeps: { include: ["react-dom/client", "zustand/vanilla", "zustand/vanilla/shallow"] },
+    // UI SDK's entry points too: the first test file that imports a new one otherwise makes Vite
+    // re-bundle mid-run and reload, which fails that file with a second copy of React.
+    optimizeDeps: {
+      include: [
+        "react-dom/client",
+        "zustand/vanilla",
+        "zustand/vanilla/shallow",
+        ...[
+          "autocomplete",
+          "button",
+          "checkbox",
+          "combobox",
+          "hover-card",
+          "input",
+          "label",
+          "menu",
+          "popover",
+          "primitive",
+          "radio",
+          "scroll-area",
+          "select",
+          "separator",
+          "slider",
+          "switch",
+          "textarea",
+          "toggle",
+          "tooltip",
+        ].map((entry) => `@ui-sdk/react/${entry}`),
+      ],
+    },
     resolve: {
       alias: {
         "~": srcPath,

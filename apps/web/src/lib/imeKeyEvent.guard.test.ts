@@ -56,11 +56,6 @@ const ALLOWED_SITES: readonly AllowedSite[] = [
     reason: BUTTON,
   },
   {
-    file: "components/SidebarAccountMenu.tsx",
-    line: 'event.key === "Enter" || event.key === " "',
-    reason: BUTTON,
-  },
-  {
     file: "components/SidebarCustomSections.tsx",
     line: 'event.key !== "Enter" && event.key !== " "',
     reason: BUTTON,

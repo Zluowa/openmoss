@@ -93,6 +93,9 @@ it("renders real DOCX pages, switches revisions without moving the viewport, zoo
     new KeyboardEvent("keydown", { key: "i", ctrlKey: true, bubbles: true, cancelable: true }),
   );
   await expect.element(page.getByRole("textbox", { name: "Requested change" })).toBeVisible();
+  // The field owns this Escape (it closes the request and keeps the selection): it must have
+  // focus, not a control the zoom menu handed focus back to.
+  await expect.element(page.getByRole("textbox", { name: "Requested change" })).toHaveFocus();
   await userEvent.keyboard("{Escape}");
   await page.getByRole("button", { name: "Ask for change" }).click();
   await page.getByRole("textbox", { name: "Requested change" }).fill("Clarify this title");
