@@ -5,6 +5,7 @@
 // Exports: TaskRowTitle, useTaskRename
 
 import type { Todo, TodoUpdateInput } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { type KeyboardEvent, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -31,7 +32,7 @@ export function useTaskRename(
     }
   };
   const handleTitleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       commitTitle();

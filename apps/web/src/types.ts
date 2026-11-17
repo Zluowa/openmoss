@@ -278,6 +278,8 @@ export interface Thread extends ThreadWorkspaceState {
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   hasActionableProposedPlan?: boolean;
+  /** Server-derived head of the newest assistant reply; only thread shells carry it. */
+  latestReplyPreview?: string;
   pendingInteractions?: OrchestrationPendingInteraction[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
@@ -334,6 +336,8 @@ export interface ThreadShell extends ThreadWorkspaceState {
   hasPendingApprovals?: boolean;
   hasPendingUserInput?: boolean;
   hasActionableProposedPlan?: boolean;
+  /** Server-derived head of the newest assistant reply; absent when there is none. */
+  latestReplyPreview?: string;
   pendingInteractions?: OrchestrationPendingInteraction[];
   lastVisitedAt?: string | undefined;
 }
@@ -390,6 +394,8 @@ export interface SidebarThreadSummary {
   sidechatExpiredAt?: string | null;
   handoff?: ThreadHandoff | null;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
+  /** Plain-text head of the newest assistant reply, for list rows. */
+  latestReplyPreview?: string;
 }
 
 /** Lightweight composer identity that ignores live turn/status churn. */

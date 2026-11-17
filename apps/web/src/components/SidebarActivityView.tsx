@@ -70,6 +70,7 @@ import {
   isThreadSettledForActivity,
   resolveActivityPriority,
   resolveActivityPriorityTier,
+  resolveActivityRowEmphasis,
   resolveActivityScope,
   resolveActivityThreadReadAt,
   splitActivityThreadsByDateBucket,
@@ -185,6 +186,12 @@ export function ActivityThreadRow({
     isActive,
     slotOccupied: Boolean(threadJumpLabel),
   });
+  const emphasis = resolveActivityRowEmphasis(
+    resolveThreadStatusTrailingIndicator({ status, isActive }),
+  );
+  // The start of the newest finished reply, plain text from the server (no tool output,
+  // reasoning or credentials); it changes when a reply finishes, never per streamed word.
+  const replyPreview = thread.latestReplyPreview;
   // Rename/context-menu gestures live on the row wrapper (not the title button) so
   // they also fire over the trailing status and hover-action cluster, which are
   // absolutely positioned siblings of the button.
@@ -246,7 +253,8 @@ export function ActivityThreadRow({
             />
             <span
               className={cn(
-                "min-w-0 flex-1 truncate text-ui leading-5 font-normal",
+                "min-w-0 flex-1 truncate text-ui leading-5",
+                emphasis.titleEmphasized ? "font-medium" : "font-normal",
                 isActive ? "text-foreground" : SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
               )}
             >
@@ -267,6 +275,19 @@ export function ActivityThreadRow({
               />
             ) : null}
           </span>
+          {replyPreview ? (
+            // A span, not a paragraph: the row is a native button, which only holds phrasing content.
+            // Always two lines tall, so a newer reply of another length never moves the rows below.
+            <span
+              data-activity-reply-preview=""
+              className={cn(
+                "line-clamp-2 min-h-[2lh] min-w-0 text-ui-sm leading-snug wrap-break-word",
+                emphasis.replySeen ? "text-muted-foreground/80" : "text-muted-foreground",
+              )}
+            >
+              {replyPreview}
+            </span>
+          ) : null}
           <span className="flex min-w-0 items-center gap-1.5">
             {project?.cwd ? (
               <ProjectSidebarIcon

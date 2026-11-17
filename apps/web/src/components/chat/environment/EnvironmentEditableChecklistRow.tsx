@@ -10,6 +10,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { Checkbox } from "~/components/ui/checkbox";
 import { IconButton } from "~/components/ui/icon-button";
@@ -106,6 +107,7 @@ export function EnvironmentEditableChecklistRow({
   };
 
   const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       commitEditing();

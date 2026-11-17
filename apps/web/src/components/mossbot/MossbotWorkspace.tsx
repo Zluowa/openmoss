@@ -4,7 +4,7 @@
 // Layer: Mossbot route UI
 // Exports: MossbotWorkspace
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { SearchInput } from "~/components/ui/search-input";
 import { Menu, MenuTrigger, MenuCheckboxItem } from "~/components/ui/menu";
@@ -12,7 +12,7 @@ import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPop
 import { CHAT_BACKGROUND_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
-import { FilterIcon, MossbotIcon } from "~/lib/icons";
+import { FilterIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useProjectAgentSummaries } from "~/components/chat/project/useProjectAgentSummaries";
 import { useMossbotCopy } from "./mossbot.copy";
@@ -21,6 +21,9 @@ import { MossbotRoomCreateDialog, useMossbotRoomList } from "./MossbotRooms";
 import { MossbotConversationRoster } from "./MossbotConversationRoster";
 import { MossbotFolderDialog, MossbotNewConversationMenu } from "./MossbotConversationFolders";
 import { isMossbot } from "./mossbot.logic";
+import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
+import { MossbotCompanion } from "./MossbotCompanion";
+import { MossbotOnboarding } from "./MossbotOnboarding";
 
 export function MossbotWorkspace() {
   const { t } = useMossbotCopy();
@@ -35,6 +38,20 @@ export function MossbotWorkspace() {
   const assistants = [...summariesByProjectId.values()].filter(isMossbot);
   // Nothing yet: the page is the one invitation, not an empty list under it.
   const empty = loaded && assistants.length === 0 && rooms.isSuccess && rooms.data.length === 0;
+  // First run: the page becomes the onboarding. It stays open after the assistant is created (the list is no longer
+  // empty then) until the person starts chatting or skips it.
+  const onboardingSkipped = useMossbotPreferencesStore((s) => s.onboardingSkipped);
+  const setOnboardingSkipped = useMossbotPreferencesStore((s) => s.setOnboardingSkipped);
+  const [onboarding, setOnboarding] = useState(false);
+  useEffect(() => {
+    if (empty && !onboardingSkipped) setOnboarding(true);
+  }, [empty, onboardingSkipped]);
+  if (onboarding)
+    return (
+      <RouteInsetSurface>
+        <MossbotOnboarding onLeave={() => setOnboarding(false)} />
+      </RouteInsetSurface>
+    );
   return (
     <RouteInsetSurface>
       <div
@@ -57,7 +74,7 @@ export function MossbotWorkspace() {
         </RouteSurfaceHeader>
         {empty ? (
           <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 pb-16 text-center">
-            <MossbotIcon className="mb-3 size-8 text-muted-foreground" />
+            <MossbotCompanion live interactive className="mb-3 size-16" />
             <p className="text-ui-lg font-medium text-foreground">
               {t("A little help, always at hand.")}
             </p>
@@ -66,6 +83,16 @@ export function MossbotWorkspace() {
             </p>
             <Button size="sm" className="mt-4" onClick={() => setTemplate("personal")}>
               {t("Create your assistant")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setOnboardingSkipped(false);
+                setOnboarding(true);
+              }}
+            >
+              {t("Show the intro")}
             </Button>
           </main>
         ) : (

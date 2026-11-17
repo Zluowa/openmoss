@@ -409,6 +409,20 @@ export function resolveActivityPriorityTier(
   return status === null ? null : ACTIVITY_PRIORITY_TIER_BY_STATUS[status.label];
 }
 
+/**
+ * How loudly an Activity row reads (upstream #2195). Its title turns medium while the thread
+ * waits on the person or holds news they have not seen, and its reply preview steps back once
+ * nothing is new or running. `status` is what the row shows, so the open thread's resolved
+ * unread dot counts as seen.
+ */
+export function resolveActivityRowEmphasis(status: Pick<ThreadStatusPill, "label"> | null): {
+  titleEmphasized: boolean;
+  replySeen: boolean;
+} {
+  const tier = resolveActivityPriorityTier(status);
+  return { titleEmphasized: tier === "waiting" || tier === "unread", replySeen: tier === null };
+}
+
 type ActivityPriorityTierResolver = (thread: SidebarThreadSummary) => ActivityPriorityTier | null;
 
 function compareActivityPriority(

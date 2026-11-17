@@ -354,9 +354,39 @@ export function isMossGatewayToolCall(input: {
 }
 
 /**
+ * Browser tools whose approval the gateway owns. A page-declared WebMCP tool is
+ * judged by the hints Moss discovered for it (only read-only runs unasked), and
+ * the card names the site and the page's tool; a provider prompt sees only
+ * "browser_webmcp_call" and would ask twice, or ask for read-only calls.
+ */
+const MOSS_GATEWAY_GATED_BROWSER_TOOL_NAMES: ReadonlySet<string> = new Set(["browser_webmcp_call"]);
+
+/** Exact, server-qualified spellings only (`mcp__moss__…`, `moss_…`), as for Computer. */
+export function gatewayGatedBrowserToolNameFromProviderPermission(
+  input: Parameters<typeof computerToolNameFromProviderPermission>[0],
+): string | undefined {
+  const name =
+    (typeof input.name === "string" ? input.name : undefined) ??
+    firstRecordString(input.rawInput, ["_toolName", "toolName", "tool_name"]) ??
+    firstRecordString(input.metadata, ["_toolName", "toolName", "tool_name"]);
+  if (name === undefined) return undefined;
+  const normalized = name.trim().toLowerCase();
+  const canonical = normalized.startsWith(MOSS_MCP_QUALIFIED_PREFIX)
+    ? normalized.slice(MOSS_MCP_QUALIFIED_PREFIX.length)
+    : normalized.startsWith(MOSS_MCP_SERVER_PREFIX)
+      ? normalized.slice(MOSS_MCP_SERVER_PREFIX.length)
+      : undefined;
+  return canonical !== undefined && MOSS_GATEWAY_GATED_BROWSER_TOOL_NAMES.has(canonical)
+    ? canonical
+    : undefined;
+}
+
+/**
  * Provider permission prompts are redundant for an active Moss Computer
  * capability: the gateway performs the authoritative task-scoped approval.
- * Plan mode and requests outside an active turn remain fail-closed.
+ * The same holds for gateway-gated browser calls (page WebMCP tools), whose
+ * approval the gateway asks per call. Plan mode and requests outside an
+ * active turn remain fail-closed.
  */
 export function shouldAllowMossComputerProviderTool(input: {
   readonly computerControlEnabled: boolean;
@@ -365,11 +395,18 @@ export function shouldAllowMossComputerProviderTool(input: {
   readonly runtimeMode: RuntimeMode;
   readonly permission: Parameters<typeof computerToolNameFromProviderPermission>[0];
 }): boolean {
+  if (
+    !input.activeTurn ||
+    input.runtimeMode !== "approval-required" ||
+    input.interactionMode !== "default"
+  ) {
+    return false;
+  }
+  if (gatewayGatedBrowserToolNameFromProviderPermission(input.permission) !== undefined) {
+    return true;
+  }
   return (
     input.computerControlEnabled &&
-    input.activeTurn &&
-    input.runtimeMode === "approval-required" &&
-    input.interactionMode === "default" &&
     computerToolNameFromProviderPermission(input.permission) !== undefined
   );
 }

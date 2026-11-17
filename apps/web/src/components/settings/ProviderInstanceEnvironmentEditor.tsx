@@ -3,6 +3,7 @@
 // Layer: Settings UI components
 
 import { Schema } from "effect";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useState } from "react";
 
 import {
@@ -51,6 +52,7 @@ function EnvVariableNameInput({
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => onCommit(draft)}
       onKeyDown={(event) => {
+        if (isImeComposingKeyEvent(event)) return;
         if (event.key === "Enter") {
           event.currentTarget.blur();
         }

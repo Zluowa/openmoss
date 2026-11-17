@@ -64,12 +64,16 @@ export type ComposerPredictionTurnBlocker =
 
 /**
  * Null while `expectedTurnId` is still the thread's latest turn, that turn completed with a
- * final assistant reply, and nothing is running or waiting on the user; otherwise the first
- * reason it is not. Checked before and again after generation.
+ * final assistant reply, and nothing is waiting on the user; otherwise the first reason it is
+ * not. Checked before and again after generation. `needsIdleSession` (the default) also
+ * requires the chat's session not to be starting or running: Codex's native fork works on
+ * that session. The isolated route never uses it, so a session that is resuming (opening a
+ * chat starts one) or doing background work does not stop that route.
  */
 export function resolveComposerPredictionTurnBlocker(
   thread: ComposerPredictionThread | undefined,
   expectedTurnId: TurnId,
+  options: { readonly needsIdleSession?: boolean } = {},
 ): ComposerPredictionTurnBlocker | null {
   if (!thread) return "thread-missing";
   if (thread.archivedAt != null) return "thread-archived";
@@ -79,7 +83,12 @@ export function resolveComposerPredictionTurnBlocker(
     return "turn-incomplete";
   }
   const sessionStatus = thread.session?.status;
-  if (sessionStatus === "running" || sessionStatus === "starting") return "session-busy";
+  if (
+    options.needsIdleSession !== false &&
+    (sessionStatus === "running" || sessionStatus === "starting")
+  ) {
+    return "session-busy";
+  }
   if (thread.hasPendingApprovals === true) return "pending-approval";
   if (thread.hasPendingUserInput === true) return "pending-user-input";
   return null;
@@ -810,17 +819,34 @@ export function resolveComposerPredictionRoute(input: {
       }
     | undefined;
   readonly nativeSupport?: ProviderNextUserMessagePredictionSupport | undefined;
+  /**
+   * Take the chat's own account first even when it would start the CLI inside a Windows
+   * job and the signed-in Moss model could answer instead. Off by default; set for one run
+   * with MOSS_PREDICTION_OWN_CODEX_CLI_FIRST=1 to measure that route.
+   */
+  readonly ownAccountCliFirst?: boolean;
 }): ComposerPredictionRoute {
+  // Route 2 is one direct HTTP request to the Moss model, or it is not taken: a Moss lane
+  // that would need the CLI (inside a Windows job) is never "the fast route".
+  const mossModelSupport = input.mossModel?.support;
   const mossModelRoute =
-    input.mossModel?.support.kind === "supported"
-      ? ({ kind: "isolated", routing: input.mossModel.routing } as const)
+    mossModelSupport?.kind === "supported" && mossModelSupport.windowsJob !== true
+      ? ({ kind: "isolated", routing: input.mossModel!.routing } as const)
       : null;
   if (input.routing.kind === "unrouted") {
     if (input.routing.reason !== "no-dedicated-provider") return input.routing;
     return mossModelRoute ?? { kind: "no-route", reason: "no-dedicated-provider" };
   }
   const routing = input.routing.routing;
-  if (input.isolatedSupport?.kind !== "platform-blocked") return { kind: "isolated", routing };
+  if (input.isolatedSupport?.kind !== "platform-blocked") {
+    // A suggestion is wanted in seconds: on Windows a person's own Codex account through the
+    // contained CLI costs a process per request, so the signed-in Moss model answers first
+    // (2026-11-17 measured route 2 at about 6 s), unless asked otherwise for measuring.
+    if (input.isolatedSupport?.windowsJob === true && mossModelRoute && !input.ownAccountCliFirst) {
+      return mossModelRoute;
+    }
+    return { kind: "isolated", routing };
+  }
   if (mossModelRoute) return mossModelRoute;
   if (routing.modelSelection.provider !== "codex") {
     return { kind: "no-route", reason: "isolated-platform-blocked" };

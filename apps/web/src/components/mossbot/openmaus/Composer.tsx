@@ -1,5 +1,6 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
 import { Button } from "~/components/ui/button";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RoomBot } from "./host";
 import { MentionTextarea } from "./MentionTextarea";
@@ -132,7 +133,7 @@ export function Composer({
               setCaret(e.currentTarget.selectionStart ?? 0);
             }}
             onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return;
+              if (isImeComposingKeyEvent(e)) return;
               if (mentionPickerOpen) {
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
                   e.preventDefault();

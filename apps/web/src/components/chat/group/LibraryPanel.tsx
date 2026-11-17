@@ -8,6 +8,7 @@
 // Layer: Chat UI component
 
 import { SidePanelOverlay } from "~/components/chat/SidePanelOverlay";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import type { LibraryCommit, LibraryEntry, ProjectId } from "@moss/contracts";
 import { formatBytes } from "@moss/shared/formatBytes";
 import {
@@ -711,6 +712,7 @@ function LibraryListRow(props: {
             className="h-6 flex-1 text-ui"
             onChange={(event) => props.onRenameDraftChange(event.target.value)}
             onKeyDown={(event) => {
+              if (isImeComposingKeyEvent(event)) return;
               if (event.key === "Enter") props.onRenameCommit();
               if (event.key === "Escape") props.onRenameCancel();
             }}
@@ -769,6 +771,7 @@ function LibraryGridTile(props: {
           className="h-6 flex-1 text-ui"
           onChange={(event) => props.onRenameDraftChange(event.target.value)}
           onKeyDown={(event) => {
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key === "Enter") props.onRenameCommit();
             if (event.key === "Escape") props.onRenameCancel();
           }}
