@@ -31,6 +31,14 @@ import {
   LIBRARY_UPLOAD_ROUTE_PATH,
   VOICE_TRANSCRIPTION_UPLOAD_ROUTE_PATH,
 } from "@moss/shared/binaryTransfer";
+import {
+  THEME_IMAGE_CONTENT_TYPES,
+  THEME_IMAGE_MAX_BYTES,
+  THEME_IMAGE_ROUTE_PREFIX,
+  THEME_IMAGE_UPLOAD_ROUTE_PATH,
+  isThemeImageId,
+  type ThemeImageExtension,
+} from "@moss/shared/themeCss";
 import { EDITOR_ICON_ROUTE_PATH } from "@moss/shared/editorIcons";
 import {
   HTML_RENDER_FRAME_EXPIRES_PARAM,
@@ -65,6 +73,12 @@ import {
 } from "./inlineVisualization";
 import { resolveAttachmentPathById } from "./attachmentStore.ts";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
+import {
+  ThemeImageError,
+  resolveThemeImagePath,
+  storeThemeImageBytes,
+  themeImagesDir,
+} from "./themeImages";
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { deriveAuthClientMetadata } from "./auth/utils";
@@ -315,6 +329,7 @@ export function makeEffectHttpRouteLayer(
     siteFaviconEffectRouteLayer,
     editorIconEffectRouteLayer,
     localImageEffectRouteLayer,
+    themeImageEffectRouteLayer,
     libraryImageEffectRouteLayer,
     localHtmlPreviewEffectRouteLayer,
     inlineVisualizationEffectRouteLayer,
@@ -1533,6 +1548,116 @@ export const localImageEffectRouteLayer = HttpRouter.add(
       },
     });
   }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
+);
+
+/**
+ * Pictures themes use (`themeImages.ts`). GET serves one stored picture by its content-hash id,
+ * with the same authentication as `/api/local-image`; a CSS background cannot attach headers,
+ * so the desktop app sends the startup token as `?token=`. POST stores raw bytes (Settings >
+ * Appearance > Add picture), owner only, from a trusted app origin.
+ */
+const themeImageGetEffectHandler = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const url = HttpServerRequest.toURL(request);
+  if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+  const config = yield* ServerConfig;
+  if (!isLegacyTokenAuthorized({ config, url, request })) {
+    yield* requireAuthenticatedRequest;
+  }
+  const id = url.pathname.slice(THEME_IMAGE_ROUTE_PREFIX.length);
+  const stored = isThemeImageId(id)
+    ? yield* Effect.promise(() =>
+        resolveThemeImagePath(themeImagesDir(config.stateDir), id).catch(() => null),
+      )
+    : null;
+  if (!stored) return HttpServerResponse.text("Not Found", { status: 404 });
+  const extension = id.slice(id.lastIndexOf(".") + 1) as ThemeImageExtension;
+  return streamedFileResponse({
+    fileSystem: yield* FileSystem.FileSystem,
+    path: stored.path,
+    sizeBytes: stored.sizeBytes,
+    contentType: THEME_IMAGE_CONTENT_TYPES[extension],
+    headers: {
+      // The id is the content hash, so the bytes behind it never change.
+      "Cache-Control": "private, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff",
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      ...localPreviewCorsHeaders({ config, request, url }),
+    },
+  });
+}).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error))));
+
+const themeImageUploadEffectHandler = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const url = HttpServerRequest.toURL(request);
+  if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+  const config = yield* ServerConfig;
+  const corsHeaders = trustedMutationCorsHeaders({ request, url, config });
+  if (corsHeaders === null) {
+    return HttpServerResponse.jsonUnsafe(
+      { error: "Trusted request origin required." },
+      { status: 403 },
+    );
+  }
+  if (request.method === "OPTIONS") {
+    return HttpServerResponse.empty({ status: 204, headers: corsHeaders });
+  }
+  if (request.method !== "POST") {
+    return HttpServerResponse.text("Method Not Allowed", { status: 405, headers: corsHeaders });
+  }
+  const session = isLegacyTokenAuthorized({ config, url, request })
+    ? null
+    : yield* requireAuthenticatedMutationRequest;
+  if (session !== null && session.role !== "owner") {
+    return HttpServerResponse.jsonUnsafe(
+      { error: "Owner authorization is required for this operation." },
+      { status: 403, headers: corsHeaders },
+    );
+  }
+  const bytes = yield* readEffectBinary(request, THEME_IMAGE_MAX_BYTES);
+  const stored = yield* Effect.tryPromise({
+    try: () => storeThemeImageBytes(themeImagesDir(config.stateDir), bytes, "The picture"),
+    catch: (cause) =>
+      cause instanceof ThemeImageError
+        ? { message: cause.message, status: 400 }
+        : { message: "The picture could not be stored.", status: 500 },
+  });
+  return HttpServerResponse.jsonUnsafe(
+    {
+      id: stored.id,
+      reference: stored.reference,
+      width: stored.width,
+      height: stored.height,
+      bytes: stored.bytes,
+    },
+    { status: 201, headers: corsHeaders },
+  );
+}).pipe(
+  Effect.catch((error) =>
+    Effect.succeed(
+      error instanceof AuthError
+        ? authErrorResponse(error)
+        : HttpServerResponse.jsonUnsafe(
+            {
+              error:
+                typeof (error as { readonly message?: unknown }).message === "string"
+                  ? (error as { readonly message: string }).message
+                  : "The picture could not be stored.",
+            },
+            {
+              status:
+                typeof (error as { readonly status?: unknown }).status === "number"
+                  ? (error as { readonly status: number }).status
+                  : 500,
+            },
+          ),
+    ),
+  ),
+);
+
+export const themeImageEffectRouteLayer = Layer.mergeAll(
+  HttpRouter.add("GET", `${THEME_IMAGE_ROUTE_PREFIX}*`, themeImageGetEffectHandler),
+  HttpRouter.add("*", THEME_IMAGE_UPLOAD_ROUTE_PATH, themeImageUploadEffectHandler),
 );
 
 const binaryUploadEffectHandler = Effect.gen(function* () {

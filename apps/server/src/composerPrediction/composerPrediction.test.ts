@@ -15,6 +15,7 @@ import { COMPOSER_PREDICTION_CONTEXT_BUDGET } from "../git/textGenerationShared.
 import type { ProviderNextUserMessagePredictionSupport } from "../provider/Services/ProviderAdapter.ts";
 import {
   buildComposerPredictionConversation,
+  formatComposerPredictionClosingQuestion,
   isComposerPredictionTurnCurrent,
   lowestSupportedEffort,
   COMPOSER_PREDICTION_DEFAULT_HEDGE_DELAY_MS,
@@ -24,8 +25,18 @@ import {
   resolveComposerPredictionRouting,
   resolveComposerPredictionRoutingResult,
   resolveComposerPredictionTurnBlocker,
+  readComposerPredictionClosingQuestion,
   resolveMossManagedPredictionModel,
+  resolveNativePredictionEffort,
 } from "./composerPrediction.ts";
+import {
+  OWNER_CLAUDE_WRAP_UP_ACTIVITY,
+  OWNER_CODEX_WRAP_UP_ACTIVITY,
+  OWNER_FINAL_REPLY,
+  OWNER_REQUEST,
+  OWNER_WRAP_UP_ACTIONS,
+  OWNER_WRAP_UP_ASK,
+} from "./testing/ownerWrapUpTurn.ts";
 
 const TURN = TurnId.makeUnsafe("turn-2");
 const FINAL_REPLY = MessageId.makeUnsafe("assistant-final");
@@ -350,8 +361,9 @@ describe("resolveComposerPredictionRouting", () => {
 
   it("lowers the effort when the options travel as a list of selections", () => {
     const routing = resolveComposerPredictionRouting({
-      thread: {
-        modelSelection: {
+      thread: claudeChat,
+      settings: settings({
+        textGenerationModelSelection: {
           provider: "claudeAgent",
           instanceId: "claudeAgent",
           model: "claude-opus-4-8",
@@ -360,9 +372,7 @@ describe("resolveComposerPredictionRouting", () => {
             { id: "fastMode", value: true },
           ],
         } as unknown as ModelSelection,
-        session: session({ providerInstanceId: "claudeAgent" }),
-      },
-      settings: settings(),
+      }),
     });
 
     expect(routing?.modelSelection.options).toEqual([
@@ -371,19 +381,47 @@ describe("resolveComposerPredictionRouting", () => {
     ]);
   });
 
-  it("keeps the chat's model at its lowest effort when the Git-writing model is elsewhere", () => {
+  it("predicts with the provider's smaller model when the Git-writing model is elsewhere", () => {
     const routing = resolveComposerPredictionRouting({ thread: claudeChat, settings: settings() });
 
+    // Synara #2196: the chat's own options (fast mode here) belong to another model.
     expect(routing).toMatchObject({
-      source: "chat-model",
+      source: "prediction-model",
       modelSelection: {
         provider: "claudeAgent",
         instanceId: "claudeAgent",
-        model: "claude-opus-4-8",
-        options: { effort: "low", fastMode: true },
+        model: "claude-sonnet-5-5",
+        options: { effort: "low" },
       },
     });
+    expect(routing?.modelSelection.options).not.toHaveProperty("fastMode");
   });
+
+  it.each([
+    ["claudeAgent", "my-gateway-claude"],
+    ["codex", "gpt-6.1-terra"],
+  ] as const)(
+    "keeps a %s chat's own model when the catalog does not know it (%s)",
+    (provider, model) => {
+      const routing = resolveComposerPredictionRouting({
+        thread: {
+          modelSelection: { provider, instanceId: provider, model } as ModelSelection,
+          session: session({ providerInstanceId: provider }),
+        },
+        // The Git-writing model on another instance, as in a default install for Claude.
+        settings: settings({
+          textGenerationModelSelection: {
+            provider: "cursor",
+            instanceId: "cursor",
+            model: "auto",
+          } as ModelSelection,
+        }),
+      });
+
+      // An account on a custom gateway may not serve the smaller model.
+      expect(routing).toMatchObject({ source: "chat-model", modelSelection: { model } });
+    },
+  );
 
   it("does not use a Git-writing model from another account of the same provider", () => {
     const routing = resolveComposerPredictionRouting({
@@ -403,10 +441,10 @@ describe("resolveComposerPredictionRouting", () => {
     });
 
     expect(routing).toMatchObject({
-      source: "chat-model",
+      source: "prediction-model",
       modelSelection: {
         instanceId: "codex_work",
-        model: "gpt-5.5",
+        model: "gpt-6-luna",
         options: { reasoningEffort: "low" },
       },
       providerOptions: { codex: expect.objectContaining({ homePath: "/tmp/codex-work" }) },
@@ -540,6 +578,7 @@ describe("resolveComposerPredictionRouting on Moss-managed lanes", () => {
   );
 
   it("keeps the upstream rule for a person's own account of the same provider", () => {
+    // Synara #2196: the person's own account predicts on its provider's smaller model.
     const routing = resolveComposerPredictionRouting({
       thread: {
         modelSelection: {
@@ -554,8 +593,8 @@ describe("resolveComposerPredictionRouting on Moss-managed lanes", () => {
     });
 
     expect(routing).toMatchObject({
-      source: "chat-model",
-      modelSelection: { instanceId: "codex", model: "gpt-5.6-sol" },
+      source: "prediction-model",
+      modelSelection: { instanceId: "codex", model: "gpt-6-luna" },
     });
   });
 
@@ -810,5 +849,85 @@ describe("resolveComposerPredictionRoute", () => {
       kind: "unrouted",
       reason: "session-instance-mismatch",
     });
+  });
+});
+
+describe("the question a turn-end box leaves for the person", () => {
+  const ownerQuestion = { ask: OWNER_WRAP_UP_ASK, actions: [...OWNER_WRAP_UP_ACTIONS] };
+
+  it.each([
+    ["Codex", OWNER_CODEX_WRAP_UP_ACTIVITY],
+    ["Claude", OWNER_CLAUDE_WRAP_UP_ACTIVITY],
+  ])("is read from a stored %s moss_wrap_up call", (_provider, activity) => {
+    expect(readComposerPredictionClosingQuestion([activity])).toEqual(ownerQuestion);
+  });
+
+  it("follows the turn's last box, and a last box that asks nothing ends it", () => {
+    const recapOnly = {
+      kind: "tool.completed",
+      payload: {
+        data: { tool: "moss_wrap_up", arguments: { recap: "Done; nothing waits on you." } },
+      },
+    };
+    expect(
+      readComposerPredictionClosingQuestion([recapOnly, OWNER_CODEX_WRAP_UP_ACTIVITY]),
+    ).toEqual(ownerQuestion);
+    expect(readComposerPredictionClosingQuestion([OWNER_CODEX_WRAP_UP_ACTIVITY, recapOnly])).toBe(
+      null,
+    );
+    expect(
+      readComposerPredictionClosingQuestion([
+        { ...OWNER_CODEX_WRAP_UP_ACTIVITY, kind: "tool.started" },
+        { kind: "tool.completed", payload: { data: { tool: "moss_send_message" } } },
+        { kind: "tool.completed", payload: { detail: "Bash: moss_wrap_up is a tool" } },
+      ]),
+    ).toBe(null);
+  });
+
+  it("closes the owner's transcript after a reply that reads as finished work", () => {
+    const conversation = buildComposerPredictionConversation({
+      finalReplyMessageId: FINAL_REPLY,
+      messages: [message("user", OWNER_REQUEST), finalReply(OWNER_FINAL_REPLY)],
+      closingQuestion: ownerQuestion,
+    });
+
+    expect(conversation).toBe(
+      [
+        `User: ${OWNER_REQUEST}`,
+        `Assistant: ${OWNER_FINAL_REPLY}`,
+        '[The assistant then asked the user: "现在的角色位置和大小合适吗？" Answer buttons offered: "保持这样", "调整位置".]',
+      ].join("\n\n"),
+    );
+  });
+
+  it("keeps the question whole when the reply fills the budget", () => {
+    const conversation = buildComposerPredictionConversation({
+      finalReplyMessageId: FINAL_REPLY,
+      messages: [
+        message("user", "Restyle the chat"),
+        finalReply(`${"long report ".repeat(2_000)}END`),
+      ],
+      closingQuestion: ownerQuestion,
+    });
+
+    expect(conversation?.length).toBeLessThanOrEqual(COMPOSER_PREDICTION_CONTEXT_BUDGET.maxChars);
+    expect(conversation).toContain("END");
+    expect(conversation?.endsWith(formatComposerPredictionClosingQuestion(ownerQuestion))).toBe(
+      true,
+    );
+  });
+});
+
+describe("resolveNativePredictionEffort", () => {
+  it("forks a model the catalog does not know yet at low effort, not the chat's own", () => {
+    // The owner's chat ran gpt-6.1-terra at max; the fork inherited max.
+    expect(resolveNativePredictionEffort("gpt-6.1-terra")).toBe("low");
+  });
+
+  it("uses the lowest effort the catalog lists for a known model", () => {
+    expect(resolveNativePredictionEffort("gpt-6-astra")).toBe(
+      lowestSupportedEffort("codex", "gpt-6-astra"),
+    );
+    expect(resolveNativePredictionEffort("gpt-6-astra")).not.toBe(null);
   });
 });

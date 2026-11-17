@@ -3012,6 +3012,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   workEntry={item.entry}
                   chatMetaFontSizePx={appTypographyScale.chatMetaPx}
                   textFontSizePx={normalizedChatFontSizePx}
+                  mutedProse
                   density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
                   markdownCwd={markdownCwd}
                   onImageExpand={onImageExpand}
@@ -3982,7 +3983,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     hasMessages || rows.length > 0 || canRenderForkSourceDivider;
   if (!hasRenderableTranscriptContent && !isWorking) {
     return (
-      <div className="flex h-full flex-col">
+      <div className="flex h-full flex-col" data-messages-timeline-root="empty">
         {historyHeader}
         <div className="flex flex-1 items-center justify-center">
           {emptyStateContent ?? (
@@ -3998,9 +3999,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   return (
     <BackgroundTaskStopContext.Provider value={onStopBackgroundTask ?? null}>
       <WorkingMarkContext.Provider value={workingMark}>
+        {/* `data-messages-timeline-root` is a theme hook ("message list area, behind the messages"), so
+            this wrapper needs a box of its own: a background set on it must paint behind the
+            list. It fills its parent (a flex column or a fixed-height box) as the list did alone. */}
         <div
           ref={timelineRootRef}
-          className="contents"
+          className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col"
           data-messages-timeline-root="true"
           onContextMenuCapture={handleGeneratedImageContextMenu}
         >

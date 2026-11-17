@@ -9,12 +9,24 @@
 //   does not know is dropped even when it holds declarations, and the caller learns how many
 //   declarations were dropped. See THIRD_PARTY_NOTICES.md.
 
-import { themeCssDeclarationBlocked, themeCssValueFetches } from "@moss/shared/themeCss";
+import {
+  THEME_IMAGE_SCHEME,
+  resolveThemeCssImages,
+  themeCssDeclarationBlocked,
+  themeCssValueFetches,
+} from "@moss/shared/themeCss";
+
+import { themeImageUrl } from "./themeImages";
 
 // Theme CSS comes from imported share strings and from agents, so it must not fetch: a url() on
 // an attribute selector can send what is on screen to another host. The browser parses the
 // text first, so the checks see normalized values and CSS escapes in a function name cannot
 // dodge them. Whatever the guard cannot check is dropped.
+//
+// One kind of address passes besides data: and #id: a stored theme picture,
+// `url(moss-theme-image:<64 hex>.<type>)`. Its shape is fixed (no host, path, query or escape),
+// and once a declaration has passed the check the guard itself replaces it with Moss's own theme
+// image route on the connected server (`themeImageUrl`), so the author never picks the address.
 
 let themeSheet: CSSStyleSheet | null = null;
 let appliedCss = "";
@@ -58,9 +70,20 @@ function stripDeclarations(rule: CSSRule, counts: { declarations: number }): boo
   if (!("style" in rule) || !(rule.style instanceof CSSStyleDeclaration)) return false;
   for (let item = rule.style.length - 1; item >= 0; item--) {
     const property = rule.style.item(item);
-    if (themeCssDeclarationBlocked(property, rule.style.getPropertyValue(property))) {
+    const value = rule.style.getPropertyValue(property);
+    if (themeCssDeclarationBlocked(property, value)) {
       rule.style.removeProperty(property);
       counts.declarations += 1;
+    } else if (value.includes(THEME_IMAGE_SCHEME)) {
+      // A checked value: only the fixed-shape references in it are replaced.
+      const resolved = resolveThemeCssImages(value, themeImageUrl);
+      const priority = rule.style.getPropertyPriority(property);
+      rule.style.setProperty(property, resolved, priority);
+      const applied = rule.style.getPropertyValue(property);
+      if (applied === "" || applied.includes(THEME_IMAGE_SCHEME)) {
+        rule.style.removeProperty(property);
+        counts.declarations += 1;
+      }
     }
   }
   return true;

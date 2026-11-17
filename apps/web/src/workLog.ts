@@ -3797,8 +3797,11 @@ function deriveToolLifecycleCollapseKey(
   if (!isRenderableToolLifecycleActivity(entry.activityKind)) {
     return undefined;
   }
-  if (entry.itemType === "image_generation" && entry.generatedImage) {
-    return `image-generation:${entry.generatedImage.callId ?? entry.id}`;
+  // Codex reports the start of an image without the typed image record and the
+  // completion with it; both must share one key or the start stays behind as an
+  // empty "已生成图像" placeholder next to the finished picture.
+  if (entry.itemType === "image_generation" && (entry.generatedImage || entry.toolCallId)) {
+    return `image-generation:${entry.generatedImage?.callId ?? entry.toolCallId ?? entry.id}`;
   }
   if (entry.toolCallId) {
     return turnScopedToolCallId && entry.turnId
@@ -4249,6 +4252,25 @@ function extractToolCommand(
   const dataInput = asRecord(data?.input);
   const dataArguments = asCommandArgumentRecord(data?.arguments ?? data?.args ?? data?.params);
   const rawInput = asCommandArgumentRecord(data?.rawInput);
+  if (hasTurnScopedProviderToolCallId(payload)) {
+    // Older ACP events copied backticked read/search targets into data.command.
+    // Sparse starts may omit the kind before a typed completion arrives (upstream #2178).
+    const kind = data?.kind;
+    const legacyTarget =
+      /^(?:read(?:ing)?|find(?:ing)?|found|search(?:ing|ed)?)\s+`([^`]+)`/iu.exec(
+        asTrimmedString(payload?.title) ?? "",
+      )?.[1];
+    const hasLegacyTitleCommand =
+      (kind === undefined || kind === "other") &&
+      legacyTarget !== undefined &&
+      asTrimmedString(data?.command) === legacyTarget.trim() &&
+      !normalizeCommandValue(rawInput?.command) &&
+      !normalizeCommandValue(rawInput?.cmd) &&
+      !asTrimmedString(rawInput?.executable);
+    if (kind === "read" || kind === "search" || hasLegacyTitleCommand) {
+      return { command: null, rawCommand: null };
+    }
+  }
   const detailCommand =
     isCommandLikeDetail(payload) && typeof payload?.detail === "string"
       ? stripTrailingExitCode(payload.detail).output
@@ -4492,6 +4514,8 @@ function extractToolName(payload: Record<string, unknown> | null): string | null
     dataInput?.toolName,
     dataRawInput?.tool_name,
     dataRawInput?.toolName,
+    // ACP adapters keep the provider-native name in rawInput (upstream #2178).
+    dataRawInput?._toolName,
   ];
   // A call that already names an MCP tool (`mcp__server__tool`) is not a wrapper: its own
   // `tool_name` argument is data (moss_read_widget_context takes one), not its identity.
@@ -4879,7 +4903,14 @@ export function parseWorkLogGeneratedImage(
   const isInProgress = status === "inprogress" || status === "in_progress";
   // A path on a non-terminal observation is deliberately ignored. The only
   // completed representation accepted above is the exact artifact kind.
-  if ((isStarted || activity.kind === "tool.updated") && path === null && isInProgress) {
+  // Builds up to 1.0.7 stored a Codex image's predicted path, as a full
+  // artifact, on its started record; that record is still only pending. Left
+  // untyped it drew an empty placeholder box the finished image never replaced.
+  if (
+    (isStarted || activity.kind === "tool.updated") &&
+    (path === null || data?.kind === CODEX_GENERATED_IMAGE_ARTIFACT_KIND) &&
+    isInProgress
+  ) {
     const aspectRatio = data?.aspectRatio;
     const jobId = asTrimmedString(data?.jobId);
     return {

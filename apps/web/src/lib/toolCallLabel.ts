@@ -1371,7 +1371,31 @@ function collectDescriptorCandidates(
 // finds the magnifier; listings and everything else keep the terminal icon.
 // These sets are the single source of truth for both the command labels below
 // and the icon decision.
-const READ_FILE_COMMAND_TOOLS = new Set(["cat", "nl", "head", "tail", "sed", "less", "more"]);
+const READ_FILE_COMMAND_TOOLS = new Set([
+  "cat",
+  "nl",
+  "head",
+  "tail",
+  "sed",
+  "less",
+  "more",
+  // PowerShell and cmd readers (Codex on Windows runs everything through them).
+  "get-content",
+  "gc",
+  "type",
+]);
+// PowerShell `Get-Content` options that take a value, so the value is not a file.
+const GET_CONTENT_VALUE_OPTIONS = new Set([
+  "-totalcount",
+  "-head",
+  "-first",
+  "-tail",
+  "-last",
+  "-encoding",
+  "-delimiter",
+  "-readcount",
+  "-stream",
+]);
 const SEARCH_COMMAND_TOOLS = new Set(["rg", "grep", "ag", "ack"]);
 const FIND_COMMAND_TOOLS = new Set(["find", "fd"]);
 const LIST_COMMAND_TOOLS = new Set(["ls"]);
@@ -1524,7 +1548,7 @@ export function deriveInlineCommandCall(rawCommand: string): string {
 // quoting stay verbatim, unlike `deriveInlineCommandCall`, which keeps only the
 // first pipeline stage for classification.
 export function deriveLiteralCommand(rawCommand: string): string {
-  let value = rawCommand.trim();
+  let value = unwrapWindowsShellCommand(rawCommand) ?? rawCommand.trim();
   const lowered = value.toLowerCase();
   for (const prefix of SHELL_WRAPPER_PREFIXES) {
     if (!lowered.startsWith(prefix)) {
@@ -1582,6 +1606,12 @@ export function deriveCommandReadTargets(rawCommand: string): string[] | null {
       if ((tool === "head" || tool === "tail") && (token === "-n" || token === "-c")) {
         skipNext = true;
       }
+      if (
+        (tool === "get-content" || tool === "gc") &&
+        GET_CONTENT_VALUE_OPTIONS.has(token.toLowerCase())
+      ) {
+        skipNext = true;
+      }
       continue;
     }
     if (sedScriptPending) {
@@ -1594,6 +1624,144 @@ export function deriveCommandReadTargets(rawCommand: string): string[] | null {
     return null;
   }
   return files.length > 0 ? files : null;
+}
+
+// Codex on Windows launches every command through PowerShell (or cmd) and
+// reports the launcher line, quoted the POSIX way:
+//   "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -Command "Get-Content -Raw 'a.md'"
+// Returns the command the shell ran (`Get-Content -Raw 'a.md'`), or null when
+// the line is not such a wrapper. Whitespace inside the command is kept.
+export function unwrapWindowsShellCommand(rawCommand: string): string | null {
+  const trimmed = rawCommand.trim();
+  const executable = firstCommandExecutable(trimmed).replace(/\.exe$/u, "");
+  const isPowerShell = executable === "powershell" || executable === "pwsh";
+  if (!isPowerShell && executable !== "cmd") {
+    return null;
+  }
+  const argv = splitPosixQuotedArgv(trimmed);
+  if (!argv || argv.length < 2) {
+    return null;
+  }
+  for (let index = 1; index < argv.length; index += 1) {
+    const option = argv[index]!.toLowerCase();
+    if (isPowerShell) {
+      if (option === "-command" || option === "-c" || option === "/command" || option === "/c") {
+        const command = argv
+          .slice(index + 1)
+          .join(" ")
+          .trim();
+        return command.length > 0 ? command : null;
+      }
+      if (POWERSHELL_VALUE_OPTIONS.has(option)) {
+        index += 1;
+        continue;
+      }
+      if (POWERSHELL_SWITCH_OPTIONS.has(option)) {
+        continue;
+      }
+      return null;
+    }
+    if (option === "/c" || option === "/k") {
+      const command = argv
+        .slice(index + 1)
+        .join(" ")
+        .trim();
+      return command.length > 0 ? command : null;
+    }
+    if (/^\/[a-z](?::\S*)?$/u.test(option)) {
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+const POWERSHELL_SWITCH_OPTIONS = new Set([
+  "-noprofile",
+  "-nop",
+  "-nologo",
+  "-noninteractive",
+  "-noni",
+  "-noexit",
+  "-mta",
+  "-sta",
+]);
+const POWERSHELL_VALUE_OPTIONS = new Set([
+  "-executionpolicy",
+  "-ep",
+  "-ex",
+  "-inputformat",
+  "-outputformat",
+  "-windowstyle",
+  "-workingdirectory",
+  "-version",
+]);
+
+// Splits a launcher line into argv with POSIX shell quoting: '…' is literal,
+// "…" honours \\, \", \$ and \` escapes, and adjacent pieces join into one
+// argument (`'a'"'"'b'` is `a'b`). Null when a quote never closes.
+function splitPosixQuotedArgv(value: string): string[] | null {
+  const argv: string[] = [];
+  let current = "";
+  let inToken = false;
+  let index = 0;
+  while (index < value.length) {
+    const char = value[index]!;
+    if (char === " " || char === "\t" || char === "\n" || char === "\r") {
+      if (inToken) {
+        argv.push(current);
+        current = "";
+        inToken = false;
+      }
+      index += 1;
+      continue;
+    }
+    inToken = true;
+    if (char === "'") {
+      const end = value.indexOf("'", index + 1);
+      if (end === -1) return null;
+      current += value.slice(index + 1, end);
+      index = end + 1;
+      continue;
+    }
+    if (char === '"') {
+      index += 1;
+      let closed = false;
+      while (index < value.length) {
+        const inner = value[index]!;
+        if (inner === "\\" && index + 1 < value.length) {
+          const next = value[index + 1]!;
+          if (next === "\\" || next === '"' || next === "$" || next === "`") {
+            current += next;
+            index += 2;
+            continue;
+          }
+          if (next === "\n") {
+            index += 2;
+            continue;
+          }
+        }
+        if (inner === '"') {
+          closed = true;
+          index += 1;
+          break;
+        }
+        current += inner;
+        index += 1;
+      }
+      if (!closed) return null;
+      continue;
+    }
+    if (char === "\\" && index + 1 < value.length) {
+      current += value[index + 1];
+      index += 2;
+      continue;
+    }
+    current += char;
+    index += 1;
+  }
+  if (inToken) argv.push(current);
+  return argv;
 }
 
 const SHELL_WRAPPER_PREFIXES = [
@@ -2004,7 +2172,7 @@ function splitToolAndArgs(command: string): [tool: string, args: string] {
 }
 
 function unwrapShellCommandIfPresent(rawCommand: string): string {
-  let value = rawCommand.trim();
+  let value = unwrapWindowsShellCommand(rawCommand) ?? rawCommand.trim();
   if (!value) {
     return value;
   }

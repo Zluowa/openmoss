@@ -48,8 +48,78 @@ describe("classifyToolCallSummaryCategory", () => {
     );
   });
 
+  it("classifies ACP native read and search tool names", () => {
+    // Grok/Cursor report reads through rawInput._toolName (read_file, view) and
+    // searches as `search`/`find`; all must count in the collapsed summary.
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g1", itemType: "dynamic_tool_call", toolName: "read_file" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g2", itemType: "dynamic_tool_call", toolName: "view" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g3", itemType: "dynamic_tool_call", toolName: "search" }),
+      ),
+    ).toBe("search");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g4", itemType: "web_search", toolName: "grep" }),
+      ),
+    ).toBe("search");
+  });
+
+  it("classifies ACP native read and search tool names", () => {
+    // Grok/Cursor report reads through rawInput._toolName (read_file, view) and
+    // searches as `search`/`find`; all must count in the collapsed summary.
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g1", itemType: "dynamic_tool_call", toolName: "read_file" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g2", itemType: "dynamic_tool_call", toolName: "view" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g3", itemType: "dynamic_tool_call", toolName: "search" }),
+      ),
+    ).toBe("search");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g4", itemType: "web_search", toolName: "grep" }),
+      ),
+    ).toBe("search");
+  });
+
   it("classifies mutating commands, agent tasks, and MCP tools", () => {
     expect(classifyToolCallSummaryCategory(command("c1"))).toBe("command");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({
+          id: "compound",
+          itemType: "command_execution",
+          toolTitle: "Read src/app.ts",
+          command: "cat src/app.ts | head -n 5",
+        }),
+      ),
+    ).toBe("command");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({
+          id: "compound",
+          itemType: "command_execution",
+          toolTitle: "Read src/app.ts",
+          command: "cat src/app.ts | head -n 5",
+        }),
+      ),
+    ).toBe("command");
     expect(
       classifyToolCallSummaryCategory(workEntry({ id: "a1", itemType: "collab_agent_tool_call" })),
     ).toBe("agent");
@@ -145,7 +215,7 @@ describe("summarizeToolCallGroup", () => {
       command("c2", "bun run lint"),
       command("s3", "rg gamma docs"),
     ]);
-    expect(summary?.label).toBe("Searched code, edited 2 files, ran 2 commands");
+    expect(summary?.label).toBe("Searched code 3 times, edited 2 files, ran 2 commands");
     expect(summary?.iconCategory).toBe("mixed");
   });
 
@@ -183,7 +253,7 @@ describe("summarizeToolCallGroup", () => {
     expect(summary?.failedCount).toBe(1);
   });
 
-  it("names at most three kinds and folds the rest into other actions", () => {
+  it("names at most three kinds; past that two, and folds the rest into other actions (Synara)", () => {
     const summary = summarizeToolCallGroup([
       claudeRead("r1", "/repo/a.ts"),
       command("c1", "bun run lint"),
@@ -191,7 +261,14 @@ describe("summarizeToolCallGroup", () => {
       command("s1", "rg foo src"),
       workEntry({ id: "m1", itemType: "mcp_tool_call", toolName: "linear_get_issue" }),
     ]);
-    expect(summary?.label).toBe("Read a file, ran a command, edited a file, and 2 more actions");
+    expect(summary?.label).toBe("Read a file, ran a command, and 3 more actions");
+    expect(
+      summarizeToolCallGroup([
+        claudeRead("r1", "/repo/a.ts"),
+        command("c1", "bun run lint"),
+        edit("e1", ["a.ts"]),
+      ])?.label,
+    ).toBe("Read a file, ran a command, edited a file");
   });
 
   it("wears the kind's glyph when every call is the same kind", () => {

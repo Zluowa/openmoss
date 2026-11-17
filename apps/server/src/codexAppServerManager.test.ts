@@ -67,9 +67,11 @@ import {
   CODEX_MANUAL_COMPACTION_MARKER,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
+  CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS,
   CodexAppServerManager,
   classifyCodexStderrLine,
   classifyCodexStderrLines,
+  discoveryStderrLogLine,
   formatCodexPendingStartup,
   formatCodexThreadResumeError,
   isRecoverableThreadResumeError,
@@ -116,6 +118,8 @@ function createSyntheticCodexAppServer(options?: {
   readonly projectMcpServers?: Record<string, unknown>;
   readonly forceFullHistoryResponse?: boolean;
   readonly pluginListFrameBytes?: number;
+  /** A Codex that prints these stderr lines and exits with this code while listing plugins. */
+  readonly pluginListExit?: { readonly code: number; readonly stderr: string };
   /** Methods this app-server receives but never answers, like a Codex stuck on a busy disk. */
   readonly unanswered?: ReadonlySet<string>;
   readonly gatewayRenewal?:
@@ -300,6 +304,13 @@ function createSyntheticCodexAppServer(options?: {
           respond({ thread: { id: "fresh-provider-thread" } });
         } else if (request.method === "turn/start") {
           respond({ turn: { id: `synthetic-turn-${nextTurn++}` } });
+        } else if (request.method === "plugin/list" && options?.pluginListExit) {
+          const { code, stderr: lines } = options.pluginListExit;
+          queueMicrotask(() => {
+            stderr.write(lines);
+            Object.assign(child, { exitCode: code });
+            child.emit("exit", code, null);
+          });
         } else if (request.method === "plugin/list" && options?.pluginListFrameBytes) {
           const prefix = Buffer.from(
             `{"id":${JSON.stringify(request.id)},"result":{"marketplaces":[{"name":"Synthetic catalog","path":"/synthetic/catalog","plugins":[]}],"padding":"`,
@@ -6022,6 +6033,83 @@ describe("CodexAppServerManager discovery", () => {
       }
     },
   );
+});
+
+describe("a Codex that exits while listing plugins (Windows, 2026-11-17)", () => {
+  it("logs why, and answers the next listings from memory instead of a new process", async () => {
+    const fake = createSyntheticCodexAppServer({
+      pluginListExit: {
+        code: 1,
+        stderr:
+          "Error: failed to load marketplace: invalid manifest at C:/plugins/m.json (moss_sk_abcdef123456)\n",
+      },
+    });
+    const spawnAppServer = vi.spyOn(fake, "spawnAppServer");
+    const { manager } = createSyntheticCodexManager(fake);
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-plugin-exit-"));
+    const codexOptions = { homePath: cwd, binaryPath: "/synthetic/codex" };
+    const authTracking = prepareCodexAuthTracking({ env: { ...process.env }, homePath: cwd });
+    vi.spyOn(
+      manager as unknown as { buildSessionProcessEnv: () => Promise<unknown> },
+      "buildSessionProcessEnv",
+    ).mockResolvedValue({
+      env: {},
+      authTracking,
+      authFingerprint: readCodexPreparedAuthTrackingFingerprint(authTracking),
+    });
+    const warnings: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    });
+    try {
+      const list = (forceReload?: boolean) =>
+        manager.listPlugins({ cwd, codexOptions, ...(forceReload ? { forceReload } : {}) });
+
+      await expect(list()).rejects.toThrow("codex app-server exited (code=1, signal=null).");
+      expect(spawnAppServer).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() =>
+        expect(warnings.some((line) => line.includes("codex discovery app-server exited"))).toBe(
+          true,
+        ),
+      );
+      const exited = warnings.find((line) => line.includes("codex discovery app-server exited"));
+      expect(exited).toBeDefined();
+      expect(exited).toContain("plugin/list");
+      expect(exited).toContain("failed to load marketplace: invalid manifest");
+      expect(warnings.join("\n")).not.toContain("moss_sk_abcdef123456");
+
+      // The open chat asks again a minute later: same answer, no new app-server.
+      await expect(list()).rejects.toThrow("codex app-server exited (code=1, signal=null).");
+      expect(spawnAppServer).toHaveBeenCalledTimes(1);
+
+      // Asking to reload tries again at once.
+      await expect(list(true)).rejects.toThrow("codex app-server exited");
+      expect(spawnAppServer).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a failed listing in memory for five minutes only", () => {
+    expect(CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS).toBe(5 * 60 * 1000);
+  });
+
+  it("masks secrets and caps the length of a discovery stderr line", () => {
+    expect(discoveryStderrLogLine("Error: auth failed, Bearer xyz.789")).toBe(
+      "Error: auth failed, Bearer [redacted]",
+    );
+    expect(discoveryStderrLogLine("Error: key sk-abcdefghijklmnop rejected")).toBe(
+      "Error: key [redacted-api-key] rejected",
+    );
+    expect(discoveryStderrLogLine("Error: key moss_sk_abc_123 rejected")).toBe(
+      "Error: key [redacted-api-key] rejected",
+    );
+    // A key-value secret is masked to the end of its value, and further.
+    expect(discoveryStderrLogLine("config token=abc123 is invalid")).not.toContain("abc123");
+    expect(discoveryStderrLogLine(`ERROR ${"x".repeat(1_000)}`).length).toBeLessThanOrEqual(401);
+  });
 });
 
 describe("thread checkpoint control", () => {

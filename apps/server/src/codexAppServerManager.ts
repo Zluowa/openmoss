@@ -85,6 +85,7 @@ import {
   BROWSER_SCRIPT_BATCH_GUIDANCE,
 } from "@moss/shared/browserAutomationCatalogue";
 import { normalizeModelSlug } from "@moss/shared/model";
+import { redactSensitiveText } from "@moss/shared/mossRuntimeContext";
 import {
   approvalSessionGrantWidensSessionPolicy,
   readProposedExecpolicyAmendment,
@@ -461,7 +462,36 @@ interface CodexSessionContext {
   codexRuntimeHomePath?: string;
   discovery?: boolean;
   discoveryKey?: string;
+  /**
+   * A discovery process's last error lines. Its stderr reaches no transcript, so without
+   * these an exit while answering a listing says nothing about why.
+   */
+  discoveryStderrTail?: string[];
 }
+
+/** Error lines kept per discovery process, and the length each keeps. */
+const DISCOVERY_STDERR_TAIL_LINES = 4;
+/** How long a discovery exit's log line waits for the rest of the process's stderr. */
+const DISCOVERY_EXIT_STDERR_WAIT_MS = 250;
+const DISCOVERY_STDERR_LINE_CHARS = 400;
+
+/** A discovery stderr line as it may reach the server log: secrets masked, length capped. */
+export function discoveryStderrLogLine(line: string): string {
+  const redacted = redactSensitiveText(line).replace(
+    /\bmoss_sk_[A-Za-z0-9_-]+/g,
+    "[redacted-api-key]",
+  );
+  return redacted.length > DISCOVERY_STDERR_LINE_CHARS
+    ? `${redacted.slice(0, DISCOVERY_STDERR_LINE_CHARS)}…`
+    : redacted;
+}
+
+/**
+ * How long a failed plugin listing is answered from memory instead of starting another
+ * process. A Codex that exits while listing (seen on Windows, 2026-11-17) otherwise started
+ * a new app-server for every listing the open chat asked for, roughly once a minute.
+ */
+export const CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS = 5 * 60 * 1000;
 
 /** Internal stop-only snapshot. Object identity is checked against a live context. */
 export interface CodexRegisteredRuntimeStopScope {
@@ -2093,6 +2123,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   /** Background image skill upgrades by managed home; see startManagedImageSkillUpgrade. */
   private readonly managedImageSkillUpgrades = new Map<string, Promise<void>>();
   private readonly pluginsCache = new Map<string, ProviderListPluginsResult>();
+  /** Recent plugin-listing failures by cache key; see CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS. */
+  private readonly pluginListFailures = new Map<
+    string,
+    { readonly error: unknown; readonly atMs: number }
+  >();
   private readonly pluginDetailCache = new Map<string, ProviderReadPluginResult>();
 
   private runPromise: (effect: Effect.Effect<unknown, never>) => Promise<unknown>;
@@ -6681,7 +6716,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           cached: true,
         };
       }
+      // A listing that just failed fails again without another process; asking to reload
+      // (or a changed account, path, or sign-in: another key) tries again at once.
+      const failure = this.pluginListFailures.get(cacheKey);
+      if (failure && Date.now() - failure.atMs < CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS) {
+        throw failure.error;
+      }
     }
+    const rememberFailure = (error: unknown) => {
+      this.pluginListFailures.delete(cacheKey);
+      this.pluginListFailures.set(cacheKey, { error, atMs: Date.now() });
+      for (const oldest of this.pluginListFailures.keys()) {
+        if (this.pluginListFailures.size <= 32) break;
+        this.pluginListFailures.delete(oldest);
+      }
+    };
 
     const context = await Promise.resolve(
       this.resolveContextForDiscovery(
@@ -6708,8 +6757,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         phase: "plugin/list",
         code: discoveryFailureCode(error),
       });
+      rememberFailure(error);
       throw error;
     });
+    this.pluginListFailures.delete(cacheKey);
     const parsed = parseCodexPluginListResponse(response);
     const result: ProviderListPluginsResult = {
       // Without kinds this is the whole remote directory; keep its cards light.
@@ -7483,6 +7534,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       }
       const lines = text.split(/\r?\n/g);
       for (const message of classifyCodexStderrLines(lines, stderrState)) {
+        if (context.discovery) {
+          const tail = (context.discoveryStderrTail ??= []);
+          tail.push(discoveryStderrLogLine(message));
+          if (tail.length > DISCOVERY_STDERR_TAIL_LINES) tail.shift();
+        }
         this.emitErrorEvent(context, "process/stderr", message);
       }
     };
@@ -7509,6 +7565,30 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
       const message = `codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"}).`;
       const exitError = new Error(message);
+      if (context.discovery) {
+        // Ids and Codex's own error lines (masked) only: the request that was pending says
+        // what it was doing, the lines why it stopped. A process's last stderr can arrive
+        // after its exit, so the line waits briefly for the stream to end.
+        const pendingMethods = Array.from(
+          new Set(Array.from(context.pending.values(), (pending) => pending.method)),
+        );
+        let logged = false;
+        const logExit = () => {
+          if (logged) return;
+          logged = true;
+          clearTimeout(stderrWait);
+          log.warn("codex discovery app-server exited", {
+            code,
+            signal,
+            pendingMethods,
+            stderr: context.discoveryStderrTail ?? [],
+          });
+        };
+        const stderrWait = setTimeout(logExit, DISCOVERY_EXIT_STDERR_WAIT_MS);
+        stderrWait.unref?.();
+        if (context.child.stderr.readableEnded) logExit();
+        else context.child.stderr.once("end", logExit);
+      }
       const ownedContext = context.discovery
         ? this.discoverySessions.get(context.discoveryKey ?? "") === context
         : this.sessions.get(context.session.threadId) === context;

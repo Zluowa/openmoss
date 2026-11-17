@@ -161,7 +161,18 @@ import {
   type ThreadTitleGenerationInput,
 } from "../../git/Services/TextGeneration.ts";
 import { TextGenerationError } from "../../git/Errors.ts";
-import { resolveTextGenerationInputForSelection } from "../../git/textGenerationSelection.ts";
+import {
+  resolveTextGenerationInputForSelection,
+  type TextGenerationProviderInput,
+} from "../../git/textGenerationSelection.ts";
+import {
+  buildThreadTitleForkPrompt,
+  parseThreadTitleForkReply,
+  resolveThreadTitleRoute,
+  resolveTitleEffort,
+  withLowTitleEffort,
+  type ThreadTitleCandidate,
+} from "../../git/threadTitleRoute.ts";
 import {
   ProviderService,
   type ProviderRuntimeSessionStopTarget,
@@ -1948,7 +1959,12 @@ const make = Effect.gen(function* () {
     }
 
     // Non-generating chat providers still get AI titles via the configured git-writing model.
-    // Skip the configured fallback when its provider is currently unavailable.
+    return yield* resolveConfiguredFallbackTextGenerationInput();
+  });
+
+  // The configured Git-writing model on its own instance, skipped while that provider is
+  // unavailable.
+  const resolveConfiguredFallbackTextGenerationInput = Effect.fnUntraced(function* () {
     const settings = yield* serverSettings.getSettings;
     const fallbackInstance = resolveProviderInstance(settings, {
       provider: settings.textGenerationModelSelection.provider,
@@ -1971,6 +1987,134 @@ const make = Effect.gen(function* () {
       settings.textGenerationModelSelection,
       providerStartOptionsFromInstance(fallbackInstance),
     );
+  });
+
+  /** What the isolated path says about a routed request here, without generating anything. */
+  const titleCandidate = (
+    candidate: TextGenerationProviderInput | null,
+    cwd: string,
+  ): Effect.Effect<ThreadTitleCandidate | null> => {
+    if (!candidate) return Effect.succeed(null);
+    const routed = { ...candidate, modelSelection: withLowTitleEffort(candidate.modelSelection) };
+    if (!textGeneration.getComposerPredictionSupport) {
+      return Effect.succeed({ input: routed, support: { kind: "supported" } });
+    }
+    return textGeneration
+      .getComposerPredictionSupport({
+        cwd,
+        modelSelection: routed.modelSelection,
+        ...(routed.providerOptions ? { providerOptions: routed.providerOptions } : {}),
+        ...(routed.codexHomePath ? { codexHomePath: routed.codexHomePath } : {}),
+      })
+      .pipe(Effect.map((support) => ({ input: routed, support })));
+  };
+
+  /**
+   * Which route writes a chat's title: the chat's own model where the isolated path serves it,
+   * else the configured Git-writing model where it does, else (a Codex chat) the native fork
+   * of the live thread after the first turn. Every route runs at its lowest effort.
+   */
+  const resolveTitleRouteForThread = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly cwd: string;
+    readonly chatDriver: ProviderKind | undefined;
+    readonly modelSelection?: ModelSelection;
+    readonly providerOptions?: ProviderStartOptions;
+  }) {
+    const chat = yield* titleCandidate(
+      yield* resolveThreadTextGenerationInput({
+        threadId: input.threadId,
+        ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+      }),
+      input.cwd,
+    );
+    const configured =
+      chat?.support.kind === "supported"
+        ? null
+        : yield* titleCandidate(yield* resolveConfiguredFallbackTextGenerationInput(), input.cwd);
+    return resolveThreadTitleRoute({ chat, configured, chatDriver: input.chatDriver });
+  });
+
+  // Chats whose first title waits for the native fork, by thread: the prompt-derived title
+  // they carry now and the first request the title summarizes.
+  const pendingNativeThreadTitles = new Map<
+    ThreadId,
+    { readonly fallbackTitle: string; readonly message: string }
+  >();
+
+  /** How long after a turn settles the title fork starts, and how often it tries again. */
+  const NATIVE_TITLE_START_DELAY = Duration.millis(1_500);
+  const NATIVE_TITLE_RETRY_DELAY = Duration.seconds(3);
+  const NATIVE_TITLE_ATTEMPTS = 3;
+  const NATIVE_TITLE_TIMEOUT_MS = 30_000;
+
+  /**
+   * Writes a waiting chat's title on Codex's native fork once its turn settled. Renames only
+   * while the chat still carries the prompt-derived title, so a name the person gave it in
+   * the meantime stays. One Info line says what happened; never the text.
+   */
+  const generateNativeThreadTitle = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    turnId: TurnId,
+  ) {
+    const pending = pendingNativeThreadTitles.get(threadId);
+    if (!pending) return;
+    pendingNativeThreadTitles.delete(threadId);
+    const thread = yield* resolveThreadShell(threadId);
+    const effort = thread
+      ? resolveTitleEffort(thread.modelSelection.provider, thread.modelSelection.model)
+      : null;
+    yield* Effect.sleep(NATIVE_TITLE_START_DELAY);
+    let outcome = "unavailable";
+    let title: string | null = null;
+    for (let attempt = 1; attempt <= NATIVE_TITLE_ATTEMPTS && title === null; attempt += 1) {
+      if (attempt > 1) yield* Effect.sleep(NATIVE_TITLE_RETRY_DELAY);
+      const result = yield* providerService
+        .predictNextUserMessage(threadId, {
+          prompt: buildThreadTitleForkPrompt(pending.message),
+          sourceTurnId: turnId,
+          generationTrigger: "live",
+          effort,
+          timeoutMs: NATIVE_TITLE_TIMEOUT_MS,
+        })
+        .pipe(Effect.orElseSucceed(() => ({ kind: "failed" as const })));
+      if (result.kind === "skipped") {
+        // A prediction fork of the same thread is running; wait for it.
+        outcome = "busy";
+        continue;
+      }
+      if (result.kind !== "predicted") {
+        outcome = result.kind === "unsupported" ? result.reason : "failed";
+        break;
+      }
+      title = parseThreadTitleForkReply(result.text);
+      outcome = title === null ? "invalid-reply" : "generated";
+      break;
+    }
+    if (title !== null) {
+      const current = yield* resolveThreadShell(threadId);
+      if (!current || current.title.trim() !== pending.fallbackTitle) {
+        outcome = "renamed-meanwhile";
+      } else {
+        const expectedTitleSequence =
+          yield* orchestrationEngine.getThreadTitleHighWaterSequence(threadId);
+        yield* orchestrationEngine
+          .dispatch({
+            type: "thread.meta.update",
+            commandId: serverCommandId("thread-title-rename"),
+            threadId,
+            title,
+            expectedTitleSequence,
+          })
+          .pipe(Effect.catchTag("OrchestrationCommandInvariantError", () => Effect.void));
+      }
+    }
+    yield* Effect.logInfo("provider command reactor thread title", {
+      threadId,
+      route: "native",
+      outcome,
+    });
   });
 
   const appendProviderFailureActivity = (input: {
@@ -5197,12 +5341,26 @@ const make = Effect.gen(function* () {
       return;
     }
     const cwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
-    const textGenerationInput = yield* resolveThreadTextGenerationInput({
+    const titleRoute = yield* resolveTitleRouteForThread({
       threadId: input.threadId,
+      cwd: cwd ?? process.cwd(),
+      chatDriver: input.modelSelection?.provider ?? thread.modelSelection.provider,
       ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-      useConfiguredFallback: true,
     });
+    if (titleRoute.kind === "native") {
+      // Written by the live thread's fork once this turn settles; the prompt's words until then.
+      pendingNativeThreadTitles.set(input.threadId, {
+        fallbackTitle,
+        message: input.messageText,
+      });
+      yield* Effect.logInfo("provider command reactor thread title", {
+        threadId: input.threadId,
+        route: "native",
+        outcome: "deferred",
+      });
+    }
+    const textGenerationInput = titleRoute.kind === "isolated" ? titleRoute.input : null;
     if (!textGenerationInput) {
       if (fallbackTitle !== currentTitle) {
         yield* orchestrationEngine
@@ -5228,6 +5386,7 @@ const make = Effect.gen(function* () {
       textGenerationProvider: textGenerationSelection.provider,
       textGenerationModel: textGenerationSelection.model,
       textGenerationOptions: textGenerationSelection.options ?? null,
+      textGenerationSource: titleRoute.kind === "isolated" ? titleRoute.source : null,
     };
     yield* Effect.logDebug("provider command reactor generating thread title", {
       ...textGenerationLogContext,
@@ -11089,7 +11248,25 @@ const make = Effect.gen(function* () {
           if (event.type !== "turn.completed" && event.type !== "turn.aborted") {
             return Effect.void;
           }
-          return processQueueDrainEventSafely(event);
+          const nativeTitle =
+            event.type === "turn.completed" &&
+            event.turnId !== undefined &&
+            pendingNativeThreadTitles.has(event.threadId)
+              ? generateNativeThreadTitle(event.threadId, event.turnId).pipe(
+                  Effect.catchCause((cause) =>
+                    Cause.hasInterruptsOnly(cause)
+                      ? Effect.void
+                      : Effect.logWarning("provider command reactor thread title", {
+                          threadId: event.threadId,
+                          route: "native",
+                          outcome: "unexpected-failure",
+                        }),
+                  ),
+                  Effect.forkScoped,
+                  Effect.asVoid,
+                )
+              : Effect.void;
+          return nativeTitle.pipe(Effect.andThen(processQueueDrainEventSafely(event)));
         }).pipe(Effect.forkScoped),
         runBlockedGoalContinuationRetries.pipe(Effect.forkScoped),
         runProviderContextLifecycleActivityRetries.pipe(Effect.forkScoped),
@@ -11149,27 +11326,58 @@ const make = Effect.gen(function* () {
         )?.title ?? thread.title;
       const cwd = yield* resolveProjectedThreadWorkspaceCwd(thread);
       const settings = yield* serverSettings.getSettings;
-      const textGenerationInput = yield* resolveThreadTextGenerationInput({
+      const titleRoute = yield* resolveTitleRouteForThread({
         threadId: input.threadId,
+        cwd: cwd ?? process.cwd(),
+        chatDriver: thread.modelSelection.provider,
         providerOptions: providerStartOptionsFromServerSettings(settings),
-        useConfiguredFallback: true,
       });
-      if (!textGenerationInput) {
+      const latestTurnId = thread.latestTurn?.turnId;
+      if (titleRoute.kind === "none" || (titleRoute.kind === "native" && !latestTurnId)) {
         return yield* new TextGenerationError({
           operation: "generateThreadTitle",
           detail: "No enabled text-generation provider is available for this thread.",
         });
       }
 
-      const generated = yield* textGeneration.generateThreadTitle({
-        cwd: cwd ?? process.cwd(),
-        message: context,
-        context: "conversation",
-        modelSelection: textGenerationInput.modelSelection,
-        ...(textGenerationInput.providerOptions
-          ? { providerOptions: textGenerationInput.providerOptions }
-          : {}),
-      });
+      const generated =
+        titleRoute.kind === "isolated"
+          ? yield* textGeneration.generateThreadTitle({
+              cwd: cwd ?? process.cwd(),
+              message: context,
+              context: "conversation",
+              modelSelection: titleRoute.input.modelSelection,
+              ...(titleRoute.input.providerOptions
+                ? { providerOptions: titleRoute.input.providerOptions }
+                : {}),
+            })
+          : yield* providerService
+              .predictNextUserMessage(input.threadId, {
+                prompt: buildThreadTitleForkPrompt(context, "conversation"),
+                sourceTurnId: latestTurnId!,
+                generationTrigger: "live",
+                effort: resolveTitleEffort(
+                  thread.modelSelection.provider,
+                  thread.modelSelection.model,
+                ),
+                timeoutMs: NATIVE_TITLE_TIMEOUT_MS,
+              })
+              .pipe(
+                Effect.orElseSucceed(() => ({ kind: "failed" as const })),
+                Effect.flatMap((result) => {
+                  const title =
+                    result.kind === "predicted" ? parseThreadTitleForkReply(result.text) : null;
+                  return title === null
+                    ? Effect.fail(
+                        new TextGenerationError({
+                          operation: "generateThreadTitle",
+                          detail:
+                            "The chat's Codex session could not write a title now. Try again once it is idle.",
+                        }),
+                      )
+                    : Effect.succeed({ title });
+                }),
+              );
       if (!isUsableGeneratedThreadTitle(generated.title)) {
         return yield* new TextGenerationError({
           operation: "generateThreadTitle",

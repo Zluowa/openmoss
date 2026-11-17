@@ -41,12 +41,14 @@ Carried over with Moss names:
 - the remote-load checks (`themeCssValueFetches`, `themeCssLoadsRemoteFiles`) and their tests in `packages/shared/src/themeCss.ts`
 - the client guard that lets the browser parse theme CSS first and drops every declaration that could load a file, in `apps/web/src/theme/themeCss.ts`, and its hostile-CSS browser test in `apps/web/src/lib/themeCss.browser.ts`
 - the custom CSS code box in `apps/web/src/components/settings/ThemeCssEditor.tsx`
-- the stable-selector list, the agent styling guide and the test that fails when a selector leaves the source (`apps/web/src/theme/themeCssHooks.test.ts`)
+- the stable-selector list, the agent styling guide and the test that fails when a selector leaves the source (`apps/web/src/theme/themeCssHooks.test.ts`), including T3 Code's chat-area hook name `[data-workspace-area="conversation"]`, its composer-text hook, and its guide lines on what CSS cannot reach, native scrollbars and icons (rewritten for Moss's mask icons)
 
 Moss-only adaptations:
 
 - Moss themes are per-appearance packs (accent, background, foreground, sidebar, contrast, fonts) stored on each client, so CSS is a field of a pack, Moss's share string carries it, and the selector list and guide describe Moss's DOM. There is no theme file service: `moss_theme_set` stores one published theme in server settings, and each client applies each published revision once to its own theme store (`apps/web/src/components/AgentThemeSync.tsx`). Clients cannot publish a theme through the settings RPC (`apps/server/src/reservedSettingsBoundary.ts`).
 - The guard is stricter: it also drops `@font-face` and every at-rule it does not walk, and theme CSS cannot write text (`content`, `quotes`, `list-style` and `text-overflow` take only empty strings).
+- Every stable selector has a rendered check (`apps/web/src/components/ThemeCssHooks.browser.tsx`, `apps/web/src/components/ui/ThemeCssHooks.primitives.browser.tsx`): a rule set on it through the theme guard must show on screen, read from a screenshot. `moss_theme_set` says the theme was saved, not that it shows, and names selectors outside the stable list (`themeCssUnstableSelectors`).
+- Theme pictures as files (Moss only; T3 Code embeds `data:` images): `moss_theme_set` `images` and Settings > Add picture store a file under its content hash (`apps/server/src/themeImages.ts`), CSS names it `url(moss-theme-image:<id>)`, and the browser guard alone turns that fixed-shape reference into this server's `/api/theme-images/<id>` address.
 - A safe way back that does not depend on the themed UI: Ctrl+Alt+Shift+Backspace restores the default look, and Settings > Appearance has "Restore default look".
 - `moss_theme_set` needs a full-access caller thread with a live turn, like T3's environment settings, and acts only on the local server.
 - Not carried over: T3's theme files on disk, the `t3 theme` command line and its dev-home fix (#34700), the import conflict dialog (#37493 keeps CSS in its "Keep both" copy; Moss imports one share string into one pack), the stored copy of published themes for the first frame (#36042; Moss clients apply a published theme into the theme store they already paint from at launch), and the mobile app.
@@ -152,6 +154,17 @@ names the scopes "In Moss" and "This computer", draws the series in its own them
 colors, and keeps every string in its zh-CN and en localization. Synara's Billing tab
 is not included.
 
+## Synara tool-call rows (absorbed)
+
+How the transcript's tool, command and reasoning rows fold, open and summarise follows
+Synara (https://github.com/Emanuele-web04/synara, MIT): narration rendered as prose and
+one-line tool rows from PR #2009 (commit 6c5939957), command rows as plain text from
+PR #2159 (commit 0d2876627), read and search icons for native tool names from PR #2178
+(commit 8b0337cae), and the tool-group summary's naming rule from `toolCallGroup.logic.ts`
+at Synara 1.6.1 (commit 68e4589be), with their tests. Moss keeps its own Chinese copy,
+tool labels and icons, the wrap-up box and the connector widget block, and adds the
+Windows PowerShell and `cmd` launcher unwrapping.
+
 ## Synara and T3 Code composer predictions (absorbed)
 
 The composer prediction (one predicted next message shown as ghost text in the empty
@@ -167,6 +180,14 @@ For a Codex chat that this generation cannot serve (on Windows, an account that 
 direct endpoint with a key), Moss runs the same rules on the Codex app-server's own
 prediction fork of the live thread (`thread/fork` with `experimentalPredictionMode`), the
 Moss code that predates the port; see the OpenAI Codex CLI section for the CLI's license.
+Later upstream changes taken by hunks: the `generation-unavailable` outcome and the single
+retry after it, from the merged Synara PR #2175 (commit
+a55cdc0f04f2fea21d023111c73be0be78ffcd5c), and predicting on the provider's smaller model
+(Claude Sonnet 5.5, the default Git text-generation model for Codex) when the Git-writing
+model is on another instance, from Synara PR #2196
+(https://github.com/Emanuele-web04/synara/pull/2196, MIT, commit
+b75c9ed34287fa4ab07fd309ff7263c17751a0bd). Moss applies the smaller model only to a chat
+model its catalog knows.
 
 Three rules come from T3 Code's "Suggest next prompt"
 (https://github.com/pingdotgg/t3code, MIT, Copyright (c) 2026 T3 Tools Inc.; PR #28047

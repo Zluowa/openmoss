@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import type { TimelineEntry } from "~/workLog";
 
+import { codexOwnerTimelineEntries } from "~/test/fixtures/codexOwnerImageTurn.timeline";
+
 import { isWrapUpTimelineEntry, resolveWrapUpPlan } from "./wrapUpPlan";
 
 const turn = TurnId.makeUnsafe("turn-1");
@@ -113,5 +115,42 @@ describe("resolveWrapUpPlan", () => {
   it("recognizes wrap-up rows so they never show as tool calls", () => {
     expect(isWrapUpTimelineEntry(wrapUp("w1", asking))).toBe(true);
     expect(isWrapUpTimelineEntry(userMessage("u1", "hi"))).toBe(false);
+  });
+
+  // Codex reports an MCP call with its arguments in `data.arguments` and no
+  // `detail` string. The owner's 2026-11-17 chat asked a question this way and
+  // the box never drew.
+  it("reads the box from a Codex MCP call's arguments (real payload)", () => {
+    const entries = codexOwnerTimelineEntries();
+    const wrapUpEntries = entries.filter(isWrapUpTimelineEntry);
+    expect(wrapUpEntries.length).toBeGreaterThan(0);
+    const plan = resolveWrapUpPlan(entries);
+    expect(plan.live?.box.ask).toBe("现在的角色位置和大小合适吗？");
+    expect(plan.live?.box.actions).toEqual(["保持这样", "调整位置"]);
+    expect(plan.live?.box.recap).toContain("Moss");
+    const lastAssistant = entries.findLast(
+      (entry) => entry.kind === "message" && entry.message.role === "assistant",
+    );
+    expect(plan.live?.afterMessageId).toBe(lastAssistant?.id);
+  });
+
+  it("reads the box from a Codex MCP call whose arguments arrive as JSON text", () => {
+    const entry = wrapUp("w1", asking);
+    if (entry.kind !== "work") throw new Error("Expected a work entry");
+    const { detail: _detail, ...withoutDetail } = entry.entry;
+    const codexEntry: TimelineEntry = {
+      ...entry,
+      entry: {
+        ...withoutDetail,
+        mcpToolResult: {
+          callId: "call-1",
+          server: "moss",
+          tool: "moss_wrap_up",
+          status: "completed",
+          arguments: JSON.stringify(asking),
+        } as never,
+      },
+    };
+    expect(resolveWrapUpPlan([codexEntry]).live?.box.ask).toBe("Topped up?");
   });
 });
