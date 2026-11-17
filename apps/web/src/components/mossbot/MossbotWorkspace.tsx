@@ -24,6 +24,7 @@ import { isMossbot } from "./mossbot.logic";
 import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
 import { MossbotCompanion } from "./MossbotCompanion";
 import { MossbotOnboarding } from "./MossbotOnboarding";
+import { useMossbotOnboardingPresence } from "./mossbotOnboardingPresence";
 
 export function MossbotWorkspace() {
   const { t } = useMossbotCopy();
@@ -46,6 +47,12 @@ export function MossbotWorkspace() {
   useEffect(() => {
     if (empty && !onboardingSkipped) setOnboarding(true);
   }, [empty, onboardingSkipped]);
+  // While the stage is up the shell hides the list panel; leaving (start chatting, skip, another page) brings it back.
+  const setOnboardingPresence = useMossbotOnboardingPresence((s) => s.setActive);
+  useEffect(() => {
+    setOnboardingPresence(onboarding);
+    return () => setOnboardingPresence(false);
+  }, [onboarding, setOnboardingPresence]);
   // The onboarding lives in the same content card as every other Mossbot view: the shared top bar keeps the
   // title-bar band (window controls, traffic lights, drag region) and the stage starts under it.
   if (onboarding)
