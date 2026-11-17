@@ -82,6 +82,8 @@ describe("browser automation catalogue projection", () => {
       READ_ONLY_OPEN_WORLD,
       DESTRUCTIVE_OPEN_WORLD,
       DESTRUCTIVE_OPEN_WORLD,
+      READ_ONLY_OPEN_WORLD,
+      DESTRUCTIVE_OPEN_WORLD,
       DESTRUCTIVE_LOCAL,
     ]);
     for (const tool of BROWSER_TOOL_DEFINITIONS) {
@@ -170,7 +172,8 @@ describe("browser automation catalogue projection", () => {
     expect(JSON.stringify(providerCatalogue).length).toBeLessThanOrEqual(65_000);
     expect(
       providerCatalogue.reduce((sum, tool) => sum + tool.description.length, 0),
-    ).toBeLessThanOrEqual(11_000);
+      // 11,000 before the two WebMCP tools came back (2026-11-18); they add about 1,250.
+    ).toBeLessThanOrEqual(12_300);
     // browser_run carries the settle/outline/closed-shadow contract the other
     // tools rely on; the catalogue-wide budget above is the context guard.
     expect(BROWSER_TOOL_DEFINITIONS_BY_NAME.browser_run.description.length).toBeLessThanOrEqual(

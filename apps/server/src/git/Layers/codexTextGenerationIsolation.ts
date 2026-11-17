@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { Effect, FileSystem } from "effect";
+import { Duration, Effect, FileSystem, Schedule } from "effect";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 
 import {
@@ -912,13 +912,33 @@ export function writePrivateFileString(filePath: string, content: string) {
   });
 }
 
+/** Windows: how long a removal is retried while a just-ended process still holds the folder. */
+const WINDOWS_REMOVE_RETRIES = 50;
+const WINDOWS_REMOVE_RETRY_DELAY_MS = 100;
+
 export function acquireSecureTempDirectory(input: {
   readonly directory: string;
   readonly prefix: string;
 }) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
-    const directoryPath = yield* fileSystem.makeTempDirectoryScoped(input);
+    // As makeTempDirectoryScoped, except on Windows: processes ended through a job (a timed-out
+    // CLI) release their working folder a moment after the launcher exits, and until then the
+    // removal fails with EBUSY. Retry for up to about five seconds there; the folder holds a
+    // private credential snapshot, so it is never left behind silently.
+    const remove = (directoryPath: string) =>
+      process.platform === "win32"
+        ? fileSystem.remove(directoryPath, { recursive: true }).pipe(
+            Effect.retry({
+              times: WINDOWS_REMOVE_RETRIES,
+              schedule: Schedule.spaced(Duration.millis(WINDOWS_REMOVE_RETRY_DELAY_MS)),
+            }),
+          )
+        : fileSystem.remove(directoryPath, { recursive: true });
+    const directoryPath = yield* Effect.acquireRelease(
+      fileSystem.makeTempDirectory(input),
+      (directoryPath) => Effect.orDie(remove(directoryPath)),
+    );
     yield* fileSystem.chmod(directoryPath, PRIVATE_DIRECTORY_MODE);
     return directoryPath;
   });

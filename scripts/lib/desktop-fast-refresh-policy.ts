@@ -43,6 +43,13 @@ const PATH_RULES: ReadonlyArray<{
     test: (p) => p.startsWith("apps/desktop/native/") || p.startsWith("apps/desktop/patches/"),
     reason: "desktop native helpers or patches",
   },
+  {
+    // moss-job-launch.exe ships in resources/, which a fast refresh does not replace.
+    test: (p) =>
+      p.startsWith("apps/server/native/") ||
+      p === "apps/server/scripts/build-windows-job-launcher.mjs",
+    reason: "server native helpers (packaged resources, e.g. the Windows job launcher)",
+  },
 ];
 
 /** package.json fields whose change alters what is installed or how the app identifies itself. */
@@ -114,6 +121,7 @@ export const FAST_REFRESH_NOT_REFRESHED = [
   "update feed (latest.yml, blockmap) and code signing",
   "packaged production node_modules and dependency patches",
   "bundled Codex, Claude and Cua runtimes, canvas bundle, SSH remote runtime (ssh-runtime.tar.gz)",
+  "native helpers in resources (the Windows job launcher moss-job-launch.exe)",
   "packaged resources and production public config",
   "Electron and Moss.exe; the version number shown stays the installer's",
   "first run on a clean profile",

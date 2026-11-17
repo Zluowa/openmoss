@@ -8,6 +8,7 @@
 //   control styles, the length limit and counter, and a hint for the reset shortcut.
 
 import { THEME_CSS_MAX_LENGTH } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { THEME_RESET_SHORTCUT_LABEL } from "@moss/shared/themeCss";
 import { useId, useState, type KeyboardEvent } from "react";
 
@@ -43,7 +44,7 @@ export function ThemeCssEditor({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (isImeComposingKeyEvent(event) || event.ctrlKey || event.metaKey || event.altKey) return;
     const editor = event.currentTarget;
     if (event.key === "Escape") {
       // The first Escape frees Tab for focus moves; it must not close Settings.

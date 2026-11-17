@@ -1277,3 +1277,136 @@ describe("DesktopBrowserAutomationHost", () => {
     panelReveal.resolve();
   });
 });
+
+// Review of #655 (S1, B2): the host owns the deadline and the page's identity.
+describe("DesktopBrowserAutomationHost page WebMCP tools", () => {
+  const bridgeTool = (name: string, annotations: Record<string, boolean>, origin: string) => ({
+    index: 0,
+    signature: "a".repeat(64),
+    name,
+    description: `Tool ${name}.`,
+    inputSchema: { type: "object", properties: {} },
+    origin,
+    annotations: {
+      consequentialHint: annotations.readOnlyHint !== true,
+      ...annotations,
+      untrustedContentHint: true,
+    },
+  });
+
+  /** A real-shaped guest whose page registered one tool, scripted at the CDP level. */
+  const setup = (options: {
+    readonly tool: ReturnType<typeof bridgeTool>;
+    readonly invoke: (params: Record<string, unknown>) => Promise<unknown>;
+  }) => {
+    const { manager, webContents } = createManager();
+    let throttled = true;
+    Object.assign(webContents, {
+      getBackgroundThrottling: () => throttled,
+      setBackgroundThrottling: (value: boolean) => {
+        throttled = value;
+      },
+    });
+    const send = webContents.debugger.sendCommand as unknown as ReturnType<
+      typeof vi.fn<SendCommand>
+    >;
+    const original = send.getMockImplementation()!;
+    const calls: Array<{ method: string; params: Record<string, unknown> | undefined }> = [];
+    send.mockImplementation(async (method, params) => {
+      calls.push({ method, params });
+      if (
+        method === "Runtime.evaluate" &&
+        params?.expression === "globalThis.__mossWebMcpBridgeV1"
+      ) {
+        return { result: { objectId: "bridge-object" } };
+      }
+      if (method === "Runtime.callFunctionOn") {
+        const declaration = String(params?.functionDeclaration ?? "");
+        if (declaration.includes("this.list()")) {
+          return {
+            result: {
+              value: {
+                available: true,
+                implementation: "compatibility",
+                skippedToolCount: 0,
+                tools: [options.tool],
+              },
+            },
+          };
+        }
+        if (declaration.includes("this.invoke(")) return options.invoke(params ?? {});
+      }
+      return original(method, params);
+    });
+    const host = new DesktopBrowserAutomationHost(manager);
+    const run = (name: string, args: Record<string, unknown>) =>
+      host.executeTool({
+        sessionId: "session-webmcp",
+        provider: "codex",
+        threadId: THREAD_ID,
+        name: name as "browser_webmcp_call",
+        arguments: args,
+      });
+    return { host, run, calls, webContents, throttled: () => throttled };
+  };
+
+  it("releases the tab when a page tool never answers, so the chat can navigate on", async () => {
+    const { host, run, throttled } = setup({
+      tool: bridgeTool("hang", { readOnlyHint: false }, "https://example.test"),
+      // A page tool whose promise never settles.
+      invoke: () => new Promise(() => undefined),
+    });
+    const discovery = (await run("browser_webmcp_tools", {})) as {
+      discoveryId: string;
+      tools: Array<{ toolId: string; origin: string }>;
+    };
+    const started = performance.now();
+    await expect(
+      run("browser_webmcp_call", {
+        discoveryId: discovery.discoveryId,
+        toolId: discovery.tools[0]!.toolId,
+        origin: discovery.tools[0]!.origin,
+        timeoutMs: 400,
+      }),
+    ).rejects.toMatchObject({ browserError: { code: "BrowserTimeout" } });
+    expect(performance.now() - started).toBeLessThan(2_000);
+    // Frames go back to the guest's own setting even though the page never answered.
+    expect(throttled()).toBe(true);
+    await expect(
+      run("browser_navigate", { url: "https://example.test/next", timeoutMs: 3_000 }),
+    ).resolves.toMatchObject({ tabId: TAB_ID });
+    await host.dispose();
+  });
+
+  it("names the site from the guest's own address, never from what the page reports", async () => {
+    const { host, run, webContents } = setup({
+      // The page claims to be another site.
+      tool: bridgeTool("transfer", { readOnlyHint: true }, "https://mail.google.com"),
+      invoke: async () => ({ result: { value: { status: "completed", result: { ok: true } } } }),
+    });
+    const discovery = (await run("browser_webmcp_tools", {})) as {
+      discoveryId: string;
+      tools: Array<{ toolId: string; origin: string }>;
+    };
+    expect(webContents.getURL()).toBe("https://example.test/");
+    expect(discovery.tools[0]!.origin).toBe("https://example.test");
+    // Naming the page's claimed site is refused; naming the real one runs.
+    await expect(
+      run("browser_webmcp_call", {
+        discoveryId: discovery.discoveryId,
+        toolId: discovery.tools[0]!.toolId,
+        origin: "https://mail.google.com",
+      }),
+    ).rejects.toMatchObject({ browserError: { code: "BrowserWebMcpDiscoveryStale" } });
+    // A stale call drops the discovery; the agent discovers again and names the real site.
+    const again = (await run("browser_webmcp_tools", {})) as typeof discovery;
+    await expect(
+      run("browser_webmcp_call", {
+        discoveryId: again.discoveryId,
+        toolId: again.tools[0]!.toolId,
+        origin: "https://example.test",
+      }),
+    ).resolves.toMatchObject({ origin: "https://example.test", status: "completed" });
+    await host.dispose();
+  });
+});

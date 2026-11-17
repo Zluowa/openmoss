@@ -24,6 +24,70 @@ const SUPPORTED = { kind: "supported" } as const;
 const WINDOWS_BLOCKED = { kind: "platform-blocked", platform: "win32" } as const;
 
 describe("resolveThreadTitleRoute", () => {
+  // #661 review D2: on Windows the person's own account through the CLI in a job costs a
+  // launcher and a CLI per title; the configured model answers first.
+  it("asks the configured model before starting the chat's CLI in a Windows job", () => {
+    const viaJob = { kind: "supported", windowsJob: true } as const;
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: viaJob },
+        configured: { input: { modelSelection: MOSS_LANE }, support: SUPPORTED },
+        chatDriver: "codex",
+      }),
+    ).toMatchObject({ kind: "isolated", source: "configured" });
+    // Only when nothing else serves does the chat's CLI run, before the native fork.
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: viaJob },
+        configured: { input: { modelSelection: MOSS_LANE }, support: WINDOWS_BLOCKED },
+        chatDriver: "codex",
+      }),
+    ).toMatchObject({ kind: "isolated", source: "chat" });
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: viaJob },
+        configured: null,
+        chatDriver: "codex",
+      }),
+    ).toEqual({
+      kind: "isolated",
+      input: { modelSelection: OWNER_CHAT },
+      source: "chat",
+      // A Codex chat: if the CLI in the job fails, the native fork writes the title.
+      nativeAfterFailure: true,
+    });
+    // Served directly: no fork afterwards (as on main); not a Codex chat: no fork at all.
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: SUPPORTED },
+        configured: null,
+        chatDriver: "codex",
+      }),
+    ).not.toHaveProperty("nativeAfterFailure");
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: viaJob },
+        configured: null,
+        chatDriver: "claudeAgent",
+      }),
+    ).not.toHaveProperty("nativeAfterFailure");
+    // A configured model that itself needs the CLI comes after the chat's own.
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: viaJob },
+        configured: { input: { modelSelection: MOSS_LANE }, support: viaJob },
+        chatDriver: "codex",
+      }),
+    ).toMatchObject({ kind: "isolated", source: "chat" });
+    expect(
+      resolveThreadTitleRoute({
+        chat: { input: { modelSelection: OWNER_CHAT }, support: WINDOWS_BLOCKED },
+        configured: { input: { modelSelection: MOSS_LANE }, support: viaJob },
+        chatDriver: "codex",
+      }),
+    ).toMatchObject({ kind: "isolated", source: "configured" });
+  });
+
   it("keeps the chat's own route where the isolated path serves it", () => {
     expect(
       resolveThreadTitleRoute({

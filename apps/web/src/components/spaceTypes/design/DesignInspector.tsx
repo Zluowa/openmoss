@@ -14,6 +14,7 @@ import type {
   DesignNote,
   DesignTweak,
 } from "@moss/shared/spaceItems/designCanvas";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { DESIGN_NOTE_COLORS, DESIGN_PAPER } from "@moss/shared/spaceItems/designCanvas";
 import {
   customFontStack,
@@ -129,6 +130,7 @@ function TextField(props: {
       onBlur={() => commit(draft)}
       onKeyDown={(event) => {
         event.stopPropagation();
+        if (isImeComposingKeyEvent(event)) return;
         if (event.key === "Enter") commit(draft);
         if (event.key === "Escape") setDraft(props.value);
         if (props.numeric && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
@@ -2157,6 +2159,7 @@ function LayerRow(props: {
           className={cn(FIELD_CLASS, "flex-1")}
           onKeyDown={(event) => {
             event.stopPropagation();
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key === "Enter" || event.key === "Escape")
               (event.target as HTMLInputElement).blur();
           }}
