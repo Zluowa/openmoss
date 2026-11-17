@@ -15,10 +15,24 @@ describe("computerApprovalDisplayArgs", () => {
       prompt_text: "private prompt",
     });
 
-    expect(JSON.parse(display)).toEqual({
-      app: "Safari",
-      steps: { count: 3, types: ["type_text", "set_value", "click"] },
-    });
-    expect(display).not.toMatch(/private|Bearer|Authorization/);
+    expect(display).toEqual([
+      { name: "app", value: "Safari" },
+      { name: "steps", value: '{"count":3,"types":["type_text","set_value","click"]}' },
+    ]);
+    expect(JSON.stringify(display)).not.toMatch(/private|Bearer|Authorization/);
+  });
+
+  // The pending approval card reads `toolParamsDisplay` only as `{ name, value }` rows; a
+  // JSON string (what this returned until 2026-11-17) left every Computer card without
+  // the action's parameters.
+  it("gives the approval card name/value rows it can show", () => {
+    const display = computerApprovalDisplayArgs({ app: "Finder", x: 120, y: 48, button: "left" });
+    expect(Array.isArray(display)).toBe(true);
+    expect(display).toEqual([
+      { name: "app", value: "Finder" },
+      { name: "x", value: "120" },
+      { name: "y", value: "48" },
+      { name: "button", value: "left" },
+    ]);
   });
 });
