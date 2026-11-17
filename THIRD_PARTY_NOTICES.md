@@ -154,6 +154,19 @@ names the scopes "In Moss" and "This computer", draws the series in its own them
 colors, and keeps every string in its zh-CN and en localization. Synara's Billing tab
 is not included.
 
+## Synara pull request links (absorbed)
+
+A chat linking several pull requests is adapted from Synara PR #2132
+(https://github.com/Emanuele-web04/synara/pull/2132, MIT, commit
+85af28bc50887c828e959c4b4081b602d201e49b): the link contracts and commands, the shared
+link helpers, the migration (upstream 144, Moss 170), the decider, projector, repository and
+snapshot reads, the git metadata reactor's linking and refresh, the agent link and unlink
+tools, the environment panel's linked PRs and link dialog, and their tests. The Activity
+row's PR count chip and its menu come from Synara PR #2195
+(https://github.com/Emanuele-web04/synara/pull/2195, MIT, commit
+8ab2c8fadf5311be0b86a7807cc082fb3d3d8b17). Moss declares the migration additive under its
+reader floor and reconciles links after a downgrade to a build without them.
+
 ## Synara tool-call rows (absorbed)
 
 How the transcript's tool, command and reasoning rows fold, open and summarise follows
@@ -509,6 +522,8 @@ The behaviour layer under Moss's shared components in `apps/web/src/components/u
 - Source: https://github.com/vercel-labs/ui
 - License: Apache License 2.0. The full text ships in each package as `LICENSE`; the packages carry no `NOTICE` file.
 - These are public open-source packages. Vercel's Public Beta Agreement covers Vercel products used through a Vercel account and says open-source components are licensed under their own license (section 3), so it does not restrict shipping these packages in Moss.
+
+Moss's tests of its in-app browser WebMCP host also run a project-settings page built with UI SDK in a real Electron guest. That built page is vendored, unmodified, under `third_party/ui-sdk-webmcp-fixture/` with its pinned versions, hashes and licence (`NOTICE.md`, `LICENSE`): `@ui-sdk/web` and `@ui-sdk/core` 0.1.0-beta.6, Apache License 2.0. It is a test fixture only and is not shipped in the Moss app.
 
 ## OpenMausBot (Mossbot group chats, adapted)
 

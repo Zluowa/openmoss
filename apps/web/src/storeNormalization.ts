@@ -207,6 +207,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.sidechatLastActivityAt ?? null) === (right.sidechatLastActivityAt ?? null) &&
     (left.sidechatExpiredAt ?? null) === (right.sidechatExpiredAt ?? null) &&
     deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
+    deepEqualJson(left.pullRequests ?? [], right.pullRequests ?? []) &&
     (left.handoff ?? null) === (right.handoff ?? null) &&
     (left.isProjectImport ?? false) === (right.isProjectImport ?? false) &&
     deepEqualJson(left.claudeCacheReview ?? null, right.claudeCacheReview ?? null) &&
@@ -1836,6 +1837,10 @@ export function normalizeThreadFromReadModel(
     deepEqualJson(previous.lastKnownPr, incoming.lastKnownPr)
       ? previous.lastKnownPr
       : (incoming.lastKnownPr ?? null);
+  const pullRequests =
+    previous?.pullRequests && deepEqualJson(previous.pullRequests, incoming.pullRequests ?? [])
+      ? previous.pullRequests
+      : (incoming.pullRequests ?? []);
   const pinnedMessages =
     previous?.pinnedMessages &&
     deepEqualJson(previous.pinnedMessages, incoming.pinnedMessages ?? null)
@@ -2027,6 +2032,7 @@ export function normalizeThreadFromReadModel(
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: incoming.sidechatExpiredAt ?? null,
     lastKnownPr,
+    pullRequests,
     handoff,
     ...(incoming.isProjectImport ? { isProjectImport: true } : {}),
     claudeCacheReview,
@@ -2107,6 +2113,10 @@ export function normalizeThreadShellSnapshot(
     deepEqualJson(previous.lastKnownPr, incoming.lastKnownPr)
       ? previous.lastKnownPr
       : (incoming.lastKnownPr ?? null);
+  const pullRequests =
+    previous?.pullRequests && deepEqualJson(previous.pullRequests, incoming.pullRequests ?? [])
+      ? previous.pullRequests
+      : (incoming.pullRequests ?? []);
   const error = normalizeThreadErrorMessage(incoming.session?.lastError);
   const lastVisitedAt = previous?.lastVisitedAt ?? resolveInitialLastVisitedAt(incoming, options);
   const nextWorktreePath = incoming.worktreePath;
@@ -2175,6 +2185,7 @@ export function normalizeThreadShellSnapshot(
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: incoming.sidechatExpiredAt ?? null,
     lastKnownPr,
+    pullRequests,
     handoff,
     ...(incoming.isProjectImport ? { isProjectImport: true } : {}),
     claudeCacheReview,

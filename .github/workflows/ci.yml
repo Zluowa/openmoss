@@ -234,7 +234,7 @@ jobs:
   windows_process:
     name: Windows Process Regression
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -266,6 +266,12 @@ jobs:
         run: bun scripts/node-pty-smoke.mjs
       - name: Verify Windows runtime boundary
         run: bun run windows-runtime:check
+      - name: Install pinned LLVM for the Windows job launcher
+        uses: ./.github/actions/setup-moss-llvm
+      - name: Build the Windows job launcher (byte-pinned)
+        run: node apps/server/scripts/build-windows-job-launcher.mjs
+      - name: Test the Windows job launcher and contained Codex text generation
+        run: bun run --cwd apps/server test src/platform/windowsKillOnCloseJob.test.ts src/git/Layers/CodexTextGeneration.windowsJob.test.ts src/git/Layers/CodexTextGeneration.test.ts
       - name: Test shared platform runtime
         run: bun run --cwd packages/shared test src/platformProcess.test.ts src/processRuntime.test.ts src/filesystemPlatform.test.ts src/platformEnvironment.test.ts
       - name: Test Windows process planning

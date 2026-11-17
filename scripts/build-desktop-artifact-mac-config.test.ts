@@ -230,7 +230,12 @@ describe("createDesktopPlatformBuildConfig", () => {
 
     assert.equal(win.mac, undefined);
     assert.equal(win.extraFiles, undefined);
-    assert.deepStrictEqual(win.files, ["**/*", ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS]);
+    // The Windows job launcher ships in resources/moss-job-launch, never inside app.asar.
+    assert.deepStrictEqual(win.files, [
+      "**/*",
+      ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
+      "!apps/server/native/moss-job-launch/**",
+    ]);
     assert.deepStrictEqual(win.asarUnpack, ["node_modules/node-pty/**"]);
     assert.equal(win.afterPack, WINDOWS_NATIVE_AUDIT_AFTER_PACK_MODULE_PATH);
     assert.equal(win.afterSign, undefined);

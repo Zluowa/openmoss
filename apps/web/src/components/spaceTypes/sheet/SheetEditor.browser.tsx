@@ -16,6 +16,7 @@ import { StrictMode, useEffect } from "react";
 import { useTheme } from "~/hooks/useTheme";
 import { usePageCommentsStore } from "~/pageCommentsStore";
 
+import { composeChineseWithEnter } from "../../../test/imeComposition";
 import { SheetEditor } from "./SheetEditor";
 
 const workbook = parseSheetWorkbook({
@@ -128,6 +129,32 @@ describe("电子表格 editor", () => {
       expect(last?.sheets[0]!.cells.find((cell) => cell.r === 0 && cell.c === 0)?.f).toBe("=B2*2");
     });
   });
+
+  // The Enter that confirms a pinyin candidate in the formula field must not commit the cell
+  // (with the half-typed pinyin) and leave the field.
+  it.each(["Enter", "Process"] as const)(
+    "types Chinese into the formula field without committing early (%s)",
+    async (confirmKey) => {
+      await page.viewport(1200, 760);
+      const onChange = vi.fn<(next: SheetWorkbook) => void>();
+      await mount(onChange);
+      const field = page.getByRole("textbox", { name: "编辑栏" });
+      await field.click();
+      const input = field.element() as HTMLInputElement;
+      input.select();
+      onChange.mockClear();
+      await composeChineseWithEnter(input, "fangzu", "房租", confirmKey);
+      await expect.poll(() => input.value).toBe("房租");
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(document.activeElement).toBe(input);
+      const a1 = () =>
+        onChange.mock.lastCall?.[0]?.sheets[0]!.cells.find((cell) => cell.r === 0 && cell.c === 0)
+          ?.v;
+      expect(a1()).not.toBe("fangzu");
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      await vi.waitFor(() => expect(a1()).toBe("房租"));
+    },
+  );
 
   it("adds a sheet and offers Moss or an import on a blank sheet", async () => {
     await page.viewport(1200, 760);

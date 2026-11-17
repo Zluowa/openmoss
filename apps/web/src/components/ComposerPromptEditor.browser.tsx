@@ -6,6 +6,7 @@ import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
 import { COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME } from "./chat/composerPickerStyles";
+import { composeChineseWithEnter } from "../test/imeComposition";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
 
 afterEach(async () => {
@@ -144,6 +145,74 @@ describe("multiline composer submission", () => {
     expect(onSend).not.toHaveBeenCalled();
     await page.getByRole("button", { name: "Send" }).click();
     expect(onSend.mock.calls[0]?.[0]).toContain("First paragraph.\nSecond paragraph.");
+  });
+});
+
+// The chat composer's own key handler (useChatComposerCommands) sends on any plain Enter and
+// accepts a menu item on Enter or Tab, with no input-method check: the editor must keep the
+// key that confirms a candidate from reaching it, in every shape a browser reports.
+function RawCommandHarness({ onCommand }: { onCommand: (key: string, text: string) => void }) {
+  const editor = useRef<ComposerPromptEditorHandle>(null);
+  const [draft, setDraft] = useState({ value: "", cursor: 0 });
+  return (
+    <ComposerPromptEditor
+      ref={editor}
+      {...draft}
+      terminalContexts={[]}
+      disabled={false}
+      placeholder="Prompt"
+      onRemoveTerminalContext={() => {}}
+      onPaste={() => {}}
+      onChange={(value, cursor) => setDraft({ value, cursor })}
+      onCommandKeyDown={(key) => {
+        if (key !== "Enter" && key !== "Tab") return false;
+        onCommand(key, editor.current!.readSnapshot({ flushPending: true }).value);
+        return true;
+      }}
+    />
+  );
+}
+
+describe("input-method Enter in the composer", () => {
+  it.each(["Enter", "Process"] as const)(
+    "confirms a pinyin candidate without sending (%s), then a plain Enter sends",
+    async (confirmKey) => {
+      const onCommand = vi.fn();
+      await render(<RawCommandHarness onCommand={onCommand} />);
+      const editorElement = page.getByTestId("composer-editor").element() as HTMLElement;
+      await composeChineseWithEnter(editorElement, "nihao", "你好", confirmKey);
+      await expect.poll(() => editorElement.textContent).toContain("你好");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(onCommand).not.toHaveBeenCalled();
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => onCommand.mock.calls.length).toBe(1);
+      expect(onCommand.mock.calls[0]).toEqual(["Enter", "你好"]);
+    },
+  );
+
+  it("ignores Safari's confirming keydown that arrives after the composition ended", async () => {
+    const onCommand = vi.fn();
+    await render(<RawCommandHarness onCommand={onCommand} />);
+    const editorElement = page.getByTestId("composer-editor").element() as HTMLElement;
+    await composeChineseWithEnter(editorElement, "nihao", "你好", "Process");
+    await expect.poll(() => editorElement.textContent).toContain("你好");
+    // Safari: compositionend has already fired; the Enter keydown follows with keyCode 229.
+    for (const key of ["Enter", "Tab"]) {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        code: key,
+        bubbles: true,
+        cancelable: true,
+        isComposing: false,
+      });
+      Object.defineProperty(event, "keyCode", { value: 229 });
+      Object.defineProperty(event, "which", { value: 229 });
+      editorElement.dispatchEvent(event);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(onCommand).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => onCommand.mock.calls.length).toBe(1);
   });
 });
 

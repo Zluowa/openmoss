@@ -7,6 +7,7 @@ import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { composeChineseWithEnter } from "../../test/imeComposition";
 import { ThreadFindBar } from "./ThreadFindBar";
 import type { TimelineEntry } from "../../session-logic";
 
@@ -97,4 +98,40 @@ describe("ThreadFindBar interactions", () => {
       endOffset: 16,
     });
   });
+
+  // The Enter that confirms a pinyin candidate must not jump to the next match.
+  it.each(["Enter", "Process"] as const)(
+    "confirms a pinyin candidate without jumping (%s), then Enter jumps",
+    async (confirmKey) => {
+      const onJump = vi.fn();
+      await render(
+        <ThreadFindBar
+          open
+          focusNonce={1}
+          timelineEntries={TIMELINE_ENTRIES}
+          onClose={() => {}}
+          onJump={onJump}
+          onHighlightChange={() => {}}
+          onActiveMatchChange={() => {}}
+        />,
+      );
+      const input = page.getByRole("textbox", { name: "Find in thread" });
+      // The query is typed through the input method; a new query jumps to its first match by
+      // itself, so only what the confirming key does is counted.
+      await composeChineseWithEnter(
+        input.element() as HTMLElement,
+        "error",
+        "error",
+        confirmKey,
+        async () => {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          onJump.mockClear();
+        },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(onJump).not.toHaveBeenCalled();
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => onJump.mock.calls.length).toBe(1);
+    },
+  );
 });

@@ -37,6 +37,7 @@ import {
   type ComputerSetupRequiredPayload,
   type ModelSelection,
   type OrchestrationCommand,
+  type OrchestrationThreadShell,
   type ProviderApprovalDecision,
   type ProviderKind,
   type RuntimeMode,
@@ -44,6 +45,7 @@ import {
   type TurnDispatchMode,
 } from "@moss/contracts";
 import { runtimeModeEscalatesPrivilege } from "@moss/shared/runtimeMode";
+import { pullRequestLinkKey, visiblePullRequestLinks } from "@moss/shared/threadPullRequestLinks";
 import { deriveProviderInstances, isProviderKind } from "@moss/shared/providerInstances";
 import { Effect, Layer, Option, Stream } from "effect";
 
@@ -109,7 +111,8 @@ import { cloneDelegatedAttachments } from "../delegatedAttachments";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal";
 
 import { makeAgentGatewayAutomationTools } from "../automationTools.ts";
-import { makeAgentGatewayBrowserTools } from "../browserTools.ts";
+import { makeAgentGatewayBrowserTools, type WebMcpCallApprovalRequest } from "../browserTools.ts";
+import { webMcpApprovalDisplay } from "../webMcpApprovalDisplay.ts";
 import { makeAgentGatewayComputerBrowserTools } from "../computerBrowserTools.ts";
 import { computerApprovalDisplayArgs } from "../computerApprovalDisplay.ts";
 import { makeAgentGatewayDeviceTools } from "../deviceTools.ts";
@@ -1140,13 +1143,35 @@ export const makeAgentGateway = Effect.gen(function* () {
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
+  const resolveThreadGitWorkspace = (target: OrchestrationThreadShell) =>
+    Effect.gen(function* () {
+      const threadId = target.id;
+      const project = Option.getOrUndefined(
+        yield* snapshotQuery
+          .getProjectShellById(target.projectId)
+          .pipe(Effect.mapError((error) => new ToolInputError(errorText(error)))),
+      );
+      if (!project) {
+        return yield* Effect.fail(
+          new ToolInputError(`Project for thread "${threadId}" was not found.`),
+        );
+      }
+      const cwd = resolveThreadWorkspaceCwd({ thread: target, projects: [project] });
+      if (!cwd) {
+        return yield* Effect.fail(
+          new ToolInputError(`Git workspace for thread "${threadId}" is unavailable.`),
+        );
+      }
+      return cwd;
+    });
+
   const setThreadPullRequest: ToolEntry = {
     requiredCapability: "thread:write",
     requiresActiveTurn: true,
     definition: {
       name: "moss_set_thread_pull_request",
       description:
-        "Associate a pull request with a Moss thread. Use this after successfully creating the pull request that represents that thread's own deliverable. Do not associate pull requests that the thread only reviews, references, or discusses. Defaults to your own thread when threadId is omitted.",
+        "Link a pull request to a Moss thread. A thread can have several; linking adds to the list and never replaces other links, and linking an already-linked PR only refreshes it. Link each PR you create, take over, or push to for the thread's work, including every PR of a stack. Do not link PRs you only read, review, or mention. Defaults to your own thread when threadId is omitted.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1162,7 +1187,7 @@ export const makeAgentGateway = Effect.gen(function* () {
         required: ["reference"],
         additionalProperties: false,
       },
-      annotations: { title: "Associate a pull request", ...WRITE_TOOL_ANNOTATIONS },
+      annotations: { title: "Link a pull request", ...WRITE_TOOL_ANNOTATIONS },
     },
     handler: (args, context) =>
       Effect.gen(function* () {
@@ -1171,36 +1196,70 @@ export const makeAgentGateway = Effect.gen(function* () {
         const caller = yield* requireThreadShell(context.callerThreadId);
         const target = yield* requireThreadShell(threadId);
         yield* assertCallerMayDriveThread(caller, target);
-
-        const project = Option.getOrUndefined(
-          yield* snapshotQuery
-            .getProjectShellById(target.projectId)
-            .pipe(Effect.mapError((error) => new ToolInputError(errorText(error)))),
-        );
-        if (!project) {
-          return yield* Effect.fail(
-            new ToolInputError(`Project for thread "${threadId}" was not found.`),
-          );
-        }
-        const cwd = resolveThreadWorkspaceCwd({ thread: target, projects: [project] });
-        if (!cwd) {
-          return yield* Effect.fail(
-            new ToolInputError(`Git workspace for thread "${threadId}" is unavailable.`),
-          );
-        }
+        const cwd = yield* resolveThreadGitWorkspace(target);
 
         const { pullRequest } = yield* gitManager
           .resolvePullRequest({ cwd, reference })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         yield* orchestrationEngine
           .dispatch({
-            type: "thread.meta.update",
+            type: "thread.pull-request.link",
             commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:pull-request`),
             threadId: target.id,
-            lastKnownPr: pullRequest,
+            pullRequest,
+            source: "agent",
           })
           .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
         return mcpToolResultJson({ threadId: target.id, pullRequest });
+      }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
+  };
+
+  const unlinkThreadPullRequest: ToolEntry = {
+    requiredCapability: "thread:write",
+    requiresActiveTurn: true,
+    definition: {
+      name: "moss_unlink_thread_pull_request",
+      description:
+        "Remove a pull request link from a Moss thread, for example one linked by mistake. This only removes the association: it does not close, merge, or change the pull request on GitHub. Succeeds with wasLinked=false when the PR was not linked. Defaults to your own thread when threadId is omitted.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          threadId: {
+            type: "string",
+            description: "Thread to unlink from. Defaults to your own thread.",
+          },
+          url: {
+            type: "string",
+            description: "Full GitHub pull request URL, as listed in the thread's pullRequests.",
+          },
+        },
+        required: ["url"],
+        additionalProperties: false,
+      },
+      annotations: { title: "Unlink a pull request", ...WRITE_TOOL_ANNOTATIONS },
+    },
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const threadId = readStringArg(args, "threadId") ?? context.callerThreadId;
+        const url = readStringArg(args, "url", { required: true })!;
+        const caller = yield* requireThreadShell(context.callerThreadId);
+        const target = yield* requireThreadShell(threadId);
+        yield* assertCallerMayDriveThread(caller, target);
+        const wasLinked = visiblePullRequestLinks(target.pullRequests).some(
+          (link) => pullRequestLinkKey(link.pullRequest.url) === pullRequestLinkKey(url),
+        );
+        yield* context.assertCallerTurnActive();
+        if (wasLinked) {
+          yield* orchestrationEngine
+            .dispatch({
+              type: "thread.pull-request.unlink",
+              commandId: CommandId.makeUnsafe(`agent:${randomUUID()}:pull-request-unlink`),
+              threadId: target.id,
+              url,
+            })
+            .pipe(Effect.mapError((error) => new ToolInputError(errorText(error))));
+        }
+        return mcpToolResultJson({ threadId: target.id, url, wasLinked });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
 
@@ -1382,8 +1441,74 @@ export const makeAgentGateway = Effect.gen(function* () {
         })) ?? null
       );
     }).pipe(Effect.orElseSucceed(() => null));
+  /**
+   * The card for one page-declared WebMCP call: which site, which page tool,
+   * with what. Same activity shape and gate as a single-call Computer approval.
+   */
+  const publishWebMcpApproval =
+    (request: WebMcpCallApprovalRequest, context: ToolContext) =>
+    async (requestId: string, decision?: ProviderApprovalDecision): Promise<void> => {
+      const createdAt = isoNow();
+      const eventKey = `${requestId}:${decision === undefined ? "open" : "resolved"}`;
+      await Effect.runPromise(
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.makeUnsafe(eventKey),
+          threadId: ThreadId.makeUnsafe(context.callerThreadId),
+          activity: {
+            id: EventId.makeUnsafe(eventKey),
+            tone: "info",
+            kind: decision === undefined ? "approval.requested" : "approval.resolved",
+            // Fixed text: the site, the page's tool and the arguments are rows below,
+            // never part of Moss's own sentence. Translated on the client (zh-CN first).
+            summary:
+              decision === undefined ? "Page tool needs approval" : "Page tool approval resolved",
+            payload: {
+              requestId,
+              requestKind: "tool",
+              requestType: "tool",
+              toolName: "browser_webmcp_call",
+              toolParamsDisplay: [...webMcpApprovalDisplay(request)],
+              sessionApprovalAvailable: false,
+              ...(decision === undefined ? {} : { decision }),
+            },
+            turnId: context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null,
+            createdAt,
+          },
+          createdAt,
+        }),
+      );
+    };
+
+  /**
+   * Page tools that are not read-only ask the person on every call, through the
+   * Computer approval gate (a Moss-owned card, so it works for every provider,
+   * including those without a native gate). Full access already consents, as
+   * it does for Computer: the call runs without a card.
+   */
+  const authorizeWebMcpCall = async (
+    request: WebMcpCallApprovalRequest,
+    context: ToolContext,
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    await Effect.runPromise(context.assertCallerTurnActive(), { signal });
+    const caller = await Effect.runPromise(
+      snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(context.callerThreadId)),
+      { signal },
+    );
+    if (Option.isNone(caller)) return false;
+    if (caller.value.runtimeMode === "full-access") return true;
+    return computerApprovalGate.request({
+      threadId: context.callerThreadId,
+      turnId: context.callerTurnId ?? undefined,
+      signal,
+      publish: publishWebMcpApproval(request, context),
+    });
+  };
+
   const browserTools = makeAgentGatewayBrowserTools(browserAutomationHost, {
     resolveWorkspaceRoot,
+    authorizeWebMcpCall,
   });
   const projectAgentTools = makeProjectAgentTools({
     projectAgent: projectAgentService,
@@ -1947,6 +2072,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     interruptThread,
     setThreadTitle,
     setThreadPullRequest,
+    unlinkThreadPullRequest,
     setThreadArchived,
     setThreadGoal,
     ...automationTools,

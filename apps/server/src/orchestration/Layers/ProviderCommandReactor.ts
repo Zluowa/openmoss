@@ -169,6 +169,7 @@ import {
   buildThreadTitleForkPrompt,
   parseThreadTitleForkReply,
   resolveThreadTitleRoute,
+  servesThreadTitleDirectly,
   resolveTitleEffort,
   withLowTitleEffort,
   type ThreadTitleCandidate,
@@ -2033,10 +2034,11 @@ const make = Effect.gen(function* () {
       }),
       input.cwd,
     );
-    const configured =
-      chat?.support.kind === "supported"
-        ? null
-        : yield* titleCandidate(yield* resolveConfiguredFallbackTextGenerationInput(), input.cwd);
+    // The configured model is looked at unless the chat is served directly: a chat that
+    // would start the CLI in a Windows job comes after it.
+    const configured = servesThreadTitleDirectly(chat)
+      ? null
+      : yield* titleCandidate(yield* resolveConfiguredFallbackTextGenerationInput(), input.cwd);
     return resolveThreadTitleRoute({ chat, configured, chatDriver: input.chatDriver });
   });
 
@@ -5439,7 +5441,26 @@ const make = Effect.gen(function* () {
         Effect.logWarning("provider command reactor failed to generate thread title", {
           ...textGenerationLogContext,
           reason: error.message,
-        }).pipe(Effect.as(fallbackTitle)),
+        }).pipe(
+          // The CLI in a Windows job failed: the live thread's fork writes the title once
+          // this turn settles, as it did before the job existed.
+          Effect.andThen(
+            titleRoute.kind === "isolated" && titleRoute.nativeAfterFailure
+              ? Effect.sync(() =>
+                  rememberPendingNativeThreadTitle(input.threadId, fallbackTitle),
+                ).pipe(
+                  Effect.andThen(
+                    Effect.logInfo("provider command reactor thread title", {
+                      threadId: input.threadId,
+                      route: "native",
+                      outcome: "deferred-after-windows-job-failure",
+                    }),
+                  ),
+                )
+              : Effect.void,
+          ),
+          Effect.as(fallbackTitle),
+        ),
       ),
     );
 
@@ -11372,45 +11393,52 @@ const make = Effect.gen(function* () {
         });
       }
 
+      const nativeTitle = Effect.suspend(() =>
+        providerService
+          .predictNextUserMessage(input.threadId, {
+            prompt: buildThreadTitleForkPrompt(),
+            purpose: "title",
+            sourceTurnId: latestTurnId!,
+            generationTrigger: "live",
+            effort: resolveTitleEffort(thread.modelSelection.provider, thread.modelSelection.model),
+            timeoutMs: NATIVE_TITLE_TIMEOUT_MS,
+          })
+          .pipe(
+            Effect.orElseSucceed(() => ({ kind: "failed" as const })),
+            Effect.flatMap((result) => {
+              const title =
+                result.kind === "predicted" ? parseThreadTitleForkReply(result.text) : null;
+              return title === null
+                ? Effect.fail(
+                    new TextGenerationError({
+                      operation: "generateThreadTitle",
+                      detail:
+                        "The chat's Codex session could not write a title now. Try again once it is idle.",
+                    }),
+                  )
+                : Effect.succeed({ title });
+            }),
+          ),
+      );
       const generated =
         titleRoute.kind === "isolated"
-          ? yield* textGeneration.generateThreadTitle({
-              cwd: cwd ?? process.cwd(),
-              message: context,
-              context: "conversation",
-              modelSelection: titleRoute.input.modelSelection,
-              ...(titleRoute.input.providerOptions
-                ? { providerOptions: titleRoute.input.providerOptions }
-                : {}),
-            })
-          : yield* providerService
-              .predictNextUserMessage(input.threadId, {
-                prompt: buildThreadTitleForkPrompt(),
-                purpose: "title",
-                sourceTurnId: latestTurnId!,
-                generationTrigger: "live",
-                effort: resolveTitleEffort(
-                  thread.modelSelection.provider,
-                  thread.modelSelection.model,
-                ),
-                timeoutMs: NATIVE_TITLE_TIMEOUT_MS,
+          ? yield* textGeneration
+              .generateThreadTitle({
+                cwd: cwd ?? process.cwd(),
+                message: context,
+                context: "conversation",
+                modelSelection: titleRoute.input.modelSelection,
+                ...(titleRoute.input.providerOptions
+                  ? { providerOptions: titleRoute.input.providerOptions }
+                  : {}),
               })
               .pipe(
-                Effect.orElseSucceed(() => ({ kind: "failed" as const })),
-                Effect.flatMap((result) => {
-                  const title =
-                    result.kind === "predicted" ? parseThreadTitleForkReply(result.text) : null;
-                  return title === null
-                    ? Effect.fail(
-                        new TextGenerationError({
-                          operation: "generateThreadTitle",
-                          detail:
-                            "The chat's Codex session could not write a title now. Try again once it is idle.",
-                        }),
-                      )
-                    : Effect.succeed({ title });
-                }),
-              );
+                // The CLI in a Windows job failed: the live thread's fork, as before the job.
+                Effect.catch((error) =>
+                  titleRoute.nativeAfterFailure && latestTurnId ? nativeTitle : Effect.fail(error),
+                ),
+              )
+          : yield* nativeTitle;
       if (!isUsableGeneratedThreadTitle(generated.title)) {
         return yield* new TextGenerationError({
           operation: "generateThreadTitle",

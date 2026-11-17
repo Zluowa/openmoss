@@ -173,6 +173,7 @@ function KanbanCardViewComponent({
           branch: card.thread.branch,
           hasDedicatedWorktree: card.thread.worktreePath !== null,
           lastKnownPr: card.thread.lastKnownPr ?? null,
+          pullRequests: card.thread.pullRequests,
         })
     : null;
   // One relative-time format for the whole Tasks page, in the app's language: the board used

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UI SDK 实测</title>
+<style>
+  body { font: 15px system-ui, sans-serif; max-width: 520px; margin: 32px auto; padding: 0 16px; background: #fff; color: #222; }
+  .row { margin: 18px 0; }
+  ui-select-content { background: #fff; border: 1px solid #ccc; padding: 4px; }
+  ui-select-item { display: block; padding: 4px 8px; }
+  ui-select-item[data-highlighted] { background: #eef; }
+  ui-switch { display: inline-block; width: 36px; height: 20px; background: #ccc; border-radius: 10px; vertical-align: middle; }
+  ui-switch[data-checked] { background: #4a7; }
+  ui-switch-thumb { display: block; width: 16px; height: 16px; margin: 2px; background: #fff; border-radius: 50%; }
+  ui-switch[data-checked] ui-switch-thumb { transform: translateX(16px); }
+</style>
+</head>
+<body>
+<h2>项目设置</h2>
+
+<div class="row">
+  <ui-field name="name">
+    <ui-field-label>Project name</ui-field-label>
+    <ui-input><input value="Apollo" /></ui-input>
+  </ui-field>
+</div>
+
+<div class="row">
+  <ui-select default-value="private" placeholder="Choose">
+    <ui-select-label>Visibility</ui-select-label>
+    <ui-select-trigger><button><ui-select-value></ui-select-value></button></ui-select-trigger>
+    <ui-select-content>
+      <ui-select-item value="private">Private</ui-select-item>
+      <ui-select-item value="team">Team</ui-select-item>
+      <ui-select-item value="public">Public</ui-select-item>
+    </ui-select-content>
+  </ui-select>
+</div>
+
+<div class="row">
+  <label>Email notifications <ui-switch><ui-switch-thumb></ui-switch-thumb></ui-switch></label>
+</div>
+
+<div class="row">
+  <ui-button><button id="save">Save</button></ui-button>
+  <ui-button data-agent-confirm="Deletes the project and all its files forever"><button>Delete project</button></ui-button>
+  <span id="status"></span>
+</div>
+
+<script type="module" src="./dist/main.js"></script>
+</body>
+</html>

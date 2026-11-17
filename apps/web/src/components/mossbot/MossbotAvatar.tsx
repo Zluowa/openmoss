@@ -1,6 +1,11 @@
 import type { SVGProps } from "react";
-import { MossbotIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import {
+  MossbotCompanion,
+  MossbotCompanionStill,
+  mossbotCompanionToneFor,
+  type MossbotCompanionState,
+} from "./MossbotCompanion";
 import { useMossbotCopy } from "./mossbot.copy";
 import "./mossbot.css";
 
@@ -89,9 +94,16 @@ function MossbotDrop(props: SVGProps<SVGSVGElement>) {
   return <RoundedCompanion shape="drop" {...props} />;
 }
 
+function MossbotCompanionIcon(props: SVGProps<SVGSVGElement>) {
+  return <MossbotCompanionStill {...props} />;
+}
+
+/** The default face is the Mossbot companion (the stored key stays "mossbot-pebble"); its colour follows the
+ *  assistant colour. The other faces stay for assistants that already chose them. */
+export const MOSSBOT_COMPANION_AVATAR_KEY = "mossbot-pebble";
+
 export const MOSSBOT_AVATARS = [
-  // The default face is the Mossbot mark itself, in ink (the stored key stays "mossbot-pebble").
-  { key: "mossbot-pebble", label: "Moss", tone: "default", Icon: MossbotIcon },
+  { key: MOSSBOT_COMPANION_AVATAR_KEY, label: "Moss", tone: "default", Icon: MossbotCompanionIcon },
   { key: "mossbot-sprout", label: "Sprout", tone: "green", Icon: MossbotSprout },
   { key: "mossbot-orbit", label: "Orbit", tone: "blue", Icon: MossbotOrbit },
   { key: "mossbot-bloom", label: "Bloom", tone: "rose", Icon: MossbotBloom },
@@ -108,9 +120,28 @@ export function MossbotAvatar(props: {
   icon?: string | null | undefined;
   color?: string | null | undefined;
   className?: string;
+  /** What the companion is doing; only the companion face shows it. */
+  state?: MossbotCompanionState | undefined;
+  /** Animate the companion (header, profile, a row that is working). Off by default: lists stay still. */
+  live?: boolean | undefined;
+  /** Clicking the companion makes it smile. */
+  interactive?: boolean | undefined;
 }) {
-  const { Icon, tone } =
+  const { key, Icon, tone } =
     MOSSBOT_AVATARS.find((item) => item.key === props.icon) ?? MOSSBOT_AVATARS[0];
+  if (key === MOSSBOT_COMPANION_AVATAR_KEY) {
+    return (
+      <MossbotCompanion
+        data-mossbot-avatar
+        data-tone={props.color || tone}
+        tone={mossbotCompanionToneFor(props.color)}
+        state={props.state ?? "idle"}
+        live={props.live ?? false}
+        interactive={props.interactive ?? false}
+        className={cn("mossbot-avatar size-9 shrink-0", props.className)}
+      />
+    );
+  }
   return (
     <Icon
       data-mossbot-avatar

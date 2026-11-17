@@ -7,6 +7,7 @@ import {
   type OrchestrationPendingInteraction,
   type ThreadId,
 } from "@moss/contracts";
+import { pullRequestLinksFromEventPayload } from "@moss/shared/threadPullRequestLinks";
 import { resolveThreadBranchRegressionGuard } from "@moss/shared/git";
 import { deriveTurnStopActivity } from "@moss/shared/turnStopActivity";
 import { isSidechatThread } from "@moss/shared/sidechatThread";
@@ -1074,6 +1075,11 @@ function applyOrchestrationEvent(
         state,
         event.payload.threadId,
         (thread) => {
+          // Events from before PR links carry only `lastKnownPr` (the old single slot).
+          const pullRequests = pullRequestLinksFromEventPayload(
+            event.payload,
+            event.payload.updatedAt,
+          );
           const modelSelection =
             event.payload.modelSelection !== undefined
               ? normalizeModelSelection(event.payload.modelSelection, thread.modelSelection)
@@ -1159,6 +1165,8 @@ function applyOrchestrationEvent(
               (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
             (event.payload.lastKnownPr === undefined ||
               deepEqualJson(event.payload.lastKnownPr ?? null, thread.lastKnownPr ?? null)) &&
+            (pullRequests === undefined ||
+              deepEqualJson(pullRequests, thread.pullRequests ?? [])) &&
             (event.payload.handoff === undefined ||
               (event.payload.handoff ?? null) === (thread.handoff ?? null)) &&
             (event.payload.pinnedMessages === undefined ||
@@ -1217,6 +1225,7 @@ function applyOrchestrationEvent(
             ...(event.payload.lastKnownPr !== undefined
               ? { lastKnownPr: event.payload.lastKnownPr }
               : {}),
+            ...(pullRequests !== undefined ? { pullRequests } : {}),
             ...(event.payload.handoff !== undefined ? { handoff: event.payload.handoff } : {}),
             ...(event.payload.pinnedMessages !== undefined
               ? {

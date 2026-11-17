@@ -6,6 +6,7 @@
 // Exports: ChapterHeading, chapterAnchorId
 
 import { useEffect, useRef, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { useTranslation } from "~/localization";
 
@@ -51,6 +52,7 @@ export function ChapterHeading(props: {
           size={Math.min(Math.max(props.title.length, 10), 40)}
           onBlur={commit}
           onKeyDown={(event) => {
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key === "Enter") {
               event.preventDefault();
               commit();

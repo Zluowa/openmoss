@@ -119,6 +119,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: thread.sidechatExpiredAt ?? null,
     lastKnownPr: thread.lastKnownPr ?? null,
+    pullRequests: thread.pullRequests ?? [],
     handoff: thread.handoff ?? null,
     ...(thread.isProjectImport ? { isProjectImport: true } : {}),
     claudeCacheReview: thread.claudeCacheReview ?? null,
@@ -389,6 +390,7 @@ function sidebarThreadSummariesEqual(
     (left.sidechatLastActivityAt ?? null) === (right.sidechatLastActivityAt ?? null) &&
     (left.sidechatExpiredAt ?? null) === (right.sidechatExpiredAt ?? null) &&
     deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
+    deepEqualJson(left.pullRequests ?? [], right.pullRequests ?? []) &&
     (left.handoff ?? null) === (right.handoff ?? null)
   );
 }
@@ -441,6 +443,7 @@ function buildSidebarThreadSummary(
     sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: thread.sidechatExpiredAt ?? null,
     lastKnownPr: thread.lastKnownPr ?? null,
+    pullRequests: thread.pullRequests ?? [],
     handoff: thread.handoff ?? null,
   };
   if (previous && sidebarThreadSummariesEqual(previous, nextSummary)) {

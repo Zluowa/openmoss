@@ -17297,6 +17297,38 @@ describe("ProviderCommandReactor", () => {
     expect(harness.generateThreadTitle).not.toHaveBeenCalled();
   });
 
+  // Second review of #661: the chat's own CLI runs in a Windows job when nothing else serves
+  // it. When that fails (expired sign-in, old CLI, timeout), the native fork still writes the
+  // title once the turn settles, as it did before the job existed.
+  it("titles on the native fork after the CLI in a Windows job fails", async () => {
+    const harness = await createHarness({
+      threadModelSelection: OWNER_CODEX_CHAT,
+      getComposerPredictionSupport: () =>
+        Effect.succeed({ kind: "supported", windowsJob: true } as const),
+      nativeTitleStartDelay: Duration.millis(10),
+      generateThreadTitle: () =>
+        Effect.fail(
+          new TextGenerationError({
+            operation: "generateThreadTitle",
+            detail: "Codex CLI command failed: not signed in",
+          }),
+        ),
+      predictNextUserMessage: () =>
+        Effect.succeed({ kind: "predicted", text: '{"title":"透明二次元聊天背景"}' }),
+    });
+
+    await startOwnerTurn(harness, "owner-job-failed");
+    await waitFor(() => harness.generateThreadTitle.mock.calls.length === 1);
+    await waitFor(async () => (await readHarnessThread(harness))?.title === OWNER_REQUEST);
+    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+
+    await completeOwnerTurn(harness);
+
+    await waitFor(async () => (await readHarnessThread(harness))?.title === "透明二次元聊天背景");
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+    expect(harness.predictNextUserMessage.mock.calls[0]?.[1]).toMatchObject({ purpose: "title" });
+  });
+
   it("keeps a name the person gave the chat while the native title waited", async () => {
     const harness = await createHarness({
       threadModelSelection: OWNER_CODEX_CHAT,

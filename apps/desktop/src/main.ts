@@ -133,6 +133,7 @@ import {
 } from "./phoneAccess";
 import { resolveBackendNodeArgs, withBackendEnvProxyOptIn } from "./backendNodeOptions";
 import { canonicalFilesystemHelperBackendEnv } from "./canonicalFilesystemHelperRuntime";
+import { windowsJobLauncherBackendEnv } from "./windowsJobLauncherRuntime";
 import {
   isBackendStartupReadyResponse,
   monitorBackendStartupHealth,
@@ -5892,8 +5893,14 @@ function backendEnv(): NodeJS.ProcessEnv {
   const env = resolveBrowserHostPipeBackendEnv(
     mergeMossProductionPublicConfigIntoEnv(
       {
-        ...canonicalFilesystemHelperBackendEnv({
-          inheritedEnv: process.env,
+        ...windowsJobLauncherBackendEnv({
+          inheritedEnv: canonicalFilesystemHelperBackendEnv({
+            inheritedEnv: process.env,
+            platform: process.platform,
+            isPackaged: app.isPackaged,
+            resourcesPath: process.resourcesPath,
+            desktopMainDirname: __dirname,
+          }),
           platform: process.platform,
           isPackaged: app.isPackaged,
           resourcesPath: process.resourcesPath,

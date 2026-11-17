@@ -8,6 +8,7 @@ import {
 import {
   buildMossbotConfigureInput,
   isMossbot,
+  mossbotCompanionState,
   mossbotStatus,
   resolveMossbotForThread,
 } from "./mossbot.logic";
@@ -123,5 +124,27 @@ describe("Mossbot provider selection", () => {
     expect(mossbotStatus({ ...summary, needsYouThreadIds: ["waiting" as never] })).toBe(
       "Needs you",
     );
+  });
+
+  it("gives the companion a state that matches the status line", () => {
+    const summary: ProjectAgentSummary = {
+      projectId: ProjectId.makeUnsafe("bot"),
+      configured: true,
+      coordinatorName: "Mossbot",
+      coordinatorThreadId: null,
+      coordinatorIcon: null,
+      coordinatorColor: null,
+      coordinatorStatus: "running",
+      revision: 1,
+    };
+    expect(mossbotCompanionState(summary)).toBe("working");
+    expect(mossbotCompanionState({ ...summary, needsYouThreadIds: ["waiting" as never] })).toBe(
+      "waiting",
+    );
+    expect(mossbotCompanionState({ ...summary, pausedAt: "2026-11-05T00:00:00Z" })).toBe(
+      "sleeping",
+    );
+    expect(mossbotCompanionState({ ...summary, coordinatorStatus: "stopped" })).toBe("sleeping");
+    expect(mossbotCompanionState({ ...summary, coordinatorStatus: "idle" })).toBe("idle");
   });
 });

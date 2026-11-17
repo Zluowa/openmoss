@@ -207,6 +207,10 @@ export const BrowserWebMcpCallInput = closedStruct({
     BrowserWebMcpToolId,
     "Opaque tool id returned by browser_webmcp_tools; never substitute the page tool name.",
   ),
+  origin: described(
+    BoundedUtf8String(8_192, 1),
+    "The tool's origin exactly as browser_webmcp_tools returned it. Moss refuses the call if the page's origin changed and shows it to the user with the call.",
+  ),
   arguments: Schema.optional(BrowserBoundedJsonObject).pipe(
     Schema.withDecodingDefault<Schema.optional<typeof BrowserBoundedJsonObject>>(() => ({})),
   ),

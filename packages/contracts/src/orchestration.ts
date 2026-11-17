@@ -1212,6 +1212,50 @@ export const OrchestrationThreadPullRequest = Schema.Struct({
 export type OrchestrationThreadPullRequest = typeof OrchestrationThreadPullRequest.Type;
 
 /**
+ * Who associated a pull request with a thread. Explicit sources (`created`, `agent`, `user`,
+ * `checkout`) are never removed by branch discovery; `discovered` links follow the thread's
+ * branch, and `legacy` marks the single pre-link `lastKnownPr` slot, which kept the
+ * branch-managed behavior it had before links existed.
+ *
+ * Links are persisted in events and `projection_threads.pull_requests_json`. Adding a source or a
+ * required link field therefore needs a migration that is not declared additive (it raises the
+ * reader floor, see `MIGRATIONS_OLDER_READERS_MAY_IGNORE`), so a build that cannot decode the
+ * new links refuses the database ("database newer than Moss") instead of failing on events.
+ */
+export const OrchestrationThreadPullRequestLinkSource = Schema.Literals([
+  "created",
+  "agent",
+  "user",
+  "checkout",
+  "discovered",
+  "legacy",
+]);
+export type OrchestrationThreadPullRequestLinkSource =
+  typeof OrchestrationThreadPullRequestLinkSource.Type;
+
+export const OrchestrationThreadPullRequestExplicitLinkSource = Schema.Literals([
+  "created",
+  "agent",
+  "user",
+  "checkout",
+]);
+export type OrchestrationThreadPullRequestExplicitLinkSource =
+  typeof OrchestrationThreadPullRequestExplicitLinkSource.Type;
+
+/**
+ * One pull request associated with a thread. The link (identity + provenance) is the thread's
+ * decision; `pullRequest` is only the last state observed on GitHub and is refreshed in place.
+ * `dismissedAt` keeps an unlinked entry as a tombstone so automatic sources do not re-add it.
+ */
+export const OrchestrationThreadPullRequestLink = Schema.Struct({
+  pullRequest: OrchestrationThreadPullRequest,
+  source: OrchestrationThreadPullRequestLinkSource,
+  linkedAt: IsoDateTime,
+  dismissedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+});
+export type OrchestrationThreadPullRequestLink = typeof OrchestrationThreadPullRequestLink.Type;
+
+/**
  * A message the user pinned to the chat's sidebar checklist. `label` is an
  * optional user override; when null the UI derives a label from the message
  * text. `done` tracks the checklist "addressed" state. Decoding defaults keep
@@ -1398,6 +1442,10 @@ export const OrchestrationThread = Schema.Struct({
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
+  /** Every PR linked to the thread; `lastKnownPr` is the current one derived from this list. */
+  pullRequests: Schema.optional(Schema.Array(OrchestrationThreadPullRequestLink)).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   latestHumanMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -1515,6 +1563,10 @@ export const OrchestrationThreadShell = Schema.Struct({
   sidechatExpiredAt: SidechatLifecycleTimestamp,
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
+  ),
+  /** Every PR linked to the thread; `lastKnownPr` is the current one derived from this list. */
+  pullRequests: Schema.optional(Schema.Array(OrchestrationThreadPullRequestLink)).pipe(
+    Schema.withDecodingDefault(() => []),
   ),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   latestUserMessageAt: Schema.optional(Schema.NullOr(IsoDateTime)),
@@ -2141,6 +2193,37 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   providerHandoff: Schema.optional(Schema.Boolean),
 });
 
+/** Adds (or refreshes) an explicit PR link. Linking an already-linked PR is a no-op. */
+const ThreadPullRequestLinkCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.link"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  pullRequest: OrchestrationThreadPullRequest,
+  /** Provenance only; clients that omit it link as `user`. */
+  source: Schema.optional(OrchestrationThreadPullRequestExplicitLinkSource),
+});
+
+/** Removes a PR link and keeps a tombstone; the PR itself is not closed. */
+const ThreadPullRequestUnlinkCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.unlink"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  url: TrimmedNonEmptyString,
+});
+
+/**
+ * Server-only PR observations. `discovered` replaces the branch-managed link (null clears it)
+ * and never touches explicit links; `snapshots` refresh the stored state of PRs that are
+ * already linked and never add new links.
+ */
+const ThreadPullRequestSyncCommand = Schema.Struct({
+  type: Schema.Literal("thread.pull-request.sync"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  discovered: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)),
+  snapshots: Schema.optional(Schema.Array(OrchestrationThreadPullRequest)),
+});
+
 const ThreadPinnedMessageAddCommand = Schema.Struct({
   type: Schema.Literal("thread.pinned-message.add"),
   commandId: CommandId,
@@ -2522,6 +2605,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
+  ThreadPullRequestLinkCommand,
+  ThreadPullRequestUnlinkCommand,
   ThreadPinnedMessageAddCommand,
   ThreadPinnedMessageRemoveCommand,
   ThreadPinnedMessageDoneSetCommand,
@@ -2577,6 +2662,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
+  ThreadPullRequestLinkCommand,
+  ThreadPullRequestUnlinkCommand,
   ThreadPinnedMessageAddCommand,
   ThreadPinnedMessageRemoveCommand,
   ThreadPinnedMessageDoneSetCommand,
@@ -2764,6 +2851,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadDispatchQueuedTurnCommand,
   ThreadSidechatActivityRecordCommand,
   ThreadSidechatExpireCommand,
+  ThreadPullRequestSyncCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
 
@@ -3052,6 +3140,8 @@ export const ThreadCreatedPayload = Schema.Struct({
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
+  /** Absent on events written before PR links; replay derives them from `lastKnownPr`. */
+  pullRequests: Schema.optional(Schema.Array(OrchestrationThreadPullRequestLink)),
   handoff: Schema.NullOr(ThreadHandoff).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -3154,6 +3244,12 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   subagentRole: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   handoff: Schema.optional(Schema.NullOr(ThreadHandoff)),
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)),
+  /**
+   * The thread's full PR link list after this event. Written together with the derived
+   * `lastKnownPr`; events written before links carry only `lastKnownPr`, which replay
+   * interprets as the old single-slot replacement.
+   */
+  pullRequests: Schema.optional(Schema.Array(OrchestrationThreadPullRequestLink)),
   pinnedMessages: Schema.optional(ThreadPinnedMessages),
   threadMarkers: Schema.optional(Schema.Array(ThreadMarker)),
   notes: Schema.optional(ThreadNotes),

@@ -8,6 +8,7 @@
 // Spec: docs/design/data-claude-teardown.md
 
 import type { PagesReadResult, PageTypedItem, SpaceId, ThreadId } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   applyDashboardSystem,
   DASHBOARD_PAGE_FILE,
@@ -900,7 +901,7 @@ export function DashboardItemView(props: {
                       if (
                         event.key === "Enter" &&
                         !event.shiftKey &&
-                        !event.nativeEvent.isComposing
+                        !isImeComposingKeyEvent(event)
                       ) {
                         event.preventDefault();
                         sendAsk();
