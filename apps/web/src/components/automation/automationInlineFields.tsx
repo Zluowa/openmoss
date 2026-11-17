@@ -5,6 +5,7 @@
 // commit-on-change controls (select, toggle, time, commit-on-blur text input).
 
 import type { AutomationMode, AutomationWorktreeMode } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { CentralIcon } from "~/lib/central-icons";
 import { useCommitDraft, useCommitDraftBlurHandlers } from "~/lib/automationInlineDraft";
@@ -231,6 +232,7 @@ export function InlineCommitTextInput({
       onChange={(event) => draft.setDraft(event.target.value)}
       onBlur={onBlur}
       onKeyDown={(event) => {
+        if (isImeComposingKeyEvent(event)) return;
         if (event.key === "Enter") {
           event.currentTarget.blur();
         } else if (event.key === "Escape") {

@@ -5,6 +5,7 @@
 // Depends on: projected-message matching in threadFind.logic (not the DOM list).
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { IconButton } from "~/components/ui/icon-button";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
@@ -165,6 +166,7 @@ export function ThreadFindBar({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();

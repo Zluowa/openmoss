@@ -1,5 +1,6 @@
 import type { AsyncUserInput, MessageId, UserInputQuestion } from "@moss/contracts";
 import { useMemo, useRef, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { CircleQuestionIcon, CheckIcon } from "~/lib/icons";
 import {
   buildPendingUserInputAnswers,
@@ -162,7 +163,7 @@ export function AsyncUserInputCard({
                     }}
                     onKeyDown={(event) => {
                       // Match the chat composer: Enter (or Cmd/Ctrl+Enter) sends, Shift+Enter breaks the line.
-                      if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing)
+                      if (event.key !== "Enter" || event.shiftKey || isImeComposingKeyEvent(event))
                         return;
                       event.preventDefault();
                       void advance();

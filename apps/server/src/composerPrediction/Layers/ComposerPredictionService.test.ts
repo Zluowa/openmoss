@@ -273,18 +273,12 @@ describe("ComposerPredictionServiceLive", () => {
   });
 
   it.each([
-    ["a starting session", { session: { status: "starting" } }],
-    ["a running session", { session: { status: "running" } }],
     ["a pending approval", { hasPendingApprovals: true }],
     ["a pending user-input request", { hasPendingUserInput: true }],
   ])("is unavailable without generating while the thread has %s", async (_label, overrides) => {
     const harness = makeHarness();
     const thread = harness.state.thread;
-    harness.state.thread = {
-      ...thread,
-      ...overrides,
-      ...("session" in overrides ? { session: { ...thread.session, ...overrides.session } } : {}),
-    } as OrchestrationThreadShell;
+    harness.state.thread = { ...thread, ...overrides } as OrchestrationThreadShell;
 
     await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
     expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
@@ -298,7 +292,47 @@ describe("ComposerPredictionServiceLive", () => {
     expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
   });
 
-  it("is unavailable when the session turns busy during the start delay", async () => {
+  // The isolated route never uses the chat's session: a session that is starting (Moss
+  // resuming the Codex thread when the chat is opened) or running background work does not
+  // stop it. 2026-11-17, owner's PC: a finished suggestion was discarded as `session-busy`
+  // while `thread/resume` took 13.6 s.
+  it.each([
+    ["starting", { session: { status: "starting" } }],
+    ["running", { session: { status: "running" } }],
+  ])("predicts on the isolated route while the chat's session is %s", async (_label, overrides) => {
+    const harness = makeHarness();
+    const thread = harness.state.thread;
+    harness.state.thread = {
+      ...thread,
+      session: { ...thread.session, ...overrides.session },
+    } as OrchestrationThreadShell;
+
+    await expect(harness.run(harness.generate)).resolves.toEqual({
+      suggestion: "Fix the fixture and rerun that test.",
+      outcome: "suggested",
+    });
+  });
+
+  it("keeps an isolated suggestion when the session starts resuming during generation", async () => {
+    const harness = makeHarness();
+    harness.generateComposerPrediction.mockImplementationOnce(() =>
+      Effect.sync(() => {
+        const thread = harness.state.thread;
+        harness.state.thread = {
+          ...thread,
+          session: { ...thread.session, status: "starting" },
+        } as OrchestrationThreadShell;
+        return { suggestion: "Keep it this way." };
+      }),
+    );
+
+    await expect(harness.run(harness.generate)).resolves.toEqual({
+      suggestion: "Keep it this way.",
+      outcome: "suggested",
+    });
+  });
+
+  it("keeps going on the isolated route when the session turns busy during the start delay", async () => {
     const harness = makeHarness({ startDelay: COMPOSER_PREDICTION_START_DELAY });
 
     const result = await harness.run(
@@ -317,8 +351,11 @@ describe("ComposerPredictionServiceLive", () => {
       }),
     );
 
-    expect(result).toEqual(UNAVAILABLE);
-    expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      suggestion: "Fix the fixture and rerun that test.",
+      outcome: "suggested",
+    });
+    expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(1);
   });
 
   it("is unavailable when the final reply is not in the transcript yet", async () => {
@@ -967,6 +1004,21 @@ describe("ComposerPredictionServiceLive on Codex's native prediction fork", () =
     expect(Exit.isFailure(exit)).toBe(true);
     expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
   });
+
+  it.each(["starting", "running"] as const)(
+    "is unavailable without forking while the chat's session is %s",
+    async (status) => {
+      const harness = makeNativeHarness();
+      const thread = harness.state.thread;
+      harness.state.thread = {
+        ...thread,
+        session: { ...thread.session, status },
+      } as OrchestrationThreadShell;
+
+      await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
+      expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+    },
+  );
 
   it("is unavailable when the session turns busy during the start delay, without forking", async () => {
     const harness = makeNativeHarness({ startDelay: COMPOSER_PREDICTION_START_DELAY });

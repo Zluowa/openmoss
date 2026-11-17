@@ -8,6 +8,7 @@
 // Exports: GitHubItemFloatingComposer
 
 import type { ProjectId, ThreadId } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { getProviderInstanceOptions, useAppSettings } from "~/appSettings";
@@ -175,7 +176,7 @@ export function GitHubItemFloatingComposer({
             aria-label={placeholder}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
                 event.preventDefault();
                 submit();
               }

@@ -1,5 +1,6 @@
 import type { GitResolvePullRequestResult } from "@moss/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useEffect, useRef, useState } from "react";
 
@@ -219,6 +220,7 @@ function PullRequestThreadDialogContent({
               setReference(event.target.value);
             }}
             onKeyDown={(event) => {
+              if (isImeComposingKeyEvent(event)) return;
               if (event.key !== "Enter") {
                 return;
               }

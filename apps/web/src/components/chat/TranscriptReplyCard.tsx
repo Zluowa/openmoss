@@ -6,6 +6,7 @@
 // Layer: Chat transcript interaction UI
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { ChatBubblePlusIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -64,7 +65,7 @@ export function TranscriptReplyCard(props: TranscriptReplyCardProps) {
     const onKeyDown = (event: KeyboardEvent) => {
       const card = cardRef.current;
       if (!card?.contains(event.target as Node)) return;
-      if (event.isComposing || event.keyCode === 229) {
+      if (isImeComposingKeyEvent(event)) {
         if (event.key === "Escape") event.stopPropagation();
         return;
       }
@@ -141,7 +142,7 @@ export function TranscriptReplyCard(props: TranscriptReplyCardProps) {
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.shiftKey || event.altKey) return;
-            if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+            if (isImeComposingKeyEvent(event)) return;
             event.preventDefault();
             event.stopPropagation();
             if (event.repeat) return;

@@ -6,6 +6,7 @@
 // Exports: PdfViewerToolbar
 
 import { useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import {
   ChevronDownIcon,
@@ -213,6 +214,7 @@ function PdfPageIndicator({
         onChange={(event) => setDraft(event.target.value.replace(/[^0-9]/g, ""))}
         onBlur={commit}
         onKeyDown={(event) => {
+          if (isImeComposingKeyEvent(event)) return;
           if (event.key === "Enter") {
             event.currentTarget.blur();
           }

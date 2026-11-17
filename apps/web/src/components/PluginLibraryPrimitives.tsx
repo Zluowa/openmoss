@@ -17,6 +17,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import {
   AppsIcon,
@@ -784,6 +785,7 @@ export function PluginLibrarySearchInput({
   }, []);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (resultIds.length === 0) return;
     const currentIndex = activeResultId === null ? -1 : resultIds.indexOf(activeResultId);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {

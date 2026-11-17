@@ -64,12 +64,16 @@ export type ComposerPredictionTurnBlocker =
 
 /**
  * Null while `expectedTurnId` is still the thread's latest turn, that turn completed with a
- * final assistant reply, and nothing is running or waiting on the user; otherwise the first
- * reason it is not. Checked before and again after generation.
+ * final assistant reply, and nothing is waiting on the user; otherwise the first reason it is
+ * not. Checked before and again after generation. `needsIdleSession` (the default) also
+ * requires the chat's session not to be starting or running: Codex's native fork works on
+ * that session. The isolated route never uses it, so a session that is resuming (opening a
+ * chat starts one) or doing background work does not stop that route.
  */
 export function resolveComposerPredictionTurnBlocker(
   thread: ComposerPredictionThread | undefined,
   expectedTurnId: TurnId,
+  options: { readonly needsIdleSession?: boolean } = {},
 ): ComposerPredictionTurnBlocker | null {
   if (!thread) return "thread-missing";
   if (thread.archivedAt != null) return "thread-archived";
@@ -79,7 +83,12 @@ export function resolveComposerPredictionTurnBlocker(
     return "turn-incomplete";
   }
   const sessionStatus = thread.session?.status;
-  if (sessionStatus === "running" || sessionStatus === "starting") return "session-busy";
+  if (
+    options.needsIdleSession !== false &&
+    (sessionStatus === "running" || sessionStatus === "starting")
+  ) {
+    return "session-busy";
+  }
   if (thread.hasPendingApprovals === true) return "pending-approval";
   if (thread.hasPendingUserInput === true) return "pending-user-input";
   return null;
