@@ -6,6 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import { TimelineWorkEntryRow } from "./TimelineWorkEntryRow";
+import { makeActivity } from "../../storeTestFixtures";
+import { deriveWorkLogEntries } from "../../workLog";
 
 const localeState = vi.hoisted(() => ({ locale: "zh-CN" as "en" | "zh-CN" }));
 
@@ -325,6 +327,34 @@ describe("TimelineWorkEntryRow Grok visual and tool-search labels", () => {
     expect(titledMarkup).not.toContain("preview-dark.json");
     expect(untitledMarkup).toContain("已预览 HTML 页面");
     expect(untitledMarkup).not.toMatch(/(?:preview-empty\.json|moss__html_preview)/u);
+  });
+
+  // A page-declared WebMCP tool acts as its site: the row a person reads names it.
+  it.each([
+    ["zh-CN", "调用网页提供的工具 http://127.0.0.1:5173"],
+    ["en", "Call page WebMCP tool http://127.0.0.1:5173"],
+  ] as const)("names the site on a page tool call row in %s", (locale, expected) => {
+    const args = { origin: "http://127.0.0.1:5173", discoveryId: "d", toolId: "w3" };
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: `webmcp-${locale}`,
+          createdAt: "2026-11-18T00:00:01.000Z",
+          kind: "tool.completed",
+          summary: "MCP tool call",
+          payload: {
+            itemType: "mcp_tool_call",
+            title: "MCP tool call",
+            status: "completed",
+            detail: `mcp__moss__browser_webmcp_call: ${JSON.stringify(args)}`,
+            data: { toolCallId: "c-webmcp", toolName: "mcp__moss__browser_webmcp_call" },
+          },
+        }),
+      ],
+      undefined,
+    );
+    const markup = renderWorkEntry(locale, entry!);
+    expect(markup.replace(/<[^>]+>/gu, " ").replace(/\s+/gu, " ")).toContain(expected);
   });
 });
 

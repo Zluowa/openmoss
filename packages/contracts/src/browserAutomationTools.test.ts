@@ -48,6 +48,8 @@ describe("browser automation tool schemas", () => {
       "browser_logs",
       "browser_upload",
       "browser_run",
+      "browser_webmcp_tools",
+      "browser_webmcp_call",
       "browser_close",
     ]);
     expect(new Set(BROWSER_TOOL_NAMES).size).toBe(BROWSER_TOOL_NAMES.length);
@@ -337,11 +339,20 @@ describe("browser automation tool schemas", () => {
       Schema.decodeUnknownSync(BrowserWebMcpCallInput)({
         discoveryId: SNAPSHOT_ID,
         toolId: "w1",
+        origin: "https://example.test",
       }),
     ).toMatchObject({ arguments: {} });
     expect(
-      Schema.is(BrowserWebMcpCallInput)({ discoveryId: SNAPSHOT_ID, toolId: "checkout" }),
+      Schema.is(BrowserWebMcpCallInput)({
+        discoveryId: SNAPSHOT_ID,
+        toolId: "checkout",
+        origin: "https://example.test",
+      }),
     ).toBe(false);
+    // The call names the site it acts on; without it the call is refused.
+    expect(Schema.is(BrowserWebMcpCallInput)({ discoveryId: SNAPSHOT_ID, toolId: "w1" })).toBe(
+      false,
+    );
 
     const discovery = {
       tabId: TAB_ID,
@@ -357,7 +368,7 @@ describe("browser automation tool schemas", () => {
           description: "Submit the current cart.",
           inputSchema: { type: "object", properties: {} },
           origin: "https://example.test",
-          annotations: { readOnlyHint: false, untrustedContentHint: true },
+          annotations: { readOnlyHint: false, consequentialHint: true, untrustedContentHint: true },
         },
       ],
       totalToolCount: 1,
@@ -371,6 +382,7 @@ describe("browser automation tool schemas", () => {
         discoveryId: SNAPSHOT_ID,
         toolId: "w1",
         toolName: "checkout",
+        origin: "https://example.test",
         contentTrust: "untrusted-web-page",
         status: "completed",
         result: { orderId: "123" },

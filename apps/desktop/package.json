@@ -17,6 +17,7 @@
     "test": "bun run test:vitest",
     "smoke-test": "node scripts/smoke-test.mjs",
     "smoke:browser-lifecycle": "bun build scripts/browser-lifecycle-smoke.ts --target=node --external=electron --external=betterwright --external=betterwright/* --external=ws --external=effect --outfile=.smoke/browser-lifecycle.mjs && electron .smoke/browser-lifecycle.mjs",
+    "smoke:browser-webmcp": "bun build src/browserWebMcp/guestBridge.ts --target=node --format=cjs --external=electron --outfile=.smoke/webmcp-preload.cjs && bun build scripts/browser-webmcp-smoke.ts --target=node --external=electron --outfile=.smoke/browser-webmcp.mjs && electron .smoke/browser-webmcp.mjs",
     "smoke:browser-viewport": "bun build scripts/browser-viewport-smoke.ts --target=node --external=electron --external=betterwright --outfile=.smoke/browser-viewport.mjs && electron .smoke/browser-viewport.mjs",
     "smoke:browser-capture-scale": "bun build scripts/browser-capture-scale-smoke.ts --target=node --external=electron --external=betterwright --outfile=.smoke/browser-capture-scale.mjs && electron .smoke/browser-capture-scale.mjs",
     "eval:browser-tasks:check": "bun build scripts/browser-task-eval/serve.ts --target=node --external=electron --external=betterwright --external=betterwright/* --external=ws --outfile=.smoke/browser-task-eval.mjs && electron .smoke/browser-task-eval.mjs --check",
