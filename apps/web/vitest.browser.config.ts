@@ -211,6 +211,45 @@ export default mergeConfig(
           async emulateReducedMotion(context, reducedMotion: "reduce" | "no-preference") {
             await context.page.emulateMedia({ reducedMotion });
           },
+          // A Chinese input method as the browser sees it: trusted composition events, then the
+          // Enter that confirms the pinyin candidate (keyCode 229 while composing), then the
+          // committed text. See src/test/imeComposition.ts.
+          async imeComposeAndConfirm(
+            context,
+            pinyin: string,
+            committed: string,
+            confirmKey: "Enter" | "Process" = "Enter",
+          ) {
+            const session = await context.context.newCDPSession(context.page);
+            try {
+              let typed = "";
+              for (const letter of pinyin) {
+                typed += letter;
+                await session.send("Input.imeSetComposition", {
+                  text: typed,
+                  selectionStart: typed.length,
+                  selectionEnd: typed.length,
+                });
+              }
+              await session.send("Input.dispatchKeyEvent", {
+                type: "rawKeyDown",
+                key: confirmKey,
+                code: "Enter",
+                windowsVirtualKeyCode: 229,
+                nativeVirtualKeyCode: 229,
+              });
+              await session.send("Input.insertText", { text: committed });
+              await session.send("Input.dispatchKeyEvent", {
+                type: "keyUp",
+                key: "Enter",
+                code: "Enter",
+                windowsVirtualKeyCode: 13,
+                nativeVirtualKeyCode: 13,
+              });
+            } finally {
+              await session.detach().catch(() => {});
+            }
+          },
           async dragPointerSequence(
             context,
             sourceSelector: string,

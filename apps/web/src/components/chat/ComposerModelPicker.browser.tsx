@@ -14,6 +14,7 @@ import { render } from "vitest-browser-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { appHistory } from "../../appNavigation";
+import { composeChineseWithEnter } from "../../test/imeComposition";
 
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
@@ -469,6 +470,25 @@ describe("ComposerModelPicker", () => {
       await expect
         .element(page.getByRole("menuitem", { name: /GPT-5\.5/u }))
         .not.toBeInTheDocument();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps the highlighted model unpicked while Enter confirms a pinyin candidate", async () => {
+    const onProviderModelChange = vi.fn();
+    const screen = await mountPicker({ onProviderModelChange });
+    try {
+      const search = page.getByRole("searchbox", { name: "Search models" });
+      await search.fill("gpt");
+      await expect.element(page.getByRole("menuitem", { name: /GPT-5\.4/u })).toBeVisible();
+      const searchElement = search.element() as HTMLInputElement;
+      await composeChineseWithEnter(searchElement, "moxing", "模型");
+      await expect.poll(() => searchElement.value).toBe("gpt模型");
+      expect(searchElement.isConnected).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(onProviderModelChange).not.toHaveBeenCalled();
+      await expect.element(search).toBeVisible();
     } finally {
       await screen.unmount();
     }

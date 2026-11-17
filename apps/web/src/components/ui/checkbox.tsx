@@ -1,8 +1,13 @@
 "use client";
 
-import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
+import {
+  Checkbox as CheckboxPrimitive,
+  type CheckboxCheckedChangeReason,
+} from "@ui-sdk/react/checkbox";
+import type { ComponentProps } from "react";
 
 import { cn } from "~/lib/utils";
+import { definedProps, type Loose } from "./uiSdkProps";
 
 // Box + fill skins, shared with the menu's checkbox rows (`MenuCheckboxItem variant="checkbox"`).
 export const CHECKBOX_BOX_CLASS_NAME =
@@ -29,41 +34,97 @@ export function CheckboxCheckGlyph({ className }: { className?: string }) {
   );
 }
 
-function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+type CheckboxPrimitiveProps = ComponentProps<typeof CheckboxPrimitive>;
+type CheckboxChangeDetails = Parameters<NonNullable<CheckboxPrimitiveProps["onCheckedChange"]>>[1];
+
+type CheckboxProps = Loose<
+  Omit<CheckboxPrimitiveProps, "checked" | "defaultChecked" | "onCheckedChange" | "className">
+> & {
+  className?: string | undefined;
+  checked?: boolean | undefined;
+  defaultChecked?: boolean | undefined;
+  /** Shows the mixed state (some of a group checked). A press makes it checked. */
+  indeterminate?: boolean | undefined;
+  /** Accepted for callers written against Base UI; the checkbox is always a native button. */
+  nativeButton?: boolean | undefined;
+  onCheckedChange?:
+    | ((
+        checked: boolean,
+        details: CheckboxChangeDetails & { reason: CheckboxCheckedChangeReason },
+      ) => void)
+    | undefined;
+};
+
+function IndeterminateGlyph() {
   return (
-    <CheckboxPrimitive.Root
-      className={cn(CHECKBOX_BOX_CLASS_NAME, className)}
-      data-slot="checkbox"
-      {...props}
+    <svg
+      className="size-ui-icon-sm"
+      fill="none"
+      height="24"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="3"
+      viewBox="0 0 24 24"
+      width="24"
+      xmlns="http://www.w3.org/2000/svg"
     >
-      <CheckboxPrimitive.Indicator
-        className={CHECKBOX_INDICATOR_CLASS_NAME}
-        data-slot="checkbox-indicator"
-        render={(props, state) => (
-          <span {...props}>
-            {state.indeterminate ? (
-              <svg
-                className="size-ui-icon-sm"
-                fill="none"
-                height="24"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="3"
-                viewBox="0 0 24 24"
-                width="24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path d="M5.252 12h13.496" />
-              </svg>
-            ) : (
-              <CheckboxCheckGlyph />
-            )}
-          </span>
-        )}
-      />
-    </CheckboxPrimitive.Root>
+      <path d="M5.252 12h13.496" />
+    </svg>
   );
 }
 
-export { Checkbox };
+// Behaviour from UI SDK, look from Moss. The API stays the one callers know: `checked` is a
+// boolean, the mixed state is its own `indeterminate` flag, and the change reports a boolean.
+function Checkbox({
+  className,
+  checked,
+  defaultChecked,
+  indeterminate,
+  nativeButton: _nativeButton,
+  onCheckedChange,
+  ...props
+}: CheckboxProps) {
+  const controlled = checked !== undefined || indeterminate === true;
+  return (
+    <CheckboxPrimitive
+      {...definedProps<object, CheckboxPrimitiveProps>({
+        ...props,
+        checked: controlled ? (indeterminate ? "indeterminate" : (checked ?? false)) : undefined,
+        defaultChecked,
+        onCheckedChange: onCheckedChange
+          ? (next: CheckboxPrimitiveProps["checked"], details: CheckboxChangeDetails) =>
+              onCheckedChange(
+                next === true,
+                details as CheckboxChangeDetails & { reason: CheckboxCheckedChangeReason },
+              )
+          : undefined,
+      })}
+      className={cn(CHECKBOX_BOX_CLASS_NAME, className)}
+      data-slot="checkbox"
+    >
+      {/* Moss draws the check without an enter or exit animation, so the indicator is a plain
+          span from the checkbox's state rather than UI SDK's CheckboxIndicator. That part runs
+          its presence code (an attribute write, then getAnimations(), which restyles the page)
+          on every change, so many checkboxes changing at once restyled the page once each. */}
+      {(state) => (
+        <span
+          aria-hidden="true"
+          className={CHECKBOX_INDICATOR_CLASS_NAME}
+          data-checked={state.checked ? "" : undefined}
+          data-indeterminate={state.indeterminate ? "" : undefined}
+          data-slot="checkbox-indicator"
+          data-unchecked={!state.checked && !state.indeterminate ? "" : undefined}
+        >
+          {state.indeterminate ? (
+            <IndeterminateGlyph />
+          ) : state.checked ? (
+            <CheckboxCheckGlyph />
+          ) : null}
+        </span>
+      )}
+    </CheckboxPrimitive>
+  );
+}
+
+export { Checkbox, type CheckboxProps };
