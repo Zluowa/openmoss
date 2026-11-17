@@ -5,6 +5,7 @@
 // Layer: Chat transcript interaction UI
 
 import { Fragment, useEffect, useRef } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -129,7 +130,7 @@ export function TranscriptSelectionAction(props: TranscriptSelectionActionProps)
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" || event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
         return;
-      if (event.isComposing || disabled || isTypingIn(event.target)) return;
+      if (isImeComposingKeyEvent(event) || disabled || isTypingIn(event.target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       holdEnterUntilRelease();

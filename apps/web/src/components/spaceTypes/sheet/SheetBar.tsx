@@ -8,6 +8,7 @@
 //      both stay in one 36 px strip.
 
 import { formatSheetNumber } from "@moss/shared/spaceItems/sheetValues";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ChevronDownIcon, FileAddIcon, ListBulletsIcon, PlusIcon } from "~/lib/icons";
@@ -197,6 +198,7 @@ export function SheetBar(props: {
                   onBlur={commit}
                   onKeyDown={(event) => {
                     event.stopPropagation();
+                    if (isImeComposingKeyEvent(event)) return;
                     if (event.key === "Enter") commit();
                     if (event.key === "Escape") {
                       setError(null);

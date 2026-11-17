@@ -1,12 +1,11 @@
 "use client";
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
-import { renderElement, type RenderProp } from "@ui-sdk/react/primitive";
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
 import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
 import { cn } from "~/lib/utils";
-import { definedProps } from "./uiSdkProps";
 
 /** Slightly softer outline border for header chrome buttons in dark mode. */
 const headerButtonDarkBorderClassName =
@@ -122,69 +121,32 @@ const buttonVariants = cva(
   },
 );
 
-interface ButtonProps extends Omit<React.ComponentProps<"button">, "type"> {
-  type?: "button" | "submit" | "reset";
-  /** Renders another element (a link, a router link) with the button's props and behaviour. */
-  render?: RenderProp<{ disabled: boolean; pending: boolean }>;
+interface ButtonProps extends useRender.ComponentProps<"button"> {
   variant?: VariantProps<typeof buttonVariants>["variant"];
   size?: VariantProps<typeof buttonVariants>["size"];
   shape?: VariantProps<typeof buttonVariants>["shape"];
 }
 
-/**
- * Keeps a slot the caller gave. UI SDK parts own their `data-slot`, but a popup trigger rendered
- * as a Moss button (`<MenuTrigger render={<Button />}>`) has always shown the trigger's slot
- * (`menu-trigger`, `combobox-trigger`), and code and theme rules select on it. Props on the
- * element a render returns win over the part's, so the slot goes back on there.
- */
-function renderWithSlot(
-  render: ButtonProps["render"],
-  slot: string | undefined,
-): ButtonProps["render"] {
-  if (slot === undefined || slot === "button") return render;
-  if (render === undefined) {
-    return (props) => renderElement("button", { ...props, "data-slot": slot });
-  }
-  if (typeof render === "function") {
-    return (props, state) =>
-      React.cloneElement(render(props, state) as React.ReactElement<Record<string, unknown>>, {
-        "data-slot": slot,
-      });
-  }
-  return React.cloneElement(render, { "data-slot": slot });
-}
+// `ref` rides along in `...props` instead of going through `forwardRef`: React 19 passes it as a
+// plain prop, and `mergeProps` forwards it to the rendered element either way. Pulling it out into
+// a local made React Compiler read the whole component as a ref access during render and skip it —
+// which costs every button on screen its auto-memoization.
+function Button({ className, variant, size, shape, render, ...props }: ButtonProps) {
+  const typeValue: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] = render
+    ? undefined
+    : "button";
 
-// The behaviour comes from UI SDK's Button (so an agent bridge can find and press it); the look is
-// Moss's. `ref` rides along in `...props` instead of going through `forwardRef`: React 19 passes it
-// as a plain prop. Pulling it into a local made React Compiler read the whole component as a ref
-// access during render and skip it, which costs every button on screen its auto-memoization.
-function Button({
-  className,
-  variant,
-  size,
-  shape,
-  render,
-  onClick,
-  "data-slot": slot,
-  ...props
-}: ButtonProps & { "data-slot"?: string }) {
-  return (
-    <ButtonPrimitive
-      {...definedProps<object, React.ComponentProps<typeof ButtonPrimitive>>(props)}
-      className={cn(buttonVariants({ className, shape, size, variant }))}
-      // UI SDK holds a button "pending" while a Promise its click handler returned runs, and
-      // ignores presses meanwhile. Moss handlers guard their own double sends, and several start
-      // long work on purpose (a send that streams), so the press never becomes a pending state.
-      {...definedProps<object, React.ComponentProps<typeof ButtonPrimitive>>({
-        render: renderWithSlot(render, slot),
-        onClick: onClick
-          ? (event: React.MouseEvent<HTMLElement>) => {
-              onClick(event as React.MouseEvent<HTMLButtonElement>);
-            }
-          : undefined,
-      })}
-    />
-  );
+  const defaultProps = {
+    className: cn(buttonVariants({ className, shape, size, variant })),
+    "data-slot": "button",
+    type: typeValue,
+  };
+
+  return useRender({
+    defaultTagName: "button",
+    props: mergeProps<"button">(defaultProps, props),
+    render,
+  });
 }
 
 /** Dialog footers and inline error actions share this sizing override. */

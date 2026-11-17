@@ -12,6 +12,7 @@ import {
   type ChatAttachmentId,
   type GuestThreadModel,
 } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   useCallback,
   useEffect,
@@ -207,7 +208,7 @@ export function GuestComposer({
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // As in the app: Enter sends, Shift+Enter adds a line; touch keyboards send with the button.
-    if (coarsePointer || event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+    if (coarsePointer || event.key !== "Enter" || event.shiftKey || isImeComposingKeyEvent(event)) {
       return;
     }
     event.preventDefault();

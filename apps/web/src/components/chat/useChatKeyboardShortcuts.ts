@@ -6,6 +6,7 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@moss/contracts";
 import type { Dispatch, RefObject, SetStateAction } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect } from "react";
 import { readStarredModelSlugs } from "~/lib/starredModels";
 import { isMacNavigatorPlatform } from "~/lib/utils";
@@ -224,7 +225,7 @@ export function useChatKeyboardShortcuts({
       if (
         isVoiceRecording &&
         event.key === "Enter" &&
-        !event.isComposing &&
+        !isImeComposingKeyEvent(event) &&
         !event.shiftKey &&
         !event.altKey &&
         !event.metaKey &&
@@ -268,7 +269,7 @@ export function useChatKeyboardShortcuts({
           isVoiceRecording ||
           isVoiceTranscribing ||
           isComposerApprovalState ||
-          event.isComposing
+          isImeComposingKeyEvent(event)
         )
           return;
         if (!cycleEffort()) return;

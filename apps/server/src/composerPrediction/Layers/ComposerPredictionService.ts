@@ -310,7 +310,11 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
     return Effect.gen(function* () {
       startedAtMs = yield* Clock.currentTimeMillis;
       const thread = yield* readThread(threadId);
-      const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
+      // The session's own state is checked once the route is known: only the native
+      // fork needs it idle.
+      const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId, {
+        needsIdleSession: false,
+      });
       if (blocker !== null) return yield* unavailable(blocker);
       const finalReplyMessageId = thread?.latestTurn?.assistantMessageId;
       if (!thread || !finalReplyMessageId) return yield* unavailable("turn-incomplete");
@@ -323,6 +327,11 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const route = yield* decideRoute(thread, cwd);
       facts.route = route.kind;
       if (route.kind === "no-route") return yield* noRoute(route.reason);
+      const needsIdleSession = route.kind === "native";
+      if (needsIdleSession) {
+        const sessionBlocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
+        if (sessionBlocker !== null) return yield* unavailable(sessionBlocker);
+      }
       if (route.kind === "unrouted") {
         facts.routingReason = route.reason;
         return yield* unavailable("no-routing");
@@ -350,6 +359,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const delayedBlocker = resolveComposerPredictionTurnBlocker(
         yield* readThread(threadId),
         expectedTurnId,
+        { needsIdleSession },
       );
       if (delayedBlocker !== null) return yield* unavailable(delayedBlocker);
 
@@ -390,6 +400,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const settledBlocker = resolveComposerPredictionTurnBlocker(
         yield* readThread(threadId),
         expectedTurnId,
+        { needsIdleSession },
       );
       if (settledBlocker !== null) return yield* unavailable(settledBlocker);
       // Only a real answer from the model is remembered, "none" included.

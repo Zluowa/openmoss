@@ -2,16 +2,10 @@
 
 // FILE: slider.tsx
 // Purpose: Shared accent-colored single-value slider primitive with optional step marks.
-// Layer: UI SDK behaviour, Moss look
+// Layer: Base UI component
 // Exports: Slider
 
-import {
-  Slider as SliderPrimitive,
-  SliderControl,
-  SliderIndicator,
-  SliderThumb,
-  SliderTrack,
-} from "@ui-sdk/react/slider";
+import { Slider as SliderPrimitive } from "@base-ui/react/slider";
 import { useEffect, useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -39,24 +33,10 @@ type SliderProps = {
 };
 
 // Snap motion: quick, with a touch of overshoot so the thumb visibly "lands" on the
-// stop. UI SDK places the thumb with the `inset-inline` pair and sizes the fill with
+// stop. Base UI positions the thumb via `inset-inline-start` and sizes the fill via
 // `width`, so those are the transitioned properties.
 const MAGNETIC_MOTION_CLASS =
-  "transition-[inset-inline-start,inset-inline-end,width] duration-180 ease-[cubic-bezier(0.22,1.1,0.36,1)] motion-reduce:transition-none";
-
-// Keys the slider spends on its value. A slider often sits in a menu (the composer's effort card),
-// and a menu moves its highlight on the same arrows, so they stop at the slider, as they did
-// before. Escape and Tab still reach the menu.
-const SLIDER_VALUE_KEYS = new Set([
-  "ArrowUp",
-  "ArrowDown",
-  "ArrowLeft",
-  "ArrowRight",
-  "Home",
-  "End",
-  "PageUp",
-  "PageDown",
-]);
+  "transition-[inset-inline-start,width] duration-180 ease-[cubic-bezier(0.22,1.1,0.36,1)] motion-reduce:transition-none";
 
 function stepMarkPercents(min: number, max: number, step: number): number[] {
   if (!(max > min) || !(step > 0)) return [];
@@ -67,7 +47,7 @@ function stepMarkPercents(min: number, max: number, step: number): number[] {
   return marks;
 }
 
-// The pointer can leave the slider mid-drag (the slider captures the pointer, but the
+// The pointer can leave the slider mid-drag (Base UI captures the pointer, but the
 // cursor shown still follows the element under it), so the closed hand is forced
 // document-wide for the duration of the press.
 function useGrabbingCursor(active: boolean): void {
@@ -121,18 +101,14 @@ function Slider({
     };
   }, [pressed]);
 
-  // Edge alignment: the thumb never overhangs the painted track. UI SDK centres a thumb on its
-  // value along `SliderTrack` and maps a press along the same box, so that box is an inner rail
-  // inset by half a thumb from each end of the painted track. The thumb then travels exactly
-  // between the track's ends, and a press lands the thumb's centre under the pointer.
   return (
-    <SliderPrimitive
+    <SliderPrimitive.Root
       value={value}
       min={min}
       max={max}
       step={step}
       {...(disabled ? { disabled: true } : {})}
-      {...(getAriaValueText ? { format: (next: number) => getAriaValueText(next) } : {})}
+      thumbAlignment="edge"
       onValueChange={(nextValue) => {
         if (typeof nextValue === "number") onValueChange(nextValue);
       }}
@@ -146,17 +122,29 @@ function Slider({
       data-slot="slider"
       {...(pressed ? { "data-pressed": "" } : {})}
     >
-      <SliderControl
+      <SliderPrimitive.Control
         className="flex w-full cursor-grab items-center py-0.5 group-data-pressed/slider:cursor-grabbing data-disabled:cursor-not-allowed"
         onPointerDown={(event) => {
           if (disabled || event.button !== 0) return;
           setPressed(true);
         }}
       >
-        <span
-          className="relative flex h-[var(--slider-track-size)] w-full overflow-visible rounded-full bg-[color-mix(in_srgb,var(--color-text-foreground)_14%,transparent)]"
-          data-slot="slider-groove"
+        <SliderPrimitive.Track
+          className="relative h-[var(--slider-track-size)] w-full overflow-visible rounded-full bg-[color-mix(in_srgb,var(--color-text-foreground)_14%,transparent)]"
+          data-slot="slider-track"
         >
+          {/* At the minimum the fill sits entirely under the thumb, but the thumb and
+              the track share the same left edge, so anti-aliasing leaves a sliver of
+              accent peeking out. Hide the fill there instead of relying on overlap. */}
+          <SliderPrimitive.Indicator
+            className={cn(
+              "rounded-full bg-[var(--color-text-accent)]",
+              magnetic && MAGNETIC_MOTION_CLASS,
+              magnetic && "transition-[inset-inline-start,width,opacity]",
+              valuePercent <= 0 && "opacity-0",
+            )}
+            data-slot="slider-indicator"
+          />
           {marks.length > 0 ? (
             <span
               aria-hidden="true"
@@ -166,7 +154,7 @@ function Slider({
                 <span
                   key={percent}
                   className={cn(
-                    "absolute top-1/2 z-[1] size-[var(--slider-mark-size)] -translate-x-1/2 -translate-y-1/2 rounded-full transition-colors duration-180 motion-reduce:transition-none",
+                    "absolute top-1/2 size-[var(--slider-mark-size)] -translate-x-1/2 -translate-y-1/2 rounded-full transition-colors duration-180 motion-reduce:transition-none",
                     percent <= valuePercent + Number.EPSILON
                       ? "bg-white/55"
                       : "bg-[color-mix(in_srgb,var(--color-text-foreground)_28%,transparent)]",
@@ -176,44 +164,28 @@ function Slider({
               ))}
             </span>
           ) : null}
-          <SliderTrack
-            className="mx-[calc(var(--slider-thumb-size)/2)] h-full min-w-0 flex-1"
-            data-slot="slider-track"
+          <SliderPrimitive.Thumb
+            aria-label={ariaLabel}
+            {...(getAriaValueText
+              ? { getAriaValueText: (_formatted: string, next: number) => getAriaValueText(next) }
+              : {})}
+            className={cn(
+              "size-[var(--slider-thumb-size)] cursor-grab rounded-full outline-none has-focus-visible:ring-2 has-focus-visible:ring-[color:var(--color-border-focus)]/40 has-focus-visible:ring-offset-1 has-focus-visible:ring-offset-background group-data-pressed/slider:cursor-grabbing",
+              magnetic && MAGNETIC_MOTION_CLASS,
+            )}
+            data-slot="slider-thumb"
           >
-            {/* The fill starts at the painted track's edge (half a thumb before the rail) and
-                ends at the thumb's centre. At the minimum the fill sits entirely under the thumb,
-                but anti-aliasing leaves a sliver of accent at the shared edge, so it hides there. */}
-            <SliderIndicator
-              className={cn(
-                "-ms-[calc(var(--slider-thumb-size)/2)] !w-[calc(var(--slider-indicator-size)+var(--slider-thumb-size)/2)] rounded-full bg-[var(--color-text-accent)]",
-                magnetic && MAGNETIC_MOTION_CLASS,
-                magnetic && "transition-[inset-inline-start,width,opacity]",
-                valuePercent <= 0 && "opacity-0",
-              )}
-              data-slot="slider-indicator"
+            {/* Press feedback scales this inner disc, not the Thumb: Base UI measures the
+                Thumb's bounding box to place it, so scaling it would shift the thumb off
+                the track edge and expose the fill behind it. */}
+            <span
+              aria-hidden="true"
+              className="block size-full rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.05)] transition-[scale,box-shadow] duration-150 ease-out group-data-pressed/slider:scale-105 group-data-pressed/slider:shadow-[0_2px_5px_rgba(0,0,0,0.14),0_0_0_0.5px_rgba(0,0,0,0.05)] motion-reduce:transition-none"
             />
-            <SliderThumb
-              aria-label={ariaLabel}
-              onKeyDown={(event) => {
-                if (SLIDER_VALUE_KEYS.has(event.key)) event.stopPropagation();
-              }}
-              className={cn(
-                "z-[2] size-[var(--slider-thumb-size)] cursor-grab rounded-full outline-none has-focus-visible:ring-2 has-focus-visible:ring-[color:var(--color-border-focus)]/40 has-focus-visible:ring-offset-1 has-focus-visible:ring-offset-background group-data-pressed/slider:cursor-grabbing",
-                magnetic && MAGNETIC_MOTION_CLASS,
-              )}
-              data-slot="slider-thumb"
-            >
-              {/* Press feedback scales this inner disc, not the thumb, so the thumb's measured
-                  box (and the fill edge behind it) never moves. */}
-              <span
-                aria-hidden="true"
-                className="block size-full rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.12),0_0_0_0.5px_rgba(0,0,0,0.05)] transition-[scale,box-shadow] duration-150 ease-out group-data-pressed/slider:scale-105 group-data-pressed/slider:shadow-[0_2px_5px_rgba(0,0,0,0.14),0_0_0_0.5px_rgba(0,0,0,0.05)] motion-reduce:transition-none"
-              />
-            </SliderThumb>
-          </SliderTrack>
-        </span>
-      </SliderControl>
-    </SliderPrimitive>
+          </SliderPrimitive.Thumb>
+        </SliderPrimitive.Track>
+      </SliderPrimitive.Control>
+    </SliderPrimitive.Root>
   );
 }
 

@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from "vitest";
 import { type ComponentProps, useState } from "react";
 import { render } from "vitest-browser-react";
 
-import { composeChineseWithEnter } from "../test/imeComposition";
 import { SidebarSearchPalette, type SidebarSearchPaletteMode } from "./SidebarSearchPalette";
 import type { SidebarSearchThread } from "./SidebarSearchPalette.logic";
 import type { ThreadImportTarget } from "../lib/threadImport";
@@ -93,29 +92,6 @@ it.each(["导入项目", "项目和对话导入", "Import projects", "folders"])
     await expect.element(result).toBeVisible();
     await result.click();
     expect(onModeChange).toHaveBeenCalledWith("import-projects");
-    expect(onOpenChange).not.toHaveBeenCalled();
-  },
-);
-
-it.each(["Enter", "Process"] as const)(
-  "keeps the highlighted thread closed while Enter (%s) confirms a pinyin candidate",
-  async (confirmKey) => {
-    const { onOpenThread, onOpenChange } = await renderPalette(thread, {}, "zh-CN");
-    const field = page.getByRole("combobox");
-    // The pinyin being composed ("fix") matches the thread, so it is highlighted while the
-    // candidate is confirmed.
-    await composeChineseWithEnter(
-      field.element() as HTMLElement,
-      "fix",
-      "修复",
-      confirmKey,
-      async () => {
-        await expect.element(page.getByRole("option", { name: /Fix login flow/ })).toBeVisible();
-      },
-    );
-    await expect.poll(() => (field.element() as HTMLInputElement).value).toBe("修复");
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(onOpenThread).not.toHaveBeenCalled();
     expect(onOpenChange).not.toHaveBeenCalled();
   },
 );

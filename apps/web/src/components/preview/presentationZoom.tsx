@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { ChevronDownIcon } from "~/lib/icons";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { Menu, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from "../ui/menu";
@@ -47,6 +48,7 @@ export function PresentationZoom({
             onChange={(event) => setCustom(event.target.value)}
             onKeyDown={(event) => {
               event.stopPropagation();
+              if (isImeComposingKeyEvent(event)) return;
               if (event.key === "Enter") {
                 event.preventDefault();
                 applyCustom();

@@ -2,14 +2,12 @@
 
 // FILE: switch.tsx
 // Purpose: Shared accent-colored on/off switch primitive used by settings, menus, and dialogs.
-// Layer: UI SDK behaviour, Moss look
+// Layer: Base UI component
 // Exports: Switch plus track/thumb class names for compact switch-shaped controls
 
-import { Switch as SwitchPrimitive, SwitchThumb } from "@ui-sdk/react/switch";
-import type { ComponentProps } from "react";
+import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 
 import { cn } from "~/lib/utils";
-import { definedProps, type Loose } from "./uiSdkProps";
 
 const SWITCH_TRACK_CLASS_NAME =
   "inline-flex h-[calc(var(--thumb-size)+4px)] w-[calc(var(--thumb-size)*2+4px)] shrink-0 cursor-pointer items-center rounded-full border p-px outline-none transition-[background-color,box-shadow,border-color] duration-200 [--thumb-size:--theme(--spacing-ui-icon-sm)] focus-visible:ring-2 focus-visible:ring-[color:var(--color-border-focus)]/60 focus-visible:ring-offset-1 focus-visible:ring-offset-background data-checked:border-[color:var(--color-text-accent)] data-checked:bg-[var(--color-text-accent)] data-unchecked:border-[color:color-mix(in_srgb,var(--color-text-foreground)_14%,transparent)] data-unchecked:bg-[color-mix(in_srgb,var(--color-text-foreground)_20%,var(--color-background-control-opaque))] data-disabled:cursor-default data-disabled:opacity-64";
@@ -17,29 +15,22 @@ const SWITCH_TRACK_CLASS_NAME =
 const SWITCH_THUMB_CLASS_NAME =
   "pointer-events-none block aspect-square h-full origin-left translate-x-0 rounded-full bg-white shadow-sm ring-1 ring-black/5 will-change-transform [transition:translate_.2s_ease-out,border-radius_.15s,scale_.1s_.1s,transform-origin_.15s]";
 
-type SwitchPrimitiveProps = ComponentProps<typeof SwitchPrimitive>;
-type SwitchProps = Loose<Omit<SwitchPrimitiveProps, "className">> & {
-  className?: string | undefined;
-  /** Accepted for callers written against Base UI; the switch is always a native button. */
-  nativeButton?: boolean | undefined;
-};
-
-function Switch({ className, nativeButton: _nativeButton, ...props }: SwitchProps) {
+function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
   return (
-    <SwitchPrimitive
-      {...definedProps<object, SwitchPrimitiveProps>(props)}
+    <SwitchPrimitive.Root
       className={cn(SWITCH_TRACK_CLASS_NAME, className)}
       data-slot="switch"
+      {...props}
     >
-      <SwitchThumb
+      <SwitchPrimitive.Thumb
         className={cn(
           SWITCH_THUMB_CLASS_NAME,
           "in-[[role=switch]:active,[data-slot=label]:active,[data-slot=field-label]:active]:not-data-disabled:scale-x-110 in-[[role=switch]:active,[data-slot=label]:active,[data-slot=field-label]:active]:rounded-[var(--thumb-size)/calc(var(--thumb-size)*1.1)] data-checked:origin-[var(--thumb-size)_50%] data-checked:translate-x-[var(--thumb-size)]",
         )}
         data-slot="switch-thumb"
       />
-    </SwitchPrimitive>
+    </SwitchPrimitive.Root>
   );
 }
 
-export { Switch, type SwitchProps, SWITCH_THUMB_CLASS_NAME, SWITCH_TRACK_CLASS_NAME };
+export { Switch, SWITCH_THUMB_CLASS_NAME, SWITCH_TRACK_CLASS_NAME };

@@ -20,10 +20,7 @@ import {
 } from "../test/themeHookCoverage";
 
 const sourceDirectory = NodePath.resolve(import.meta.dirname, "..");
-// Files only: a folder may carry a source-like name (screenshot baselines are kept per test file).
-const sourceFiles = NodeFS.readdirSync(sourceDirectory, { recursive: true, withFileTypes: true })
-  .filter((entry) => entry.isFile())
-  .map((entry) => NodePath.relative(sourceDirectory, NodePath.join(entry.parentPath, entry.name)))
+const sourceFiles = NodeFS.readdirSync(sourceDirectory, { recursive: true, encoding: "utf8" })
   .filter((file) => /\.(tsx?|css)$/.test(file) && !/\.(test|browser)\./.test(file))
   .map((file) => ({
     file,
