@@ -28,6 +28,9 @@ describe("the chat screen in zh-CN", () => {
       ["Device task approved", "设备任务已批准"],
       ["Computer task declined", "电脑任务已拒绝"],
       ["Device task approval cancelled", "设备任务批准已取消"],
+      // A page-declared WebMCP tool's card (review of #655, N1).
+      ["Page tool needs approval", "网页工具需要你的批准"],
+      ["Page tool approval resolved", "网页工具的批准已处理"],
     ]);
   });
 

@@ -39,6 +39,7 @@ import {
 import {
   COMPOSER_PREDICTION_START_DELAY,
   makeComposerPredictionServiceLive,
+  OWN_CODEX_CLI_FIRST_ENV,
 } from "./ComposerPredictionService.ts";
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-1");
@@ -273,18 +274,12 @@ describe("ComposerPredictionServiceLive", () => {
   });
 
   it.each([
-    ["a starting session", { session: { status: "starting" } }],
-    ["a running session", { session: { status: "running" } }],
     ["a pending approval", { hasPendingApprovals: true }],
     ["a pending user-input request", { hasPendingUserInput: true }],
   ])("is unavailable without generating while the thread has %s", async (_label, overrides) => {
     const harness = makeHarness();
     const thread = harness.state.thread;
-    harness.state.thread = {
-      ...thread,
-      ...overrides,
-      ...("session" in overrides ? { session: { ...thread.session, ...overrides.session } } : {}),
-    } as OrchestrationThreadShell;
+    harness.state.thread = { ...thread, ...overrides } as OrchestrationThreadShell;
 
     await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
     expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
@@ -298,7 +293,47 @@ describe("ComposerPredictionServiceLive", () => {
     expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
   });
 
-  it("is unavailable when the session turns busy during the start delay", async () => {
+  // The isolated route never uses the chat's session: a session that is starting (Moss
+  // resuming the Codex thread when the chat is opened) or running background work does not
+  // stop it. 2026-11-17, owner's PC: a finished suggestion was discarded as `session-busy`
+  // while `thread/resume` took 13.6 s.
+  it.each([
+    ["starting", { session: { status: "starting" } }],
+    ["running", { session: { status: "running" } }],
+  ])("predicts on the isolated route while the chat's session is %s", async (_label, overrides) => {
+    const harness = makeHarness();
+    const thread = harness.state.thread;
+    harness.state.thread = {
+      ...thread,
+      session: { ...thread.session, ...overrides.session },
+    } as OrchestrationThreadShell;
+
+    await expect(harness.run(harness.generate)).resolves.toEqual({
+      suggestion: "Fix the fixture and rerun that test.",
+      outcome: "suggested",
+    });
+  });
+
+  it("keeps an isolated suggestion when the session starts resuming during generation", async () => {
+    const harness = makeHarness();
+    harness.generateComposerPrediction.mockImplementationOnce(() =>
+      Effect.sync(() => {
+        const thread = harness.state.thread;
+        harness.state.thread = {
+          ...thread,
+          session: { ...thread.session, status: "starting" },
+        } as OrchestrationThreadShell;
+        return { suggestion: "Keep it this way." };
+      }),
+    );
+
+    await expect(harness.run(harness.generate)).resolves.toEqual({
+      suggestion: "Keep it this way.",
+      outcome: "suggested",
+    });
+  });
+
+  it("keeps going on the isolated route when the session turns busy during the start delay", async () => {
     const harness = makeHarness({ startDelay: COMPOSER_PREDICTION_START_DELAY });
 
     const result = await harness.run(
@@ -317,8 +352,11 @@ describe("ComposerPredictionServiceLive", () => {
       }),
     );
 
-    expect(result).toEqual(UNAVAILABLE);
-    expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      suggestion: "Fix the fixture and rerun that test.",
+      outcome: "suggested",
+    });
+    expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(1);
   });
 
   it("is unavailable when the final reply is not in the transcript yet", async () => {
@@ -968,6 +1006,21 @@ describe("ComposerPredictionServiceLive on Codex's native prediction fork", () =
     expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
   });
 
+  it.each(["starting", "running"] as const)(
+    "is unavailable without forking while the chat's session is %s",
+    async (status) => {
+      const harness = makeNativeHarness();
+      const thread = harness.state.thread;
+      harness.state.thread = {
+        ...thread,
+        session: { ...thread.session, status },
+      } as OrchestrationThreadShell;
+
+      await expect(harness.run(harness.generate)).resolves.toEqual(UNAVAILABLE);
+      expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it("is unavailable when the session turns busy during the start delay, without forking", async () => {
     const harness = makeNativeHarness({ startDelay: COMPOSER_PREDICTION_START_DELAY });
 
@@ -1155,6 +1208,147 @@ describe("ComposerPredictionServiceLive after a turn that closed with a question
         closingQuestion: true,
       }),
     ]);
+  });
+
+  // #661: on Windows the own account runs through the CLI inside a job. The signed-in Moss
+  // model stays first by default; MOSS_PREDICTION_OWN_CODEX_CLI_FIRST=1 puts the CLI first so
+  // its time can be measured on a real account.
+  describe("when the own account runs through the CLI inside a Windows job", () => {
+    const windowsJobHarness = () =>
+      makeHarness({
+        modelSelection: CODEX_CHAT,
+        isolatedSupportByInstance: {
+          codex: { kind: "supported", windowsJob: true },
+          codex_moss: { kind: "supported" },
+        },
+        settings: {
+          providerInstances: {
+            codex_moss: {
+              driver: "codex",
+              enabled: true,
+              displayName: "Moss",
+              config: {
+                managed: true,
+                modelAllowlist: ["gpt-5.6-terra", "gpt-5.6-luna"],
+                defaultModel: "gpt-5.6-terra",
+              },
+            },
+          },
+        } as Parameters<typeof ServerSettingsService.layerTest>[0],
+      });
+
+    it("asks the signed-in Moss model first by default", async () => {
+      vi.stubEnv(OWN_CODEX_CLI_FIRST_ENV, "");
+      try {
+        const harness = windowsJobHarness();
+        await harness.run(harness.generate);
+        expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(1);
+        expect(harness.generateComposerPrediction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            modelSelection: expect.objectContaining({ instanceId: "codex_moss" }),
+          }),
+        );
+        expect(harness.rawLogs).toEqual([
+          predictionLog("Info", {
+            route: "isolated",
+            outcome: "suggested",
+            source: "moss-model-for-own-account",
+            model: "gpt-5.6-luna",
+            effort: expect.any(String),
+          }),
+        ]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    // Second review of #661: signed out of Moss, the CLI in a job is tried first; when it
+    // fails, the native fork that served this chat before the job still gets its try.
+    const signedOutWindowsJobHarness = (
+      nativeSupport: ProviderNextUserMessagePredictionSupport = { kind: "supported" },
+    ) =>
+      makeHarness({
+        modelSelection: CODEX_CHAT,
+        isolatedSupportByInstance: { codex: { kind: "supported", windowsJob: true } },
+        nativeSupport,
+      });
+    const failingCli = () =>
+      Effect.fail(
+        new TextGenerationError({
+          operation: "generateComposerPrediction",
+          detail: "Codex CLI command failed: not signed in",
+        }),
+      );
+
+    it("falls back to the native fork when the CLI in the job fails", async () => {
+      const harness = signedOutWindowsJobHarness();
+      harness.generateComposerPrediction.mockImplementation(failingCli);
+      await expect(harness.run(harness.generate)).resolves.toEqual({
+        suggestion: "Fix the fixture and rerun that test.",
+        outcome: "suggested",
+      });
+      expect(harness.generateComposerPrediction).toHaveBeenCalled();
+      expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+      expect(harness.rawLogs).toEqual([
+        predictionLog("Info", {
+          route: "isolated",
+          outcome: "suggested",
+          source: expect.any(String),
+          model: expect.any(String),
+          effort: expect.any(String),
+          windowsJob: true,
+          nativeAfterWindowsJob: true,
+        }),
+      ]);
+    });
+
+    it("keeps the CLI's failure when the fork cannot run either", async () => {
+      const harness = signedOutWindowsJobHarness({
+        kind: "unsupported",
+        reason: "no_live_session",
+      });
+      harness.generateComposerPrediction.mockImplementation(failingCli);
+      const answer = await harness.run(harness.generate);
+      expect(answer.suggestion).toBeNull();
+      expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+      expect(JSON.stringify(harness.rawLogs)).toContain("generation-failed");
+    });
+
+    it("never asks the fork when the CLI in the job answers", async () => {
+      const harness = signedOutWindowsJobHarness();
+      await expect(harness.run(harness.generate)).resolves.toEqual({
+        suggestion: "Fix the fixture and rerun that test.",
+        outcome: "suggested",
+      });
+      expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+    });
+
+    it("asks the own account through the job first when the measuring switch is set", async () => {
+      vi.stubEnv(OWN_CODEX_CLI_FIRST_ENV, "1");
+      try {
+        const harness = windowsJobHarness();
+        await harness.run(harness.generate);
+        expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(1);
+        expect(harness.generateComposerPrediction).toHaveBeenCalledWith(
+          expect.objectContaining({
+            modelSelection: expect.objectContaining({ instanceId: "codex" }),
+          }),
+        );
+        expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+        expect(harness.rawLogs).toEqual([
+          predictionLog("Info", {
+            route: "isolated",
+            outcome: "suggested",
+            source: expect.any(String),
+            model: expect.any(String),
+            effort: expect.any(String),
+            windowsJob: true,
+          }),
+        ]);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 
   it("falls back to the native fork when the Moss route is not served (signed out)", async () => {

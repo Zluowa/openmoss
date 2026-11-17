@@ -12,6 +12,7 @@ import type {
   DesignNote,
   DesignNoteColor,
 } from "@moss/shared/spaceItems/designCanvas";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   boundsOf,
   drawingMarkup,
@@ -643,6 +644,7 @@ export function DesignCanvasView(props: {
   useEffect(() => {
     if (!pen) return;
     const key = (event: KeyboardEvent) => {
+      if (isImeComposingKeyEvent(event)) return;
       if (event.key !== "Enter" && event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -705,6 +707,7 @@ export function DesignCanvasView(props: {
   useEffect(() => {
     if (!crop) return;
     const key = (event: KeyboardEvent) => {
+      if (isImeComposingKeyEvent(event)) return;
       if (event.key !== "Enter" && event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
@@ -2052,6 +2055,7 @@ export function DesignCanvasView(props: {
                     onPointerDown={(event) => event.stopPropagation()}
                     onKeyDown={(event) => {
                       event.stopPropagation();
+                      if (isImeComposingKeyEvent(event)) return;
                       if (event.key === "Enter" || event.key === "Escape")
                         (event.target as HTMLInputElement).blur();
                     }}

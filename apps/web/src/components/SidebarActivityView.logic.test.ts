@@ -17,6 +17,7 @@ import {
   resolveActivityDateBucket,
   resolveActivityPriority,
   resolveActivityPriorityTier,
+  resolveActivityRowEmphasis,
   resolveActivityScope,
   resolveActivitySectionRows,
   resolveActivityThreadReadAt,
@@ -713,6 +714,32 @@ describe("resolveActivityScope", () => {
       projectFilterIds: null,
     });
     expect(resolveActivityScope(PROJECT_ID, [])).toEqual({ scope: null, projectFilterIds: null });
+  });
+});
+
+describe("resolveActivityRowEmphasis", () => {
+  // Ported from upstream #2195.
+  it("emphasizes rows that wait on the user or hold unseen news, and quiets seen replies", () => {
+    for (const label of [
+      "Pending Approval",
+      "Awaiting Input",
+      "Plan Ready",
+      "Completed",
+      "Reminder",
+    ] as const) {
+      expect(resolveActivityRowEmphasis({ label })).toEqual({
+        titleEmphasized: true,
+        replySeen: false,
+      });
+    }
+    // A running row keeps a regular title but its reply stays at full secondary ink.
+    for (const label of ["Working", "Connecting", "Preparing worktree", "In Background"] as const) {
+      expect(resolveActivityRowEmphasis({ label })).toEqual({
+        titleEmphasized: false,
+        replySeen: false,
+      });
+    }
+    expect(resolveActivityRowEmphasis(null)).toEqual({ titleEmphasized: false, replySeen: true });
   });
 });
 

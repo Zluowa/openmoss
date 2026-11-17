@@ -1,5 +1,6 @@
 import { LexicalComposer, type InitialConfigType } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
@@ -584,6 +585,13 @@ function ComposerCommandKeyPlugin(props: {
     const handleCommand = (key: ComposerCommandKey, event: KeyboardEvent | null): boolean => {
       if (!props.onCommandKeyDown || !event) {
         return false;
+      }
+      // A key that belongs to the input method (the Enter that confirms a candidate, also in
+      // Safari's order where the composition has already ended) reaches no owner and no editor
+      // default (no send, no menu accept, no new paragraph). Not prevented, so the input method
+      // still commits its text.
+      if (isImeComposingKeyEvent(event)) {
+        return true;
       }
       const handled = props.onCommandKeyDown(key, event);
       if (handled) {

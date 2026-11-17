@@ -383,11 +383,12 @@ describe("auditWindowsNativePayloads", () => {
     // Cua Driver files (driver, UIA helper, cursor theme, SDK, node runtime) from the pinned
     // upstream release; the Codex files follow its win32-x64 payload and are bound one by one in
     // the test below (bun run bump:codex). Pi is no longer bundled (Moss runs the person's own Pi
-    // CLI), so pi-tui's win32-x64 platform helper must not return.
+    // CLI), so pi-tui's win32-x64 platform helper must not return. Plus Moss's own job launcher
+    // (resources/moss-job-launch/moss-job-launch.exe), pinned to moss-job-launch.pin.json.
     assert.equal(
       preservedPayloads.filter((entry) => !entry.path.startsWith("resources/codex-runtime/"))
         .length,
-      16,
+      17,
     );
     assert.deepStrictEqual(
       preservedPayloads

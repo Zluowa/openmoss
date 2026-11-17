@@ -860,7 +860,9 @@ export function toThreadUnarchivedShellEvent(
   ) {
     return Effect.all([
       projectionReadModelQuery.getShellSnapshot(),
-      projectionReadModelQuery.getThreadShellById(event.payload.threadId),
+      projectionReadModelQuery.getThreadShellById(event.payload.threadId, {
+        includeLatestReplyPreview: true,
+      }),
     ]).pipe(
       Effect.map(([snapshot, thread]) =>
         Option.some({
@@ -874,7 +876,9 @@ export function toThreadUnarchivedShellEvent(
     );
   }
   return projectionReadModelQuery
-    .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)))
+    .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)), {
+      includeLatestReplyPreview: true,
+    })
     .pipe(
       Effect.map((thread) =>
         Option.map(thread, (nextThread) => ({
@@ -1981,7 +1985,9 @@ const makeWsRpcHandlersLayer = () =>
           default:
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
             return projectionReadModelQuery
-              .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)))
+              .getThreadShellById(ThreadId.makeUnsafe(String(event.aggregateId)), {
+                includeLatestReplyPreview: true,
+              })
               .pipe(
                 Effect.map((thread) =>
                   Option.map(thread, (nextThread) => ({
@@ -2732,7 +2738,10 @@ const makeWsRpcHandlersLayer = () =>
               runtimeStartup,
               // Queried snapshots carry an empty-thread proof so an empty app's route
               // restore can skip its recovery wait; streamed snapshots omit it.
-              projectionReadModelQuery.getShellSnapshot({ verifyEmptyThreads: true }),
+              projectionReadModelQuery.getShellSnapshot({
+                verifyEmptyThreads: true,
+                includeLatestReplyPreview: true,
+              }),
             ),
             "Failed to load orchestration shell snapshot",
           ),
@@ -2875,7 +2884,7 @@ const makeWsRpcHandlersLayer = () =>
                   onDroppedEvents: () => Effect.void,
                 },
                 snapshot: projectionReadModelQuery
-                  .getShellSnapshot()
+                  .getShellSnapshot({ includeLatestReplyPreview: true })
                   .pipe(
                     Effect.mapError((cause) =>
                       toWsRpcError(cause, "Failed to load shell snapshot"),

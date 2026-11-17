@@ -1449,6 +1449,9 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+/** Upper bound, in UTF-16 code units and including the trailing "…", of `latestReplyPreview`. */
+export const THREAD_LATEST_REPLY_PREVIEW_MAX_LENGTH = 240;
+
 export const OrchestrationThreadShell = Schema.Struct({
   /** Durable project-import provenance; ordinary chats never request imported history. */
   isProjectImport: Schema.optional(Schema.Boolean),
@@ -1541,6 +1544,15 @@ export const OrchestrationThreadShell = Schema.Struct({
   goal: Schema.optional(ThreadGoal),
   ...ThreadGoalTimingFields,
   session: Schema.NullOr(OrchestrationSession),
+  /**
+   * Plain-text start of the thread's newest finished assistant message that has text, for list
+   * rows: Markdown and code-fence markup removed (code kept as text), whitespace and newlines
+   * collapsed to single spaces, trimmed, at most `THREAD_LATEST_REPLY_PREVIEW_MAX_LENGTH` UTF-16
+   * code units ending in "…" when cut on a grapheme boundary. Server-derived; absent when the
+   * thread has no such message, when it is archived, and from older servers. Changes when an
+   * assistant message finishes, never per streamed delta.
+   */
+  latestReplyPreview: Schema.optional(Schema.String),
 });
 export type OrchestrationThreadShell = typeof OrchestrationThreadShell.Type;
 

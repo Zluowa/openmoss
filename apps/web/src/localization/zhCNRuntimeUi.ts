@@ -270,6 +270,8 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "User input requested.": "需要用户输入。",
   "Input needed": "需要输入",
   "Command approval requested.": "需要批准命令。",
+  "Page tool needs approval": "网页工具需要你的批准",
+  "Page tool approval resolved": "网页工具的批准已处理",
   "File-read approval requested.": "需要批准读取文件。",
   "File-change approval requested.": "需要批准更改文件。",
   "Awaiting Input": "等待输入",

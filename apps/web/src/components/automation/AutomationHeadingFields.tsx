@@ -6,6 +6,7 @@
 // back through the mutation's cache rollback, snapping the field to the server value.
 
 import { useEffect, useRef, useState } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import { automationNameError, automationPromptError } from "~/lib/automationForm";
 import { useCommitDraft, useCommitDraftBlurHandlers } from "~/lib/automationInlineDraft";
@@ -48,6 +49,7 @@ export function AutomationNameField({
       onChange={(event) => draft.setDraft(event.target.value)}
       onBlur={onBlur}
       onKeyDown={(event) => {
+        if (isImeComposingKeyEvent(event)) return;
         if (event.key === "Enter") {
           event.preventDefault();
           event.currentTarget.blur();

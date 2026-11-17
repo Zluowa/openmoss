@@ -6,6 +6,7 @@
 // Layer: Web pageApps
 
 import { PAGE_APP_COMMENT_MAX_CHARS, type PageAppCommentAnchor } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -108,7 +109,7 @@ function Composer(props: {
           className="min-h-12 w-full resize-none bg-transparent text-ui leading-6 text-foreground outline-none [field-sizing:content] max-h-40 placeholder:text-muted-foreground/70"
           onChange={(event) => setBody(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
               event.preventDefault();
               post();
             } else if (event.key === "Escape") {

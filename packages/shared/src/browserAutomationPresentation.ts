@@ -13,5 +13,7 @@ export const BROWSER_TOOL_TITLES = {
   browser_logs: "Read browser diagnostics",
   browser_upload: "Upload workspace files",
   browser_run: "Run browser actions",
+  browser_webmcp_tools: "Discover page WebMCP tools",
+  browser_webmcp_call: "Call page WebMCP tool",
   browser_close: "Close browser tab",
 } as const satisfies Record<BrowserToolName, string>;

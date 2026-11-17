@@ -9,6 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
+import { composeChineseWithEnter } from "../../test/imeComposition";
+
 import {
   ProviderModelPicker,
   type ProviderModelOptionsByProviderInstance,
@@ -862,6 +864,44 @@ describe("ProviderModelPicker", () => {
       await mounted.cleanup();
     }
   });
+
+  // The search field lets Enter through to the menu (list navigation); the Enter that
+  // confirms a pinyin candidate must stay in the field and pick nothing.
+  it.each(["Enter", "Process"] as const)(
+    "confirms a pinyin candidate in the search without picking a model (%s)",
+    async (confirmKey) => {
+      const mounted = await mountPicker({
+        provider: "opencode",
+        model: MANY_OPENCODE_MODELS[0]!.slug,
+        lockedProvider: "opencode",
+        modelOptionsByProvider: {
+          ...MODEL_OPTIONS_BY_PROVIDER,
+          opencode: MANY_OPENCODE_MODELS,
+        },
+      });
+
+      try {
+        await page.getByRole("button").click();
+        const search = page.getByPlaceholder("Search models or providers");
+        await search.fill("Claude");
+        await expect
+          .element(page.getByRole("menuitemradio", { name: "Claude 2" }))
+          .toBeInTheDocument();
+        await composeChineseWithEnter(
+          search.element() as HTMLElement,
+          "moxing",
+          "模型",
+          confirmKey,
+        );
+        await expect.poll(() => (search.element() as HTMLInputElement).value).toContain("模型");
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(mounted.onProviderModelChange).not.toHaveBeenCalled();
+        await expect.element(search).toBeInTheDocument();
+      } finally {
+        await mounted.cleanup();
+      }
+    },
+  );
 
   it("shows favourited OpenCode models in their own top category", async () => {
     const mounted = await mountPicker({
