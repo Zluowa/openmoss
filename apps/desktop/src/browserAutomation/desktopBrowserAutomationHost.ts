@@ -19,6 +19,9 @@ import {
   type BrowserToolNavigateInput,
   type BrowserToolOpenInput,
   type BrowserUploadInput,
+  type BrowserWebMcpCallInput,
+  type BrowserWebMcpCallOutput,
+  type BrowserWebMcpToolsInput,
   type ThreadBrowserState,
   type ThreadId,
 } from "@moss/contracts";
@@ -55,6 +58,7 @@ import { closeLingeringBrowserWorkers, runBetterwright } from "./betterwrightRun
 import { collectPageOutline } from "./pageOutline";
 import { NAVIGATION_SETTLE_MAX_MS, SCRIPT_SETTLE_MAX_MS, settlePageSince } from "./pageSettle";
 import type { BrowserVault } from "./browserVault";
+import { discoverWebMcpTools, invokeWebMcpTool, type WebMcpDiscoveryHandle } from "./webMcp";
 import type { BrowserVaultCapture } from "./browserVaultCapture";
 
 const MAX_IDEMPOTENCY_ENTRIES = 512;
@@ -69,6 +73,8 @@ const MAX_IDEMPOTENCY_TOMBSTONES = 4_096;
 const IDEMPOTENCY_TOMBSTONE_TTL_MS = 24 * 60 * 60_000;
 const WINDOW_OPEN_RECONCILIATION_TIMEOUT_MS = 2_000;
 const WINDOW_OPEN_EVENT_LOOP_GRACE_MS = 16;
+/** Live page-tool discoveries kept at once; each pins one remote object in its page. */
+const MAX_SESSION_WEB_MCP_DISCOVERIES = 64;
 
 export interface BrowserAutomationToolRequest {
   readonly sessionId: string;
@@ -303,6 +309,8 @@ export class DesktopBrowserAutomationHost {
   private readonly idempotencyTombstones = new Map<string, IdempotencyTombstone>();
   private readonly lockTails = new Map<string, Promise<void>>();
   private readonly activeOperations = new Set<Promise<unknown>>();
+  /** The latest browser_webmcp_tools discovery of each session, until it goes stale. */
+  private readonly webMcpDiscoveryBySession = new Map<string, WebMcpDiscoveryHandle>();
   private readonly diagnostics = new BrowserDiagnosticsStore();
   /** Absolute deadline of each executeTool operation, keyed by its signal. */
   private readonly operationDeadlines = new WeakMap<AbortSignal, number>();
@@ -322,9 +330,49 @@ export class DesktopBrowserAutomationHost {
     this.disposed = true;
     this.disposal = (async () => {
       await Promise.allSettled([...this.activeOperations]);
+      const discoveries = [...this.webMcpDiscoveryBySession.values()];
+      this.webMcpDiscoveryBySession.clear();
+      await Promise.all(discoveries.map((discovery) => discovery.release()));
       await closeLingeringBrowserWorkers();
     })();
     return this.disposal;
+  }
+
+  private discardWebMcpDiscovery(sessionId: string): void {
+    const discovery = this.webMcpDiscoveryBySession.get(sessionId);
+    if (!discovery) return;
+    this.webMcpDiscoveryBySession.delete(sessionId);
+    void discovery.release();
+  }
+
+  private discardWebMcpDiscoveriesForTab(threadId: ThreadId, tabId: string): void {
+    for (const [sessionId, discovery] of this.webMcpDiscoveryBySession) {
+      if (discovery.tabId !== tabId || this.affinities.get(sessionId)?.threadId !== threadId) {
+        continue;
+      }
+      this.discardWebMcpDiscovery(sessionId);
+    }
+  }
+
+  private storeWebMcpDiscovery(sessionId: string, discovery: WebMcpDiscoveryHandle): void {
+    if (this.disposed) {
+      void discovery.release();
+      return;
+    }
+    this.discardWebMcpDiscovery(sessionId);
+    this.webMcpDiscoveryBySession.set(sessionId, discovery);
+    discovery.onInvalidated(() => {
+      if (this.webMcpDiscoveryBySession.get(sessionId) === discovery) {
+        this.webMcpDiscoveryBySession.delete(sessionId);
+      }
+    });
+    while (this.webMcpDiscoveryBySession.size > MAX_SESSION_WEB_MCP_DISCOVERIES) {
+      const oldestSessionId = this.webMcpDiscoveryBySession.keys().next().value as
+        | string
+        | undefined;
+      if (!oldestSessionId) break;
+      this.discardWebMcpDiscovery(oldestSessionId);
+    }
   }
 
   async waitForIdle(): Promise<void> {
@@ -987,7 +1035,16 @@ export class DesktopBrowserAutomationHost {
   ): Promise<TabToolExecution> {
     throwIfAborted(signal);
     if (request.name === "browser_close") {
+      this.discardWebMcpDiscoveriesForTab(affinity.threadId, targetTabId);
       return uncorrelatedExecution(this.close(affinity, targetTabId));
+    }
+    if (
+      request.name === "browser_navigate" ||
+      request.name === "browser_back" ||
+      request.name === "browser_forward" ||
+      request.name === "browser_reload"
+    ) {
+      this.discardWebMcpDiscoveriesForTab(affinity.threadId, targetTabId);
     }
 
     return this.withDownloadGuardIfEffecting(
@@ -1066,7 +1123,10 @@ export class DesktopBrowserAutomationHost {
     }
 
     const runtime = await this.resolveAutomationRuntime(affinity, targetTabId, signal, true);
-    const windowOpen = request.name === "browser_run" ? this.observeWindowOpen(runtime) : null;
+    const windowOpen =
+      request.name === "browser_run" || request.name === "browser_webmcp_call"
+        ? this.observeWindowOpen(runtime)
+        : null;
     try {
       return await this.executeVisibleTool(
         request,
@@ -1183,6 +1243,81 @@ export class DesktopBrowserAutomationHost {
               : undefined;
           return page ? { ...output, page } : output;
         }
+        case "browser_webmcp_tools": {
+          const discovery = await discoverWebMcpTools(
+            runtime,
+            input as BrowserWebMcpToolsInput,
+            this.browserManager.getAutomationHumanControlEpoch(affinity.threadId),
+            signal,
+          );
+          if (discovery.handle) {
+            this.storeWebMcpDiscovery(request.sessionId, discovery.handle);
+          } else {
+            this.discardWebMcpDiscovery(request.sessionId);
+          }
+          return discovery.output;
+        }
+        case "browser_webmcp_call": {
+          const callInput = input as BrowserWebMcpCallInput;
+          const discovery = this.webMcpDiscoveryBySession.get(request.sessionId);
+          if (!discovery) browserHostError({ code: "BrowserWebMcpDiscoveryStale" });
+          if (
+            discovery.humanControlEpoch !==
+            this.browserManager.getAutomationHumanControlEpoch(affinity.threadId)
+          ) {
+            // A person used the page since discovery; what they changed may
+            // make the agent's plan wrong. Discover again.
+            this.discardWebMcpDiscovery(request.sessionId);
+            browserHostError({ code: "BrowserWebMcpDiscoveryStale" });
+          }
+          const tracker = await getBrowserNavigationTracker(runtime, signal).catch(() => {
+            throwIfAborted(signal);
+            return undefined;
+          });
+          const mark = tracker?.mark();
+          let invocation: Awaited<ReturnType<typeof invokeWebMcpTool>>;
+          try {
+            invocation = await invokeWebMcpTool(runtime, callInput, discovery, signal);
+          } catch (error) {
+            if (
+              error instanceof BrowserAutomationHostError &&
+              error.browserError.code === "BrowserWebMcpDiscoveryStale"
+            ) {
+              this.discardWebMcpDiscovery(request.sessionId);
+            }
+            throw error;
+          }
+          const correlation = await this.reconcileWindowOpen(
+            windowOpen!,
+            input.timeoutMs as number | undefined,
+            targetTabId,
+            signal,
+          );
+          openedTabId = correlation.openedTabId;
+          oauthPopup = correlation.oauthPopup;
+          let navigated = false;
+          if (tracker && mark) {
+            const settleBudget = Math.min(
+              SCRIPT_SETTLE_MAX_MS,
+              this.remainingMs(signal) - OBSERVATION_RESERVE_MS,
+            );
+            ({ navigated } = await settlePageSince(runtime, tracker, mark, settleBudget, signal));
+          }
+          if (navigated) this.discardWebMcpDiscoveriesForTab(affinity.threadId, targetTabId);
+          const { entry, ...outcome } = invocation;
+          return {
+            tabId: runtime.tabId as BrowserTabId,
+            discoveryId: callInput.discoveryId,
+            toolId: callInput.toolId,
+            toolName: entry.name,
+            origin: entry.origin,
+            contentTrust: "untrusted-web-page" as const,
+            ...outcome,
+            finalUrl: validateWebUrl(runtime.webContents.getURL(), true),
+            navigated,
+            redirects: [],
+          } satisfies BrowserWebMcpCallOutput;
+        }
         default:
           browserHostError({ code: "BrowserInputUnsupported" });
       }
@@ -1197,7 +1332,7 @@ export class DesktopBrowserAutomationHost {
     execution: TabToolExecution,
   ): unknown {
     const result = execution.output;
-    if (request.name !== "browser_run") {
+    if (request.name !== "browser_run" && request.name !== "browser_webmcp_call") {
       return result;
     }
 
@@ -1224,6 +1359,7 @@ export class DesktopBrowserAutomationHost {
     // for a new tab created inside the short-lived agent gesture lease. Adopt
     // it after the human guard has successfully reconciled.
     affinity.tabId = openedTabId;
+    this.discardWebMcpDiscovery(request.sessionId);
     return reconciledResult && typeof reconciledResult === "object"
       ? { ...reconciledResult, openedTabId: openedTabId as BrowserTabId }
       : reconciledResult;

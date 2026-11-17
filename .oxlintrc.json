@@ -9,7 +9,8 @@
     "**/routeTree.gen.ts",
     "**/.moss/**",
     "**/.moss-*/**",
-    ".dpcode-*"
+    ".dpcode-*",
+    "third_party/ui-sdk-webmcp-fixture/**"
   ],
   "plugins": ["eslint", "oxc", "react", "unicorn", "typescript"],
   "categories": {

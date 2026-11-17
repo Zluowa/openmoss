@@ -21,6 +21,9 @@ interface MossbotPreferences {
   unreadRoomIds: string[];
   pinnedRoomIds: string[];
   lastVisitedRoomAt: Record<string, string>;
+  /** First-run onboarding was skipped; the Mossbot page then shows its plain invitation. */
+  onboardingSkipped: boolean;
+  setOnboardingSkipped: (skipped: boolean) => void;
   setMain: (id: string) => void;
   setHidden: (id: string, hidden: boolean) => void;
   setUnread: (id: string, unread: boolean) => void;
@@ -56,6 +59,8 @@ export const useMossbotPreferencesStore = create<MossbotPreferences>()(
       unreadRoomIds: [],
       pinnedRoomIds: [],
       lastVisitedRoomAt: {},
+      onboardingSkipped: false,
+      setOnboardingSkipped: (onboardingSkipped) => set({ onboardingSkipped }),
       setMain: (mainProjectId) => set({ mainProjectId }),
       setHidden: (id, hidden) =>
         set((state) => ({ hiddenProjectIds: membership(state.hiddenProjectIds, id, hidden) })),
@@ -150,6 +155,7 @@ export const useMossbotPreferencesStore = create<MossbotPreferences>()(
         unreadRoomIds,
         pinnedRoomIds,
         lastVisitedRoomAt,
+        onboardingSkipped,
       }) => ({
         mainProjectId,
         hiddenProjectIds,
@@ -162,6 +168,7 @@ export const useMossbotPreferencesStore = create<MossbotPreferences>()(
         unreadRoomIds,
         pinnedRoomIds,
         lastVisitedRoomAt,
+        onboardingSkipped,
       }),
       merge: (persisted, current) => {
         const value = persisted as Record<string, unknown> | undefined;
@@ -225,6 +232,7 @@ export const useMossbotPreferencesStore = create<MossbotPreferences>()(
           lastVisitedRoomAt: record("lastVisitedRoomAt", (_, at) =>
             Number.isFinite(Date.parse(at)),
           ),
+          onboardingSkipped: value?.onboardingSkipped === true,
         };
       },
     },

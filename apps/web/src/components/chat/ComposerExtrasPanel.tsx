@@ -7,6 +7,7 @@
 // Depends on: ComposerMenuPanel chrome, the AppSnap window picker hook, caller-owned composer state.
 
 import type { DesktopAppSnapWindowEntry, ProviderInteractionMode, ThreadId } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 
 import {
@@ -249,6 +250,7 @@ export function ComposerExtrasPanel(props: {
   // cannot reach the composer form and send the draft.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isImeComposingKeyEvent(event)) return;
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
 
       if (event.key === "Escape") {

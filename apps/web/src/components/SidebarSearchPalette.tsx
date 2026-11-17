@@ -22,6 +22,7 @@ import {
   SunIcon,
   UsageGaugeIcon,
 } from "~/lib/icons";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   type FilesystemBrowseResult,
   ORCHESTRATION_SEARCH_THREADS_MAX_LIMIT,
@@ -640,6 +641,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
   const submitModifierLabel = isMac ? "⌘" : "Ctrl";
 
   const handleBrowseInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (!isBrowsing) return;
     const isModifierPressed = isMac ? event.metaKey : event.ctrlKey;
     if (
@@ -813,6 +815,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
                   disabled={props.importTargets.length === 0}
                   onChange={(event) => setImportId(event.currentTarget.value)}
                   onKeyDown={(event) => {
+                    if (isImeComposingKeyEvent(event)) return;
                     if (event.key === "Enter") {
                       event.preventDefault();
                       void submitImport();

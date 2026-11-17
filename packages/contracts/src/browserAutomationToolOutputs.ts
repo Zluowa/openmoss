@@ -169,6 +169,8 @@ const BrowserWebMcpTool = closedStruct({
   origin: BoundedUtf8String(8_192, 1),
   annotations: closedStruct({
     readOnlyHint: Schema.Boolean,
+    /** True unless the page marked the tool read-only: a tool with no hints is consequential. */
+    consequentialHint: Schema.Boolean,
     untrustedContentHint: Schema.Boolean,
   }),
 });
@@ -355,6 +357,8 @@ export const BrowserWebMcpCallOutput = closedStruct({
   discoveryId: BrowserWebMcpDiscoveryId,
   toolId: BrowserWebMcpToolId,
   toolName: BoundedUtf8String(128, 1),
+  /** The origin of the page that declared and ran the tool. */
+  origin: BoundedUtf8String(8_192, 1),
   contentTrust: Schema.Literal("untrusted-web-page"),
   status: Schema.Literals(["completed", "failed"]),
   result: Schema.optional(BrowserBoundedJson),
