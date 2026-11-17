@@ -1486,6 +1486,15 @@ export interface DesktopBackendStartupFailure {
   readonly failures: number;
   /** Plain-text details for support (version, exit reason, last error lines, log file). */
   readonly details: string;
+  /**
+   * What stopped startup. Absent or "gave-up": repeated failed starts.
+   * "database-locked": another process holds the local data folder's lock.
+   */
+  readonly kind?: "gave-up" | "database-locked";
+  /** For "database-locked": the process holding the lock, when known. */
+  readonly ownerPid?: number | null;
+  /** The backend log file, so the window can say where to look. */
+  readonly logFilePath?: string;
 }
 
 export interface DesktopBackendStartupBridge {

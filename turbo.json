@@ -74,6 +74,9 @@
       "env": ["MOSS_SENTRY_DSN"],
       "outputs": ["dist/**", "dist-electron/**"]
     },
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
     "dev": {
       "cache": false,
       "persistent": true,

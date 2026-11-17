@@ -3,6 +3,10 @@
   "extends": ["//"],
   "tasks": {
     "build": {
+      // The web bundle compiles its workspace dependencies from source (their `import`
+      // exports), so it does not wait for their build output. `transit` has no script: it
+      // only carries their source hashes into this task's cache key (upstream Synara #2183).
+      "dependsOn": ["^transit"],
       // VITE_* reaches this task through Turbo's framework inference. The source-map
       // upload settings do not, and only this package should see the upload token.
       "env": ["SENTRY_ORG", "SENTRY_PROJECT", "SENTRY_RELEASE"],

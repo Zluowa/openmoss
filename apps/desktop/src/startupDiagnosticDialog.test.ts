@@ -73,3 +73,30 @@ it("leaves Stable dialogs untouched and survives clipboard failure in Beta", asy
   ).resolves.toMatchObject({ response: 0 });
   expect(show).toHaveBeenCalledTimes(2);
 });
+
+it("opens the box on the visible window so it cannot hide behind it", async () => {
+  const show = vi.mocked(dialog.showMessageBox);
+  show.mockResolvedValue({ response: 0, checkboxChecked: false });
+  const parent = { isDestroyed: () => false } as unknown as Electron.BrowserWindow;
+  await showDiagnosticStartupDialog(
+    { message: "locked", buttons: ["Retry"] },
+    null,
+    null,
+    undefined,
+    parent,
+  );
+  expect(show).toHaveBeenLastCalledWith(parent, expect.objectContaining({ message: "locked" }));
+
+  await showDiagnosticStartupDialog(
+    { message: "locked", buttons: ["Retry"] },
+    "12345678-1234-4234-8234-123456789012",
+    { getReportStatus: () => "queued" },
+    undefined,
+    parent,
+  );
+  expect(show).toHaveBeenLastCalledWith(parent, expect.objectContaining({ message: "locked" }));
+
+  const destroyed = { isDestroyed: () => true } as unknown as Electron.BrowserWindow;
+  await showDiagnosticStartupDialog({ message: "alone" }, null, null, undefined, destroyed);
+  expect(show).toHaveBeenLastCalledWith(expect.objectContaining({ message: "alone" }));
+});

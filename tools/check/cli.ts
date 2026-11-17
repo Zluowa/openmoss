@@ -13,7 +13,10 @@ import {
   loadSettings,
   ownerName,
   takeSlot,
+  UNIT_WORKERS,
+  unitWorkers,
   waitForHeavyLane,
+  withWorkers,
   type LoadReport,
 } from "./lib/load.ts";
 import { groupTests, MOBILE_DIR, select, unitTestCommand } from "./lib/plan.ts";
@@ -392,7 +395,15 @@ async function main(argv: readonly string[]): Promise<number> {
     }
     const cwd = pkg.kind === "tool" ? pkg.dir : command.cwd;
     const config = pkg.kind === "tool" ? ["--config", "vitest.config.ts"] : command.args;
-    const prefix = [bun, "x", "vitest", "run", "--passWithNoTests", "--maxWorkers=4", ...config];
+    const prefix = [
+      bun,
+      "x",
+      "vitest",
+      "run",
+      "--passWithNoTests",
+      `--maxWorkers=${UNIT_WORKERS}`,
+      ...config,
+    ];
     testSteps.push({
       name: `tests ${pkg.dir}`,
       cwd,
@@ -497,6 +508,30 @@ async function main(argv: readonly string[]): Promise<number> {
     if (phase === "tests") load.heavyDuringTests ??= laneName(holder);
     else load.heavyBeforeTests ??= laneName(holder);
   };
+  // Unit tests (and the phone app lane) run beside a heavy lane on fewer workers; the browser step
+  // (a Chromium and a Vite server per run) and the reruns that tell a load flake from a failure
+  // wait for it, up to the ceiling.
+  const browserSteps = testSteps.filter((step) => step.name === "browser");
+  const unitSteps = testSteps.filter((step) => step.name !== "browser");
+  const sizeUnitTests = async () => {
+    phase = "tests";
+    const holder = heavyLane(settings, self);
+    const workers = unitWorkers(holder);
+    if (holder) {
+      note(
+        `check: heavy lane ${laneName(holder)} runs; unit tests run beside it on ${workers} workers`,
+      );
+    }
+    for (const [index, step] of unitSteps.entries()) {
+      if (!step.testPrefix) continue;
+      unitSteps[index] = {
+        ...step,
+        command: withWorkers(step.command, workers),
+        testPrefix: withWorkers(step.testPrefix, workers),
+      };
+    }
+    sample();
+  };
   /** Holds the tests (or the reruns) while another owner's heavy lane runs, then samples. */
   const testWhenFree = async () => {
     if (options.wait && waitBudgetMs > 0) {
@@ -533,15 +568,21 @@ async function main(argv: readonly string[]): Promise<number> {
           ],
         },
         {
-          before: testWhenFree,
-          groups: [{ steps: testSteps, limit: 1 }],
+          before: sizeUnitTests,
+          groups: [{ steps: unitSteps, limit: 1 }],
         },
       ],
       emit,
     );
 
+    if (browserSteps.length > 0) {
+      await testWhenFree();
+      await runAll(repoRoot, [{ groups: [{ steps: browserSteps, limit: 1 }] }], emit);
+    }
+
+    const ranSteps = [...unitSteps, ...browserSteps];
     const failures: RerunFailure[] = results.flatMap((result) => {
-      const step = testSteps.find((candidate) => candidate.name === result.name);
+      const step = ranSteps.find((candidate) => candidate.name === result.name);
       if (result.status !== "fail" || !result.failedFiles || !step?.testPrefix) return [];
       return result.failedFiles.map((file) => ({
         step: result.name,

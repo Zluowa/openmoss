@@ -88,6 +88,62 @@ describe("BackendStartupFailureOverlay", () => {
     await expect.element(page.getByRole("button", { name: "Copy details" })).toBeVisible();
   });
 
+  // 2026-11-17: a database lock stopped startup and the window kept spinning on
+  // "正在加载项目…" while the only explanation hid behind it as a native dialog.
+  it("tells the person the data is in use, what to do, and where the log is", async () => {
+    const fake = installBridge(null);
+    await render(
+      <MossLocaleScope locale="zh-CN">
+        <div>正在加载项目…</div>
+        <BackendStartupFailureOverlay />
+      </MossLocaleScope>,
+    );
+    await vi.waitFor(() => expect(fake.bridge.getFailure).toHaveBeenCalledOnce());
+    fake.push({
+      kind: "database-locked",
+      failures: 1,
+      ownerPid: 51248,
+      logFilePath: "C:\\Users\\me\\.moss\\userdata\\logs\\server-child.log",
+      details: "Moss 1.0.7 (win32 x64)\n\nThe local data folder is in use by process 51248.",
+    });
+
+    const dialog = page.getByRole("alertdialog", { name: "Moss 无法打开本地数据" });
+    await expect.element(dialog).toBeVisible();
+    await expect
+      .element(dialog)
+      .toHaveTextContent(
+        "另一个 Moss 窗口或进程（进程 51248）正在使用你的本地数据。请关闭其他 Moss 窗口，然后重试。你的数据没有被更改。",
+      );
+    await expect
+      .element(page.getByText("日志文件：C:\\Users\\me\\.moss\\userdata\\logs\\server-child.log"))
+      .toBeVisible();
+    const box = dialog.element().getBoundingClientRect();
+    expect(box.width).toBe(window.innerWidth);
+    expect(box.height).toBe(window.innerHeight);
+
+    await userEvent.click(page.getByRole("button", { name: "重试" }));
+    expect(fake.bridge.retry).toHaveBeenCalledOnce();
+    fake.push(null);
+    await expect.element(page.getByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("says so when the lock's owner is unknown", async () => {
+    installBridge({
+      kind: "database-locked",
+      failures: 1,
+      ownerPid: null,
+      details: "Moss 1.0.7",
+    });
+    await render(
+      <MossLocaleScope locale="zh-CN">
+        <BackendStartupFailureOverlay />
+      </MossLocaleScope>,
+    );
+    await expect
+      .element(page.getByRole("alertdialog", { name: "Moss 无法打开本地数据" }))
+      .toHaveTextContent("Moss 无法确认是谁在使用你的本地数据");
+  });
+
   it("draws nothing outside the desktop app", async () => {
     delete window.desktopBridge;
     const screen = await render(<BackendStartupFailureOverlay />);
