@@ -19,7 +19,6 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { GroupModelRow } from "~/components/chat/group/GroupModelEffortRow";
 import { COORDINATOR_COLOR_OPTIONS } from "~/components/chat/group/coordinatorAppearance";
-import { MossLogo } from "~/components/MossLogo";
 import { FolderIcon, SearchIcon, SparklesIcon, type LucideIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
@@ -216,10 +215,6 @@ export function MossbotOnboarding({ onLeave }: { onLeave: () => void }) {
     <div className="mbo" data-mossbot-onboarding data-step={step}>
       <div className="mbo-wall" aria-hidden="true" />
       <header className="mbo-top">
-        <span className="mbo-brand">
-          <MossLogo className="size-5" />
-          Moss
-        </span>
         {!created && (
           <Button
             variant="glass"

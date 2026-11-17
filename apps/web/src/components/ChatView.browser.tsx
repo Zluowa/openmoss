@@ -104,6 +104,7 @@ import { isMacNavigatorPlatform } from "../lib/utils";
 import { STARRED_MODELS_STORAGE_KEY } from "../lib/starredModels";
 import { readNativeApi } from "../nativeApi";
 import { DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS } from "../hooks/useDesktopTopBarGutter";
+import { useMossbotPreferencesStore } from "../mossbotPreferencesStore";
 import { emitWsTransportState } from "../wsTransportEvents";
 import { dispatchKanbanDraftThread } from "../lib/kanbanDispatch";
 import {
@@ -5852,38 +5853,68 @@ describe("ChatView transcript geometry (full app)", () => {
     });
     const intersects = (a: DOMRect, b: DOMRect) =>
       a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const inside = (inner: DOMRect, outer: DOMRect) =>
+      inner.top >= outer.top - 0.5 &&
+      inner.bottom <= outer.bottom + 0.5 &&
+      inner.left >= outer.left - 0.5 &&
+      inner.right <= outer.right + 0.5;
     // On Windows and Linux the desktop window draws its own minimize/maximize/close in the title-bar band at the
     // top right, as wide as the gutter every top bar keeps for them; on macOS the traffic lights sit at the top left.
     const captionWidth = Number(
       /pr-\[(\d+)px\]/.exec(DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS)?.[1],
     );
     expect(captionWidth).toBeGreaterThan(100);
+    const sidebarState = () =>
+      document.querySelector('[data-slot="sidebar"][data-side="left"]')?.getAttribute("data-state");
+    const panelWidth = () =>
+      document.querySelector(".app-rail-panel")?.getBoundingClientRect().width ?? 0;
+    const toggle = () =>
+      document.querySelector<HTMLButtonElement>('button[aria-label="Toggle thread sidebar"]');
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 450)); // the panel's 300 ms slide
     try {
       await waitForLayout();
-      await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
-      await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
-      await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
-      // the owner's window, the acceptance window, maximized 2560x1440 at 150 % and at 100 %, 900 wide, the narrowest
-      for (const viewport of [
-        { name: "owner", width: 1386, height: 893 },
-        { name: "acceptance", width: 1100, height: 782 },
-        { name: "max-150", width: 1707, height: 960 },
-        { name: "max-100", width: 2560, height: 1440 },
-        { name: "900", width: 900, height: 700 },
-        { name: "narrowest", width: 840, height: 620 },
-      ]) {
-        for (const sidebarOpen of [true, false]) {
+      for (const preferenceOpen of [true, false]) {
+        // the person's own panel preference, set before Mossbot opens
+        if ((sidebarState() === "expanded") !== preferenceOpen) {
+          await page.getByRole("button", { name: "Toggle thread sidebar", exact: true }).click();
+          await expect.poll(sidebarState).toBe(preferenceOpen ? "expanded" : "collapsed");
+        }
+        await settle();
+        const preferencePanelWidth = panelWidth();
+        if (preferenceOpen) expect(preferencePanelWidth).toBeGreaterThan(100);
+        // the panel's Mossbot entry while the panel is open; with it closed, the route itself
+        if (preferenceOpen)
+          await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
+        else await mounted.router.navigate({ to: "/mossbot" });
+        await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
+        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
+        // the stage takes the panel's room; the panel and its toggle are gone, the icon rail stays
+        await expect.poll(sidebarState).toBe("collapsed");
+        await settle();
+        expect(panelWidth()).toBeLessThan(1);
+        expect(toggle()?.disabled).toBe(true);
+        expect(getComputedStyle(toggle()!).visibility).toBe("hidden");
+        await expect
+          .element(page.getByRole("navigation", { name: "Primary", exact: true }))
+          .toBeVisible();
+        // no Moss mark or wordmark in the onboarding's top bar: only the skip pill
+        const top = document.querySelector("[data-mossbot-onboarding] .mbo-top")!;
+        expect(top.querySelector("svg, img")).toBeNull();
+        expect(top.textContent?.trim()).toBe("Skip intro");
+
+        for (const viewport of [
+          { name: "owner", width: 1386, height: 893 },
+          { name: "acceptance", width: 1100, height: 782 },
+          { name: "1101", width: 1101, height: 782 },
+          { name: "1372", width: 1372, height: 893 },
+          { name: "1692", width: 1692, height: 960 },
+          { name: "max-100", width: 2560, height: 1440 },
+          { name: "900", width: 900, height: 700 },
+          { name: "narrowest", width: 840, height: 620 },
+        ]) {
           await setViewport(viewport);
-          const sidebar = () =>
-            document
-              .querySelector('[data-slot="sidebar"][data-side="left"]')
-              ?.getAttribute("data-state");
-          if ((sidebar() === "expanded") !== sidebarOpen) {
-            await page.getByRole("button", { name: "Toggle thread sidebar", exact: true }).click();
-            await expect.poll(sidebar).toBe(sidebarOpen ? "expanded" : "collapsed");
-          }
           await waitForLayout();
-          const at = `${viewport.name}, sidebar ${sidebarOpen ? "open" : "closed"}`;
+          const at = `${viewport.name}, panel preference ${preferenceOpen ? "open" : "closed"}`;
           const stage = document.querySelector<HTMLElement>("[data-mossbot-onboarding]")!;
           const card = stage.closest(".chat-content-card")!;
           expect(card, at).not.toBeNull();
@@ -5901,6 +5932,14 @@ describe("ChatView transcript geometry (full app)", () => {
             Math.min(cardBox.bottom, window.innerHeight) + 0.5,
           );
           expect(stage.scrollHeight, at).toBeLessThanOrEqual(stage.clientHeight + 1);
+          expect(panelWidth(), at).toBeLessThan(1);
+          // the scaled 680x520 stage (360x620 under 600 px) fits its area whole, the title included
+          const wrap = stage.querySelector(".mbo-wrap")!.getBoundingClientRect();
+          const scaled = stage.querySelector(".mbo-stage")!;
+          expect(inside(scaled.getBoundingClientRect(), wrap), at).toBe(true);
+          expect(scaled.classList.contains("mbo-narrow"), at).toBe(wrap.width < 600);
+          const title = stage.querySelector(".mbo-scene[data-on] .mbo-title");
+          if (title) expect(inside(title.getBoundingClientRect(), wrap), `${at}: title`).toBe(true);
           const caption = new DOMRect(window.innerWidth - captionWidth, 0, captionWidth, band);
           const trafficLights = new DOMRect(0, 0, 80, band);
           const controls = [...stage.querySelectorAll<HTMLElement>("button, nav")].filter(
@@ -5916,14 +5955,35 @@ describe("ChatView transcript geometry (full app)", () => {
           for (const control of controls) {
             const box = control.getBoundingClientRect();
             const name = `${at}: ${control.getAttribute("aria-label") ?? control.textContent?.trim()}`;
-            expect(box.top, name).toBeGreaterThanOrEqual(stageBox.top - 0.5);
-            expect(box.bottom, name).toBeLessThanOrEqual(stageBox.bottom + 0.5);
-            expect(box.left, name).toBeGreaterThanOrEqual(stageBox.left - 0.5);
-            expect(box.right, name).toBeLessThanOrEqual(stageBox.right + 0.5);
+            expect(inside(box, stageBox), name).toBe(true);
             expect(intersects(box, caption), name).toBe(false);
             expect(intersects(box, trafficLights), name).toBe(false);
           }
         }
+        await setViewport(DEFAULT_VIEWPORT);
+
+        // Skip: the panel comes back as the person left it, beside the plain invitation
+        await page.getByRole("button", { name: "Skip intro", exact: true }).click();
+        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).toBeNull();
+        await expect.poll(sidebarState).toBe(preferenceOpen ? "expanded" : "collapsed");
+        await settle();
+        expect(Math.abs(panelWidth() - preferencePanelWidth)).toBeLessThan(1);
+        expect(toggle()?.disabled).toBe(false);
+        // "Show the intro" takes the panel away again
+        await page.getByRole("button", { name: "Show the intro", exact: true }).click();
+        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
+        await expect.poll(sidebarState).toBe("collapsed");
+        await settle();
+        expect(panelWidth()).toBeLessThan(1);
+        // Start chatting leaves for the new assistant's conversation (MossbotOnboarding.browser covers the
+        // creation itself): the panel returns there as the person left it
+        await mounted.router.navigate({ to: "/$threadId", params: { threadId: THREAD_ID } });
+        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).toBeNull();
+        await expect.poll(sidebarState).toBe(preferenceOpen ? "expanded" : "collapsed");
+        await settle();
+        expect(Math.abs(panelWidth() - preferencePanelWidth)).toBeLessThan(1);
+        // the next round starts with the onboarding offered again
+        useMossbotPreferencesStore.getState().setOnboardingSkipped(false);
       }
     } finally {
       await mounted.cleanup();
