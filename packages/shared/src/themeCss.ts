@@ -10,7 +10,66 @@
 
 import { THEME_CSS_MAX_LENGTH } from "@moss/contracts";
 
-const FETCHES_BY_STRING = /image-set\(|\bsrc\(/i;
+/**
+ * Pictures a theme uses are files in Moss's own store, named by the SHA-256 of their bytes and
+ * their real type. Theme CSS names one as `url(moss-theme-image:<id>)`; only the client turns
+ * that into an address, always Moss's own theme image route on the server it is connected to.
+ */
+export const THEME_IMAGE_SCHEME = "moss-theme-image:";
+export const THEME_IMAGE_ROUTE_PREFIX = "/api/theme-images/";
+/** POST raw bytes here to store a picture; the answer holds its id and reference. */
+export const THEME_IMAGE_UPLOAD_ROUTE_PATH = "/api/theme-image-upload";
+/**
+ * POST `{ "ids": [...] }` here: the pictures this window's saved themes use. Each report keeps
+ * those files from cleanup; loads alone cannot, because browsers serve them from cache.
+ */
+export const THEME_IMAGE_KEEP_ROUTE_PATH = "/api/theme-image-keep";
+export const THEME_IMAGE_KEEP_MAX_IDS = 64;
+export const THEME_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export const THEME_IMAGE_EXTENSIONS = ["png", "jpg", "webp", "gif", "avif"] as const;
+export type ThemeImageExtension = (typeof THEME_IMAGE_EXTENSIONS)[number];
+export const THEME_IMAGE_CONTENT_TYPES: Readonly<Record<ThemeImageExtension, string>> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+};
+const THEME_IMAGE_ID = /^[0-9a-f]{64}\.(?:png|jpg|webp|gif|avif)$/;
+// Case-sensitive on purpose: the id is lower-case hex, so a reference has exactly one spelling.
+// Only CSS whitespace may pad it, as in URL_NOT_LOCAL below.
+const THEME_IMAGE_URL =
+  /url\([ \t\n\f\r]*(["']?)moss-theme-image:([0-9a-f]{64}\.(?:png|jpg|webp|gif|avif))\1[ \t\n\f\r]*\)/g;
+
+export function isThemeImageId(id: string): boolean {
+  return THEME_IMAGE_ID.test(id);
+}
+
+export function themeImageReference(id: string): string {
+  return `${THEME_IMAGE_SCHEME}${id}`;
+}
+
+/** Ids of the pictures `css` refers to, each once, in order of first use. */
+export function themeCssImageIds(css: string): string[] {
+  return [...new Set([...css.matchAll(THEME_IMAGE_URL)].map((match) => match[2]!))];
+}
+
+/**
+ * Replace each picture reference in a checked declaration value with the address `resolve`
+ * gives for its id. Only the client calls this, after the guard has accepted the value.
+ */
+export function resolveThemeCssImages(value: string, resolve: (id: string) => string): string {
+  return value.replace(THEME_IMAGE_URL, (_match, _quote, id: string) => {
+    // The resolver builds the address from the checked id; a quote or line break could still
+    // end the string, so they are percent-encoded.
+    const address = resolve(id).replace(/["'\\\n\r\f]/g, encodeURIComponent);
+    return `url("${address}")`;
+  });
+}
+
+// Functions that load what they are given, a string included: image-set() (and -webkit-),
+// src(), image(), cross-fade() and element().
+const FETCHES_BY_STRING = /image-set\(|\bsrc\(|\bimage\(|cross-fade\(|\belement\(/i;
 // Only CSS whitespace may come first. \s also matches U+00A0, which makes the address relative.
 const URL_NOT_LOCAL = /url\((?![ \t\n\f\r]*["']?(?:data:|#))/i;
 // Read tokens left to right, as CSS does: a url( inside a string loads nothing, and a quote in an
@@ -19,10 +78,13 @@ const URL_OR_STRING =
   /url\((?![ \t\n\f\r]*["'])[^)]*|url\([ \t\n\f\r]*("[^"\n\r\f]*"|'[^'\n\r\f]*')|"[^"\n\r\f]*"|'[^'\n\r\f]*'/gi;
 
 function fetchesByText(code: string): boolean {
-  const outsideStrings = code.replace(URL_OR_STRING, (token, urlString: string | undefined) => {
-    if (urlString !== undefined) return /^["'](?:data:|#)/i.test(urlString) ? "" : "url(";
-    return token.startsWith('"') || token.startsWith("'") ? "" : token;
-  });
+  // A picture reference loads only Moss's own theme image route, so it is not a remote file.
+  const outsideStrings = code
+    .replace(THEME_IMAGE_URL, "")
+    .replace(URL_OR_STRING, (token, urlString: string | undefined) => {
+      if (urlString !== undefined) return /^["'](?:data:|#)/i.test(urlString) ? "" : "url(";
+      return token.startsWith('"') || token.startsWith("'") ? "" : token;
+    });
   return FETCHES_BY_STRING.test(outsideStrings) || URL_NOT_LOCAL.test(outsideStrings);
 }
 
@@ -43,6 +105,10 @@ const TEXT_PROPERTIES: ReadonlySet<string> = new Set([
   "list-style",
   "list-style-type",
   "text-overflow",
+  // A string here is drawn: the hyphen mark, or the emphasis mark over each letter.
+  "hyphenate-character",
+  "text-emphasis",
+  "text-emphasis-style",
 ]);
 const NON_EMPTY_STRING = /"[^"]+"|'[^']+'/;
 // var() and env() are resolved later, attr() copies page text, and an image can hold words.
@@ -77,7 +143,15 @@ export const THEME_CSS_HOOKS = [
   { selector: "[data-thread-item]", styles: "sidebar chat row" },
   { selector: '[data-sidebar-layout="rail"]', styles: "app window in the rail layout" },
   { selector: "[data-chat-header]", styles: "chat header" },
-  { selector: "[data-messages-timeline-root]", styles: "chat area, behind the messages" },
+  {
+    selector: '[data-workspace-area="conversation"]',
+    styles: "chat background: the whole chat column, composer included, on a new chat too",
+  },
+  {
+    selector: "[data-messages-timeline-root]",
+    styles:
+      "message list area, behind the messages; in a chat with no messages yet, the empty message area",
+  },
   { selector: "[data-chat-scroll-container]", styles: "chat scroller" },
   { selector: "[data-timeline-row-kind]", styles: 'chat row, such as ="message" or ="work"' },
   { selector: '[data-message-role="user"]', styles: "user message row" },
@@ -87,9 +161,14 @@ export const THEME_CSS_HOOKS = [
   { selector: ".chat-markdown-codeblock", styles: "code block" },
   { selector: "[data-chat-composer-form]", styles: "composer" },
   { selector: "[data-chat-composer-surface]", styles: "composer card" },
+  { selector: "[data-composer-editor]", styles: "composer text" },
   { selector: "[data-right-dock-content]", styles: "right dock panel" },
   { selector: "[data-settings-dialog]", styles: "settings window" },
   { selector: '[data-slot="button"]', styles: "button" },
+  {
+    selector: '[data-slot="central-icon"]',
+    styles: "icon: a mask filled with background-color (the text colour by default)",
+  },
   { selector: '[data-slot="input"]', styles: "text input" },
   { selector: '[data-slot="textarea"]', styles: "multi-line text input" },
   { selector: '[data-slot="switch"]', styles: "switch" },
@@ -103,6 +182,100 @@ export const THEME_CSS_HOOKS = [
   { selector: '[data-slot="scroll-area-scrollbar"]', styles: "overlay scrollbar" },
   { selector: '[data-slot="scroll-area-thumb"]', styles: "overlay scrollbar thumb" },
 ] as const;
+
+// What the stable selectors are built from, so a selector outside them can be named to the agent.
+const HOOK_ATTRIBUTES: ReadonlySet<string> = new Set(
+  THEME_CSS_HOOKS.flatMap((hook) => [...hook.selector.matchAll(/\[([a-z-]+)/g)].map((m) => m[1]!)),
+);
+const HOOK_SLOTS: ReadonlySet<string> = new Set(
+  THEME_CSS_HOOKS.flatMap((hook) => {
+    const slot = /^\[data-slot="([a-z-]+)"\]$/.exec(hook.selector)?.[1];
+    return slot ? [slot] : [];
+  }),
+);
+// `.dark` marks the dark appearance; the others are hook classes.
+const HOOK_CLASSES: ReadonlySet<string> = new Set([
+  "dark",
+  ...THEME_CSS_HOOKS.flatMap((hook) =>
+    [...hook.selector.matchAll(/\.([a-z-]+)/gi)].map((m) => m[1]!),
+  ),
+]);
+
+/** Whether one selector is built only from stable hooks, `.dark`, element names and pseudos. */
+function selectorIsStable(selector: string): boolean {
+  // Pseudo-class arguments such as :not(...) and :has(...) hold selectors of their own.
+  const code = selector.replace(/"[^"]*"|'[^']*'/g, (quoted) => quoted.replace(/[.#[\]]/g, "_"));
+  if (/#[a-z_-]/i.test(code)) return false;
+  for (const match of selector.matchAll(
+    /\[\s*([a-z0-9_-]+)\s*(?:[~|^$*]?=\s*["']?([^"'\]]*)["']?)?\s*\]/gi,
+  )) {
+    const attribute = match[1]!.toLowerCase();
+    if (attribute === "data-slot") {
+      if (match[2] === undefined || !HOOK_SLOTS.has(match[2])) return false;
+    } else if (!HOOK_ATTRIBUTES.has(attribute)) {
+      return false;
+    }
+  }
+  for (const match of code.matchAll(/(?<![\w-])\.(-?[a-z_][\w-]*)/gi)) {
+    if (!HOOK_CLASSES.has(match[1]!)) return false;
+  }
+  return true;
+}
+
+/**
+ * Selectors in `css` that use a class, id or attribute outside the stable hooks. They may match
+ * nothing now or stop matching after an update, so the theme tool names them to the agent.
+ * A text scan for feedback, not a guard: it reads selector lists before each `{`.
+ */
+export function themeCssUnstableSelectors(css: string): string[] {
+  const code = css
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // Declaration values can hold braces in strings; a selector cannot follow them anyway.
+    .replace(/"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'/g, (quoted) => quoted.replace(/[{};]/g, " "));
+  const found = new Set<string>();
+  let prelude = "";
+  for (const char of code) {
+    if (char === "{") {
+      const text = prelude.trim();
+      prelude = "";
+      // At-rule preludes (@media, @keyframes), keyframe selectors and nested declarations.
+      if (
+        text.length === 0 ||
+        text.startsWith("@") ||
+        /^(?:from|to|[\d.]+%)(?:\s*,|$)/i.test(text)
+      ) {
+        continue;
+      }
+      for (const selector of splitSelectorList(text)) {
+        if (!selectorIsStable(selector)) found.add(selector);
+      }
+    } else if (char === "}" || char === ";") {
+      prelude = "";
+    } else {
+      prelude += char;
+    }
+  }
+  return [...found];
+}
+
+/** Split a selector list on top-level commas (not those inside :is(...) or [...]). */
+function splitSelectorList(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of list) {
+    if (char === "(" || char === "[") depth += 1;
+    if (char === ")" || char === "]") depth = Math.max(0, depth - 1);
+    if (char === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim().length > 0) parts.push(current.trim());
+  return parts.filter((part) => part.length > 0);
+}
 
 /**
  * Presets a theme pack can start from, by id, with the appearances each one has. The web theme
@@ -163,15 +336,21 @@ export const MOSS_THEME_GUIDE = [
   "Fields you leave out keep the person's current value, unless `reset` is true: then the theme starts from Moss's default look.",
   "",
   "CSS: `css` applies after Moss's styles while that pack is active. Top-level `css` goes to both packs.",
-  "It cannot load files: no @import, no image-set(), and url() only with data: or #id. A value with a backslash is dropped.",
+  "It cannot load files from anywhere else: no @import, no image-set(), and url() only with data:, #id or a stored picture (moss-theme-image:). A value with a backslash is dropped.",
   "It cannot write text: content, quotes and list-style only take empty strings, without var(), attr() or images.",
-  `A background image must be embedded as a data: address. \`css\` holds ${THEME_CSS_MAX_LENGTH.toLocaleString("en-US")} characters, so keep the image near 30 KB.`,
-  "Colors live in variables set on the root element; override one with !important, or better, set the matching field.",
+  `Pictures: pass each file in \`images\` by a name you choose, as an absolute path ({"hero": "C:\\\\Users\\\\me\\\\picture.png"}), and write url(moss-theme-image:hero) in css. Moss stores the file at full quality (PNG, JPEG, WebP, GIF or AVIF by content, up to ${THEME_IMAGE_MAX_BYTES / 1024 / 1024} MB; SVG is refused) and the result gives its stored reference (moss-theme-image:<64 hex>.<type>) with its width and height. Keep that reference as it is when you change the theme later. Use this for any picture larger than an icon; do not shrink a picture to fit.`,
+  `A data: address is for small icons only: \`css\` holds ${THEME_CSS_MAX_LENGTH.toLocaleString("en-US")} characters.`,
+  'A picture or color behind the chat goes on [data-workspace-area="conversation"]: it covers the whole chat column, composer included, and shows on a new chat too. Messages, the composer and the header stay on top of it.',
+  "Colors live in variables set on the root element; override one with !important, or better, set the matching field. The selected sidebar row draws --sidebar-selected over its row, and a hovered row --sidebar-accent.",
   "Moss's own rules can be more specific. If a rule has no effect, add !important.",
+  "It cannot reach the terminal text (drawn on a canvas), the code inside diffs, or the inside of web pages and documents shown in panels. Use the pack fields for those.",
+  "Native scrollbars take ::-webkit-scrollbar and ::-webkit-scrollbar-thumb.",
+  'Icons are [data-slot="central-icon"]: a mask filled with background-color, which is the text color unless you set it. Size them with width and height; stroke properties do nothing.',
   "",
   "Stable selectors (other class names change between releases, so do not use them):",
   ...THEME_CSS_HOOKS.map((hook) => `- ${hook.selector}: ${hook.styles}`),
+  "Any element and pseudo-class may be combined with these, and `.dark` or `:root:not(.dark)` limits a rule to one appearance.",
   "",
-  "You cannot see the result. Make small changes, then ask the person how it looks.",
+  "You cannot see the result, and moss_theme_set succeeding only means the theme was saved and sent to Moss windows, not that every rule shows. Its result names selectors outside the stable list. Make small changes, then ask the person what they see.",
   `To undo, call moss_theme_set with reset true and nothing else. The person can also press ${THEME_RESET_SHORTCUT_LABEL} in Moss, or reset the theme in Settings > Appearance.`,
 ].join("\n");

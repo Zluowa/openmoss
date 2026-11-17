@@ -27,16 +27,20 @@ import {
   COMPOSER_PREDICTION_TIMEOUT_MS,
   parseComposerPredictionForkReply,
 } from "../../git/textGenerationShared.ts";
+import type { TextGenerationProviderInput } from "../../git/textGenerationSelection.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import type { ProviderNextUserMessagePredictionSupport } from "../../provider/Services/ProviderAdapter.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   buildComposerPredictionConversation,
+  formatComposerPredictionClosingQuestion,
+  readComposerPredictionClosingQuestion,
   resolveComposerPredictionHedgeDelayMs,
   resolveComposerPredictionRoute,
   resolveComposerPredictionRoutingResult,
   resolveComposerPredictionTurnBlocker,
+  type ComposerPredictionClosingQuestion,
   type ComposerPredictionNoRouteReason,
   type ComposerPredictionRoute,
   type ComposerPredictionRoutingFailure,
@@ -62,9 +66,6 @@ export const COMPOSER_PREDICTION_START_DELAY = Duration.seconds(1);
 /** Answers kept so another window or device asking for the same turn starts no second CLI. */
 const ANSWER_CACHE_LIMIT = 64;
 
-/** Turns whose missing route was already logged, so another window does not log it again. */
-const NO_ROUTE_LOG_LIMIT = 64;
-
 /** Completed generation times kept per route to decide when a second attempt is worth it. */
 const RECENT_DURATION_SAMPLES = 5;
 
@@ -73,8 +74,8 @@ interface ComposerPredictionAnswer {
   readonly outcome: ComposerPredictionOutcome;
 }
 
-/** Which generation route a log line is about. */
-type ComposerPredictionRouteKind = "isolated" | "native";
+/** Which route a request took, for its log line. */
+type ComposerPredictionRouteKind = ComposerPredictionRoute["kind"];
 
 /**
  * Why a request got no answer this time, one content-free code per miss. Routing is here
@@ -103,6 +104,12 @@ const FAILURE_REASONS: ReadonlySet<ComposerPredictionUnavailableReason> = new Se
   "native-invalid-reply",
 ]);
 
+/** Why a request ended without a suggestion, when it is not the model's own `none`. */
+type ComposerPredictionLogReason =
+  | ComposerPredictionUnavailableReason
+  | ComposerPredictionNoRouteReason
+  | "cancelled";
+
 /** A native-fork answer that is not a prediction, carried as its reason code. */
 class NativePredictionMiss {
   readonly _tag = "NativePredictionMiss";
@@ -119,6 +126,9 @@ const modelAnswer = (suggestion: string | null): ComposerPredictionAnswer =>
  * reason holds for the rest of the turn. Never remembered here: the next request re-decides.
  */
 const NO_ROUTE_ANSWER: ComposerPredictionAnswer = { suggestion: null, outcome: "none" };
+
+/** The question of a turn whose box asked nothing, or whose wrap-up calls could not be read. */
+const NO_CLOSING_QUESTION: ComposerPredictionClosingQuestion | null = null;
 
 interface SharedPrediction {
   readonly result: Deferred.Deferred<ComposerPredictionAnswer>;
@@ -145,8 +155,6 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       answers.delete(oldest);
     }
   };
-  const loggedNoRoute = new Set<string>();
-
   const readThread = (threadId: ThreadId) =>
     snapshotQuery.getThreadShellById(threadId).pipe(Effect.map(Option.getOrUndefined));
 
@@ -197,41 +205,60 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
     threadId: ThreadId,
     expectedTurnId: TurnId,
   ): Effect.Effect<ComposerPredictionAnswer> => {
-    let routeKind: ComposerPredictionRouteKind | undefined;
-    // Logs the one reason code for this miss. Ids only: no provider detail, prompt, or reply.
-    const unavailable = (
-      reason: ComposerPredictionUnavailableReason,
-      extra: { readonly routingReason?: ComposerPredictionRoutingFailure } = {},
-    ) =>
-      (FAILURE_REASONS.has(reason) ? Effect.logWarning : Effect.logInfo)(
-        "Composer prediction unavailable",
-        {
+    // What the request's one log line reports. Ids, codes and a duration only: never the
+    // conversation, the suggestion, or provider detail (a CLI or app-server error can echo
+    // prompt or reply text).
+    const facts: {
+      route?: ComposerPredictionRouteKind;
+      routingReason?: ComposerPredictionRoutingFailure;
+      source?: string;
+      closingQuestion?: true;
+      cached?: true;
+      generationRan?: true;
+      fellBack?: true;
+    } = {};
+    let startedAtMs = 0;
+    const log = (answer: ComposerPredictionAnswer, reason?: ComposerPredictionLogReason) =>
+      Effect.gen(function* () {
+        const durationMs = (yield* Clock.currentTimeMillis) - startedAtMs;
+        const failed =
+          reason !== undefined &&
+          FAILURE_REASONS.has(reason as ComposerPredictionUnavailableReason);
+        yield* (failed ? Effect.logWarning : Effect.logInfo)("Composer prediction", {
           threadId,
           expectedTurnId,
-          reason,
-          ...(routeKind ? { route: routeKind } : {}),
-          ...extra,
-        },
-      ).pipe(Effect.as<ComposerPredictionAnswer>({ suggestion: null, outcome: "unavailable" }));
-
-    // Logged once per thread, turn and reason, at Info: it is a setup fact, not a failure.
-    const noRoute = (reason: ComposerPredictionNoRouteReason) =>
-      Effect.suspend(() => {
-        const key = JSON.stringify([threadId, expectedTurnId, reason]);
-        if (loggedNoRoute.has(key)) return Effect.succeed(NO_ROUTE_ANSWER);
-        loggedNoRoute.add(key);
-        for (const oldest of loggedNoRoute) {
-          if (loggedNoRoute.size <= NO_ROUTE_LOG_LIMIT) break;
-          loggedNoRoute.delete(oldest);
-        }
-        return Effect.logInfo("Composer prediction has no route for this chat", {
-          threadId,
-          expectedTurnId,
-          reason,
-        }).pipe(Effect.as(NO_ROUTE_ANSWER));
+          route: facts.route ?? "none",
+          outcome: reason === "cancelled" ? "cancelled" : answer.outcome,
+          ...(reason !== undefined && reason !== "cancelled" ? { reason } : {}),
+          ...(facts.routingReason ? { routingReason: facts.routingReason } : {}),
+          ...(facts.source ? { source: facts.source } : {}),
+          ...(facts.closingQuestion ? { closingQuestion: true } : {}),
+          ...(facts.cached ? { cached: true } : {}),
+          ...(facts.fellBack ? { fellBackToChatModel: true } : {}),
+          durationMs,
+        });
+        return answer;
       });
 
+    // A miss the client may ask again about. Once a generation ran (or may have: a timeout,
+    // a provider failure), it asks fewer times, since every retry pays for the provider again.
+    const unavailable = (reason: ComposerPredictionUnavailableReason) =>
+      log(
+        {
+          suggestion: null,
+          outcome:
+            facts.generationRan || FAILURE_REASONS.has(reason)
+              ? "generation-unavailable"
+              : "unavailable",
+        },
+        reason,
+      );
+
+    // A setup fact for the rest of the turn, logged at Info like every other answer.
+    const noRoute = (reason: ComposerPredictionNoRouteReason) => log(NO_ROUTE_ANSWER, reason);
+
     return Effect.gen(function* () {
+      startedAtMs = yield* Clock.currentTimeMillis;
       const thread = yield* readThread(threadId);
       const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
       if (blocker !== null) return yield* unavailable(blocker);
@@ -244,11 +271,13 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
           ? resolveThreadWorkspaceCwd({ thread, projects: [project.value] })
           : undefined) ?? process.cwd();
       const route = yield* decideRoute(thread, cwd);
+      facts.route = route.kind;
       if (route.kind === "no-route") return yield* noRoute(route.reason);
       if (route.kind === "unrouted") {
-        return yield* unavailable("no-routing", { routingReason: route.reason });
+        facts.routingReason = route.reason;
+        return yield* unavailable("no-routing");
       }
-      routeKind = route.kind;
+      facts.source = route.routing.source;
       const routeKey = JSON.stringify([
         route.kind,
         route.routing.modelSelection.instanceId ?? route.routing.modelSelection.provider,
@@ -256,7 +285,10 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       ]);
       // The route is part of the key, so an answer from one route is never served for another.
       const answerKey = JSON.stringify([threadId, expectedTurnId, routeKey]);
-      if (answers.has(answerKey)) return modelAnswer(answers.get(answerKey) ?? null);
+      if (answers.has(answerKey)) {
+        facts.cached = true;
+        return yield* log(modelAnswer(answers.get(answerKey) ?? null));
+      }
 
       yield* Effect.sleep(options.startDelay);
       const delayedBlocker = resolveComposerPredictionTurnBlocker(
@@ -268,10 +300,18 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const context = yield* snapshotQuery.getThreadMentionContextById(threadId, {
         messageLimit: COMPOSER_PREDICTION_CONTEXT_BUDGET.messageLimit,
       });
+      const closingQuestion = yield* snapshotQuery
+        .listWrapUpActivitiesByTurn(threadId, expectedTurnId)
+        .pipe(
+          Effect.map(readComposerPredictionClosingQuestion),
+          Effect.orElseSucceed(() => NO_CLOSING_QUESTION),
+        );
+      if (closingQuestion !== null) facts.closingQuestion = true;
       const conversation = Option.isSome(context)
         ? buildComposerPredictionConversation({
             messages: context.value.messages,
             finalReplyMessageId,
+            closingQuestion,
           })
         : null;
       // The native fork reads the thread itself, but it predicts from the same settled reply.
@@ -282,10 +322,13 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
         NativePredictionMiss | TextGenerationError
       > =
         route.kind === "native"
-          ? nativeGeneration(threadId, expectedTurnId, route.effort)
-          : isolatedGeneration(route.routing, routeKey, cwd, conversation);
+          ? nativeGeneration(threadId, expectedTurnId, route.effort, closingQuestion)
+          : isolatedGeneration(route.routing, routeKey, cwd, conversation, () => {
+              facts.fellBack = true;
+            });
       const generated = yield* generation.pipe(Effect.timeoutOption(COMPOSER_PREDICTION_TIMEOUT));
       if (Option.isNone(generated)) return yield* unavailable("timeout");
+      facts.generationRan = true;
 
       // The thread may have moved on while the model was thinking.
       const settledBlocker = resolveComposerPredictionTurnBlocker(
@@ -295,8 +338,13 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       if (settledBlocker !== null) return yield* unavailable(settledBlocker);
       // Only a real answer from the model is remembered, "none" included.
       rememberAnswer(answerKey, generated.value.suggestion);
-      return modelAnswer(generated.value.suggestion);
+      return yield* log(modelAnswer(generated.value.suggestion));
     }).pipe(
+      // Every caller left (the chat or turn changed) before an answer. Say so, or the log
+      // reads as if no request came.
+      Effect.onInterrupt(() =>
+        log({ suggestion: null, outcome: "unavailable" }, "cancelled").pipe(Effect.asVoid),
+      ),
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) return Effect.interrupt;
         const error = Cause.squash(cause);
@@ -315,10 +363,16 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
     threadId: ThreadId,
     expectedTurnId: TurnId,
     effort: string | null,
+    closingQuestion: ComposerPredictionClosingQuestion | null,
   ): Effect.Effect<{ readonly suggestion: string | null }, NativePredictionMiss> =>
     providerService
       .predictNextUserMessage(threadId, {
-        prompt: buildComposerPredictionForkPrompt(),
+        prompt: buildComposerPredictionForkPrompt({
+          closingQuestion:
+            closingQuestion === null
+              ? null
+              : formatComposerPredictionClosingQuestion(closingQuestion),
+        }),
         sourceTurnId: expectedTurnId,
         generationTrigger: "live",
         effort,
@@ -352,16 +406,28 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
     routeKey: string,
     cwd: string,
     conversation: string,
+    onFallback: () => void,
   ) => {
-    const attempt = Effect.gen(function* () {
-      const startedAt = yield* Clock.currentTimeMillis;
-      const result = yield* textGeneration.generateComposerPrediction({
+    const generateWith = (input: TextGenerationProviderInput) =>
+      textGeneration.generateComposerPrediction({
         cwd,
         conversation,
-        modelSelection: routing.modelSelection,
-        ...(routing.providerOptions ? { providerOptions: routing.providerOptions } : {}),
-        ...(routing.codexHomePath ? { codexHomePath: routing.codexHomePath } : {}),
+        modelSelection: input.modelSelection,
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+        ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
       });
+    const fallback = routing.fallback;
+    const attempt = Effect.gen(function* () {
+      const startedAt = yield* Clock.currentTimeMillis;
+      // A smaller model the account does not serve fails; the chat's own model then gets one
+      // try before the request answers `generation-unavailable`.
+      const result = yield* generateWith(routing).pipe(
+        Effect.catch((error) =>
+          fallback
+            ? Effect.sync(onFallback).pipe(Effect.andThen(generateWith(fallback)))
+            : Effect.fail(error),
+        ),
+      );
       const elapsedMs = (yield* Clock.currentTimeMillis) - startedAt;
       recentDurationsMs.set(
         routeKey,

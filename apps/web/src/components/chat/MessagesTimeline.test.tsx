@@ -30,7 +30,6 @@ import { formatShortTimestamp } from "../../timestampFormat";
 import { makeActivity } from "../../storeTestFixtures";
 import { deriveTimelineEntries, deriveWorkLogEntries, type WorkLogEntry } from "../../workLog";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
-import { INLINE_COMMAND_CHIP_CLASS_NAME } from "./chatTypography";
 
 const TOOLTIP_TRIGGER_MARKER = 'data-base-ui-tooltip-trigger=""';
 // Every settled turn opens with a header carrying its final state.
@@ -350,7 +349,9 @@ describe("MessagesTimeline", () => {
     },
   );
 
-  it("shows the literal failed command, exit code and stderr even when the provider uses an error tone", async () => {
+  // Synara #2009: the row keeps "Failed · exit N"; the output stays behind the
+  // disclosure instead of an excerpt line under the row.
+  it("shows the literal failed command and exit code, and keeps stderr behind the disclosure, even when the provider uses an error tone", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderEnglishMarkup(
       <MessagesTimeline
@@ -383,8 +384,70 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('data-command-literal="true"');
     expect(markup).toContain("missing-command --check");
     expect(markup).toContain("Failed · exit 127");
-    expect(markup).toContain("missing-command: command not found");
+    expect(markup).not.toContain("missing-command: command not found");
+    expect(markup).not.toContain("data-tool-failure-excerpt");
   });
+  // Lead review of #648, item 6: a failed row that opens the activity page (no
+  // Shell details to open) keeps its error line, since that page does not show it.
+  it("keeps the error line of a failed row that opens the activity page", async () => {
+    const { TimelineWorkEntryRow } = await import("./TimelineWorkEntryRow");
+    const markup = renderEnglishMarkup(
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "failed-agent-task",
+          createdAt: "2026-03-17T19:12:28.000Z",
+          label: "Agent task",
+          tone: "error",
+          activityKind: "tool.completed",
+          itemType: "collab_agent_tool_call",
+          toolStatus: "failed",
+          toolDetails: {
+            kind: "command",
+            title: "Agent task",
+            output: { stderr: "subagent crashed: out of memory" },
+          },
+        }}
+        chatMetaFontSizePx={12}
+        markdownCwd={undefined}
+        onImageExpand={() => {}}
+        onOpenAgentActivity={() => {}}
+        timestampFormat="locale"
+      />,
+    );
+    expect(markup).toContain("subagent crashed: out of memory");
+  });
+
+  // Item 7: the failure tail is in the reader's language.
+  it("says a command failed in Chinese in a Chinese chat", async () => {
+    const { TimelineWorkEntryRow } = await import("./TimelineWorkEntryRow");
+    const markup = renderChineseMarkup(
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "failed-command-zh",
+          createdAt: "2026-03-17T19:12:28.000Z",
+          label: "Ran command",
+          tone: "tool",
+          activityKind: "tool.completed",
+          itemType: "command_execution",
+          toolStatus: "failed",
+          command: "missing-command --check",
+          toolDetails: {
+            kind: "command",
+            title: "Shell",
+            command: "missing-command --check",
+            output: { exitCode: 127, stderr: "missing-command: command not found" },
+          },
+        }}
+        chatMetaFontSizePx={12}
+        markdownCwd={undefined}
+        onImageExpand={() => {}}
+        timestampFormat="locale"
+      />,
+    );
+    expect(markup).toContain("失败 · 退出码 127");
+    expect(markup).not.toContain("Failed");
+  });
+
   // The first test pays the full dynamic-import cost of the MessagesTimeline
   // module graph, which can exceed 10s under CI thread contention.
   it("renders an accent deep link to the immediate fork source", async () => {
@@ -1292,7 +1355,7 @@ describe("MessagesTimeline", () => {
     {
       provider: "Codex",
       expectedSurface: 'data-command-literal="true"',
-      expectedText: "git status --short</code>",
+      expectedText: "git status --short</span>",
       activity: makeActivity({
         id: "codex-live-tool",
         createdAt: "2026-03-17T19:12:28.100Z",
@@ -3084,7 +3147,10 @@ describe("MessagesTimeline", () => {
     // of the DOM until the row is opened.
     expect(markup).not.toContain('data-tool-details-inline="true"');
     expect(markup).not.toContain("apps/web/src/session-logic.ts:55: toolDetails");
-    expect(markup).toContain("已搜索");
+    // A command row names its command, folded or open (Synara).
+    expect(markup).toContain(
+      `已运行 <span data-command-literal="true">rg -n &quot;toolDetails&quot; apps/web/src</span>`,
+    );
   });
 
   it("renders command text even when commandActions provide a short preview", async () => {
@@ -3592,7 +3658,7 @@ describe("MessagesTimeline", () => {
     // The command shows verbatim (minus the shell wrapper) instead of a guessed
     // sentence, and the search wears the magnifier.
     expect(markup).toContain(
-      `Ran <code class="${INLINE_COMMAND_CHIP_CLASS_NAME}" data-command-literal="true">rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src</code>`,
+      `Ran <span data-command-literal="true">rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src</span>`,
     );
     expect(markup).toContain("magnifying-glass.svg");
     expect(markup).not.toContain("data-work-entry-action-word");

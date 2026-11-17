@@ -130,7 +130,9 @@ describe("Claude transcript parity", () => {
     setTranscriptDisclosureOpen("peer:agent:parity:message", false);
   });
 
-  it("reads a tool run in counted words with a solid caret and no glyph", async () => {
+  // Since 2026-11-17 the owner made Synara the reference for tool rows: the folded
+  // line wears its kind's glyph again.
+  it("reads a tool run in counted words with a solid caret and its kind's glyph", async () => {
     const summary = summarizeToolCallGroup([
       sendMessage("m1", "thread-a"),
       sendMessage("m2", "thread-b"),
@@ -148,7 +150,9 @@ describe("Claude transcript parity", () => {
     );
     const row = document.querySelector("[data-tool-group-disclosure]")!;
     expect(row.textContent).toContain("Messaged 2 other chats");
-    expect(row.querySelector("[data-tool-group-icon]")).toBeNull();
+    expect(row.querySelector("[data-tool-group-icon]")?.getAttribute("data-tool-group-icon")).toBe(
+      "message",
+    );
     expect(row.querySelector("[data-tool-group-caret]")).not.toBeNull();
     await shot("tool-group");
   });

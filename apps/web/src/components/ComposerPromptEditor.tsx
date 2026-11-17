@@ -1247,6 +1247,7 @@ function ComposerPromptEditorInner({
                 className,
               )}
               data-testid="composer-editor"
+              data-composer-editor=""
               aria-placeholder={prediction || placeholder}
               aria-label={ariaLabel}
               placeholder={<span />}
