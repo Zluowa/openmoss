@@ -46,8 +46,10 @@ export type ToolCallSummaryCategory =
   | "tool"
   | "other";
 
-/** Named parts shown before the rest folds into "N more actions" (desktop chat rule). */
-export const TOOL_GROUP_SUMMARY_LEADING_PARTS = 3;
+// Most groups name two or three kinds; past that the tail folds into one
+// "N more actions" part so the line stays readable (upstream).
+const MAX_NAMED_SUMMARY_PARTS = 3;
+const NAMED_PARTS_BEFORE_OVERFLOW = 2;
 
 export interface ToolCallGroupSummaryPart {
   category: ToolCallSummaryCategory;
@@ -104,7 +106,7 @@ function summaryPartTranslationKey(
         ? `chat.toolGroup.search.web.${plural}`
         : part.fileSearch
           ? "chat.toolGroup.search.files"
-          : "chat.toolGroup.search.code";
+          : `chat.toolGroup.search.code.${plural}`;
     case "message":
       return `chat.toolGroup.message.${plural}`;
     case "fetch":
@@ -160,13 +162,42 @@ export function isSummarizableToolCallEntry(entry: WorkLogEntry): boolean {
 const READ_VERBS = new Set(["Read", "Reading"]);
 const SEARCH_VERBS = new Set(["Searched", "Searching", "Found", "Finding"]);
 // Provider tools that only read or search, named the way Claude and ACP agents
-// report them (`Read`, `Grep`, `Glob`, `WebSearch`).
-const READ_TOOL_NAMES = new Set(["read", "readfile", "viewfile"]);
-const SEARCH_TOOL_NAMES = new Set(["grep", "glob", "websearch", "findfiles", "searchfiles"]);
+// report them (`Read`, `read_file`, `view`, `Grep`, `Glob`, `search`, `find`).
+// Keep in sync with the icon matchers in TimelineWorkEntryRow.tsx (upstream #2178).
+const READ_TOOL_NAMES = new Set([
+  "read",
+  "reading",
+  "readfile",
+  "readfiles",
+  "readtextfile",
+  "view",
+  "viewfile",
+  "viewtextfile",
+  "hashlineread",
+]);
+const SEARCH_TOOL_NAMES = new Set([
+  "grep",
+  "glob",
+  "websearch",
+  "search",
+  "searching",
+  "searched",
+  "find",
+  "finding",
+  "found",
+  "findfiles",
+  "searchfiles",
+  "searchtool",
+  "hashlinegrep",
+]);
 const FILE_SEARCH_TOOL_NAMES = new Set(["glob", "findfiles"]);
 
 function normalizedToolName(entry: WorkLogEntry): string {
-  return (entry.toolName ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  // toolName wins; the title's first word is the fallback for ACP calls that
+  // arrive with only a `kind` and no native name ("Read /home/x").
+  const title = entry.command || entry.rawCommand ? undefined : entry.toolTitle;
+  const name = entry.toolName ?? title?.trim().split(/\s+/, 1)[0] ?? "";
+  return name.toLowerCase().replace(/[^a-z]/g, "");
 }
 
 function isWebSearchEntry(entry: WorkLogEntry): boolean {
@@ -277,7 +308,9 @@ function summaryPartPhrase(part: ToolCallGroupSummaryPart, leading: boolean): st
         return one ? "edited a file" : `edited ${count} files`;
       case "search":
         if (part.webSearch) return one ? "searched the web" : `searched the web ${count} times`;
-        return part.fileSearch ? "searched for files" : "searched code";
+        if (part.fileSearch) return "searched for files";
+        // Upstream counts searches: "searched code 3 times".
+        return one ? "searched code" : `searched code ${count} times`;
       case "command":
         return one ? "ran a command" : `ran ${count} commands`;
       case "fetch":
@@ -298,16 +331,16 @@ function joinSummaryParts(parts: ReadonlyArray<ToolCallGroupSummaryPart>): strin
   return parts.map((part, index) => summaryPartPhrase(part, index === 0)).join(", ");
 }
 
-// Five or more kinds keep the first three and fold the rest into one counted tail,
-// so the line stays one line.
+// More than three kinds keep the first two and fold the rest into one counted
+// tail, so the line stays one line (the upstream rule).
 function capSummaryParts(
   parts: ReadonlyArray<ToolCallGroupSummaryPart>,
   restCallCount: (parts: ReadonlyArray<ToolCallGroupSummaryPart>) => number,
 ): ReadonlyArray<ToolCallGroupSummaryPart> {
-  if (parts.length < TOOL_GROUP_SUMMARY_LEADING_PARTS + 2) return parts;
-  const rest = parts.slice(TOOL_GROUP_SUMMARY_LEADING_PARTS);
+  if (parts.length <= MAX_NAMED_SUMMARY_PARTS) return parts;
+  const rest = parts.slice(NAMED_PARTS_BEFORE_OVERFLOW);
   return [
-    ...parts.slice(0, TOOL_GROUP_SUMMARY_LEADING_PARTS),
+    ...parts.slice(0, NAMED_PARTS_BEFORE_OVERFLOW),
     { category: "other", count: restCallCount(rest), rest: true },
   ];
 }

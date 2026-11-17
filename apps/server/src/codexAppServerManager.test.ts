@@ -67,9 +67,11 @@ import {
   CODEX_MANUAL_COMPACTION_MARKER,
   CODEX_PLAN_MODE_DEVELOPER_INSTRUCTIONS,
   __codexCliVersionGateTesting,
+  CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS,
   CodexAppServerManager,
   classifyCodexStderrLine,
   classifyCodexStderrLines,
+  discoveryStderrLogLine,
   formatCodexPendingStartup,
   formatCodexThreadResumeError,
   isRecoverableThreadResumeError,
@@ -116,6 +118,12 @@ function createSyntheticCodexAppServer(options?: {
   readonly projectMcpServers?: Record<string, unknown>;
   readonly forceFullHistoryResponse?: boolean;
   readonly pluginListFrameBytes?: number;
+  /** A Codex that prints these stderr lines and exits with this code while listing plugins. */
+  /** Stderr chunks are written one task apart, as a pipe may deliver them. */
+  readonly pluginListExit?: {
+    readonly code: number;
+    readonly stderr: string | ReadonlyArray<string>;
+  };
   /** Methods this app-server receives but never answers, like a Codex stuck on a busy disk. */
   readonly unanswered?: ReadonlySet<string>;
   readonly gatewayRenewal?:
@@ -300,6 +308,20 @@ function createSyntheticCodexAppServer(options?: {
           respond({ thread: { id: "fresh-provider-thread" } });
         } else if (request.method === "turn/start") {
           respond({ turn: { id: `synthetic-turn-${nextTurn++}` } });
+        } else if (request.method === "plugin/list" && options?.pluginListExit) {
+          const { code, stderr: lines } = options.pluginListExit;
+          const chunks = typeof lines === "string" ? [lines] : [...lines];
+          const writeNext = () => {
+            const chunk = chunks.shift();
+            if (chunk === undefined) {
+              Object.assign(child, { exitCode: code });
+              child.emit("exit", code, null);
+              return;
+            }
+            stderr.write(chunk);
+            setTimeout(writeNext, 0);
+          };
+          queueMicrotask(writeNext);
         } else if (request.method === "plugin/list" && options?.pluginListFrameBytes) {
           const prefix = Buffer.from(
             `{"id":${JSON.stringify(request.id)},"result":{"marketplaces":[{"name":"Synthetic catalog","path":"/synthetic/catalog","plugins":[]}],"padding":"`,
@@ -6022,6 +6044,195 @@ describe("CodexAppServerManager discovery", () => {
       }
     },
   );
+});
+
+describe("a Codex that exits while listing plugins (Windows, 2026-11-17)", () => {
+  it("logs why, and answers the next listings from memory instead of a new process", async () => {
+    const fake = createSyntheticCodexAppServer({
+      pluginListExit: {
+        code: 1,
+        stderr:
+          "Error: failed to load marketplace: invalid manifest at C:/plugins/m.json (moss_sk_abcdef123456)\n",
+      },
+    });
+    const spawnAppServer = vi.spyOn(fake, "spawnAppServer");
+    const { manager } = createSyntheticCodexManager(fake);
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-plugin-exit-"));
+    const codexOptions = { homePath: cwd, binaryPath: "/synthetic/codex" };
+    const authTracking = prepareCodexAuthTracking({ env: { ...process.env }, homePath: cwd });
+    vi.spyOn(
+      manager as unknown as { buildSessionProcessEnv: () => Promise<unknown> },
+      "buildSessionProcessEnv",
+    ).mockResolvedValue({
+      env: {},
+      authTracking,
+      authFingerprint: readCodexPreparedAuthTrackingFingerprint(authTracking),
+    });
+    const warnings: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    });
+    try {
+      const list = (forceReload?: boolean) =>
+        manager.listPlugins({ cwd, codexOptions, ...(forceReload ? { forceReload } : {}) });
+
+      await expect(list()).rejects.toThrow("codex app-server exited (code=1, signal=null).");
+      expect(spawnAppServer).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() =>
+        expect(warnings.some((line) => line.includes("codex discovery app-server exited"))).toBe(
+          true,
+        ),
+      );
+      const exited = warnings.find((line) => line.includes("codex discovery app-server exited"));
+      expect(exited).toBeDefined();
+      expect(exited).toContain("plugin/list");
+      expect(exited).toContain("failed to load marketplace: invalid manifest");
+      expect(warnings.join("\n")).not.toContain("moss_sk_abcdef123456");
+
+      // The open chat asks again a minute later: same answer, no new app-server.
+      await expect(list()).rejects.toThrow("codex app-server exited (code=1, signal=null).");
+      expect(spawnAppServer).toHaveBeenCalledTimes(1);
+
+      // Asking to reload tries again at once.
+      await expect(list(true)).rejects.toThrow("codex app-server exited");
+      expect(spawnAppServer).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("masks a key split across two stderr chunks as one line", async () => {
+    const fake = createSyntheticCodexAppServer({
+      pluginListExit: {
+        code: 1,
+        stderr: ["Error: marketplace sync rejected key moss_sk_live_ab", "cdef0123456789\n"],
+      },
+    });
+    const { manager } = createSyntheticCodexManager(fake);
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-plugin-split-"));
+    const codexOptions = { homePath: cwd, binaryPath: "/synthetic/codex" };
+    const authTracking = prepareCodexAuthTracking({ env: { ...process.env }, homePath: cwd });
+    vi.spyOn(
+      manager as unknown as { buildSessionProcessEnv: () => Promise<unknown> },
+      "buildSessionProcessEnv",
+    ).mockResolvedValue({
+      env: {},
+      authTracking,
+      authFingerprint: readCodexPreparedAuthTrackingFingerprint(authTracking),
+    });
+    const warnings: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    });
+    try {
+      await expect(manager.listPlugins({ cwd, codexOptions })).rejects.toThrow(
+        "codex app-server exited",
+      );
+      await vi.waitFor(() =>
+        expect(warnings.some((line) => line.includes("marketplace sync rejected key"))).toBe(true),
+      );
+      const logged = warnings.join("\n");
+      expect(logged).toContain("marketplace sync rejected key [redacted-api-key]");
+      expect(logged).not.toContain("cdef0123456789");
+      expect(logged).not.toContain("moss_sk_live_ab");
+    } finally {
+      warn.mockRestore();
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("lists again at once after a plugin change, without waiting out the backoff", async () => {
+    const fake = createSyntheticCodexAppServer({
+      pluginListExit: { code: 1, stderr: "Error: invalid marketplace manifest\n" },
+    });
+    const spawnAppServer = vi.spyOn(fake, "spawnAppServer");
+    const { manager } = createSyntheticCodexManager(fake);
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-plugin-repair-"));
+    const codexOptions = { homePath: cwd, binaryPath: "/synthetic/codex" };
+    const authTracking = prepareCodexAuthTracking({ env: { ...process.env }, homePath: cwd });
+    vi.spyOn(
+      manager as unknown as { buildSessionProcessEnv: () => Promise<unknown> },
+      "buildSessionProcessEnv",
+    ).mockResolvedValue({
+      env: {},
+      authTracking,
+      authFingerprint: readCodexPreparedAuthTrackingFingerprint(authTracking),
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await expect(manager.listPlugins({ cwd, codexOptions })).rejects.toThrow(
+        "codex app-server exited",
+      );
+      await expect(manager.listPlugins({ cwd, codexOptions })).rejects.toThrow(
+        "codex app-server exited",
+      );
+      expect(spawnAppServer).toHaveBeenCalledTimes(1);
+
+      // The person repairs a plugin: whatever its result, the failed listing is forgotten.
+      await manager
+        .setPluginEnabled({ cwd, codexOptions, pluginId: "broken@local", enabled: false })
+        .catch(() => undefined);
+      const listings = () => fake.requests.filter(({ method }) => method === "plugin/list").length;
+      const listingsBefore = listings();
+      await expect(manager.listPlugins({ cwd, codexOptions })).rejects.toThrow(
+        "codex app-server exited",
+      );
+      // Codex was asked again instead of the stored failure being answered.
+      expect(listings()).toBe(listingsBefore + 1);
+    } finally {
+      vi.mocked(console.warn).mockRestore();
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a failed listing in memory for five minutes only", () => {
+    expect(CODEX_PLUGIN_LIST_FAILURE_BACKOFF_MS).toBe(5 * 60 * 1000);
+  });
+
+  it("masks secrets and caps the length of a discovery stderr line", () => {
+    expect(discoveryStderrLogLine("Error: auth failed, Bearer xyz.789")).toBe(
+      "Error: auth failed, Bearer [redacted]",
+    );
+    expect(discoveryStderrLogLine("Error: key sk-abcdefghijklmnop rejected")).toBe(
+      "Error: key [redacted-api-key] rejected",
+    );
+    expect(discoveryStderrLogLine("Error: key moss_sk_abc_123 rejected")).toBe(
+      "Error: key [redacted-api-key] rejected",
+    );
+    // A key-value secret is masked to the end of its value, and further.
+    expect(discoveryStderrLogLine("config token=abc123 is invalid")).not.toContain("abc123");
+    // Assembled at run time so that secret scanners do not read these test values as real keys.
+    const FAKE_GITHUB_TOKEN = ["gh", "p_", "abcdefghijklmnop"].join("");
+    const FAKE_GITHUB_PAT = ["githu", "b_pat_", "11ABCDEFG"].join("");
+    const FAKE_AWS_KEY_ID = ["AK", "IA", "IOSFODNN7EXAMPLE"].join("");
+    const FAKE_STRIPE_KEY = ["sk_l", "ive_", "51Habcdefghijklmn"].join("");
+    for (const [line, secret] of [
+      ["Error: request failed; Cookie: session=s3cr3tcookie; theme=dark", "s3cr3tcookie"],
+      ["Error: Set-Cookie: auth=abcdef123456", "abcdef123456"],
+      ["Error: proxy http://alice:hunter2@proxy.local:8080 refused", "hunter2"],
+      [
+        "Error: rejected eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N",
+        "eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+      ],
+      [`Error: git said ${FAKE_GITHUB_TOKEN}qrstuvwxyz0123456789`, FAKE_GITHUB_TOKEN],
+      [`Error: ${FAKE_GITHUB_PAT}0123456789_abcdefghijklmnop`, FAKE_GITHUB_PAT],
+      [`Error: AWS key ${FAKE_AWS_KEY_ID} denied`, FAKE_AWS_KEY_ID],
+      [`Error: stripe ${FAKE_STRIPE_KEY} rejected`, FAKE_STRIPE_KEY],
+      ["Error: ran mcp-server --api-key abc123secret --port 3000", "abc123secret"],
+      ['Error: ran tool --token "quoted secret value"', "quoted secret value"],
+    ] as const) {
+      expect(discoveryStderrLogLine(line), line).not.toContain(secret);
+    }
+    // Ordinary text stays readable.
+    expect(discoveryStderrLogLine("Error: invalid marketplace manifest at C:/plugins/m.json")).toBe(
+      "Error: invalid marketplace manifest at C:/plugins/m.json",
+    );
+    expect(discoveryStderrLogLine(`ERROR ${"x".repeat(1_000)}`).length).toBeLessThanOrEqual(401);
+  });
 });
 
 describe("thread checkpoint control", () => {

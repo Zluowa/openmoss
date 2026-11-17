@@ -199,6 +199,12 @@ export interface ProviderPredictNextUserMessageInput {
   /** The reasoning effort of the prediction turn; null keeps the thread's own. */
   readonly effort: string | null;
   readonly timeoutMs: number;
+  /**
+   * What the fork is for. A `prediction` (the default) runs first and is never delayed: it
+   * stops a running `title` fork of the same session. A `title` waits for any fork of the
+   * session to finish, and starts again if a prediction stopped it.
+   */
+  readonly purpose?: "prediction" | "title";
 }
 
 /**

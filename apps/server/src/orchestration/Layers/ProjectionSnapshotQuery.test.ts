@@ -135,6 +135,50 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       }),
   );
 
+  it.effect("reads a turn's completed wrap-up calls in both providers' shapes, oldest first", () =>
+    Effect.gen(function* () {
+      const query = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = ThreadId.makeUnsafe("thread-wrap-up");
+      const now = "2026-11-17T04:40:28.000Z";
+      const codexBox = {
+        itemType: "mcp_tool_call",
+        status: "completed",
+        data: {
+          kind: "codex.mcp_tool_call",
+          tool: "moss_wrap_up",
+          arguments: { recap: "Applied.", ask: "Keep it?", actions: [{ label: "Keep" }] },
+        },
+      };
+      const claudeBox = {
+        itemType: "mcp_tool_call",
+        status: "completed",
+        detail: 'mcp__moss__moss_wrap_up: {"recap":"Done.","ask":"Ship it?"}',
+      };
+      yield* sql`INSERT INTO projection_threads
+        (thread_id, project_id, title, model_selection_json, created_at, updated_at)
+        VALUES (${threadId}, 'wrap-up-project', 'Wrap-up', '{"provider":"codex","model":"gpt-5"}', ${now}, ${now})`;
+      yield* sql`INSERT INTO projection_thread_activities
+        (thread_id, activity_id, turn_id, tone, kind, summary, payload_json, sequence, created_at)
+        VALUES
+        (${threadId}, 'box-started', 'turn-1', 'tool', 'tool.started', 'Wrap up', ${JSON.stringify(codexBox)}, 1, '2026-11-17T04:40:28.000Z'),
+        (${threadId}, 'box-codex', 'turn-1', 'tool', 'tool.completed', 'Wrap up', ${JSON.stringify(codexBox)}, 2, '2026-11-17T04:40:28.100Z'),
+        (${threadId}, 'other-tool', 'turn-1', 'tool', 'tool.completed', 'Ran command', '{"itemType":"command_execution"}', 3, '2026-11-17T04:40:28.200Z'),
+        (${threadId}, 'box-claude', 'turn-1', 'tool', 'tool.completed', 'Wrap up', ${JSON.stringify(claudeBox)}, 4, '2026-11-17T04:40:28.300Z'),
+        (${threadId}, 'box-other-turn', 'turn-2', 'tool', 'tool.completed', 'Wrap up', ${JSON.stringify(codexBox)}, 5, '2026-11-17T04:40:29.000Z')`;
+
+      const records = yield* query.listWrapUpActivitiesByTurn(
+        threadId,
+        TurnId.makeUnsafe("turn-1"),
+      );
+
+      assert.deepEqual(records, [
+        { kind: "tool.completed", payload: codexBox },
+        { kind: "tool.completed", payload: claudeBox },
+      ]);
+    }),
+  );
+
   it.effect("identifies project imports from durable provenance in full and shell snapshots", () =>
     Effect.gen(function* () {
       const query = yield* ProjectionSnapshotQuery;

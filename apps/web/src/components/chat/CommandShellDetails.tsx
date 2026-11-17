@@ -63,6 +63,13 @@ export function CommandShellDetails(props: {
   const normalizedCommand = copyPayloads.command;
   const commandExpanded = expandedCommand === normalizedCommand;
   const commandDisplay = formatShellCommandDisplay(command);
+  // The row and this card show what the shell ran; the full launcher line
+  // (PowerShell or cmd and its options) stays one click away.
+  const launcherLine = command
+    .trim()
+    .replace(/^\$\s+/u, "")
+    .trim();
+  const showsLauncher = launcherLine.length > 0 && launcherLine !== normalizedCommand;
   const renderedOutputText = resolveCommandShellOutputText(
     output,
     activity,
@@ -127,6 +134,7 @@ export function CommandShellDetails(props: {
             )}
             data-shell-command="true"
             data-command-expanded={commandExpanded ? "true" : "false"}
+            title={showsLauncher ? launcherLine : undefined}
             onClick={expandCommand}
             onKeyDown={onCommandKeyDown}
           >
@@ -138,6 +146,15 @@ export function CommandShellDetails(props: {
               />
             </code>
           </div>
+          {showsLauncher && commandExpanded ? (
+            <p
+              className="mt-1 text-size-chat-sm text-tertiary whitespace-pre-wrap break-words font-vscode-editor select-text"
+              data-shell-launcher="true"
+              data-translation-skip="true"
+            >
+              {format("chat.shell.launcher", { command: launcherLine })}
+            </p>
+          ) : null}
           <button
             type="button"
             className="absolute top-0 right-0 inline-flex size-5 items-center justify-center rounded-control-xs text-tertiary opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-default group-hover/command:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"

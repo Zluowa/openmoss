@@ -226,13 +226,16 @@ describe("Pass 5 connection and local run-location contracts", () => {
         "aria-expanded",
         "true",
       );
-      // The expanded live row reports duration; its Shell detail retains argv.
+      // The row reads the same open as folded (Synara): it names the command;
+      // the Shell detail below carries output and duration.
       const displayTextEl = document.querySelector("[data-work-entry-display-text]");
-      expect(displayTextEl?.firstChild?.textContent).toBe("Running command for 19s");
+      expect(displayTextEl?.firstChild?.textContent?.trim()).toBe("Running");
       const sweep = displayTextEl?.querySelector<HTMLElement>(".codex-text-shimmer-sweep");
       expect(sweep).toHaveAttribute("aria-hidden", "true");
       expect(sweep?.inert).toBe(true);
-      expect(document.querySelector("[data-command-literal]")).toBeNull();
+      expect(document.querySelector("[data-command-literal]")?.textContent).toBe(
+        command.replace(/\s+/g, " "),
+      );
       expect(document.querySelector("[data-shell-command] code")?.textContent).toBe(command);
       expect(displayTextEl?.hasAttribute("data-conversation-shimmer")).toBe(true);
       await shot("midrun-expanded-partial-stdout");
