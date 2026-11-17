@@ -48,7 +48,7 @@ describe("sanitizeToolInputSchema", () => {
     if (!Array.isArray(output.required)) {
       throw new Error("Expected the sanitized webmcp schema to keep its required list.");
     }
-    assert.sameMembers(output.required, ["discoveryId", "toolId"]);
+    assert.sameMembers(output.required, ["discoveryId", "toolId", "origin"]);
   });
 
   it("preserves the current browser_run input contract", () => {

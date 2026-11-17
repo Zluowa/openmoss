@@ -4,6 +4,7 @@
 // Exports: TerminalSearch
 
 import type { SearchAddon, ISearchOptions } from "@xterm/addon-search";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useEffect, useRef, useState } from "react";
 import { IconButton } from "~/components/ui/icon-button";
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from "~/lib/icons";
@@ -115,6 +116,7 @@ export function TerminalSearch({ searchAddon, isOpen, onClose }: TerminalSearchP
   useEffect(() => () => clearSearchTimer(), [clearSearchTimer]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (isImeComposingKeyEvent(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();

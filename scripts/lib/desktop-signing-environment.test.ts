@@ -232,9 +232,10 @@ describe("desktop signing subprocess environments", () => {
     const desktopBuildEnvironmentCalls =
       buildSource.match(/createDesktopBuildSubprocessEnvironment\(process\.env\)/g) ?? [];
 
-    assert.equal(buildSource.match(/ChildProcess\.make/g)?.length, 14);
+    // 15 with the Windows job launcher build (stageWindowsJobLauncher), also sanitized.
+    assert.equal(buildSource.match(/ChildProcess\.make/g)?.length, 15);
     assert.equal(spawnSyncCalls.length, sanitizedSpawnSyncCalls.length);
-    assert.equal(nonSigningEnvironmentCalls.length, 14);
+    assert.equal(nonSigningEnvironmentCalls.length, 15);
     assert.equal(desktopBuildEnvironmentCalls.length, 2);
     assert.match(
       buildSource,

@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
 import {
   cellAddress,
@@ -321,6 +322,7 @@ export function WorkbookPreview({
           onChange={(event) => setAddress(event.target.value)}
           onBlur={() => setAddress(selectedAddress)}
           onKeyDown={(event) => {
+            if (isImeComposingKeyEvent(event)) return;
             if (event.key !== "Enter") return;
             event.preventDefault();
             const bang = address.lastIndexOf("!");

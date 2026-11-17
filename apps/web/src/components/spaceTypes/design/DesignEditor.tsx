@@ -5,6 +5,7 @@
 // Layer: 资料空间 设计 (web). SpaceTypedItemView renders it for `design` items and saves its changes.
 
 import type { PagesReadResult, PageTypedItem, SpaceId } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   applyDesignOpsLeniently,
   boardsInReadingOrder,
@@ -1875,7 +1876,7 @@ export function DesignEditor(props: {
                       if (
                         event.key === "Enter" &&
                         !event.shiftKey &&
-                        !event.nativeEvent.isComposing
+                        !isImeComposingKeyEvent(event)
                       ) {
                         event.preventDefault();
                         generate(generateText);
@@ -1921,7 +1922,7 @@ export function DesignEditor(props: {
               onKeyDown={(event) => {
                 event.stopPropagation();
                 if (event.key === "Escape") setAsking(false);
-                if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
                   event.preventDefault();
                   if (askText.trim()) {
                     void ask(askText);

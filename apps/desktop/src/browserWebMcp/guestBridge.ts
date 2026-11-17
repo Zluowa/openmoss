@@ -17,6 +17,7 @@ export function installWebMcpBridgeInMainWorld(hostAllowsCompatibility = false):
     readonly execute?: (input: JsonObject, options: { readonly signal: AbortSignal }) => unknown;
     readonly annotations?: {
       readonly readOnlyHint?: boolean;
+      readonly consequentialHint?: boolean;
       readonly untrustedContentHint?: boolean;
     };
     readonly origin?: string;
@@ -265,7 +266,7 @@ export function installWebMcpBridgeInMainWorld(hostAllowsCompatibility = false):
           name,
           description,
           inputSchema: declarativeSchema(form),
-          annotations: { readOnlyHint: false, untrustedContentHint: true },
+          annotations: { readOnlyHint: false, consequentialHint: true, untrustedContentHint: true },
           origin: globalThis.location.origin,
           window: globalThis.window,
           execute: async () => null,
@@ -399,6 +400,11 @@ export function installWebMcpBridgeInMainWorld(hostAllowsCompatibility = false):
         execute: tool.execute,
         annotations: {
           readOnlyHint: tool.annotations?.readOnlyHint === true,
+          // Kept as declared (true, false or absent); the host derives the
+          // effective value, so an omitted hint still counts as consequential.
+          ...(typeof tool.annotations?.consequentialHint === "boolean"
+            ? { consequentialHint: tool.annotations.consequentialHint }
+            : {}),
           untrustedContentHint: tool.annotations?.untrustedContentHint === true,
         },
       });
@@ -502,6 +508,7 @@ export function installWebMcpBridgeInMainWorld(hostAllowsCompatibility = false):
     readonly origin: string;
     readonly annotations: {
       readonly readOnlyHint: boolean;
+      readonly consequentialHint: boolean;
       readonly untrustedContentHint: boolean;
     };
   } | null> => {
@@ -520,6 +527,10 @@ export function installWebMcpBridgeInMainWorld(hostAllowsCompatibility = false):
       origin,
       annotations: {
         readOnlyHint: tool.annotations?.readOnlyHint === true,
+        // Only a tool the page marks read-only, and does not also mark
+        // consequential, may run without asking. No hints means consequential.
+        consequentialHint:
+          tool.annotations?.readOnlyHint !== true || tool.annotations?.consequentialHint === true,
         // All page-provided metadata and results are untrusted to Moss even
         // when the page author omits the WebMCP hint.
         untrustedContentHint: true,
@@ -586,9 +597,11 @@ export function installWebMcpBridgeInMainWorld(hostAllowsCompatibility = false):
           implementation === "native" && nativeInputFormat === "json-string"
             ? inputJson
             : (parsed as JsonObject);
-        const rawResult = await context.executeTool(tool, executionInput, {
-          signal: controller.signal,
-        });
+        // A cancelled call answers at once even if the page's tool never settles.
+        const rawResult = await awaitWithAbort(
+          context.executeTool(tool, executionInput, { signal: controller.signal }),
+          controller.signal,
+        );
         // The current draft returns stringified JSON. Accept an object as well
         // so Moss remains compatible with early-preview Chromium builds.
         const serializedResult =
