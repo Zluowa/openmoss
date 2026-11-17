@@ -1,13 +1,14 @@
 "use client";
 
-import { Input as InputPrimitive } from "@base-ui/react/input";
-import { forwardRef, type ComponentPropsWithoutRef } from "react";
+import { Input as InputPrimitive } from "@ui-sdk/react/input";
+import { forwardRef, type ComponentProps, type ComponentPropsWithoutRef } from "react";
 
 import { cn } from "~/lib/utils";
+import { definedProps } from "./uiSdkProps";
 import { SOFT_SURFACE_FILL_CLASS_NAME, GLASS_RAISED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import { BUTTON_GROUP_SURFACE_CLASS_NAME } from "./button-group";
 
-type InputProps = Omit<ComponentPropsWithoutRef<typeof InputPrimitive>, "size"> & {
+type InputProps = Omit<ComponentPropsWithoutRef<"input">, "size"> & {
   size?: "sm" | "default" | "lg" | number;
   // "soft" gives the field a faint filled background instead of the default
   // surface-matching fill, so it reads as an input even on a flush card.
@@ -78,17 +79,26 @@ const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           data-slot="input"
           size={typeof size === "number" ? size : undefined}
           ref={ref}
-          style={typeof style === "function" ? undefined : style}
+          style={style}
           {...props}
         />
       ) : (
         <InputPrimitive
+          {...definedProps<object, ComponentProps<typeof InputPrimitive>>({
+            ...props,
+            // UI SDK's input works on strings; a number field's value arrives as one, as the DOM
+            // reads it anyway.
+            value: typeof props.value === "number" ? String(props.value) : props.value,
+            defaultValue:
+              typeof props.defaultValue === "number"
+                ? String(props.defaultValue)
+                : props.defaultValue,
+            size: typeof size === "number" ? size : undefined,
+            style,
+          })}
           className={inputClassName}
           data-slot="input"
-          size={typeof size === "number" ? size : undefined}
           ref={ref}
-          style={style}
-          {...props}
         />
       )}
     </span>

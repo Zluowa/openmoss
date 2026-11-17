@@ -14,6 +14,7 @@ import { render } from "vitest-browser-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { appHistory } from "../../appNavigation";
+import { composeChineseWithEnter } from "../../test/imeComposition";
 
 import {
   COMPOSER_DRAFT_STORAGE_KEY,
@@ -473,6 +474,30 @@ describe("ComposerModelPicker", () => {
       await screen.unmount();
     }
   });
+
+  it.each(["Enter", "Process"] as const)(
+    "keeps the highlighted model unpicked while Enter (%s) confirms a pinyin candidate",
+    async (confirmKey) => {
+      const onProviderModelChange = vi.fn();
+      const screen = await mountPicker({ onProviderModelChange });
+      try {
+        const search = page.getByRole("searchbox", { name: "Search models" });
+        const searchElement = search.element() as HTMLInputElement;
+        // The pinyin being composed ("gpt…") already matches models, so the top row is what an
+        // Enter that the picker wrongly took would pick.
+        await composeChineseWithEnter(searchElement, "gpt", "模型", confirmKey, async () => {
+          await expect.element(page.getByRole("menuitem", { name: /GPT-5\.4/u })).toBeVisible();
+        });
+        await expect.poll(() => searchElement.value).toBe("模型");
+        expect(searchElement.isConnected).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(onProviderModelChange).not.toHaveBeenCalled();
+        await expect.element(search).toBeVisible();
+      } finally {
+        await screen.unmount();
+      }
+    },
+  );
 
   it("picks the Nth row with mod+digit", async () => {
     const onProviderModelChange = vi.fn();

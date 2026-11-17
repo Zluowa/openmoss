@@ -819,6 +819,13 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDownCapture={(event) => {
+                  // A key that belongs to an input method's composition (the Enter that confirms
+                  // a pinyin candidate: `key: "Enter"` with isComposing on macOS and Linux, keyCode
+                  // 229 everywhere) picks the candidate, never a model.
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) {
+                    event.stopPropagation();
+                    return;
+                  }
                   if (event.key === "Enter") {
                     // Focus is still in the field, so no row is highlighted: take the top hit.
                     event.preventDefault();

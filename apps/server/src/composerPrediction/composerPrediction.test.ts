@@ -27,7 +27,10 @@ import {
   resolveComposerPredictionTurnBlocker,
   readComposerPredictionClosingQuestion,
   resolveMossManagedPredictionModel,
+  resolveMossModelForOwnAccountChat,
+  resolveMossModelPredictionRouting,
   resolveNativePredictionEffort,
+  predictionModelFamily,
 } from "./composerPrediction.ts";
 import {
   OWNER_CLAUDE_WRAP_UP_ACTIVITY,
@@ -1014,4 +1017,207 @@ describe("the smaller prediction model", () => {
       );
     },
   );
+});
+
+// Route 2 (owner's decision, 2026-11-17): a chat on a person's own account that the isolated
+// route cannot serve here (own Codex account on Windows) predicts through the signed-in Moss
+// account's own small model, as #647 titles such chats. Never for a person not signed in.
+describe("route 2: the signed-in Moss account's model for an own-account chat", () => {
+  const ownCodexChat = {
+    modelSelection: {
+      provider: "codex",
+      instanceId: "codex",
+      // The owner's model on 2026-11-17: not in Moss's catalog.
+      model: "gpt-6.1-terra",
+      options: { reasoningEffort: "max" },
+    } as ModelSelection,
+    session: session({ providerName: "codex", providerInstanceId: "codex" }),
+  };
+  const signedIn = (lane: "cn" | "global") =>
+    settings({
+      providerInstances: {
+        codex_moss: {
+          driver: "codex",
+          enabled: true,
+          displayName: "Moss",
+          config: {
+            managed: true,
+            modelAllowlist: [...mossLaneEngineModelIds(lane, "codex")],
+            customModels: [...mossLaneEngineModelIds(lane, "codex")],
+            defaultModel: lane === "cn" ? "deepseek-v4-pro" : "gpt-5.6-terra",
+          },
+        },
+      } as ServerSettings["providerInstances"],
+    });
+
+  it.each([
+    ["gpt-6.1-terra", "openai"],
+    ["gpt-6-astra", "openai"],
+    ["o4-mini", "openai"],
+    ["claude-opus-5-5", "claude"],
+    ["deepseek-v4-pro", "deepseek"],
+    ["moss/glm-5.3", "glm"],
+    ["kimi-k3", "kimi"],
+    ["some-future-model", null],
+  ] as const)("knows the vendor of %s", (model, family) => {
+    expect(predictionModelFamily(model)).toBe(family);
+  });
+
+  it("keeps the chat's vendor where the lane serves its cheapest model", () => {
+    expect(
+      resolveMossModelForOwnAccountChat({
+        chatModel: "gpt-6.1-terra",
+        served: mossLaneEngineModelIds("global", "codex"),
+        defaultModel: "gpt-5.6-terra",
+      }),
+    ).toBe("gpt-5.6-luna");
+  });
+
+  it("takes the lane's cheapest model when the chat's vendor is not on the lane", () => {
+    const served = mossLaneEngineModelIds("cn", "codex");
+    expect(served).not.toContain("gpt-5.6-luna");
+    const model = resolveMossModelForOwnAccountChat({
+      chatModel: "gpt-6.1-terra",
+      served,
+      defaultModel: "deepseek-v4-pro",
+    });
+    expect(model).not.toBeNull();
+    expect(served).toContain(model);
+    expect(["glm-5.3-flash", "deepseek-v4-flash"]).toContain(model);
+  });
+
+  it("routes an own Codex chat to the Moss instance at its lowest effort, default as fallback", () => {
+    const routing = resolveMossModelPredictionRouting({
+      thread: ownCodexChat,
+      settings: signedIn("global"),
+    });
+    expect(routing).toMatchObject({
+      source: "moss-model-for-own-account",
+      modelSelection: { provider: "codex", instanceId: "codex_moss", model: "gpt-5.6-luna" },
+      fallback: { modelSelection: { instanceId: "codex_moss", model: "gpt-5.6-terra" } },
+    });
+    // Never the chat's own max effort.
+    expect(JSON.stringify(routing?.modelSelection)).not.toContain("max");
+  });
+
+  it.each([
+    ["not signed in (no Moss instance)", settings()],
+    [
+      "signed out (instance disabled)",
+      settings({
+        providerInstances: {
+          codex_moss: { driver: "codex", enabled: false, config: { managed: true } },
+        } as ServerSettings["providerInstances"],
+      }),
+    ],
+    [
+      "a look-alike instance Moss does not manage",
+      settings({
+        providerInstances: {
+          codex_moss: { driver: "codex", enabled: true, config: { defaultModel: "gpt-5.6-luna" } },
+        } as ServerSettings["providerInstances"],
+      }),
+    ],
+  ] as const)("never takes this route when %s", (_label, serverSettings) => {
+    expect(
+      resolveMossModelPredictionRouting({ thread: ownCodexChat, settings: serverSettings }),
+    ).toBeNull();
+  });
+
+  it("leaves a chat already on a Moss-managed instance to route 1", () => {
+    expect(
+      resolveMossModelPredictionRouting({
+        thread: {
+          modelSelection: {
+            provider: "codex",
+            instanceId: "codex_moss",
+            model: "gpt-5.6-terra",
+          } as ModelSelection,
+        },
+        settings: signedIn("global"),
+      }),
+    ).toBeNull();
+  });
+
+  describe("route order", () => {
+    const serverSettings = signedIn("global");
+    const routing = resolveComposerPredictionRoutingResult({
+      thread: ownCodexChat,
+      settings: serverSettings,
+    });
+    const mossRouting = resolveMossModelPredictionRouting({
+      thread: ownCodexChat,
+      settings: serverSettings,
+    })!;
+    const blocked = { kind: "platform-blocked", platform: "win32" } as const;
+    const route = (input: {
+      isolated: "supported" | "blocked";
+      moss?: "supported" | "blocked";
+      fork?: boolean;
+    }) =>
+      resolveComposerPredictionRoute({
+        routing,
+        chatModel: ownCodexChat.modelSelection.model,
+        isolatedSupport: input.isolated === "supported" ? { kind: "supported" } : blocked,
+        ...(input.moss
+          ? {
+              mossModel: {
+                routing: mossRouting,
+                support: input.moss === "supported" ? { kind: "supported" } : blocked,
+              },
+            }
+          : {}),
+        nativeSupport: input.fork
+          ? { kind: "supported" }
+          : { kind: "unsupported", reason: "no_live_session" },
+      });
+
+    it("1. the chat's own account wherever the isolated route serves it", () => {
+      expect(route({ isolated: "supported", moss: "supported", fork: true })).toMatchObject({
+        kind: "isolated",
+        routing: { modelSelection: { instanceId: "codex" } },
+      });
+    });
+
+    it("2. the signed-in Moss model when the own account is refused here", () => {
+      expect(route({ isolated: "blocked", moss: "supported", fork: true })).toMatchObject({
+        kind: "isolated",
+        routing: {
+          source: "moss-model-for-own-account",
+          modelSelection: { instanceId: "codex_moss" },
+        },
+      });
+    });
+
+    it("3. the native fork when the Moss route is not served (signed out: no key)", () => {
+      expect(route({ isolated: "blocked", moss: "blocked", fork: true })).toMatchObject({
+        kind: "native",
+      });
+      expect(route({ isolated: "blocked", fork: true })).toMatchObject({ kind: "native" });
+    });
+
+    it("4. none when nothing serves the chat", () => {
+      expect(route({ isolated: "blocked", moss: "blocked", fork: false })).toEqual({
+        kind: "no-route",
+        reason: "native-no-live-session",
+      });
+    });
+
+    it("2. also serves a provider without text generation of its own, never a passing mismatch", () => {
+      expect(
+        resolveComposerPredictionRoute({
+          routing: { kind: "unrouted", reason: "no-dedicated-provider" },
+          chatModel: "gpt-6.1-terra",
+          mossModel: { routing: mossRouting, support: { kind: "supported" } },
+        }),
+      ).toMatchObject({ kind: "isolated", routing: { source: "moss-model-for-own-account" } });
+      expect(
+        resolveComposerPredictionRoute({
+          routing: { kind: "unrouted", reason: "session-instance-mismatch" },
+          chatModel: "gpt-6.1-terra",
+          mossModel: { routing: mossRouting, support: { kind: "supported" } },
+        }),
+      ).toEqual({ kind: "unrouted", reason: "session-instance-mismatch" });
+    });
+  });
 });

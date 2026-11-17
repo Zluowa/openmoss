@@ -758,7 +758,9 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-label="Edit message"');
     expect(editButtonMarkup).not.toContain('disabled=""');
     expect(markup).not.toContain('title="Edit message"');
-    expect(markup).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Rewind to here"/);
+    const rewindButtonMarkup =
+      markup.match(/<button[^>]*aria-label="Rewind to here"[^>]*>/)?.[0] ?? "";
+    expect(rewindButtonMarkup).toContain('disabled=""');
   });
 
   it("renders a 'Sent by agent' chip above agent-dispatched user messages", async () => {

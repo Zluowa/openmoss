@@ -1,9 +1,11 @@
 "use client";
 
-import { Toggle as TogglePrimitive } from "@base-ui/react/toggle";
+import { Toggle as TogglePrimitive } from "@ui-sdk/react/toggle";
 import { cva, type VariantProps } from "class-variance-authority";
+import type { ComponentProps } from "react";
 
 import { cn } from "~/lib/utils";
+import { definedProps, type Loose } from "./uiSdkProps";
 
 // Icon child rules name both an `<svg>` and a Central glyph span (see CENTRAL_ICON_SLOT).
 const toggleVariants = cva(
@@ -34,12 +36,14 @@ function Toggle({
   variant,
   size,
   ...props
-}: TogglePrimitive.Props & VariantProps<typeof toggleVariants>) {
+}: Loose<Omit<ComponentProps<typeof TogglePrimitive>, "className">> & {
+  className?: string | undefined;
+} & VariantProps<typeof toggleVariants>) {
   return (
     <TogglePrimitive
+      {...definedProps<object, ComponentProps<typeof TogglePrimitive>>(props)}
       className={cn(toggleVariants({ className, size, variant }))}
       data-slot="toggle"
-      {...props}
     />
   );
 }
