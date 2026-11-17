@@ -99,6 +99,12 @@ import {
   validatePackagedCuaDriver,
 } from "./lib/bundled-cua-driver.ts";
 import {
+  WINDOWS_JOB_LAUNCHER_BUILD_SCRIPT,
+  WINDOWS_JOB_LAUNCHER_EXTRA_RESOURCE,
+  WINDOWS_JOB_LAUNCHER_STAGE_PATH,
+  windowsJobLauncherArchError,
+} from "./lib/windows-native-job-launcher.ts";
+import {
   DESKTOP_RELEASE_MODES,
   type DesktopReleaseMode,
   requiresMacUpdateManifest,
@@ -3704,6 +3710,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       BUNDLED_CODEX_COMPLIANCE_EXTRA_RESOURCE,
       BUNDLED_CLAUDE_EXTRA_RESOURCE,
       ...(requiresBundledCuaDriver(platform) ? [BUNDLED_CUA_DRIVER_EXTRA_RESOURCE] : []),
+      ...(platform === "win" ? [WINDOWS_JOB_LAUNCHER_EXTRA_RESOURCE] : []),
       ...(includeProductionPublicConfig ? [createMossProductionPublicConfigExtraResource()] : []),
       ...(includeMossCanvasBundle ? [MOSS_CANVAS_EXTRA_RESOURCE] : []),
     ],
@@ -3841,6 +3848,35 @@ const stageMacCanonicalFilesystemHelper = Effect.fn("stageMacCanonicalFilesystem
   if (!(yield* fs.exists(outputPath)) || !(yield* fs.exists(metadataPath))) {
     return yield* new BuildScriptError({
       message: `Canonical filesystem helper build completed without binary or metadata at ${outputPath}`,
+    });
+  }
+});
+
+// moss-job-launch.exe: built from source with the pinned LLVM and refused unless its bytes
+// match moss-job-launch.pin.json (the native audit checks the same pin after packing).
+const stageWindowsJobLauncher = Effect.fn("stageWindowsJobLauncher")(function* (
+  stageAppDir: string,
+  arch: typeof BuildArch.Type,
+  verbose: boolean,
+) {
+  const path = yield* Path.Path;
+  const fs = yield* FileSystem.FileSystem;
+  const repoRoot = yield* RepoRoot;
+  const archError = windowsJobLauncherArchError(arch);
+  if (archError) return yield* new BuildScriptError({ message: archError });
+  const outputPath = path.join(stageAppDir, WINDOWS_JOB_LAUNCHER_STAGE_PATH);
+  yield* fs.makeDirectory(path.dirname(outputPath), { recursive: true });
+  yield* Effect.log("[desktop-artifact] Building the pinned Windows job launcher...");
+  yield* runCommand(
+    ChildProcess.make({
+      cwd: repoRoot,
+      env: createNonSigningSubprocessEnvironment(process.env),
+      ...commandOutputOptions(verbose),
+    })`node ${path.join(repoRoot, WINDOWS_JOB_LAUNCHER_BUILD_SCRIPT)} --out ${outputPath}`,
+  );
+  if (!(yield* fs.exists(outputPath))) {
+    return yield* new BuildScriptError({
+      message: `Windows job launcher build completed but output was not found at ${outputPath}`,
     });
   }
 });
@@ -4355,6 +4391,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   if (options.platform === "mac") {
     yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
     yield* stageMacCanonicalFilesystemHelper(stageAppDir, options.arch, options.verbose);
+  }
+  if (options.platform === "win") {
+    yield* stageWindowsJobLauncher(stageAppDir, options.arch, options.verbose);
   }
 
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production

@@ -175,7 +175,14 @@ export type ComposerPredictionSupportInput = Omit<
  * configuration changes.
  */
 export type IsolatedTextGenerationSupport =
-  | { readonly kind: "supported" }
+  | {
+      readonly kind: "supported";
+      /**
+       * Served on Windows by running the CLI inside a kill-on-close job: a process per
+       * request, so slower than a direct request. Absent for a direct request or another OS.
+       */
+      readonly windowsJob?: true;
+    }
   | { readonly kind: "platform-blocked"; readonly platform: NodeJS.Platform };
 
 export interface AutomationIntentGenerationInput {

@@ -6,6 +6,7 @@ import type {
   ComputerHistoryState,
   ComputerHistoryTimelineEntry,
 } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   COMPUTER_HISTORY_MENTION_REFERENCE,
   COMPUTER_HISTORY_MENTION_TOKEN,
@@ -703,6 +704,7 @@ function AppPicker({
       aria-activedescendant={activeOptionId}
       data-computer-history-permission-popover
       onKeyDown={(event) => {
+        if (isImeComposingKeyEvent(event)) return;
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();

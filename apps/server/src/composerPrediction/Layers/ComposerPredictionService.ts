@@ -41,6 +41,7 @@ import {
   resolveComposerPredictionRoutingResult,
   resolveComposerPredictionTurnBlocker,
   resolveMossModelPredictionRouting,
+  resolveNativePredictionEffort,
   type ComposerPredictionClosingQuestion,
   type ComposerPredictionNoRouteReason,
   type ComposerPredictionRoute,
@@ -51,6 +52,12 @@ import {
   ComposerPredictionService,
   type ComposerPredictionServiceShape,
 } from "../Services/ComposerPredictionService.ts";
+
+/**
+ * Set to "1" for the server process to put a person's own Codex account (the CLI inside a
+ * Windows job) ahead of the signed-in Moss model for suggestions: for measuring that route.
+ */
+export const OWN_CODEX_CLI_FIRST_ENV = "MOSS_PREDICTION_OWN_CODEX_CLI_FIRST";
 
 /** A prediction that takes longer than this is no longer worth showing. */
 export const COMPOSER_PREDICTION_TIMEOUT = Duration.millis(COMPOSER_PREDICTION_TIMEOUT_MS);
@@ -200,8 +207,11 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       }
       // Route 2, only when route 1 is out: the signed-in Moss account's own model.
       let mossModel: Parameters<typeof resolveComposerPredictionRoute>[0]["mossModel"];
+      const ownAccountCliFirst = process.env[OWN_CODEX_CLI_FIRST_ENV] === "1";
       const ownAccountOut =
-        (routing.kind === "routed" && isolatedSupport?.kind === "platform-blocked") ||
+        (routing.kind === "routed" &&
+          (isolatedSupport?.kind === "platform-blocked" ||
+            (isolatedSupport?.windowsJob === true && !ownAccountCliFirst))) ||
         (routing.kind === "unrouted" && routing.reason === "no-dedicated-provider");
       const mossRouting = ownAccountOut
         ? resolveMossModelPredictionRouting({ thread, settings })
@@ -219,8 +229,11 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
           }),
         };
       }
+      // Route 2 counts as served only as a direct request (it never starts the CLI).
+      const mossModelServed =
+        mossModel?.support.kind === "supported" && mossModel.support.windowsJob !== true;
       if (
-        mossModel?.support.kind !== "supported" &&
+        !mossModelServed &&
         routing.kind === "routed" &&
         isolatedSupport?.kind === "platform-blocked" &&
         routing.routing.modelSelection.provider === "codex"
@@ -234,13 +247,21 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
           ),
         );
       }
-      return resolveComposerPredictionRoute({
+      const route = resolveComposerPredictionRoute({
         routing,
         chatModel: thread.modelSelection.model,
         isolatedSupport,
         mossModel,
         nativeSupport,
+        ownAccountCliFirst,
       });
+      // For the log: route 1 ran the person's own CLI inside a Windows job.
+      const windowsJob =
+        route.kind === "isolated" &&
+        route.routing.source !== "moss-model-for-own-account" &&
+        isolatedSupport?.kind === "supported" &&
+        isolatedSupport.windowsJob === true;
+      return { route, windowsJob };
     });
 
   const generateOnce = (
@@ -257,6 +278,8 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       model?: string;
       effort?: string;
       closingQuestion?: true;
+      windowsJob?: true;
+      nativeAfterWindowsJob?: true;
       cached?: true;
       generationRan?: true;
       fellBack?: true;
@@ -279,6 +302,8 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
           ...(facts.model ? { model: facts.model } : {}),
           ...(facts.effort ? { effort: facts.effort } : {}),
           ...(facts.closingQuestion ? { closingQuestion: true } : {}),
+          ...(facts.windowsJob ? { windowsJob: true } : {}),
+          ...(facts.nativeAfterWindowsJob ? { nativeAfterWindowsJob: true } : {}),
           ...(facts.cached ? { cached: true } : {}),
           ...(facts.fellBack
             ? facts.source === "moss-model-for-own-account"
@@ -310,7 +335,11 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
     return Effect.gen(function* () {
       startedAtMs = yield* Clock.currentTimeMillis;
       const thread = yield* readThread(threadId);
-      const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
+      // The session's own state is checked once the route is known: only the native
+      // fork needs it idle.
+      const blocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId, {
+        needsIdleSession: false,
+      });
       if (blocker !== null) return yield* unavailable(blocker);
       const finalReplyMessageId = thread?.latestTurn?.assistantMessageId;
       if (!thread || !finalReplyMessageId) return yield* unavailable("turn-incomplete");
@@ -320,9 +349,15 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
         (Option.isSome(project)
           ? resolveThreadWorkspaceCwd({ thread, projects: [project.value] })
           : undefined) ?? process.cwd();
-      const route = yield* decideRoute(thread, cwd);
+      const { route, windowsJob } = yield* decideRoute(thread, cwd);
+      if (windowsJob) facts.windowsJob = true;
       facts.route = route.kind;
       if (route.kind === "no-route") return yield* noRoute(route.reason);
+      const needsIdleSession = route.kind === "native";
+      if (needsIdleSession) {
+        const sessionBlocker = resolveComposerPredictionTurnBlocker(thread, expectedTurnId);
+        if (sessionBlocker !== null) return yield* unavailable(sessionBlocker);
+      }
       if (route.kind === "unrouted") {
         facts.routingReason = route.reason;
         return yield* unavailable("no-routing");
@@ -350,6 +385,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const delayedBlocker = resolveComposerPredictionTurnBlocker(
         yield* readThread(threadId),
         expectedTurnId,
+        { needsIdleSession },
       );
       if (delayedBlocker !== null) return yield* unavailable(delayedBlocker);
 
@@ -382,7 +418,60 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
           : isolatedGeneration(route.routing, routeKey, cwd, conversation, () => {
               facts.fellBack = true;
             });
-      const generated = yield* generation.pipe(Effect.timeoutOption(COMPOSER_PREDICTION_TIMEOUT));
+      const contained = generation.pipe(Effect.timeoutOption(COMPOSER_PREDICTION_TIMEOUT));
+      // Route 1 through the CLI in a Windows job failed or ran out of time (expired sign-in,
+      // CLI too old, Codex blocked): the native fork, which served this chat before the job
+      // existed, gets its own try, so nobody is worse off than without the launcher. When it
+      // cannot (no live session, busy session, its own miss) the first outcome stands.
+      type Generated = { readonly suggestion: string | null };
+      const nativeAfterWindowsJob: Effect.Effect<Option.Option<Generated>> = Effect.gen(
+        function* () {
+          if (thread.modelSelection.provider !== "codex") return Option.none<Generated>();
+          const support = yield* providerService.getNextUserMessagePredictionSupport(threadId).pipe(
+            Effect.orElseSucceed(
+              (): ProviderNextUserMessagePredictionSupport => ({
+                kind: "unsupported",
+                reason: "no_live_session",
+              }),
+            ),
+          );
+          if (support.kind !== "supported") return Option.none<Generated>();
+          // The fork works on the chat's session: it must be idle (the default check).
+          const blocker = resolveComposerPredictionTurnBlocker(
+            yield* readThread(threadId).pipe(Effect.orElseSucceed(() => undefined)),
+            expectedTurnId,
+          );
+          if (blocker !== null) return Option.none<Generated>();
+          facts.nativeAfterWindowsJob = true;
+          return yield* nativeGeneration(
+            threadId,
+            expectedTurnId,
+            resolveNativePredictionEffort(thread.modelSelection.model),
+            closingQuestion,
+          ).pipe(
+            Effect.timeoutOption(COMPOSER_PREDICTION_TIMEOUT),
+            Effect.orElseSucceed(() => Option.none<Generated>()),
+          );
+        },
+      );
+      const generated: Option.Option<Generated> = windowsJob
+        ? yield* contained.pipe(
+            Effect.result,
+            Effect.flatMap((first) =>
+              first._tag === "Success" && Option.isSome(first.success)
+                ? Effect.succeed(first.success)
+                : nativeAfterWindowsJob.pipe(
+                    Effect.flatMap((native) =>
+                      Option.isSome(native)
+                        ? Effect.succeed(native)
+                        : first._tag === "Failure"
+                          ? Effect.fail(first.failure)
+                          : Effect.succeed(Option.none<Generated>()),
+                    ),
+                  ),
+            ),
+          )
+        : yield* contained;
       if (Option.isNone(generated)) return yield* unavailable("timeout");
       facts.generationRan = true;
 
@@ -390,6 +479,7 @@ const make = Effect.fnUntraced(function* (options: { readonly startDelay: Durati
       const settledBlocker = resolveComposerPredictionTurnBlocker(
         yield* readThread(threadId),
         expectedTurnId,
+        { needsIdleSession },
       );
       if (settledBlocker !== null) return yield* unavailable(settledBlocker);
       // Only a real answer from the model is remembered, "none" included.

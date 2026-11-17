@@ -4,6 +4,7 @@ import { Effect, Layer, Schema, Struct } from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 
 import { toPersistenceSqlError } from "../Errors.ts";
+import { PullRequestLinksJsonColumn } from "../pullRequestLinksColumn.ts";
 import {
   DeleteProjectionThreadInput,
   GetProjectionThreadInput,
@@ -38,6 +39,7 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
       Schema.NullOr(Schema.fromJsonString(PendingClaudeCacheReview)),
     ),
     lastKnownPr: Schema.NullOr(Schema.fromJsonString(OrchestrationThreadPullRequest)),
+    pullRequests: Schema.optional(PullRequestLinksJsonColumn),
     sidechatContext: Schema.optional(Schema.NullOr(Schema.fromJsonString(ThreadSidechatContext))),
     pinnedMessages: Schema.NullOr(Schema.fromJsonString(ThreadPinnedMessages)),
     goalAchievements: Schema.optional(
@@ -87,6 +89,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_last_activity_at,
           sidechat_expired_at,
           last_known_pr_json,
+          pull_requests_json,
           latest_turn_id,
           handoff_json,
           claude_cache_review_json,
@@ -141,6 +144,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.sidechatLastActivityAt ?? null},
           ${row.sidechatExpiredAt ?? null},
           ${row.lastKnownPr === null ? null : JSON.stringify(row.lastKnownPr)},
+          ${row.pullRequests == null ? null : JSON.stringify(row.pullRequests)},
           ${row.latestTurnId},
           ${row.handoff === null ? null : JSON.stringify(row.handoff)},
           ${row.claudeCacheReview == null ? null : JSON.stringify(row.claudeCacheReview)},
@@ -195,6 +199,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_last_activity_at = excluded.sidechat_last_activity_at,
           sidechat_expired_at = excluded.sidechat_expired_at,
           last_known_pr_json = excluded.last_known_pr_json,
+          pull_requests_json = CASE
+            WHEN ${row.pullRequests == null ? 1 : 0} = 1
+              THEN projection_threads.pull_requests_json
+            ELSE excluded.pull_requests_json
+          END,
           latest_turn_id = excluded.latest_turn_id,
           handoff_json = excluded.handoff_json,
           claude_cache_review_json = CASE
@@ -263,6 +272,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           claude_cache_review_json AS "claudeCacheReview",
@@ -326,6 +336,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
           last_known_pr_json AS "lastKnownPr",
+          pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
           handoff_json AS "handoff",
           claude_cache_review_json AS "claudeCacheReview",

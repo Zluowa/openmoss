@@ -31,6 +31,17 @@ describe("translateZhCnPullRequestText", () => {
     );
   });
 
+  it("translates linking and unlinking a chat's pull requests", () => {
+    expect(translateZhCnPullRequestText("Link Pull Request")).toBe("关联拉取请求");
+    expect(translateZhCnPullRequestText("Link to chat")).toBe("关联到对话");
+    expect(translateZhCnPullRequestText("3 pull requests")).toBe("3 个拉取请求");
+    expect(translateZhCnPullRequestText("Link pull request…")).toBe("关联拉取请求…");
+    expect(translateZhCnPullRequestText("Unlink from this chat")).toBe("从这个对话取消关联");
+    expect(translateZhCnPullRequestText("Couldn't unlink the pull request")).toBe(
+      "无法取消关联拉取请求",
+    );
+  });
+
   it("preserves project names, PR numbers, branches, actors, and error details", () => {
     expect(translateZhCnPullRequestText("Filter pull requests by project: Moss Desktop")).toBe(
       "按项目筛选拉取请求：Moss Desktop",

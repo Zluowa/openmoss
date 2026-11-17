@@ -55,6 +55,7 @@ it.layer(NodeSqliteClient.layerMemory())(
             [167, "UsageAnalyticsDeletedTokens"],
             [168, "PageItemKindsOpen"],
             [169, "PageDocStyleAndTextComments"],
+            [170, "ProjectionThreadsPullRequestLinks"],
           ],
         );
         const after = yield* snapshot;
@@ -63,16 +64,20 @@ it.layer(NodeSqliteClient.layerMemory())(
           before.configs.map((row) => ({ ...row, agent_kind: "hub" })),
         );
         assert.deepStrictEqual(after.projects, before.projects);
-        assert.deepStrictEqual(after.threads, before.threads);
+        // 170 adds the (empty) pull request links column; nothing else on a thread changes.
+        assert.deepStrictEqual(
+          after.threads,
+          before.threads.map((row) => ({ ...row, pull_requests_json: null })),
+        );
         assert.deepStrictEqual(after.messages, before.messages);
         assert.deepStrictEqual(
           yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 5`,
           [
+            { migration_id: 170, name: "ProjectionThreadsPullRequestLinks" },
             { migration_id: 169, name: "PageDocStyleAndTextComments" },
             { migration_id: 168, name: "PageItemKindsOpen" },
             { migration_id: 167, name: "UsageAnalyticsDeletedTokens" },
             { migration_id: 166, name: "Mossbot" },
-            { migration_id: 165, name: "PageRoomPrivateStores" },
           ],
         );
         // Only the two known kinds are accepted.
@@ -98,7 +103,7 @@ it.layer(NodeSqliteClient.layerMemory())(
           const executed = yield* runMigrations();
           assert.deepStrictEqual(
             executed.map(([id]) => id),
-            [166, 167, 168, 169],
+            [166, 167, 168, 169, 170],
           );
           assert.deepStrictEqual(yield* snapshot, before);
           assert.deepStrictEqual(

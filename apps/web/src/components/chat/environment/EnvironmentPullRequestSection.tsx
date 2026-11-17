@@ -1,10 +1,12 @@
 // FILE: EnvironmentPullRequestSection.tsx
-// Purpose: "Pull request" section of the Environment panel — one row (state glyph, title,
+// Purpose: "Pull request" section of the Environment panel — the thread's current PR (its
+//          linked PR, else the checkout branch's PR) as one row (state glyph, title,
 //          live check status) that opens the PR action menu: view / code changes, the
 //          checks and review-comment lists, Repair (hands comments, failing checks, or
 //          conflicts to the composer as context cards), Auto-fix CI, Merge, Status
-//          (draft / ready / close / reopen), and Add to chat. Copy link and Open in GitHub
-//          ride on the View PR row.
+//          (draft / ready / close / reopen), Add to chat, and Link / Unlink. Copy link and
+//          Open in GitHub ride on the View PR row. The thread's other linked PRs follow as
+//          compact rows; a thread without any PR offers a single "Link pull request" row.
 // Layer: Environment panel section
 // Depends on: git status/PR-snapshot React Query helpers, the pull request action mutation,
 //             and the shared Environment row skin.
@@ -12,6 +14,8 @@
 import type {
   GitPullRequestCheck,
   GitPullRequestComment,
+  OrchestrationThreadPullRequest,
+  OrchestrationThreadPullRequestLink,
   ProjectId,
   PullRequestAction,
   PullRequestDetailInput,
@@ -21,6 +25,13 @@ import type {
 } from "@moss/contracts";
 import { githubAvatarUrlForLogin } from "@moss/shared/githubAvatar";
 import { parseGitHubRepositoryNameWithOwnerFromPullRequestUrl } from "@moss/shared/githubRepository";
+import {
+  compareLinkedPullRequests,
+  isPullRequestDismissed,
+  pullRequestLinkKey,
+  resolveCurrentPullRequestLink,
+  visiblePullRequestLinks,
+} from "@moss/shared/threadPullRequestLinks";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
@@ -76,7 +87,9 @@ import {
   LinkIcon,
   Loader2Icon,
   PageTextIcon,
+  PlusIcon,
   RefreshCwIcon,
+  XIcon,
 } from "~/lib/icons";
 import { useAppSettings } from "~/appSettings";
 import {
@@ -89,16 +102,21 @@ import { type PullRequestContextScope } from "~/lib/pullRequestContext";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { formatTimeAgo } from "~/lib/timeFormat";
 import { useTranslation } from "~/localization";
-import { cn } from "~/lib/utils";
+import { cn, newCommandId } from "~/lib/utils";
+import { useStore } from "~/store";
+import { toThreadPullRequest } from "~/hooks/useThreadPullRequests";
+import { PullRequestThreadDialog } from "../../PullRequestThreadDialog";
 import { ensureNativeApi } from "~/nativeApi";
 import { useRightDockStore } from "~/rightDockStore";
 import {
   ENVIRONMENT_ROW_CLASS_NAME,
   ENVIRONMENT_ROW_ICON_CLASS_NAME,
   EnvironmentLabeledSection,
+  EnvironmentRow,
   EnvironmentRowBody,
   EnvironmentRowChevron,
 } from "./EnvironmentRow";
+import { Button } from "../../ui/button";
 import {
   buildPullRequestContextCard,
   describePullRequestAutoFix,
@@ -113,6 +131,9 @@ import {
   withStableCheckKeys,
   type PullRequestChecksTone,
 } from "./environmentPullRequest.logic";
+
+const EMPTY_PULL_REQUEST_LINKS: ReadonlyArray<OrchestrationThreadPullRequestLink> = [];
+
 /** Shares the menu/stack action and loads its settings only when the control is shown. */
 function PullRequestAutoFixToggle(props: {
   threadId: ThreadId;
@@ -387,7 +408,31 @@ export function EnvironmentPullRequestSection({
   // Share the git block's cache, but revalidate stale status when this always-mounted
   // panel opens so an earlier missing PR does not linger until the next polling tick.
   const { data: gitStatus } = useQuery(gitStatusQueryOptions(gitCwd, enabled));
-  const pr = gitStatus?.pr ?? null;
+  // `null` while the chat is still a local draft: links need a server thread.
+  const threadPullRequestLinks = useStore((state) =>
+    activeThreadId
+      ? (state.threadShellById?.[activeThreadId]?.pullRequests ??
+        (state.threadShellById?.[activeThreadId] ? EMPTY_PULL_REQUEST_LINKS : null))
+      : null,
+  );
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const linkedPullRequests = visiblePullRequestLinks(threadPullRequestLinks);
+  const currentLink = resolveCurrentPullRequestLink(threadPullRequestLinks);
+  const reportedBranchPr = gitStatus?.pr ?? null;
+  // Git status can still report a PR after its thread link was dismissed.
+  const branchPr =
+    reportedBranchPr && !isPullRequestDismissed(threadPullRequestLinks, reportedBranchPr.url)
+      ? reportedBranchPr
+      : null;
+  // The thread's own PR wins over whatever the checkout's branch has: a shared checkout can sit
+  // on another thread's branch, and a linked PR stays the thread's PR after the branch moves.
+  // When both are the same PR, the branch status is the fresher copy.
+  const pr = currentLink
+    ? branchPr &&
+      pullRequestLinkKey(branchPr.url) === pullRequestLinkKey(currentLink.pullRequest.url)
+      ? branchPr
+      : toThreadPullRequest(currentLink.pullRequest)
+    : branchPr;
 
   const snapshotQuery = useQuery(
     gitPullRequestSnapshotQueryOptions({
@@ -430,8 +475,75 @@ export function EnvironmentPullRequestSection({
     pullRequestAutoFixQueryOptions(activeThreadId, enabled && autoFixAvailable),
   );
 
+  const linkPullRequest = async (pullRequest: OrchestrationThreadPullRequest) => {
+    if (!activeThreadId) return;
+    await ensureNativeApi().orchestration.dispatchCommand({
+      type: "thread.pull-request.link",
+      commandId: newCommandId(),
+      threadId: activeThreadId,
+      pullRequest,
+      source: "user",
+    });
+  };
+
+  const unlinkPullRequest = (url: string) => {
+    if (!activeThreadId) return;
+    void ensureNativeApi()
+      .orchestration.dispatchCommand({
+        type: "thread.pull-request.unlink",
+        commandId: newCommandId(),
+        threadId: activeThreadId,
+        url,
+      })
+      .catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          timeout: DEFAULT_TOAST_TIMEOUT_MS,
+          title: "Couldn't unlink the pull request",
+          description: error instanceof Error ? error.message : undefined,
+        });
+      });
+  };
+
+  const renderUnlinkButton = (url: string, className?: string) => (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      className={cn("shrink-0 opacity-60 hover:opacity-100 focus-visible:opacity-100", className)}
+      aria-label="Unlink from this chat"
+      title="Unlink from this chat"
+      onClick={() => unlinkPullRequest(url)}
+    >
+      <XIcon className="size-3.5" aria-hidden />
+    </Button>
+  );
+
+  const linkDialog =
+    threadPullRequestLinks !== null ? (
+      <PullRequestThreadDialog
+        mode="link"
+        open={linkDialogOpen}
+        cwd={gitCwd}
+        initialReference={null}
+        onOpenChange={setLinkDialogOpen}
+        onLink={linkPullRequest}
+      />
+    ) : null;
+
   if (!displayPr) {
-    return null;
+    // Linking needs a server thread; drafts keep the section hidden as before.
+    if (threadPullRequestLinks === null) return null;
+    return (
+      <EnvironmentLabeledSection label="Pull request">
+        <EnvironmentRow
+          onClick={() => setLinkDialogOpen(true)}
+          data-testid="pr-link-row"
+          icon={<PlusIcon className={ENVIRONMENT_ROW_ICON_CLASS_NAME} aria-hidden />}
+          label={<span className="text-muted-foreground">Link pull request…</span>}
+        />
+        {linkDialog}
+      </EnvironmentLabeledSection>
+    );
   }
 
   const settledState = displayPr.state !== "open" ? displayPr.state : null;
@@ -442,6 +554,19 @@ export function EnvironmentPullRequestSection({
     autoFixAvailable && detailQuery.data?.stack
       ? detailQuery.data.stack.entries.filter((entry) => entry.number !== displayPr.number)
       : [];
+  const displayPrKey = pullRequestLinkKey(displayPr.url);
+  const linkedPullRequestKeys = new Set(
+    linkedPullRequests.map((link) => pullRequestLinkKey(link.pullRequest.url)),
+  );
+  const displayPrIsLinked = linkedPullRequestKeys.has(displayPrKey);
+  // The thread's other linked PRs; stack siblings already have their own rows above.
+  const stackRowKeys = new Set(stackRows.map((entry) => pullRequestLinkKey(entry.url)));
+  const otherLinkedPullRequests = linkedPullRequests
+    .filter((link) => {
+      const key = pullRequestLinkKey(link.pullRequest.url);
+      return key !== displayPrKey && !stackRowKeys.has(key);
+    })
+    .toSorted(compareLinkedPullRequests);
   const diffStat = summarizePullRequestDiffStat(displayPr);
   const checks = snapshotQuery.data?.checks ?? [];
   const comments = snapshotQuery.data?.comments ?? [];
@@ -470,6 +595,26 @@ export function EnvironmentPullRequestSection({
       });
     } else {
       onOpenUrl(initialTab === "code" ? `${displayPr.url}/files` : displayPr.url);
+    }
+    onClose();
+  };
+
+  // Linked PRs from the project's repositories open in the PR pane; others open on GitHub.
+  const openLinkedPullRequest = (target: { url: string; number: number }) => {
+    const repository = parseGitHubRepositoryNameWithOwnerFromPullRequestUrl(target.url);
+    const ownedRepository = configuredRepositories.find(
+      (candidate) => candidate.nameWithOwner.toLowerCase() === repository?.toLowerCase(),
+    );
+    if (activeThreadId && projectId && ownedRepository) {
+      openPane(activeThreadId, {
+        kind: "pullRequest",
+        pullRequestProjectId: projectId,
+        pullRequestRepository: ownedRepository.nameWithOwner,
+        pullRequestNumber: target.number,
+        pullRequestInitialTab: "summary",
+      });
+    } else {
+      onOpenUrl(target.url);
     }
     onClose();
   };
@@ -521,7 +666,14 @@ export function EnvironmentPullRequestSection({
       timeout: 0,
     });
     void actionMutation
-      .mutateAsync({ ...actionInput, action, ...(method ? { mergeMethod: method } : {}) })
+      .mutateAsync({
+        ...actionInput,
+        action,
+        ...(method ? { mergeMethod: method } : {}),
+        ...(action === "reopen" && activeThreadId && displayPrIsLinked
+          ? { threadId: activeThreadId }
+          : {}),
+      })
       .then((result) => {
         toastManager.update(toastId, {
           type: "success",
@@ -610,7 +762,13 @@ export function EnvironmentPullRequestSection({
         : checksSummary.label;
 
   return (
-    <EnvironmentLabeledSection label={stackRows.length > 0 ? "Pull requests" : "Pull request"}>
+    <EnvironmentLabeledSection
+      label={
+        stackRows.length > 0 || otherLinkedPullRequests.length > 0
+          ? "Pull requests"
+          : "Pull request"
+      }
+    >
       <Menu open={menuOpen} onOpenChange={setMenuOpen} keepOpenOnSubmenuInteraction>
         <MenuTrigger
           render={<button type="button" className={ENVIRONMENT_ROW_CLASS_NAME} title={rowTitle} />}
@@ -944,6 +1102,35 @@ export function EnvironmentPullRequestSection({
               />
             </MenuItem>
           ) : null}
+          {threadPullRequestLinks !== null ? (
+            <>
+              <MenuSeparator />
+              {displayPrIsLinked ? (
+                <MenuItem
+                  onClick={() => {
+                    unlinkPullRequest(displayPr.url);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <MenuRowLabel
+                    icon={<XIcon className={MENU_ICON_CLASS_NAME} aria-hidden />}
+                    label="Unlink from this chat"
+                  />
+                </MenuItem>
+              ) : null}
+              <MenuItem
+                onClick={() => {
+                  setMenuOpen(false);
+                  setLinkDialogOpen(true);
+                }}
+              >
+                <MenuRowLabel
+                  icon={<PlusIcon className={MENU_ICON_CLASS_NAME} aria-hidden />}
+                  label="Link pull request…"
+                />
+              </MenuItem>
+            </>
+          ) : null}
         </ComposerPickerMenuPopup>
       </Menu>
 
@@ -981,9 +1168,39 @@ export function EnvironmentPullRequestSection({
                 ) : null
               }
             />
+            {linkedPullRequestKeys.has(pullRequestLinkKey(entry.url))
+              ? renderUnlinkButton(entry.url)
+              : null}
           </div>
         );
       })}
+
+      {otherLinkedPullRequests.map((link) => {
+        const linkedPr = link.pullRequest;
+        const presentation = resolvePrStatePresentation(linkedPr);
+        const LinkedIcon = PR_STATE_PRESENTATION_ICONS[presentation.iconKind];
+        const label = `#${linkedPr.number} ${linkedPr.title}`;
+        return (
+          // The row opens the PR; the unlink button sits over its right end (not inside it).
+          <div key={linkedPr.url} className="relative" data-testid="pr-linked-row">
+            <EnvironmentRow
+              className="pr-9"
+              title={label}
+              onClick={() => openLinkedPullRequest(linkedPr)}
+              icon={
+                <LinkedIcon
+                  className={cn(ENVIRONMENT_ROW_ICON_CLASS_NAME, presentation.colorClass)}
+                  aria-hidden
+                />
+              }
+              label={<span className="truncate">{label}</span>}
+            />
+            {renderUnlinkButton(linkedPr.url, "absolute top-1/2 right-1.5 -translate-y-1/2")}
+          </div>
+        );
+      })}
+
+      {linkDialog}
 
       <PullRequestConfirmActionDialog
         action={confirmAction}

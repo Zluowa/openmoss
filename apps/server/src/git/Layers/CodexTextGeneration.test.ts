@@ -12,7 +12,7 @@ import { homedir } from "node:os";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it } from "@effect/vitest";
-import { Clock, Duration, Effect, FileSystem, Layer, Path } from "effect";
+import { Clock, Duration, Effect, FileSystem, Layer, Logger, Path } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { sanitizeGeneratedThreadTitle } from "@moss/shared/chatThreads";
 import { sanitizeBranchFragment, sanitizeFeatureBranchName } from "@moss/shared/git";
@@ -46,6 +46,7 @@ import {
   toJsonSchemaObject,
 } from "../textGenerationShared.ts";
 import { prepareCodexTextGenerationAuthSnapshot } from "./codexTextGenerationIsolation.ts";
+import { resetWindowsJobLauncherStatusForTest } from "../../platform/windowsKillOnCloseJob.ts";
 import { compareCodexCliVersions, parseCodexCliVersion } from "../../provider/codexCliVersion.ts";
 
 const CodexTextGenerationTestLayer = CodexTextGenerationLive.pipe(
@@ -808,7 +809,7 @@ for (const operation of [
   "evaluateAutomationCompletion",
 ] as const) {
   it.effect.runIf(process.platform === "win32")(
-    `refuses Windows ${operation} before spawning or changing owned auth and config`,
+    `refuses Windows ${operation} without the job launcher, before spawning or changing owned auth and config`,
     () => {
       let spawnCalls = 0;
       const spawner = Layer.succeed(
@@ -824,6 +825,8 @@ for (const operation of [
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const root = yield* fs.makeTempDirectoryScoped({ prefix: "moss-codex-win-refusal-" });
+        // moss-job-launch.exe missing (an install without it, or a run without a build).
+        resetWindowsJobLauncherStatusForTest(path.join(root, "missing", "moss-job-launch.exe"));
         const cwd = path.join(root, "project");
         const homePath = path.join(root, "account");
         yield* fs.makeDirectory(cwd);
@@ -903,6 +906,7 @@ for (const operation of [
         expect(readFileSync(configPath, "utf8")).toBe(config);
         expect(readdirSync(root, { recursive: true }).sort()).toEqual(before);
       }).pipe(
+        Effect.ensuring(Effect.sync(() => resetWindowsJobLauncherStatusForTest())),
         Effect.provide(CodexTextGenerationLive),
         Effect.provide(spawner),
         Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "moss-codex-win-guard-" })),
@@ -921,6 +925,13 @@ it.effect("serves composer predictions in isolation wherever the CLI may run", (
       kind: "platform-blocked",
       platform: "win32",
     });
+    // With moss-job-launch.exe the CLI runs inside a job: a process per request.
+    expect(codexIsolatedTextGenerationSupport("win32", false, true)).toEqual({
+      kind: "supported",
+      windowsJob: true,
+    });
+    expect(codexIsolatedTextGenerationSupport("win32", true, true)).toEqual({ kind: "supported" });
+    expect(codexIsolatedTextGenerationSupport("linux", false, true)).toEqual({ kind: "supported" });
   }),
 );
 
@@ -967,6 +978,8 @@ it.effect.runIf(process.platform === "win32")(
       const service = yield* TextGeneration;
       const support = service.getComposerPredictionSupport!;
       const binaryPath = path.join(root, "must-not-execute-codex");
+      // Without moss-job-launch.exe, as before it existed.
+      resetWindowsJobLauncherStatusForTest(path.join(root, "missing", "moss-job-launch.exe"));
 
       // The person's own signed-in account: the CLI would be needed, so the path refuses it.
       expect(
@@ -1013,9 +1026,40 @@ it.effect.runIf(process.platform === "win32")(
           providerOptions: { codex: { homePath: keyOnly, binaryPath } },
         }),
       ).toEqual({ kind: "platform-blocked", platform: "win32" });
+
+      // With the launcher present, the CLI is served inside a job; the key-only endpoint
+      // is still a direct request. The launcher is only looked up, never started here.
+      const launcher = path.join(root, "moss-job-launch.exe");
+      yield* fs.writeFileString(launcher, "");
+      resetWindowsJobLauncherStatusForTest(launcher, { skipChecks: true });
+      expect(
+        yield* support({
+          cwd,
+          modelSelection: { provider: "codex", instanceId: "codex", model: "gpt-6-astra" },
+          providerOptions: { codex: { homePath: signedIn, binaryPath } },
+        }),
+      ).toEqual({ kind: "supported", windowsJob: true });
+      expect(
+        yield* support({
+          cwd,
+          modelSelection: {
+            provider: "codex",
+            instanceId: "codex_moss",
+            model: "deepseek-v4-flash",
+          },
+          providerOptions: {
+            codex: {
+              homePath: keyOnly,
+              binaryPath,
+              environment: { OPENAI_API_KEY: "moss-access-token-fixture" },
+            },
+          },
+        }),
+      ).toEqual({ kind: "supported" });
       expect(spawnCalls).toBe(0);
       expect(fetchSpy).not.toHaveBeenCalled();
     }).pipe(
+      Effect.ensuring(Effect.sync(() => resetWindowsJobLauncherStatusForTest())),
       Effect.ensuring(Effect.sync(() => fetchSpy.mockRestore())),
       Effect.provide(CodexTextGenerationLive),
       Effect.provide(spawner),
@@ -1028,6 +1072,11 @@ it.effect.runIf(process.platform === "win32")(
 it.effect.runIf(process.platform === "win32")(
   "titles a Windows chat by asking a key-only provider directly, without the CLI",
   () => {
+    const runLines: unknown[] = [];
+    const runLogger = Logger.make(({ message }) => {
+      const parts = Array.isArray(message) ? message : [message];
+      if (parts[0] === "Codex text generation") runLines.push(parts[1]);
+    });
     let spawnCalls = 0;
     const spawner = Layer.succeed(
       ChildProcessSpawner.ChildProcessSpawner,
@@ -1092,8 +1141,20 @@ it.effect.runIf(process.platform === "win32")(
         model: "deepseek-v4-flash",
         reasoning: { effort: "low" },
       });
+      // One run, reached by one HTTP request.
+      expect(runLines).toEqual([
+        {
+          operation: "generateThreadTitle",
+          route: "direct",
+          model: "deepseek-v4-flash",
+          effort: "low",
+          durationMs: expect.any(Number),
+          outcome: "succeeded",
+        },
+      ]);
     }).pipe(
       Effect.ensuring(Effect.sync(() => fetchSpy.mockRestore())),
+      Effect.provide(Logger.layer([runLogger], { mergeWithExisting: false })),
       Effect.provide(CodexTextGenerationLive),
       Effect.provide(spawner),
       Effect.provide(ServerConfig.layerTest(process.cwd(), { prefix: "moss-codex-win-direct-" })),
@@ -1470,6 +1531,39 @@ it.layer(CodexTextGenerationTestLayer)("CodexTextGenerationLive", (it) => {
           }
         }
       }),
+  );
+
+  it.effect.skipIf(process.platform === "win32")(
+    "logs one line per run: the CLI in its process group, its model, effort and outcome",
+    () => {
+      const runLines: unknown[] = [];
+      const runLogger = Logger.make(({ message }) => {
+        const parts = Array.isArray(message) ? message : [message];
+        if (parts[0] === "Codex text generation") runLines.push(parts[1]);
+      });
+      return withFakeCodexEnv(
+        { output: JSON.stringify({ subject: "Add the run line", body: "" }) },
+        Effect.gen(function* () {
+          const textGeneration = yield* TextGeneration;
+          yield* textGeneration.generateCommitMessage({
+            cwd: process.cwd(),
+            branch: "feature/run-line",
+            stagedSummary: "M README.md",
+            stagedPatch: "diff --git a/README.md b/README.md",
+          });
+          expect(runLines).toEqual([
+            {
+              operation: "generateCommitMessage",
+              route: "process-group",
+              model: expect.any(String),
+              effort: expect.any(String),
+              durationMs: expect.any(Number),
+              outcome: "succeeded",
+            },
+          ]);
+        }).pipe(Effect.provide(Logger.layer([runLogger], { mergeWithExisting: false }))),
+      ).pipe(Effect.provideService(Clock.Clock, realTestClock));
+    },
   );
 
   it.effect.skipIf(process.platform === "win32")(

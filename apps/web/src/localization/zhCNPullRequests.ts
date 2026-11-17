@@ -193,11 +193,24 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   Local: "本地",
   "Preparing worktree...": "正在准备工作树…",
   Worktree: "工作树",
+
+  // Linking pull requests to a chat (a chat can have several).
+  "Link Pull Request": "关联拉取请求",
+  "Link a GitHub pull request to this chat. Nothing is checked out and the pull request is not changed.":
+    "把一个 GitHub 拉取请求关联到这个对话。不会检出任何内容，也不会改动这个拉取请求。",
+  "Link to chat": "关联到对话",
+  "Linking...": "正在关联…",
+  "Couldn't link the pull request.": "无法关联拉取请求。",
+  "Link pull request…": "关联拉取请求…",
+  "Unlink from this chat": "从这个对话取消关联",
+  "Couldn't unlink the pull request": "无法取消关联拉取请求",
 };
 
 const REPLACEMENT_TRANSLATIONS: ReadonlyArray<readonly [RegExp, string]> = [
   // Project/repository names and PR numbers are retained verbatim.
   [/^(\d+) projects$/, "$1 个项目"],
+  // The Activity row's count chip for a chat with several linked pull requests.
+  [/^(\d+) pull requests$/, "$1 个拉取请求"],
   [/^Filter pull requests by project: All projects$/, "按项目筛选拉取请求：所有项目"],
   [/^Filter pull requests by project: (.+)$/, "按项目筛选拉取请求：$1"],
   [/^View pull requests for (.+)$/, "查看 $1 的拉取请求"],

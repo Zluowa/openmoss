@@ -11,6 +11,8 @@ export const BROWSER_TOOL_NAMES = [
   "browser_logs",
   "browser_upload",
   "browser_run",
+  "browser_webmcp_tools",
+  "browser_webmcp_call",
   "browser_close",
 ] as const;
 

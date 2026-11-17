@@ -5,6 +5,7 @@
 // Spec: docs/design/data-claude-teardown.md §2, §2.1
 
 import type { PageId, PageVersion, SpaceId } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   BUILT_IN_DESIGN_SYSTEMS,
   storedSystemTokens,
@@ -640,7 +641,7 @@ export function DashboardEmptyState(props: {
                 style={UI_FONT}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
                     event.preventDefault();
                     if (text.trim() && props.canAsk) props.onAsk(text.trim(), form, look);
                   }

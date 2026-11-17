@@ -297,6 +297,10 @@
       "types": "./src/threadSummary.ts",
       "import": "./src/threadSummary.ts"
     },
+    "./threadPullRequestLinks": {
+      "types": "./src/threadPullRequestLinks.ts",
+      "import": "./src/threadPullRequestLinks.ts"
+    },
     "./turnResume": {
       "types": "./src/turnResume.ts",
       "import": "./src/turnResume.ts"
@@ -364,6 +368,18 @@
     "./text": {
       "types": "./src/text.ts",
       "import": "./src/text.ts"
+    },
+    "./transcriptSecretPatterns": {
+      "types": "./src/transcriptSecretPatterns.ts",
+      "import": "./src/transcriptSecretPatterns.ts"
+    },
+    "./replyPreviewText": {
+      "types": "./src/replyPreviewText.ts",
+      "import": "./src/replyPreviewText.ts"
+    },
+    "./markdownPlainText": {
+      "types": "./src/markdownPlainText.ts",
+      "import": "./src/markdownPlainText.ts"
     },
     "./toolOutputSummary": {
       "types": "./src/toolOutputSummary.ts",

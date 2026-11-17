@@ -97,27 +97,56 @@ export type ThreadTitleRoute =
       readonly kind: "isolated";
       readonly input: TextGenerationProviderInput;
       readonly source: "chat" | "configured";
+      /**
+       * The title runs the CLI inside a Windows job and the chat is a Codex chat: if that
+       * fails, Codex's native fork writes it after the turn, as it did before the job.
+       */
+      readonly nativeAfterFailure?: true;
     }
   | { readonly kind: "native" }
   | { readonly kind: "none" };
 
 /**
  * The chat's own route first, then the configured text-generation model, each only where the
- * isolated path serves it on this platform. A Codex chat that neither serves falls back to the
- * native fork. Never a third account.
+ * isolated path serves it on this platform, and both before a route that would start the CLI
+ * inside a Windows job (`windowsJob`: a launcher and a CLI per title, on the person's quota):
+ * that one is taken only when nothing else serves. A Codex chat that nothing serves falls back
+ * to the native fork. Never a third account.
  */
 export function resolveThreadTitleRoute(input: {
   readonly chat: ThreadTitleCandidate | null;
   readonly configured: ThreadTitleCandidate | null;
   readonly chatDriver: ProviderKind | undefined;
 }): ThreadTitleRoute {
-  if (input.chat && input.chat.support.kind === "supported") {
-    return { kind: "isolated", input: input.chat.input, source: "chat" };
-  }
-  if (input.configured && input.configured.support.kind === "supported") {
-    return { kind: "isolated", input: input.configured.input, source: "configured" };
+  const served = (candidate: ThreadTitleCandidate | null, throughCli: boolean) =>
+    candidate !== null &&
+    candidate.support.kind === "supported" &&
+    (candidate.support.windowsJob === true) === throughCli;
+  for (const throughCli of [false, true]) {
+    const nativeAfterFailure =
+      throughCli && input.chatDriver === "codex" ? ({ nativeAfterFailure: true } as const) : {};
+    if (served(input.chat, throughCli)) {
+      return { kind: "isolated", input: input.chat!.input, source: "chat", ...nativeAfterFailure };
+    }
+    if (served(input.configured, throughCli)) {
+      return {
+        kind: "isolated",
+        input: input.configured!.input,
+        source: "configured",
+        ...nativeAfterFailure,
+      };
+    }
   }
   return input.chatDriver === "codex" ? { kind: "native" } : { kind: "none" };
+}
+
+/** Whether `candidate` is served without starting a CLI in a Windows job. */
+export function servesThreadTitleDirectly(candidate: ThreadTitleCandidate | null): boolean {
+  return (
+    candidate !== null &&
+    candidate.support.kind === "supported" &&
+    candidate.support.windowsJob !== true
+  );
 }
 
 /**

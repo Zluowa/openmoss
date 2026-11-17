@@ -764,6 +764,8 @@ describe("resolveComposerPredictionRoute", () => {
     resolveComposerPredictionRoute({
       routing: resolveComposerPredictionRoutingResult({ thread, settings: codexSettings }),
       chatModel: thread.modelSelection.model,
+      // Windows without a working job launcher: an own account is refused, a key-only
+      // Moss lane is reached directly.
       isolatedSupport: codexIsolatedTextGenerationSupport(platform, instanceId === "codex_moss"),
       nativeSupport,
     });
@@ -1151,14 +1153,21 @@ describe("route 2: the signed-in Moss account's model for an own-account chat", 
     })!;
     const blocked = { kind: "platform-blocked", platform: "win32" } as const;
     const route = (input: {
-      isolated: "supported" | "blocked";
+      isolated: "supported" | "windows-job" | "blocked";
       moss?: "supported" | "blocked";
       fork?: boolean;
+      ownAccountCliFirst?: boolean;
     }) =>
       resolveComposerPredictionRoute({
         routing,
         chatModel: ownCodexChat.modelSelection.model,
-        isolatedSupport: input.isolated === "supported" ? { kind: "supported" } : blocked,
+        isolatedSupport:
+          input.isolated === "supported"
+            ? { kind: "supported" }
+            : input.isolated === "windows-job"
+              ? { kind: "supported", windowsJob: true }
+              : blocked,
+        ...(input.ownAccountCliFirst ? { ownAccountCliFirst: true } : {}),
         ...(input.moss
           ? {
               mossModel: {
@@ -1187,6 +1196,52 @@ describe("route 2: the signed-in Moss account's model for an own-account chat", 
           modelSelection: { instanceId: "codex_moss" },
         },
       });
+    });
+
+    // Windows: the own account through the CLI inside a job costs a process per request, so
+    // the signed-in Moss model answers first; the switch puts the CLI first for measuring.
+    it("2 before 1 when the own account would start the CLI inside a Windows job", () => {
+      expect(route({ isolated: "windows-job", moss: "supported", fork: true })).toMatchObject({
+        kind: "isolated",
+        routing: { source: "moss-model-for-own-account" },
+      });
+    });
+
+    it("1 first through the Windows job when asked to measure it", () => {
+      expect(
+        route({ isolated: "windows-job", moss: "supported", fork: true, ownAccountCliFirst: true }),
+      ).toMatchObject({ kind: "isolated", routing: { modelSelection: { instanceId: "codex" } } });
+    });
+
+    it("never takes route 2 when the Moss lane would itself need the CLI", () => {
+      const viaCli = resolveComposerPredictionRoute({
+        routing,
+        chatModel: ownCodexChat.modelSelection.model,
+        isolatedSupport: { kind: "supported", windowsJob: true },
+        mossModel: { routing: mossRouting, support: { kind: "supported", windowsJob: true } },
+        nativeSupport: { kind: "supported" },
+      });
+      expect(viaCli).toMatchObject({
+        kind: "isolated",
+        routing: { modelSelection: { instanceId: "codex" } },
+      });
+      expect(
+        resolveComposerPredictionRoute({
+          routing,
+          chatModel: ownCodexChat.modelSelection.model,
+          isolatedSupport: { kind: "platform-blocked", platform: "win32" },
+          mossModel: { routing: mossRouting, support: { kind: "supported", windowsJob: true } },
+          nativeSupport: { kind: "supported" },
+        }),
+      ).toMatchObject({ kind: "native" });
+    });
+
+    it("1 through the Windows job, not the fork, when signed out of Moss", () => {
+      for (const moss of ["blocked", undefined] as const) {
+        expect(
+          route({ isolated: "windows-job", ...(moss ? { moss } : {}), fork: true }),
+        ).toMatchObject({ kind: "isolated", routing: { modelSelection: { instanceId: "codex" } } });
+      }
     });
 
     it("3. the native fork when the Moss route is not served (signed out: no key)", () => {

@@ -4,8 +4,11 @@
 
 import { resolveCodexNativeLaunch } from "@moss/shared/codexNativeLaunch";
 import {
+  Cause,
   Deferred,
+  Clock,
   Effect,
+  Exit,
   Fiber,
   FileSystem,
   Layer,
@@ -51,6 +54,11 @@ import {
   makeEffectProcessCommand,
   spawnProviderProcess,
 } from "../../platform/effectProcessRuntime.ts";
+import {
+  usesWindowsJobContainment,
+  windowsJobLauncherSpawner,
+  windowsJobLauncherStatus,
+} from "../../platform/windowsKillOnCloseJob.ts";
 import { compareCodexCliVersions, parseCodexCliVersion } from "../../provider/codexCliVersion.ts";
 import { withoutProviderCredentialEnvironment } from "../../providerChildEnvironment.ts";
 import { TextGenerationError } from "../Errors.ts";
@@ -139,6 +147,71 @@ class CodexTextGenerationTimingConfig extends ServiceMap.Service<
   CodexTextGenerationTiming
 >()("moss/git/CodexTextGenerationTimingConfig") {}
 
+/**
+ * The refusal every caller already handles: Windows without a working job launcher, where
+ * the CLI and what it starts could outlive the request and the backend.
+ */
+/** How a Codex text-generation run reached the model. */
+export type CodexTextGenerationRunRoute = "direct" | "windows-job" | "process-group";
+
+/** Filled in by a run as it learns its route, model and effort. */
+interface CodexTextGenerationRun {
+  route?: CodexTextGenerationRunRoute;
+  model?: string;
+  effort?: string;
+}
+
+/** Failures that mean the run ran out of time (CLI request, CLI version check, HTTP request). */
+const CODEX_TEXT_GENERATION_TIMEOUT_DETAILS = new Set([
+  "Codex CLI request timed out.",
+  "Codex CLI version probe timed out.",
+  "The model service timed out.",
+]);
+
+/**
+ * One Info line per run that reached a route: `Codex text generation { operation, route,
+ * model, effort, durationMs, outcome }`. Ids and codes only, never the prompt, the reply or
+ * provider detail (a CLI error can echo either). A request refused before choosing a route
+ * (Windows without a working job launcher, a missing working directory) ran nothing and
+ * writes no line. A composer prediction also writes its own `Composer prediction` line per
+ * request; that line counts requests, this one counts model runs (a request can make two, or
+ * none on Codex's native fork).
+ */
+export function withCodexTextGenerationRunLog<A, R>(
+  operation: TextGenerationOperation,
+  run: CodexTextGenerationRun,
+  effect: Effect.Effect<A, TextGenerationError, R>,
+): Effect.Effect<A, TextGenerationError, R> {
+  return Effect.gen(function* () {
+    const startedAtMs = yield* Clock.currentTimeMillis;
+    return yield* effect.pipe(
+      Effect.onExit((exit) =>
+        Effect.gen(function* () {
+          if (run.route === undefined) return;
+          const durationMs = (yield* Clock.currentTimeMillis) - startedAtMs;
+          const failure = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+          const outcome = Exit.isSuccess(exit)
+            ? "succeeded"
+            : Cause.hasInterruptsOnly(exit.cause)
+              ? "interrupted"
+              : failure instanceof TextGenerationError &&
+                  CODEX_TEXT_GENERATION_TIMEOUT_DETAILS.has(failure.detail)
+                ? "timeout"
+                : "failed";
+          yield* Effect.logInfo("Codex text generation", {
+            operation,
+            route: run.route,
+            ...(run.model ? { model: run.model } : {}),
+            ...(run.effort ? { effort: run.effort } : {}),
+            durationMs,
+            outcome,
+          });
+        }),
+      ),
+    );
+  });
+}
+
 export function codexTextGenerationPlatformError(
   platform: NodeJS.Platform,
   operation: TextGenerationOperation,
@@ -152,17 +225,19 @@ export function codexTextGenerationPlatformError(
 }
 
 /**
- * Whether the isolated path serves a request on `platform`: everywhere the CLI may run, and
- * on Windows only for an account that is a direct endpoint with a key.
+ * Whether the isolated path serves a request on `platform`: everywhere the CLI may run in a
+ * process group (POSIX); on Windows for an account that is a direct endpoint with a key (one
+ * HTTP request), and otherwise only through the job launcher (`windowsJob`: a process per
+ * request, contained by `platform/windowsKillOnCloseJob.ts`).
  */
 export function codexIsolatedTextGenerationSupport(
   platform: NodeJS.Platform,
   hasDirectProviderRoute: boolean,
+  windowsJobLauncherAvailable = false,
 ): IsolatedTextGenerationSupport {
-  return codexTextGenerationPlatformError(platform, "generateComposerPrediction") === undefined ||
-    hasDirectProviderRoute
-    ? { kind: "supported" }
-    : { kind: "platform-blocked", platform };
+  if (platform !== "win32" || hasDirectProviderRoute) return { kind: "supported" };
+  if (windowsJobLauncherAvailable) return { kind: "supported", windowsJob: true };
+  return { kind: "platform-blocked", platform };
 }
 
 function signalCodexProcessGroup(
@@ -198,6 +273,22 @@ function terminateCodexChild(
         }),
     });
 
+  // On Windows the child is the job launcher (`windowsJobLauncherSpawner`): its kill ends
+  // it through Node's process handle, and only while that handle is open, so once the exit
+  // code is known it does nothing and no reused PID can be hit. Ending the launcher closes
+  // the job: Windows ends the CLI and everything it started. There is no TERM grace.
+  if (usesWindowsJobContainment()) {
+    return child.kill({ killSignal: "SIGKILL" }).pipe(
+      Effect.mapError(
+        (cause) =>
+          new TextGenerationError({
+            operation,
+            detail: "Failed to stop the isolated Codex process on Windows.",
+            cause,
+          }),
+      ),
+    );
+  }
   // Signal the detached POSIX group directly. ChildProcessHandle.kill waits for
   // the root exit, which would deadlock the TERM grace path when the root traps
   // TERM. ESRCH means the group is already gone and is a successful cleanup.
@@ -300,6 +391,9 @@ const makeCodexTextGeneration = Effect.gen(function* () {
   }) =>
     Effect.gen(function* () {
       const cleanupHandled = yield* Ref.make(false);
+      // Set before a timed-out child is stopped: the exit-code read that then fails (the
+      // process was killed) reports the timeout, not "failed to read the exit code".
+      const timedOut = yield* Ref.make(false);
       const authenticationFailure = yield* Deferred.make<never, TextGenerationError>();
       yield* Effect.addFinalizer(() =>
         Ref.get(cleanupHandled).pipe(
@@ -338,7 +432,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         Effect.timeoutOrElse({
           duration: input.timeoutMs,
           onTimeout: () =>
-            terminateCodexChild(input.child, timing.killGraceMs, input.operation).pipe(
+            Ref.set(timedOut, true).pipe(
+              Effect.andThen(terminateCodexChild(input.child, timing.killGraceMs, input.operation)),
               Effect.andThen(Ref.set(cleanupHandled, true)),
               Effect.andThen(
                 Effect.fail(
@@ -350,6 +445,20 @@ const makeCodexTextGeneration = Effect.gen(function* () {
               ),
             ),
         }),
+        Effect.catch((error) =>
+          Ref.get(timedOut).pipe(
+            Effect.flatMap((wasTimedOut) =>
+              Effect.fail(
+                wasTimedOut
+                  ? new TextGenerationError({
+                      operation: input.operation,
+                      detail: input.timeoutDetail,
+                    })
+                  : error,
+              ),
+            ),
+          ),
+        ),
         Effect.catch((error) =>
           Ref.get(cleanupHandled).pipe(
             Effect.flatMap((handled) =>
@@ -453,26 +562,64 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         }),
     });
 
+  // Windows: a verified Codex is remembered so a request starts the launcher once (for
+  // `codex exec`), not twice. The key is the real codex.exe when an npm shim leads to it, and
+  // its path, size and modification time, so an upgrade or downgrade is probed again. Another
+  // shim (volta, scoop, mise) can switch its target while the shim itself stays the same: such
+  // an entry expires after a few minutes.
+  const UNRESOLVED_SHIM_VERIFICATION_TTL_MS = 10 * 60_000;
+  const verifiedCodexBinaries = new Map<
+    string,
+    { readonly verifiedAtMs: number; readonly expires: boolean }
+  >();
+  const codexBinaryIdentity = (binaryPath: string) =>
+    fileSystem.stat(binaryPath).pipe(
+      Effect.map((info) =>
+        info.type === "File"
+          ? `${binaryPath}\0${info.mtime?.getTime() ?? 0}\0${info.size}`
+          : undefined,
+      ),
+      Effect.orElseSucceed(() => undefined),
+    );
+
   const verifyCodexTextGenerationVersion = (
     operation: TextGenerationOperation,
     binaryPath: string,
     cwd: string,
     env: Record<string, string>,
+    windowsJobLauncher: string | undefined,
   ) =>
     Effect.gen(function* () {
+      const nativeTarget = windowsJobLauncher
+        ? resolveCodexNativeLaunch({ binaryPath, env, cwd })?.command
+        : undefined;
+      const identity = windowsJobLauncher
+        ? yield* codexBinaryIdentity(nativeTarget ?? binaryPath)
+        : undefined;
+      const nowMs = yield* Clock.currentTimeMillis;
+      const verified = identity === undefined ? undefined : verifiedCodexBinaries.get(identity);
+      if (
+        verified &&
+        (!verified.expires || nowMs - verified.verifiedAtMs < UNRESOLVED_SHIM_VERIFICATION_TTL_MS)
+      ) {
+        return;
+      }
       const result = yield* runtimePrograms
         .withOperation(
           { binaryPath, cwd, env, sourceHomePath: agentProgramSourceHome("codex", env, cwd) },
           (spawned) =>
             Effect.gen(function* () {
+              // On Windows the probe runs inside a job too: a `.cmd` shim's cmd.exe and Node
+              // must not outlive a hung probe.
               const command = makeEffectProcessCommand(binaryPath, ["--version"], {
                 cwd,
                 detached: true,
                 env,
                 killSignal: "SIGKILL",
                 stdin: "ignore",
+                ...(windowsJobLauncher ? { windowsJobLauncher } : {}),
               });
-              const child = yield* commandSpawner
+              const child = yield* (windowsJobLauncher ? windowsJobLauncherSpawner : commandSpawner)
                 .spawn(command)
                 .pipe(
                   Effect.mapError((cause) =>
@@ -509,6 +656,12 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         return yield* new TextGenerationError({
           operation,
           detail: `Auxiliary Codex text generation requires Codex CLI v${MINIMUM_CODEX_TEXT_GENERATION_CLI_VERSION} or newer; found ${versionLabel}.`,
+        });
+      }
+      if (identity !== undefined) {
+        verifiedCodexBinaries.set(identity, {
+          verifiedAtMs: nowMs,
+          expires: nativeTarget === undefined,
         });
       }
     });
@@ -700,7 +853,16 @@ const makeCodexTextGeneration = Effect.gen(function* () {
       return provider && credential ? { provider, credential } : undefined;
     });
 
-  const runCodexJson = <S extends Schema.Top>({
+  /** One run, logged once (`withCodexTextGenerationRunLog`). */
+  const runCodexJson = <S extends Schema.Top>(
+    input: Omit<Parameters<typeof runCodexJsonOnce<S>>[0], "run">,
+  ): Effect.Effect<S["Type"], TextGenerationError, S["DecodingServices"]> => {
+    const run: CodexTextGenerationRun = {};
+    return withCodexTextGenerationRunLog(input.operation, run, runCodexJsonOnce({ ...input, run }));
+  };
+
+  const runCodexJsonOnce = <S extends Schema.Top>({
+    run,
     operation,
     cwd,
     prompt,
@@ -711,6 +873,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     providerOptions,
     reasoningEffort,
   }: {
+    /** Filled in with the route, model and effort as the run learns them. */
+    run: CodexTextGenerationRun;
     operation: TextGenerationOperation;
     cwd: string;
     prompt: string;
@@ -734,37 +898,44 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             detail: formatMissingCodexWorkingDirectoryError(cwd),
           });
         }
-        // Where the CLI cannot run (Windows), a provider that is only an endpoint and a
-        // key is still reached directly. Only the account's own home is read (never the
-        // person's default Codex home), and nothing is written or spawned.
-        const platformError = codexTextGenerationPlatformError(process.platform, operation);
-        if (platformError) {
-          const directRoute = yield* resolveDirectProviderRoute({
-            operation,
-            ...(codexHomePath ? { codexHomePath } : {}),
-            ...(modelSelection ? { modelSelection } : {}),
-            ...(providerOptions ? { providerOptions } : {}),
-          });
-          if (!directRoute) return yield* platformError;
+        // On Windows a provider that is only an endpoint and a key is reached directly:
+        // one HTTP request, no process. Only the account's own home is read (never the
+        // person's default Codex home), and nothing is written or spawned. Any other
+        // account runs the CLI below inside a kill-on-close Job Object, or is refused as
+        // before when the job launcher is missing or has failed.
+        const directRoute = usesWindowsJobContainment()
+          ? yield* resolveDirectProviderRoute({
+              operation,
+              ...(codexHomePath ? { codexHomePath } : {}),
+              ...(modelSelection ? { modelSelection } : {}),
+              ...(providerOptions ? { providerOptions } : {}),
+            })
+          : undefined;
+        if (directRoute) {
           const { provider, credential } = directRoute;
           const predictionRequest = operation === "generateComposerPrediction";
+          const directModel =
+            resolveCodexModel(model, modelSelection) ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
+          // A title or a prediction is wanted in seconds, not after deep thought.
+          const directEffort = resolveCodexReasoningEffort(
+            reasoningEffort,
+            predictionRequest || operation === "generateThreadTitle"
+              ? "low"
+              : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
+          );
+          run.route = "direct";
+          run.model = directModel;
+          run.effort = directEffort;
           const json = yield* Effect.tryPromise({
             try: () =>
               requestCodexProviderJson({
                 baseUrl: provider.baseUrl,
                 wireApi: provider.wireApi,
                 credential,
-                model:
-                  resolveCodexModel(model, modelSelection) ?? DEFAULT_GIT_TEXT_GENERATION_MODEL,
+                model: directModel,
                 prompt,
                 jsonSchema: toJsonSchemaObject(outputSchemaJson),
-                // A title or a prediction is wanted in seconds, not after deep thought.
-                reasoningEffort: resolveCodexReasoningEffort(
-                  reasoningEffort,
-                  predictionRequest || operation === "generateThreadTitle"
-                    ? "low"
-                    : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
-                ),
+                reasoningEffort: directEffort,
                 timeoutMs: predictionRequest
                   ? COMPOSER_PREDICTION_TIMEOUT_MS
                   : timing.requestTimeoutMs,
@@ -791,6 +962,15 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             ),
           );
         }
+        let windowsJobLauncher: string | undefined;
+        if (usesWindowsJobContainment()) {
+          const launcher = yield* windowsJobLauncherStatus;
+          if (launcher.kind === "unavailable") {
+            return yield* codexTextGenerationPlatformError(process.platform, operation)!;
+          }
+          windowsJobLauncher = launcher.path;
+        }
+        run.route = windowsJobLauncher ? "windows-job" : "process-group";
         yield* Effect.try({
           try: assertNoExternalCodexConfigLayers,
           catch: (cause) =>
@@ -916,8 +1096,15 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             codexBinaryPath,
             isolatedCodexHome.workDirectoryPath,
             env,
+            windowsJobLauncher,
           );
           const predictionRequest = operation === "generateComposerPrediction";
+          const cliEffort = resolveCodexReasoningEffort(
+            reasoningEffort,
+            predictionRequest ? "low" : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
+          );
+          run.model = selectedModel;
+          run.effort = cliEffort;
           const args = [
             "exec",
             "--ephemeral",
@@ -928,10 +1115,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
             selectedModel,
             ...buildCodexTextGenerationCliConfigArgs(isolatedCodexHome.modelCatalogPath),
             "--config",
-            `model_reasoning_effort="${resolveCodexReasoningEffort(
-              reasoningEffort,
-              predictionRequest ? "low" : DEFAULT_GIT_TEXT_GENERATION_REASONING_EFFORT,
-            )}"`,
+            `model_reasoning_effort="${cliEffort}"`,
             "--output-schema",
             schemaPath,
             "--output-last-message",
@@ -955,7 +1139,7 @@ const makeCodexTextGeneration = Effect.gen(function* () {
                     cwd: isolatedCodexHome.workDirectoryPath,
                   });
                   const child = yield* spawnProviderProcess(
-                    commandSpawner,
+                    windowsJobLauncher ? windowsJobLauncherSpawner : commandSpawner,
                     nativeLaunch?.command ?? codexBinaryPath,
                     args,
                     {
@@ -966,6 +1150,8 @@ const makeCodexTextGeneration = Effect.gen(function* () {
                       stdin: {
                         stream: Stream.make(new TextEncoder().encode(prompt)),
                       },
+                      // POSIX: the detached process group above. Windows: a job.
+                      ...(windowsJobLauncher ? { windowsJobLauncher } : {}),
                     },
                   ).pipe(
                     Effect.mapError((cause) =>
@@ -1047,7 +1233,23 @@ const makeCodexTextGeneration = Effect.gen(function* () {
           );
         });
 
-        return yield* request;
+        // The launcher would not start or failed on its own (now remembered): refuse as
+        // Windows did before, so the caller falls back the way it always has.
+        return yield* request.pipe(
+          Effect.catch((error) =>
+            windowsJobLauncher === undefined
+              ? Effect.fail(error)
+              : windowsJobLauncherStatus.pipe(
+                  Effect.flatMap((launcher) =>
+                    Effect.fail(
+                      launcher.kind === "unavailable"
+                        ? codexTextGenerationPlatformError(process.platform, operation)!
+                        : error,
+                    ),
+                  ),
+                ),
+          ),
+        );
       }),
     );
 
@@ -1237,22 +1439,25 @@ const makeCodexTextGeneration = Effect.gen(function* () {
     );
   };
 
+  // On Windows, says whether a request would reach a key-only endpoint directly, start the
+  // CLI inside a job, or is refused (no working launcher), so prediction routing can choose.
   const getComposerPredictionSupport: NonNullable<
     TextGenerationShape["getComposerPredictionSupport"]
   > = (input) => {
-    if (
-      codexTextGenerationPlatformError(process.platform, "generateComposerPrediction") === undefined
-    ) {
+    if (!usesWindowsJobContainment()) {
       return Effect.succeed(codexIsolatedTextGenerationSupport(process.platform, false));
     }
-    return resolveDirectProviderRoute({
-      operation: "generateComposerPrediction",
-      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
-      ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
-      ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
-    }).pipe(
-      Effect.map((route) =>
-        codexIsolatedTextGenerationSupport(process.platform, route !== undefined),
+    return Effect.all([
+      windowsJobLauncherStatus,
+      resolveDirectProviderRoute({
+        operation: "generateComposerPrediction",
+        ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
+        ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+      }).pipe(Effect.map((route) => route !== undefined)),
+    ]).pipe(
+      Effect.map(([launcher, direct]) =>
+        codexIsolatedTextGenerationSupport(process.platform, direct, launcher.kind === "available"),
       ),
       // An account whose binding cannot be read is not a platform question: the generation
       // reports that failure itself, as it did before.

@@ -5,6 +5,7 @@
 // Exports: TaskTextFields
 
 import type { TodoUpdateInput } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 
 import type { TaskRowModel } from "./tasks.logic";
@@ -70,7 +71,7 @@ export function TaskTextFields({
     if (notes !== todo.notes) onUpdate({ id: todo.id, notes });
   };
   const handleTitleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       event.currentTarget.blur();

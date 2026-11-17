@@ -1,5 +1,6 @@
 import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import { MossbotSidebar } from "./mossbot/MossbotSidebar";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { resolveMossbotForThread } from "./mossbot/mossbot.logic";
 import { SidebarGettingStarted } from "./SidebarGettingStarted";
 import { useProjectImportDialogStore } from "~/projectImport/projectImportDialogStore";
@@ -4939,6 +4940,7 @@ export default function Sidebar() {
                 branch: thread.branch,
                 hasDedicatedWorktree: thread.worktreePath !== null,
                 lastKnownPr: thread.lastKnownPr ?? null,
+                pullRequests: thread.pullRequests,
               })
         }
         status={resolveThreadStatusForSidebar(thread)}
@@ -7606,6 +7608,7 @@ export default function Sidebar() {
               aria-invalid={projectRunDialogCommandIsValid ? undefined : true}
               onChange={(event) => setProjectRunDialogCommandDraft(event.target.value)}
               onKeyDown={(event) => {
+                if (isImeComposingKeyEvent(event)) return;
                 if (event.key === "Enter") {
                   event.preventDefault();
                   handleConfirmProjectRun();

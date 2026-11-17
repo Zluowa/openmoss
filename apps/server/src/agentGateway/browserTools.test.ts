@@ -380,6 +380,8 @@ describe("agent gateway browser tools", () => {
       "browser_logs",
       "browser_upload",
       "browser_run",
+      "browser_webmcp_tools",
+      "browser_webmcp_call",
       "browser_close",
       "moss_e2e_review",
     ]);
