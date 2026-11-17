@@ -50,6 +50,7 @@ import {
   sortProjectsForSidebar,
   sortThreadsForSidebar,
   resolvePrimaryNewChatAction,
+  shouldReopenThreadsViewFromRail,
 } from "./Sidebar.logic";
 import { ProjectId, ThreadId } from "@moss/contracts";
 import {
@@ -2457,5 +2458,35 @@ describe("resolvePrimaryNewChatAction", () => {
     expect(resolvePrimaryNewChatAction({ hasProjectTarget: false, threadsHydrated: false })).toBe(
       "wait",
     );
+  });
+});
+
+describe("shouldReopenThreadsViewFromRail", () => {
+  it("leaves the thread view alone when it is on screen and nothing is loading", () => {
+    expect(
+      shouldReopenThreadsViewFromRail({
+        onThreadsSection: true,
+        committedPathname: "/thread-1",
+        latestPathname: "/thread-1",
+      }),
+    ).toBe(false);
+  });
+  it("reopens it from another section", () => {
+    expect(
+      shouldReopenThreadsViewFromRail({
+        onThreadsSection: false,
+        committedPathname: "/mossbot",
+        latestPathname: "/mossbot",
+      }),
+    ).toBe(true);
+  });
+  it("reopens it while a navigation away from the threads is still loading", () => {
+    expect(
+      shouldReopenThreadsViewFromRail({
+        onThreadsSection: true,
+        committedPathname: "/thread-1",
+        latestPathname: "/mossbot",
+      }),
+    ).toBe(true);
   });
 });
