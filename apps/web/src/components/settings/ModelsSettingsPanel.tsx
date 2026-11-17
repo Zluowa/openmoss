@@ -11,6 +11,7 @@ import {
   type ProviderKind,
   type SourceControlWritingStyle,
 } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { getModelOptions, normalizeModelSlug } from "@moss/shared/model";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -462,6 +463,7 @@ export function ModelsSettingsPanel({
                     }
                   }}
                   onKeyDown={(event) => {
+                    if (isImeComposingKeyEvent(event)) return;
                     if (event.key !== "Enter") return;
                     event.preventDefault();
                     addCustomModel(activeCustomModelProvider);

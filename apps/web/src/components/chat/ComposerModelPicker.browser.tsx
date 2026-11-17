@@ -1586,4 +1586,24 @@ describe("Claude composer budget suffix", () => {
       await screen.unmount();
     },
   );
+
+  // After an input method's confirming key, a plain Enter in the search still takes the top hit.
+  it.each(["Enter", "Process"] as const)(
+    "takes the top hit on a plain Enter after a pinyin candidate is confirmed (%s)",
+    async (confirmKey) => {
+      const onProviderModelChange = vi.fn();
+      const screen = await mountPicker({ onProviderModelChange });
+      try {
+        const search = page.getByRole("searchbox", { name: "Search models" });
+        const searchElement = search.element() as HTMLInputElement;
+        await composeChineseWithEnter(searchElement, "gpt", "gpt", confirmKey);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(onProviderModelChange).not.toHaveBeenCalled();
+        await userEvent.keyboard("{Enter}");
+        await expect.poll(() => onProviderModelChange.mock.calls.length).toBe(1);
+      } finally {
+        await screen.unmount();
+      }
+    },
+  );
 });

@@ -6,6 +6,7 @@ import {
   isMossGatewayToolCall,
   isMossGatewayToolName,
   qualifiedMossComputerToolName,
+  gatewayGatedBrowserToolNameFromProviderPermission,
   shouldAllowMossComputerProviderTool,
 } from "./computerToolPermission.ts";
 
@@ -213,5 +214,63 @@ describe("Moss gateway tool permission name", () => {
     expect(isMossGatewayToolCall({ name: "moss_fs_create_thread" })).toBe(false);
     expect(isMossGatewayToolCall({ metadata: { toolName: "moss_fs_read" } })).toBe(false);
     expect(isMossGatewayToolCall({ rawInput: { _toolName: "moss_moss_send_message" } })).toBe(true);
+  });
+});
+
+// Page-declared WebMCP tools: the gateway asks per call with the site and the
+// page's hints in view, so a provider's own prompt would ask twice (or ask for
+// read-only calls). Each provider reports the name its own way.
+describe("gateway-gated browser calls (WebMCP)", () => {
+  const allowed = (
+    permission: Parameters<typeof shouldAllowMossComputerProviderTool>[0]["permission"],
+  ) =>
+    shouldAllowMossComputerProviderTool({
+      computerControlEnabled: false,
+      activeTurn: true,
+      interactionMode: "default",
+      runtimeMode: "approval-required",
+      permission,
+    });
+
+  it.each([
+    ["Claude (tool name)", { name: "mcp__moss__browser_webmcp_call" }],
+    ["Codex (name built from _meta.tool_name)", { name: "mcp__moss__browser_webmcp_call" }],
+    ["ACP (raw input tool name)", { rawInput: { _toolName: "moss_browser_webmcp_call" } }],
+    ["ACP (metadata tool name)", { metadata: { toolName: "moss_browser_webmcp_call" } }],
+  ] as const)("leaves the decision to the gateway for %s", (_label, permission) => {
+    expect(gatewayGatedBrowserToolNameFromProviderPermission(permission)).toBe(
+      "browser_webmcp_call",
+    );
+    expect(allowed(permission)).toBe(true);
+  });
+
+  it("does not need Computer control, but needs an active non-Plan approval-required turn", () => {
+    const permission = { name: "mcp__moss__browser_webmcp_call" };
+    const base = {
+      computerControlEnabled: false,
+      activeTurn: true,
+      interactionMode: "default",
+      runtimeMode: "approval-required",
+      permission,
+    } as const;
+    expect(shouldAllowMossComputerProviderTool(base)).toBe(true);
+    expect(shouldAllowMossComputerProviderTool({ ...base, activeTurn: false })).toBe(false);
+    expect(shouldAllowMossComputerProviderTool({ ...base, interactionMode: "plan" })).toBe(false);
+    // Full access never reaches this question: the provider allows by itself.
+    expect(shouldAllowMossComputerProviderTool({ ...base, runtimeMode: "full-access" })).toBe(
+      false,
+    );
+  });
+
+  it.each([
+    { name: "mcp__moss__browser_run" },
+    { name: "mcp__moss__browser_webmcp_tools" },
+    { name: "browser_webmcp_call" },
+    { name: "mcp__moss_fs__browser_webmcp_call" },
+    { name: "mcp__other__browser_webmcp_call" },
+    { title: "mcp__moss__browser_webmcp_call" },
+  ])("keeps every other tool on the provider's own prompt: %o", (permission) => {
+    expect(gatewayGatedBrowserToolNameFromProviderPermission(permission)).toBeUndefined();
+    expect(allowed(permission)).toBe(false);
   });
 });

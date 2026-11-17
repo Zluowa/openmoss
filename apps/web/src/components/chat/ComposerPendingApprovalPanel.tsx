@@ -16,6 +16,7 @@ import { useTranslation } from "../../localization";
 import { ChevronDownIcon, PencilIcon, TerminalIcon } from "~/lib/icons";
 import { approvalParamLabel } from "~/lib/approvalParamLabels";
 import { localizeMossAppsToolAction, resolveMcpApprovalTool } from "~/lib/toolCallLabel";
+import { isWebMcpCallToolName } from "~/lib/webMcpToolPresentation";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -126,7 +127,10 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   onRespond,
 }: ComposerPendingApprovalPanelProps) {
   const { t, format, locale } = useTranslation();
-  const [paramsOpen, setParamsOpen] = useState(false);
+  // A page tool's card: the site, the page's tool and the arguments are what a person
+  // decides on, so its rows are open from the start.
+  const webMcpCall = readWebMcpApprovalRows(approval);
+  const [paramsOpen, setParamsOpen] = useState(webMcpCall !== null);
   const parsed = parseApprovalDetail(approval.detail);
   const requestId = approval.requestId;
   const requestKey = pendingRequestInstanceKey(requestId, approval.lifecycleGeneration);
@@ -212,8 +216,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
       ? t("patchApprovalRequest.allowAllEdits")
       : t("approvalRequestCard.allowConversation");
 
-  const identity =
-    computerScope !== undefined
+  const identity = webMcpCall
+    ? t("composer.webMcpApproval.identity")
+    : computerScope !== undefined
       ? null
       : variant === "terminal"
         ? t("execApprovalRequest.shellLabel")
@@ -245,28 +250,35 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   };
 
   const reasonTitle = approval.approvalReason?.trim() || null;
-  const title = computerScope
-    ? computerScope.prompt
-    : reasonTitle && (variant === "terminal" || variant === "edit")
-      ? reasonTitle
-      : variant === "terminal"
-        ? t("execApprovalRequest.prompt")
-        : variant === "edit"
-          ? format(
-              fileCount === 1
-                ? "patchApprovalRequest.prompt.one"
-                : "patchApprovalRequest.prompt.many",
-              {},
-            )
-          : variant === "mcp"
-            ? mcpApprovalTitle()
-            : approval.requestKind === "file-read" && parsed.fileName
-              ? format("permissionRequest.view", { paths: parsed.fileName })
-              : t("execApprovalRequest.prompt");
+  const title = webMcpCall
+    ? format("composer.webMcpApproval.title", {
+        site: webMcpCall.site,
+        pageTool: webMcpCall.pageTool,
+      })
+    : computerScope
+      ? computerScope.prompt
+      : reasonTitle && (variant === "terminal" || variant === "edit")
+        ? reasonTitle
+        : variant === "terminal"
+          ? t("execApprovalRequest.prompt")
+          : variant === "edit"
+            ? format(
+                fileCount === 1
+                  ? "patchApprovalRequest.prompt.one"
+                  : "patchApprovalRequest.prompt.many",
+                {},
+              )
+            : variant === "mcp"
+              ? mcpApprovalTitle()
+              : approval.requestKind === "file-read" && parsed.fileName
+                ? format("permissionRequest.view", { paths: parsed.fileName })
+                : t("execApprovalRequest.prompt");
 
-  const subtitle = computerScope
-    ? `${computerScope.allowDetail} ${computerScope.denyDetail} ${computerScope.cancelDetail}`
-    : null;
+  const subtitle = webMcpCall
+    ? t("composer.webMcpApproval.subtitle")
+    : computerScope
+      ? `${computerScope.allowDetail} ${computerScope.denyDetail} ${computerScope.cancelDetail}`
+      : null;
   const hasParams = (approval.toolParamsDisplay?.length ?? 0) > 0;
 
   return (
@@ -322,7 +334,21 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
           {...(approval.permissionProfile ? { permissionProfile: approval.permissionProfile } : {})}
           {...(approval.toolName && !hasParams ? { toolName: approval.toolName } : {})}
           {...(hasParams && paramsOpen && approval.toolParamsDisplay
-            ? { toolParamsDisplay: approval.toolParamsDisplay }
+            ? {
+                toolParamsDisplay: webMcpCall
+                  ? approval.toolParamsDisplay.map((row) => ({
+                      ...row,
+                      displayName:
+                        row.name === "site"
+                          ? t("composer.webMcpApproval.site")
+                          : row.name === "pageTool"
+                            ? t("composer.webMcpApproval.pageTool")
+                            : row.name === "arguments"
+                              ? t("composer.webMcpApproval.arguments")
+                              : row.name,
+                    }))
+                  : approval.toolParamsDisplay,
+              }
             : {})}
         />
       ) : null}
@@ -407,6 +433,24 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
     </div>
   );
 };
+
+/**
+ * The site and the page's tool of a WebMCP call's card (rows the agent gateway sends as
+ * `site`, `pageTool`, `arguments`); null for every other approval.
+ */
+function readWebMcpApprovalRows(
+  approval: PendingApproval,
+): { readonly site: string; readonly pageTool: string } | null {
+  if (!isWebMcpCallToolName(approval.toolName)) return null;
+  const rows = approval.toolParamsDisplay ?? [];
+  const text = (name: string) => {
+    const value = rows.find((row) => row.name === name)?.value;
+    return typeof value === "string" ? value : null;
+  };
+  const site = text("site");
+  const pageTool = text("pageTool");
+  return site !== null && pageTool !== null ? { site, pageTool } : null;
+}
 
 function ApprovalDetail({
   parsed,

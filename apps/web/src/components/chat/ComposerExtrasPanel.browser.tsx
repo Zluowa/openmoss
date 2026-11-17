@@ -28,6 +28,7 @@ vi.mock("~/components/ui/toast", () => ({
   toastManager: { add: harness.toastAdd },
 }));
 
+import { composeChineseWithEnter } from "../../test/imeComposition";
 import { ComposerExtrasPanel } from "./ComposerExtrasPanel";
 
 const threadId = "thread-1" as ThreadId;
@@ -324,6 +325,28 @@ describe("ComposerExtrasPanel", () => {
     });
     expect(menu.onClose).toHaveBeenCalledTimes(1);
   });
+
+  // The panel listens on the whole window while it is open, and the composer can keep focus:
+  // the Enter that confirms a pinyin candidate there must not open the highlighted row.
+  it.each(["Enter", "Process"] as const)(
+    "ignores the composer's input-method Enter (%s); a plain Enter opens the row",
+    async (confirmKey) => {
+      const captureWindow = vi.fn(() => Promise.resolve(CAPTURE));
+      setDesktopBridge(appSnapBridge({ captureWindow }));
+      const composer = document.createElement("textarea");
+      document.body.append(composer);
+      await using _ = await mountMenu({ threadId });
+      await expect.element(page.getByText("Attach Ghostty")).toBeVisible();
+      composer.focus();
+      await userEvent.keyboard("{ArrowDown}");
+      await composeChineseWithEnter(composer, "nihao", "你好", confirmKey);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      expect(captureWindow).not.toHaveBeenCalled();
+      expect(composer.value).toBe("你好");
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => expect(captureWindow).toHaveBeenCalledWith({ windowId: 42 }));
+    },
+  );
 
   it("opens the window list with ArrowRight and returns with ArrowLeft", async () => {
     setDesktopBridge(appSnapBridge({}));

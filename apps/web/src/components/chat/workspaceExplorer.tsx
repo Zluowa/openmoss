@@ -6,6 +6,7 @@
 //          ExplorerActivityBarButton, useExplorerEntryPrefetch, setFileReferenceDragData.
 
 import type { ProjectEntry, ProjectFileSystemEntry } from "@moss/contracts";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -489,6 +490,7 @@ function WorkspaceSearchInputHeader(props: {
 }) {
   const { onQueryChange, onSelectFile, query, search } = props;
   const handleInputKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (isImeComposingKeyEvent(event)) return;
     if (event.key === "Enter") {
       event.preventDefault();
       if (!search.searchResultsCurrent) {

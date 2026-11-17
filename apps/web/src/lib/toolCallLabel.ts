@@ -95,6 +95,8 @@ const ZH_CN_TOOL_HEADINGS: Readonly<Record<string, string>> = {
   "Wait for browser condition": "等待浏览器条件",
   "Evaluate browser expression": "执行浏览器表达式",
   "Close browser tab": "关闭浏览器标签页",
+  "Discover page WebMCP tools": "查看网页提供的工具",
+  "Call page WebMCP tool": "调用网页提供的工具",
   "Rendering an HTML page": "正在渲染 HTML 页面",
   "Rendered an HTML page": "已渲染 HTML 页面",
   "Couldn't render an HTML page": "无法渲染 HTML 页面",
@@ -313,12 +315,11 @@ interface MossMcpToolPresentation {
   readonly failed: string;
 }
 
-// Historical messages still contain retired tools; presentation does not expose them to agents.
+// Historical messages still contain retired tools (snapshot and element actions); presentation
+// does not expose them to agents. The WebMCP tools are live again and come from BROWSER_TOOL_TITLES.
 const BROWSER_HISTORY_TITLES = {
   ...BROWSER_TOOL_TITLES,
   browser_snapshot: "Snapshot browser page",
-  browser_webmcp_tools: "Discover page WebMCP tools",
-  browser_webmcp_call: "Call page WebMCP tool",
   browser_click: "Click browser target",
   browser_hover: "Hover browser target",
   browser_drag: "Drag between browser targets",

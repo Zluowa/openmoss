@@ -109,7 +109,8 @@ import { cloneDelegatedAttachments } from "../delegatedAttachments";
 import { LOCAL_LOOPBACK_ATTACHMENT_PRINCIPAL } from "../../managedAttachmentPrincipal";
 
 import { makeAgentGatewayAutomationTools } from "../automationTools.ts";
-import { makeAgentGatewayBrowserTools } from "../browserTools.ts";
+import { makeAgentGatewayBrowserTools, type WebMcpCallApprovalRequest } from "../browserTools.ts";
+import { webMcpApprovalDisplay } from "../webMcpApprovalDisplay.ts";
 import { makeAgentGatewayComputerBrowserTools } from "../computerBrowserTools.ts";
 import { computerApprovalDisplayArgs } from "../computerApprovalDisplay.ts";
 import { makeAgentGatewayDeviceTools } from "../deviceTools.ts";
@@ -1382,8 +1383,74 @@ export const makeAgentGateway = Effect.gen(function* () {
         })) ?? null
       );
     }).pipe(Effect.orElseSucceed(() => null));
+  /**
+   * The card for one page-declared WebMCP call: which site, which page tool,
+   * with what. Same activity shape and gate as a single-call Computer approval.
+   */
+  const publishWebMcpApproval =
+    (request: WebMcpCallApprovalRequest, context: ToolContext) =>
+    async (requestId: string, decision?: ProviderApprovalDecision): Promise<void> => {
+      const createdAt = isoNow();
+      const eventKey = `${requestId}:${decision === undefined ? "open" : "resolved"}`;
+      await Effect.runPromise(
+        orchestrationEngine.dispatch({
+          type: "thread.activity.append",
+          commandId: CommandId.makeUnsafe(eventKey),
+          threadId: ThreadId.makeUnsafe(context.callerThreadId),
+          activity: {
+            id: EventId.makeUnsafe(eventKey),
+            tone: "info",
+            kind: decision === undefined ? "approval.requested" : "approval.resolved",
+            // Fixed text: the site, the page's tool and the arguments are rows below,
+            // never part of Moss's own sentence. Translated on the client (zh-CN first).
+            summary:
+              decision === undefined ? "Page tool needs approval" : "Page tool approval resolved",
+            payload: {
+              requestId,
+              requestKind: "tool",
+              requestType: "tool",
+              toolName: "browser_webmcp_call",
+              toolParamsDisplay: [...webMcpApprovalDisplay(request)],
+              sessionApprovalAvailable: false,
+              ...(decision === undefined ? {} : { decision }),
+            },
+            turnId: context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null,
+            createdAt,
+          },
+          createdAt,
+        }),
+      );
+    };
+
+  /**
+   * Page tools that are not read-only ask the person on every call, through the
+   * Computer approval gate (a Moss-owned card, so it works for every provider,
+   * including those without a native gate). Full access already consents, as
+   * it does for Computer: the call runs without a card.
+   */
+  const authorizeWebMcpCall = async (
+    request: WebMcpCallApprovalRequest,
+    context: ToolContext,
+    signal: AbortSignal,
+  ): Promise<boolean> => {
+    await Effect.runPromise(context.assertCallerTurnActive(), { signal });
+    const caller = await Effect.runPromise(
+      snapshotQuery.getThreadShellById(ThreadId.makeUnsafe(context.callerThreadId)),
+      { signal },
+    );
+    if (Option.isNone(caller)) return false;
+    if (caller.value.runtimeMode === "full-access") return true;
+    return computerApprovalGate.request({
+      threadId: context.callerThreadId,
+      turnId: context.callerTurnId ?? undefined,
+      signal,
+      publish: publishWebMcpApproval(request, context),
+    });
+  };
+
   const browserTools = makeAgentGatewayBrowserTools(browserAutomationHost, {
     resolveWorkspaceRoot,
+    authorizeWebMcpCall,
   });
   const projectAgentTools = makeProjectAgentTools({
     projectAgent: projectAgentService,

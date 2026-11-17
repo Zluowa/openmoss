@@ -75,6 +75,11 @@ import {
 import { toolArgumentSummaryToolName } from "./lib/toolArgumentSummary";
 import { computerToolName, describeComputerToolCall } from "./lib/computerToolPresentation";
 import {
+  isWebMcpCallToolName,
+  webMcpCallOriginFromArguments,
+  webMcpCallOriginFromDetail,
+} from "./lib/webMcpToolPresentation";
+import {
   deriveWorkLogToolDetails,
   mergeWorkLogToolDetails,
   parseWorkLogAutomaticApprovalReview,
@@ -2458,6 +2463,13 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     // agent-supplied title whenever the HTML tool payload includes one.
     entry.preview = htmlPageTitle;
   }
+  // A page tool acts as the site it came from: name that site on the row.
+  const webMcpOrigin = isWebMcpCallToolName(mcpToolResult?.tool ?? toolName)
+    ? (webMcpCallOriginFromArguments(mcpToolResult?.arguments) ??
+      webMcpCallOriginFromArguments(extractComputerToolArgs(payload)) ??
+      webMcpCallOriginFromDetail(payload?.detail))
+    : null;
+  if (webMcpOrigin) entry.preview = webMcpOrigin;
   if (changedFiles.length > 0) {
     entry.changedFiles = changedFiles;
     const item = asRecord(asRecord(payload?.data)?.item);
