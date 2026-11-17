@@ -70,6 +70,14 @@ export function BackendStartupFailureView({
       .finally(() => setRetrying(false));
   };
 
+  const locked = failure.kind === "database-locked";
+  const title = locked ? t("backendStartup.locked.title") : t("backendStartup.failed.title");
+  const description = locked
+    ? typeof failure.ownerPid === "number"
+      ? format("backendStartup.locked.description", { pid: failure.ownerPid })
+      : t("backendStartup.locked.descriptionUnknownOwner")
+    : format("backendStartup.failed.description", { count: failure.failures });
+
   return (
     <div
       role="alertdialog"
@@ -83,10 +91,13 @@ export function BackendStartupFailureView({
       <Empty>
         <EmptyHeader>
           <MossLogoMark className="mb-ui-gap-md size-8" />
-          <EmptyTitle id={titleId}>{t("backendStartup.failed.title")}</EmptyTitle>
-          <EmptyDescription id={descriptionId}>
-            {format("backendStartup.failed.description", { count: failure.failures })}
-          </EmptyDescription>
+          <EmptyTitle id={titleId}>{title}</EmptyTitle>
+          <EmptyDescription id={descriptionId}>{description}</EmptyDescription>
+          {failure.logFilePath ? (
+            <p className="mt-ui-gap-xs text-xs break-all text-muted-foreground">
+              {format("backendStartup.logLocation", { path: failure.logFilePath })}
+            </p>
+          ) : null}
         </EmptyHeader>
         <EmptyContent>
           <div className="flex flex-wrap items-center justify-center gap-ui-gap-xs">

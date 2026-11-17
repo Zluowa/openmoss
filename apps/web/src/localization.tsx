@@ -455,6 +455,12 @@ const EN_TRANSLATIONS = {
   "backendStartup.failed.openLogs": "Open logs",
   "backendStartup.failed.copyDetails": "Copy details",
   "backendStartup.failed.copied": "Copied",
+  "backendStartup.locked.title": "Moss can't open its local data",
+  "backendStartup.locked.description":
+    "Another Moss window or process (process {pid}) is using your local data. Close the other Moss window, then try again. Your data has not been changed.",
+  "backendStartup.locked.descriptionUnknownOwner":
+    "Moss couldn't confirm what is using your local data. Close any other Moss window, then try again. Your data has not been changed.",
+  "backendStartup.logLocation": "Log file: {path}",
   "unreadableThreads.notice":
     "{count} conversation(s) couldn't be read and are hidden. Your other conversations aren't affected.",
   "unreadableThreads.copyDetails": "Copy details",
@@ -4928,6 +4934,12 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "backendStartup.failed.openLogs": "打开日志",
   "backendStartup.failed.copyDetails": "复制详情",
   "backendStartup.failed.copied": "已复制",
+  "backendStartup.locked.title": "Moss 无法打开本地数据",
+  "backendStartup.locked.description":
+    "另一个 Moss 窗口或进程（进程 {pid}）正在使用你的本地数据。请关闭其他 Moss 窗口，然后重试。你的数据没有被更改。",
+  "backendStartup.locked.descriptionUnknownOwner":
+    "Moss 无法确认是谁在使用你的本地数据。请关闭其他 Moss 窗口，然后重试。你的数据没有被更改。",
+  "backendStartup.logLocation": "日志文件：{path}",
   "unreadableThreads.notice": "有 {count} 个对话的数据已损坏，已暂时隐藏。其他对话不受影响。",
   "unreadableThreads.copyDetails": "复制详情",
   "unreadableThreads.copied": "已复制",

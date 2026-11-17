@@ -1,3 +1,4 @@
+import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,8 +11,10 @@ import { createRejectedFileAlias } from "../../../../scripts/fixtures/filesystem
 
 import {
   acquireDatabaseLifecycleLock,
+  classifyLockOwnerProcess,
   DatabaseLifecycleLockedError,
   releaseDatabaseLifecycleLock,
+  setProcessIdentityProbeForTesting,
   withDatabaseLifecycleLock,
 } from "./DatabaseLifecycleLock.ts";
 import { makeSqlitePersistenceLive } from "./Layers/Sqlite.ts";
@@ -272,5 +275,274 @@ describe("database lifecycle lock", () => {
     if (startupExit._tag === "Failure") {
       expect(String(startupExit.cause)).toContain("DatabaseLifecycleLockedError");
     }
+  });
+});
+
+// 2026-11-17: an unclean stop left a lock whose pid Windows then gave to
+// conhost.exe; every later start refused with "owner pid … is live".
+describe("database lifecycle lock owner identity", () => {
+  const children: ChildProcess[] = [];
+  const HOUR_MS = 60 * 60 * 1_000;
+
+  afterEach(() => {
+    for (const child of children.splice(0)) {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    }
+  });
+
+  /** A real live process that is not a Moss backend and holds no lock. */
+  async function spawnBystander(): Promise<{ pid: number; spawnedAt: number }> {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => undefined, 60_000)"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    children.push(child);
+    const spawnedAt = Date.now();
+    await new Promise<void>((resolve, reject) => {
+      child.once("spawn", () => resolve());
+      child.once("error", reject);
+    });
+    return { pid: child.pid!, spawnedAt };
+  }
+
+  async function writeOwner(lockPath: string, owner: Record<string, unknown>): Promise<string> {
+    const token = randomUUID();
+    await fs.mkdir(lockPath, { mode: 0o700 });
+    await fs.writeFile(
+      path.join(lockPath, "owner.json"),
+      `${JSON.stringify({ ...owner, token })}\n`,
+      { mode: 0o600 },
+    );
+    return token;
+  }
+
+  async function expectRecovered(dbPath: string): Promise<void> {
+    const acquired = await Effect.runPromise(acquireDatabaseLifecycleLock(dbPath));
+    try {
+      expect(acquired.owner.pid).toBe(process.pid);
+      const written = JSON.parse(
+        await fs.readFile(path.join(acquired.lockPath, "owner.json"), "utf8"),
+      );
+      expect(written).toEqual(acquired.owner);
+    } finally {
+      await Effect.runPromise(releaseDatabaseLifecycleLock(acquired));
+    }
+    const leftovers = (await fs.readdir(path.dirname(dbPath))).filter((entry) =>
+      entry.includes(".lifecycle-lock"),
+    );
+    expect(leftovers).toEqual([]);
+  }
+
+  it("records the owner's start time and executable", async () => {
+    const dbPath = await makeDbPath();
+    const acquired = await Effect.runPromise(acquireDatabaseLifecycleLock(dbPath));
+    try {
+      const written = JSON.parse(
+        await fs.readFile(path.join(acquired.lockPath, "owner.json"), "utf8"),
+      );
+      expect(written.executable).toBe(path.basename(process.execPath));
+      const startedAt = Date.parse(written.processStartedAt);
+      expect(Math.abs(startedAt - (Date.now() - process.uptime() * 1_000))).toBeLessThan(1_000);
+      expect(startedAt).toBeLessThanOrEqual(Date.parse(written.createdAt));
+    } finally {
+      await Effect.runPromise(releaseDatabaseLifecycleLock(acquired));
+    }
+  });
+
+  it("recovers a lock whose owner is dead (current format)", async () => {
+    const dbPath = await makeDbPath();
+    await writeOwner(`${dbPath}.lifecycle-lock`, {
+      pid: 2_147_483_000,
+      createdAt: new Date().toISOString(),
+      processStartedAt: new Date(Date.now() - 5_000).toISOString(),
+      executable: path.basename(process.execPath),
+    });
+    await expectRecovered(dbPath);
+  });
+
+  it("recovers a 1.0.7 lock (no identity fields) whose owner is dead", async () => {
+    const dbPath = await makeDbPath();
+    // Same shape as the lock found on the owner's PC on 2026-11-17.
+    await writeOwner(`${dbPath}.lifecycle-lock`, {
+      pid: 2_147_483_000,
+      createdAt: "2026-11-17T11:08:34.698Z",
+    });
+    await expectRecovered(dbPath);
+  });
+
+  it("recovers a 1.0.7 lock whose pid now belongs to another process", async () => {
+    const dbPath = await makeDbPath();
+    const bystander = await spawnBystander();
+    await writeOwner(`${dbPath}.lifecycle-lock`, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt - HOUR_MS).toISOString(),
+    });
+    await expectRecovered(dbPath);
+  }, 30_000);
+
+  it("recovers a lock whose pid is alive but runs a different program", async () => {
+    const dbPath = await makeDbPath();
+    const bystander = await spawnBystander();
+    await writeOwner(`${dbPath}.lifecycle-lock`, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt - HOUR_MS).toISOString(),
+      processStartedAt: new Date(bystander.spawnedAt - HOUR_MS - 3_000).toISOString(),
+      executable: "Moss.exe",
+    });
+    await expectRecovered(dbPath);
+  }, 30_000);
+
+  it.runIf(process.platform === "win32")(
+    "recovers on Windows when the executable differs even without a start-time hint",
+    async () => {
+      const dbPath = await makeDbPath();
+      const bystander = await spawnBystander();
+      // The lock claims to be newer than the process: only the name can tell.
+      await writeOwner(`${dbPath}.lifecycle-lock`, {
+        pid: bystander.pid,
+        createdAt: new Date(Date.now() + 60_000).toISOString(),
+        processStartedAt: new Date().toISOString(),
+        executable: "Moss.exe",
+      });
+      await expectRecovered(dbPath);
+    },
+    30_000,
+  );
+
+  it("recovers when the pid runs the same executable but started after the lock", async () => {
+    const dbPath = await makeDbPath();
+    const bystander = await spawnBystander();
+    await writeOwner(`${dbPath}.lifecycle-lock`, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt - HOUR_MS).toISOString(),
+      processStartedAt: new Date(bystander.spawnedAt - HOUR_MS - 3_000).toISOString(),
+      executable: path.basename(process.execPath),
+    });
+    await expectRecovered(dbPath);
+  }, 30_000);
+
+  it("recovers a lock left by a dead owner whose pid this process inherited", async () => {
+    const dbPath = await makeDbPath();
+    const startedAt = Date.now() - process.uptime() * 1_000;
+    await writeOwner(`${dbPath}.lifecycle-lock`, {
+      pid: process.pid,
+      createdAt: new Date(startedAt - HOUR_MS).toISOString(),
+    });
+    await expectRecovered(dbPath);
+  });
+
+  it("keeps a 1.0.7 lock whose owner is still the same running process", async () => {
+    const dbPath = await makeDbPath();
+    const lockPath = `${dbPath}.lifecycle-lock`;
+    const bystander = await spawnBystander();
+    // Written after the process started, as a real owner would.
+    const token = await writeOwner(lockPath, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt + 5_000).toISOString(),
+    });
+    await expect(Effect.runPromise(acquireDatabaseLifecycleLock(dbPath))).rejects.toThrow(
+      `owner pid ${bystander.pid} is live`,
+    );
+    expect(JSON.parse(await fs.readFile(path.join(lockPath, "owner.json"), "utf8")).token).toBe(
+      token,
+    );
+  }, 30_000);
+
+  it("keeps the lock when the owner's identity cannot be read", async () => {
+    const dbPath = await makeDbPath();
+    const lockPath = `${dbPath}.lifecycle-lock`;
+    const bystander = await spawnBystander();
+    await writeOwner(lockPath, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt - HOUR_MS).toISOString(),
+    });
+    const restore = setProcessIdentityProbeForTesting(async () => ({ state: "unknown" }));
+    try {
+      await expect(Effect.runPromise(acquireDatabaseLifecycleLock(dbPath))).rejects.toThrow(
+        `owner pid ${bystander.pid} is live`,
+      );
+    } finally {
+      restore();
+    }
+    await expect(fs.stat(path.join(lockPath, "owner.json"))).resolves.toBeDefined();
+  }, 30_000);
+
+  it("does not take over a reaper guard whose pid is a live process that predates it", async () => {
+    const dbPath = await makeDbPath();
+    const lockPath = `${dbPath}.lifecycle-lock`;
+    const bystander = await spawnBystander();
+    await writeOwner(lockPath, { pid: 2_147_483_000, createdAt: new Date().toISOString() });
+    await writeOwner(`${lockPath}.reaper`, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt + 5_000).toISOString(),
+    });
+    await expect(Effect.runPromise(acquireDatabaseLifecycleLock(dbPath))).rejects.toThrow(
+      `stale-lock recovery owner pid ${bystander.pid} is live`,
+    );
+  }, 30_000);
+
+  it("recovers a reaper guard whose pid was reused", async () => {
+    const dbPath = await makeDbPath();
+    const lockPath = `${dbPath}.lifecycle-lock`;
+    const bystander = await spawnBystander();
+    await writeOwner(lockPath, { pid: 2_147_483_000, createdAt: new Date().toISOString() });
+    await writeOwner(`${lockPath}.reaper`, {
+      pid: bystander.pid,
+      createdAt: new Date(bystander.spawnedAt - HOUR_MS).toISOString(),
+    });
+    await expectRecovered(dbPath);
+  }, 30_000);
+
+  describe("classifyLockOwnerProcess", () => {
+    const createdAt = "2026-11-17T11:08:34.698Z";
+    const createdAtMs = Date.parse(createdAt);
+
+    it("passes through dead and unknown", () => {
+      expect(classifyLockOwnerProcess({ createdAt }, { state: "dead" })).toBe("dead");
+      expect(classifyLockOwnerProcess({ createdAt }, { state: "unknown" })).toBe("unknown");
+    });
+
+    it("treats a process started after the lock as a reused pid", () => {
+      const reused = { state: "live", startedAtMs: createdAtMs + 8 * 60 * 60 * 1_000 } as const;
+      expect(classifyLockOwnerProcess({ createdAt }, reused, "win32")).toBe("dead");
+      expect(classifyLockOwnerProcess({ createdAt }, reused, "linux")).toBe("dead");
+      expect(
+        classifyLockOwnerProcess(
+          { createdAt },
+          { state: "live", startedAtMs: createdAtMs + 1_500 },
+        ),
+      ).toBe("live");
+      expect(
+        classifyLockOwnerProcess(
+          { createdAt },
+          { state: "live", startedAtMs: createdAtMs - 4_000 },
+        ),
+      ).toBe("live");
+    });
+
+    it("compares executable names on Windows only, ignoring case and .exe", () => {
+      const observed = { state: "live", executable: "conhost.exe" } as const;
+      expect(
+        classifyLockOwnerProcess({ createdAt, executable: "Moss.exe" }, observed, "win32"),
+      ).toBe("dead");
+      expect(
+        classifyLockOwnerProcess({ createdAt, executable: "Moss.exe" }, observed, "darwin"),
+      ).toBe("live");
+      expect(
+        classifyLockOwnerProcess(
+          { createdAt, executable: "Moss.exe" },
+          { state: "live", executable: "moss" },
+          "win32",
+        ),
+      ).toBe("live");
+      expect(classifyLockOwnerProcess({ createdAt }, observed, "win32")).toBe("live");
+    });
+
+    it("keeps a live owner when nothing about the process can be read", () => {
+      expect(classifyLockOwnerProcess({ createdAt }, { state: "live" })).toBe("live");
+      expect(
+        classifyLockOwnerProcess({ createdAt: "not a date" }, { state: "live", startedAtMs: 1 }),
+      ).toBe("live");
+    });
   });
 });
