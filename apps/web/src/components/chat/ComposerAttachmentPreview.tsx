@@ -34,6 +34,7 @@ import {
   type MarkupTool,
 } from "../markup/markup.logic";
 import { IconButton } from "../ui/icon-button";
+import { keepOpenForInnerPopupEscape } from "../ui/innerPopupEscape";
 import { toastManager } from "../ui/toast";
 import { fileAttachmentTypeLabel } from "./FileAttachmentChip";
 import { FileEntryIcon } from "./FileEntryIcon";
@@ -291,9 +292,9 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
   return (
     <DialogPrimitive.Root
       open={open}
-      onOpenChange={(nextOpen) => {
+      onOpenChange={keepOpenForInnerPopupEscape((nextOpen) => {
         if (!nextOpen) dismiss();
-      }}
+      })}
     >
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop

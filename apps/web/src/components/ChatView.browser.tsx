@@ -4732,10 +4732,13 @@ describe("ChatView transcript geometry (full app)", () => {
                 const actionsRect = actions.getBoundingClientRect();
                 for (const label of [...row.querySelectorAll<HTMLElement>("span")].filter(
                   (element) =>
-                    element.classList.contains("truncate-fade") ||
-                    (!element.parentElement?.closest(".truncate-fade") &&
-                      (element.textContent === "Customer portal workspace" ||
-                        titles.includes(element.textContent ?? ""))),
+                    // Popups render in place now (in the top layer, inside their trigger's
+                    // row); a tooltip's text is not row content.
+                    !element.closest('[data-slot$="-positioner"]') &&
+                    (element.classList.contains("truncate-fade") ||
+                      (!element.parentElement?.closest(".truncate-fade") &&
+                        (element.textContent === "Customer portal workspace" ||
+                          titles.includes(element.textContent ?? "")))),
                 )) {
                   const rect = label.getBoundingClientRect();
                   if (rect.top < actionsRect.bottom && rect.bottom > actionsRect.top) {
@@ -11331,11 +11334,9 @@ describe("ChatView transcript geometry (full app)", () => {
       await waitForLayout();
       await expect.element(searchbox, { timeout: 1_000 }).toBeVisible();
       await expect.element(slider, { timeout: 1_000 }).toHaveAttribute("aria-valuetext", "High");
-      slider
-        .element()
-        .dispatchEvent(
-          new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
-        );
+      // A real key press on the focused slider (UI SDK's slider ignores dispatched key events).
+      (slider.element() as HTMLElement).focus();
+      await userEvent.keyboard("{ArrowLeft}");
       await expect.element(slider, { timeout: 1_000 }).toHaveAttribute("aria-valuetext", "Medium");
       expect(
         useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.modelSelectionByProvider

@@ -196,7 +196,10 @@ describe("设计 in the 资料空间", () => {
       expect(kinds.indexOf("design")).toBe(kinds.indexOf("board") + 1);
       await shot(`02-create-menu-${theme}`);
       await entry.click();
-      await expect.element(page.getByText("这一页还没有画板", { exact: true })).toBeVisible();
+      // The empty page's heading (the play button's tooltip says the same words).
+      await expect
+        .element(page.getByRole("heading", { name: "这一页还没有画板", exact: true }))
+        .toBeVisible();
       expect([...items.values()].map((item) => item.kind)).toEqual(["design"]);
       expect(document.querySelector('[data-typed-item="design"]')).not.toBeNull();
       await shot(`03-new-design-empty-${theme}`);

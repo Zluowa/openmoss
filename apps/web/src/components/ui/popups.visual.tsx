@@ -9,7 +9,7 @@
 import "../../index.css";
 
 import type { ReactNode } from "react";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -88,13 +88,16 @@ function shownAt(selector: string): () => HTMLElement | null {
 async function shootElement(find: () => HTMLElement | null, name: string) {
   await expect.poll(find, { timeout: 3_000 }).not.toBeNull();
   await document.fonts.ready;
-  // Two frames, then any running entry animation must have finished.
+  // Two frames, then every finite animation on the page must have finished: a dialog's backdrop
+  // fades in as a separate element behind its translucent surface.
   await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   await Promise.all(
-    find()!
-      .getAnimations({ subtree: true })
+    document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
       .map((animation) => animation.finished.catch(() => undefined)),
   );
+  await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   await expect.element(page.elementLocator(find()!)).toMatchScreenshot(name);
 }
 
@@ -103,6 +106,9 @@ describe.each(THEMES)("popups and layers (%s)", (theme) => {
   beforeEach(async () => {
     restoreTheme = installBrowserFixtureTheme(theme);
     await page.viewport(1200, 900);
+    // Park the pointer in a corner: a press in an earlier case leaves it over a control, which
+    // would then be captured in its hover state.
+    await userEvent.hover(page.elementLocator(document.body), { position: { x: 1, y: 1 } });
   });
   afterEach(() => restoreTheme());
 
@@ -129,14 +135,14 @@ describe.each(THEMES)("popups and layers (%s)", (theme) => {
         </Menu>
       </Stage>,
     );
-    await shootElement(shownAt('[role="menu"]'), `menu-${theme}`);
+    // Moss's own surface, the same element whatever library draws the popup around it.
+    await shootElement(shownAt('[data-slot="menu-popup"]'), `menu-${theme}`);
   });
 
   it("select open", async () => {
     await render(
       <Stage>
         <Select
-          open
           value="comfortable"
           items={{ compact: "紧凑", comfortable: "舒适", spacious: "宽松" }}
         >
@@ -151,7 +157,12 @@ describe.each(THEMES)("popups and layers (%s)", (theme) => {
         </Select>
       </Stage>,
     );
-    await shootElement(shownAt('[role="listbox"]'), `select-${theme}`);
+    // Opened as a person opens it (a press), so the list lays its selected option over the trigger.
+    await userEvent.click(page.getByRole("combobox", { name: "密度" }));
+    await shootElement(shownAt('[data-slot="select-popup"]'), `select-${theme}`);
+    // Close it from the keyboard, so later cases see the input modality they always had (a
+    // dialog's focused button draws its focus ring only after keyboard input).
+    await userEvent.keyboard("{Escape}");
   });
 
   it("combobox open with search", async () => {
@@ -201,6 +212,9 @@ describe.each(THEMES)("popups and layers (%s)", (theme) => {
   });
 
   it("dialog", async () => {
+    // Keyboard input first: whether the dialog's focused button draws its ring depends on the last
+    // input, so it is set here instead of left to whichever case ran before.
+    await userEvent.keyboard("{Shift}");
     await render(
       <Stage>
         <Dialog open>
@@ -222,6 +236,9 @@ describe.each(THEMES)("popups and layers (%s)", (theme) => {
   });
 
   it("alert dialog", async () => {
+    // Keyboard input first: whether the dialog's focused button draws its ring depends on the last
+    // input, so it is set here instead of left to whichever case ran before.
+    await userEvent.keyboard("{Shift}");
     await render(
       <Stage>
         <AlertDialog open>
@@ -242,6 +259,9 @@ describe.each(THEMES)("popups and layers (%s)", (theme) => {
   });
 
   it("sheet", async () => {
+    // Keyboard input first: whether the dialog's focused button draws its ring depends on the last
+    // input, so it is set here instead of left to whichever case ran before.
+    await userEvent.keyboard("{Shift}");
     await render(
       <Stage>
         <Sheet open>

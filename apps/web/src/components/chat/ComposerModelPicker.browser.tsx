@@ -371,6 +371,23 @@ describe("ComposerModelPicker", () => {
     }
   });
 
+  it("commits the model row reached with the keyboard on Enter, once", async () => {
+    const onProviderModelChange = vi.fn();
+    const screen = await mountPicker({ onProviderModelChange });
+    try {
+      await expect.element(page.getByRole("searchbox", { name: "Search models" })).toHaveFocus();
+      await userEvent.keyboard("{ArrowDown}");
+      const row = page.getByRole("tabpanel").getByRole("menuitem").first();
+      await expect.element(row).toHaveFocus();
+      await userEvent.keyboard("{Enter}");
+      await expect.poll(() => onProviderModelChange.mock.calls.length).toBe(1);
+      // Enter chooses the row; it does not also open the row's effort submenu.
+      expect(page.getByRole("menuitemradio").elements()).toHaveLength(0);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("shows the agents in a column beside the models instead of in their place", async () => {
     await page.viewport(900, 700);
     useComposerDraftStore.getState().setModelSelection(THREAD_ID, {
@@ -753,6 +770,8 @@ describe("ComposerModelPicker", () => {
       expect(page.getByRole("menuitem", { name: /^Effort/u }).elements()).toHaveLength(0);
       expect(page.getByRole("menuitem", { name: /^Speed/u }).elements()).toHaveLength(0);
 
+      // Opening ends with focus in the search field; take the slider only after that.
+      await expect.element(page.getByRole("searchbox", { name: "Search models" })).toHaveFocus();
       await slider.element().focus();
       await userEvent.keyboard("{ArrowRight}");
 
@@ -890,18 +909,16 @@ describe("ComposerModelPicker", () => {
       await expect.element(slider).toBeVisible();
       expect(trigger.element().getBoundingClientRect().width).toBeCloseTo(closedWidth, 1);
 
-      // The panel still settles its own focus right after open and can steal it
-      // back mid-typing, so step the thumb directly; each step must commit before
-      // the next, since back-to-back keydowns would read the stale value.
-      slider
-        .element()
-        .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      // Real key presses on the focused thumb, once the panel has settled its own focus after
+      // open; each step must commit before the next.
+      await expect.element(slider).toBeVisible();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      (slider.element() as HTMLElement).focus();
+      await userEvent.keyboard("{ArrowRight}");
       await expect.element(slider).toHaveAttribute("aria-valuetext", "High");
       // The live choice shows through while the frozen copy holds the size.
       await expect.element(trigger).toHaveTextContent(/High/u);
-      slider
-        .element()
-        .dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      await userEvent.keyboard("{ArrowRight}");
       await expect.element(slider).toHaveAttribute("aria-valuetext", "Extra High");
       expect(trigger.element().getBoundingClientRect().width).toBeCloseTo(closedWidth, 1);
     } finally {

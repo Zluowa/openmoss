@@ -416,12 +416,6 @@ export function SidebarAccountMenuView({
               aria-label={`${labels.openMenu}: ${identity.label}`}
               className="h-[30px] min-w-0 flex-1 gap-2 rounded-control px-1.5 text-ui-lg font-normal"
               data-testid="sidebar-account-menu-trigger"
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setMenuOpen(true);
-                }
-              }}
               title={identity.title}
             />
           }

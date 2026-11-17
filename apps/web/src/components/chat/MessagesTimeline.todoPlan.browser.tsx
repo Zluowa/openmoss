@@ -415,6 +415,9 @@ describe("MessagesTimeline todo-plan browser parity", () => {
     );
 
     try {
+      // Focus from the keyboard opens the tooltip (a focus moved by script after a pointer press
+      // does not, on UI SDK): a keyboard user's Tab comes first (modifier keys alone do not count).
+      await userEvent.keyboard("{Tab}");
       const row = document.querySelector<HTMLElement>('[data-todo-plan-row="true"]');
       const trigger = row?.querySelector<HTMLButtonElement>('[data-todo-plan-trigger="true"]');
       const donut = row?.querySelector<SVGSVGElement>('[data-todo-plan-donut="true"]');

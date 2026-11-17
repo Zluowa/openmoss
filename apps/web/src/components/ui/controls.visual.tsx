@@ -71,6 +71,9 @@ describe.each(THEMES)("controls (%s)", (theme) => {
   beforeEach(async () => {
     restoreTheme = installBrowserFixtureTheme(theme);
     await page.viewport(1200, 900);
+    // Park the pointer in a corner: a press in an earlier case leaves it over a control, which
+    // would then be captured in its hover state.
+    await userEvent.hover(page.elementLocator(document.body), { position: { x: 1, y: 1 } });
   });
   afterEach(() => {
     restoreTheme();

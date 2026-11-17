@@ -184,9 +184,12 @@ describe("sidebar thread hover card content", () => {
       expect(getComputedStyle(titleElement).webkitLineClamp).toBe("2");
       expect(titleElement.getBoundingClientRect().height).toBeLessThanOrEqual(lineHeight * 2 + 1);
       const popup = titleElement.closest<HTMLElement>(".app-popup-surface")!;
-      const card = popup.getBoundingClientRect();
       const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
-      expect(card.width).toBeCloseTo(16 * rootFontSize, 0);
+      // The settled card, after its opening scale-in.
+      await expect
+        .poll(() => Math.round(popup.getBoundingClientRect().width))
+        .toBe(Math.round(16 * rootFontSize));
+      const card = popup.getBoundingClientRect();
       // Title (two lines) plus three compact rows, nowhere near a screenful.
       expect(card.height).toBeLessThan(140);
     } finally {
