@@ -6,7 +6,7 @@ import "../../index.css";
 import { MessageId, TurnId } from "@moss/contracts";
 import axe from "axe-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { commands, page } from "vitest/browser";
+import { commands, page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import type { MossLocaleCode } from "../../appSettings";
@@ -225,9 +225,16 @@ describe("MessagesTimeline model-rerouted browser parity", () => {
           (assistantRow.textContent?.indexOf("The adapter is healthy.") ?? -1),
       ).toBe(true);
 
+      // Focus opens the tooltip while the person uses the keyboard (UI SDK does not open it for a
+      // focus moved by script after a pointer press). A plain key says so; a Tab would first show
+      // another button's tooltip over the transcript.
+      await userEvent.keyboard("q");
       trigger.focus();
       expect(document.activeElement).toBe(trigger);
-      await expect.poll(() => document.querySelector('[data-slot="tooltip-popup"]')).not.toBeNull();
+      // The one tooltip showing (one opened by the Tab before may still be fading out).
+      await expect
+        .poll(() => document.querySelectorAll('[data-slot="tooltip-popup"]').length)
+        .toBe(1);
       const popup = document.querySelector<HTMLElement>('[data-slot="tooltip-popup"]');
       const link = popup?.querySelector<HTMLAnchorElement>('a[href="https://chatgpt.com/cyber"]');
       if (!popup || !link) throw new Error("model-rerouted tooltip link is missing");
@@ -298,10 +305,15 @@ describe("MessagesTimeline model-rerouted browser parity", () => {
       if (!reroutedRow || !trigger) throw new Error("compact model-rerouted row is missing");
       expect(reroutedRow.textContent).toContain("你的请求已路由到 GPT-5.4。");
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+      await userEvent.keyboard("q"); // keyboard in use (see the first case)
       trigger.focus();
-      await expect.poll(() => document.querySelector('[data-slot="tooltip-popup"]')).not.toBeNull();
+      // The one tooltip showing (one opened by the Tab before may still be fading out).
+      await expect
+        .poll(() => document.querySelectorAll('[data-slot="tooltip-popup"]').length)
+        .toBe(1);
       const popup = document.querySelector<HTMLElement>('[data-slot="tooltip-popup"]');
-      const positioner = document.querySelector<HTMLElement>('[data-slot="tooltip-positioner"]');
+      // The showing tooltip's own positioner (closed tooltips keep theirs in the page).
+      const positioner = popup?.closest<HTMLElement>('[data-slot="tooltip-positioner"]');
       if (!popup || !positioner) throw new Error("compact tooltip controls are missing");
       expect(popup.querySelector('[data-model-rerouted-tooltip-line="1"]')?.textContent).toBe(
         "请注意：为减少网络滥用风险，你的请求已被重新路由。",

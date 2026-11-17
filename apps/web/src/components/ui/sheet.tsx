@@ -1,12 +1,23 @@
 "use client";
 
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
+import type * as React from "react";
 import { XIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
+import { keepOpenForInnerPopupEscape, useCloseMenusWhenOpen } from "./innerPopupEscape";
 
-const Sheet = SheetPrimitive.Root;
+function Sheet(props: React.ComponentProps<typeof SheetPrimitive.Root>) {
+  useCloseMenusWhenOpen(props.open);
+  // Escape while one of its UI SDK menus, selects or popovers shows closes only that popup.
+  return (
+    <SheetPrimitive.Root
+      {...props}
+      onOpenChange={keepOpenForInnerPopupEscape(props.onOpenChange)}
+    />
+  );
+}
 
 const SheetPortal = SheetPrimitive.Portal;
 

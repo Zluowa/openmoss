@@ -58,6 +58,21 @@ const SLIDER_VALUE_KEYS = new Set([
   "PageDown",
 ]);
 
+function stopValueKey(event: KeyboardEvent): void {
+  if (SLIDER_VALUE_KEYS.has(event.key)) event.stopPropagation();
+}
+
+/**
+ * Stops the value keys natively on the thumb: they bubble there after the range input has used
+ * them, and a menu around the slider may listen natively (UI SDK's does), before React's own
+ * handlers run at the root.
+ */
+function stopValueKeysAt(element: HTMLElement | null): (() => void) | void {
+  if (!element) return;
+  element.addEventListener("keydown", stopValueKey);
+  return () => element.removeEventListener("keydown", stopValueKey);
+}
+
 function stepMarkPercents(min: number, max: number, step: number): number[] {
   if (!(max > min) || !(step > 0)) return [];
   const marks: number[] = [];
@@ -194,9 +209,7 @@ function Slider({
             />
             <SliderThumb
               aria-label={ariaLabel}
-              onKeyDown={(event) => {
-                if (SLIDER_VALUE_KEYS.has(event.key)) event.stopPropagation();
-              }}
+              ref={stopValueKeysAt}
               className={cn(
                 "z-[2] size-[var(--slider-thumb-size)] cursor-grab rounded-full outline-none has-focus-visible:ring-2 has-focus-visible:ring-[color:var(--color-border-focus)]/40 has-focus-visible:ring-offset-1 has-focus-visible:ring-offset-background group-data-pressed/slider:cursor-grabbing",
                 magnetic && MAGNETIC_MOTION_CLASS,

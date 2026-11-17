@@ -207,7 +207,7 @@ export const COMPOSER_PICKER_MENU_OPTION_CLASS_NAME = `[&>svg,&>[data-slot=centr
 export const MENU_ICON_CLASS_NAME = "size-ui-icon shrink-0";
 
 /** Same as menu options, adapted for select item grid layout. */
-export const COMPOSER_PICKER_SELECT_OPTION_CLASS_NAME = `${COMPOSER_PICKER_MENU_OPTION_CLASS_NAME} grid in-data-[side=none]:min-w-[calc(var(--anchor-width)+1.25rem)]`;
+export const COMPOSER_PICKER_SELECT_OPTION_CLASS_NAME = `${COMPOSER_PICKER_MENU_OPTION_CLASS_NAME} grid in-data-align-trigger:min-w-[calc(var(--anchor-width)+1.25rem)]`;
 
 /** Same chrome as picker menus, for composer-attached tooltips. */
 export const COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME = `${COMPOSER_PICKER_MENU_SURFACE_CLASS_NAME} font-normal text-[var(--color-text-foreground)]`;

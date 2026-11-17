@@ -53,6 +53,20 @@ const activityKey = "moss:activity-onboarding:v1";
 const importKey = "moss:project-import-announcement:v1";
 const tourKey = "moss:feature-tour:since-0.9.2:v1";
 const coachmark = "See running tasks, completed work, and anything that needs your attention.";
+
+/**
+ * The copies of a text a person can see. A tooltip keeps its text in the page while closed
+ * (hidden, so the trigger stays described), so presence alone does not mean it shows.
+ */
+function shown(text: string): Element[] {
+  return page
+    .getByText(text)
+    .elements()
+    .filter((element) =>
+      element.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
+    );
+}
+
 const clients: QueryClient[] = [];
 const screens: Awaited<ReturnType<typeof render>>[] = [];
 
@@ -101,13 +115,13 @@ async function show() {
 it("waits for import and the feature tour before showing and remembering the Activity coachmark", async () => {
   const screen = await show();
   await expect.element(page.getByRole("dialog", { name: "Import projects" })).toBeVisible();
-  expect(page.getByText(coachmark).all()).toHaveLength(0);
+  expect(shown(coachmark)).toHaveLength(0);
   expect(localStorage.getItem(activityKey)).toBeNull();
   await page.getByRole("button", { name: "Not now" }).click();
   await expect
     .element(page.getByRole("dialog", { name: "A new home for your work" }))
     .toBeVisible();
-  expect(page.getByText(coachmark).all()).toHaveLength(0);
+  expect(shown(coachmark)).toHaveLength(0);
   expect(localStorage.getItem(activityKey)).toBeNull();
   await page.getByRole("button", { name: "Skip tour" }).click();
   await expect.element(page.getByText(coachmark)).toBeVisible();
@@ -124,14 +138,14 @@ it("leaves Activity unseen when import confirmation hands off to another flow", 
   await show();
   await page.getByRole("button", { name: "Import projects" }).click();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  expect(page.getByText(coachmark).all()).toHaveLength(0);
+  expect(shown(coachmark)).toHaveLength(0);
   expect(localStorage.getItem(activityKey)).toBeNull();
 });
 
 it("remembers an explicit Activity click while its coachmark is still queued", async () => {
   useOnboardingDialogStore.setState({ startupGateSettled: false });
   await show();
-  expect(page.getByText(coachmark).all()).toHaveLength(0);
+  expect(shown(coachmark)).toHaveLength(0);
   await page.getByRole("button", { name: "Switch to activity view" }).click();
   expect(localStorage.getItem(activityKey)).toBe("seen");
 });
@@ -174,7 +188,7 @@ it("queues the Tasks hint behind Activity and remembers selection across layouts
   screens.push(screen);
   const copy = "Keep your to-dos in one place and hand them to an agent when you’re ready.";
   await expect.element(page.getByText(coachmark)).toBeVisible();
-  expect(page.getByText(copy).all()).toHaveLength(0);
+  expect(shown(copy)).toHaveLength(0);
   await page.getByRole("button", { name: "Switch to activity view" }).click();
   await expect.element(page.getByText(copy)).toBeVisible();
   await page.getByRole("button", { name: "Open tasks" }).click();
@@ -202,7 +216,7 @@ it("queues the Tasks hint behind Activity and remembers selection across layouts
     </TooltipProvider>,
   );
   screens.push(remounted);
-  expect(page.getByText(copy).all()).toHaveLength(0);
+  expect(shown(copy)).toHaveLength(0);
   await page.getByRole("button", { name: "Tasks", exact: true }).click();
   expect(selectTasks).toHaveBeenCalledTimes(2);
 });

@@ -4,6 +4,7 @@ import { Dialog as CommandDialogPrimitive } from "@base-ui/react/dialog";
 import { SearchIcon } from "~/lib/icons";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
+import { keepOpenForInnerPopupEscape, useCloseMenusWhenOpen } from "./innerPopupEscape";
 import { ShortcutKbd } from "./kbd";
 import {
   Autocomplete,
@@ -18,7 +19,16 @@ import {
   AutocompleteStatus,
 } from "~/components/ui/autocomplete";
 
-const CommandDialog = CommandDialogPrimitive.Root;
+function CommandDialog(props: React.ComponentProps<typeof CommandDialogPrimitive.Root>) {
+  useCloseMenusWhenOpen(props.open);
+  // Escape while one of its UI SDK menus, selects or popovers shows closes only that popup.
+  return (
+    <CommandDialogPrimitive.Root
+      {...props}
+      onOpenChange={keepOpenForInnerPopupEscape(props.onOpenChange)}
+    />
+  );
+}
 
 const CommandDialogPortal = CommandDialogPrimitive.Portal;
 

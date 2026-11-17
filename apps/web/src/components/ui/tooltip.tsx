@@ -1,16 +1,106 @@
-import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
+"use client";
+
+import {
+  createTooltipController,
+  Tooltip as TooltipPrimitive,
+  TooltipContent,
+  TooltipTrigger as TooltipTriggerPrimitive,
+} from "@ui-sdk/react/tooltip";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 
 import { cn } from "~/lib/utils";
 import {
   APP_TOOLTIP_SURFACE_CLASS_NAME,
   COMPOSER_PICKER_TOOLTIP_SURFACE_CLASS_NAME,
 } from "../chat/composerPickerStyles";
+import { useProvideTriggerOptions, useTriggerOptions } from "./triggerOptions";
+import { renderElement as renderElementFn } from "@ui-sdk/react/primitive";
+import { isValidElement } from "react";
 
-const TooltipCreateHandle = TooltipPrimitive.createHandle;
+import { definedProps, type Loose, type LooseRender } from "./uiSdkProps";
 
-const TooltipProvider = TooltipPrimitive.Provider;
+/** Detached triggers: UI SDK connects a trigger outside the tooltip through a controller. */
+const TooltipCreateHandle = createTooltipController;
 
-const Tooltip = TooltipPrimitive.Root;
+/**
+ * Kept for callers that wrap a group of tooltips. UI SDK groups tooltips by itself: while one is
+ * open, or was a moment ago, the next opens at once.
+ */
+function TooltipProvider({
+  children,
+}: {
+  children?: ReactNode;
+  delay?: number;
+  closeDelay?: number;
+}) {
+  return <>{children}</>;
+}
+
+type TooltipRootProps = Loose<ComponentProps<typeof TooltipPrimitive>> & {
+  /** Base UI let the pointer rest on the tooltip; Moss tooltips are text, so it is accepted only. */
+  disableHoverablePopup?: boolean | undefined;
+};
+
+/**
+ * Whether the tooltip's surface is drawn: while it is open and for its closing animation. UI SDK
+ * keeps a closed tooltip's content in the page; Moss draws the surface only while it shows, as on
+ * Base UI, so a page full of triggers does not carry every tooltip's content, and a query for
+ * "the tooltip" finds the one a person sees.
+ */
+const TooltipShown = createContext<boolean | null>(null);
+
+/** Longer than the closing transition (duration-120 on the positioner). */
+const CLOSING_MS = 200;
+
+function Tooltip({
+  disableHoverablePopup: _disableHoverablePopup,
+  children,
+  onOpenChange,
+  ...props
+}: TooltipRootProps) {
+  const [fromTrigger, provide] = useTriggerOptions();
+  const [ownOpen, setOwnOpen] = useState(Boolean(props.defaultOpen));
+  const open = props.open ?? ownOpen;
+  const [closing, setClosing] = useState(false);
+  useEffect(() => {
+    if (open) {
+      setClosing(true);
+      return;
+    }
+    const timer = setTimeout(() => setClosing(false), CLOSING_MS);
+    return () => clearTimeout(timer);
+  }, [open]);
+  return (
+    <TooltipShown.Provider value={open || closing}>
+      <TooltipPrimitive
+        {...definedProps<object, ComponentProps<typeof TooltipPrimitive>>({
+          ...props,
+          delay: props.delay ?? fromTrigger.delay,
+          closeDelay: props.closeDelay ?? fromTrigger.closeDelay,
+          closeOnPress: props.closeOnPress ?? fromTrigger.closeOnClick,
+          onOpenChange: (next: boolean, details: unknown) => {
+            setOwnOpen(next);
+            (onOpenChange as ((next: boolean, details: unknown) => void) | undefined)?.(
+              next,
+              details,
+            );
+          },
+        })}
+      >
+        {provide(children as ReactNode)}
+      </TooltipPrimitive>
+    </TooltipShown.Provider>
+  );
+}
 
 /**
  * Tooltip surface variants. Every tooltip in the app is the same `TooltipPopup`;
@@ -35,8 +125,86 @@ const TOOLTIP_SURFACE_BY_VARIANT: Record<TooltipVariant, string> = {
   command: "rounded-control bg-[#0d0d0d] text-white shadow-lg",
 };
 
-function TooltipTrigger(props: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+type TooltipTriggerProps = Loose<Omit<ComponentProps<typeof TooltipTriggerPrimitive>, "render">> & {
+  render?: LooseRender | undefined;
+  /** Milliseconds the pointer rests on the trigger before the tooltip opens. */
+  delay?: number | undefined;
+  closeDelay?: number | undefined;
+  /** Whether pressing the trigger closes the tooltip. */
+  closeOnClick?: boolean | undefined;
+};
+
+function TooltipTrigger({
+  delay,
+  closeDelay,
+  closeOnClick,
+  render,
+  ...props
+}: TooltipTriggerProps) {
+  useProvideTriggerOptions({ delay, closeDelay, closeOnClick });
+  // UI SDK describes a trigger by its tooltip. A trigger with a description of its own (a row's
+  // PR state) keeps that one, and a closed tooltip describes nothing (Moss draws no surface for
+  // it, and Base UI linked none): the link stays only while the tooltip shows.
+  const own = props as Record<string, unknown>;
+  const fromElement = isValidElement(render) ? (render.props as Record<string, unknown>) : {};
+  const ownDescription =
+    own["aria-description"] ??
+    own["aria-describedby"] ??
+    fromElement["aria-description"] ??
+    fromElement["aria-describedby"];
+  return (
+    <TooltipTriggerPrimitive
+      {...definedProps<object, ComponentProps<typeof TooltipTriggerPrimitive>>(props)}
+      render={(triggerProps: Record<string, any>, state: { open?: boolean }) =>
+        renderElementFn(
+          "button",
+          {
+            ...triggerProps,
+            "aria-describedby":
+              ownDescription !== undefined
+                ? (own["aria-describedby"] as string | undefined)
+                : state.open
+                  ? triggerProps["aria-describedby"]
+                  : undefined,
+          },
+          render as never,
+          state,
+        )
+      }
+      data-slot="tooltip-trigger"
+    />
+  );
+}
+
+/**
+ * Classes every popup root sets so it does not take type or pointer behaviour from where its
+ * trigger sits: UI SDK renders popups in place (in the top layer), so inherited properties come
+ * from the trigger's surroundings, where Base UI's portal started from the page body.
+ */
+export const POPUP_INHERITANCE_RESET_CLASS_NAME =
+  "pointer-events-auto visible whitespace-normal text-start not-italic normal-case tracking-normal font-sans font-normal";
+
+type TooltipPopupProps = Omit<Loose<ComponentProps<typeof TooltipContent>>, "className"> & {
+  className?: string | undefined;
+  // Surface chrome preset; see TOOLTIP_SURFACE_BY_VARIANT. `className` still wins
+  // for per-tooltip tweaks (max-width, wrapping) on top of the chosen variant.
+  variant?: TooltipVariant | undefined;
+  // Kept for callers; the popup itself is the positioned element now, so this joins its classes.
+  positionerClassName?: string | undefined;
+  // The viewport owns the inner inset (px-2 py-1) for plain text tooltips; rich
+  // cards that bring their own padding can zero it here so they don't double up.
+  viewportClassName?: string | undefined;
+};
+
+const neverChanges = () => () => {};
+
+/** False while React renders to a string (no page), true in the app. */
+function useInPage(): boolean {
+  return useSyncExternalStore(
+    neverChanges,
+    () => true,
+    () => false,
+  );
 }
 
 function TooltipPopup({
@@ -47,66 +215,91 @@ function TooltipPopup({
   align: alignProp,
   sideOffset: sideOffsetProp,
   side: sideProp,
-  anchor,
   children,
+  style,
   ...props
-}: TooltipPrimitive.Popup.Props & {
-  align?: TooltipPrimitive.Positioner.Props["align"];
-  side?: TooltipPrimitive.Positioner.Props["side"];
-  sideOffset?: TooltipPrimitive.Positioner.Props["sideOffset"];
-  anchor?: TooltipPrimitive.Positioner.Props["anchor"];
-  // Surface chrome preset; see TOOLTIP_SURFACE_BY_VARIANT. `className` still wins
-  // for per-tooltip tweaks (max-width, wrapping) on top of the chosen variant.
-  variant?: TooltipVariant;
-  // Stacking lives on the positioner (the portaled, positioned element), so a
-  // z-index override has to land here rather than on the popup className.
-  positionerClassName?: string;
-  // The viewport owns the inner inset (px-2 py-1) for plain text tooltips; rich
-  // cards that bring their own padding can zero it here so they don't double up.
-  viewportClassName?: string;
-}) {
+}: TooltipPopupProps) {
   const variant = variantProp ?? "default";
-  const align = alignProp ?? "center";
-  const sideOffset = sideOffsetProp ?? 4;
-  const side = sideProp ?? "top";
+  const shown = useContext(TooltipShown);
+  // The surface is drawn only once the tooltip opens, so UI SDK first places it at its empty size
+  // (over its own trigger) and corrects that a frame later. For two frames after opening it is
+  // invisible and lets presses through, as Base UI never showed an unplaced popup: a press on the
+  // trigger landed its release on the tooltip and lost its click.
+  const [placing, setPlacing] = useState(false);
+  useLayoutEffect(() => {
+    if (!shown) return;
+    setPlacing(true);
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => setPlacing(false));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [shown]);
+  // UI SDK keeps a closed tooltip in the page (it describes its trigger). Rendered to a string,
+  // with no page, there is nothing to describe and UI SDK cannot place it: render nothing there,
+  // as Base UI did for a closed tooltip.
+  const inPage = useInPage();
+  if (!inPage) return null;
+  // Base UI's shape, kept on purpose: UI SDK's content part is the positioned element (it sits in
+  // the top layer, so it is a stacking context), and Moss's surface is a plain child inside it. The
+  // frosted surface draws its blur on a `::before` at z-index -1, which must stay behind the
+  // surface's own background; on the top-layer element itself it would paint over it.
   return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Positioner
-        align={align}
-        anchor={anchor}
-        className={cn(
-          "z-50 h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none",
-          positionerClassName,
-        )}
-        data-slot="tooltip-positioner"
-        side={side}
-        sideOffset={sideOffset}
-      >
-        <TooltipPrimitive.Popup
-          className={cn(
-            // Structure + type are shared by every tooltip; the variant supplies the
-            // surface chrome (frosted card, picker, …) and `className` adds per-tooltip
-            // tweaks like max-width or wrapping.
-            "flex h-(--popup-height,auto) w-(--popup-width,auto) origin-(--transform-origin) text-ui leading-[1.125rem] transition-[width,height,scale,opacity] duration-120 ease-snap motion-reduce:transition-none data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0 data-instant:duration-0",
-            variant === "command" ? "font-mono whitespace-pre-wrap" : "text-balance",
-            TOOLTIP_SURFACE_BY_VARIANT[variant],
-            className,
-          )}
-          data-slot="tooltip-popup"
-          {...props}
-        >
-          <TooltipPrimitive.Viewport
+    <TooltipContent
+      {...definedProps<object, ComponentProps<typeof TooltipContent>>(props)}
+      align={alignProp ?? "center"}
+      side={sideProp ?? "top"}
+      sideOffset={sideOffsetProp ?? 4}
+      // Base UI kept popups 5px from the window's edge; UI SDK's default is 8px.
+      collisionPadding={(props as { collisionPadding?: number }).collisionPadding ?? 5}
+      className={cn(
+        POPUP_INHERITANCE_RESET_CLASS_NAME,
+        "z-50 max-w-(--available-width) outline-none data-placing:pointer-events-none data-placing:invisible",
+        "origin-(--transform-origin) transition-[scale,opacity] duration-120 ease-snap motion-reduce:transition-none motion-reduce:duration-0 data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
+        positionerClassName,
+      )}
+      render={(contentProps, state) => (
+        <div
+          {...contentProps}
+          // Only a showing tooltip is one to assistive technology and to queries for one: a
+          // closed UI SDK tooltip stays in the page, where Base UI left none.
+          role={state.open || shown ? (contentProps as { role?: string }).role : undefined}
+          data-instant={state.instant ? "" : undefined}
+          data-placing={placing ? "" : undefined}
+          data-slot="tooltip-positioner"
+        />
+      )}
+    >
+      {(state) =>
+        // Without a Moss root around it (a detached controller), it follows UI SDK's open state.
+        !(state.open || shown) ? null : (
+          <div
             className={cn(
-              "relative size-full overflow-clip px-(--viewport-inline-padding) py-1 [--viewport-inline-padding:--spacing(2)] data-instant:transition-none **:data-current:data-ending-style:opacity-0 **:data-current:data-starting-style:opacity-0 **:data-previous:data-ending-style:opacity-0 **:data-previous:data-starting-style:opacity-0 **:data-current:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:w-[calc(var(--popup-width)-2*var(--viewport-inline-padding)-2px)] **:data-previous:truncate **:data-current:opacity-100 **:data-previous:opacity-100 **:data-current:transition-opacity **:data-previous:transition-opacity",
-              viewportClassName,
+              // Structure + type are shared by every tooltip; the variant supplies the
+              // surface chrome (frosted card, picker, …) and `className` adds per-tooltip
+              // tweaks like max-width or wrapping.
+              "flex text-ui leading-[1.125rem]",
+              variant === "command" ? "font-mono whitespace-pre-wrap" : "text-balance",
+              TOOLTIP_SURFACE_BY_VARIANT[variant],
+              className,
             )}
-            data-slot="tooltip-viewport"
+            data-instant={state.instant ? "" : undefined}
+            data-slot="tooltip-popup"
+            // Base UI put a popup's style on the popup itself (callers size the surface with it).
+            style={typeof style === "function" ? style(state) : style}
           >
-            {children}
-          </TooltipPrimitive.Viewport>
-        </TooltipPrimitive.Popup>
-      </TooltipPrimitive.Positioner>
-    </TooltipPrimitive.Portal>
+            <div
+              className={cn(
+                "relative size-full overflow-clip px-(--viewport-inline-padding) py-1 [--viewport-inline-padding:--spacing(2)]",
+                viewportClassName,
+              )}
+              data-slot="tooltip-viewport"
+            >
+              {children as ReactNode}
+            </div>
+          </div>
+        )
+      }
+    </TooltipContent>
   );
 }
 

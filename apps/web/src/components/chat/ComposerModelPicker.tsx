@@ -298,7 +298,11 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     const target = focusAfterTabChangeRef.current;
     focusAfterTabChangeRef.current = "search";
     if (target === "stay") return;
-    const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
+    // Two frames: the menu moves focus to its first item one frame after a press opens it, and
+    // the search field must win over that.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => searchInputRef.current?.focus());
+    });
     return () => cancelAnimationFrame(frame);
   }, [isMenuOpen, tab]);
 

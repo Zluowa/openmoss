@@ -31,7 +31,8 @@ import { makeActivity } from "../../storeTestFixtures";
 import { deriveTimelineEntries, deriveWorkLogEntries, type WorkLogEntry } from "../../workLog";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessageCollapse";
 
-const TOOLTIP_TRIGGER_MARKER = 'data-base-ui-tooltip-trigger=""';
+// The wrapper's own mark on a tooltip trigger (the same with any primitive library underneath).
+const TOOLTIP_TRIGGER_MARKER = 'data-slot="tooltip-trigger"';
 // Every settled turn opens with a header carrying its final state.
 const TURN_HEADER_MARKER = 'data-turn-header="completed"';
 const FORK_SOURCE = {

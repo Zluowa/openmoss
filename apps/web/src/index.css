@@ -240,6 +240,15 @@
   [data-slot="central-icon"] {
     scale: 1.14;
   }
+  /* UI SDK shows popups with the browser's Popover API, whose defaults (a Canvas background,
+     CanvasText colour, overflow: auto) are not Moss's: the surface inside draws everything, and
+     the positioner stays a transparent, unclipped box with the page's text colour, as Base UI's
+     positioner at the end of the body was. Without this, frosted surfaces showed white behind. */
+  [data-slot$="-positioner"] {
+    background-color: transparent;
+    color: var(--color-foreground);
+    overflow: visible;
+  }
   body {
     @apply text-foreground relative;
     /* `--app-window-background` is the single translucent coat when the whole window is
