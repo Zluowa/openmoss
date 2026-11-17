@@ -36,6 +36,7 @@ export function fakeProjectionSnapshotQuery(
     getThreadCheckpointContext: unused,
     getThreadTurnDiffContext: unused,
     listGeneratedImageActivitiesByTurn: unused,
+    listWrapUpActivitiesByTurn: unused,
     hasHtmlRenderSurface: unused,
     getFullThreadDiffContext: unused,
     getThreadShellById: unused,

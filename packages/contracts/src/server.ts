@@ -643,10 +643,18 @@ export type ServerGenerateComposerPredictionInput =
  * turn and asking again cannot help, either because the model answered with none or because
  * nothing can generate one for this chat during the turn (its provider has no text
  * generation, or the platform refuses its account and no live prediction fork exists).
- * `unavailable`: no answer this time (timeout, provider failure, a busy or moved-on thread,
+ * `unavailable`: no answer this time, before any generation ran (a busy or moved-on thread,
  * a route that may still appear); a later request for the same turn may still get one.
+ * `generation-unavailable`: a generation ran, or may have, without a usable answer (timeout,
+ * provider failure, the thread moved on meanwhile). Also retried, fewer times: each retry
+ * pays for the provider again.
  */
-export const ComposerPredictionOutcome = Schema.Literals(["suggested", "none", "unavailable"]);
+export const ComposerPredictionOutcome = Schema.Literals([
+  "suggested",
+  "none",
+  "unavailable",
+  "generation-unavailable",
+]);
 export type ComposerPredictionOutcome = typeof ComposerPredictionOutcome.Type;
 
 export const ServerGenerateComposerPredictionResult = Schema.Struct({

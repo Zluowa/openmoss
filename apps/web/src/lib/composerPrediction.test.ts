@@ -238,6 +238,12 @@ describe("composerPredictionEntryForResult", () => {
     ).toEqual({ status: "unavailable", attempts: 2 });
   });
 
+  it("asks fewer times once the provider ran without an answer (Synara #2175)", () => {
+    expect(
+      composerPredictionEntryForResult({ suggestion: null, outcome: "generation-unavailable" }, 1),
+    ).toEqual({ status: "unavailable", attempts: 1, limitRetries: true });
+  });
+
   it("treats a bare null from an older server as unavailable, not as an answer", () => {
     expect(composerPredictionEntryForResult({ suggestion: null }, 1)).toEqual({
       status: "unavailable",
@@ -319,6 +325,16 @@ describe("nextComposerPredictionRequest", () => {
     expect(after(2)).toEqual({ attempt: 3, delayMs: 5_000 });
     expect(after(3)).toEqual({ attempt: 4, delayMs: 15_000 });
     expect(after(4)).toBeNull();
+  });
+
+  it("retries once after a miss the provider may already have paid for", () => {
+    const after = (attempts: number) =>
+      nextComposerPredictionRequest({
+        entry: { status: "unavailable", attempts, limitRetries: true },
+        settled: false,
+      });
+    expect(after(1)).toEqual({ attempt: 2, delayMs: 2_000 });
+    expect(after(2)).toBeNull();
   });
 
   it("does not ask while a request runs, after a result, or for a settled key", () => {

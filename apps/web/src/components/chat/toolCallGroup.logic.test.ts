@@ -48,8 +48,78 @@ describe("classifyToolCallSummaryCategory", () => {
     );
   });
 
+  it("classifies ACP native read and search tool names", () => {
+    // Grok/Cursor report reads through rawInput._toolName (read_file, view) and
+    // searches as `search`/`find`; all must count in the collapsed summary.
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g1", itemType: "dynamic_tool_call", toolName: "read_file" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g2", itemType: "dynamic_tool_call", toolName: "view" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g3", itemType: "dynamic_tool_call", toolName: "search" }),
+      ),
+    ).toBe("search");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g4", itemType: "web_search", toolName: "grep" }),
+      ),
+    ).toBe("search");
+  });
+
+  it("classifies ACP native read and search tool names", () => {
+    // Grok/Cursor report reads through rawInput._toolName (read_file, view) and
+    // searches as `search`/`find`; all must count in the collapsed summary.
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g1", itemType: "dynamic_tool_call", toolName: "read_file" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g2", itemType: "dynamic_tool_call", toolName: "view" }),
+      ),
+    ).toBe("read");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g3", itemType: "dynamic_tool_call", toolName: "search" }),
+      ),
+    ).toBe("search");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({ id: "g4", itemType: "web_search", toolName: "grep" }),
+      ),
+    ).toBe("search");
+  });
+
   it("classifies mutating commands, agent tasks, and MCP tools", () => {
     expect(classifyToolCallSummaryCategory(command("c1"))).toBe("command");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({
+          id: "compound",
+          itemType: "command_execution",
+          toolTitle: "Read src/app.ts",
+          command: "cat src/app.ts | head -n 5",
+        }),
+      ),
+    ).toBe("command");
+    expect(
+      classifyToolCallSummaryCategory(
+        workEntry({
+          id: "compound",
+          itemType: "command_execution",
+          toolTitle: "Read src/app.ts",
+          command: "cat src/app.ts | head -n 5",
+        }),
+      ),
+    ).toBe("command");
     expect(
       classifyToolCallSummaryCategory(workEntry({ id: "a1", itemType: "collab_agent_tool_call" })),
     ).toBe("agent");
@@ -135,6 +205,29 @@ describe("summarizeToolCallGroup", () => {
     ).toBeNull();
   });
 
+  // Lead review of #648, item 1: a multi-line PowerShell command that reads one
+  // file and deletes another is a command, never "read 3 files".
+  it("counts a read followed by more work on another line as a command", () => {
+    const launcher =
+      '"C:\\\\WINDOWS\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe" -Command';
+    const summary = summarizeToolCallGroup([
+      workEntry({
+        id: "p1",
+        itemType: "command_execution",
+        rawCommand: `${launcher} "Get-Content a.txt\nRemove-Item b.txt"`,
+        command: "Get-Content a.txt\nRemove-Item b.txt",
+      }),
+      workEntry({
+        id: "p2",
+        itemType: "command_execution",
+        rawCommand: `${launcher} "Get-Content c.txt\r\nRemove-Item d.txt"`,
+        command: "Get-Content c.txt\r\nRemove-Item d.txt",
+      }),
+    ]);
+    expect(summary?.label).toBe("Ran 2 commands");
+    expect(summary?.iconCategory).toBe("command");
+  });
+
   it("joins mixed categories with verbs in the order the work happened", () => {
     const summary = summarizeToolCallGroup([
       command("s1", 'rg -n "alpha" src'),
@@ -145,7 +238,7 @@ describe("summarizeToolCallGroup", () => {
       command("c2", "bun run lint"),
       command("s3", "rg gamma docs"),
     ]);
-    expect(summary?.label).toBe("Searched code, edited 2 files, ran 2 commands");
+    expect(summary?.label).toBe("Searched code 3 times, edited 2 files, ran 2 commands");
     expect(summary?.iconCategory).toBe("mixed");
   });
 
@@ -183,7 +276,7 @@ describe("summarizeToolCallGroup", () => {
     expect(summary?.failedCount).toBe(1);
   });
 
-  it("names at most three kinds and folds the rest into other actions", () => {
+  it("names at most three kinds; past that two, and folds the rest into other actions (Synara)", () => {
     const summary = summarizeToolCallGroup([
       claudeRead("r1", "/repo/a.ts"),
       command("c1", "bun run lint"),
@@ -191,7 +284,14 @@ describe("summarizeToolCallGroup", () => {
       command("s1", "rg foo src"),
       workEntry({ id: "m1", itemType: "mcp_tool_call", toolName: "linear_get_issue" }),
     ]);
-    expect(summary?.label).toBe("Read a file, ran a command, edited a file, and 2 more actions");
+    expect(summary?.label).toBe("Read a file, ran a command, and 3 more actions");
+    expect(
+      summarizeToolCallGroup([
+        claudeRead("r1", "/repo/a.ts"),
+        command("c1", "bun run lint"),
+        edit("e1", ["a.ts"]),
+      ])?.label,
+    ).toBe("Read a file, ran a command, edited a file");
   });
 
   it("wears the kind's glyph when every call is the same kind", () => {

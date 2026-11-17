@@ -394,11 +394,13 @@ describe("deriveReadableToolTitle", () => {
 });
 
 describe("deriveReadableCommandDisplay", () => {
-  it.each(["|", "\t\r\n|\t"])("keeps the first command before a pipe: %j", (pipe) => {
+  // A pipeline is not provably one read: the row names the whole command
+  // (lead review of #648), never only its first stage.
+  it.each(["|", "\t\r\n|\t"])("names the whole command of a pipeline: %j", (pipe) => {
     const command = `cat src/result.ts${pipe}head -n 1`;
     expect(deriveReadableCommandDisplay(command)).toEqual({
-      verb: "Read",
-      target: "src/result.ts",
+      verb: "Ran",
+      target: command.replace(/\s+/g, " ").trim(),
       fullCommand: command,
     });
   });
@@ -901,7 +903,8 @@ describe("deriveReadableCommandDisplay", () => {
     expect(verb("git diff")).toBe("已比较");
     expect(verb("git push", true)).toBe("正在推送");
     expect(verb("node script")).toBe("已运行");
-    expect(target("cat")).toBe("文件");
+    // A bare `cat` names no file, so the row names the command.
+    expect(target("cat")).toBe("cat");
     expect(target("ls")).toBe("目录");
     expect(target("find")).toBe("文件");
     expect(target("git diff")).toBe("更改");

@@ -8361,7 +8361,12 @@ export default function ChatView({
           {/* Chat column */}
           {/* 18px end padding shifts the centered 48rem column so the approval
               card's gutters match the Codex frame (about 131 left, 149 right). */}
-          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col pe-[18px]">
+          {/* `data-workspace-area="conversation"` is the theme hook for a chat background: the
+              whole chat column, composer included, on a new chat too (THEME_CSS_HOOKS). */}
+          <div
+            className="relative flex min-h-0 min-w-0 flex-1 flex-col pe-[18px]"
+            data-workspace-area="conversation"
+          >
             <div
               aria-hidden={terminalWorkspaceTerminalTabActive}
               className={cn(

@@ -21,12 +21,14 @@ import {
   MOSS_THEME_PRESETS,
   isMossThemePreset,
   themeCssLoadsRemoteFiles,
+  themeCssUnstableSelectors,
 } from "@moss/shared/themeCss";
 import { Effect, Schema, SchemaIssue } from "effect";
 
 import type { ServerSettingsShape } from "../serverSettings.ts";
 import { gatewayIsoNow } from "./creationUtils.ts";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol.ts";
+import { prepareThemeToolImages, THEME_TOOL_MAX_IMAGES } from "./themeToolImages.ts";
 import { errorText, ToolInputError } from "./toolInput.ts";
 import {
   READ_ONLY_TOOL_ANNOTATIONS,
@@ -39,6 +41,8 @@ export interface AgentGatewayThemeToolsInput {
   readonly requireThreadShell: (
     threadId: string,
   ) => Effect.Effect<Pick<OrchestrationThreadShell, "runtimeMode">, unknown, never>;
+  /** Where theme pictures are stored (`themeImagesDir(stateDir)`). */
+  readonly themeImagesDir: string;
 }
 
 const PACK_FIELDS = [
@@ -68,7 +72,7 @@ export const MOSS_THEME_READ_DESCRIPTION =
   "Read how to restyle Moss itself: presets, theme fields, stable CSS selectors and limits. Call before `moss_theme_set`.";
 
 export const MOSS_THEME_SET_DESCRIPTION =
-  "Restyle Moss itself, only when the user asks. Sets the light and/or dark pack (`css` goes to both) and switches this computer's Moss desktop app and this server's web app to it, not remote desktops. `appearance`: light, dark or system. `reset` alone restores Moss's default look. Full-access caller thread only.";
+  "Restyle Moss itself, only when the user asks. Sets the light and/or dark pack (`css` goes to both) and switches this computer's Moss desktop app and this server's web app to it, not remote desktops. `appearance`: light, dark or system. `reset` alone restores Moss's default look. `images` stores picture files at full quality for css to use. Full-access caller thread only.";
 
 const PACK_NAMES = ["light", "dark"] as const;
 
@@ -159,9 +163,20 @@ export function buildPublishedTheme(
   });
 }
 
+/** Selectors in the theme's CSS that are outside the stable hooks, at most 20, both packs. */
+function themeSelectorsOutsideHooks(theme: MossPublishedTheme): string[] {
+  const found = new Set<string>();
+  for (const variant of PACK_NAMES) {
+    const css = theme[variant]?.css;
+    if (css) for (const selector of themeCssUnstableSelectors(css)) found.add(selector);
+  }
+  return [...found].slice(0, 20);
+}
+
 export function makeAgentGatewayThemeTools({
   settings,
   requireThreadShell,
+  themeImagesDir,
 }: AgentGatewayThemeToolsInput): ReadonlyArray<ToolEntry> {
   const read: ToolEntry = {
     requiredCapability: "thread:read",
@@ -200,6 +215,11 @@ export function makeAgentGatewayThemeTools({
           css: { type: "string", maxLength: THEME_CSS_MAX_LENGTH },
           light: PACK_INPUT_SCHEMA,
           dark: PACK_INPUT_SCHEMA,
+          images: {
+            type: "object",
+            description: `Up to ${THEME_TOOL_MAX_IMAGES} pictures: name to absolute file path. css uses url(moss-theme-image:<name>).`,
+            additionalProperties: { type: "string" },
+          },
         },
         additionalProperties: false,
       },
@@ -217,20 +237,47 @@ export function makeAgentGatewayThemeTools({
             "Changing Moss's appearance needs a full-access thread. Ask the user to switch this thread to full access, or to change the theme in Settings > Appearance.",
           );
         }
-        const theme = yield* buildPublishedTheme(args, {
+        // Pictures are stored first, so the CSS the theme keeps holds stored references.
+        const prepared = yield* prepareThemeToolImages(args, themeImagesDir);
+        const theme = yield* buildPublishedTheme(prepared.args, {
           revision: randomUUID(),
           publishedAt: gatewayIsoNow(),
         });
         // The turn may have ended while this validated.
         yield* context.assertCallerTurnActive();
         yield* settings.updateSettings({ agentTheme: theme });
+        const unstableSelectors = themeSelectorsOutsideHooks(theme);
         return mcpToolResultJson({
-          applied: true,
+          saved: true,
           revision: theme.revision,
           packs: PACK_NAMES.filter((variant) => theme[variant] !== undefined),
           ...(theme.appearance === undefined ? {} : { appearance: theme.appearance }),
           ...(theme.reset === true ? { reset: true } : {}),
-          note: "Moss windows on this computer and the web app this server serves switch now. Ask the user how it looks.",
+          ...(unstableSelectors.length > 0 ? { unstableSelectors } : {}),
+          ...(Object.keys(prepared.stored).length > 0
+            ? {
+                images: Object.fromEntries(
+                  Object.entries(prepared.stored).map(([name, picture]) => [
+                    name,
+                    {
+                      reference: picture.reference,
+                      width: picture.width,
+                      height: picture.height,
+                      bytes: picture.bytes,
+                    },
+                  ]),
+                ),
+              }
+            : {}),
+          note: [
+            "Saved and sent to Moss windows on this computer and the web app this server serves. That does not mean every rule shows: you cannot see the screen.",
+            ...(unstableSelectors.length > 0
+              ? [
+                  "`unstableSelectors` are not in the stable list from moss_theme_read, so they may match nothing now or after an update. Prefer the stable selectors.",
+                ]
+              : []),
+            "Ask the user what they see before you say it worked.",
+          ].join(" "),
         });
       }).pipe(Effect.catch((error) => Effect.succeed(mcpToolResultError(errorText(error))))),
   };
