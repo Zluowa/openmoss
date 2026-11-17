@@ -124,7 +124,7 @@ import { getDefaultModel } from "@moss/shared/model";
 import { pluralize } from "@moss/shared/text";
 import { resolveThreadWorkspaceCwd } from "@moss/shared/threadEnvironment";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { useNavigate, useParams, useRouter, useSearch } from "@tanstack/react-router";
 import {
   type SidebarProjectSortOrder,
   type SidebarThreadSortOrder,
@@ -444,6 +444,7 @@ import {
   shouldClearThreadSelectionOnMouseDown,
   sortProjectsForSidebar,
   sortThreadsForSidebar,
+  shouldReopenThreadsViewFromRail,
 } from "./Sidebar.logic";
 import type { LastThreadRoute } from "../chatRouteRestore";
 import { useCopyPathToClipboard, useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
@@ -6375,6 +6376,18 @@ export default function Sidebar() {
 
   // Home and a pinned project switch the panel; route items navigate (prewarm included). The store's
   // active item keeps one item selected.
+  const router = useRouter();
+  // Read at click time: the route on screen trails a navigation that is still loading.
+  const reopenThreadsViewFromRail = () => {
+    if (
+      shouldReopenThreadsViewFromRail({
+        onThreadsSection: isOnThreadsSection,
+        committedPathname: pathname,
+        latestPathname: router.latestLocation.pathname,
+      })
+    )
+      openThreadsView();
+  };
   const isOnThreadsSection =
     !isOnMossbot &&
     !isOnSettings &&
@@ -6448,7 +6461,7 @@ export default function Sidebar() {
           selectRailPanelItem("home");
           // Projects live next to the threads only: from another section, Home goes back
           // to the thread view instead of opening over that section.
-          if (!isOnThreadsSection) openThreadsView();
+          reopenThreadsViewFromRail();
         },
       };
     }
@@ -6558,7 +6571,7 @@ export default function Sidebar() {
           setActivityViewEnabledSmoothly(false);
           selectRailPanelItem("project");
           openRailProject(project.id);
-          if (!isOnThreadsSection) openThreadsView();
+          reopenThreadsViewFromRail();
         },
       },
     ];
