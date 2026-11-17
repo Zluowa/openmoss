@@ -13,6 +13,7 @@ import { page, userEvent } from "vitest/browser";
 import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { composeChineseWithEnter } from "../test/imeComposition";
 import { WorkspaceSearchPalette, type WorkspaceSearchPaletteMode } from "./WorkspaceSearchPalette";
 
 const WORKSPACE_ROOT = "/Users/tester/project";
@@ -156,6 +157,34 @@ it("selects the auto-highlighted first row with Enter", async () => {
       expect(handlers.onOpenFile).toHaveBeenCalledWith("apps/web/src/components/Composer.tsx"),
     );
     expect(handlers.onOpenChange).toHaveBeenCalledWith(false);
+  } finally {
+    restoreNativeApi();
+  }
+});
+
+it("keeps the highlighted row closed while Enter confirms a pinyin candidate", async () => {
+  const searchEntries = vi.fn().mockResolvedValue({
+    entries: [{ path: "docs/Composer.md", kind: "file" }],
+    truncated: false,
+  });
+  const restoreNativeApi = installNativeApi({
+    projects: {
+      prewarmSearchIndex: vi.fn().mockResolvedValue({ started: true }),
+      searchEntries,
+    },
+  } as unknown as NativeApi);
+
+  try {
+    const handlers = await renderPalette("files");
+    const field = page.getByPlaceholder("Search files");
+    await field.fill("comp");
+    await expect.element(page.getByText("Composer.md", { exact: true })).toBeVisible();
+
+    await composeChineseWithEnter(field.element() as HTMLElement, "wendang", "文档");
+    await expect.poll(() => (field.element() as HTMLInputElement).value).toBe("comp文档");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(handlers.onOpenFile).not.toHaveBeenCalled();
+    expect(handlers.onOpenChange).not.toHaveBeenCalledWith(false);
   } finally {
     restoreNativeApi();
   }
