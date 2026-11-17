@@ -120,6 +120,9 @@ function makeHarness(
     readonly isolatedSupport?: IsolatedTextGenerationSupport;
     /** What the live thread says about a native prediction fork. */
     readonly nativeSupport?: ProviderNextUserMessagePredictionSupport;
+    /** Per instance, what the isolated path says; falls back to `isolatedSupport`. */
+    readonly isolatedSupportByInstance?: Readonly<Record<string, IsolatedTextGenerationSupport>>;
+    readonly settings?: Parameters<typeof ServerSettingsService.layerTest>[0];
   } = {},
 ) {
   const state = {
@@ -157,7 +160,12 @@ function makeHarness(
   );
   const getComposerPredictionSupport = vi.fn<
     NonNullable<TextGenerationShape["getComposerPredictionSupport"]>
-  >(() => Effect.succeed(options.isolatedSupport ?? { kind: "supported" }));
+  >((input) =>
+    Effect.succeed(
+      options.isolatedSupportByInstance?.[input.modelSelection?.instanceId ?? ""] ??
+        options.isolatedSupport ?? { kind: "supported" },
+    ),
+  );
   const getNextUserMessagePredictionSupport = vi.fn<
     ProviderServiceShape["getNextUserMessagePredictionSupport"]
   >(() => Effect.succeed(options.nativeSupport ?? { kind: "supported" }));
@@ -167,8 +175,21 @@ function makeHarness(
       text: '{"suggestion":"Fix the fixture and rerun that test."}',
     }),
   );
+  // `logs` leaves out the model and effort fields, which tests about them read from `rawLogs`.
   const logs: Array<{ readonly level: string; readonly message: unknown }> = [];
-  const logger = Logger.make(({ logLevel, message }) => logs.push({ level: logLevel, message }));
+  const rawLogs: Array<{ readonly level: string; readonly message: unknown }> = [];
+  const logger = Logger.make(({ logLevel, message }) => {
+    rawLogs.push({ level: logLevel, message });
+    const parts = Array.isArray(message) ? message : [message];
+    logs.push({
+      level: logLevel,
+      message: parts.map((part) => {
+        if (part === null || typeof part !== "object" || Array.isArray(part)) return part;
+        const { model: _model, effort: _effort, ...rest } = part as Record<string, unknown>;
+        return rest;
+      }),
+    });
+  });
   const layer = makeComposerPredictionServiceLive({
     startDelay: options.startDelay ?? Duration.zero,
   }).pipe(
@@ -185,7 +206,7 @@ function makeHarness(
         predictNextUserMessage,
       } as unknown as ProviderServiceShape),
     ),
-    Layer.provide(ServerSettingsService.layerTest()),
+    Layer.provide(ServerSettingsService.layerTest(options.settings ?? {})),
     Layer.provideMerge(TestClock.layer()),
     Layer.provideMerge(Logger.layer([logger], { mergeWithExisting: false })),
   );
@@ -206,6 +227,7 @@ function makeHarness(
   return {
     state,
     logs,
+    rawLogs,
     generateComposerPrediction,
     getComposerPredictionSupport,
     getNextUserMessagePredictionSupport,
@@ -1070,6 +1092,92 @@ describe("ComposerPredictionServiceLive after a turn that closed with a question
         outcome: "suggested",
         source: "git-writing-model",
         closingQuestion: true,
+      }),
+    ]);
+  });
+
+  // Owner's decision 2026-11-17: on Windows the person's own Codex account cannot run the
+  // isolated route, so a signed-in person's suggestion comes from Moss's own small model, a
+  // direct HTTP request, before the slow native fork is tried.
+  it("predicts the owner's own-Codex chat on Windows through the signed-in Moss model", async () => {
+    const harness = makeHarness({
+      modelSelection: {
+        provider: "codex",
+        instanceId: "codex",
+        model: "gpt-6.1-terra",
+        options: { reasoningEffort: "max" },
+      } as ModelSelection,
+      isolatedSupportByInstance: { codex: WINDOWS_BLOCKED, codex_moss: { kind: "supported" } },
+      settings: {
+        providerInstances: {
+          codex_moss: {
+            driver: "codex",
+            enabled: true,
+            displayName: "Moss",
+            config: {
+              managed: true,
+              modelAllowlist: ["gpt-5.6-terra", "gpt-5.6-luna", "deepseek-v4-pro"],
+              defaultModel: "gpt-5.6-terra",
+            },
+          },
+        },
+      } as Parameters<typeof ServerSettingsService.layerTest>[0],
+    });
+    harness.state.messages = OWNER_MESSAGES;
+    harness.state.wrapUps = [OWNER_CODEX_WRAP_UP_ACTIVITY];
+
+    await expect(harness.run(harness.generate)).resolves.toEqual({
+      suggestion: "Fix the fixture and rerun that test.",
+      outcome: "suggested",
+    });
+    // The closing question from #646 reaches the Moss model's transcript.
+    expect(harness.generateComposerPrediction).toHaveBeenCalledTimes(1);
+    expect(harness.generateComposerPrediction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversation: expect.stringContaining(OWNER_CLOSING_QUESTION),
+        modelSelection: expect.objectContaining({
+          provider: "codex",
+          instanceId: "codex_moss",
+          model: "gpt-5.6-luna",
+        }),
+      }),
+    );
+    // The fork is never asked once route 2 serves the chat.
+    expect(harness.getNextUserMessagePredictionSupport).not.toHaveBeenCalled();
+    expect(harness.predictNextUserMessage).not.toHaveBeenCalled();
+    expect(harness.rawLogs).toEqual([
+      predictionLog("Info", {
+        route: "isolated",
+        outcome: "suggested",
+        source: "moss-model-for-own-account",
+        model: "gpt-5.6-luna",
+        effort: expect.any(String),
+        closingQuestion: true,
+      }),
+    ]);
+  });
+
+  it("falls back to the native fork when the Moss route is not served (signed out)", async () => {
+    const harness = makeHarness({
+      modelSelection: CODEX_CHAT,
+      isolatedSupportByInstance: { codex: WINDOWS_BLOCKED, codex_moss: WINDOWS_BLOCKED },
+      settings: {
+        providerInstances: {
+          codex_moss: { driver: "codex", enabled: true, config: { managed: true } },
+        },
+      } as Parameters<typeof ServerSettingsService.layerTest>[0],
+    });
+
+    await harness.run(harness.generate);
+    expect(harness.generateComposerPrediction).not.toHaveBeenCalled();
+    expect(harness.predictNextUserMessage).toHaveBeenCalledTimes(1);
+    expect(harness.rawLogs).toEqual([
+      predictionLog("Info", {
+        route: "native",
+        outcome: "suggested",
+        source: "prediction-model",
+        model: "gpt-6-astra",
+        effort: "low",
       }),
     ]);
   });

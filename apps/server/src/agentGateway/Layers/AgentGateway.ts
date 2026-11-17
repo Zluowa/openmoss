@@ -1620,7 +1620,7 @@ export const makeAgentGateway = Effect.gen(function* () {
               requestKind: "tool",
               requestType: "tool",
               toolName: name,
-              toolParamsDisplay: computerApprovalDisplayArgs(args),
+              toolParamsDisplay: [...computerApprovalDisplayArgs(args)],
               sessionApprovalAvailable: false,
               ...(approvalScope !== undefined ? { approvalScope } : {}),
               ...(decision === undefined ? {} : { decision }),

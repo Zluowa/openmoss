@@ -211,6 +211,34 @@ export default mergeConfig(
           async emulateReducedMotion(context, reducedMotion: "reduce" | "no-preference") {
             await context.page.emulateMedia({ reducedMotion });
           },
+          // A Chinese input method's composition as the browser sees it: trusted CDP composition
+          // updates for each pinyin letter, then the commit of the chosen candidate. The key that
+          // confirms the candidate is dispatched by the test page itself (see
+          // src/test/imeComposition.ts), because Chrome reports that key per platform.
+          async imeCompose(context, pinyin: string) {
+            const session = await context.context.newCDPSession(context.page);
+            try {
+              let typed = "";
+              for (const letter of pinyin) {
+                typed += letter;
+                await session.send("Input.imeSetComposition", {
+                  text: typed,
+                  selectionStart: typed.length,
+                  selectionEnd: typed.length,
+                });
+              }
+            } finally {
+              await session.detach().catch(() => {});
+            }
+          },
+          async imeCommit(context, committed: string) {
+            const session = await context.context.newCDPSession(context.page);
+            try {
+              await session.send("Input.insertText", { text: committed });
+            } finally {
+              await session.detach().catch(() => {});
+            }
+          },
           async dragPointerSequence(
             context,
             sourceSelector: string,

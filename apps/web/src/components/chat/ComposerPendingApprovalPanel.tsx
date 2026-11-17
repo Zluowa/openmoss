@@ -14,6 +14,7 @@ import { type KeyboardEvent, useState, useRef } from "react";
 import { type PendingApproval } from "../../session-logic";
 import { useTranslation } from "../../localization";
 import { ChevronDownIcon, PencilIcon, TerminalIcon } from "~/lib/icons";
+import { approvalParamLabel } from "~/lib/approvalParamLabels";
 import { localizeMossAppsToolAction, resolveMcpApprovalTool } from "~/lib/toolCallLabel";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
@@ -422,6 +423,7 @@ function ApprovalDetail({
   suppressText?: string | null;
   hideFallback?: boolean;
 }) {
+  const { locale } = useTranslation();
   if (permissionProfile) {
     return (
       <div className="mt-2">
@@ -451,7 +453,7 @@ function ApprovalDetail({
             {toolParamsDisplay.map((parameter) => (
               <div className="grid grid-cols-[auto_1fr] gap-x-2" key={parameter.name}>
                 <dt className="font-medium text-muted-foreground/65">
-                  {parameter.displayName ?? parameter.name}
+                  {approvalParamLabel(parameter, locale)}
                 </dt>
                 <dd className="min-w-0 break-words font-mono text-foreground/80">
                   {formatToolParameterValue(parameter.value)}
