@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 import {
   MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY,
@@ -12,6 +12,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  checkReleaseRuntimeArchives,
   createCurlFeedClient,
   prepareFeedRelease,
   publishFeedRelease,
@@ -578,4 +579,213 @@ describe("createCurlFeedClient", () => {
       await new Promise((done) => server.close(done));
     }
   }, 30_000);
+});
+
+describe("checkReleaseRuntimeArchives", () => {
+  const SHA256 = "0123456789abcdef".repeat(4);
+  const PATH = `runtimes/v1/codex/1.2.3/codex-1.2.3-win32-x64-${SHA256.slice(0, 16)}.tar.zst`;
+  const runtime = {
+    name: "codex",
+    version: "1.2.3",
+    platform: "win32",
+    arch: "x64",
+    archive: { size: 4096, sha256: SHA256 },
+    executable: "codex.exe",
+    files: [],
+  };
+
+  function buildWithPins(runtimes: unknown[] | null, schemaVersion: unknown = 1): string {
+    const directory = writeBuildFolder();
+    if (runtimes !== null) {
+      writeFileSync(
+        join(directory, "runtime-pins.json"),
+        JSON.stringify({ schemaVersion, appVersion: VERSION, runtimes }),
+      );
+    }
+    return directory;
+  }
+
+  /** A home whose default settings folder lists two stores; R2 may lack its feed URL. */
+  function homeWithStores(options: { readonly r2Feed?: boolean } = {}) {
+    const home = mkdtempSync(join(tmpdir(), "moss-feed-release-home-"));
+    directories.push(home);
+    const listing = join(home, ".moss-release");
+    const write = (folder: string, values: Record<string, string>) => {
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(
+        join(folder, "update-mirror.env"),
+        Object.entries(values)
+          .map(([name, value]) => `${name}=${value}\n`)
+          .join(""),
+      );
+    };
+    write(listing, { MOSS_UPDATE_MIRROR_SETTINGS_DIRS: ["cos", "r2"].join(delimiter) });
+    write(join(listing, "cos"), {
+      MOSS_UPDATE_MIRROR_FEED_URL: "https://cos.example.test/desktop/",
+    });
+    write(
+      join(listing, "r2"),
+      options.r2Feed === false
+        ? {}
+        : { MOSS_UPDATE_MIRROR_FEED_URL: "https://r2.example.test/desktop/" },
+    );
+    return { home, listing };
+  }
+
+  /** Sources that serve the runtime archive only on the listed hosts. */
+  function sources(serving: readonly string[]) {
+    const requests: string[] = [];
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      requests.push(url.href);
+      return serving.includes(url.host) && url.pathname === `/${PATH}`
+        ? new Response(new Uint8Array(1), {
+            status: 206,
+            headers: { "content-range": "bytes 0-0/4096" },
+          })
+        : new Response(null, { status: 404 });
+    }) as typeof fetch;
+    return { requests, fetchImpl };
+  }
+
+  const quick = { attempts: 2, retryDelayMs: 0, timeoutMs: 1_000 };
+
+  it("needs no store settings for a build without runtime pins", async () => {
+    const network = sources([]);
+    await expect(
+      checkReleaseRuntimeArchives({
+        artifactsDirectory: buildWithPins(null),
+        mode: "publish",
+        env: {},
+        homeDirectory: join(tmpdir(), "moss-no-such-home"),
+        fetchImpl: network.fetchImpl,
+      }),
+    ).resolves.toEqual({ status: "no-pins" });
+    expect(network.requests).toEqual([]);
+  });
+
+  it("passes when every store serves every pinned archive", async () => {
+    const { home, listing } = homeWithStores();
+    const network = sources(["cos.example.test", "r2.example.test"]);
+    const logs: string[] = [];
+
+    const result = await checkReleaseRuntimeArchives({
+      artifactsDirectory: buildWithPins([runtime]),
+      mode: "publish",
+      env: {},
+      homeDirectory: home,
+      fetchImpl: network.fetchImpl,
+      log: (message) => logs.push(message),
+      ...quick,
+    });
+
+    expect(result).toMatchObject({ status: "checked", missing: 0 });
+    expect(network.requests).toEqual([
+      `https://cos.example.test/${PATH}`,
+      `https://r2.example.test/${PATH}`,
+    ]);
+    expect(logs).toEqual([
+      `Store folders listed in ${listing}: ${join(listing, "cos")}, ${join(listing, "r2")}`,
+      "Runtime archives: checking 1 pinned archive(s) on 2 store(s).",
+      `  ok   ${join(listing, "cos")} https://cos.example.test/${PATH}`,
+      `  ok   ${join(listing, "r2")} https://r2.example.test/${PATH}`,
+    ]);
+  });
+
+  it("refuses to publish when one store lacks an archive", async () => {
+    const { home } = homeWithStores();
+    const network = sources(["cos.example.test"]);
+
+    const failure = await checkReleaseRuntimeArchives({
+      artifactsDirectory: buildWithPins([runtime]),
+      mode: "publish",
+      env: {},
+      homeDirectory: home,
+      fetchImpl: network.fetchImpl,
+      ...quick,
+    }).then(
+      () => new Error("expected a failure"),
+      (error: unknown) => error as Error,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toMatch(/^Nothing was published\. 1 runtime archive\(s\)/);
+    expect(failure.message).toContain(`https://r2.example.test/${PATH} (`);
+    expect(failure.message).toContain("scripts/upload-moss-runtimes.ts --out");
+    expect(failure.message).not.toContain("https://cos.example.test/");
+  });
+
+  it("reports in a dry run that the publish would be refused", async () => {
+    const { home, listing } = homeWithStores();
+    const network = sources(["cos.example.test"]);
+    const logs: string[] = [];
+
+    const result = await checkReleaseRuntimeArchives({
+      artifactsDirectory: buildWithPins([runtime]),
+      mode: "dry-run",
+      env: {},
+      homeDirectory: home,
+      fetchImpl: network.fetchImpl,
+      log: (message) => logs.push(message),
+      ...quick,
+    });
+
+    expect(result).toMatchObject({ status: "checked", missing: 1 });
+    expect(logs).toContain(
+      `  FAIL ${join(listing, "r2")} https://r2.example.test/${PATH}: not served (HTTP 404)`,
+    );
+    expect(logs.at(-1)).toMatch(/^The publish would be refused\. 1 runtime archive\(s\)/);
+  });
+
+  it("refuses pinned runtimes when the stores cannot be resolved, naming the setting", async () => {
+    const { home } = homeWithStores({ r2Feed: false });
+    const network = sources(["cos.example.test", "r2.example.test"]);
+
+    await expect(
+      checkReleaseRuntimeArchives({
+        artifactsDirectory: buildWithPins([runtime]),
+        mode: "dry-run",
+        env: {},
+        homeDirectory: home,
+        fetchImpl: network.fetchImpl,
+        ...quick,
+      }),
+    ).rejects.toThrow(
+      /could not be resolved: Set MOSS_UPDATE_MIRROR_FEED_URL in every settings folder\..*Nothing was sent\./u,
+    );
+    expect(network.requests).toEqual([]);
+  });
+
+  it("refuses malformed pins and checks nothing for zero runtimes", async () => {
+    const network = sources([]);
+    const noHome = join(tmpdir(), "moss-no-such-home");
+    await expect(
+      checkReleaseRuntimeArchives({
+        artifactsDirectory: buildWithPins([runtime], 2),
+        mode: "dry-run",
+        env: {},
+        homeDirectory: noHome,
+        fetchImpl: network.fetchImpl,
+      }),
+    ).rejects.toThrow(/schemaVersion 2/);
+    await expect(
+      checkReleaseRuntimeArchives({
+        artifactsDirectory: buildWithPins([{ ...runtime, name: ".." }]),
+        mode: "dry-run",
+        env: {},
+        homeDirectory: noHome,
+        fetchImpl: network.fetchImpl,
+      }),
+    ).rejects.toThrow(/segments/);
+    await expect(
+      checkReleaseRuntimeArchives({
+        artifactsDirectory: buildWithPins([]),
+        mode: "publish",
+        env: {},
+        homeDirectory: noHome,
+        fetchImpl: network.fetchImpl,
+      }),
+    ).resolves.toEqual({ status: "checked", lines: [], missing: 0 });
+    expect(network.requests).toEqual([]);
+  });
 });
