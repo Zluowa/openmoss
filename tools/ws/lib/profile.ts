@@ -57,6 +57,8 @@ export interface Profile {
     readonly priorityOwners: readonly string[];
     /** The holder of the heavy lane is told after this long, then every 10 minutes. */
     readonly warnMinutes: number;
+    /** A `ws lane --quick` run is stopped after this long (it promised to be short). */
+    readonly quickCapMinutes: number;
   };
   readonly limits: {
     readonly leaseMaxAgeDays: number;
@@ -176,6 +178,7 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
         ? strList(lock, "priorityOwners")
         : ["lead"],
       warnMinutes: num(lock, "warnMinutes", 20),
+      quickCapMinutes: Math.max(0.05, num(lock, "quickCapMinutes", 10)),
     },
     limits: {
       leaseMaxAgeDays: num(limits, "leaseMaxAgeDays", 7),

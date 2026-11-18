@@ -5,7 +5,10 @@
 // A lock with several slots (`bun run check` allows two at once) is the directories <name>-1 to
 // <name>-N sharing one queue. Tickets of priority owners (profile lock.priorityOwners, the lead) go
 // ahead of the others, so the lead gets the lane when the current run ends; a running command is
-// never interrupted.
+// never interrupted. Then "quick" tickets (a capped job the caller declares with `ws lane --quick`)
+// go ahead of "long" ones, so a 4 s code-update build does not wait 39 min behind installers
+// (2026-11-18); after QUICK_STREAK quick runs in a row, a long ticket that has waited LONG_WAIT_MS
+// goes next, so long jobs are never starved.
 import fs from "node:fs";
 import path from "node:path";
 import { isAlive } from "./proc.ts";
@@ -42,7 +45,14 @@ export interface LockOptions {
   readonly label?: string;
   /** Owners whose tickets go ahead of everyone else's. */
   readonly priorityOwners?: readonly string[];
+  /** "quick" jobs go ahead of "long" ones (default "long"). */
+  readonly jobClass?: JobClass;
 }
+
+export type JobClass = "quick" | "long";
+/** Quick runs in a row after which a long ticket that waited LONG_WAIT_MS goes next. */
+export const QUICK_STREAK = 3;
+export const LONG_WAIT_MS = 10 * 60_000;
 
 export interface HeldLock {
   readonly path: string;
@@ -153,10 +163,55 @@ export interface Ticket {
   pid: number;
   owner: string;
   priority: boolean;
+  jobClass: JobClass;
+  /** When the ticket was taken (from its name). */
+  sinceMs: number;
 }
 
-/** Live tickets in queue order: priority owners first, then by time; dead tickets are removed. */
-export function liveTickets(queueDir: string, priorityOwners: readonly string[] = []): Ticket[] {
+/** How many quick runs have taken the lock in a row (reset by a long one). */
+export function readQuickStreak(queueDir: string): number {
+  try {
+    return Number(fs.readFileSync(`${queueDir}.streak`, "utf8")) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function writeQuickStreak(queueDir: string, jobClass: JobClass): void {
+  const next = jobClass === "quick" ? readQuickStreak(queueDir) + 1 : 0;
+  try {
+    fs.writeFileSync(`${queueDir}.streak`, String(next));
+  } catch {
+    // best effort
+  }
+}
+
+/**
+ * Queue order: priority owners first; then quick before long, except that after QUICK_STREAK quick
+ * runs in a row a long ticket that has waited LONG_WAIT_MS goes first; then by time. Pure.
+ */
+export function orderTickets(
+  tickets: readonly Ticket[],
+  quickStreak: number,
+  nowMs: number,
+): Ticket[] {
+  const starvedLong = quickStreak >= QUICK_STREAK;
+  const rank = (t: Ticket) => {
+    if (t.jobClass === "quick") return 1;
+    return starvedLong && nowMs - t.sinceMs >= LONG_WAIT_MS ? 0 : 2;
+  };
+  return tickets.toSorted(
+    (a, b) =>
+      Number(b.priority) - Number(a.priority) || rank(a) - rank(b) || a.name.localeCompare(b.name),
+  );
+}
+
+/** Live tickets in queue order (orderTickets); dead tickets are removed. */
+export function liveTickets(
+  queueDir: string,
+  priorityOwners: readonly string[] = [],
+  nowMs = Date.now(),
+): Ticket[] {
   let names: string[] = [];
   try {
     names = fs
@@ -179,18 +234,28 @@ export function liveTickets(queueDir: string, priorityOwners: readonly string[] 
       continue;
     }
     let owner = "";
+    let jobClass: JobClass = "long";
     try {
-      owner = String(
-        (JSON.parse(fs.readFileSync(file, "utf8")) as { owner?: unknown }).owner ?? "",
-      );
+      const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
+        owner?: unknown;
+        jobClass?: unknown;
+      };
+      owner = String(raw.owner ?? "");
+      if (raw.jobClass === "quick") jobClass = "quick";
     } catch {
       // being written: no priority this round
     }
-    out.push({ name, file, pid, owner, priority: priorityOwners.includes(owner) });
+    out.push({
+      name,
+      file,
+      pid,
+      owner,
+      priority: priorityOwners.includes(owner),
+      jobClass,
+      sinceMs: Number(name.split("-")[0]) || 0,
+    });
   }
-  return out.toSorted(
-    (a, b) => Number(b.priority) - Number(a.priority) || a.name.localeCompare(b.name),
-  );
+  return orderTickets(out, readQuickStreak(queueDir), nowMs);
 }
 
 function liveTicketsBefore(
@@ -198,7 +263,7 @@ function liveTicketsBefore(
   mine: string,
   priorityOwners: readonly string[],
 ): Ticket[] {
-  const queue = liveTickets(queueDir, priorityOwners);
+  const queue = liveTickets(queueDir, priorityOwners, Date.now());
   const index = queue.findIndex((ticket) => ticket.name === mine);
   return index === -1 ? queue : queue.slice(0, index);
 }
@@ -225,7 +290,12 @@ export async function acquireLock(options: LockOptions): Promise<HeldLock> {
   const ticket = path.join(queueDir, ticketName);
   fs.writeFileSync(
     ticket,
-    JSON.stringify({ ...options.owner, pid, since: new Date(now()).toISOString() }),
+    JSON.stringify({
+      ...options.owner,
+      pid,
+      jobClass: options.jobClass ?? "long",
+      since: new Date(now()).toISOString(),
+    }),
   );
   const dropTicket = () => {
     try {
@@ -244,6 +314,7 @@ export async function acquireLock(options: LockOptions): Promise<HeldLock> {
         const lockDir = lockDirs.find((candidate) => tryCreate(candidate, owner));
         if (lockDir) {
           dropTicket();
+          writeQuickStreak(queueDir, options.jobClass ?? "long");
           let held = owner;
           return {
             path: lockDir,

@@ -9,6 +9,7 @@
 
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { type AgentRuntimePin, agentRuntimeObjectPath } from "@moss/shared/agentRuntimeStore";
 import { MOSS_DOWNLOAD_SOURCES } from "@moss/shared/mossDownloadSources";
 
 /** The agent runtime pins of one app version, beside its channel manifests in the feed folder. */
@@ -19,27 +20,19 @@ const DEFAULT_ATTEMPTS = 4;
 const DEFAULT_RETRY_DELAY_MS = 2_000;
 const DEFAULT_TIMEOUT_MS = 20_000;
 
-/**
- * What naming and checking one archive needs from a pin. A full `AgentRuntimePin` from
- * `@moss/shared/agentRuntimeStore` fits; that module is not imported here because it pulls in the
- * downloader, whose stream types do not check under the scripts' DOM library settings.
- */
-export interface RuntimeArchivePin {
-  readonly name: string;
-  readonly version: string;
-  readonly platform: string;
-  readonly arch: string;
-  readonly archive: { readonly size: number; readonly sha256: string };
-}
+/** What naming and checking one archive needs from a pin; a full `AgentRuntimePin` fits. */
+export type RuntimeArchivePin = Pick<
+  AgentRuntimePin,
+  "name" | "version" | "platform" | "arch" | "archive"
+>;
 
 /**
- * The object's path on every source. Must stay identical to `agentRuntimeObjectPath` in
- * `@moss/shared/agentRuntimeStore`, which is what the app requests:
- * `runtimes/v1/<name>/<version>/<name>-<version>-<platform>-<arch>-<sha256 first 16>.tar.zst`.
+ * The object's path on every source, from the app's own `agentRuntimeObjectPath`, so the check
+ * asks for exactly what the app will request. That function names the object from the fields
+ * above only; the rest of a full pin is filled in empty.
  */
 export function runtimeArchiveObjectPath(pin: RuntimeArchivePin): string {
-  const file = `${pin.name}-${pin.version}-${pin.platform}-${pin.arch}-${pin.archive.sha256.slice(0, 16)}.tar.zst`;
-  return `${RUNTIMES_PREFIX}${pin.name}/${pin.version}/${file}`;
+  return agentRuntimeObjectPath({ ...pin, executable: "", files: [] });
 }
 
 /** The only `runtime-pins.json` format these tools understand. */

@@ -9,12 +9,14 @@ export interface ProcessInfo {
   readonly commandLine: string;
   /** Working set (resident memory), when the listing has it. */
   readonly memoryBytes?: number;
+  /** Start time (ms since the epoch), when the listing has it. */
+  readonly startedMs?: number;
 }
 
 const WINDOWS_LIST =
   "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.Encoding]::UTF8;" +
   "Get-CimInstance Win32_Process | " +
-  "Select-Object ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize | ConvertTo-Json -Compress";
+  "Select-Object ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize,@{n='Started';e={[long]($_.CreationDate.ToUniversalTime() - [datetime]'1970-01-01').TotalMilliseconds}} | ConvertTo-Json -Compress";
 
 export function parseWindowsProcessJson(text: string): ProcessInfo[] {
   const trimmed = text.trim();
@@ -27,6 +29,7 @@ export function parseWindowsProcessJson(text: string): ProcessInfo[] {
     name: String(r.Name ?? ""),
     commandLine: String(r.CommandLine ?? ""),
     ...(typeof r.WorkingSetSize === "number" ? { memoryBytes: r.WorkingSetSize } : {}),
+    ...(typeof r.Started === "number" ? { startedMs: r.Started } : {}),
   }));
 }
 
@@ -70,6 +73,45 @@ export function isAlive(pid: number): boolean {
     return true;
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * `root` and the processes below it that started after `sinceMs`. A parent PID alone is not proof
+ * of descent on Windows (PIDs are reused and a child keeps a dead parent's PID), so a process that
+ * started before the run cannot be part of it and is never included.
+ */
+export function descendantsOf(
+  processes: readonly ProcessInfo[],
+  root: number,
+  sinceMs: number,
+): ProcessInfo[] {
+  const found = new Map<number, ProcessInfo>();
+  const self = processes.find((p) => p.pid === root);
+  if (self) found.set(root, self);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const p of processes) {
+      if (found.has(p.pid) || !found.has(p.ppid)) continue;
+      if (p.startedMs === undefined || p.startedMs < sinceMs) continue;
+      found.set(p.pid, p);
+      grew = true;
+    }
+  }
+  return [...found.values()];
+}
+
+/** Stops one process (never a tree). */
+export function stopPid(pid: number): void {
+  if (process.platform === "win32")
+    runSync("taskkill.exe", ["/PID", String(pid), "/F"], undefined, 15_000);
+  else {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // gone
+    }
   }
 }
 
