@@ -221,7 +221,7 @@ function localizeGeneratedWorkPreview(value: string, locale: MossLocaleCode): st
   const linesMatch = /^(\d+)\s+lines?$/iu.exec(value);
   if (linesMatch?.[1]) return `${linesMatch[1]} 行`;
   const subagentsMatch = /^(\d+) subagents$/u.exec(value);
-  if (subagentsMatch?.[1]) return `${subagentsMatch[1]} 个子代理`;
+  if (subagentsMatch?.[1]) return `${subagentsMatch[1]} 个子智能体`;
   return value;
 }
 

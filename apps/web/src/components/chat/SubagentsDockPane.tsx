@@ -139,7 +139,14 @@ function ActiveSubagentRow({
     <div className="group/subagent relative">
       <EnvironmentRow
         compact
-        icon={<SubagentAvatar seed={item.key} accentColor={item.accentColor} className="size-5" />}
+        icon={
+          <SubagentAvatar
+            seed={item.key}
+            accentColor={item.accentColor}
+            running={item.isActive === true}
+            className="size-5"
+          />
+        }
         label={
           <span className="flex min-w-0 flex-col">
             <span className="flex min-w-0 items-baseline gap-2">
@@ -237,7 +244,14 @@ function DoneSubagentRow({
   return (
     <EnvironmentRow
       compact
-      icon={<SubagentAvatar seed={item.key} accentColor={item.accentColor} className="size-5" />}
+      icon={
+        <SubagentAvatar
+          seed={item.key}
+          accentColor={item.accentColor}
+          running={item.isActive === true}
+          className="size-5"
+        />
+      }
       label={
         <span className="flex min-w-0 flex-col">
           <span className="flex min-w-0 items-baseline gap-2">

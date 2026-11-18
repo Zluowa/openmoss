@@ -145,6 +145,18 @@
       "types": "./src/staticSnapshot.ts",
       "import": "./src/staticSnapshot.ts"
     },
+    "./asarArchive": {
+      "types": "./src/asarArchive.ts",
+      "import": "./src/asarArchive.ts"
+    },
+    "./codeUpdate": {
+      "types": "./src/codeUpdate.ts",
+      "import": "./src/codeUpdate.ts"
+    },
+    "./codeUpdateState": {
+      "types": "./src/codeUpdateState.ts",
+      "import": "./src/codeUpdateState.ts"
+    },
     "./windowsProcess": {
       "types": "./src/windowsProcess.ts",
       "import": "./src/windowsProcess.ts"

@@ -4512,7 +4512,8 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     private: true,
     description: "Moss desktop build",
     author: "Moss",
-    main: "apps/desktop/dist-electron/main.js",
+    // The boot entry picks the installed code or a verified code update (codeUpdateBoot.ts).
+    main: "apps/desktop/dist-electron/boot.js",
     build: resolvedBuildConfig.buildConfig,
     dependencies: {
       ...desktopStageInstallPackage.dependencies,

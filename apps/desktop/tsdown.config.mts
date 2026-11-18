@@ -86,4 +86,18 @@ export default defineConfig([
     entry: ["src/cuaDriverHostStandalone.ts"],
     noExternal: (id) => id.startsWith("@moss/"),
   },
+  {
+    ...shared,
+    // The packaged entry (package.json `main`): picks the installed code or a verified code
+    // update, then loads its main.js. Self-contained: no package may be needed before that.
+    entry: { boot: "src/codeUpdateBootEntry.ts" },
+    external: ["original-fs"],
+    noExternal: (id) => id.startsWith("@moss/"),
+  },
+  {
+    ...shared,
+    // The code-update apply step, run as a plain-Node child of the desktop.
+    entry: { codeUpdateApply: "src/codeUpdateApply.ts" },
+    noExternal: (id) => id.startsWith("@moss/"),
+  },
 ]);

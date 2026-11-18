@@ -41,6 +41,7 @@ import {
   globalShortcut,
   ipcMain,
   Menu,
+  net,
   Notification,
   nativeImage,
   nativeTheme,
@@ -426,6 +427,14 @@ import {
   createStaticSnapshotProgressTracker,
   type StaticSnapshotProgressWindow,
 } from "./staticSnapshotProgress";
+import { createCodeUpdateHealthTracker, readCodeUpdateBootHandle } from "./codeUpdateHealth";
+import {
+  resolveCodeUpdateClientConfig,
+  runCodeUpdateCheck,
+  type CodeUpdateApplyRequest,
+} from "./codeUpdateClient";
+import type { CodeUpdateApplyReport } from "@moss/shared/codeUpdate";
+import { mossDownloadSourceOrder } from "@moss/shared/mossDownloadSources";
 import {
   readCustomTitleBarPreference,
   resolveDesktopCustomTitleBarState,
@@ -1346,7 +1355,11 @@ function ensureInitialBackendWindowOpen(
     setReadinessInFlight: (promise) => {
       backendInitialWindowOpenInFlight = promise;
     },
-    waitForBackendWindowReady,
+    waitForBackendWindowReady: (url) =>
+      waitForBackendWindowReady(url).then((source) => {
+        codeUpdateHealth.backendReady();
+        return source;
+      }),
     writeLog: writeDesktopLogHeader,
     isReadinessAborted: isBackendReadinessAborted,
     formatErrorMessage,
@@ -1770,7 +1783,10 @@ function resolveAppRoot(): string {
   if (!app.isPackaged) {
     return ROOT_DIR;
   }
-  return app.getAppPath();
+  // The archive this code runs from: app.getAppPath() for the installed code, the store's archive
+  // for a code update (codeUpdateBoot.ts). Computed here, not read from ROOT_DIR: this runs during
+  // module initialisation (captureStartupBundleIdentity), before that constant exists.
+  return Path.resolve(__dirname, "../../..");
 }
 
 /**
@@ -1823,6 +1839,18 @@ function normalizeCommitHash(value: unknown): string | null {
 }
 
 function resolveEmbeddedFullCommitHash(): string | null {
+  // A code update names its own commit; package.json keeps naming the installed shell's.
+  try {
+    const identity = JSON.parse(
+      FS.readFileSync(Path.join(__dirname, "moss-code.json"), "utf8"),
+    ) as {
+      commit?: unknown;
+    };
+    const commit = normalizeFullCommitHash(identity.commit);
+    if (commit) return commit;
+  } catch {
+    // Not a code update.
+  }
   const packageJsonPath = Path.join(resolveAppRoot(), "package.json");
   if (!FS.existsSync(packageJsonPath)) {
     return null;
@@ -2148,6 +2176,169 @@ class BundleChangedDuringStartupError extends Error {
     this.baseline = input.baseline;
     this.current = input.current;
   }
+}
+
+// Code updates (CODE-UPDATES.md): the shell's boot entry chose the code this process runs; this
+// code tells it when it is healthy and, with the switch on, looks for the next code update.
+const codeUpdateBoot = readCodeUpdateBootHandle();
+const codeUpdateHealth = createCodeUpdateHealthTracker({
+  onHealthy: () => {
+    // With the switch off there is no boot handle: nothing is logged, nothing is scheduled.
+    if (!codeUpdateBoot) return;
+    writeDesktopLogHeader(`code-update healthy id=${codeUpdateBoot.id ?? "installed"}`);
+    codeUpdateBoot.reportHealthy();
+    scheduleCodeUpdateChecks();
+  },
+  onProblem: (reason) => {
+    if (codeUpdateBoot?.trial) writeDesktopLogHeader(`code-update health problem ${reason}`);
+  },
+});
+let codeUpdateTimer: NodeJS.Timeout | null = null;
+
+function logCodeUpdateBoot(): void {
+  if (!codeUpdateBoot) return;
+  for (const event of codeUpdateBoot.events) {
+    writeDesktopLogHeader(event);
+    // A rejection (load-error, timeout, crash-loop, damaged, shell-changed) is reported through
+    // the existing diagnostics event; the boot that decided it cannot report anything itself.
+    const rejected = /^code-update rejected id=\S+ reason=(\S+)/u.exec(event);
+    if (rejected) {
+      trackBetaDiagnostics("update.error", {
+        kind: "update",
+        outcome: "error",
+        errorContext: "install",
+        message: `code update rolled back: ${rejected[1]}`,
+      });
+    }
+  }
+  writeDesktopLogHeader(
+    `code-update running id=${codeUpdateBoot.id ?? "installed"} trial=${codeUpdateBoot.trial} commit=${resolveEmbeddedFullCommitHash() ?? "unknown"} shell=${codeUpdateBoot.shellCommit ?? "unknown"} root=${resolveAppRoot()}`,
+  );
+}
+
+/**
+ * Prepares the static snapshot the next start of a just-applied code update would otherwise copy
+ * while 正在启动 Moss… is shown (3,800-6,000 files: 6-15 s on NVMe, about a minute on a slow disk).
+ * Same key as computeServedStaticRoot, so that start finds it and reuses it. Runs in the
+ * background and never prunes: the snapshot this process serves stays.
+ */
+async function prepareCodeUpdateStaticSnapshot(id: string, archive: string): Promise<void> {
+  const signature = readBundleSignature(archive);
+  if (!signature) return;
+  const startedAtMs = Date.now();
+  try {
+    const snapshot = await ensureStaticSnapshot({
+      sourceDir: Path.join(archive, "apps", "server", "dist", "client"),
+      cacheRoot: Path.join(app.getPath("userData"), "static-snapshots"),
+      signature: `${signature.size}-${signature.mtimeMs}-${signature.inode}`,
+      prune: false,
+    });
+    writeDesktopLogHeader(
+      `code-update static snapshot ${snapshot.reused ? "already there" : "prepared"} id=${id} in ${Date.now() - startedAtMs}ms`,
+    );
+  } catch (error) {
+    // The next start copies it as it does today.
+    writeDesktopLogHeader(
+      `code-update static snapshot not prepared id=${id}: ${formatErrorMessage(error)}`,
+    );
+  }
+}
+
+/** The apply step in a plain-Node child: Electron's fs here would read the archives as folders. */
+function applyCodeUpdateInChild(request: CodeUpdateApplyRequest): Promise<CodeUpdateApplyReport> {
+  return new Promise((resolve, reject) => {
+    const requestFile = Path.join(request.storeDir, `apply-${process.pid}-${Date.now()}.json`);
+    FS.writeFileSync(requestFile, JSON.stringify(request));
+    const child = ChildProcess.spawn(
+      process.execPath,
+      [Path.join(__dirname, "codeUpdateApply.js"), requestFile],
+      {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    // The result line settles it, not the exit: a child can linger after its work is done
+    // (codeUpdateApply.ts), and the next start must not wait on that.
+    const settle = (line: string): boolean => {
+      let result: { ok: true; report: CodeUpdateApplyReport } | { ok: false; error: string };
+      try {
+        result = JSON.parse(line) as typeof result;
+      } catch {
+        return false;
+      }
+      settled = true;
+      FS.rmSync(requestFile, { force: true });
+      if (result.ok) resolve(result.report);
+      else reject(new Error(result.error));
+      return true;
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      const lines = stdout.split("\n");
+      stdout = lines.pop() ?? "";
+      for (const line of lines) if (!settled && line.trim()) settle(line.trim());
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString("utf8")).slice(-2000);
+    });
+    child.on("error", (error) => {
+      if (!settled) reject(error);
+    });
+    child.on("exit", () => {
+      if (settled || settle(stdout.trim())) return;
+      FS.rmSync(requestFile, { force: true });
+      reject(new Error(`apply step ended without a result: ${stderr.slice(-300)}`));
+    });
+  });
+}
+
+function scheduleCodeUpdateChecks(): void {
+  if (!app.isPackaged || !codeUpdateBoot || codeUpdateTimer || isQuitting) return;
+  // Before the account's lane is wired in, the locale and time zone pick the order (#691's rule).
+  const config = resolveCodeUpdateClientConfig(
+    process.env,
+    mossDownloadSourceOrder({
+      lane: null,
+      locale: app.getLocale(),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
+  );
+  if (!config) return;
+  if ("error" in config) {
+    writeDesktopLogHeader(`code-update off: ${config.error}`);
+    return;
+  }
+  const run = () => {
+    codeUpdateTimer = null;
+    if (isQuitting) return;
+    void runCodeUpdateCheck({
+      config,
+      boot: codeUpdateBoot,
+      fetch: (url, init) => net.fetch(url, { headers: init.headers, signal: init.signal }),
+      apply: applyCodeUpdateInChild,
+      log: writeDesktopLogHeader,
+      installedArchiveBytes: readBundleSignature(codeUpdateBoot.installedArchive)?.size ?? 0,
+      ...(config.testFreeBytes !== null ? { freeBytes: async () => config.testFreeBytes } : {}),
+      afterApply: (id, archive) => void prepareCodeUpdateStaticSnapshot(id, archive),
+      onProblem: (problem) =>
+        trackBetaDiagnostics("update.error", {
+          kind: "update",
+          outcome: "error",
+          errorContext: problem.stage,
+          message: problem.message,
+        }),
+    }).finally(() => {
+      if (isQuitting) return;
+      codeUpdateTimer = setTimeout(run, config.intervalMs);
+      codeUpdateTimer.unref();
+    });
+  };
+  codeUpdateTimer = setTimeout(run, config.firstCheckMs);
+  codeUpdateTimer.unref();
 }
 
 let servedStaticRootCache: ServedStaticRoot | null = null;
@@ -4469,7 +4660,7 @@ function captureStartupBundleIdentity(): BundleIdentity | null {
   if (!app.isPackaged) {
     return null;
   }
-  const bundlePath = app.getAppPath();
+  const bundlePath = resolveAppRoot();
   if (!isWatchableBundlePath(bundlePath)) {
     return null;
   }
@@ -4513,7 +4704,7 @@ function startBundleSwapWatcher(): void {
   if (!app.isPackaged || bundleSwapPollTimer) {
     return;
   }
-  const bundlePath = app.getAppPath();
+  const bundlePath = resolveAppRoot();
   if (!isWatchableBundlePath(bundlePath)) {
     return;
   }
@@ -6920,6 +7111,7 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
   });
 
   child.on("exit", (code, signal) => {
+    if (!isQuitting) codeUpdateHealth.problem(`backend exit code=${code ?? "null"}`);
     startupHealthMonitor.abort();
     backendLinkDropLog.recordBackendExit(`code=${code ?? "null"} signal=${signal ?? "null"}`);
     // Output can drain after a failed stop has restored the app's running state.
@@ -8877,6 +9069,7 @@ function createWindow(
     window.setTitle(APP_DISPLAY_NAME);
   });
   window.webContents.on("did-finish-load", () => {
+    if (mainWindow === window) codeUpdateHealth.windowLoaded();
     hasFinishedInitialLoad = true;
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
@@ -9019,6 +9212,7 @@ function attachRendererCrashRecovery(window: BrowserWindow): void {
 
   window.webContents.on("render-process-gone", (_event, details) => {
     const description = `reason=${details.reason} exitCode=${details.exitCode}`;
+    codeUpdateHealth.problem(`renderer gone ${description}`);
     writeDesktopLogHeader(`renderer process gone ${description}`);
     safeConsoleError(`[desktop] renderer process gone (${description})`);
     // A renderer that dies while hosting the quit-confirmation ask can never
@@ -9316,6 +9510,7 @@ if (!hasSingleInstanceLock || mossAuthProtocolRelay) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
+  logCodeUpdateBoot();
   const background = isBackgroundDesktopLaunch(process.argv);
   if (!(await requireCurrentDesktopMigrationBundle())) {
     return;
