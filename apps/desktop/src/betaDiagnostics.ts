@@ -32,6 +32,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
+import type { AgentRuntimeFetchReport } from "@moss/shared/agentRuntimeStore";
 import { join } from "node:path";
 
 import {
@@ -101,6 +102,7 @@ export type BetaDiagnosticsEventName =
   | "update.installed"
   | "update.error"
   | "usage.daily"
+  | "runtime.fetch"
   | "beta.installed"
   | "beta.left";
 
@@ -153,6 +155,22 @@ export type BetaDiagnosticsPayload =
   | {
       readonly kind: "beta";
       readonly outcome: "imported" | "import-failed" | "fresh" | "trash" | "keep";
+    }
+  | {
+      /** One fetch of an agent runtime a `download` build installs after install. No URL, no path. */
+      readonly kind: "runtime";
+      readonly name: string;
+      readonly version: string;
+      readonly outcome: string;
+      readonly durationMs: number;
+      readonly installMs: number;
+      readonly bytesTransferred: number;
+      readonly resumedFromBytes: number;
+      /** Position of the source that delivered the last bytes (0 = first), or -1. */
+      readonly sourceIndex: number;
+      readonly retries: number;
+      readonly switches: number;
+      readonly mismatchRestarts: number;
     };
 
 export interface BetaDiagnosticsEvent {
@@ -167,6 +185,22 @@ export interface BetaDiagnosticsEvent {
   readonly event: BetaDiagnosticsEventName;
   readonly payload: BetaDiagnosticsPayload;
 }
+
+const RUNTIME_NAMES: ReadonlySet<string> = new Set(["codex", "claude", "cua-driver"]);
+const RUNTIME_OUTCOMES: ReadonlySet<string> = new Set([
+  "ready",
+  "offline",
+  "proxy",
+  "unreachable",
+  "stalled",
+  "http",
+  "disk",
+  "mismatch",
+  "aborted",
+  "unsupported",
+  "invalid-archive",
+  "busy",
+]);
 
 const isFiniteNonNegative = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value) && value >= 0;
@@ -299,6 +333,31 @@ export function sanitizeBetaDiagnosticsPayload(
       })),
       projects: clampUsageCount(payload.projects),
       activeThreads: clampUsageCount(payload.activeThreads),
+    };
+  }
+  if (payload.kind === "runtime") {
+    const count = (value: unknown, max: number) =>
+      isFiniteNonNegative(value) ? Math.min(Math.floor(value), max) : 0;
+    return {
+      kind: "runtime",
+      name: RUNTIME_NAMES.has(payload.name) ? payload.name : "unknown",
+      version: /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/u.test(payload.version)
+        ? payload.version
+        : "unknown",
+      outcome: RUNTIME_OUTCOMES.has(payload.outcome) ? payload.outcome : "unknown",
+      durationMs: count(payload.durationMs, 24 * 60 * 60 * 1000),
+      installMs: count(payload.installMs, 60 * 60 * 1000),
+      bytesTransferred: count(payload.bytesTransferred, 4 * 1024 ** 3),
+      resumedFromBytes: count(payload.resumedFromBytes, 4 * 1024 ** 3),
+      sourceIndex:
+        Number.isInteger(payload.sourceIndex) &&
+        payload.sourceIndex >= -1 &&
+        payload.sourceIndex < 10
+          ? payload.sourceIndex
+          : -1,
+      retries: count(payload.retries, 1000),
+      switches: count(payload.switches, 1000),
+      mismatchRestarts: count(payload.mismatchRestarts, 10),
     };
   }
   // kind === "beta"
@@ -670,6 +729,25 @@ export class BetaDiagnostics {
   }
 
   /** Records update transitions using only the diagnostics payload allowlist. */
+  /** One agent runtime fetch: outcome, time and how the sources behaved (agentRuntimeDownloads.ts). */
+  trackAgentRuntimeFetch(report: AgentRuntimeFetchReport): void {
+    const download = report.download;
+    this.track("runtime.fetch", {
+      kind: "runtime",
+      name: report.name,
+      version: report.version,
+      outcome: report.outcome,
+      durationMs: report.durationMs || download?.durationMs || 0,
+      installMs: report.installMs,
+      bytesTransferred: download?.bytesTransferred ?? 0,
+      resumedFromBytes: download?.resumedFromBytes ?? 0,
+      sourceIndex: download?.sourceIndex ?? -1,
+      retries: download?.retries ?? 0,
+      switches: download?.switches ?? 0,
+      mismatchRestarts: download?.mismatchRestarts ?? 0,
+    });
+  }
+
   trackUpdateStateChange(previous: DesktopUpdateState, next: DesktopUpdateState): void {
     // Retryable failures retain available/downloaded instead of becoming error.
     if (next.status === "error" || next.errorContext !== null) {

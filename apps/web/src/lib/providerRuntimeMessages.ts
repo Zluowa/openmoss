@@ -194,6 +194,26 @@ interface ProviderRuntimeTemplate {
 }
 
 const ZH_CN_TEMPLATE_MESSAGES: readonly ProviderRuntimeTemplate[] = [
+  // A Codex MCP server that failed to start: the server name and the vendor's own
+  // refusal stay verbatim.
+  {
+    pattern: /^MCP server "([^"\n]+)" is not signed in\. Its tools are unavailable for now\.$/u,
+    localize: (match) => `MCP 连接器「${match[1]}」未登录，相关工具暂不可用。`,
+  },
+  {
+    pattern: /^MCP server "([^"\n]+)" could not start\. Its tools are unavailable for now\.$/u,
+    localize: (match) => `MCP 连接器「${match[1]}」无法启动，相关工具暂不可用。`,
+  },
+  {
+    pattern:
+      /^MCP server "([^"\n]+)" refused access \(([\s\S]+)\)\. Its tools are unavailable for now\.$/u,
+    localize: (match) => `MCP 连接器「${match[1]}」拒绝访问（${match[2]}），相关工具暂不可用。`,
+  },
+  // Rows stored by 1.0.7 candidates, before the sentence above.
+  {
+    pattern: /^MCP server "([^"\n]+)" failed to start(?: \(HTTP 403\))?: [\s\S]+$/u,
+    localize: (match) => `MCP 连接器「${match[1]}」无法启动，相关工具暂不可用。`,
+  },
   {
     pattern:
       /^This Pi account has no sign-in for (.+)\. Switch to Moss or another model to continue\.$/u,

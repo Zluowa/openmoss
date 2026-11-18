@@ -27,9 +27,9 @@
   Pop $0
 !macroend
 
-; An update runs the old uninstaller too, and that install keeps its handlers. Moss data
-; stays on uninstall, including Codex overlays next to the Codex home: see
-; docs/providers/codex.md for why nothing here touches them.
+; An update runs the old uninstaller too, and that install keeps its handlers and its
+; downloaded agent runtimes. Moss data stays on uninstall, including Codex overlays next to the
+; Codex home: see docs/providers/codex.md for why nothing here touches them.
 !macro customUnInstall
   ${ifNot} ${isUpdated}
     !insertmacro mossRemoveOwnProtocolHandler "moss"
@@ -37,5 +37,17 @@
     !insertmacro mossRemoveOwnProtocolHandler "moss-canary"
     !insertmacro mossRemoveOwnProtocolHandler "moss-cua"
     !insertmacro mossRemoveOwnProtocolHandler "moss-connectors"
+    ; The agent runtimes Moss downloaded after install (about 800 MB, see
+    ; packages/shared/src/agentRuntimeStore.ts) are program files, not the person's data: a
+    ; real uninstall removes them, an update never does. The folder is the uninstalling user's
+    ; own LOCALAPPDATA, read from the environment because $LOCALAPPDATA points at the
+    ; all-users profile when Moss was installed for everyone.
+    Push $0
+    ReadEnvStr $0 LOCALAPPDATA
+    ${if} $0 != ""
+      RMDir /r "$0\Moss\runtimes"
+      RMDir "$0\Moss"
+    ${endIf}
+    Pop $0
   ${endIf}
 !macroend

@@ -116,6 +116,30 @@ describe("PluginManagementPanel authoritative tabs", () => {
     document.body.innerHTML = "";
   });
 
+  it("signed out, an empty plugins tab asks for a sign-in instead of 'nothing installed'", async () => {
+    const onSignIn = vi.fn();
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...commonProps()}
+        plugins={[]}
+        apps={[]}
+        marketplaces={[]}
+        onSignIn={onSignIn}
+      />,
+    );
+
+    try {
+      await expect
+        .element(page.getByText("登录 Moss 后即可浏览和安装插件。", { exact: true }))
+        .toBeInTheDocument();
+      expect(document.body.textContent).not.toContain("此分类下还没有已安装项。");
+      await page.getByRole("button", { name: "登录", exact: true }).click();
+      expect(onSignIn).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("identifies the exact native plugin row and toggles its switch", async () => {
     const fixture = lifecycleFixturePlugin();
     const onTogglePlugin = vi.fn();

@@ -959,7 +959,7 @@ it.effect(
               "Review denied",
               "Review aborted",
               "Hook unavailable: API_KEY=[REDACTED]",
-              'MCP server "fixture" failed to start: MCP connection failed: API_KEY=[REDACTED]',
+              'MCP server "fixture" could not start. Its tools are unavailable for now.',
             ],
           );
         }).pipe(
@@ -1184,16 +1184,65 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       const events = Array.from(yield* Fiber.join(eventsFiber))
         .slice(0, -1)
         .filter((event) => event.type === "runtime.warning");
-      assert.equal(events.length, 3);
-      for (const [index, event] of events.entries()) {
-        assert.equal(event.type, "runtime.warning");
-        if (event.type !== "runtime.warning") continue;
-        assert.ok(event.payload.message.includes(failures[index]![0]!));
-        assert.ok(event.payload.message.includes(failures[index]![1]!));
+      assert.deepEqual(
+        events.map((event) => (event.type === "runtime.warning" ? event.payload.message : null)),
+        [
+          'MCP server "billing-a" refused access (subscription_inactive: Subscription status: canceled). Its tools are unavailable for now.',
+          'MCP server "billing-b" refused access (subscription_required: The SuperX API requires an active subscription). Its tools are unavailable for now.',
+          'MCP server "other" refused access (HTTP 403). Its tools are unavailable for now.',
+        ],
+      );
+      for (const event of events) {
         const [activity] = projectProviderRuntimeActivities(event);
         assert.equal(activity?.kind, "runtime.warning");
-        assert.match(JSON.stringify(activity?.payload), /failed/);
       }
+    }),
+  );
+
+  it.effect("says a not-signed-in MCP server once per app start, not in every new chat", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const sentinel = "MCP once fixture complete";
+      const eventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "runtime.warning" && event.payload.message === sentinel,
+      ).pipe(Stream.runCollect, Effect.forkChild);
+      // Codex reports the same failures at every session start: two chats, two reports each.
+      for (const thread of ["chat-a", "chat-b"]) {
+        for (const [name, error] of [
+          [
+            "cloudflare-api",
+            "The cloudflare-api MCP server is not logged in. Run `codex mcp login cloudflare-api`.",
+          ],
+          ["chatgpt-meetings", "MCP client for `chatgpt-meetings` failed to start: handshake"],
+        ]) {
+          lifecycleManager.emit("event", {
+            id: asEventId(`${thread}-${name}`),
+            kind: "notification",
+            provider: "codex",
+            threadId: asThreadId(thread),
+            createdAt: new Date().toISOString(),
+            method: "mcpServer/startupStatus/updated",
+            payload: { name, status: "failed", error },
+          } satisfies ProviderEvent);
+        }
+      }
+      lifecycleManager.emit("event", {
+        id: asEventId("mcp-once-complete"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("chat-b"),
+        createdAt: new Date().toISOString(),
+        method: "warning",
+        payload: { message: sentinel },
+      } satisfies ProviderEvent);
+      const messages = Array.from(yield* Fiber.join(eventsFiber))
+        .slice(0, -1)
+        .flatMap((event) => (event.type === "runtime.warning" ? [event.payload.message] : []));
+      assert.deepEqual(messages, [
+        'MCP server "cloudflare-api" is not signed in. Its tools are unavailable for now.',
+        'MCP server "chatgpt-meetings" could not start. Its tools are unavailable for now.',
+      ]);
     }),
   );
 

@@ -110,6 +110,14 @@ export function recapInputForRange(range: InboxDayRange): StatsGetRecapInput {
 
 type RecapBucket = StatsGetRecapResult["slots"][number];
 
+/**
+ * The tokens tile's hourly line is drawn only once two hours used tokens: with one, it is a
+ * lone steep stroke beside the number that reads as a stray "/".
+ */
+export function showsTokenSpark(hourlyTokens: readonly number[]): boolean {
+  return hourlyTokens.filter((tokens) => tokens > 0).length >= 2;
+}
+
 export function recapTokens(bucket: Pick<RecapBucket, "tokens">): number {
   return bucket.tokens.user + bucket.tokens.automation + bucket.tokens.agent;
 }

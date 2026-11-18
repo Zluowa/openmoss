@@ -12,6 +12,36 @@ import {
 } from "./providerRuntimeMessages";
 
 describe("localizeProviderRuntimeMessage", () => {
+  it("says in Chinese what a failed MCP server means, with its name verbatim", () => {
+    expect(
+      localizeProviderRuntimeMessage(
+        'MCP server "cloudflare-api" is not signed in. Its tools are unavailable for now.',
+        "zh-CN",
+      ),
+    ).toBe("MCP 连接器「cloudflare-api」未登录，相关工具暂不可用。");
+    expect(
+      localizeProviderRuntimeMessage(
+        'MCP server "chatgpt-meetings" could not start. Its tools are unavailable for now.',
+        "zh-CN",
+      ),
+    ).toBe("MCP 连接器「chatgpt-meetings」无法启动，相关工具暂不可用。");
+    expect(
+      localizeProviderRuntimeMessage(
+        'MCP server "notion" refused access (subscription_inactive: renew at notion.so). Its tools are unavailable for now.',
+        "zh-CN",
+      ),
+    ).toBe(
+      "MCP 连接器「notion」拒绝访问（subscription_inactive: renew at notion.so），相关工具暂不可用。",
+    );
+    // A row an earlier candidate stored reads the same way, without Codex's command.
+    expect(
+      localizeProviderRuntimeMessage(
+        'MCP server "cloudflare-api" failed to start: The cloudflare-api MCP server is not logged in. Run `codex mcp login cloudflare-api`.',
+        "zh-CN",
+      ),
+    ).toBe("MCP 连接器「cloudflare-api」无法启动，相关工具暂不可用。");
+  });
+
   it("says in Chinese when a session came back without its history", () => {
     expect(
       localizeProviderRuntimeMessage(

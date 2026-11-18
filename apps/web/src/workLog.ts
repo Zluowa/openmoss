@@ -1387,6 +1387,10 @@ function deriveBackgroundTaskCompletionEntries(
   return completions;
 }
 
+/** Codex's MCP startup failures, as the server words them (older builds included). */
+const MCP_STARTUP_FAILURE_MESSAGE =
+  /^MCP server "[^"\n]+" (?:is not signed in\.|could not start\.|refused access \(|failed to start)/u;
+
 export function isCodexRuntimeWarningType(nativeEventType: unknown): boolean {
   return nativeEventType === "codex.guardianWarning" || nativeEventType === "codex.warning";
 }
@@ -2695,6 +2699,18 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (isDeclinedToolLifecyclePayload(payload)) {
     entry.declinedByProvider = true;
+  }
+  // An MCP server that failed to start is one sentence of its own. Its payload names
+  // the server, which the generic title logic turned into a heading ("Cloudflare api")
+  // glued in front of the sentence, so the row neither read nor translated as one.
+  if (
+    activity.kind === "runtime.warning" &&
+    runtimeWarningMessage &&
+    MCP_STARTUP_FAILURE_MESSAGE.test(runtimeWarningMessage)
+  ) {
+    entry.label = runtimeWarningMessage;
+    delete entry.toolTitle;
+    delete entry.detail;
   }
   if (
     entry.detail &&

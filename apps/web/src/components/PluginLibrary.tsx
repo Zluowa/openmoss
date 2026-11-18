@@ -3998,6 +3998,14 @@ export function PluginLibrary({
                 ) : null}
                 <PluginManagementPanel
                   settingsPage={showSettingsManagement}
+                  onSignIn={
+                    signedOutOfMoss
+                      ? () => {
+                          if (embeddedInSettings) closeSettings();
+                          void navigate({ to: "/login" });
+                        }
+                      : undefined
+                  }
                   mcpFooter={embeddedInSettings ? <ExternalMcpSettingsPanel active /> : undefined}
                   viewState={manageViewState}
                   onViewStateChange={handleManageViewStateChange}

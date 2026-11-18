@@ -8,6 +8,7 @@ import { toLocalDueDate, type TaskRowModel, type TaskStatusKind } from "../tasks
 import type { StatsGetRecapResult } from "@moss/contracts";
 
 import {
+  showsTokenSpark,
   collectNeedsYouItems,
   compareWithYesterday,
   countNeedsYouActions,
@@ -25,6 +26,15 @@ import {
 // Local wall-clock instants, so the expectations hold in any test timezone.
 const local = (month: number, day: number, hour: number, minute = 0) =>
   new Date(2026, month - 1, day, hour, minute).getTime();
+
+describe("showsTokenSpark", () => {
+  // The tester's 06:45: tokens only in the 06:00 hour drew a lone "/" beside the number.
+  it("draws the hourly line only once two hours used tokens", () => {
+    expect(showsTokenSpark([0, 0, 0, 0, 0, 0, 175_100])).toBe(false);
+    expect(showsTokenSpark([])).toBe(false);
+    expect(showsTokenSpark([0, 1_200, 0, 0, 0, 0, 175_100])).toBe(true);
+  });
+});
 
 describe("resolveInboxDay", () => {
   it("splits the 4am working day into morning, afternoon, and evening", () => {

@@ -49,6 +49,7 @@ vi.mock("~/lib/icons", () => ({
   ChevronDownIcon: () => null,
   MicIcon: () => null,
   BookIcon: () => null,
+  ImageIcon: () => null,
 }));
 vi.mock("./images/MossImagesVoiceInput", () => ({ MossImagesVoiceInput: () => null }));
 vi.mock("./images/MossImagesComposer", () => ({

@@ -455,6 +455,21 @@ const desktopBridge = {
       ipcRenderer.removeListener(IPC.updateState, wrappedListener);
     };
   },
+  agentRuntimes: {
+    getState: () => ipcRenderer.invoke(IPC.agentRuntimes.getState),
+    onState: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, states: unknown) => {
+        if (!Array.isArray(states)) return;
+        listener(states as Parameters<typeof listener>[0]);
+      };
+      ipcRenderer.on(IPC.agentRuntimes.state, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IPC.agentRuntimes.state, wrappedListener);
+      };
+    },
+    retry: () => ipcRenderer.invoke(IPC.agentRuntimes.retry),
+    setBusy: (busy) => ipcRenderer.invoke(IPC.agentRuntimes.setBusy, busy === true),
+  },
   connectorOAuth: createConnectorOAuthCallbackBridge(
     ipcRenderer as unknown as ConnectorOAuthCallbackIpcRenderer,
   ),
