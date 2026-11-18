@@ -7,11 +7,16 @@
 
 import { type ReactNode, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { type ProfileStats, type ProfileTokenStats } from "@moss/contracts";
 import {
   serverProfileStatsQueryOptions,
   serverProfileTokenStatsQueryOptions,
 } from "~/lib/serverReactQuery";
+import {
+  serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+} from "~/components/auth/mossServerReactQuery";
 import { CentralIcon } from "~/lib/central-icons";
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { Button } from "~/components/ui/button";
@@ -40,9 +45,22 @@ import {
   toDisplayName,
 } from "../profile/profileFormatting";
 
+/** Whether a Moss account is signed in: by phone, or by the cloud account. */
+export type ProfileAccountState = "signedIn" | "signedOut" | "checking";
+
+function useProfileAccountState(): ProfileAccountState {
+  const cloudQuery = useQuery(serverMossCloudAccountStateQueryOptions());
+  const phoneQuery = useQuery(serverMossAccountSessionQueryOptions());
+  if (phoneQuery.data?.session || cloudQuery.data?.authenticated) return "signedIn";
+  if (cloudQuery.isPending || phoneQuery.isPending) return "checking";
+  return "signedOut";
+}
+
 export function ProfileSettingsPanel() {
   const coreQuery = useQuery(serverProfileStatsQueryOptions());
   const tokenQuery = useQuery(serverProfileTokenStatsQueryOptions());
+  const account = useProfileAccountState();
+  const navigate = useNavigate();
 
   if (coreQuery.isPending) {
     return <ProfileSkeleton />;
@@ -62,6 +80,8 @@ export function ProfileSettingsPanel() {
 
   return (
     <ProfileContent
+      account={account}
+      onSignIn={() => void navigate({ to: "/login" })}
       stats={coreQuery.data}
       tokenStats={tokenQuery.data ?? null}
       tokensPending={tokenQuery.isPending}
@@ -85,10 +105,14 @@ function ProfilePageShell({ actions, children }: { actions?: ReactNode; children
 }
 
 export function ProfileContent({
+  account,
+  onSignIn,
   stats,
   tokenStats,
   tokensPending,
 }: {
+  account: ProfileAccountState;
+  onSignIn: () => void;
   stats: ProfileStats;
   tokenStats: ProfileTokenStats | null;
   tokensPending: boolean;
@@ -99,9 +123,19 @@ export function ProfileContent({
 
   const defaultName = toDisplayName(stats.identity.homeDirBasename);
   const { name, setName } = useProfileName(defaultName);
-  const { handle, setHandle } = useProfileHandle(stats.identity.defaultHandle);
+  const {
+    handle,
+    setHandle,
+    isCustom: hasCustomHandle,
+  } = useProfileHandle(stats.identity.defaultHandle);
   const { color: avatarColor, setColor: setAvatarColor } = useProfileAvatarColor();
   const { image: avatarImage, setImage: setAvatarImage } = useProfileAvatarImage();
+  // Signed out, the defaults would come from the home folder's name (an isolated profile
+  // showed "PR", "Profile" and "@profile"). Show the signed-out state instead; a name,
+  // handle or photo the person set themselves still shows.
+  const signedOut = account !== "signedIn";
+  const hasCustomName = name !== defaultName;
+  const headerName = signedOut && !hasCustomName ? "Not signed in" : name;
 
   // Tokens/day when available, prompts/day otherwise — shared with ShareCard.
   const heatmap = selectProfileHeatmap(stats, tokenStats);
@@ -127,22 +161,39 @@ export function ProfileContent({
     <ProfilePageShell actions={activityActions}>
       {/* Centered identity header */}
       <header className="flex flex-col items-center gap-3 text-center">
-        <ProfileAvatar
-          initials={stats.identity.initials}
-          color={avatarColor}
-          image={avatarImage}
-          className="size-16 shadow-sm"
-          textClassName="text-xl"
-        />
-        <div className="flex flex-col items-center gap-1.5">
-          <h2 className="text-2xl font-semibold tracking-tight">{name}</h2>
-          <div className="flex items-center gap-1.5 text-ui leading-snug text-muted-foreground">
-            <span>{handle}</span>
-            <span aria-hidden>·</span>
-            <span className="rounded-full border px-1.5 py-px text-ui leading-snug text-muted-foreground">
-              Moss
-            </span>
+        {signedOut && !avatarImage && !hasCustomName ? (
+          <div
+            data-profile-avatar-signed-out=""
+            className="flex size-16 items-center justify-center rounded-full bg-muted text-muted-foreground"
+          >
+            <CentralIcon name="user" className="size-7" />
           </div>
+        ) : (
+          <ProfileAvatar
+            initials={stats.identity.initials}
+            color={avatarColor}
+            image={avatarImage}
+            className="size-16 shadow-sm"
+            textClassName="text-xl"
+          />
+        )}
+        <div className="flex flex-col items-center gap-1.5">
+          <h2 className="text-2xl font-semibold tracking-tight">{headerName}</h2>
+          {signedOut && !hasCustomHandle ? (
+            account === "signedOut" ? (
+              <Button variant="outline" size="sm" onClick={onSignIn}>
+                Sign in
+              </Button>
+            ) : null
+          ) : (
+            <div className="flex items-center gap-1.5 text-ui leading-snug text-muted-foreground">
+              <span>{handle}</span>
+              <span aria-hidden>·</span>
+              <span className="rounded-full border px-1.5 py-px text-ui leading-snug text-muted-foreground">
+                Moss
+              </span>
+            </div>
+          )}
         </div>
       </header>
 

@@ -176,7 +176,9 @@ export function KanbanNewTaskDialog({
     [selectedProviderInstanceId, settings],
   );
 
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(DEFAULT_RUNTIME_MODE);
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
+    () => useComposerDraftStore.getState().stickyRuntimeMode ?? DEFAULT_RUNTIME_MODE,
+  );
   const [interactionMode, setInteractionMode] =
     useState<ProviderInteractionMode>(DEFAULT_INTERACTION_MODE);
   const [envMode, setEnvMode] = useState<DraftThreadEnvMode>("local");

@@ -235,7 +235,7 @@ describe("composerDraftStore persisted-state hydration", () => {
     expect(hydrated.projectDraftThreadIdByProjectId).toEqual({ [mappingKey]: threadId });
     expect(hydrated.draftThreadsByThreadId[threadId]).toMatchObject({
       projectId,
-      runtimeMode: "full-access",
+      runtimeMode: "approval-required",
       interactionMode: "default",
       entryPoint: "terminal",
     });

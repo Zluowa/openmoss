@@ -40,7 +40,12 @@ import type {
 import type { ProjectAppearance } from "./lib/projectAppearance";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
-export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+/**
+ * The permission mode of a chat for someone who never chose one: ask before running commands
+ * and before editing, as Claude desktop starts. Full access is a person's own switch, and the
+ * mode they pick is kept for their new chats (composer draft store: stickyRuntimeMode).
+ */
+export const DEFAULT_RUNTIME_MODE: RuntimeMode = "approval-required";
 
 export const DEFAULT_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const DEFAULT_THREAD_TERMINAL_ID = "default";

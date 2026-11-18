@@ -42,7 +42,9 @@ export function useScratchModelCatalog(input: {
     // The scratch draft's own model setter, which also saves the sticky choice.
     handleProviderModelChange: setScratchProviderModel,
   } = input.draft;
-  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(DEFAULT_RUNTIME_MODE);
+  const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
+    () => useComposerDraftStore.getState().stickyRuntimeMode ?? DEFAULT_RUNTIME_MODE,
+  );
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false);
   const [isTraitsPickerOpen, setIsTraitsPickerOpen] = useState(false);
   const selectedProviderStatus = useMemo(
