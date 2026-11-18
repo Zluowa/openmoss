@@ -51,7 +51,7 @@ describe("MOSS_PLUGIN_CATALOG", () => {
   it("builds mirror URLs under the base folder", () => {
     const entry = findMossPluginCatalogEntry("superpowers")!;
     expect(mossPluginCatalogPackageUrl(MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL, entry)).toBe(
-      `https://moss-update.comiction.cn/plugin-catalog/v1/packages/superpowers-${entry.version}.json.gz`,
+      `https://update.mossbotai.com/plugin-catalog/v1/packages/superpowers-${entry.version}.json.gz`,
     );
     expect(mossPluginCatalogIconUrl("http://127.0.0.1:9000/catalog", entry)).toBe(
       "http://127.0.0.1:9000/catalog/icons/superpowers.png",

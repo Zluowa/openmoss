@@ -153,6 +153,10 @@ export function mediaAccountScope(credential: MossMediaAccountRef): string {
  * Gateway URLs a media scope was once derived from (before 2026-11-13): the CN gateway's
  * primary and its tunnel entry (the CN gateway before the comiction.cn host), the global
  * gateway, and whatever this build lists for the realm.
+ *
+ * These are history keys, never network targets: they are only hashed into the old scope names
+ * to find media saved under them. The comiction.cn entry stays for that reason although the
+ * domain is retired (it lapses on 2026-11-27) and no request or bearer is ever sent to it.
  */
 const KNOWN_MEDIA_GATEWAY_URLS: Readonly<Record<string, ReadonlyArray<string>>> = {
   cn: [

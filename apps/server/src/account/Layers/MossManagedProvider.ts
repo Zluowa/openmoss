@@ -156,18 +156,21 @@ export const MOSS_MANAGED_CLAUDE_MODEL_ENV_KEY = "MOSS_MODEL_GATEWAY_CLAUDE_MODE
 // Luna remains explicitly selectable in realms whose current catalog serves it.
 const MOSS_MANAGED_QUARANTINED_CODEX_MODEL = "gpt-5.6-luna";
 
-// Historical cleanup only; this is deliberately not a launch-trust alias. It is trusted
-// again only when the release lists it as a CN entry (a fallback since 2026-11-13).
-const PREVIOUS_CN_MANAGED_GATEWAY =
-  "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
-// The first CN entries official releases have shipped since the tunnel entry above stopped
-// being first: comiction.cn (up to 1.0.3) and mossbotai.com. The historical cleanup runs only
-// under one of them, so a development or self-hosted gateway never adopts an old generation.
-const OFFICIAL_CN_MANAGED_GATEWAYS: ReadonlySet<string> = new Set(
-  [MOSS_CN_MODEL_GATEWAY_HOST, MOSS_PREVIOUS_CN_MODEL_GATEWAY_HOST].map(
-    (host) => `https://${host}/functions/v1/moss-model-gateway/v1`,
-  ),
-);
+// Historical cleanup only; these are deliberately not launch-trust aliases. Lanes an older build
+// left on one of them are proved ours (home marker, nonce, generation) and moved to the entry in
+// use. An entry is historical only while the release does not list it as a CN entry.
+const PREVIOUS_CN_MANAGED_GATEWAYS: ReadonlyArray<string> = [
+  // The tunnel entry: first before 2026-11-13, a listed fallback since then.
+  "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1",
+  // comiction.cn: first up to 1.0.3, a fallback in 1.0.5 and 1.0.6, listed by no build since; the
+  // domain lapses on 2026-11-27 and may change hands. Recognised here only to move lanes off it.
+  `https://${MOSS_PREVIOUS_CN_MODEL_GATEWAY_HOST}/functions/v1/moss-model-gateway/v1`,
+];
+// The first CN entry official releases ship. The historical cleanup runs only under it, so a
+// development or self-hosted gateway never adopts an old generation.
+const OFFICIAL_CN_MANAGED_GATEWAYS: ReadonlySet<string> = new Set([
+  `https://${MOSS_CN_MODEL_GATEWAY_HOST}/functions/v1/moss-model-gateway/v1`,
+]);
 
 function requireManagedDefaultModel(
   model: string | null,
@@ -2166,14 +2169,20 @@ export const MossManagedProviderLive = Layer.effect(
         message: "A reserved Moss provider conflicts with an existing user-managed account.",
       });
 
-    // The previous CN entry is historical only while it is not a configured entry. Since
-    // 2026-11-13 releases list it again as the CN fallback, and lanes on it are current.
-    const requiresPreviousCnGatewayCleanup = (settings: ServerSettings): boolean =>
-      asConfigRecord(settings.providerInstances[MOSS_MANAGED_PROVIDER_INSTANCE_ID]?.config)
-        .gatewayBaseUrl === PREVIOUS_CN_MANAGED_GATEWAY &&
-      !mossManagedGatewayEntriesForAuthority("memfire-phone", process.env).includes(
-        PREVIOUS_CN_MANAGED_GATEWAY,
+    // A previous CN entry is historical only while it is not a configured entry: the tunnel entry
+    // is listed again as a fallback since 2026-11-13, so lanes on it are current.
+    const previousCnGatewayToCleanUp = (settings: ServerSettings): string | undefined => {
+      const gatewayBaseUrl = asConfigRecord(
+        settings.providerInstances[MOSS_MANAGED_PROVIDER_INSTANCE_ID]?.config,
+      ).gatewayBaseUrl;
+      return PREVIOUS_CN_MANAGED_GATEWAYS.find(
+        (previous) =>
+          gatewayBaseUrl === previous &&
+          !mossManagedGatewayEntriesForAuthority("memfire-phone", process.env).includes(previous),
       );
+    };
+    const requiresPreviousCnGatewayCleanup = (settings: ServerSettings): boolean =>
+      previousCnGatewayToCleanUp(settings) !== undefined;
 
     // undefined: ordinary current-route inspection; null: a historical
     // generation whose ownership cannot be proved. Never publish this local
@@ -2182,7 +2191,8 @@ export const MossManagedProviderLive = Layer.effect(
       settings: ServerSettings,
       reservation: VerifiedMossManagedCodexReservation | undefined,
     ): Readonly<Record<string, string | undefined>> | null | undefined => {
-      if (!requiresPreviousCnGatewayCleanup(settings)) return undefined;
+      const previousGateway = previousCnGatewayToCleanUp(settings);
+      if (previousGateway === undefined) return undefined;
       const codex = settings.providerInstances[MOSS_MANAGED_PROVIDER_INSTANCE_ID];
       const codexConfig = asConfigRecord(codex?.config);
       if (
@@ -2210,8 +2220,8 @@ export const MossManagedProviderLive = Layer.effect(
           companion.runtimeGeneration !== codexConfig.runtimeGeneration ||
           companion.gatewayBaseUrl !==
             (instanceId === MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID
-              ? PREVIOUS_CN_MANAGED_GATEWAY.replace(/\/v1$/, "")
-              : PREVIOUS_CN_MANAGED_GATEWAY) ||
+              ? previousGateway.replace(/\/v1$/, "")
+              : previousGateway) ||
           ((instanceId === MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID ||
             isMossManagedRelayInstanceId(instanceId)) &&
             companion.realm !== "cn")
@@ -2227,7 +2237,7 @@ export const MossManagedProviderLive = Layer.effect(
       }
       return {
         ...process.env,
-        [MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY]: PREVIOUS_CN_MANAGED_GATEWAY,
+        [MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY]: previousGateway,
       };
     };
 

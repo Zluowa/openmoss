@@ -143,4 +143,13 @@ describe("parseMossUpdateMirrorConfig", () => {
       MOSS_DESKTOP_CN_UPDATE_MIRROR,
     );
   });
+
+  // comiction.cn lapses on 2026-11-27 and may change hands; the feed moved to Moss's own domain
+  // while the release key (and so every signature already on the mirror) stayed the same.
+  it("serves the production mirror from update.mossbotai.com with the unchanged release key", () => {
+    expect(MOSS_DESKTOP_CN_UPDATE_MIRROR).toEqual({
+      feedUrl: "https://update.mossbotai.com/desktop/",
+      manifestPublicKey: "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=",
+    });
+  });
 });

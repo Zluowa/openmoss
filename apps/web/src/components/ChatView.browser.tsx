@@ -104,6 +104,7 @@ import { isMacNavigatorPlatform } from "../lib/utils";
 import { STARRED_MODELS_STORAGE_KEY } from "../lib/starredModels";
 import { readNativeApi } from "../nativeApi";
 import { DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS } from "../hooks/useDesktopTopBarGutter";
+import { layoutReport } from "../lib/selfReport/layoutReport";
 import { useMossbotPreferencesStore } from "../mossbotPreferencesStore";
 import { emitWsTransportState } from "../wsTransportEvents";
 import { dispatchKanbanDraftThread } from "../lib/kanbanDispatch";
@@ -5840,6 +5841,79 @@ describe("ChatView transcript geometry (full app)", () => {
         // and it stays there once every pending load has settled
         await new Promise((resolve) => setTimeout(resolve, 600));
         expect(mounted.router.state.location.pathname).toBe(initialPath);
+      }
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  // The self-report tool `layout_report` must catch the onboarding overflow the owner found on
+  // 2026-11-18 (fixed by #674): the stage with no top bar above it, its controls under the
+  // desktop window's own buttons. Recreated here by hiding that top bar.
+  it("layout_report finds the Mossbot onboarding as it was before #674, and nothing as shipped", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("mossbot-onboarding-self-report"),
+        targetText: "Mossbot onboarding self-report",
+      }),
+    });
+    try {
+      await waitForLayout();
+      await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
+      await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
+      // The acceptance window and the owner's window.
+      for (const viewport of [
+        { name: "acceptance", width: 1101, height: 782 },
+        { name: "owner", width: 1375, height: 886 },
+      ]) {
+        await setViewport(viewport);
+        await waitForLayout();
+        const at = `${viewport.width}x${viewport.height}`;
+        const report = () =>
+          layoutReport({ root: "[data-mossbot-workspace]", windowControls: "windows" });
+
+        // As shipped: nothing under the window's buttons, nothing cut, nothing spilling.
+        expect(report().findings, at).toEqual([]);
+
+        // As before #674: no top bar above the stage. The desktop window draws its buttons on top
+        // of the page there (DesktopWindowControls, not mounted in this browser harness): a
+        // stand-in band in the same place, so the report sees what it sees in the window.
+        const caption = document.createElement("div");
+        caption.setAttribute("data-desktop-window-controls", "");
+        caption.setAttribute("aria-hidden", "true");
+        caption.style.cssText =
+          "position:fixed;top:0;right:0;width:138px;height:44px;z-index:2147483647;display:flex";
+        caption.innerHTML =
+          '<button style="flex:1"></button><button style="flex:1"></button><button style="flex:1"></button>';
+        document.body.append(caption);
+        const topBar = document.querySelector<HTMLElement>("[data-mossbot-workspace] > header")!;
+        expect(topBar, at).not.toBeNull();
+        topBar.style.display = "none";
+        await waitForLayout();
+        try {
+          const broken = report();
+          const caption = broken.windowControls!;
+          const under = broken.findings.filter(
+            (finding) => finding.kind === "under-window-controls",
+          );
+          expect(under.length, at).toBeGreaterThan(0);
+          for (const finding of under) {
+            // A control of the onboarding a person sees under the window's buttons.
+            const element = document.querySelector(finding.selector)!;
+            expect(element.closest("[data-mossbot-onboarding]"), at).not.toBeNull();
+            const box = element.getBoundingClientRect();
+            expect(box.top, at).toBeLessThan(caption.y + caption.height);
+            expect(box.right, at).toBeGreaterThan(caption.x);
+            expect(finding.against.selector, at).toBe("window-controls");
+          }
+        } finally {
+          topBar.style.display = "";
+          caption.remove();
+        }
+        await waitForLayout();
+        expect(report().findings, at).toEqual([]);
       }
     } finally {
       await mounted.cleanup();

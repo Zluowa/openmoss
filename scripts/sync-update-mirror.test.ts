@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   parseSettingsFile,
+  readUpdateMirrorS3ClientOptions,
   syncUpdateMirror,
   type UpdateMirrorStore,
 } from "./sync-update-mirror.ts";
@@ -141,6 +142,49 @@ describe("parseSettingsFile", () => {
       ["MOSS_A", "one"],
       ["MOSS_B", "two=three"],
     ]);
+  });
+});
+
+describe("readUpdateMirrorS3ClientOptions", () => {
+  // Placeholders only; real settings live on the publishing machine.
+  const r2 = {
+    MOSS_UPDATE_MIRROR_S3_ACCESS_KEY_ID: "test-access-key-id",
+    MOSS_UPDATE_MIRROR_S3_SECRET_ACCESS_KEY: "test-secret",
+    MOSS_UPDATE_MIRROR_S3_BUCKET: "moss-update",
+    MOSS_UPDATE_MIRROR_S3_ENDPOINT: "https://0123456789abcdef.r2.cloudflarestorage.com",
+    MOSS_UPDATE_MIRROR_S3_REGION: "auto",
+  };
+
+  it("addresses a Cloudflare R2 bucket path-style by default", () => {
+    expect(readUpdateMirrorS3ClientOptions(r2)).toEqual({
+      accessKeyId: "test-access-key-id",
+      secretAccessKey: "test-secret",
+      bucket: "moss-update",
+      endpoint: "https://0123456789abcdef.r2.cloudflarestorage.com",
+      region: "auto",
+      virtualHostedStyle: false,
+    });
+    expect(
+      readUpdateMirrorS3ClientOptions({ ...r2, MOSS_UPDATE_MIRROR_S3_PATH_STYLE: "1" })
+        .virtualHostedStyle,
+    ).toBe(false);
+  });
+
+  it("switches to virtual-hosted addressing only when asked", () => {
+    expect(
+      readUpdateMirrorS3ClientOptions({ ...r2, MOSS_UPDATE_MIRROR_S3_PATH_STYLE: "0" })
+        .virtualHostedStyle,
+    ).toBe(true);
+    expect(() =>
+      readUpdateMirrorS3ClientOptions({ ...r2, MOSS_UPDATE_MIRROR_S3_PATH_STYLE: "yes" }),
+    ).toThrow(/PATH_STYLE/);
+  });
+
+  it("names a missing setting instead of guessing it", () => {
+    const { MOSS_UPDATE_MIRROR_S3_REGION: _region, ...withoutRegion } = r2;
+    expect(() => readUpdateMirrorS3ClientOptions(withoutRegion)).toThrow(
+      "MOSS_UPDATE_MIRROR_S3_REGION is not set.",
+    );
   });
 });
 

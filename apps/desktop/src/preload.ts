@@ -11,6 +11,7 @@ import type {
 } from "@moss/contracts";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
+import { SELF_REPORT_PRELOAD_ARGUMENT } from "./selfReportArgument";
 import { decodeMcpAppSandboxHostPortEnvelope } from "./mcpAppSandbox/preloadProtocol";
 import {
   createConnectorOAuthCallbackBridge,
@@ -222,8 +223,21 @@ function recordBrowserActivity(activity: DesktopDiagnosticActivity): void {
   }
 }
 
+// Only when main started this window with self-report enabled (see selfReport.ts).
+const selfReportBridge: DesktopBridge["selfReport"] = process.argv.includes(
+  SELF_REPORT_PRELOAD_ARGUMENT,
+)
+  ? {
+      enabled: true,
+      resize: (size) => ipcRenderer.invoke(IPC.selfReport.resize, size),
+      capture: (request) => ipcRenderer.invoke(IPC.selfReport.capture, request),
+      restore: () => ipcRenderer.invoke(IPC.selfReport.restore),
+    }
+  : undefined;
+
 const desktopBridge = {
   ...(betaDiagnosticsBridge ? { betaDiagnostics: betaDiagnosticsBridge } : {}),
+  ...(selfReportBridge ? { selfReport: selfReportBridge } : {}),
   getWsUrl: getDesktopWsUrl,
   remoteComputers: {
     list: () => ipcRenderer.invoke(IPC.remoteComputers.list),

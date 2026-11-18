@@ -2,8 +2,8 @@
 // Purpose: Builds the Moss plugin catalog's packages from a pinned commit of the
 //          upstream open-source plugin repository, pins their hashes in
 //          `packages/shared/src/mossPluginCatalogPackages.ts`, and publishes them
-//          to Moss's domestic mirror, where the desktop app downloads a plugin's
-//          files the first time someone installs it.
+//          to the update mirror's store (update.mossbotai.com, Cloudflare R2), where
+//          the desktop app downloads a plugin's files the first time someone installs it.
 //          Files are read from git objects, not the working tree, so a checkout's
 //          line-ending settings cannot change a hash.
 // Usage:
@@ -37,7 +37,7 @@ import {
 } from "@moss/shared/mossPluginPackage";
 import { parse } from "yaml";
 
-import { parseSettingsFile } from "./sync-update-mirror.ts";
+import { parseSettingsFile, readUpdateMirrorS3ClientOptions } from "./sync-update-mirror.ts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const INDEX_PATH = join(REPO_ROOT, "packages/shared/src/mossPluginCatalogPackages.ts");
@@ -281,12 +281,6 @@ function loadLocalSettings(): void {
   }
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set.`);
-  return value;
-}
-
 function filesUnder(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {
     const path = join(directory, name);
@@ -298,14 +292,7 @@ async function upload(args: readonly string[]): Promise<void> {
   loadLocalSettings();
   const out = resolve(argument(args, "--out") ?? "");
   const prefix = process.env.MOSS_PLUGIN_CATALOG_S3_PREFIX?.trim() || DEFAULT_S3_PREFIX;
-  const client = new Bun.S3Client({
-    accessKeyId: requireEnv("MOSS_UPDATE_MIRROR_S3_ACCESS_KEY_ID"),
-    secretAccessKey: requireEnv("MOSS_UPDATE_MIRROR_S3_SECRET_ACCESS_KEY"),
-    bucket: requireEnv("MOSS_UPDATE_MIRROR_S3_BUCKET"),
-    endpoint: requireEnv("MOSS_UPDATE_MIRROR_S3_ENDPOINT"),
-    region: requireEnv("MOSS_UPDATE_MIRROR_S3_REGION"),
-    virtualHostedStyle: process.env.MOSS_UPDATE_MIRROR_S3_PATH_STYLE !== "1",
-  });
+  const client = new Bun.S3Client(readUpdateMirrorS3ClientOptions(process.env));
   const expected = new Set(
     MOSS_PLUGIN_CATALOG.flatMap((entry) => [
       entry.package.file,

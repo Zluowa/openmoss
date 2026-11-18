@@ -19,9 +19,9 @@ export { MOSS_PLUGIN_CATALOG_SOURCE, type MossPluginCatalogPackage };
 
 export const MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME = "moss-catalog";
 export const MOSS_PLUGIN_CATALOG_MARKETPLACE_DISPLAY_NAME = "Moss Plugin Catalog";
-/** Moss's domestic CDN (the update mirror's host), reachable from mainland China and abroad. */
+/** The update mirror's host (Cloudflare R2), reachable from mainland China and abroad. */
 export const MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL =
-  "https://moss-update.comiction.cn/plugin-catalog/v1/";
+  "https://update.mossbotai.com/plugin-catalog/v1/";
 /** Developers and tests point the server at another copy of the mirror. */
 export const MOSS_PLUGIN_CATALOG_URL_ENV = "MOSS_PLUGIN_CATALOG_URL";
 

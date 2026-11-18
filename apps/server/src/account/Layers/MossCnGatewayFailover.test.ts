@@ -35,7 +35,8 @@ import {
 } from "./MossManagedProvider";
 import { makeMossPhoneAccountService } from "./MossPhoneAccountService";
 
-const PRIMARY = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
+const PRIMARY = "https://models.moss.example/functions/v1/moss-model-gateway/v1";
+const PRIMARY_HOST = "models.moss.example";
 const FALLBACK = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
 const PHONE = "+8613800138000";
 const ISSUED_AT = 1_800_000_000_000;
@@ -226,7 +227,7 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
       // The primary recovers. It failed at sign-in, so it is suspect for the cool-down (30
       // minutes) and then needs four good checks a minute apart; maintenance then moves the
       // lanes. Before that the lanes stay on the fallback.
-      reachable.add("moss-models.comiction.cn");
+      reachable.add(PRIMARY_HOST);
       for (let minute = 1; minute <= 32; minute += 1) {
         now += 60_000;
         yield* Effect.promise(() => entries.refreshIfDue());
@@ -259,9 +260,9 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
   });
 
   it("signs in on the fallback when the primary passes its checks but resets the real request", async () => {
-    reachable.add("moss-models.comiction.cn");
+    reachable.add(PRIMARY_HOST);
     reachable.add("moss-cn-models.inkcomicai.com");
-    resetsRequests.add("moss-models.comiction.cn");
+    resetsRequests.add(PRIMARY_HOST);
     const result = await Effect.gen(function* () {
       yield* (yield* ServerSettingsService).start;
       const { service, entries } = yield* makeService();
@@ -279,14 +280,14 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
   });
 
   it("moves the lanes when the primary breaks mid-session", async () => {
-    reachable.add("moss-models.comiction.cn");
+    reachable.add(PRIMARY_HOST);
     reachable.add("moss-cn-models.inkcomicai.com");
     const result = await Effect.gen(function* () {
       yield* (yield* ServerSettingsService).start;
       const { service, entries } = yield* makeService();
       yield* signIn(service);
       const beforeReset = yield* managedLanes;
-      reachable.delete("moss-models.comiction.cn");
+      reachable.delete(PRIMARY_HOST);
       // Before the re-check interval nothing changes; the background check then finds the
       // reset, and the next maintenance pass re-provisions on the fallback.
       now += 60_000;
@@ -329,9 +330,14 @@ describe("a mainland phone account when the CN gateway's primary entry is reset"
 });
 
 describe("upgrading to the release with the mossbotai.com entries", () => {
-  /** The first CN entry since 2026-11-14; the two entries above became its fallbacks. */
+  /** The first CN entry since 2026-11-14; the tunnel entry is its fallback. */
   const NEW = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
   const NEW_HOST = "api.mossbotai.com";
+  /**
+   * The direct entry on comiction.cn: first up to 1.0.3, a fallback in 1.0.5/1.0.6, listed by no
+   * build since (the domain lapses on 2026-11-27 and may change hands).
+   */
+  const DIRECT = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
   const DIRECT_HOST = "moss-models.comiction.cn";
   const TUNNEL_HOST = "moss-cn-models.inkcomicai.com";
   let baseDir: string;
@@ -372,12 +378,16 @@ describe("upgrading to the release with the mossbotai.com entries", () => {
     };
   };
 
+  /** Hosts the account's bearer was sent to (the catalog request carries it). */
+  const bearerHosts: string[] = [];
   const fetchGatewayModels: FetchMossGatewayModelIds = (input) =>
-    Effect.succeed(
-      reachable.has(new URL(input.gatewayBaseUrl).host)
+    Effect.sync(() => {
+      const host = new URL(input.gatewayBaseUrl).host;
+      bearerHosts.push(host);
+      return reachable.has(host)
         ? { status: "ready" as const, models: mossManagedCodexModelsForLane("cn") }
-        : { status: "transport-degraded" as const, models: [], connectionFailed: true as const },
-    );
+        : { status: "transport-degraded" as const, models: [], connectionFailed: true as const };
+    });
 
   /**
    * One app version: its release config in the environment, its entries, its phone account
@@ -416,15 +426,15 @@ describe("upgrading to the release with the mossbotai.com entries", () => {
   it.each([
     {
       from: "1.0.3 (direct entry only)",
-      old: { primary: PRIMARY, fallbacks: [] as string[] },
+      old: { primary: DIRECT, fallbacks: [] as string[] },
       oldReachable: [DIRECT_HOST],
-      laneBefore: PRIMARY,
+      laneBefore: DIRECT,
       newReachable: [NEW_HOST, TUNNEL_HOST, DIRECT_HOST],
       laneAfter: NEW,
     },
     {
       from: "a build on the tunnel fallback",
-      old: { primary: PRIMARY, fallbacks: [FALLBACK] },
+      old: { primary: DIRECT, fallbacks: [FALLBACK] },
       oldReachable: [TUNNEL_HOST],
       laneBefore: FALLBACK,
       newReachable: [NEW_HOST, TUNNEL_HOST],
@@ -432,9 +442,26 @@ describe("upgrading to the release with the mossbotai.com entries", () => {
     },
     {
       from: "1.0.3, on a network where mossbotai.com does not resolve",
-      old: { primary: PRIMARY, fallbacks: [] as string[] },
+      old: { primary: DIRECT, fallbacks: [] as string[] },
       oldReachable: [DIRECT_HOST],
-      laneBefore: PRIMARY,
+      laneBefore: DIRECT,
+      newReachable: [TUNNEL_HOST, DIRECT_HOST],
+      laneAfter: FALLBACK,
+    },
+    {
+      from: "1.0.6 on its comiction.cn fallback",
+      old: { primary: NEW, fallbacks: [FALLBACK, DIRECT] },
+      oldReachable: [DIRECT_HOST],
+      laneBefore: DIRECT,
+      newReachable: [NEW_HOST, TUNNEL_HOST, DIRECT_HOST],
+      laneAfter: NEW,
+    },
+    {
+      // After the lapse comiction.cn may answer for someone else; it is still never used.
+      from: "1.0.6 on its comiction.cn fallback, with only comiction.cn and the tunnel answering",
+      old: { primary: NEW, fallbacks: [FALLBACK, DIRECT] },
+      oldReachable: [DIRECT_HOST],
+      laneBefore: DIRECT,
       newReachable: [TUNNEL_HOST, DIRECT_HOST],
       laneAfter: FALLBACK,
     },
@@ -451,7 +478,8 @@ describe("upgrading to the release with the mossbotai.com entries", () => {
         // The upgrade: same profile, the new release config, a new process.
         reachable.clear();
         for (const host of newReachable) reachable.add(host);
-        const after = yield* appVersion(NEW, [FALLBACK, PRIMARY]);
+        bearerHosts.length = 0;
+        const after = yield* appVersion(NEW, [FALLBACK]);
         yield* after.maintainSession!();
         return {
           lanesBefore,
@@ -471,6 +499,9 @@ describe("upgrading to the release with the mossbotai.com entries", () => {
       expect(result.session.authenticated).toBe(true);
       expect(result.session.modelGatewayStatus).toBe("ready");
       expect(result.credential.gatewayBaseUrl).toBe(laneAfter);
+      // The new build never sends the bearer to comiction.cn, even while it answers.
+      expect(bearerHosts.length).toBeGreaterThan(0);
+      expect(bearerHosts).not.toContain(DIRECT_HOST);
     },
   );
 });

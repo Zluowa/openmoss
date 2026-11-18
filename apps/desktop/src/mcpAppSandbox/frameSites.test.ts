@@ -49,8 +49,11 @@ describe("MCP App frame site rules", () => {
       "https://abc.claudemcpcontent.com",
       "https://anthropic.com",
       "https://*.claudeusercontent.com",
+      // Retired by Moss, and possibly someone else's later: still never framed.
       "https://moss-update.comiction.cn",
       "https://moss-share.comiction.cn",
+      "https://*.comiction.cn",
+      "https://comiction.cn",
       "https://moss-devs.inkcomicai.com",
       "https://*.inkcomicai.com",
       "https://mossbotai.com",

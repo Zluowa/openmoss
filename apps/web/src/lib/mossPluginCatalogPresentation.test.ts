@@ -18,7 +18,7 @@ describe("Moss plugin catalog presentation", () => {
       displayName: "Superpowers",
       developerName: "Jesse Vincent",
       category: "Developer Tools",
-      logoUrl: "https://moss-update.comiction.cn/plugin-catalog/v1/icons/superpowers.png",
+      logoUrl: "https://update.mossbotai.com/plugin-catalog/v1/icons/superpowers.png",
     });
     expect(plugin.interface?.shortDescription).toMatch(/[\u4e00-\u9fff]/u);
   });

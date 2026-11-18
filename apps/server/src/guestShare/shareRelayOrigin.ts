@@ -41,9 +41,29 @@ export const MOSS_SHARE_RELAY_DEV_BEARER_ENV_KEY = "MOSS_SHARE_RELAY_DEV_BEARER"
  * stay listed: links issued on them, and shares registered by older versions, keep working.
  */
 export const SHARE_RELAY_ENTRIES_BY_REALM: Readonly<Record<MossRealm, ReadonlyArray<string>>> = {
-  cn: ["https://share.mossbotai.com", "https://moss-share.comiction.cn"],
+  cn: ["https://share.mossbotai.com"],
   global: ["https://share-global.mossbotai.com", "https://moss-share.inkcomicai.com"],
 };
+
+/**
+ * Relay entries Moss no longer uses, each with the entry of the same relay that replaced it.
+ * `comiction.cn` lapses on 2026-11-27 and may then belong to someone else. Shares registered
+ * through it by older versions still exist on the CN relay (thread shares for a day, the page
+ * publisher for good), but links on that name are dead after the lapse whatever Moss does.
+ */
+const RETIRED_SHARE_RELAY_ORIGINS: ReadonlyMap<string, string> = new Map([
+  ["https://moss-share.comiction.cn", "https://share.mossbotai.com"],
+]);
+
+/**
+ * The origin to use for a share stored with `stored`: a retired entry reads as its replacement,
+ * anything else as itself. Applied wherever a stored origin is read (thread shares and the page
+ * publisher), so the host socket, renewal, deletion and the link shown to the owner all go to
+ * the working host and the account bearer never goes to the retired name. Rows are not rewritten.
+ */
+export function currentShareRelayOrigin(stored: string): string {
+  return RETIRED_SHARE_RELAY_ORIGINS.get(stored) ?? stored;
+}
 
 /** The relay's unauthenticated health check, at the origin root. */
 export const shareRelayHealthUrl = (origin: string): string => `${origin}/healthz`;

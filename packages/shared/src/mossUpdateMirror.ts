@@ -24,7 +24,7 @@ export interface MossUpdateMirrorConfig {
 
 /** The production mirror. Null would mean every account keeps using the official feed. */
 export const MOSS_DESKTOP_CN_UPDATE_MIRROR: MossUpdateMirrorConfig | null = {
-  feedUrl: "https://moss-update.comiction.cn/desktop/",
+  feedUrl: "https://update.mossbotai.com/desktop/",
   manifestPublicKey: "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=",
 };
 
