@@ -1358,7 +1358,14 @@ function buildCodexCssVariables(
     // Description and code-block surface aliases.
     "--vscode-descriptionForeground": derivedTokens.textForegroundTertiary,
     "--vscode-textCodeBlock-background": derivedTokens.buttonSecondaryBackground,
-    "--color-text-warning": theme.variant === "dark" ? "#ff8549" : "#e25507",
+    // Warning text in Moss's amber, as a concrete colour: it also goes to MCP App widgets
+    // (lib/mcpApps/hostStyles.ts), whose sandbox has no --warning or --foreground to resolve.
+    // On light the amber is mixed 25% toward the pack's ink so small text keeps 4.5:1; on dark
+    // the amber itself reads well. (`--warning-foreground` is the ink that goes ON a warning fill.)
+    "--color-text-warning":
+      theme.variant === "dark"
+        ? WARNING_COLOR_BY_VARIANT.dark
+        : mixHex(WARNING_COLOR_BY_VARIANT.light, theme.theme.ink, 0.25),
     "--vscode-terminal-ansiBlack": derivedTokens.textForegroundTertiary,
     "--vscode-terminal-ansiBlue": theme.theme.accent,
     "--vscode-terminal-ansiBrightBlack": derivedTokens.textForegroundSecondary,

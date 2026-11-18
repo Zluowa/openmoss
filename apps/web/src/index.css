@@ -3224,7 +3224,10 @@ body [class*="openui-theme-portal-"] {
   box-shadow:
     inset 0 1px 1px #fff3,
     inset 0 -1px 2px #ffffff14;
-  --color-surface-tertiary: rgb(40, 40, 40);
+  /* The command box (`bg-surface-tertiary`, which reads the elevated token) takes Moss's
+     raised surface on dark; the rule above sets that token to white for the light card. */
+  --color-background-elevated-secondary: var(--secondary);
+  --color-surface-tertiary: var(--secondary);
 }
 
 /* MCP inline app: one `rounded-lg border border-strong`
@@ -4797,6 +4800,27 @@ diffs-container {
   }
 }
 
+/* Command approval mark (ApprovalAppDock.tsx): a terminal window drawn in Moss's tokens. */
+.approval-command-mark {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.approval-command-mark-window {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  opacity: 0.55;
+}
+
+.approval-command-mark-ink {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 :root {
   color-scheme: light;
   --radius: 0.625rem;
@@ -4811,7 +4835,7 @@ diffs-container {
   --vscode-descriptionForeground: var(--color-text-foreground-tertiary, var(--muted-foreground));
   --vscode-textCodeBlock-background: var(--color-background-button-secondary, var(--secondary));
   --color-background-secondary-soft-alpha: var(--vscode-textCodeBlock-background);
-  --color-text-warning: #e25507;
+  --color-text-warning: color-mix(in srgb, var(--warning) 75%, var(--foreground));
   --padding-row-x: calc(var(--spacing) * 2);
   --edge-fade-distance: 1rem;
   --color-codex-terminal-background: var(
