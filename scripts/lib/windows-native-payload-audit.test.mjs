@@ -15,6 +15,7 @@ import {
   WINDOWS_UNPACKED_SIGNING_TARGET_PATHS,
 } from "../windows-esigner-sign.mjs";
 import {
+  auditWindowsAgentRuntimePayloads,
   auditWindowsNativePayloads,
   resolveWindowsNativePayloadHookContext,
 } from "./windows-native-payload-audit.mjs";
@@ -576,4 +577,108 @@ describe("Windows native payload electron-builder hooks", () => {
       else process.env.MOSS_WINDOWS_TARGET_ARCH = previousTargetArch;
     }
   });
+});
+
+function runtimeBytes(pathname) {
+  return `reviewed-runtime:${pathname}`;
+}
+
+describe("agent runtimes shipped as archives (download builds)", () => {
+  const codexPath = "resources/codex-runtime/x86_64-pc-windows-msvc/bin/codex.exe";
+  const claudePath = "resources/claude-runtime/win32-x64/claude.exe";
+
+  function withRuntimeFixture(run) {
+    const root = mkdtempSync(path.join(tmpdir(), "moss-runtime-audit-"));
+    const appOutDir = path.join(root, "win-unpacked");
+    const archivesRoot = path.join(root, "agent-runtime-verify");
+    for (const pathname of WINDOWS_UNPACKED_SIGNING_TARGET_PATHS) {
+      writeRelative(appOutDir, pathname, signingContents(pathname));
+    }
+    writeRelative(appOutDir, "resources/vendor.exe", "reviewed-preserved-bytes");
+    const manifest = createManifest("resources/vendor.exe", "reviewed-preserved-bytes");
+    manifest.windows.x64.preservedPayloads.push(
+      ...[codexPath, claudePath].map((pathname) => ({
+        path: pathname,
+        sha256: sha256(runtimeBytes(pathname)),
+        source: "fixture-runtime@1.0.0",
+      })),
+    );
+    try {
+      return run({ appOutDir, archivesRoot, manifest });
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  }
+
+  it("accepts an installer without the runtimes in download mode", () =>
+    withRuntimeFixture(({ appOutDir, manifest }) => {
+      const result = auditWindowsNativePayloads({
+        appOutDir,
+        arch: "x64",
+        manifest,
+        phase: "before-sign",
+        agentRuntimes: "download",
+      });
+      assert.strictEqual(result.preservedPayloads.length, 1);
+    }));
+
+  it("refuses a download installer that still carries a runtime program", () =>
+    withRuntimeFixture(({ appOutDir, manifest }) => {
+      writeRelative(appOutDir, codexPath, runtimeBytes(codexPath));
+      assert.throws(
+        () =>
+          auditWindowsNativePayloads({
+            appOutDir,
+            arch: "x64",
+            manifest,
+            phase: "before-sign",
+            agentRuntimes: "download",
+          }),
+        /Unreviewed Windows native payloads:\nresources\/codex-runtime/u,
+      );
+    }));
+
+  it("still requires the runtimes in a bundled installer", () =>
+    withRuntimeFixture(({ appOutDir, manifest }) => {
+      assert.throws(
+        () =>
+          auditWindowsNativePayloads({ appOutDir, arch: "x64", manifest, phase: "before-sign" }),
+        /Reviewed Windows native payloads are missing/u,
+      );
+    }));
+
+  it("accepts archives that unpack to exactly the reviewed runtime payloads", () =>
+    withRuntimeFixture(({ archivesRoot, manifest }) => {
+      for (const pathname of [codexPath, claudePath]) {
+        writeRelative(archivesRoot, pathname, runtimeBytes(pathname));
+      }
+      const result = auditWindowsAgentRuntimePayloads({
+        root: archivesRoot,
+        arch: "x64",
+        manifest,
+      });
+      assert.strictEqual(result.nativeFiles.length, 2);
+    }));
+
+  it("refuses archives with changed, extra or missing runtime payloads", () =>
+    withRuntimeFixture(({ archivesRoot, manifest }) => {
+      writeRelative(archivesRoot, codexPath, "changed bytes");
+      writeRelative(archivesRoot, claudePath, runtimeBytes(claudePath));
+      assert.throws(
+        () => auditWindowsAgentRuntimePayloads({ root: archivesRoot, arch: "x64", manifest }),
+        /SHA-256 mismatch for resources\/codex-runtime/u,
+      );
+      writeRelative(archivesRoot, codexPath, runtimeBytes(codexPath));
+      writeRelative(archivesRoot, "resources/codex-runtime/extra.dll", portableExecutableBytes());
+      assert.throws(
+        () => auditWindowsAgentRuntimePayloads({ root: archivesRoot, arch: "x64", manifest }),
+        /Unreviewed Windows runtime archive payloads/u,
+      );
+      rmSync(path.join(archivesRoot, "resources/codex-runtime/extra.dll"));
+      rmSync(path.join(archivesRoot, ...claudePath.split("/")));
+      assert.throws(
+        () => auditWindowsAgentRuntimePayloads({ root: archivesRoot, arch: "x64", manifest }),
+        /missing from the archives:\nresources\/claude-runtime/u,
+      );
+    }));
 });
