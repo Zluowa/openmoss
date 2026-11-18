@@ -3,7 +3,7 @@
 //          surfaces (file preview, diff view), mirroring the transcript behavior.
 // Layer: Chat selection interaction controller
 
-import { useEffect, useState, type MouseEventHandler } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type MouseEventHandler } from "react";
 
 import {
   getActiveSelectionRect,
@@ -37,27 +37,44 @@ export function useCodeSelectionAction<T>(options: {
   // Derived: disabling clears the visible action in the same render, with no
   // state-resetting effect (the stale state simply stops being surfaced).
   const pendingAction = enabled ? pendingActionState : null;
+  // The surface and pointer of the release that offered the action, so a later
+  // selection change can be re-read against the same surface.
+  const sourceRef = useRef<{ container: HTMLElement; pointer: { x: number; y: number } } | null>(
+    null,
+  );
+
+  const offerFor = (container: HTMLElement, pointer: { x: number; y: number }) => {
+    if (!enabled || !container.isConnected) {
+      setPendingAction(null);
+      return;
+    }
+    const payload = readSelection(container);
+    if (payload === null) {
+      setPendingAction(null);
+      return;
+    }
+    sourceRef.current = { container, pointer };
+    const layout = resolveTranscriptSelectionActionLayout({
+      selectionRect: getActiveSelectionRect(),
+      pointer,
+    });
+    setPendingAction({ payload, ...layout });
+  };
+
+  const rereadSelection = useEffectEvent(() => {
+    const source = sourceRef.current;
+    if (!source) {
+      setPendingAction(null);
+      return;
+    }
+    offerFor(source.container, source.pointer);
+  });
 
   const onContainerMouseUp: MouseEventHandler<HTMLElement> = (event) => {
     const container = event.currentTarget;
     const pointer = { x: event.clientX, y: event.clientY };
     // Wait a frame so the browser finalizes the selection before reading it.
-    window.requestAnimationFrame(() => {
-      if (!enabled || !container.isConnected) {
-        setPendingAction(null);
-        return;
-      }
-      const payload = readSelection(container);
-      if (payload === null) {
-        setPendingAction(null);
-        return;
-      }
-      const layout = resolveTranscriptSelectionActionLayout({
-        selectionRect: getActiveSelectionRect(),
-        pointer,
-      });
-      setPendingAction({ payload, ...layout });
-    });
+    window.requestAnimationFrame(() => offerFor(container, pointer));
   };
 
   const commit = () => {
@@ -86,16 +103,23 @@ export function useCodeSelectionAction<T>(options: {
     const handleWindowChange = () => {
       setPendingAction(null);
     };
+    // The browser delivers `selectionchange` as a task, so the change for the very
+    // selection that offered the action can arrive after the action is shown (a busy
+    // or cold page). Clearing on it hid the pill a moment after it appeared. A change
+    // is re-read instead: the action stays, with the current text and position, while
+    // the surface still holds an actionable selection, and goes when it does not
+    // (collapsed, moved elsewhere).
+    const handleSelectionChange = () => rereadSelection();
 
     window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("resize", handleWindowChange);
     window.addEventListener("scroll", handleWindowChange, true);
-    document.addEventListener("selectionchange", handleWindowChange);
+    document.addEventListener("selectionchange", handleSelectionChange);
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("resize", handleWindowChange);
       window.removeEventListener("scroll", handleWindowChange, true);
-      document.removeEventListener("selectionchange", handleWindowChange);
+      document.removeEventListener("selectionchange", handleSelectionChange);
     };
   }, [pendingAction]);
 

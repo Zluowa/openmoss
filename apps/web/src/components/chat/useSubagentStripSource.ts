@@ -8,7 +8,7 @@
 // Exports: useSubagentStripSource, useSubagentRoster, useThreadSubagentRoster
 
 import { ThreadId, type OrchestrationThreadActivity, type TurnId } from "@moss/contracts";
-import { useEffect, useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo } from "react";
 
 import { deriveWorkLogEntries, isLatestTurnSettled, type WorkLogEntry } from "../../session-logic";
 import { useStore } from "../../store";
@@ -17,6 +17,7 @@ import { retainThreadDetailSubscription } from "../../threadDetailSubscriptionRe
 import type { Thread } from "../../types";
 import { enrichSubagentWorkEntries, resolveComposerStripWorkLogEntries } from "../ChatView.logic";
 import { createRelevantWorkLogThreadsSelector } from "../ChatView.selectors";
+import { registerSubagentMarkOrder } from "./subagentMarkOrder";
 import {
   deriveEnvironmentSubagentRoster,
   EMPTY_ENVIRONMENT_SUBAGENT_ROSTER,
@@ -213,6 +214,13 @@ export function useSubagentStripSource(input: {
       }
     };
   }, [liveSubagentThreadIdsKey]);
+  // Subagent marks go out in order of first appearance in this chat's work log and are kept for
+  // the life of the window; registering before paint means a mark never flashes another first.
+  useLayoutEffect(() => {
+    if (hasStripWorkLogSubagents && stripSourceThreadId) {
+      registerSubagentMarkOrder(stripSourceThreadId, stripWorkLogEntries);
+    }
+  }, [stripSourceThreadId, stripWorkLogEntries, hasStripWorkLogSubagents]);
   const backgroundedSubagentToolUseIds = useMemo(
     () => collectBackgroundedSubagentToolUseIds(stripSourceActivities),
     [stripSourceActivities],

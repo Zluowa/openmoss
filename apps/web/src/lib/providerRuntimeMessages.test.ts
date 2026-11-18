@@ -114,11 +114,11 @@ describe("localizeProviderRuntimeMessage", () => {
   it.each([
     [
       (value: string) => `Subagent '${value}' already finished; the message was not delivered.`,
-      (value: string) => `子代理 '${value}' 已结束；消息未发送。`,
+      (value: string) => `子智能体 '${value}' 已结束；消息未发送。`,
     ],
     [
       (value: string) => `Failed to stop subagent task '${value}'.`,
-      (value: string) => `停止子代理任务 '${value}' 失败。`,
+      (value: string) => `停止子智能体任务 '${value}' 失败。`,
     ],
     [
       (value: string) =>
@@ -141,11 +141,11 @@ describe("localizeProviderRuntimeMessage", () => {
     [
       (value: string) =>
         `Cannot message subagent '${value}' because the provider runtime is not active.`,
-      (value: string) => `无法向子代理 '${value}' 发送消息，因为服务商运行时未处于活动状态。`,
+      (value: string) => `无法向子智能体 '${value}' 发送消息，因为服务商运行时未处于活动状态。`,
     ],
     [
       (value: string) => `Provider '${value}' does not support messaging a running subagent.`,
-      (value: string) => `服务商 '${value}' 不支持向运行中的子代理发送消息。`,
+      (value: string) => `服务商 '${value}' 不支持向运行中的子智能体发送消息。`,
     ],
   ] as const)(
     "localizes a stable dynamic template without changing its value",

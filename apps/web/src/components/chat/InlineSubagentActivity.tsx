@@ -1,10 +1,10 @@
 // Timeline row for native subagents under the parent turn.
 // i18n: subagents.activity.summary → chat.timeline.subagentStatus.*
-// Marks are the seeded sparkle image at `size-4`.
+// Marks are SubagentMark at `size-4`; the pinwheels turn while the agents work.
 // This is the in-timeline row, not the sidebar child thread.
 
 import { useTranslation } from "../../localization";
-import { CodexSubagentSparkle } from "./CodexSubagentSparkle";
+import { SubagentMark } from "./SubagentMark";
 import { cn } from "~/lib/utils";
 import {
   formatInlineSubagentNameList,
@@ -36,6 +36,8 @@ export function InlineSubagentActivity(props: {
   const nameList = formatInlineSubagentNameList(labels, locale);
   if (!nameList) return null;
   const { visibleNames } = selectInlineSubagentNames(labels);
+  const running =
+    props.status === "active" || props.status === "progress" || props.status === "updated";
   const chipCount = props.items.length > 3 ? Math.min(props.items.length, 4) : visibleNames.length;
   const chips = props.items.slice(0, chipCount);
   const statusPhrase =
@@ -58,10 +60,11 @@ export function InlineSubagentActivity(props: {
     >
       <span className="inline-flex h-5 shrink-0 items-center gap-1.5" aria-hidden="true">
         {chips.map((item) => (
-          <CodexSubagentSparkle
+          <SubagentMark
             key={item.id}
             seed={item.id}
             accentColor={item.accentColor}
+            running={running}
             className="size-4"
             data-subagent-chip={item.id}
           />

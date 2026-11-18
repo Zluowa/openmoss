@@ -220,6 +220,7 @@ export const TimelineSubagentActivityGroup = memo(function TimelineSubagentActiv
                 className="size-4"
                 data-testid="subagent-avatar"
                 seed={resolveSubagentAvatarSeed(row.subagent)}
+                running={row.subagent.isActive === true}
               />
             </span>
           ))}

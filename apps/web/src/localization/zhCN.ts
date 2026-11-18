@@ -1672,7 +1672,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Send as draft": "存为草稿",
   "Create task": "创建任务",
   "Do anything in Moss": "在 Moss 里做任何事",
-  "Message this subagent": "给这个子代理发消息",
+  "Message this subagent": "给这个子智能体发消息",
   "Ask for follow-up changes": "提出后续修改",
   "Resolve this approval request to continue": "处理此批准请求后继续",
   "Type your answer to continue": "输入你的回答以继续",

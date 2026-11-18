@@ -300,13 +300,13 @@ describe("translateMoss", () => {
     expect(formatMossTranslation("zh-CN", "rightDock.subagents.done", { count: 11 })).toBe(
       "完成 · 11",
     );
-    expect(translateMoss("zh-CN", "rightDock.subagents.emptyActive")).toBe("没有已开启的子代理");
+    expect(translateMoss("zh-CN", "rightDock.subagents.emptyActive")).toBe("没有已开启的子智能体");
     expect(translateMoss("zh-CN", "rightDock.subagents.working")).toBe("处理中");
     expect(formatMossTranslation("zh-CN", "rightDock.subagents.showMore", { count: 1 })).toBe(
       "再显示 1 个",
     );
     expect(translateMoss("zh-CN", "rightDock.subagents.showLess")).toBe("收起");
-    expect(translateMoss("zh-CN", "rightDock.subagents.back")).toBe("返回子代理列表");
+    expect(translateMoss("zh-CN", "rightDock.subagents.back")).toBe("返回子智能体列表");
 
     expect(formatMossTranslation("en", "chat.workflow.toolCalls.many", { count: 4 })).toBe(
       "4 tool calls",
