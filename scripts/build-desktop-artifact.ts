@@ -29,7 +29,8 @@ import {
 } from "node:fs";
 import { constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
-import { retireWindowsDesktopStage } from "./lib/desktop-artifact-stage.ts";
+import { retireWindowsDesktopStageInBackground } from "./lib/desktop-artifact-stage.ts";
+import { TEST_COMPRESSION_ENV, testCompressionFor } from "./lib/desktop-test-compression.ts";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import rootPackageJson from "../package.json" with { type: "json" };
@@ -130,6 +131,8 @@ import {
   MAC_CANONICAL_FILESYSTEM_HELPER_STAGE_PATH,
   resolveDesktopBuilderCliTargets,
   MAC_DEVICE_HELPER_RESOURCE_PATH,
+  SSH_RUNTIME_EXTRA_RESOURCE,
+  SSH_RUNTIME_STAGE_PATH,
   validateDesktopNativeBuildHost,
 } from "./lib/desktop-platform-build-config.ts";
 import {
@@ -3684,6 +3687,31 @@ const rebuildStagedLinuxNodePty = Effect.fn("rebuildStagedLinuxNodePty")(functio
   );
 });
 
+/** What electron-builder copies from the staged app directory into resources/, beside app.asar. */
+export function desktopExtraResources(input: {
+  readonly platform: typeof BuildPlatform.Type;
+  readonly includeProductionPublicConfig: boolean;
+  readonly includeMossCanvasBundle: boolean;
+}): ReadonlyArray<{ readonly from: string; readonly to: string }> {
+  return [
+    SSH_RUNTIME_EXTRA_RESOURCE,
+    BUNDLED_CODEX_EXTRA_RESOURCE,
+    BUNDLED_CODEX_COMPLIANCE_EXTRA_RESOURCE,
+    BUNDLED_CLAUDE_EXTRA_RESOURCE,
+    ...(requiresBundledCuaDriver(input.platform) ? [BUNDLED_CUA_DRIVER_EXTRA_RESOURCE] : []),
+    ...(input.platform === "win" ? [WINDOWS_JOB_LAUNCHER_EXTRA_RESOURCE] : []),
+    ...(input.includeProductionPublicConfig
+      ? [createMossProductionPublicConfigExtraResource()]
+      : []),
+    ...(input.includeMossCanvasBundle ? [MOSS_CANVAS_EXTRA_RESOURCE] : []),
+  ];
+}
+
+/** app.asar's `files` patterns: the platform's list, then the stage-only Codex compliance tree. */
+export function desktopAsarFilePatterns(platformFiles: ReadonlyArray<string>): string[] {
+  return [...platformFiles, BUNDLED_CODEX_COMPLIANCE_STAGE_ASAR_EXCLUSION];
+}
+
 const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   platform: typeof BuildPlatform.Type,
   target: string,
@@ -3704,16 +3732,11 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     directories: {
       buildResources: "apps/desktop/resources",
     },
-    extraResources: [
-      { from: "apps/desktop/ssh-runtime.tar.gz", to: "ssh-runtime.tar.gz" },
-      BUNDLED_CODEX_EXTRA_RESOURCE,
-      BUNDLED_CODEX_COMPLIANCE_EXTRA_RESOURCE,
-      BUNDLED_CLAUDE_EXTRA_RESOURCE,
-      ...(requiresBundledCuaDriver(platform) ? [BUNDLED_CUA_DRIVER_EXTRA_RESOURCE] : []),
-      ...(platform === "win" ? [WINDOWS_JOB_LAUNCHER_EXTRA_RESOURCE] : []),
-      ...(includeProductionPublicConfig ? [createMossProductionPublicConfigExtraResource()] : []),
-      ...(includeMossCanvasBundle ? [MOSS_CANVAS_EXTRA_RESOURCE] : []),
-    ],
+    extraResources: desktopExtraResources({
+      platform,
+      includeProductionPublicConfig,
+      includeMossCanvasBundle,
+    }),
     forceCodeSigning: signed,
   };
   // Mock feeds win so the local update smoke never talks to the real release
@@ -3763,11 +3786,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   const platformBuildConfig = createDesktopPlatformBuildConfig(platformBuildConfigInput);
   Object.assign(buildConfig, platformBuildConfig);
   Object.assign(buildConfig, electronDistBuildConfig(electronDist));
-  buildConfig.files = [
-    "!apps/desktop/ssh-runtime.tar.gz",
-    ...(platformBuildConfig.files ?? []),
-    BUNDLED_CODEX_COMPLIANCE_STAGE_ASAR_EXCLUSION,
-  ];
+  buildConfig.files = desktopAsarFilePatterns(platformBuildConfig.files ?? []);
 
   return {
     buildConfig,
@@ -4200,7 +4219,9 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     : process.platform !== "win32"
       ? fs.makeTempDirectoryScoped(scratch)
       : Effect.acquireRelease(fs.makeTempDirectory(scratch), (dir) =>
-          Effect.promise(() => retireWindowsDesktopStage(dir)),
+          // Renamed aside, then removed by a detached process: deleting the ~1.5 GB stage took
+          // 3.5 minutes after the installer was done on 2026-11-17.
+          Effect.promise(() => retireWindowsDesktopStageInBackground(dir)),
         );
   const stagedElectronDist = yield* Effect.try({
     try: () =>
@@ -4317,7 +4338,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   );
   yield* fs.copyFile(
     path.join(sshRuntimePackDir, `moss-server-${appVersion}.tar.gz`),
-    path.join(stageAppDir, "apps/desktop/ssh-runtime.tar.gz"),
+    path.join(stageAppDir, SSH_RUNTIME_STAGE_PATH),
   );
 
   yield* Effect.log("[desktop-artifact] Staging release app...");
@@ -4419,6 +4440,20 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     electronDistProvenance,
     stagedMossCanvasBundle !== null,
   );
+  const testCompression = yield* Effect.try({
+    try: () => testCompressionFor(options.releaseMode, process.env),
+    catch: (cause) =>
+      new BuildScriptError({
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      }),
+  });
+  if (testCompression) {
+    resolvedBuildConfig.buildConfig.compression = testCompression;
+    yield* Effect.log(
+      `[desktop-artifact] Test build: installer compression "${testCompression}" (${TEST_COMPRESSION_ENV}); published builds keep the default.`,
+    );
+  }
 
   const stagePackageJson: StagePackageJson = {
     name: "moss-desktop",

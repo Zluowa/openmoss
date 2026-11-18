@@ -37,7 +37,7 @@ function fixture() {
     GITHUB_RUN_ID: "123",
     GITHUB_RUN_ATTEMPT: "2",
     MOSS_CI_BROWSER_PROJECT: "components",
-    MOSS_CI_BROWSER_LANE: "1/2",
+    MOSS_CI_BROWSER_LANE: "1/4",
     GITHUB_WORKSPACE: workspace,
     RUNNER_TEMP: temporary,
   };
@@ -80,7 +80,7 @@ describe("hosted component browser cache lifetime", () => {
     for (const change of [
       { GITHUB_RUN_ID: "456" },
       { GITHUB_RUN_ATTEMPT: "3" },
-      { MOSS_CI_BROWSER_LANE: "2/2" },
+      { MOSS_CI_BROWSER_LANE: "2/4" },
     ]) {
       assert.throws(() =>
         releaseBrowserCache(browserDiskContext({ ...env, ...change }, "linux"), "stable"),
@@ -190,7 +190,7 @@ describe("hosted component browser cache lifetime", () => {
     assert.equal(geometry.run, "bun run --cwd apps/web test:browser:geometry");
     assert.equal(geometry["timeout-minutes"], 10);
     assert.equal(geometry["continue-on-error"], true);
-    assert.equal(geometry.if, "${{ matrix.project == 'components' && matrix.lane == '1/2' }}");
+    assert.equal(geometry.if, "${{ matrix.project == 'components' && matrix.lane == '1/4' }}");
     for (const [name, phase] of [
       ["Browser test (stable)", "STABLE"],
       ["Browser test (compiled transcript render scope)", "COMPILER"],

@@ -10,6 +10,8 @@ import {
   mossCanvasStorageDirectory,
   mossCanvasStorageExists,
   mossCanvasStorageFor,
+  mossCanvasBundleRootCandidates,
+  resolveMossCanvasBundleRoot,
 } from "./mossCanvasStorage";
 
 afterEach(() => vi.restoreAllMocks());
@@ -117,6 +119,52 @@ describe("Canvas imports of existing Moss outputs", () => {
       });
     }
     expect(network).not.toHaveBeenCalled();
+  });
+});
+
+describe("where the packaged app finds the Canvas bundle", () => {
+  // The installer ships the bundle once, as resources/moss-canvas; app.asar holds no copy.
+  async function packagedLayout() {
+    const root = await mkdtemp(join(tmpdir(), "moss-packaged-canvas-"));
+    const resources = join(root, "resources");
+    const bundle = join(resources, "moss-canvas");
+    await mkdir(join(bundle, "apps/codex-canvas/server"), { recursive: true });
+    await writeFile(join(bundle, "apps/codex-canvas/server/hosted-storage.mjs"), "export {};\n");
+    await writeFile(join(resources, "app.asar"), "archive");
+    return {
+      root,
+      resources,
+      bundle,
+      serverDirectory: join(resources, "app.asar/apps/server/dist"),
+    };
+  }
+
+  it("uses the moss-canvas resource the desktop passes to the server", async () => {
+    const layout = await packagedLayout();
+    try {
+      const candidates = mossCanvasBundleRootCandidates({
+        env: { MOSS_CANVAS_BUNDLE_DIR: layout.bundle },
+        serverDirectory: layout.serverDirectory,
+        resourcesPath: layout.resources,
+      });
+      await expect(resolveMossCanvasBundleRoot(candidates)).resolves.toBe(layout.bundle);
+    } finally {
+      await rm(layout.root, { recursive: true, force: true });
+    }
+  });
+
+  it("still finds the moss-canvas resource when started without that variable", async () => {
+    const layout = await packagedLayout();
+    try {
+      const candidates = mossCanvasBundleRootCandidates({
+        env: {},
+        serverDirectory: layout.serverDirectory,
+        resourcesPath: layout.resources,
+      });
+      await expect(resolveMossCanvasBundleRoot(candidates)).resolves.toBe(layout.bundle);
+    } finally {
+      await rm(layout.root, { recursive: true, force: true });
+    }
   });
 });
 

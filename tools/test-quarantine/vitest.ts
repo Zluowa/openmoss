@@ -14,6 +14,7 @@ import {
   type QuarantineEntry,
 } from "./quarantine";
 import { EmptySuiteReporter, isEmptySuiteReporter } from "./emptySuites";
+import { isWatchdog, watchdogFromEnv } from "./watchdog";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "../..");
@@ -49,6 +50,11 @@ export function testQuarantine(options: TestQuarantineOptions = {}): Plugin {
         vitest.config.reporters.push(
           new EmptySuiteReporter({ root: options.repoRoot ?? repoRoot }),
         );
+      }
+      // CI unit lanes set MOSS_TEST_PROGRESS_FILE (watchdog.ts): file progress and a per-file limit.
+      const watchdog = watchdogFromEnv(process.env, options.repoRoot ?? repoRoot);
+      if (watchdog && !vitest.config.reporters.some(isWatchdog)) {
+        vitest.config.reporters.push(watchdog);
       }
       const mode = parseMode(
         project.config.env?.MOSS_TEST_QUARANTINE ?? process.env.MOSS_TEST_QUARANTINE,

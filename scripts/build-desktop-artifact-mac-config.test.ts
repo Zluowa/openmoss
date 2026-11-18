@@ -434,6 +434,8 @@ describe("createDesktopPlatformBuildConfig", () => {
         "!apps/desktop/codex-runtime/**",
         "!apps/desktop/claude-runtime/**",
         "!apps/desktop/cua-driver-runtime/**",
+        "!apps/desktop/canvas-bundle{,/**}",
+        "!apps/desktop/ssh-runtime.tar.gz",
       ],
     );
 
@@ -448,7 +450,7 @@ describe("createDesktopPlatformBuildConfig", () => {
         target,
       });
 
-      assert.deepStrictEqual(config.files?.slice(0, 4), [
+      assert.deepStrictEqual(config.files?.slice(0, 1 + BUNDLED_RUNTIME_ASAR_EXCLUSIONS.length), [
         "**/*",
         ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
       ]);
