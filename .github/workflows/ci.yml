@@ -41,6 +41,50 @@ jobs:
         uses: ./.github/actions/setup-workspace
       - name: Typecheck
         run: bun run typecheck
+  quick:
+    name: Quick Check (changed files)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 2
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          electron: "true"
+      - name: Restore Playwright browsers
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+      - name: Install browser test runtime
+        timeout-minutes: 8
+        run: |
+          cd apps/web
+          for attempt in 1 2; do
+            timeout 200 ./node_modules/.bin/playwright install chromium && exit 0
+            echo "::warning::playwright install attempt $attempt failed or took over 200 s"
+          done
+          exit 1
+      - name: Check the changed files
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: |
+          set +e
+          # --allow-root: a root configuration change still gets its selection here; the full run
+          # covers everything else. No heavy lanes exist on a runner.
+          bun run check --base HEAD~1 --no-types --no-wait --allow-root > "$RUNNER_TEMP/quick-check.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/quick-check.log"
+          {
+            echo "### Quick check of the changed files (exit $status)"
+            echo '```'
+            grep -vE '^\s*$' "$RUNNER_TEMP/quick-check.log" | tail -n 60
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
   unit_tests:
     name: Unit Tests (${{ matrix.lane }})
     runs-on: ubuntu-24.04
