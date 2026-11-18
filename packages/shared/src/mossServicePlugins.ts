@@ -236,7 +236,8 @@ ${CONNECTOR_TROUBLE("瑞幸咖啡")}`,
     name: "飞猪旅行",
     description: "Search flights, trains, hotels, and attractions with Fliggy, with booking links.",
     docsUrl: "https://github.com/alibaba-flyai/flyai-skill",
-    iconHost: "fliggy.com",
+    // fliggy.com answers /favicon.ico with a web page; FlyAI's own site serves its mark.
+    iconHost: "flyai.open.fliggy.com",
     requirements: "Needs the FlyAI CLI on this computer: npm i -g @fly-ai/flyai-cli",
     skill: {
       name: "flyai-travel",

@@ -19,6 +19,7 @@ import {
   isCodexManagedPlugin,
   isPluginInstalledForDirectory,
   isProviderPluginListingLoadError,
+  isSignInRequiredPluginListingError,
   mossCanonicalPluginManifestPath,
   mcpSource,
   mcpTransportLabel,
@@ -584,6 +585,28 @@ describe("plugin load errors", () => {
     expect(isProviderPluginListingLoadError({ marketplacePath: "/home/me/.agents/plugins" })).toBe(
       false,
     );
+  });
+
+  it("tells a listing refused for want of a sign-in from one that failed", () => {
+    const codex = (message: string) => ({ marketplacePath: "codex-native", message });
+    expect(
+      isSignInRequiredPluginListingError(
+        codex(
+          "plugin/list failed: list remote plugin catalog: chatgpt authentication required for remote plugin catalog",
+        ),
+      ),
+    ).toBe(true);
+    expect(isSignInRequiredPluginListingError(codex("Sign-in required."))).toBe(true);
+    expect(isSignInRequiredPluginListingError(codex("Timed out waiting for plugin/list."))).toBe(
+      false,
+    );
+    // One marketplace file failing is never a sign-in state.
+    expect(
+      isSignInRequiredPluginListingError({
+        marketplacePath: "/home/me/.agents/plugins",
+        message: "authentication required",
+      }),
+    ).toBe(false);
   });
 });
 

@@ -17,6 +17,7 @@ import type {
   MossResourceImportPlanResult,
   MossResourceImportRollbackInput,
   MossResourceImportRollbackResult,
+  MossAppsAvailability,
   NativeApi,
   ProviderAppInfo,
   ProviderGetComposerCapabilitiesInput,
@@ -252,8 +253,12 @@ export class PluginLibraryNativeFixture {
   optionalShardError: Error | null = null;
   /** Load errors every optional lane reports, as the server sends them. */
   optionalShardLoadErrors: ProviderPluginMarketplaceLoadError[] = [];
+  /** Load errors the primary lane reports, as the server sends them (a CLI that refused). */
+  primaryShardLoadErrors: ProviderPluginMarketplaceLoadError[] = [];
   /** The server's Moss Apps catalog; null leaves the app backend unconfigured. */
   mossAppToolkits: MossAppToolkit[] | null = null;
+  /** Overrides the Moss Apps availability (`authentication-required` is signed out of Moss). */
+  mossAppsAvailability: MossAppsAvailability | null = null;
   /** How many Moss Apps catalog reads fail before one succeeds. */
   mossAppCatalogFailures = 0;
   appListError: Error | null = null;
@@ -299,7 +304,9 @@ export class PluginLibraryNativeFixture {
   }
 
   catalog(): ProviderListPluginsResult {
-    if (this.catalogMode === "empty") return emptyCatalog();
+    if (this.catalogMode === "empty") {
+      return { ...emptyCatalog(), marketplaceLoadErrors: this.primaryShardLoadErrors };
+    }
     return {
       marketplaces: [
         {
@@ -639,7 +646,9 @@ export class PluginLibraryNativeFixture {
           return this.serverSettings;
         },
         getMossAppsStatus: async () => ({
-          availability: this.mossAppToolkits ? ("ready" as const) : ("unconfigured" as const),
+          availability:
+            this.mossAppsAvailability ??
+            (this.mossAppToolkits ? ("ready" as const) : ("unconfigured" as const)),
           agentAccess: false,
         }),
         listMossAppToolkits: async () => {
