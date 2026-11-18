@@ -1,4 +1,5 @@
 // Turns a list of changed files into the steps of `bun run check`. Pure: no I/O.
+import { typeOwners } from "./typeScope.ts";
 import { packageOf, type WorkspacePackage } from "./workspace.ts";
 
 export interface ChangedFile {
@@ -78,6 +79,11 @@ export interface Selection {
   readonly changedPackages: string[];
   /** Packages holding a changed file or a file that imports one, directly or not. */
   readonly affectedPackages: string[];
+  /**
+   * Packages to type-check: the affected ones, plus every package whose tsconfig takes in a changed
+   * or affected file through `include`, `files` or a referenced project (typeScope.ts).
+   */
+  readonly typePackages: string[];
   /** Whether the phone app's own lane (`bun run mobile:check`) has to run. */
   readonly mobile: boolean;
 }
@@ -102,6 +108,8 @@ export function select(
   rootScripts: Readonly<Record<string, string>>,
   /** The changed files and every file that imports one (graph.ts `reach`). */
   reached: Iterable<string> = [],
+  /** Package name -> the files its typecheck reads (typeScope.ts `readTypeScopes`). */
+  typeScopes: ReadonlyMap<string, readonly RegExp[]> = new Map(),
 ): Selection {
   const existing = changed.filter((file) => file.exists).map((file) => file.path);
   const changedPackages = new Set<string>();
@@ -128,6 +136,15 @@ export function select(
     ).map(({ script }) => script),
     changedPackages: inOrder(changedPackages),
     affectedPackages: inOrder(affected),
+    typePackages: inOrder(
+      new Set([
+        ...affected,
+        ...typeOwners(
+          [...changed.map((file) => file.path), ...reachedFiles].filter((path) => CODE.test(path)),
+          typeScopes,
+        ),
+      ]),
+    ),
     mobile: touchesMobile(
       changed.map((file) => file.path),
       reachedFiles,
