@@ -300,8 +300,11 @@ export function makeServerRuntimeServicesLayer(
   const mcpConnectorsLayer = McpConnectorsLive.pipe(
     Layer.provideMerge(ServerSecretStoreLive),
     Layer.provideMerge(agentGatewayCredentialsLayer),
-    // Mainland China presets are gated on a signed-in phone account.
+    // Mainland China presets are gated on a signed-in phone account; Moss Apps uses the
+    // account the account menu shows as current, so it reads all three account services.
     Layer.provide(mossPhoneAccountLayer),
+    Layer.provide(mossCloudAccountLayer),
+    Layer.provide(mossEnterpriseKeyLayer),
   );
   // Typed items save through the realtime-wrapped PagesService, so open viewers see them.
   // 数据看板 live queries use the same connector proxy as 应用页.

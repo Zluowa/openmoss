@@ -107,10 +107,15 @@ export class MossAppsRuntime {
         error instanceof MossAppsFailure
           ? error
           : MossAppsFailure.fromCode("authentication_required");
+      // Only "nobody is signed in" asks for a login. A signed-in account whose credential
+      // could not be read or checked right now (a refresh in progress, a service hiccup) is
+      // offered a retry; the server log names the check that failed.
       this.availability =
         failure.code === "apps_login_account_required"
           ? "login-account-required"
-          : "authentication-required";
+          : failure.code === "authentication_required"
+            ? "authentication-required"
+            : "unavailable";
       throw failure;
     }
     if (this.disposed) throw MossAppsFailure.fromCode("apps_unavailable");

@@ -320,3 +320,30 @@ describe("Moss Apps desktop account boundary", () => {
     expect(f.published.filter(Boolean)).toEqual([]);
   });
 });
+
+describe("Moss Apps for a signed-in person whose account check fails", () => {
+  // The owner's build, 2026-11-18: signed in, yet 「登录 Moss 后即可连接你的应用。」.
+  it.each(["account_recovery_required", "account_changed", "apps_unavailable"])(
+    "offers a retry, not a login, after %s",
+    async (code) => {
+      const f = fixture({
+        authority: async () => {
+          throw MossAppsFailure.fromCode(code);
+        },
+      });
+      expect(await f.runtime.status()).toEqual({ availability: "unavailable", agentAccess: false });
+    },
+  );
+
+  it("asks for a login when nobody is signed in, and to choose an account for an enterprise key", async () => {
+    let code = "authentication_required";
+    const f = fixture({
+      authority: async () => {
+        throw MossAppsFailure.fromCode(code);
+      },
+    });
+    expect((await f.runtime.status()).availability).toBe("authentication-required");
+    code = "apps_login_account_required";
+    expect((await f.runtime.status()).availability).toBe("login-account-required");
+  });
+});
