@@ -3,11 +3,11 @@
 //          Owns step navigation and the per-run results the final summary reads.
 // Layer: Web UI overlay (mounted once from the root route)
 //
-// Steps share an 800×540 baseline frame that follows the UI scale and is capped
+// Steps share an 800×600 baseline frame that follows the UI scale and is capped
 // by the viewport; hero steps (welcome, done) center their scrollable content in it.
 
 import { VISIBLE_PROVIDER_DESCRIPTORS } from "../betaFeatures";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { useAppSettings } from "~/appSettings";
 import { APP_BASE_NAME } from "~/branding";
@@ -43,7 +43,6 @@ import {
 } from "./logic";
 import { useOnboardingDialogStore } from "./onboardingDialogStore";
 import { OnboardingStepFooter } from "./OnboardingStepFooter";
-import { DoneStep } from "./steps/DoneStep";
 import { FeatureTourStep } from "./steps/FeatureTourStep";
 import type { ProjectImportPrimaryAction } from "~/projectImport/ProjectImportPanel";
 import { ProjectStep, type OnboardingProjectResult } from "./steps/ProjectStep";
@@ -78,8 +77,16 @@ function OnboardingFlow(props: {
   onComplete: () => void;
   projectBusy: boolean;
   onProjectBusyChange: (busy: boolean) => void;
+  primaryRef: RefObject<HTMLButtonElement | null>;
 }) {
   const [step, setStep] = useState<OnboardingStep>("welcome");
+  // Keyboard focus starts on each step's primary action, so Enter moves forward. It used to
+  // land on "Skip setup", the first focusable control, and one Enter skipped the whole tour.
+  const primaryRef = props.primaryRef;
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => primaryRef.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [primaryRef, step]);
   const [projectResults, setProjectResults] = useState<ReadonlyArray<OnboardingProjectResult>>([]);
   // The import's own primary action, so "Import N conversations" stays in the footer.
   const [importAction, setImportAction] = useState<ProjectImportPrimaryAction | null>(null);
@@ -185,8 +192,8 @@ function OnboardingFlow(props: {
       </DialogHeader>
       <div
         className={cn(
-          "flex min-h-0 flex-1 flex-col overflow-y-auto pt-6",
-          step === "providers" && "overflow-hidden pt-4",
+          "onboarding-scroll-fade flex min-h-0 flex-1 flex-col overflow-y-auto pt-6",
+          step === "providers" && "overflow-hidden pt-4 [mask-image:none]",
           ONBOARDING_INSET_CLASS_NAME,
           hero && "[justify-content:safe_center] pb-6",
         )}
@@ -209,12 +216,12 @@ function OnboardingFlow(props: {
             }
           />
         ) : null}
-        {step === "done" ? <DoneStep /> : null}
       </div>
       <OnboardingStepFooter
         step={step}
         onBack={goBack}
         onSkip={props.onComplete}
+        primaryRef={primaryRef}
         primaryLabel={primaryAction.label}
         onPrimary={primaryAction.onPrimary}
         primaryDisabled={"disabled" in primaryAction ? primaryAction.disabled : false}
@@ -239,6 +246,7 @@ export function OnboardingDialog(props: {
   // Project creation cannot be aborted: closing the tour mid-create would report a skip
   // while a project still appears afterwards, so dismissal waits for it to settle.
   const [projectBusy, setProjectBusy] = useState(false);
+  const primaryRef = useRef<HTMLButtonElement | null>(null);
   const handleOpenChange = (open: boolean) => {
     if (!open && projectBusy) return;
     props.onOpenChange(open);
@@ -247,7 +255,8 @@ export function OnboardingDialog(props: {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogPopup
         showCloseButton
-        className="h-[min(calc(540px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px]"
+        initialFocus={primaryRef}
+        className="h-[min(calc(600px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px]"
       >
         {/* Remount per open so a replay from Settings starts at the first step. */}
         {open ? (
@@ -255,6 +264,7 @@ export function OnboardingDialog(props: {
             onComplete={props.onComplete}
             projectBusy={projectBusy}
             onProjectBusyChange={setProjectBusy}
+            primaryRef={primaryRef}
           />
         ) : null}
       </DialogPopup>

@@ -1194,6 +1194,9 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Native pull-request workspace": "原生拉取请求工作区",
   "Browser & devices": "浏览器与设备",
   "Verify in a real browser or simulator": "在真实浏览器或模拟器中验证",
+  "Verify in a real browser": "在真实浏览器中验证",
+  "Agents drive a visible, task-owned browser you can watch and annotate.":
+    "智能体驱动一个可见的、任务专属的浏览器，你可以观看并标注。",
   "Agents drive a visible, task-owned browser you can watch and annotate. On macOS, an iOS Simulator pane streams the device so agents can build, launch, and tap through an app while you follow along.":
     "智能体驱动一个可见的、任务专属的浏览器，你可以观看并标注。在 macOS 上，iOS 模拟器窗格会串流设备画面，智能体可以构建、启动并点击操作应用，你全程跟进。",
   "Shared Chromium surface": "共享 Chromium 界面",

@@ -16108,6 +16108,81 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  // The default first run: no Codex login. The reason a send did not go, and what to do,
+  // must be readable where the person looks (above the composer), whole, with the action
+  // as a button; it used to be a toast over the title bar, cut off with "…".
+  it("explains a send blocked by a signed-out model above the composer, whole, with its actions", async () => {
+    const viewport: ViewportSpec = { name: "tester-window", width: 1101, height: 782 };
+    const mounted = await mountChatView({
+      viewport,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-signed-out-send-test" as MessageId,
+        targetText: "signed out send test",
+      }),
+      configureFixture: (nextFixture) => {
+        const providers: ServerConfig["providers"] = nextFixture.serverConfig.providers.map(
+          (provider) =>
+            provider.provider === "codex"
+              ? { ...provider, status: "warning" as const, authStatus: "unauthenticated" as const }
+              : provider,
+        );
+        nextFixture.serverConfig = { ...nextFixture.serverConfig, providers };
+        nextFixture.providerStatusesSnapshot = providers;
+      },
+    });
+
+    try {
+      const draft = "Help me write a plan";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, draft);
+      const editor = await waitForComposerEditor();
+      await vi.waitFor(() => expect(editor.textContent).toContain(draft));
+      editor.focus();
+      await userEvent.keyboard("{Enter}");
+
+      const notice = page.getByTestId("composer-send-blocked-notice");
+      await expect.element(notice).toBeVisible();
+      const noticeElement = notice.element() as HTMLElement;
+      const sentence =
+        "Codex is not signed in. Sign in under Settings → Model accounts, or pick Moss as its provider in the model menu.";
+      expect(noticeElement.textContent).toContain(sentence);
+      // The whole sentence is painted: nothing clipped or cut off with an ellipsis.
+      const description = noticeElement.querySelector<HTMLElement>(
+        '[data-slot="alert-description"]',
+      )!;
+      expect(description.textContent).toBe(sentence);
+      expect(description.scrollWidth).toBeLessThanOrEqual(description.clientWidth + 1);
+      expect(description.scrollHeight).toBeLessThanOrEqual(description.clientHeight + 1);
+      expect(getComputedStyle(description).textOverflow).not.toBe("ellipsis");
+      // Inside the window, right above the composer, clear of the title bar.
+      const noticeRect = noticeElement.getBoundingClientRect();
+      const composerRect = queryComposerShell().getBoundingClientRect();
+      expect(noticeRect.left).toBeGreaterThanOrEqual(0);
+      expect(noticeRect.right).toBeLessThanOrEqual(viewport.width);
+      expect(noticeRect.top).toBeGreaterThanOrEqual(48);
+      expect(noticeRect.bottom).toBeLessThanOrEqual(composerRect.top + 1);
+      expect(composerRect.top - noticeRect.bottom).toBeLessThan(80);
+      const openSettings = page.getByRole("button", { name: "Open Settings", exact: true });
+      await expect.element(openSettings).toBeVisible();
+      const buttonRect = openSettings.element().getBoundingClientRect();
+      expect(buttonRect.width).toBeGreaterThan(0);
+      expect(buttonRect.bottom).toBeLessThanOrEqual(viewport.height);
+      // Said once, here: no toast repeats it at the top of the window.
+      expect(page.getByText(sentence).elements()).toHaveLength(1);
+      // The draft stays in the box and nothing was sent.
+      expect(editor.textContent).toContain(draft);
+      expect(hasDispatchedCommandType("thread.turn.start")).toBe(false);
+
+      // Acting on it takes the notice away.
+      await openSettings.click();
+      await vi.waitFor(() =>
+        expect(page.getByTestId("composer-send-blocked-notice").elements()).toHaveLength(0),
+      );
+      expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(draft);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it("does not open a fresh chat on an unauthenticated sticky agent", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {

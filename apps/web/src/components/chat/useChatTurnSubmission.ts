@@ -23,7 +23,6 @@ import {
 } from "~/lib/composerMentions";
 import { isServerConfiguredMossDefaultManagedProvider } from "~/lib/providerAvailability";
 import { fetchFreshMossQuotaAdmission } from "~/lib/mossQuotaAdmission";
-import { localizeProviderSendBlockedReason } from "~/lib/providerUnavailablePresentation";
 import { newMessageId, randomUUID } from "~/lib/utils";
 import {
   beginComposerSendTiming,
@@ -345,6 +344,8 @@ export function useChatTurnSubmission({
   setOptimisticUserMessages,
   runProjectScript,
   persistThreadSettingsForNextTurn,
+  onSendBlocked,
+  onSendUnblocked,
 }: ChatTurnSubmissionInput) {
   const { locale, t } = useTranslation();
   // Dedupe repeat submits of identical content (double clicks, Enter key repeat)
@@ -931,16 +932,14 @@ export function useChatTurnSubmission({
           sendPreflightInFlightRef.current = false;
         },
         onBlocked: (blockedAvailability) => {
-          toastManager.add({
-            type: "error",
-            title: localizeProviderSendBlockedReason(locale, blockedAvailability),
-          });
+          onSendBlocked(blockedAvailability);
         },
       });
       markComposerSend("provider-checked");
       if (!sendProviderAvailability.usable) {
         return false;
       }
+      onSendUnblocked();
 
       // Refresh only the exact managed Moss instances immediately before any
       // browser/device attachment, queue persistence, optimistic message, or
@@ -1338,6 +1337,8 @@ export function useChatTurnSubmission({
       setOptimisticUserMessages,
       executePreparedTurn,
       canSendWithProviderHandoff,
+      onSendBlocked,
+      onSendUnblocked,
     ],
   );
   const unsentMessageRestorers = useMemo(

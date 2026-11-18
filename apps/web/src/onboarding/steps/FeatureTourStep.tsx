@@ -13,8 +13,8 @@ import { ShortcutKbd } from "~/components/ui/kbd";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { ExternalLinkIcon } from "~/lib/icons";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
-import { cn } from "~/lib/utils";
-import { TOUR_CARDS, TOUR_SHORTCUT_COMMANDS } from "../tourContent";
+import { cn, isMacNavigatorPlatform } from "~/lib/utils";
+import { TOUR_SHORTCUT_COMMANDS, tourCardsForPlatform } from "../tourContent";
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
 
@@ -43,14 +43,15 @@ export function TourShortcutList(props: { className?: string }) {
 }
 
 export function FeatureTourStep() {
-  const [selectedId, setSelectedId] = useState<string>(TOUR_CARDS[0]?.id ?? "");
-  const selectedCard = TOUR_CARDS.find((card) => card.id === selectedId) ?? TOUR_CARDS[0];
+  const [cards] = useState(() => tourCardsForPlatform(isMacNavigatorPlatform()));
+  const [selectedId, setSelectedId] = useState<string>(cards[0]?.id ?? "");
+  const selectedCard = cards.find((card) => card.id === selectedId) ?? cards[0];
   if (!selectedCard) return null;
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 gap-ui-gap-md sm:grid-cols-[minmax(10rem,220px)_minmax(0,1fr)] sm:gap-ui-gap-lg">
       <div className="flex flex-col gap-0.5" role="tablist" aria-label="Moss capabilities">
-        {TOUR_CARDS.map((card) => {
+        {cards.map((card) => {
           const Icon = card.icon;
           const selected = card.id === selectedCard.id;
           return (

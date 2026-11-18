@@ -22,7 +22,8 @@ import { useWindowFolderDrop } from "~/hooks/useWindowFolderDrop";
 import { CheckIcon, FolderAddIcon, FolderIcon } from "~/lib/icons";
 import { createOrRecoverProjectFromPath } from "~/lib/projectCreation";
 import { expandProjectHomePath } from "~/lib/projectPaths";
-import { cn } from "~/lib/utils";
+import { cn, getNavigatorPlatform } from "~/lib/utils";
+import { exampleProjectPath } from "../logic";
 import { readNativeApi } from "~/nativeApi";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { useImportTurnedOffAgents } from "~/projectImport/useImportTurnedOffAgents";
@@ -195,7 +196,7 @@ export function ProjectStep(props: {
                   setPath(event.target.value);
                   setError(null);
                 }}
-                placeholder={homeDir ? `${homeDir}/code/my-repo` : "/path/to/repository"}
+                placeholder={exampleProjectPath(homeDir, getNavigatorPlatform())}
                 aria-label="Project folder path"
                 spellCheck={false}
                 autoCorrect="off"

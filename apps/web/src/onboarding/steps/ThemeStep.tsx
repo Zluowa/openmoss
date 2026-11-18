@@ -78,7 +78,7 @@ export function ThemeStep() {
         <div
           role="radiogroup"
           aria-labelledby="onboarding-theme-pack-label"
-          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-ui-gap-xs"
+          className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,6.75rem),1fr))] gap-ui-gap-xs"
         >
           {ONBOARDING_THEME_PACKS.map((option) => {
             const selected = option.id === selectedPackId;

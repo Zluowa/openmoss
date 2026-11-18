@@ -12,7 +12,9 @@ import {
   resolveOnboardingGate,
   summarizeProviderSetup,
   toggleSelection,
+  exampleProjectPath,
 } from "./logic";
+import { tourCardsForPlatform } from "./tourContent";
 
 const COMPLETED_AT = "2026-09-07T00:00:00.000Z";
 const NOW = "2026-09-08T00:00:00.000Z";
@@ -303,5 +305,28 @@ describe("onboarding finish summary", () => {
         existingProjects: 1,
       }),
     ).toBe("6 agents connected · Moss theme");
+  });
+});
+
+describe("exampleProjectPath", () => {
+  it("uses the home folder's own separator, once", () => {
+    const winHome = ["D:", "DevTemp", "iso2", "profile"].join("\\");
+    expect(exampleProjectPath(winHome, "Win32")).toBe(`${winHome}\\code\\my-repo`);
+    expect(exampleProjectPath(winHome, "Win32")).not.toContain("/");
+    expect(exampleProjectPath("/home/me", "Linux x86_64")).toBe("/home/me/code/my-repo");
+    expect(exampleProjectPath("/Users/me/", "MacIntel")).toBe("/Users/me/code/my-repo");
+    expect(exampleProjectPath(null, "Win32")).toBe("C:\\path\\to\\repository");
+    expect(exampleProjectPath(undefined, "MacIntel")).toBe("/path/to/repository");
+  });
+});
+
+describe("tourCardsForPlatform", () => {
+  it("mentions the iOS Simulator only on macOS", () => {
+    const text = (cards: ReturnType<typeof tourCardsForPlatform>) => JSON.stringify(cards);
+    expect(text(tourCardsForPlatform(true))).toContain("iOS Simulator");
+    expect(text(tourCardsForPlatform(false))).not.toMatch(/iOS|Simulator|macOS/);
+    expect(tourCardsForPlatform(false).map((card) => card.id)).toEqual(
+      tourCardsForPlatform(true).map((card) => card.id),
+    );
   });
 });

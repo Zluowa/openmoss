@@ -243,3 +243,16 @@ export function toggleSelection<T>(selection: ReadonlySet<T>, id: T): ReadonlySe
   }
   return next;
 }
+
+/**
+ * An example project path in the home folder for the add-project field, with one separator:
+ * the home folder's own (a Windows home gave `C:\\Users\\me/code/my-repo`).
+ */
+export function exampleProjectPath(homeDir: string | null | undefined, platform: string): string {
+  if (!homeDir) {
+    return /^win/i.test(platform) ? "C:\\path\\to\\repository" : "/path/to/repository";
+  }
+  const windows = /^[A-Za-z]:[\\/]|^\\\\/.test(homeDir) || homeDir.includes("\\");
+  const separator = windows ? "\\" : "/";
+  return [homeDir.replace(/[\\/]+$/, ""), "code", "my-repo"].join(separator);
+}

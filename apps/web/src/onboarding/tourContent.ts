@@ -102,7 +102,28 @@ export const TOUR_CARDS: ReadonlyArray<TourCard> = [
   },
 ];
 
-/** Keybinding commands surfaced on the shortcuts card and the final step. */
+/** The browser card without the iOS Simulator, which exists only on macOS. */
+const BROWSER_CARD_WITHOUT_SIMULATOR = {
+  title: "Verify in a real browser",
+  description: "Agents drive a visible, task-owned browser you can watch and annotate.",
+  highlights: ["Shared Chromium surface", "Element annotations"],
+} as const;
+
+/** The tour's cards for this platform. */
+export function tourCardsForPlatform(isMac: boolean): typeof TOUR_CARDS {
+  if (isMac) return TOUR_CARDS;
+  return TOUR_CARDS.map((card) =>
+    card.id === "browser"
+      ? {
+          ...card,
+          ...BROWSER_CARD_WITHOUT_SIMULATOR,
+          highlights: [...BROWSER_CARD_WITHOUT_SIMULATOR.highlights],
+        }
+      : card,
+  );
+}
+
+/** Keybinding commands surfaced on the shortcuts card. */
 export const TOUR_SHORTCUT_COMMANDS = [
   { command: "chat.new", label: "New task" },
   { command: "sidebar.addProject", label: "Add project" },
