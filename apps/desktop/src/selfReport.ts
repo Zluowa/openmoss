@@ -40,6 +40,134 @@ export function resolveSelfReportPolicy(input: {
     : { enabled: false };
 }
 
+/** Set to "offscreen" (with self-report on) to keep the window off every display. */
+export const SELF_REPORT_WINDOW_ENV = "MOSS_SELF_REPORT_WINDOW";
+
+/**
+ * Acceptance runs keep every window off the person's screen: neither DevTools nor `moveTo`
+ * can move a Moss window, so the launcher asks for it here. Honoured only for a packaged build
+ * in an isolated profile with self-report on (never in development, never in a normal start).
+ */
+export function resolveSelfReportWindowPlacement(input: {
+  readonly policy: SelfReportPolicy;
+  readonly env: NodeJS.ProcessEnv;
+}): "offscreen" | null {
+  return input.policy.enabled &&
+    input.policy.reason === "isolated-profile" &&
+    input.env[SELF_REPORT_WINDOW_ENV]?.trim() === "offscreen"
+    ? "offscreen"
+    : null;
+}
+
+/** Where a window is, and whether any display shows any of it (measured, not assumed). */
+export function windowPlacementReport(input: {
+  readonly bounds: PlacementRect;
+  readonly displays: ReadonlyArray<PlacementRect>;
+}): {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+  readonly offscreen: boolean;
+} {
+  const { bounds } = input;
+  const onSome = input.displays.some(
+    (display) =>
+      bounds.x < display.x + display.width &&
+      display.x < bounds.x + bounds.width &&
+      bounds.y < display.y + display.height &&
+      display.y < bounds.y + bounds.height,
+  );
+  return {
+    left: bounds.x,
+    top: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    offscreen: !onSome,
+  };
+}
+
+interface PlacementRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Left of every display, with a margin, level with the primary display's top. */
+export function offscreenWindowPosition(input: {
+  readonly displays: ReadonlyArray<PlacementRect>;
+  readonly primary: PlacementRect;
+  readonly width: number;
+}): { readonly x: number; readonly y: number } {
+  const left = Math.min(input.primary.x, ...input.displays.map((display) => display.x));
+  return { x: left - input.width - 200, y: input.primary.y + 40 };
+}
+
+type OffscreenWindow = Pick<
+  BrowserWindow,
+  | "isDestroyed"
+  | "isMaximized"
+  | "unmaximize"
+  | "isFullScreen"
+  | "getSize"
+  | "getPosition"
+  | "setPosition"
+  | "setSkipTaskbar"
+> & {
+  on(event: "show" | "maximize" | "restore" | "resize" | "move", listener: () => void): unknown;
+};
+
+/**
+ * Puts the window off every display as it is created (before it is ever shown) and again after
+ * anything that brings any of it back onto a display: a show (Moss may center it), a maximize, a
+ * restore, a resize (a wider window reaches further right) or a move (the voice overlay places
+ * itself near the cursor). A window already off every display is left where it is: on Windows,
+ * moving an off-screen window changes its size by a few pixels of rounding, which emits a
+ * resize, so re-placing on every event never ends (seen 2026-11-18: the main window jittered and
+ * the main process spun at full speed). It has no taskbar button, so it never flashes there.
+ * `onPlaced` hears the first placement (for one log line).
+ */
+export function keepSelfReportWindowOffscreen(
+  window: OffscreenWindow,
+  screen: {
+    getAllDisplays(): ReadonlyArray<{ readonly bounds: PlacementRect }>;
+    getPrimaryDisplay(): { readonly bounds: PlacementRect };
+  },
+  onPlaced?: (position: { readonly x: number; readonly y: number }) => void,
+): void {
+  let placed = false;
+  window.setSkipTaskbar(true);
+  const place = () => {
+    if (window.isDestroyed() || window.isFullScreen()) return;
+    if (window.isMaximized()) window.unmaximize();
+    const displays = screen.getAllDisplays().map((display) => display.bounds);
+    const [currentX = 0, currentY = 0] = window.getPosition();
+    const [width = 0, height = 0] = window.getSize();
+    if (
+      placed &&
+      windowPlacementReport({ bounds: { x: currentX, y: currentY, width, height }, displays })
+        .offscreen
+    ) {
+      return;
+    }
+    const { x, y } = offscreenWindowPosition({
+      displays,
+      primary: screen.getPrimaryDisplay().bounds,
+      width,
+    });
+    window.setPosition(x, y);
+    if (!placed) {
+      placed = true;
+      onPlaced?.({ x, y });
+    }
+  };
+  place();
+  for (const event of ["show", "maximize", "restore", "resize", "move"] as const) {
+    window.on(event, place);
+  }
+}
+
 export interface SelfReportSize {
   readonly width: number;
   readonly height: number;
@@ -185,6 +313,7 @@ export function registerSelfReportIpc(input: {
   readonly ipcMain: Pick<IpcMain, "handle">;
   readonly userDataDir: string;
   readonly mainWindowFor: (event: IpcMainInvokeEvent) => BrowserWindow | null;
+  readonly screen: { getAllDisplays(): ReadonlyArray<{ readonly bounds: PlacementRect }> };
 }): void {
   const controls = new WeakMap<BrowserWindow, ReturnType<typeof createSelfReportWindowControl>>();
   const controlFor = (event: IpcMainInvokeEvent) => {
@@ -203,4 +332,12 @@ export function registerSelfReportIpc(input: {
     controlFor(event).capture(request),
   );
   input.ipcMain.handle(channels.restore, (event) => controlFor(event).restore());
+  input.ipcMain.handle(channels.placement, (event) => {
+    const window = input.mainWindowFor(event);
+    if (!window) throw new Error("Self-report answers the main window only.");
+    return windowPlacementReport({
+      bounds: window.getBounds(),
+      displays: input.screen.getAllDisplays().map((display) => display.bounds),
+    });
+  });
 }

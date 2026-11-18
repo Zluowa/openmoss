@@ -20,6 +20,12 @@ export interface SelfReportCaptureBridge {
     readonly name: string;
   }) => Promise<{ readonly path: string; readonly width: number; readonly height: number }>;
   readonly restore: () => Promise<void>;
+  /** Where the desktop window is, measured by the desktop app. */
+  readonly placement?: () => Promise<{
+    readonly left: number;
+    readonly top: number;
+    readonly offscreen: boolean;
+  }>;
 }
 
 /** The owner's window, the acceptance window and a phone (2026-11-18 work order). */
@@ -54,6 +60,8 @@ export interface ScreenshotResult {
 
 /** Kept short so a call with three sizes answers within 10 s (the acceptance kit allows 15). */
 const SIZE_WAIT_MS = 2000;
+/** A size that held this long after a resize is where the window landed. */
+const SIZE_STILL_MS = 200;
 const FONTS_WAIT_MS = 1500;
 /** Transitions still running get this long to finish; endless ones are never waited for. */
 const ANIMATIONS_WAIT_MS = 1000;
@@ -92,19 +100,58 @@ export async function settleLayout(): Promise<void> {
   await frame();
 }
 
-/** Until the page has the size (or 3 s passed), then two frames and a short pause for layout. */
-export async function waitForViewport(size: SelfReportSize): Promise<void> {
+function currentViewport(): SelfReportSize {
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function missesSize(viewport: SelfReportSize, size: SelfReportSize): boolean {
+  return Math.abs(viewport.width - size.width) > 1 || Math.abs(viewport.height - size.height) > 1;
+}
+
+/**
+ * Until the page has the size, or it changed from `from` and then held still for 200 ms (the
+ * window landed on another size), or 2 s passed; then two frames and a short pause for layout.
+ * Returns the size the page ended up with.
+ */
+export async function waitForViewport(
+  size: SelfReportSize,
+  from: SelfReportSize = currentViewport(),
+): Promise<SelfReportSize> {
   const until = Date.now() + SIZE_WAIT_MS;
-  while (
-    (Math.abs(window.innerWidth - size.width) > 1 ||
-      Math.abs(window.innerHeight - size.height) > 1) &&
-    Date.now() < until
-  ) {
+  let last = currentViewport();
+  let stillSince = Date.now();
+  while (missesSize(last, size) && Date.now() < until) {
     await delay(25);
+    const now = currentViewport();
+    if (now.width !== last.width || now.height !== last.height) {
+      last = now;
+      stillSince = Date.now();
+    } else if (missesSize(now, from) && Date.now() - stillSince >= SIZE_STILL_MS) {
+      break;
+    }
   }
   await frame();
   await frame();
   await delay(120);
+  return currentViewport();
+}
+
+/**
+ * Resizes to `size` and checks the page's own size. A window that landed a few pixels off (seen
+ * off-screen on Windows: +15x+8, the frame counted into the content) gets one corrected request.
+ */
+async function resizeTo(bridge: SelfReportCaptureBridge, size: SelfReportSize): Promise<void> {
+  const from = currentViewport();
+  await bridge.resize(size);
+  const landed = await waitForViewport(size, from);
+  if (!missesSize(landed, size)) return;
+  const corrected = {
+    width: size.width + (size.width - landed.width),
+    height: size.height + (size.height - landed.height),
+  };
+  if (!validSize(corrected)) return;
+  await bridge.resize(corrected);
+  await waitForViewport(size, landed);
 }
 
 function validSize(size: SelfReportSize): boolean {
@@ -153,8 +200,7 @@ export async function takeScreenshots(
     } else {
       try {
         for (const size of sizes) {
-          await bridge.resize(size);
-          await waitForViewport(size);
+          await resizeTo(bridge, size);
           await shoot();
         }
       } finally {

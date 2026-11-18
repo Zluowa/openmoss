@@ -6,6 +6,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createSelfReportWindowControl,
+  keepSelfReportWindowOffscreen,
+  offscreenWindowPosition,
+  resolveSelfReportWindowPlacement,
+  windowPlacementReport,
   pngSize,
   resolveScreenshotDir,
   resolveSelfReportPolicy,
@@ -153,5 +157,126 @@ describe("createSelfReportWindowControl", () => {
     expect(readFileSync(file.path).length).toBe(24);
     await control.capture({ name: "window" });
     expect(state.captured[1]).toBeUndefined();
+  });
+});
+
+describe("off-screen windows for acceptance runs", () => {
+  const isolated = { MOSS_DESKTOP_USER_DATA_DIR: Path.join(tmpdir(), "iso", "electron") };
+  const on = resolveSelfReportPolicy({
+    isPackaged: true,
+    env: { ...isolated, MOSS_SELF_REPORT: "1" },
+  });
+  const offscreen = { MOSS_SELF_REPORT_WINDOW: "offscreen" };
+
+  it("is asked for with MOSS_SELF_REPORT_WINDOW=offscreen, only in an isolated profile", () => {
+    expect(resolveSelfReportWindowPlacement({ policy: on, env: offscreen })).toBe("offscreen");
+    expect(resolveSelfReportWindowPlacement({ policy: on, env: {} })).toBeNull();
+    expect(
+      resolveSelfReportWindowPlacement({ policy: { enabled: false }, env: offscreen }),
+    ).toBeNull();
+    // Never in development, where a person runs Moss on their own screen.
+    expect(
+      resolveSelfReportWindowPlacement({
+        policy: resolveSelfReportPolicy({ isPackaged: false, env: {} }),
+        env: offscreen,
+      }),
+    ).toBeNull();
+  });
+
+  it("goes left of every display, a second monitor on the left included", () => {
+    const primary = { x: 0, y: 0, width: 2560, height: 1440 };
+    const leftMonitor = { x: -1920, y: 200, width: 1920, height: 1080 };
+    expect(
+      offscreenWindowPosition({ displays: [primary, leftMonitor], primary, width: 1101 }),
+    ).toEqual({ x: -1920 - 1101 - 200, y: 40 });
+  });
+
+  it("is placed as it is created, has no taskbar button, and stays off after show, maximize, restore, resize and move", () => {
+    const listeners = new Map<string, () => void>();
+    const state = {
+      size: [1100, 780],
+      position: [0, 0],
+      maximized: false,
+      skipTaskbar: false,
+    };
+    const placedAt: Array<{ x: number; y: number }> = [];
+    let moves = 0;
+    const window = {
+      isDestroyed: () => false,
+      isFullScreen: () => false,
+      isMaximized: () => state.maximized,
+      unmaximize: () => {
+        state.maximized = false;
+      },
+      getSize: () => [...state.size],
+      getPosition: () => [...state.position],
+      setPosition: (x: number, y: number) => {
+        state.position = [x, y];
+        moves += 1;
+      },
+      setSkipTaskbar: (skip: boolean) => {
+        state.skipTaskbar = skip;
+      },
+      on: (event: string, listener: () => void) => {
+        listeners.set(event, listener);
+      },
+    };
+    const display = { bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
+    keepSelfReportWindowOffscreen(
+      window as never,
+      { getAllDisplays: () => [display], getPrimaryDisplay: () => display },
+      (position) => placedAt.push(position),
+    );
+    // Before anything shows it.
+    expect(state.position).toEqual([-1300, 40]);
+    expect(state.skipTaskbar).toBe(true);
+    // Moss centers the window when it shows it the first time.
+    state.position = [410, 150];
+    listeners.get("show")!();
+    expect(state.position).toEqual([-1300, 40]);
+    state.maximized = true;
+    listeners.get("maximize")!();
+    expect(state).toMatchObject({ maximized: false, position: [-1300, 40] });
+    // A wider window (a screenshot size) moves further left, so no edge reaches the display.
+    state.size = [1375, 886];
+    listeners.get("resize")!();
+    expect(state.position).toEqual([-1575, 40]);
+    expect(state.position[0]! + state.size[0]!).toBeLessThan(0);
+    // The voice overlay moves itself next to the cursor (same size, so only a move).
+    state.position = [600, 500];
+    listeners.get("move")!();
+    expect(state.position).toEqual([-1575, 40]);
+    // Off-screen, Windows rounds the size by a few pixels after a move, which emits a resize.
+    // A window still off every display is left alone, so that never turns into endless moves.
+    const before = moves;
+    state.size = [1380, 890];
+    listeners.get("resize")!();
+    listeners.get("move")!();
+    expect(moves).toBe(before);
+    expect(state.position).toEqual([-1575, 40]);
+    expect([...listeners.keys()].toSorted()).toEqual([
+      "maximize",
+      "move",
+      "resize",
+      "restore",
+      "show",
+    ]);
+    // One log line per window.
+    expect(placedAt).toEqual([{ x: -1300, y: 40 }]);
+  });
+
+  it("measures whether any display shows the window", () => {
+    const displays = [
+      { x: 0, y: 0, width: 1920, height: 1080 },
+      { x: -1920, y: 0, width: 1920, height: 1080 },
+    ];
+    expect(
+      windowPlacementReport({ bounds: { x: -3221, y: 40, width: 1101, height: 782 }, displays }),
+    ).toEqual({ left: -3221, top: 40, width: 1101, height: 782, offscreen: true });
+    // Part of it on the left monitor is on a screen.
+    expect(
+      windowPlacementReport({ bounds: { x: -2020, y: 40, width: 101, height: 782 }, displays })
+        .offscreen,
+    ).toBe(false);
   });
 });

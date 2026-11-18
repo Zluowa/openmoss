@@ -1520,6 +1520,14 @@ export interface DesktopSelfReportBridge {
     readonly name: string;
   }) => Promise<{ readonly path: string; readonly width: number; readonly height: number }>;
   readonly restore: () => Promise<void>;
+  /** The main window's position and whether any display shows any of it. */
+  readonly placement?: () => Promise<{
+    readonly left: number;
+    readonly top: number;
+    readonly width: number;
+    readonly height: number;
+    readonly offscreen: boolean;
+  }>;
 }
 
 export interface DesktopBridge {
