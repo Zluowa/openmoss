@@ -49,8 +49,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - lane: web-desktop
-            filters: --filter=@moss/web --filter=@moss/desktop
+          - lane: web-1
+            filters: --filter=@moss/web
+            test_args: -- --shard=1/3
+          - lane: web-2
+            filters: --filter=@moss/web
+            test_args: -- --shard=2/3
+          - lane: web-3
+            filters: --filter=@moss/web
+            test_args: -- --shard=3/3
+          - lane: desktop
+            filters: --filter=@moss/desktop
             test_args: ""
           - lane: server-1
             filters: --filter=@moss/cli

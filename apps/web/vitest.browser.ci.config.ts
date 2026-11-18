@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 import { parseBrowserCasePartition } from "./src/test/browserCasePartition";
+import { DurationShardSequencer } from "./src/test/durationShardSequencer";
 import stableConfig from "./vitest.browser.stable.config";
 
 const chatViewFile = "src/components/ChatView.browser.tsx";
@@ -18,6 +19,9 @@ export default defineConfig({
   },
   test: {
     ...stableTestConfig,
+    // `--shard=k/n` splits the component files by recorded time, not by count
+    // (src/test/durationShardSequencer.ts).
+    sequence: { ...stableTestConfig.sequence, sequencer: DurationShardSequencer },
     // Project inheritance concatenates include arrays. Give each project sole
     // ownership of its files instead of inheriting the full browser glob set.
     include: [],
