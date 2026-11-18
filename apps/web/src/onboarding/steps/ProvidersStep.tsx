@@ -318,7 +318,7 @@ export function ProvidersStep(props: { readonly detection: ProviderDetection }) 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="grid min-h-0 grid-cols-1 gap-2 overflow-y-auto pr-1 pb-1 min-[480px]:grid-cols-2 sm:grid-cols-3">
+      <div className="onboarding-scroll-fade grid min-h-0 grid-cols-1 content-start gap-2 overflow-y-auto pr-1 pb-1 min-[480px]:grid-cols-2 sm:grid-cols-3">
         {rows.map(({ descriptor, status, readiness, state }) => {
           const enabled = state !== "disabled";
           const checkboxId = `onboarding-provider-${descriptor.kind}`;

@@ -3,6 +3,8 @@
 //          No divider — space alone separates the footer from the body.
 // Layer: Web UI component
 
+import type { Ref } from "react";
+
 import { Button } from "~/components/ui/button";
 import { DialogFooter } from "~/components/ui/dialog";
 import { cn } from "~/lib/utils";
@@ -24,6 +26,8 @@ export function OnboardingStepFooter(props: {
   /** Optional secondary action rendered next to the primary (e.g. "Skip for now"). */
   secondaryLabel?: string;
   onSecondary?: () => void;
+  /** The primary button, so the flow can give it keyboard focus on each step. */
+  primaryRef?: Ref<HTMLButtonElement>;
 }) {
   const stepIndex = ONBOARDING_STEPS.indexOf(props.step);
   const showBack = props.step !== "welcome" && props.step !== "done";
@@ -90,8 +94,10 @@ export function OnboardingStepFooter(props: {
         </Button>
       ) : null}
       <Button
+        {...(props.primaryRef ? { ref: props.primaryRef } : {})}
         variant="prominent"
         shape="capsule"
+        data-onboarding-primary=""
         className={cn(FOOTER_BUTTON_CLASS_NAME, "hover:scale-100")}
         disabled={props.primaryDisabled || props.primaryBusy || props.navigationLocked}
         onClick={props.onPrimary}

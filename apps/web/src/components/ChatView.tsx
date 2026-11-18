@@ -472,7 +472,14 @@ import {
 import { ProjectPicker } from "./chat/ProjectPicker";
 import { ProviderHealthBanner } from "./chat/ProviderHealthBanner";
 import { MossGatewayUnreachableBanner } from "./chat/MossGatewayUnreachableBanner";
-import { useMossGatewayUnreachable } from "./auth/useMossGatewayUnreachable";
+import {
+  useMossAccountGatewayState,
+  useMossGatewayUnreachable,
+} from "./auth/useMossGatewayUnreachable";
+import { ComposerSendBlockedNotice } from "./chat/ComposerSendBlockedNotice";
+import type { SendBlockedAvailability } from "./chat/chatSendTypes";
+import { resolveProviderSendBlockedReasonKind } from "../lib/providerAvailability";
+import { localizeProviderSendBlockedReason } from "../lib/providerUnavailablePresentation";
 import { resolveProviderModelLabel } from "./chat/ProviderModelPicker";
 import {
   RateLimitBanner,
@@ -4518,6 +4525,22 @@ export default function ChatView({
     });
   }, [selectedProvider]);
 
+  // Why the last send did not go, shown above the composer (the draft stays in the box).
+  // It belongs to the chat and model it was raised for, and goes once the person acts.
+  const [sendBlocked, setSendBlocked] = useState<{
+    readonly key: string;
+    readonly availability: SendBlockedAvailability;
+  } | null>(null);
+  const sendBlockedKey = `${String(threadId)}:${selectedProvider}:${selectedProviderInstanceId ?? ""}`;
+  const visibleSendBlocked = sendBlocked?.key === sendBlockedKey ? sendBlocked : null;
+  const mossAccountGatewayState = useMossAccountGatewayState();
+  const onSendBlocked = useCallback(
+    (availability: SendBlockedAvailability) =>
+      setSendBlocked({ key: sendBlockedKey, availability }),
+    [sendBlockedKey],
+  );
+  const onSendUnblocked = useCallback(() => setSendBlocked(null), []);
+
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();
 
   const handleCycleEffort = useCallback(() => {
@@ -5635,6 +5658,8 @@ export default function ChatView({
     setOptimisticUserMessages,
     runProjectScript,
     persistThreadSettingsForNextTurn,
+    onSendBlocked,
+    onSendUnblocked,
   });
 
   const {
@@ -7491,6 +7516,32 @@ export default function ChatView({
             <div data-composer-panels="">
               {/* Activity above the input floats as capsules; only queued follow-ups keep
                   the stacked rail fused onto the input. */}
+              {visibleSendBlocked ? (
+                <ComposerSendBlockedNotice
+                  message={localizeProviderSendBlockedReason(
+                    locale,
+                    visibleSendBlocked.availability,
+                  )}
+                  onSignInMoss={
+                    mossAccountGatewayState === "signed-out" &&
+                    resolveProviderSendBlockedReasonKind(visibleSendBlocked.availability) ===
+                      "unauthenticated"
+                      ? () => {
+                          setSendBlocked(null);
+                          void navigate({ to: "/login" });
+                        }
+                      : undefined
+                  }
+                  onOpenSettings={() => {
+                    setSendBlocked(null);
+                    openProviderAccountSettings();
+                  }}
+                  onDismiss={() => {
+                    setSendBlocked(null);
+                    scheduleComposerFocus();
+                  }}
+                />
+              ) : null}
               <ComposerCapsuleRow>
                 <ComposerTransportNotice />
                 {showComposerLiveChangesHeader ? (

@@ -6728,3 +6728,31 @@ body[data-moss-theme-skin-drag="patternOpacity"] .moss-theme-skin-slider-handle 
   background-color: Highlight;
   color: HighlightText;
 }
+
+/* Welcome tour: an area that scrolls fades out at its bottom edge until it reaches the end,
+   so a partly shown row reads as "more below", not as clipped. Scroll-driven, so an area
+   that fits shows no fade. */
+@property --onboarding-scroll-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes onboarding-scroll-fade {
+  from {
+    --onboarding-scroll-fade: 32px;
+  }
+  to {
+    --onboarding-scroll-fade: 0px;
+  }
+}
+
+.onboarding-scroll-fade {
+  mask-image: linear-gradient(
+    to bottom,
+    #000 calc(100% - var(--onboarding-scroll-fade)),
+    transparent
+  );
+  animation: onboarding-scroll-fade linear both;
+  animation-timeline: scroll(self);
+}
