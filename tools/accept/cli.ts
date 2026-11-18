@@ -9,6 +9,7 @@ import path from "node:path";
 
 import { loadProfile } from "../ws/lib/profile.ts";
 import { runCodeUpdatePipeline } from "./lib/codeUpdate.ts";
+import { loadReleaseEnv, resolveReleaseFiles } from "./lib/releaseEnv.ts";
 import { removeInside } from "./lib/safePath.ts";
 import { launchMoss } from "./lib/launch.ts";
 import { pageActor, pageCaller, runTour } from "./lib/run.ts";
@@ -60,6 +61,9 @@ function usage(): never {
       "usage: accept run --app <Moss.exe or the app binary> --tour <name|file.json> [--out <dir>] [--on-screen] [--keep-profile]",
       "       accept tours",
       "       accept code-update --commit <sha> --shell-app <packaged shell folder with boot.js> [--work-tree <dir>] [--out <dir>] [--previous-result <file>]",
+      "                          [--release [--sentry-env <file>] [--feedback-env <file>]] [--sign]",
+      "         --release: build with the Sentry DSNs (and feedback endpoint) from the release env files (flags, or release.* in the ws profile); refused without both DSNs.",
+      "         --sign: the packer signs the manifest (MOSS_UPDATE_MIRROR_SIGNING_KEY from its settings). Never uploads.",
       "         build, pack (scripts/build-code-update.ts), apply to a copy of the shell and smoke it; never signs or uploads.",
       "         Exit: 0 package (or unchanged), 4 full installer needed, 1 refused or failed. Run it through `ws lane`.",
       "The app starts in its own profile under the run folder (never the owner's), with MOSS_SELF_REPORT=1;",
@@ -117,6 +121,17 @@ async function main(argv: string[]): Promise<number> {
       ...(flag(argv, "previous-result")
         ? { previousResult: path.resolve(flag(argv, "previous-result")!) }
         : {}),
+      ...(argv.includes("--release")
+        ? {
+            release: loadReleaseEnv(
+              resolveReleaseFiles({
+                sentryEnv: flag(argv, "sentry-env"),
+                feedbackEnv: flag(argv, "feedback-env"),
+              }),
+            ),
+          }
+        : {}),
+      ...(argv.includes("--sign") ? { sign: true } : {}),
       log: (line) => console.log(`[code-update] ${line}`),
     });
     for (const s of result.steps)

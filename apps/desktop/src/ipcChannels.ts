@@ -78,6 +78,10 @@ export const DESKTOP_IPC_CHANNELS = {
     get: "desktop:error-reports-enabled",
     set: "desktop:set-error-reports-enabled",
   },
+  previewChannel: {
+    get: "desktop:preview-channel-get",
+    set: "desktop:preview-channel-set",
+  },
   betaDiagnostics: {
     enabled: "desktop:beta-diagnostics-enabled",
     rendererReady: "desktop:beta-diagnostics-renderer-ready",

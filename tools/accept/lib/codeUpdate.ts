@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { launchMoss } from "./launch.ts";
+import type { ReleaseEnv } from "./releaseEnv.ts";
 import { assertInside, removeInside } from "./safePath.ts";
 import { pageActor, pageCaller, runTour } from "./run.ts";
 import { parseTour, type Tour } from "./tour.ts";
@@ -36,6 +37,10 @@ export interface PipelineOptions {
   readonly outDir: string;
   readonly cacheDir: string;
   readonly previousResult?: string;
+  /** A release build: the Sentry DSNs (and the feedback endpoint) go into the build; refused without them. */
+  readonly release?: ReleaseEnv;
+  /** Sign the manifest (the packer reads MOSS_UPDATE_MIRROR_SIGNING_KEY itself). Never uploads. */
+  readonly sign?: boolean;
   readonly log?: (line: string) => void;
 }
 
@@ -155,6 +160,27 @@ export function workTreeRefusal(
   return undefined;
 }
 
+/** The packer's command line (tests read it: --sign only when asked). */
+export function packerArgs(
+  o: Pick<PipelineOptions, "workTree" | "shellApp" | "previousResult" | "sign">,
+  packOut: string,
+  appCopy: string,
+): string[] {
+  return [
+    PACKER,
+    "--repo",
+    o.workTree,
+    "--out",
+    packOut,
+    "--base-archive",
+    o.shellApp,
+    "--apply-to",
+    appCopy,
+    ...(o.previousResult ? ["--previous-result", o.previousResult] : []),
+    ...(o.sign ? ["--sign"] : []),
+  ];
+}
+
 export async function runCodeUpdatePipeline(o: PipelineOptions): Promise<PipelineResult> {
   const log = o.log ?? (() => {});
   // Checked before anything is spawned (commands run with shell: true on Windows).
@@ -204,6 +230,18 @@ export async function runCodeUpdatePipeline(o: PipelineOptions): Promise<Pipelin
     }
   };
 
+  // 0. What kind of package this is. A release refuses to build without its error reporting.
+  if (o.release) {
+    if (o.release.problems.length > 0)
+      return finish({
+        decision: "refused",
+        reason: `release build refused: ${o.release.problems.join("; ")}`,
+      });
+    log(`release build: loaded ${o.release.loaded.join(", ")}`);
+  } else log("not a release build: no error reporting in this package");
+  if (o.sign)
+    log("the manifest will be signed (the packer reads the signing key); nothing is uploaded");
+
   // 1. Checkout, with the refusals that keep the build honest.
   try {
     await step("checkout", async () => {
@@ -240,6 +278,8 @@ export async function runCodeUpdatePipeline(o: PipelineOptions): Promise<Pipelin
     await step("build", async () => {
       const env: NodeJS.ProcessEnv = {
         ...process.env,
+        // Release: the Sentry DSNs and the feedback endpoint. Names are logged, values never.
+        ...o.release?.env,
         TURBO_CONCURRENCY: "4",
         MOSS_WEB_PRECOMPRESS_CACHE: path.join(o.cacheDir, "precompress"),
         MOSS_WEB_TRANSFORM_CACHE: path.join(o.cacheDir, "transform"),
@@ -265,18 +305,7 @@ export async function runCodeUpdatePipeline(o: PipelineOptions): Promise<Pipelin
     // 4. Pack, decide, apply.
     const packOut = path.join(o.outDir, "pack");
     const exit = await step("pack", async () => {
-      const args = [
-        PACKER,
-        "--repo",
-        o.workTree,
-        "--out",
-        packOut,
-        "--base-archive",
-        o.shellApp,
-        "--apply-to",
-        appCopy,
-        ...(o.previousResult ? ["--previous-result", o.previousResult] : []),
-      ];
+      const args = packerArgs(o, packOut, appCopy);
       const code = await run("bun", args, o.workTree, process.env, logFile);
       if (
         code !== PACKER_EXIT.written &&

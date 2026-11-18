@@ -121,11 +121,56 @@ function deps(
 }
 
 describe("startMoss", () => {
-  it("with the switch off loads the installed code and touches nothing else", () => {
-    const run = deps({ env: {} });
+  it("with the variable set to off loads the installed code and touches nothing else", () => {
+    const run = deps({ env: { MOSS_CODE_UPDATES: "0", MOSS_CODE_UPDATE_DIR: STORE } });
     startMoss(run.value);
     expect(run.loaded).toEqual([INSTALLED_MAIN]);
     expect(run.fsCalls).not.toHaveBeenCalled();
+  });
+
+  it("with no variable and no Settings marker reads only the marker, then the installed code", () => {
+    const files = storeWithPending();
+    const reads: string[] = [];
+    const run = deps({
+      env: { MOSS_CODE_UPDATE_DIR: STORE },
+      files,
+      fs: () => {
+        const fs = memoryFs(files);
+        return {
+          ...fs,
+          readFileSync: (file, encoding) => {
+            reads.push(Path.basename(file));
+            return fs.readFileSync(file, encoding);
+          },
+        };
+      },
+    });
+    startMoss(run.value);
+    expect(run.loaded).toEqual([INSTALLED_MAIN]);
+    expect(reads).toEqual(["preview-channel"]);
+  });
+
+  it("the Settings marker turns code updates on without the variable", () => {
+    const files = storeWithPending();
+    files.set(Path.join(STORE, "preview-channel"), "on\n");
+    const run = deps({ env: { MOSS_CODE_UPDATE_DIR: STORE }, files });
+    startMoss(run.value);
+    expect(run.loaded).toEqual([B_MAIN]);
+  });
+
+  it("a damaged marker is off, and the variable set to off wins over the marker", () => {
+    for (const text of ["yes", "on on", "", "o".repeat(100)]) {
+      const files = storeWithPending();
+      files.set(Path.join(STORE, "preview-channel"), text);
+      const run = deps({ env: { MOSS_CODE_UPDATE_DIR: STORE }, files });
+      startMoss(run.value);
+      expect(run.loaded).toEqual([INSTALLED_MAIN]);
+    }
+    const files = storeWithPending();
+    files.set(Path.join(STORE, "preview-channel"), "on\n");
+    const off = deps({ env: { MOSS_CODE_UPDATES: "0", MOSS_CODE_UPDATE_DIR: STORE }, files });
+    startMoss(off.value);
+    expect(off.loaded).toEqual([INSTALLED_MAIN]);
   });
 
   it("stays off on macOS even with the switch", () => {

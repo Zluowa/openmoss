@@ -788,6 +788,16 @@ export interface DesktopBetaInstallProgress {
   readonly message?: string;
 }
 
+/** The preview channel switch, as Settings shows it. */
+export interface DesktopPreviewChannelState {
+  /** Packaged Windows/Linux builds; macOS stays off until the ops Mac proof. */
+  readonly supported: boolean;
+  /** The switch as saved; it takes effect at the next start. */
+  readonly on: boolean;
+  /** Whether this run checks for code updates (decided when it started). */
+  readonly activeNow: boolean;
+}
+
 /** Result of a stable-side probe for a parallel Moss Beta install. */
 export interface DesktopBetaChannelState {
   /** False on web builds and unsupported probing environments. */
@@ -1536,6 +1546,14 @@ export interface DesktopBridge {
   /** The saved error-report preference, readable before the backend is up. */
   getErrorReportsEnabled?: () => boolean;
   setErrorReportsEnabled?: (enabled: boolean) => Promise<void>;
+  /**
+   * The preview channel switch (code updates): read and set the marker the shell's boot reads at
+   * the next start. Absent on builds without it.
+   */
+  previewChannel?: {
+    get: () => Promise<DesktopPreviewChannelState>;
+    set: (on: boolean) => Promise<DesktopPreviewChannelState>;
+  };
   /** Present only when the desktop main process enables baked-in Beta diagnostics. */
   betaDiagnostics?: {
     rendererReady: () => void;

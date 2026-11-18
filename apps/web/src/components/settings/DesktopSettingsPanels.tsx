@@ -1,7 +1,8 @@
 // FILE: DesktopSettingsPanels.tsx
 // Purpose: Own settings panels whose behavior depends on browser or desktop-native lifecycles.
 // Layer: Settings UI components
-// Exports: NotificationsSettingsPanel, AppSnapSettingsPanel, BetaChannelSettingsPanel
+// Exports: NotificationsSettingsPanel, AppSnapSettingsPanel, BetaChannelSettingsPanel,
+//          PreviewChannelSettingsPanel
 
 import {
   type DesktopAppSnapSettingsPane,
@@ -818,5 +819,58 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
         </AlertDialogPopup>
       </AlertDialog>
     </SettingsCard>
+  );
+}
+
+/**
+ * The preview channel switch (code updates): Moss gets new versions as small background updates
+ * that start at the next launch. The desktop writes a marker the shell's boot reads, so the
+ * change takes effect the next time Moss starts. Packaged Windows builds only.
+ */
+export function PreviewChannelSettingsPanel({ active }: { readonly active: boolean }) {
+  const bridge = isElectron ? window.desktopBridge?.previewChannel : undefined;
+  const stateQuery = useQuery({
+    queryKey: ["desktop-preview-channel-state"],
+    queryFn: () => bridge!.get(),
+    enabled: active && bridge !== undefined,
+  });
+  const [pending, setPending] = useState(false);
+  const state = stateQuery.data ?? null;
+  if (!active || !bridge || !state?.supported) return null;
+
+  const change = async (on: boolean) => {
+    setPending(true);
+    try {
+      await bridge.set(on);
+      await stateQuery.refetch();
+    } catch {
+      toastManager.add({ type: "error", title: "Couldn't change the preview channel. Try again." });
+    } finally {
+      setPending(false);
+    }
+  };
+  const status =
+    state.on === state.activeNow
+      ? null
+      : state.on
+        ? "Starts the next time Moss opens."
+        : "Stops the next time Moss opens.";
+
+  return (
+    <SettingsSection title="Updates">
+      <SettingsRow
+        title="Preview channel: get updates sooner"
+        description="Moss downloads new versions in the background and uses them the next time it starts. If one doesn't start, Moss goes back to the version it had."
+        status={status}
+        control={
+          <Switch
+            checked={state.on}
+            disabled={pending}
+            onCheckedChange={(next) => void change(Boolean(next))}
+            aria-label="Preview channel: get updates sooner"
+          />
+        }
+      />
+    </SettingsSection>
   );
 }

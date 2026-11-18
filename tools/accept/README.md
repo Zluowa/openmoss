@@ -50,4 +50,11 @@ checks out the commit in its own work tree, builds with the fast-refresh caches,
 `scripts/build-code-update.ts` against a copy of the shell and smokes the patched copy. It refuses a
 non-hex commit before running anything, a work tree that is the dependency source, the shared
 checkout or a repository's main worktree, a mirror origin and a different `bun.lock`; it removes and
-writes only inside its out folder and never through a link. It never signs and never uploads.
+writes only inside its out folder and never through a link. It never uploads.
+
+`--release` builds with the Sentry DSNs (`VITE_SENTRY_DSN`, `MOSS_SENTRY_DSN`) and, when its file
+exists, the feedback endpoint (`MOSS_FEEDBACK_ENDPOINT` as `VITE_FEEDBACK_ENDPOINT`), read from the
+files that `--sentry-env` / `--feedback-env` or the ws profile's `release.sentryEnvFile` /
+`release.feedbackEnvFile` name; it refuses to build without both DSNs. Only the names are logged,
+never the values. Without `--release` it says "not a release build: no error reporting in this
+package". `--sign` has the packer sign the manifest with the key it reads itself.
