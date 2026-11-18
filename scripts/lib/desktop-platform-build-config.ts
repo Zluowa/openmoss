@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { BUNDLED_CLAUDE_RUNTIME_DIR } from "./bundled-claude-runtime.ts";
 import { BUNDLED_CODEX_RUNTIME_DIR } from "./bundled-codex-runtime.ts";
 import { BUNDLED_CUA_DRIVER_DIR } from "./bundled-cua-driver.ts";
+import { MOSS_CANVAS_BUNDLE_DIR } from "./bundled-moss-canvas.ts";
 import { WINDOWS_JOB_LAUNCHER_ASAR_EXCLUSION } from "./windows-native-job-launcher.ts";
 
 export const MICROPHONE_USAGE_DESCRIPTION =
@@ -55,10 +56,21 @@ export const WINDOWS_NATIVE_AUDIT_AFTER_SIGN_MODULE_PATH = fileURLToPath(
 export const WINDOWS_AUTHENTICODE_SIGN_EXTENSIONS = [".exe", ".dll"] as const;
 const MAC_DMG_ICON_PATH = "icon.icns";
 export const NODE_PTY_ASAR_UNPACK_GLOBS = ["node_modules/node-pty/**"] as const;
+export const SSH_RUNTIME_STAGE_PATH = "apps/desktop/ssh-runtime.tar.gz";
+export const SSH_RUNTIME_EXTRA_RESOURCE = {
+  from: SSH_RUNTIME_STAGE_PATH,
+  to: "ssh-runtime.tar.gz",
+} as const;
+// Everything staged in the app directory only to be copied out as an extraResource. The app
+// reads each one from resources/, so a copy inside app.asar is dead weight (the canvas bundle
+// and the SSH runtime once added 158 MB that way). electron-builder applies `files` patterns
+// in order and a later include wins, so these must follow "**/*", never precede it.
 export const BUNDLED_RUNTIME_ASAR_EXCLUSIONS = [
   `!${BUNDLED_CODEX_RUNTIME_DIR}/**`,
   `!${BUNDLED_CLAUDE_RUNTIME_DIR}/**`,
   `!${BUNDLED_CUA_DRIVER_DIR}/**`,
+  `!${MOSS_CANVAS_BUNDLE_DIR}{,/**}`,
+  `!${SSH_RUNTIME_STAGE_PATH}`,
 ] as const;
 export const CONNECTOR_OAUTH_PROTOCOL_CONFIG = {
   name: "Moss connector OAuth callback",

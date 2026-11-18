@@ -44,7 +44,7 @@ jobs:
   unit_tests:
     name: Unit Tests (${{ matrix.lane }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -54,10 +54,13 @@ jobs:
             test_args: ""
           - lane: server-1
             filters: --filter=@moss/cli
-            test_args: -- --shard=1/2
+            test_args: -- --shard=1/3
           - lane: server-2
             filters: --filter=@moss/cli
-            test_args: -- --shard=2/2
+            test_args: -- --shard=2/3
+          - lane: server-3
+            filters: --filter=@moss/cli
+            test_args: -- --shard=3/3
           - lane: shared
             filters: --filter=!@moss/web --filter=!@moss/desktop --filter=!@moss/cli
             test_args: ""
@@ -68,6 +71,7 @@ jobs:
         uses: ./.github/actions/setup-workspace
         with:
           electron: "true"
+          turbo-cache: "false"
       - name: Verify Linux terminal PTY native dependency
         if: ${{ startsWith(matrix.lane, 'server-') }}
         run: node scripts/node-pty-smoke.mjs
@@ -82,8 +86,11 @@ jobs:
         timeout-minutes: 10
         run: cd apps/web && ./node_modules/.bin/playwright install chromium
       - name: Test
+        timeout-minutes: 15
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          MOSS_TEST_PROGRESS_FILE: ${{ runner.temp }}/moss-unit-progress.tsv
+          MOSS_TEST_FILE_LIMIT_SECONDS: "600"
         run: |
           # Keep the full transcript downloadable without overwhelming job-log
           # clients. Preserve the original test exit code and show its summary.
@@ -92,6 +99,9 @@ jobs:
           test_status=$?
           tail -n 250 "$RUNNER_TEMP/moss-unit-tests.log"
           exit "$test_status"
+      - name: Summarize failed tests
+        if: failure()
+        run: node tools/test-quarantine/failures.ts "$RUNNER_TEMP/moss-unit-tests.log" --platform linux --progress "$RUNNER_TEMP/moss-unit-progress.tsv" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload unit test transcript
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -123,13 +133,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - lane: 1/2
+          - lane: 1/4
             project: components
-            file_shard: --shard=1/2
+            file_shard: --shard=1/4
             case_partition: 1/1
-          - lane: 2/2
+          - lane: 2/4
             project: components
-            file_shard: --shard=2/2
+            file_shard: --shard=2/4
+            case_partition: 1/1
+          - lane: 3/4
+            project: components
+            file_shard: --shard=3/4
+            case_partition: 1/1
+          - lane: 4/4
+            project: components
+            file_shard: --shard=4/4
             case_partition: 1/1
           - lane: chat 1/4
             project: chat
@@ -155,6 +173,8 @@ jobs:
         run: df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache: "false"
       - name: Observe hosted component browser workspace disk space
         if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         env:
@@ -203,21 +223,21 @@ jobs:
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts release-stable
       - name: Browser test (compiled transcript render scope)
-        if: ${{ matrix.project == 'components' && matrix.lane == '1/2' }}
+        if: ${{ matrix.project == 'components' && matrix.lane == '1/4' }}
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_COMPILER_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:compiler
       - name: Release completed compiler browser phase cache
-        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' && matrix.lane == '1/2' }}
+        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' && matrix.lane == '1/4' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts release-compiler
       - name: Browser test (Linux geometry quarantine)
-        if: ${{ matrix.project == 'components' && matrix.lane == '1/2' }}
+        if: ${{ matrix.project == 'components' && matrix.lane == '1/4' }}
         continue-on-error: true
         timeout-minutes: 10
         env:

@@ -118,7 +118,9 @@
         "CLAUDE_CONFIG_DIR",
         "PSModuleAnalysisCachePath",
         "GIT_CEILING_DIRECTORIES",
-        "LOCALAPPDATA"
+        "LOCALAPPDATA",
+        "MOSS_TEST_PROGRESS_FILE",
+        "MOSS_TEST_FILE_LIMIT_SECONDS"
       ],
       "outputs": []
     }

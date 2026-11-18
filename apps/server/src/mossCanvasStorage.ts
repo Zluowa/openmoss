@@ -60,15 +60,31 @@ export const mossCanvasOpenStoreCount = () => stores.openCount();
 /** Release every Canvas store and its folder's writer lease, e.g. on shutdown. */
 export const closeMossCanvasStores = () => stores.closeAll();
 
-export async function resolveMossCanvasBundleRoot(): Promise<string> {
-  const candidates = [
-    ...(process.env.MOSS_CANVAS_BUNDLE_DIR ? [resolve(process.env.MOSS_CANVAS_BUNDLE_DIR)] : []),
-    ...(process.env.MOSS_CANVAS_SOURCE_DIR ? [resolve(process.env.MOSS_CANVAS_SOURCE_DIR)] : []),
-    resolve(import.meta.dirname, "../../desktop/canvas-bundle"),
-    ...(typeof process.resourcesPath === "string"
-      ? [join(process.resourcesPath, "moss-canvas")]
-      : []),
+/**
+ * Where the Canvas bundle may be, in order. A packaged app ships it once, as the `moss-canvas`
+ * resource beside app.asar (the desktop also passes that folder as MOSS_CANVAS_BUNDLE_DIR); the
+ * path next to the server's own folder is the development checkout's prepared copy.
+ */
+export function mossCanvasBundleRootCandidates(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly serverDirectory: string;
+  readonly resourcesPath: string | undefined;
+}): string[] {
+  return [
+    ...(input.env.MOSS_CANVAS_BUNDLE_DIR ? [resolve(input.env.MOSS_CANVAS_BUNDLE_DIR)] : []),
+    ...(input.env.MOSS_CANVAS_SOURCE_DIR ? [resolve(input.env.MOSS_CANVAS_SOURCE_DIR)] : []),
+    resolve(input.serverDirectory, "../../desktop/canvas-bundle"),
+    ...(typeof input.resourcesPath === "string" ? [join(input.resourcesPath, "moss-canvas")] : []),
   ];
+}
+
+export async function resolveMossCanvasBundleRoot(
+  candidates: ReadonlyArray<string> = mossCanvasBundleRootCandidates({
+    env: process.env,
+    serverDirectory: import.meta.dirname,
+    resourcesPath: typeof process.resourcesPath === "string" ? process.resourcesPath : undefined,
+  }),
+): Promise<string> {
   for (const root of candidates) {
     try {
       await access(join(root, "apps/codex-canvas/server/hosted-storage.mjs"));
