@@ -5,6 +5,7 @@ import {
   isCodexDiagnosticLogLine,
   isCodexDiagnosticWarningMessage,
   isCodexLogRecord,
+  readCodexMcpSubscriptionError,
 } from "./codexDiagnostics";
 
 const TRUST_NOTICE =
@@ -124,6 +125,30 @@ describe("Codex's log records", () => {
     ]) {
       expect(isCodexLogRecord(message)).toBe(false);
       expect(isCodexDiagnosticWarningMessage(message)).toBe(false);
+    }
+  });
+});
+
+describe("readCodexMcpSubscriptionError", () => {
+  it("reads a subscription refusal, also inside the transport's wrapper", () => {
+    const inactive = "subscription_inactive: Subscription status: canceled";
+    const body = `HTTP 403: ${JSON.stringify({ error: inactive })}`;
+    expect(readCodexMcpSubscriptionError(`MCP startup failed: ${body}`)).toBe(inactive);
+    expect(
+      readCodexMcpSubscriptionError(
+        `worker quit with fatal: Transport channel closed, when UnexpectedServerResponse(${JSON.stringify(body)})`,
+      ),
+    ).toBe(inactive);
+  });
+
+  it("leaves every other error to be shown as Codex reported it", () => {
+    for (const message of [
+      `HTTP 403: ${JSON.stringify({ error: "permission_denied: Workspace access denied" })}`,
+      "HTTP 403: not json",
+      "UnexpectedServerResponse(not quoted)",
+      "connection refused",
+    ]) {
+      expect(readCodexMcpSubscriptionError(message)).toBeUndefined();
     }
   });
 });

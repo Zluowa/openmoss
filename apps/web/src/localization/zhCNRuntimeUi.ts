@@ -504,6 +504,13 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [/^([\d,]+) chars?$/, (match) => `${match[1]} 个字符`],
   [/^Jump to visible thread ([1-9])$/, (match) => `跳转到可见对话 ${match[1]}`],
 
+  // Codex's warning that one of its MCP servers did not start (CodexAdapter). The server's name
+  // and the reason it gave are its own words and stay exactly as reported.
+  [
+    /^MCP server "([^"\n]+)" failed to start( \(HTTP 403\))?: ([\s\S]+)$/,
+    (match) => `MCP 服务器「${match[1]}」启动失败${match[2] ? "（HTTP 403）" : ""}：${match[3]}`,
+  ],
+
   // A vendor updater's failure carries this hint after its reason; translate the two apart.
   [
     /^(.+) This install updates through the vendor's own servers, which have no domestic mirror\. Reinstalling it with npm lets Moss update it through the mirror\.$/,

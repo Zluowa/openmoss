@@ -1,0 +1,14 @@
+{
+  "name": "first-start",
+  "description": "A fresh, signed-out profile: the first screen at the three standard sizes",
+  "steps": [
+    { "do": "waitFor", "selector": "#root > *", "timeoutMs": 60000 },
+    { "do": "wait", "ms": 3000 },
+    {
+      "do": "report",
+      "label": "first screen",
+      "tools": ["console_report", "screen_report", "layout_report", "screenshot"],
+      "sizes": "standard"
+    }
+  ]
+}

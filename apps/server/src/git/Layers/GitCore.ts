@@ -3623,6 +3623,10 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
           { concurrency: "unbounded" },
         );
         const transferPaths = listedTransferPaths.filter((relativePath) => {
+          // Without --directory, Git lists ordinary untracked files individually.
+          // A trailing slash marks an opaque nested repository or linked worktree.
+          if (relativePath.endsWith("/")) return false;
+
           const relativeToTarget = nodePath.relative(
             worktreePath,
             nodePath.join(sourceCwd, relativePath),
@@ -3678,16 +3682,18 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
         yield* Effect.forEach(
           transferPaths,
           (relativePath) =>
+            // A started filesystem copy cannot be canceled. Wait for it before
+            // rollback so it cannot recreate paths after Git removes the checkout.
             Effect.tryPromise({
               try: async () => {
                 const sourcePath = nodePath.join(sourceCwd, relativePath);
                 const targetPath = nodePath.join(worktreePath, relativePath);
                 await nodeFs.mkdir(nodePath.dirname(targetPath), { recursive: true });
                 await nodeFs.cp(sourcePath, targetPath, {
-                  recursive: true,
                   force: false,
                   errorOnExist: true,
                   preserveTimestamps: true,
+                  verbatimSymlinks: true,
                 });
               },
               catch: (cause) =>
@@ -3698,7 +3704,7 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
                   `could not copy ${relativePath} into the detached worktree.`,
                   cause,
                 ),
-            }),
+            }).pipe(Effect.uninterruptible),
           { discard: true, concurrency: 4 },
         );
       });
@@ -3945,6 +3951,10 @@ export const makeGitCore = (options?: { executeOverride?: GitCoreShape["execute"
       Effect.gen(function* () {
         const onPhase = options?.onPhase ?? (() => Effect.void);
         const newBranch = input.newBranch ?? null;
+        // Upstream also turns on parallel checkout (`-c checkout.workers=0`) here.
+        // Moss leaves Git's default: on a slow Windows disk a worktree checked out in
+        // parallel took 6 to 7 times longer to delete (70 s instead of 11 s for 13.7k
+        // files), past the 15 s removal timeout, which then left a half-deleted worktree.
         const refResult = yield* executeGit(
           "GitCore.createDetachedWorktree.resolveRef",
           input.cwd,

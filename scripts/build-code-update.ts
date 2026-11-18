@@ -13,7 +13,9 @@
 //        [--apply-to <packaged app folder>]       a COPY of that shell: its resources/app.asar
 //                                                  is replaced by the applied result (for a smoke)
 //        [--previous-result <result.json>]         exit 4 when the code is the same as that run's
-//        [--sign-key-file <base64 PKCS#8 Ed25519>] [--sequence <n>] [--level <zstd, default 9>]
+//        [--sign | --sign-key-file <base64 PKCS#8 Ed25519>] [--sequence <n>] [--level <zstd, default 9>]
+//        --sign reads MOSS_UPDATE_MIRROR_SIGNING_KEY as the mirror sync does (the environment or the
+//        update-mirror settings folders), so no second copy of the release key is written to a file.
 //
 // Output (the hosting layout, CODE-UPDATES.md §3 and §5), and a result file for pipelines:
 //   <out>/desktop/code/v1/moss-code-<commit12>-<sha16>.asar.zst
@@ -26,7 +28,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import { parseArgs } from "node:util";
 import { constants as zlibConstants, zstdCompressSync } from "node:zlib";
@@ -51,6 +53,26 @@ import {
   MIGRATIONS_SOURCE,
   readMigrationLevels,
 } from "./lib/code-update-policy.ts";
+import { LOCAL_SETTINGS_FILES, resolveUpdateMirrorStores } from "./lib/update-mirror-stores.ts";
+import { resolveUpdateMirrorSigningKey } from "./sync-update-mirror.ts";
+
+/** The signing key: from a file, or from the mirror settings; null when not signing. */
+export async function resolveCodeUpdateSigningKey(input: {
+  readonly sign: boolean;
+  readonly signKeyFile: string | undefined;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly homeDirectory: string;
+}): Promise<string | null> {
+  if (input.sign && input.signKeyFile) throw new Error("give --sign or --sign-key-file, not both");
+  if (input.signKeyFile) return (await readFile(path.resolve(input.signKeyFile), "utf8")).trim();
+  if (!input.sign) return null;
+  const { stores } = await resolveUpdateMirrorStores({
+    env: input.env,
+    homeDirectory: input.homeDirectory,
+    files: LOCAL_SETTINGS_FILES,
+  });
+  return resolveUpdateMirrorSigningKey(stores);
+}
 
 const log = (line: string) => console.log(`[code-update] ${line}`);
 
@@ -136,6 +158,7 @@ async function main(): Promise<number> {
       "base-archive": { type: "string" },
       "apply-to": { type: "string" },
       "previous-result": { type: "string" },
+      sign: { type: "boolean", default: false },
       "sign-key-file": { type: "string" },
       sequence: { type: "string" },
       level: { type: "string", default: "9" },
@@ -321,13 +344,18 @@ async function main(): Promise<number> {
     await mkdir(path.dirname(manifestFile), { recursive: true });
     await writeFile(manifestFile, manifestText);
     result.manifest = manifestFile;
-    if (values["sign-key-file"]) {
-      const privateKey = (await readFile(path.resolve(values["sign-key-file"]), "utf8")).trim();
+    const privateKey = await resolveCodeUpdateSigningKey({
+      sign: values.sign,
+      signKeyFile: values["sign-key-file"],
+      env: process.env,
+      homeDirectory: homedir(),
+    });
+    if (privateKey) {
       await writeFile(
         `${manifestFile}.sig`,
         `${signCodeUpdateManifest({ manifest: manifestText, channel, privateKey })}\n`,
       );
-      log(`signed ${codeUpdateManifestPath(channel)} with the given key`);
+      log(`signed ${codeUpdateManifestPath(channel)}`);
     }
     log(`done in ${((performance.now() - started) / 1000).toFixed(1)} s: ${manifestFile}`);
     return finish(0, "code-update");
