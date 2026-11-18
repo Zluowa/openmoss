@@ -6,15 +6,15 @@
 //          everything back through the public URL, so a stale mirror fails the run instead.
 // Usage:   bun run scripts/sync-update-mirror.ts [--assets-dir <release-directory>]
 //          `--assets-dir` uses the files already on this machine instead of downloading them again.
-//          Settings come from the environment and one settings folder per store
-//          (`MOSS_UPDATE_MIRROR_SETTINGS_DIRS` for several stores, e.g. COS and R2); see
-//          docs/ops/moss-cn-update-mirror.md.
+//          Settings come from the environment and one settings folder per store, listed in
+//          `MOSS_UPDATE_MIRROR_SETTINGS_DIRS` (the environment, or a line in `~/.moss-release`) for
+//          several stores, e.g. COS and R2; see docs/ops/moss-cn-update-mirror.md.
 
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -34,6 +34,19 @@ import {
 import { parse } from "yaml";
 
 import {
+  checkRuntimeArchivesServed,
+  formatRuntimeArchiveLine,
+  parseRuntimePins,
+  runtimeArchivesMissingMessage,
+  runtimeSourceBaseUrl,
+} from "./lib/runtime-archive-check.ts";
+import {
+  describeUpdateMirrorStoreList,
+  LOCAL_SETTINGS_FILES,
+  resolveUpdateMirrorStores,
+  type UpdateMirrorStoreSettings,
+} from "./lib/update-mirror-stores.ts";
+import {
   isChannelManifestFileName,
   isUpdateManifestFileName,
   RUNTIME_PINS_FILE_NAME,
@@ -43,12 +56,6 @@ const GITHUB_API_URL = "https://api.github.com";
 const UPLOAD_RETRIES = 3;
 const SERVED_FILE_ATTEMPTS = 6;
 const SERVED_FILE_RETRY_DELAY_MS = 15_000;
-const LOCAL_SETTINGS_FILES = [
-  "update-mirror.env",
-  "update-mirror-signing.env",
-  "update-mirror-upload.env",
-];
-
 interface ReleaseAsset {
   readonly name: string;
   readonly size: number;
@@ -341,6 +348,34 @@ export async function syncUpdateMirror(
     manifests.set(asset.name, manifest);
   }
 
+  // The app fetches the pinned runtimes right after install, so a store that lacks one would break
+  // first launch for everyone it serves. Checked before this store gets any write.
+  const pinsText = manifests.get(RUNTIME_PINS_FILE_NAME);
+  if (pinsText !== undefined) {
+    const pins = parseRuntimePins(pinsText);
+    const lines = await checkRuntimeArchivesServed({
+      pins,
+      stores: [
+        {
+          label: input.feedUrl,
+          baseUrl: runtimeSourceBaseUrl(
+            { MOSS_UPDATE_MIRROR_FEED_URL: input.feedUrl },
+            { severalStores: true },
+          ),
+        },
+      ],
+      fetchImpl,
+      ...(input.verifyRetryDelayMs !== undefined ? { retryDelayMs: input.verifyRetryDelayMs } : {}),
+    });
+    for (const line of lines) log(formatRuntimeArchiveLine(line));
+    const missing = lines.filter((line) => !line.ok);
+    if (missing.length > 0) {
+      throw new Error(
+        `Nothing was written to this store. ${runtimeArchivesMissingMessage(missing)}`,
+      );
+    }
+  }
+
   const problemsBefore = await findPublishProblems({
     fetchImpl,
     feedUrl: input.feedUrl,
@@ -506,106 +541,19 @@ function createS3MirrorStore(env: Readonly<Record<string, string | undefined>>):
   };
 }
 
-/** `KEY=VALUE` lines; blank lines and `#` comments are skipped. */
-export function parseSettingsFile(text: string): ReadonlyArray<readonly [string, string]> {
-  return text.split(/\r?\n/).flatMap((line): Array<[string, string]> => {
-    const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/.exec(line);
-    return match?.[1] && match[2] ? [[match[1], match[2]]] : [];
-  });
-}
-
-/**
- * Settings that belong to one store: its public feed and catalog URLs and its storage account.
- * With several settings folders each store takes these from its own folder only.
- */
-export const UPDATE_MIRROR_STORE_SETTING_NAMES: ReadonlyArray<string> = [
-  "MOSS_UPDATE_MIRROR_FEED_URL",
-  "MOSS_UPDATE_MIRROR_S3_ACCESS_KEY_ID",
-  "MOSS_UPDATE_MIRROR_S3_SECRET_ACCESS_KEY",
-  "MOSS_UPDATE_MIRROR_S3_BUCKET",
-  "MOSS_UPDATE_MIRROR_S3_ENDPOINT",
-  "MOSS_UPDATE_MIRROR_S3_REGION",
-  "MOSS_UPDATE_MIRROR_S3_PATH_STYLE",
-  "MOSS_UPDATE_MIRROR_S3_PREFIX",
-  "MOSS_PLUGIN_CATALOG_S3_PREFIX",
-  "MOSS_PLUGIN_CATALOG_URL",
-];
-
-export interface UpdateMirrorStoreSettings {
-  /** The settings folder, for messages. */
-  readonly label: string;
-  /** What one store's run sees: the process environment plus that store's own folder. */
-  readonly env: Readonly<Record<string, string | undefined>>;
-}
-
-/**
- * `MOSS_UPDATE_MIRROR_SETTINGS_DIRS` lists one settings folder per store, separated by the
- * platform's path-list separator (`;` on Windows, `:` elsewhere), as in PATH.
- */
-export function splitUpdateMirrorSettingsDirs(
-  value: string,
-  separator: string = delimiter,
-): ReadonlyArray<string> {
-  return value
-    .split(separator)
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== "");
-}
-
-/**
- * The stores to write and the settings of each. With `MOSS_UPDATE_MIRROR_SETTINGS_DIRS` there is
- * one store per folder, and the store settings come only from that folder: a store setting already
- * in the process environment is refused, since it would apply to every store at once. Otherwise
- * there is one store, from `MOSS_UPDATE_MIRROR_SETTINGS_DIR` (default `~/.moss-release`), where
- * values already in the environment win, as before.
- */
-export async function readUpdateMirrorStoreSettings(input: {
-  readonly env: Readonly<Record<string, string | undefined>>;
-  readonly homeDirectory: string;
-  readonly files: ReadonlyArray<string>;
-  readonly separator?: string;
-}): Promise<ReadonlyArray<UpdateMirrorStoreSettings>> {
-  const { env } = input;
-  const readFolder = async (directory: string): Promise<Record<string, string>> => {
-    const values: Record<string, string> = {};
-    for (const fileName of input.files) {
-      const text = await readFile(join(directory, fileName), "utf8").catch(() => "");
-      for (const [name, value] of parseSettingsFile(text)) values[name] ??= value;
-    }
-    return values;
-  };
-  const definedEnv = Object.fromEntries(
-    Object.entries(env).filter((entry): entry is [string, string] => Boolean(entry[1]?.trim())),
-  );
-
-  const dirsValue = env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS?.trim();
-  if (!dirsValue) {
-    const directory =
-      env.MOSS_UPDATE_MIRROR_SETTINGS_DIR?.trim() || join(input.homeDirectory, ".moss-release");
-    return [{ label: directory, env: { ...(await readFolder(directory)), ...definedEnv } }];
-  }
-
-  if (env.MOSS_UPDATE_MIRROR_SETTINGS_DIR?.trim()) {
-    throw new Error(
-      "Set MOSS_UPDATE_MIRROR_SETTINGS_DIRS or MOSS_UPDATE_MIRROR_SETTINGS_DIR, not both.",
-    );
-  }
-  const leaking = UPDATE_MIRROR_STORE_SETTING_NAMES.filter((name) => definedEnv[name]);
-  if (leaking.length > 0) {
-    throw new Error(
-      `${leaking.join(", ")} ${leaking.length === 1 ? "is" : "are"} set in the environment; with MOSS_UPDATE_MIRROR_SETTINGS_DIRS every store's settings must come from its own folder.`,
-    );
-  }
-  const directories = splitUpdateMirrorSettingsDirs(dirsValue, input.separator);
-  if (new Set(directories).size !== directories.length) {
-    throw new Error("MOSS_UPDATE_MIRROR_SETTINGS_DIRS names a folder twice.");
-  }
-  const stores: UpdateMirrorStoreSettings[] = [];
-  for (const directory of directories) {
-    stores.push({ label: directory, env: { ...definedEnv, ...(await readFolder(directory)) } });
-  }
-  return stores;
-}
+// The store resolver lives in scripts/lib (other projects compile that folder); importers of this
+// file keep finding it here.
+export {
+  describeUpdateMirrorStoreList,
+  LOCAL_SETTINGS_FILES,
+  parseSettingsFile,
+  readUpdateMirrorStoreSettings,
+  resolveUpdateMirrorStores,
+  splitUpdateMirrorSettingsDirs,
+  UPDATE_MIRROR_STORE_SETTING_NAMES,
+  type UpdateMirrorStoreResolution,
+  type UpdateMirrorStoreSettings,
+} from "./lib/update-mirror-stores.ts";
 
 /** The one signing key every store shares; it may be set in the environment or in any folder. */
 export function resolveUpdateMirrorSigningKey(
@@ -653,12 +601,14 @@ export async function runUpdateMirrorSync(input: {
   readonly log?: (message: string) => void;
 }): Promise<ReadonlyArray<UpdateMirrorStoreOutcome>> {
   const log = input.log ?? (() => undefined);
-  const stores = await readUpdateMirrorStoreSettings({
+  const resolution = await resolveUpdateMirrorStores({
     env: input.env,
     homeDirectory: input.homeDirectory,
     files: LOCAL_SETTINGS_FILES,
   });
-  const severalStores = Boolean(input.env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS?.trim());
+  const listNote = describeUpdateMirrorStoreList(resolution);
+  if (listNote) log(listNote);
+  const { stores, severalStores } = resolution;
   const mock = Boolean(input.env.MOSS_DESKTOP_MOCK_UPDATES);
   const privateKey = resolveUpdateMirrorSigningKey(stores);
   const publicKey = deriveMossUpdateManifestPublicKey(privateKey);

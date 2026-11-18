@@ -17,11 +17,13 @@ import {
   signMossUpdateManifest,
 } from "@moss/shared/mossUpdateMirror";
 
+import { RUNTIME_PINS_FILE_NAME } from "./lib/runtime-archive-check.ts";
+
 // electron-builder's own debug log shares the extension but is not a manifest.
 const NON_MANIFEST_FILES: ReadonlySet<string> = new Set(["builder-debug.yml"]);
 
-/** The agent runtime pins of one app version, beside its channel manifests in the feed folder. */
-export const RUNTIME_PINS_FILE_NAME = "runtime-pins.json";
+// Defined in scripts/lib so the publish library can name the file without importing this script.
+export { RUNTIME_PINS_FILE_NAME };
 
 /** A channel manifest electron-updater reads (`latest.yml`, `moss-mac.yml`, …). */
 export function isChannelManifestFileName(name: string): boolean {

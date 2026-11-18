@@ -2,9 +2,12 @@
 // Purpose: Operator command for docs/release.md's unsigned feed release. Without
 // `--publish` it only validates and prints the plan; publishing requires naming
 // the exact tag, so a stray run cannot put anything on the public repository.
+// When the build has runtime-pins.json, every pinned runtime archive must already be served by
+// every download source before anything is sent (the dry run reports the same check).
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -12,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { MOSS_DESKTOP_DEFAULT_UPDATE_REPOSITORY } from "@moss/shared/desktopIdentity";
 
 import {
+  checkReleaseRuntimeArchives,
   createCurlFeedClient,
   prepareFeedRelease,
   publishFeedRelease,
@@ -121,8 +125,20 @@ async function main(args: readonly string[]): Promise<void> {
     console.log("Public feed answers with this build.");
     return;
   }
+  // Before anything is sent: with --publish a missing runtime archive stops here.
+  const runtimes = await checkReleaseRuntimeArchives({
+    artifactsDirectory,
+    mode: publishTag === undefined ? "dry-run" : "publish",
+    env: process.env,
+    homeDirectory: homedir(),
+    log: (message) => console.log(message),
+  });
   if (publishTag === undefined) {
-    console.log(`Dry run: nothing was sent. Publish with --publish ${prepared.tag}.`);
+    console.log(
+      runtimes.status === "checked" && runtimes.missing > 0
+        ? `Dry run: nothing was sent. --publish ${prepared.tag} would be refused until every runtime archive is served.`
+        : `Dry run: nothing was sent. Publish with --publish ${prepared.tag}.`,
+    );
     return;
   }
 

@@ -11,7 +11,8 @@
 //   bun run scripts/build-moss-plugin-catalog.ts upload --out <dir>
 //   bun run scripts/build-moss-plugin-catalog.ts verify [--base-url <url>]
 //   Upload reads the update mirror's storage settings (docs/ops/moss-cn-update-mirror.md) from the
-//   environment or ~/.moss-release, or one folder per store from MOSS_UPDATE_MIRROR_SETTINGS_DIRS,
+//   environment or ~/.moss-release, or one folder per store listed in MOSS_UPDATE_MIRROR_SETTINGS_DIRS
+//   (the environment, or a line in ~/.moss-release),
 //   and writes under MOSS_PLUGIN_CATALOG_S3_PREFIX (default `plugin-catalog/v1/`) in each store.
 
 import { spawnSync } from "node:child_process";
@@ -39,8 +40,9 @@ import {
 import { parse } from "yaml";
 
 import {
+  describeUpdateMirrorStoreList,
   readUpdateMirrorS3ClientOptions,
-  readUpdateMirrorStoreSettings,
+  resolveUpdateMirrorStores,
   type UpdateMirrorStoreSettings,
 } from "./sync-update-mirror.ts";
 
@@ -370,16 +372,40 @@ export async function uploadCatalogToStores(input: {
   }
 }
 
-async function upload(args: readonly string[]): Promise<void> {
-  const stores = await readUpdateMirrorStoreSettings({
-    env: process.env,
-    homeDirectory: homedir(),
+/** Resolves the stores from the settings folders, then uploads the built catalog to every one. */
+export async function runCatalogUpload(input: {
+  readonly out: string;
+  readonly env: StoreEnv;
+  readonly homeDirectory: string;
+  readonly createWriter?: (env: StoreEnv) => CatalogObjectWriter;
+  readonly verifyStore?: (baseUrl: string) => Promise<void>;
+  readonly catalog?: readonly MossPluginCatalogPackage[];
+  readonly log?: (message: string) => void;
+}): Promise<void> {
+  const log = input.log ?? ((message: string) => console.log(message));
+  const resolution = await resolveUpdateMirrorStores({
+    env: input.env,
+    homeDirectory: input.homeDirectory,
     files: ["update-mirror.env", "update-mirror-upload.env"],
   });
+  const listNote = describeUpdateMirrorStoreList(resolution);
+  if (listNote) log(listNote);
   await uploadCatalogToStores({
+    out: input.out,
+    stores: resolution.stores,
+    severalStores: resolution.severalStores,
+    log,
+    ...(input.createWriter ? { createWriter: input.createWriter } : {}),
+    ...(input.verifyStore ? { verifyStore: input.verifyStore } : {}),
+    ...(input.catalog ? { catalog: input.catalog } : {}),
+  });
+}
+
+async function upload(args: readonly string[]): Promise<void> {
+  await runCatalogUpload({
     out: resolve(argument(args, "--out") ?? ""),
-    stores,
-    severalStores: Boolean(process.env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS?.trim()),
+    env: process.env,
+    homeDirectory: homedir(),
   });
 }
 

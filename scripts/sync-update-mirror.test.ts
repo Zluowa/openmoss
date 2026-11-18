@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, sep } from "node:path";
 
 import {
   generateMossUpdateManifestKeyPair,
@@ -14,6 +14,7 @@ import {
   parseSettingsFile,
   readUpdateMirrorS3ClientOptions,
   readUpdateMirrorStoreSettings,
+  resolveUpdateMirrorStores,
   runUpdateMirrorSync,
   splitUpdateMirrorSettingsDirs,
   syncUpdateMirror,
@@ -46,6 +47,9 @@ interface FakeWorld {
   /** How many more full downloads of a file answer "not found", as a CDN just after an upload. */
   unservedGets: Map<string, number>;
   rangeSupported: boolean;
+  /** Runtime archives this source serves (`runtimes/v1/...` path to size), and the requests for them. */
+  readonly runtimeObjects: Map<string, number>;
+  readonly runtimeRequests: Array<{ readonly url: string; readonly init: RequestInit | undefined }>;
 }
 
 function world(tag: string, assets: Record<string, Buffer | string>): FakeWorld {
@@ -57,6 +61,8 @@ function world(tag: string, assets: Record<string, Buffer | string>): FakeWorld 
     staleCdn: new Map(),
     unservedGets: new Map(),
     rangeSupported: true,
+    runtimeObjects: new Map(),
+    runtimeRequests: [],
     store: {
       upload: async (fileName, localPath) => {
         fake.uploads.push(fileName);
@@ -79,6 +85,16 @@ function world(tag: string, assets: Record<string, Buffer | string>): FakeWorld 
       if (url.hostname === "downloads.example.test") {
         const bytes = fake.official.get(url.pathname.slice(1));
         return bytes ? new Response(new Uint8Array(bytes)) : new Response(null, { status: 404 });
+      }
+      if (url.pathname.startsWith("/runtimes/")) {
+        fake.runtimeRequests.push({ url: url.href, init });
+        const size = fake.runtimeObjects.get(url.pathname.slice(1));
+        return size === undefined
+          ? new Response(null, { status: 404 })
+          : new Response(new Uint8Array(1), {
+              status: 206,
+              headers: { "content-range": `bytes 0-0/${size}` },
+            });
       }
       const name = url.pathname.replace("/moss/", "");
       const stale = url.search === "" ? fake.staleCdn.get(name) : undefined;
@@ -136,6 +152,21 @@ const release = () => ({
   "Moss-2.0.0-x64.exe.blockmap": "blockmap",
   "builder-debug.yml": "x: 1\n",
 });
+
+// A pinned runtime as runtime-pins.json lists it; the archive itself is faked by its size.
+const RUNTIME_SHA256 = "ab".repeat(32);
+const pinnedRuntime = {
+  name: "codex",
+  version: "1.2.3",
+  platform: "win32",
+  arch: "x64",
+  archive: { size: 4096, sha256: RUNTIME_SHA256 },
+  executable: "codex.exe",
+  files: [],
+};
+const RUNTIME_PATH = `runtimes/v1/codex/1.2.3/codex-1.2.3-win32-x64-${RUNTIME_SHA256.slice(0, 16)}.tar.zst`;
+const pinsFile = (runtimes: unknown[] = [pinnedRuntime], schemaVersion: unknown = 1) =>
+  `${JSON.stringify({ schemaVersion, appVersion: "2.0.0", runtimes })}\n`;
 
 describe("parseSettingsFile", () => {
   it("reads settings saved from any editor, and skips comments and empty values", () => {
@@ -382,8 +413,9 @@ describe("syncUpdateMirror", () => {
   });
 
   it("signs and publishes runtime-pins.json with the feed, before the channel manifest", async () => {
-    const pins = '{"runtimes":[{"name":"codex","version":"1.2.3"}]}\n';
+    const pins = pinsFile();
     const fake = world("v2.0.0", { ...release(), "runtime-pins.json": pins });
+    fake.runtimeObjects.set(RUNTIME_PATH, pinnedRuntime.archive.size);
 
     await expect(run(fake)).resolves.toMatchObject({
       status: "synced",
@@ -413,6 +445,59 @@ describe("syncUpdateMirror", () => {
     await expect(run(fake)).resolves.toMatchObject({ status: "synced" });
     expect(fake.mirror.has("runtime-pins.json")).toBe(false);
     expect(fake.mirror.has("runtime-pins.json.sig")).toBe(false);
+    expect(fake.runtimeRequests).toEqual([]);
+  });
+
+  it("asks the store's origin for every pinned runtime with a one-byte anonymous GET", async () => {
+    const fake = world("v2.0.0", { ...release(), "runtime-pins.json": pinsFile() });
+    fake.runtimeObjects.set(RUNTIME_PATH, pinnedRuntime.archive.size);
+
+    await expect(run(fake)).resolves.toMatchObject({ status: "synced" });
+
+    expect(fake.runtimeRequests.map((request) => request.url)).toEqual([
+      `https://updates.example.cn/${RUNTIME_PATH}`,
+    ]);
+    const init = fake.runtimeRequests[0]?.init;
+    expect(init?.method).toBe("GET");
+    expect(new Headers(init?.headers).get("range")).toBe("bytes=0-0");
+    expect(new Headers(init?.headers).has("authorization")).toBe(false);
+  });
+
+  it("writes nothing to a store that does not serve a pinned runtime", async () => {
+    const fake = world("v2.0.0", { ...release(), "runtime-pins.json": pinsFile() });
+
+    const failure = await run(fake).then(
+      () => new Error("expected a failure"),
+      (error: unknown) => error as Error,
+    );
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure.message).toContain(`https://updates.example.cn/${RUNTIME_PATH}`);
+    expect(failure.message).toContain("not served (HTTP 404)");
+    expect(failure.message).toContain("scripts/upload-moss-runtimes.ts --out");
+    expect(failure.message).toContain("few minutes");
+    expect(fake.uploads).toEqual([]);
+    // A 404 is final: asking again only feeds the edge's cache of "not found".
+    expect(fake.runtimeRequests).toHaveLength(1);
+  });
+
+  it("refuses runtime pins it cannot read safely, before writing anything", async () => {
+    for (const pins of [
+      pinsFile([pinnedRuntime], 2),
+      pinsFile([{ ...pinnedRuntime, archive: { size: 4096, sha256: "ABC" } }]),
+      pinsFile([{ ...pinnedRuntime, version: "1.2.3/../../../desktop" }]),
+    ]) {
+      const fake = world("v2.0.0", { ...release(), "runtime-pins.json": pins });
+      await expect(run(fake)).rejects.toThrow(/runtime-pins\.json|segments/);
+      expect(fake.uploads).toEqual([]);
+      expect(fake.runtimeRequests).toEqual([]);
+    }
+  });
+
+  it("checks nothing for runtime pins that pin no runtime", async () => {
+    const fake = world("v2.0.0", { ...release(), "runtime-pins.json": pinsFile([]) });
+    await expect(run(fake)).resolves.toMatchObject({ status: "synced" });
+    expect(fake.runtimeRequests).toEqual([]);
   });
 
   it("refuses a release that has runtime pins but no channel manifest", async () => {
@@ -459,9 +544,10 @@ describe("several stores", () => {
     for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
   });
 
-  function settingsFolder(files: Record<string, Record<string, string>>): string {
-    const folder = mkdtempSync(join(tmpdir(), "moss-mirror-settings-"));
-    folders.push(folder);
+  function settingsFolder(files: Record<string, Record<string, string>>, at?: string): string {
+    const folder = at ?? mkdtempSync(join(tmpdir(), "moss-mirror-settings-"));
+    if (at) mkdirSync(at, { recursive: true });
+    else folders.push(folder);
     for (const [fileName, values] of Object.entries(files)) {
       writeFileSync(
         join(folder, fileName),
@@ -473,43 +559,66 @@ describe("several stores", () => {
     return folder;
   }
 
-  function twoStores() {
-    const cos = world("v2.0.0", release());
-    const r2 = world("v2.0.0", release());
+  function tempHome(): string {
+    const home = mkdtempSync(join(tmpdir(), "moss-mirror-home-"));
+    folders.push(home);
+    return home;
+  }
+
+  function twoStores(
+    options: { readonly assets?: Record<string, Buffer | string>; readonly parent?: string } = {},
+  ) {
+    const cos = world("v2.0.0", options.assets ?? release());
+    const r2 = world("v2.0.0", options.assets ?? release());
     const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : input);
       return (url.hostname === "r2.example.test" ? r2 : cos).fetchImpl(input, init);
     }) as typeof fetch;
-    const cosFolder = settingsFolder({
-      "update-mirror.env": { MOSS_UPDATE_MIRROR_FEED_URL: COS_FEED },
-      "update-mirror-upload.env": storage("cos-bucket", { MOSS_UPDATE_MIRROR_S3_PATH_STYLE: "0" }),
-      "update-mirror-signing.env": { MOSS_UPDATE_MIRROR_SIGNING_KEY: privateKey },
-    });
-    const r2Folder = settingsFolder({
-      "update-mirror.env": { MOSS_UPDATE_MIRROR_FEED_URL: R2_FEED },
-      "update-mirror-upload.env": storage("r2-bucket"),
-    });
+    const cosFolder = settingsFolder(
+      {
+        "update-mirror.env": { MOSS_UPDATE_MIRROR_FEED_URL: COS_FEED },
+        "update-mirror-upload.env": storage("cos-bucket", {
+          MOSS_UPDATE_MIRROR_S3_PATH_STYLE: "0",
+        }),
+        "update-mirror-signing.env": { MOSS_UPDATE_MIRROR_SIGNING_KEY: privateKey },
+      },
+      options.parent && join(options.parent, "cos"),
+    );
+    const r2Folder = settingsFolder(
+      {
+        "update-mirror.env": { MOSS_UPDATE_MIRROR_FEED_URL: R2_FEED },
+        "update-mirror-upload.env": storage("r2-bucket"),
+      },
+      options.parent && join(options.parent, "r2"),
+    );
     const storeEnvs: Array<Readonly<Record<string, string | undefined>>> = [];
     const createStore = (env: Readonly<Record<string, string | undefined>>) => {
       storeEnvs.push(env);
       return env.MOSS_UPDATE_MIRROR_S3_BUCKET === "cos-bucket" ? cos.store : r2.store;
     };
-    const runBoth = (extraEnv: Record<string, string> = {}) =>
+    const logs: string[] = [];
+    const runBoth = (
+      extraEnv: Record<string, string> = {},
+      how: { readonly listInEnv?: boolean; readonly homeDirectory?: string } = {},
+    ) =>
       runUpdateMirrorSync({
         args: [],
         env: {
-          MOSS_UPDATE_MIRROR_SETTINGS_DIRS: [cosFolder, r2Folder].join(delimiter),
+          ...(how.listInEnv === false
+            ? {}
+            : { MOSS_UPDATE_MIRROR_SETTINGS_DIRS: [cosFolder, r2Folder].join(delimiter) }),
           MOSS_UPDATE_MIRROR_GITHUB_API_URL: API,
           MOSS_DESKTOP_UPDATE_REPOSITORY: REPOSITORY,
           ...extraEnv,
         },
-        homeDirectory: tmpdir(),
+        homeDirectory: how.homeDirectory ?? tmpdir(),
         createStore,
         builtInPublicKey: manifestPublicKey,
         fetchImpl,
         verifyRetryDelayMs: 0,
+        log: (message) => logs.push(message),
       });
-    return { cos, r2, cosFolder, r2Folder, storeEnvs, runBoth };
+    return { cos, r2, cosFolder, r2Folder, storeEnvs, logs, runBoth };
   }
 
   it("splits the folder list on the platform's path-list separator", () => {
@@ -648,5 +757,238 @@ describe("several stores", () => {
     expect(stores).toHaveLength(1);
     expect(stores[0]?.env.MOSS_UPDATE_MIRROR_S3_BUCKET).toBe("env-bucket");
     expect(stores[0]?.env.MOSS_UPDATE_MIRROR_FEED_URL).toBe(COS_FEED);
+  });
+
+  it("checks the pinned runtimes on each store, failing only the store that lacks one", async () => {
+    const fake = twoStores({ assets: { ...release(), "runtime-pins.json": pinsFile() } });
+    fake.cos.runtimeObjects.set(RUNTIME_PATH, pinnedRuntime.archive.size);
+
+    const failure = await fake.runBoth().then(
+      () => new Error("expected a failure"),
+      (error: unknown) => error as Error,
+    );
+
+    expect(failure.message).toMatch(/1 of 2 update mirror store\(s\) failed/);
+    expect(failure.message).toContain(fake.r2Folder);
+    expect(failure.message).toContain(`https://r2.example.test/${RUNTIME_PATH}`);
+    expect(fake.r2.uploads).toEqual([]);
+    expect(fake.r2.mirror.size).toBe(0);
+    expect(fake.cos.mirror.has("moss.yml")).toBe(true);
+    expect(fake.cos.mirror.has("runtime-pins.json")).toBe(true);
+  });
+
+  describe("a store list in the settings folder", () => {
+    // The listing folder's own store settings, which must reach no store.
+    const listingOwn = {
+      MOSS_UPDATE_MIRROR_FEED_URL: "https://listing.example.test/moss/",
+      ...storage("listing-bucket"),
+    };
+
+    function listingFolder(at: string, list: string, extra: Record<string, string> = {}): string {
+      return settingsFolder(
+        {
+          "update-mirror.env": { MOSS_UPDATE_MIRROR_SETTINGS_DIRS: list, ...extra },
+          "update-mirror-upload.env": listingOwn,
+        },
+        at,
+      );
+    }
+
+    it("writes both stores from the plain default command, entries relative to the folder", async () => {
+      const home = tempHome();
+      const listing = join(home, ".moss-release");
+      const fake = twoStores({ parent: listing });
+      listingFolder(listing, ["cos", "r2"].join(delimiter));
+
+      const outcomes = await fake.runBoth({}, { listInEnv: false, homeDirectory: home });
+
+      expect(
+        outcomes.map((outcome) => [outcome.label, outcome.feedUrl, outcome.result?.status]),
+      ).toEqual([
+        [join(listing, "cos"), COS_FEED, "synced"],
+        [join(listing, "r2"), R2_FEED, "synced"],
+      ]);
+      expect(fake.logs).toContain(
+        `Store folders listed in ${listing}: ${join(listing, "cos")}, ${join(listing, "r2")}`,
+      );
+      expect(fake.storeEnvs.map((env) => env.MOSS_UPDATE_MIRROR_S3_BUCKET)).toEqual([
+        "cos-bucket",
+        "r2-bucket",
+      ]);
+      for (const env of fake.storeEnvs) {
+        expect(env.MOSS_UPDATE_MIRROR_FEED_URL).not.toBe(listingOwn.MOSS_UPDATE_MIRROR_FEED_URL);
+        expect(env.MOSS_UPDATE_MIRROR_S3_ENDPOINT).not.toBe(
+          listingOwn.MOSS_UPDATE_MIRROR_S3_ENDPOINT,
+        );
+        expect(env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS).toBeUndefined();
+      }
+      expect(fake.r2Folder).toBe(join(listing, "r2"));
+    });
+
+    it("honours a list in MOSS_UPDATE_MIRROR_SETTINGS_DIR, with absolute entries", async () => {
+      const fake = twoStores();
+      const listing = listingFolder(
+        join(tempHome(), "release-settings"),
+        [fake.cosFolder, fake.r2Folder].join(delimiter),
+      );
+
+      const outcomes = await fake.runBoth(
+        { MOSS_UPDATE_MIRROR_SETTINGS_DIR: listing },
+        { listInEnv: false },
+      );
+
+      expect(outcomes.map((outcome) => [outcome.label, outcome.feedUrl])).toEqual([
+        [fake.cosFolder, COS_FEED],
+        [fake.r2Folder, R2_FEED],
+      ]);
+      expect(fake.logs[0]).toBe(
+        `Store folders listed in ${listing}: ${fake.cosFolder}, ${fake.r2Folder}`,
+      );
+    });
+
+    it("lets the environment variable win over a list in the folder", async () => {
+      const home = tempHome();
+      listingFolder(join(home, ".moss-release"), ["elsewhere-a", "elsewhere-b"].join(delimiter));
+      const fake = twoStores();
+
+      const outcomes = await fake.runBoth({}, { homeDirectory: home });
+
+      expect(outcomes.map((outcome) => outcome.label)).toEqual([fake.cosFolder, fake.r2Folder]);
+      expect(fake.logs.some((line) => line.startsWith("Store folders listed in"))).toBe(false);
+    });
+
+    it("shares the listing folder's other settings, such as the signing key", async () => {
+      const home = tempHome();
+      const listing = join(home, ".moss-release");
+      settingsFolder(
+        { "update-mirror.env": { MOSS_UPDATE_MIRROR_FEED_URL: COS_FEED } },
+        join(listing, "cos"),
+      );
+      listingFolder(listing, "cos", { MOSS_DESKTOP_UPDATE_REPOSITORY: REPOSITORY });
+      settingsFolder(
+        { "update-mirror-signing.env": { MOSS_UPDATE_MIRROR_SIGNING_KEY: privateKey } },
+        listing,
+      );
+
+      const resolution = await resolveUpdateMirrorStores({
+        env: {},
+        homeDirectory: home,
+        files: ["update-mirror.env", "update-mirror-signing.env", "update-mirror-upload.env"],
+      });
+
+      expect(resolution.severalStores).toBe(true);
+      expect(resolution.listedIn).toBe(listing);
+      expect(resolution.stores).toHaveLength(1);
+      const env = resolution.stores[0]!.env;
+      expect(env.MOSS_UPDATE_MIRROR_FEED_URL).toBe(COS_FEED);
+      expect(env.MOSS_UPDATE_MIRROR_SIGNING_KEY).toBe(privateKey);
+      expect(env.MOSS_DESKTOP_UPDATE_REPOSITORY).toBe(REPOSITORY);
+      expect(env.MOSS_UPDATE_MIRROR_S3_BUCKET).toBeUndefined();
+      expect(env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS).toBeUndefined();
+    });
+
+    it("refuses a store setting in the environment", async () => {
+      const home = tempHome();
+      const listing = join(home, ".moss-release");
+      const fake = twoStores({ parent: listing });
+      listingFolder(listing, ["cos", "r2"].join(delimiter));
+
+      await expect(
+        fake.runBoth(
+          { MOSS_UPDATE_MIRROR_S3_BUCKET: "leaked" },
+          { listInEnv: false, homeDirectory: home },
+        ),
+      ).rejects.toThrow(
+        `MOSS_UPDATE_MIRROR_S3_BUCKET is set in the environment; with MOSS_UPDATE_MIRROR_SETTINGS_DIRS in ${listing}`,
+      );
+      expect(fake.cos.uploads).toEqual([]);
+      expect(fake.r2.uploads).toEqual([]);
+    });
+
+    it("refuses a listed folder that lists folders itself, and a folder named twice", async () => {
+      const home = tempHome();
+      const listing = join(home, ".moss-release");
+      const fake = twoStores({ parent: listing });
+      const read = () =>
+        resolveUpdateMirrorStores({
+          env: {},
+          homeDirectory: home,
+          files: ["update-mirror.env", "update-mirror-upload.env"],
+        });
+
+      listingFolder(listing, ["cos", `.${sep}cos`].join(delimiter));
+      await expect(read()).rejects.toThrow(/names a folder twice/);
+
+      listingFolder(listing, ["cos", "r2"].join(delimiter));
+      settingsFolder(
+        {
+          "update-mirror.env": {
+            MOSS_UPDATE_MIRROR_FEED_URL: R2_FEED,
+            MOSS_UPDATE_MIRROR_SETTINGS_DIRS: "deeper",
+          },
+        },
+        fake.r2Folder,
+      );
+      await expect(read()).rejects.toThrow(
+        `${fake.r2Folder} is a store folder listed in MOSS_UPDATE_MIRROR_SETTINGS_DIRS in ${listing}`,
+      );
+    });
+
+    it("needs a feed URL in every listed folder", async () => {
+      const home = tempHome();
+      const listing = join(home, ".moss-release");
+      const fake = twoStores({ parent: listing });
+      listingFolder(listing, ["cos", "r2", "empty"].join(delimiter));
+      mkdirSync(join(listing, "empty"));
+
+      const failure = await fake.runBoth({}, { listInEnv: false, homeDirectory: home }).then(
+        () => new Error("expected a failure"),
+        (error: unknown) => error as Error,
+      );
+
+      expect(failure.message).toContain(
+        `MOSS_UPDATE_MIRROR_FEED_URL is not set in ${join(listing, "empty")}`,
+      );
+      expect(fake.cos.mirror.has("moss.yml")).toBe(true);
+    });
+
+    it("treats an empty list value as no list: one store, as before", async () => {
+      const home = tempHome();
+      const listing = settingsFolder(
+        {
+          "update-mirror.env": {
+            MOSS_UPDATE_MIRROR_SETTINGS_DIRS: "   ",
+            MOSS_UPDATE_MIRROR_FEED_URL: COS_FEED,
+          },
+        },
+        join(home, ".moss-release"),
+      );
+
+      const resolution = await resolveUpdateMirrorStores({
+        env: { MOSS_UPDATE_MIRROR_S3_BUCKET: "env-bucket" },
+        homeDirectory: home,
+        files: ["update-mirror.env"],
+      });
+
+      expect(resolution).toMatchObject({ severalStores: false, listedIn: null });
+      expect(resolution.stores.map((store) => store.label)).toEqual([listing]);
+      expect(resolution.stores[0]?.env.MOSS_UPDATE_MIRROR_FEED_URL).toBe(COS_FEED);
+      expect(resolution.stores[0]?.env.MOSS_UPDATE_MIRROR_S3_BUCKET).toBe("env-bucket");
+    });
+
+    it("keeps a folder without a list as one store", async () => {
+      const home = tempHome();
+      settingsFolder(
+        { "update-mirror.env": { MOSS_UPDATE_MIRROR_FEED_URL: COS_FEED } },
+        join(home, ".moss-release"),
+      );
+      const resolution = await resolveUpdateMirrorStores({
+        env: {},
+        homeDirectory: home,
+        files: ["update-mirror.env"],
+      });
+      expect(resolution).toMatchObject({ severalStores: false, listedIn: null });
+      expect(resolution.stores).toHaveLength(1);
+    });
   });
 });

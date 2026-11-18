@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   assertRuntimeObjectPath,
   parseRuntimeArchiveList,
+  runRuntimeUpload,
   runtimeSourceBaseUrl,
   uploadRuntimeArchives,
   type RuntimeStoreTarget,
@@ -288,6 +289,83 @@ describe("uploadRuntimeArchives", () => {
       }),
     ).rejects.toThrow(/must be under runtimes\/v1\//);
     expect(cos.uploads).toEqual([]);
+  });
+});
+
+describe("runRuntimeUpload", () => {
+  function listedStores(r2Feed: boolean) {
+    const home = mkdtempSync(join(tmpdir(), "moss-runtimes-home-"));
+    folders.push(home);
+    const listing = join(home, ".moss-release");
+    const write = (folder: string, values: Record<string, string>) => {
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(
+        join(folder, "update-mirror.env"),
+        Object.entries(values)
+          .map(([name, value]) => `${name}=${value}\n`)
+          .join(""),
+      );
+    };
+    write(listing, {
+      MOSS_UPDATE_MIRROR_SETTINGS_DIRS: ["cos", "r2"].join(delimiter),
+      MOSS_UPDATE_MIRROR_FEED_URL: "https://listing.example.test/desktop/",
+    });
+    write(join(listing, "cos"), {
+      MOSS_UPDATE_MIRROR_S3_BUCKET: "cos",
+      MOSS_UPDATE_MIRROR_FEED_URL: "https://cos.example.test/desktop/",
+    });
+    write(join(listing, "r2"), {
+      MOSS_UPDATE_MIRROR_S3_BUCKET: "r2",
+      ...(r2Feed ? { MOSS_UPDATE_MIRROR_FEED_URL: "https://r2.example.test/desktop/" } : {}),
+    });
+    return { home, listing };
+  }
+
+  it("uploads to every store listed in the default settings folder", async () => {
+    const { home, listing } = listedStores(true);
+    const cos = fakeSource("cos.example.test");
+    const r2 = fakeSource("r2.example.test");
+    const logs: string[] = [];
+
+    const lines = await runRuntimeUpload({
+      outDirectory: buildOutput([codex]),
+      env: {},
+      homeDirectory: home,
+      createStore: (env) => (env.MOSS_UPDATE_MIRROR_S3_BUCKET === "cos" ? cos : r2).target.store,
+      fetchImpl: network(cos, r2),
+      log: (message) => logs.push(message),
+      ...quiet,
+    });
+
+    expect(logs[0]).toBe(
+      `Store folders listed in ${listing}: ${join(listing, "cos")}, ${join(listing, "r2")}`,
+    );
+    expect(lines.map((line) => [line.store, line.served])).toEqual([
+      [join(listing, "cos"), true],
+      [join(listing, "r2"), true],
+    ]);
+    expect(cos.uploads).toEqual([codex.path]);
+    expect(r2.uploads).toEqual([codex.path]);
+  });
+
+  it("refuses a listed folder without a feed URL before uploading anything", async () => {
+    const { home } = listedStores(false);
+    const cos = fakeSource("cos.example.test");
+    const r2 = fakeSource("r2.example.test");
+
+    await expect(
+      runRuntimeUpload({
+        outDirectory: buildOutput([codex]),
+        env: {},
+        homeDirectory: home,
+        createStore: (env) => (env.MOSS_UPDATE_MIRROR_S3_BUCKET === "cos" ? cos : r2).target.store,
+        fetchImpl: network(cos, r2),
+        log: () => undefined,
+        ...quiet,
+      }),
+    ).rejects.toThrow("Set MOSS_UPDATE_MIRROR_FEED_URL in every settings folder.");
+    expect(cos.uploads).toEqual([]);
+    expect(r2.uploads).toEqual([]);
   });
 });
 
