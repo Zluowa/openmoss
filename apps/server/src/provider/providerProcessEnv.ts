@@ -417,6 +417,8 @@ export function buildProviderProcessEnv(input: {
   readonly overlay?: Readonly<Record<string, string>> | undefined;
   readonly platform?: NodeJS.Platform | undefined;
   readonly readSystemProxy?: () => NodeJS.ProcessEnv;
+  /** Metadata-only probes can derive the child environment before launch. */
+  readonly skipHomePreparation?: boolean | undefined;
 }): NodeJS.ProcessEnv {
   const baseEnv = input.env ?? process.env;
   const platform = input.platform ?? process.platform;
@@ -460,7 +462,7 @@ export function buildProviderProcessEnv(input: {
       platform,
     });
     const homePath = selectedHome || syntheticHome;
-    if (!selectedHome) {
+    if (!selectedHome && !input.skipHomePreparation) {
       ensurePrivateProviderHome(homePath, platform);
     }
     Object.assign(env, providerHomeEnvironment(homePath, platform));

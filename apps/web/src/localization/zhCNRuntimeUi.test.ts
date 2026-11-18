@@ -323,6 +323,25 @@ describe("translateZhCnRuntimeUiText", () => {
     }
   });
 
+  it("puts Chinese first in Codex's MCP start warning and keeps the name and reason verbatim", () => {
+    expect(
+      translateZhCnRuntimeUiText(
+        'MCP server "linear" failed to start: connect ECONNREFUSED 127.0.0.1:8080',
+      ),
+    ).toBe("MCP 服务器「linear」启动失败：connect ECONNREFUSED 127.0.0.1:8080");
+    expect(
+      translateZhCnRuntimeUiText(
+        'MCP server "notion-mcp" failed to start (HTTP 403): subscription_inactive: renew at notion.so',
+      ),
+    ).toBe(
+      "MCP 服务器「notion-mcp」启动失败（HTTP 403）：subscription_inactive: renew at notion.so",
+    );
+    // The shared presentation translator, which the transcript's text goes through, delegates.
+    expect(
+      translateZhCnPresentationText('MCP server "linear" failed to start: handshake timed out'),
+    ).toBe("MCP 服务器「linear」启动失败：handshake timed out");
+  });
+
   it("does not partially match dynamic sentences", () => {
     expect(
       translateZhCnRuntimeUiText("prefix You can keep up to 12 pinned messages in a thread."),
