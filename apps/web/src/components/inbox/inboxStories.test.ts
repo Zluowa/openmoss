@@ -233,4 +233,43 @@ describe("Chinese recap", () => {
       buildInboxTiles({ ...chinese, quota: [] }).find((tile) => tile.id === "agents"),
     ).toMatchObject({ lead: "智能体累计工作时长", detail: "2 次失败" });
   });
+
+  // The tester's morning: 80 s of agent work and 175 100 tokens read "1m 20s" and
+  // "175.1k tokens" amid Chinese. Chinese numbers and units, the 已工作 header's words.
+  it("writes durations and token counts in Chinese units", () => {
+    const today = recap({
+      totals: totals({
+        prompts: 2,
+        turns: 2,
+        agentWorkMs: 80_000,
+        tokens: { user: 175_100, automation: 0, agent: 0 },
+      }),
+    });
+    const yesterday = recap({
+      totals: totals({ prompts: 4, tokens: { user: 314_200, automation: 0, agent: 0 } }),
+    });
+    const chinese = {
+      recap: today,
+      previousRecap: yesterday,
+      yesterdaySoFar: null,
+      slots: [],
+      tasks: undefined,
+      locale: "zh-CN",
+    };
+    const digest = buildInboxDigest(chinese).map(plain).join(" ");
+    expect(digest).toContain("智能体累计工作 1 分钟 20 秒");
+    expect(digest).not.toMatch(/\d+m \d+s/);
+
+    const tiles = buildInboxTiles({ ...chinese, quota: [] });
+    const value = (id: string) => tiles.find((tile) => tile.id === id)?.value;
+    expect(value("tokens")).toBe("17.5万 tokens");
+    expect(value("agents")).toBe("1 分钟 20 秒");
+    expect(value("yesterday")).toBe("31.4万 tokens");
+    for (const tile of tiles) expect(tile.value).not.toMatch(/\d(?:k|m|bn) tokens|\d+m \d+s/);
+
+    const quiet = buildInboxDigest({ ...chinese, recap: recap() })
+      .map(plain)
+      .join(" ");
+    expect(quiet).toContain("昨天使用 31.4万 tokens");
+  });
 });
