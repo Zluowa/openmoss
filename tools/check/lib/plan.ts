@@ -202,3 +202,38 @@ export function unitTestCommand(
 export function isBrowserTest(path: string): boolean {
   return BROWSER_TEST.test(path);
 }
+
+/**
+ * The quick job's test budget (CI, `--test-budget <seconds>`): a wide change selects more tests than
+ * the 10-minute job can run (#704 selected enough to be cancelled at the limit, run 44356541505).
+ * Estimated seconds of the selected tests a budget can drop: component browser files from the
+ * stored per-file timings (apps/web/src/test/browserFileDurations.json, from a mirror run) plus a
+ * per-file overhead, unknown browser files and unit files at fixed defaults. The tools' own tests
+ * are never dropped: they are small and nothing else runs them on the mirror.
+ */
+export interface TestBudgetInput {
+  readonly unitFiles: number;
+  readonly browserFiles: readonly string[];
+  readonly browserSeconds: Readonly<Record<string, number>>;
+  readonly browserOverheadSeconds?: number;
+}
+
+export const UNKNOWN_BROWSER_FILE_SECONDS = 15;
+export const UNIT_FILE_SECONDS = 2;
+
+export function estimateDroppableTestSeconds(input: TestBudgetInput): number {
+  const overhead = input.browserOverheadSeconds ?? 1;
+  const browser = input.browserFiles.reduce(
+    (sum, file) => sum + (input.browserSeconds[file] ?? UNKNOWN_BROWSER_FILE_SECONDS) + overhead,
+    0,
+  );
+  return Math.round(browser + input.unitFiles * UNIT_FILE_SECONDS);
+}
+
+/** Whether the selected tests are left to the full lanes: over the budget, when there is one. */
+export function overTestBudget(
+  estimatedSeconds: number,
+  budgetSeconds: number | undefined,
+): boolean {
+  return budgetSeconds !== undefined && estimatedSeconds > budgetSeconds;
+}
