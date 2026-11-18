@@ -171,6 +171,16 @@ export function useChatRuntimeModes({
     },
     [persistRuntimeModeChange],
   );
+  // A mode the person picks is also their mode for new chats (Claude desktop keeps the last
+  // pick); the automatic Auto fallback below is not a pick and does not change it.
+  const setStickyRuntimeMode = useComposerDraftStore((store) => store.setStickyRuntimeMode);
+  const handleRuntimeModeChoice = useCallback(
+    (mode: RuntimeMode) => {
+      setStickyRuntimeMode(mode);
+      handleRuntimeModeChange(mode);
+    },
+    [handleRuntimeModeChange, setStickyRuntimeMode],
+  );
 
   useEffect(() => {
     if (
@@ -294,6 +304,7 @@ export function useChatRuntimeModes({
   return {
     persistRuntimeModeChange,
     handleRuntimeModeChange,
+    handleRuntimeModeChoice,
     handleInteractionModeChange,
     toggleInteractionMode,
     resetInteractionMode,

@@ -56,7 +56,8 @@ import {
 } from "./types";
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "moss:composer-drafts:v1";
-export const COMPOSER_DRAFT_STORAGE_VERSION = 6;
+// 7: stickyRuntimeMode. Profiles saved before it keep full access, the default they ran in.
+export const COMPOSER_DRAFT_STORAGE_VERSION = 7;
 export type DraftThreadEnvMode = "local" | "worktree";
 const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
 
@@ -278,6 +279,9 @@ export interface ComposerDraftStoreState {
   projectDraftThreadIdByProjectId: Record<string, ThreadId>;
   stickyModelSelectionByProvider: ModelSelectionByProviderInstance;
   stickyActiveProvider: ProviderInstanceId | null;
+  /** The permission mode the person last picked, used for their new chats; null: never picked. */
+  stickyRuntimeMode: RuntimeMode | null;
+  setStickyRuntimeMode: (runtimeMode: RuntimeMode) => void;
   getDraftThreadByProjectId: (
     projectId: ProjectId,
     entryPoint?: ThreadPrimarySurface,
@@ -494,6 +498,8 @@ export function buildDraftThreadState(input: {
   existingThread?: DraftThreadState | undefined;
   options?: DraftThreadMutationOptions | undefined;
   createdAtMode: DraftThreadCreatedAtMode;
+  /** A new chat's mode when the caller names none: the person's last pick, else the default. */
+  newChatRuntimeMode?: RuntimeMode | null | undefined;
 }): DraftThreadState {
   const { existingThread, options } = input;
   const nextWorktreePath =
@@ -521,7 +527,11 @@ export function buildDraftThreadState(input: {
       existingThread,
       mode: input.createdAtMode,
     }),
-    runtimeMode: options?.runtimeMode ?? existingThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+    runtimeMode:
+      options?.runtimeMode ??
+      existingThread?.runtimeMode ??
+      input.newChatRuntimeMode ??
+      DEFAULT_RUNTIME_MODE,
     interactionMode:
       options?.interactionMode ?? existingThread?.interactionMode ?? DEFAULT_INTERACTION_MODE,
     entryPoint: nextEntryPoint,

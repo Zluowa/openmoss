@@ -1552,7 +1552,7 @@ export default function ChatView({
       setProjectDraftThreadId(activeProject.id, nextThreadId, {
         ...draftThreadContext,
         createdAt: new Date().toISOString(),
-        runtimeMode: DEFAULT_RUNTIME_MODE,
+        runtimeMode: useComposerDraftStore.getState().stickyRuntimeMode ?? DEFAULT_RUNTIME_MODE,
         interactionMode: DEFAULT_INTERACTION_MODE,
       });
       await navigate({
@@ -3836,7 +3836,7 @@ export default function ChatView({
   });
   const {
     persistRuntimeModeChange,
-    handleRuntimeModeChange,
+    handleRuntimeModeChoice,
     handleInteractionModeChange,
     resetInteractionMode,
     persistThreadSettingsForNextTurn,
@@ -7046,7 +7046,7 @@ export default function ChatView({
     activeRuntimeMode: activeThread?.session?.activeTurnId
       ? activeThread.session.runtimeMode
       : undefined,
-    onRuntimeModeChange: handleRuntimeModeChange,
+    onRuntimeModeChange: handleRuntimeModeChoice,
     contextWindow: runtimeUsageContextWindow,
     cumulativeCostUsd: activeCumulativeCostUsd,
     activeContextWindowLabel: contextWindowSelectionStatus.activeLabel,

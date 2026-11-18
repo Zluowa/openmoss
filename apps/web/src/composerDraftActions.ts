@@ -142,6 +142,13 @@ export const createComposerDraftStoreState =
     projectDraftThreadIdByProjectId: {},
     stickyModelSelectionByProvider: {},
     stickyActiveProvider: null,
+    stickyRuntimeMode: null,
+    setStickyRuntimeMode: (runtimeMode) => {
+      if (!Schema.is(RuntimeMode)(runtimeMode)) return;
+      set((state) =>
+        state.stickyRuntimeMode === runtimeMode ? state : { stickyRuntimeMode: runtimeMode },
+      );
+    },
     getDraftThreadByProjectId: (projectId, entryPoint = "chat") => {
       if (projectId.length === 0) {
         return null;
@@ -182,6 +189,7 @@ export const createComposerDraftStoreState =
           existingThread,
           options,
           createdAtMode: "accept-empty",
+          newChatRuntimeMode: state.stickyRuntimeMode,
         });
         const mappingKey = projectDraftThreadMappingKey(projectId, nextDraftThread.entryPoint);
         const previousThreadIdForProject = state.projectDraftThreadIdByProjectId[mappingKey];
@@ -238,7 +246,7 @@ export const createComposerDraftStoreState =
         const nextDraftThread: DraftThreadState = {
           projectId: options.projectId,
           createdAt: options.createdAt ?? new Date().toISOString(),
-          runtimeMode: options.runtimeMode ?? DEFAULT_RUNTIME_MODE,
+          runtimeMode: options.runtimeMode ?? state.stickyRuntimeMode ?? DEFAULT_RUNTIME_MODE,
           interactionMode: options.interactionMode ?? DEFAULT_INTERACTION_MODE,
           entryPoint: options.entryPoint ?? "chat",
           branch: options.branch ?? null,

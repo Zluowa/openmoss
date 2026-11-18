@@ -15,7 +15,7 @@ import {
 
 import { getThreadsFromState } from "./threadDerivation";
 import type { AppState } from "./storeState";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import { DEFAULT_INTERACTION_MODE, type Thread } from "./types";
 import { vi, type Mock } from "vitest";
 
 export function makeThread(overrides: Partial<Thread> = {}): Thread {
@@ -29,7 +29,8 @@ export function makeThread(overrides: Partial<Thread> = {}): Thread {
       instanceId: "codex",
       model: "gpt-5-codex",
     },
-    runtimeMode: DEFAULT_RUNTIME_MODE,
+    // A server thread always carries its mode; contracts decode a missing one as full access.
+    runtimeMode: "full-access",
     interactionMode: DEFAULT_INTERACTION_MODE,
     session: null,
     messages: [],
@@ -183,7 +184,8 @@ export function makeReadModelThread(overrides: Partial<OrchestrationReadModel["t
       instanceId: "codex",
       model: "gpt-5.3-codex",
     },
-    runtimeMode: DEFAULT_RUNTIME_MODE,
+    // A server thread always carries its mode; contracts decode a missing one as full access.
+    runtimeMode: "full-access",
     interactionMode: DEFAULT_INTERACTION_MODE,
     envMode: "local",
     branch: null,

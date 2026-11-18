@@ -157,6 +157,7 @@ export function useHandleNewThread() {
     if (!api || !project || !useStore.getState().threadsHydrated)
       throw new LocalizedError("newThread.error.chooseFolder");
     const creation = resolveTerminalThreadCreationState({
+      newChatRuntimeMode: useComposerDraftStore.getState().stickyRuntimeMode,
       activeDraftThread: sourceDraft,
       activeThread: sourceThread,
       draftThread: sourceDraft,
@@ -828,6 +829,7 @@ export function useHandleNewThread() {
       creationOptions: NewThreadOptions | undefined,
     ) =>
       resolveTerminalThreadCreationState({
+        newChatRuntimeMode: useComposerDraftStore.getState().stickyRuntimeMode,
         activeDraftThread: activeDraftThreadSnapshot,
         activeThread: activeThreadSnapshot,
         defaultProvider: options?.provider ?? settings.defaultProvider,
@@ -963,6 +965,7 @@ export function useHandleNewThread() {
           entryPoint,
           options,
           defaultEnvMode,
+          newChatRuntimeMode: useComposerDraftStore.getState().stickyRuntimeMode,
         });
         const containerDefaults = await resolveGroupContainerThreadDefaults({
           projectId,
