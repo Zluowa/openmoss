@@ -483,6 +483,21 @@ describe("sidebar tone", () => {
 });
 
 describe("buildThemeCssVariables", () => {
+  // Warning text goes to MCP App widgets too, where no var() resolves: it must be a colour.
+  it("gives warning text a concrete Moss amber that follows the pack's ink", () => {
+    const light = buildThemeCssVariables(resolveThemePack(DEFAULT_THEME_STATE, "light"), "light");
+    const dark = buildThemeCssVariables(resolveThemePack(DEFAULT_THEME_STATE, "dark"), "dark");
+    expect(light.variables["--color-text-warning"]).toBe("#a85e09");
+    expect(dark.variables["--color-text-warning"]).toBe("#f5b44a");
+    const inked = resolveThemePack(DEFAULT_THEME_STATE, "light");
+    const custom = buildThemeCssVariables(
+      { ...inked, theme: { ...inked.theme, ink: "#000000" } },
+      "light",
+    );
+    expect(custom.variables["--color-text-warning"]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(custom.variables["--color-text-warning"]).not.toBe("#a85e09");
+  });
+
   it.each([{ electron: true, isMac: true }])(
     "projects distinct Vercel and Codex light colors on %j",
     (platform) => {
