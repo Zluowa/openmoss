@@ -70,6 +70,8 @@ describe("Moss Apps account UI", () => {
           <MossAppsAccountNotice availability="authentication-required" onAction={action} />
           <MossAppsAccountNotice availability="login-account-required" onAction={action} />
           <MossAppsAccountNotice availability="unconfigured" onAction={action} />
+          {/* A signed-in account whose check failed for now: a retry, never a login. */}
+          <MossAppsAccountNotice availability="unavailable" onAction={action} />
         </main>
       </MossLocaleScope>,
     );
@@ -85,10 +87,11 @@ describe("Moss Apps account UI", () => {
           .element(page.getByText("连接属于当前 Moss 账号，旧版连接请重新连接。"))
           .toBeVisible();
         await expect.element(page.getByText("请切换到手机或 Google 账号使用应用。")).toBeVisible();
+        await expect.element(page.getByText("暂时无法连接应用，请稍后重试。")).toBeVisible();
         const preview = page.getByTestId("apps-account-preview").element() as HTMLElement;
         await painted(preview);
         backgrounds.push(getComputedStyle(preview).backgroundColor);
-        expect(preview.querySelectorAll("button")).toHaveLength(3);
+        expect(preview.querySelectorAll("button")).toHaveLength(4);
         for (const button of preview.querySelectorAll("button")) {
           await painted(button, 20);
           const box = button.getBoundingClientRect();

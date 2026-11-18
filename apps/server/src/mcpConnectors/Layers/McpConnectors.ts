@@ -142,12 +142,25 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
         appsRegistration ? [...userRegistrations, appsRegistration] : userRegistrations,
       );
 
+    // Why the last account check failed, so a change is logged once instead of every poll.
+    let lastAppsAccountFailure: string | null = null;
+    const noteAppsAccountCheck = (failure: { code: string; reason: string } | null) => {
+      const key = failure ? `${failure.code}:${failure.reason}` : null;
+      if (key === lastAppsAccountFailure) return;
+      lastAppsAccountFailure = key;
+      // Codes only: no account id, token or gateway address.
+      if (failure) log.warn("Moss Apps account check failed", failure);
+    };
+
     // Old moss-apps-user secrets/connections are deliberately left untouched.
     // An anonymous home id does not prove ownership by a signed-in account.
     const apps = new MossAppsRuntime({
       client: new MossAppsGatewayClient(() =>
         Effect.runPromise(
           Effect.gen(function* () {
+            // An enterprise key cannot sign in to Apps. A person whose only account is one
+            // is asked to choose a phone or Google account, never to sign in again.
+            let enterpriseSignedIn = false;
             if (Option.isSome(enterpriseAccount)) {
               // Credential lookup can return null when its gateway is unconfigured;
               // the selected enterprise account must still own this boundary.
@@ -156,18 +169,34 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
                 .pipe(Effect.mapError(() => MossAppsFailure.fromCode("account_recovery_required")));
               if (state.active)
                 return yield* Effect.fail(MossAppsFailure.fromCode("apps_login_account_required"));
+              enterpriseSignedIn = state.authenticated === true;
               const active = yield* enterpriseAccount.value
                 .getActiveAuthorityCredential()
                 .pipe(Effect.mapError(() => MossAppsFailure.fromCode("account_recovery_required")));
               if (active)
                 return yield* Effect.fail(MossAppsFailure.fromCode("apps_login_account_required"));
             }
-            if (Option.isNone(phoneAccount) || Option.isNone(cloudAccount))
+            if (Option.isNone(phoneAccount) || Option.isNone(cloudAccount)) {
+              noteAppsAccountCheck({
+                code: "authentication_required",
+                reason: "account-service-missing",
+              });
               return yield* Effect.fail(MossAppsFailure.fromCode("authentication_required"));
+            }
             return yield* resolveMossLoginCredential({
               phone: phoneAccount.value,
               cloud: cloudAccount.value,
-            }).pipe(Effect.mapError((error) => MossAppsFailure.fromCode(error.code)));
+            }).pipe(
+              Effect.tap(() => Effect.sync(() => noteAppsAccountCheck(null))),
+              Effect.mapError((error) => {
+                const code =
+                  error.code === "authentication_required" && enterpriseSignedIn
+                    ? "apps_login_account_required"
+                    : error.code;
+                noteAppsAccountCheck({ code, reason: error.reason });
+                return MossAppsFailure.fromCode(code);
+              }),
+            );
           }),
         ),
       ),

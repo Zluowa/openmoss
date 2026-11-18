@@ -51,8 +51,48 @@ describe("selected Moss login authority for Apps", () => {
       ).not.toHaveBeenCalled();
     },
   );
-  it("does not guess between two cached accounts when selection is missing", async () => {
-    await expect(fixture(null).run()).rejects.toMatchObject({ code: "authentication_required" });
+  // The account menu (resolveSidebarAccountLane) shows the phone account as current when both
+  // are signed in and neither realm provides the models: after signing in to a second account
+  // whose lane could not be set up, or before a restarted server has set its lane up again.
+  it("uses the phone account the account menu shows when both are signed in and none is active", async () => {
+    const f = fixture(null);
+    await expect(f.run()).resolves.toMatchObject({ account: { id: "phone-a" } });
+    expect(f.cloud.getAuthorityCredential).not.toHaveBeenCalled();
+  });
+  it("uses the signed-in phone account when the Google realm is still marked active after its sign-in lapsed", async () => {
+    const f = fixture("global");
+    f.cloudState.authenticated = false;
+    await expect(f.run()).resolves.toMatchObject({ account: { id: "phone-a" } });
+    expect(f.cloud.getAuthorityCredential).not.toHaveBeenCalled();
+  });
+  it("uses the signed-in Google account when the phone realm is still marked active after its sign-in lapsed", async () => {
+    const f = fixture("cn");
+    f.phoneState.authenticated = false;
+    await expect(f.run()).resolves.toMatchObject({ account: { id: "google-a" } });
+    expect(f.phone.getAuthorityCredential).not.toHaveBeenCalled();
+  });
+  it("uses the active Google account over a signed-in phone account, as the account menu does", async () => {
+    const f = fixture("global");
+    await expect(f.run()).resolves.toMatchObject({ account: { id: "google-a" } });
+  });
+  it("asks for a login only when no account is signed in", async () => {
+    const f = fixture(null);
+    f.phoneState.authenticated = false;
+    f.cloudState.authenticated = false;
+    await expect(f.run()).rejects.toMatchObject({
+      code: "authentication_required",
+      reason: "no-signed-in-account",
+    });
+  });
+  it("names the check that failed for a signed-in account", async () => {
+    const f = fixture("global");
+    f.cloud.getAuthorityCredential.mockImplementation(
+      () => Effect.fail(new Error("refresh in progress")) as never,
+    );
+    await expect(f.run()).rejects.toMatchObject({
+      code: "account_recovery_required",
+      reason: "credential-unavailable",
+    });
   });
   it("does not choose a cached account when reading the other authority fails", async () => {
     const f = fixture();
