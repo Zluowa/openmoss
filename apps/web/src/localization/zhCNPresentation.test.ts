@@ -167,6 +167,12 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
 
   it("says in Chinese what an error report sends, what it doesn't, and where it goes", () => {
     expect(translateZhCnPresentationText("Send error reports")).toBe("发送错误报告");
+    expect(translateZhCnPresentationText("Preview channel: get updates sooner")).toBe(
+      "预览通道：更快收到更新",
+    );
+    expect(translateZhCnPresentationText("Starts the next time Moss opens.")).toBe(
+      "下次打开 Moss 时开始。",
+    );
     expect(
       translateZhCnPresentationText(
         "When Moss hits an error, it sends a report so the problem can be fixed. Reports go to Sentry, a service in the United States.",

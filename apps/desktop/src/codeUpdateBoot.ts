@@ -13,6 +13,7 @@ import * as Path from "node:path";
 import {
   CODE_UPDATE_ARCHIVE_FILE,
   CODE_UPDATE_HEALTHY_DEADLINE_MS,
+  CODE_UPDATE_SWITCH_ENV,
   decideCodeUpdateBoot,
   inspectCodeUpdateStateSync,
   inspectCodeUpdateSync,
@@ -21,6 +22,7 @@ import {
   markCodeUpdateHealthy,
   prunableCodeUpdateIds,
   prunablePackageFiles,
+  readCodeUpdatePreviewMarkerSync,
   readCodeUpdateStateSync,
   rejectCodeUpdate,
   resolveCodeUpdateStoreDir,
@@ -98,7 +100,13 @@ export function runCodeUpdateBoot(deps: CodeUpdateBootDeps, loaded: { started: b
     loaded.started = true;
     deps.loadModule(deps.installedMain);
   };
-  if (!isCodeUpdateEnabled(deps.env, deps.platform)) {
+  // The variable, when set, decides without touching the disk (macOS is always off). Unset, the
+  // Settings switch decides: one small marker file in the store, read and nothing else.
+  const variable = deps.env[CODE_UPDATE_SWITCH_ENV]?.trim();
+  if (
+    deps.platform === "darwin" ||
+    (variable !== undefined && variable !== "" && variable !== "1")
+  ) {
     loadInstalled(null);
     return;
   }
@@ -108,6 +116,12 @@ export function runCodeUpdateBoot(deps: CodeUpdateBootDeps, loaded: { started: b
     platform: deps.platform,
     homeDir: deps.homeDir,
   });
+  if (
+    !isCodeUpdateEnabled(deps.env, deps.platform, readCodeUpdatePreviewMarkerSync(fs, storeDir))
+  ) {
+    loadInstalled(null);
+    return;
+  }
   const shellCommit = readShellCommit(deps);
   const { state, problem } = inspectCodeUpdateStateSync(fs, storeDir);
   const decided = decideCodeUpdateBoot({

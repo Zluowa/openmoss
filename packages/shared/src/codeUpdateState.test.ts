@@ -10,6 +10,7 @@ import {
   markCodeUpdatePending,
   prunablePackageFiles,
   isCodeUpdateEnabled,
+  readCodeUpdatePreviewMarkerSync,
   parseCodeUpdateState,
   prunableCodeUpdateIds,
   rejectCodeUpdate,
@@ -187,6 +188,28 @@ describe("store state", () => {
     expect(isCodeUpdateEnabled({ MOSS_CODE_UPDATES: "1" }, "win32")).toBe(true);
     expect(isCodeUpdateEnabled({ MOSS_CODE_UPDATES: "1" }, "linux")).toBe(true);
     expect(isCodeUpdateEnabled({ MOSS_CODE_UPDATES: "1" }, "darwin")).toBe(false);
+  });
+
+  it("the Settings marker decides when the variable is not set; the variable wins when it is", () => {
+    expect(isCodeUpdateEnabled({}, "win32", true)).toBe(true);
+    expect(isCodeUpdateEnabled({}, "win32", false)).toBe(false);
+    expect(isCodeUpdateEnabled({ MOSS_CODE_UPDATES: "0" }, "win32", true)).toBe(false);
+    expect(isCodeUpdateEnabled({ MOSS_CODE_UPDATES: "1" }, "win32", false)).toBe(true);
+    expect(isCodeUpdateEnabled({}, "darwin", true)).toBe(false);
+  });
+
+  it("reads the marker as on only when it holds exactly `on`; missing or damaged is off", () => {
+    const fsWith = (text: string | null) => ({
+      readFileSync: () => {
+        if (text === null) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        return text;
+      },
+    });
+    expect(readCodeUpdatePreviewMarkerSync(fsWith("on\n"), "/s")).toBe(true);
+    expect(readCodeUpdatePreviewMarkerSync(fsWith(" on "), "/s")).toBe(true);
+    for (const damaged of [null, "", "off", "ON", "on\non", "x".repeat(100)]) {
+      expect(readCodeUpdatePreviewMarkerSync(fsWith(damaged), "/s")).toBe(false);
+    }
   });
 
   it("reads damaged or foreign state as empty", () => {
