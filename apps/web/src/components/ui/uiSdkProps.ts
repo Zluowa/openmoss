@@ -89,6 +89,18 @@ export function toFocusTarget<Target>(
 }
 
 /**
+ * Renders a part as the plain native element `tag` with Moss's slot name (UI SDK's part forces its
+ * own), for parts with no open state, such as a clear button.
+ */
+export function renderSlotted<State>(
+  tag: string,
+  slot: string,
+): (props: Record<string, any>, state: State) => import("react").ReactElement {
+  return (props, state) =>
+    renderElementFn(tag, { ...props, "data-slot": slot }, undefined as never, state as never);
+}
+
+/**
  * A trigger's `render` that also marks it `data-popup-open` while its popup is open, as Base UI
  * did (UI SDK writes `data-open`); Moss styles open triggers by that attribute. A caller's own
  * `render` (an element or a function) still decides the element.

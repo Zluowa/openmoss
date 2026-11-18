@@ -11,7 +11,7 @@ afterEach(() => {
   for (const d of dirs.splice(0)) cleanup(d);
 });
 
-function profileAt(base: string, floorGB: number): string {
+function profileAt(base: string, floorGB: number, extra: Record<string, unknown> = {}): string {
   const file = path.join(base, "profile.json");
   fs.writeFileSync(
     file,
@@ -19,8 +19,9 @@ function profileAt(base: string, floorGB: number): string {
       primaryCheckout: path.join(base, "primary"),
       worktreeRoot: path.join(base, "wt"),
       stateDir: path.join(base, "state"),
-      disk: { floorGB, drives: [base] },
+      disk: { floorGB, drives: [base], waitMinutes: 0 },
       lock: { staleHours: 3, pollSeconds: 0.1 },
+      ...extra,
     }),
   );
   return file;
@@ -126,6 +127,45 @@ describe("ws lane", () => {
       /ws lane big refused before queueing\. Disk floor is 1000000 GB; below it: .* GB free/,
     );
     expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("gives the run its own TEMP under tempRoot and removes it with what the run left", async () => {
+    const base = tempDir("lane");
+    dirs.push(base);
+    const tempRoot = path.join(base, "run-tmp");
+    const profile = profileAt(base, 0, { tempRoot });
+    const seen = path.join(base, "seen.txt");
+    const r = await runCli(profile, [
+      "lane",
+      "tmp",
+      "--",
+      process.execPath,
+      "-e",
+      `const fs=require('fs'),os=require('os'),p=require('path');` +
+        `fs.writeFileSync(${JSON.stringify(seen)},os.tmpdir());` +
+        `fs.mkdirSync(p.join(os.tmpdir(),'leak'));fs.writeFileSync(p.join(os.tmpdir(),'leak','f.bin'),Buffer.alloc(1024))`,
+    ]);
+    expect(r.code).toBe(0);
+    const used = fs.readFileSync(seen, "utf8");
+    expect(path.dirname(used).toLowerCase()).toBe(tempRoot.toLowerCase());
+    expect(path.basename(used)).toMatch(/^tmp-\d{8}-\d{6}-\d+$/u);
+    expect(fs.existsSync(used)).toBe(false);
+    expect(r.stderr).toMatch(/the run left 0\.0 GB in its temp folder; removed/u);
+  });
+
+  it("tells the holder how long it has held the lane and who waits", async () => {
+    const base = tempDir("lane");
+    dirs.push(base);
+    // warnMinutes 0.01 = 0.6 s.
+    const profile = profileAt(base, 0, {
+      lock: { staleHours: 3, pollSeconds: 0.1, warnMinutes: 0.01 },
+    });
+    const log = path.join(base, "times.log");
+    const r = await runCli(profile, ["lane", "long", "--", ...sleeper(log, "a", 1500)]);
+    expect(r.code).toBe(0);
+    expect(r.stderr).toMatch(
+      /ws lane long: you have held the heavy lane for 0 min; nobody is waiting/u,
+    );
   });
 
   it("prints usage without a command", async () => {

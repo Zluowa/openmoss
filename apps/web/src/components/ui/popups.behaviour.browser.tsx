@@ -585,6 +585,36 @@ describe("Tooltip", () => {
     await expect.element(trigger).toHaveFocus();
   });
 
+  it("leaves Escape to a focused field's own handler while a tooltip shows", async () => {
+    const fieldEscape = vi.fn();
+    await render(
+      <div className="flex gap-4 p-8">
+        <Tooltip>
+          <TooltipTrigger delay={0} render={<Button variant="ghost" aria-label="缩放" />}>
+            100%
+          </TooltipTrigger>
+          <TooltipPopup>缩放</TooltipPopup>
+        </Tooltip>
+        <textarea
+          aria-label="修改要求"
+          onKeyDown={(event) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            fieldEscape();
+          }}
+        />
+      </div>,
+    );
+    const tip = () => shown('[data-slot="tooltip-popup"]');
+    // The pointer rests on the trigger (as after choosing a zoom row) while the field has focus.
+    await page.getByRole("button", { name: "缩放" }).hover();
+    await expect.poll(tip, { timeout: 1_500 }).not.toBeNull();
+    (page.getByRole("textbox", { name: "修改要求" }).element() as HTMLElement).focus();
+    await userEvent.keyboard("{Escape}");
+    expect(fieldEscape).toHaveBeenCalledTimes(1);
+    await expect.element(page.getByRole("textbox", { name: "修改要求" })).toHaveFocus();
+  });
+
   it("describes its trigger to assistive technology", async () => {
     await render(
       <Tooltip open>

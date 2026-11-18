@@ -36,4 +36,7 @@ it.runIf(process.platform === "win32")(
       await rmdir(base);
     }
   },
+  // Starting the child node process alone can take seconds on a loaded Windows machine (11-17:
+  // timed out at the default 5 s during a full lane, 3 of 3 green alone).
+  30_000,
 );

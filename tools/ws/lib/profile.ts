@@ -22,19 +22,36 @@ export interface Profile {
   /** Older roots that `ws list` shows and `ws reap` may clean. `ws new` never uses them. */
   readonly legacyRoots: readonly string[];
   readonly scratchRoot: string;
+  /**
+   * When set, every heavy-lane run and every `bun run check` test phase gets its own
+   * TEMP/TMP/TMPDIR folder here, removed when the run ends (runTemp.ts). Use a fast drive with room.
+   */
+  readonly tempRoot: string | undefined;
   /** Lease registry, locks and caches. */
   readonly stateDir: string;
   /** Paths never removed, nor anything containing them. primaryCheckout and stateDir are always included. */
   readonly protectedPaths: readonly string[];
   /** Worktree names or paths that reap always keeps. */
   readonly keep: readonly string[];
-  readonly disk: { readonly floorGB: number; readonly drives: readonly string[] };
+  readonly disk: {
+    readonly floorGB: number;
+    readonly drives: readonly string[];
+    /** How long a lane or check waits for space to come back above the floor before refusing. */
+    readonly waitMinutes: number;
+  };
   readonly ports: {
     readonly offsetFirst: number;
     readonly offsetLast: number;
     readonly offsetStep: number;
   };
-  readonly lock: { readonly staleHours: number; readonly pollSeconds: number };
+  readonly lock: {
+    readonly staleHours: number;
+    readonly pollSeconds: number;
+    /** Lane owners whose queued runs go ahead of everyone else's (default ["lead"]). */
+    readonly priorityOwners: readonly string[];
+    /** The holder of the heavy lane is told after this long, then every 10 minutes. */
+    readonly warnMinutes: number;
+  };
   readonly limits: {
     readonly leaseMaxAgeDays: number;
     readonly maxWorktrees: number;
@@ -124,6 +141,7 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
     worktreeRoot,
     legacyRoots: strList(o, "legacyRoots").map(abs),
     scratchRoot,
+    tempRoot: str(o, "tempRoot") === undefined ? undefined : abs(str(o, "tempRoot")!),
     stateDir,
     protectedPaths: [
       ...new Set([primaryCheckout, stateDir, ...strList(o, "protectedPaths").map(abs)]),
@@ -132,13 +150,21 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
     disk: {
       floorGB: num(disk, "floorGB", 6),
       drives: strList(disk, "drives").length ? strList(disk, "drives") : [worktreeRoot],
+      waitMinutes: Math.max(0, num(disk, "waitMinutes", 15)),
     },
     ports: {
       offsetFirst: num(ports, "offsetFirst", 100),
       offsetLast: num(ports, "offsetLast", 990),
       offsetStep: Math.max(1, num(ports, "offsetStep", 10)),
     },
-    lock: { staleHours: num(lock, "staleHours", 3), pollSeconds: num(lock, "pollSeconds", 10) },
+    lock: {
+      staleHours: num(lock, "staleHours", 3),
+      pollSeconds: num(lock, "pollSeconds", 10),
+      priorityOwners: strList(lock, "priorityOwners").length
+        ? strList(lock, "priorityOwners")
+        : ["lead"],
+      warnMinutes: num(lock, "warnMinutes", 20),
+    },
     limits: {
       leaseMaxAgeDays: num(limits, "leaseMaxAgeDays", 7),
       maxWorktrees: num(limits, "maxWorktrees", 40),

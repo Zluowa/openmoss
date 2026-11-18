@@ -2,7 +2,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { affectedTests, importsOf, mentionNeedles, reach, reverseGraph } from "./lib/graph.ts";
 import {
@@ -37,6 +37,11 @@ import {
   type RerunResult,
 } from "./lib/rerun.ts";
 import { packageOf, readWorkspace } from "./lib/workspace.ts";
+import { floorMessage, waitForFloor } from "../ws/lib/disk.ts";
+import { createRunTemp } from "../ws/lib/runTemp.ts";
+
+/** Same exit code as `ws lane` below the disk floor. */
+const EXIT_DISK_FLOOR = 9;
 
 const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--allow-root] [--dry-run]
                      [--no-wait] [--max-wait <minutes>]
@@ -178,9 +183,15 @@ function readText(file: string): string | undefined {
 }
 
 interface Lane {
-  /** Awaited before the lane's first step: the tests wait here for a heavy lane. */
-  readonly before?: () => Promise<void>;
-  readonly groups: ReadonlyArray<{ steps: readonly Step[]; limit: number }>;
+  /**
+   * Run one after another; a group's `before` is awaited before its first step (the tests size
+   * their workers or wait for a heavy lane there).
+   */
+  readonly groups: ReadonlyArray<{
+    steps: readonly Step[];
+    limit: number;
+    before?: () => Promise<void>;
+  }>;
 }
 
 /**
@@ -194,9 +205,9 @@ async function runAll(
 ): Promise<StepResult[]> {
   const results: StepResult[] = [];
   await Promise.all(
-    lanes.map(async ({ before, groups }) => {
-      if (groups.some(({ steps }) => steps.length > 0)) await before?.();
-      for (const { steps, limit } of groups) {
+    lanes.map(async ({ groups }) => {
+      for (const { steps, limit, before } of groups) {
+        if (steps.length > 0) await before?.();
         const queue = [...steps];
         await Promise.all(
           Array.from({ length: Math.min(limit, queue.length) }, async () => {
@@ -550,6 +561,27 @@ async function main(argv: readonly string[]): Promise<number> {
     phase = "tests";
     sample();
   };
+  // Disk: queue while the profile's drives are below the floor (free space swings by GB while other
+  // runs write temp data), then refuse rather than fill the drive.
+  if (settings.disk) {
+    const low = await waitForFloor(settings.disk.drives, settings.disk.floorGB, {
+      waitMs: settings.disk.waitMs,
+      log: (line) => note(`check: ${line}`),
+    });
+    if (low.length > 0) {
+      note(`check refused. ${floorMessage(low, settings.disk.floorGB)}`);
+      rmSync(reportDir, { recursive: true, force: true });
+      return done(EXIT_DISK_FLOOR);
+    }
+  }
+  // Own TEMP for this check's tools and tests, removed at the end with whatever they left (tests
+  // that never delete their fixtures). Inside a heavy lane the lane's folder is used as it is.
+  const inheritedTemp = process.env.TEMP ?? process.env.TMP ?? "";
+  const runTemp =
+    settings.tempRoot && !inheritedTemp.toLowerCase().startsWith(settings.tempRoot.toLowerCase())
+      ? createRunTemp(settings.tempRoot, `check-${basename(repoRoot)}`)
+      : undefined;
+  if (runTemp) Object.assign(process.env, runTemp.env);
   const slotStarted = Date.now();
   const slot = await takeSlot(settings, { owner: self, sha: headSha(repoRoot) }, note);
   load.slotWaitMs = Date.now() - slotStarted;
@@ -558,20 +590,23 @@ async function main(argv: readonly string[]): Promise<number> {
   sample();
   const sampler = setInterval(sample, Math.min(settings.pollMs, 5000));
   try {
+    const staticGroups = [
+      { steps: staticSteps, limit: 1 },
+      { steps: typeSteps, limit: 2 },
+    ];
+    const unitGroup = { steps: unitSteps, limit: 1, before: sizeUnitTests };
+    // Beside another owner's heavy lane the unit tests start after this check's own type checks,
+    // so a check holds at most about 3 threads (2 type checks, or 2 test workers) instead of 5;
+    // two checks then leave the heavy lane 10 of the 16 threads. Alone they run side by side.
+    const besideHeavy = heavyLane(settings, self) !== undefined;
+    if (besideHeavy && unitSteps.length > 0 && staticSteps.length + typeSteps.length > 0) {
+      note("check: heavy lane runs; unit tests start after the type checks");
+    }
     await runAll(
       repoRoot,
-      [
-        {
-          groups: [
-            { steps: staticSteps, limit: 1 },
-            { steps: typeSteps, limit: 2 },
-          ],
-        },
-        {
-          before: sizeUnitTests,
-          groups: [{ steps: unitSteps, limit: 1 }],
-        },
-      ],
+      besideHeavy
+        ? [{ groups: [...staticGroups, unitGroup] }]
+        : [{ groups: staticGroups }, { groups: [unitGroup] }],
       emit,
     );
 
@@ -650,6 +685,15 @@ async function main(argv: readonly string[]): Promise<number> {
     releaseSlot();
     process.off("exit", releaseSlot);
     rmSync(reportDir, { recursive: true, force: true });
+    if (runTemp) {
+      const left = runTemp.finish();
+      if (left.bytes > 50 * 1024 ** 2 || left.errors.length > 0) {
+        note(
+          `check: tests left ${(left.bytes / 1024 ** 2).toFixed(0)} MB in their temp folder` +
+            (left.errors.length ? `; ${left.errors.length} item(s) still in use` : "; removed"),
+        );
+      }
+    }
   }
 }
 

@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   asarIntegrity,
   encodeAsarHeader,
+  extractAsarDirectory,
   findAsarNode,
   isAsarDirectory,
   readAsarArchive,
@@ -63,6 +64,24 @@ async function fixture() {
   });
   return { dir, app, base, build, big };
 }
+
+describe("extractAsarDirectory", () => {
+  it("writes one directory of the archive byte for byte and refuses unpacked trees", async () => {
+    const { dir, base } = await fixture();
+    const out = path.join(dir, "client");
+    expect(await extractAsarDirectory(base, "apps/server/dist/client", out)).toBe(2);
+    expect(await readFile(path.join(out, "index.html"), "utf8")).toBe("<p>old</p>");
+    expect(await readFile(path.join(out, "assets", "old-123.js"), "utf8")).toBe("old asset");
+    await expect(
+      extractAsarDirectory(base, "node_modules/native", path.join(dir, "native")),
+    ).rejects.toThrow("unpacked");
+    await expect(extractAsarDirectory(base, "apps/missing", path.join(dir, "m"))).rejects.toThrow(
+      "is not a directory",
+    );
+    // Never writes into an existing folder.
+    await expect(extractAsarDirectory(base, "apps/server/dist/client", out)).rejects.toThrow();
+  });
+});
 
 describe("spliceAsar", () => {
   it("replaces whole subtrees and files while every kept file reads back byte for byte", async () => {

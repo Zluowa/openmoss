@@ -15,16 +15,26 @@ export interface FastRefreshRefusal {
   readonly reason: string;
 }
 
+import {
+  changedPackageNames,
+  decideDependencies,
+  PACKAGED_WORKSPACES,
+  parseBunLock,
+  patchedPackageName,
+  type BunLock,
+  type DependencyDecision,
+} from "./desktop-fast-refresh-deps.ts";
+
+export type { DependencyDecision } from "./desktop-fast-refresh-deps.ts";
+
+const STAGE_LOCK_DIRECTORY = "scripts/desktop-stage-lock/";
+
+// bun.lock, scripts/desktop-stage-lock/** and patches/** are decided per package from the lockfile
+// (desktop-fast-refresh-deps.ts), not refused as a whole.
 const PATH_RULES: ReadonlyArray<{
   readonly test: (path: string) => boolean;
   readonly reason: string;
 }> = [
-  { test: (p) => p === "bun.lock", reason: "dependency lockfile (packaged node_modules)" },
-  {
-    test: (p) => p.startsWith("scripts/desktop-stage-lock/"),
-    reason: "packaged production dependencies",
-  },
-  { test: (p) => p.startsWith("patches/"), reason: "dependency patches" },
   {
     test: (p) => p.startsWith("apps/desktop/resources/"),
     reason: "packaged desktop resources (icons, installer script, production public config)",
@@ -88,15 +98,77 @@ export function changedPackageFields(before: string | null, after: string | null
   return FAST_REFRESH_PACKAGE_FIELDS.filter((field) => stable(a[field]) !== stable(b[field]));
 }
 
+type ReadFile = (path: string) => { before: string | null; after: string | null };
+
+function json(text: string | null): Record<string, unknown> | null {
+  return text === null ? null : (JSON.parse(text) as Record<string, unknown>);
+}
+
+/** Keys whose values differ between two records (added and removed keys included). */
+function changedKeys(before: unknown, after: unknown): string[] {
+  const a = (before ?? {}) as Record<string, unknown>;
+  const b = (after ?? {}) as Record<string, unknown>;
+  return [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(
+    (key) => JSON.stringify(a[key]) !== JSON.stringify(b[key]),
+  );
+}
+
 /**
  * Refusals for the changed paths between the installed archive's commit and the new commit.
- * `packageJson` returns the before/after text of a changed package.json.
+ * `read` returns the before/after text of a changed file. Dependency changes are decided per
+ * package from the root bun.lock; each decision is appended to `decisions` (for printing).
  */
 export function classifyFastRefreshChanges(
   changedPaths: ReadonlyArray<string>,
-  packageJson: (path: string) => { before: string | null; after: string | null },
+  read: ReadFile,
+  decisions: DependencyDecision[] = [],
 ): FastRefreshRefusal[] {
   const refusals: FastRefreshRefusal[] = [];
+  let locks: { before: BunLock; after: BunLock } | null | undefined;
+  const rootLocks = () => {
+    if (locks !== undefined) return locks;
+    const { before, after } = read("bun.lock");
+    try {
+      locks =
+        before !== null && after !== null
+          ? { before: parseBunLock(before), after: parseBunLock(after) }
+          : null;
+    } catch {
+      locks = null;
+    }
+    return locks;
+  };
+  /** Refuses `path` when any of `names` is packaged (or the lockfile cannot be read). */
+  const decide = (path: string, names: string[]) => {
+    if (names.length === 0) return;
+    const lock = rootLocks();
+    if (!lock) {
+      refusals.push({ path, reason: "could not read bun.lock to decide which packages changed" });
+      return;
+    }
+    const decided = decideDependencies(names, lock.before, lock.after);
+    for (const decision of decided) {
+      if (!decisions.some((d) => d.name === decision.name)) decisions.push(decision);
+    }
+    const packaged = decided.filter((decision) => decision.packaged).map((d) => d.name);
+    if (packaged.length > 0) {
+      refusals.push({
+        path,
+        reason: `packaged dependencies changed (the installed app loads them): ${packaged.join(", ")}`,
+      });
+    }
+  };
+  const patchOwner = (patch: string, packageJsonPath: string, base: string): string | null => {
+    const { before, after } = read(packageJsonPath);
+    for (const text of [after, before]) {
+      const patched = (json(text)?.patchedDependencies ?? {}) as Record<string, string>;
+      for (const [key, file] of Object.entries(patched)) {
+        if (`${base}${file}`.replaceAll("\\", "/") === patch) return patchedPackageName(key);
+      }
+    }
+    return null;
+  };
+
   for (const raw of changedPaths) {
     const path = raw.replaceAll("\\", "/");
     const rule = PATH_RULES.find((candidate) => candidate.test(path));
@@ -104,15 +176,116 @@ export function classifyFastRefreshChanges(
       refusals.push({ path, reason: rule.reason });
       continue;
     }
+    if (path === "bun.lock") {
+      const lock = rootLocks();
+      if (!lock) refusals.push({ path, reason: "could not read bun.lock" });
+      else decide(path, changedPackageNames(lock.before, lock.after));
+      continue;
+    }
+    if (path.startsWith(STAGE_LOCK_DIRECTORY)) {
+      // The packaged dependency set itself: allowed only when every package it changes is one the
+      // installed app never loads (for example a web-only package added because it is patched).
+      const rest = path.slice(STAGE_LOCK_DIRECTORY.length);
+      const { before, after } = read(path);
+      try {
+        if (rest === "bun.lock") {
+          decide(
+            path,
+            before !== null && after !== null
+              ? changedPackageNames(parseBunLock(before), parseBunLock(after))
+              : ["(stage lockfile added or removed)"],
+          );
+        } else if (rest === "package.json") {
+          const a = json(before);
+          const b = json(after);
+          const other = changedKeys(a, b).filter(
+            (key) => !["dependencies", "patchedDependencies"].includes(key),
+          );
+          if (other.length > 0) {
+            refusals.push({ path, reason: `packaged stage fields changed: ${other.join(", ")}` });
+          } else {
+            decide(path, [
+              ...changedKeys(a?.dependencies, b?.dependencies),
+              ...changedKeys(a?.patchedDependencies, b?.patchedDependencies).map(
+                patchedPackageName,
+              ),
+            ]);
+          }
+        } else {
+          const owner = patchOwner(
+            path,
+            `${STAGE_LOCK_DIRECTORY}package.json`,
+            STAGE_LOCK_DIRECTORY,
+          );
+          if (owner) decide(path, [owner]);
+          else refusals.push({ path, reason: "packaged stage file for no known package" });
+        }
+      } catch {
+        refusals.push({ path, reason: "could not read the packaged stage files" });
+      }
+      continue;
+    }
+    if (path.startsWith("patches/")) {
+      const owner = patchOwner(path, "package.json", "");
+      if (owner) decide(path, [owner]);
+      else
+        refusals.push({ path, reason: "dependency patch for no package in patchedDependencies" });
+      continue;
+    }
     if (path === "package.json" || path.endsWith("/package.json")) {
-      const { before, after } = packageJson(path);
+      const { before, after } = read(path);
       const fields = changedPackageFields(before, after);
-      if (fields.length > 0) {
+      if (fields.length === 0) continue;
+      const dir = path === "package.json" ? "" : path.slice(0, -"/package.json".length);
+      if (dir === "") {
+        // Root: only patchedDependencies is decided per package; the rest (overrides, catalog,
+        // workspaces, version) reshapes resolution for every workspace.
+        const other = fields.filter((field) => field !== "patchedDependencies");
+        if (other.length > 0) {
+          refusals.push({ path, reason: `package fields changed: ${fields.join(", ")}` });
+        } else {
+          decide(
+            path,
+            changedKeys(json(before)?.patchedDependencies, json(after)?.patchedDependencies).map(
+              patchedPackageName,
+            ),
+          );
+        }
+      } else if ((PACKAGED_WORKSPACES as readonly string[]).includes(dir)) {
         refusals.push({ path, reason: `package fields changed: ${fields.join(", ")}` });
       }
+      // Other workspaces are bundled or build-only; what their changes install is decided above
+      // from bun.lock.
     }
   }
   return refusals;
+}
+
+/** Where the built web client sits inside the server bundle (apps/server/scripts/cli.ts copies it). */
+export const FAST_REFRESH_WEB_CLIENT_DIRECTORY = "apps/server/dist/client";
+
+// Changes that cannot reach the web bundle. Everything else counts as a web build input, which is
+// deliberately broad: apps/web, the workspace packages it compiles from source (packages/*), the
+// quarantine plugin its vite.config imports (tools/test-quarantine), and every root-level file.
+// The web source mentions apps/server and apps/desktop only in comments (checked 2026-11-17).
+const NOT_WEB_INPUT: ReadonlyArray<(path: string) => boolean> = [
+  (p) => /^apps\/(?!web\/)[^/]+\//u.test(p),
+  (p) => p.startsWith("docs/") || p.startsWith(".github/"),
+  (p) => p.startsWith("scripts/"),
+  (p) => p.startsWith("tools/") && !p.startsWith("tools/test-quarantine/"),
+  (p) => p.endsWith(".md"),
+  // Tests are never part of the bundle, wherever they live.
+  (p) => /\.(?:test|spec|browser)\.[cm]?[jt]sx?$/u.test(p) && !p.endsWith(".d.ts"),
+];
+
+/**
+ * The changed paths that can alter the web client; empty means the fast refresh may keep the web
+ * client of the installed archive instead of rebuilding it.
+ */
+export function webBuildInputs(changedPaths: ReadonlyArray<string>): string[] {
+  return changedPaths
+    .map((raw) => raw.replaceAll("\\", "/"))
+    .filter((path) => !NOT_WEB_INPUT.some((test) => test(path)));
 }
 
 /** What a fast refresh leaves as it was in the last full installer. Printed with every run. */

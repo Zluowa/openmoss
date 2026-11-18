@@ -3,7 +3,9 @@
 // neither its pid nor its child pid is alive, or it is older than the stale limit. Waiters take a
 // ticket in <name>.queue and only the oldest live tickets try to take the lock, so waiting is fair.
 // A lock with several slots (`bun run check` allows two at once) is the directories <name>-1 to
-// <name>-N sharing one queue.
+// <name>-N sharing one queue. Tickets of priority owners (profile lock.priorityOwners, the lead) go
+// ahead of the others, so the lead gets the lane when the current run ends; a running command is
+// never interrupted.
 import fs from "node:fs";
 import path from "node:path";
 import { isAlive } from "./proc.ts";
@@ -20,6 +22,8 @@ export interface LockOwner {
   lane: string;
   sha: string;
   started: string;
+  /** The command the holder runs, shown to waiters. */
+  command?: string;
 }
 
 export interface LockOptions {
@@ -36,6 +40,8 @@ export interface LockOptions {
   readonly slots?: number;
   /** Prefix of the lines it logs (default "ws lane"). */
   readonly label?: string;
+  /** Owners whose tickets go ahead of everyone else's. */
+  readonly priorityOwners?: readonly string[];
 }
 
 export interface HeldLock {
@@ -141,12 +147,16 @@ function tryCreate(lockDir: string, owner: LockOwner): boolean {
   return true;
 }
 
-interface Ticket {
+export interface Ticket {
+  name: string;
   file: string;
   pid: number;
+  owner: string;
+  priority: boolean;
 }
 
-function liveTicketsBefore(queueDir: string, mine: string): Ticket[] {
+/** Live tickets in queue order: priority owners first, then by time; dead tickets are removed. */
+export function liveTickets(queueDir: string, priorityOwners: readonly string[] = []): Ticket[] {
   let names: string[] = [];
   try {
     names = fs
@@ -158,19 +168,47 @@ function liveTicketsBefore(queueDir: string, mine: string): Ticket[] {
   }
   const out: Ticket[] = [];
   for (const name of names) {
-    if (name >= mine) break;
     const file = path.join(queueDir, name);
     const pid = Number(name.split("-")[1]);
-    if (isAlive(pid)) out.push({ file, pid });
-    else {
+    if (!isAlive(pid)) {
       try {
         fs.unlinkSync(file);
       } catch {
         // already gone
       }
+      continue;
     }
+    let owner = "";
+    try {
+      owner = String(
+        (JSON.parse(fs.readFileSync(file, "utf8")) as { owner?: unknown }).owner ?? "",
+      );
+    } catch {
+      // being written: no priority this round
+    }
+    out.push({ name, file, pid, owner, priority: priorityOwners.includes(owner) });
   }
-  return out;
+  return out.toSorted(
+    (a, b) => Number(b.priority) - Number(a.priority) || a.name.localeCompare(b.name),
+  );
+}
+
+function liveTicketsBefore(
+  queueDir: string,
+  mine: string,
+  priorityOwners: readonly string[],
+): Ticket[] {
+  const queue = liveTickets(queueDir, priorityOwners);
+  const index = queue.findIndex((ticket) => ticket.name === mine);
+  return index === -1 ? queue : queue.slice(0, index);
+}
+
+/** "12 min", "1 h 05 min". */
+export function formatMinutes(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60_000));
+  return minutes < 60
+    ? `${minutes} min`
+    : `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
 }
 
 export async function acquireLock(options: LockOptions): Promise<HeldLock> {
@@ -200,7 +238,7 @@ export async function acquireLock(options: LockOptions): Promise<HeldLock> {
   let lastMessage = "";
   try {
     for (;;) {
-      const ahead = liveTicketsBefore(queueDir, ticketName);
+      const ahead = liveTicketsBefore(queueDir, ticketName, options.priorityOwners ?? []);
       if (ahead.length < slots) {
         const owner: LockOwner = { ...options.owner, pid, started: new Date(now()).toISOString() };
         const lockDir = lockDirs.find((candidate) => tryCreate(candidate, owner));
@@ -237,12 +275,19 @@ export async function acquireLock(options: LockOptions): Promise<HeldLock> {
         .filter((candidate) => fs.existsSync(candidate))
         .map((candidate) => {
           const holder = readOwner(candidate);
-          return holder
-            ? `${holder.owner} (${holder.lane}, pid ${holder.pid}, since ${holder.started})`
-            : "a starting run";
+          if (!holder) return "a starting run";
+          const elapsed = formatMinutes(now() - Date.parse(holder.started));
+          return (
+            `${holder.owner} (${holder.lane}, pid ${holder.pid}, running ${elapsed})` +
+            (holder.command ? `: ${holder.command}` : "")
+          );
         });
+      const priorityAhead = ahead.filter((ticket) => ticket.priority).length;
+      // Changes once a minute with the holder's elapsed time, so waiters see progress.
       const message =
-        `${label}: waiting, position ${ahead.length + 1} in queue; ` +
+        `${label}: waiting, position ${ahead.length + 1} in queue` +
+        (priorityAhead ? ` (${priorityAhead} priority ahead)` : "") +
+        "; " +
         (holders.length ? `held by ${holders.join(", ")}` : "the runs ahead are starting");
       if (message !== lastMessage) {
         log(message);

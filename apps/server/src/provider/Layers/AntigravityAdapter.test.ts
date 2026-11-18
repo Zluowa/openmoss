@@ -53,7 +53,10 @@ function runCaptureCommand(command: string, input: string, env: NodeJS.ProcessEn
     env: { ...process.env, ...env },
     input,
     encoding: "utf8",
-    timeout: 5_000,
+    // Guards a hung hook, not its speed: cmd.exe plus node can take over 5 s to start on a loaded
+    // Windows machine (11-17: ETIMEDOUT at 5 s during a full lane, 3 of 3 green alone). Three
+    // calls stay inside the suite's 90 s testTimeout.
+    timeout: 25_000,
     ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
   });
 }

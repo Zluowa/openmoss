@@ -45,6 +45,7 @@ export default mergeConfig(
           "button",
           "checkbox",
           "combobox",
+          "command",
           "hover-card",
           "input",
           "label",

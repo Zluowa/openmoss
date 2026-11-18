@@ -28,8 +28,9 @@ export const DEFAULT_MAX_WAIT_MINUTES = 45;
 /** Vitest workers of one gate's unit tests on a quiet machine. */
 export const UNIT_WORKERS = 4;
 /**
- * ... and beside another owner's heavy lane. Two gates at two workers each leave the heavy lane
- * twelve of the machine's sixteen threads; the selected unit tests (typically a handful of files)
+ * ... and beside another owner's heavy lane, where they also start only after the check's own type
+ * checks (cli.ts): a check then holds about 3 threads at a time, two checks leave the heavy lane 10
+ * of the machine's sixteen; the selected unit tests (typically a handful of files)
  * take a minute instead of waiting up to the lane's whole run (15 minutes on 2026-11-17, with three
  * agents queued behind it).
  */
@@ -49,6 +50,14 @@ export interface LoadSettings {
   readonly locksDir: string;
   readonly staleMs: number;
   readonly pollMs: number;
+  /** The profile's per-run temp root (see tools/ws/lib/runTemp.ts); unset keeps the inherited TEMP. */
+  readonly tempRoot?: string;
+  /** The profile's disk floor: a check waits up to waitMs for space on these drives, then refuses. */
+  readonly disk?: {
+    readonly floorGB: number;
+    readonly drives: readonly string[];
+    readonly waitMs: number;
+  };
 }
 
 /** The lock folder and timings from the machine profile; its folder and defaults without one. */
@@ -59,6 +68,12 @@ export function loadSettings(env: NodeJS.ProcessEnv = process.env): LoadSettings
       locksDir: path.join(profile.stateDir, "locks"),
       staleMs: profile.lock.staleHours * 3600_000,
       pollMs: profile.lock.pollSeconds * 1000,
+      ...(profile.tempRoot ? { tempRoot: profile.tempRoot } : {}),
+      disk: {
+        floorGB: profile.disk.floorGB,
+        drives: [...profile.disk.drives, ...(profile.tempRoot ? [profile.tempRoot] : [])],
+        waitMs: profile.disk.waitMinutes * 60_000,
+      },
     };
   } catch {
     return {
