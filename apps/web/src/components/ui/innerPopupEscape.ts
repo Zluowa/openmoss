@@ -1,6 +1,6 @@
 // FILE: innerPopupEscape.ts
 // Purpose: Escape inside a dialog closes only the innermost popup, while dialogs are on Base UI and
-//          menus, selects and popovers are on UI SDK (UI SDK part A; dialogs move in part 3).
+//          menus, selects, popovers, autocompletes and comboboxes are on UI SDK (UI SDK part A; dialogs move in part 3).
 // Layer: components/ui internals (not for app code).
 
 import { useLayoutEffect } from "react";
@@ -19,6 +19,9 @@ const ESCAPE_TAKING_POPUPS = [
   '[data-slot="select-positioner"]',
   '[data-slot="popover-positioner"]',
   '[data-slot="preview-card-positioner"]',
+  '[data-slot="autocomplete-positioner"]',
+  // The combobox is a UI SDK popover under Moss's own slot name.
+  '[data-slot="combobox-positioner"]',
 ].join(", ");
 
 /** Whether one of Moss's UI SDK popups is showing (closed ones stay in the page, hidden). */
