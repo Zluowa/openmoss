@@ -43,13 +43,12 @@ import { createRunTemp } from "../ws/lib/runTemp.ts";
 /** Same exit code as `ws lane` below the disk floor. */
 const EXIT_DISK_FLOOR = 9;
 
-const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--no-types] [--allow-root] [--dry-run]
+const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--allow-root] [--dry-run]
                      [--no-wait] [--max-wait <minutes>]
 
   --base <ref>          compare with the merge base of HEAD and <ref> (default origin/main)
   --json                print one JSON report instead of lines
   --no-tests            format, lint, checks and types only
-  --no-types            skip the type checks (CI's quick job: a typecheck job runs beside it)
   --allow-root          run the selection even when root configuration changed
   --dry-run             print the selected steps and their commands without running them
   --no-wait             run the tests even while another owner's heavy lane runs
@@ -61,7 +60,6 @@ interface Options {
   base: string;
   json: boolean;
   tests: boolean;
-  types: boolean;
   allowRoot: boolean;
   dryRun: boolean;
   wait: boolean;
@@ -73,7 +71,6 @@ function parseOptions(argv: readonly string[]): Options {
     base: "origin/main",
     json: false,
     tests: true,
-    types: true,
     allowRoot: false,
     dryRun: false,
     wait: true,
@@ -87,7 +84,6 @@ function parseOptions(argv: readonly string[]): Options {
       options.base = value;
     } else if (arg === "--json") options.json = true;
     else if (arg === "--no-tests") options.tests = false;
-    else if (arg === "--no-types") options.types = false;
     else if (arg === "--allow-root") options.allowRoot = true;
     else if (arg === "--dry-run") options.dryRun = true;
     else if (arg === "--no-wait") options.wait = false;
@@ -362,7 +358,7 @@ async function main(argv: readonly string[]): Promise<number> {
   for (const script of selection.checks)
     staticSteps.push({ name: script, cwd: ".", command: [bun, "run", script], detail: "" });
 
-  const typeSteps: Step[] = (options.types ? selection.affectedPackages : []).flatMap((name) => {
+  const typeSteps: Step[] = selection.affectedPackages.flatMap((name) => {
     const pkg = packages.find((candidate) => candidate.name === name)!;
     if (pkg.kind === "tool") {
       if (!existsSync(join(repoRoot, pkg.dir, "tsconfig.json"))) return [];
