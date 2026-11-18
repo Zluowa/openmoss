@@ -75,16 +75,70 @@ jobs:
       - name: Verify Linux terminal PTY native dependency
         if: ${{ startsWith(matrix.lane, 'server-') }}
         run: node scripts/node-pty-smoke.mjs
+      - name: Visual parity packages cache key
+        if: ${{ matrix.lane == 'shared' }}
+        id: visual-parity-key
+        run: echo "image=${ImageOS:-unknown}-${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+      - name: Restore visual parity packages
+        if: ${{ matrix.lane == 'shared' }}
+        id: visual-parity-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: ~/visual-parity-debs
+          key: ${{ runner.os }}-visual-parity-${{ steps.visual-parity-key.outputs.image }}-ffmpeg-x11-xserver-utils-v1
       - name: Install visual parity runtime
         if: ${{ matrix.lane == 'shared' }}
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: |
-          sudo apt-get -o Acquire::Retries=3 update
-          sudo apt-get -o Acquire::Retries=3 install --yes --no-install-recommends ffmpeg x11-xserver-utils
+          debs="$HOME/visual-parity-debs"
+          if compgen -G "$debs/*.deb" > /dev/null && sudo dpkg -i "$debs"/*.deb > /dev/null; then
+            echo "Installed $(ls "$debs"/*.deb | wc -l) cached packages without network"
+            exit 0
+          fi
+          rm -rf "$debs" && mkdir -p "$debs"
+          timeout 180 sudo apt-get -o Acquire::Retries=3 update > /dev/null \
+            || { echo "::error::apt-get update failed or took over 180 s"; exit 1; }
+          # One connection to this mirror has delivered 20-250 KB/s, so the ~50 MB set downloads over 16 at
+          # once. --print-uris lists 'URL' FILE SIZE ALGO:HASH for every package the image still lacks; each
+          # file is checked against that hash before dpkg sees it.
+          sudo apt-get --print-uris -qq install --yes --no-install-recommends ffmpeg x11-xserver-utils \
+            | sed -nE "s/^'([^']+)' ([^ ]+) [0-9]+ ([A-Za-z0-9]+):([0-9a-f]+)$/\1 \2 \3 \4/p" \
+            > "$RUNNER_TEMP/visual-parity.list"
+          count=$(wc -l < "$RUNNER_TEMP/visual-parity.list")
+          [ "$count" -gt 0 ] || { echo "::error::apt listed no packages to download"; exit 1; }
+          started=$(date +%s)
+          # Each line: URL FILE ALGO HASH DIR ($1..$5; $0 is the placeholder "_").
+          xargs -P 16 -L 1 bash -c 'cd "$5" && curl -fsSL --retry 4 --retry-delay 2 --max-time 300 -o "$2" "$1" \
+            && echo "$4  $2" | "${3,,}sum" -c --quiet - || { echo "download or hash check failed: $2"; exit 255; }' \
+            _ < <(sed "s|\$| $debs|" "$RUNNER_TEMP/visual-parity.list") \
+            || { echo "::error::visual parity packages: a download failed"; exit 1; }
+          echo "Downloaded $count packages ($(du -sh "$debs" | cut -f1)) in $(( $(date +%s) - started )) s"
+          sudo dpkg -i "$debs"/*.deb > /dev/null
+      - name: Save visual parity packages
+        if: ${{ matrix.lane == 'shared' && steps.visual-parity-cache.outputs.cache-hit != 'true' }}
+        timeout-minutes: 2
+        continue-on-error: true
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: ~/visual-parity-debs
+          key: ${{ runner.os }}-visual-parity-${{ steps.visual-parity-key.outputs.image }}-ffmpeg-x11-xserver-utils-v1
+      - name: Restore Playwright browsers for the shared lane
+        if: ${{ matrix.lane == 'shared' }}
+        id: shared-playwright-cache
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
       - name: Install browser test runtime
         if: ${{ matrix.lane == 'shared' }}
         timeout-minutes: 10
-        run: cd apps/web && ./node_modules/.bin/playwright install chromium
+        run: |
+          cd apps/web
+          for attempt in 1 2; do
+            timeout 240 ./node_modules/.bin/playwright install chromium && exit 0
+            echo "::warning::playwright install attempt $attempt failed or took over 240 s"
+          done
+          exit 1
       - name: Test
         timeout-minutes: 15
         env:
@@ -200,7 +254,12 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           cd apps/web
-          ./node_modules/.bin/playwright install chromium
+          # One retry: a stalled CDN download fails the attempt, not the job.
+          for attempt in 1 2; do
+            timeout 360 ./node_modules/.bin/playwright install chromium && exit 0
+            echo "::warning::playwright install attempt $attempt failed or took over 360 s"
+          done
+          exit 1
       - name: Prepare hosted component browser phase caches
         if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         env:

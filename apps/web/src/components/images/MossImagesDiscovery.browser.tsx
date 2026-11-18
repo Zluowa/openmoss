@@ -3,7 +3,7 @@ import { useState } from "react";
 import { DEFAULT_SERVER_SETTINGS_VIEW } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { page, userEvent, type Locator } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import { MossLocalizationProvider } from "~/localization";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
@@ -15,6 +15,68 @@ import {
   type MossImageStyle,
   type MossImageTemplate,
 } from "./mossImagesDiscoveryCatalog";
+
+// The previews are real files served by the dev server. On the mirror the first preview request
+// sometimes fails in the browser although the server answers 200 for the same URL a moment later
+// (runs 44083716452, 44196173609, 44253080073). A service-worker bypass did not help: it made the
+// failure happen every time on the Linux runners, so it is gone. The test now loads and decodes the
+// preview itself first, so the dialog shows it from the browser's memory cache; a failure names
+// the browser's own record of each request.
+
+/** What the browser recorded for `url`: status, bytes and time of each request. */
+function resourceRecord(url: string): string {
+  const absolute = new URL(url, location.href).href;
+  const entries = performance.getEntriesByName(absolute, "resource").map((entry) => {
+    const timing = entry as PerformanceResourceTiming & { responseStatus?: number };
+    return `status ${timing.responseStatus ?? "?"}, ${timing.encodedBodySize} bytes, ${Math.round(timing.duration)} ms`;
+  });
+  return entries.length > 0 ? entries.join("; ") : "no request recorded";
+}
+
+/** Loads and decodes `url` once in this document (up to three tries) before the dialog shows it. */
+async function preloadPreview(url: string) {
+  const failures: string[] = [];
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const image = new Image();
+    image.src = url;
+    try {
+      await image.decode();
+      return;
+    } catch (error) {
+      failures.push(`attempt ${attempt}: ${String(error)}`);
+      await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+    }
+  }
+  throw new Error(
+    `preview ${url} did not load in 3 tries (${failures.join("; ")}); browser record: ${resourceRecord(url)}`,
+  );
+}
+
+/**
+ * The preview image is shown and decoded. If the dialog shows the "unavailable" placeholder
+ * instead, fail at once with the image's URL and what the server answers, not after a timeout.
+ */
+async function expectPreviewLoaded(dialog: Locator, title: string, url: string) {
+  await expect
+    .poll(
+      async () => {
+        const fallback = dialog.getByRole("img", { name: `${title}预览不可用` }).query();
+        if (fallback) {
+          const status = await fetch(url, { cache: "no-store" }).then(
+            (response) => `HTTP ${response.status}`,
+            (error: unknown) => String(error),
+          );
+          throw new Error(
+            `preview ${url} failed to load (${status} when fetched again; browser record: ${resourceRecord(url)})`,
+          );
+        }
+        const image = dialog.getByRole("img", { name: `${title}模板预览` }).query();
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+}
 
 let client: QueryClient;
 const useTemplate = vi.fn<(template: MossImageTemplate) => void>();
@@ -111,11 +173,13 @@ afterEach(async () => {
 it("opens a meaningful local preview with the keyboard and cancels without using or generating", async () => {
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   await mount();
+  await preloadPreview(MOSS_IMAGE_TEMPLATES[0]!.previewUrl);
   const card = page.getByRole("button", { name: "预览海报" });
   (card.element() as HTMLElement).focus();
   await userEvent.keyboard("{Enter}");
   const dialog = page.getByRole("dialog", { name: "海报" });
   await expect.element(dialog).toBeVisible();
+  await expectPreviewLoaded(dialog, "海报", MOSS_IMAGE_TEMPLATES[0]!.previewUrl);
   await expect.element(dialog.getByRole("img", { name: "海报模板预览" })).toBeVisible();
   await dialog.getByRole("button", { name: "查看描述" }).click();
   await expect.element(dialog).toHaveTextContent(MOSS_IMAGE_TEMPLATES[0]!.prompt);
