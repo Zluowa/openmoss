@@ -103,6 +103,26 @@ describe("ensureStaticSnapshot", () => {
     await vi.waitFor(() => expect(fs.existsSync(first.dir)).toBe(false));
   });
 
+  it("prepares a snapshot for a later start without pruning the one in use (prune: false)", async () => {
+    const serving = await ensureStaticSnapshot({ sourceDir, cacheRoot, signature: "sig-1" });
+    fs.writeFileSync(path.join(sourceDir, "index.html"), "<html>v2</html>");
+
+    const prepared = await ensureStaticSnapshot({
+      sourceDir,
+      cacheRoot,
+      signature: "sig-2",
+      prune: false,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fs.readFileSync(path.join(serving.dir, "index.html"), "utf8")).toBe("<html>v1</html>");
+
+    // The later start reuses it without copying, and only then the old one goes.
+    fs.rmSync(sourceDir, { recursive: true, force: true });
+    const next = await ensureStaticSnapshot({ sourceDir, cacheRoot, signature: "sig-2" });
+    expect(next).toEqual({ dir: prepared.dir, reused: true });
+    await vi.waitFor(() => expect(fs.existsSync(serving.dir)).toBe(false));
+  });
+
   it("rejects when the source is missing its sentinel so callers can fall back", async () => {
     fs.rmSync(path.join(sourceDir, "index.html"));
 

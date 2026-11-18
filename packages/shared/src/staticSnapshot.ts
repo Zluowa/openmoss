@@ -72,6 +72,11 @@ export interface StaticSnapshotInput {
    * a published snapshot can only hold bytes from one generation.
    */
   readonly assertSourceUnchanged?: () => void;
+  /**
+   * False prepares a snapshot for a later start (a code update applied in the background)
+   * without pruning the others, so the snapshot this process serves stays. Default true.
+   */
+  readonly prune?: boolean;
 }
 
 export interface StaticSnapshotResult {
@@ -200,7 +205,7 @@ export async function ensureStaticSnapshot(
   const snapshotDir = path.join(input.cacheRoot, snapshotName);
 
   if (await pathExists(path.join(snapshotDir, sentinelFile))) {
-    void pruneStaticSnapshotCache(input.cacheRoot, snapshotName);
+    if (input.prune !== false) void pruneStaticSnapshotCache(input.cacheRoot, snapshotName);
     return { dir: snapshotDir, reused: true };
   }
 
@@ -244,6 +249,6 @@ export async function ensureStaticSnapshot(
     throw error;
   }
 
-  void pruneStaticSnapshotCache(input.cacheRoot, snapshotName);
+  if (input.prune !== false) void pruneStaticSnapshotCache(input.cacheRoot, snapshotName);
   return { dir: snapshotDir, reused: false };
 }

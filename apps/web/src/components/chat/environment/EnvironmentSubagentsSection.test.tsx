@@ -21,7 +21,7 @@ describe("EnvironmentSubagentsSection", () => {
     expect(markup).toContain("Subagents");
     expect(markup).toContain("Open subagents: 2 running, 3 done");
     // Only the live agents' avatars lead the summary.
-    expect(markup.match(/data-subagent-sparkle/g)).toHaveLength(2);
+    expect(markup.match(/data-subagent-mark=/g)).toHaveLength(2);
   });
 
   it("distinguishes queued agents from running ones", () => {
@@ -53,7 +53,7 @@ describe("EnvironmentSubagentsSection", () => {
 
     expect(markup).toContain("4 subagents");
     expect(markup).not.toContain("done");
-    expect(markup.match(/data-subagent-sparkle/g)).toHaveLength(3);
+    expect(markup.match(/data-subagent-mark=/g)).toHaveLength(3);
   });
 
   it("renders nothing before the thread spawns a subagent", () => {

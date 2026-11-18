@@ -1,6 +1,7 @@
 // FILE: WorkspaceFilePreview.selection.browser.tsx
 // Purpose: Browser regressions for the highlight -> "Add to Chat" flow in the
-//          rendered-markdown preview (snippet references) and source view.
+//          rendered-markdown preview (snippet references) and source view, including a
+//          selection change that arrives after the pill is shown.
 // Layer: Focused component integration tests
 
 import "../index.css";
@@ -68,6 +69,46 @@ function selectNodeContentsAndRelease(node: Node): void {
   );
 }
 
+/** The pill's button as a person meets it: by its name. */
+const addToChatButton = () => page.getByRole("button", { name: "Add to Chat", exact: true });
+
+/** The pill is on screen: visible, with a size, inside the viewport. */
+async function expectAddToChatOnScreen(): Promise<void> {
+  await expect.element(addToChatButton()).toBeVisible();
+  const rect = addToChatButton().element().getBoundingClientRect();
+  expect(rect.width).toBeGreaterThan(0);
+  expect(rect.height).toBeGreaterThan(0);
+  expect(rect.left).toBeGreaterThanOrEqual(0);
+  expect(rect.top).toBeGreaterThanOrEqual(0);
+  expect(rect.right).toBeLessThanOrEqual(window.innerWidth);
+  expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight);
+}
+
+const nextFrame = () =>
+  new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
+
+function renderEditableMarkdownPreview(onReferenceInChat: (reference: ChatFileReference) => void) {
+  return render(
+    <QueryClientProvider client={makeQueryClient()}>
+      <WorkspaceFilePreview
+        workspaceRoot={WORKSPACE_ROOT}
+        filePath={MARKDOWN_PATH}
+        markdownPreviewDefault
+        editable
+        onReferenceInChat={onReferenceInChat}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+function renderedList(): Element {
+  const list = document.querySelector(".editor-markdown-preview ul");
+  if (!list) {
+    throw new Error("rendered markdown list not found");
+  }
+  return list;
+}
+
 afterEach(() => {
   window.getSelection()?.removeAllRanges();
   document.body.innerHTML = "";
@@ -99,16 +140,16 @@ it("offers Add to Chat for an editable rendered-markdown selection", async () =>
 
     selectNodeContentsAndRelease(list);
 
-    const addToChat = page.getByRole("button", { name: "Add to Chat" });
-    await expect.element(addToChat).toBeVisible();
-    await addToChat.click();
+    await expectAddToChatOnScreen();
+    await addToChatButton().click();
 
     expect(onReferenceInChat).toHaveBeenCalledTimes(1);
     expect(onReferenceInChat).toHaveBeenCalledWith({
       path: MARKDOWN_PATH,
       snippet: "Ship the selection toolbar\nThen celebrate",
     });
-    await vi.waitFor(() => expect(document.querySelector('[aria-label="Add to Chat"]')).toBeNull());
+    // Committing removes the pill.
+    await vi.waitFor(() => expect(addToChatButton().elements()).toHaveLength(0));
   } finally {
     restoreNativeApi();
   }
@@ -138,8 +179,78 @@ it("does not offer Add to Chat in the markdown preview without a chat target", a
     selectNodeContentsAndRelease(list);
 
     // Give the deferred selection read a frame to settle before asserting.
-    await new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined)));
-    expect(document.querySelector('[aria-label="Add to Chat"]')).toBeNull();
+    await nextFrame();
+    await nextFrame();
+    expect(addToChatButton().elements()).toHaveLength(0);
+  } finally {
+    restoreNativeApi();
+  }
+});
+
+// The browser delivers `selectionchange` as a task. On a busy or cold page the change for
+// the selection a person just made arrives after the pill is already shown; the pill used
+// to be cleared by it, so it appeared only some of the time (a 90 s timeout on the mirror).
+it("keeps offering Add to Chat when the selection's own change arrives after the pill", async () => {
+  const readFile = vi.fn().mockResolvedValue(loadedMarkdown());
+  const restoreNativeApi = installNativeApi({ projects: { readFile } } as unknown as NativeApi);
+  const onReferenceInChat = vi.fn<(reference: ChatFileReference) => void>();
+
+  try {
+    await renderEditableMarkdownPreview(onReferenceInChat);
+    await expect.element(page.getByRole("heading", { name: "Handoff" })).toBeVisible();
+
+    selectNodeContentsAndRelease(renderedList());
+    await expectAddToChatOnScreen();
+
+    // The same selection's change, delivered late.
+    document.dispatchEvent(new Event("selectionchange"));
+    await nextFrame();
+    await nextFrame();
+    await expectAddToChatOnScreen();
+
+    await addToChatButton().click();
+    expect(onReferenceInChat).toHaveBeenCalledExactlyOnceWith({
+      path: MARKDOWN_PATH,
+      snippet: "Ship the selection toolbar\nThen celebrate",
+    });
+  } finally {
+    restoreNativeApi();
+  }
+});
+
+it("follows a changed selection and goes when the selection is gone", async () => {
+  const readFile = vi.fn().mockResolvedValue(loadedMarkdown());
+  const restoreNativeApi = installNativeApi({ projects: { readFile } } as unknown as NativeApi);
+  const onReferenceInChat = vi.fn<(reference: ChatFileReference) => void>();
+
+  try {
+    await renderEditableMarkdownPreview(onReferenceInChat);
+    await expect.element(page.getByRole("heading", { name: "Handoff" })).toBeVisible();
+
+    selectNodeContentsAndRelease(renderedList());
+    await expectAddToChatOnScreen();
+
+    // Narrowed to the last item (keyboard selection does not release a pointer): the pill
+    // stays and adds what is selected now.
+    const lastItem = renderedList().lastElementChild;
+    if (!lastItem) throw new Error("rendered list item not found");
+    const range = document.createRange();
+    range.selectNodeContents(lastItem);
+    window.getSelection()?.removeAllRanges();
+    window.getSelection()?.addRange(range);
+    await vi.waitFor(() => expect(addToChatButton().elements()).toHaveLength(1));
+    await expectAddToChatOnScreen();
+    await addToChatButton().click();
+    expect(onReferenceInChat).toHaveBeenCalledExactlyOnceWith({
+      path: MARKDOWN_PATH,
+      snippet: "Then celebrate",
+    });
+
+    // A selection that is gone takes the pill with it.
+    selectNodeContentsAndRelease(renderedList());
+    await expectAddToChatOnScreen();
+    window.getSelection()?.removeAllRanges();
+    await vi.waitFor(() => expect(addToChatButton().elements()).toHaveLength(0));
   } finally {
     restoreNativeApi();
   }
