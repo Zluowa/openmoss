@@ -252,6 +252,56 @@ function useBelowWhenNoRoom(enabled: boolean): [boolean, (element: HTMLDivElemen
   return [below, track];
 }
 
+/**
+ * Where a mouse or pen last moved on the page, for telling a person's leave from a popup's move.
+ * A popup that moves or shrinks out from under a resting pointer (its first placement, a view
+ * switch) gets a real `pointerleave` from Chrome although nobody moved. UI SDK answers every leave
+ * by dropping the highlight and focusing the popup, so a keyboard user's place was lost and their
+ * next key went to the popup: the Power picker's slider item missed its arrow. A person's leave
+ * comes at the pointer's new spot, before the move there is reported; a leave at the spot where
+ * the pointer last moved (or before any move was seen) is the popup moving, and is ignored.
+ */
+let lastPointerMove: { x: number; y: number } | null = null;
+let trackingPointerMoves = false;
+
+function trackPointerMoves(): void {
+  if (trackingPointerMoves) return;
+  trackingPointerMoves = true;
+  document.addEventListener(
+    "pointermove",
+    (event) => {
+      if (event.pointerType !== "touch") lastPointerMove = { x: event.clientX, y: event.clientY };
+    },
+    { capture: true, passive: true },
+  );
+}
+
+function leftByMoving(event: PointerEvent): boolean {
+  if (event.pointerType === "touch") return true;
+  return (
+    lastPointerMove !== null &&
+    (lastPointerMove.x !== event.clientX || lastPointerMove.y !== event.clientY)
+  );
+}
+
+const guardedPositioners = new WeakSet<HTMLElement>();
+
+/**
+ * UI SDK listens for the leave on the positioner itself, in the bubble phase; a capture listener
+ * on the same element runs first and keeps a leave nobody made from reaching it.
+ */
+function ignoreRestingLeave(element: HTMLElement): void {
+  if (guardedPositioners.has(element)) return;
+  guardedPositioners.add(element);
+  element.addEventListener(
+    "pointerleave",
+    (event) => {
+      if (event.target === element && !leftByMoving(event)) event.stopImmediatePropagation();
+    },
+    { capture: true },
+  );
+}
+
 function menuShell(
   Part: typeof MenuContent | typeof MenuSubContent,
   {
@@ -280,6 +330,7 @@ function menuShell(
   const sideways = SIDEWAYS.has(requestedSide);
   const [noRoomSideways, trackPositioner] = useBelowWhenNoRoom(sideways);
   const below = sideways && noRoomSideways;
+  React.useEffect(trackPointerMoves, []);
   const popupSurfaceClassName = isComposerSurface
     ? COMPOSER_PICKER_MENU_SURFACE_CLASS_NAME
     : APP_TRANSLUCENT_POPUP_SURFACE_CLASS_NAME;
@@ -310,6 +361,7 @@ function menuShell(
               (forwarded as React.MutableRefObject<HTMLDivElement | null>).current = element;
             observeNativeSurfaceOverlay(element);
             trackPositioner(element);
+            if (element) ignoreRestingLeave(element);
           }}
           data-slot="menu-positioner"
         />
