@@ -120,6 +120,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
           stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,
+          stickyRuntimeMode: normalizedPersisted.stickyRuntimeMode ?? null,
         };
       },
     },

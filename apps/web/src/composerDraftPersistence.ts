@@ -392,6 +392,7 @@ const PersistedComposerDraftStoreState = Schema.Struct({
     Schema.Record(Schema.String, Schema.optional(ModelSelection)),
   ),
   stickyActiveProvider: Schema.optionalKey(Schema.NullOr(ProviderInstanceId)),
+  stickyRuntimeMode: Schema.optionalKey(Schema.NullOr(RuntimeMode)),
 });
 
 export type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStoreState.Type;
@@ -1205,10 +1206,17 @@ function normalizePersistedDraftsByThreadId(
 
 export function migratePersistedComposerDraftStoreState(
   persistedState: unknown,
+  version?: number,
 ): PersistedComposerDraftStoreState {
   // Version bumps should sanitize persisted data without forcing users back
   // through the legacy sticky-model fields.
-  return normalizeCurrentPersistedComposerDraftStoreState(persistedState);
+  const normalized = normalizeCurrentPersistedComposerDraftStoreState(persistedState);
+  // A profile saved before version 7 ran every new chat in full access, the default then: keep
+  // that as its choice. Only a profile that never had one starts asking first.
+  if (version !== undefined && version < 7 && normalized.stickyRuntimeMode == null) {
+    return { ...normalized, stickyRuntimeMode: "full-access" };
+  }
+  return normalized;
 }
 
 export function partializeComposerDraftStoreState(
@@ -1552,6 +1560,7 @@ export function partializeComposerDraftStoreState(
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
     stickyActiveProvider: state.stickyActiveProvider,
+    stickyRuntimeMode: state.stickyRuntimeMode,
   };
 }
 
@@ -1617,6 +1626,9 @@ export function normalizeCurrentPersistedComposerDraftStoreState(
     projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: sanitizeStickyModelSelectionMap(stickyModelSelectionByProvider),
     stickyActiveProvider,
+    ...(Schema.is(RuntimeMode)(normalizedPersistedState.stickyRuntimeMode)
+      ? { stickyRuntimeMode: normalizedPersistedState.stickyRuntimeMode }
+      : {}),
   };
 }
 

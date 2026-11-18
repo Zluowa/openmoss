@@ -4,7 +4,6 @@
 // Exports: draft patching, reuse checks, and terminal creation state resolution.
 
 import {
-  DEFAULT_RUNTIME_MODE,
   type ModelSelection,
   type OrchestrationThreadPullRequest,
   type ProjectId,
@@ -22,7 +21,12 @@ import {
   type DraftThreadState,
   resolvePreferredComposerModelSelection,
 } from "../composerDraftStore";
-import { DEFAULT_INTERACTION_MODE, type Thread, type ThreadPrimarySurface } from "../types";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type Thread,
+  type ThreadPrimarySurface,
+} from "../types";
 
 export interface NewThreadOptions {
   branch?: string | null;
@@ -116,6 +120,8 @@ export type ThreadBootstrapPlan = DraftReusePlanStored | DraftReusePlanRoute | D
 
 interface ResolveTerminalThreadCreationStateInput {
   fresh?: boolean;
+  /** The mode the person last picked for new chats (composer draft store), if any. */
+  newChatRuntimeMode?: RuntimeMode | null | undefined;
   activeDraftThread: DraftThreadState | null;
   activeThread: ActiveThreadSnapshot | null;
   defaultProvider?: ProviderKind | null | undefined;
@@ -231,6 +237,8 @@ export function createFreshDraftThreadSeed(input: {
   entryPoint: ThreadPrimarySurface;
   options: NewThreadOptions | undefined;
   defaultEnvMode?: DraftThreadEnvMode;
+  /** The mode the person last picked for new chats (composer draft store), if any. */
+  newChatRuntimeMode?: RuntimeMode | null | undefined;
 }): Omit<DraftThreadState, "projectId" | "interactionMode"> {
   return {
     createdAt: input.createdAt,
@@ -240,7 +248,7 @@ export function createFreshDraftThreadSeed(input: {
     envMode:
       input.options?.envMode ??
       (input.options?.worktreePath ? "worktree" : (input.defaultEnvMode ?? "local")),
-    runtimeMode: DEFAULT_RUNTIME_MODE,
+    runtimeMode: input.newChatRuntimeMode ?? DEFAULT_RUNTIME_MODE,
     entryPoint: input.entryPoint,
     ...(input.options?.temporary ? { isTemporary: true } : {}),
   };
@@ -347,6 +355,7 @@ export function resolveTerminalThreadCreationState(
       (input.activeDraftThread?.projectId === input.projectId
         ? input.activeDraftThread.runtimeMode
         : null) ??
+      input.newChatRuntimeMode ??
       DEFAULT_RUNTIME_MODE,
     interactionMode:
       // Plan mode is an explicit composer/thread choice. Do not copy it from
