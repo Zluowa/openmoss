@@ -135,8 +135,10 @@ import { resolveBackendNodeArgs, withBackendEnvProxyOptIn } from "./backendNodeO
 import { canonicalFilesystemHelperBackendEnv } from "./canonicalFilesystemHelperRuntime";
 import { windowsJobLauncherBackendEnv } from "./windowsJobLauncherRuntime";
 import {
+  keepSelfReportWindowOffscreen,
   registerSelfReportIpc,
   resolveSelfReportPolicy,
+  resolveSelfReportWindowPlacement,
   SELF_REPORT_PRELOAD_ARGUMENT,
 } from "./selfReport";
 import {
@@ -792,6 +794,20 @@ let mainWindow: BrowserWindow | null = null;
 // Self-report tools for agents checking Moss's own screen (selfReport.ts): development builds,
 // or a packaged build started with MOSS_SELF_REPORT=1 in an isolated profile. Off otherwise.
 const selfReportPolicy = resolveSelfReportPolicy({ isPackaged: app.isPackaged, env: process.env });
+// MOSS_SELF_REPORT_WINDOW=offscreen with self-report on: acceptance runs keep the window off
+// the person's screen and never take focus.
+const selfReportWindowPlacement = resolveSelfReportWindowPlacement({
+  policy: selfReportPolicy,
+  env: process.env,
+});
+if (selfReportWindowPlacement === "offscreen") {
+  // Every window of this instance (progress, main, child windows), as it is created.
+  app.on("browser-window-created", (_event, created) => {
+    keepSelfReportWindowOffscreen(created, screen, ({ x, y }) =>
+      writeDesktopLogHeader(`self-report window off-screen at ${x},${y}`),
+    );
+  });
+}
 const appContentLoadedWindows = new WeakSet<BrowserWindow>();
 const appRendererReadyWindows = new WeakSet<BrowserWindow>();
 let pendingMossAuthCallbackRoute: string | null = null;
@@ -8612,7 +8628,10 @@ function openStaticSnapshotProgressWindow(): StaticSnapshotProgressWindow {
     });
   // Not waiting for ready-to-show: on the disks this window exists for, starting
   // a renderer can take seconds too, and an empty window beats no window.
-  showDesktopStartupWindow(window, { background: isBackgroundDesktopLaunch(process.argv) });
+  showDesktopStartupWindow(window, {
+    background:
+      isBackgroundDesktopLaunch(process.argv) || selfReportWindowPlacement === "offscreen",
+  });
   return {
     onPageLoaded: (listener) => {
       window.webContents.once("did-finish-load", listener);
@@ -8702,12 +8721,17 @@ function loadWindowApp(
 }
 
 function createWindow(
-  options: {
+  requestedOptions: {
     readonly deferAppLoad?: boolean;
     readonly suppressInitialShow?: boolean;
     readonly background?: boolean;
   } = {},
 ): BrowserWindow {
+  // Off-screen acceptance runs show the window without activating it.
+  const options =
+    selfReportWindowPlacement === "offscreen"
+      ? { ...requestedOptions, background: true }
+      : requestedOptions;
   let hasFinishedInitialLoad = false;
   const savedWindowState = readDesktopWindowState(DESKTOP_WINDOW_STATE_PATH);
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -9361,6 +9385,7 @@ async function bootstrap(): Promise<void> {
     registerSelfReportIpc({
       ipcMain,
       userDataDir: app.getPath("userData"),
+      screen,
       mainWindowFor: (event) =>
         mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
           ? mainWindow

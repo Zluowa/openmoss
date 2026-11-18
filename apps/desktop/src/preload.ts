@@ -232,6 +232,7 @@ const selfReportBridge: DesktopBridge["selfReport"] = process.argv.includes(
       resize: (size) => ipcRenderer.invoke(IPC.selfReport.resize, size),
       capture: (request) => ipcRenderer.invoke(IPC.selfReport.capture, request),
       restore: () => ipcRenderer.invoke(IPC.selfReport.restore),
+      placement: () => ipcRenderer.invoke(IPC.selfReport.placement),
     }
   : undefined;
 

@@ -152,6 +152,9 @@ export async function callSelfReportTool(
   const { runId, ...args } = asObject(input);
   const started = performance.now();
   const result = await runTool(name, args, bridge);
+  // The desktop window's position, as the desktop app measures it (an acceptance run asserts
+  // `offscreen` beside its own check). Absent outside the desktop app.
+  const placement = await bridge?.placement?.().catch(() => undefined);
   return {
     ...result,
     ...(typeof runId === "string" || typeof runId === "number" ? { runId } : {}),
@@ -160,6 +163,9 @@ export async function callSelfReportTool(
       width: window.innerWidth,
       height: window.innerHeight,
       dpr: window.devicePixelRatio,
+      ...(placement
+        ? { left: placement.left, top: placement.top, offscreen: placement.offscreen }
+        : {}),
     },
   };
 }

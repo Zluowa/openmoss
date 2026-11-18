@@ -27,6 +27,7 @@ export const DESKTOP_IPC_CHANNELS = {
     resize: "desktop:self-report-resize",
     capture: "desktop:self-report-capture",
     restore: "desktop:self-report-restore",
+    placement: "desktop:self-report-placement",
   },
   pickFolder: "desktop:pick-folder",
   saveFile: "desktop:save-file",

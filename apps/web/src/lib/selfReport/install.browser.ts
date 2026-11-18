@@ -7,7 +7,7 @@ import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { consoleReport, installConsoleCapture, type ConsoleCaptureTarget } from "./consoleCapture";
-import { installMossSelfReport, SELF_REPORT_TOOLS } from "./install";
+import { callSelfReportTool, installMossSelfReport, SELF_REPORT_TOOLS } from "./install";
 import { takeScreenshots, type SelfReportCaptureBridge } from "./screenshot";
 
 let uninstall: (() => void) | null = null;
@@ -86,6 +86,29 @@ describe("installMossSelfReport", () => {
     ]);
     const second = (await window.mossSelfReport!.call("console_report")) as { entries: [] };
     expect(second.entries).toEqual([]);
+  });
+});
+
+describe("callSelfReportTool in the desktop app", () => {
+  it("adds the desktop window's measured position to every answer", async () => {
+    const answer = (await callSelfReportTool(
+      "console_report",
+      {},
+      {
+        resize: async () => undefined,
+        capture: async () => ({ path: "", width: 0, height: 0 }),
+        restore: async () => undefined,
+        placement: async () => ({ left: -3221, top: 40, offscreen: true }),
+      },
+    )) as { window: Record<string, unknown> };
+    expect(answer.window).toEqual({
+      width: 1000,
+      height: 700,
+      dpr: window.devicePixelRatio,
+      left: -3221,
+      top: 40,
+      offscreen: true,
+    });
   });
 });
 
@@ -192,6 +215,27 @@ describe("takeScreenshots", () => {
       "restore",
     ]);
     expect(window.innerWidth).toBe(1000);
+  });
+
+  it("corrects a window that lands a few pixels off the asked size", async () => {
+    // Seen off-screen on Windows: every new size came out 15x8 too large.
+    const { bridge, calls } = fakeBridge();
+    const oversized: SelfReportCaptureBridge = {
+      ...bridge,
+      resize: async ({ width, height }) => {
+        calls.push(`resize ${width}x${height}`);
+        await page.viewport(width + 15, height + 8);
+      },
+    };
+    const result = await takeScreenshots(oversized, { sizes: [{ width: 1375, height: 886 }] });
+    expect(result.error).toBeUndefined();
+    expect(result.files.map((file) => file.viewport)).toEqual([{ width: 1375, height: 886 }]);
+    expect(calls).toEqual([
+      "resize 1375x886",
+      "resize 1360x878",
+      "capture window-1375x886",
+      "restore",
+    ]);
   });
 
   it("gives the window back when a capture fails, and says why", async () => {
