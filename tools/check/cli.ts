@@ -19,7 +19,14 @@ import {
   withWorkers,
   type LoadReport,
 } from "./lib/load.ts";
-import { groupTests, MOBILE_DIR, select, unitTestCommand } from "./lib/plan.ts";
+import {
+  estimateDroppableTestSeconds,
+  groupTests,
+  MOBILE_DIR,
+  overTestBudget,
+  select,
+  unitTestCommand,
+} from "./lib/plan.ts";
 import { readTypeScopes } from "./lib/typeScope.ts";
 import {
   buildResolver,
@@ -45,7 +52,7 @@ import { createRunTemp } from "../ws/lib/runTemp.ts";
 const EXIT_DISK_FLOOR = 9;
 
 const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--no-types] [--allow-root] [--dry-run]
-                     [--no-wait] [--max-wait <minutes>]
+                     [--no-wait] [--max-wait <minutes>] [--test-budget <seconds>]
 
   --base <ref>          compare with the merge base of HEAD and <ref> (default origin/main)
   --json                print one JSON report instead of lines
@@ -54,6 +61,8 @@ const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--no-t
   --allow-root          run the selection even when root configuration changed
   --dry-run             print the selected steps and their commands without running them
   --no-wait             run the tests even while another owner's heavy lane runs
+  --test-budget <s>     CI's quick job: when the selected tests are estimated over <s> seconds,
+                        leave them to the full lanes (the tools' own tests still run) and pass
   --max-wait <minutes>  wait at most this long for a heavy lane, then test anyway (default ${DEFAULT_MAX_WAIT_MINUTES})`;
 
 const BROWSER_LIMIT = 20;
@@ -67,6 +76,8 @@ interface Options {
   dryRun: boolean;
   wait: boolean;
   maxWaitMinutes: number;
+  /** CI's quick job: past this many estimated seconds the selected tests are left to the full lanes. */
+  testBudgetSeconds: number | undefined;
 }
 
 function parseOptions(argv: readonly string[]): Options {
@@ -79,6 +90,7 @@ function parseOptions(argv: readonly string[]): Options {
     dryRun: false,
     wait: true,
     maxWaitMinutes: DEFAULT_MAX_WAIT_MINUTES,
+    testBudgetSeconds: undefined,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -96,6 +108,10 @@ function parseOptions(argv: readonly string[]): Options {
       const value = Number(argv[(index += 1)]);
       if (!Number.isFinite(value) || value < 0) throw new Error("--max-wait needs minutes");
       options.maxWaitMinutes = value;
+    } else if (arg === "--test-budget") {
+      const value = Number(argv[(index += 1)]);
+      if (!Number.isFinite(value) || value <= 0) throw new Error("--test-budget needs seconds");
+      options.testBudgetSeconds = value;
     } else if (arg === "--help" || arg === "-h") {
       console.log(USAGE);
       process.exit(0);
@@ -179,6 +195,21 @@ function runStep(repoRoot: string, step: Step): Promise<StepResult> {
   });
 }
 
+/** Stored per-file seconds of the component browser files (from a mirror run), or none. */
+function readBrowserDurations(repoRoot: string): {
+  seconds: Record<string, number>;
+  overhead: number;
+} {
+  try {
+    const raw = JSON.parse(
+      readFileSync(join(repoRoot, "apps/web/src/test/browserFileDurations.json"), "utf8"),
+    ) as { seconds?: Record<string, number>; perFileOverheadSeconds?: number };
+    return { seconds: raw.seconds ?? {}, overhead: raw.perFileOverheadSeconds ?? 1 };
+  } catch {
+    return { seconds: {}, overhead: 1 };
+  }
+}
+
 function readText(file: string): string | undefined {
   try {
     return readFileSync(file, "utf8");
@@ -207,8 +238,22 @@ async function runAll(
   repoRoot: string,
   lanes: readonly Lane[],
   report: (result: StepResult) => void,
+  progress: (line: string) => void = () => {},
 ): Promise<StepResult[]> {
   const results: StepResult[] = [];
+  // Said as it happens, so a job cancelled by time still shows where it was (run 44356541505
+  // showed nothing): each step when it starts, and every minute what is still running.
+  const running = new Map<string, number>();
+  const heartbeat = setInterval(() => {
+    if (running.size === 0) return;
+    const now = performance.now();
+    progress(
+      `  still running: ${[...running]
+        .map(([name, at]) => `${name} (${Math.round((now - at) / 1000)}s)`)
+        .join(", ")}`,
+    );
+  }, 60_000);
+  heartbeat.unref();
   await Promise.all(
     lanes.map(async ({ groups }) => {
       for (const { steps, limit, before } of groups) {
@@ -217,7 +262,10 @@ async function runAll(
         await Promise.all(
           Array.from({ length: Math.min(limit, queue.length) }, async () => {
             for (let step = queue.shift(); step; step = queue.shift()) {
+              running.set(step.name, performance.now());
+              progress(`  start ${step.name}`);
               const result = await runStep(repoRoot, step);
+              running.delete(step.name);
               results.push(result);
               report(result);
             }
@@ -226,6 +274,7 @@ async function runAll(
       }
     }),
   );
+  clearInterval(heartbeat);
   return results;
 }
 
@@ -498,6 +547,34 @@ async function main(argv: readonly string[]): Promise<number> {
       });
     }
   }
+  // A wide change: the quick job would run out of time on its tests. Leave them to the full lanes
+  // (they run every test anyway), keep format, lint, typecheck and the tools' own tests, and pass.
+  if (options.testBudgetSeconds !== undefined && testSteps.length > 0) {
+    const isToolStep = (step: Step) =>
+      packages.some((pkg) => pkg.kind === "tool" && step.name === `tests ${pkg.dir}`);
+    const unitFiles = [...groups.unit]
+      .filter(([name]) => packages.find((pkg) => pkg.name === name)?.kind !== "tool")
+      .reduce((sum, [, files]) => sum + files.length, 0);
+    const droppable = testSteps.filter((step) => !isToolStep(step));
+    const durations = readBrowserDurations(repoRoot);
+    const estimate = estimateDroppableTestSeconds({
+      unitFiles,
+      browserFiles: testSteps.some((step) => step.name === "browser") ? groups.browser : [],
+      browserSeconds: durations.seconds,
+      browserOverheadSeconds: durations.overhead,
+    });
+    if (droppable.length > 0 && overTestBudget(estimate, options.testBudgetSeconds)) {
+      const files =
+        unitFiles + (testSteps.some((step) => step.name === "browser") ? groups.browser.length : 0);
+      for (const step of droppable) testSteps.splice(testSteps.indexOf(step), 1);
+      emit({
+        name: "tests",
+        status: "left",
+        seconds: 0,
+        detail: `wide change: tests left to the full lanes (${files} files, about ${estimate} s estimated, budget ${options.testBudgetSeconds} s)`,
+      });
+    }
+  }
   if (options.tests && tests.length === 0 && !selection.mobile) {
     emit({
       name: "tests",
@@ -624,11 +701,12 @@ async function main(argv: readonly string[]): Promise<number> {
         ? [{ groups: [...staticGroups, unitGroup] }]
         : [{ groups: staticGroups }, { groups: [unitGroup] }],
       emit,
+      note,
     );
 
     if (browserSteps.length > 0) {
       await testWhenFree();
-      await runAll(repoRoot, [{ groups: [{ steps: browserSteps, limit: 1 }] }], emit);
+      await runAll(repoRoot, [{ groups: [{ steps: browserSteps, limit: 1 }] }], emit, note);
     }
 
     const ranSteps = [...unitSteps, ...browserSteps];

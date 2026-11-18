@@ -75,9 +75,11 @@ jobs:
           set +e
           # --allow-root: a root configuration change still gets its selection here; the full run
           # covers everything else. No heavy lanes exist on a runner.
-          bun run check --base HEAD~1 --no-types --no-wait --allow-root > "$RUNNER_TEMP/quick-check.log" 2>&1
-          status=$?
-          cat "$RUNNER_TEMP/quick-check.log"
+          # --test-budget: a wide change leaves its tests to the full lanes and passes instead of
+          # running out of the job's 10 minutes (run 44356541505). tee: the log shows as it runs, so
+          # a cancelled job still shows where it was.
+          bun run check --base HEAD~1 --no-types --no-wait --allow-root --test-budget 240 2>&1 | tee "$RUNNER_TEMP/quick-check.log"
+          status=${PIPESTATUS[0]}
           {
             echo "### Quick check of the changed files (exit $status)"
             echo '```'
