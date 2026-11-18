@@ -15,7 +15,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
-import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import type { ProjectContentMatch, ProjectEntry } from "@moss/contracts";
 import { PROJECT_SEARCH_CONTENT_MIN_QUERY_LENGTH } from "@moss/contracts";
 import { normalizeWorkspaceEntrySearchQuery } from "@moss/shared/searchQuery";
@@ -35,6 +34,7 @@ import {
   CommandGroupLabel,
   CommandItem,
   CommandList,
+  CommandSearchInput,
   CommandStatus,
 } from "./ui/command";
 import { FileEntryIcon } from "./chat/FileEntryIcon";
@@ -415,7 +415,7 @@ function WorkspaceSearchPaletteContent(props: WorkspaceSearchPaletteProps) {
       {/* Hairline only while rows are showing, as a scroll boundary; the
           empty state reads as one uninterrupted surface. */}
       <div className={cn("border-b", hasRows ? "border-foreground/5" : "border-transparent")}>
-        <AutocompletePrimitive.Input
+        <CommandSearchInput
           autoFocus
           className={INPUT_CLASS}
           placeholder={copy.placeholder}

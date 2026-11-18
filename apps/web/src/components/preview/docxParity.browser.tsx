@@ -80,7 +80,16 @@ it("renders real DOCX pages, switches revisions without moving the viewport, zoo
     new WheelEvent("wheel", { bubbles: true, cancelable: true, ctrlKey: true, deltaY: 10 }),
   );
   await expect.element(page.getByTestId("docx-preview-zoom-trigger")).toHaveTextContent("90%");
-  active().scrollTop = 0;
+  // The panel drops a selection on any scroll while no request is open (a person scrolled away).
+  // The browser delivers this scroll on its next frame; let it land before selecting, or on a busy
+  // runner it lands after the Escape below and drops the selection the test is about to ask on.
+  if (active().scrollTop !== 0) {
+    const scrolled = new Promise((resolve) =>
+      active().addEventListener("scroll", resolve, { once: true }),
+    );
+    active().scrollTop = 0;
+    await scrolled;
+  }
   const paragraph = active().querySelector("p")!;
   const range = document.createRange();
   range.selectNodeContents(paragraph);

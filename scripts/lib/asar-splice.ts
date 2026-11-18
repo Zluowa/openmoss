@@ -9,7 +9,15 @@
 // header pickle (uint32 payloadSize, uint32 jsonLength, json, zero padding to 4 bytes), then file data.
 // File offsets in the header are decimal strings relative to the start of the data.
 import { createHash } from "node:crypto";
-import { lstat, open, readdir, readFile, type FileHandle } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  writeFile,
+  type FileHandle,
+} from "node:fs/promises";
 import * as path from "node:path";
 
 export const ASAR_INTEGRITY_BLOCK_SIZE = 4 * 1024 * 1024;
@@ -145,6 +153,53 @@ export function findAsarNode(header: AsarDirectory, archivePath: string): AsarNo
     node = next;
   }
   return node;
+}
+
+/**
+ * Writes one directory of an archive to `destination` (which must not exist yet), checking every
+ * file against its integrity hash. Refuses unpacked files and links: their bytes are not in the
+ * archive. Returns the number of files written.
+ */
+export async function extractAsarDirectory(
+  archiveFile: string,
+  archivePath: string,
+  destination: string,
+): Promise<number> {
+  const archive = await readAsarArchive(archiveFile);
+  const node = findAsarNode(archive.header, archivePath);
+  if (!node || !isAsarDirectory(node))
+    throw new Error(`${archivePath} is not a directory in ${archiveFile}`);
+  await mkdir(destination, { recursive: false });
+  const handle = await open(archiveFile, "r");
+  const pending: Promise<void>[] = [];
+  let written = 0;
+  try {
+    for (const { path: rel, entry } of walkAsarFiles(node)) {
+      if (isAsarLink(entry) || entry.unpacked || entry.offset === undefined) {
+        throw new Error(`${archivePath}/${rel} is a link or unpacked; it cannot be extracted`);
+      }
+      const bytes = Buffer.alloc(entry.size);
+      if (entry.size > 0)
+        await readExactly(handle, bytes, archive.dataStart + Number(entry.offset));
+      if (
+        entry.integrity &&
+        createHash("sha256").update(bytes).digest("hex") !== entry.integrity.hash
+      ) {
+        throw new Error(`${archivePath}/${rel} does not match its integrity record`);
+      }
+      const target = path.join(destination, ...splitArchivePath(rel));
+      pending.push(
+        mkdir(path.dirname(target), { recursive: true }).then(() => writeFile(target, bytes)),
+      );
+      written += 1;
+      // Small files dominate (a web client is thousands of them): write a batch at a time.
+      if (pending.length >= 64) await Promise.all(pending.splice(0));
+    }
+    await Promise.all(pending.splice(0));
+  } finally {
+    await handle.close();
+  }
+  return written;
 }
 
 const unsafeArchivePathPart = (part: string) =>

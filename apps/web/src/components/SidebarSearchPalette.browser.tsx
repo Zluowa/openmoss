@@ -162,7 +162,10 @@ it("opens panel-only settings without inventing an anchor", async () => {
 it("announces no results when nothing matches", async () => {
   await renderPalette();
   await page.getByPlaceholder("Search chats or run a command").fill("zzzzunmatchedzzzz");
-  await expect.element(page.getByRole("status")).toHaveTextContent("No results");
+  // The palette's own status region (UI SDK also keeps a page-level announcer, role="status").
+  await expect
+    .poll(() => document.querySelector('[data-slot="command-status"][role="status"]')?.textContent)
+    .toContain("No results");
   expect(page.getByRole("option").length).toBe(0);
 });
 

@@ -55,7 +55,12 @@ describe("profile", () => {
     expect(p.protectedPaths.some((x) => samePath(x, "/m/primary"))).toBe(true);
     expect(p.protectedPaths.some((x) => samePath(x, "/home/u/.moss-ws"))).toBe(true);
     expect(p.disk.floorGB).toBe(6);
-    expect(p.lock).toEqual({ staleHours: 3, pollSeconds: 10 });
+    expect(p.lock).toEqual({
+      staleHours: 3,
+      pollSeconds: 10,
+      priorityOwners: ["lead"],
+      warnMinutes: 20,
+    });
   });
 
   it("rejects a drive root as a worktree root and a missing primary", () => {

@@ -32,7 +32,6 @@ import {
   type ProviderInstanceId,
 } from "@moss/contracts";
 import { isGenericChatThreadTitle } from "@moss/shared/chatThreads";
-import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { type ComponentType, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -77,6 +76,7 @@ import {
   CommandGroupLabel,
   CommandItem,
   CommandList,
+  CommandSearchInput,
   CommandStatus,
 } from "./ui/command";
 import { Button } from "./ui/button";
@@ -877,7 +877,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
               >
                 <ArrowLeftIcon className="size-4" />
               </Button>
-              <AutocompletePrimitive.Input
+              <CommandSearchInput
                 autoFocus
                 className={cn(PALETTE_INPUT_CLASS, "ps-2")}
                 placeholder="Import projects from…"
@@ -968,7 +968,7 @@ export function SidebarSearchPalette(props: SidebarSearchPaletteProps) {
             >
               {/* Bare input, no hairline: the header row IS the input, like ⌘P. */}
               <div className="relative">
-                <AutocompletePrimitive.Input
+                <CommandSearchInput
                   autoFocus
                   className={cn(
                     PALETTE_INPUT_CLASS,

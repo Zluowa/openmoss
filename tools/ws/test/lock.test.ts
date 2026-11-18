@@ -2,7 +2,14 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acquireLock, lockPath, readOwner, slotPaths, staleReason } from "../lib/lock.ts";
+import {
+  acquireLock,
+  formatMinutes,
+  lockPath,
+  readOwner,
+  slotPaths,
+  staleReason,
+} from "../lib/lock.ts";
 import { cleanup, tempDir } from "./helpers.ts";
 
 const dirs: string[] = [];
@@ -70,6 +77,46 @@ describe("heavy-lane lock", () => {
     expect(secondGot).toBeGreaterThanOrEqual(releasedAt);
     expect(log.join("\n")).toMatch(/position 1 in queue; held by test \(first/);
     held.release();
+  });
+
+  it("lets a priority owner go ahead of earlier waiters and shows waiters the holder's command", async () => {
+    const dir = tempDir("lock");
+    dirs.push(dir);
+    const common = { dir, name: "heavy", staleMs: 3600_000, pollMs: 20, priorityOwners: ["lead"] };
+    const holder = await acquireLock({
+      ...common,
+      owner: { ...owner("browser-ci"), command: "bun run test:browser:ci" },
+    });
+    const order: string[] = [];
+    const logs: string[] = [];
+    const take = (who: string) =>
+      acquireLock({
+        ...common,
+        owner: { owner: who, lane: who, sha: "abc" },
+        log: (l) => logs.push(`${who}: ${l}`),
+      }).then((lock) => {
+        order.push(who);
+        lock.release();
+      });
+    const worker = take("worker");
+    await new Promise((r) => setTimeout(r, 80));
+    const lead = take("lead");
+    await new Promise((r) => setTimeout(r, 80));
+    holder.release();
+    await Promise.all([worker, lead]);
+    expect(order).toEqual(["lead", "worker"]);
+    expect(logs.find((l) => l.startsWith("worker:"))).toMatch(
+      /held by test \(browser-ci, pid \d+, running 0 min\): bun run test:browser:ci/u,
+    );
+    expect(logs.some((l) => l.startsWith("worker:") && l.includes("(1 priority ahead)"))).toBe(
+      true,
+    );
+  });
+
+  it("formats waiting times", () => {
+    expect(formatMinutes(59_999)).toBe("0 min");
+    expect(formatMinutes(23 * 60_000)).toBe("23 min");
+    expect(formatMinutes(65 * 60_000)).toBe("1 h 05 min");
   });
 
   it("hands out every slot of a lock with several before anyone waits", async () => {

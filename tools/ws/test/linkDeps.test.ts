@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { linkDependencies } from "../lib/linkDeps.ts";
+import { linkDependencies, relinkDependencies } from "../lib/linkDeps.ts";
 import { samePath } from "../lib/paths.ts";
 import { cleanup, linkType, tempDir } from "./helpers.ts";
 
@@ -113,5 +113,80 @@ describe("linkDependencies (port of mkwt.mjs)", () => {
     const again = linkDependencies(source, wt);
     expect(again.linked).toBe(0);
     expect(again.skippedPackages).toContain("apps/web");
+  });
+});
+
+describe("relinkDependencies", () => {
+  function setup() {
+    const base = tempDir("relink");
+    dirs.push(base);
+    const source = path.join(base, "source");
+    const wt = path.join(base, "wt");
+    for (const root of [source, wt]) {
+      pkg(root);
+      pkg(path.join(root, "apps", "web"));
+    }
+    const store = (name: string, version: string) => {
+      const dir = path.join(
+        source,
+        "node_modules",
+        ".bun",
+        `${name}@${version}`,
+        "node_modules",
+        name,
+      );
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "index.js"), version);
+      return dir;
+    };
+    const nm = path.join(source, "apps", "web", "node_modules");
+    fs.mkdirSync(nm, { recursive: true });
+    fs.symlinkSync(store("left-pad", "1"), path.join(nm, "left-pad"), linkType);
+    linkDependencies(source, wt);
+    return { source, wt, nm, store };
+  }
+
+  it("adds packages and scopes installed since, and changes nothing else", () => {
+    const { source, wt, nm, store } = setup();
+    const before = fs.readlinkSync(path.join(wt, "apps", "web", "node_modules", "left-pad"));
+    fs.mkdirSync(path.join(nm, "@ui-sdk"));
+    fs.symlinkSync(store("core", "0.1.0"), path.join(nm, "@ui-sdk", "core"), linkType);
+    fs.symlinkSync(store("react", "0.1.0"), path.join(nm, "@ui-sdk", "react"), linkType);
+    fs.symlinkSync(store("zod", "4"), path.join(nm, "zod"), linkType);
+    const report = relinkDependencies(source, wt);
+    expect(report.added.toSorted()).toEqual([
+      "apps/web/node_modules/@ui-sdk/core",
+      "apps/web/node_modules/@ui-sdk/react",
+      "apps/web/node_modules/zod",
+    ]);
+    expect(report.stale).toEqual([]);
+    const wnm = path.join(wt, "apps", "web", "node_modules");
+    expect(fs.readFileSync(path.join(wnm, "@ui-sdk", "core", "index.js"), "utf8")).toBe("0.1.0");
+    expect(fs.readlinkSync(path.join(wnm, "left-pad"))).toBe(before);
+    // Running it again finds nothing to do.
+    expect(relinkDependencies(source, wt).added).toEqual([]);
+  });
+
+  it("lists an upgraded package and re-points it only with update, never a real folder", () => {
+    const { source, wt, nm, store } = setup();
+    const wnm = path.join(wt, "apps", "web", "node_modules");
+    fs.rmSync(path.join(nm, "left-pad"));
+    fs.symlinkSync(store("left-pad", "2"), path.join(nm, "left-pad"), linkType);
+    // A package the worktree holds as its own real folder stays untouched.
+    fs.symlinkSync(store("own", "2"), path.join(nm, "own"), linkType);
+    fs.mkdirSync(path.join(wnm, "own"));
+    fs.writeFileSync(path.join(wnm, "own", "index.js"), "mine");
+
+    const listed = relinkDependencies(source, wt);
+    expect(listed.stale).toEqual(["apps/web/node_modules/left-pad"]);
+    expect(listed.retargeted).toEqual([]);
+    expect(fs.readFileSync(path.join(wnm, "left-pad", "index.js"), "utf8")).toBe("1");
+
+    const updated = relinkDependencies(source, wt, { update: true });
+    expect(updated.retargeted).toEqual(["apps/web/node_modules/left-pad"]);
+    expect(fs.readFileSync(path.join(wnm, "left-pad", "index.js"), "utf8")).toBe("2");
+    expect(fs.readFileSync(path.join(wnm, "own", "index.js"), "utf8")).toBe("mine");
+    // The old version's store folder in the source is still there: only the link moved.
+    expect(fs.existsSync(path.join(source, "node_modules", ".bun", "left-pad@1"))).toBe(true);
   });
 });

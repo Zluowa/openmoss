@@ -3,7 +3,9 @@
 // Layer: Web build config
 // Depends on: Vite, Tailwind, React compiler, TanStack Router.
 
+import { createHash } from "node:crypto";
 import fsSync from "node:fs";
+import { createRequire } from "node:module";
 import fs from "node:fs/promises";
 import path from "node:path";
 import zlib from "node:zlib";
@@ -16,6 +18,12 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig, type Plugin, type PluginOption } from "vite";
 import pkg from "./package.json" with { type: "json" };
 import { listFiles, pruneProductionIcons } from "./scripts/production-assets";
+import { compressCacheFromEnv } from "./scripts/production-assets-compress-cache";
+import {
+  createTransformCache,
+  transformCacheDirFromEnv,
+  transformFingerprint,
+} from "./scripts/production-assets-transform-cache";
 import { testQuarantine } from "../../tools/test-quarantine/vitest";
 
 const port = Number(process.env.PORT ?? 5733);
@@ -163,6 +171,8 @@ function precompressPlugin(): Plugin {
       resolvedOutDir = path.resolve(config.root, config.build.outDir);
     },
     async closeBundle() {
+      // Opt-in (the desktop fast refresh): reuse sidecars of unchanged files by content hash.
+      const cache = compressCacheFromEnv();
       const files = (await listFiles(resolvedOutDir)).filter((file) =>
         PRECOMPRESS_EXTENSIONS.has(path.extname(file)),
       );
@@ -198,15 +208,32 @@ function precompressPlugin(): Plugin {
             // wall-clock; below 16 KiB quality 9 is byte-for-byte competitive.
             const brotliQuality =
               source.byteLength < 16 * 1024 ? 9 : zlib.constants.BROTLI_MAX_QUALITY;
-            const [gzipped, brotlied] = await Promise.all([
-              gzip(source, { level: zlib.constants.Z_BEST_COMPRESSION }),
+            const runGzip = () => gzip(source, { level: zlib.constants.Z_BEST_COMPRESSION });
+            const runBrotli = () =>
               brotliCompress(source, {
                 params: {
                   [zlib.constants.BROTLI_PARAM_QUALITY]: brotliQuality,
                   [zlib.constants.BROTLI_PARAM_SIZE_HINT]: source.byteLength,
                 },
-              }),
-            ]);
+              });
+            const [gzipped, brotlied] = await Promise.all(
+              cache
+                ? [
+                    cache.compress(
+                      "gz",
+                      source,
+                      `level=${zlib.constants.Z_BEST_COMPRESSION}`,
+                      runGzip,
+                    ),
+                    cache.compress(
+                      "br",
+                      source,
+                      `quality=${brotliQuality};size=${source.byteLength}`,
+                      runBrotli,
+                    ),
+                  ]
+                : [runGzip(), runBrotli()],
+            );
             await Promise.all([
               gzipped.byteLength < source.byteLength
                 ? writeSidecarAtomically(`${file}.gz`, gzipped)
@@ -220,8 +247,103 @@ function precompressPlugin(): Plugin {
         );
       }
       console.info(`[precompress] emitted gzip+brotli sidecars for ${sidecarCount} files.`);
+      if (cache) {
+        const pruned = await cache.prune();
+        console.info(
+          `[precompress] cache ${cache.dir}: ${cache.stats.hits} reused, ${cache.stats.misses} compressed, ${pruned} stale removed.`,
+        );
+      }
     },
   };
+}
+
+type TransformHandler = (
+  this: { environment?: { name: string } },
+  code: string,
+  id: string,
+  options?: { moduleType?: string },
+) => Promise<unknown>;
+
+/**
+ * Opt-in (MOSS_WEB_TRANSFORM_CACHE, set by the desktop fast refresh): serves the React Compiler's
+ * Babel result for a module whose source, id and transform fingerprint were seen before
+ * (scripts/production-assets-transform-cache.ts). Without the variable the plugin is unchanged.
+ */
+function cacheCompilerTransform<P extends Plugin>(plugin: P): P {
+  const dir = transformCacheDirFromEnv();
+  const transform = plugin.transform as { handler?: TransformHandler } | undefined;
+  if (!dir || !transform || typeof transform.handler !== "function") return plugin;
+  const inner = transform.handler;
+  let cache: ReturnType<typeof createTransformCache> | undefined;
+  let root = process.cwd();
+  // Each tool resolved from where it is used: the store path names its version.
+  const resolveFrom = (from: string, name: string): string | undefined => {
+    try {
+      return fsSync.realpathSync(createRequire(from).resolve(name));
+    } catch {
+      return undefined;
+    }
+  };
+  const open = () => {
+    const app = path.join(root, "package.json");
+    const pluginBabel = resolveFrom(app, "@rolldown/plugin-babel");
+    const pluginReact = resolveFrom(app, "@vitejs/plugin-react");
+    const parts = [
+      pluginBabel,
+      pluginReact,
+      pluginBabel && resolveFrom(pluginBabel, "@babel/core"),
+      pluginReact && resolveFrom(pluginReact, "babel-plugin-react-compiler"),
+      resolveFrom(app, "babel-plugin-react-compiler"),
+    ];
+    const configFile = path.join(root, "vite.config.ts");
+    if (parts.some((part) => !part) || !fsSync.existsSync(configFile)) {
+      console.warn("[transform-cache] could not fingerprint the compiler; cache off");
+      return undefined;
+    }
+    return createTransformCache(
+      dir,
+      transformFingerprint([
+        ...(parts as string[]),
+        createHash("sha256").update(fsSync.readFileSync(configFile)).digest("hex"),
+        `NODE_ENV=${process.env.NODE_ENV ?? ""}`,
+        `BABEL_ENV=${process.env.BABEL_ENV ?? ""}`,
+      ]),
+    );
+  };
+  let opened = false;
+  transform.handler = async function (code, id, options) {
+    if (!opened) {
+      opened = true;
+      cache = open();
+    }
+    if (!cache) return inner.call(this, code, id, options);
+    return cache.transform(
+      {
+        id,
+        code,
+        moduleType: options?.moduleType ?? "js",
+        environment: this.environment?.name ?? "",
+      },
+      () => inner.call(this, code, id, options) as never,
+    );
+  };
+  const configResolved = plugin.configResolved;
+  return {
+    ...plugin,
+    configResolved(this: unknown, config: { root: string }) {
+      root = config.root;
+      return typeof configResolved === "function"
+        ? (configResolved as (this: unknown, c: unknown) => unknown).call(this, config)
+        : undefined;
+    },
+    async buildEnd(error?: Error) {
+      if (!cache || error) return;
+      const removed = await cache.prune();
+      console.info(
+        `[transform-cache] ${cache.dir}: ${cache.stats.hits} reused, ${cache.stats.misses} compiled, ${removed} stale removed.`,
+      );
+    },
+  } as P;
 }
 
 // The React Compiler stays build-only in the app (dev keeps fast Oxc reloads);
@@ -238,7 +360,7 @@ export const reactCompilerPlugin: PluginOption & { apply: "build" } = Object.ass
     // This is causing our packages/ directory to fail to parse, as they are not relative to the CWD.
     parserOpts: { plugins: ["typescript", "jsx"] },
     presets: [reactCompilerPreset()],
-  }).then((plugin) => ({ ...plugin, apply: "build" as const })),
+  }).then((plugin) => ({ ...cacheCompilerTransform(plugin as Plugin), apply: "build" as const })),
   { apply: "build" as const },
 );
 

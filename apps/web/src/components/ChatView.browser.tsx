@@ -10502,6 +10502,15 @@ describe("ChatView transcript geometry (full app)", () => {
   });
 
   it("resets branch selector state when switching threads", async () => {
+    // Use only a branch selector a person can reach: a closed Environment card keeps its own, inert.
+    const reachableBranchTrigger = () =>
+      [
+        ...document.querySelectorAll<HTMLButtonElement>('button[data-slot="combobox-trigger"]'),
+      ].find((trigger) => !trigger.closest("[inert]")) ?? null;
+    localStorage.setItem(
+      APP_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ localeOverride: "en", environmentPanelDefaultOpen: true }),
+    );
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: addThreadToSnapshot(
@@ -10515,7 +10524,7 @@ describe("ChatView transcript geometry (full app)", () => {
 
     try {
       const branchTrigger = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[data-slot="combobox-trigger"]'),
+        reachableBranchTrigger,
         "Unable to find branch selector trigger.",
       );
       await vi.waitFor(() => expect(branchTrigger.disabled).toBe(false), {
@@ -10553,7 +10562,7 @@ describe("ChatView transcript geometry (full app)", () => {
       );
 
       const nextBranchTrigger = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[data-slot="combobox-trigger"]'),
+        reachableBranchTrigger,
         "Unable to find branch selector after switching threads.",
       );
       nextBranchTrigger.click();

@@ -8,6 +8,7 @@ import {
   cmdList,
   cmdNew,
   cmdReap,
+  cmdRelink,
   cmdRelease,
   consoleIo,
   type Io,
@@ -18,6 +19,7 @@ import { loadProfile, ProfileError, type Profile } from "./lib/profile.ts";
 const USAGE = `usage: bun run ws <command>
 
   new <name> [--base origin/main] [--branch <type>/<slug>] [--owner <session>] [--reuse-branch] [--no-deps]
+  relink <name|path> [--update]                 (add links for packages installed since; --update re-points upgraded ones)
   list [--json] [--no-size] [--all-sizes] [--fresh] [--size-budget <seconds, default 30>]
   release <name> [--dry-run] [--force]
   reap [--apply] [--no-size] [--fresh]          (dry run unless --apply)
@@ -58,6 +60,8 @@ export async function main(
   switch (command) {
     case "new":
       return cmdNew(profile, args, io);
+    case "relink":
+      return cmdRelink(profile, args, io);
     case "list":
       return cmdList(profile, args, io);
     case "release":

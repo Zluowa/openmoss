@@ -7,10 +7,15 @@
 // and a headless start of its server, and swaps it in with the previous archive kept for `restore`.
 // The state folder holds two archive copies and the new one: keep ~2 GB free on its drive.
 //
+// When no web input changed since the base archive's commit (policy: webBuildInputs), the web build is
+// skipped and the base archive's web client is kept byte for byte; --rebuild-web builds it anyway.
+// Web sidecars (.gz/.br) and the React Compiler's per-module results come from content-addressed
+// caches in the state folder, so a web change recompiles only the modules it touched.
+//
 // It is a test path, not a release path. Run the full installer before publishing; what this does not
 // refresh is printed with every run (FAST_REFRESH_NOT_REFRESHED).
 //
-//   node scripts/desktop-fast-refresh.ts run     --repo <clean checkout at the commit> [--install-dir <dir>] [--swap]
+//   node scripts/desktop-fast-refresh.ts run     --repo <clean checkout at the commit> [--install-dir <dir>] [--swap] [--rebuild-web]
 //   node scripts/desktop-fast-refresh.ts check   --repo <dir> [--install-dir <dir>] [--base <app.asar>]
 //   node scripts/desktop-fast-refresh.ts build   --repo <dir>
 //   node scripts/desktop-fast-refresh.ts pack    --repo <dir> --out <new.asar> [--install-dir <dir>] [--base <app.asar>]
@@ -32,9 +37,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
   copyFile,
+  cp,
   mkdir,
   mkdtemp,
   open,
+  readdir,
   readFile,
   rename,
   rm,
@@ -47,6 +54,7 @@ import * as path from "node:path";
 import { parseArgs } from "node:util";
 
 import {
+  extractAsarDirectory,
   findAsarNode,
   isAsarDirectory,
   isAsarLink,
@@ -57,15 +65,22 @@ import {
 } from "./lib/asar-splice.ts";
 import {
   classifyFastRefreshChanges,
+  type DependencyDecision,
   FAST_REFRESH_NOT_REFRESHED,
   FAST_REFRESH_REPLACED_DIRECTORIES,
+  FAST_REFRESH_WEB_CLIENT_DIRECTORY,
+  webBuildInputs,
 } from "./lib/desktop-fast-refresh-policy.ts";
 import { createDesktopBuildSubprocessEnvironment } from "./lib/desktop-signing-environment.ts";
 
 const localAppData =
   process.env.LOCALAPPDATA ?? path.join(process.env.USERPROFILE ?? "", "AppData", "Local");
 const DEFAULT_INSTALL_DIR = path.join(localAppData, "Programs", "Moss");
-const DEFAULT_STATE_DIR = path.join(localAppData, "moss-fast-refresh");
+// The state folder holds two ~560 MB archives and the build caches. MOSS_FAST_REFRESH_STATE_DIR
+// moves it off a small system drive (the operator wrapper sets it); a state folder left at the old
+// default is moved there on first use, so the adopted base and restore points carry over.
+const LEGACY_STATE_DIR = path.join(localAppData, "moss-fast-refresh");
+const DEFAULT_STATE_DIR = process.env.MOSS_FAST_REFRESH_STATE_DIR?.trim() || LEGACY_STATE_DIR;
 
 interface State {
   base?: { sha256: string; commit: string | null; adoptedAt: string };
@@ -107,6 +122,42 @@ async function exists(file: string): Promise<boolean> {
     () => true,
     () => false,
   );
+}
+
+/** Bytes under a folder, without following links. */
+async function folderBytes(dir: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const full = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    total += entry.isDirectory() ? await folderBytes(full) : (await stat(full)).size;
+  }
+  return total;
+}
+
+/**
+ * Moves a state folder from the old default into `stateDir` when `stateDir` has none yet: the
+ * base, previous and caches carry over (a fresh state would adopt a spliced archive as its base).
+ * Leftover out/ archives are not moved.
+ */
+async function adoptLegacyState(stateDir: string): Promise<void> {
+  if (path.resolve(stateDir).toLowerCase() === path.resolve(LEGACY_STATE_DIR).toLowerCase()) return;
+  if (await exists(path.join(stateDir, "state.json"))) return;
+  if (!(await exists(path.join(LEGACY_STATE_DIR, "state.json")))) return;
+  const started = performance.now();
+  await mkdir(stateDir, { recursive: true });
+  for (const name of await readdir(LEGACY_STATE_DIR)) {
+    if (name === "out" || name === "state.json") continue;
+    await cp(path.join(LEGACY_STATE_DIR, name), path.join(stateDir, name), {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+    });
+  }
+  // state.json last: a half-finished move leaves no state.json, so the next run moves again.
+  await copyFile(path.join(LEGACY_STATE_DIR, "state.json"), path.join(stateDir, "state.json"));
+  await rm(LEGACY_STATE_DIR, { recursive: true, force: true });
+  log(`moved the state folder ${LEGACY_STATE_DIR} -> ${stateDir} in ${seconds(started)}`);
 }
 
 async function readState(stateDir: string): Promise<State> {
@@ -174,7 +225,10 @@ async function resolveBase(
   return installed; // a newer full install replaced our archive: it is the base now
 }
 
-async function check(repo: string, base: string): Promise<{ baseCommit: string; head: string }> {
+async function check(
+  repo: string,
+  base: string,
+): Promise<{ baseCommit: string; head: string; webInputs: string[] }> {
   if (process.platform !== "win32")
     throw new Refused("the fast refresh is for the Windows app only");
   const dirty = git(repo, "status", "--porcelain", "--untracked-files=no");
@@ -186,47 +240,181 @@ async function check(repo: string, base: string): Promise<{ baseCommit: string; 
     throw new Refused(`base commit ${baseCommit} is not in ${repo}; fetch it first`);
   }
   const changed = git(repo, "diff", "--name-only", baseCommit, head).split("\n").filter(Boolean);
-  const refusals = classifyFastRefreshChanges(changed, (p) => ({
-    before: gitShowOrNull(repo, `${baseCommit}:${p}`),
-    after: gitShowOrNull(repo, `${head}:${p}`),
-  }));
+  const decisions: DependencyDecision[] = [];
+  const refusals = classifyFastRefreshChanges(
+    changed,
+    (p) => ({
+      before: gitShowOrNull(repo, `${baseCommit}:${p}`),
+      after: gitShowOrNull(repo, `${head}:${p}`),
+    }),
+    decisions,
+  );
   log(`base ${baseCommit.slice(0, 9)} -> ${head.slice(0, 9)}: ${changed.length} files changed`);
+  for (const decision of decisions) {
+    log(
+      `  dependency ${decision.name}: ${decision.packaged ? "needs the full installer" : "ok"} (${decision.reason})`,
+    );
+  }
   if (refusals.length > 0) {
     for (const r of refusals.slice(0, 20))
       log(`  needs the full installer: ${r.path} (${r.reason})`);
     throw new Refused(`${refusals.length} change(s) need the full installer`);
   }
-  return { baseCommit, head };
+  const webInputs = webBuildInputs(changed);
+  log(
+    webInputs.length > 0
+      ? `web client: rebuilt (${webInputs.length} changed web input(s), first ${webInputs[0]})`
+      : "web client: unchanged since the base, kept from the installed archive (no web build)",
+  );
+  return { baseCommit, head, webInputs };
 }
 
-async function build(repo: string): Promise<void> {
-  const bun = process.platform === "win32" ? "bun.exe" : "bun";
-  await new Promise<void>((resolve, reject) => {
-    // The same build build-desktop-artifact.ts runs, never from turbo's cache: a cache hit can restore
-    // a bundle that misses root-level build inputs.
-    // The release build runs one turbo task at a time (TURBO_CONCURRENCY=1, set for the memory of the
-    // Mac build host); on this path the web bundle, the desktop main and the workspace libraries build
-    // side by side. Same tasks, same inputs, same outputs.
-    // `--cache=local:,remote:` executes every task like `--force` and also skips writing the outputs to
-    // turbo's cache, which nobody reads after a forced build: storing the web bundle there kept turbo
-    // running 90 s after the build was done (measured 2026-11-17).
-    const child = spawn(bun, ["run", "build:desktop", "--cache=local:,remote:"], {
+const bun = process.platform === "win32" ? "bun.exe" : "bun";
+
+function runChild(
+  repo: string,
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
       cwd: repo,
-      env: { ...createDesktopBuildSubprocessEnvironment(process.env), TURBO_CONCURRENCY: "4" },
+      env,
       stdio: ["ignore", "inherit", "inherit"],
       windowsHide: true,
     });
     child.on("error", reject);
     child.on("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`build:desktop exit ${code}`)),
+      code === 0 ? resolve() : reject(new Error(`${[command, ...args].join(" ")}: exit ${code}`)),
     );
   });
+}
+
+interface BuildOptions {
+  /** Keep the web client of this archive instead of building it (no web input changed since it). */
+  readonly keepWebClientFrom?: string;
+  /** Content-addressed cache for the web build's gzip and brotli sidecars. */
+  readonly precompressCache?: string;
+  /** Content-addressed cache for the React Compiler's Babel results, per module. */
+  readonly transformCache?: string;
+}
+
+async function build(repo: string, options: BuildOptions = {}): Promise<void> {
+  // The same build build-desktop-artifact.ts runs, never from turbo's cache: a cache hit can restore
+  // a bundle that misses root-level build inputs.
+  // The release build runs one turbo task at a time (TURBO_CONCURRENCY=1, set for the memory of the
+  // Mac build host); on this path the web bundle, the desktop main and the workspace libraries build
+  // side by side. Same tasks, same inputs, same outputs.
+  // `--cache=local:,remote:` executes every task like `--force` and also skips writing the outputs to
+  // turbo's cache, which nobody reads after a forced build: storing the web bundle there kept turbo
+  // running 90 s after the build was done (measured 2026-11-17).
+  // The sidecar cache returns the bytes the codecs would produce again (keyed on content, codec,
+  // parameters and library versions); it saves the ~50 s of brotli over unchanged web chunks.
+  // The transform cache does the same for the React Compiler's Babel pass, per module (keyed on
+  // id, source, tool versions and vite.config.ts): a warm web build took 22 s instead of 237 s with
+  // identical output (2026-11-17).
+  const env: NodeJS.ProcessEnv = {
+    ...createDesktopBuildSubprocessEnvironment(process.env),
+    TURBO_CONCURRENCY: "4",
+    ...(options.precompressCache ? { MOSS_WEB_PRECOMPRESS_CACHE: options.precompressCache } : {}),
+    ...(options.transformCache ? { MOSS_WEB_TRANSFORM_CACHE: options.transformCache } : {}),
+  };
+  const noCache = "--cache=local:,remote:";
+  if (!options.keepWebClientFrom) {
+    await runChild(repo, bun, ["run", "build:desktop", noCache], env);
+  } else {
+    // The same tasks minus @moss/web#build: first what the server and desktop builds depend on, then
+    // those two alone (`--only`), with apps/web/dist out of sight so the server build cannot copy a
+    // stale web client. The base archive's client goes into its place afterwards.
+    const turbo = path.join(
+      repo,
+      "node_modules",
+      ".bin",
+      process.platform === "win32" ? "turbo.exe" : "turbo",
+    );
+    const web = "@moss/web#build";
+    const finals = ["@moss/cli#build", "@moss/desktop#build"];
+    const graph = buildGraph(repo, turbo, env);
+    for (const task of finals) {
+      if (!graph.some((candidate) => candidate.taskId === task))
+        throw new Error(`build:desktop no longer runs ${task}; update the fast refresh`);
+    }
+    const prerequisites = graph.filter(
+      (task) => !finals.includes(task.taskId) && task.taskId !== web,
+    );
+    if (prerequisites.some((task) => task.dependencies.includes(web))) {
+      throw new Error("a library build depends on the web build; cannot keep the web client");
+    }
+    const packages = [
+      ...new Set(
+        prerequisites
+          .filter((task) => task.taskId.endsWith("#build"))
+          .map((task) => task.taskId.split("#")[0]!),
+      ),
+    ];
+    if (packages.length > 0) {
+      await runChild(
+        repo,
+        turbo,
+        ["run", "build", ...packages.map((name) => `--filter=${name}`), noCache],
+        env,
+      );
+    }
+    const webDist = path.join(repo, "apps", "web", "dist");
+    const hidden = `${webDist}.fast-refresh-hidden-${process.pid}`;
+    const hide = await exists(webDist);
+    if (hide) await rename(webDist, hidden);
+    try {
+      await runChild(
+        repo,
+        turbo,
+        [
+          "run",
+          "build",
+          ...finals.map((task) => `--filter=${task.split("#")[0]}`),
+          "--only",
+          noCache,
+        ],
+        env,
+      );
+    } finally {
+      if (hide) await rename(hidden, webDist);
+    }
+    const client = path.join(repo, ...FAST_REFRESH_WEB_CLIENT_DIRECTORY.split("/"));
+    await rm(client, { recursive: true, force: true });
+    const started = performance.now();
+    const files = await extractAsarDirectory(
+      options.keepWebClientFrom,
+      FAST_REFRESH_WEB_CLIENT_DIRECTORY,
+      client,
+    );
+    log(`kept the base archive's web client: ${files} files in ${seconds(started)}`);
+  }
   for (const local of Object.values(FAST_REFRESH_REPLACED_DIRECTORIES)) {
     if (!(await exists(path.join(repo, local)))) throw new Error(`build produced no ${local}`);
   }
   if (!(await exists(path.join(repo, "apps/server/dist/client/index.html")))) {
     throw new Error("build produced no bundled web client (apps/server/dist/client/index.html)");
   }
+}
+
+/** The turbo tasks `build:desktop` runs, from a dry run. */
+function buildGraph(
+  repo: string,
+  turbo: string,
+  env: NodeJS.ProcessEnv,
+): Array<{ taskId: string; dependencies: string[] }> {
+  const result = spawnSync(
+    turbo,
+    ["run", "build", "--filter=@moss/desktop", "--filter=@moss/cli", "--dry=json"],
+    { cwd: repo, env, encoding: "utf8", windowsHide: true, maxBuffer: 256 * 1024 * 1024 },
+  );
+  if (result.status !== 0) throw new Error(`turbo dry run failed: ${result.stderr.slice(0, 500)}`);
+  const json = result.stdout.slice(result.stdout.indexOf("{"));
+  const tasks = (JSON.parse(json) as { tasks: Array<{ taskId: string; dependencies?: string[] }> })
+    .tasks;
+  return tasks.map((task) => ({ taskId: task.taskId, dependencies: task.dependencies ?? [] }));
 }
 
 async function pack(repo: string, base: string, out: string, head: string) {
@@ -334,10 +522,17 @@ async function verify(input: {
     for (const p of problems.slice(0, 20)) log(`  ${p}`);
     throw new Error(`verification failed: ${problems.length} problem(s)`);
   }
-  // 4. Read every packed file through Electron's own asar support.
+  // 4. Read through Electron's own asar support every file this run wrote and a spread of the kept
+  //    ones (the first, the last by offset and every Nth): that proves Electron parses the new header
+  //    and finds data at the offsets it names. Step 3 already hashed every packed byte.
   const work = await mkdtemp(path.join(tmpdir(), "moss-fast-refresh-verify-"));
   try {
-    const packed = [...nextFiles].filter(([, e]) => !isAsarLink(e) && !e.unpacked);
+    const packed = electronReadSet(
+      [...nextFiles].filter(([, e]) => !isAsarLink(e) && !e.unpacked) as Array<
+        [string, AsarFileEntry]
+      >,
+      (p) => inReplaced(p) || rewritten.has(p),
+    );
     await writeFile(path.join(work, "reader.js"), ELECTRON_READER);
     await writeFile(path.join(work, "list.json"), JSON.stringify(packed.map(([p]) => p)));
     const result = spawnSync(
@@ -372,6 +567,22 @@ async function verify(input: {
   } finally {
     await rm(work, { recursive: true, force: true });
   }
+}
+
+/** Kept files Electron reads back besides everything new: enough to cover the archive's span. */
+const ELECTRON_KEPT_SAMPLE = 400;
+
+function electronReadSet(
+  packed: Array<[string, AsarFileEntry]>,
+  isNew: (archivePath: string) => boolean,
+): Array<[string, AsarFileEntry]> {
+  const fresh = packed.filter(([p]) => isNew(p));
+  const kept = packed
+    .filter(([p]) => !isNew(p))
+    .toSorted(([, a], [, b]) => Number(a.offset) - Number(b.offset));
+  const step = Math.max(1, Math.floor(kept.length / ELECTRON_KEPT_SAMPLE));
+  const sample = kept.filter((_, index) => index % step === 0 || index === kept.length - 1);
+  return [...fresh, ...sample];
 }
 
 async function freePort(): Promise<number> {
@@ -582,11 +793,13 @@ async function main(): Promise<void> {
       to: { type: "string", default: "previous" },
       swap: { type: "boolean", default: false },
       "skip-build": { type: "boolean", default: false },
+      "rebuild-web": { type: "boolean", default: false },
     },
   });
   const command = positionals[0];
   const installDir = path.resolve(values["install-dir"]!);
   const stateDir = path.resolve(values["state-dir"]!);
+  await adoptLegacyState(stateDir);
   const repo = values.repo ? path.resolve(values.repo) : undefined;
   const needRepo = () => {
     if (!repo) throw new Refused("--repo <checkout> is required");
@@ -647,8 +860,26 @@ async function main(): Promise<void> {
       return;
     }
     case "status": {
+      const sizes: Record<string, string> = {};
+      let total = 0;
+      for (const entry of await readdir(stateDir, { withFileTypes: true }).catch(() => [])) {
+        const full = path.join(stateDir, entry.name);
+        const bytes = entry.isDirectory() ? await folderBytes(full) : (await stat(full)).size;
+        sizes[entry.name] = `${(bytes / 1e6).toFixed(0)} MB`;
+        total += bytes;
+      }
       console.log(
-        JSON.stringify({ installDir, stateDir, ...(await readState(stateDir)) }, null, 2),
+        JSON.stringify(
+          {
+            installDir,
+            stateDir,
+            stateDirHolds: `${(total / 1e9).toFixed(2)} GB`,
+            sizes,
+            ...(await readState(stateDir)),
+          },
+          null,
+          2,
+        ),
       );
       return;
     }
@@ -657,17 +888,30 @@ async function main(): Promise<void> {
       const timings: Array<[string, string]> = [];
       let t = performance.now();
       const base = await resolveBase(installDir, stateDir, values.base);
-      const { head } = await check(r, base);
+      const { head, webInputs } = await check(r, base);
       timings.push(["check", seconds(t)]);
       if (!values["skip-build"]) {
         t = performance.now();
-        await build(r);
+        await build(r, {
+          precompressCache: path.join(stateDir, "precompress-cache"),
+          transformCache: path.join(stateDir, "transform-cache"),
+          ...(webInputs.length === 0 && !values["rebuild-web"] ? { keepWebClientFrom: base } : {}),
+        });
         timings.push(["build", seconds(t)]);
       }
       t = performance.now();
+      const outDir = path.join(stateDir, "out");
       const out = values.out
         ? path.resolve(values.out)
-        : path.join(stateDir, "out", `app-${head.slice(0, 9)}.asar`);
+        : path.join(outDir, `app-${head.slice(0, 9)}.asar`);
+      // Each archive is ~560 MB: keep only the one this run writes (base and previous stay).
+      if (!values.out) {
+        for (const name of await readdir(outDir).catch(() => [] as string[])) {
+          if (/^app-[0-9a-f]+\.asar$/u.test(name) && path.join(outDir, name) !== out) {
+            await rm(path.join(outDir, name), { force: true });
+          }
+        }
+      }
       const report = await pack(r, base, out, head);
       timings.push(["pack", seconds(t)]);
       t = performance.now();
@@ -685,6 +929,11 @@ async function main(): Promise<void> {
       log("not refreshed (run the full installer before publishing):");
       for (const item of FAST_REFRESH_NOT_REFRESHED) log(`  - ${item}`);
       if (!values.swap) log(`not installed: rerun with --swap, or: swap --asar ${out}`);
+      else {
+        // Installed now (and hashed in state.json): the copy in out/ is no longer needed.
+        if (!values.out) await rm(out, { force: true });
+        log("installed; to undo: restore --to previous");
+      }
       return;
     }
     default:

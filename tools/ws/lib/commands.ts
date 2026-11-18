@@ -6,11 +6,20 @@ import os from "node:os";
 import path from "node:path";
 import { flagString, type ParsedArgs } from "./args.ts";
 import { classify, type TreeFacts, type Verdict } from "./classify.ts";
-import { belowFloor, floorMessage, formatGB, freeSpace } from "./disk.ts";
+import { belowFloor, floorMessage, formatGB, freeSpace, waitForFloor } from "./disk.ts";
 import { fetchPullRequests, matchPullRequest, type PullRequest } from "./gh.ts";
 import { branchExists, branchTip, listWorktrees, readTreeState, type GitWorktree } from "./git.ts";
-import { linkDependencies } from "./linkDeps.ts";
-import { acquireLock, HEAVY_LOCK, LANE_ENV, lockPath, readOwner, staleReason } from "./lock.ts";
+import { linkDependencies, relinkDependencies } from "./linkDeps.ts";
+import {
+  acquireLock,
+  formatMinutes,
+  HEAVY_LOCK,
+  LANE_ENV,
+  liveTickets,
+  lockPath,
+  readOwner,
+  staleReason,
+} from "./lock.ts";
 import { isInsideOrEqual, isStrictlyInside, normalize, pathKey, samePath } from "./paths.ts";
 import {
   listProcesses,
@@ -28,6 +37,7 @@ import {
   updateRegistry,
   type Lease,
 } from "./registry.ts";
+import { createRunTemp, sweepRunTemps } from "./runTemp.ts";
 import { removeTreeSafe, UnsafeTargetError, countLinks } from "./safeRemove.ts";
 import { formatSize, sizeDirs } from "./size.ts";
 import { mapLimit, runSync } from "./run.ts";
@@ -472,6 +482,51 @@ export async function cmdNew(
 }
 
 // ---------------------------------------------------------------------------------------------
+// ws relink
+
+/**
+ * After the lead installs or upgrades a dependency in the source checkout, an existing worktree
+ * lacks its links (or points at the old version). Adds what is missing; lists links whose target
+ * moved and re-points them only with --update. Never removes a real file or folder.
+ */
+export function cmdRelink(profile: Profile, args: ParsedArgs, io: Io): number {
+  const name = args.positionals[0];
+  if (!name) {
+    io.err("usage: ws relink <name|path> [--update]");
+    return 2;
+  }
+  const lease = readRegistry(profile).leases[name];
+  const target = lease ? lease.path : path.resolve(name);
+  if (!fs.existsSync(path.join(target, "package.json"))) {
+    io.err(`${target} is not a worktree of this repository (no lease named ${name})`);
+    return 1;
+  }
+  if (samePath(target, profile.dependencySource)) {
+    io.err(`${target} is the dependency source itself; install there instead`);
+    return 1;
+  }
+  const report = relinkDependencies(profile.dependencySource, target, {
+    update: args.flags.has("update"),
+  });
+  for (const w of report.warnings) io.err(`warning: ${w}`);
+  const list = (title: string, items: string[]) => {
+    if (items.length === 0) return;
+    io.out(`${title} (${items.length}):`);
+    for (const item of items.slice(0, 40)) io.out(`  ${item}`);
+    if (items.length > 40) io.out(`  ... ${items.length - 40} more`);
+  };
+  list("added", report.added);
+  list("re-pointed", report.retargeted);
+  const notUpdated = report.stale.filter((item) => !report.retargeted.includes(item));
+  list("links to an older target (run again with --update to re-point them)", notUpdated);
+  list("files that differ from the source (left as they are)", report.differingFiles);
+  if (report.added.length + report.stale.length + report.differingFiles.length === 0) {
+    io.out(`${target}: dependencies already match ${profile.dependencySource}`);
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------------------------
 // ws release
 
 function findTarget(rows: TreeRow[], name: string): TreeRow | undefined {
@@ -702,7 +757,10 @@ export async function cmdLane(
   profile: Profile,
   args: ParsedArgs,
   io: Io,
-  deps: { measure?: typeof freeSpace } = {},
+  deps: {
+    measure?: typeof freeSpace;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
 ): Promise<number> {
   const lane = args.positionals[0];
   const command = args.rest;
@@ -710,13 +768,21 @@ export async function cmdLane(
     io.err("usage: ws lane <name> [--owner <session>] [--shell] -- <command...>");
     return 2;
   }
-  const checkFloor = (when: string) => {
-    const low = belowFloor(profile.disk.drives, profile.disk.floorGB, deps.measure);
+  const drives = [
+    ...new Set([...profile.disk.drives, ...(profile.tempRoot ? [profile.tempRoot] : [])]),
+  ];
+  const checkFloor = async (when: string) => {
+    const low = await waitForFloor(drives, profile.disk.floorGB, {
+      waitMs: profile.disk.waitMinutes * 60_000,
+      ...(deps.measure ? { measure: deps.measure } : {}),
+      log: (line) => io.err(`ws lane ${lane}: ${line}`),
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+    });
     if (low.length)
       io.err(`ws lane ${lane} refused ${when}. ${floorMessage(low, profile.disk.floorGB)}`);
     return low.length === 0;
   };
-  if (!checkFloor("before queueing")) return EXIT_DISK_FLOOR;
+  if (!(await checkFloor("before queueing"))) return EXIT_DISK_FLOOR;
   const shaRun = runSync(profile.tools.git, ["rev-parse", "HEAD"], process.cwd(), 10_000);
   const sha = shaRun.code === 0 ? shaRun.stdout.trim() : "";
   const lock = await acquireLock({
@@ -724,8 +790,9 @@ export async function cmdLane(
     name: HEAVY_LOCK,
     staleMs: profile.lock.staleHours * 3600_000,
     pollMs: profile.lock.pollSeconds * 1000,
-    owner: { owner: ownerFrom(args), lane, sha },
+    owner: { owner: ownerFrom(args), lane, sha, command: command.join(" ").slice(0, 300) },
     log: io.err,
+    priorityOwners: profile.lock.priorityOwners,
   });
   let released = false;
   const release = () => {
@@ -736,18 +803,54 @@ export async function cmdLane(
   };
   process.once("exit", release);
   try {
-    if (!checkFloor("after getting the lock")) return EXIT_DISK_FLOOR;
+    if (!(await checkFloor("after getting the lock"))) return EXIT_DISK_FLOOR;
     io.err(`ws lane ${lane}: lock held; running ${command.join(" ")}`);
+    let runTemp: ReturnType<typeof createRunTemp> | undefined;
+    if (profile.tempRoot) {
+      const swept = sweepRunTemps(profile.tempRoot);
+      if (swept.removed.length > 0) {
+        io.err(
+          `ws lane ${lane}: removed ${swept.removed.length} temp folder(s) of ended runs (${formatGB(swept.bytes / 1024 ** 3)})`,
+        );
+      }
+      runTemp = createRunTemp(profile.tempRoot, lane);
+      io.err(`ws lane ${lane}: TEMP for this run is ${runTemp.dir} (removed afterwards)`);
+    }
     const started = Date.now();
     const code = await new Promise<number>((resolve) => {
       const child = spawn(command[0]!, command.slice(1), {
         // `bun run check` inside a lane must not wait for the lane it runs in.
-        env: { ...process.env, [LANE_ENV]: lane },
+        env: { ...process.env, ...runTemp?.env, [LANE_ENV]: lane },
         stdio: "inherit",
         shell: args.flags.has("shell"),
         windowsHide: false,
       });
       if (child.pid) lock.setChildPid(child.pid);
+      // Tell the holder when the lane has been held a long time and who is waiting for it.
+      const queueDir = `${lockPath(path.join(profile.stateDir, "locks"), HEAVY_LOCK)}.queue`;
+      const warnAfter = profile.lock.warnMinutes * 60_000;
+      let nextWarning = warnAfter;
+      const warner = setInterval(
+        () => {
+          const held = Date.now() - started;
+          if (held < nextWarning) return;
+          nextWarning += 10 * 60_000;
+          const waiting = liveTickets(queueDir, profile.lock.priorityOwners);
+          const priority = waiting.filter((ticket) => ticket.priority);
+          io.err(
+            `ws lane ${lane}: you have held the heavy lane for ${formatMinutes(held)}; ` +
+              (waiting.length === 0
+                ? "nobody is waiting"
+                : `${waiting.length} waiting` +
+                  (priority.length
+                    ? `, including ${priority.map((t) => t.owner).join(", ")} (priority): finish or split the run at the next step`
+                    : "")),
+          );
+        },
+        Math.min(30_000, Math.max(100, warnAfter / 4)),
+      );
+      warner.unref();
+      child.on("exit", () => clearInterval(warner));
       const forward = (signal: NodeJS.Signals) => () => child.kill(signal);
       const onInt = forward("SIGINT");
       const onTerm = forward("SIGTERM");
@@ -764,6 +867,15 @@ export async function cmdLane(
       });
     });
     io.err(`ws lane ${lane}: exit ${code} after ${((Date.now() - started) / 1000).toFixed(1)} s`);
+    if (runTemp) {
+      const left = runTemp.finish();
+      io.err(
+        `ws lane ${lane}: the run left ${formatGB(left.bytes / 1024 ** 3)} in its temp folder` +
+          (left.errors.length
+            ? `; ${left.errors.length} item(s) could not be removed (in use), first: ${left.errors[0]}`
+            : "; removed"),
+      );
+    }
     return code;
   } finally {
     release();
