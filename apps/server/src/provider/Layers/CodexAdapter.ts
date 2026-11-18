@@ -3013,6 +3013,48 @@ function mapUnmappedCodexEvent(
   };
 }
 
+/** One sentence a person can act on; the web shows it in Chinese for zh-CN. */
+export function codexMcpStartupFailureMessage(name: string, error: string): string {
+  const subscriptionError = readCodexMcpSubscriptionError(error);
+  if (subscriptionError) {
+    return `MCP server "${name}" refused access (${subscriptionError}). Its tools are unavailable for now.`;
+  }
+  if (
+    /\b(?:not logged in|not signed in|log ?in required|sign[- ]?in required|unauthori[sz]ed|authentication required)\b/iu.test(
+      error,
+    )
+  ) {
+    return `MCP server "${name}" is not signed in. Its tools are unavailable for now.`;
+  }
+  if (error.includes("HTTP 403")) {
+    return `MCP server "${name}" refused access (HTTP 403). Its tools are unavailable for now.`;
+  }
+  return `MCP server "${name}" could not start. Its tools are unavailable for now.`;
+}
+
+/**
+ * Codex reports a failed MCP server at every session start, so a person saw the same row in
+ * every new chat. Each server's failure shows once per app start (per provider instance).
+ */
+export function dropRepeatedCodexMcpStartupWarnings(
+  event: ProviderEvent,
+  providerInstanceId: string | null | undefined,
+  runtimeEvents: ReadonlyArray<ProviderRuntimeEvent>,
+  warned: Set<string>,
+): ReadonlyArray<ProviderRuntimeEvent> {
+  if (event.method !== "mcpServer/startupStatus/updated") return runtimeEvents;
+  const name = asTrimmedString(asObject(event.payload)?.name);
+  if (!name || !runtimeEvents.some((runtimeEvent) => runtimeEvent.type === "runtime.warning")) {
+    return runtimeEvents;
+  }
+  const key = `${providerInstanceId ?? ""}\u0000${name}`;
+  if (warned.has(key)) {
+    return runtimeEvents.filter((runtimeEvent) => runtimeEvent.type !== "runtime.warning");
+  }
+  warned.add(key);
+  return runtimeEvents;
+}
+
 function mapToRuntimeEvents(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
@@ -3678,19 +3720,20 @@ function mapToRuntimeEvents(
 
   // The startup notification owns the server name; the MCP transport's stderr log does not
   // carry it (and stays in the server log), so this is the one row that says which failed.
+  // The row says what it means for the person in one short sentence; Codex's own reason
+  // (often a command to run) stays in the event detail and the native log.
   if (event.method === "mcpServer/startupStatus/updated") {
     const name = asTrimmedString(payload?.name);
     const error = asTrimmedString(payload?.error);
     if (payload?.status === "failed" && name && error) {
-      const subscriptionError = readCodexMcpSubscriptionError(error);
       return [
         {
           type: "runtime.warning",
           ...withMinimalRawPayload(runtimeEventBase(event, canonicalThreadId), event),
           payload: {
             message: sanitizeUnmappedProviderDetail(
-              `MCP server "${name}" failed to start${subscriptionError ? " (HTTP 403)" : ""}: ${subscriptionError ?? error}`,
-              2_000,
+              codexMcpStartupFailureMessage(name, error),
+              500,
             )!,
             detail: sanitizeUnmappedProviderData(event.payload),
           },
@@ -5004,12 +5047,18 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           },
         );
         let nextDroppedWarning = 1;
+        const warnedMcpStartupFailures = new Set<string>();
         const listener = (event: ProviderEvent) => {
           const origin = manager.getSessionEventOrigin(event.threadId, event.lifecycleGeneration);
           const stampedEvent = stampEvent(event, origin.providerInstanceId);
           if (mcpApps) captureCodexMcpToolItem(mcpApps, stampedEvent);
           const mappedRuntimeEvents = assignDerivedProviderRuntimeEventIds(
-            mapToRuntimeEvents(stampedEvent, stampedEvent.threadId, origin.codexOptions),
+            dropRepeatedCodexMcpStartupWarnings(
+              stampedEvent,
+              origin.providerInstanceId,
+              mapToRuntimeEvents(stampedEvent, stampedEvent.threadId, origin.codexOptions),
+              warnedMcpStartupFailures,
+            ),
           );
           const hasUnmappedEvent = mappedRuntimeEvents.some(
             (runtimeEvent) => runtimeEvent.type === "event.unmapped",

@@ -94,6 +94,8 @@ interface PluginManagementPanelTabDataProps {
   readonly marketplaceLoadErrors?: ReadonlyArray<ProviderPluginMarketplaceLoadError> | undefined;
   readonly marketplacesLoading?: boolean | undefined;
   readonly marketplacesError?: unknown;
+  /** Signed out of Moss: an empty plugins tab asks for a sign-in instead of "nothing installed". */
+  readonly onSignIn?: (() => void) | undefined;
   readonly marketplacesRetrying?: boolean | undefined;
   readonly pendingRemoveMarketplaceName?: string | null | undefined;
   readonly pendingUpgradeMarketplaceName?: string | null | undefined;
@@ -354,12 +356,14 @@ function CenterState({
   loading,
   retrying,
   onRetry,
+  onSignIn,
 }: {
   readonly title: string;
   readonly description?: string | undefined;
   readonly loading?: boolean | undefined;
   readonly retrying?: boolean | undefined;
   readonly onRetry?: (() => void) | undefined;
+  readonly onSignIn?: (() => void) | undefined;
 }) {
   const { t } = useTranslation();
   return (
@@ -377,6 +381,11 @@ function CenterState({
       {onRetry ? (
         <Button variant="outline" size="sm" disabled={retrying} onClick={onRetry}>
           {t("plugins.action.retry")}
+        </Button>
+      ) : null}
+      {onSignIn ? (
+        <Button variant="outline" size="sm" onClick={onSignIn}>
+          {t("sidebar.accountMenu.signIn")}
         </Button>
       ) : null}
     </div>
@@ -881,8 +890,15 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
           />
         ) : (
           <CenterState
-            title={tabLoading ? t("plugins.manage.loading") : t("plugins.manage.empty")}
+            title={
+              tabLoading
+                ? t("plugins.manage.loading")
+                : tab === "plugins" && props.onSignIn
+                  ? t("skills.appsPage.empty.pluginsSignedOut")
+                  : t("plugins.manage.empty")
+            }
             loading={tabLoading}
+            onSignIn={!tabLoading && tab === "plugins" ? props.onSignIn : undefined}
           />
         )
       ) : (
