@@ -8,6 +8,7 @@ import type {
 import type { QueryClient, UseMutationResult } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
+import type { ProviderSendAvailability } from "~/lib/providerAvailability";
 import type { gitCreateDetachedWorktreeMutationOptions } from "~/lib/gitReactQuery";
 import type { AppSettings } from "../../appSettings";
 import type { QueuedComposerChatTurn, QueuedComposerPlanFollowUp } from "../../composerDraftStore";
@@ -316,4 +317,16 @@ export interface ChatTurnSubmissionInput {
   persistThreadSettingsForNextTurn: ReturnType<
     typeof useChatRuntimeModes
   >["persistThreadSettingsForNextTurn"];
+  /**
+   * The selected model cannot send (not signed in, turned off, unavailable). The chat shows
+   * this next to the composer instead of a toast; the draft stays in the box.
+   */
+  onSendBlocked: (availability: SendBlockedAvailability) => void;
+  /** The selected model passed the send check: a notice from an earlier attempt goes. */
+  onSendUnblocked: () => void;
 }
+
+export type SendBlockedAvailability = Pick<
+  ProviderSendAvailability,
+  "provider" | "status" | "unavailableReason"
+>;
