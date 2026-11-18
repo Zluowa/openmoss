@@ -2,7 +2,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 
-import { PlusIcon, XIcon, ChevronLeftIcon, ChevronRightIcon, BookIcon } from "~/lib/icons";
+import {
+  PlusIcon,
+  XIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  BookIcon,
+  ImageIcon,
+} from "~/lib/icons";
 import { useTheme } from "~/hooks/useTheme";
 import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
@@ -232,6 +239,22 @@ export function MossImagesWorkspace({
   const visibleCatalog = accountReady ? catalog : null;
   const visibleTabs = accountReady ? tabs : [createImagesTab("images-home")];
   const activeTab = visibleTabs.find((tab) => tab.active) ?? visibleTabs[0]!;
+  // The photo row's previous / next buttons only when it holds more than it shows.
+  const [photoRowScrolls, setPhotoRowScrolls] = useState(false);
+  const referenceCount = activeTab.references.length;
+  useEffect(() => {
+    const row = photoRowRef.current;
+    if (!row) {
+      setPhotoRowScrolls(false);
+      return;
+    }
+    const measure = () => setPhotoRowScrolls(row.scrollWidth > row.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [referenceCount, activeTab.mode]);
   const models =
     visibleCatalog?.models.filter((model) => model.kind === "image" && model.installed) ?? [];
   const model = models.find((item) => item.id === modelId);
@@ -1471,12 +1494,15 @@ export function MossImagesWorkspace({
         </p>
       )}
       {accountReady && catalogError && (
-        <p role="alert" className="px-6 pb-3 text-ui-sm text-destructive">
+        <p role="alert" className="px-6 pt-4 pb-2 text-ui-sm text-destructive">
           {catalogError}
         </p>
       )}
       {!loading && !catalogError && !hasAccount && (
-        <div className="flex items-center gap-3 px-6 pb-3 text-ui-sm text-muted-foreground">
+        <div
+          data-moss-images-sign-in
+          className="flex items-center gap-3 px-6 pt-4 pb-2 text-ui-sm text-muted-foreground"
+        >
           登录 Moss 账号后使用套餐额度生成图像。
           <Button variant="ghost" size="sm" render={<Link to="/account" onClick={onClose} />}>
             登录账号
@@ -1484,7 +1510,7 @@ export function MossImagesWorkspace({
         </div>
       )}
       {accountReady && activeTab.error && (
-        <p role="alert" className="px-6 pb-3 text-ui-sm text-destructive">
+        <p role="alert" className="px-6 pt-4 pb-2 text-ui-sm text-destructive">
           {activeTab.error}
         </p>
       )}
@@ -1504,30 +1530,36 @@ export function MossImagesWorkspace({
                     disabled={!canAttach}
                     onClick={() => setReferencePickerKey(discoveryKey)}
                   >
-                    <ChevronLeftIcon className="size-4" />
+                    <ImageIcon className="size-4" />
                   </Button>
                   <h2 className="text-ui-sm font-medium">添加照片</h2>
                   <span className="flex-1" />
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="上一组照片"
-                    className="rounded-full border-border/60"
-                    onClick={() =>
-                      photoRowRef.current?.scrollBy({ left: -300, behavior: "smooth" })
-                    }
-                  >
-                    <ChevronLeftIcon className="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label="下一组照片"
-                    className="rounded-full border-border/60"
-                    onClick={() => photoRowRef.current?.scrollBy({ left: 300, behavior: "smooth" })}
-                  >
-                    <ChevronRightIcon className="size-4" />
-                  </Button>
+                  {photoRowScrolls ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="上一组照片"
+                        className="rounded-full border-border/60"
+                        onClick={() =>
+                          photoRowRef.current?.scrollBy({ left: -300, behavior: "smooth" })
+                        }
+                      >
+                        <ChevronLeftIcon className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="下一组照片"
+                        className="rounded-full border-border/60"
+                        onClick={() =>
+                          photoRowRef.current?.scrollBy({ left: 300, behavior: "smooth" })
+                        }
+                      >
+                        <ChevronRightIcon className="size-4" />
+                      </Button>
+                    </>
+                  ) : null}
                 </div>
                 <div ref={photoRowRef} className="flex gap-3 overflow-x-auto pb-1">
                   <button

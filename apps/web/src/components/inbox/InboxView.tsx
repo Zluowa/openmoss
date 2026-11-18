@@ -62,6 +62,7 @@ import {
   recapBucketsByStart,
   recapInputForRange,
   recapTokens,
+  showsTokenSpark,
   previousDayCutoffMs,
   resolveInboxDay,
   selectInboxTasks,
@@ -486,7 +487,7 @@ function RecapDigest({
               tile={tile}
               projectById={projectById}
               visual={
-                tile.id === "tokens" ? (
+                tile.id === "tokens" && showsTokenSpark(todayHourly) ? (
                   <TokenSpark today={todayHourly} hoursInDay={day.hours.length} />
                 ) : null
               }

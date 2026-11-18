@@ -118,3 +118,44 @@ export class BundledCodexRuntimeUnavailableError extends Error {
     this.name = "BundledCodexRuntimeUnavailableError";
   }
 }
+
+/**
+ * Agent runtimes a `download` build has not installed yet, comma-separated (`codex,claude`). The
+ * desktop sets it when it starts the server; the server clears an entry when the desktop reports
+ * that runtime ready on DESKTOP_AGENT_RUNTIMES_ROUTE_PATH.
+ */
+export const MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY = "MOSS_AGENT_RUNTIMES_PENDING";
+/** Desktop → server, authorized like the desktop shutdown route: `{ ready: [{ name, executablePath }] }`. */
+export const DESKTOP_AGENT_RUNTIMES_ROUTE_PATH = "/api/desktop/agent-runtimes";
+export type AgentRuntimeName = "codex" | "claude";
+
+export function pendingAgentRuntimes(
+  env: Readonly<Record<string, string | undefined>>,
+): ReadonlySet<string> {
+  return new Set(
+    (env[MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+}
+
+export function isAgentRuntimePending(
+  env: Readonly<Record<string, string | undefined>>,
+  name: AgentRuntimeName,
+): boolean {
+  return pendingAgentRuntimes(env).has(name);
+}
+
+/**
+ * Moss's own copy of an agent is still being fetched after install. Like a damaged bundle it
+ * must never send anyone to npm; unlike it, it fixes itself, so the message says so plainly.
+ */
+export class AgentRuntimePendingError extends BundledCodexRuntimeUnavailableError {
+  readonly pending = true as const;
+
+  constructor() {
+    super("正在准备智能体，首次使用需要下载。下载完成后会自动继续。");
+    this.name = "AgentRuntimePendingError";
+  }
+}

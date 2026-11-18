@@ -1967,6 +1967,26 @@ const EN_TRANSLATIONS = {
   "provider.health.moss.warningTitle": "Moss is getting ready",
   "provider.health.moss.warningDescription": "Please wait a moment, then try again.",
   "provider.health.disabled": "Provider is disabled in Moss settings.",
+  "agentRuntime.preparing.starting": "Getting the agent ready. The first time, Moss downloads it…",
+  "agentRuntime.preparing.progress":
+    "Getting the agent ready. The first time, Moss downloads it · {percent}% ({done} / {total} MB), about {time} left",
+  "agentRuntime.preparing.progressNoTime":
+    "Getting the agent ready. The first time, Moss downloads it · {percent}% ({done} / {total} MB)",
+  "agentRuntime.preparing.installing": "Getting the agent ready: almost done…",
+  "agentRuntime.preparing.paused": "Getting the agent ready: continues when this chat finishes",
+  "agentRuntime.time.seconds": "{count} s",
+  "agentRuntime.time.minutes": "{count} min",
+  "agentRuntime.failure.offline":
+    "No internet connection. Moss continues by itself when you are back online ({percent}% done).",
+  "agentRuntime.failure.proxy":
+    "Moss cannot reach its download server. If you use a proxy or a company network, make sure it lets Moss connect.",
+  "agentRuntime.failure.disk": "Not enough disk space. Free some space, then press Retry.",
+  "agentRuntime.failure.mismatch":
+    "The download was incomplete and has been removed. Please retry.",
+  "agentRuntime.failure.other": "The agent cannot be downloaded right now. Moss keeps trying.",
+  "agentRuntime.retry": "Retry",
+  "agentRuntime.held": "Sends by itself when the agent is ready",
+  "agentRuntime.held.cancel": "Cancel",
   "provider.health.manageProviders": "Manage providers",
   "provider.health.dismiss": "Dismiss provider status",
   "provider.send.blocked.signInMoss": "Sign in to Moss",
@@ -6375,6 +6395,24 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "provider.health.moss.warningTitle": "Moss 正在准备",
   "provider.health.moss.warningDescription": "请稍等片刻后再试。",
   "provider.health.disabled": "此服务商已在 Moss 设置中禁用。",
+  "agentRuntime.preparing.starting": "正在准备智能体，首次使用需要下载…",
+  "agentRuntime.preparing.progress":
+    "正在准备智能体，首次使用需要下载 · {percent}%（{done} / {total} MB），约剩 {time}",
+  "agentRuntime.preparing.progressNoTime":
+    "正在准备智能体，首次使用需要下载 · {percent}%（{done} / {total} MB）",
+  "agentRuntime.preparing.installing": "正在准备智能体：马上就好…",
+  "agentRuntime.preparing.paused": "正在准备智能体：这次对话结束后继续下载",
+  "agentRuntime.time.seconds": "{count} 秒",
+  "agentRuntime.time.minutes": "{count} 分钟",
+  "agentRuntime.failure.offline": "没有网络连接。联网后会自动继续（已完成 {percent}%）。",
+  "agentRuntime.failure.proxy":
+    "无法连接到 Moss 下载服务器。如果你使用代理或公司网络，请确认它允许 Moss 联网。",
+  "agentRuntime.failure.disk": "磁盘空间不足。清理一些空间后点重试。",
+  "agentRuntime.failure.mismatch": "下载的文件不完整，已删除。请重试。",
+  "agentRuntime.failure.other": "暂时无法下载智能体，Moss 会自动重试。",
+  "agentRuntime.retry": "重试",
+  "agentRuntime.held": "智能体准备好后自动发送",
+  "agentRuntime.held.cancel": "取消",
   "provider.health.manageProviders": "管理服务商",
   "provider.health.dismiss": "关闭服务商状态提示",
   "provider.send.blocked.signInMoss": "登录 Moss",

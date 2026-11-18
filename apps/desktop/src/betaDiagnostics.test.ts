@@ -85,6 +85,67 @@ describe("sanitizeBetaDiagnosticsPayload", () => {
     });
   });
 
+  it("keeps an agent runtime fetch to fixed fields, with no URL or path", () => {
+    const sanitized = sanitizeBetaDiagnosticsPayload({
+      kind: "runtime",
+      name: "codex",
+      version: "0.166.0",
+      outcome: "ready",
+      durationMs: 18_250.7,
+      installMs: 7_100,
+      bytesTransferred: 113_000_000,
+      resumedFromBytes: 40_000_000,
+      sourceIndex: 1,
+      retries: 2,
+      switches: 3,
+      mismatchRestarts: 0,
+      // @ts-expect-error deliberately smuggling a forbidden field
+      url: "https://update.mossbotai.com/runtimes/v1/codex",
+      executablePath: "C:\\Users\\someone\\AppData\\Local\\Moss\\runtimes\\codex.exe",
+    });
+    expect(JSON.stringify(sanitized)).not.toContain("mossbotai");
+    expect(JSON.stringify(sanitized)).not.toContain("someone");
+    expect(sanitized).toEqual({
+      kind: "runtime",
+      name: "codex",
+      version: "0.166.0",
+      outcome: "ready",
+      durationMs: 18_250,
+      installMs: 7_100,
+      bytesTransferred: 113_000_000,
+      resumedFromBytes: 40_000_000,
+      sourceIndex: 1,
+      retries: 2,
+      switches: 3,
+      mismatchRestarts: 0,
+    });
+  });
+
+  it("names an unknown runtime or outcome only as unknown", () => {
+    const sanitized = sanitizeBetaDiagnosticsPayload({
+      kind: "runtime",
+      name: "C:\\Users\\someone",
+      version: "../../etc/passwd",
+      outcome: "ENOENT: no such file C:\\Users\\someone",
+      durationMs: -1,
+      installMs: Number.NaN,
+      bytesTransferred: 0,
+      resumedFromBytes: 0,
+      sourceIndex: 99,
+      retries: 0,
+      switches: 0,
+      mismatchRestarts: 0,
+    });
+    expect(sanitized).toMatchObject({
+      name: "unknown",
+      version: "unknown",
+      outcome: "unknown",
+      durationMs: 0,
+      installMs: 0,
+      sourceIndex: -1,
+    });
+  });
+
   it("rejects malformed version strings", () => {
     const sanitized = sanitizeBetaDiagnosticsPayload({
       kind: "update",

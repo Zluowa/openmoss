@@ -103,10 +103,18 @@ import { getLocalFolderBrowseRootPath } from "~/lib/localFolderMentions";
 import {
   findProviderStatus,
   isProviderDurablyUnavailable,
+  isProviderUsable,
   isServerConfiguredMossDefaultManagedProvider,
   resolveProviderSendAdmission,
   resolveVoiceTranscriptionTarget,
 } from "~/lib/providerAvailability";
+import { pendingAgentRuntimeFor } from "~/lib/agentRuntimePreparation";
+import {
+  retryAgentRuntimeDownloads,
+  useAgentRuntimeBusySignal,
+  useAgentRuntimeDownloads,
+  useAgentRuntimeHeldSend,
+} from "~/hooks/useAgentRuntimeDownloads";
 import {
   isMossPayAccountTransitionPending,
   resolveMossPayQuotaAccountIdentity,
@@ -433,6 +441,7 @@ import {
 } from "./chat/ComposerClaudeCacheReviewPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
+import { AgentRuntimePreparingPanel } from "./chat/AgentRuntimePreparingPanel";
 import {
   COMPUTER_CONTROL_HINT_EFFORT,
   shouldShowComputerControlEffortHint,
@@ -2965,16 +2974,26 @@ export default function ChatView({
     () => findProviderStatus(providerStatuses, selectedProvider, selectedProviderInstanceId),
     [selectedProvider, selectedProviderInstanceId, providerStatuses],
   );
+  const agentRuntimeStates = useAgentRuntimeDownloads();
+  useAgentRuntimeBusySignal();
+  // In a `download` build the agent this chat needs may still be downloading. A person's own
+  // install is used meanwhile, so only a provider the server cannot run yet waits for it.
+  const preparingAgentRuntime = isProviderUsable(activeProviderStatus)
+    ? null
+    : pendingAgentRuntimeFor(selectedProvider, agentRuntimeStates);
+  const agentRuntimeHoldRef = useRef<(() => void) | null>(null);
   const activeProviderHealthBannerDismissalKey = useMemo(
     () => getProviderHealthBannerDismissalKey(activeProviderStatus),
     [activeProviderStatus],
   );
   const visibleActiveProviderStatus =
-    !isProviderDurablyUnavailable(activeProviderStatus) &&
-    activeProviderHealthBannerDismissalKey &&
-    dismissedProviderHealthBannerKeys.includes(activeProviderHealthBannerDismissalKey)
+    preparingAgentRuntime !== null
       ? null
-      : activeProviderStatus;
+      : !isProviderDurablyUnavailable(activeProviderStatus) &&
+          activeProviderHealthBannerDismissalKey &&
+          dismissedProviderHealthBannerKeys.includes(activeProviderHealthBannerDismissalKey)
+        ? null
+        : activeProviderStatus;
   const voiceProviderTarget = useMemo(
     () =>
       resolveVoiceTranscriptionTarget({
@@ -5775,6 +5794,11 @@ export default function ChatView({
   const onSend = useCallback(
     async (...args: Parameters<typeof submitComposerTurn>) => {
       args[0]?.preventDefault();
+      // The agent is still downloading: keep the message and send it by itself when ready.
+      if (args[2] === undefined && agentRuntimeHoldRef.current) {
+        agentRuntimeHoldRef.current();
+        return false;
+      }
       if (args[2] === undefined) {
         const imageHost = getConversationImageComposer(threadId);
         if (imageHost && !(await imageHost.beforeSend())) return false;
@@ -5790,6 +5814,16 @@ export default function ChatView({
     },
     [claudeSwitchKey, submitComposerTurn, threadId],
   );
+  const sendHeldAgentRuntimeMessage = useCallback(() => void onSend(), [onSend]);
+  const agentRuntimeHeldSend = useAgentRuntimeHeldSend({
+    threadId,
+    pending: preparingAgentRuntime !== null,
+    send: sendHeldAgentRuntimeMessage,
+  });
+  const holdForAgentRuntime = preparingAgentRuntime ? agentRuntimeHeldSend.hold : null;
+  useEffect(() => {
+    agentRuntimeHoldRef.current = holdForAgentRuntime;
+  }, [holdForAgentRuntime]);
   // Reply card "Send reply" (Ctrl/⌘+Enter): the quote and the reader's reply go out as one
   // message. It is offered only while the composer holds nothing else, so the reader's own
   // draft is never sent along with it. The quote is staged first and sent on the render that
@@ -6735,12 +6769,20 @@ export default function ChatView({
   );
   const activeProviderSendAdmission = useMemo(
     () =>
-      resolveProviderSendAdmission(
-        activeProviderStatus,
-        selectedProviderInstanceId,
-        activeManagedProviderConfigured,
-      ),
-    [activeManagedProviderConfigured, activeProviderStatus, selectedProviderInstanceId],
+      // Sending stays possible while the agent downloads: onSend holds the message.
+      preparingAgentRuntime !== null
+        ? ({ state: "ready", unavailableReason: null } as const)
+        : resolveProviderSendAdmission(
+            activeProviderStatus,
+            selectedProviderInstanceId,
+            activeManagedProviderConfigured,
+          ),
+    [
+      activeManagedProviderConfigured,
+      activeProviderStatus,
+      preparingAgentRuntime,
+      selectedProviderInstanceId,
+    ],
   );
   // No manual useMemo here: the hand-written dep list referenced
   // `showPlanFollowUpPrompt`, whose compiler-inferred scope stays open across
@@ -7631,6 +7673,15 @@ export default function ChatView({
                 onEditPaused={onEditPausedQueuedComposerTurn}
                 cwd={threadWorkspaceCwd ?? undefined}
               />
+              {preparingAgentRuntime ? (
+                <AgentRuntimePreparingPanel
+                  state={preparingAgentRuntime}
+                  held={agentRuntimeHeldSend.held}
+                  onRetry={retryAgentRuntimeDownloads}
+                  onCancelHeld={agentRuntimeHeldSend.cancel}
+                  attachedToPrevious={queuedComposerTurns.length > 0}
+                />
+              ) : null}
               {isCoordinatorConversation && activeThread ? (
                 <HubPendingApprovals
                   threadIds={hubApprovalThreadIds}

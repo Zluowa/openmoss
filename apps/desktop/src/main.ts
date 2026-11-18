@@ -6,6 +6,15 @@ import {
 } from "./desktopThemePreference";
 import { showDiagnosticStartupDialog } from "./startupDiagnosticDialog";
 import { createBundledMossCanvas, resolveBundledMossCanvasRoot } from "./mossCanvasRuntime";
+import {
+  type AgentRuntimeDownloads,
+  type AgentRuntimeDownloadState,
+  createAgentRuntimeDownloads,
+  loadAgentRuntimePins,
+} from "./agentRuntimeDownloads";
+import { notifyBackendAgentRuntimeReady } from "./agentRuntimeNotice";
+import { defaultAgentRuntimeStoreRoot } from "@moss/shared/agentRuntimeStore";
+import { MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY } from "@moss/shared/codexRuntime";
 import { ensureDownloadDirectories } from "./downloadDirectories";
 import { BackendIssueDetector } from "./backendIssueDetector";
 import { CuaDriverHost, sweepOrphanedCuaDrivers } from "./cuaDriverHost";
@@ -435,7 +444,7 @@ import {
   type CodeUpdateApplyRequest,
 } from "./codeUpdateClient";
 import type { CodeUpdateApplyReport } from "@moss/shared/codeUpdate";
-import { mossDownloadSourceOrder } from "@moss/shared/mossDownloadSources";
+import { MOSS_DOWNLOAD_SOURCES, mossDownloadSourceOrder } from "@moss/shared/mossDownloadSources";
 import {
   CODE_UPDATE_PREVIEW_MARKER_FILE,
   CODE_UPDATE_PREVIEW_MARKER_ON,
@@ -471,6 +480,7 @@ import {
   resolveBundledClaudeBinary,
 } from "./bundledClaude";
 import {
+  MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
   resolveBundledCodexBinary,
   resolveBundledCodexBinaryAsync,
   toBundledCodexBackendEnv,
@@ -5896,6 +5906,118 @@ function desktopProductionPublicConfig(): MossProductionPublicConfig | null {
   return productionPublicConfigCache;
 }
 
+// A `download` build ships the Codex and Claude Code runtimes as archives Moss fetches after
+// install (agentRuntimeDownloads.ts); a bundled build carries them in resources/ as before.
+let agentRuntimeDownloads: AgentRuntimeDownloads | null = null;
+let agentRuntimeStates: ReadonlyArray<AgentRuntimeDownloadState> = [];
+const AGENT_RUNTIME_PATH_ENV_KEYS: Readonly<Record<string, string>> = {
+  codex: MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
+  claude: MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY,
+};
+
+/** Test kits point downloads at a local mirror; everyone else uses Moss's own sources. */
+function agentRuntimeSourceBases(): ReadonlyArray<string> {
+  const override = process.env.MOSS_RUNTIME_SOURCE_BASES?.trim();
+  if (override)
+    return override
+      .split(",")
+      .map((base) => base.trim())
+      .filter(Boolean);
+  return MOSS_DOWNLOAD_SOURCES[
+    mossDownloadSourceOrder({
+      lane: null,
+      locale: app.getLocale(),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    })
+  ];
+}
+
+function emitAgentRuntimeStates(states: ReadonlyArray<AgentRuntimeDownloadState>): void {
+  agentRuntimeStates = states;
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed() || isRealtimeVoiceOverlayWindow(window)) continue;
+    window.webContents.send(IPC.agentRuntimes.state, states);
+  }
+}
+
+async function startAgentRuntimeDownloads(): Promise<void> {
+  if (!app.isPackaged) return;
+  const pins = await loadAgentRuntimePins({
+    appPath: app.getAppPath(),
+    platform: process.platform,
+    arch: process.arch,
+  });
+  if (!pins) return;
+  writeDesktopLogHeader(
+    `agent runtimes: download build, ${pins.map((pin) => `${pin.name} ${pin.version}`).join(", ")}`,
+  );
+  agentRuntimeDownloads = createAgentRuntimeDownloads({
+    pins,
+    storeRoot: defaultAgentRuntimeStoreRoot({
+      env: process.env,
+      platform: process.platform,
+      homeDir: OS.homedir(),
+    }),
+    sourceBases: agentRuntimeSourceBases,
+    // Electron's network stack: the system proxy, PAC files and certificates apply, as in Chrome.
+    fetch: (url, init) => net.fetch(url, { headers: init.headers, signal: init.signal }),
+    onChange: emitAgentRuntimeStates,
+    onReady: (name, executablePath) => {
+      writeDesktopLogHeader(`agent runtimes: ${name} ready`);
+      refreshDesktopVoiceEnvironment();
+      void notifyBackendAgentRuntimeReady({
+        backendHttpUrl: () => (backendProcess ? backendHttpUrl : ""),
+        shutdownToken: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
+        ready: [{ name, executablePath }],
+        onError: (message) => safeConsoleError(`[desktop] ${message}`),
+      });
+    },
+    onReport: (report) => {
+      writeDesktopLogHeader(
+        `agent runtimes: ${report.name} ${report.outcome} in ${report.durationMs} ms (source ${report.download?.sourceIndex ?? -1}, ${report.download?.switches ?? 0} switches, ${report.download?.retries ?? 0} retries)`,
+      );
+      betaDiagnostics?.trackAgentRuntimeFetch(report);
+    },
+    log: (message) => safeConsoleError(`[desktop] ${message}`),
+  });
+  powerMonitor.on("resume", () => agentRuntimeDownloads?.retry());
+  await agentRuntimeDownloads.start();
+}
+
+/**
+ * The environment desktop voice transcription resolves Codex from. It is read on every call, so a
+ * runtime that finishes downloading is used from then on.
+ */
+let desktopVoiceEnvironmentCache: NodeJS.ProcessEnv | null = null;
+function desktopVoiceEnvironment(): NodeJS.ProcessEnv {
+  desktopVoiceEnvironmentCache ??= {
+    ...process.env,
+    ...(agentRuntimeDownloads ? agentRuntimeBackendEnv() : bundledCodexBackendEnv()),
+  };
+  return desktopVoiceEnvironmentCache;
+}
+function refreshDesktopVoiceEnvironment(): void {
+  if (!desktopVoiceEnvironmentCache || !agentRuntimeDownloads) return;
+  delete desktopVoiceEnvironmentCache[MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY];
+  Object.assign(desktopVoiceEnvironmentCache, agentRuntimeBackendEnv());
+}
+
+/** In a `download` build: the runtimes installed so far, and the rest marked as being prepared. */
+function agentRuntimeBackendEnv(): NodeJS.ProcessEnv {
+  if (!agentRuntimeDownloads) return {};
+  const ready = agentRuntimeDownloads.readyPaths();
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, executablePath] of ready) {
+    const key = AGENT_RUNTIME_PATH_ENV_KEYS[name];
+    if (key) env[key] = executablePath;
+  }
+  const pending = agentRuntimeStates
+    .map((state) => state.name)
+    .filter((name) => !ready.has(name) && AGENT_RUNTIME_PATH_ENV_KEYS[name]);
+  if (pending.length > 0) env[MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY] = pending.join(",");
+  return env;
+}
+
 function bundledCodexBackendEnv(): NodeJS.ProcessEnv {
   if (!app.isPackaged) return {};
   if (bundledCodexBackendEnvCache) return bundledCodexBackendEnvCache;
@@ -6152,10 +6274,13 @@ function backendEnv(): NodeJS.ProcessEnv {
   const servedStaticRoot = resolveServedStaticRoot();
   const migrationSourceDigest = embeddedDesktopMigrationRuntimeSourceDigest();
   const migrationDivergenceConsent = migrationConsentHandoff.take();
-  const bundledClaudePath = resolveBundledClaudeBinary({
-    isPackaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-  });
+  // A download build ships no Claude in resources/: resolving it there is a fatal startup error.
+  const bundledClaudePath = agentRuntimeDownloads
+    ? undefined
+    : resolveBundledClaudeBinary({
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+      });
   const productionPublicConfig = desktopProductionPublicConfig();
   const commitHash = resolveBackendCommitHash();
   const env = resolveBrowserHostPipeBackendEnv(
@@ -6197,8 +6322,14 @@ function backendEnv(): NodeJS.ProcessEnv {
         MOSS_HOOLA_CANVAS_BRIDGE_TOKEN: hoolaCanvasBridgeToken,
         MOSS_DESKTOP_SHUTDOWN_TOKEN: DESKTOP_BACKEND_SHUTDOWN_TOKEN,
         MOSS_APPSNAP_HELPER_PATH: resolveAppSnapHelperPath(),
-        ...(bundledClaudePath ? { [MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY]: bundledClaudePath } : {}),
-        ...bundledCodexBackendEnv(),
+        ...(agentRuntimeDownloads
+          ? agentRuntimeBackendEnv()
+          : {
+              ...(bundledClaudePath
+                ? { [MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY]: bundledClaudePath }
+                : {}),
+              ...bundledCodexBackendEnv(),
+            }),
         ...DESKTOP_SENTRY_BACKEND_ENV,
         [MOSS_ERROR_REPORTS_ENABLED_ENV]: desktopErrorReportsEnabled() ? "1" : "0",
         ...(cuaHostEndpoint ? { [CUA_HOST_SOCKET_ENV]: cuaHostEndpoint } : {}),
@@ -8469,6 +8600,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(IPC.updateGetState);
   registerIpcHandle(IPC.updateGetState, async () => updateState);
+  registerIpcHandle(IPC.agentRuntimes.getState, async () => agentRuntimeStates);
+  registerIpcHandle(IPC.agentRuntimes.retry, async () => {
+    agentRuntimeDownloads?.retry();
+  });
+  registerIpcHandle(IPC.agentRuntimes.setBusy, async (_event, busy: unknown) => {
+    agentRuntimeDownloads?.setBusy(busy === true);
+  });
 
   ipcMain.removeHandler(IPC.updateCheck);
   registerIpcHandle(IPC.updateCheck, async () => {
@@ -8683,20 +8821,14 @@ function registerIpcHandlers(): void {
     // caches can disagree and leave the first control click passing through.
     setRealtimeVoiceOverlayPointerInteractivity(overlay, interactive, true);
   });
-  registerDesktopVoiceTranscriptionHandler(
-    {
-      ...process.env,
-      ...bundledCodexBackendEnv(),
-    },
-    {
-      transcribeViaMossBackend: (input) =>
-        requestDesktopBackendVoiceTranscription(input, {
-          backendHttpUrl,
-          backendAuthToken,
-          locale: app.getLocale(),
-        }),
-    },
-  );
+  registerDesktopVoiceTranscriptionHandler(desktopVoiceEnvironment(), {
+    transcribeViaMossBackend: (input) =>
+      requestDesktopBackendVoiceTranscription(input, {
+        backendHttpUrl,
+        backendAuthToken,
+        locale: app.getLocale(),
+      }),
+  });
   startBrowserPerformanceLogging();
   registerBrowserIpcHandlers(ipcMain, browserManager);
   registerBrowserPanelIpcHandlers(ipcMain, {
@@ -9583,14 +9715,20 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
+  // A `download` build knows here which runtimes are installed; missing ones download in the
+  // background from now on, the default agent's first.
+  await startAgentRuntimeDownloads();
+
   // The packaged runtime is byte-pinned at build time. Its first Windows start
   // can still take longer than a warm synchronous --version check. Validate
   // asynchronously before backendEnv consumes it, retaining version drift guards.
-  await prepareBundledClaudeStartupVersion({
-    isPackaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-  });
-  if (app.isPackaged) {
+  if (!agentRuntimeDownloads) {
+    await prepareBundledClaudeStartupVersion({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    });
+  }
+  if (app.isPackaged && !agentRuntimeDownloads) {
     const codex = await resolveBundledCodexBinaryAsync({
       resourcesPath: process.resourcesPath,
       platform: process.platform,

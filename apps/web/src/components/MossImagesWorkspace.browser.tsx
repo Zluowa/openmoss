@@ -1301,6 +1301,56 @@ describe("Moss Images browser workflow", () => {
     expect(calls.generate).not.toHaveBeenCalled();
   });
 
+  it("signed out: the notice has room above it, the photo picker shows a picture and no arrows", async () => {
+    await page.viewport(1280, 800);
+    catalog = { ...catalog, account: null };
+    await mountWorkspace();
+    await expect.element(page.getByText("登录 Moss 账号后使用套餐额度生成图像。")).toBeVisible();
+    const notice = [
+      ...document.querySelectorAll<HTMLElement>("[data-moss-images-workspace] div"),
+    ].find(
+      (element) => element.firstChild?.textContent === "登录 Moss 账号后使用套餐额度生成图像。",
+    );
+    // The tester saw the notice flush against the top edge of the page.
+    const workspaceTop = document
+      .querySelector("[data-moss-images-workspace]")!
+      .getBoundingClientRect().top;
+    const text = document.createRange();
+    text.selectNodeContents(notice!.firstChild!);
+    expect(text.getBoundingClientRect().top - workspaceTop).toBeGreaterThanOrEqual(20);
+    // "选择参考照片" showed a left arrow, which reads as "back".
+    const picker = page.getByRole("button", { name: "选择参考照片" }).element();
+    const glyph = picker.querySelector<HTMLElement>("[data-slot=central-icon]")!;
+    const glyphMask = glyph.style.mask || glyph.style.webkitMask;
+    expect(glyphMask).not.toContain("chevron-left");
+    expect(glyphMask).toContain("images-1");
+    // One upload card fits the row: no previous / next buttons beside 添加照片.
+    expect(page.getByRole("button", { name: "上一组照片" }).elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "下一组照片" }).elements()).toHaveLength(0);
+  });
+
+  it("shows the photo row's previous / next buttons once the row holds more than it shows", async () => {
+    // Four photos (the most allowed) and the upload card overflow a narrow window's row.
+    await page.viewport(600, 800);
+    await mountWorkspace();
+    expect(page.getByRole("button", { name: "下一组照片" }).elements()).toHaveLength(0);
+    const blob = await (await fetch(originalImage)).blob();
+    const drop = new DataTransfer();
+    for (let index = 0; index < 4; index += 1) {
+      drop.items.add(new File([blob], `photo-${index}.png`, { type: "image/png" }));
+    }
+    document
+      .querySelector("[data-moss-images-workspace]")!
+      .dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: drop }),
+      );
+    await expect
+      .element(page.getByRole("button", { name: "移除 photo-3.png" }))
+      .toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: "下一组照片" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "上一组照片" })).toBeVisible();
+  });
+
   it("keeps the entry composer above the photo row while browsing, accepts drop/paste and reuses a generated reference", async () => {
     catalog = {
       ...catalog,

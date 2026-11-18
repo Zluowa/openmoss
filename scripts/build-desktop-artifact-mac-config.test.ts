@@ -304,8 +304,30 @@ describe("createDesktopPlatformBuildConfig", () => {
     )
       .split("\n")
       .filter((line) => !line.trimStart().startsWith(";"))
+      // The one folder a real uninstall removes: downloaded agent runtimes (tested below).
+      .filter((line) => !/^\s*RMDir (\/r "\$0\\Moss\\runtimes"|"\$0\\Moss")$/u.test(line))
       .join("\n");
     assert.notMatch(installerCommands, /RMDir|\bDelete\b|codex|\.moss/i);
+  });
+
+  it("removes the downloaded agent runtimes on a real uninstall, never on an update", () => {
+    const installerScript = readFileSync(
+      new URL("../apps/desktop/resources/installer.nsh", import.meta.url),
+      "utf8",
+    );
+    const uninstall = /!macro customUnInstall([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    // Everything in the macro sits inside the not-an-update branch.
+    const realUninstall =
+      /^\s*\$\{ifNot\} \$\{isUpdated\}([\s\S]*)\$\{endIf\}\s*$/u.exec(uninstall)?.[1] ?? "";
+    assert.match(
+      realUninstall,
+      /ReadEnvStr \$0 LOCALAPPDATA\s+\$\{if\} \$0 != ""\s+RMDir \/r "\$0\\Moss\\runtimes"\s+RMDir "\$0\\Moss"\s+\$\{endIf\}/u,
+    );
+    // Only the runtimes folder is removed with its contents; Moss's folder only when empty.
+    assert.deepStrictEqual(
+      [...installerScript.matchAll(/^\s*RMDir .*$/gmu)].map((match) => match[0].trim()),
+      ['RMDir /r "$0\\Moss\\runtimes"', 'RMDir "$0\\Moss"'],
+    );
   });
 
   it("routes SSL.com eSigner through electron-builder so inner binaries and NSIS are signed", () => {

@@ -6,7 +6,8 @@ import {
   runningSubagentRosterItem,
   subagentRosterItem,
 } from "./environment/subagentRosterFixtures";
-import { SubagentsList } from "./SubagentsDockPane";
+import { translateMoss } from "../../localization";
+import { localizedModelLabel, SubagentsList } from "./SubagentsDockPane";
 
 const noop = () => undefined;
 
@@ -139,5 +140,23 @@ describe("SubagentsList", () => {
     );
 
     expect(markup).toContain("No active subagents");
+  });
+});
+
+// The tester's panel said "GPT-6.1 Terra · max" while the composer said 最大.
+describe("localizedModelLabel", () => {
+  it("says the effort in the composer's words and leaves the model name alone", () => {
+    const zh = (key: Parameters<typeof translateMoss>[1]) => translateMoss("zh-CN", key);
+    const en = (key: Parameters<typeof translateMoss>[1]) => translateMoss("en", key);
+    expect(localizedModelLabel(zh, "GPT-6.1 Terra · max")).toBe(
+      `GPT-6.1 Terra · ${translateMoss("zh-CN", "chat.effort.max")}`,
+    );
+    expect(localizedModelLabel(zh, "GPT-6.1 Terra · max")).toBe("GPT-6.1 Terra · 最大");
+    expect(localizedModelLabel(zh, "Opus 5.5 · xhigh")).toBe("Opus 5.5 · 极高");
+    expect(localizedModelLabel(en, "GPT-6.1 Terra · max")).toBe("GPT-6.1 Terra · Max");
+    // A label without a known effort, or only a model, stays as it is.
+    expect(localizedModelLabel(zh, "GPT-6.1 Terra")).toBe("GPT-6.1 Terra");
+    expect(localizedModelLabel(zh, "Opus 5.5 · custom")).toBe("Opus 5.5 · custom");
+    expect(localizedModelLabel(zh, "high")).toBe("高");
   });
 });

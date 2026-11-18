@@ -15,6 +15,7 @@ import { pluralize } from "@moss/shared/text";
 
 import type { ProviderUsageProgressTrackProps } from "~/lib/providerUsageDisplay";
 import { formatClockDuration } from "../../session-logic";
+import { formatWorkedDuration } from "../chat/workedForPresentation";
 import { formatCompact, formatNumber } from "../profile/profileFormatting";
 import {
   compareWithYesterday,
@@ -231,7 +232,7 @@ export function buildInboxDigest(input: InboxRecapInput): DigestSentence[] {
         id: "agents",
         parts: [
           text("智能体累计工作 "),
-          strong(formatClockDuration(totals.agentWorkMs)),
+          strong(formatWorkedDuration(totals.agentWorkMs, "zh-CN")),
           text(`，失败 ${formatNumber(totals.failedTurns)} 次。`),
         ],
       });
@@ -240,7 +241,7 @@ export function buildInboxDigest(input: InboxRecapInput): DigestSentence[] {
         id: "yesterday",
         parts: [
           text("今天尚无运行。昨天使用 "),
-          strong(`${formatCompact(recapTokens(previousRecap.totals))} tokens`),
+          strong(`${formatCompact(recapTokens(previousRecap.totals), "zh-CN")} tokens`),
           text("。"),
         ],
       });
@@ -483,8 +484,17 @@ export function buildInboxTiles(
       yesterday: "昨天使用的 tokens",
       quota: "剩余额度",
     };
+    // Chinese numbers and units: 17.5万 tokens, 1 分钟 20 秒 (the 已工作 header's words).
+    const values: Partial<Record<InboxTileId, string>> = {
+      tokens: `${formatCompact(tokens, "zh-CN")} tokens`,
+      agents: formatWorkedDuration(totals.agentWorkMs, "zh-CN"),
+      ...(previousRecap
+        ? { yesterday: `${formatCompact(recapTokens(previousRecap.totals), "zh-CN")} tokens` }
+        : {}),
+    };
     return tiles.map((tile) => ({
       ...tile,
+      value: values[tile.id] ?? tile.value,
       lead: leads[tile.id],
       detail:
         tile.id === "agents"
