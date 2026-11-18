@@ -130,3 +130,14 @@ describe("ws lane --quick", () => {
     );
   }, 60_000);
 });
+
+describe("no tree kill", () => {
+  it("ws never runs taskkill /T: stale parent PIDs would reach other programs", () => {
+    const lib = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "lib");
+    for (const name of fs.readdirSync(lib).filter((f) => f.endsWith(".ts"))) {
+      const text = fs.readFileSync(path.join(lib, name), "utf8");
+      expect(text, name).not.toMatch(/["']\/T["']/);
+      expect(text, name).not.toMatch(/stopProcessTree/);
+    }
+  });
+});
