@@ -25,9 +25,11 @@ import {
 } from "./lock.ts";
 import { isInsideOrEqual, isStrictlyInside, normalize, pathKey, samePath } from "./paths.ts";
 import {
+  descendantsOf,
   listProcesses,
   orphanedDevProcesses,
   processesUsing,
+  stopPid,
   stopProcessTree,
   type ProcessInfo,
 } from "./proc.ts";
@@ -819,7 +821,10 @@ export async function cmdLane(
   const lane = args.positionals[0];
   const command = args.rest;
   if (!lane || command.length === 0) {
-    io.err("usage: ws lane <name> [--owner <session>] [--shell] -- <command...>");
+    io.err("usage: ws lane <name> [--owner <session>] [--shell] [--quick] -- <command...>");
+    io.err(
+      "--quick: a short job (one test file, one typecheck, a code-update build); it goes ahead of long jobs in the queue and is stopped after lock.quickCapMinutes (10).",
+    );
     return 2;
   }
   const drives = [
@@ -868,6 +873,7 @@ export async function cmdLane(
     staleMs: profile.lock.staleHours * 3600_000,
     pollMs: profile.lock.pollSeconds * 1000,
     owner: { owner: ownerFrom(args), lane, sha, command: command.join(" ").slice(0, 300) },
+    jobClass: args.flags.has("quick") ? "quick" : "long",
     log: io.err,
     priorityOwners: profile.lock.priorityOwners,
   });
@@ -937,6 +943,27 @@ export async function cmdLane(
       child.on("error", (error) => {
         io.err(`ws lane ${lane}: could not start ${command[0]}: ${error.message}`);
         resolve(127);
+      });
+      // A quick run promised to be short: past its cap, stop it and what it started (only
+      // processes that began after it did, each by its PID), and give the lane back.
+      const launchedAt = Date.now() - 2_000;
+      const cap = args.flags.has("quick")
+        ? setTimeout(() => {
+            void (async () => {
+              io.err(
+                `ws lane ${lane}: --quick run still going after ${profile.lock.quickCapMinutes} min; stopping it`,
+              );
+              const tree = child.pid
+                ? descendantsOf(await listProcesses(), child.pid, launchedAt)
+                : [];
+              for (const p of tree.toReversed()) stopPid(p.pid);
+              if (child.exitCode === null) child.kill("SIGKILL");
+            })();
+          }, profile.lock.quickCapMinutes * 60_000)
+        : undefined;
+      cap?.unref();
+      child.on("exit", () => {
+        if (cap) clearTimeout(cap);
       });
       child.on("exit", (c, signal) => {
         process.off("SIGINT", onInt);

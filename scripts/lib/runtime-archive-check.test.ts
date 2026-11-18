@@ -1,9 +1,12 @@
+import { agentRuntimeObjectPath } from "@moss/shared/agentRuntimeStore";
 import { describe, expect, it } from "vitest";
 
+import { AGENT_RUNTIME_PINS_FEED_FILE } from "./agent-runtime-archives.ts";
 import {
   checkRuntimeArchivesServed,
   formatRuntimeArchiveLine,
   parseRuntimePins,
+  RUNTIME_PINS_FILE_NAME,
   runtimeArchiveObjectPath,
   runtimeArchivesMissingMessage,
   type RuntimeArchivePin,
@@ -57,28 +60,10 @@ describe("runtime-pins.json", () => {
     expect(runtimeArchiveObjectPath(pin)).toBe(PATH);
   });
 
-  it("agrees with the app's own agentRuntimeObjectPath", async () => {
-    // Loaded by a computed name: the scripts typecheck cannot take that module in (its downloader's
-    // stream types do not check under the DOM library), but the two must never drift apart.
-    const moduleName = ["@moss/shared", "agentRuntimeStore"].join("/");
-    const app = (await import(/* @vite-ignore */ moduleName)) as {
-      readonly agentRuntimeObjectPath: (value: unknown) => string;
-    };
-    const samples: RuntimeArchivePin[] = [
-      pin,
-      {
-        name: "claude",
-        version: "2.1.317",
-        platform: "darwin",
-        arch: "arm64",
-        archive: { size: 1, sha256: "fedcba9876543210".repeat(4) },
-      },
-    ];
-    for (const sample of samples) {
-      expect(runtimeArchiveObjectPath(sample)).toBe(
-        app.agentRuntimeObjectPath({ ...sample, executable: "bin", files: [] }),
-      );
-    }
+  it("is the app's own path function, and names the file the build writes", () => {
+    const full = { ...pin, executable: "codex.exe", files: [] };
+    expect(runtimeArchiveObjectPath(pin)).toBe(agentRuntimeObjectPath(full));
+    expect(RUNTIME_PINS_FILE_NAME).toBe(AGENT_RUNTIME_PINS_FEED_FILE);
   });
 
   it("reads schemaVersion 1, keeping only what names and sizes each archive", () => {

@@ -60,6 +60,7 @@ describe("profile", () => {
       pollSeconds: 10,
       priorityOwners: ["lead"],
       warnMinutes: 20,
+      quickCapMinutes: 10,
     });
   });
 
