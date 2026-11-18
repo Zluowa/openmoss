@@ -7,7 +7,8 @@
  * relay registration is renewed every hour (a refresh of a known share neither counts against
  * the account's share limit nor its registration rate), and after a relay restart the host
  * client registers it again. Links keep the relay entry the publisher was registered on;
- * renewals and the host socket go through the relay's entry in use.
+ * renewals and the host socket go through the relay's entry in use. A retired entry (comiction.cn)
+ * is read as its replacement on the same relay (`currentShareRelayOrigin`).
  */
 import {
   SHARE_RELAY_PROTOCOL_VERSION,
@@ -28,6 +29,7 @@ import {
 } from "../../guestShare/shareRelayHostClient.ts";
 import { registerShareWithRelay } from "../../guestShare/shareRelayRegistration.ts";
 import {
+  currentShareRelayOrigin,
   isOnAccountShareRelay,
   resolveShareRelayAccount,
   shareRelayEntriesForOrigin,
@@ -85,6 +87,12 @@ export const makePageSharePublisher = (deps: {
         })
       | null = null;
     let relayStatus: PageShareRelayStatus = "unavailable";
+    /** The stored publisher, its relay origin read through `currentShareRelayOrigin`. */
+    const storedPublisher = store.getPublisher.pipe(
+      Effect.map((row) =>
+        row === null ? null : { ...row, relay_origin: currentShareRelayOrigin(row.relay_origin) },
+      ),
+    );
 
     /** Registers or renews `row`; returns the relay entry the registration went through. */
     const register = (row: PublisherRow) =>
@@ -167,7 +175,7 @@ export const makePageSharePublisher = (deps: {
     const ensure: PageSharePublisher["ensure"] = lock.withPermits(1)(
       Effect.gen(function* () {
         if (current !== null) return current.row;
-        const stored = yield* store.getPublisher.pipe(
+        const stored = yield* storedPublisher.pipe(
           Effect.mapError((cause) => pageSharingError("storage", "读取分享设置失败。", { cause })),
         );
         if (stored !== null) {
@@ -209,7 +217,7 @@ export const makePageSharePublisher = (deps: {
       .withPermits(1)(
         Effect.gen(function* () {
           if (current !== null) return;
-          const stored = yield* store.getPublisher;
+          const stored = yield* storedPublisher;
           if (stored === null) return;
           // A failed refresh is not fatal: the client registers again when the relay answers 4404.
           yield* register(stored).pipe(

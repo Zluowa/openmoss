@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   isTrustedMossManagedGatewayUrl,
   isTrustedMossManagedGatewayUrlForAuthority,
+  MOSS_MANAGED_GATEWAY_AUTHORITIES,
   mossManagedGatewayEntriesForAuthority,
 } from "./mossManagedGatewayTrust";
 
@@ -247,16 +248,13 @@ describe("the shipped release's CN gateway entries", () => {
   );
   const NEW = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
   const TUNNEL = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
-  const DIRECT = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
+  // comiction.cn lapses on 2026-11-27 and may then belong to someone else.
+  const RETIRED = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
 
-  it("lists the mossbotai.com entry first and both old entries after it, for phone and key lanes", () => {
+  it("lists the mossbotai.com entry first and the tunnel entry after it, for phone and key lanes", () => {
     for (const authority of ["memfire-phone", "moss-enterprise-key"] as const) {
-      expect(mossManagedGatewayEntriesForAuthority(authority, shippedEnv)).toEqual([
-        NEW,
-        TUNNEL,
-        DIRECT,
-      ]);
-      for (const entry of [NEW, TUNNEL, DIRECT]) {
+      expect(mossManagedGatewayEntriesForAuthority(authority, shippedEnv)).toEqual([NEW, TUNNEL]);
+      for (const entry of [NEW, TUNNEL]) {
         expect(isTrustedMossManagedGatewayUrlForAuthority(entry, authority, shippedEnv)).toBe(true);
         // Lanes provisioned before keep their base URL without the /v1 suffix (Claude).
         expect(
@@ -268,10 +266,26 @@ describe("the shipped release's CN gateway entries", () => {
         ).toBe(true);
       }
     }
-    for (const entry of [NEW, TUNNEL, DIRECT]) {
+    for (const entry of [NEW, TUNNEL]) {
       expect(isTrustedMossManagedGatewayUrlForAuthority(entry, "supabase-google", shippedEnv)).toBe(
         false,
       );
+    }
+  });
+
+  it("never trusts the retired comiction.cn gateway with a bearer, in any form", () => {
+    for (const candidate of [
+      RETIRED,
+      RETIRED.replace(/\/v1$/u, ""),
+      `${RETIRED}/`,
+      "https://moss-pay.comiction.cn/functions/v1/moss-model-gateway/v1",
+    ]) {
+      expect(isTrustedMossManagedGatewayUrl(candidate, shippedEnv)).toBe(false);
+      for (const authority of MOSS_MANAGED_GATEWAY_AUTHORITIES) {
+        expect(isTrustedMossManagedGatewayUrlForAuthority(candidate, authority, shippedEnv)).toBe(
+          false,
+        );
+      }
     }
   });
 

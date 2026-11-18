@@ -429,17 +429,48 @@ function requireEnv(name: string): string {
   return value;
 }
 
+export interface UpdateMirrorS3ClientOptions {
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  readonly bucket: string;
+  readonly endpoint: string;
+  readonly region: string;
+  readonly virtualHostedStyle: boolean;
+}
+
+/**
+ * The storage client settings shared by this tool and the plugin catalog upload. The mirror lives
+ * in a Cloudflare R2 bucket (endpoint `https://<account-id>.r2.cloudflarestorage.com`, region
+ * `auto`), addressed path-style, which is the default. `MOSS_UPDATE_MIRROR_S3_PATH_STYLE=0` switches
+ * to virtual-hosted addressing for a store that requires it (the retired Tencent COS bucket did).
+ */
+export function readUpdateMirrorS3ClientOptions(
+  env: Readonly<Record<string, string | undefined>>,
+): UpdateMirrorS3ClientOptions {
+  const required = (name: string): string => {
+    const value = env[name]?.trim();
+    if (!value) throw new Error(`${name} is not set.`);
+    return value;
+  };
+  const pathStyle = env.MOSS_UPDATE_MIRROR_S3_PATH_STYLE?.trim();
+  if (pathStyle !== undefined && pathStyle !== "" && pathStyle !== "0" && pathStyle !== "1") {
+    throw new Error(
+      "MOSS_UPDATE_MIRROR_S3_PATH_STYLE must be 1 (path-style) or 0 (virtual-hosted).",
+    );
+  }
+  return {
+    accessKeyId: required("MOSS_UPDATE_MIRROR_S3_ACCESS_KEY_ID"),
+    secretAccessKey: required("MOSS_UPDATE_MIRROR_S3_SECRET_ACCESS_KEY"),
+    bucket: required("MOSS_UPDATE_MIRROR_S3_BUCKET"),
+    endpoint: required("MOSS_UPDATE_MIRROR_S3_ENDPOINT"),
+    region: required("MOSS_UPDATE_MIRROR_S3_REGION"),
+    virtualHostedStyle: pathStyle === "0",
+  };
+}
+
 function createS3MirrorStore(): UpdateMirrorStore {
   const prefix = process.env.MOSS_UPDATE_MIRROR_S3_PREFIX?.trim() ?? "";
-  const client = new Bun.S3Client({
-    accessKeyId: requireEnv("MOSS_UPDATE_MIRROR_S3_ACCESS_KEY_ID"),
-    secretAccessKey: requireEnv("MOSS_UPDATE_MIRROR_S3_SECRET_ACCESS_KEY"),
-    bucket: requireEnv("MOSS_UPDATE_MIRROR_S3_BUCKET"),
-    endpoint: requireEnv("MOSS_UPDATE_MIRROR_S3_ENDPOINT"),
-    region: requireEnv("MOSS_UPDATE_MIRROR_S3_REGION"),
-    // Tencent COS refuses path-style addressing on buckets created since 2024.
-    virtualHostedStyle: process.env.MOSS_UPDATE_MIRROR_S3_PATH_STYLE !== "1",
-  });
+  const client = new Bun.S3Client(readUpdateMirrorS3ClientOptions(process.env));
   return {
     upload: async (fileName, localPath) => {
       await client.file(`${prefix}${fileName}`).write(Bun.file(localPath), {

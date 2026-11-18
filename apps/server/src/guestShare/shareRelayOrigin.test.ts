@@ -10,6 +10,7 @@ import {
   type MossServiceEntryRouter,
 } from "../account/mossServiceEntries.ts";
 import {
+  currentShareRelayOrigin,
   isOnAccountShareRelay,
   parseShareRelayOrigin,
   resolveShareRelayAccount,
@@ -23,7 +24,8 @@ import {
 } from "./shareRelayOrigin.ts";
 
 const CN_NEW = "https://share.mossbotai.com";
-const CN_OLD = "https://moss-share.comiction.cn";
+/** The CN relay's entry on comiction.cn: retired, it lapses on 2026-11-27. */
+const CN_RETIRED = "https://moss-share.comiction.cn";
 const GLOBAL_NEW = "https://share-global.mossbotai.com";
 const GLOBAL_OLD = "https://moss-share.inkcomicai.com";
 
@@ -106,7 +108,7 @@ const sources = (input: {
         : Effect.succeed(input.cloud ?? cloudCredential),
   },
   env: input.env ?? {},
-  routers: stubRouters(input.reachable ?? new Set([CN_NEW, CN_OLD, GLOBAL_NEW, GLOBAL_OLD]))
+  routers: stubRouters(input.reachable ?? new Set([CN_NEW, CN_RETIRED, GLOBAL_NEW, GLOBAL_OLD]))
     .routers,
 });
 
@@ -133,9 +135,9 @@ describe("parseShareRelayOrigin", () => {
     expect(parseShareRelayOrigin("nonsense")).toBeNull();
   });
 
-  it("lists each realm's entries, mossbotai.com first, the old hostname after it", () => {
+  it("lists each realm's entries, mossbotai.com first, and no retired comiction.cn entry", () => {
     expect(SHARE_RELAY_ENTRIES_BY_REALM).toEqual({
-      cn: [CN_NEW, CN_OLD],
+      cn: [CN_NEW],
       global: [GLOBAL_NEW, GLOBAL_OLD],
     });
     for (const realm of ["cn", "global"] as const) {
@@ -146,7 +148,7 @@ describe("parseShareRelayOrigin", () => {
 
   it("maps realms to the regional relays unless overridden, and an override has no router", () => {
     const { routers } = stubRouters(new Set());
-    expect(shareRelayEntriesForRealm("cn", {}, routers).entries).toEqual([CN_NEW, CN_OLD]);
+    expect(shareRelayEntriesForRealm("cn", {}, routers).entries).toEqual([CN_NEW]);
     expect(shareRelayEntriesForRealm("global", {}, routers).entries).toEqual([
       GLOBAL_NEW,
       GLOBAL_OLD,
@@ -157,13 +159,13 @@ describe("parseShareRelayOrigin", () => {
     expect(
       shareRelayEntriesForRealm("cn", { MOSS_SHARE_RELAY_URL: "http://evil.example" }, routers)
         .entries,
-    ).toEqual([CN_NEW, CN_OLD]);
+    ).toEqual([CN_NEW]);
   });
 
   it("finds the relay a stored share lives on, by any of its entries", () => {
     const { routers, probed } = stubRouters(new Set());
-    expect(shareRelayEntriesForOrigin(CN_OLD, {}, routers).router).toBe(routers("cn"));
     expect(shareRelayEntriesForOrigin(CN_NEW, {}, routers).router).toBe(routers("cn"));
+    expect(shareRelayEntriesForOrigin(GLOBAL_NEW, {}, routers).router).toBe(routers("global"));
     expect(shareRelayEntriesForOrigin(GLOBAL_OLD, {}, routers).router).toBe(routers("global"));
     expect(shareRelayEntriesForOrigin("https://relay.example", {}, routers)).toEqual({
       entries: ["https://relay.example"],
@@ -171,10 +173,30 @@ describe("parseShareRelayOrigin", () => {
     });
     // With the override set, a stored share keeps its own origin, as before.
     expect(
-      shareRelayEntriesForOrigin(CN_OLD, { MOSS_SHARE_RELAY_URL: "http://127.0.0.1:9" }, routers),
-    ).toEqual({ entries: [CN_OLD], router: null });
+      shareRelayEntriesForOrigin(
+        GLOBAL_OLD,
+        { MOSS_SHARE_RELAY_URL: "http://127.0.0.1:9" },
+        routers,
+      ),
+    ).toEqual({ entries: [GLOBAL_OLD], router: null });
     // Finding a router sends nothing.
     expect(probed).toEqual([]);
+  });
+
+  it("reads a share stored on the retired comiction.cn entry as one on the CN relay", () => {
+    const { routers } = stubRouters(new Set());
+    // As stored, the old name belongs to no relay: nothing may be sent to it.
+    expect(shareRelayEntriesForOrigin(CN_RETIRED, {}, routers)).toEqual({
+      entries: [CN_RETIRED],
+      router: null,
+    });
+    // Read through currentShareRelayOrigin, as every stored origin is, it is the CN relay.
+    expect(currentShareRelayOrigin(CN_RETIRED)).toBe(CN_NEW);
+    expect(
+      shareRelayEntriesForOrigin(currentShareRelayOrigin(CN_RETIRED), {}, routers).router,
+    ).toBe(routers("cn"));
+    expect(currentShareRelayOrigin("https://relay.example")).toBe("https://relay.example");
+    expect(currentShareRelayOrigin(GLOBAL_OLD)).toBe(GLOBAL_OLD);
   });
 
   it("honors the dev bearer only with a loopback override", () => {
@@ -199,15 +221,25 @@ describe("resolveShareRelayAccount", () => {
     expect(success(await resolve({}))).toEqual({
       origin: CN_NEW,
       bearer: "phone-token",
-      entries: [CN_NEW, CN_OLD],
+      entries: [CN_NEW],
     });
   });
 
-  it("uses the old entry when the new one does not answer", async () => {
-    expect(success(await resolve({ reachable: new Set([CN_OLD]) }))).toEqual({
-      origin: CN_OLD,
+  it("never moves to the retired comiction.cn name, even when the new entry does not answer", async () => {
+    expect(success(await resolve({ reachable: new Set([CN_RETIRED]) }))).toEqual({
+      origin: CN_NEW,
       bearer: "phone-token",
-      entries: [CN_NEW, CN_OLD],
+      entries: [CN_NEW],
+    });
+  });
+
+  it("uses the old global entry when the new one does not answer", async () => {
+    expect(
+      success(await resolve({ activeRealm: "global", reachable: new Set([GLOBAL_OLD]) })),
+    ).toEqual({
+      origin: GLOBAL_OLD,
+      bearer: "google-token",
+      entries: [GLOBAL_NEW, GLOBAL_OLD],
     });
   });
 
@@ -275,12 +307,14 @@ describe("isOnAccountShareRelay", () => {
       throw new Error("expected accounts");
     }
     expect(isOnAccountShareRelay(cn.success, CN_NEW)).toBe(true);
-    expect(isOnAccountShareRelay(cn.success, CN_OLD)).toBe(true);
+    // Stored shares are read through currentShareRelayOrigin first; the raw name is not a relay.
+    expect(isOnAccountShareRelay(cn.success, CN_RETIRED)).toBe(false);
+    expect(isOnAccountShareRelay(cn.success, currentShareRelayOrigin(CN_RETIRED))).toBe(true);
     expect(isOnAccountShareRelay(cn.success, GLOBAL_NEW)).toBe(false);
     expect(isOnAccountShareRelay(cn.success, GLOBAL_OLD)).toBe(false);
     expect(isOnAccountShareRelay(cn.success, "http://localhost:9")).toBe(false);
     expect(isOnAccountShareRelay(global.success, GLOBAL_OLD)).toBe(true);
-    expect(isOnAccountShareRelay(global.success, CN_OLD)).toBe(false);
+    expect(isOnAccountShareRelay(global.success, currentShareRelayOrigin(CN_RETIRED))).toBe(false);
     expect(isOnAccountShareRelay(override.success, "http://localhost:9")).toBe(true);
     expect(isOnAccountShareRelay(override.success, CN_NEW)).toBe(false);
   });

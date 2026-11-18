@@ -16,12 +16,16 @@ export const MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS_ENV_KEY =
 export const MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS_ENV_KEY = "MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS";
 
 /**
- * The CN model gateway's first entry (phone/MemFire and enterprise-key lanes). Releases before
- * 2026-11-14 shipped `moss-models.comiction.cn` first; it and the tunnel entry are now listed
- * as fallbacks. Trust still comes only from the configured entries, never from this name.
+ * The CN model gateway's first entry (phone/MemFire and enterprise-key lanes); the tunnel entry
+ * is its listed fallback. Trust still comes only from the configured entries, never from this name.
  */
 export const MOSS_CN_MODEL_GATEWAY_HOST = "api.mossbotai.com";
-/** The CN model gateway's first entry in releases up to 2026-11-14 (1.0.3 and earlier). */
+/**
+ * Retired. The CN model gateway's first entry up to 1.0.3 and a fallback in 1.0.5/1.0.6; no build
+ * lists it since `comiction.cn` was abandoned (it lapses on 2026-11-27 and may change hands), so
+ * it is never trusted and never receives a bearer. It is named only so an upgrade can recognise
+ * lanes an older build left on it and move them to the entry in use.
+ */
 export const MOSS_PREVIOUS_CN_MODEL_GATEWAY_HOST = "moss-models.comiction.cn";
 
 /**

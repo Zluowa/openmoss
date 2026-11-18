@@ -79,6 +79,7 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import {
   GuestShareRepository,
   type GuestShareRecord,
+  type GuestShareRepositoryShape,
 } from "../../persistence/Services/GuestShareRepository.ts";
 import { ManagedAttachmentRepository } from "../../persistence/Services/ManagedAttachments.ts";
 import { resolveScratchWorkspacesRoot } from "../../scratchWorkspaces.ts";
@@ -151,6 +152,7 @@ import { ShareRelayTransport } from "../Services/ShareRelayTransport.ts";
 import { deleteShareFromRelay, registerShareWithRelay } from "../shareRelayRegistration.ts";
 import { ShareRelayHostClient } from "../shareRelayHostClient.ts";
 import {
+  currentShareRelayOrigin,
   isOnAccountShareRelay,
   resolveShareRelayAccount,
   shareRelayEntriesForOrigin,
@@ -204,8 +206,23 @@ const isThreadEndEvent = (event: OrchestrationEvent): event is ThreadEndEvent =>
 const endReasonForEvent = (event: ThreadEndEvent): GuestShareEndReason =>
   event.type === "thread.archived" ? "archived" : "deleted";
 
+/** The repository with every stored relay origin read through `currentShareRelayOrigin`. */
+const withCurrentRelayOrigins = (stored: GuestShareRepositoryShape): GuestShareRepositoryShape => {
+  const current = (record: GuestShareRecord): GuestShareRecord => {
+    const relayOrigin = currentShareRelayOrigin(record.relayOrigin);
+    return relayOrigin === record.relayOrigin ? record : { ...record, relayOrigin };
+  };
+  return {
+    ...stored,
+    list: () => stored.list().pipe(Effect.map((records) => records.map(current))),
+    getById: (shareId) => stored.getById(shareId).pipe(Effect.map(Option.map(current))),
+    getByThreadId: (threadId) =>
+      stored.getByThreadId(threadId).pipe(Effect.map(Option.map(current))),
+  };
+};
+
 const make = Effect.gen(function* () {
-  const repository = yield* GuestShareRepository;
+  const repository = withCurrentRelayOrigins(yield* GuestShareRepository);
   const orchestrationEngine = yield* OrchestrationEngineService;
   const snapshotQuery = yield* ProjectionSnapshotQuery;
   const managedAttachments = yield* ManagedAttachmentRepository;

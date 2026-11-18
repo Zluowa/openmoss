@@ -31,6 +31,8 @@ export const MCP_APP_REFUSED_FRAME_HOSTS: readonly string[] = [
   // accounts, and the company's site.
   "mossbotai.com",
   "tishilabs.com",
+  // Retired: Moss stopped using comiction.cn and the name lapses on 2026-11-27, after which a
+  // third party may own it. This list only refuses, so the name stays: refusing it is the safe side.
   "comiction.cn",
   "inkcomicai.com",
   "moss-global.supabase.co",

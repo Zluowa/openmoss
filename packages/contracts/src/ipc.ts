@@ -1506,6 +1506,22 @@ export interface DesktopBackendStartupBridge {
   openLogFolder: () => Promise<void>;
 }
 
+export interface DesktopSelfReportBridge {
+  readonly enabled: true;
+  readonly resize: (size: { readonly width: number; readonly height: number }) => Promise<void>;
+  readonly capture: (input: {
+    readonly rect?: {
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    };
+    readonly dir?: string;
+    readonly name: string;
+  }) => Promise<{ readonly path: string; readonly width: number; readonly height: number }>;
+  readonly restore: () => Promise<void>;
+}
+
 export interface DesktopBridge {
   ssh?: import("./ssh").DesktopSshBridge;
   remoteComputers?: import("./remoteComputers").DesktopRemoteComputersBridge;
@@ -1520,6 +1536,12 @@ export interface DesktopBridge {
     reportIssue?: (issue: DesktopDiagnosticIssue) => Promise<string | null>;
     getReportStatus?: (id: string) => Promise<DesktopDiagnosticReportStatus>;
   };
+  /**
+   * Present only when the main process enables self-report (development builds, or a packaged
+   * build started with MOSS_SELF_REPORT=1 in an isolated profile): the window resize and capture
+   * behind the `screenshot` self-report tool. Sizes and rectangles are CSS pixels of the page.
+   */
+  selfReport?: DesktopSelfReportBridge;
   safariAccess?: {
     getInfo: () => Promise<DesktopSafariAccessInfo>;
     openSettings: () => Promise<boolean>;

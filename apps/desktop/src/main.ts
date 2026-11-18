@@ -135,6 +135,11 @@ import { resolveBackendNodeArgs, withBackendEnvProxyOptIn } from "./backendNodeO
 import { canonicalFilesystemHelperBackendEnv } from "./canonicalFilesystemHelperRuntime";
 import { windowsJobLauncherBackendEnv } from "./windowsJobLauncherRuntime";
 import {
+  registerSelfReportIpc,
+  resolveSelfReportPolicy,
+  SELF_REPORT_PRELOAD_ARGUMENT,
+} from "./selfReport";
+import {
   isBackendStartupReadyResponse,
   monitorBackendStartupHealth,
   waitForBackendStartupReady,
@@ -783,6 +788,9 @@ const browserPerfLoggingEnabled =
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 
 let mainWindow: BrowserWindow | null = null;
+// Self-report tools for agents checking Moss's own screen (selfReport.ts): development builds,
+// or a packaged build started with MOSS_SELF_REPORT=1 in an isolated profile. Off otherwise.
+const selfReportPolicy = resolveSelfReportPolicy({ isPackaged: app.isPackaged, env: process.env });
 const appContentLoadedWindows = new WeakSet<BrowserWindow>();
 const appRendererReadyWindows = new WeakSet<BrowserWindow>();
 let pendingMossAuthCallbackRoute: string | null = null;
@@ -8730,6 +8738,7 @@ function createWindow(
       webviewTag: true,
       // Let Chromium throttle renderer timers/rAF when the window is hidden.
       backgroundThrottling: true,
+      ...(selfReportPolicy.enabled ? { additionalArguments: [SELF_REPORT_PRELOAD_ARGUMENT] } : {}),
     },
   });
   const windowWebContentsId = window.webContents.id;
@@ -9343,6 +9352,17 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers();
   mcpAppSandboxRuntime.registerIpcHandlers();
+  if (selfReportPolicy.enabled) {
+    registerSelfReportIpc({
+      ipcMain,
+      userDataDir: app.getPath("userData"),
+      mainWindowFor: (event) =>
+        mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents
+          ? mainWindow
+          : null,
+    });
+    writeDesktopLogHeader(`self-report tools enabled (${selfReportPolicy.reason})`);
+  }
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   try {
     await ensureBrowserHostPipeServer();

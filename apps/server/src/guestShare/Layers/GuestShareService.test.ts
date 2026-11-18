@@ -11,6 +11,7 @@ import {
   GUEST_SESSION_COOKIE,
   GUEST_SHARE_PROTOCOL_VERSION,
   GuestMessageId,
+  GuestShareId,
   MessageId,
   ProjectId,
   ThreadId,
@@ -54,10 +55,12 @@ import { ManagedAttachmentRepositoryLive } from "../../persistence/Layers/Manage
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import {
   GuestShareRepository,
+  type GuestShareRecord,
   type GuestShareRepositoryShape,
 } from "../../persistence/Services/GuestShareRepository.ts";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "../../serverRuntimeStartup.ts";
 import { GuestShareOwnerError } from "../Errors.ts";
+import { openGuestShare } from "../guestShareDecider.ts";
 import { GuestShareService, type GuestShareServiceShape } from "../Services/GuestShareService.ts";
 import {
   ShareRelayTransport,
@@ -131,6 +134,8 @@ async function makeHarness(
   options: {
     /** Replaces parts of the default transport (the loopback override to the fake relay). */
     readonly transport?: (relay: FakeShareRelay) => Partial<ShareRelayTransportShape>;
+    /** Shares already stored when this version starts, as an older version left them. */
+    readonly storedShares?: ReadonlyArray<GuestShareRecord>;
   } = {},
 ): Promise<Harness> {
   const relay = await FakeShareRelay.start();
@@ -256,6 +261,11 @@ async function makeHarness(
   );
   const runtime = ManagedRuntime.make(layer);
   const startup = await runtime.runPromise(Effect.service(ServerRuntimeStartup));
+  for (const record of options.storedShares ?? []) {
+    await runtime.runPromise(
+      Effect.service(GuestShareRepository).pipe(Effect.flatMap((stored) => stored.insert(record))),
+    );
+  }
   await runtime.runPromise(startup.markCommandReady);
   const service = await runtime.runPromise(Effect.service(GuestShareService));
   const sql = await runtime.runPromise(Effect.service(SqlClient.SqlClient));
@@ -1358,16 +1368,19 @@ const fetchFailed = () =>
 
 describe("GuestShareService across the relay's entries", () => {
   const CN_NEW = "https://share.mossbotai.com";
-  const CN_OLD = "https://moss-share.comiction.cn";
+  /** A second hostname of the CN relay; production lists only CN_NEW since comiction.cn retired. */
+  const CN_OLD = "https://share-2.moss.example";
+  /** The CN relay's retired entry: shares older versions registered through it still exist. */
+  const CN_RETIRED = "https://moss-share.comiction.cn";
 
   /**
    * Every entry of both realms reaches the one fake relay, as the hostnames of one relay do.
    * `blocked` entries reset every connection; `healthy` entries pass their health checks.
    * Each request and socket is recorded with the entry it was sent to.
    */
-  const routedTransport = async () => {
+  const routedTransport = async (cnEntries: ReadonlyArray<string> = [CN_NEW, CN_OLD]) => {
     const blocked = new Set<string>();
-    const healthy = new Set<string>([CN_NEW, CN_OLD]);
+    const healthy = new Set<string>(cnEntries);
     const requests: Array<{ method: string; origin: string; bearer: boolean }> = [];
     const sockets: Array<{ origin: string; blocked: boolean }> = [];
     // Accepts and drops every connection: a reset below HTTP.
@@ -1413,7 +1426,7 @@ describe("GuestShareService across the relay's entries", () => {
           if (!router) {
             router = makeMossServiceEntryRouter({
               service: `${realm} share relay`,
-              entries: SHARE_RELAY_ENTRIES_BY_REALM[realm],
+              entries: realm === "cn" ? cnEntries : SHARE_RELAY_ENTRIES_BY_REALM[realm],
               healthUrl: shareRelayHealthUrl,
               probe: async (healthUrl) => healthy.has(new URL(healthUrl).origin),
               // Re-check the other entries at every reported failure, not once per 15 s.
@@ -1531,5 +1544,68 @@ describe("GuestShareService across the relay's entries", () => {
     // No new registration was needed: it is the same relay.
     expect(harness.relay.registerCalls).toHaveLength(1);
     expect(created.share.relayOrigin).toBe(CN_NEW);
+  });
+
+  describe("a share an older version registered through comiction.cn", () => {
+    const storedOn = (relayOrigin: string) =>
+      openGuestShare({
+        shareId: GuestShareId.makeUnsafe("retiredRelayShare00001"),
+        threadId: ThreadId.makeUnsafe(THREAD_ID),
+        relayOrigin,
+        nowMs: Date.now(),
+      });
+
+    const ownerShare = async () => {
+      const events = await harness.run(
+        harness.service.subscribe().pipe(Stream.take(1), Stream.runCollect),
+      );
+      return (events[0] as Extract<GuestShareOwnerEvent, { type: "snapshot" }>).shares[0]!;
+    };
+
+    it("is hosted, renewed and linked on the CN relay's working host, and the bearer never goes to the old name", async () => {
+      await routed.close();
+      // The entries this build ships: the CN relay has one.
+      routed = await routedTransport(SHARE_RELAY_ENTRIES_BY_REALM.cn);
+      expect(SHARE_RELAY_ENTRIES_BY_REALM.cn).toEqual([CN_NEW]);
+      const stored = storedOn(CN_RETIRED);
+      harness = await makeHarness({ transport: routed.transport, storedShares: [stored] });
+
+      // The relay does not know the share yet: the host connects, is refused, and renews it.
+      await harness.relay.waitForHost(stored.id);
+      expect(harness.relay.registerCalls).toHaveLength(1);
+      expect(routed.sockets.length).toBeGreaterThan(0);
+      for (const socket of routed.sockets) expect(socket.origin).toBe(CN_NEW);
+      expect(routed.requests.filter((request) => request.bearer)).toEqual([
+        { method: "POST", origin: CN_NEW, bearer: true },
+      ]);
+
+      // The link shown to the owner is on the working host; the row is not rewritten.
+      const share = await ownerShare();
+      expect(share.inviteUrl?.startsWith(`${CN_NEW}/s/${stored.id}#`)).toBe(true);
+      const rows = await harness.run(harness.repository.list());
+      expect(rows.map((row) => row.relayOrigin)).toEqual([CN_RETIRED]);
+
+      // Closing deletes it through the working host too.
+      await harness.run(harness.service.close(ThreadId.makeUnsafe(THREAD_ID)));
+      await waitFor(() => harness.relay.deleteCalls.length > 0);
+      expect(routed.requests.at(-1)).toMatchObject({ method: "DELETE", origin: CN_NEW });
+      expect(routed.requests.some((request) => request.origin === CN_RETIRED)).toBe(false);
+      expect(routed.sockets.some((socket) => socket.origin === CN_RETIRED)).toBe(false);
+    });
+
+    it("still refuses to renew a share stored on an origin no realm lists", async () => {
+      await routed.close();
+      routed = await routedTransport(SHARE_RELAY_ENTRIES_BY_REALM.cn);
+      const foreign = "https://share.unknown-relay.example";
+      const stored = storedOn(foreign);
+      harness = await makeHarness({ transport: routed.transport, storedShares: [stored] });
+
+      await waitFor(() => routed.sockets.length > 0);
+      expect(routed.sockets[0]!.origin).toBe(foreign);
+      // Give the refused host time to ask for a renewal; none may carry the bearer anywhere.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(routed.requests.filter((request) => request.bearer)).toEqual([]);
+      expect(harness.relay.registerCalls).toHaveLength(0);
+    });
   });
 });

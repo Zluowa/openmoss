@@ -4,19 +4,24 @@
 
 .DESCRIPTION
   An expired certificate sends mainland users back to GitHub with no visible error, so nothing else
-  reveals it. This reads the certificate served by the CDN edges DNS returns to this machine, so it
+  reveals it. This reads the certificate served by the edges DNS returns to this machine, so it
   also catches a renewal that was issued but never deployed. It needs no key.
 
-  Run once with -Install to copy this file to ~/.moss-release and schedule it daily. A missed run
-  starts when the machine is next on. Saved as UTF-8 with a BOM because Windows PowerShell 5.1 would
-  otherwise misread the Chinese text.
+  2026-11: the mirror moved from the Tencent CDN on moss-update.comiction.cn (a free 90-day
+  certificate renewed by hand) to update.mossbotai.com, a Cloudflare R2 custom domain whose
+  certificate Cloudflare renews itself. The daily scheduled task is no longer needed; remove it with
+  `Unregister-ScheduledTask -TaskName MossUpdateCertCheck`. The script stays for a check by hand.
+
+  -Install copies this file to ~/.moss-release and schedules it daily. A missed run starts when the
+  machine is next on. Saved as UTF-8 with a BOM because Windows PowerShell 5.1 would otherwise
+  misread the Chinese text.
 
   Exit code: 0 healthy or this machine is offline, 1 alert raised.
 #>
 [CmdletBinding()]
 param(
-  [string]$HostName = 'moss-update.comiction.cn',
-  # Tencent's 证书托管 is set to swap the certificate 15 days before expiry, so 14 means it missed.
+  [string]$HostName = 'update.mossbotai.com',
+  # Cloudflare renews an edge certificate well before its last 14 days, so 14 means it missed.
   [int]$WarnDays = 14,
   [string]$ControlHost = 'www.qq.com',
   [int]$RetrySeconds = 30,
@@ -137,7 +142,7 @@ Moss 国内更新源的证书出问题了（$((Get-Date).ToString('yyyy-MM-dd HH
 影响：证书失效后，手机号和企业 Key 账号的应用会悄悄退回 GitHub 下载更新，国内用户可能下不动，而且不会有任何报错。
 
 怎么处理：把这个文件的内容发给 Claude，说明要修 Moss 更新证书。处理方法写在 docs/ops/moss-cn-update-mirror.md。
-也可以自己看：腾讯云 SSL 证书控制台 https://console.cloud.tencent.com/ssl ，检查账户余额够不够自动续费，以及证书托管是否正常。
+也可以自己看：Cloudflare 控制台里 mossbotai.com 的 SSL/TLS → 边缘证书，以及 R2 存储桶的自定义域名状态。
 
 这里每天检查一次，问题解决后这个文件会自动删除。
 "@

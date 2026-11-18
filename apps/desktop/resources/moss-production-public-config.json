@@ -15,13 +15,9 @@
       "realtimeRelayUrl": "https://rt.mossbotai.com",
       "payBaseUrl": "https://pay.mossbotai.com/functions/v1/moss-pay",
       "modelGatewayFallbackUrls": [
-        "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1",
-        "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1"
+        "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1"
       ],
-      "payFallbackBaseUrls": [
-        "https://moss-cn-models.inkcomicai.com/functions/v1/moss-pay",
-        "https://moss-pay.comiction.cn/functions/v1/moss-pay"
-      ],
+      "payFallbackBaseUrls": ["https://moss-cn-models.inkcomicai.com/functions/v1/moss-pay"],
       "realtimeRelayFallbackUrls": ["https://moss-cn-realtime-edge.inkcomicai.com"]
     },
     "supabase-google": {

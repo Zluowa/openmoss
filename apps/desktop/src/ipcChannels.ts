@@ -22,6 +22,12 @@ export const DESKTOP_IPC_CHANNELS = {
     workspaceUrl: "desktop:ssh-workspace-url",
     workspaceKind: "desktop:ssh-workspace-kind",
   },
+  /** Self-report tools (development, or an isolated profile with MOSS_SELF_REPORT=1). */
+  selfReport: {
+    resize: "desktop:self-report-resize",
+    capture: "desktop:self-report-capture",
+    restore: "desktop:self-report-restore",
+  },
   pickFolder: "desktop:pick-folder",
   saveFile: "desktop:save-file",
   confirm: "desktop:confirm",

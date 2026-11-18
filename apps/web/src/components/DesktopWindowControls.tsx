@@ -98,6 +98,8 @@ export function DesktopWindowControls({ className }: { className?: string }) {
 
   return (
     <div
+      // Read by the self-report tool `layout_report`: the band no other control may sit under.
+      data-desktop-window-controls
       className={cn(
         "flex items-stretch [-webkit-app-region:no-drag]",
         CHAT_SURFACE_HEADER_HEIGHT_CLASS,

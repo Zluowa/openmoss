@@ -16,10 +16,15 @@ import { installZhCnUiLocalization } from "./localization/zhCN";
 import { isMacPlatform } from "./lib/utils";
 import { installGlassOverlayCutout } from "./lib/glassOverlayCutout";
 import { installRendererErrorDiagnostics } from "./lib/rendererErrorDiagnostics";
+import { installMossSelfReportIfEnabled } from "./lib/selfReport/install";
 import { getSentryReactRootOptions, initializeSentry, SentryErrorBoundary } from "./observability";
 
 const disposeRendererDiagnostics = installRendererErrorDiagnostics();
 if (import.meta.hot) import.meta.hot.dispose(() => disposeRendererDiagnostics?.());
+// Self-report tools for agents checking Moss's own screen: development builds, or a desktop app
+// started with self-report enabled in an isolated profile. Nothing is installed otherwise.
+const disposeSelfReport = installMossSelfReportIfEnabled();
+if (import.meta.hot) import.meta.hot.dispose(() => disposeSelfReport?.());
 
 const sentryEnabled = initializeSentry();
 

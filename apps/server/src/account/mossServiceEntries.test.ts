@@ -29,9 +29,9 @@ import {
   type MossServiceEntryChange,
 } from "./mossServiceEntries";
 
-const PRIMARY = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
+const PRIMARY = "https://models.moss.example/functions/v1/moss-model-gateway/v1";
 const FALLBACK = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1";
-const PAY_PRIMARY = "https://moss-pay.comiction.cn/functions/v1/moss-pay";
+const PAY_PRIMARY = "https://pay.moss.example/functions/v1/moss-pay";
 const PAY_FALLBACK = "https://moss-cn-models.inkcomicai.com/functions/v1/moss-pay";
 
 /** What undici throws for a failure below HTTP: `TypeError: fetch failed` with the cause. */
@@ -59,7 +59,7 @@ const makeRouter = (reachable: Set<string>, clock: { now: number }) => {
   return { router, probe };
 };
 
-const PRIMARY_HOST = "moss-models.comiction.cn";
+const PRIMARY_HOST = "models.moss.example";
 const FALLBACK_HOST = "moss-cn-models.inkcomicai.com";
 
 afterEach(() => {
@@ -75,7 +75,7 @@ describe("which entry Moss uses", () => {
     await expect(router.ensure()).resolves.toBe(PRIMARY);
     expect(new Set(probe.mock.calls.map(([url]) => url))).toEqual(
       new Set([
-        "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/healthz",
+        "https://models.moss.example/functions/v1/moss-model-gateway/healthz",
         "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/healthz",
       ]),
     );
@@ -91,7 +91,7 @@ describe("which entry Moss uses", () => {
     unsubscribe();
     expect(changes).toEqual([{ service: "CN model gateway", from: PRIMARY, to: FALLBACK }]);
     expect(describeMossServiceEntryChange(changes[0]!)).toBe(
-      "Moss CN model gateway entry changed: moss-models.comiction.cn -> moss-cn-models.inkcomicai.com",
+      "Moss CN model gateway entry changed: models.moss.example -> moss-cn-models.inkcomicai.com",
     );
   });
 
@@ -462,11 +462,52 @@ describe("the shipped release's CN entries", () => {
   );
   const NEW = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
   const NEW_PAY = "https://pay.mossbotai.com/functions/v1/moss-pay";
-  const OLD_PAY = "https://moss-pay.comiction.cn/functions/v1/moss-pay";
+  // comiction.cn lapses on 2026-11-27 and may then belong to someone else.
+  const RETIRED_GATEWAY = "https://moss-models.comiction.cn/functions/v1/moss-model-gateway/v1";
+  const RETIRED_PAY = "https://moss-pay.comiction.cn/functions/v1/moss-pay";
 
-  it("puts the mossbotai.com entries first and keeps the old ones after them, in order", () => {
-    expect(mossCnModelGatewayEntries(shippedEnv).entries).toEqual([NEW, FALLBACK, PRIMARY]);
-    expect(mossCnPayEntries(shippedEnv)?.entries).toEqual([NEW_PAY, PAY_FALLBACK, OLD_PAY]);
+  it("puts the mossbotai.com entries first and the tunnel entries after them, in order", () => {
+    expect(mossCnModelGatewayEntries(shippedEnv).entries).toEqual([NEW, FALLBACK]);
+    expect(mossCnPayEntries(shippedEnv)?.entries).toEqual([NEW_PAY, PAY_FALLBACK]);
+  });
+
+  it("lists no comiction.cn entry for any service", () => {
+    expect(JSON.stringify(shippedEnv)).not.toContain("comiction");
+    mossCnModelGatewayEntries(shippedEnv);
+    mossCnPayEntries(shippedEnv);
+    expect(mossServiceEntryRouterFor(RETIRED_GATEWAY)).toBeNull();
+    expect(mossServiceEntryRouterFor(RETIRED_PAY)).toBeNull();
+  });
+
+  it("never sends a payment request or a bearer to comiction.cn, whatever gateway a session stored", async () => {
+    const requests: Array<{ url: string; authorization: string | null }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input instanceof Request ? input.url : input);
+        requests.push({
+          url,
+          authorization: new Headers(init?.headers).get("authorization"),
+        });
+        // The new names do not answer; only the tunnel entry does.
+        if (new URL(url).host !== FALLBACK_HOST) throw fetchFailed("ECONNRESET");
+        return new Response(url.endsWith("/healthz") ? "ok" : "{}", { status: 200 });
+      }),
+    );
+    // A session issued by an older build that was on the comiction.cn gateway.
+    await mossPayFetch({
+      realm: "memfire-phone",
+      modelGatewayUrl: RETIRED_GATEWAY,
+      accessToken: "test-only-phone-session",
+      method: "GET",
+      path: "/catalog",
+      phonePayEntries: mossCnPayEntries(shippedEnv),
+    });
+    expect(requests.length).toBeGreaterThan(0);
+    expect(requests.filter((request) => request.url.includes("comiction"))).toEqual([]);
+    expect(
+      requests.filter((request) => request.authorization !== null).map((request) => request.url),
+    ).toEqual([`${PAY_FALLBACK}/catalog`]);
   });
 
   const shippedRouter = (
@@ -483,19 +524,16 @@ describe("the shipped release's CN entries", () => {
     });
 
   it("uses the new entry while it answers", async () => {
-    const router = shippedRouter(new Set(["api.mossbotai.com", FALLBACK_HOST, PRIMARY_HOST]));
+    const router = shippedRouter(new Set(["api.mossbotai.com", FALLBACK_HOST]));
     await expect(router.ensure()).resolves.toBe(NEW);
   });
 
-  it("falls to the old entries, in order, when the new one fails below HTTP", async () => {
-    await expect(shippedRouter(new Set([FALLBACK_HOST, PRIMARY_HOST])).ensure()).resolves.toBe(
-      FALLBACK,
-    );
-    await expect(shippedRouter(new Set([PRIMARY_HOST])).ensure()).resolves.toBe(PRIMARY);
+  it("falls to the tunnel entry when the new one fails below HTTP", async () => {
+    await expect(shippedRouter(new Set([FALLBACK_HOST])).ensure()).resolves.toBe(FALLBACK);
   });
 
   it("moves a session on the new entry to the tunnel entry when the new one resets requests", async () => {
-    const reachable = new Set(["api.mossbotai.com", FALLBACK_HOST, PRIMARY_HOST]);
+    const reachable = new Set(["api.mossbotai.com", FALLBACK_HOST]);
     const router = shippedRouter(reachable);
     await router.ensure();
     reachable.delete("api.mossbotai.com");
@@ -574,6 +612,9 @@ describe("the realtime relay entries", () => {
       "http://rt.mossbotai.com",
       "https://rt.mossbotai.com/v1",
       "https://share.mossbotai.com",
+      // Retired with comiction.cn: never a relay a stored realtime binding may name.
+      "https://moss-share.comiction.cn",
+      "https://moss-realtime.comiction.cn",
       undefined,
     ]) {
       expect(isMossRealtimeRelayEntry("cn", entry, shippedEnv)).toBe(false);
