@@ -14,8 +14,6 @@ export default async function windowsNativePayloadAfterPack(context) {
     arch,
     manifest,
     phase: "before-sign",
-    // A download build ships the agent runtimes as archives; the build audits those itself.
-    agentRuntimes: process.env.MOSS_DESKTOP_AGENT_RUNTIMES === "download" ? "download" : "bundled",
   });
   console.log(
     `[windows-native-audit] Approved ${result.signingTargets.length} signing targets and ${result.preservedPayloads.length} byte-pinned preserved payloads before signing.`,

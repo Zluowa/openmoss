@@ -39,6 +39,12 @@ export interface Profile {
     /** How long a lane or check waits for space to come back above the floor before refusing. */
     readonly waitMinutes: number;
   };
+  /** A heavy-lane run waits while free RAM or the commit headroom is under these (memory.ts). */
+  readonly memory: {
+    readonly freeGB: number;
+    readonly commitHeadroomGB: number;
+    readonly waitMinutes: number;
+  };
   readonly ports: {
     readonly offsetFirst: number;
     readonly offsetLast: number;
@@ -128,6 +134,7 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
   );
   const disk = obj(o, "disk");
   const ports = obj(o, "ports");
+  const memory = obj(o, "memory");
   const lock = obj(o, "lock");
   const limits = obj(o, "limits");
   const tools = obj(o, "tools") ?? {};
@@ -151,6 +158,11 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
       floorGB: num(disk, "floorGB", 6),
       drives: strList(disk, "drives").length ? strList(disk, "drives") : [worktreeRoot],
       waitMinutes: Math.max(0, num(disk, "waitMinutes", 15)),
+    },
+    memory: {
+      freeGB: num(memory, "freeGB", 4),
+      commitHeadroomGB: num(memory, "commitHeadroomGB", 8),
+      waitMinutes: Math.max(0, num(memory, "waitMinutes", 30)),
     },
     ports: {
       offsetFirst: num(ports, "offsetFirst", 100),

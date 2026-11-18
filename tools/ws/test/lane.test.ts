@@ -20,6 +20,8 @@ function profileAt(base: string, floorGB: number, extra: Record<string, unknown>
       worktreeRoot: path.join(base, "wt"),
       stateDir: path.join(base, "state"),
       disk: { floorGB, drives: [base], waitMinutes: 0 },
+      // This PC can be short of memory itself; the memory floor has its own tests (memory.test.ts).
+      memory: { freeGB: 0, commitHeadroomGB: 0, waitMinutes: 0 },
       lock: { staleHours: 3, pollSeconds: 0.1 },
       ...extra,
     }),

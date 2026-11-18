@@ -13,18 +13,6 @@ import {
 } from "../windows-esigner-sign.mjs";
 
 const TRACKED_EXTENSIONS = new Set([".dll", ".exe", ".node", ".pdb"]);
-/**
- * Reviewed payloads that a `download` build ships as runtime archives instead of in resources/.
- * The installer must then hold none of them, and the archives must hold exactly them.
- */
-export const WINDOWS_AGENT_RUNTIME_RESOURCE_PREFIXES = [
-  "resources/codex-runtime/",
-  "resources/claude-runtime/",
-];
-const isAgentRuntimePayload = (entryPath) =>
-  WINDOWS_AGENT_RUNTIME_RESOURCE_PREFIXES.some((prefix) =>
-    entryPath.toLowerCase().startsWith(prefix),
-  );
 const ELECTRON_BUILDER_WINDOWS_ARCHES = new Map([
   [1, "x64"],
   [3, "arm64"],
@@ -351,28 +339,14 @@ export function resolveWindowsNativePayloadHookContext(context, env = process.en
   return { appOutDir: context.appOutDir, arch: configuredArch };
 }
 
-export function auditWindowsNativePayloads({
-  appOutDir,
-  arch,
-  manifest,
-  phase,
-  agentRuntimes = "bundled",
-}) {
+export function auditWindowsNativePayloads({ appOutDir, arch, manifest, phase }) {
   if (phase !== "before-sign" && phase !== "after-sign") {
     throw new Error(
       `Windows native payload audit phase must be before-sign or after-sign, got ${phase}.`,
     );
   }
-  if (agentRuntimes !== "bundled" && agentRuntimes !== "download") {
-    throw new Error(`Windows native payload audit agentRuntimes must be bundled or download.`);
-  }
   assertAppOutputDirectory(appOutDir);
   const expected = readExpectedEntries(manifest, arch);
-  // A download build must not carry the runtimes: any such file is then "unreviewed".
-  if (agentRuntimes === "download") {
-    for (const [key, entry] of expected)
-      if (isAgentRuntimePayload(entry.path)) expected.delete(key);
-  }
   assertExpectedPathsAreRegularFiles(appOutDir, expected);
   const nativeFiles = collectNativeFiles(appOutDir);
   const signingTargets = [];
@@ -416,45 +390,4 @@ export function auditWindowsNativePayloads({
   }
 
   return { nativeFiles, preservedPayloads, signingTargets };
-}
-
-/**
- * Audits the unpacked runtime archives of a `download` build against the same reviewed manifest:
- * `root` holds `resources/codex-runtime` and `resources/claude-runtime` as a person gets them
- * after the download. Every native file there must be a reviewed payload with its pinned bytes,
- * and every reviewed runtime payload must be there.
- */
-export function auditWindowsAgentRuntimePayloads({ root, arch, manifest }) {
-  assertAppOutputDirectory(root);
-  const expected = new Map(
-    [...readExpectedEntries(manifest, arch)].filter(([, entry]) =>
-      isAgentRuntimePayload(entry.path),
-    ),
-  );
-  const nativeFiles = collectNativeFiles(root);
-  const unexpected = [];
-  for (const file of nativeFiles) {
-    const approved = expected.get(file.path.toLowerCase());
-    if (!approved || approved.path !== file.path) {
-      unexpected.push(`${file.path}:${file.sha256}`);
-      continue;
-    }
-    if (approved.sha256 !== file.sha256) {
-      throw new Error(
-        `Windows runtime archive payload SHA-256 mismatch for ${file.path}: expected ${approved.sha256}, got ${file.sha256}.`,
-      );
-    }
-    expected.delete(file.path.toLowerCase());
-  }
-  if (unexpected.length > 0) {
-    throw new Error(`Unreviewed Windows runtime archive payloads:\n${unexpected.join("\n")}`);
-  }
-  if (expected.size > 0) {
-    throw new Error(
-      `Reviewed Windows runtime payloads are missing from the archives:\n${[...expected.values()]
-        .map((entry) => entry.path)
-        .join("\n")}`,
-    );
-  }
-  return { nativeFiles };
 }

@@ -106,10 +106,7 @@ function packedFiles(asar: string): string[] {
 }
 
 /** Builds resources/ (app.asar plus the extraResources copies) from one staged app. */
-async function packageLayout(
-  platform: "mac" | "linux" | "win",
-  agentRuntimes: "bundled" | "download" = "bundled",
-) {
+async function packageLayout(platform: "mac" | "linux" | "win") {
   const root = FS.mkdtempSync(Path.join(OS.tmpdir(), "moss-asar-contents-"));
   roots.push(root);
   const stage = stageApp(root);
@@ -135,7 +132,6 @@ async function packageLayout(
     platform,
     includeProductionPublicConfig: true,
     includeMossCanvasBundle: true,
-    agentRuntimes,
   });
   for (const resource of extraResources) {
     FS.cpSync(Path.join(stage, resource.from), Path.join(resources, resource.to), {
@@ -178,22 +174,4 @@ describe("app.asar contents", () => {
       expect(asarFiles).not.toContain("apps/desktop/ssh-runtime.tar.gz");
     });
   }
-});
-
-describe("installer contents in a download build", () => {
-  it("leaves the Codex and Claude runtimes out of the installer, keeps the licences and the rest", async () => {
-    const { resources, asarFiles } = await packageLayout("win", "download");
-    expect(FS.existsSync(Path.join(resources, "codex-runtime"))).toBe(false);
-    expect(FS.existsSync(Path.join(resources, "claude-runtime"))).toBe(false);
-    for (const kept of ["third-party-licenses", "moss-canvas", "ssh-runtime.tar.gz", "cua-driver"])
-      expect(FS.existsSync(Path.join(resources, kept)), kept).toBe(true);
-    // Nor do they slip into app.asar instead.
-    expect(asarFiles.filter((entry) => /codex-runtime|claude-runtime/u.test(entry))).toEqual([]);
-  });
-
-  it("a bundled build still carries both runtimes", async () => {
-    const { resources } = await packageLayout("win", "bundled");
-    expect(FS.existsSync(Path.join(resources, "codex-runtime"))).toBe(true);
-    expect(FS.existsSync(Path.join(resources, "claude-runtime"))).toBe(true);
-  });
 });

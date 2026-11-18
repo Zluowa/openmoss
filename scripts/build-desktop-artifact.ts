@@ -60,29 +60,10 @@ import {
   resolveBundledCodexStageOptionalDependencies,
   resolveBundledCodexTargets,
   validateBuiltBundledCodexRuntime,
-  validatePackagedBundledCodexRuntime,
   validateStagedBundledCodexRuntime,
 } from "./lib/bundled-codex-runtime.ts";
-import {
-  AGENT_RUNTIME_ARCHIVE_CACHE_ENV,
-  AGENT_RUNTIME_ARCHIVE_LIST_FILE,
-  AGENT_RUNTIME_OUTPUT_DIR,
-  AGENT_RUNTIME_PINS_FEED_FILE,
-  AGENT_RUNTIME_PINS_FILE,
-  AGENT_RUNTIMES_MODES,
-  agentRuntimeArchiveList,
-  agentRuntimePinsDocument,
-  type AgentRuntimesMode,
-  findPackagedResourcesDirectory,
-  packAgentRuntimeArchive,
-  type PackedAgentRuntime,
-  resolveAgentRuntimesMode,
-  unpackAgentRuntimeForVerification,
-} from "./lib/agent-runtime-archives.ts";
 import { MOSS_CANVAS_BUNDLE_DIR, MOSS_CANVAS_EXTRA_RESOURCE } from "./lib/bundled-moss-canvas.ts";
 import { verifyPackagedAsarIntegrity } from "./lib/mac-asar-integrity.mjs";
-import { auditWindowsAgentRuntimePayloads } from "./lib/windows-native-payload-audit.mjs";
-import windowsNativePayloadManifest from "./windows-native-payload-manifest.json" with { type: "json" };
 import {
   readMossCanvasSourcePin,
   validatePinnedMossCanvasBundle,
@@ -296,7 +277,6 @@ interface BuildCliInput {
   readonly productionConfigMode: Option.Option<MossProductionConfigMode>;
   readonly mapsEnvFile: Option.Option<string>;
   readonly releaseMode: Option.Option<DesktopReleaseMode>;
-  readonly agentRuntimes?: Option.Option<AgentRuntimesMode>;
 }
 
 function detectHostBuildPlatform(hostPlatform: string): typeof BuildPlatform.Type | undefined {
@@ -495,8 +475,6 @@ interface ResolvedBuildOptions {
   readonly productionConfigMode: MossProductionConfigMode;
   readonly mapsEnvFile: string | undefined;
   readonly releaseMode: DesktopReleaseMode;
-  /** `bundled` ships the agent runtimes in the installer; `download` ships them as archives. */
-  readonly agentRuntimes: AgentRuntimesMode;
 }
 
 interface StagePackageJson {
@@ -1077,7 +1055,6 @@ const BuildEnvConfig = Config.all({
   ).pipe(Config.option),
   mapsEnvFile: Config.string("MOSS_DESKTOP_MAPS_ENV_FILE").pipe(Config.option),
   releaseMode: Config.schema(ReleaseMode, "MOSS_DESKTOP_RELEASE_MODE").pipe(Config.option),
-  agentRuntimes: Config.string("MOSS_DESKTOP_AGENT_RUNTIMES").pipe(Config.option),
 });
 
 const resolveBooleanFlag = (flag: Option.Option<boolean>, envValue: boolean) =>
@@ -1162,21 +1139,6 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
   const mapsEnvFile =
     mapsEnvFileOption === undefined ? undefined : path.resolve(repoRoot, mapsEnvFileOption);
   const releaseMode = mergeOptions(input.releaseMode, env.releaseMode, "build-only");
-  const agentRuntimes = yield* Effect.try({
-    try: () =>
-      resolveAgentRuntimesMode({
-        requested: Option.getOrElse(input.agentRuntimes ?? Option.none(), () =>
-          Option.getOrElse(env.agentRuntimes, () => undefined),
-        ),
-        platform,
-        signed,
-      }),
-    catch: (cause) =>
-      new BuildScriptError({
-        message: cause instanceof Error ? cause.message : "Invalid --agent-runtimes.",
-        cause,
-      }),
-  });
 
   return {
     platform,
@@ -1197,7 +1159,6 @@ export const resolveBuildOptions = Effect.fn("resolveBuildOptions")(function* (
     productionConfigMode,
     mapsEnvFile,
     releaseMode,
-    agentRuntimes,
   } satisfies ResolvedBuildOptions;
 });
 
@@ -3731,16 +3692,12 @@ export function desktopExtraResources(input: {
   readonly platform: typeof BuildPlatform.Type;
   readonly includeProductionPublicConfig: boolean;
   readonly includeMossCanvasBundle: boolean;
-  /** `download` leaves the Codex and Claude runtimes out; they ship as archives instead. */
-  readonly agentRuntimes?: AgentRuntimesMode;
 }): ReadonlyArray<{ readonly from: string; readonly to: string }> {
-  const bundled = (input.agentRuntimes ?? "bundled") === "bundled";
   return [
     SSH_RUNTIME_EXTRA_RESOURCE,
-    ...(bundled ? [BUNDLED_CODEX_EXTRA_RESOURCE] : []),
-    // The Codex licences stay in the installer in both modes (about 19 MB compressed).
+    BUNDLED_CODEX_EXTRA_RESOURCE,
     BUNDLED_CODEX_COMPLIANCE_EXTRA_RESOURCE,
-    ...(bundled ? [BUNDLED_CLAUDE_EXTRA_RESOURCE] : []),
+    BUNDLED_CLAUDE_EXTRA_RESOURCE,
     ...(requiresBundledCuaDriver(input.platform) ? [BUNDLED_CUA_DRIVER_EXTRA_RESOURCE] : []),
     ...(input.platform === "win" ? [WINDOWS_JOB_LAUNCHER_EXTRA_RESOURCE] : []),
     ...(input.includeProductionPublicConfig
@@ -3766,7 +3723,6 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   includeProductionPublicConfig: boolean,
   electronDist: ElectronDistProvenance | undefined,
   includeMossCanvasBundle: boolean,
-  agentRuntimes: AgentRuntimesMode,
 ) {
   const buildConfig: Record<string, unknown> = {
     appId: MOSS_PRODUCTION_BUNDLE_ID,
@@ -3780,7 +3736,6 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
       platform,
       includeProductionPublicConfig,
       includeMossCanvasBundle,
-      agentRuntimes,
     }),
     forceCodeSigning: signed,
   };
@@ -4484,7 +4439,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     productionPublicConfigResource !== null,
     electronDistProvenance,
     stagedMossCanvasBundle !== null,
-    options.agentRuntimes,
   );
   const testCompression = yield* Effect.try({
     try: () => testCompressionFor(options.releaseMode, process.env),
@@ -4775,117 +4729,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     `[desktop-artifact] Removed ${prunedClaudeNativePackages.removedPaths.length} build-only Claude native package paths; copied runtime remains in extraResources.`,
   );
 
-  // A download build: the runtimes verified above become the archives Moss fetches after
-  // install. Each archive is unpacked again with the app's own store code (every file checked
-  // against its pin) into the layout it has in resources/, so the reviewed native manifest and
-  // the packaged Codex checks below run on exactly what a person gets.
-  let packedAgentRuntimes: ReadonlyArray<PackedAgentRuntime & { readonly fromCache: boolean }> = [];
-  const agentRuntimeVerifyRoot = path.join(stageRoot, "agent-runtime-verify");
-  if (options.agentRuntimes === "download") {
-    const codexTargets = resolveBundledCodexTargets({
-      platform: options.platform,
-      arch: options.arch,
-    });
-    const claudeTargets = resolveBundledClaudeTargets({
-      platform: options.platform,
-      arch: options.arch,
-    });
-    const codexTarget = codexTargets.length === 1 ? codexTargets[0] : undefined;
-    const claudeTarget = claudeTargets.length === 1 ? claudeTargets[0] : undefined;
-    if (!codexTarget || !claudeTarget || options.arch === "universal") {
-      return yield* new BuildScriptError({
-        message: "A download build packs exactly one Codex and one Claude runtime target.",
-      });
-    }
-    const nodeArch = options.arch;
-    const archiveRoot = path.join(stageRoot, "agent-runtime-archives");
-    const verifyResources = path.join(agentRuntimeVerifyRoot, "resources");
-    yield* Effect.log(
-      "[desktop-artifact] Packing the verified agent runtimes as download archives...",
-    );
-    packedAgentRuntimes = yield* Effect.tryPromise({
-      try: async () => {
-        const packed = [
-          await packAgentRuntimeArchive({
-            outputRoot: archiveRoot,
-            cacheDir: process.env[AGENT_RUNTIME_ARCHIVE_CACHE_ENV]?.trim() || undefined,
-            runtime: {
-              name: "codex",
-              version: MOSS_BUNDLED_CODEX_VERSION,
-              platform: "win32",
-              arch: nodeArch,
-              root: path.join(stageAppDir, BUNDLED_CODEX_RUNTIME_DIR),
-              executable: `${codexTarget.targetTriple}/bin/${codexTarget.executable}`,
-            },
-          }),
-          await packAgentRuntimeArchive({
-            outputRoot: archiveRoot,
-            cacheDir: process.env[AGENT_RUNTIME_ARCHIVE_CACHE_ENV]?.trim() || undefined,
-            runtime: {
-              name: "claude",
-              version: BUNDLED_CLAUDE_CODE_VERSION,
-              platform: "win32",
-              arch: nodeArch,
-              root: path.join(stageAppDir, BUNDLED_CLAUDE_RUNTIME_DIR),
-              executable: `${claudeTarget.resourceFolder}/${claudeTarget.executable}`,
-            },
-          }),
-        ];
-        await unpackAgentRuntimeForVerification({
-          packed: packed[0]!,
-          verifyRoot: verifyResources,
-          layoutName: "codex-runtime",
-        });
-        await unpackAgentRuntimeForVerification({
-          packed: packed[1]!,
-          verifyRoot: verifyResources,
-          layoutName: "claude-runtime",
-        });
-        return packed;
-      },
-      catch: (cause) =>
-        new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Packing the agent runtime archives failed: ${cause.message}`
-              : "Packing the agent runtime archives failed.",
-          cause,
-        }),
-    });
-    const audit = yield* Effect.try({
-      try: () =>
-        auditWindowsAgentRuntimePayloads({
-          root: agentRuntimeVerifyRoot,
-          arch: options.arch,
-          manifest: windowsNativePayloadManifest,
-        }),
-      catch: (cause) =>
-        new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Agent runtime archive native audit failed: ${cause.message}`
-              : "Agent runtime archive native audit failed.",
-          cause,
-        }),
-    });
-    const pinsDocument = agentRuntimePinsDocument({
-      appVersion,
-      pins: packedAgentRuntimes.map((entry) => entry.pin),
-    });
-    yield* fs.writeFileString(
-      path.join(stageAppDir, AGENT_RUNTIME_PINS_FILE),
-      `${JSON.stringify(pinsDocument, null, 2)}\n`,
-    );
-    for (const entry of packedAgentRuntimes) {
-      yield* Effect.log(
-        `[desktop-artifact] Agent runtime archive ${entry.objectPath}: ${entry.pin.archive.size} bytes, sha256 ${entry.pin.archive.sha256}, ${entry.pin.files.length} files${entry.fromCache ? " (reused from the archive cache)" : ""}.`,
-      );
-    }
-    yield* Effect.log(
-      `[desktop-artifact] Agent runtime archives unpack to the staged bytes; ${audit.nativeFiles.length} native payloads match the reviewed manifest.`,
-    );
-  }
-
   if (options.platform === "win") {
     const windowsArch = options.arch;
     if (windowsArch === "universal") {
@@ -4955,8 +4798,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
   if (options.platform === "win") {
     buildEnv.MOSS_WINDOWS_TARGET_ARCH = options.arch;
     buildEnv.MOSS_WINDOWS_SIGNED_BUILD = options.signed ? "1" : "0";
-    // Read by the native payload audit hook: a download build must not carry the runtimes.
-    buildEnv.MOSS_DESKTOP_AGENT_RUNTIMES = options.agentRuntimes;
   }
 
   yield* Effect.log(
@@ -5042,48 +4883,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     );
   }
 
-  let installerResourcesDir: string | null = null;
-  if (options.agentRuntimes === "download") {
-    // The installer must not carry the runtimes; the checks below run on the unpacked archives,
-    // next to the Codex licences the installer still ships.
-    const packagedResources = yield* Effect.try({
-      try: () => {
-        const found = findPackagedResourcesDirectory(stageDistDir);
-        for (const folder of ["codex-runtime", "claude-runtime"])
-          if (existsSync(path.join(found, folder)))
-            throw new Error(`A download build's installer must not contain resources/${folder}.`);
-        return found;
-      },
-      catch: (cause) =>
-        new BuildScriptError({
-          message: cause instanceof Error ? cause.message : "Packaged resources check failed.",
-          cause,
-        }),
-    });
-    installerResourcesDir = packagedResources;
-    yield* fs.copy(
-      path.join(packagedResources, "third-party-licenses"),
-      path.join(agentRuntimeVerifyRoot, "resources", "third-party-licenses"),
-    );
-  }
-
   const packagedBundledCodexValidation = yield* Effect.try({
     try: () => {
-      const runtime =
-        options.agentRuntimes === "download"
-          ? {
-              ...validatePackagedBundledCodexRuntime({
-                resourcesDir: path.join(agentRuntimeVerifyRoot, "resources"),
-                platform: options.platform,
-                arch: options.arch,
-              }),
-              resourcesDir: path.join(agentRuntimeVerifyRoot, "resources"),
-            }
-          : validateBuiltBundledCodexRuntime({
-              stageDistDir,
-              platform: options.platform,
-              arch: options.arch,
-            });
+      const runtime = validateBuiltBundledCodexRuntime({
+        stageDistDir,
+        platform: options.platform,
+        arch: options.arch,
+      });
       const compliance = validatePackagedBundledCodexComplianceBundle({
         resourcesDir: runtime.resourcesDir,
         expectedVersion: MOSS_BUNDLED_CODEX_VERSION,
@@ -5188,9 +4994,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     const packagedCuaDriver = yield* Effect.try({
       try: () =>
         validatePackagedCuaDriver({
-          // The driver ships in the installer in both modes (item 3 moves it).
-          resourcesDir:
-            installerResourcesDir ?? packagedBundledCodexValidation.runtime.resourcesDir,
+          resourcesDir: packagedBundledCodexValidation.runtime.resourcesDir,
           platform: options.platform,
           signed: options.signed,
         }),
@@ -5512,36 +5316,11 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         cause,
       }),
   });
-  // A download build's runtime archives, for the upload to every source and its read-back:
-  // <output>/runtimes/runtimes/v1/** (the same paths as on the sources), the object list, and
-  // the pins for this app version (published, signed, as runtime-pins.json next to the feed).
-  const runtimeOutputs: string[] = [];
-  if (packedAgentRuntimes.length > 0) {
-    const runtimeOutputRoot = path.join(options.outputDir, AGENT_RUNTIME_OUTPUT_DIR);
-    for (const entry of packedAgentRuntimes) {
-      const destination = path.join(runtimeOutputRoot, ...entry.objectPath.split("/"));
-      yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
-      yield* fs.copyFile(entry.archivePath, destination);
-      runtimeOutputs.push(destination);
-    }
-    const listPath = path.join(runtimeOutputRoot, AGENT_RUNTIME_ARCHIVE_LIST_FILE);
-    yield* fs.writeFileString(
-      listPath,
-      `${JSON.stringify(agentRuntimeArchiveList(packedAgentRuntimes), null, 2)}\n`,
-    );
-    const pinsPath = path.join(options.outputDir, AGENT_RUNTIME_PINS_FEED_FILE);
-    yield* fs.writeFileString(
-      pinsPath,
-      `${JSON.stringify(agentRuntimePinsDocument({ appVersion, pins: packedAgentRuntimes.map((entry) => entry.pin) }), null, 2)}\n`,
-    );
-    runtimeOutputs.push(listPath, pinsPath);
-  }
   const copiedArtifacts = [
     ...copiedRelease.receipt.artifacts.map((artifact) =>
       path.join(options.outputDir, artifact.fileName),
     ),
     copiedRelease.receiptPath,
-    ...runtimeOutputs,
   ];
 
   yield* Effect.log("[desktop-artifact] Done. Artifacts:").pipe(
@@ -5627,12 +5406,6 @@ const buildDesktopArtifactCli = Command.make("build-desktop-artifact", {
   releaseMode: Flag.choice("release-mode", ReleaseMode.literals).pipe(
     Flag.withDescription(
       "Release intent: publish fails closed on production config and platform signing; build-only permits explicit unsigned internal QA artifacts (env: MOSS_DESKTOP_RELEASE_MODE).",
-    ),
-    Flag.optional,
-  ),
-  agentRuntimes: Flag.choice("agent-runtimes", AGENT_RUNTIMES_MODES).pipe(
-    Flag.withDescription(
-      "bundled (default, the full offline installer) ships the Codex and Claude runtimes inside the installer; download ships them as archives under <output>/runtimes for Moss to fetch after install (unsigned Windows only for now) (env: MOSS_DESKTOP_AGENT_RUNTIMES).",
     ),
     Flag.optional,
   ),
