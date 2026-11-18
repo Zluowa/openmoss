@@ -156,6 +156,12 @@ import {
 } from "./managedAttachmentStore";
 import { ManagedAttachmentRepository } from "./persistence/Services/ManagedAttachments";
 import { ComputerService } from "./computer/Services/ComputerService";
+import { DESKTOP_AGENT_RUNTIMES_ROUTE_PATH } from "@moss/shared/codexRuntime";
+import {
+  applyDesktopAgentRuntimesNotice,
+  parseDesktopAgentRuntimesNotice,
+} from "./desktopAgentRuntimes";
+import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import {
   authorizeDesktopShutdown,
   DESKTOP_COMPUTER_EMERGENCY_STOP_ROUTE_PATH,
@@ -324,6 +330,7 @@ export function makeEffectHttpRouteLayer(
     accountRecoveryEffectRouteLayer,
     makeDesktopShutdownEffectRouteLayer(shutdownController),
     makeDesktopComputerEmergencyStopRouteLayer(),
+    makeDesktopAgentRuntimesRouteLayer(),
     authEffectRouteLayer,
     mossMediaJobsEffectRouteLayer,
     projectFaviconEffectRouteLayer,
@@ -671,6 +678,62 @@ export function makeDesktopShutdownEffectRouteLayer(shutdownController: ServerSh
 
       yield* shutdownController.requestStop;
       return HttpServerResponse.jsonUnsafe({ accepted: true }, { status: 202 });
+    }),
+  );
+}
+
+/**
+ * The desktop reports an agent runtime it finished fetching after install (a `download` build).
+ * The server points its own environment at it, so the next launch of that agent uses it, and
+ * refreshes provider health so the window stops showing it as being prepared.
+ */
+export function makeDesktopAgentRuntimesRouteLayer() {
+  return HttpRouter.add(
+    "POST",
+    DESKTOP_AGENT_RUNTIMES_ROUTE_PATH,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const config = yield* ServerConfig;
+      const authorization = authorizeDesktopShutdown({
+        config,
+        remoteAddress: request.remoteAddress,
+        headers: request.headers,
+        authorization: request.headers.authorization,
+      });
+      if (!authorization.authorized) {
+        return HttpServerResponse.jsonUnsafe(
+          { error: authorization.reason === "unavailable" ? "Not Found" : "Unauthorized" },
+          {
+            status: authorization.status,
+            ...(authorization.status === 401
+              ? { headers: { "WWW-Authenticate": 'Bearer realm="moss-desktop-agent-runtimes"' } }
+              : {}),
+          },
+        );
+      }
+      const body = yield* request.json.pipe(
+        Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(16 * 1024)),
+        Effect.catch(() => Effect.succeed(null)),
+      );
+      const ready = parseDesktopAgentRuntimesNotice(body);
+      if (!ready) return HttpServerResponse.jsonUnsafe({ error: "Bad Request" }, { status: 400 });
+      const applied = yield* Effect.promise(() =>
+        applyDesktopAgentRuntimesNotice({ env: process.env, ready }),
+      );
+      const providerHealth = Option.getOrUndefined(yield* Effect.serviceOption(ProviderHealth));
+      if (providerHealth && applied.length > 0) {
+        yield* Effect.forkDetach(
+          providerHealth.refresh.pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning(
+                "provider refresh after agent runtime install failed",
+                Cause.pretty(cause),
+              ),
+            ),
+          ),
+        );
+      }
+      return HttpServerResponse.jsonUnsafe({ applied }, { status: 202 });
     }),
   );
 }

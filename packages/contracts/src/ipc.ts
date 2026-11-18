@@ -1540,6 +1540,40 @@ export interface DesktopSelfReportBridge {
   }>;
 }
 
+/** One agent runtime a `download` build fetches after install, as the window shows it. */
+export interface DesktopAgentRuntimeState {
+  readonly name: string;
+  readonly version: string;
+  readonly phase:
+    | "checking"
+    | "queued"
+    | "downloading"
+    | "paused"
+    | "waiting"
+    | "installing"
+    | "ready"
+    | "failed";
+  readonly bytes: number;
+  readonly total: number;
+  /** Seconds left at the recent speed, or null when unknown. */
+  readonly secondsLeft: number | null;
+  readonly failure:
+    | "offline"
+    | "proxy"
+    | "unreachable"
+    | "stalled"
+    | "http"
+    | "disk"
+    | "mismatch"
+    | "aborted"
+    | "unsupported"
+    | "invalid-archive"
+    | "busy"
+    | null;
+  /** When waiting or failed: the next automatic try, in milliseconds. */
+  readonly retryInMs: number | null;
+}
+
 export interface DesktopBridge {
   ssh?: import("./ssh").DesktopSshBridge;
   remoteComputers?: import("./remoteComputers").DesktopRemoteComputersBridge;
@@ -1710,6 +1744,18 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  /**
+   * Agent runtimes a `download` build fetches after install (empty list in a bundled build).
+   * Optional: absent in desktop builds older than the bridge.
+   */
+  agentRuntimes?: {
+    getState: () => Promise<ReadonlyArray<DesktopAgentRuntimeState>>;
+    onState: (listener: (states: ReadonlyArray<DesktopAgentRuntimeState>) => void) => () => void;
+    /** The person pressed 重试. */
+    retry: () => Promise<void>;
+    /** A chat is running: background downloads pause, the next message's runtime does not. */
+    setBusy: (busy: boolean) => Promise<void>;
+  };
   connectorOAuth?: {
     onCallback: (listener: (callback: DesktopConnectorOAuthCallback) => void) => () => void;
   };

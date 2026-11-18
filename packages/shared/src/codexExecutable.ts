@@ -4,7 +4,9 @@
 // Layer: Shared provider runtime policy
 
 import {
+  AgentRuntimePendingError,
   BundledCodexRuntimeUnavailableError,
+  isAgentRuntimePending,
   MOSS_BUNDLED_CODEX_ERROR_ENV_KEY,
   MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
 } from "./codexRuntime";
@@ -50,6 +52,10 @@ export function resolveCodexExecutable(input: {
     return { binaryPath: resolution.binaryPath, source: resolution.source };
   }
   const onPath = input.isOnPath ?? ((command: string) => isCommandOnPath(command, { env }));
+  // A download build fetches Moss's Codex after install; until then nothing is damaged.
+  if (isAgentRuntimePending(env, "codex") && !onPath("codex")) {
+    throw new AgentRuntimePendingError();
+  }
   if (bundledError && !onPath("codex")) {
     // A packaged build whose runtime is damaged and with no own Codex to use says so,
     // instead of failing later with a confusing "not installed".

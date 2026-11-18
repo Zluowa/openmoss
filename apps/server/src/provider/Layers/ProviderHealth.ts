@@ -45,6 +45,7 @@ import {
 import { decodeJsonResult } from "@moss/shared/schemaJson";
 import {
   formatBundledCodexExecutableVersionMismatch,
+  isAgentRuntimePending,
   MOSS_BUNDLED_CODEX_VERSION,
 } from "@moss/shared/codexRuntime";
 import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
@@ -306,12 +307,15 @@ export function runsMossBundledAgentRuntime(
     }
   }
   if (provider === CLAUDE_AGENT_PROVIDER) {
+    const source = resolveClaudeCodeRuntime({
+      binaryPath: configuredBinaryPath,
+      providerInstanceId: instanceId,
+      env: process.env,
+    }).source;
+    // While a download build is still fetching Moss's Claude Code, nobody is sent to npm.
     return (
-      resolveClaudeCodeRuntime({
-        binaryPath: configuredBinaryPath,
-        providerInstanceId: instanceId,
-        env: process.env,
-      }).source === "bundled"
+      source === "bundled" ||
+      (source !== "configured" && isAgentRuntimePending(process.env, "claude"))
     );
   }
   return false;

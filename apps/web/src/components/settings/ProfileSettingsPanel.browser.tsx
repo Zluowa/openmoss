@@ -152,10 +152,88 @@ describe("ProfileSettingsPanel", () => {
     localStorage.clear();
   });
 
+  // An isolated profile's home folder is ".../profile": signed out, the header showed the
+  // initials "PR", the name "Profile" and "@profile", all taken from that folder name.
+  const folderStats: ProfileStats = {
+    ...stats,
+    identity: { homeDirBasename: "profile", initials: "PR", defaultHandle: "@profile" },
+  };
+
+  it("shows a signed-out header instead of a name made from the home folder", async () => {
+    let signIns = 0;
+    const screen = await render(
+      <ProfileContent
+        account="signedOut"
+        onSignIn={() => {
+          signIns += 1;
+        }}
+        stats={folderStats}
+        tokenStats={tokenStats}
+        tokensPending={false}
+      />,
+    );
+
+    const header = document.querySelector("header")!;
+    await expect
+      .element(page.getByRole("heading", { level: 2, name: "Not signed in" }))
+      .toBeVisible();
+    expect(header.textContent).not.toMatch(/PR|Profile|@profile/);
+    expect(
+      header.querySelector("[data-profile-avatar-signed-out] [data-slot=central-icon]"),
+    ).not.toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "Sign in" }));
+    expect(signIns).toBe(1);
+
+    await screen.unmount();
+  });
+
+  it("keeps a name and handle the person set while signed out", async () => {
+    localStorage.setItem("moss:profile:name:v1", JSON.stringify("Lin"));
+    localStorage.setItem("moss:profile:handle:v1", JSON.stringify("@lin"));
+    const screen = await render(
+      <ProfileContent
+        account="signedOut"
+        onSignIn={() => {}}
+        stats={folderStats}
+        tokenStats={tokenStats}
+        tokensPending={false}
+      />,
+    );
+
+    await expect.element(page.getByRole("heading", { level: 2, name: "Lin" })).toBeVisible();
+    await expect.element(page.getByText("@lin")).toBeVisible();
+    expect(page.getByRole("button", { name: "Sign in" }).length).toBe(0);
+
+    await screen.unmount();
+  });
+
+  it("keeps the handle row and no sign-in button when signed in", async () => {
+    const screen = await render(
+      <ProfileContent
+        account="signedIn"
+        onSignIn={() => {}}
+        stats={folderStats}
+        tokenStats={tokenStats}
+        tokensPending={false}
+      />,
+    );
+
+    await expect.element(page.getByText("@profile")).toBeVisible();
+    expect(page.getByRole("button", { name: "Sign in" }).length).toBe(0);
+
+    await screen.unmount();
+  });
+
   it("uses the Codex profile hierarchy without dropping multi-provider token usage", async () => {
     await page.viewport(1_218, 878);
     const screen = await render(
-      <ProfileContent stats={stats} tokenStats={tokenStats} tokensPending={false} />,
+      <ProfileContent
+        account="signedIn"
+        onSignIn={() => {}}
+        stats={stats}
+        tokenStats={tokenStats}
+        tokensPending={false}
+      />,
     );
 
     await expect.element(page.getByRole("heading", { name: "Profile" })).toBeVisible();

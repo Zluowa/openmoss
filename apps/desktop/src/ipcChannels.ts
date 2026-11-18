@@ -90,6 +90,12 @@ export const DESKTOP_IPC_CHANNELS = {
     reportIssue: "desktop:beta-diagnostics-report-issue",
     getReportStatus: "desktop:beta-diagnostics-report-status",
   },
+  agentRuntimes: {
+    state: "desktop:agent-runtimes-state",
+    getState: "desktop:agent-runtimes-get-state",
+    retry: "desktop:agent-runtimes-retry",
+    setBusy: "desktop:agent-runtimes-set-busy",
+  },
   updateState: "desktop:update-state",
   updateGetState: "desktop:update-get-state",
   updateCheck: "desktop:update-check",

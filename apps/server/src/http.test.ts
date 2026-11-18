@@ -13,6 +13,11 @@ import { HttpRouter } from "effect/unstable/http";
 import { createHash } from "node:crypto";
 import { threadOutputHref } from "@moss/shared/threadWorkspace";
 import {
+  DESKTOP_AGENT_RUNTIMES_ROUTE_PATH,
+  MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY,
+  MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
+} from "@moss/shared/codexRuntime";
+import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery";
@@ -33,6 +38,7 @@ import {
   isLegacyTokenAuthorized,
   localHtmlPreviewEffectRouteLayer,
   threadOutputEffectRouteLayer,
+  makeDesktopAgentRuntimesRouteLayer,
   makeDesktopComputerEmergencyStopRouteLayer,
   makeDesktopShutdownEffectRouteLayer,
   makeHealthEffectRouteLayer,
@@ -174,6 +180,7 @@ type TestedRoute =
       readonly kind: "emergency-stop";
       readonly computerService?: ComputerServiceShape;
     }
+  | { readonly kind: "agent-runtimes" }
   | { readonly kind: "static" }
   | { readonly kind: "canvas" }
   | { readonly kind: "local-html" }
@@ -221,6 +228,10 @@ async function withEffectServer(
           } else if (route.kind === "emergency-stop") {
             yield* httpServer.serve(
               yield* HttpRouter.toHttpEffect(makeDesktopComputerEmergencyStopRouteLayer()),
+            );
+          } else if (route.kind === "agent-runtimes") {
+            yield* httpServer.serve(
+              yield* HttpRouter.toHttpEffect(makeDesktopAgentRuntimesRouteLayer()),
             );
           } else if (route.kind === "favicon") {
             yield* httpServer.serve(yield* HttpRouter.toHttpEffect(projectFaviconEffectRouteLayer));
@@ -726,6 +737,69 @@ describe("production Effect HTTP routes", () => {
         expect(stopCalls).toBe(2);
       },
     );
+  });
+
+  it("lets the desktop point the server at an agent runtime it finished downloading", async () => {
+    const shutdownToken = "c".repeat(64);
+    const folder = mkdtempSync(path.join(os.tmpdir(), "moss agent runtime 运行-"));
+    const codex = path.join(folder, "codex.exe");
+    writeFileSync(codex, "MZ");
+    vi.stubEnv(MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY, "codex,claude");
+    vi.stubEnv(MOSS_BUNDLED_CODEX_PATH_ENV_KEY, "");
+    try {
+      await withEffectServer(
+        makeConfig({
+          mode: "desktop",
+          desktopShutdownToken: shutdownToken,
+          authToken: "browser-token",
+        }),
+        { kind: "agent-runtimes" },
+        async (origin) => {
+          for (const authorization of [
+            undefined,
+            "Bearer browser-token",
+            `Bearer ${"d".repeat(64)}`,
+          ]) {
+            const refused = await fetch(`${origin}${DESKTOP_AGENT_RUNTIMES_ROUTE_PATH}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(authorization ? { Authorization: authorization } : {}),
+              },
+              body: JSON.stringify({ ready: [{ name: "codex", executablePath: codex }] }),
+            });
+            expect(refused.status).toBe(401);
+          }
+          expect(process.env[MOSS_BUNDLED_CODEX_PATH_ENV_KEY]).toBe("");
+
+          const bad = await fetch(`${origin}${DESKTOP_AGENT_RUNTIMES_ROUTE_PATH}`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${shutdownToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ready: [{ name: "opencode", executablePath: codex }] }),
+          });
+          expect(bad.status).toBe(400);
+
+          const response = await fetch(`${origin}${DESKTOP_AGENT_RUNTIMES_ROUTE_PATH}`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${shutdownToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ ready: [{ name: "codex", executablePath: codex }] }),
+          });
+          expect(response.status).toBe(202);
+          await expect(response.json()).resolves.toEqual({ applied: ["codex"] });
+          expect(process.env[MOSS_BUNDLED_CODEX_PATH_ENV_KEY]).toBe(codex);
+          expect(process.env[MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY]).toBe("claude");
+        },
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   it("refuses the emergency-stop route to browser authority and wrong tokens", async () => {
