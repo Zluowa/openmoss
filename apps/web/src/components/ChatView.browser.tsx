@@ -18669,7 +18669,8 @@ describe("ChatView transcript geometry (full app)", () => {
         () => {
           const settledTrigger = findInlineToolsTurnDisclosure();
           expect(settledTrigger?.getAttribute("aria-expanded")).toBe("false");
-          expect(settledTrigger?.textContent).toBe("Worked for 7.0s");
+          // 8 s: from the request (1 100) to the answer (1 108), not from the turn start (1 101).
+          expect(settledTrigger?.textContent).toBe("Worked for 8.0s");
           const transitionClone = document.querySelector(
             "[data-settled-turn-collapse-transition='true']",
           );
@@ -18718,7 +18719,7 @@ describe("ChatView transcript geometry (full app)", () => {
         () => {
           const settledTrigger = findInlineToolsTurnDisclosure();
           expect(settledTrigger?.getAttribute("aria-expanded")).toBe("false");
-          expect(settledTrigger?.textContent).toBe("Worked for 7.0s");
+          expect(settledTrigger?.textContent).toBe("Worked for 8.0s");
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -18889,7 +18890,7 @@ describe("ChatView transcript geometry (full app)", () => {
 
       // The turn must land folded, in one step, with no animated close replay.
       expect(findInlineToolsTurnDisclosure()?.getAttribute("aria-expanded")).toBe("false");
-      expect(findInlineToolsTurnDisclosure()?.textContent).toBe("Worked for 7.0s");
+      expect(findInlineToolsTurnDisclosure()?.textContent).toBe("Worked for 8.0s");
       expect(transitionFrames).toBe(0);
       // One settle step is the floor: the fold itself changes the height once.
       expect(heightChangeFrames).toBeLessThanOrEqual(2);

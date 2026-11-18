@@ -75,7 +75,8 @@ export function InboxTasks({
       ) : null}
       <TaskQuickAdd
         inputRef={quickAddRef}
-        placeholder="Add a task for today, or press Tab to hand it to an agent"
+        // The card already says "today"; the longer line was cut off at a normal window width.
+        placeholder="Add a task, or press Tab to hand it to an agent"
         onCreate={(title, options) => selection.addTask(title, options, { dueDate: today })}
       />
     </Group>

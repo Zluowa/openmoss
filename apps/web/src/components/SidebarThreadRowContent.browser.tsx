@@ -5,7 +5,7 @@
 import "../index.css";
 
 import { ProjectId, ThreadId, TurnId } from "@moss/contracts";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { cn } from "../lib/utils";
@@ -18,6 +18,11 @@ import {
 } from "../types";
 import { resolveThreadRowClassName } from "./Sidebar.logic";
 import { SidebarThreadRowContent } from "./SidebarThreadRowContent";
+import {
+  registerSubagentMarkOrder,
+  resetSubagentMarkOrderForTests,
+  subagentMarkIndexFor,
+} from "./chat/subagentMarkOrder";
 
 function makeThread(overrides: Partial<SidebarThreadSummary> = {}): SidebarThreadSummary {
   return {
@@ -336,15 +341,22 @@ describe("SidebarThreadRowContent", () => {
       </div>,
     );
     const childTitle = screen.getByTestId("subagent-row");
-    const statusDot = screen.getByTestId("sidebar-subagent-status-dot");
+    const statusMark = screen.getByTestId("sidebar-subagent-mark");
     await expect.element(childTitle).toHaveTextContent("Subagent 1");
-    await expect.element(statusDot).toHaveAttribute("data-status", "running");
-    const dot = document.querySelector("[data-testid='sidebar-subagent-status-dot']")!;
-    expect(dot.parentElement?.getAttribute("title")).toBe("Running");
-    expect(dot.parentElement?.hasAttribute("aria-hidden")).toBe(false);
-    expect(getComputedStyle(dot).width).toBe("6px");
-    expect(getComputedStyle(dot).height).toBe("6px");
-    const runningColor = getComputedStyle(dot).backgroundColor;
+    await expect.element(statusMark).toHaveAttribute("data-status", "running");
+    const mark = document.querySelector<HTMLElement>("[data-testid='sidebar-subagent-mark']")!;
+    expect(mark.parentElement?.getAttribute("title")).toBe("Running");
+    expect(mark.parentElement?.hasAttribute("aria-hidden")).toBe(false);
+    // The subagent's own mark, painted at 14 px, the one its transcript row wears.
+    expect(mark.hasAttribute("data-subagent-mark")).toBe(true);
+    expect(getComputedStyle(mark).width).toBe("14px");
+    expect(getComputedStyle(mark).height).toBe("14px");
+    const painted = mark.querySelector("svg path")!;
+    expect(getComputedStyle(painted).fill).not.toBe("none");
+    expect(Number(mark.dataset.subagentMarkIndex)).toBe(subagentMarkIndexFor("provider-child"));
+    // It turns while the subagent works.
+    expect(mark.hasAttribute("data-running")).toBe(true);
+    expect(getComputedStyle(mark.querySelector("svg")!).animationName).not.toBe("none");
     const name = document.querySelector(
       "[data-testid='subagent-row'] [data-sidebar-thread-title] .font-medium",
     )!;
@@ -373,14 +385,65 @@ describe("SidebarThreadRowContent", () => {
       },
     });
     await expect.element(childTitle).toHaveTextContent("Subagent 2");
-    await expect.element(statusDot).toHaveAttribute("data-status", "completed");
-    expect(dot.parentElement?.getAttribute("title")).toBe("Completed");
-    expect(getComputedStyle(dot).width).toBe("6px");
-    expect(getComputedStyle(dot).height).toBe("6px");
-    expect(getComputedStyle(dot).backgroundColor).not.toBe(runningColor);
+    await expect.element(statusMark).toHaveAttribute("data-status", "completed");
+    expect(mark.parentElement?.getAttribute("title")).toBe("Completed");
+    // Done: the same mark, still.
+    expect(mark.hasAttribute("data-running")).toBe(false);
+    expect(Number(mark.dataset.subagentMarkIndex)).toBe(subagentMarkIndexFor("provider-child"));
     expect(getComputedStyle(name).color).toBe(getComputedStyle(name.parentElement!).color);
     expect(document.body.textContent).not.toContain("provider-child");
     expect(document.querySelector("[data-sidebar-provider='codex']")).toBe(providerGlyph);
     expect(document.querySelectorAll("[data-sidebar-provider]")).toHaveLength(1);
+  });
+});
+
+describe("sidebar subagent marks", () => {
+  afterEach(() => {
+    resetSubagentMarkOrderForTests();
+  });
+
+  it("wears the same mark the parent chat's transcript gave each subagent", async () => {
+    const parent = makeThread({ id: ThreadId.makeUnsafe("marks-parent"), title: "Codex parent" });
+    const first = makeThread({
+      id: ThreadId.makeUnsafe("subagent:marks-parent:provider-a"),
+      parentThreadId: parent.id,
+      title: "explain_recursion",
+    });
+    const second = makeThread({
+      id: ThreadId.makeUnsafe("subagent:marks-parent:provider-b"),
+      parentThreadId: parent.id,
+      title: "explain_closure",
+    });
+    // The transcript's work log names provider-b first, then provider-a.
+    registerSubagentMarkOrder(parent.id, [
+      { subagents: [{ threadId: "provider-b", providerThreadId: "provider-b" }] },
+      { subagents: [{ threadId: "provider-a", providerThreadId: "provider-a" }] },
+    ]);
+    useStore.setState({
+      threadIds: [parent.id, first.id, second.id],
+      sidebarThreadSummaryById: {
+        [parent.id]: parent,
+        [first.id]: first,
+        [second.id]: second,
+      },
+    });
+    await render(
+      <div className="w-60 text-foreground">
+        <StoreThreadRow threadId={first.id} />
+        <StoreThreadRow threadId={second.id} />
+      </div>,
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelectorAll("[data-testid='sidebar-subagent-mark']")).toHaveLength(2),
+    );
+    const marks = [
+      ...document.querySelectorAll<HTMLElement>("[data-testid='sidebar-subagent-mark']"),
+    ];
+    expect(marks.map((mark) => mark.dataset.subagentMarkIndex)).toEqual(["1", "0"]);
+    const look = (mark: HTMLElement) =>
+      `${mark.dataset.subagentMarkShape}/${mark.dataset.subagentMarkTone}`;
+    expect(look(marks[0]!)).not.toBe(look(marks[1]!));
+    // No grey status dot anywhere.
+    expect(document.querySelector("[data-testid='sidebar-subagent-status-dot']")).toBeNull();
   });
 });

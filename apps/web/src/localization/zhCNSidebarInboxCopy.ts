@@ -18,6 +18,8 @@ const SIDEBAR_INBOX_COPY: Readonly<Record<string, string>> = {
   Afternoon: "下午",
   Evening: "晚上",
   ", now": "，现在",
+  prompt: "条提示词",
+  prompts: "条提示词",
   "same as yesterday": "与昨天相同",
   ", approve a command": "，需要批准命令",
   ", has a question": "，有一个问题",

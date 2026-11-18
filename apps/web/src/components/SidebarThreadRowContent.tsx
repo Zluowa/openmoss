@@ -17,7 +17,6 @@ import {
   resolveSubagentPresentationForThread,
   localizeSubagentRole,
   resolveSubagentThreadStatusKind,
-  subagentStatusDotClassName,
 } from "../lib/subagentPresentation";
 import { resolveThreadHandoffBadgeLabel } from "../lib/threadHandoff";
 import { SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME } from "../sidebarRowStyles";
@@ -25,6 +24,7 @@ import type { SidebarThreadSummary } from "../types";
 import { TerminalIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { ProviderIcon } from "./ProviderIcon";
+import { SubagentMark } from "./chat/SubagentMark";
 import { SidebarGlyph } from "./sidebarGlyphs";
 import { SidebarDraftGlyph } from "./SidebarStatusTrailingGlyph";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -238,8 +238,9 @@ export function SidebarThreadRowContent({
 }) {
   const subagentIndentPx = subagentIndentPxProp ?? 0;
   const isSubagentThread = Boolean(thread.parentThreadId);
-  // A child row's dot carries its state (running/done/failed/stopped), the
-  // same hues as the transcript card; the name stays in the neutral row color.
+  // A child row wears the subagent's own mark, the one its transcript row and the
+  // sub-agent list show (one key per subagent: subagentMarkOrder.ts); the mark turns while
+  // it works, and its state (running/done/failed/stopped) is the row's tooltip.
   const subagentStatusKind =
     variant === "standard" && isSubagentThread ? resolveSubagentThreadStatusKind(thread) : null;
   // Moss is multi-CLI. Named thread rows, pinned and standard, lead with the
@@ -254,7 +255,7 @@ export function SidebarThreadRowContent({
   const leading =
     variant === "standard" && isSubagentThread ? (
       <span
-        className="relative inline-flex h-3.5 w-[18px] shrink-0 items-center"
+        className="relative inline-flex h-3.5 w-[26px] shrink-0 items-center"
         style={{ marginLeft: `${subagentIndentPx}px` }}
         title={humanizeSubagentStatus(subagentStatusKind) ?? undefined}
       >
@@ -264,15 +265,14 @@ export function SidebarThreadRowContent({
         />
         <span
           aria-hidden="true"
-          className="absolute left-1.5 top-1/2 h-px w-2.5 -translate-y-1/2 bg-border/35"
+          className="absolute left-1.5 top-1/2 h-px w-1 -translate-y-1/2 bg-border/35"
         />
-        <span
-          data-testid="sidebar-subagent-status-dot"
+        <SubagentMark
+          seed={thread.id}
+          running={subagentStatusKind === "running"}
+          data-testid="sidebar-subagent-mark"
           data-status={subagentStatusKind ?? "none"}
-          className={cn(
-            "absolute left-1.5 top-1/2 size-[6px] -translate-x-1/2 -translate-y-1/2 rounded-full",
-            subagentStatusDotClassName(subagentStatusKind),
-          )}
+          className="absolute left-[10px] top-1/2 size-3.5 -translate-y-1/2"
         />
       </span>
     ) : terminalEntryPoint ? (

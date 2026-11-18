@@ -263,7 +263,7 @@ describe.each(["light", "dark"] as const)("the owner's Codex turn (%s)", (mode) 
     theme = mode;
     await page.viewport(VIEWPORT.width, VIEWPORT.height);
     await mount();
-    await expect.poll(() => visibleText()).toContain("已工作 14 分钟 32 秒");
+    await expect.poll(() => visibleText()).toContain("已工作 14 分钟 48 秒");
     await settle();
 
     // Folded: one header line, the final answer, the wrap-up box.
@@ -353,7 +353,7 @@ describe.each(["light", "dark"] as const)("the owner's Codex turn (%s)", (mode) 
     theme = mode;
     await page.viewport(VIEWPORT.width, VIEWPORT.height);
     await mount();
-    await expect.poll(() => visibleText()).toContain("已工作 14 分钟 32 秒");
+    await expect.poll(() => visibleText()).toContain("已工作 14 分钟 48 秒");
     // The picture sits under the final answer, where a folded turn shows it.
     await expect
       .poll(() => host().querySelector("[data-testid='generated-image-load-failed']"), {

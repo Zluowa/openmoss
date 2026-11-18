@@ -535,6 +535,8 @@ export interface TurnModel {
 
 /** Provider-reported lifecycle of one turn, used for its settled header. */
 export interface TurnTiming {
+  /** When the person sent the request (the server's record), when known. */
+  readonly requestedAt?: string | null;
   readonly startedAt: string | null;
   readonly completedAt: string | null;
   /** The turn ended interrupted; the source may be unknown. */
@@ -623,10 +625,11 @@ function activityTurnModel(activity: OrchestrationThreadActivity): {
 // model ran them.
 export function deriveTurnTimingByTurnId(input: {
   turnDiffSummaries: ReadonlyArray<Pick<TurnDiffSummary, "turnId" | "startedAt" | "completedAt">>;
-  latestTurn: Pick<
-    OrchestrationLatestTurn,
-    "turnId" | "state" | "startedAt" | "completedAt"
-  > | null;
+  latestTurn:
+    | (Pick<OrchestrationLatestTurn, "turnId" | "state" | "startedAt" | "completedAt"> & {
+        readonly requestedAt?: string | null;
+      })
+    | null;
   activities: ReadonlyArray<OrchestrationThreadActivity>;
 }): ReadonlyMap<TurnId, TurnTiming> {
   const timings = new Map<TurnId, TurnTiming>();
@@ -723,6 +726,7 @@ export function deriveTurnTimingByTurnId(input: {
   if (latestTurn) {
     const timing = timings.get(latestTurn.turnId);
     update(latestTurn.turnId, {
+      ...(latestTurn.requestedAt ? { requestedAt: latestTurn.requestedAt } : {}),
       startedAt: latestTurn.startedAt ?? timing?.startedAt ?? null,
       completedAt: latestTurn.completedAt ?? timing?.completedAt ?? null,
       interrupted: latestTurn.state === "interrupted" || (timing?.interrupted ?? false),
@@ -1133,6 +1137,28 @@ export function resolveThreadFindJumpTarget(
     };
   }
 
+  return null;
+}
+
+/**
+ * When the person sent the message the response at `responseIndex` answers: the nearest
+ * user message above it within the same response (not past an earlier answer or a
+ * background task that woke the agent). Null when the response had no request.
+ */
+function findRequestCreatedAt(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  responseIndex: number,
+  terminalAssistantMessageIds: ReadonlySet<string>,
+): string | null {
+  for (let scan = responseIndex - 1; scan >= 0; scan -= 1) {
+    const row = rows[scan]!;
+    if (isBackgroundTaskCompletionRow(row)) return null;
+    if (row.kind !== "message") continue;
+    if (row.message.role === "user") return row.message.createdAt;
+    if (row.message.role === "assistant" && terminalAssistantMessageIds.has(row.message.id)) {
+      return null;
+    }
+  }
   return null;
 }
 
@@ -2123,7 +2149,15 @@ export function deriveMessagesTimelineRows(input: {
     nextRows.splice(index, 0, {
       kind: "working-header",
       id: "working-header-row",
-      createdAt: resumedStartedAt ?? input.activeTurnStartedAt,
+      createdAt:
+        resumedStartedAt ??
+        liveRequestStartedAt(
+          nextRows,
+          index,
+          input.activeTurnId ?? null,
+          input.activeTurnStartedAt,
+          input.turnTimingByTurnId,
+        ),
       ...(resumedBy ? { resumedBy } : {}),
     });
   }
@@ -2298,6 +2332,60 @@ function findLiveTurnHeaderInsertion(
     return completionBoundary();
   }
   return { index: lastRequestIndex + 1, resumedBy: null, resumedStartedAt: null };
+}
+
+// The live turn counts from the send of the message it answers (the row the header
+// follows) when that is earlier than the provider's turn start, as the settled header
+// does: the person has been waiting since they pressed send.
+function liveRequestStartedAt(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  headerIndex: number,
+  activeTurnId: TurnId | null,
+  turnStartedAt: string,
+  turnTimingByTurnId: ReadonlyMap<TurnId, TurnTiming> | undefined,
+): string {
+  const recorded = activeTurnId ? turnTimingByTurnId?.get(activeTurnId)?.requestedAt : null;
+  const request = rows[headerIndex - 1];
+  const fromRow =
+    request?.kind === "message" &&
+    request.message.role === "user" &&
+    ((activeTurnId !== null && request.message.turnId === activeTurnId) ||
+      !rows
+        .slice(headerIndex)
+        .some(
+          (row) =>
+            row.kind === "message" &&
+            row.message.role === "assistant" &&
+            !row.message.streaming &&
+            row.message.completedAt,
+        ))
+      ? request.message.createdAt
+      : null;
+  const requestedAt = resolveRequestedAt(recorded ?? fromRow, turnStartedAt, turnTimingByTurnId);
+  return requestedAt !== null && Date.parse(requestedAt) < Date.parse(turnStartedAt)
+    ? requestedAt
+    : turnStartedAt;
+}
+
+/**
+ * The send time a turn's clock may start from: only one before the turn's own start with no
+ * other turn finishing in between (a retry or a resumed turn answers an older message, and
+ * that wait was already counted by the turn that ran then).
+ */
+function resolveRequestedAt(
+  requestedAt: string | null | undefined,
+  turnStartedAt: string,
+  turnTimingByTurnId: ReadonlyMap<TurnId, TurnTiming> | undefined,
+): string | null {
+  if (!requestedAt) return null;
+  const requestMs = Date.parse(requestedAt);
+  const startMs = Date.parse(turnStartedAt);
+  if (Number.isNaN(requestMs) || Number.isNaN(startMs) || requestMs >= startMs) return null;
+  for (const timing of turnTimingByTurnId?.values() ?? []) {
+    const completedMs = timing.completedAt ? Date.parse(timing.completedAt) : Number.NaN;
+    if (completedMs > requestMs && completedMs <= startMs) return null;
+  }
+  return requestedAt;
 }
 
 // Returns the terminal assistant only when it is still the transcript tail.
@@ -2602,6 +2690,17 @@ function collapseSettledTurns(
     // A provider can open the turn a woken response belongs to only when it
     // replies; that response started when the background task finished.
     if (wokenAt !== null) turnStart = wokenAt;
+    // An answer to a message the person sent: they waited from the send, and the
+    // provider reports its turn as started only once its session is up, which
+    // with subagents can be many seconds later. Count the time they waited.
+    else if (!message.codexReplay && turnStart !== null) {
+      const requestedAt = resolveRequestedAt(
+        turnTiming?.requestedAt ?? findRequestCreatedAt(rows, pass, terminalAssistantMessageIds),
+        turnStart,
+        turnTimingByTurnId,
+      );
+      if (requestedAt !== null) turnStart = earliestTimestamp(turnStart, requestedAt);
+    }
     // A provider can reuse the launching turn id for a notification response.
     // An earlier terminal record belongs to the launch, not the resumed work.
     const responseTiming =

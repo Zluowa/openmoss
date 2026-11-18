@@ -818,6 +818,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Good morning": "早上好",
   "Good afternoon": "下午好",
   "Good evening": "晚上好",
+  "Up late": "夜深了",
   "Nothing ran yet today. This fills in as your agents work.":
     "今天还没有任何运行记录。随着智能体工作，这里会自动填充。",
   "Mark all read": "全部标为已读",
@@ -1004,8 +1005,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   // High-exposure settings, Inbox, Kanban, computer-control, and MCP-connect residuals.
   "Accent color": "强调色",
   "Access all of Moss": "访问 Moss 的全部功能",
-  "Add a task for today, or press Tab to hand it to an agent":
-    "为今天添加一项任务，或按 Tab 交给智能体",
   "Advanced permissions": "高级权限",
   "Alert once the agent and all of its background subagents have finished. Turn this off to be alerted each time the agent or one of its subagents stops.":
     "在智能体及其所有后台子智能体全部完成后提醒一次。关闭后，智能体或其任一子智能体每次停止时都会提醒。",
@@ -2199,7 +2198,17 @@ export function translateZhCnPresentationText(value: string): string {
   const taskCountMatch = /^(\d+)\s+tasks?$/.exec(value);
   if (taskCountMatch) return `${taskCountMatch[1]} 个任务`;
 
-  // Inbox header summary: localized date label plus a caught-up / needs-you / to-do tail.
+  // Inbox header: a greeting, then the date label and a caught-up / needs-you / to-do tail.
+  const inboxGreetingMatch = /^(Good morning|Good afternoon|Good evening|Up late)\. (.+)$/.exec(
+    value,
+  );
+  if (inboxGreetingMatch) {
+    const rest = inboxGreetingMatch[2]!;
+    const tail = translateZhCnPresentationText(rest);
+    // Before the chats load the tail is the date alone ("11月19日星期四."): end it in Chinese too.
+    const sentence = tail === rest ? rest.replace(/\.$/, "。") : tail;
+    return `${translateZhCnPresentationText(inboxGreetingMatch[1]!)}。${sentence}`;
+  }
   const caughtUpMatch = /^(.+)\. You’re all caught up\.$/.exec(value);
   if (caughtUpMatch) return `${caughtUpMatch[1]}。一切都已处理完毕。`;
   const needsYouMatch =
