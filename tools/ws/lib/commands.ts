@@ -7,6 +7,7 @@ import path from "node:path";
 import { flagString, type ParsedArgs } from "./args.ts";
 import { classify, type TreeFacts, type Verdict } from "./classify.ts";
 import { belowFloor, floorMessage, formatGB, freeSpace, waitForFloor } from "./disk.ts";
+import { diskAlert, latestDiskAlert, type DiskAlertDeps } from "./diskAlert.ts";
 import { fetchPullRequests, matchPullRequest, type PullRequest } from "./gh.ts";
 import { branchExists, branchTip, listWorktrees, readTreeState, type GitWorktree } from "./git.ts";
 import { linkDependencies, relinkDependencies } from "./linkDeps.ts";
@@ -375,11 +376,45 @@ function portIsFree(port: number): Promise<boolean> {
   });
 }
 
+type Reaper = (profile: Profile, io: Io, label: string) => Promise<number>;
+
+/**
+ * Before the disk floor refuses `ws new` or `ws lane`: release what `ws reap --apply` releases
+ * (clean worktrees whose work is merged or pushed, each checked again first), so space our own
+ * finished worktrees hold is freed before anyone is turned away. MOSS_WS_NO_AUTO_REAP=1 skips it.
+ */
+export const reapForSpace: Reaper = async (profile, io, label) => {
+  if (process.env.MOSS_WS_NO_AUTO_REAP === "1") return 0;
+  io.err(
+    `${label}: below the disk floor; first releasing clean, merged worktrees (ws reap --apply)`,
+  );
+  try {
+    const { rows, worktrees } = await gather(profile, { sizes: false });
+    const release = rows.filter(
+      (r) => !r.isMain && (r.facts.insideRoots || r.lease) && r.verdict.release,
+    );
+    let done = 0;
+    for (const r of release) {
+      if (await releaseRow(profile, r, worktrees, { force: false, dryRun: false }, io)) done += 1;
+    }
+    io.err(`${label}: released ${done} of ${release.length} clean, merged worktrees`);
+    return done;
+  } catch (error) {
+    io.err(`${label}: the automatic reap failed: ${String(error)}`);
+    return 0;
+  }
+};
+
 export async function cmdNew(
   profile: Profile,
   args: ParsedArgs,
   io: Io,
-  deps: { isPortFree?: (port: number) => Promise<boolean>; measure?: typeof freeSpace } = {},
+  deps: {
+    isPortFree?: (port: number) => Promise<boolean>;
+    measure?: typeof freeSpace;
+    alert?: DiskAlertDeps;
+    reap?: Reaper;
+  } = {},
 ): Promise<number> {
   const name = args.positionals[0];
   if (!name || !NAME.test(name)) {
@@ -405,9 +440,21 @@ export async function cmdNew(
     io.err(`${target} already exists; pick another name or release it first`);
     return 1;
   }
-  const low = belowFloor([profile.worktreeRoot], profile.disk.floorGB, deps.measure);
+  let low = belowFloor([profile.worktreeRoot], profile.disk.floorGB, deps.measure);
+  if (low.length) {
+    await (deps.reap ?? reapForSpace)(profile, io, `ws new ${name}`);
+    low = belowFloor([profile.worktreeRoot], profile.disk.floorGB, deps.measure);
+  }
   if (low.length) {
     io.err(`ws new refused. ${floorMessage(low, profile.disk.floorGB)}`);
+    const owner = ownerFrom(args);
+    for (const line of await diskAlert(
+      profile,
+      low,
+      { command: `ws new ${name}`, owner },
+      deps.alert,
+    ))
+      io.err(line);
     return EXIT_DISK_FLOOR;
   }
   const git = profile.tools.git;
@@ -760,6 +807,8 @@ export async function cmdLane(
   deps: {
     measure?: typeof freeSpace;
     sleep?: (ms: number) => Promise<void>;
+    alert?: DiskAlertDeps;
+    reap?: Reaper;
   } = {},
 ): Promise<number> {
   const lane = args.positionals[0];
@@ -771,15 +820,23 @@ export async function cmdLane(
   const drives = [
     ...new Set([...profile.disk.drives, ...(profile.tempRoot ? [profile.tempRoot] : [])]),
   ];
+  let reaped = false;
   const checkFloor = async (when: string) => {
+    if (!reaped && belowFloor(drives, profile.disk.floorGB, deps.measure).length) {
+      reaped = true;
+      await (deps.reap ?? reapForSpace)(profile, io, `ws lane ${lane}`);
+    }
     const low = await waitForFloor(drives, profile.disk.floorGB, {
       waitMs: profile.disk.waitMinutes * 60_000,
       ...(deps.measure ? { measure: deps.measure } : {}),
       log: (line) => io.err(`ws lane ${lane}: ${line}`),
       ...(deps.sleep ? { sleep: deps.sleep } : {}),
     });
-    if (low.length)
+    if (low.length) {
       io.err(`ws lane ${lane} refused ${when}. ${floorMessage(low, profile.disk.floorGB)}`);
+      const context = { command: `ws lane ${lane}`, owner: ownerFrom(args) };
+      for (const line of await diskAlert(profile, low, context, deps.alert)) io.err(line);
+    }
     return low.length === 0;
   };
   if (!(await checkFloor("before queueing"))) return EXIT_DISK_FLOOR;
@@ -900,6 +957,16 @@ export async function cmdDoctor(profile: Profile, args: ParsedArgs, io: Io): Pro
       `disk   ${s.drive} ${formatGB(s.freeGB)} free${low ? `  BELOW FLOOR ${profile.disk.floorGB} GB` : ""}`,
     );
     if (low) problems.push(`${s.drive} below the disk floor`);
+  }
+  const alert = latestDiskAlert(profile);
+  if (alert) {
+    io.out(
+      `disk   last floor refusal ${alert.at}: ${alert.command} (${alert.owner}); largest: ` +
+        (alert.largest
+          .slice(0, 3)
+          .map((e) => `${e.path} ${(e.bytes / 1024 ** 3).toFixed(1)} GB`)
+          .join(", ") || "none measured"),
+    );
   }
   io.out(
     `memory ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB`,

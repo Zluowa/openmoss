@@ -13,7 +13,8 @@ import {
 } from "../lib/commands.ts";
 import { isAlive } from "../lib/proc.ts";
 import { listWorktrees } from "../lib/git.ts";
-import { samePath } from "../lib/paths.ts";
+import { pathKey, samePath } from "../lib/paths.ts";
+import { latestDiskAlert } from "../lib/diskAlert.ts";
 import { readRegistry } from "../lib/registry.ts";
 import {
   captureIo,
@@ -97,6 +98,58 @@ describe("ws new", () => {
     expect(code).toBe(EXIT_DISK_FLOOR);
     expect(io.text()).toMatch(/ws new refused\. Disk floor is 6 GB; below it: X: 1\.5 GB free/);
     expect(fs.existsSync(path.join(m.root, "low"))).toBe(false);
+  });
+
+  it("releases clean, merged worktrees before refusing, and goes ahead when that frees enough", async () => {
+    const m = machine({ disk: { floorGB: 6 } });
+    let freeGB = 1.5;
+    const calls: string[] = [];
+    const io = captureIo();
+    const code = await cmdNew(m.profile, args("roomy"), io, {
+      isPortFree: free,
+      measure: (p) => ({ drive: "X:", path: p, freeGB }),
+      reap: async (_profile, _io, label) => {
+        calls.push(label);
+        freeGB = 50;
+        return 1;
+      },
+    });
+    expect(calls).toEqual(["ws new roomy"]);
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(m.root, "roomy"))).toBe(true);
+  });
+
+  it("names our largest folders on the low drive and records the refusal", async () => {
+    const m = machine({ disk: { floorGB: 6 } });
+    for (const d of [path.join(m.root, "big"), path.join(m.scratchRoot, "small")]) {
+      fs.mkdirSync(d, { recursive: true });
+    }
+    const io = captureIo();
+    const code = await cmdNew(m.profile, args("low", "--owner", "tester"), io, {
+      isPortFree: free,
+      measure: (p) => ({ drive: "X:", path: p, freeGB: 1.5 }),
+      reap: async () => 0,
+      alert: {
+        localAppData: path.join(m.base, "localappdata"),
+        sizes: async (dirs) =>
+          new Map(
+            dirs.map((d) => [
+              pathKey(d),
+              { bytes: d.endsWith("big") ? 3 * 1024 ** 3 : 1024 ** 2, files: 1 },
+            ]),
+          ),
+      },
+    });
+    expect(code).toBe(EXIT_DISK_FLOOR);
+    const text = io.text();
+    expect(text).toMatch(/Largest of our folders on /);
+    expect(text).toMatch(/3\.0 GB +\S*big/);
+    expect(text.indexOf("big")).toBeLessThan(text.indexOf("small"));
+    expect(text).toMatch(/Tell the lead now/);
+    const record = latestDiskAlert(m.profile);
+    expect(record?.command).toBe("ws new low");
+    expect(record?.owner).toBe("tester");
+    expect(record?.largest.map((e) => path.basename(e.path))).toEqual(["big", "small"]);
   });
 
   it("refuses bad names and branches that are not <type>/<slug>", async () => {
