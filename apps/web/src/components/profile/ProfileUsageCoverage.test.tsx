@@ -15,9 +15,20 @@ vi.mock("~/lib/serverReactQuery", () => ({
   serverProfileStatsQueryOptions: () => ({ queryKey: ["core"] }),
   serverProfileTokenStatsQueryOptions: () => ({ queryKey: ["tokens"] }),
 }));
+// The header asks whether a Moss account is signed in; these cases run signed out.
+vi.mock("~/components/auth/mossServerReactQuery", () => ({
+  serverMossAccountSessionQueryOptions: () => ({ queryKey: ["account"] }),
+  serverMossCloudAccountStateQueryOptions: () => ({ queryKey: ["account"] }),
+}));
+vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => undefined }));
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (options: { queryKey: string[] }) => ({
-    data: options.queryKey[0] === "core" ? baseStats : queryState.tokenStats,
+    data:
+      options.queryKey[0] === "core"
+        ? baseStats
+        : options.queryKey[0] === "account"
+          ? undefined
+          : queryState.tokenStats,
     isPending: false,
     isError: false,
   }),
