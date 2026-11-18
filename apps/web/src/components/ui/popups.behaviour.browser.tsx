@@ -530,6 +530,8 @@ describe("Menu trigger rendered as a Moss Button", () => {
     await userEvent.keyboard("{ArrowDown}");
     await expect.element(page.getByRole("menuitem", { name: "复制" })).toHaveFocus();
     await userEvent.keyboard("{ArrowDown}");
+    // As in the other keyboard cases: the next key waits for the focus move it depends on.
+    await expect.element(page.getByRole("menuitem", { name: "移动" })).toHaveFocus();
     await userEvent.keyboard("{Enter}");
     expect(onSelect).toHaveBeenCalledWith("移动");
     await expect.poll(() => shown('[role="menu"]')).toBeNull();
@@ -722,7 +724,17 @@ describe("Select", () => {
     const trigger = page.getByRole("combobox", { name: "Density" });
     await trigger.click();
     await expectInstant(() => shown('[role="listbox"]'));
+    // The list highlights the current value a frame or more after it is shown; an arrow key
+    // pressed before that starts from no highlight and lands on the first item (main run
+    // 44172496124 picked "compact"). Wait for each highlight, as a person sees it, before the
+    // next key.
+    await expect
+      .element(page.getByRole("option", { name: "Comfortable" }))
+      .toHaveAttribute("data-highlighted");
     await userEvent.keyboard("{ArrowDown}");
+    await expect
+      .element(page.getByRole("option", { name: "Spacious" }))
+      .toHaveAttribute("data-highlighted");
     await userEvent.keyboard("{Enter}");
     expect(onValueChange).toHaveBeenCalledWith("spacious");
     await expect.poll(() => shown('[role="listbox"]')).toBeNull();

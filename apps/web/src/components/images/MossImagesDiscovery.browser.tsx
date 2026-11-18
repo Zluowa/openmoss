@@ -2,8 +2,8 @@ import "../../index.css";
 import { useState } from "react";
 import { DEFAULT_SERVER_SETTINGS_VIEW } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { page, userEvent } from "vitest/browser";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
+import { commands, page, userEvent, type Locator } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 import { MossLocalizationProvider } from "~/localization";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
@@ -15,6 +15,46 @@ import {
   type MossImageStyle,
   type MossImageTemplate,
 } from "./mossImagesDiscoveryCatalog";
+
+declare module "vitest/internal/browser" {
+  interface BrowserCommands {
+    setServiceWorkerBypass: (bypass: boolean) => Promise<void>;
+  }
+}
+
+// The previews are real files served by the dev server. A file that starts MSW (EventRouter,
+// KeybindingsToast, GeneratedMarkdownImage) leaves its service worker registered for the rest of
+// the run, and MSW hands a request from a page that never started it to another page it still
+// counts as active. Twice on the mirror (runs 44083716452, 44196173609, both with MSW files earlier
+// in the shard) the first preview request failed and the dialog showed its "unavailable"
+// placeholder. Keep service workers out of this file's requests. (Unregistering them after every
+// file instead breaks the next MSW file's own start.)
+beforeAll(() => commands.setServiceWorkerBypass(true));
+afterAll(() => commands.setServiceWorkerBypass(false));
+
+/**
+ * The preview image is shown and decoded. If the dialog shows the "unavailable" placeholder
+ * instead, fail at once with the image's URL and what the server answers, not after a timeout.
+ */
+async function expectPreviewLoaded(dialog: Locator, title: string, url: string) {
+  await expect
+    .poll(
+      async () => {
+        const fallback = dialog.getByRole("img", { name: `${title}预览不可用` }).query();
+        if (fallback) {
+          const status = await fetch(url, { cache: "no-store" }).then(
+            (response) => `HTTP ${response.status}`,
+            (error: unknown) => String(error),
+          );
+          throw new Error(`preview ${url} failed to load (${status} when fetched again)`);
+        }
+        const image = dialog.getByRole("img", { name: `${title}模板预览` }).query();
+        return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0;
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+}
 
 let client: QueryClient;
 const useTemplate = vi.fn<(template: MossImageTemplate) => void>();
@@ -116,6 +156,7 @@ it("opens a meaningful local preview with the keyboard and cancels without using
   await userEvent.keyboard("{Enter}");
   const dialog = page.getByRole("dialog", { name: "海报" });
   await expect.element(dialog).toBeVisible();
+  await expectPreviewLoaded(dialog, "海报", MOSS_IMAGE_TEMPLATES[0]!.previewUrl);
   await expect.element(dialog.getByRole("img", { name: "海报模板预览" })).toBeVisible();
   await dialog.getByRole("button", { name: "查看描述" }).click();
   await expect.element(dialog).toHaveTextContent(MOSS_IMAGE_TEMPLATES[0]!.prompt);
