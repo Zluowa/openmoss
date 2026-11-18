@@ -7,6 +7,8 @@ import path from "node:path";
 import { flagString, type ParsedArgs } from "./args.ts";
 import { classify, type TreeFacts, type Verdict } from "./classify.ts";
 import { belowFloor, floorMessage, formatGB, freeSpace, waitForFloor } from "./disk.ts";
+import { memoryShortfall, memoryState, waitForMemory, type MemoryState } from "./memory.ts";
+import { ownedRoots, processesByOwner } from "./owners.ts";
 import { diskAlert, latestDiskAlert, type DiskAlertDeps } from "./diskAlert.ts";
 import { fetchPullRequests, matchPullRequest, type PullRequest } from "./gh.ts";
 import { branchExists, branchTip, listWorktrees, readTreeState, type GitWorktree } from "./git.ts";
@@ -55,6 +57,8 @@ export const consoleIo: Io = {
 
 /** Exit code when the disk floor refuses work (matches the design's heavy-lock contract). */
 export const EXIT_DISK_FLOOR = 9;
+/** Exit code when the memory floor refuses a lane run after its wait. */
+export const EXIT_MEMORY_FLOOR = 10;
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const BRANCH = /^[a-z][a-z0-9-]*\/[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -809,6 +813,7 @@ export async function cmdLane(
     sleep?: (ms: number) => Promise<void>;
     alert?: DiskAlertDeps;
     reap?: Reaper;
+    memory?: () => MemoryState;
   } = {},
 ): Promise<number> {
   const lane = args.positionals[0];
@@ -840,6 +845,21 @@ export async function cmdLane(
     return low.length === 0;
   };
   if (!(await checkFloor("before queueing"))) return EXIT_DISK_FLOOR;
+  // Memory: checked when the lane is ours, just before the run starts (queueing costs nothing).
+  const checkMemory = async () => {
+    const reasons = await waitForMemory(profile.memory, {
+      waitMs: profile.memory.waitMinutes * 60_000,
+      ...(deps.memory ? { measure: deps.memory } : {}),
+      log: (line) => io.err(`ws lane ${lane}: ${line}`),
+      ...(deps.sleep ? { sleep: deps.sleep } : {}),
+    });
+    if (reasons.length)
+      io.err(
+        `ws lane ${lane} refused: memory is still short after ${profile.memory.waitMinutes} min (${reasons.join("; ")}). ` +
+          "`ws doctor` lists our processes by owner; close your own leftovers and tell the lead.",
+      );
+    return reasons.length === 0;
+  };
   const shaRun = runSync(profile.tools.git, ["rev-parse", "HEAD"], process.cwd(), 10_000);
   const sha = shaRun.code === 0 ? shaRun.stdout.trim() : "";
   const lock = await acquireLock({
@@ -861,6 +881,7 @@ export async function cmdLane(
   process.once("exit", release);
   try {
     if (!(await checkFloor("after getting the lock"))) return EXIT_DISK_FLOOR;
+    if (!(await checkMemory())) return EXIT_MEMORY_FLOOR;
     io.err(`ws lane ${lane}: lock held; running ${command.join(" ")}`);
     let runTemp: ReturnType<typeof createRunTemp> | undefined;
     if (profile.tempRoot) {
@@ -968,9 +989,16 @@ export async function cmdDoctor(profile: Profile, args: ParsedArgs, io: Io): Pro
           .join(", ") || "none measured"),
     );
   }
+  const mem = memoryState();
+  const short = memoryShortfall(mem, profile.memory);
   io.out(
-    `memory ${(os.freemem() / 1024 ** 3).toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB`,
+    `memory ${mem.freeGB.toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB` +
+      (mem.commitHeadroomGB === undefined
+        ? ""
+        : `; commit headroom ${mem.commitHeadroomGB.toFixed(1)} GB of a ${mem.commitLimitGB?.toFixed(1) ?? "?"} GB limit`) +
+      (short.length ? `  BELOW FLOOR (lane runs wait): ${short.join("; ")}` : ""),
   );
+  if (short.length) problems.push("memory below the floor");
 
   const lockDir = lockPath(path.join(profile.stateDir, "locks"), HEAVY_LOCK);
   if (fs.existsSync(lockDir)) {
@@ -998,6 +1026,19 @@ export async function cmdDoctor(profile: Profile, args: ParsedArgs, io: Io): Pro
   for (const p of orphans.slice(0, 30))
     io.out(`  pid ${p.pid} ${p.name}: ${p.commandLine.slice(0, 160)}`);
   if (orphans.length) problems.push(`${orphans.length} orphaned dev/test processes`);
+  const owned = processesByOwner(processes, ownedRoots(profile));
+  const ownedBytes = owned.reduce((sum, g) => sum + g.bytes, 0);
+  io.out(
+    `our processes: ${owned.reduce((n, g) => n + g.processes.length, 0)} (node, bun, Electron/Moss, turbo, esbuild, tsgo naming one of our folders), ${formatGB(ownedBytes / 1024 ** 3)} resident`,
+  );
+  for (const g of owned.slice(0, 20)) {
+    io.out(
+      `  ${formatGB(g.bytes / 1024 ** 3).padStart(8)}  ${String(g.processes.length).padStart(3)}  ${g.owner}: pids ${g.processes
+        .map((p) => p.pid)
+        .slice(0, 8)
+        .join(", ")}${g.processes.length > 8 ? ", ..." : ""}`,
+    );
+  }
 
   const managed = rows.filter((r) => !r.isMain && r.facts.insideRoots);
   const unregistered = managed.filter((r) => !r.lease);
