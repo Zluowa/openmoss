@@ -228,11 +228,11 @@ const ZH_CN_TEMPLATE_MESSAGES: readonly ProviderRuntimeTemplate[] = [
   },
   {
     pattern: /^Subagent '([^'\r\n]+)' already finished; the message was not delivered\.$/u,
-    localize: (match) => `子代理 '${match[1]}' 已结束；消息未发送。`,
+    localize: (match) => `子智能体 '${match[1]}' 已结束；消息未发送。`,
   },
   {
     pattern: /^Failed to stop subagent task '([^'\r\n]+)'\.$/u,
-    localize: (match) => `停止子代理任务 '${match[1]}' 失败。`,
+    localize: (match) => `停止子智能体任务 '${match[1]}' 失败。`,
   },
   {
     pattern:
@@ -256,11 +256,11 @@ const ZH_CN_TEMPLATE_MESSAGES: readonly ProviderRuntimeTemplate[] = [
   {
     pattern:
       /^Cannot message subagent '([^'\r\n]+)' because the provider runtime is not active\.$/u,
-    localize: (match) => `无法向子代理 '${match[1]}' 发送消息，因为服务商运行时未处于活动状态。`,
+    localize: (match) => `无法向子智能体 '${match[1]}' 发送消息，因为服务商运行时未处于活动状态。`,
   },
   {
     pattern: /^Provider '([^'\r\n]+)' does not support messaging a running subagent\.$/u,
-    localize: (match) => `服务商 '${match[1]}' 不支持向运行中的子代理发送消息。`,
+    localize: (match) => `服务商 '${match[1]}' 不支持向运行中的子智能体发送消息。`,
   },
   {
     pattern:
