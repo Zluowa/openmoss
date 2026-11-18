@@ -30,7 +30,6 @@ import {
   orphanedDevProcesses,
   processesUsing,
   stopPid,
-  stopProcessTree,
   type ProcessInfo,
 } from "./proc.ts";
 import { managedRoots, type Profile } from "./profile.ts";
@@ -659,10 +658,21 @@ export async function releaseRow(
     return true;
   }
   io.out(`releasing ${label}`);
-  for (const p of row.live) {
-    io.out(`  stopping pid ${p.pid} ${p.name}: ${p.commandLine.slice(0, 160)}`);
-    const error = stopProcessTree(p.pid);
-    if (error) io.err(`  could not stop pid ${p.pid}: ${error}`);
+  if (row.live.length) {
+    // Never a tree kill (taskkill /T follows recorded parent PIDs, which Windows reuses): each
+    // process and only the descendants that started after it, children first, each by its PID.
+    const all = await listProcesses();
+    const stopped = new Set<number>();
+    for (const p of row.live) {
+      const tree = descendantsOf(all, p.pid, p.startedMs ?? Number.POSITIVE_INFINITY);
+      const targets = tree.length ? tree.toReversed() : [p];
+      for (const q of targets) {
+        if (stopped.has(q.pid)) continue;
+        stopped.add(q.pid);
+        io.out(`  stopping pid ${q.pid} ${q.name}: ${q.commandLine.slice(0, 160)}`);
+        stopPid(q.pid);
+      }
+    }
   }
   if (row.live.length) {
     await new Promise((r) => setTimeout(r, 1000));
