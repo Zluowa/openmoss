@@ -7,6 +7,7 @@ import { page } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { layoutReport, type LayoutFinding } from "./layoutReport";
+import { settleLayout } from "./screenshot";
 
 const WIDTH = 1000;
 const HEIGHT = 700;
@@ -147,6 +148,59 @@ describe("layout_report", () => {
         <div style="width:22px;height:22px;margin:-3px"></div>
       </div>`);
     expect(layoutReport({ windowControls: "none" }).findings).toEqual([]);
+  });
+
+  // Mirror run 44297606017: the top bar's back/forward controls open by animating a grid
+  // column; caught mid-way, their 24px box sat in a 22px column. Not a defect: still moving.
+  /** `transition` as CSS: a slow one with a negative delay sits half open for the whole test. */
+  function mountOpeningColumn(transition = "grid-template-columns 600ms linear") {
+    mount(`
+      <div id="grid" style="position:absolute;left:80px;top:10px;display:grid;grid-template-columns:0fr;transition:${transition}">
+        <div id="column" style="min-width:0;overflow:hidden">
+          <div style="width:max-content"><button id="back" style="width:24px;height:24px">&lt;</button></div>
+        </div>
+      </div>`);
+    const grid = document.getElementById("grid")!;
+    grid.getBoundingClientRect();
+    grid.style.gridTemplateColumns = "1fr";
+  }
+  const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+
+  it("leaves out what is still moving, and says so", async () => {
+    mountOpeningColumn("grid-template-columns 20s linear -10s");
+    await nextFrame();
+    await nextFrame();
+    const column = document.getElementById("column")!.getBoundingClientRect();
+    // Mid-way: the button is cut by the opening column, as a person sees it for a moment.
+    expect(column.width).toBeGreaterThan(0);
+    expect(column.width).toBeLessThan(24);
+    const report = layoutReport({ windowControls: "none" });
+    expect(report.findings).toEqual([]);
+    expect(report.inMotion).toBeGreaterThan(0);
+  });
+
+  it("settles before measuring: waits for the opening column, then finds nothing", async () => {
+    mountOpeningColumn();
+    await nextFrame();
+    const started = performance.now();
+    await settleLayout();
+    expect(performance.now() - started).toBeGreaterThan(300);
+    expect(document.getElementById("column")!.getBoundingClientRect().width).toBeCloseTo(24, 0);
+    const report = layoutReport({ windowControls: "none" });
+    expect(report).toMatchObject({ findings: [], inMotion: 0 });
+  });
+
+  it("does not wait on an endless animation, and still reports what it cuts", async () => {
+    mount(`
+      <style>@keyframes moss-spin { to { transform: rotate(360deg) } }</style>
+      <span style="position:absolute;left:600px;top:600px;width:12px;height:12px;animation:moss-spin 1s linear infinite"></span>
+      <div id="cut" style="position:absolute;left:10px;top:300px;width:90px;white-space:nowrap;overflow:hidden">A very long project name that cannot fit</div>`);
+    const started = performance.now();
+    await settleLayout();
+    expect(performance.now() - started).toBeLessThan(500);
+    const report = layoutReport({ windowControls: "none" });
+    expect(report.findings.map((f) => f.kind)).toEqual(["truncated-text"]);
+    expect(report.inMotion).toBe(0);
   });
 
   it("reports nothing for a healthy screen", () => {

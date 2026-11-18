@@ -20,6 +20,7 @@ import {
   toRect,
   type SelfReportRect,
 } from "./dom";
+import { runningFiniteAnimations } from "./screenshot";
 
 export type LayoutFindingKind =
   | "overflow"
@@ -54,6 +55,12 @@ export interface LayoutReport {
   readonly findings: LayoutFinding[];
   /** Findings left out past `max`. */
   readonly more: number;
+  /**
+   * Findings left out because an element they involve (or one of its ancestors) was still in a
+   * transition or animation that will end: a box caught mid-way is not a defect. Non-zero means
+   * the screen was not settled; call again (the tool waits for it first).
+   */
+  readonly inMotion: number;
   readonly error?: string;
 }
 
@@ -223,17 +230,35 @@ export function layoutReport(input: LayoutReportInput = {}): LayoutReport {
       windowControls,
       findings: [],
       more: 0,
+      inMotion: 0,
       error: `No element matches ${input.root}.`,
     };
   }
   const max = Math.max(1, Math.min(500, input.max ?? 100));
   const findings: LayoutFinding[] = [];
+  const moving = new Set<Element>();
+  for (const animation of runningFiniteAnimations()) {
+    const target = (animation.effect as KeyframeEffect | null)?.target;
+    if (target) moving.add(target);
+  }
+  const isMoving = (element: Element | undefined) => {
+    for (let current: Element | null = element ?? null; current; current = current.parentElement) {
+      if (moving.has(current)) return true;
+    }
+    return false;
+  };
+  let inMotion = 0;
   const add = (
     kind: LayoutFindingKind,
     element: Element,
     against: LayoutFinding["against"],
     name?: string,
+    againstElement?: Element,
   ) => {
+    if (isMoving(element) || isMoving(againstElement)) {
+      inMotion += 1;
+      return;
+    }
     findings.push({
       kind,
       selector: selectorFor(element),
@@ -325,6 +350,7 @@ export function layoutReport(input: LayoutReportInput = {}): LayoutReport {
             element,
             { selector: selectorFor(owner.element), rect: toRect(box) },
             textName(element),
+            owner.element,
           );
           reportedClips.add(element);
         }
@@ -364,6 +390,7 @@ export function layoutReport(input: LayoutReportInput = {}): LayoutReport {
             child,
             { selector: selectorFor(element), rect: toRect(element.getBoundingClientRect()) },
             textName(child),
+            element,
           );
           break;
         }
@@ -394,6 +421,7 @@ export function layoutReport(input: LayoutReportInput = {}): LayoutReport {
           a.element,
           { selector: selectorFor(b.element), rect: toRect(b.rect) },
           accessibleName(a.element),
+          b.element,
         );
       }
     }
@@ -423,5 +451,6 @@ export function layoutReport(input: LayoutReportInput = {}): LayoutReport {
     windowControls,
     findings: findings.slice(0, max),
     more: Math.max(0, findings.length - max),
+    inMotion,
   };
 }

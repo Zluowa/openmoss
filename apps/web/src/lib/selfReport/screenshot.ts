@@ -55,17 +55,39 @@ export interface ScreenshotResult {
 /** Kept short so a call with three sizes answers within 10 s (the acceptance kit allows 15). */
 const SIZE_WAIT_MS = 2000;
 const FONTS_WAIT_MS = 1500;
+/** Transitions still running get this long to finish; endless ones are never waited for. */
+const ANIMATIONS_WAIT_MS = 1000;
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/** Animations and transitions that are running and will end (not a spinner's endless loop). */
+export function runningFiniteAnimations(): Animation[] {
+  if (typeof document === "undefined" || typeof document.getAnimations !== "function") return [];
+  return document.getAnimations().filter((animation) => {
+    if (animation.playState !== "running") return false;
+    const end = animation.effect?.getComputedTiming().endTime;
+    return typeof end === "number" && Number.isFinite(end);
+  });
+}
+
 /**
  * Before measuring: the page's fonts loaded (at most 1.5 s, never the network beyond what the
- * page already asked for) and two animation frames, so a box mid-transition is not measured.
+ * page already asked for), the transitions and animations already running finished (at most
+ * 1 s; endless ones are not waited for), then two animation frames, so a box caught mid-way
+ * (a column opening, a panel sliding) is not measured.
  */
 export async function settleLayout(): Promise<void> {
   const fonts = typeof document !== "undefined" ? document.fonts?.ready : undefined;
   if (fonts) await Promise.race([fonts, delay(FONTS_WAIT_MS)]);
+  await frame();
+  const moving = runningFiniteAnimations();
+  if (moving.length > 0) {
+    await Promise.race([
+      Promise.allSettled(moving.map((animation) => animation.finished)),
+      delay(ANIMATIONS_WAIT_MS),
+    ]);
+  }
   await frame();
   await frame();
 }

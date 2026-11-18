@@ -105,6 +105,7 @@ import { STARRED_MODELS_STORAGE_KEY } from "../lib/starredModels";
 import { readNativeApi } from "../nativeApi";
 import { DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS } from "../hooks/useDesktopTopBarGutter";
 import { layoutReport } from "../lib/selfReport/layoutReport";
+import { settleLayout } from "../lib/selfReport/screenshot";
 import { useMossbotPreferencesStore } from "../mossbotPreferencesStore";
 import { emitWsTransportState } from "../wsTransportEvents";
 import { dispatchKanbanDraftThread } from "../lib/kanbanDispatch";
@@ -5871,11 +5872,15 @@ describe("ChatView transcript geometry (full app)", () => {
         await setViewport(viewport);
         await waitForLayout();
         const at = `${viewport.width}x${viewport.height}`;
-        const report = () =>
-          layoutReport({ root: "[data-mossbot-workspace]", windowControls: "windows" });
+        // As the tool measures: settled first (fonts, running transitions, two frames). Mirror
+        // run 44297606017 caught the top bar's back/forward column mid-opening without it.
+        const report = async () => {
+          await settleLayout();
+          return layoutReport({ root: "[data-mossbot-workspace]", windowControls: "windows" });
+        };
 
         // As shipped: nothing under the window's buttons, nothing cut, nothing spilling.
-        expect(report().findings, at).toEqual([]);
+        expect((await report()).findings, at).toEqual([]);
 
         // As before #674: no top bar above the stage. The desktop window draws its buttons on top
         // of the page there (DesktopWindowControls, not mounted in this browser harness): a
@@ -5893,7 +5898,7 @@ describe("ChatView transcript geometry (full app)", () => {
         topBar.style.display = "none";
         await waitForLayout();
         try {
-          const broken = report();
+          const broken = await report();
           const caption = broken.windowControls!;
           const under = broken.findings.filter(
             (finding) => finding.kind === "under-window-controls",
@@ -5913,7 +5918,7 @@ describe("ChatView transcript geometry (full app)", () => {
           caption.remove();
         }
         await waitForLayout();
-        expect(report().findings, at).toEqual([]);
+        expect((await report()).findings, at).toEqual([]);
       }
     } finally {
       await mounted.cleanup();
