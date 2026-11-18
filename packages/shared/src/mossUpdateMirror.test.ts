@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   deriveMossUpdateManifestPublicKey,
   generateMossUpdateManifestKeyPair,
-  MOSS_DESKTOP_CN_UPDATE_MIRROR,
+  MOSS_DESKTOP_UPDATE_MIRRORS,
+  MOSS_UPDATE_MANIFEST_PUBLIC_KEY,
   parseMossUpdateMirrorConfig,
   signMossUpdateManifest,
   verifyMossUpdateManifest,
@@ -137,19 +138,29 @@ describe("parseMossUpdateMirrorConfig", () => {
     ).toThrow();
   });
 
-  it("keeps the built-in production mirror valid", () => {
-    if (MOSS_DESKTOP_CN_UPDATE_MIRROR === null) return;
-    expect(parseMossUpdateMirrorConfig(MOSS_DESKTOP_CN_UPDATE_MIRROR)).toEqual(
-      MOSS_DESKTOP_CN_UPDATE_MIRROR,
-    );
+  it("keeps every built-in production mirror valid", () => {
+    expect(MOSS_DESKTOP_UPDATE_MIRRORS.length).toBeGreaterThan(0);
+    for (const mirror of MOSS_DESKTOP_UPDATE_MIRRORS) {
+      expect(parseMossUpdateMirrorConfig(mirror)).toEqual(mirror);
+    }
   });
 
-  // comiction.cn lapses on 2026-11-27 and may change hands; the feed moved to Moss's own domain
-  // while the release key (and so every signature already on the mirror) stayed the same.
-  it("serves the production mirror from update.mossbotai.com with the unchanged release key", () => {
-    expect(MOSS_DESKTOP_CN_UPDATE_MIRROR).toEqual({
-      feedUrl: "https://update.mossbotai.com/desktop/",
-      manifestPublicKey: "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=",
-    });
+  // comiction.cn lapses on 2026-11-27; the feed lives on the two download sources while the
+  // release key (and so every signature already on a mirror) stays the same.
+  it("serves the production feed from COS, then R2, with the unchanged release key", () => {
+    expect(MOSS_DESKTOP_UPDATE_MIRRORS).toEqual([
+      {
+        feedUrl: "https://moss-update-1259646312.cos.ap-guangzhou.myqcloud.com/desktop/",
+        manifestPublicKey: MOSS_UPDATE_MANIFEST_PUBLIC_KEY,
+      },
+      {
+        feedUrl: "https://update.mossbotai.com/desktop/",
+        manifestPublicKey: MOSS_UPDATE_MANIFEST_PUBLIC_KEY,
+      },
+    ]);
+    expect(MOSS_UPDATE_MANIFEST_PUBLIC_KEY).toBe(
+      "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=",
+    );
+    expect(Object.isFrozen(MOSS_DESKTOP_UPDATE_MIRRORS)).toBe(true);
   });
 });

@@ -3,12 +3,14 @@
 //          with a Moss account (no ChatGPT sign-in), listed by Moss's own local
 //          marketplace ("moss-catalog") and installed by the CLI from it. The
 //          listing is compiled in, so the directory is complete offline and in
-//          mainland China; each plugin's files come from Moss's domestic mirror
-//          on first install and are checked against the hash pinned here.
+//          mainland China; each plugin's files come from Moss's download sources
+//          (COS and R2, in the order of the account's lane) on first install and
+//          are checked against the hash pinned here.
 // Layer: Shared runtime data (server writes the marketplace and verifies
 //        downloads; web overlays the Chinese copy and icons)
 // Exports: catalog entries, marketplace identity, mirror URL helpers
 
+import { mossDownloadSourceUrls, type MossDownloadSourceOrder } from "./mossDownloadSources";
 import {
   MOSS_PLUGIN_CATALOG_PACKAGES,
   MOSS_PLUGIN_CATALOG_SOURCE,
@@ -19,10 +21,17 @@ export { MOSS_PLUGIN_CATALOG_SOURCE, type MossPluginCatalogPackage };
 
 export const MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME = "moss-catalog";
 export const MOSS_PLUGIN_CATALOG_MARKETPLACE_DISPLAY_NAME = "Moss Plugin Catalog";
-/** The update mirror's host (Cloudflare R2), reachable from mainland China and abroad. */
-export const MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL =
-  "https://update.mossbotai.com/plugin-catalog/v1/";
-/** Developers and tests point the server at another copy of the mirror. */
+/** The catalog's directory on every download source. */
+export const MOSS_PLUGIN_CATALOG_PATH = "plugin-catalog/v1/";
+/**
+ * The catalog on Cloudflare R2, the source reachable from everywhere (mainland China too). Used
+ * where one URL must do, such as listing icons shown before a plugin's files are on disk.
+ */
+export const MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL: string = mossDownloadSourceUrls(
+  "global",
+  MOSS_PLUGIN_CATALOG_PATH,
+)[0]!;
+/** Developers and tests point the server at exactly one other copy of the catalog. */
 export const MOSS_PLUGIN_CATALOG_URL_ENV = "MOSS_PLUGIN_CATALOG_URL";
 
 /** The directory's own categories (`CODEX_DIRECTORY_CATEGORY_ORDER`). */
@@ -180,6 +189,20 @@ export function normalizeMossPluginCatalogBaseUrl(value: string | undefined): st
   url.hash = "";
   if (!url.pathname.endsWith("/")) url.pathname = `${url.pathname}/`;
   return url.toString();
+}
+
+/**
+ * The catalog base URLs to try, in order: the override alone when one is set (it means exactly one
+ * base URL), otherwise the catalog on every download source in the given order.
+ */
+export function mossPluginCatalogBaseUrls(input: {
+  readonly override?: string | undefined;
+  readonly order: MossDownloadSourceOrder;
+}): ReadonlyArray<string> {
+  if (input.override?.trim()) return [normalizeMossPluginCatalogBaseUrl(input.override)];
+  return mossDownloadSourceUrls(input.order, MOSS_PLUGIN_CATALOG_PATH).map((url) =>
+    normalizeMossPluginCatalogBaseUrl(url),
+  );
 }
 
 export function mossPluginCatalogPackageUrl(

@@ -665,6 +665,10 @@
       "types": "./src/mossDownloadChannel.ts",
       "import": "./src/mossDownloadChannel.ts"
     },
+    "./mossDownloadSources": {
+      "types": "./src/mossDownloadSources.ts",
+      "import": "./src/mossDownloadSources.ts"
+    },
     "./mossAccountComputers": {
       "types": "./src/mossAccountComputers.ts",
       "import": "./src/mossAccountComputers.ts"

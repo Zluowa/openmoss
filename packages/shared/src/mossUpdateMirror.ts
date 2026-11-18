@@ -1,5 +1,5 @@
 // FILE: mossUpdateMirror.ts
-// Purpose: Describes the domestic desktop update mirror and the signature that makes it trustworthy.
+// Purpose: Describes the desktop update mirrors (one per download source) and the signature that makes it trustworthy.
 //          A storage bucket is easier to tamper with than the release repository, and Windows
 //          publisher checks only run on code-signed builds, so the app accepts a mirror's update
 //          manifest only when it carries a signature from the Moss release key. The manifest pins
@@ -15,6 +15,8 @@ import {
   type KeyObject,
 } from "node:crypto";
 
+import { mossDownloadSourceUrls } from "./mossDownloadSources";
+
 export interface MossUpdateMirrorConfig {
   /** Directory holding the channel manifests and installers, always ending in a slash. */
   readonly feedUrl: string;
@@ -22,11 +24,22 @@ export interface MossUpdateMirrorConfig {
   readonly manifestPublicKey: string;
 }
 
-/** The production mirror. Null would mean every account keeps using the official feed. */
-export const MOSS_DESKTOP_CN_UPDATE_MIRROR: MossUpdateMirrorConfig | null = {
-  feedUrl: "https://update.mossbotai.com/desktop/",
-  manifestPublicKey: "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=",
-};
+/** The Moss release key's public half (base64 DER SPKI, Ed25519). Every mirror is checked against it. */
+export const MOSS_UPDATE_MANIFEST_PUBLIC_KEY =
+  "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=";
+
+/** The stable feed's directory on every download source. */
+export const MOSS_DESKTOP_UPDATE_FEED_PATH = "desktop/";
+
+/**
+ * The production mirrors, in the order the mirror lanes try them (COS, then R2): the same signed
+ * feed on each download source. An empty list would mean every account keeps the official feed.
+ */
+export const MOSS_DESKTOP_UPDATE_MIRRORS: ReadonlyArray<MossUpdateMirrorConfig> = Object.freeze(
+  mossDownloadSourceUrls("cn", MOSS_DESKTOP_UPDATE_FEED_PATH).map((feedUrl) =>
+    Object.freeze({ feedUrl, manifestPublicKey: MOSS_UPDATE_MANIFEST_PUBLIC_KEY }),
+  ),
+);
 
 export const MOSS_UPDATE_MANIFEST_SIGNATURE_SUFFIX = ".sig";
 
