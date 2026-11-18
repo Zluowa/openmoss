@@ -63,6 +63,7 @@ import { ArchivedSettingsPanel, WorktreesSettingsPanel } from "./ConversationSto
 import {
   AppSnapSettingsPanel,
   BetaChannelSettingsPanel,
+  PreviewChannelSettingsPanel,
   NotificationsSettingsPanel,
 } from "./DesktopSettingsPanels";
 import { ImportSettingsPanel } from "./ImportSettingsPanel";
@@ -682,6 +683,7 @@ export function SettingsContent({
     <div className="space-y-6">
       <SafariAccessSetupButton />
       <BetaChannelSettingsPanel active={true} />
+      <PreviewChannelSettingsPanel active={true} />
       <SettingsSection title="Core defaults">
         <SettingsRow
           title="Default provider"

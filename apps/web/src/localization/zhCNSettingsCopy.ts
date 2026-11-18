@@ -10,6 +10,13 @@ import { lookupPhrase } from "./zhCNPhraseTable";
 const SETTINGS_COPY: Readonly<Record<string, string>> = {
   Connections: "连接",
   "Manage this computer, other devices, and SSH connections.": "管理此电脑、其他设备和 SSH 连接。",
+  // Preview channel (code updates)
+  "Preview channel: get updates sooner": "预览通道：更快收到更新",
+  "Moss downloads new versions in the background and uses them the next time it starts. If one doesn't start, Moss goes back to the version it had.":
+    "Moss 会在后台下载新版本，下次启动时使用。如果新版本无法启动，Moss 会自动退回原来的版本。",
+  "Starts the next time Moss opens.": "下次打开 Moss 时开始。",
+  "Stops the next time Moss opens.": "下次打开 Moss 时停止。",
+  "Couldn't change the preview channel. Try again.": "无法更改预览通道，请重试。",
   // Error reports
   Privacy: "隐私",
   "Send error reports": "发送错误报告",

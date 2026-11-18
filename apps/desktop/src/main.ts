@@ -76,6 +76,7 @@ import type {
   ContextMenuIconKey,
   ContextMenuShortcutKey,
   DesktopUpdateActionResult,
+  DesktopPreviewChannelState,
   DesktopUpdateState,
 } from "@moss/contracts";
 import {
@@ -435,6 +436,12 @@ import {
 } from "./codeUpdateClient";
 import type { CodeUpdateApplyReport } from "@moss/shared/codeUpdate";
 import { mossDownloadSourceOrder } from "@moss/shared/mossDownloadSources";
+import {
+  CODE_UPDATE_PREVIEW_MARKER_FILE,
+  CODE_UPDATE_PREVIEW_MARKER_ON,
+  isCodeUpdatePreviewMarkerOn,
+  resolveCodeUpdateStoreDir,
+} from "@moss/shared/codeUpdateState";
 import {
   readCustomTitleBarPreference,
   resolveDesktopCustomTitleBarState,
@@ -2244,6 +2251,44 @@ async function prepareCodeUpdateStaticSnapshot(id: string, archive: string): Pro
   }
 }
 
+/** The Settings switch for the preview channel: the marker file the boot reads at the next start. */
+function previewChannelMarkerPath(): string {
+  return Path.join(
+    resolveCodeUpdateStoreDir({
+      env: process.env,
+      platform: process.platform,
+      homeDir: OS.homedir(),
+    }),
+    CODE_UPDATE_PREVIEW_MARKER_FILE,
+  );
+}
+
+async function readPreviewChannelState(): Promise<DesktopPreviewChannelState> {
+  const supported = app.isPackaged && process.platform !== "darwin";
+  const text = supported
+    ? await FS.promises.readFile(previewChannelMarkerPath(), "utf8").catch(() => "")
+    : "";
+  return { supported, on: isCodeUpdatePreviewMarkerOn(text), activeNow: codeUpdateBoot !== null };
+}
+
+async function writePreviewChannelMarker(on: boolean): Promise<void> {
+  if (!app.isPackaged || process.platform === "darwin") return;
+  const marker = previewChannelMarkerPath();
+  if (on) {
+    await FS.promises.mkdir(Path.dirname(marker), { recursive: true });
+    await FS.promises.writeFile(
+      marker,
+      `${CODE_UPDATE_PREVIEW_MARKER_ON}
+`,
+    );
+  } else {
+    await FS.promises.rm(marker, { force: true });
+  }
+  writeDesktopLogHeader(
+    `code-update preview channel switched ${on ? "on" : "off"} (from the next start)`,
+  );
+}
+
 /** The apply step in a plain-Node child: Electron's fs here would read the archives as folders. */
 function applyCodeUpdateInChild(request: CodeUpdateApplyRequest): Promise<CodeUpdateApplyReport> {
   return new Promise((resolve, reject) => {
@@ -2306,6 +2351,9 @@ function scheduleCodeUpdateChecks(): void {
       locale: app.getLocale(),
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     }),
+    process.platform,
+    // The boot only hands over a handle when code updates are on (variable or Settings switch).
+    true,
   );
   if (!config) return;
   if ("error" in config) {
@@ -7668,6 +7716,14 @@ function registerIpcHandlers(): void {
     // Applied before the save, so turning reports off works even if the disk doesn't.
     setDesktopErrorReportsEnabled(rawEnabled);
     await writeDesktopErrorReportsPreference(DESKTOP_ERROR_REPORTS_PATH, rawEnabled);
+  });
+
+  ipcMain.removeHandler(IPC.previewChannel.get);
+  registerIpcHandle(IPC.previewChannel.get, async () => readPreviewChannelState());
+  ipcMain.removeHandler(IPC.previewChannel.set);
+  registerIpcHandle(IPC.previewChannel.set, async (_event, rawOn: unknown) => {
+    if (typeof rawOn === "boolean") await writePreviewChannelMarker(rawOn);
+    return readPreviewChannelState();
   });
 
   ipcMain.removeAllListeners(IPC.betaDiagnostics.enabled);

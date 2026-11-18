@@ -99,14 +99,45 @@ export const isCodeUpdateId = (value: unknown): value is string =>
   typeof value === "string" && ID_PATTERN.test(value);
 
 /**
- * Off unless the switch is set, and always off on macOS until a shell loading an archive from
- * outside its signed bundle is proven on the ops Mac (lead, 2026-11-18).
+ * The Settings switch (预览通道): a one-line file in the store that says `on`. The boot cannot read
+ * app settings, so the app writes this file and the boot reads it; anything else, or no file, is
+ * off. It takes effect at the next start.
+ */
+export const CODE_UPDATE_PREVIEW_MARKER_FILE = "preview-channel";
+export const CODE_UPDATE_PREVIEW_MARKER_ON = "on";
+
+/** A marker holding exactly `on` (whitespace aside) is on; anything else is damaged = off. */
+export const isCodeUpdatePreviewMarkerOn = (text: string): boolean =>
+  text.length <= 64 && text.trim() === CODE_UPDATE_PREVIEW_MARKER_ON;
+
+/** Reads the marker; a missing or unreadable file is off. */
+export function readCodeUpdatePreviewMarkerSync(
+  fs: Pick<CodeUpdateSyncFs, "readFileSync">,
+  storeDir: string,
+): boolean {
+  try {
+    const text = fs.readFileSync(path.join(storeDir, CODE_UPDATE_PREVIEW_MARKER_FILE), "utf8");
+    return isCodeUpdatePreviewMarkerOn(text);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether code updates run: the environment variable decides when it is set ("1" on, anything
+ * else off, as the proofs use it), otherwise the Settings marker. Always off on macOS until a
+ * shell loading an archive from outside its signed bundle is proven on the ops Mac (lead,
+ * 2026-11-18).
  */
 export function isCodeUpdateEnabled(
   env: Readonly<Record<string, string | undefined>>,
   platform: NodeJS.Platform = process.platform,
+  previewMarkerOn = false,
 ): boolean {
-  return platform !== "darwin" && env[CODE_UPDATE_SWITCH_ENV]?.trim() === "1";
+  if (platform === "darwin") return false;
+  const value = env[CODE_UPDATE_SWITCH_ENV]?.trim();
+  if (value !== undefined && value !== "") return value === "1";
+  return previewMarkerOn;
 }
 
 /** `%LOCALAPPDATA%\Moss\code-updates` and the platform equivalents; the env override wins. */

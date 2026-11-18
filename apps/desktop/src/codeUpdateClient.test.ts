@@ -209,6 +209,10 @@ describe("resolveCodeUpdateClientConfig", () => {
   it("is off unless the switch is on", () => {
     expect(resolveCodeUpdateClientConfig({})).toBeNull();
     expect(resolveCodeUpdateClientConfig({ MOSS_CODE_UPDATES: "0" })).toBeNull();
+    // Switched on by the Settings marker: the boot says so, no variable needed.
+    expect(resolveCodeUpdateClientConfig({}, "global", "win32", true)).toMatchObject({
+      channel: "preview",
+    });
   });
 
   it("uses the ordered production sources and the release key by default", () => {

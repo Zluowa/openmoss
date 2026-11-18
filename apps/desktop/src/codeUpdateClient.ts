@@ -73,8 +73,10 @@ export function resolveCodeUpdateClientConfig(
   /** The ordered production sources (COS first in the mainland, R2 first elsewhere). */
   sourceOrder: MossDownloadSourceOrder = "global",
   platform: NodeJS.Platform = process.platform,
+  /** Whether this start runs code updates; the desktop passes what the boot decided (variable or the Settings switch). */
+  enabled: boolean = isCodeUpdateEnabled(env, platform),
 ): CodeUpdateClientConfig | { readonly error: string } | null {
-  if (!isCodeUpdateEnabled(env, platform)) return null;
+  if (!enabled) return null;
   const channel = (env.MOSS_CODE_UPDATE_CHANNEL?.trim() || "preview") as CodeUpdateChannel;
   if (!CODE_UPDATE_CHANNELS.includes(channel)) return { error: `unknown channel ${channel}` };
   const rawSources = env.MOSS_CODE_UPDATE_FEED?.split(",")
