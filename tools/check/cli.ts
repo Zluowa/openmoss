@@ -20,6 +20,7 @@ import {
   type LoadReport,
 } from "./lib/load.ts";
 import { groupTests, MOBILE_DIR, select, unitTestCommand } from "./lib/plan.ts";
+import { readTypeScopes } from "./lib/typeScope.ts";
 import {
   buildResolver,
   changedFiles,
@@ -274,7 +275,13 @@ async function main(argv: readonly string[]): Promise<number> {
     files.map((file) => file.path),
     reverseGraph(imports),
   );
-  const selection = select(files, packages, rootScripts, reached);
+  const selection = select(
+    files,
+    packages,
+    rootScripts,
+    reached,
+    readTypeScopes(repoRoot, packages),
+  );
   const existing = files.filter((file) => file.exists).map((file) => file.path);
   const deleted = new Set(files.filter((file) => !file.exists).map((file) => file.path));
   const tests = options.tests
@@ -296,6 +303,11 @@ async function main(argv: readonly string[]): Promise<number> {
   say(
     `  changed packages: ${selection.changedPackages.join(", ") || "none"}; affected: ${selection.affectedPackages.join(", ") || "none"}`,
   );
+  const typeOnly = selection.typePackages.filter(
+    (name) => !selection.affectedPackages.includes(name),
+  );
+  if (typeOnly.length > 0)
+    say(`  type-checked too (their tsconfig takes in a changed file): ${typeOnly.join(", ")}`);
   const unaffected = packages.filter(
     (pkg) =>
       !selection.affectedPackages.includes(pkg.name) &&
@@ -362,7 +374,7 @@ async function main(argv: readonly string[]): Promise<number> {
   for (const script of selection.checks)
     staticSteps.push({ name: script, cwd: ".", command: [bun, "run", script], detail: "" });
 
-  const typeSteps: Step[] = (options.types ? selection.affectedPackages : []).flatMap((name) => {
+  const typeSteps: Step[] = (options.types ? selection.typePackages : []).flatMap((name) => {
     const pkg = packages.find((candidate) => candidate.name === name)!;
     if (pkg.kind === "tool") {
       if (!existsSync(join(repoRoot, pkg.dir, "tsconfig.json"))) return [];
