@@ -7,12 +7,14 @@ export interface ProcessInfo {
   readonly ppid: number;
   readonly name: string;
   readonly commandLine: string;
+  /** Working set (resident memory), when the listing has it. */
+  readonly memoryBytes?: number;
 }
 
 const WINDOWS_LIST =
   "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[Text.Encoding]::UTF8;" +
   "Get-CimInstance Win32_Process | " +
-  "Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress";
+  "Select-Object ProcessId,ParentProcessId,Name,CommandLine,WorkingSetSize | ConvertTo-Json -Compress";
 
 export function parseWindowsProcessJson(text: string): ProcessInfo[] {
   const trimmed = text.trim();
@@ -24,6 +26,7 @@ export function parseWindowsProcessJson(text: string): ProcessInfo[] {
     ppid: Number(r.ParentProcessId),
     name: String(r.Name ?? ""),
     commandLine: String(r.CommandLine ?? ""),
+    ...(typeof r.WorkingSetSize === "number" ? { memoryBytes: r.WorkingSetSize } : {}),
   }));
 }
 

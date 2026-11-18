@@ -101,6 +101,7 @@ export function makeMachine(overrides: Record<string, unknown> = {}): Machine {
     stateDir,
     defaultBase: "origin/main",
     disk: { floorGB: 0, drives: [base] },
+    memory: { freeGB: 0, commitHeadroomGB: 0, waitMinutes: 0 },
     ports: { offsetFirst: 500, offsetLast: 590, offsetStep: 10 },
     lock: { staleHours: 3, pollSeconds: 0.2 },
     ...overrides,
