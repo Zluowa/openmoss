@@ -622,7 +622,7 @@ export interface ProviderAdapterShape<TError> {
    * List models directly from the provider runtime when supported.
    */
   readonly listModels?: (
-    input: ProviderListModelsInput,
+    input: ProviderListModelsInput & { readonly localConfigRevision?: string | undefined },
   ) => Effect.Effect<ProviderListModelsResult, TError>;
 
   /**

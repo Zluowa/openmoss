@@ -107,3 +107,32 @@ export function isCodexDiagnosticWarningMessage(message: string): boolean {
 export function codexDiagnosticLogKey(line: string): string {
   return line.trim().replace(CODEX_LOG_TIMESTAMP_REGEX, "");
 }
+
+/**
+ * The refusal an MCP server sent when Codex could not start it for an inactive or missing
+ * subscription (`HTTP 403: {"error":"subscription_inactive: …"}`), possibly wrapped in the
+ * transport's `UnexpectedServerResponse("…")`. Reads only that recognized body; any other
+ * error returns undefined and stays as Codex reported it.
+ */
+export function readCodexMcpSubscriptionError(message: string): string | undefined {
+  const quotedResponse = /UnexpectedServerResponse\(("(?:[^"\\]|\\.)*")\)$/.exec(message)?.[1];
+  if (quotedResponse) {
+    try {
+      message = JSON.parse(quotedResponse);
+    } catch {
+      return;
+    }
+  }
+  const body = /HTTP 403: (\{\s*"error"\s*:\s*"(?:[^"\\]|\\.)*"\s*\})/.exec(message)?.[1];
+  if (!body) return;
+  try {
+    const error: unknown = JSON.parse(body).error;
+    if (
+      typeof error === "string" &&
+      /^(?:subscription_inactive|subscription_required): /.test(error)
+    )
+      return error;
+  } catch {
+    return;
+  }
+}
