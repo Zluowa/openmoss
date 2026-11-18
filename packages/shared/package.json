@@ -641,6 +641,18 @@
       "types": "./src/codexExecutable.ts",
       "import": "./src/codexExecutable.ts"
     },
+    "./agentRuntimeStore": {
+      "types": "./src/agentRuntimeStore.ts",
+      "import": "./src/agentRuntimeStore.ts"
+    },
+    "./pinnedDownload": {
+      "types": "./src/pinnedDownload.ts",
+      "import": "./src/pinnedDownload.ts"
+    },
+    "./tarArchive": {
+      "types": "./src/tarArchive.ts",
+      "import": "./src/tarArchive.ts"
+    },
     "./localAgentExecutable": {
       "types": "./src/localAgentExecutable.ts",
       "import": "./src/localAgentExecutable.ts"
