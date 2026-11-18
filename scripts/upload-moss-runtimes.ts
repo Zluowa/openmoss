@@ -10,7 +10,8 @@
 //          The folder holds `runtime-archives.json` (`{ "schemaVersion": 1, "objects": [...] }`)
 //          and the `runtimes/v1/**` objects it lists.
 //          Store settings as for scripts/sync-update-mirror.ts: one folder, or one folder per
-//          store in MOSS_UPDATE_MIRROR_SETTINGS_DIRS; see docs/ops/moss-cn-update-mirror.md.
+//          store listed in MOSS_UPDATE_MIRROR_SETTINGS_DIRS (the environment, or a line in the
+//          default settings folder); see docs/ops/moss-cn-update-mirror.md.
 
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -19,16 +20,18 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { MOSS_DOWNLOAD_SOURCES } from "@moss/shared/mossDownloadSources";
-
+import { assertRuntimeObjectPath, runtimeSourceBaseUrl } from "./lib/runtime-archive-check.ts";
 import {
+  describeUpdateMirrorStoreList,
   readUpdateMirrorS3ClientOptions,
-  readUpdateMirrorStoreSettings,
+  resolveUpdateMirrorStores,
   type UpdateMirrorStore,
 } from "./sync-update-mirror.ts";
 
+// Kept here too, where the upload tests and earlier callers import them from.
+export { assertRuntimeObjectPath, runtimeSourceBaseUrl };
+
 export const RUNTIME_ARCHIVES_FILE_NAME = "runtime-archives.json";
-const RUNTIMES_PREFIX = "runtimes/v1/";
 const SERVED_ATTEMPTS = 6;
 const SERVED_RETRY_DELAY_MS = 15_000;
 const UPLOAD_RETRIES = 3;
@@ -43,32 +46,6 @@ export interface RuntimeArchive {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/** Throws unless the path is a runtime object name under `runtimes/v1/` that carries its hash. */
-export function assertRuntimeObjectPath(path: string, sha256: string): void {
-  if (path.startsWith("/") || path.includes("\\") || /^[a-z][a-z0-9+.-]*:/iu.test(path)) {
-    throw new Error(`${path}: must be a relative path.`);
-  }
-  if (path.includes("?") || path.includes("#") || path.includes("%")) {
-    throw new Error(`${path}: must be a plain object path.`);
-  }
-  if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
-    throw new Error(`${path}: must not contain empty, "." or ".." segments.`);
-  }
-  if (!path.startsWith(RUNTIMES_PREFIX)) {
-    throw new Error(`${path}: must be under ${RUNTIMES_PREFIX}.`);
-  }
-  const match = /^runtimes\/v1\/([^/]+)\/([^/]+)\/([^/]+)\.tar\.zst$/u.exec(path);
-  if (!match) {
-    throw new Error(`${path}: must be runtimes/v1/<name>/<version>/<file>.tar.zst.`);
-  }
-  const [, name, version, file] = match;
-  if (!file!.startsWith(`${name}-${version}-`) || !file!.endsWith(`-${sha256.slice(0, 16)}`)) {
-    throw new Error(
-      `${path}: the file name must be <name>-<version>-<platform>-<arch>-<first 16 of its sha256>.`,
-    );
-  }
 }
 
 /** The only list format this tool understands; a newer builder must not be half-read. */
@@ -315,17 +292,6 @@ export async function uploadRuntimeArchives(input: {
   return lines;
 }
 
-/** Where a store serves `runtimes/v1/…`: the origin of its feed URL; one store defaults to R2. */
-export function runtimeSourceBaseUrl(
-  env: Readonly<Record<string, string | undefined>>,
-  options: { readonly severalStores: boolean },
-): string {
-  const feedUrl = env.MOSS_UPDATE_MIRROR_FEED_URL?.trim();
-  if (feedUrl) return new URL("/", feedUrl).toString();
-  if (!options.severalStores) return MOSS_DOWNLOAD_SOURCES.global[0]!;
-  throw new Error("Set MOSS_UPDATE_MIRROR_FEED_URL in every settings folder.");
-}
-
 function createS3RuntimeStore(
   env: Readonly<Record<string, string | undefined>>,
 ): UpdateMirrorStore {
@@ -347,23 +313,48 @@ function createS3RuntimeStore(
   };
 }
 
+/** Resolves the stores from the settings folders, then uploads to and checks every one. */
+export async function runRuntimeUpload(input: {
+  readonly outDirectory: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly homeDirectory: string;
+  readonly createStore?: (env: Readonly<Record<string, string | undefined>>) => UpdateMirrorStore;
+  readonly fetchImpl?: typeof fetch;
+  readonly attempts?: number;
+  readonly retryDelayMs?: number;
+  readonly log?: (message: string) => void;
+}): Promise<ReadonlyArray<RuntimeUploadLine>> {
+  const log = input.log ?? ((message: string) => console.log(message));
+  const resolution = await resolveUpdateMirrorStores({
+    env: input.env,
+    homeDirectory: input.homeDirectory,
+    files: ["update-mirror.env", "update-mirror-upload.env"],
+  });
+  const listNote = describeUpdateMirrorStoreList(resolution);
+  if (listNote) log(listNote);
+  const { severalStores } = resolution;
+  return uploadRuntimeArchives({
+    outDirectory: input.outDirectory,
+    stores: resolution.stores.map((store) => ({
+      label: store.label,
+      store: (input.createStore ?? createS3RuntimeStore)(store.env),
+      publicBaseUrl: runtimeSourceBaseUrl(store.env, { severalStores }),
+    })),
+    log,
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+    ...(input.attempts !== undefined ? { attempts: input.attempts } : {}),
+    ...(input.retryDelayMs !== undefined ? { retryDelayMs: input.retryDelayMs } : {}),
+  });
+}
+
 async function main(args: ReadonlyArray<string>): Promise<void> {
   const outFlag = args.indexOf("--out");
   const out = outFlag >= 0 ? args[outFlag + 1] : undefined;
   if (!out) throw new Error("Usage: upload-moss-runtimes.ts --out <build output>/runtimes");
-  const severalStores = Boolean(process.env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS?.trim());
-  const settings = await readUpdateMirrorStoreSettings({
+  await runRuntimeUpload({
+    outDirectory: resolve(out),
     env: process.env,
     homeDirectory: homedir(),
-    files: ["update-mirror.env", "update-mirror-upload.env"],
-  });
-  await uploadRuntimeArchives({
-    outDirectory: resolve(out),
-    stores: settings.map((store) => ({
-      label: store.label,
-      store: createS3RuntimeStore(store.env),
-      publicBaseUrl: runtimeSourceBaseUrl(store.env, { severalStores }),
-    })),
   });
 }
 

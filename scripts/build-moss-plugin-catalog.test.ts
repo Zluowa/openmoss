@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 
 import type { MossPluginCatalogPackage } from "@moss/shared/mossPluginCatalog";
 import { encodeMossPluginPackage } from "@moss/shared/mossPluginPackage";
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   catalogPublicBaseUrl,
+  runCatalogUpload,
   uploadCatalogToStores,
   verifyServedCatalog,
 } from "./build-moss-plugin-catalog.ts";
@@ -217,5 +218,56 @@ describe("uploadCatalogToStores", () => {
       }),
     ).rejects.toThrow(/Missing from .*Run build first/);
     expect(writes).toEqual([]);
+  });
+
+  it("writes every store listed in the default settings folder, needing a feed URL in each", async () => {
+    const home = mkdtempSync(join(tmpdir(), "moss-catalog-home-"));
+    folders.push(home);
+    const listing = join(home, ".moss-release");
+    const write = (folder: string, values: Record<string, string>) => {
+      mkdirSync(folder, { recursive: true });
+      writeFileSync(
+        join(folder, "update-mirror.env"),
+        Object.entries(values)
+          .map(([name, value]) => `${name}=${value}\n`)
+          .join(""),
+      );
+    };
+    write(listing, {
+      MOSS_UPDATE_MIRROR_SETTINGS_DIRS: ["cos", "r2"].join(delimiter),
+      MOSS_UPDATE_MIRROR_FEED_URL: "https://listing.example.test/desktop/",
+    });
+    write(join(listing, "cos"), {
+      MOSS_UPDATE_MIRROR_S3_BUCKET: "cos",
+      MOSS_UPDATE_MIRROR_FEED_URL: "https://cos.example.test/desktop/",
+    });
+    write(join(listing, "r2"), { MOSS_UPDATE_MIRROR_S3_BUCKET: "r2" });
+    const written: string[] = [];
+    const verified: string[] = [];
+    const logs: string[] = [];
+
+    const failure = await runCatalogUpload({
+      out: builtCatalog(),
+      env: {},
+      homeDirectory: home,
+      catalog: [demo],
+      createWriter: (env) => async (key) => {
+        written.push(`${env.MOSS_UPDATE_MIRROR_S3_BUCKET}:${key}`);
+      },
+      verifyStore: async (baseUrl) => {
+        verified.push(baseUrl);
+      },
+      log: (message) => logs.push(message),
+    }).catch((error: unknown) => error as Error);
+
+    expect(logs[0]).toBe(
+      `Store folders listed in ${listing}: ${join(listing, "cos")}, ${join(listing, "r2")}`,
+    );
+    // Several stores: the R2 folder may not fall back to the single-store default URL.
+    expect(String(failure)).toContain(
+      `${join(listing, "r2")}: Set MOSS_PLUGIN_CATALOG_URL or MOSS_UPDATE_MIRROR_FEED_URL in every settings folder.`,
+    );
+    expect(verified).toEqual(["https://cos.example.test/plugin-catalog/v1/"]);
+    expect(written.every((entry) => entry.startsWith("cos:"))).toBe(true);
   });
 });

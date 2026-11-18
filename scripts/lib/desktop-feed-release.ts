@@ -23,6 +23,21 @@ import {
   assertStableReleaseVersionMonotonic,
   channelManifestNames,
 } from "./release-update-policy.ts";
+import {
+  checkRuntimeArchivesServed,
+  formatRuntimeArchiveLine,
+  parseRuntimePins,
+  RUNTIME_PINS_FILE_NAME,
+  runtimeArchivesMissingMessage,
+  runtimeSourceBaseUrl,
+  type RuntimeArchiveServedLine,
+  type RuntimeArchiveSource,
+} from "./runtime-archive-check.ts";
+import {
+  describeUpdateMirrorStoreList,
+  LOCAL_SETTINGS_FILES,
+  resolveUpdateMirrorStores,
+} from "./update-mirror-stores.ts";
 
 const DEFAULT_MAX_UPLOAD_ATTEMPTS = 3;
 const DEFAULT_MAX_VERIFY_ATTEMPTS = 10;
@@ -356,6 +371,84 @@ export function syncDomesticMirror(input: SyncDomesticMirrorInput): void {
       `Published to GitHub, but the domestic mirror did not sync. Fix it and rerun: bun run scripts/sync-update-mirror.ts --assets-dir ${artifactsDirectory}`,
     );
   }
+}
+
+export interface ReleaseRuntimeCheckInput {
+  readonly artifactsDirectory: string;
+  /** "publish" refuses on any missing archive; "dry-run" reports that the publish would be refused. */
+  readonly mode: "dry-run" | "publish";
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly homeDirectory: string;
+  readonly fetchImpl?: typeof fetch;
+  readonly attempts?: number;
+  readonly retryDelayMs?: number;
+  readonly timeoutMs?: number;
+  readonly log?: (message: string) => void;
+}
+
+export type ReleaseRuntimeCheckResult =
+  | { readonly status: "no-pins" }
+  | {
+      readonly status: "checked";
+      readonly lines: readonly RuntimeArchiveServedLine[];
+      readonly missing: number;
+    };
+
+/**
+ * A release whose `runtime-pins.json` names an archive that one download source lacks breaks
+ * first launch there, and the mirror sync refuses it later anyway. So before anything goes to
+ * GitHub, every pinned archive is asked for at every store the sync will write, resolved with the
+ * sync's own settings logic. A build without runtime pins needs no store settings at all.
+ */
+export async function checkReleaseRuntimeArchives(
+  input: ReleaseRuntimeCheckInput,
+): Promise<ReleaseRuntimeCheckResult> {
+  const log = input.log ?? (() => {});
+  const pinsPath = join(input.artifactsDirectory, RUNTIME_PINS_FILE_NAME);
+  if (!existsSync(pinsPath)) return { status: "no-pins" };
+  const pins = parseRuntimePins(readFileSync(pinsPath, "utf8"));
+  if (pins.length === 0) {
+    log(`Runtime archives: ${RUNTIME_PINS_FILE_NAME} pins none; nothing to check.`);
+    return { status: "checked", lines: [], missing: 0 };
+  }
+
+  let sources: RuntimeArchiveSource[];
+  try {
+    const resolution = await resolveUpdateMirrorStores({
+      env: input.env,
+      homeDirectory: input.homeDirectory,
+      files: LOCAL_SETTINGS_FILES,
+    });
+    const listNote = describeUpdateMirrorStoreList(resolution);
+    if (listNote) log(listNote);
+    sources = resolution.stores.map((store) => ({
+      label: store.label,
+      baseUrl: runtimeSourceBaseUrl(store.env, { severalStores: resolution.severalStores }),
+    }));
+  } catch (cause) {
+    throw new Error(
+      `${RUNTIME_PINS_FILE_NAME} names ${pins.length} runtime archive(s) that every download source must serve, but the stores to check could not be resolved: ${describeFailure(cause)} Each store's settings folder needs MOSS_UPDATE_MIRROR_FEED_URL (docs/ops/moss-cn-update-mirror.md, "Two stores"). Nothing was sent.`,
+      { cause },
+    );
+  }
+
+  log(`Runtime archives: checking ${pins.length} pinned archive(s) on ${sources.length} store(s).`);
+  const lines = await checkRuntimeArchivesServed({
+    pins,
+    stores: sources,
+    ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+    ...(input.attempts !== undefined ? { attempts: input.attempts } : {}),
+    ...(input.retryDelayMs !== undefined ? { retryDelayMs: input.retryDelayMs } : {}),
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+  });
+  for (const line of lines) log(`  ${formatRuntimeArchiveLine(line)}`);
+  const missing = lines.filter((line) => !line.ok);
+  if (missing.length > 0) {
+    const message = runtimeArchivesMissingMessage(missing);
+    if (input.mode === "publish") throw new Error(`Nothing was published. ${message}`);
+    log(`The publish would be refused. ${message}`);
+  }
+  return { status: "checked", lines, missing: missing.length };
 }
 
 function describeFailure(cause: unknown): string {
