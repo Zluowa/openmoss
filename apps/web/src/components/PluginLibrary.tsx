@@ -83,6 +83,7 @@ import {
   isPluginBundledSkill,
   isPluginInstalledForDirectory,
   isProviderPluginListingLoadError,
+  isSignInRequiredPluginListingError,
   mcpTransportLabel,
   originLabel,
   providerPluginDirectoryEntries,
@@ -889,9 +890,28 @@ function EmptyPanel({ title, description }: { title: string; description: string
   );
 }
 
-export function PluginBrowseEmptyState() {
+export function PluginBrowseEmptyState({
+  onSignIn,
+}: {
+  /** Set while the person is signed out of Moss: every catalog needs an account. */
+  readonly onSignIn?: (() => void) | undefined;
+} = {}) {
   const { t } = useTranslation();
 
+  if (onSignIn) {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center justify-between gap-3 text-base text-token-text-secondary"
+      >
+        <p>{t("skills.appsPage.empty.pluginsSignedOut")}</p>
+        <Button variant="outline" size="sm" onClick={onSignIn}>
+          {t("sidebar.accountMenu.signIn")}
+        </Button>
+      </div>
+    );
+  }
   return (
     <div role="status" aria-live="polite" className="text-base text-token-text-secondary">
       {t("skills.appsPage.empty.plugins")}
@@ -2061,6 +2081,10 @@ export function PluginLibrary({
     ...(sharedPluginsData?.marketplaceLoadErrors ?? []),
     ...(createdPluginsData?.marketplaceLoadErrors ?? []),
   ];
+  // Signed out of Moss, every catalog needs an account (Moss's own plugins live in the
+  // account's managed home; Codex's directory needs its sign-in), so a listing refused
+  // for want of a sign-in is that state, not a source that failed.
+  const signedOutOfMoss = mossAppsStatusQuery.data?.availability === "authentication-required";
   // A marketplace file that failed to load is named with its path; a CLI's
   // whole listing failing (timed out, signed out) is an unavailable source.
   const pluginMarketplaceLoadErrors = pluginLoadErrors.filter(
@@ -2078,6 +2102,7 @@ export function PluginLibrary({
     mossAppCatalogQuery.error ? mossAppsErrorMessage(mossAppCatalogQuery.error, locale) : null,
     ...[...pluginLoadErrors, ...(directoryPluginsData?.marketplaceLoadErrors ?? [])]
       .filter(isProviderPluginListingLoadError)
+      .filter((error) => !(signedOutOfMoss && isSignInRequiredPluginListingError(error)))
       .map((error) => error.message),
   ].filter((message): message is string => Boolean(message));
   // A source failing (a CLI still starting, a lane needing its own sign-in) is
@@ -2425,6 +2450,9 @@ export function PluginLibrary({
       buildPluginSearchFields(entry.plugin),
     );
   }, [deferredPluginSearch, pluginEntries, activeBucket]);
+  // Signed out with nothing to list (no search typed): a sign-in, not an empty result.
+  const showSignedOutPluginsState =
+    signedOutOfMoss && !deferredPluginSearch.trim() && filteredPluginEntries.length === 0;
 
   const filteredMcpServers = useMemo(() => {
     const q = normalizeProviderDiscoveryText(deferredMcpSearch);
@@ -4157,6 +4185,7 @@ export function PluginLibrary({
 
                         {selectedTab === "plugins" &&
                         !appsAccount.transitioning &&
+                        !showSignedOutPluginsState &&
                         (mossAppsStatusQuery.data || mossAppsStatusQuery.isError) ? (
                           <MossAppsAccountNotice
                             availability={mossAppsStatusQuery.data?.availability ?? "unavailable"}
@@ -4287,6 +4316,11 @@ export function PluginLibrary({
                             onRetry={refetchPlugins}
                             sections={visiblePluginDirectorySections}
                             hasAny={filteredPluginEntries.length > 0}
+                            onSignIn={
+                              showSignedOutPluginsState
+                                ? () => void navigate({ to: "/login" })
+                                : undefined
+                            }
                             activeSearchResultId={activeSearchResultId}
                             onOpen={(entry, trigger) =>
                               openDetail(
@@ -4577,6 +4611,7 @@ export function PluginsGrid({
   onSelectSection,
   capSections = false,
   categoryPage = false,
+  onSignIn,
 }: {
   artworkCwd?: string | undefined;
   canListPlugins: boolean;
@@ -4599,6 +4634,8 @@ export function PluginsGrid({
   capSections?: boolean;
   /** A category page already titles itself; its one section drops the heading. */
   categoryPage?: boolean;
+  /** Signed out of Moss: an empty directory asks for a sign-in instead of "no plugins". */
+  onSignIn?: (() => void) | undefined;
 }) {
   const { format, t } = useTranslation();
   if (!canListPlugins) {
@@ -4628,7 +4665,7 @@ export function PluginsGrid({
     );
   }
   if (!hasAny) {
-    return <PluginBrowseEmptyState />;
+    return <PluginBrowseEmptyState onSignIn={onSignIn} />;
   }
   return (
     <>

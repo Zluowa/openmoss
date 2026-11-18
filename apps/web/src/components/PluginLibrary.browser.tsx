@@ -686,6 +686,49 @@ describe("PluginLibrary native lifecycle", () => {
     expect(document.querySelector('[title*="Timed out waiting for plugin/list"]')).not.toBeNull();
   });
 
+  it("signed out of Moss, asks for a sign-in instead of warning that sources failed", async () => {
+    // What the server sends signed out: Codex refuses its whole listing without a
+    // sign-in, and Moss's own plugins only exist in a signed-in account's home.
+    const fixture = new PluginLibraryNativeFixture("empty");
+    fixture.mossAppsAvailability = "authentication-required";
+    fixture.primaryShardLoadErrors = [
+      {
+        marketplacePath: "codex-native",
+        message:
+          "Provider adapter request failed (codex) for plugin/list: plugin/list failed: list remote plugin catalog: chatgpt authentication required for remote plugin catalog",
+      },
+    ];
+    fixture.optionalShardError = new Error(
+      "chatgpt authentication required for remote plugin catalog",
+    );
+    await mount(fixture, ["/skills"]);
+
+    await expect
+      .poll(() => document.body.textContent, { timeout: 3_000 })
+      .toContain("Sign in to Moss to browse and install plugins.");
+    expect(page.getByRole("button", { name: "Sign in", exact: true }).elements()).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Some plugin sources couldn't load");
+    expect(document.body.textContent).not.toContain("No plugins found");
+  });
+
+  it("signed out of Moss, still names a CLI listing that really failed", async () => {
+    const fixture = new PluginLibraryNativeFixture("empty");
+    fixture.mossAppsAvailability = "authentication-required";
+    fixture.primaryShardLoadErrors = [
+      {
+        marketplacePath: "codex-native",
+        message:
+          "Provider adapter request failed (codex) for plugin/list: Timed out waiting for plugin/list.",
+      },
+    ];
+    await mount(fixture, ["/skills"]);
+
+    await expect
+      .poll(() => document.body.textContent, { timeout: 3_000 })
+      .toContain("Some plugin sources couldn't load");
+    expect(document.body.textContent).toContain("Sign in to Moss to browse and install plugins.");
+  });
+
   it("settles install from primary truth when every optional shard needs authentication", async () => {
     const fixture = new PluginLibraryNativeFixture();
     fixture.optionalShardError = new Error(

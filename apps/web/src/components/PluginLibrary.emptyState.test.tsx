@@ -45,6 +45,25 @@ describe("PluginBrowseEmptyState", () => {
     );
   });
 
+  it.each([
+    {
+      locale: "en" as const,
+      copy: "Sign in to Moss to browse and install plugins.",
+      button: "Sign in",
+    },
+    { locale: "zh-CN" as const, copy: "登录 Moss 后即可浏览和安装插件。", button: "登录" },
+  ])(
+    "signed out, asks for a sign-in instead of 'no plugins' in $locale",
+    ({ locale, copy, button }) => {
+      localizationTestState.locale = locale;
+
+      const html = renderToStaticMarkup(<PluginBrowseEmptyState onSignIn={vi.fn()} />);
+      expect(html).toContain(`<p>${copy}</p>`);
+      expect(html).toMatch(new RegExp(`<button[^>]*>${button}</button>`, "u"));
+      expect(html).not.toContain(locale === "en" ? "No plugins found" : "未找到插件");
+    },
+  );
+
   it("is the visible browse result when a populated directory has no search matches", () => {
     expect(
       renderToStaticMarkup(

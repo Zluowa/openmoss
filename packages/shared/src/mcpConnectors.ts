@@ -276,6 +276,9 @@ export const MCP_CONNECTOR_PRESETS = [
     apiKey: { kind: "query", param: "key" },
     apiKeyUrl: "https://mcp.didichuxing.com/",
     region: "cn",
+    // The icon proxy asks for /favicon.ico (then Google and DuckDuckGo, which mainland
+    // China cannot reach); didichuxing.com answers it with a 404 page, m.didi.cn with the mark.
+    iconHost: "m.didi.cn",
   },
   {
     id: "mcdonalds_cn",
@@ -287,8 +290,9 @@ export const MCP_CONNECTOR_PRESETS = [
     apiKey: { kind: "bearer" },
     apiKeyUrl: "https://open.mcd.cn/mcp",
     region: "cn",
-    // mcd.cn serves a stock React favicon; the brand site carries the mark.
-    iconHost: "mcdonalds.com",
+    // mcd.cn serves a stock React favicon and mcdonalds.com refuses mainland China (403);
+    // McDonald's China's mobile site serves the arches.
+    iconHost: "m.mcd.cn",
   },
   {
     id: "luckin",

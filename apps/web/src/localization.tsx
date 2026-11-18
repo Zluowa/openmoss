@@ -2413,6 +2413,7 @@ const EN_TRANSLATIONS = {
   "plugins.empty.pluginsUnavailableTitle": "Plugins unavailable for {provider}",
   "plugins.empty.pluginsUnavailableDescription": "This provider does not expose plugin discovery.",
   "skills.appsPage.empty.plugins": "No plugins found",
+  "skills.appsPage.empty.pluginsSignedOut": "Sign in to Moss to browse and install plugins.",
   "plugins.empty.pluginNotFoundTitle": "Plugin not found",
   "plugins.empty.pluginNotFoundDescription":
     "This plugin is unavailable or no longer belongs to a visible marketplace.",
@@ -6789,6 +6790,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "plugins.empty.pluginsUnavailableTitle": "{provider} 暂不支持插件",
   "plugins.empty.pluginsUnavailableDescription": "此服务商未提供插件发现能力。",
   "skills.appsPage.empty.plugins": "未找到插件",
+  "skills.appsPage.empty.pluginsSignedOut": "登录 Moss 后即可浏览和安装插件。",
   "plugins.empty.pluginNotFoundTitle": "未找到插件",
   "plugins.empty.pluginNotFoundDescription": "此插件不可用，或已不属于任何可见市场。",
   "plugins.empty.noMcpServersTitle": "未找到 MCP 服务器",

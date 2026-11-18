@@ -334,6 +334,20 @@ export function isProviderPluginListingLoadError(
   );
 }
 
+/**
+ * Whether a CLI's whole plugin listing failed only because that CLI has no signed-in
+ * account (Codex: "chatgpt authentication required for remote plugin catalog"). For a
+ * person signed out of Moss this is the expected state, not a source that failed.
+ */
+export function isSignInRequiredPluginListingError(
+  error: Pick<ProviderPluginMarketplaceLoadError, "marketplacePath" | "message">,
+): boolean {
+  return (
+    isProviderPluginListingLoadError(error) &&
+    /\b(?:authentication|sign[- ]?in|log[- ]?in) required\b/iu.test(error.message)
+  );
+}
+
 export interface ManageTabCount {
   readonly id: string;
   readonly count: number;
