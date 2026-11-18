@@ -28,7 +28,8 @@ const LANE_DOWNLOAD_CHANNELS: Readonly<Record<MossAccessLane, MossDownloadChanne
   global: "official",
 };
 
-const MAINLAND_CHINA_TIME_ZONES: ReadonlySet<string> = new Set([
+/** IANA names (and old aliases) of mainland China's time zone. */
+export const MOSS_MAINLAND_CHINA_TIME_ZONES: ReadonlySet<string> = new Set([
   "Asia/Shanghai",
   "Asia/Chongqing",
   "Asia/Chungking",
@@ -69,5 +70,5 @@ export function resolveMossDownloadChannel(input: {
   readonly timeZone: string;
 }): MossDownloadChannel {
   if (input.lane) return LANE_DOWNLOAD_CHANNELS[input.lane];
-  return MAINLAND_CHINA_TIME_ZONES.has(input.timeZone) ? "cn-mirror" : "official";
+  return MOSS_MAINLAND_CHINA_TIME_ZONES.has(input.timeZone) ? "cn-mirror" : "official";
 }

@@ -64,6 +64,9 @@ export function withMossPluginCatalogPresentation<
       // Moss's directory sections, not the upstream catalog's own labels.
       category: entry.category,
       websiteUrl: listed.websiteUrl ?? entry.websiteUrl,
+      // An <img> takes one URL: the R2 copy, which every lane can reach. The web does not know the
+      // account's lane, and the shared card icon serves every plugin, so it has no source list to
+      // fall back through; the plugin's own icon replaces this once its files are on disk.
       logoUrl: hasOwnLogo
         ? listed.logoUrl
         : mossPluginCatalogIconUrl(MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL, entry),

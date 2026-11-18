@@ -66,6 +66,7 @@ import { agentProgramsForServer } from "../../provider/agentProgramOwnership.ts"
 import {
   materializeMossPluginCatalogMarketplace,
   mossPluginCatalogRoot,
+  mossPluginCatalogSourceOrder,
   prefetchMossPluginCatalog,
 } from "../../pluginCatalog/mossPluginCatalogStore.ts";
 import {
@@ -1939,7 +1940,13 @@ export const MossManagedProviderLive = Layer.effect(
       // (never from unit tests, which must not reach the network).
       if (!process.env.VITEST) {
         setTimeout(() => {
-          void prefetchMossPluginCatalog(root);
+          void prefetchMossPluginCatalog(root, {
+            // Asked per plugin, so the lane this sign-in writes is the one used.
+            resolveSourceOrder: () =>
+              Effect.runPromise(settingsService.getSettings).then((settings) =>
+                mossPluginCatalogSourceOrder(settings.providerInstances),
+              ),
+          });
         }, CATALOG_PREFETCH_DELAY_MS).unref?.();
       }
       return root;

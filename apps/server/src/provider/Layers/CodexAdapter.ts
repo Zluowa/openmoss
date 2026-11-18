@@ -62,7 +62,10 @@ import { isMossAppsServer, mossAppsToolTitle } from "@moss/shared/mossAppsPresen
 import { decodeSubagentActivity, normalizeSubagentToolData } from "@moss/shared/subagentTool";
 import { assertServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
 import { sanitizeUserFacingErrorMessage } from "@moss/shared/errorMessages";
-import { mossPluginCatalogRoot } from "../../pluginCatalog/mossPluginCatalogStore.ts";
+import {
+  mossPluginCatalogRoot,
+  mossPluginCatalogSourceOrder,
+} from "../../pluginCatalog/mossPluginCatalogStore.ts";
 
 import {
   ProviderAdapterProcessError,
@@ -3895,6 +3898,14 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
             mossSkillsDir: mossSkillsDir(serverConfig.baseDir),
             managedCodexHomePath: path.join(serverConfig.stateDir, "moss-codex-home"),
             mossPluginCatalogRoot: mossPluginCatalogRoot(serverConfig.stateDir),
+            ...(serverSettings
+              ? {
+                  resolveMossPluginCatalogSourceOrder: () =>
+                    Effect.runPromise(serverSettings.getSettings).then((settings) =>
+                      mossPluginCatalogSourceOrder(settings.providerInstances),
+                    ),
+                }
+              : {}),
             readManagedHomeAuthority: (codexOptions) =>
               serverSettings
                 ? readManagedCodexHomeAuthority({

@@ -210,6 +210,7 @@ import { ensureIsolatedScratchWorkspace, resolveScratchWorkspaceCwd } from "./sc
 import { createLogger } from "./logger";
 import { discoveryFailureCode } from "./discoveryFailureCode";
 import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "@moss/shared/mcpConnectors";
+import type { MossDownloadSourceOrder } from "@moss/shared/mossDownloadSources";
 import { transcribeVoiceWithChatGptSession } from "./voiceTranscription.ts";
 import {
   ensureMossPluginCatalogPlugin,
@@ -2207,6 +2208,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly managedCodexHomePath: string | undefined;
   /** Moss's plugin catalog marketplace; its plugins' files arrive on first use. */
   private readonly mossPluginCatalogRoot: string | undefined;
+  private readonly resolveMossPluginCatalogSourceOrder:
+    | (() => Promise<MossDownloadSourceOrder>)
+    | undefined;
   private readonly readManagedHomeAuthority:
     | ((
         options: CodexDiscoveryOptions | undefined,
@@ -2270,6 +2274,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       readonly mossSkillsDir?: string;
       readonly managedCodexHomePath?: string;
       readonly mossPluginCatalogRoot?: string;
+      /** The account's download source order for catalog packages (COS or R2 first). */
+      readonly resolveMossPluginCatalogSourceOrder?: () => Promise<MossDownloadSourceOrder>;
       readonly readManagedHomeAuthority?: (
         options: CodexDiscoveryOptions | undefined,
       ) => Promise<ManagedCodexHomeAuthority | undefined>;
@@ -2295,6 +2301,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.mossSkillsDir = options?.mossSkillsDir;
     this.managedCodexHomePath = options?.managedCodexHomePath;
     this.mossPluginCatalogRoot = options?.mossPluginCatalogRoot;
+    this.resolveMossPluginCatalogSourceOrder = options?.resolveMossPluginCatalogSourceOrder;
     this.readManagedHomeAuthority = options?.readManagedHomeAuthority;
     this.agentGatewayMcp = options?.agentGatewayMcp;
     const spawnAppServer = options?.spawnAppServer ?? spawnCodexAppServer;
@@ -6934,7 +6941,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   ): Promise<void> {
     const root = this.mossPluginCatalogRoot;
     if (!isMossPluginCatalogMarketplacePath(root, marketplacePath)) return;
-    if ((await ensureMossPluginCatalogPlugin({ root, name: pluginName })) === "downloaded") {
+    const ensured = await ensureMossPluginCatalogPlugin({
+      root,
+      name: pluginName,
+      ...(this.resolveMossPluginCatalogSourceOrder
+        ? { resolveSourceOrder: this.resolveMossPluginCatalogSourceOrder }
+        : {}),
+    });
+    if (ensured === "downloaded") {
       this.clearPluginListings();
       this.pluginDetailCache.clear();
     }

@@ -1,7 +1,9 @@
 // FILE: sign-update-mirror-manifests.ts
-// Purpose: Signs a release's update manifests for the domestic mirror, and generates the key pair.
-//          Upload the installers first and the manifests with their signatures last, so a client
-//          never reads a manifest whose files are not there yet.
+// Purpose: Signs a release's update manifests for the mirrors, and generates the key pair. The
+//          signed files are the channel manifests (`*.yml`) and, from builds that fetch their agent
+//          runtimes after install, `runtime-pins.json`; each `.sig` binds its file name. Upload the
+//          installers first and the manifests with their signatures last, so a client never reads a
+//          manifest whose files are not there yet.
 // Usage:
 //   bun run scripts/sign-update-mirror-manifests.ts keygen --out <private-key-file>
 //   MOSS_UPDATE_MIRROR_SIGNING_KEY=<base64> bun run scripts/sign-update-mirror-manifests.ts sign --dir <release-dir>
@@ -18,8 +20,17 @@ import {
 // electron-builder's own debug log shares the extension but is not a manifest.
 const NON_MANIFEST_FILES: ReadonlySet<string> = new Set(["builder-debug.yml"]);
 
-export function isUpdateManifestFileName(name: string): boolean {
+/** The agent runtime pins of one app version, beside its channel manifests in the feed folder. */
+export const RUNTIME_PINS_FILE_NAME = "runtime-pins.json";
+
+/** A channel manifest electron-updater reads (`latest.yml`, `moss-mac.yml`, …). */
+export function isChannelManifestFileName(name: string): boolean {
   return name.endsWith(".yml") && !NON_MANIFEST_FILES.has(name);
+}
+
+/** Every file the feed carries with a release-key signature beside it. */
+export function isUpdateManifestFileName(name: string): boolean {
+  return isChannelManifestFileName(name) || name === RUNTIME_PINS_FILE_NAME;
 }
 
 export function signUpdateManifestsInDirectory(input: {
@@ -27,7 +38,7 @@ export function signUpdateManifestsInDirectory(input: {
   readonly privateKey: string;
 }): ReadonlyArray<string> {
   const channelFiles = readdirSync(input.directory).filter(isUpdateManifestFileName).toSorted();
-  if (channelFiles.length === 0) {
+  if (!channelFiles.some(isChannelManifestFileName)) {
     throw new Error(`No update manifests found in ${input.directory}.`);
   }
   for (const channelFile of channelFiles) {

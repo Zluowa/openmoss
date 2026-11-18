@@ -33,6 +33,7 @@ function providerWith(
   } = {},
 ) {
   const requested: URL[] = [];
+  const methods: string[] = [];
   const executor = {
     request: (
       requestOptions: {
@@ -40,6 +41,7 @@ function providerWith(
         hostname?: string;
         port?: string | number;
         path?: string;
+        method?: string;
       },
       cancellation: CancellationToken,
     ) => {
@@ -48,6 +50,8 @@ function providerWith(
         `${requestOptions.protocol}//${requestOptions.hostname}${port}${requestOptions.path}`,
       );
       requested.push(url);
+      // electron-updater's executor sends GET when no method is set.
+      methods.push(requestOptions.method ?? "GET");
       return cancellation.createPromise<string | null>((resolve, reject) => {
         handler(url).then(resolve, reject);
       });
@@ -67,7 +71,7 @@ function providerWith(
       executor,
     } as unknown as ProviderRuntimeOptions,
   );
-  return { provider, requested };
+  return { provider, requested, methods };
 }
 
 function feedServing(files: Readonly<Record<string, string | null>>): RequestHandler {
@@ -141,6 +145,22 @@ describe("SignedUpdateMirrorProvider", () => {
     });
 
     await expect(provider.getLatestVersion()).rejects.toThrow("did not answer within 20 ms");
+  });
+
+  // COS answers HEAD with 403 and refuses multi-range requests.
+  it("only ever sends GET to a mirror, and keeps block maps on the same mirror", async () => {
+    const { provider, methods } = providerWith(
+      feedServing({ "moss.yml": manifest, "moss.yml.sig": signature }),
+    );
+    const info = await provider.getLatestVersion();
+    expect(methods).toEqual(["GET", "GET"]);
+
+    const [installer] = provider.resolveFiles(info);
+    const blockMaps = await provider.getBlockMapFiles(installer!.url, "1.9.0", "2.0.0");
+    expect(blockMaps.map((url) => url.origin)).toEqual([
+      "https://updates.example.cn",
+      "https://updates.example.cn",
+    ]);
   });
 
   it("asks for one byte range per request", () => {

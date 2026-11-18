@@ -267,10 +267,11 @@ import {
 } from "./resumableUpdateDownload";
 import { hardenElectronUpdater } from "./electronUpdaterSecurity";
 import {
+  describeUpdateFeed,
   isUpdateIntegrityFailure,
   readAccessLaneFromSettingsFile,
   resolveDesktopUpdateFeeds,
-  resolveDesktopUpdateMirror,
+  resolveDesktopUpdateMirrors,
   resolveMirrorManualDownloadUrl,
   UpdateFeedRouter,
 } from "./updateFeedRouter";
@@ -1534,7 +1535,7 @@ const updateFeedRouter = new UpdateFeedRouter({
   getUpdater: () => autoUpdater,
   resolveFeeds: async () =>
     resolveDesktopUpdateFeeds({
-      mirror: resolveDesktopUpdateMirror(process.env),
+      mirrors: resolveDesktopUpdateMirrors(process.env),
       channel: resolveMossDownloadChannel({
         // The server's settings file; it keeps the account's lane on the managed instances.
         lane: await readAccessLaneFromSettingsFile(Path.join(STATE_DIR, "settings.json")),
@@ -4985,11 +4986,11 @@ async function checkForUpdates(reason: string): Promise<void> {
   try {
     await updateFeedRouter.check({
       explicit: isExplicitUpdateCheckReason(reason),
-      onFallback: (failedFeed, error) => {
+      onFallback: (failedFeed, error, nextFeed) => {
         console.warn(
-          `[desktop-updater] Update feed ${failedFeed.id} failed (${reason}), trying the official feed: ${formatErrorMessage(error)}`,
+          `[desktop-updater] Update feed ${describeUpdateFeed(failedFeed)} failed (${reason}), trying ${describeUpdateFeed(nextFeed)}: ${formatErrorMessage(error)}`,
         );
-        // The official feed gets a full budget of its own.
+        // The next feed gets a full budget of its own.
         armUpdateCheckTimeout(reason);
       },
     });
@@ -5014,8 +5015,10 @@ async function downloadAvailableUpdate(): Promise<{
   if (!failedOnMirror) {
     return result;
   }
-  updateFeedRouter.suspendMirror();
-  console.warn("[desktop-updater] Mirror download failed; retrying through the official feed.");
+  // Skips that mirror for a while: the check below starts at the next mirror, and reaches the
+  // official feed only once every mirror has failed.
+  updateFeedRouter.suspendActiveMirror();
+  console.warn("[desktop-updater] Mirror download failed; retrying through the next feed.");
   const preparationBeforeRetry = activeUpdatePreparation;
   await checkForUpdates(UPDATE_CHECK_REASON_MIRROR_DOWNLOAD_FALLBACK);
   // The check starts its own download when it finds the update. This download may itself be
@@ -5100,7 +5103,7 @@ async function downloadAvailableUpdateFromActiveFeed(): Promise<{
     const message = describeUpdateFailure(error instanceof Error ? error.message : String(error));
     setUpdateState(reduceDesktopUpdateStateOnDownloadFailure(updateState, message));
     console.error(
-      `[desktop-updater] Failed to download update from ${updateFeedRouter.feed.id}: ${message}`,
+      `[desktop-updater] Failed to download update from ${describeUpdateFeed(updateFeedRouter.feed)}: ${message}`,
     );
     return {
       accepted: true,
@@ -5498,7 +5501,9 @@ function configureAutoUpdater(): void {
           : officialUpdateReleaseUrl,
     });
     lastLoggedDownloadMilestone = -1;
-    console.info(`[desktop-updater] Update available from ${activeFeed.id}: ${info.version}`);
+    console.info(
+      `[desktop-updater] Update available from ${describeUpdateFeed(activeFeed)}: ${info.version}`,
+    );
     prepareAvailableUpdateInBackground(`available ${info.version}`);
   });
   autoUpdater.on("update-not-available", () => {

@@ -7,6 +7,7 @@ import {
   MOSS_PLUGIN_CATALOG_FEATURED_PLUGIN_IDS,
   MOSS_PLUGIN_CATALOG_SELECTION,
   MOSS_PLUGIN_CATALOG_SOURCE,
+  mossPluginCatalogBaseUrls,
   mossPluginCatalogEntryForPluginId,
   mossPluginCatalogIconUrl,
   mossPluginCatalogPackageUrl,
@@ -64,6 +65,21 @@ describe("MOSS_PLUGIN_CATALOG", () => {
       "https://example.com/c/",
     );
     expect(() => normalizeMossPluginCatalogBaseUrl("http://example.com/c/")).toThrow(/HTTPS/u);
+  });
+
+  it("tries the catalog on every download source in the lane's order", () => {
+    const cos = "https://moss-update-1259646312.cos.ap-guangzhou.myqcloud.com/plugin-catalog/v1/";
+    const r2 = "https://update.mossbotai.com/plugin-catalog/v1/";
+    expect(mossPluginCatalogBaseUrls({ order: "cn" })).toEqual([cos, r2]);
+    expect(mossPluginCatalogBaseUrls({ order: "global" })).toEqual([r2, cos]);
+    expect(mossPluginCatalogBaseUrls({ order: "cn", override: "  " })).toEqual([cos, r2]);
+    expect(MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL).toBe(r2);
+  });
+
+  it("keeps an override to exactly one base URL", () => {
+    expect(
+      mossPluginCatalogBaseUrls({ order: "cn", override: "http://127.0.0.1:9000/catalog" }),
+    ).toEqual(["http://127.0.0.1:9000/catalog/"]);
   });
 });
 

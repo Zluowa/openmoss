@@ -2,8 +2,8 @@
 // Purpose: Builds the Moss plugin catalog's packages from a pinned commit of the
 //          upstream open-source plugin repository, pins their hashes in
 //          `packages/shared/src/mossPluginCatalogPackages.ts`, and publishes them
-//          to the update mirror's store (update.mossbotai.com, Cloudflare R2), where
-//          the desktop app downloads a plugin's files the first time someone installs it.
+//          to every download source's store (Cloudflare R2 and Tencent COS), where the
+//          desktop app downloads a plugin's files the first time someone installs it.
 //          Files are read from git objects, not the working tree, so a checkout's
 //          line-ending settings cannot change a hash.
 // Usage:
@@ -11,8 +11,8 @@
 //   bun run scripts/build-moss-plugin-catalog.ts upload --out <dir>
 //   bun run scripts/build-moss-plugin-catalog.ts verify [--base-url <url>]
 //   Upload reads the update mirror's storage settings (docs/ops/moss-cn-update-mirror.md) from the
-//   environment or ~/.moss-release, and writes under MOSS_PLUGIN_CATALOG_S3_PREFIX
-//   (default `plugin-catalog/v1/`).
+//   environment or ~/.moss-release, or one folder per store from MOSS_UPDATE_MIRROR_SETTINGS_DIRS,
+//   and writes under MOSS_PLUGIN_CATALOG_S3_PREFIX (default `plugin-catalog/v1/`) in each store.
 
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -23,6 +23,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   MOSS_PLUGIN_CATALOG,
   MOSS_PLUGIN_CATALOG_SELECTION,
+  MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL,
   MOSS_PLUGIN_CATALOG_SOURCE,
   MOSS_PLUGIN_CATALOG_URL_ENV,
   type MossPluginCatalogPackage,
@@ -37,7 +38,11 @@ import {
 } from "@moss/shared/mossPluginPackage";
 import { parse } from "yaml";
 
-import { parseSettingsFile, readUpdateMirrorS3ClientOptions } from "./sync-update-mirror.ts";
+import {
+  readUpdateMirrorS3ClientOptions,
+  readUpdateMirrorStoreSettings,
+  type UpdateMirrorStoreSettings,
+} from "./sync-update-mirror.ts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const INDEX_PATH = join(REPO_ROOT, "packages/shared/src/mossPluginCatalogPackages.ts");
@@ -267,20 +272,6 @@ function build(args: readonly string[]): void {
   }
 }
 
-function loadLocalSettings(): void {
-  const directory =
-    process.env.MOSS_UPDATE_MIRROR_SETTINGS_DIR?.trim() || join(homedir(), ".moss-release");
-  for (const fileName of ["update-mirror.env", "update-mirror-upload.env"]) {
-    let settings = "";
-    try {
-      settings = readFileSync(join(directory, fileName), "utf8");
-    } catch {
-      continue;
-    }
-    for (const [name, value] of parseSettingsFile(settings)) process.env[name] ??= value;
-  }
-}
-
 function filesUnder(directory: string): string[] {
   return readdirSync(directory).flatMap((name) => {
     const path = join(directory, name);
@@ -288,46 +279,138 @@ function filesUnder(directory: string): string[] {
   });
 }
 
-async function upload(args: readonly string[]): Promise<void> {
-  loadLocalSettings();
-  const out = resolve(argument(args, "--out") ?? "");
-  const prefix = process.env.MOSS_PLUGIN_CATALOG_S3_PREFIX?.trim() || DEFAULT_S3_PREFIX;
-  const client = new Bun.S3Client(readUpdateMirrorS3ClientOptions(process.env));
-  const expected = new Set(
-    MOSS_PLUGIN_CATALOG.flatMap((entry) => [
-      entry.package.file,
-      ...(entry.icon ? [entry.icon] : []),
-    ]),
-  );
-  for (const path of filesUnder(out)) {
-    const key = relative(out, path).replaceAll("\\", "/");
-    if (!expected.has(key)) continue;
-    expected.delete(key);
-    await client.file(`${prefix}${key}`).write(Bun.file(path), {
-      type: ICON_TYPES[extname(key).toLowerCase()] ?? "application/gzip",
-      retry: 3,
-    });
-    console.log(`Uploaded ${prefix}${key}`);
-  }
-  if (expected.size > 0) {
-    throw new Error(`Missing from ${out}: ${[...expected].join(", ")}. Run build first.`);
-  }
-  await verify([]);
+type StoreEnv = Readonly<Record<string, string | undefined>>;
+
+/** Writes one object into one store. */
+export type CatalogObjectWriter = (key: string, localPath: string, type: string) => Promise<void>;
+
+function createS3CatalogWriter(env: StoreEnv): CatalogObjectWriter {
+  const client = new Bun.S3Client(readUpdateMirrorS3ClientOptions(env));
+  return async (key, localPath, type) => {
+    await client.file(key).write(Bun.file(localPath), { type, retry: 3 });
+  };
 }
 
-/** Reads every pinned package back through the public URL, the way the app does. */
-async function verify(args: readonly string[]): Promise<void> {
-  const baseUrl = normalizeMossPluginCatalogBaseUrl(
-    argument(args, "--base-url") ?? process.env[MOSS_PLUGIN_CATALOG_URL_ENV],
+/**
+ * Where a store serves the catalog. One store: MOSS_PLUGIN_CATALOG_URL, else the R2 copy (as
+ * before). Several stores: the folder's MOSS_PLUGIN_CATALOG_URL, else the catalog prefix on the
+ * origin of the folder's MOSS_UPDATE_MIRROR_FEED_URL (each source serves objects at their keys).
+ */
+export function catalogPublicBaseUrl(
+  env: StoreEnv,
+  options: { readonly severalStores: boolean; readonly prefix: string },
+): string {
+  const explicit = env[MOSS_PLUGIN_CATALOG_URL_ENV]?.trim();
+  if (explicit) return normalizeMossPluginCatalogBaseUrl(explicit);
+  if (!options.severalStores) return MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL;
+  const feedUrl = env.MOSS_UPDATE_MIRROR_FEED_URL?.trim();
+  if (!feedUrl) {
+    throw new Error(
+      `Set ${MOSS_PLUGIN_CATALOG_URL_ENV} or MOSS_UPDATE_MIRROR_FEED_URL in every settings folder.`,
+    );
+  }
+  return normalizeMossPluginCatalogBaseUrl(new URL(`/${options.prefix}`, feedUrl).toString());
+}
+
+/**
+ * Uploads the built catalog to every store, then reads it back through that store's public URL.
+ * Every store is attempted; the run fails afterwards if any store failed.
+ */
+export async function uploadCatalogToStores(input: {
+  readonly out: string;
+  readonly stores: ReadonlyArray<UpdateMirrorStoreSettings>;
+  readonly severalStores: boolean;
+  readonly createWriter?: (env: StoreEnv) => CatalogObjectWriter;
+  readonly verifyStore?: (baseUrl: string) => Promise<void>;
+  readonly catalog?: readonly MossPluginCatalogPackage[];
+  readonly log?: (message: string) => void;
+}): Promise<void> {
+  const log = input.log ?? ((message: string) => console.log(message));
+  const catalog = input.catalog ?? MOSS_PLUGIN_CATALOG;
+  const wanted = new Set(
+    catalog.flatMap((entry) => [entry.package.file, ...(entry.icon ? [entry.icon] : [])]),
   );
+  const files = filesUnder(input.out).flatMap((path) => {
+    const key = relative(input.out, path).replaceAll("\\", "/");
+    return wanted.has(key) ? [{ key, path }] : [];
+  });
+  const missing = [...wanted].filter((key) => !files.some((file) => file.key === key));
+  if (missing.length > 0) {
+    throw new Error(`Missing from ${input.out}: ${missing.join(", ")}. Run build first.`);
+  }
+
+  const failures: string[] = [];
+  for (const store of input.stores) {
+    try {
+      const prefix = store.env.MOSS_PLUGIN_CATALOG_S3_PREFIX?.trim() || DEFAULT_S3_PREFIX;
+      const baseUrl = catalogPublicBaseUrl(store.env, {
+        severalStores: input.severalStores,
+        prefix,
+      });
+      const write = (input.createWriter ?? createS3CatalogWriter)(store.env);
+      for (const file of files) {
+        await write(
+          `${prefix}${file.key}`,
+          file.path,
+          ICON_TYPES[extname(file.key).toLowerCase()] ?? "application/gzip",
+        );
+        log(`Uploaded ${prefix}${file.key} (${store.label})`);
+      }
+      await (input.verifyStore ?? ((url) => verifyServedCatalog({ baseUrl: url, log })))(baseUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`Store ${store.label} failed: ${message}`);
+      failures.push(`${store.label}: ${message}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `${failures.length} of ${input.stores.length} catalog store(s) failed:\n${failures.join("\n")}`,
+    );
+  }
+}
+
+async function upload(args: readonly string[]): Promise<void> {
+  const stores = await readUpdateMirrorStoreSettings({
+    env: process.env,
+    homeDirectory: homedir(),
+    files: ["update-mirror.env", "update-mirror-upload.env"],
+  });
+  await uploadCatalogToStores({
+    out: resolve(argument(args, "--out") ?? ""),
+    stores,
+    severalStores: Boolean(process.env.MOSS_UPDATE_MIRROR_SETTINGS_DIRS?.trim()),
+  });
+}
+
+/**
+ * Reads every pinned package back through the public URL, the way the app does: a plain GET. The
+ * icon is checked with a one-byte ranged GET, since the COS source answers HEAD with 403.
+ */
+export async function verifyServedCatalog(input: {
+  readonly baseUrl: string;
+  readonly catalog?: readonly MossPluginCatalogPackage[];
+  readonly fetchImpl?: typeof fetch;
+  readonly attempts?: number;
+  readonly retryDelayMs?: number;
+  readonly log?: (message: string) => void;
+}): Promise<void> {
+  const baseUrl = normalizeMossPluginCatalogBaseUrl(input.baseUrl);
+  const catalog = input.catalog ?? MOSS_PLUGIN_CATALOG;
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const attempts = input.attempts ?? SERVED_FILE_ATTEMPTS;
+  const log = input.log ?? ((message: string) => console.log(message));
   const problems: string[] = [];
-  for (const entry of MOSS_PLUGIN_CATALOG) {
+  for (const entry of catalog) {
     const url = mossPluginCatalogPackageUrl(baseUrl, entry);
     let lastError: unknown;
     // The CDN can remember "not found" for a short while after an upload.
-    for (let attempt = 1; attempt <= SERVED_FILE_ATTEMPTS; attempt += 1) {
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(60_000) });
+        const response = await fetchImpl(url, {
+          method: "GET",
+          signal: AbortSignal.timeout(60_000),
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         decodeMossPluginPackage({
           gzip: new Uint8Array(await response.arrayBuffer()),
@@ -336,15 +419,25 @@ async function verify(args: readonly string[]): Promise<void> {
           expectedSha256: entry.package.sha256,
         });
         const icon = mossPluginCatalogIconUrl(baseUrl, entry);
-        if (icon && !(await fetch(icon, { method: "HEAD" })).ok) throw new Error("icon missing");
+        if (icon) {
+          const iconResponse = await fetchImpl(icon, {
+            method: "GET",
+            headers: { range: "bytes=0-0" },
+            signal: AbortSignal.timeout(60_000),
+          });
+          await iconResponse.body?.cancel().catch(() => undefined);
+          if (iconResponse.status !== 200 && iconResponse.status !== 206) {
+            throw new Error(`icon missing (HTTP ${iconResponse.status})`);
+          }
+        }
         lastError = undefined;
         break;
       } catch (error) {
         lastError = error;
-        if (attempt < SERVED_FILE_ATTEMPTS) await sleep(SERVED_FILE_RETRY_DELAY_MS);
+        if (attempt < attempts) await sleep(input.retryDelayMs ?? SERVED_FILE_RETRY_DELAY_MS);
       }
     }
-    if (lastError === undefined) console.log(`ok ${entry.name}`);
+    if (lastError === undefined) log(`ok ${entry.name}`);
     else {
       problems.push(
         `${entry.name}: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
@@ -352,7 +445,15 @@ async function verify(args: readonly string[]): Promise<void> {
     }
   }
   if (problems.length > 0) throw new Error(`Mirror check failed:\n${problems.join("\n")}`);
-  console.log(`All ${MOSS_PLUGIN_CATALOG.length} catalog packages are served by ${baseUrl}`);
+  log(`All ${catalog.length} catalog packages are served by ${baseUrl}`);
+}
+
+async function verify(args: readonly string[]): Promise<void> {
+  await verifyServedCatalog({
+    baseUrl: normalizeMossPluginCatalogBaseUrl(
+      argument(args, "--base-url") ?? process.env[MOSS_PLUGIN_CATALOG_URL_ENV],
+    ),
+  });
 }
 
 if (import.meta.main) {

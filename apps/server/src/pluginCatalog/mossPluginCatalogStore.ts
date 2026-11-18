@@ -3,24 +3,31 @@
 //          ("moss-catalog") that always lists every catalog plugin, so the CLI's
 //          own listing, install and uninstall work for a Moss account with no
 //          ChatGPT sign-in and no GitHub access. A plugin's files are fetched
-//          from Moss's domestic mirror the first time it is opened or installed,
-//          checked against the hash pinned in the app, and unpacked in place.
+//          from Moss's download sources (COS and R2, in the order of the
+//          account's lane) the first time it is opened or installed, checked
+//          against the hash pinned in the app, and unpacked in place.
 // Layer: Server plugin catalog (promise-based, Node filesystem)
 // Exports: catalog root/marketplace helpers, ensureMossPluginCatalogPlugin,
-//          prefetchMossPluginCatalog, MossPluginCatalogDownloadError
+//          prefetchMossPluginCatalog, MossPluginCatalogDownloadError,
+//          mossPluginCatalogSourceOrder
 
 import { randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { readActiveMossAccessLane } from "@moss/shared/mossDownloadChannel";
+import {
+  mossDownloadSourceOrder,
+  type MossDownloadSourceOrder,
+} from "@moss/shared/mossDownloadSources";
 import {
   MOSS_PLUGIN_CATALOG,
   MOSS_PLUGIN_CATALOG_MARKETPLACE_DISPLAY_NAME,
   MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
   MOSS_PLUGIN_CATALOG_URL_ENV,
   type MossPluginCatalogEntry,
+  mossPluginCatalogBaseUrls,
   mossPluginCatalogPackageUrl,
-  normalizeMossPluginCatalogBaseUrl,
 } from "@moss/shared/mossPluginCatalog";
 import { decodeMossPluginPackage } from "@moss/shared/mossPluginPackage";
 
@@ -28,7 +35,9 @@ const CATALOG_DIRECTORY_NAME = "moss-plugin-catalog-v1";
 const MARKETPLACE_MANIFEST = path.join(".agents", "plugins", "marketplace.json");
 /** Written last inside an unpacked plugin: which pinned package it holds. */
 const PACKAGE_RECEIPT = ".moss-package.json";
+/** At least this many attempts in all; with several sources, each is tried once, in order. */
 const DOWNLOAD_ATTEMPTS = 2;
+/** Per attempt. Packages are small (about 2 MB for the whole catalog). */
 const DOWNLOAD_TIMEOUT_MS = 45_000;
 
 /** A download failure, worded for the person installing. */
@@ -127,22 +136,60 @@ async function unpackedSha256(pluginDirectory: string): Promise<string | null> {
   }
 }
 
-async function download(
-  url: string,
-  fetchImpl: typeof fetch,
-  timeoutMs: number,
-): Promise<Uint8Array> {
+/**
+ * The download source order for the signed-in account's lane, from the server's settings
+ * (`providerInstances`); with no account, the machine's locale and time zone decide.
+ */
+export function mossPluginCatalogSourceOrder(providerInstances: unknown): MossDownloadSourceOrder {
+  const { locale, timeZone } = Intl.DateTimeFormat().resolvedOptions();
+  return mossDownloadSourceOrder({
+    lane: readActiveMossAccessLane(providerInstances),
+    locale,
+    timeZone,
+  });
+}
+
+/**
+ * Fetches the pinned package, trying each source in turn. A source that cannot be reached, times
+ * out, answers anything but 200, or serves bytes that fail the pinned name/version/sha256 check
+ * (a stale or damaged copy) passes the turn to the next one. A plain GET with no credentials.
+ */
+async function downloadVerifiedPackage(input: {
+  readonly entry: MossPluginCatalogEntry;
+  readonly baseUrls: ReadonlyArray<string>;
+  readonly fetchImpl: typeof fetch;
+  readonly timeoutMs: number;
+}): Promise<ReturnType<typeof decodeMossPluginPackage>> {
+  const attempts = Math.max(DOWNLOAD_ATTEMPTS, input.baseUrls.length);
+  const failures: string[] = [];
   let lastError: unknown;
-  for (let attempt = 0; attempt < DOWNLOAD_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const url = mossPluginCatalogPackageUrl(
+      input.baseUrls[attempt % input.baseUrls.length]!,
+      input.entry,
+    );
     try {
-      const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return new Uint8Array(await response.arrayBuffer());
+      const response = await input.fetchImpl(url, {
+        method: "GET",
+        signal: AbortSignal.timeout(input.timeoutMs),
+      });
+      if (response.status !== 200) {
+        await response.body?.cancel().catch(() => undefined);
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return decodeMossPluginPackage({
+        gzip: new Uint8Array(await response.arrayBuffer()),
+        expectedName: input.entry.name,
+        expectedVersion: input.entry.version,
+        expectedSha256: input.entry.package.sha256,
+      });
     } catch (error) {
       lastError = error;
+      const reason = error instanceof Error ? error.message : String(error);
+      failures.push(`${new URL(url).host}: ${reason}`);
     }
   }
-  throw lastError;
+  throw new Error(`Every download source failed (${failures.join("; ")}).`, { cause: lastError });
 }
 
 const inFlight = new Map<string, Promise<"present" | "downloaded">>();
@@ -150,8 +197,13 @@ const inFlight = new Map<string, Promise<"present" | "downloaded">>();
 export interface EnsureMossPluginCatalogPluginInput {
   readonly root: string;
   readonly name: string;
-  /** Defaults to MOSS_PLUGIN_CATALOG_URL, then Moss's domestic mirror. */
+  /**
+   * Exactly one base URL. Defaults to MOSS_PLUGIN_CATALOG_URL, then every download source in the
+   * order `resolveSourceOrder` gives.
+   */
   readonly baseUrl?: string;
+  /** The account's download source order; without it, the machine's locale and time zone decide. */
+  readonly resolveSourceOrder?: () => MossDownloadSourceOrder | Promise<MossDownloadSourceOrder>;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   /** The pinned catalog; tests pass their own. */
@@ -188,19 +240,17 @@ async function ensureUnpacked(
 
   let files;
   try {
-    const baseUrl = normalizeMossPluginCatalogBaseUrl(
-      input.baseUrl ?? process.env[MOSS_PLUGIN_CATALOG_URL_ENV],
-    );
-    const gzip = await download(
-      mossPluginCatalogPackageUrl(baseUrl, entry),
-      input.fetchImpl ?? fetch,
-      input.timeoutMs ?? DOWNLOAD_TIMEOUT_MS,
-    );
-    files = decodeMossPluginPackage({
-      gzip,
-      expectedName: entry.name,
-      expectedVersion: entry.version,
-      expectedSha256: entry.package.sha256,
+    const override = input.baseUrl ?? process.env[MOSS_PLUGIN_CATALOG_URL_ENV];
+    const baseUrls = override?.trim()
+      ? mossPluginCatalogBaseUrls({ override, order: "global" })
+      : mossPluginCatalogBaseUrls({
+          order: await (input.resolveSourceOrder?.() ?? mossPluginCatalogSourceOrder(null)),
+        });
+    files = await downloadVerifiedPackage({
+      entry,
+      baseUrls,
+      fetchImpl: input.fetchImpl ?? fetch,
+      timeoutMs: input.timeoutMs ?? DOWNLOAD_TIMEOUT_MS,
     });
   } catch (error) {
     throw new MossPluginCatalogDownloadError(error);
@@ -239,7 +289,7 @@ const prefetches = new Map<string, Promise<void>>();
 
 /**
  * Fetches every catalog plugin once in the background (about 2 MB from the
- * domestic mirror), so the directory shows each plugin's own icon and installs
+ * download sources), so the directory shows each plugin's own icon and installs
  * finish at once, offline too. Failures are left for the next install to retry.
  */
 export function prefetchMossPluginCatalog(
