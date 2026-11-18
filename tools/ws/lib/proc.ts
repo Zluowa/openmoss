@@ -115,20 +115,6 @@ export function stopPid(pid: number): void {
   }
 }
 
-/** Stops a process and its children. Returns an error message, or undefined on success. */
-export function stopProcessTree(pid: number): string | undefined {
-  if (process.platform === "win32") {
-    const r = runSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], undefined, 30_000);
-    return r.code === 0 || !isAlive(pid) ? undefined : r.stderr.trim() || r.stdout.trim();
-  }
-  try {
-    process.kill(pid, "SIGTERM");
-    return undefined;
-  } catch (error) {
-    return String(error);
-  }
-}
-
 const DEV_TEST_PATTERN =
   /\b(vitest|vite|turbo|playwright|tsgo|tsc|dev-runner|electron|bun\s+test)\b/i;
 const RUNTIME_NAMES = /^(node|bun|electron|moss)(\.exe)?$/i;
