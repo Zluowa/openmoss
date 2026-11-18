@@ -117,6 +117,14 @@ const GREETINGS: Record<InboxSlotId, string> = {
   evening: "Good evening",
 };
 
+/**
+ * The working day starts at 04:00, so the small hours still count as the evening's slot; the
+ * greeting follows the clock instead (nobody says "good evening" at 03:30).
+ */
+function inboxGreeting(slotId: InboxSlotId, nowMs: number): string {
+  return new Date(nowMs).getHours() < 4 ? "Up late" : GREETINGS[slotId];
+}
+
 // The page and the recap column are size containers: cards follow the room they actually
 // get beside the sidebar and panels, from a phone (one column) through an iPad to a desktop
 // (task column plus digest and tiles). Tailwind only ships classes it reads in source, so
@@ -676,7 +684,8 @@ export default function InboxView() {
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
                 <h1 className={PAGE_TITLE_CLASS_NAME}>Inbox</h1>
                 <p className="text-ui text-muted-foreground @2xl:text-ui-lg">
-                  {GREETINGS[day.currentSlotId]}. {summary}
+                  {/* One sentence, one text node, so it translates whole (punctuation too). */}
+                  {`${inboxGreeting(day.currentSlotId, nowMs)}. ${summary}`}
                 </p>
               </div>
               {unreadThreads.length > 0 ? (

@@ -93,6 +93,20 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
     expect(translateZhCnPresentationText("10月8日星期四. 3 tasks to do.")).toBe(
       "10月8日星期四。有 3 项任务待办。",
     );
+    // The header is one sentence: greeting, date and tail, all in Chinese punctuation.
+    expect(
+      translateZhCnPresentationText("Good evening. 11月19日星期四. You’re all caught up."),
+    ).toBe("晚上好。11月19日星期四。一切都已处理完毕。");
+    expect(translateZhCnPresentationText("Up late. 11月19日星期四. 3 tasks to do.")).toBe(
+      "夜深了。11月19日星期四。有 3 项任务待办。",
+    );
+    expect(translateZhCnPresentationText("Good morning. 11月19日星期四.")).toBe(
+      "早上好。11月19日星期四。",
+    );
+    expect(translateZhCnPresentationText("prompts")).toBe("条提示词");
+    expect(translateZhCnPresentationText("Add a task, or press Tab to hand it to an agent")).toBe(
+      "添加任务，或按 Tab 键交给智能体",
+    );
     expect(
       translateZhCnPresentationText("Nothing ran yet today. This fills in as your agents work."),
     ).toBe("今天还没有任何运行记录。随着智能体工作，这里会自动填充。");

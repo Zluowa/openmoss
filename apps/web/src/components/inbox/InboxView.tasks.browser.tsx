@@ -10,6 +10,7 @@ import type { TaskRowModel } from "../tasks/tasks.logic";
 
 const fixture = vi.hoisted(() => ({
   now: new Date(2026, 9, 2, 13).getTime(),
+  surfaceWidth: 1100,
   rows: [] as TaskRowModel[],
   createTodo: vi.fn(),
   deleteTodo: vi.fn(),
@@ -46,7 +47,9 @@ vi.mock("~/nativeApi", async (importOriginal) => ({
 }));
 vi.mock("../RouteInsetSurface", () => ({
   RouteInsetSurface: ({ children }: { children: ReactNode }) => (
-    <div className="flex h-[700px] w-[1100px]">{children}</div>
+    <div className="flex h-[700px]" style={{ width: fixture.surfaceWidth }}>
+      {children}
+    </div>
   ),
 }));
 vi.mock("../RouteSurface", async (importOriginal) => ({
@@ -68,6 +71,7 @@ vi.mock("../tasks/TaskCard", () => ({
   ),
 }));
 
+import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../../localization/zhCN";
 import InboxView from "./InboxView";
 import { toLocalDueDate } from "../tasks/tasks.logic";
 
@@ -128,5 +132,58 @@ it("keeps today's tasks beside the recap when their card opens on a laptop", asy
   } finally {
     await view.unmount();
     client.clear();
+  }
+});
+
+// The tester's window: 1101 x 782 in Chinese, the inbox beside the app rail, at 03:28.
+it("greets in whole Chinese sentences at night and shows the task hint uncut", async () => {
+  await page.viewport(1101, 782);
+  const previousNow = fixture.now;
+  fixture.now = new Date(2026, 10, 19, 3, 28).getTime();
+  fixture.surfaceWidth = 1050;
+  fixture.rows = [];
+  document.documentElement.lang = "zh-CN";
+  document.documentElement.dataset.mossLocale = "zh-CN";
+  installZhCnUiLocalization();
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = await render(
+    <QueryClientProvider client={client}>
+      <InboxView />
+    </QueryClientProvider>,
+  );
+  try {
+    const title = await vi.waitFor(() => {
+      const heading = document.querySelector<HTMLElement>("h1");
+      expect(heading?.textContent).toBe("收信箱");
+      return heading!;
+    });
+    const headline = title.nextElementSibling as HTMLElement;
+    // Not "晚上好." at 03:28: a night greeting, Chinese punctuation all through.
+    await vi.waitFor(() => expect(headline.textContent).toMatch(/^夜深了。/));
+    expect(headline.textContent).not.toMatch(/[.]/);
+
+    const input = await vi.waitFor(() => {
+      const field = document.querySelector<HTMLInputElement>(
+        'input[placeholder="添加任务，或按 Tab 键交给智能体"]',
+      );
+      expect(field).not.toBeNull();
+      return field!;
+    });
+    // The whole hint fits the field: measured in the field's own font.
+    const style = getComputedStyle(input);
+    const context = document.createElement("canvas").getContext("2d")!;
+    context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const hintWidth = context.measureText(input.placeholder).width;
+    const room = input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    expect(hintWidth).toBeGreaterThan(0);
+    expect(hintWidth).toBeLessThanOrEqual(room);
+  } finally {
+    await view.unmount();
+    client.clear();
+    uninstallZhCnUiLocalization();
+    document.documentElement.lang = "en";
+    delete document.documentElement.dataset.mossLocale;
+    fixture.now = previousNow;
+    fixture.surfaceWidth = 1100;
   }
 });

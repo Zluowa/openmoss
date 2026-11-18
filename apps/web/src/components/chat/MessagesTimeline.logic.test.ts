@@ -1513,7 +1513,7 @@ describe("deriveMessagesTimelineRows", () => {
       }),
     });
 
-    expect(messageRow(rows, "launched")?.turnHeader?.elapsed).toBe("3.9s");
+    expect(messageRow(rows, "launched")?.turnHeader?.elapsed).toBe("4.0s");
     expect(messageRow(rows, "report-1")?.turnHeader?.elapsed).toBe("2.9s");
   });
 
@@ -1658,7 +1658,7 @@ describe("deriveMessagesTimelineRows", () => {
         backgroundCompletionEntry("done", "2026-01-01T00:00:21Z", "Other work"),
       ],
     });
-    expect(rows[1]).toMatchObject({ kind: "working-header", createdAt: "2026-01-01T00:00:01Z" });
+    expect(rows[1]).toMatchObject({ kind: "working-header", createdAt: "2026-01-01T00:00:00Z" });
     expect(rows[1]?.kind === "working-header" && rows[1].resumedBy).toBeUndefined();
   });
 
@@ -1805,15 +1805,140 @@ describe("deriveMessagesTimelineRows", () => {
 
       expect(messageRow(rows, "a1")?.collapsedTurnItems).toBeUndefined();
       expect(messageRow(rows, "a1")?.turnHeader).toEqual({
-        elapsed: "5.5s",
+        elapsed: "6.0s",
         endedAt: "2026-01-01T00:00:06Z",
         outcome: "completed",
         reason: null,
         modelChange: null,
         resumedBy: null,
       });
-      expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe("Worked for 5.5s");
+      expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe("Worked for 6.0s");
       expect(collapsedSignature(messageRow(rows, "a2")!)).toEqual(["work:w2"]);
+    });
+
+    // A Codex turn with subagents: the provider reported its turn started 21 s after the
+    // send (session and subagents starting), and the answer came at 80 s. The person waited
+    // 80 s, so the header says so, live and settled.
+    it("counts the time the person waited, from their send, not from the provider's turn start", () => {
+      const entries = [
+        userEntry("ask", "2026-01-01T00:00:00Z", "slow-turn"),
+        workEntry("spawn", "2026-01-01T00:00:22Z", "Spawned 3 agents"),
+        assistantEntry("answer", "2026-01-01T00:01:19Z", {
+          turnId: "slow-turn",
+          text: "Done",
+          completedAt: "2026-01-01T00:01:20Z",
+        }),
+      ];
+      const settled = deriveMessagesTimelineRows({
+        ...baseInput,
+        timelineEntries: entries,
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("slow-turn"),
+            state: "completed",
+            startedAt: "2026-01-01T00:00:21Z",
+            completedAt: "2026-01-01T00:01:20Z",
+          },
+          activities: [],
+        }),
+      });
+      expect(formatTurnHeaderLabel(messageRow(settled, "answer")!.turnHeader!)).toBe(
+        "Worked for 1m 20s",
+      );
+
+      const live = deriveMessagesTimelineRows({
+        ...baseInput,
+        isWorking: true,
+        activeTurnInProgress: true,
+        activeTurnId: TurnId.makeUnsafe("slow-turn"),
+        activeTurnStartedAt: "2026-01-01T00:00:21Z",
+        timelineEntries: entries.slice(0, 2),
+      });
+      expect(live.find((row) => row.kind === "working-header")).toMatchObject({
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+    });
+
+    it("prefers the server's request time over an older message, and never counts a retry's earlier wait", () => {
+      // The server recorded the send at 00:10:00; the row above is an older message.
+      const recorded = deriveMessagesTimelineRows({
+        ...baseInput,
+        timelineEntries: [
+          userEntry("old-ask", "2026-01-01T00:00:00Z"),
+          assistantEntry("late-answer", "2026-01-01T00:10:20Z", {
+            turnId: "recorded-turn",
+            text: "Done",
+            completedAt: "2026-01-01T00:10:30Z",
+          }),
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("recorded-turn"),
+            state: "completed",
+            requestedAt: "2026-01-01T00:10:00Z",
+            startedAt: "2026-01-01T00:10:05Z",
+            completedAt: "2026-01-01T00:10:30Z",
+          },
+          activities: [],
+        }),
+      });
+      expect(formatTurnHeaderLabel(messageRow(recorded, "late-answer")!.turnHeader!)).toBe(
+        "Worked for 30s",
+      );
+
+      // A first turn failed at 00:00:30; the retry started at 00:05:00 with no new message.
+      const retried = deriveMessagesTimelineRows({
+        ...baseInput,
+        timelineEntries: [
+          userEntry("ask", "2026-01-01T00:00:00Z"),
+          assistantEntry("retry-answer", "2026-01-01T00:05:10Z", {
+            turnId: "retry-turn",
+            text: "Done",
+            completedAt: "2026-01-01T00:05:20Z",
+          }),
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [
+            makeSummary({
+              turnId: "failed-turn",
+              startedAt: "2026-01-01T00:00:02Z",
+              completedAt: "2026-01-01T00:00:30Z",
+            }),
+          ],
+          latestTurn: {
+            turnId: TurnId.makeUnsafe("retry-turn"),
+            state: "completed",
+            startedAt: "2026-01-01T00:05:00Z",
+            completedAt: "2026-01-01T00:05:20Z",
+          },
+          activities: [],
+        }),
+      });
+      expect(formatTurnHeaderLabel(messageRow(retried, "retry-answer")!.turnHeader!)).toBe(
+        "Worked for 20s",
+      );
+    });
+
+    it("keeps the live clock on the turn start when the last message was already answered", () => {
+      const live = deriveMessagesTimelineRows({
+        ...baseInput,
+        isWorking: true,
+        activeTurnInProgress: true,
+        activeTurnId: null,
+        activeTurnStartedAt: "2026-01-01T00:05:00Z",
+        timelineEntries: [
+          userEntry("old", "2026-01-01T00:00:00Z"),
+          assistantEntry("old-answer", "2026-01-01T00:00:05Z", {
+            text: "Earlier answer",
+            completedAt: "2026-01-01T00:00:06Z",
+          }),
+        ],
+      });
+      expect(live.find((row) => row.kind === "working-header")).toMatchObject({
+        createdAt: "2026-01-01T00:05:00Z",
+      });
     });
 
     it("names the model only when it differs from the previous turn", () => {
@@ -1919,7 +2044,7 @@ describe("deriveMessagesTimelineRows", () => {
       });
 
       expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe(
-        "Stopped by you after 5.5s",
+        "Stopped by you after 6.0s",
       );
       expect(messageRow(rows, "a3")?.turnHeader?.outcome).toBe("interrupted");
       expect(formatTurnHeaderLabel(messageRow(rows, "a3")!.turnHeader!)).toBe(
@@ -2024,7 +2149,7 @@ describe("deriveMessagesTimelineRows", () => {
         turnTimingByTurnId: timing,
       });
       expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe(
-        "Interrupted after 5.5s · usage limit reached",
+        "Interrupted after 6.0s · usage limit reached",
       );
     });
 
@@ -2128,7 +2253,7 @@ describe("deriveMessagesTimelineRows", () => {
         timelineEntries: threeTurns,
         turnTimingByTurnId: timing,
       });
-      expect(messageRow(rows, "a1")?.turnHeader?.elapsed).toBe("5.5s");
+      expect(messageRow(rows, "a1")?.turnHeader?.elapsed).toBe("6.0s");
     });
 
     it("marks a provider failure without an assistant response on its last work row", () => {
