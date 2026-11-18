@@ -24,6 +24,7 @@ import { describe, expect, vi } from "vitest";
 import { TestClock } from "effect/testing";
 
 import { collectGitOutput, GitCoreLive, makeGitCore } from "./GitCore.ts";
+import { gitSubcommand } from "./GitCommandAdmission.ts";
 import { GitCore, type GitCoreShape } from "../Services/GitCore.ts";
 import { GitCheckoutDirtyWorktreeError, GitCommandError } from "../Errors.ts";
 import { ServerConfig } from "../../config.ts";
@@ -2016,7 +2017,7 @@ it.layer(TestLayer)("git integration", (it) => {
         // finite deadline on them fails; fixed-cost lookups keep theirs.
         const checkoutSized = new Set(["worktree", "diff", "ls-files", "apply"]);
         const core = yield* makeIsolatedGitCore((input) =>
-          checkoutSized.has(input.args[0] ?? "") && input.timeoutMs !== null
+          checkoutSized.has(gitSubcommand(input.args) ?? "") && input.timeoutMs !== null
             ? Effect.succeed({ code: 124, stdout: "", stderr: "simulated slow disk timeout" })
             : realCore.execute(input),
         );
@@ -2116,6 +2117,7 @@ it.layer(TestLayer)("git integration", (it) => {
         yield* writeTextFile(path.join(tmp, "README.md"), "# locally edited\n");
         yield* writeTextFile(path.join(tmp, "notes.txt"), "untracked note\n");
         yield* writeTextFile(path.join(tmp, ".env"), "LOCAL_ONLY=yes\n");
+        yield* Effect.promise(() => fs.symlink("notes.txt", path.join(tmp, "note-link")));
 
         const core = yield* GitCore;
         const expectedHead = yield* git(tmp, ["rev-parse", "HEAD"]);
@@ -2131,6 +2133,9 @@ it.layer(TestLayer)("git integration", (it) => {
         expect(yield* readTextFile(path.join(wtPath, "README.md"))).toBe("# locally edited\n");
         expect(yield* readTextFile(path.join(wtPath, "notes.txt"))).toBe("untracked note\n");
         expect(yield* readTextFile(path.join(wtPath, ".env"))).toBe("LOCAL_ONLY=yes\n");
+        expect(yield* Effect.promise(() => fs.readlink(path.join(wtPath, "note-link")))).toBe(
+          "notes.txt",
+        );
 
         const proof = yield* core.recordWorktreeOwnership({
           path: wtPath,
@@ -2147,6 +2152,56 @@ it.layer(TestLayer)("git integration", (it) => {
           reason: "worktree state changed",
         });
         yield* core.removeWorktree({ cwd: tmp, path: wtPath, force: true });
+      }),
+    );
+
+    it.effect("retries a managed checkout copy without traversing a nested repository", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const hooks = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        yield* writeTextFile(path.join(tmp, ".gitignore"), "ignored.txt\n");
+        yield* git(tmp, ["init", "nested"]);
+        yield* writeTextFile(path.join(tmp, "nested", "ignored.txt"), "nested private data\n");
+        yield* writeTextFile(path.join(tmp, "notes.txt"), "source note\n");
+
+        // Create a real destination collision after Git checks out the worktree.
+        const hook = path.join(hooks, "post-checkout");
+        yield* writeTextFile(hook, "#!/bin/sh\nprintf 'hook note\\n' > notes.txt\n");
+        yield* Effect.promise(() => fs.chmod(hook, 0o755));
+        yield* git(tmp, ["config", "core.hooksPath", hooks]);
+
+        const core = yield* GitCore;
+        const wtPath = path.join(tmp, "wt-retry");
+        const input = {
+          cwd: tmp,
+          ref: "HEAD",
+          path: wtPath,
+          newBranch: "moss/retry",
+          copyChangesFrom: tmp,
+        };
+        const failed = yield* Effect.result(core.createDetachedWorktree(input));
+        expect(failed._tag).toBe("Failure");
+        if (failed._tag === "Failure") {
+          expect(failed.failure.detail).toContain("could not copy notes.txt");
+        }
+        expect(existsSync(wtPath)).toBe(false);
+        expect(yield* git(tmp, ["worktree", "list", "--porcelain"])).not.toContain("wt-retry");
+        expect(yield* git(tmp, ["branch", "--list", input.newBranch])).toBe("");
+
+        yield* Effect.promise(() => fs.unlink(hook));
+        yield* core.createDetachedWorktree(input);
+        expect(yield* readTextFile(path.join(wtPath, "notes.txt"))).toBe("source note\n");
+        expect(existsSync(path.join(wtPath, "nested"))).toBe(false);
+        expect(yield* readTextFile(path.join(tmp, "nested", "ignored.txt"))).toBe(
+          "nested private data\n",
+        );
+        yield* core.removeWorktree({
+          cwd: tmp,
+          path: wtPath,
+          force: true,
+          reclaimTemporaryBranch: true,
+        });
       }),
     );
 
@@ -2181,6 +2236,71 @@ it.layer(TestLayer)("git integration", (it) => {
         const remainingBranches = yield* git(tmp, ["branch", "--list", "moss/abcd1234"]);
         expect(remainingBranches).toBe("");
       }),
+    );
+
+    it.effect(
+      "checks out managed worktrees in parallel unless checkout.workers is configured",
+      () =>
+        Effect.gen(function* () {
+          const tmp = yield* makeTmpDir();
+          yield* initRepoWithCommit(tmp);
+          const realCore = yield* GitCore;
+          const worktreeAddArgs: string[][] = [];
+          let repoConfigured = false;
+          const core = yield* makeIsolatedGitCore((input) => {
+            if (gitSubcommand(input.args) === "worktree" && input.args.includes("add")) {
+              worktreeAddArgs.push([...input.args]);
+            }
+            // Keep a machine-wide checkout.workers from deciding the unset case.
+            if (!repoConfigured && input.args.join(" ") === "config --get checkout.workers") {
+              return Effect.succeed({ code: 1, stdout: "", stderr: "" });
+            }
+            return realCore.execute(input);
+          });
+
+          const detachedPath = path.join(tmp, "wt-parallel-detached");
+          const branchPath = path.join(tmp, "wt-parallel-branch");
+          yield* core.createDetachedWorktree({ cwd: tmp, ref: "HEAD", path: detachedPath });
+          yield* core.createDetachedWorktree({
+            cwd: tmp,
+            ref: "HEAD",
+            path: branchPath,
+            newBranch: "moss/par12345",
+          });
+          expect(worktreeAddArgs[0]?.slice(0, 5)).toEqual([
+            "-c",
+            "checkout.workers=0",
+            "worktree",
+            "add",
+            "--detach",
+          ]);
+          expect(worktreeAddArgs[1]?.slice(0, 4)).toEqual([
+            "-c",
+            "checkout.workers=0",
+            "worktree",
+            "add",
+          ]);
+          expect(existsSync(path.join(detachedPath, "README.md"))).toBe(true);
+          expect(existsSync(path.join(branchPath, "README.md"))).toBe(true);
+
+          // A user-chosen worker count is left to Git's own config resolution.
+          yield* git(tmp, ["config", "checkout.workers", "2"]);
+          repoConfigured = true;
+          const configuredPath = path.join(tmp, "wt-configured-workers");
+          yield* core.createDetachedWorktree({ cwd: tmp, ref: "HEAD", path: configuredPath });
+          expect(worktreeAddArgs[2]?.[0]).toBe("worktree");
+          expect(worktreeAddArgs[2]).not.toContain("checkout.workers=0");
+          expect(existsSync(path.join(configuredPath, "README.md"))).toBe(true);
+
+          for (const worktreePath of [detachedPath, branchPath, configuredPath]) {
+            yield* realCore.removeWorktree({
+              cwd: tmp,
+              path: worktreePath,
+              force: true,
+              reclaimTemporaryBranch: true,
+            });
+          }
+        }),
     );
 
     it.effect("reports setup phases at the real command boundaries", () =>

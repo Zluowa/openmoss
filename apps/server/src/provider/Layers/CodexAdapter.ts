@@ -57,7 +57,10 @@ import {
   TurnId,
 } from "@moss/contracts";
 import { Cause, Effect, Layer, Option, Queue, Schema, ServiceMap, Stream } from "effect";
-import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
+import {
+  isCodexDiagnosticWarningMessage,
+  readCodexMcpSubscriptionError,
+} from "@moss/shared/codexDiagnostics";
 import { isMossAppsServer, mossAppsToolTitle } from "@moss/shared/mossAppsPresentation";
 import { decodeSubagentActivity, normalizeSubagentToolData } from "@moss/shared/subagentTool";
 import { assertServerResolvedVoiceRouteAuthority } from "../../voiceTranscriptionGateway.ts";
@@ -3670,6 +3673,29 @@ function mapToRuntimeEvents(
     ];
   }
 
+  // The startup notification owns the server name; the MCP transport's stderr log does not
+  // carry it (and stays in the server log), so this is the one row that says which failed.
+  if (event.method === "mcpServer/startupStatus/updated") {
+    const name = asTrimmedString(payload?.name);
+    const error = asTrimmedString(payload?.error);
+    if (payload?.status === "failed" && name && error) {
+      const subscriptionError = readCodexMcpSubscriptionError(error);
+      return [
+        {
+          type: "runtime.warning",
+          ...withMinimalRawPayload(runtimeEventBase(event, canonicalThreadId), event),
+          payload: {
+            message: sanitizeUnmappedProviderDetail(
+              `MCP server "${name}" failed to start${subscriptionError ? " (HTTP 403)" : ""}: ${subscriptionError ?? error}`,
+              2_000,
+            )!,
+            detail: sanitizeUnmappedProviderData(event.payload),
+          },
+        },
+      ];
+    }
+  }
+
   if (event.method === "configWarning") {
     const details = asTrimmedString(payload?.details);
     const path = asTrimmedString(payload?.path);
@@ -4983,7 +5009,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           const runtimeEvents = sizedRuntimeEvents.map((item) => item.event);
           trackTurnWatchdogActivity(stampedEvent.threadId, runtimeEvents);
           const nativeEvent = compactCodexNativeEventForIngress(
-            hasUnmappedEvent || CODEX_RUNTIME_WARNING_METHODS.has(stampedEvent.method)
+            hasUnmappedEvent ||
+              mappedRuntimeEvents.some((runtimeEvent) => runtimeEvent.type === "runtime.warning") ||
+              CODEX_RUNTIME_WARNING_METHODS.has(stampedEvent.method)
               ? sanitizeUnmappedProviderEvent(stampedEvent)
               : stampedEvent,
           );

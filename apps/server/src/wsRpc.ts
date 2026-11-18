@@ -4,6 +4,7 @@ import { DevsReports } from "./devsReports";
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { listMossMediaLibrary } from "./mossMediaLibrary";
 import { makeGitActionRunner } from "./git/gitActionRunner";
+import { makeDetachedWorktreeSetupStream } from "./git/worktreeSetupStream";
 import {
   gitActionPullRequestCommands,
   pullRequestFromGitActionResult,
@@ -51,7 +52,6 @@ import {
   type GitRemoveWorktreeInput,
   type GitRunStackedActionResult,
   type GitHubProjectProvisionProgressEvent,
-  type GitWorktreeSetupProgressEvent,
   type ModelSelection,
   type OrchestrationCommand,
   type OrchestrationEvent,
@@ -3502,50 +3502,27 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(git.listBranches(input), "Failed to list branches"),
         [WS_METHODS.gitListRecentCommits]: (input) =>
           rpcEffect(git.listRecentCommits(input), "Failed to list recent commits"),
+        // The created worktree is the result; its status/PR refresh runs in the background.
         [WS_METHODS.gitCreateWorktree]: (input) =>
           rpcEffect(
             refuseMultiFolderProjectWorktree(input.cwd).pipe(
-              Effect.andThen(
-                refreshGitStatusAfter(
-                  input.cwd,
-                  git.withMutation(input.cwd, git.createWorktree(input)),
-                ),
-              ),
+              Effect.andThen(git.withMutation(input.cwd, git.createWorktree(input))),
+              Effect.tap(() => refreshGitStatusInBackground(input.cwd)),
             ),
             "Failed to create worktree",
           ),
         [WS_METHODS.gitCreateDetachedWorktree]: (input) =>
           bufferLiveUiStream(
-            Stream.callback<GitWorktreeSetupProgressEvent, WsRpcError>((queue) => {
-              const progressId = input.progressId ?? null;
-              return refuseMultiFolderProjectWorktree(input.cwd)
-                .pipe(
+            makeDetachedWorktreeSetupStream({
+              progressId: input.progressId ?? null,
+              create: (onPhase) =>
+                refuseMultiFolderProjectWorktree(input.cwd).pipe(
                   Effect.andThen(
-                    refreshGitStatusAfter(
-                      input.cwd,
-                      git.withMutation(
-                        input.cwd,
-                        git.createDetachedWorktree(input, {
-                          onPhase: (phase) =>
-                            Queue.offer(queue, { kind: "phase_started", progressId, phase }).pipe(
-                              Effect.asVoid,
-                            ),
-                        }),
-                      ),
-                    ),
+                    git.withMutation(input.cwd, git.createDetachedWorktree(input, { onPhase })),
                   ),
-                )
-                .pipe(
-                  Effect.matchCauseEffect({
-                    onFailure: (cause) =>
-                      Queue.fail(queue, toWsRpcError(cause, "Failed to create detached worktree")),
-                    onSuccess: (result) =>
-                      Queue.offer(queue, { kind: "completed", progressId, result }).pipe(
-                        Effect.andThen(Queue.end(queue)),
-                        Effect.asVoid,
-                      ),
-                  }),
-                );
+                ),
+              refreshStatusInBackground: refreshGitStatusInBackground(input.cwd),
+              toError: (cause) => toWsRpcError(cause, "Failed to create detached worktree"),
             }),
             { label: "git.create-detached-worktree" },
           ),

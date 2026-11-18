@@ -224,6 +224,26 @@ sent by an automation or another agent are left out of what the model reads so i
 not imitate them. T3 Code's provider-native suggestion sources (the Claude Agent SDK
 `promptSuggestions` option and Codex `thread/sample`) are not used.
 
+## Synara 1.6.2 fixes (absorbed)
+
+These changes from Synara 1.6.2 (https://github.com/Emanuele-web04/synara, MIT, release
+commit 47f8f3997) are adapted with their tests:
+
+- Managed worktree copies skip nested repositories and linked worktrees, keep symbolic
+  links verbatim and finish a started copy before rollback, from PR #2200 (commit
+  216ac5ce0).
+- macOS window capture teardown in AppSnap and the Computer frame tap, and task-owned
+  window stills, from PR #2202 (commit 2a4df05a0).
+- The OpenCode config fingerprint in the model discovery cache key
+  (`openCodeConfigPaths.ts`) and the discovery-only server read on a miss, from PR #2185
+  (commit 663f44a1c).
+- Worktree creation that no longer waits on status and pull request refreshes
+  (`worktreeSetupStream.ts`) and parallel checkout, from PR #2208 (commit c977983bf).
+- Composer suggestions that drop an echoed response object, from PR #2210 (commit
+  aff08f627).
+- Named MCP startup failures and the subscription refusal reader, from PR #2207 (commit
+  c1da0c1e8). Its multi-agent deprecation consolidation is not included.
+
 ## OpenUI Lang and open-intelligent-ui components (absorbed)
 
 Moss uses OpenUI Lang and selected browser-only components adapted from
