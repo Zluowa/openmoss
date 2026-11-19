@@ -1049,6 +1049,81 @@ describe("ComposerModelPicker with several accounts", () => {
     }
   });
 
+  it("draws Moss's own mark on the trigger and starred rows for a Moss account, the agent's for any other", async () => {
+    const mossAccount = {
+      ...multiAccount,
+      providers: [
+        readyProvider("codex"),
+        { ...readyProvider("codex"), instanceId: "codex_moss", displayName: "Moss" },
+        readyProvider("claudeAgent"),
+      ],
+      providerInstances: [
+        CODEX_ACCOUNTS[0]!,
+        {
+          instanceId: "codex_moss",
+          provider: "codex",
+          label: "Moss",
+          enabled: true,
+          isDefault: false,
+        },
+      ],
+      modelOptionsByProviderInstance: {
+        codex_moss: [{ slug: "deepseek-v4-pro", name: "Moss DeepSeek V4 Pro" }],
+      },
+    } satisfies HarnessProps;
+    const trigger = () =>
+      page.getByRole("button", { name: "Change model and reasoning" }).element();
+    let screen = await mountPicker(
+      { ...mossAccount, selectedProviderInstanceId: "codex_moss" },
+      undefined,
+      [
+        {
+          provider: "codex",
+          instanceId: "codex_moss",
+          model: "deepseek-v4-pro" as ModelSlug,
+          effort: null,
+          fastMode: null,
+          thinking: null,
+        },
+        {
+          provider: "codex",
+          instanceId: "codex",
+          model: GPT_5_4,
+          effort: null,
+          fastMode: null,
+          thinking: null,
+        },
+      ],
+    );
+    try {
+      const mark = trigger().querySelector<HTMLImageElement>("[data-moss-lane-mark]");
+      expect(mark?.getAttribute("src")).toContain("moss-logo");
+      // The upstream agent's logo is not drawn beside it.
+      expect(trigger().querySelectorAll("svg")).toHaveLength(0);
+
+      // Starred Moss-lane preset rows also draw Moss's mark, while personal rows keep the agent SVG.
+      const mossRow = page.getByRole("menuitem", { name: /Moss DeepSeek V4 Pro/u }).element();
+      expect(
+        mossRow.querySelector<HTMLImageElement>("[data-moss-lane-mark]")?.getAttribute("src"),
+      ).toContain("moss-logo");
+      expect(mossRow.querySelectorAll("svg")).toHaveLength(0);
+
+      const personalRow = page.getByRole("menuitem", { name: /GPT-5\.4/u }).element();
+      expect(personalRow.querySelector("[data-moss-lane-mark]")).toBeNull();
+      expect(personalRow.querySelectorAll("svg").length).toBeGreaterThan(0);
+    } finally {
+      await screen.unmount();
+    }
+    screen = await mountPicker({ ...mossAccount, selectedProviderInstanceId: "codex" });
+    try {
+      expect(trigger().querySelector("[data-moss-lane-mark]")).toBeNull();
+      // A personal account keeps the agent's logo (drawn as an svg).
+      expect(trigger().querySelectorAll("svg").length).toBeGreaterThan(0);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("dots a lone account that has an accent color without naming it", async () => {
     const screen = await mountPicker({
       providerInstances: [{ ...CODEX_ACCOUNTS[0]!, accentColor: "#2563eb" }],

@@ -430,6 +430,25 @@ describe("Moss Images browser workflow", () => {
     expect(document.querySelector("[data-moss-images-result]")).toBeNull();
   });
 
+  // The tester, signed out of Moss and of Codex: the page said 「登录 Moss 账号…」 and the
+  // composer under it added 「Codex 尚未登录…」, a second sign-in sentence.
+  it("signed out of Moss: says so once, and the composer adds no provider sign-in line", async () => {
+    providerFixture.codexUnauthenticated = true;
+    catalog = { ...catalog, account: null };
+    const startConversation = vi.fn(async (_input: MossImagesConversationInput) => undefined);
+    await mountWorkspace(startConversation);
+    await expect.element(page.getByText("登录 Moss 账号后使用套餐额度生成图像。")).toBeVisible();
+    await page.getByRole("textbox", { name: "描述要创建的图像" }).fill("一只猫");
+    await expect
+      .element(page.getByRole("button", { name: "生成图像", exact: true }))
+      .toBeDisabled();
+    expect(document.body.textContent).not.toContain("Codex 尚未登录");
+    expect(
+      document.querySelectorAll("[data-moss-images-composer-frame] [role=status]"),
+    ).toHaveLength(0);
+    expect(startConversation).not.toHaveBeenCalled();
+  });
+
   it("applies and clears a gallery style through the existing conversation composer", async () => {
     const startConversation = vi.fn(async (_input: MossImagesConversationInput) => undefined);
     await mountWorkspace(startConversation);

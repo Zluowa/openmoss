@@ -28,6 +28,11 @@ export interface MossLoginCredential {
   readonly realm: "memfire-phone" | "supabase-google";
   readonly accessToken: string;
   readonly gatewayBaseUrl: string;
+  /**
+   * Reports that a request to `gatewayBaseUrl` failed below HTTP; resolves to the gateway entry
+   * to use next (the same one when there is no other). Only regions with several entries.
+   */
+  readonly reportGatewayConnectionFailure?: (gatewayBaseUrl: string) => Promise<string>;
   readonly account: { readonly id: string; readonly realm: "memfire-phone" | "supabase-google" };
 }
 
@@ -91,8 +96,25 @@ export const resolveMossLoginCredential = (input: {
       return yield* Effect.fail(
         new MossLoginAuthorityError("account_recovery_required", "subject-mismatch"),
       );
+    const realm = credential.realm;
+    // Only the phone (CN) credential carries an entry router; the Google one has one entry.
+    const report =
+      "reportGatewayConnectionFailure" in credential
+        ? credential.reportGatewayConnectionFailure
+        : undefined;
     return {
       ...credential,
-      account: { id: accountId, realm: credential.realm },
+      // The next entry gets the account's token only when it passes the same trust check.
+      ...(report
+        ? {
+            reportGatewayConnectionFailure: async (failed: string) => {
+              const next = await report(failed);
+              return isTrustedMossManagedGatewayUrlForAuthority(next, realm, process.env)
+                ? next
+                : failed;
+            },
+          }
+        : {}),
+      account: { id: accountId, realm },
     } satisfies MossLoginCredential;
   });

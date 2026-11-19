@@ -25,7 +25,8 @@ import { useRightDockStore } from "~/rightDockStore";
 
 import { formatClockDuration } from "../../session-logic";
 import { ENVIRONMENT_ROW_ICON_CLASS_NAME, EnvironmentRow } from "./environment/EnvironmentRow";
-import { localizeKnownWorkflowEffortLabel } from "./WorkflowRunCard";
+import { localizedModelLabel } from "./effortLabels";
+export { localizedModelLabel } from "./effortLabels";
 import {
   environmentSubagentElapsedMs,
   formatEnvironmentSubagentMeta,
@@ -42,27 +43,18 @@ const DONE_VISIBLE_LIMIT = 10;
 const SUMMARY_TOOLTIP_MAX_CHARS = 280;
 const SECONDARY_TEXT_CLASS_NAME = "text-[var(--color-text-foreground-secondary)]";
 
-/**
- * "GPT-6.1 Terra · max" carries the provider's raw effort; show it in the words the composer's
- * effort picker uses (最大, 高 …) through the same chat.effort.* keys.
- */
-export function localizedModelLabel(t: (key: TranslationKey) => string, label: string): string {
-  const separator = label.lastIndexOf(" · ");
-  const effort = separator === -1 ? label : label.slice(separator + 3);
-  const localized = localizeKnownWorkflowEffortLabel(t, effort);
-  if (localized === effort) return label;
-  return separator === -1 ? localized : `${label.slice(0, separator)} · ${localized}`;
-}
+type Format = (key: TranslationKey, values: Record<string, string | number>) => string;
 
 function rowTooltip(
   item: EnvironmentSubagentRosterItem,
   t: (key: TranslationKey) => string,
+  format: Format,
 ): string {
   const summary =
     item.summary && item.summary.length > SUMMARY_TOOLTIP_MAX_CHARS
       ? `${item.summary.slice(0, SUMMARY_TOOLTIP_MAX_CHARS - 1)}…`
       : item.summary;
-  const stats = formatEnvironmentSubagentMeta(item, false);
+  const stats = formatEnvironmentSubagentMeta(item, false, format);
   const modelLabel = item.modelLabel ? localizedModelLabel(t, item.modelLabel) : null;
   return [[item.fullLabel, modelLabel].filter(Boolean).join(" · "), stats, summary]
     .filter(Boolean)
@@ -137,7 +129,7 @@ function ActiveSubagentRow({
   onBackground: (item: EnvironmentSubagentRosterItem) => void;
   onStop: (item: EnvironmentSubagentRosterItem) => void;
 }) {
-  const { t } = useTranslation();
+  const { format, locale, t } = useTranslation();
   const elapsedMs = environmentSubagentElapsedMs(item, nowMs);
   const statusText =
     item.statusKind === "queued"
@@ -145,7 +137,7 @@ function ActiveSubagentRow({
       : item.statusKind === "failed"
         ? t("chatgptConversations.subagents.status.failed")
         : t("chatgptConversations.subagents.status.working");
-  const meta = formatEnvironmentSubagentMeta(item);
+  const meta = formatEnvironmentSubagentMeta(item, true, format);
   const showBackground = item.isActive && !item.isBackground;
   const showStop = item.isActive;
   const actionCount = Number(showBackground) + Number(showStop);
@@ -177,7 +169,7 @@ function ActiveSubagentRow({
                       "group-focus-within/subagent:hidden group-hover/subagent:hidden",
                   )}
                 >
-                  {formatClockDuration(elapsedMs)}
+                  {formatClockDuration(elapsedMs, locale)}
                 </span>
               ) : null}
               {actionCount > 0 ? (
@@ -202,7 +194,7 @@ function ActiveSubagentRow({
           "items-start",
           item.isViewed && "bg-[var(--color-background-elevated-secondary)]",
         )}
-        title={rowTooltip(item, t)}
+        title={rowTooltip(item, t, format)}
         aria-label={`Open subagent ${item.fullLabel}${item.statusLabel ? ` (${item.statusLabel})` : ""}`}
         aria-current={item.isViewed ? "page" : undefined}
         data-testid="subagents-pane-active-row"
@@ -298,7 +290,7 @@ function DoneSubagentRow({
         ) : null
       }
       className={cn(item.isViewed && "bg-[var(--color-background-elevated-secondary)]")}
-      title={rowTooltip(item, t)}
+      title={rowTooltip(item, t, format)}
       aria-label={`Open subagent ${item.fullLabel}${item.statusLabel ? ` (${item.statusLabel})` : ""}`}
       aria-current={item.isViewed ? "page" : undefined}
       data-testid="subagents-pane-done-row"

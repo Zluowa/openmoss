@@ -4,7 +4,24 @@
 // close button off screen and cut the list at the bottom.
 // Layer: web settings.
 
-import { useEffect } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+
+/**
+ * A page picked from the list starts at its top. The scroll area outlives the pages, so
+ * without this a page opened halfway down, at the offset the previous page was left at.
+ * Runs before the deep-link scroll above, which still brings a target into view.
+ */
+export function useSettingsPageStartsAtTop(
+  pane: RefObject<HTMLElement | null>,
+  section: string,
+): void {
+  const shownSection = useRef(section);
+  useLayoutEffect(() => {
+    if (shownSection.current === section) return;
+    shownSection.current = section;
+    pane.current?.scrollTo({ top: 0 });
+  }, [pane, section]);
+}
 
 export function useSettingsTargetScroll(section: string, target: string | null | undefined): void {
   useEffect(() => {

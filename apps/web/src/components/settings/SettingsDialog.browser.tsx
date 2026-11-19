@@ -14,14 +14,18 @@ import { closeSettings, openSettings, settingsDialogStore } from "~/settingsDial
 import type { SettingsLocation } from "~/settingsLocation";
 
 vi.mock("./SettingsContent", async () => {
-  const { useSettingsTargetScroll } = await import("./useSettingsTargetScroll");
+  const { useRef } = await import("react");
+  const { useSettingsPageStartsAtTop, useSettingsTargetScroll } =
+    await import("./useSettingsTargetScroll");
   return {
     // A page with its own scroll area and a deep-link target far down it, scrolled by the
-    // same hook the real pages use.
+    // same hooks the real pages use.
     SettingsContent: ({ location }: { location: SettingsLocation }) => {
+      const pane = useRef<HTMLDivElement>(null);
+      useSettingsPageStartsAtTop(pane, location.section);
       useSettingsTargetScroll(location.section, location.target);
       return (
-        <div data-testid="stub-scroll" className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={pane} data-testid="stub-scroll" className="min-h-0 flex-1 overflow-y-auto">
           <div data-testid="stub-page">
             {location.section}
             {location.pluginTab ? `:${location.pluginTab}` : ""}
@@ -101,6 +105,23 @@ describe("SettingsDialog", () => {
     await expect.element(page.getByTestId("settings-dialog")).toBeVisible();
     await page.getByRole("button", { name: "Close settings" }).click();
     await vi.waitFor(() => expect(settingsDialogStore.getState().isOpen).toBe(false));
+    await screen.unmount();
+  });
+
+  it("opens a page picked from the list at its top, not where the last page was left", async () => {
+    await page.viewport(1101, 782);
+    const screen = await render(<SettingsDialog />);
+    openSettings({ section: "behavior" });
+    await expect.element(page.getByTestId("stub-page")).toHaveTextContent("behavior");
+    const pane = () => page.getByTestId("stub-scroll").element();
+    pane().scrollTop = 1500;
+    await vi.waitFor(() => expect(pane().scrollTop).toBeGreaterThan(1000));
+
+    await page.getByRole("button", { name: "Computer use", exact: true }).click();
+    await expect.element(page.getByTestId("stub-page")).toHaveTextContent("computer-use");
+    // The new page's title is on screen.
+    expect(pane().scrollTop).toBe(0);
+    await expect.element(page.getByTestId("stub-page")).toBeInViewport();
     await screen.unmount();
   });
 

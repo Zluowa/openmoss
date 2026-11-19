@@ -346,4 +346,25 @@ describe("Moss Apps for a signed-in person whose account check fails", () => {
     code = "apps_login_account_required";
     expect((await f.runtime.status()).availability).toBe("login-account-required");
   });
+
+  // The gateway refuses an enterprise key itself (403 apps_login_account_required), after the
+  // desktop accepted the login: that is a choose-an-account state, never a retry.
+  it.each([
+    ["apps_login_account_required", "login-account-required"],
+    ["authentication_required", "authentication-required"],
+    ["apps_unavailable", "unavailable"],
+  ] as const)("keeps the gateway's %s answer as %s", async (code, availability) => {
+    const f = fixture({
+      status: vi.fn(async () => {
+        throw MossAppsFailure.fromCode(code);
+      }),
+    });
+    expect((await f.runtime.status()).availability).toBe(availability);
+  });
+
+  it("shows a gateway without the Apps module as not offered yet and publishes no agent tools", async () => {
+    const f = fixture({ status: vi.fn(async () => "unconfigured" as const) });
+    expect(await f.runtime.status()).toEqual({ availability: "unconfigured", agentAccess: false });
+    expect(f.published.filter(Boolean)).toEqual([]);
+  });
 });

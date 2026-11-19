@@ -69,24 +69,7 @@ interface WorkflowRunCardProps {
 
 type Translate = (key: TranslationKey) => string;
 
-export function localizeKnownWorkflowEffortLabel(t: Translate, effortLabel: string): string {
-  switch (effortLabel) {
-    case "minimal":
-      return t("chat.effort.minimal");
-    case "low":
-      return t("chat.effort.low");
-    case "medium":
-      return t("chat.effort.medium");
-    case "high":
-      return t("chat.effort.high");
-    case "xhigh":
-      return t("chat.effort.extraHigh");
-    case "max":
-      return t("chat.effort.max");
-    default:
-      return effortLabel;
-  }
-}
+export { localizeKnownWorkflowEffortLabel } from "./effortLabels";
 
 function settledWorkflowPresentation(workflowRun: WorkflowRunState): {
   label: string;

@@ -784,10 +784,12 @@ function elapsedLabel(
   endedAtMs: number | null,
   live: boolean,
   nowMs: number,
+  locale: string,
 ): string | null {
   if (startedAtMs === null) return null;
   const end = live ? nowMs : endedAtMs;
-  return end === null ? null : formatClockDuration(Math.max(0, end - startedAtMs));
+  // 19 秒 / 1 分钟 8 秒 in Chinese, the 已工作 header's units; 19s in English.
+  return end === null ? null : formatClockDuration(Math.max(0, end - startedAtMs), locale);
 }
 
 export type SubagentRunRowDetail =
@@ -805,10 +807,16 @@ export interface SubagentRunRowDescription {
 
 export function describeSubagentRunRow(
   row: SubagentRunRow,
-  options: { nowMs: number; allStopped: boolean },
+  options: { nowMs: number; allStopped: boolean; locale?: string },
 ): SubagentRunRowDescription {
   const live = isRowLive(row);
-  const durationLabel = elapsedLabel(row.startedAtMs, row.endedAtMs, live, options.nowMs);
+  const durationLabel = elapsedLabel(
+    row.startedAtMs,
+    row.endedAtMs,
+    live,
+    options.nowMs,
+    options.locale ?? "en",
+  );
   const statusKind = subagentRunPhaseStatusKind(row.phase);
   switch (row.phase) {
     case "starting":
@@ -867,6 +875,7 @@ export interface SubagentRunHeaderDescription {
 export function describeSubagentRunHeader(
   card: SubagentRunCardModel,
   nowMs: number,
+  locale = "en",
 ): SubagentRunHeaderDescription {
   const segments: Array<{ text: string; tone: "running" | "failed" | null }> = [];
   if (card.isLive) {
@@ -886,7 +895,7 @@ export function describeSubagentRunHeader(
     title: `${card.rows.length} ${pluralize(card.rows.length, "subagent")}`,
     nestedLabel: card.nestedCount > 0 ? `+${card.nestedCount} nested` : null,
     segments,
-    durationLabel: elapsedLabel(card.startedAtMs, card.endedAtMs, card.isLive, nowMs),
+    durationLabel: elapsedLabel(card.startedAtMs, card.endedAtMs, card.isLive, nowMs, locale),
   };
 }
 

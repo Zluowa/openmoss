@@ -79,10 +79,15 @@ function relativeSpan(count: string, unit: string): string {
 }
 
 function subagentMeta(meta: string): string {
+  // Same words as `chat.workflow.tokens` / `chat.workflow.toolCalls.*` in zh-CN.
   return meta
     .split(" · ")
     .map((part) =>
-      part === "background" ? "后台" : part.replace(/^(\d+) tool calls?$/, "$1 次工具调用"),
+      part === "background"
+        ? "后台"
+        : part
+            .replace(/^(\d+) tool calls?$/, "$1 次工具调用")
+            .replace(/^([\d.,]+[kKmMbB]?) tokens$/, "$1 个令牌"),
     )
     .join(" · ");
 }
@@ -289,6 +294,10 @@ const COMPOSED_RULES: ReadonlyArray<ComposedRule> = [
     ([name = "", status = ""], t) => `打开子智能体 ${name}（${t(status)}）`,
   ],
   [/^Open subagent (.+)$/, ([name = ""]) => `打开子智能体 ${name}`],
+  [/^Stop subagent (.+)$/, ([name = ""]) => `停止子智能体 ${name}`],
+  [/^Run (.+) in background$/, ([name = ""]) => `在后台运行 ${name}`],
+  // `describeSubagentRunHeader`: sub-agents a sub-agent started.
+  [/^\+(\d+) nested$/, ([count = ""]) => `另有 ${count} 个嵌套子智能体`],
   [
     /^Open subagents: (.+)$/,
     ([summary = ""], t) =>

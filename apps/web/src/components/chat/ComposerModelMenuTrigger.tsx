@@ -12,6 +12,7 @@ import { ChevronDownIcon, SettingsIcon } from "~/lib/icons";
 import { FastModeBadgeIcon } from "./FastModeBadgeIcon";
 import { cn } from "~/lib/utils";
 import { ProviderAccountDot } from "../ProviderAccountMark";
+import { MossLogo } from "../MossLogo";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
 import { Button } from "../ui/button";
 import { MenuTrigger } from "../ui/menu";
@@ -33,6 +34,8 @@ const TRIGGER_TRAIT_LABEL_CLASS_NAME = cn(
 // degradation steps: the text moves to title/sr-only so assistive tech keeps it.
 export function ComposerModelMenuTrigger(props: {
   provider: ProviderKind;
+  /** The composer runs on a Moss account (a Moss lane): the mark is Moss's, whatever runs it. */
+  mossLane?: boolean | undefined;
   /** Set while the provider has several accounts, to tell which one the composer runs in. */
   accountLabel?: string | null | undefined;
   /** The account's own name, written before the model while the provider has several. */
@@ -96,14 +99,22 @@ export function ComposerModelMenuTrigger(props: {
 
   const renderLabel = (label: typeof liveLabel) => (
     <>
-      <ProviderIcon
-        aria-hidden="true"
-        className={cn(
-          // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
-          "size-4 shrink-0 opacity-100",
-          getProviderIconClassName(props.provider, "text-[var(--color-text-foreground)]"),
-        )}
-      />
+      {props.mossLane ? (
+        <MossLogo
+          aria-hidden="true"
+          data-moss-lane-mark=""
+          className="size-4 shrink-0 opacity-100"
+        />
+      ) : (
+        <ProviderIcon
+          aria-hidden="true"
+          className={cn(
+            // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
+            "size-4 shrink-0 opacity-100",
+            getProviderIconClassName(props.provider, "text-[var(--color-text-foreground)]"),
+          )}
+        />
+      )}
       <ProviderAccountDot
         accentColor={props.accountAccentColor}
         className="-ms-1 size-1.5 shrink-0 self-start ring-0"

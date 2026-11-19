@@ -29,7 +29,9 @@ export function MossAppsAccountNotice({
                   : "apps.error.unavailable",
         )}
       </p>
-      {availability !== "ready" ? (
+      {/* Nothing to retry or sign in to while Moss Apps is not offered (a gateway without the
+          Apps module answers that way too): one calm line, no button. */}
+      {availability !== "ready" && availability !== "unconfigured" ? (
         <Button variant="ghost" size="xs" onClick={onAction}>
           {t(
             availability === "authentication-required"

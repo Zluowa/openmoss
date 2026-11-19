@@ -221,7 +221,8 @@ export function ThemePackEditor({
         <span>{contextLabel}</span>
         {!isActive ? (
           <Button variant="outline" size="xs" onClick={() => setTheme(variant)}>
-            Use {variant} theme
+            {/* One string, so it translates as a whole (pieces read 使用 深色 主题). */}
+            {variant === "dark" ? "Use dark theme" : "Use light theme"}
           </Button>
         ) : null}
       </div>

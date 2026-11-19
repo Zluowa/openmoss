@@ -17,9 +17,11 @@ import {
   type SubagentStatusKind,
 } from "~/lib/subagentPresentation";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "../../localization";
 import { formatClockDuration } from "../../session-logic";
 import ChatMarkdown from "../ChatMarkdown";
 import { ProviderIcon } from "../ProviderIcon";
+import { localizedModelLabel } from "./effortLabels";
 
 export interface SubagentThreadPresentation {
   parentThreadId: ThreadId;
@@ -38,12 +40,31 @@ function durationMs(startedAt: string | null, endedAt: string | null, nowMs: num
   return Number.isNaN(start) || Number.isNaN(end) || end < start ? null : end - start;
 }
 
-// "Running · 12s", "Done in 8s", "Failed after 3s", "Stopped after 4s".
+// "Running · 12s", "Done in 8s", "Failed after 3s", "Stopped after 4s"; in Chinese
+// "运行中 · 12 秒", "已完成 · 用时 8 秒" … with the 已工作 header's units.
 export function subagentThreadStateLabel(
   statusKind: SubagentStatusKind | null,
   elapsedMs: number | null,
+  locale = "en",
 ): string | null {
-  const elapsed = elapsedMs === null ? null : formatClockDuration(elapsedMs);
+  const elapsed = elapsedMs === null ? null : formatClockDuration(elapsedMs, locale);
+  if (locale === "zh-CN") {
+    const took = elapsed ? ` · 用时 ${elapsed}` : "";
+    switch (statusKind) {
+      case "running":
+        return elapsed ? `运行中 · ${elapsed}` : "运行中";
+      case "queued":
+        return "正在启动";
+      case "completed":
+        return `已完成${took}`;
+      case "failed":
+        return `失败${took}`;
+      case "stopped":
+        return `已停止${took}`;
+      default:
+        return null;
+    }
+  }
   switch (statusKind) {
     case "running":
       return elapsed ? `Running · ${elapsed}` : "Running";
@@ -69,11 +90,13 @@ export function SubagentThreadIntro({
 }) {
   const live = subagent.statusKind === "running";
   const nowMs = useNowMs(live);
+  const { locale, t } = useTranslation();
   const stateLabel = subagentThreadStateLabel(
     subagent.statusKind,
     live || subagent.endedAt
       ? durationMs(subagent.startedAt, live ? null : subagent.endedAt, nowMs)
       : null,
+    locale,
   );
   return (
     <div
@@ -102,7 +125,7 @@ export function SubagentThreadIntro({
             {subagent.provider ? (
               <ProviderIcon provider={subagent.provider} className="size-3" />
             ) : null}
-            {subagent.modelLabel}
+            {localizedModelLabel(t, subagent.modelLabel)}
           </span>
         ) : null}
         {stateLabel && (subagent.role || subagent.modelLabel) ? (

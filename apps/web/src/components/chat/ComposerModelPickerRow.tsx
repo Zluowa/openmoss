@@ -9,6 +9,7 @@ import { type ProviderModelDescriptor } from "@moss/contracts";
 import { type StarredModel, starredModelSlotKey } from "~/lib/starredModels";
 import { cn } from "~/lib/utils";
 import { type ProviderOptions } from "../../providerModelOptions";
+import { MossLogo } from "../MossLogo";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
 import { ShortcutKbd } from "../ui/kbd";
 import {
@@ -30,6 +31,7 @@ import { COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME } from "./composerPickerStyles";
 import { getComposerTraitSelection } from "./composerTraits";
 import { ModelStarButton } from "./ModelStarButton";
 import { PICKER_PANEL_ROW_SELECTED_CLASS_NAME } from "./pickerPanelStyles";
+import { isMossManagedSourceInstanceId } from "./providerAccountSources";
 import { getProviderIconClassName } from "./ProviderModelPicker";
 import { resolveRuntimeModelDescriptor } from "./runtimeModelCapabilities";
 
@@ -79,6 +81,7 @@ export function ComposerModelPickerRow(props: {
       ? selection.effortLevels
       : [];
   const RowProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[row.provider];
+  const isMossLane = Boolean(row.instanceId && isMossManagedSourceInstanceId(row.instanceId));
   const displayName = composerModelDisplayName(row.provider, row.name);
   const rowClassName = cn("pe-1", row.selected && PICKER_PANEL_ROW_SELECTED_CLASS_NAME);
   const starButton = (
@@ -99,10 +102,18 @@ export function ComposerModelPickerRow(props: {
   const rowContent = (
     <>
       {row.preset ? (
-        <RowProviderIcon
-          aria-hidden="true"
-          className={cn("size-4 shrink-0", getProviderIconClassName(row.provider))}
-        />
+        isMossLane ? (
+          <MossLogo
+            aria-hidden="true"
+            data-moss-lane-mark=""
+            className="size-4 shrink-0 opacity-100"
+          />
+        ) : (
+          <RowProviderIcon
+            aria-hidden="true"
+            className={cn("size-4 shrink-0", getProviderIconClassName(row.provider))}
+          />
+        )
       ) : null}
       <span className={cn("truncate", row.detail !== null && "max-w-[62%] shrink-0")}>
         {displayName === row.name ? (

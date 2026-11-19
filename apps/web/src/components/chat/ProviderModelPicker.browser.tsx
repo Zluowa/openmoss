@@ -1230,4 +1230,53 @@ describe("ProviderModelPicker", () => {
       await mounted.cleanup();
     }
   });
+
+  it("draws Moss's own mark on the trigger for a Moss lane, the agent's for a personal account", async () => {
+    const common = {
+      provider: "codex" as const,
+      model: "deepseek-v4-pro" as ModelSlug,
+      lockedProvider: null,
+      providers: [
+        providerStatus("codex"),
+        providerStatus("codex", { instanceId: "codex_moss", displayName: "Moss" }),
+      ],
+      providerInstances: [
+        {
+          instanceId: "codex",
+          provider: "codex" as const,
+          label: "Codex",
+          enabled: true,
+          isDefault: true,
+        },
+        {
+          instanceId: "codex_moss",
+          provider: "codex" as const,
+          label: "Moss",
+          enabled: true,
+          isDefault: false,
+        },
+      ],
+      modelOptionsByProviderInstance: {
+        codex_moss: [{ slug: "deepseek-v4-pro", name: "Moss DeepSeek V4 Pro" }],
+      },
+    };
+    let mounted = await mountPicker({ ...common, selectedProviderInstanceId: "codex_moss" });
+    try {
+      const trigger = page.getByRole("button").element();
+      expect(
+        trigger.querySelector<HTMLImageElement>("[data-moss-lane-mark]")?.getAttribute("src"),
+      ).toContain("moss-logo");
+      expect(trigger.querySelectorAll("svg")).toHaveLength(0);
+    } finally {
+      await mounted.cleanup();
+    }
+    mounted = await mountPicker({ ...common, selectedProviderInstanceId: "codex" });
+    try {
+      const trigger = page.getByRole("button").element();
+      expect(trigger.querySelector("[data-moss-lane-mark]")).toBeNull();
+      expect(trigger.querySelectorAll("svg").length).toBeGreaterThan(0);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 });

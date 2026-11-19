@@ -88,10 +88,12 @@ describe("Moss Apps account UI", () => {
           .toBeVisible();
         await expect.element(page.getByText("请切换到手机或 Google 账号使用应用。")).toBeVisible();
         await expect.element(page.getByText("暂时无法连接应用，请稍后重试。")).toBeVisible();
+        // Not offered yet (also a gateway without the Apps module): a calm line, no button.
+        await expect.element(page.getByText("Moss 应用暂未开放。")).toBeVisible();
         const preview = page.getByTestId("apps-account-preview").element() as HTMLElement;
         await painted(preview);
         backgrounds.push(getComputedStyle(preview).backgroundColor);
-        expect(preview.querySelectorAll("button")).toHaveLength(4);
+        expect(preview.querySelectorAll("button")).toHaveLength(3);
         for (const button of preview.querySelectorAll("button")) {
           await painted(button, 20);
           const box = button.getBoundingClientRect();

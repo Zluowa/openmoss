@@ -124,9 +124,10 @@ export function formatLiveActivityStateLabel(state: WorkLogLiveActivity["state"]
 export function formatLiveActivityElapsed(
   activity: WorkLogLiveActivity,
   nowMs: number,
+  locale = "en",
 ): string | null {
   const elapsedMs = liveActivityElapsedMs(activity, nowMs);
-  return elapsedMs === null ? null : formatClockDuration(elapsedMs);
+  return elapsedMs === null ? null : formatClockDuration(elapsedMs, locale);
 }
 
 export interface LiveActivityMetaOptions {

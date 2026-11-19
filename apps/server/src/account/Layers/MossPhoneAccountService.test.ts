@@ -416,6 +416,8 @@ describe("MossPhoneAccountService", () => {
         accessToken: "moss-access-token",
         gatewayBaseUrl: "https://moss.example.cn/functions/v1/moss-model-gateway",
         realtimeRelayUrl: "https://realtime.moss.example.cn",
+        // Apps reports a below-HTTP failure to the same entry router as the model catalogue.
+        reportGatewayConnectionFailure: expect.any(Function),
       });
 
       // A durable binding receipt must not mask an interrupted settings fence.

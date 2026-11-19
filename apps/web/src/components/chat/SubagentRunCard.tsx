@@ -28,7 +28,9 @@ import { Button } from "../ui/button";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { LiveStatusSpinner } from "../ui/spinner";
+import { useTranslation } from "../../localization";
 import type { ComposerSubagentStripItem } from "./ComposerSubagentStrip.logic";
+import { localizedModelLabel } from "./effortLabels";
 import { InlineSubagentActivity } from "./InlineSubagentActivity";
 import type { InlineSubagentStatus } from "./inlineSubagentActivity.logic";
 import {
@@ -62,6 +64,7 @@ function inlineSubagentStatusForCard(card: {
 }
 /** Name, role, and model of one subagent: the identity line every row shares. */
 export function SubagentIdentityLine({ item }: { item: ComposerSubagentStripItem }) {
+  const { t } = useTranslation();
   return (
     <span className="flex min-w-0 items-baseline gap-1.5" title={item.fullLabel}>
       <span className="min-w-0 truncate font-medium text-foreground/88">{item.primaryLabel}</span>
@@ -69,7 +72,9 @@ export function SubagentIdentityLine({ item }: { item: ComposerSubagentStripItem
         <span className="shrink-0 text-ui-sm text-muted-foreground/60">{item.role}</span>
       ) : null}
       {item.modelLabel ? (
-        <span className="shrink-0 text-ui-sm text-muted-foreground/48">{item.modelLabel}</span>
+        <span className="shrink-0 text-ui-sm text-muted-foreground/48">
+          {localizedModelLabel(t, item.modelLabel)}
+        </span>
       ) : null}
       {item.isBackground ? (
         <span className="shrink-0 text-ui-sm text-muted-foreground/48">background</span>
@@ -118,7 +123,8 @@ function SubagentRunRowView({
   context: SubagentRunContextValue | null;
 }) {
   const [nestedOpen, setNestedOpen] = useState(false);
-  const description = describeSubagentRunRow(row, { nowMs, allStopped });
+  const { locale } = useTranslation();
+  const description = describeSubagentRunRow(row, { nowMs, allStopped, locale });
   const live = row.phase === "running" || row.phase === "waiting" || row.phase === "starting";
   const { threadId } = row;
   const openThread = threadId && context ? () => context.onOpenThread(threadId) : undefined;
@@ -295,7 +301,8 @@ export function SubagentRunCard({ workEntry }: { workEntry: WorkLogEntry }) {
   // Elapsed clocks tick locally so the transcript does not re-render each second.
   const nowMs = useNowMs(card.isLive);
   const [expanded, setExpandedChoice] = useState(false);
-  const header = describeSubagentRunHeader(card, nowMs);
+  const { locale } = useTranslation();
+  const header = describeSubagentRunHeader(card, nowMs, locale);
   const liveItems = collectLiveSubagentRunItems(card.rows);
   const onStop = context?.onStop;
 
