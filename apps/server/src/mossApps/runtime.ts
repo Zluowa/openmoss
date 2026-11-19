@@ -161,16 +161,28 @@ export class MossAppsRuntime {
       context = await this.context();
       const availability = await this.deps.client.status(context.credential, context.signal);
       await this.current(context);
-      if (request === this.statusRequest) this.availability = availability;
-    } catch {
+      if (request === this.statusRequest) {
+        this.availability = availability;
+        if (availability !== "ready") this.publishAccess(false);
+      }
+    } catch (error) {
       if (
         request === this.statusRequest &&
         context &&
         context.key === this.identity &&
         context.epoch === this.epoch &&
         !context.signal.aborted
-      )
-        this.availability = "unavailable";
+      ) {
+        // The gateway's own account answers keep their meaning (an enterprise key is refused
+        // with `apps_login_account_required`); only a real failure offers a retry.
+        this.availability =
+          error instanceof MossAppsFailure && error.code === "apps_login_account_required"
+            ? "login-account-required"
+            : error instanceof MossAppsFailure && error.code === "authentication_required"
+              ? "authentication-required"
+              : "unavailable";
+        if (this.availability !== "unavailable") this.publishAccess(false);
+      }
     }
     return { availability: this.availability, agentAccess: this.agentAccess };
   }

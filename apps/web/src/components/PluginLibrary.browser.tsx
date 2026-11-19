@@ -686,6 +686,36 @@ describe("PluginLibrary native lifecycle", () => {
     expect(document.querySelector('[title*="Timed out waiting for plugin/list"]')).not.toBeNull();
   });
 
+  it("says calmly that Moss Apps is not offered yet, with nothing to retry", async () => {
+    const fixture = new PluginLibraryNativeFixture();
+    fixture.mossAppsAvailability = "unconfigured";
+    await mount(fixture, ["/skills"]);
+    await waitForPlugin("GitHub");
+
+    await expect
+      .poll(() => document.body.textContent, { timeout: 3_000 })
+      .toContain("Moss Apps isn't available yet.");
+    const notice = document.querySelector('[data-testid="moss-apps-account-notice"]');
+    expect(notice?.querySelectorAll("button")).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("Moss could not reach your apps");
+    expect(document.body.textContent).not.toContain("Some plugin sources couldn't load");
+  });
+
+  it("keeps the retry line when Moss Apps really failed", async () => {
+    const fixture = new PluginLibraryNativeFixture();
+    fixture.mossAppsAvailability = "unavailable";
+    await mount(fixture, ["/skills"]);
+    await waitForPlugin("GitHub");
+
+    const notice = await vi.waitFor(() => {
+      const element = document.querySelector('[data-testid="moss-apps-account-notice"]');
+      if (!element) throw new Error("no Moss Apps notice yet");
+      return element;
+    });
+    expect(notice.textContent).toContain("Moss could not reach your apps. Try again shortly.");
+    expect(notice.querySelectorAll("button")).toHaveLength(1);
+  });
+
   it("signed out of Moss, asks for a sign-in instead of warning that sources failed", async () => {
     // What the server sends signed out: Codex refuses its whole listing without a
     // sign-in, and Moss's own plugins only exist in a signed-in account's home.

@@ -325,6 +325,8 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       ["9 of 14 enabled", "已启用 9 / 14 个"],
       ["System is currently using this light slot.", "系统当前正在使用这个浅色主题。"],
       ["Used when your system switches to dark.", "系统切换到深色时使用。"],
+      ["Use dark theme", "使用深色主题"],
+      ["Use light theme", "使用浅色主题"],
     ];
     for (const [english, chinese] of cases) {
       expect(translateZhCnPresentationText(english)).toBe(chinese);

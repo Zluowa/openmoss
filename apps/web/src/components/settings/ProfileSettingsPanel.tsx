@@ -93,13 +93,15 @@ function ProfilePageShell({ actions, children }: { actions?: ReactNode; children
   return (
     <div className="flex min-h-full min-w-0 flex-col">
       <div
-        className="drag-region sticky top-0 z-20 flex h-[46px] shrink-0 items-center justify-between bg-background/95 px-5 backdrop-blur-sm"
+        className="sticky top-0 z-20 flex h-[46px] shrink-0 items-center justify-between bg-popover/95 backdrop-blur-sm"
         data-testid="profile-page-toolbar"
       >
         <h1 className="text-sm font-normal text-foreground">Profile</h1>
         {actions ?? <span />}
       </div>
-      {children}
+      {/* The sections need room between them: without it the sign-in button sat on the stat
+          tiles and the month labels ran into the next heading. */}
+      <div className="flex min-w-0 flex-col gap-8 pt-2 pb-8">{children}</div>
     </div>
   );
 }
@@ -144,7 +146,8 @@ export function ProfileContent({
   const peakHourLabel = formatPeakHourLabel(stats.activeHours.startHour);
   const mostWorkedProjectLabel = formatMostWorkedProjectLabel(stats.mostWorkedProject);
 
-  const activityActions = (
+  // Signed out there is no profile to share or edit: no 分享 / 编辑.
+  const activityActions = signedOut ? undefined : (
     <div className="flex items-center justify-end gap-2">
       <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
         <CentralIcon name="share-os" />

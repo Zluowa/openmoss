@@ -20,6 +20,8 @@ export interface MossMemFirePhoneAuthorityCredential {
   readonly accessToken: string;
   readonly gatewayBaseUrl: string;
   readonly realtimeRelayUrl: string;
+  /** Reports a below-HTTP failure of `gatewayBaseUrl`; resolves to the entry to use next. */
+  readonly reportGatewayConnectionFailure?: (gatewayBaseUrl: string) => Promise<string>;
 }
 
 export interface MossPhoneAccountServiceShape {

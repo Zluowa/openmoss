@@ -14,6 +14,8 @@ import { pluralize } from "@moss/shared/text";
 
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 
+import type { TranslationKey } from "../../../localization";
+
 import type { WorkLogEntry } from "../../../session-logic";
 import {
   collectSubagentStripItems,
@@ -150,8 +152,11 @@ export function environmentSubagentElapsedMs(
     : Math.max(0, settledAtMs - startedAtMs);
 }
 
+type SubagentMetaFormat = (key: TranslationKey, values: Record<string, string | number>) => string;
+
 // Secondary line after the status word. A failure shows its reason; a live row shows
 // what it is doing now (last tool, tokens so far); a settled row shows its totals.
+// With `format` the words follow the reader's language (后台 · 12k 个令牌 · 3 次工具调用).
 export function formatEnvironmentSubagentMeta(
   item: Pick<
     EnvironmentSubagentRosterItem,
@@ -164,16 +169,31 @@ export function formatEnvironmentSubagentMeta(
     | "totalTokens"
   >,
   includeFailureSummary = true,
+  format?: SubagentMetaFormat,
 ): string | null {
   if (includeFailureSummary && item.statusKind === "failed" && item.summary) {
     return item.summary;
   }
+  const tokens = item.totalTokens !== null ? formatContextWindowTokens(item.totalTokens) : null;
+  const toolUses = item.toolUses;
   const parts = [
-    item.isActive && item.isBackground ? "background" : null,
+    item.isActive && item.isBackground
+      ? format
+        ? format("rightDock.subagents.meta.background", {})
+        : "background"
+      : null,
     item.isActive ? item.lastToolName : null,
-    item.totalTokens !== null ? `${formatContextWindowTokens(item.totalTokens)} tokens` : null,
-    !item.isActive && item.toolUses !== null
-      ? `${item.toolUses} ${pluralize(item.toolUses, "tool call")}`
+    tokens !== null
+      ? format
+        ? format("chat.workflow.tokens", { tokens })
+        : `${tokens} tokens`
+      : null,
+    !item.isActive && toolUses !== null
+      ? format
+        ? format(toolUses === 1 ? "chat.workflow.toolCalls.one" : "chat.workflow.toolCalls.many", {
+            count: toolUses,
+          })
+        : `${toolUses} ${pluralize(toolUses, "tool call")}`
       : null,
   ].filter((part): part is string => part !== null);
   return parts.length > 0 ? parts.join(" · ") : null;

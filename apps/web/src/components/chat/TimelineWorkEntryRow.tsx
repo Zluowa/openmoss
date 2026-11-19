@@ -1221,7 +1221,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     workEntry.liveActivity && isLiveActivityInProgress(workEntry.liveActivity),
   );
   const commandElapsed = workEntry.liveActivity
-    ? formatLiveActivityElapsed(workEntry.liveActivity, liveActivityNowMs)
+    ? formatLiveActivityElapsed(workEntry.liveActivity, liveActivityNowMs, locale)
     : null;
   const declinedByAutoReview = wasDeclinedByAutoReview(workEntry);
   const commandSummaryOptions = {

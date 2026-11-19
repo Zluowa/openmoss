@@ -287,6 +287,9 @@ export function MossImagesWorkspace({
     activeTab.markup?.sourceImageId === activeImage?.id ? activeTab.markup : null;
   const newestJob = tabJobs.at(-1);
   const hasAccount = Boolean(visibleCatalog?.account);
+  // Signed out (or before the account finishes loading), the composer does not add a provider
+  // sign-in line ("Codex 尚未登录…") under the page's own sign-in/error state.
+  const signInShown = !loading && !catalogError && !hasAccount;
   const canGenerate =
     hasAccount &&
     !visibleCatalog?.mediaWallet?.reviewRequired &&
@@ -1259,6 +1262,7 @@ export function MossImagesWorkspace({
       }
       canAttach={canAttach}
       requireProviderAdmission={usesConversationEntry}
+      hideUnavailableReason={!hasAccount}
       onAttach={() => fileInputRef.current?.click()}
       onPasteFiles={(files) => {
         void addReferences(files);
@@ -1498,7 +1502,7 @@ export function MossImagesWorkspace({
           {catalogError}
         </p>
       )}
-      {!loading && !catalogError && !hasAccount && (
+      {signInShown && (
         <div
           data-moss-images-sign-in
           className="flex items-center gap-3 px-6 pt-4 pb-2 text-ui-sm text-muted-foreground"

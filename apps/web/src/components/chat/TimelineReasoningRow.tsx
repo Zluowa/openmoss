@@ -155,7 +155,7 @@ export function TimelineReasoningRow(props: {
   markdownCwd: string | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
 }) {
-  const { t, format } = useTranslation();
+  const { t, format, locale } = useTranslation();
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const active = props.active ?? isReasoningPresentationActive(props.entry);
   const body = resolveReasoningBody(
@@ -191,7 +191,7 @@ export function TimelineReasoningRow(props: {
     ? t("localConversation.reasoning.thinking")
     : elapsedMs !== null
       ? format("localConversation.reasoning.thoughtWithElapsed", {
-          elapsed: formatClockDuration(elapsedMs),
+          elapsed: formatClockDuration(elapsedMs, locale),
         })
       : t("localConversation.reasoning.thought");
   const headerClassName = cn("text-[length:inherit] truncate", REASONING_SUMMARY_TEXT_CLASS_NAME);

@@ -18,7 +18,7 @@ import { VISIBLE_PROVIDER_DESCRIPTORS } from "~/betaFeatures";
 import { sameAppSnapShortcut } from "@moss/shared/appSnapShortcut";
 import { desktopFlavorFromProtocol } from "@moss/shared/betaFeatures";
 import { SafariAccessSetupButton } from "~/components/SafariAccessOnboarding";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import {
   DEFAULT_DIFF_RENDER_MODE,
@@ -125,7 +125,7 @@ import {
 } from "~/settingsNavigation";
 import { isAudioLevelAvailable } from "~/lib/audioLevel";
 import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
-import { useSettingsTargetScroll } from "./useSettingsTargetScroll";
+import { useSettingsPageStartsAtTop, useSettingsTargetScroll } from "./useSettingsTargetScroll";
 
 // ── Settings taxonomy ──────────────────────────────────────────────────────
 
@@ -468,6 +468,8 @@ export function SettingsContent({
     );
 
   // Deep links and sidebar search targets all resolve to stable DOM ids in the active panel.
+  const pageScrollRef = useRef<HTMLDivElement>(null);
+  useSettingsPageStartsAtTop(pageScrollRef, activeSection);
   useSettingsTargetScroll(activeSection, settingsTarget);
 
   const changedSettingLabels = [
@@ -1752,6 +1754,7 @@ export function SettingsContent({
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
+        ref={pageScrollRef}
         className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
         data-testid="settings-page-scroll"
       >

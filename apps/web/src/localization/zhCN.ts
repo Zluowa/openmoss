@@ -1276,6 +1276,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "time format": "时间格式",
   "Dark theme": "深色主题",
   "Light theme": "浅色主题",
+  "Use dark theme": "使用深色主题",
+  "Use light theme": "使用浅色主题",
   Reset: "重置",
   Accent: "强调色",
   Background: "背景",

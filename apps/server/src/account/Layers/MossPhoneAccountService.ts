@@ -1404,6 +1404,13 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
             accessToken: resolved.stored.accessToken,
             gatewayBaseUrl: currentGatewayBaseUrl(),
             realtimeRelayUrl: auth.config.realtimeRelayUrl,
+            // Apps follows the same entry router as the model catalogue.
+            ...(gatewayEntries
+              ? {
+                  reportGatewayConnectionFailure: (failed: string) =>
+                    gatewayEntries.reportConnectionFailure(failed),
+                }
+              : {}),
           });
         }),
       ),

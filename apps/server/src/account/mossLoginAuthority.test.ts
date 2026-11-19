@@ -111,4 +111,18 @@ describe("selected Moss login authority for Apps", () => {
       await expect(f.run()).rejects.toMatchObject({ code: "account_recovery_required" });
     },
   );
+  it("forwards reportGatewayConnectionFailure only to a trusted fallback entry", async () => {
+    const f = fixture("cn");
+    const fallback = "https://cn-fallback.example/functions/v1/moss-model-gateway/v1";
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS", fallback);
+    let next = fallback;
+    Object.assign(f.phoneCredential, {
+      reportGatewayConnectionFailure: async () => next,
+    });
+    const result = await f.run();
+    expect(result.reportGatewayConnectionFailure).toBeTypeOf("function");
+    await expect(result.reportGatewayConnectionFailure!(urls.cn)).resolves.toBe(fallback);
+    next = "https://untrusted.example/functions/v1/moss-model-gateway/v1";
+    await expect(result.reportGatewayConnectionFailure!(urls.cn)).resolves.toBe(urls.cn);
+  });
 });

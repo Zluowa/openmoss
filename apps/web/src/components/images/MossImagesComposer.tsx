@@ -26,6 +26,11 @@ export function MossImagesComposer(props: {
   readonly canSend: boolean;
   readonly canAttach: boolean;
   readonly requireProviderAdmission?: boolean;
+  /**
+   * The page already tells the person to sign in: the reason the send is off is not repeated
+   * under the composer (send stays off).
+   */
+  readonly hideUnavailableReason?: boolean;
   readonly onPromptChange: (value: string) => void;
   readonly onSend: (selection: ModelSelection) => void;
   readonly onSelectionChange?: (
@@ -191,7 +196,7 @@ export function MossImagesComposer(props: {
           </Button>
         )}
       </div>
-      {unavailableReason && (
+      {unavailableReason && !props.hideUnavailableReason && (
         <p role="status" className="px-2 pt-2 text-ui-sm text-muted-foreground">
           {unavailableReason}
         </p>

@@ -1906,7 +1906,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(
       instance.instanceId === props.selectedProviderInstanceId,
   );
   const selectedSourceKind = resolveComposerAccountSourceKind(
-    selectedSourceInstance ?? defaultProviderInstance(activeProvider),
+    selectedSourceInstance ??
+      (props.selectedProviderInstanceId
+        ? { instanceId: props.selectedProviderInstanceId, provider: activeProvider }
+        : defaultProviderInstance(activeProvider)),
   );
   // Upstream trigger parity: when the selected account has siblings, the trigger
   // names the account the selection runs in ("Work · GPT-5 Codex").
@@ -1963,15 +1966,23 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(
       className="text-[var(--color-text-foreground)]"
       icon={
         <span className="relative flex">
-          <ProviderIcon
-            aria-hidden="true"
-            className={cn(
-              // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
-              "size-4 shrink-0 opacity-100",
-              providerIconClassName(activeProvider, "text-muted-foreground/70"),
-              props.activeProviderIconClassName,
-            )}
-          />
+          {selectedSourceKind === "moss" ? (
+            <MossLogo
+              aria-hidden="true"
+              data-moss-lane-mark=""
+              className="size-4 shrink-0 opacity-100"
+            />
+          ) : (
+            <ProviderIcon
+              aria-hidden="true"
+              className={cn(
+                // opacity-100 opts out of the Button base's [&_svg]:opacity-80 dimming.
+                "size-4 shrink-0 opacity-100",
+                providerIconClassName(activeProvider, "text-muted-foreground/70"),
+                props.activeProviderIconClassName,
+              )}
+            />
+          )}
           <ProviderAccountDot
             accentColor={selectedSourceInstance?.accentColor}
             className="absolute -top-0.5 -right-1 size-1.5 ring-0"

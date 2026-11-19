@@ -47,6 +47,7 @@ import { Input } from "../ui/input";
 import { Menu, MenuGroup, MenuGroupLabel } from "../ui/menu";
 import { Skeleton } from "../ui/skeleton";
 import { ComposerModelMenuTrigger } from "./ComposerModelMenuTrigger";
+import { isMossManagedSourceInstanceId } from "./providerAccountSources";
 import { ModelCatalogRefresh } from "./ModelCatalogRefresh";
 import { ModelPickerEmptyCatalog } from "./ModelPickerEmptyCatalog";
 import {
@@ -743,6 +744,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     >
       <ComposerModelMenuTrigger
         provider={activeProvider}
+        mossLane={isMossManagedSourceInstanceId(activeInstanceId)}
         accountLabel={activeProviderTab?.name ? activeProviderTab.label : null}
         // The default account is implied; only another one is worth the room.
         accountName={activeProviderTab?.dotted ? activeProviderTab.name : null}

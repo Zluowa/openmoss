@@ -267,6 +267,23 @@ describe("Chinese recap", () => {
     expect(value("yesterday")).toBe("31.4万 tokens");
     for (const tile of tiles) expect(tile.value).not.toMatch(/\d(?:k|m|bn) tokens|\d+m \d+s/);
 
+    // The quota tile's reset countdown came from the provider row in English.
+    const quota = buildInboxTiles({
+      ...chinese,
+      quota: [
+        {
+          provider: "codex",
+          name: "Codex",
+          window: "Weekly",
+          remainingPercent: 40,
+          resetText: "Resets in 5d 11h",
+          track: track(40),
+        },
+      ],
+    }).find((tile) => tile.id === "quota");
+    expect(quota?.detail).toMatch(/^Codex · 将在 .+后重置$/);
+    expect(quota?.detail).not.toContain("Resets");
+
     const quiet = buildInboxDigest({ ...chinese, recap: recap() })
       .map(plain)
       .join(" ");

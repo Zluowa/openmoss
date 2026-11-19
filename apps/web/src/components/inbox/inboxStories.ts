@@ -15,6 +15,7 @@ import { pluralize } from "@moss/shared/text";
 
 import type { ProviderUsageProgressTrackProps } from "~/lib/providerUsageDisplay";
 import { formatClockDuration } from "../../session-logic";
+import { translateZhCnAccountSettingsText } from "../../localization/zhCNAccountSettings";
 import { formatWorkedDuration } from "../chat/workedForPresentation";
 import { formatCompact, formatNumber } from "../profile/profileFormatting";
 import {
@@ -509,7 +510,12 @@ export function buildInboxTiles(
                 ? "包含缓存读取"
                 : tile.id === "yesterday"
                   ? `${previousRecap?.totals.prompts ?? 0} 条消息`
-                  : `${tightest?.name ?? ""} · ${tightest?.resetText ?? "当前额度"}`,
+                  : // "Resets in 5d 11h" is the provider row's English: say it in Chinese too.
+                    `${tightest?.name ?? ""} · ${
+                      tightest?.resetText
+                        ? translateZhCnAccountSettingsText(tightest.resetText)
+                        : "当前额度"
+                    }`,
     }));
   }
   return tiles;

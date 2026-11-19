@@ -183,6 +183,14 @@ describe("ProfileSettingsPanel", () => {
     ).not.toBeNull();
     await userEvent.click(page.getByRole("button", { name: "Sign in" }));
     expect(signIns).toBe(1);
+    // Nothing to share or edit while signed out.
+    expect(page.getByRole("button", { name: "Share" }).elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "Edit" }).elements()).toHaveLength(0);
+    // Toolbar matches the Settings dialog surface (not a window drag-region or mismatched bg).
+    const toolbar = page.getByTestId("profile-page-toolbar").element();
+    expect(toolbar.className).not.toContain("drag-region");
+    expect(toolbar.className).not.toContain("bg-background");
+    expect(toolbar.className).toContain("bg-popover");
 
     await screen.unmount();
   });
@@ -220,6 +228,8 @@ describe("ProfileSettingsPanel", () => {
 
     await expect.element(page.getByText("@profile")).toBeVisible();
     expect(page.getByRole("button", { name: "Sign in" }).length).toBe(0);
+    await expect.element(page.getByRole("button", { name: "Share" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Edit" })).toBeVisible();
 
     await screen.unmount();
   });

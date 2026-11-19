@@ -346,6 +346,8 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "Brief from": "任务说明来自",
   "Delivered to": "已交付给",
   "Subagent of": "上级智能体",
+  "Waiting for its subagent": "正在等待其子智能体",
+  "Waiting for its subagents": "正在等待其子智能体",
   "The subagent request failed. Try again.": "子智能体请求失败。请重试。",
   "Resume workflow": "恢复工作流",
   "Dismiss workflow panel": "关闭工作流面板",
