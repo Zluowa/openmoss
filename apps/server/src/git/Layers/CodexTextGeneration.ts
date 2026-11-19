@@ -473,6 +473,16 @@ const makeCodexTextGeneration = Effect.gen(function* () {
         ),
       );
 
+      // Who timed out decides, not which event arrives first. The timeout branch stops the
+      // child before it fails; the exit that stop causes (a killed Windows job launcher exits
+      // with code 1) can finish the race first, and is still this request's timeout.
+      if (yield* Ref.get(timedOut)) {
+        return yield* new TextGenerationError({
+          operation: input.operation,
+          detail: input.timeoutDetail,
+        });
+      }
+
       const collectOutput = Effect.all(
         [Fiber.join(stdoutFiber).pipe(Effect.exit), Fiber.join(stderrFiber).pipe(Effect.exit)],
         { concurrency: "unbounded" },
