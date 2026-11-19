@@ -9090,6 +9090,8 @@ describe("ChatView transcript geometry (full app)", () => {
       expect(document.body.textContent).toContain("Thinking");
       expect(document.body.textContent).not.toContain("Loading");
       expect(document.querySelector("[data-turn-header='live']")).toBeNull();
+      expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+      expect(document.querySelector("[data-moss-visible-send-control='true']")).toBeNull();
 
       syncActiveThread((thread) => ({
         ...thread,
@@ -9116,6 +9118,350 @@ describe("ChatView transcript geometry (full app)", () => {
           const liveHeader = document.querySelector("[data-turn-header='live']");
           expect(liveHeader).not.toBeNull();
           expect(liveHeader?.textContent).toMatch(/^Working for \d/);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("keeps working UI and Stop visible when Codex transitions starting -> ready -> running on a fresh turn", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    let currentSnapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-codex-start-ready-gap" as MessageId,
+      targetText: "codex starting ready gap seed",
+    });
+    currentSnapshot = {
+      ...currentSnapshot,
+      threads: currentSnapshot.threads.map((thread) =>
+        thread.id === THREAD_ID ? { ...thread, session: null, latestTurn: null } : thread,
+      ),
+    };
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: currentSnapshot,
+    });
+
+    const syncActiveThread = (
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? update(thread) : thread,
+        ),
+        updatedAt: isoAt(currentSnapshot.snapshotSequence + 1_200),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+    };
+
+    try {
+      const prompt = "can you schedule OpenCode work";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, prompt);
+      const sendButton = await waitForSendButton();
+      expect(sendButton.disabled).toBe(false);
+      sendButton.click();
+
+      const sentMessageId = await vi.waitFor(
+        () => {
+          const row = [
+            ...document.querySelectorAll<HTMLElement>(
+              "[data-message-id][data-message-role='user']",
+            ),
+          ].find((candidate) => candidate.textContent?.includes(prompt));
+          expect(row?.dataset.messageId).toBeTruthy();
+          return row!.dataset.messageId!;
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      // Step 1: Server echoes user message and enters `starting` (connecting).
+      const requestedTurnId = TurnId.makeUnsafe("turn-codex-start-ready-gap");
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: [
+          ...thread.messages,
+          {
+            id: MessageId.makeUnsafe(sentMessageId),
+            role: "user" as const,
+            text: prompt,
+            turnId: requestedTurnId,
+            streaming: false,
+            source: "native" as const,
+            createdAt: isoAt(1_310),
+            updatedAt: isoAt(1_310),
+          },
+        ],
+        session: {
+          threadId: THREAD_ID,
+          status: "starting",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(1_310),
+        },
+        updatedAt: isoAt(1_310),
+      }));
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Starting Codex…");
+          expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+
+      // Step 2: Codex emits session/ready + thread/started BEFORE turn/started.
+      // Previously, connecting wiped localDispatch so the working indicator and Stop vanished here.
+      syncActiveThread((thread) => ({
+        ...thread,
+        session: {
+          threadId: THREAD_ID,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(1_311),
+        },
+        updatedAt: isoAt(1_311),
+      }));
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Thinking");
+          expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+          expect(document.querySelector("[data-moss-visible-send-control='true']")).toBeNull();
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 250));
+      expect(document.body.textContent).toContain("Thinking");
+      expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+      expect(document.querySelector("[data-moss-visible-send-control='true']")).toBeNull();
+
+      // Step 3: turn/started arrives and live running takes over seamlessly.
+      syncActiveThread((thread) => ({
+        ...thread,
+        latestTurn: {
+          turnId: requestedTurnId,
+          state: "running",
+          requestedAt: isoAt(1_310),
+          startedAt: isoAt(1_312),
+          completedAt: null,
+          assistantMessageId: null,
+        },
+        session: {
+          threadId: THREAD_ID,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: requestedTurnId,
+          lastError: null,
+          updatedAt: isoAt(1_312),
+        },
+        updatedAt: isoAt(1_312),
+      }));
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Thinking");
+          expect(document.querySelector("[data-turn-header='live']")).not.toBeNull();
+          expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
+  it("keeps working UI and Stop visible after clicking Continue task on a failed thread", async () => {
+    const failedTurnId = TurnId.makeUnsafe("turn-failed-before-continue");
+    const cause = "stream disconnected before completion";
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-user-before-failure"),
+      targetText: "make a poster",
+    });
+    let currentSnapshot: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...base.threads[0]!,
+          session: {
+            threadId: THREAD_ID,
+            status: "error",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: cause,
+            updatedAt: isoAt(10),
+          },
+          latestTurn: {
+            turnId: failedTurnId,
+            state: "error",
+            requestedAt: NOW_ISO,
+            startedAt: NOW_ISO,
+            completedAt: isoAt(10),
+            assistantMessageId: null,
+          },
+          messages: [
+            createUserMessage({
+              id: MessageId.makeUnsafe("msg-user-before-failure"),
+              text: "make a poster",
+              offsetSeconds: 0,
+            }),
+            {
+              ...createAssistantMessage({
+                id: MessageId.makeUnsafe("msg-assistant-before-failure"),
+                text: "Searching references before generating the poster.",
+                offsetSeconds: 3,
+              }),
+              turnId: failedTurnId,
+            },
+          ],
+          activities: [
+            {
+              id: EventId.makeUnsafe("act-runtime-error-before-continue"),
+              turnId: failedTurnId,
+              tone: "error",
+              kind: "runtime.error",
+              createdAt: isoAt(10),
+              sequence: 9,
+              summary: "Provider runtime error",
+              payload: { message: cause, class: "provider_error" },
+            },
+            {
+              id: EventId.makeUnsafe("act-turn-failed-before-continue"),
+              turnId: failedTurnId,
+              tone: "error",
+              kind: "turn.completed",
+              createdAt: isoAt(10),
+              sequence: 10,
+              summary: "Turn failed",
+              payload: { state: "failed", errorMessage: cause },
+            },
+          ],
+        },
+      ],
+    };
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: currentSnapshot,
+    });
+
+    const syncActiveThread = (
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => OrchestrationReadModel["threads"][number],
+    ) => {
+      currentSnapshot = {
+        ...currentSnapshot,
+        snapshotSequence: currentSnapshot.snapshotSequence + 1,
+        threads: currentSnapshot.threads.map((thread) =>
+          thread.id === THREAD_ID ? update(thread) : thread,
+        ),
+        updatedAt: isoAt(currentSnapshot.snapshotSequence + 1_200),
+      };
+      fixture = { ...fixture, snapshot: currentSnapshot };
+      useStore.getState().syncServerReadModel(currentSnapshot);
+    };
+
+    try {
+      const continueBtn = page.getByRole("button", { name: "Continue task", exact: true });
+      await expect.element(continueBtn).toBeVisible();
+      await continueBtn.click();
+
+      // Immediately after Continue: pre-existing thread.error must NOT clear localDispatch,
+      // so the working indicator shows right away and Continue task disables.
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Sending…");
+          expect((continueBtn.element() as HTMLButtonElement).disabled).toBe(true);
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+
+      const continueMessageId = await vi.waitFor(
+        () => {
+          const rows = [
+            ...document.querySelectorAll<HTMLElement>(
+              "[data-message-id][data-message-role='user']",
+            ),
+          ];
+          const last = rows.at(-1);
+          expect(last?.dataset.messageId).toBeTruthy();
+          expect(last?.dataset.messageId).not.toBe("msg-user-before-failure");
+          return last!.dataset.messageId!;
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+
+      // Server echoes the continuation message, restarts session (starting -> ready) before turn/started.
+      syncActiveThread((thread) => ({
+        ...thread,
+        messages: [
+          ...thread.messages,
+          {
+            id: MessageId.makeUnsafe(continueMessageId),
+            role: "user" as const,
+            text: "continue",
+            turnId: null,
+            streaming: false,
+            source: "native" as const,
+            createdAt: isoAt(20),
+            updatedAt: isoAt(20),
+          },
+        ],
+        session: {
+          threadId: THREAD_ID,
+          status: "starting",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(20),
+        },
+        updatedAt: isoAt(20),
+      }));
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Starting Codex…");
+          expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+        },
+        { timeout: 4_000, interval: 16 },
+      );
+
+      syncActiveThread((thread) => ({
+        ...thread,
+        session: {
+          threadId: THREAD_ID,
+          status: "ready",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: isoAt(21),
+        },
+        updatedAt: isoAt(21),
+      }));
+
+      await vi.waitFor(
+        () => {
+          expect(document.body.textContent).toContain("Thinking");
+          expect(document.querySelector("[data-moss-visible-stop-control='true']")).not.toBeNull();
+          expect(document.querySelector("[data-moss-visible-send-control='true']")).toBeNull();
+          expect((continueBtn.element() as HTMLButtonElement).disabled).toBe(true);
         },
         { timeout: 4_000, interval: 16 },
       );

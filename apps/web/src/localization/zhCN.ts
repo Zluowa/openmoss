@@ -1092,7 +1092,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Rebuild local project indexes without clearing existing chats when the local state gets out of sync.":
     "当本地状态不同步时，重建本地项目索引，且不清除现有对话。",
   "Recent Computer actions": "最近的电脑操作",
-  "Record AppSnap shortcut": "录制 AppSnap 快捷键",
+  "Record AppSnap shortcut": "录制应用快照快捷键",
   "Revoke this browser session and close every live Moss connection it owns. A fresh pairing link is required to reconnect.":
     "撤销此浏览器会话，并关闭其拥有的所有活跃 Moss 连接。重新连接需要新的配对链接。",
   "Screen context": "屏幕上下文",

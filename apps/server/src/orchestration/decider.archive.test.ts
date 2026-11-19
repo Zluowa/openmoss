@@ -705,4 +705,86 @@ describe("decider thread archive cascade", () => {
     );
     expect(outcome._tag).toBe("Failure");
   });
+
+  it("archives cleanly when sidebar order revision > 0 even with a stale expectedSidebarOrderRevision", async () => {
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel([
+        makeThread({ id: PARENT_THREAD_ID }),
+        makeThread({ id: UNRELATED_THREAD_ID }),
+      ]),
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(1),
+      sidebarOrderMigrationState: "ready",
+    };
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("cmd-archive-stale-revision"),
+          threadId: PARENT_THREAD_ID,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        },
+        readModel,
+      }),
+    );
+
+    const events = (Array.isArray(result) ? result : [result]) as Array<
+      Extract<OrchestrationEvent, { type: "thread.archived" }>
+    >;
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload.threadId).toBe(PARENT_THREAD_ID);
+    expect(events[0]?.payload.sidebarOrderRevision).toBe(2);
+  });
+
+  it("treats archiving an already-archived thread as an idempotent no-op instead of throwing a revision conflict", async () => {
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel([makeThread({ id: PARENT_THREAD_ID, archivedAt: NOW })]),
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(1),
+      sidebarOrderMigrationState: "ready",
+    };
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("cmd-archive-twice"),
+          threadId: PARENT_THREAD_ID,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        },
+        readModel,
+      }),
+    );
+
+    expect(result).toEqual({
+      _tag: "SidebarOrderNoopDecision",
+      sidebarOrderRevision: 1,
+    });
+  });
+
+  it("unarchives cleanly when sidebar order revision > 0 even with a stale expectedSidebarOrderRevision", async () => {
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel([makeThread({ id: PARENT_THREAD_ID, archivedAt: NOW })]),
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(3),
+      sidebarOrderMigrationState: "ready",
+    };
+
+    const result = await Effect.runPromise(
+      decideOrchestrationCommand({
+        command: {
+          type: "thread.unarchive",
+          commandId: CommandId.makeUnsafe("cmd-unarchive-stale-revision"),
+          threadId: PARENT_THREAD_ID,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        },
+        readModel,
+      }),
+    );
+
+    const events = (Array.isArray(result) ? result : [result]) as Array<
+      Extract<OrchestrationEvent, { type: "thread.unarchived" }>
+    >;
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload.threadId).toBe(PARENT_THREAD_ID);
+    expect(events[0]?.payload.sidebarOrderRevision).toBe(4);
+  });
 });

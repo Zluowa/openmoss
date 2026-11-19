@@ -6,6 +6,7 @@ import "../../index.css";
 
 import { MessageId, TurnId } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import { WorkspaceFileOpenerContext } from "../../lib/workspaceFileOpener";
@@ -531,6 +532,55 @@ describe("MessagesTimeline tool details", () => {
       await screen.unmount();
       host.remove();
       await settleLayout();
+    }
+  });
+
+  it("does not float a hover tooltip card above tool-call rows while still expanding on click", async () => {
+    const screen = await render(
+      <TimelineWorkEntryRow
+        workEntry={{
+          id: "command-no-hover-card",
+          createdAt: "2026-03-17T19:12:28.000Z",
+          label: "Ran command",
+          tone: "tool",
+          itemType: "command_execution",
+          toolTitle: "Ran",
+          command: "ls -la /workspace/project",
+          rawCommand: `/bin/zsh -lc "ls -la /workspace/project"`,
+          toolDetails: {
+            kind: "command",
+            title: "Ran",
+            command: "ls -la /workspace/project",
+            output: { stdout: "README.md\npackage.json" },
+          },
+        }}
+        chatMetaFontSizePx={13}
+        textFontSizePx={14}
+        markdownCwd={undefined}
+        onImageExpand={() => {}}
+        timestampFormat="locale"
+      />,
+    );
+
+    try {
+      const trigger = screen.container.querySelector<HTMLButtonElement>(
+        '[data-tool-detail-trigger="true"]',
+      );
+      expect(trigger).not.toBeNull();
+      expect(screen.container.querySelector('[data-slot="tooltip-trigger"]')).toBeNull();
+
+      await userEvent.hover(trigger!);
+      // Wait past the previous 200ms hover-card delay to prove no floating card mounts.
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      expect(document.querySelector('[data-slot="tooltip-popup"]')).toBeNull();
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+
+      await trigger!.click();
+      await expect
+        .poll(() => screen.container.querySelector('[data-tool-details-inline="true"]'))
+        .not.toBeNull();
+    } finally {
+      await screen.unmount();
     }
   });
 });

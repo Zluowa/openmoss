@@ -8,10 +8,11 @@ import type { ProviderKind, ServerSettings } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
-import { ProviderIcon } from "~/components/ProviderIcon";
+import { ProviderIconStack } from "~/components/ProviderIconStack";
 import { SettingsRow, SettingsSection } from "~/components/settings/SettingsPanelPrimitives";
 import { Switch } from "~/components/ui/switch";
 import { SkillCubeIcon } from "~/lib/icons";
+import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import {
   providerDiscoveryQueryKeys,
@@ -26,27 +27,18 @@ import {
 } from "./skillsSettingsModel";
 
 function SkillProviderStack({ providers }: { providers: ReadonlyArray<ProviderKind> }) {
-  if (providers.length === 0) {
-    return null;
-  }
-
+  const { format } = useTranslation();
   const label = providers.map(providerDisplayName).join(", ");
-  const stackLabel = `Provider ${providers.length === 1 ? "copy" : "copies"}: ${label}`;
   return (
-    <span
-      className="inline-flex shrink-0 items-center -space-x-1"
-      aria-label={stackLabel}
-      title={stackLabel}
-    >
-      {providers.map((provider) => (
-        <span
-          key={provider}
-          className="inline-flex size-4 items-center justify-center rounded-full border border-background bg-background"
-        >
-          <ProviderIcon provider={provider} className="size-3" />
-        </span>
-      ))}
-    </span>
+    <ProviderIconStack
+      providers={providers}
+      label={format(
+        providers.length === 1
+          ? "settings.skills.providerCopies.one"
+          : "settings.skills.providerCopies.many",
+        { providers: label },
+      )}
+    />
   );
 }
 

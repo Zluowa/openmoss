@@ -25,6 +25,7 @@ import { Data, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { McpConnectorProxyResult } from "../proxy.ts";
+import type { McpConnectorToolCallResult, McpConnectorToolInput } from "../tools.ts";
 import type { McpConnectorCallbackOutcome, McpConnectorForwardRequest } from "../runtime.ts";
 
 export class McpConnectorError extends Data.TaggedError("McpConnectorError")<{
@@ -90,6 +91,18 @@ export interface McpConnectorsShape {
   readonly listTools: (
     connectorId: string,
   ) => Effect.Effect<McpConnectorListToolsResult, McpConnectorError>;
+  /** The connected connector made from a preset (Linear, Atlassian), or null. */
+  readonly findConnectedPreset: (presetId: string) => Effect.Effect<McpConnector | null>;
+  /** Each tool's input property names, for Moss features that call tools themselves. */
+  readonly listToolInputs: (
+    connectorId: string,
+  ) => Effect.Effect<ReadonlyMap<string, McpConnectorToolInput>, McpConnectorError>;
+  /** Calls one tool of a connector for Moss itself, through the same sign-in agents use. */
+  readonly callTool: (
+    connectorId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ) => Effect.Effect<McpConnectorToolCallResult, McpConnectorError>;
   /** What a user's own OAuth app needs, such as its redirect URL. */
   readonly setup: () => Effect.Effect<McpConnectorSetup, McpConnectorError>;
   /** The OAuth redirect target; never fails, the outcome is rendered as a page. */

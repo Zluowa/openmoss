@@ -5,6 +5,8 @@ import { useTranslation } from "~/localization";
 // Depends on: composer draft image metadata, shared chip styles, and expanded image preview helpers.
 
 import { WindowIcon } from "~/lib/icons";
+import { isRecentlyArrivedAppSnapCapture } from "~/lib/appSnapArrival";
+import { cn } from "~/lib/utils";
 import { type ComposerImageAttachment } from "../../composerDraftStore";
 import { normalizeComposerImageSource } from "../../lib/composerImageSource";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -57,9 +59,16 @@ export function ComposerImageAttachmentChip({
         ? `${windowTitle} / ${appName}`
         : appName;
     const appIconDataUrl = appSnapSource.appIconDataUrl ?? null;
+    const entering = isRecentlyArrivedAppSnapCapture(appSnapSource.captureId);
 
     return (
-      <div className="group relative h-32 w-52 shrink-0 overflow-hidden rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-secondary)] transition-colors duration-150 hover:border-[color:var(--color-border)]">
+      <div
+        data-appsnap-entering={entering ? "true" : undefined}
+        className={cn(
+          "group relative h-32 w-52 shrink-0 overflow-hidden rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-secondary)] transition-colors duration-150 hover:border-[color:var(--color-border)]",
+          entering && "appsnap-chip-enter",
+        )}
+      >
         <button
           type="button"
           className="relative flex size-full items-center justify-center overflow-hidden bg-[var(--color-background-secondary)] p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"

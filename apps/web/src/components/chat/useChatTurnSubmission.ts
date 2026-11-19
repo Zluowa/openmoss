@@ -409,6 +409,7 @@ export function useChatTurnSubmission({
       requestedDispatchMode?: "queue" | "steer",
       queuedTurn?: QueuedComposerChatTurn,
       echo?: ComposerSendEcho,
+      preflightDispatchArmed?: { current: boolean },
     ): Promise<boolean> => {
       // Fail closed while a worktree is preparing: a native submit must never
       // reach provider refresh, thread creation, or turn dispatch early.
@@ -894,8 +895,14 @@ export function useChatTurnSubmission({
           skills: selectedComposerSkillsForSend,
           mentions: selectedComposerMentionsForSend,
         });
+      const armsPreflightDispatch =
+        preflightDispatchArmed !== undefined && !(hasQueueableLiveTurn && dispatchMode === "queue");
       if (echoesMessage) {
         presentSentMessage(outgoingMessageFor(composerImagesForSend).row);
+        if (armsPreflightDispatch) {
+          beginLocalDispatch({ expectedUserMessageId: messageIdForSend });
+          preflightDispatchArmed.current = true;
+        }
         echo.current = {
           threadId: activeThread.id,
           messageId: messageIdForSend,
@@ -914,6 +921,9 @@ export function useChatTurnSubmission({
         };
         echoesInFlightRef.current += 1;
         await afterNextPaint();
+      } else if (armsPreflightDispatch) {
+        beginLocalDispatch({ expectedUserMessageId: messageIdForSend });
+        preflightDispatchArmed.current = true;
       }
 
       const sendProviderAvailability = await runChatProviderSendPreflight({
@@ -1114,6 +1124,9 @@ export function useChatTurnSubmission({
       }
 
       sendInFlightRef.current = true;
+      if (preflightDispatchArmed) {
+        preflightDispatchArmed.current = false;
+      }
       beginLocalDispatch({
         expectedUserMessageId: messageIdForSend,
         ...(baseBranchForWorktree
@@ -1442,9 +1455,14 @@ export function useChatTurnSubmission({
       }
       composerSendGateRef.current = { threadId, key: gateContentKey };
       const echo: ComposerSendEcho = { current: null };
+      const preflightDispatchArmed = { current: false };
       // A message shown right after Enter whose checks then stopped the send goes back
       // into the composer (unless the person already started a new draft there).
       const handBackEchoedMessage = () => {
+        if (preflightDispatchArmed.current) {
+          preflightDispatchArmed.current = false;
+          resetLocalDispatch();
+        }
         const unsent = echo.current;
         if (unsent === null) return;
         echo.current = null;
@@ -1459,7 +1477,7 @@ export function useChatTurnSubmission({
           );
         }
       };
-      return performComposerSend(requestedDispatchMode, queuedTurn, echo)
+      return performComposerSend(requestedDispatchMode, queuedTurn, echo, preflightDispatchArmed)
         .then(
           (sent) => {
             handBackEchoedMessage();
@@ -1482,6 +1500,7 @@ export function useChatTurnSubmission({
     [
       threadId,
       performComposerSend,
+      resetLocalDispatch,
       setComposerDraftPrompt,
       setPrompt,
       setComposerTrigger,

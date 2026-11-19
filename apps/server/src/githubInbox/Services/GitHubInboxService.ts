@@ -1,10 +1,14 @@
 import type {
   GitHubInboxListInput,
   GitHubInboxListResult,
+  GitHubIssueCandidates,
+  GitHubIssueCandidatesInput,
   GitHubIssueCommentInput,
   GitHubIssueCommentResult,
   GitHubIssueDetail,
   GitHubIssueDetailInput,
+  GitHubIssueUpdateInput,
+  GitHubIssueUpdateResult,
   OrchestrationProject,
 } from "@moss/contracts";
 import { Schema, ServiceMap } from "effect";
@@ -47,6 +51,12 @@ export interface GitHubInboxServiceShape extends GitHubInboxSharedReads {
   readonly issueComment: (
     input: GitHubIssueCommentInput,
   ) => Effect.Effect<GitHubIssueCommentResult, unknown>;
+  readonly issueUpdate: (
+    input: GitHubIssueUpdateInput,
+  ) => Effect.Effect<GitHubIssueUpdateResult, unknown>;
+  readonly issueCandidates: (
+    input: GitHubIssueCandidatesInput,
+  ) => Effect.Effect<GitHubIssueCandidates, unknown>;
 }
 
 export class GitHubInboxService extends ServiceMap.Service<

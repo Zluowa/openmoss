@@ -21,6 +21,7 @@ import {
   type PullRequestContextScope,
 } from "~/lib/pullRequestContext";
 import { randomUUID } from "~/lib/utils";
+import { formatMossTranslation, type TranslationKey } from "~/localization";
 
 export type PullRequestChecksTone = "pending" | "success" | "failure" | "none";
 
@@ -39,29 +40,58 @@ export const PULL_REQUEST_CHECKS_TONE_TEXT_CLASS: Record<PullRequestChecksTone, 
 };
 
 // Failure outranks pending so a red state never hides behind "N pending checks".
+/** Words in the reader's language; English when absent (tests and logs). */
+type SummaryTextFormat = (key: TranslationKey, values?: Record<string, string | number>) => string;
+
+const englishSummaryText: SummaryTextFormat = (key, values) =>
+  formatMossTranslation("en", key, values ?? {});
+
 export function summarizePullRequestChecks(
   checks: ReadonlyArray<GitPullRequestCheck>,
+  format: SummaryTextFormat = englishSummaryText,
 ): PullRequestChecksSummary {
   const failing = checks.filter((check) => check.status === "failure").length;
   if (failing > 0) {
-    return { label: `${failing} ${pluralize(failing, "failing check")}`, tone: "failure" };
+    return {
+      label: format(
+        failing === 1 ? "codeReview.checks.failingOne" : "codeReview.checks.failingMany",
+        {
+          count: failing,
+        },
+      ),
+      tone: "failure",
+    };
   }
   const cancelled = checks.filter((check) => check.status === "cancelled").length;
   if (cancelled > 0) {
-    return { label: `${cancelled} ${pluralize(cancelled, "cancelled check")}`, tone: "failure" };
+    return {
+      label: format(
+        cancelled === 1 ? "codeReview.checks.cancelledOne" : "codeReview.checks.cancelledMany",
+        { count: cancelled },
+      ),
+      tone: "failure",
+    };
   }
   const pending = checks.filter((check) => check.status === "pending").length;
   if (pending > 0) {
-    return { label: `${pending} ${pluralize(pending, "pending check")}`, tone: "pending" };
+    return {
+      label: format(
+        pending === 1 ? "codeReview.checks.pendingOne" : "codeReview.checks.pendingMany",
+        {
+          count: pending,
+        },
+      ),
+      tone: "pending",
+    };
   }
   if (checks.length === 0) {
-    return { label: "No checks", tone: "none" };
+    return { label: format("codeReview.checks.none"), tone: "none" };
   }
   const successful = checks.filter((check) => check.status === "success").length;
   if (successful === 0) {
-    return { label: "No required checks", tone: "none" };
+    return { label: format("codeReview.checks.noneRequired"), tone: "none" };
   }
-  return { label: "All checks passed", tone: "success" };
+  return { label: format("codeReview.checks.allPassed"), tone: "success" };
 }
 
 export const PULL_REQUEST_CHECK_STATUS_LABELS: Record<GitPullRequestCheck["status"], string> = {
@@ -71,6 +101,19 @@ export const PULL_REQUEST_CHECK_STATUS_LABELS: Record<GitPullRequestCheck["statu
   skipped: "Skipped",
   neutral: "Neutral",
   cancelled: "Cancelled",
+};
+
+/** The translation key of each check status word, for surfaces in the reader's language. */
+export const PULL_REQUEST_CHECK_STATUS_LABEL_KEYS: Record<
+  GitPullRequestCheck["status"],
+  TranslationKey
+> = {
+  pending: "codeReview.checkStatus.pending",
+  success: "codeReview.checkStatus.success",
+  failure: "codeReview.checkStatus.failure",
+  skipped: "codeReview.checkStatus.skipped",
+  neutral: "codeReview.checkStatus.neutral",
+  cancelled: "codeReview.checkStatus.cancelled",
 };
 
 // Check names alone can collide (matrix jobs, re-runs, a check run named like an old commit
@@ -112,10 +155,22 @@ export function summarizePullRequestDiffStat(pr: {
   };
 }
 
-export function summarizePullRequestComments(count: number, truncated = false): string {
-  if (count === 0) return truncated ? "Comments may exist" : "No comments";
-  const noun = pluralize(count, "comment");
-  return truncated ? `${count}+ ${noun}` : `${count} ${noun}`;
+export function summarizePullRequestComments(
+  count: number,
+  truncated = false,
+  format: SummaryTextFormat = englishSummaryText,
+): string {
+  if (count === 0) {
+    return format(truncated ? "codeReview.info.mayHaveComments" : "codeReview.info.noComments");
+  }
+  const key: TranslationKey = truncated
+    ? count === 1
+      ? "codeReview.info.commentsOnePlus"
+      : "codeReview.info.commentsManyPlus"
+    : count === 1
+      ? "codeReview.info.commentsOne"
+      : "codeReview.info.commentsMany";
+  return format(key, { count });
 }
 
 export interface PullRequestCommentDisplay {

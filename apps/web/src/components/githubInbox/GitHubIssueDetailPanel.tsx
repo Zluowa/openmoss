@@ -4,12 +4,13 @@
 //          shared GitHubItemHeader, the description and comments (with the comment composer) on
 //          the left, and Assignees, Labels, and Comments in the info column (rows under the
 //          header in a narrow pane). The question composer floats over the bottom and feeds the
-//          issue's side chat. There is no close/reopen action: the app has no RPC for changing
-//          an issue's state.
+//          issue's side chat. When GitHub lets the viewer update the issue, the top bar closes or
+//          reopens it and the Assignees and Labels rows open their pickers; the info also lists
+//          the pull requests linked to the issue.
 // Layer: GitHub inbox presentation
 // Exports: GitHubIssueDetailPanel
 
-import type { GitHubIssueDetailInput } from "@moss/contracts";
+import type { GitHubIssueDetail, GitHubIssueDetailInput, GitHubIssueUpdate } from "@moss/contracts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -42,22 +43,49 @@ import {
 import { PullRequestTimelineTab } from "~/components/pullRequest/PullRequestTimelineTab";
 import { PullRequestWarningNote } from "~/components/pullRequest/PullRequestWarningNote";
 import { useStartGitHubItemThread } from "~/hooks/useStartGitHubItemThread";
+import { toastManager } from "~/components/ui/toast";
 import {
   githubIssueCommentMutationOptions,
   githubIssueDetailQueryOptions,
+  githubIssueUpdateMutationOptions,
+  type GitHubIssueUpdateVariables,
 } from "~/lib/githubInboxQueryOptions";
 import { pullRequestQueryErrorState } from "~/lib/pullRequestReactQuery";
+import { useTranslation, type TranslationKey } from "~/localization";
+import {
+  GitHubIssueAssigneePicker,
+  GitHubIssueLabelPicker,
+  GitHubIssueLinkedPullRequests,
+  GitHubIssueEditHint,
+  GitHubIssueStateAction,
+  type GitHubIssueStateChange,
+} from "./GitHubIssueEditors";
 
 type IssueTab = "summary" | "timeline";
 
-const ISSUE_TABS: ReadonlyArray<{ value: IssueTab; label: string }> = [
-  { value: "summary", label: "Summary" },
-  { value: "timeline", label: "Timeline" },
+const ISSUE_TABS: ReadonlyArray<{ value: IssueTab; label: TranslationKey }> = [
+  { value: "summary", label: "codeReview.tab.summary" },
+  { value: "timeline", label: "codeReview.tab.timeline" },
 ];
+
+const UPDATE_ERROR_KEYS: Record<GitHubIssueUpdate["op"], TranslationKey> = {
+  close: "githubIssue.error.state",
+  reopen: "githubIssue.error.state",
+  setLabels: "githubIssue.error.labels",
+  setAssignees: "githubIssue.error.assignees",
+};
+
+/** How the detail reads once a state change lands, shown before GitHub answers. */
+function stateChangePreview(change: GitHubIssueStateChange): GitHubIssueUpdateVariables["preview"] {
+  return change.op === "reopen"
+    ? { state: "open", stateReason: null }
+    : { state: "closed", stateReason: change.reason };
+}
 
 export function GitHubIssueDetailPanel({
   input,
   onBack,
+  onSelectPullRequest,
   pollingEnabled: pollingEnabledProp,
   sendTargets: sendTargetsProp,
   pageHost,
@@ -65,6 +93,8 @@ export function GitHubIssueDetailPanel({
   input: GitHubIssueDetailInput;
   /** Narrow windows show the detail in place of the list; this returns to it. */
   onBack?: () => void;
+  /** Opens a pull request of the same repository on the code review page. */
+  onSelectPullRequest?: (number: number) => void;
   pollingEnabled?: boolean;
   /** Projects Send to agent may open the thread in. Defaults to the issue's project. */
   sendTargets?: ReadonlyArray<GitHubItemSendTarget>;
@@ -77,7 +107,43 @@ export function GitHubIssueDetailPanel({
   const queryClient = useQueryClient();
   const detailQuery = useQuery(githubIssueDetailQueryOptions(input, { pollingEnabled }));
   const commentMutation = useMutation(githubIssueCommentMutationOptions(queryClient));
+  const updateMutation = useMutation(githubIssueUpdateMutationOptions(queryClient));
+  const { t, format } = useTranslation();
   const detail = detailQuery.data;
+  const canUpdate = detail?.viewerCanUpdate === true;
+  const updatePending = updateMutation.isPending;
+  const runUpdate = (
+    current: GitHubIssueDetail,
+    update: GitHubIssueUpdate,
+    preview: GitHubIssueUpdateVariables["preview"],
+  ) => {
+    updateMutation.mutate(
+      {
+        input: {
+          projectId: current.projectId,
+          repository: current.repository,
+          number: current.number,
+          update,
+        },
+        preview,
+      },
+      {
+        onSuccess: () => {
+          if (update.op === "close" || update.op === "reopen") {
+            toastManager.add({
+              type: "success",
+              title: t(
+                update.op === "close" ? "githubIssue.state.closed" : "githubIssue.state.reopened",
+              ),
+            });
+          }
+        },
+        onError: () => {
+          toastManager.add({ type: "error", title: t(UPDATE_ERROR_KEYS[update.op]) });
+        },
+      },
+    );
+  };
   const { initialError, backgroundError } = pullRequestQueryErrorState(detailQuery);
   const { start: startItemThread, pendingAction } = useStartGitHubItemThread({
     workspaceRoot: detail?.workspaceRoot ?? null,
@@ -95,7 +161,7 @@ export function GitHubIssueDetailPanel({
       action: "send",
       projectId,
       card: (environment) => createGitHubItemContextDraft(source, environment),
-      errorTitle: "Could not send the issue to an agent",
+      errorTitle: t("githubIssue.sendFailed"),
     });
   };
 
@@ -119,16 +185,28 @@ export function GitHubIssueDetailPanel({
     <GitHubItemDetailPage
       onBack={onBack}
       tabs={
-        <GitHubItemTabs label="Issue detail tabs" tabs={ISSUE_TABS} value={tab} onChange={setTab} />
+        <GitHubItemTabs
+          label={t("githubIssue.tabs")}
+          tabs={ISSUE_TABS.map((option) => ({ value: option.value, label: t(option.label) }))}
+          value={tab}
+          onChange={setTab}
+        />
       }
       actions={
         detail ? (
           <>
             <GitHubItemPageIconActions
               url={detail.url}
-              itemLabel={`issue #${detail.number}`}
+              itemLabel={format("codeReview.item.issue", { number: detail.number })}
               pin={host.pin}
             />
+            {canUpdate ? (
+              <GitHubIssueStateAction
+                state={detail.state}
+                pending={updatePending}
+                onChange={(change) => runUpdate(detail, change, stateChangePreview(change))}
+              />
+            ) : null}
             <GitHubItemAgentActions
               sendTargets={sendTargets}
               sending={pendingAction === "send"}
@@ -140,18 +218,18 @@ export function GitHubIssueDetailPanel({
       query={{
         isPending: detailQuery.isPending,
         initialError,
-        subject: "Issues",
+        subject: t("codeReview.kind.issue"),
         onRetry: () => void detailQuery.refetch(),
         loaded: detail !== undefined,
       }}
       notFound={{
-        title: "Issue not found",
-        description: "The selected issue could not be loaded.",
+        title: t("githubIssue.notFound"),
+        description: t("githubIssue.notFoundHint"),
       }}
       banners={
         backgroundError ? (
           <PullRequestWarningNote shape="banner" role="status">
-            Could not refresh the issue. Showing saved data.
+            {t("githubIssue.refreshFailed")}
           </PullRequestWarningNote>
         ) : null
       }
@@ -165,6 +243,64 @@ export function GitHubIssueDetailPanel({
               variant={variant}
               threads={host.threads}
               onOpenThread={host.onOpenThread}
+              {...(canUpdate
+                ? {
+                    editors: {
+                      hint: <GitHubIssueEditHint />,
+                      assignees: (row) => (
+                        <GitHubIssueAssigneePicker
+                          candidatesInput={{
+                            projectId: detail.projectId,
+                            repository: detail.repository,
+                          }}
+                          assignees={detail.assignees}
+                          disabled={updatePending}
+                          onSave={(assignees) =>
+                            runUpdate(
+                              detail,
+                              {
+                                op: "setAssignees",
+                                assignees: assignees.map((actor) => actor.login),
+                              },
+                              { assignees },
+                            )
+                          }
+                        >
+                          {row}
+                        </GitHubIssueAssigneePicker>
+                      ),
+                      labels: (row) => (
+                        <GitHubIssueLabelPicker
+                          candidatesInput={{
+                            projectId: detail.projectId,
+                            repository: detail.repository,
+                          }}
+                          labels={detail.labels}
+                          disabled={updatePending}
+                          onSave={(labels) =>
+                            runUpdate(
+                              detail,
+                              { op: "setLabels", labels: labels.map((label) => label.name) },
+                              { labels },
+                            )
+                          }
+                        >
+                          {row}
+                        </GitHubIssueLabelPicker>
+                      ),
+                    },
+                  }
+                : {})}
+              linkedPullRequests={{
+                label: t("githubIssue.linked.title"),
+                content: (
+                  <GitHubIssueLinkedPullRequests
+                    repository={detail.repository}
+                    pullRequests={detail.linkedPullRequests}
+                    onSelectPullRequest={onSelectPullRequest}
+                  />
+                ),
+              }}
             />
           )}
           composer={composer}
@@ -178,11 +314,7 @@ export function GitHubIssueDetailPanel({
               comments={detail.comments}
               itemUrl={detail.url}
               workspaceRoot={detail.workspaceRoot}
-              warning={
-                detail.commentsTruncated
-                  ? "Some comments are not shown here. Open the issue on GitHub for the full discussion."
-                  : null
-              }
+              warning={detail.commentsTruncated ? t("githubIssue.commentsTruncated") : null}
               target={detail}
               mutation={commentMutation}
             />

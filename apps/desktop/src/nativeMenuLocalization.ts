@@ -391,6 +391,14 @@ const NATIVE_APPSNAP_MESSAGES: Readonly<Record<string, string>> = {
   "Expected --check-permissions, --request-permissions, or --watch.":
     "应使用 --check-permissions、--request-permissions 或 --watch。",
   "AppSnap capture failed.": "应用截图（AppSnap）失败。",
+  "Computer control is not ready for AppSnap on Windows yet.":
+    "电脑操控尚未就绪，暂时无法在 Windows 上使用应用快照。",
+  "The AppSnap shortcut is already used by Windows or another app.":
+    "此应用快照快捷键已被 Windows 或其他应用占用，请更换快捷键。",
+  "Windows AppSnap requires a key combination such as Alt + Shift + S.":
+    "Windows 应用快照需要组合键（例如 Alt + Shift + S）。",
+  "No capturable Windows window is available.": "当前没有可截取的 Windows 窗口。",
+  "The requested Windows window is no longer available.": "所选的 Windows 窗口已不可用。",
 };
 
 const NATIVE_APPSNAP_DYNAMIC_MESSAGES: readonly (readonly [RegExp, string])[] = [

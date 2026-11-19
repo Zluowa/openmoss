@@ -46,6 +46,7 @@ import {
   APP_SNAP_SHORTCUT_KEYS,
   APP_SNAP_SHORTCUT_MODIFIERS,
   DEFAULT_APP_SNAP_SHORTCUT,
+  DEFAULT_WINDOWS_APP_SNAP_SHORTCUT,
 } from "@moss/shared/appSnapShortcut";
 import type { MossDesktopFlavor } from "@moss/shared/desktopIdentity";
 import { codexAccountInstanceId } from "@moss/shared/providerInstances";
@@ -244,9 +245,18 @@ const AppSnapShortcut = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("key-chord"),
     modifier: Schema.Literals(APP_SNAP_SHORTCUT_MODIFIERS),
+    extraModifiers: Schema.optionalKey(Schema.Array(Schema.Literals(APP_SNAP_SHORTCUT_MODIFIERS))),
     key: Schema.Literals(APP_SNAP_SHORTCUT_KEYS),
   }),
 ]);
+
+export function getDefaultAppSnapShortcut(
+  platform = globalThis.navigator?.platform ?? "",
+): typeof AppSnapShortcut.Type {
+  return /^win(dows)?/i.test(platform)
+    ? DEFAULT_WINDOWS_APP_SNAP_SHORTCUT
+    : DEFAULT_APP_SNAP_SHORTCUT;
+}
 
 export function getDefaultNativeFontSmoothing(platform = globalThis.navigator?.platform ?? "") {
   return /mac|iphone|ipad|ipod/i.test(platform);
@@ -468,6 +478,11 @@ export const AppSettingsSchema = Schema.Struct({
   ).pipe(withDefaults(() => ["authored", "reviewRequested"] as const)),
   // Server-backed: the inbox also reads each project's other GitHub remotes (fork upstreams).
   githubInboxIncludeUpstreams: Schema.Boolean.pipe(withDefaults(() => false)),
+  // Issue source teams (Linear) and sites (Jira) the code review list leaves out, as
+  // `<source>:<id>`; every one shows until the person hides it.
+  issueSourceHiddenTeams: Schema.Array(Schema.String.check(Schema.isMaxLength(256))).pipe(
+    withDefaults(() => []),
+  ),
   // Server-backed: how long an idle side chat stays usable before it expires.
   sidechatExpiry: SidechatExpiry.pipe(withDefaults(() => "1h" as const satisfies SidechatExpiry)),
   // Local-only UI preferences for hiding sidebar surfaces a user doesn't want.
@@ -581,7 +596,7 @@ export const AppSettingsSchema = Schema.Struct({
   // AppSnap is opt-in because enabling its Settings toggle requests macOS
   // Input Monitoring and Screen Recording permissions.
   enableAppSnap: Schema.Boolean.pipe(withDefaults(() => false)),
-  appSnapShortcut: AppSnapShortcut.pipe(withDefaults(() => DEFAULT_APP_SNAP_SHORTCUT)),
+  appSnapShortcut: AppSnapShortcut.pipe(withDefaults(getDefaultAppSnapShortcut)),
   // Local desktop preference: play the shutter cue when an AppSnap lands in a composer.
   appSnapPlaySound: Schema.Boolean.pipe(withDefaults(() => true)),
   // Deprecated rename bridge. Normalization migrates this value and then omits the key.
@@ -1710,6 +1725,13 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
       : migrateRailUsageSelection(settings.railUsageInstanceIds ?? settings.railUsageProviders),
     railUsageMossDefaultApplied: true,
     enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
+    // Windows cannot register macOS's double-Option chord; migrate any legacy
+    // saved default so the Windows shortcut works immediately after upgrade.
+    appSnapShortcut:
+      /^win(dows)?/i.test(globalThis.navigator?.platform ?? "") &&
+      settings.appSnapShortcut.kind === "both-option-keys"
+        ? DEFAULT_WINDOWS_APP_SNAP_SHORTCUT
+        : settings.appSnapShortcut,
     // Read the legacy Studio key once: it defaults to true, so only an explicit
     // `false` carries over onto the renamed Groups section.
     showGroupsSection: settings.showGroupsSection && legacyShowStudioSection !== false,

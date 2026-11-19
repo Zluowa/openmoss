@@ -1318,6 +1318,161 @@ layer("GitHubCliLive", (it) => {
     }),
   );
 
+  it.effect("lists linked pull requests once, closing references first", () =>
+    Effect.gen(function* () {
+      const pr = (number: number, state: string, repository = "acme/app") => ({
+        number,
+        title: `PR ${number}`,
+        url: `https://github.com/${repository}/pull/${number}`,
+        state,
+        isDraft: number === 12,
+        repository: { nameWithOwner: repository },
+      });
+      mockedRunProcess.mockResolvedValueOnce(
+        processResult(
+          JSON.stringify({
+            data: {
+              repository: {
+                issue: {
+                  number: 5,
+                  title: "Crash",
+                  url: "https://github.com/acme/app/issues/5",
+                  body: "",
+                  state: "OPEN",
+                  assignees: { nodes: [] },
+                  labels: { nodes: [] },
+                  comments: { totalCount: 0, pageInfo: { hasNextPage: false }, nodes: [] },
+                  createdAt: "2026-07-01T00:00:00Z",
+                  updatedAt: "2026-07-03T00:00:00Z",
+                  viewerCanUpdate: true,
+                  closedByPullRequestsReferences: { nodes: [pr(11, "MERGED")] },
+                  timelineItems: {
+                    nodes: [
+                      { source: { __typename: "PullRequest", ...pr(12, "OPEN", "acme/web") } },
+                      { source: { __typename: "Issue", ...pr(13, "OPEN") } },
+                      { source: { __typename: "PullRequest", ...pr(11, "MERGED") } },
+                      {},
+                    ],
+                  },
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+      const gh = yield* GitHubCli;
+      const detail = yield* gh.getIssueDetail({ cwd: "/repo", repository: "acme/app", number: 5 });
+
+      assert.equal(detail.viewerCanUpdate, true);
+      assert.deepStrictEqual(
+        detail.linkedPullRequests.map((item) => [
+          item.repository,
+          item.number,
+          item.state,
+          item.isDraft,
+          item.closesIssue,
+        ]),
+        [
+          ["acme/app", 11, "merged", false, true],
+          ["acme/web", 12, "open", true, false],
+        ],
+      );
+    }),
+  );
+
+  it.effect("updates an issue over stdin and fails when GitHub drops the change", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce(
+        processResult(JSON.stringify({ state: "closed", state_reason: "not_planned" })),
+      );
+      mockedRunProcess.mockResolvedValueOnce(
+        processResult(JSON.stringify({ state: "open", labels: [{ name: "bug" }] })),
+      );
+      mockedRunProcess.mockResolvedValueOnce(
+        processResult(JSON.stringify({ state: "closed", state_reason: "completed" })),
+      );
+
+      const gh = yield* GitHubCli;
+      yield* gh.updateIssue({
+        cwd: "/repo",
+        repository: "acme/app",
+        number: 5,
+        update: { op: "close", reason: "not-planned" },
+      });
+      const dropped = yield* gh
+        .updateIssue({
+          cwd: "/repo",
+          repository: "acme/app",
+          number: 5,
+          update: { op: "setLabels", labels: ["bug", "needs triage"] },
+        })
+        .pipe(Effect.flip);
+      const keptReason = yield* gh
+        .updateIssue({
+          cwd: "/repo",
+          repository: "acme/app",
+          number: 5,
+          update: { op: "close", reason: "not-planned" },
+        })
+        .pipe(Effect.flip);
+
+      expect(mockedRunProcess.mock.calls[0]?.[1]).toEqual([
+        "api",
+        "--hostname",
+        "github.com",
+        "--method",
+        "PATCH",
+        "repos/acme/app/issues/5",
+        "--input",
+        "-",
+      ]);
+      expect(mockedRunProcess.mock.calls[0]?.[2]).toEqual(
+        expect.objectContaining({
+          stdin: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
+        }),
+      );
+      expect(mockedRunProcess.mock.calls[1]?.[1]).not.toContain("needs triage");
+      expect(dropped.detail).toContain("triage access");
+      expect(keptReason.detail).toContain("Reopen it, then close it again");
+    }),
+  );
+
+  it.effect("reads the repository's labels and assignable people", () =>
+    Effect.gen(function* () {
+      mockedRunProcess.mockResolvedValueOnce(
+        processResult(
+          JSON.stringify({
+            data: {
+              repository: {
+                labels: {
+                  pageInfo: { hasNextPage: false },
+                  nodes: [{ name: "bug", color: "d73a4a", description: " Something broke " }, null],
+                },
+                assignableUsers: {
+                  pageInfo: { hasNextPage: true },
+                  nodes: [{ login: "alex", name: "Alex", avatarUrl: null, url: null }],
+                },
+              },
+            },
+          }),
+        ),
+      );
+
+      const gh = yield* GitHubCli;
+      const candidates = yield* gh.getIssueCandidates({ cwd: "/repo", repository: "acme/app" });
+
+      assert.deepStrictEqual(candidates.labels, [
+        { name: "bug", color: "d73a4a", description: "Something broke" },
+      ]);
+      assert.deepStrictEqual(
+        candidates.assignees.map((actor) => actor.login),
+        ["alex"],
+      );
+      assert.equal(candidates.truncated, true);
+    }),
+  );
+
   it.effect("accepts commits with empty or missing headlines and omits the files field", () =>
     Effect.gen(function* () {
       mockedRunProcess.mockResolvedValueOnce({

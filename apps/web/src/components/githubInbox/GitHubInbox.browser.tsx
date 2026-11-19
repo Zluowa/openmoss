@@ -15,6 +15,7 @@ import {
   type GitHubInboxListInput,
   type GitHubInboxListResult,
   type GitHubIssueDetail,
+  type GitHubIssueUpdateInput,
   type NativeApi,
   type ProjectId,
   type PullRequestActor,
@@ -26,6 +27,7 @@ import { page, userEvent } from "vitest/browser";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { toastManager } from "~/components/ui/toast";
 import { useStore } from "~/store";
 import type { Project } from "~/types";
 
@@ -198,6 +200,8 @@ const ISSUE_42_DETAIL: GitHubIssueDetail = {
     },
   ],
   commentsTruncated: false,
+  linkedPullRequests: [],
+  viewerCanUpdate: false,
 };
 
 const PULL_REQUEST_41_DETAIL: PullRequestDetail = {
@@ -246,6 +250,14 @@ const PULL_REQUEST_41_DETAIL: PullRequestDetail = {
 const api = {
   list: vi.fn<(input: GitHubInboxListInput) => Promise<GitHubInboxListResult>>(),
   issueDetail: vi.fn(),
+  issueUpdate: vi.fn<(input: GitHubIssueUpdateInput) => Promise<unknown>>(),
+  issueCandidates: vi.fn(),
+  sourceStatus: vi.fn(),
+  sourceList: vi.fn(),
+  sourceDetail: vi.fn(),
+  sourceUpdate: vi.fn(),
+  sourceComment: vi.fn(),
+  sourceCandidates: vi.fn(),
   pullRequestDetail: vi.fn(),
   openExternal: vi.fn(),
 };
@@ -256,6 +268,16 @@ function installNativeApi() {
       list: api.list,
       issueDetail: api.issueDetail,
       issueComment: vi.fn(),
+      issueUpdate: api.issueUpdate,
+      issueCandidates: api.issueCandidates,
+    },
+    issueSources: {
+      status: api.sourceStatus,
+      list: api.sourceList,
+      detail: api.sourceDetail,
+      update: api.sourceUpdate,
+      comment: api.sourceComment,
+      candidates: api.sourceCandidates,
     },
     pullRequests: {
       detail: api.pullRequestDetail,
@@ -332,6 +354,37 @@ beforeEach(async () => {
       Promise.resolve(state === "open" ? listResult() : listResult({ items: [] })),
     );
   api.issueDetail.mockReset().mockResolvedValue(ISSUE_42_DETAIL);
+  api.issueUpdate.mockReset().mockImplementation((input) =>
+    Promise.resolve({
+      projectId: input.projectId,
+      repository: input.repository,
+      number: input.number,
+      workspaceRoot: "/work/alpha",
+    }),
+  );
+  api.sourceStatus
+    .mockReset()
+    .mockImplementation(({ source }: { source: string }) =>
+      Promise.resolve({ source, state: "not-connected", teams: [] }),
+    );
+  api.sourceList.mockReset().mockResolvedValue({ items: [], truncated: false, failedTeamIds: [] });
+  api.sourceDetail.mockReset();
+  api.sourceUpdate
+    .mockReset()
+    .mockImplementation(({ id }: { id: string }) => Promise.resolve({ id }));
+  api.sourceComment
+    .mockReset()
+    .mockImplementation(({ id }: { id: string }) => Promise.resolve({ id }));
+  api.sourceCandidates.mockReset();
+  api.issueCandidates.mockReset().mockResolvedValue({
+    labels: [
+      { name: "area:ui", color: "0e8a16", description: null },
+      { name: "kind:bug", color: "d73a4a", description: "Something is broken" },
+      { name: "kind:docs", color: "0075ca", description: "Documentation" },
+    ],
+    assignees: [actor("viewer"), { ...actor("teammate"), name: "Team Mate" }],
+    truncated: false,
+  });
   api.pullRequestDetail.mockReset().mockResolvedValue(PULL_REQUEST_41_DETAIL);
   api.openExternal.mockReset().mockResolvedValue(undefined);
   installNativeApi();
@@ -961,5 +1014,497 @@ describe("GitHubInbox detail layout", () => {
       .getByRole("button", { name: "Request" })
       .click();
     expect(api.openExternal).toHaveBeenCalledWith("https://github.com/acme/widgets/pull/41");
+  });
+});
+
+describe("GitHubInbox issue editing", () => {
+  const ISSUE_42_SEARCH: GitHubInboxSearch = {
+    kind: "issue",
+    selectedProjectId: projectA,
+    selectedRepo: "acme/widgets",
+    number: 42,
+  };
+  const EDITABLE_ISSUE_42: GitHubIssueDetail = {
+    ...ISSUE_42_DETAIL,
+    viewerCanUpdate: true,
+    linkedPullRequests: [
+      {
+        repository: "acme/widgets",
+        number: 41,
+        title: "Fix login redirect",
+        url: "https://github.com/acme/widgets/pull/41",
+        state: "open",
+        isDraft: false,
+        closesIssue: true,
+      },
+      {
+        repository: "acme/docs",
+        number: 7,
+        title: "Document the launch crash",
+        url: "https://github.com/acme/docs/pull/7",
+        state: "merged",
+        isDraft: false,
+        closesIssue: false,
+      },
+    ],
+  };
+
+  it("closes an issue as not planned from the top bar, showing it closed at once", async () => {
+    await page.viewport(1400, 800);
+    api.issueDetail.mockResolvedValue(EDITABLE_ISSUE_42);
+    let release: () => void = () => {};
+    api.issueUpdate.mockImplementation(
+      (input) =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              projectId: input.projectId,
+              repository: input.repository,
+              number: input.number,
+              workspaceRoot: "/work/alpha",
+            });
+        }),
+    );
+    await mount(ISSUE_42_SEARCH);
+    await expect.element(page.getByRole("heading", { name: "Crash on launch" })).toBeVisible();
+
+    // The label closes as completed; the chevron offers the other reason.
+    await expect.element(page.getByRole("button", { name: "Close issue" })).toBeVisible();
+    await page.getByRole("button", { name: "More ways to close" }).click();
+    await page.getByRole("menuitem", { name: "Close as not planned" }).click();
+
+    expect(api.issueUpdate).toHaveBeenCalledWith({
+      projectId: projectA,
+      repository: "acme/widgets",
+      number: 42,
+      update: { op: "close", reason: "not-planned" },
+    });
+    // The state changes before GitHub answers: the chip, and Reopen in place of Close.
+    await expect.element(page.getByText("Not planned", { exact: true })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Reopen" })).toBeVisible();
+    release();
+    // Once GitHub answers, the detail is read fresh.
+    await expect.poll(() => api.issueDetail.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("saves the chosen labels once, when the picker closes", async () => {
+    await page.viewport(1400, 800);
+    api.issueDetail.mockResolvedValue(EDITABLE_ISSUE_42);
+    await mount(ISSUE_42_SEARCH);
+    const aside = page.getByRole("complementary", { name: "Details" });
+    await expect.element(aside.getByText("Labels")).toBeVisible();
+
+    await aside.getByLabelText("Edit labels").click();
+    await page.getByRole("option", { name: /kind:docs/ }).click();
+    await page.getByRole("option", { name: /area:ui/ }).click();
+    expect(api.issueUpdate).not.toHaveBeenCalled();
+    await userEvent.keyboard("{Escape}");
+
+    await expect.poll(() => api.issueUpdate.mock.calls.length).toBe(1);
+    expect(api.issueUpdate).toHaveBeenCalledWith({
+      projectId: projectA,
+      repository: "acme/widgets",
+      number: 42,
+      update: { op: "setLabels", labels: ["kind:bug", "kind:docs"] },
+    });
+  });
+
+  it("says when GitHub refuses the assignees and puts the old ones back", async () => {
+    await page.viewport(1400, 800);
+    api.issueDetail.mockResolvedValue(EDITABLE_ISSUE_42);
+    api.issueUpdate.mockRejectedValue(new Error("GitHub did not apply the assignees."));
+    const toast = vi.spyOn(toastManager, "add");
+    await mount(ISSUE_42_SEARCH);
+    const aside = page.getByRole("complementary", { name: "Details" });
+    await expect.element(aside.getByText("Assignees")).toBeVisible();
+
+    await aside.getByLabelText("Edit assignees").click();
+    await page.getByRole("option", { name: /Team Mate/ }).click();
+    await userEvent.keyboard("{Escape}");
+
+    // GitHub's raw message never reaches the page; the old assignees come back.
+    await expect.poll(() => api.issueUpdate.mock.calls.length).toBe(1);
+    await expect.poll(() => api.issueDetail.mock.calls.length).toBeGreaterThan(1);
+    expect(toast).toHaveBeenCalledWith({
+      type: "error",
+      title: "Could not save the assignees. Changing them needs triage access to this repository.",
+    });
+    expect(document.body.textContent).not.toContain("GitHub did not apply");
+    await expect.poll(() => aside.getByText("Team Mate").elements().length).toBe(0);
+    toast.mockRestore();
+  });
+
+  it("lists linked pull requests, opening one from this repository here and others on GitHub", async () => {
+    await page.viewport(1400, 800);
+    api.issueDetail.mockResolvedValue(EDITABLE_ISSUE_42);
+    await mount(ISSUE_42_SEARCH);
+    const aside = page.getByRole("complementary", { name: "Details" });
+    await expect.element(aside.getByText("Linked pull requests")).toBeVisible();
+    await expect.element(aside.getByText("#41 · Closes this issue")).toBeVisible();
+
+    await aside.getByRole("button", { name: /Document the launch crash/ }).click();
+    expect(api.openExternal).toHaveBeenCalledWith("https://github.com/acme/docs/pull/7");
+
+    await aside.getByRole("button", { name: /Fix login redirect/ }).click();
+    await expect.poll(() => latestSearch).toMatchObject({ kind: "pullRequest", number: 41 });
+  });
+
+  it("offers no close control or editable rows when GitHub does not let the viewer update", async () => {
+    await page.viewport(1400, 800);
+    await mount(ISSUE_42_SEARCH);
+    await expect.element(page.getByRole("heading", { name: "Crash on launch" })).toBeVisible();
+
+    expect(page.getByRole("button", { name: "Close issue" }).elements()).toHaveLength(0);
+    expect(page.getByLabelText("Edit labels").elements()).toHaveLength(0);
+    expect(page.getByLabelText("Edit assignees").elements()).toHaveLength(0);
+  });
+});
+
+describe("GitHubInbox Linear issues", () => {
+  const LINEAR_ISSUE = {
+    source: "linear" as const,
+    id: "lin-1",
+    identifier: "ENG-7",
+    title: "Sync fails offline",
+    url: "https://linear.app/acme/issue/ENG-7",
+    team: { id: "team-eng", name: "Engineering" },
+    state: { name: "Todo", type: "unstarted" as const },
+    assignee: null,
+    labels: [{ name: "kind:bug", color: "d73a4a" }],
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+  const LINEAR_DETAIL = {
+    ...LINEAR_ISSUE,
+    description: "Saving while offline loses the change.",
+    author: actor("reporter"),
+    comments: [],
+  };
+
+  beforeEach(() => {
+    api.sourceStatus.mockImplementation(({ source }: { source: string }) =>
+      Promise.resolve(
+        source === "linear"
+          ? {
+              source,
+              state: "connected",
+              teams: [
+                { id: "team-eng", name: "Engineering", key: "ENG" },
+                { id: "team-ops", name: "Ops", key: "OPS" },
+              ],
+            }
+          : { source, state: "not-connected", teams: [] },
+      ),
+    );
+    api.sourceList.mockResolvedValue({
+      items: [LINEAR_ISSUE],
+      truncated: false,
+      failedTeamIds: [],
+    });
+    api.sourceDetail.mockResolvedValue(LINEAR_DETAIL);
+    api.sourceCandidates.mockResolvedValue({
+      states: [
+        { name: "Todo", type: "unstarted" },
+        { name: "In Progress", type: "started" },
+        { name: "Done", type: "completed" },
+      ],
+      labels: [{ name: "kind:bug", color: "d73a4a", description: null }],
+      assignees: [actor("viewer"), actor("teammate")],
+    });
+  });
+
+  it("lists Linear issues under the GitHub rows, counted in All and Issues", async () => {
+    await mount();
+    await expectRows([44, 43, 42, 41]);
+
+    await expect.element(page.getByRole("button", { name: /Sync fails offline/ })).toBeVisible();
+    await expect.element(page.getByRole("radio", { name: "Issues, 3" })).toBeVisible();
+    expect(api.sourceList).toHaveBeenCalledWith({
+      source: "linear",
+      teamIds: ["team-eng", "team-ops"],
+      state: "open",
+    });
+
+    // Pull requests only: Linear stays out of the list, but still counts under Issues.
+    await page.getByRole("radio", { name: /^Pull requests/ }).click();
+    await expect
+      .poll(() => page.getByRole("button", { name: /Sync fails offline/ }).elements().length)
+      .toBe(0);
+  });
+
+  it("leaves out the teams hidden in Settings", async () => {
+    localStorage.setItem(
+      "moss:app-settings:v1",
+      JSON.stringify({
+        ...JSON.parse(ALL_SECTIONS_OPEN),
+        issueSourceHiddenTeams: ["linear:team-ops"],
+      }),
+    );
+    await mount();
+    await expect.element(page.getByRole("button", { name: /Sync fails offline/ })).toBeVisible();
+    expect(api.sourceList).toHaveBeenCalledWith({
+      source: "linear",
+      teamIds: ["team-eng"],
+      state: "open",
+    });
+  });
+
+  it("shows nothing from Linear until it is connected", async () => {
+    api.sourceStatus.mockImplementation(({ source }: { source: string }) =>
+      Promise.resolve({ source, state: "not-connected", teams: [] }),
+    );
+    await mount();
+    await expectRows([44, 43, 42, 41]);
+    expect(api.sourceList).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-inbox-section="linear"]')).toBeNull();
+  });
+
+  it("opens a Linear issue and changes its state and assignee", async () => {
+    await page.viewport(1400, 800);
+    await mount();
+    await page.getByRole("button", { name: /Sync fails offline/ }).click();
+    await expect.poll(() => latestSearch).toMatchObject({ external: "linear:lin-1" });
+    await expect.element(page.getByRole("heading", { name: "Sync fails offline" })).toBeVisible();
+    await expect.element(page.getByText("Saving while offline loses the change.")).toBeVisible();
+
+    await page.getByRole("button", { name: "Change state" }).click();
+    await page.getByRole("menuitemradio", { name: "In Progress" }).click();
+    expect(api.sourceUpdate).toHaveBeenCalledWith({
+      source: "linear",
+      id: "lin-1",
+      update: { op: "setState", state: "In Progress" },
+    });
+    await userEvent.keyboard("{Escape}");
+
+    const aside = page.getByRole("complementary", { name: "Details" });
+    await aside.getByLabelText("Edit assignee").click();
+    await page.getByRole("option", { name: /teammate/ }).click();
+    await page.getByRole("option", { name: /viewer/ }).click();
+    await userEvent.keyboard("{Escape}");
+    // One person at most: the second choice replaced the first.
+    await expect.poll(() => api.sourceUpdate.mock.calls.length).toBe(2);
+    expect(api.sourceUpdate).toHaveBeenLastCalledWith({
+      source: "linear",
+      id: "lin-1",
+      update: { op: "setAssignee", assignee: "viewer" },
+    });
+  });
+
+  it("forces a fresh Linear read on Refresh, bypassing the server list cache", async () => {
+    const refreshedIssue = {
+      ...LINEAR_ISSUE,
+      id: "lin-2",
+      identifier: "ENG-8",
+      title: "Freshly synced Linear issue",
+    };
+    api.sourceList.mockImplementation(({ forceRefresh }: { forceRefresh?: boolean }) =>
+      Promise.resolve({
+        items: forceRefresh ? [refreshedIssue] : [LINEAR_ISSUE],
+        truncated: false,
+        failedTeamIds: [],
+      }),
+    );
+    await mount();
+    await expect.element(page.getByRole("button", { name: /Sync fails offline/ })).toBeVisible();
+
+    await page.getByRole("button", { name: "More code review actions" }).click();
+    await page.getByRole("menuitem", { name: "Refresh", exact: true }).click();
+    await closeMenu();
+
+    await expect
+      .poll(() =>
+        api.sourceList.mock.calls.some(
+          ([input]) => input.source === "linear" && input.forceRefresh === true,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .element(page.getByRole("button", { name: /Freshly synced Linear issue/ }))
+      .toBeVisible();
+  });
+
+  it("shows Linear-specific errors instead of blaming GitHub on detail and list failures", async () => {
+    await page.viewport(1400, 800);
+    api.sourceDetail.mockRejectedValueOnce({
+      _tag: "WsRpcError",
+      code: "issue-source-not-connected",
+      message: "Linear is not connected.",
+    });
+    api.sourceList.mockRejectedValueOnce({
+      _tag: "WsRpcError",
+      code: "issue-source-failed",
+      message: "Upstream error",
+    });
+
+    await mount({ external: "linear:lin-1" });
+
+    await expect.element(page.getByText("Linear is not connected", { exact: true })).toBeVisible();
+    await expect
+      .element(
+        page.getByText("Linear is not connected. Reconnect it in Settings › Issue sources.", {
+          exact: true,
+        }),
+      )
+      .toBeVisible();
+    await expect
+      .element(page.getByText("The request to Linear failed.", { exact: true }))
+      .toBeVisible();
+    expect(document.body.textContent).not.toContain("The request to GitHub failed.");
+  });
+
+  it("shows load-failed instead of spinning when Linear state candidates fail, and retries on reopen", async () => {
+    await page.viewport(1400, 800);
+    api.sourceCandidates.mockRejectedValueOnce(new Error("temporary failure"));
+    await mount({ external: "linear:lin-1" });
+    await expect.element(page.getByRole("heading", { name: "Sync fails offline" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Change state" }).click();
+    await expect
+      .element(page.getByText("Could not load the list. Close and open it to try again."))
+      .toBeVisible();
+    await closeMenu();
+
+    await page.getByRole("button", { name: "Change state" }).click();
+    await expect.element(page.getByRole("menuitemradio", { name: "In Progress" })).toBeVisible();
+  });
+
+  it("renders connected Linear issues calmly even when GitHub CLI is signed out", async () => {
+    await page.viewport(1400, 800);
+    api.list.mockRejectedValue({
+      _tag: "PullRequestsUnavailableError",
+      reason: "gh-not-authenticated",
+      message: "gh is not authenticated",
+    });
+    await mount();
+
+    await expect.element(page.getByRole("button", { name: /Sync fails offline/ })).toBeVisible();
+    await expect.element(page.getByRole("radio", { name: "Issues, 1" })).toBeVisible();
+    await expect.element(page.getByText("Sign in to GitHub CLI", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: /Sync fails offline/ }).click();
+    await expect.element(page.getByRole("heading", { name: "Sync fails offline" })).toBeVisible();
+  });
+});
+
+describe("GitHubInbox Jira issues", () => {
+  const JIRA_ISSUE = {
+    source: "jira" as const,
+    id: "cloud-1:WEB-42",
+    identifier: "WEB-42",
+    title: "Checkout button does nothing on Safari",
+    url: "https://acme.atlassian.net/browse/WEB-42",
+    team: { id: "cloud-1", name: "Web" },
+    state: { name: "To Do", type: "unstarted" as const },
+    assignee: null,
+    labels: [{ name: "safari", color: null }],
+    createdAt: NOW,
+    updatedAt: NOW,
+  };
+
+  beforeEach(() => {
+    api.sourceStatus.mockImplementation(({ source }: { source: string }) =>
+      Promise.resolve(
+        source === "jira"
+          ? {
+              source,
+              state: "connected",
+              teams: [{ id: "cloud-1", name: "Acme", key: "acme.atlassian.net" }],
+            }
+          : { source, state: "not-connected", teams: [] },
+      ),
+    );
+    api.sourceList.mockResolvedValue({ items: [JIRA_ISSUE], truncated: false, failedTeamIds: [] });
+    api.sourceDetail.mockResolvedValue({
+      ...JIRA_ISSUE,
+      description: "Clicking Pay does nothing.",
+      author: { login: "acc-2", name: "Chen Yu", avatarUrl: null, url: null },
+      comments: [],
+    });
+    // Jira offers the statuses its transitions lead to, and people by account id.
+    api.sourceCandidates.mockResolvedValue({
+      states: [
+        { name: "In Progress", type: "started" },
+        { name: "Done", type: "completed" },
+      ],
+      labels: [{ name: "safari", color: null, description: null }],
+      assignees: [{ login: "acc-3", name: "Sam He", avatarUrl: null, url: null }],
+    });
+  });
+
+  it("lists the person's Jira issues in their own section", async () => {
+    await mount();
+    await expect
+      .element(page.getByRole("button", { name: /Checkout button does nothing on Safari/ }))
+      .toBeVisible();
+    expect(document.querySelector('[data-inbox-section="jira"]')).not.toBeNull();
+    expect(document.querySelector('[data-inbox-section="linear"]')).toBeNull();
+    expect(api.sourceList).toHaveBeenCalledWith({
+      source: "jira",
+      teamIds: ["cloud-1"],
+      state: "open",
+    });
+  });
+
+  it("moves a Jira issue to a status and assigns a person found by name", async () => {
+    await page.viewport(1400, 800);
+    await mount();
+    await page.getByRole("button", { name: /Checkout button does nothing on Safari/ }).click();
+    await expect.poll(() => latestSearch).toMatchObject({ external: "jira:cloud-1:WEB-42" });
+    await expect.element(page.getByRole("button", { name: "Open in Jira" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Change state" }).click();
+    // The current status stays listed beside the ones Jira can move the issue to.
+    await expect.element(page.getByRole("menuitemradio", { name: "To Do" })).toBeVisible();
+    await page.getByRole("menuitemradio", { name: "Done" }).click();
+    expect(api.sourceCandidates).toHaveBeenCalledWith({
+      source: "jira",
+      teamId: "cloud-1",
+      issueId: "cloud-1:WEB-42",
+    });
+    expect(api.sourceUpdate).toHaveBeenCalledWith({
+      source: "jira",
+      id: "cloud-1:WEB-42",
+      update: { op: "setState", state: "Done" },
+    });
+    await userEvent.keyboard("{Escape}");
+
+    const aside = page.getByRole("complementary", { name: "Details" });
+    await aside.getByLabelText("Edit assignee").click();
+    await userEvent.keyboard("Sam");
+    await page.getByRole("option", { name: /Sam He/ }).click();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => api.sourceUpdate.mock.calls.length).toBe(2);
+    expect(api.sourceUpdate).toHaveBeenLastCalledWith({
+      source: "jira",
+      id: "cloud-1:WEB-42",
+      update: { op: "setAssignee", assignee: "acc-3" },
+    });
+  });
+
+  it("hides the comment Reply button when neither comment nor Jira issue has a URL", async () => {
+    await page.viewport(1400, 800);
+    api.sourceDetail.mockResolvedValue({
+      ...JIRA_ISSUE,
+      url: null,
+      description: "Clicking Pay does nothing.",
+      author: { login: "acc-2", name: "Chen Yu", avatarUrl: null, url: null },
+      comments: [
+        {
+          id: "c1",
+          kind: "issue-comment",
+          author: { login: "acc-2", name: "Chen Yu", avatarUrl: null, url: null },
+          body: "Reproduced on iOS Safari too.",
+          createdAt: NOW,
+          updatedAt: null,
+          url: null,
+          path: null,
+          reviewState: null,
+        },
+      ],
+    });
+    await mount({ external: "jira:cloud-1:WEB-42" });
+
+    await expect.element(page.getByText("Reproduced on iOS Safari too.")).toBeVisible();
+    expect(page.getByRole("button", { name: "Reply", exact: true }).elements()).toHaveLength(0);
   });
 });

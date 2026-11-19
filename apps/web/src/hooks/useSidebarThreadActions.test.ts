@@ -4,6 +4,7 @@
 
 import { ProjectId, ThreadId } from "@moss/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { translateZhCnPresentationText } from "../localization/zhCN";
 
 const reactHarness = vi.hoisted(() => {
   interface HookSlot {
@@ -158,11 +159,15 @@ vi.mock("../nativeApi", () => ({
     dialogs: { confirm: harness.confirm },
   }),
 }));
-vi.mock("../lib/threadArchive", () => ({
-  archiveThreadFromClient: harness.archiveThread,
-  unarchiveThreadFromClient: harness.unarchiveThread,
-  isThreadAlreadyUnarchivedError: () => harness.alreadyUnarchived,
-}));
+vi.mock("../lib/threadArchive", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/threadArchive")>();
+  return {
+    ...actual,
+    archiveThreadFromClient: harness.archiveThread,
+    unarchiveThreadFromClient: harness.unarchiveThread,
+    isThreadAlreadyUnarchivedError: () => harness.alreadyUnarchived,
+  };
+});
 vi.mock("../lib/archiveThreadWorktreeCleanup", () => ({
   releaseOrphanedWorktreeAfterArchive: harness.releaseArchivedWorktree,
 }));
@@ -184,7 +189,8 @@ vi.mock("../store", () => {
   return { useStore };
 });
 vi.mock("../threadDerivation", () => ({
-  getThreadFromState: (_state: unknown, threadId: ThreadId) => ({ id: threadId }),
+  getThreadFromState: (_state: unknown, threadId: ThreadId) =>
+    sidebarThreads?.find((thread) => thread.id === threadId) ?? { id: threadId },
 }));
 
 import type { Project, SidebarThreadSummary } from "../types";
@@ -1243,5 +1249,52 @@ describe("useSidebarThreadActions", () => {
 
     expect(harness.navigate).not.toHaveBeenCalled();
     expect(harness.handleNewChat).toHaveBeenCalledWith();
+  });
+
+  it("maps raw orchestration archive errors to calm Simplified Chinese without leaking internal English", async () => {
+    harness.archiveThread.mockRejectedValueOnce(
+      new Error(
+        "Orchestration command invariant failed (thread.archive): SIDEBAR_ORDER_REVISION_CONFLICT: current revision 1.",
+      ),
+    );
+
+    await render({ routeThreadId: THREAD_ID }).archiveThreadWithUndo(THREAD_ID);
+
+    const toast = harness.toast.mock.calls.at(-1)?.[0] as {
+      type: string;
+      title: string;
+      description: string;
+    };
+    expect(toast.type).toBe("error");
+    expect(translateZhCnPresentationText(toast.title)).toBe("无法归档对话");
+    const localizedDescription = translateZhCnPresentationText(toast.description);
+    expect(localizedDescription).not.toContain("Orchestration command invariant failed");
+    expect(localizedDescription).not.toContain("SIDEBAR_ORDER_REVISION_CONFLICT");
+    expect(localizedDescription).toMatch(/[\u4e00-\u9fff]/);
+  });
+
+  it("skips archiving a thread that is already marked archived locally", async () => {
+    sidebarThreads = [
+      makeThread(THREAD_ID, { archivedAt: "2026-07-20T00:00:00.000Z" }),
+      makeThread(FALLBACK_ID),
+    ];
+
+    await expect(render({ routeThreadId: THREAD_ID }).archiveThread(THREAD_ID)).resolves.toBe(
+      false,
+    );
+    expect(harness.archiveThread).not.toHaveBeenCalled();
+    expect(harness.toast).not.toHaveBeenCalled();
+  });
+
+  it("treats a raced already-archived server invariant as a silent no-op without an error toast", async () => {
+    harness.archiveThread.mockRejectedValueOnce(
+      new Error(
+        `Orchestration command invariant failed (thread.archive): Thread '${THREAD_ID}' is already archived and cannot handle command 'thread.archive'.`,
+      ),
+    );
+
+    await render({ routeThreadId: THREAD_ID }).archiveThreadWithUndo(THREAD_ID);
+
+    expect(harness.toast).not.toHaveBeenCalled();
   });
 });

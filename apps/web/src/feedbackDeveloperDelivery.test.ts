@@ -2,9 +2,10 @@
 // Purpose: Covers confirmation, retry IDs and privacy for app-level feedback.
 
 import type { DevsReportPreview, NativeApi } from "@moss/contracts";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildFeedbackDeveloperRequest,
+  deliverFeedback,
   submitFeedbackToDevelopers,
 } from "./feedbackDeveloperDelivery";
 import type { FeedbackSubmission } from "./feedback";
@@ -42,6 +43,11 @@ function setup() {
   return { api, prepare, submit, preview };
 }
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
 describe("developer feedback delivery", () => {
   it("sends only app facts without manufacturing a thread", () => {
     expect(request).not.toHaveProperty("threadId");
@@ -65,5 +71,48 @@ describe("developer feedback delivery", () => {
     await expect(submitFeedbackToDevelopers(request, api, async () => true)).rejects.toThrow(
       "offline",
     );
+  });
+
+  it("always previews and confirms when requireConfirmation is set, even with VITE_FEEDBACK_ENDPOINT", async () => {
+    vi.stubEnv("VITE_FEEDBACK_ENDPOINT", "https://feedback.example.test/submit");
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { api, prepare, submit, preview } = setup();
+    vi.stubGlobal("window", { nativeApi: api });
+    const submission = {
+      category: "bug",
+      details: "Claude 无法调用工具",
+      diagnostics: {
+        appVersion: "1.0.8",
+        platform: "Win32",
+        language: "zh-CN",
+        provider: "claudeAgent",
+        model: null,
+      },
+    } as unknown as FeedbackSubmission;
+
+    const cancelled = await deliverFeedback({
+      submission,
+      developerRequest: () => buildFeedbackDeveloperRequest(submission, request.id),
+      confirm: vi.fn(async (shown) => {
+        expect(shown).toBe(preview);
+        return false;
+      }),
+      requireConfirmation: true,
+    });
+    expect(cancelled).toBe("cancelled");
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(submit).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    const sent = await deliverFeedback({
+      submission,
+      developerRequest: () => buildFeedbackDeveloperRequest(submission, request.id),
+      confirm: async () => true,
+      requireConfirmation: true,
+    });
+    expect(sent).toBe("queued");
+    expect(submit).toHaveBeenCalledOnce();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

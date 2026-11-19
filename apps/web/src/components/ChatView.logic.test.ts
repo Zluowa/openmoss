@@ -2437,7 +2437,7 @@ describe("hasLiveTurnTakenOver", () => {
     ).toBe(false);
   });
 
-  it("takes over once the session phase is running or connecting", () => {
+  it("takes over once the session phase is running, not merely connecting", () => {
     expect(
       hasLiveTurnTakenOver({
         localDispatch,
@@ -2449,6 +2449,8 @@ describe("hasLiveTurnTakenOver", () => {
         threadError: null,
       }),
     ).toBe(true);
+    // Codex emits session/connecting -> session/ready -> turn/started; connecting
+    // must not wipe localDispatch before the turn actually starts.
     expect(
       hasLiveTurnTakenOver({
         localDispatch,
@@ -2459,7 +2461,7 @@ describe("hasLiveTurnTakenOver", () => {
         hasPendingUserInput: false,
         threadError: null,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("takes over when an active turn id appears", () => {
@@ -2556,6 +2558,108 @@ describe("hasLiveTurnTakenOver", () => {
         hasPendingApproval: false,
         hasPendingUserInput: false,
         threadError: "provider failed",
+      }),
+    ).toBe(true);
+  });
+
+  it("ignores a pre-existing thread error from the failed turn being continued", () => {
+    const previousError = "stream disconnected before completion";
+    const dispatchFromFailedThread: LocalDispatchSnapshot = {
+      ...localDispatch,
+      sessionOrchestrationStatus: "error",
+      sessionUpdatedAt: "2026-04-13T00:00:00.000Z",
+      initialThreadError: previousError,
+    };
+    const unchangedErrorSession = {
+      provider: "codex" as const,
+      status: "error" as const,
+      orchestrationStatus: "error" as const,
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    };
+
+    // Frame 1 right after clicking Continue: the old error must not ack or clear localDispatch.
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch: dispatchFromFailedThread,
+        phase: "ready",
+        latestTurn: null,
+        session: unchangedErrorSession,
+        messages: [],
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: previousError,
+      }),
+    ).toBe(false);
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch: dispatchFromFailedThread,
+        phase: "ready",
+        latestTurn: null,
+        session: unchangedErrorSession,
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: previousError,
+      }),
+    ).toBe(false);
+
+    // A newer failure on the retry — even with the exact same error text — does take over.
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch: dispatchFromFailedThread,
+        phase: "ready",
+        latestTurn: null,
+        session: {
+          ...unchangedErrorSession,
+          updatedAt: "2026-04-13T00:00:05.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: previousError,
+      }),
+    ).toBe(true);
+  });
+
+  it("takes over when a pending start is explicitly interrupted or stopped", () => {
+    const dispatchFromInterrupted: LocalDispatchSnapshot = {
+      ...localDispatch,
+      sessionOrchestrationStatus: "interrupted",
+      sessionUpdatedAt: "2026-04-13T00:00:00.000Z",
+    };
+    // Pre-existing interrupted state from the previous turn does not kill a fresh send.
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch: dispatchFromInterrupted,
+        phase: "ready",
+        latestTurn: null,
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "interrupted",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:00.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
+    // A new interrupted/stopped update after dispatch clears the awaiting-turn bridge.
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch,
+        phase: "ready",
+        latestTurn: null,
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "interrupted",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:02.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
       }),
     ).toBe(true);
   });

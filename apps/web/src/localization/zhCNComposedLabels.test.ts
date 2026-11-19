@@ -79,8 +79,8 @@ describe("composed labels in zh-CN", () => {
   it("lists every setting Restore defaults will reset in Chinese", () => {
     expect(
       translateZhCnPresentationText(
-        "This will reset: Theme, Dark theme pack, Light theme pack, Default UI font.",
+        "This will reset: Theme, Dark theme pack, Light theme pack, Default UI font, Issue sources.",
       ),
-    ).toBe("将重置：主题、深色主题包、浅色主题包、默认界面字体。");
+    ).toBe("将重置：主题、深色主题包、浅色主题包、默认界面字体、议题来源。");
   });
 });

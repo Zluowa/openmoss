@@ -8135,6 +8135,7 @@ export default function ChatView({
                       phase,
                       busy: isSendBusy,
                       connecting: isConnecting,
+                      awaitingTurnStart: isAwaitingTurnStart,
                       expired: isSidechatExpired,
                       hasPendingCacheReview: activeThread?.claudeCacheReview != null,
                       preparingImages: isPreparingComposerImages,

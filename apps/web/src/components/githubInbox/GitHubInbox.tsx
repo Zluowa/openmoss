@@ -12,6 +12,7 @@
 import {
   GITHUB_PERSONAL_PROJECT_ID,
   GITHUB_PERSONAL_PROJECT_TITLE,
+  type ExternalIssue,
   type GitHubInboxItem,
   type GitHubInboxListError,
   type ProjectId,
@@ -21,6 +22,7 @@ import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type RefObject,
   useDeferredValue,
   useMemo,
@@ -46,7 +48,10 @@ import { pullRequestDetailInputKey } from "~/components/pullRequest/pullRequestD
 import { focusPullRequestRow } from "~/components/pullRequest/pullRequestFocus";
 import { PullRequestList } from "~/components/pullRequest/PullRequestList";
 import { pullRequestPinToggleInputs } from "~/components/pullRequest/pullRequestList.logic";
-import { PullRequestsUnavailableState } from "~/components/pullRequest/PullRequestsUnavailableState";
+import {
+  isPullRequestsUnavailableError,
+  PullRequestsUnavailableState,
+} from "~/components/pullRequest/PullRequestsUnavailableState";
 import { PR_FINE_TEXT_CLASS_NAME } from "~/components/pullRequest/pullRequestText";
 import { PullRequestWarningNote } from "~/components/pullRequest/PullRequestWarningNote";
 import { Button } from "~/components/ui/button";
@@ -74,6 +79,18 @@ import {
   pullRequestSetPinnedMutationOptions,
 } from "~/lib/pullRequestReactQuery";
 import { cn } from "~/lib/utils";
+import { useTranslation, type TranslationKey } from "~/localization";
+import {
+  issueSourcesForceRefreshMutationOptions,
+  issueSourcesQueryKeys,
+} from "~/lib/issueSourcesQueryOptions";
+import { ExternalIssueDetailPanel } from "~/components/issueSources/ExternalIssueDetailPanel";
+import { ExternalIssueListSection } from "~/components/issueSources/ExternalIssueRows";
+import {
+  formatExternalSelection,
+  parseExternalSelection,
+} from "~/components/issueSources/issueSources.logic";
+import { useExternalIssues } from "~/components/issueSources/useExternalIssues";
 import { useStore } from "~/store";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { GitHubInboxFilterBar } from "./GitHubInboxFilterBar";
@@ -87,7 +104,6 @@ import {
   countActiveGitHubInboxFilters,
   countInboxItemsByKind,
   countTruncatedInboxRepositories,
-  githubInboxItemNoun,
   githubInboxListState,
   githubInboxSelection,
   githubInboxSelectionForItem,
@@ -101,6 +117,7 @@ import {
   type GitHubInboxSearch,
   type GitHubInboxSearchPatch,
   type GitHubInboxSelection,
+  type GitHubInboxKindCounts,
 } from "./githubInbox.logic";
 
 // Without the route's Ask dock the list is a slim column and the detail takes the rest; with it
@@ -131,15 +148,39 @@ interface DraggedListWidth {
   percent: number;
 }
 
+/** The kind tabs' counts with the other sources' issues added to All and Issues. */
+function withExternalCount(counts: GitHubInboxKindCounts, external: number): GitHubInboxKindCounts {
+  return external === 0
+    ? counts
+    : { ...counts, all: counts.all + external, issue: counts.issue + external };
+}
+
+const NO_ITEMS_KEYS: Record<GitHubInboxKindFilter, TranslationKey> = {
+  all: "codeReview.empty.none.all",
+  pullRequest: "codeReview.empty.none.pullRequest",
+  issue: "codeReview.empty.none.issue",
+};
+
+const NOUN_KEYS: Record<GitHubInboxKindFilter, TranslationKey> = {
+  all: "codeReview.noun.all",
+  pullRequest: "codeReview.noun.pullRequest",
+  issue: "codeReview.noun.issue",
+};
+
 function rateLimitedWarningText(
   error: GitHubInboxListError,
   timestampFormat: TimestampFormat,
+  translate: Pick<ReturnType<typeof useTranslation>, "t" | "format">,
 ): string {
+  const { t, format } = translate;
   const resetTime = error.retryAt ? formatShortTimestamp(error.retryAt, timestampFormat) : null;
-  const refresh = resetTime ? `Refreshing resumes at ${resetTime}.` : "Refreshing resumes soon.";
-  return error.showingCachedData
-    ? `GitHub rate limit reached. Showing the last loaded items. ${refresh}`
-    : `GitHub rate limit reached. Some repositories could not be loaded. ${refresh}`;
+  const refresh = resetTime
+    ? format("codeReview.rateLimit.resumeAt", { time: resetTime })
+    : t("codeReview.rateLimit.resumeSoon");
+  return format(
+    error.showingCachedData ? "codeReview.rateLimit.cached" : "codeReview.rateLimit.partial",
+    { refresh },
+  );
 }
 
 /**
@@ -155,6 +196,7 @@ function ListColumnResizeHandle({
   columnRef: RefObject<HTMLElement | null>;
   onResize: (width: number, percent: number) => void;
 }) {
+  const { t, format } = useTranslation();
   const resizeTo = (width: number) => {
     const containerWidth = columnRef.current?.parentElement?.clientWidth;
     if (!containerWidth) return;
@@ -199,11 +241,11 @@ function ListColumnResizeHandle({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize code review list"
+      aria-label={t("codeReview.list.resize")}
       aria-valuenow={percent}
       aria-valuemin={0}
       aria-valuemax={100}
-      aria-valuetext={`List takes ${percent}% of the width`}
+      aria-valuetext={format("codeReview.list.resizeValue", { percent })}
       tabIndex={0}
       onPointerDown={startResize}
       onKeyDown={handleKeyDown}
@@ -213,9 +255,10 @@ function ListColumnResizeHandle({
 }
 
 function ListSkeleton() {
+  const { t } = useTranslation();
   // Mirrors the loaded list's row height and spacing so the switch doesn't jump.
   return (
-    <div className="space-y-0.5" aria-busy="true" aria-label="Loading code review">
+    <div className="space-y-0.5" aria-busy="true" aria-label={t("codeReview.list.loading")}>
       {Array.from({ length: 7 }, (_, index) => (
         <Skeleton key={index} className="h-[4.75rem] w-full rounded-card" />
       ))}
@@ -223,15 +266,66 @@ function ListSkeleton() {
   );
 }
 
+/** Calm inline notice for GitHub errors while connected Linear/Jira sections stay visible. */
+function GitHubInlineUnavailableNotice({
+  error,
+  timestampFormat,
+  onRetry,
+}: {
+  error: unknown;
+  timestampFormat: TimestampFormat;
+  onRetry: () => void;
+}) {
+  const { t, format } = useTranslation();
+  const unavailable = isPullRequestsUnavailableError(error) ? error : null;
+  const notInstalled = unavailable?.reason === "gh-not-installed";
+  const notAuthenticated = unavailable?.reason === "gh-not-authenticated";
+  const rateLimited = unavailable?.reason === "rate-limited";
+  const resetTime =
+    rateLimited && unavailable?.retryAt
+      ? formatShortTimestamp(unavailable.retryAt, timestampFormat)
+      : null;
+  const title = notInstalled
+    ? t("codeReview.gh.required")
+    : notAuthenticated
+      ? t("codeReview.gh.signIn")
+      : rateLimited
+        ? t("codeReview.rateLimit.title")
+        : format("codeReview.unavailable.title", { subject: t("codeReview.list.subject") });
+  const description = notInstalled
+    ? t("codeReview.gh.requiredHint")
+    : notAuthenticated
+      ? t("codeReview.gh.signInHint")
+      : rateLimited
+        ? resetTime
+          ? format("codeReview.rateLimit.pausedAt", { time: resetTime })
+          : t("codeReview.rateLimit.paused")
+        : t("codeReview.unavailable.failed");
+  return (
+    <PullRequestWarningNote shape="callout" role="status">
+      <span className="flex flex-col gap-2">
+        <span className="flex flex-col gap-0.5">
+          <span className="font-medium text-foreground">{title}</span>
+          <span className="text-muted-foreground">{description}</span>
+        </span>
+        <span>
+          <Button variant="outline" size="xs" onClick={onRetry}>
+            {t("codeReview.retry")}
+          </Button>
+        </span>
+      </span>
+    </PullRequestWarningNote>
+  );
+}
+
 function DetailEmptyState() {
+  const { t } = useTranslation();
   // Quiet and centered; not a card.
   return (
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
       <GitPullRequestIcon aria-hidden className="mb-2 size-6 text-muted-foreground/60" />
-      <p className="m-0 text-ui-lg text-foreground">Select a pull request or issue</p>
-      <p className="m-0 text-ui-sm text-muted-foreground">
-        Choose one from the sidebar to review it
-      </p>
+      <p className="m-0 text-ui-lg text-foreground">{t("codeReview.detail.emptyTitle")}</p>
+      <p className="m-0 text-ui-sm text-muted-foreground">{t("codeReview.detail.emptyHint")}</p>
     </div>
   );
 }
@@ -260,6 +354,7 @@ function GitHubInboxDetail({
     <GitHubIssueDetailPanel
       key={key}
       input={input}
+      onSelectPullRequest={onSelectPullRequest}
       sendTargets={sendTargets}
       pageHost={pageHost}
       {...(onBack ? { onBack } : {})}
@@ -295,6 +390,8 @@ export function GitHubInbox({
   onSearchChange,
   sidechat,
   dockOpen: dockOpenProp,
+  githubUnavailable = false,
+  githubConnectionNotice,
 }: {
   search: GitHubInboxSearch;
   onSearchChange: (patch: GitHubInboxSearchPatch) => void;
@@ -302,8 +399,13 @@ export function GitHubInbox({
   sidechat?: GitHubInboxSidechatHost;
   /** Whether the route's Ask dock is open; the column fractions reset when it changes. */
   dockOpen?: boolean;
+  /** True when the route opened via connected external sources while GitHub CLI is not ready. */
+  githubUnavailable?: boolean;
+  /** Calm inline GitHub connection card shown while GitHub CLI is not ready. */
+  githubConnectionNotice?: ReactNode;
 }) {
   const { settings, updateSettings } = useAppSettings();
+  const { t, format } = useTranslation();
   const dockOpen = dockOpenProp ?? false;
   const isMobile = useIsMobile();
   const projects = useStore((store) => store.projects);
@@ -319,9 +421,10 @@ export function GitHubInbox({
   // Fetched before the filters resolve: whether "My GitHub" exists decides which persisted
   // project filters still apply. The list is one per state and sort either way.
   const persistedState = search.state ?? settings.githubInboxState;
-  const listQuery = useQuery(
-    githubInboxListQueryOptions(githubInboxListState(persistedState), settings.githubInboxSort),
-  );
+  const listQuery = useQuery({
+    ...githubInboxListQueryOptions(githubInboxListState(persistedState), settings.githubInboxSort),
+    enabled: !githubUnavailable,
+  });
   const personalListed = listQuery.data?.personalState === "loaded";
   const projectOptions = useMemo(
     () => [
@@ -344,6 +447,7 @@ export function GitHubInbox({
   const selection = githubInboxSelection(search);
   const listState = githubInboxListState(filters.state);
   const refreshMutation = useMutation(pullRequestsForceRefreshMutationOptions(queryClient));
+  const externalRefreshMutation = useMutation(issueSourcesForceRefreshMutationOptions(queryClient));
   const pinMutation = useMutation(pullRequestSetPinnedMutationOptions(queryClient));
   const activeActionCount = useIsMutating({
     mutationKey: pullRequestMutationKeys.action,
@@ -362,6 +466,17 @@ export function GitHubInbox({
     preferredProjectId: selection?.projectId,
   });
   const groups = groupVisibleInboxItems(entries);
+
+  // Linear and Jira issues sit under the GitHub rows while issues are in view.
+  const linearIssues = useExternalIssues("linear", filters, deferredQuery);
+  const jiraIssues = useExternalIssues("jira", filters, deferredQuery);
+  const externalSources = [linearIssues, jiraIssues];
+  const externalSelection = parseExternalSelection(search.external);
+  const selectExternalIssue = (issue: ExternalIssue) =>
+    onSearchChange({
+      ...CLEARED_GITHUB_INBOX_SELECTION,
+      external: formatExternalSelection({ source: issue.source, id: issue.id }),
+    });
   // While searching, every section opens so a match is never hidden behind a fold.
   const expandedSections: ReadonlyArray<PullRequestListGroupKey> =
     settings.githubInboxExpandedSections ?? DEFAULT_EXPANDED_INBOX_SECTIONS;
@@ -392,7 +507,6 @@ export function GitHubInbox({
   ).length;
   const inventoryIncomplete = scopedErrors.length > 0 || listData?.repositoryState === "incomplete";
   const noRemote = listData?.repositoryState === "none";
-  const noun = githubInboxItemNoun(filters.kind);
 
   // ── Filters: a change persists and drops that filter's one-visit URL override ──
   const setKind = (kind: GitHubInboxKindFilter) => {
@@ -430,34 +544,60 @@ export function GitHubInbox({
   const togglePinned = (item: GitHubInboxItem) => {
     for (const input of pullRequestPinToggleInputs(item)) {
       pinMutation.mutate(input, {
-        onError: (error) =>
+        onError: () =>
           toastManager.add({
             type: "error",
-            title: "Could not update pin",
-            description: error instanceof Error ? error.message : "The pin could not be saved.",
+            title: t("codeReview.pin.failed"),
+            description: t("codeReview.pin.failedDetail"),
           }),
       });
     }
   };
-  const refreshBlockedReason = refreshMutation.isPending
-    ? "Refreshing…"
+  const isRefreshing = refreshMutation.isPending || externalRefreshMutation.isPending;
+  const refreshBlockedReason = isRefreshing
+    ? t("codeReview.refreshing")
     : activeActionCount > 0
-      ? "Wait for the pull request action to finish"
+      ? t("codeReview.refresh.blockedAction")
       : null;
   const refresh = () => {
     if (refreshBlockedReason !== null) return;
-    refreshMutation.mutate(
-      { state: listState, sort: settings.githubInboxSort },
-      {
-        onError: (error) =>
+    const externalTargets = externalSources
+      .filter((source) => source.countable && source.teamIds.length > 0)
+      .map((source) => ({
+        source: source.source,
+        state: source.listState,
+        teamIds: source.teamIds,
+      }));
+    for (const source of externalSources) {
+      if (source.statusState === "failed") {
+        void queryClient.invalidateQueries({
+          queryKey: issueSourcesQueryKeys.status(source.source),
+        });
+      }
+    }
+    if (externalTargets.length > 0) {
+      externalRefreshMutation.mutate(externalTargets, {
+        onError: () =>
           toastManager.add({
             type: "error",
-            title: "Could not refresh code review",
-            description:
-              error instanceof Error ? error.message : "Code review could not be refreshed.",
+            title: t("codeReview.refresh.failed"),
+            description: t("codeReview.refresh.failedDetail"),
           }),
-      },
-    );
+      });
+    }
+    if (!githubUnavailable) {
+      refreshMutation.mutate(
+        { state: listState, sort: settings.githubInboxSort },
+        {
+          onError: () =>
+            toastManager.add({
+              type: "error",
+              title: t("codeReview.refresh.failed"),
+              description: t("codeReview.refresh.failedDetail"),
+            }),
+        },
+      );
+    }
   };
   const projectById = new Map(repositoryProjects.map((project) => [project.id, project] as const));
   const projectIconFor = (projectId: ProjectId) => {
@@ -480,8 +620,9 @@ export function GitHubInbox({
   // A drag holds only for the dock state it happened in: opening or closing the chat returns the
   // columns to their fractions, as the dock itself re-pins to its share on open.
   const draggedListWidth = draggedList?.dockOpen === dockOpen ? draggedList : null;
-  const showList = !isMobile || selection === null;
-  const showDetail = !isMobile || selection !== null;
+  const hasSelection = selection !== null || externalSelection !== null;
+  const showList = !isMobile || !hasSelection;
+  const showDetail = !isMobile || hasSelection;
   // Narrow windows swap the list for the detail; going back returns focus to the row it opened.
   const goBackToList = () => {
     const rowToRestore = selection;
@@ -518,13 +659,39 @@ export function GitHubInbox({
 
   const reviewRequestsOnlyOpen =
     filters.involvement === "reviewRequested" && filters.state !== "open";
+  const externalMatchingCount = externalSources.reduce(
+    (sum, source) => sum + source.matching.length,
+    0,
+  );
+  const hasExternalData = externalSources.some((source) => source.result !== undefined);
+  const hasExternalSections = externalSources.some((source) => source.showSection);
+  const hasExternalPending = externalSources.some((source) => source.isPending);
+  const hasVisibleExternalContent = externalSources.some(
+    (source) => source.listed.length > 0 || source.error !== null,
+  );
+  const externalSectionNodes = externalSources.map((source) =>
+    source.showSection ? (
+      <ExternalIssueListSection
+        key={source.source}
+        source={source.source}
+        issues={source.listed}
+        selectedId={externalSelection?.source === source.source ? externalSelection.id : null}
+        failedTeamCount={source.result?.failedTeamIds.length ?? 0}
+        truncated={source.result?.truncated ?? false}
+        forceOpen={deferredQuery.length > 0}
+        error={source.error}
+        onRetry={source.refetch}
+        onSelect={selectExternalIssue}
+      />
+    ) : null,
+  );
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
       {showList ? (
         <section
           ref={columnRef}
-          aria-label="Code review list"
+          aria-label={t("codeReview.list.aria")}
           className={cn(
             "relative flex min-h-0 flex-col",
             isMobile ? "min-w-0 flex-1" : "min-w-[16rem] max-w-[calc(100%-18rem)] shrink-0",
@@ -547,16 +714,21 @@ export function GitHubInbox({
               query={query}
               kindCounts={
                 listData
-                  ? countInboxItemsByKind(listData.items, filters, {
-                      viewer: listData.viewer,
-                      normalizedQuery: deferredQuery,
-                      repositoryBatches: listData.repositoryBatches,
-                    })
-                  : null
+                  ? withExternalCount(
+                      countInboxItemsByKind(listData.items, filters, {
+                        viewer: listData.viewer,
+                        normalizedQuery: deferredQuery,
+                        repositoryBatches: listData.repositoryBatches,
+                      }),
+                      externalMatchingCount,
+                    )
+                  : hasExternalData
+                    ? { all: externalMatchingCount, pullRequest: 0, issue: externalMatchingCount }
+                    : null
               }
               projectOptions={projectOptions}
               labelOptions={labelOptions}
-              refreshing={refreshMutation.isPending}
+              refreshing={isRefreshing}
               refreshBlockedReason={refreshBlockedReason}
               onQueryChange={(value) => onSearchChange({ q: value || undefined })}
               onKindChange={setKind}
@@ -571,110 +743,164 @@ export function GitHubInbox({
           </div>
           <div className="@container/list min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-8">
             <div className="flex flex-col gap-3">
-              {listQuery.isPending ? (
-                <ListSkeleton />
-              ) : initialError ? (
-                <PullRequestsUnavailableState
-                  error={initialError}
-                  subject="Pull requests and issues"
-                  onRetry={() => void listQuery.refetch()}
-                />
-              ) : entries.length === 0 ? (
-                <Empty className="py-12">
-                  <EmptyHeader>
-                    <EmptyTitle>
-                      {repositoryProjects.length === 0 && listData?.personalState === "unavailable"
-                        ? "Couldn't read your GitHub items yet"
-                        : repositoryProjects.length === 0 && listData?.personalState === "loaded"
-                          ? activeFilterCount > 0
-                            ? `No ${noun} found`
-                            : "Nothing on GitHub needs you right now"
-                          : repositoryProjects.length === 0
-                            ? "No projects yet"
-                            : inventoryIncomplete && listData?.repositoryBatches.length === 0
-                              ? "Repositories could not be checked"
-                              : noRemote
-                                ? "No GitHub remote configured"
-                                : reviewRequestsOnlyOpen
-                                  ? "Review requests only apply to open pull requests"
-                                  : `No ${noun} found`}
-                    </EmptyTitle>
-                    <EmptyDescription>
-                      {repositoryProjects.length === 0 && listData?.personalState === "unavailable"
-                        ? "Select Try again to read them again."
-                        : repositoryProjects.length === 0 && listData?.personalState === "loaded"
-                          ? activeFilterCount > 0
-                            ? "Try another filter, or clear them."
-                            : "Pull requests and issues you opened, that await your review, or that are assigned to you show up here. Add a project to see everything in its repository."
-                          : repositoryProjects.length === 0
-                            ? "Code review lists pull requests and issues from the GitHub repositories of your projects."
-                            : inventoryIncomplete && listData?.repositoryBatches.length === 0
-                              ? "Retry to check the repositories that did not respond."
-                              : noRemote
-                                ? "Add a project with a GitHub.com remote, or configure a remote in an existing project."
-                                : reviewRequestsOnlyOpen
-                                  ? "Select Open to see pull requests awaiting your review."
-                                  : activeFilterCount > 0
-                                    ? "Try another filter, or clear them."
-                                    : "Nothing here in the repositories of your projects."}
-                    </EmptyDescription>
-                  </EmptyHeader>
-                  {activeFilterCount > 0 ? (
-                    <EmptyContent>
-                      <Button variant="outline" size="sm" onClick={clearFilters}>
-                        Clear filters
-                      </Button>
-                    </EmptyContent>
-                  ) : repositoryProjects.length === 0 &&
-                    listData?.personalState === "unavailable" ? (
-                    <EmptyContent>
-                      <Button variant="outline" size="sm" onClick={() => void listQuery.refetch()}>
-                        Try again
-                      </Button>
-                    </EmptyContent>
+              {githubUnavailable ? (
+                <>
+                  {hasExternalSections ? (
+                    externalSectionNodes
+                  ) : hasExternalPending ? (
+                    <ListSkeleton />
                   ) : null}
-                </Empty>
+                  {githubConnectionNotice}
+                </>
+              ) : listQuery.isPending ? (
+                hasExternalSections ? (
+                  externalSectionNodes
+                ) : (
+                  <ListSkeleton />
+                )
+              ) : initialError ? (
+                hasExternalSections ? (
+                  <>
+                    {externalSectionNodes}
+                    <GitHubInlineUnavailableNotice
+                      error={initialError}
+                      timestampFormat={settings.timestampFormat}
+                      onRetry={() => void listQuery.refetch()}
+                    />
+                  </>
+                ) : (
+                  <PullRequestsUnavailableState
+                    error={initialError}
+                    subject={t("codeReview.list.subject")}
+                    onRetry={() => void listQuery.refetch()}
+                  />
+                )
               ) : (
-                <PullRequestList
-                  sort={settings.githubInboxSort}
-                  groups={groups}
-                  isSectionOpen={isSectionOpen}
-                  onToggleSection={toggleSection}
-                  isSelected={(item) => isGitHubInboxItemSelected(item, selection)}
-                  showProjectTitle={filters.projectIds.length !== 1 && projectOptions.length > 1}
-                  projectIconFor={projectIconFor}
-                  onSelect={selectItem}
-                  onTogglePinned={togglePinned}
-                />
+                <>
+                  {entries.length === 0 && !hasVisibleExternalContent ? (
+                    <Empty className="py-12">
+                      <EmptyHeader>
+                        <EmptyTitle>
+                          {repositoryProjects.length === 0 &&
+                          listData?.personalState === "unavailable"
+                            ? t("codeReview.empty.personalUnavailable")
+                            : repositoryProjects.length === 0 &&
+                                listData?.personalState === "loaded"
+                              ? activeFilterCount > 0
+                                ? t(NO_ITEMS_KEYS[filters.kind])
+                                : t("codeReview.empty.nothingNeedsYou")
+                              : repositoryProjects.length === 0
+                                ? t("codeReview.empty.noProjects")
+                                : inventoryIncomplete && listData?.repositoryBatches.length === 0
+                                  ? t("codeReview.empty.uncheckedRepos")
+                                  : noRemote
+                                    ? t("codeReview.empty.noRemote")
+                                    : reviewRequestsOnlyOpen
+                                      ? t("codeReview.empty.reviewOnlyOpen")
+                                      : t(NO_ITEMS_KEYS[filters.kind])}
+                        </EmptyTitle>
+                        <EmptyDescription>
+                          {repositoryProjects.length === 0 &&
+                          listData?.personalState === "unavailable"
+                            ? t("codeReview.empty.retryPersonal")
+                            : repositoryProjects.length === 0 &&
+                                listData?.personalState === "loaded"
+                              ? activeFilterCount > 0
+                                ? t("codeReview.empty.tryOtherFilter")
+                                : t("codeReview.empty.personalHint")
+                              : repositoryProjects.length === 0
+                                ? t("codeReview.empty.noProjectsHint")
+                                : inventoryIncomplete && listData?.repositoryBatches.length === 0
+                                  ? t("codeReview.empty.uncheckedHint")
+                                  : noRemote
+                                    ? t("codeReview.empty.noRemoteHint")
+                                    : reviewRequestsOnlyOpen
+                                      ? t("codeReview.empty.reviewOnlyOpenHint")
+                                      : activeFilterCount > 0
+                                        ? t("codeReview.empty.tryOtherFilter")
+                                        : t("codeReview.empty.nothingHere")}
+                        </EmptyDescription>
+                      </EmptyHeader>
+                      {activeFilterCount > 0 ? (
+                        <EmptyContent>
+                          <Button variant="outline" size="sm" onClick={clearFilters}>
+                            {t("codeReview.filter.clearAll")}
+                          </Button>
+                        </EmptyContent>
+                      ) : repositoryProjects.length === 0 &&
+                        listData?.personalState === "unavailable" ? (
+                        <EmptyContent>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void listQuery.refetch()}
+                          >
+                            {t("codeReview.empty.retry")}
+                          </Button>
+                        </EmptyContent>
+                      ) : null}
+                    </Empty>
+                  ) : entries.length > 0 ? (
+                    <PullRequestList
+                      sort={settings.githubInboxSort}
+                      groups={groups}
+                      isSectionOpen={isSectionOpen}
+                      onToggleSection={toggleSection}
+                      isSelected={(item) => isGitHubInboxItemSelected(item, selection)}
+                      showProjectTitle={
+                        filters.projectIds.length !== 1 && projectOptions.length > 1
+                      }
+                      projectIconFor={projectIconFor}
+                      onSelect={selectItem}
+                      onTogglePinned={togglePinned}
+                    />
+                  ) : null}
+                  {externalSectionNodes}
+                </>
               )}
               {truncatedRepositoryCount > 0 ? (
                 <p className={cn(PR_FINE_TEXT_CLASS_NAME, "text-muted-foreground")}>
-                  {`${
+                  {`${format(
                     filters.state === "merged"
-                      ? "Showing merged pull requests from the 50"
-                      : "Showing the 50"
-                  } ${settings.githubInboxSort === "created" ? "newest" : "most recently updated"} ${
-                    filters.state === "merged" ? "closed pull requests" : noun
-                  } per repository. ${truncatedRepositoryCount} ${
-                    truncatedRepositoryCount === 1 ? "repository has" : "repositories have"
-                  } more on GitHub.`}
+                      ? "codeReview.truncated.merged"
+                      : "codeReview.truncated.items",
+                    {
+                      order: t(
+                        settings.githubInboxSort === "created"
+                          ? "codeReview.truncated.order.created"
+                          : "codeReview.truncated.order.updated",
+                      ),
+                      noun: t(NOUN_KEYS[filters.kind]),
+                    },
+                  )} ${format(
+                    truncatedRepositoryCount === 1
+                      ? "codeReview.truncated.moreOne"
+                      : "codeReview.truncated.moreMany",
+                    { count: truncatedRepositoryCount },
+                  )}`}
                 </p>
               ) : null}
               {rateLimitedError ? (
                 <PullRequestWarningNote shape="callout" role="status">
-                  {rateLimitedWarningText(rateLimitedError, settings.timestampFormat)}
+                  {rateLimitedWarningText(rateLimitedError, settings.timestampFormat, {
+                    t,
+                    format,
+                  })}
                 </PullRequestWarningNote>
               ) : null}
               {unavailableErrorCount > 0 ? (
                 <PullRequestWarningNote shape="callout">
-                  {`${unavailableErrorCount} project ${
-                    unavailableErrorCount === 1 ? "repository was" : "repositories were"
-                  } unavailable. Healthy repositories are still shown.`}
+                  {format(
+                    unavailableErrorCount === 1
+                      ? "codeReview.unavailable.one"
+                      : "codeReview.unavailable.many",
+                    { count: unavailableErrorCount },
+                  )}
                 </PullRequestWarningNote>
               ) : null}
               {backgroundError ? (
                 <PullRequestWarningNote shape="callout" role="status">
-                  The latest background refresh failed. Showing the last loaded items.
+                  {t("codeReview.backgroundFailed")}
                 </PullRequestWarningNote>
               ) : null}
             </div>
@@ -690,11 +916,18 @@ export function GitHubInbox({
       ) : null}
       {showDetail ? (
         <section
-          aria-label="Item details"
+          aria-label={t("codeReview.detail.aria")}
           // The detail's own parts pad for the chat dock; the page gives them more room.
           className={cn("flex min-h-0 min-w-0 flex-1 flex-col", !isMobile && "px-3 pt-2")}
         >
-          {selection ? (
+          {externalSelection ? (
+            <ExternalIssueDetailPanel
+              key={formatExternalSelection(externalSelection)}
+              source={externalSelection.source}
+              issueId={externalSelection.id}
+              {...(isMobile ? { onBack: goBackToList } : {})}
+            />
+          ) : selection ? (
             <GitHubInboxDetail
               selection={selection}
               sendTargets={githubInboxSendTargets(listData?.items ?? [], selection, filters)}

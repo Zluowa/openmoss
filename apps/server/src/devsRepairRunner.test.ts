@@ -11,6 +11,7 @@ import {
   type RepairCommand,
   type RepairRunnerConfig,
 } from "./devsRepairRunner";
+import { isRegressionTestPath } from "./devsRepairPaths";
 import { githubTransport } from "./devsTrustedGit";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 30_000 });
@@ -29,6 +30,7 @@ async function fixture() {
   const git = (args: string[]) => runRepairCommand("git", args, { cwd: source });
   await git(["init", "--initial-branch=main"]);
   await fs.writeFile(path.join(source, "bug.txt"), "broken\n");
+  await fs.writeFile(path.join(source, "bug.test.ts"), "// existing coverage\n");
   await git(["add", "."]);
   await git([
     "-c",
@@ -111,6 +113,7 @@ describe("trusted repair controller", () => {
               `type=bind,source=${path.join(options.cwd, ".git")},target=/workspace/.git,readonly`,
             );
             await fs.writeFile(path.join(options.cwd, "bug.txt"), "fixed\n");
+            await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
             await summary(options.cwd);
           }
           if (args.includes("test"))
@@ -157,7 +160,7 @@ describe("trusted repair controller", () => {
         ["show", "--name-only", "--format=", "HEAD"],
         { cwd },
       );
-      expect(committed.trim().split("\n")).toEqual(["bug.txt"]);
+      expect(committed.trim().split("\n")).toEqual(["bug.test.ts", "bug.txt"]);
       expect(JSON.stringify(agentEnv)).not.toContain(config.githubToken);
       expect(agentEnv?.[engine === "claude" ? "ANTHROPIC_API_KEY" : "CODEX_API_KEY"]).toBe(
         engine === "claude" ? config.claudeKey : config.codexKey,
@@ -181,6 +184,35 @@ describe("trusted repair controller", () => {
     expect(job.post).not.toHaveBeenCalled();
   });
   it.each([
+    ["changes no test", async (_cwd: string) => {}],
+    [
+      "only deletes a test",
+      async (cwd: string) => {
+        await fs.rm(path.join(cwd, "bug.test.ts"));
+      },
+    ],
+  ])("refuses a fix that %s before verification, push or PR", async (_label, touchTests) => {
+    const job = await runJob(async (cwd) => {
+      await fs.writeFile(path.join(cwd, "bug.txt"), "fixed\n");
+      await touchTests(cwd);
+      await summary(cwd);
+    });
+    await expect(job.result).rejects.toThrow("no regression test");
+    expect(job.pushed()).toBe(false);
+    expect(job.post).not.toHaveBeenCalled();
+  });
+  it("counts tests in any test folder or test file name as regression coverage", () => {
+    for (const name of [
+      "apps/web/src/lib/x.test.ts",
+      "apps/web/src/components/X.browser.tsx",
+      "packages/shared/src/__tests__/y.ts",
+      "apps\\server\\src\\z.spec.mjs",
+    ])
+      expect(isRegressionTestPath(name), name).toBe(true);
+    for (const name of ["apps/web/src/lib/x.ts", "docs/testing.md", "bug.txt"])
+      expect(isRegressionTestPath(name), name).toBe(false);
+  });
+  it.each([
     [".lfsconfig", "[lfs]\n\turl = http://127.0.0.1:9/lfs\n"],
     [".gitattributes", "*.bin filter=lfs diff=lfs merge=lfs -text\n"],
     ["nested/.gitattributes", "* filter=lfs\n"],
@@ -190,6 +222,7 @@ describe("trusted repair controller", () => {
   ])("refuses a planted %s before Git runs a filter, a hook or the push", async (name, text) => {
     const job = await runJob(async (cwd) => {
       await fs.writeFile(path.join(cwd, "bug.txt"), "fixed\n");
+      await fs.writeFile(path.join(cwd, "bug.test.ts"), "// fails without the fix\n");
       await fs.mkdir(path.dirname(path.join(cwd, name)), { recursive: true });
       await fs.writeFile(path.join(cwd, name), text);
       await fs.writeFile(path.join(cwd, "payload.bin"), "binary");
@@ -204,6 +237,7 @@ describe("trusted repair controller", () => {
     let agentDone = false;
     const job = await runJob(async (cwd) => {
       await fs.writeFile(path.join(cwd, "bug.txt"), "fixed\n");
+      await fs.writeFile(path.join(cwd, "bug.test.ts"), "// fails without the fix\n");
       await fs.appendFile(
         path.join(cwd, ".git", "config"),
         '\n[filter "evil"]\n\tclean = node -e "process.exit(1)"\n[include]\n\tpath = ../evil.config\n',
@@ -223,6 +257,7 @@ describe("trusted repair controller", () => {
   it("refuses links and nested repositories the agent created", async () => {
     const job = await runJob(async (cwd) => {
       await fs.writeFile(path.join(cwd, "bug.txt"), "fixed\n");
+      await fs.writeFile(path.join(cwd, "bug.test.ts"), "// fails without the fix\n");
       await fs.mkdir(path.join(cwd, "nested"));
       await runRepairCommand("git", ["init", "-q"], { cwd: path.join(cwd, "nested") });
       await fs.writeFile(path.join(cwd, "nested", "file.txt"), "x");
@@ -237,6 +272,7 @@ describe("trusted repair controller", () => {
       if (file === "docker") {
         if (args.includes("-i")) {
           await fs.writeFile(path.join(options.cwd, "bug.txt"), "fixed\n");
+          await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
           await summary(options.cwd);
         }
         return "";
@@ -282,6 +318,7 @@ describe("trusted repair controller", () => {
         expect(options.env!.CODEX_API_KEY).toBeUndefined();
         expect(options.env!.CODEX_THREAD_ID).toBeUndefined();
         await fs.writeFile(path.join(options.cwd, "bug.txt"), "fixed\n");
+        await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
         await summary(options.cwd, "Reproduced and fixed; regression passed.\n");
         return "";
       }
@@ -382,6 +419,7 @@ describe("trusted repair controller", () => {
       if (file === "docker") {
         if (args.includes("-i")) {
           await fs.writeFile(path.join(options.cwd, "bug.txt"), "still broken\n");
+          await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
           await summary(options.cwd, "Attempted fixture fix.\n");
         }
         if (args.includes("test")) throw new Error("regression failed");
@@ -418,6 +456,7 @@ describe("trusted repair controller", () => {
       expect(["bun", "docker", "node"]).not.toContain(file);
       if (file === "local-codex") {
         await fs.writeFile(path.join(options.cwd, "bug.txt"), "fixed\n");
+        await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
         await summary(options.cwd, "Local commands unavailable; checks run by the controller.\n");
         return "";
       }

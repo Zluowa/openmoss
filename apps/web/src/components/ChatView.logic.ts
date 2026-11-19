@@ -1418,6 +1418,8 @@ export interface LocalDispatchSnapshot {
       : null
     : null;
   sessionUpdatedAt: string | null;
+  /** Thread error already present before this send (e.g. clicking Continue after a failed turn). */
+  initialThreadError?: string | null;
 }
 
 export function createLocalDispatchSnapshot(
@@ -1438,6 +1440,7 @@ export function createLocalDispatchSnapshot(
     latestTurnCompletedAt: latestTurn?.completedAt ?? null,
     sessionOrchestrationStatus: session?.orchestrationStatus ?? null,
     sessionUpdatedAt: session?.updatedAt ?? null,
+    initialThreadError: activeThread?.error ?? null,
   };
 }
 
@@ -1477,6 +1480,27 @@ export function resolveNextLocalDispatchSnapshot(input: {
       };
 }
 
+function hasNewThreadErrorSinceLocalDispatch(input: {
+  localDispatch: LocalDispatchSnapshot;
+  threadError: string | null | undefined;
+  session: Thread["session"] | null;
+}): boolean {
+  if (!input.threadError) {
+    return false;
+  }
+  const initialThreadError = input.localDispatch.initialThreadError ?? null;
+  if (initialThreadError === null || input.threadError !== initialThreadError) {
+    return true;
+  }
+  // Retrying/continuing from an already-errored thread carries the previous
+  // turn's error on frame 1; only treat it as a failure of this dispatch once
+  // the session records a newer error update.
+  return (
+    input.session?.orchestrationStatus === "error" &&
+    (input.session.updatedAt ?? null) !== input.localDispatch.sessionUpdatedAt
+  );
+}
+
 export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
   phase: SessionPhase;
@@ -1497,7 +1521,11 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.hasPendingUserInput ||
     (input.localDispatch.expectedUserMessageId !== null &&
       input.claudeCacheReview?.messageId === input.localDispatch.expectedUserMessageId) ||
-    Boolean(input.threadError)
+    hasNewThreadErrorSinceLocalDispatch({
+      localDispatch: input.localDispatch,
+      threadError: input.threadError,
+      session: input.session,
+    })
   ) {
     return true;
   }
@@ -1619,13 +1647,36 @@ export function hasLiveTurnTakenOver(input: {
   if (!input.localDispatch) {
     return false;
   }
-  if (input.phase === "running" || input.phase === "connecting") {
+  // Session startup (`connecting`) is not turn takeover: providers like Codex
+  // emit `session/ready` + `thread/started` (`phase: "ready"`) after connecting
+  // and before `turn/started` (`phase: "running"`). Keeping `localDispatch` alive
+  // until the turn actually starts (or stops/fails) prevents the working UI and
+  // Stop button from vanishing during that gap.
+  if (input.phase === "running") {
     return true;
   }
   if (input.session?.activeTurnId != null) {
     return true;
   }
-  if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
+  if (
+    input.hasPendingApproval ||
+    input.hasPendingUserInput ||
+    hasNewThreadErrorSinceLocalDispatch({
+      localDispatch: input.localDispatch,
+      threadError: input.threadError,
+      session: input.session,
+    })
+  ) {
+    return true;
+  }
+  const sessionChangedSinceDispatch =
+    (input.session?.updatedAt ?? null) !== input.localDispatch.sessionUpdatedAt ||
+    (input.session?.orchestrationStatus ?? null) !== input.localDispatch.sessionOrchestrationStatus;
+  if (
+    sessionChangedSinceDispatch &&
+    (input.session?.orchestrationStatus === "interrupted" ||
+      input.session?.orchestrationStatus === "stopped")
+  ) {
     return true;
   }
   if (

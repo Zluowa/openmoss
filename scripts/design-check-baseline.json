@@ -241,9 +241,6 @@
   "apps/web/src/components/chat/InlineVisualTable.tsx": {
     "raw-button": 2
   },
-  "apps/web/src/components/chat/McpAppCard.tsx": {
-    "size-radius": 1
-  },
   "apps/web/src/components/chat/McpToolResultDetails.tsx": {
     "raw-button": 1
   },
@@ -511,14 +508,8 @@
   "apps/web/src/components/kanban/KanbanCardView.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/kanban/KanbanColumn.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/kanban/KanbanOverview.tsx": {
-    "raw-button": 2
-  },
-  "apps/web/src/components/kanban/KanbanStatusIcon.tsx": {
-    "hex-color": 2
+    "raw-button": 1
   },
   "apps/web/src/components/LocalMediaPreview.tsx": {
     "hex-color": 10
@@ -588,9 +579,6 @@
   "apps/web/src/components/MossLibrarySurface.tsx": {
     "hex-color": 8,
     "raw-button": 16
-  },
-  "apps/web/src/components/OneTimeCoachmark.tsx": {
-    "heavy-weight": 1
   },
   "apps/web/src/components/pages/chrome/BottomComposer.tsx": {
     "arbitrary-shadow": 1,
@@ -684,10 +672,6 @@
     "size-radius": 1,
     "raw-button": 3
   },
-  "apps/web/src/components/ProjectSidebarIcon.tsx": {
-    "arbitrary-radius": 1,
-    "arbitrary-shadow": 1
-  },
   "apps/web/src/components/providerUpdates/RailUpdateControl.tsx": {
     "arbitrary-shadow": 1,
     "raw-button": 3
@@ -696,7 +680,6 @@
     "raw-button": 1
   },
   "apps/web/src/components/pullRequest/GitHubItemHeader.tsx": {
-    "arbitrary-font-size": 1,
     "heavy-weight": 1
   },
   "apps/web/src/components/pullRequest/GitHubItemInfo.tsx": {
@@ -707,9 +690,6 @@
   },
   "apps/web/src/components/pullRequest/PullRequestAvatar.tsx": {
     "arbitrary-font-size": 1
-  },
-  "apps/web/src/components/pullRequest/PullRequestCommentCard.tsx": {
-    "raw-button": 1
   },
   "apps/web/src/components/pullRequest/PullRequestRow.tsx": {
     "raw-button": 2
@@ -741,12 +721,6 @@
     "arbitrary-radius": 1,
     "raw-button": 1
   },
-  "apps/web/src/components/settings/AppSnapIllustration.tsx": {
-    "hex-color": 1
-  },
-  "apps/web/src/components/settings/AppSnapShortcutControl.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/settings/ComputerHistoryIcons.tsx": {
     "hex-color": 23
   },
@@ -760,9 +734,6 @@
     "arbitrary-shadow": 1,
     "heavy-weight": 2,
     "raw-button": 9
-  },
-  "apps/web/src/components/settings/ComputerSettingsPanel.tsx": {
-    "arbitrary-radius": 1
   },
   "apps/web/src/components/settings/ErrorReportsSettingsSection.tsx": {
     "raw-button": 1
@@ -868,13 +839,10 @@
     "raw-button": 2
   },
   "apps/web/src/components/space/SpaceSidebar.tsx": {
-    "raw-button": 6
+    "raw-button": 5
   },
   "apps/web/src/components/space/SpaceTrash.tsx": {
     "raw-button": 1
-  },
-  "apps/web/src/components/spaceTypes/sheet/sheetEngine.ts": {
-    "hex-color": 1
   },
   "apps/web/src/components/spaceTypes/slides/DeckViewer.tsx": {
     "arbitrary-radius": 2,
@@ -908,9 +876,6 @@
     "raw-button": 1
   },
   "apps/web/src/components/tasks/TaskRowTitle.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/tasks/TasksView.tsx": {
     "raw-button": 1
   },
   "apps/web/src/components/terminal/terminalRuntimeAppearance.ts": {

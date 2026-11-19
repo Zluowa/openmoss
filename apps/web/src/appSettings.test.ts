@@ -29,6 +29,7 @@ import {
   getCodexProviderDiscoveryOptions,
   getCustomBinaryPathForProvider,
   getCustomBinaryPathForProviderInstance,
+  getDefaultAppSnapShortcut,
   getDefaultNativeFontSmoothing,
   getCustomModelsByProvider,
   getCustomModelsForProviderInstance,
@@ -760,6 +761,13 @@ describe("normalizeStoredAppSettings", () => {
     expect(getDefaultNativeFontSmoothing("MacIntel")).toBe(true);
     expect(getDefaultNativeFontSmoothing("Win32")).toBe(false);
     expect(getDefaultNativeFontSmoothing("Linux x86_64")).toBe(false);
+    expect(getDefaultAppSnapShortcut("Win32")).toEqual({
+      kind: "key-chord",
+      modifier: "option",
+      extraModifiers: ["shift"],
+      key: "KeyS",
+    });
+    expect(getDefaultAppSnapShortcut("MacIntel")).toEqual({ kind: "both-option-keys" });
   });
 
   it("uses the current platform default for existing settings without a stored value", () => {
@@ -2551,7 +2559,7 @@ describe("AppSettingsSchema", () => {
       desktopAppIcon: "default",
       useCustomTitleBar: true,
       enableAppSnap: false,
-      appSnapShortcut: { kind: "both-option-keys" },
+      appSnapShortcut: getDefaultAppSnapShortcut(),
       appSnapPlaySound: true,
       enableAssistantStreaming: true,
       followUpBehavior: DEFAULT_FOLLOW_UP_BEHAVIOR,

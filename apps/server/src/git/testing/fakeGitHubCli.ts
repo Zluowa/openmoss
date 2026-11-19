@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 
 import { Effect, Semaphore } from "effect";
 import type {
+  GitHubIssueCandidates,
   GitPullRequestCheck,
   GitPullRequestComment,
   PullRequestMergeCapabilities,
@@ -70,6 +71,7 @@ export interface FakeGhScenario {
   viewerInboxError?: GitHubCliError;
   repositoryInboxItems?: Record<number, GitHubRepositoryInboxLookup>;
   issueDetail?: GitHubIssueDetailData;
+  issueCandidates?: GitHubIssueCandidates;
   pullRequestDetail?: GitHubPullRequestDetailData;
   pullRequestStack?: PullRequestStack | null;
   mergeCapabilities?: PullRequestMergeCapabilities;
@@ -365,6 +367,19 @@ export function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
       commentOnIssue: (input) => {
         ghCalls.push(`issue comment ${input.number} --repo ${input.repository}`);
         return scenario.failWith ? Effect.fail(scenario.failWith) : Effect.void;
+      },
+      updateIssue: (input) => {
+        ghCalls.push(
+          `api PATCH repos/${input.repository}/issues/${input.number} ${input.update.op}`,
+        );
+        return scenario.failWith ? Effect.fail(scenario.failWith) : Effect.void;
+      },
+      getIssueCandidates: (input) => {
+        ghCalls.push(`api graphql issue candidates ${input.repository}`);
+        if (scenario.failWith) return Effect.fail(scenario.failWith);
+        return Effect.succeed(
+          scenario.issueCandidates ?? { labels: [], assignees: [], truncated: false },
+        );
       },
       getPullRequestDetail: (input) => {
         ghCalls.push(`pr view ${input.number} --repo ${input.repository}`);

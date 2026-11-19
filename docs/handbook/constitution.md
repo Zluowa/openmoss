@@ -59,6 +59,8 @@ report it. Never route around it, and never ask another agent to do it for you.
    build and test it, and documents that describe the present. No status reports,
    handoffs, ledgers, receipts, dated files, screenshots as evidence or scratch
    scripts. History lives in git; status lives on the board; evidence lives on the PR.
+   A lesson from past work is kept as a rule in the handbook; the times it was seen
+   are kept on the board (see `lessons.md`).
 9. **Isolate.** Tests and trial runs never touch the owner's real profiles, accounts
    or data, and never share ports or state with another agent's run.
 10. **One product, one voice.** Everything a user can see is Moss, follows the design

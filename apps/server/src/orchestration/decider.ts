@@ -2002,16 +2002,23 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.archive": {
-      yield* requireSidebarOrderAdmission({
-        readModel,
-        command,
-        expectedRevision: command.expectedSidebarOrderRevision,
-      });
-      const rootThread = yield* requireThreadNotArchived({
+      // Archiving removes the thread from its current server-side placement and
+      // advances sidebarOrderRevision against the authoritative read model; a
+      // stale client sidebar revision must never block archiving.
+      const rootThread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
+      // Clicking archive twice (or racing another client) is idempotent: return
+      // a no-op receipt at the current revision instead of emitting duplicate
+      // events or rejecting with a revision conflict.
+      if (rootThread.archivedAt != null) {
+        return {
+          _tag: "SidebarOrderNoopDecision",
+          sidebarOrderRevision: sidebarOrderRevisionOrZero(readModel.sidebarOrderRevision),
+        } satisfies SidebarOrderNoopDecision;
+      }
       const occurredAt = nowIso();
       // Subagent threads are only reachable through their parent, so archiving a
       // thread archives its still-active subagent subtree with it. The commanded
@@ -2173,11 +2180,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.unarchive": {
-      yield* requireSidebarOrderAdmission({
-        readModel,
-        command,
-        expectedRevision: command.expectedSidebarOrderRevision,
-      });
+      // Restoring reads server-stored provenance and validates section
+      // incarnation and capacity against the current authoritative read model,
+      // then advances sidebarOrderRevision; a stale client revision must never
+      // block restoring a thread.
       const rootThread = yield* requireThreadArchived({
         readModel,
         command,

@@ -1,8 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  markAppSnapCaptureArrived,
+  resetAppSnapArrivalStateForTests,
+} from "../../lib/appSnapArrival";
 import type { ComposerImageSource } from "../../lib/composerImageSource";
 import { ComposerImageAttachmentChip } from "./ComposerImageAttachmentChip";
+
+afterEach(() => {
+  resetAppSnapArrivalStateForTests();
+});
 
 describe("ComposerImageAttachmentChip", () => {
   it("deduplicates provenance when the window title echoes the app name", () => {
@@ -70,5 +78,38 @@ describe("ComposerImageAttachmentChip", () => {
     expect(markup).toContain("w-52");
     expect(markup).toContain("Preview AppSnap from Safari");
     expect(markup).toContain("Moss / Safari");
+    expect(markup).not.toContain("appsnap-chip-enter");
+  });
+
+  it("animates freshly arrived live AppSnap cards without animating hydrated captures", () => {
+    markAppSnapCaptureArrived("capture-fresh");
+    const freshSnap = {
+      id: "appsnap-fresh",
+      type: "image" as const,
+      name: "appsnap.png",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+      previewUrl: "blob:appsnap-fresh",
+      file: new File(["image"], "appsnap.png", { type: "image/png" }),
+      source: {
+        kind: "appsnap" as const,
+        captureId: "capture-fresh",
+        capturedAt: "2026-11-19T12:00:00.000Z",
+        appName: "Chrome",
+        windowTitle: "Docs",
+      },
+    };
+    const markup = renderToStaticMarkup(
+      <ComposerImageAttachmentChip
+        image={freshSnap}
+        images={[freshSnap]}
+        nonPersisted={false}
+        onExpandImage={() => {}}
+        onRemoveImage={() => {}}
+      />,
+    );
+
+    expect(markup).toContain("appsnap-chip-enter");
+    expect(markup).toContain('data-appsnap-entering="true"');
   });
 });

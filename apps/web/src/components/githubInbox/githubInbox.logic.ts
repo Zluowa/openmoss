@@ -56,6 +56,8 @@ export interface GitHubInboxSearch {
   selectedProjectId?: ProjectId;
   selectedRepo?: string;
   number?: number;
+  /** A selected Linear or Jira issue, as `<source>:<id>`; excludes the GitHub selection. */
+  external?: string;
 }
 
 export type GitHubInboxSearchPatch = {
@@ -103,6 +105,7 @@ export function parseGitHubInboxSearch(raw: Record<string, unknown>): GitHubInbo
     typeof raw.number === "number" && Number.isInteger(raw.number) && raw.number > 0
       ? raw.number
       : undefined;
+  const external = nonEmptyString(raw.external)?.slice(0, 512);
   return compactGitHubInboxSearch({
     type,
     state,
@@ -113,6 +116,7 @@ export function parseGitHubInboxSearch(raw: Record<string, unknown>): GitHubInbo
     selectedProjectId,
     selectedRepo,
     number,
+    external,
   });
 }
 
@@ -140,6 +144,7 @@ export const CLEARED_GITHUB_INBOX_SELECTION = {
   selectedProjectId: undefined,
   selectedRepo: undefined,
   number: undefined,
+  external: undefined,
 } as const satisfies GitHubInboxSearchPatch;
 
 export interface GitHubInboxSelection extends Pick<
@@ -173,6 +178,7 @@ export function githubInboxSelectionForItem(
     selectedProjectId: item.projectId,
     selectedRepo: item.repository,
     number: item.number,
+    external: undefined,
   };
 }
 
@@ -559,11 +565,4 @@ export function inboxErrorsInScope(
   filters: Pick<GitHubInboxFilters, "projectIds">,
 ): GitHubInboxListError[] {
   return errors.filter((error) => inProjectScope([error.projectId], filters.projectIds));
-}
-
-/** How the list names what it holds, for empty states and notes. */
-export function githubInboxItemNoun(kind: GitHubInboxKindFilter): string {
-  if (kind === "pullRequest") return "pull requests";
-  if (kind === "issue") return "issues";
-  return "pull requests and issues";
 }

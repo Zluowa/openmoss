@@ -16,6 +16,7 @@ import type {
 } from "@moss/contracts";
 import {
   APPROVAL_ALREADY_ANSWERED_INVARIANT_MARKER,
+  THREAD_ALREADY_ARCHIVED_INVARIANT_MARKER,
   THREAD_NOT_ARCHIVED_INVARIANT_MARKER,
 } from "@moss/shared/errorMessages";
 import {
@@ -444,7 +445,7 @@ export function requireThreadNotArchived(input: {
         : Effect.fail(
             invariantError(
               input.command.type,
-              `Thread '${input.threadId}' is already archived and cannot handle command '${input.command.type}'.`,
+              `Thread '${input.threadId}' ${THREAD_ALREADY_ARCHIVED_INVARIANT_MARKER} '${input.command.type}'.`,
             ),
           ),
     ),

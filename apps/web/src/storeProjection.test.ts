@@ -5,6 +5,8 @@ import {
   EventId,
   MessageId,
   ProjectId,
+  SidebarOrderRevision,
+  SidebarSectionItemKey,
   SpaceId,
   ThreadId,
   TurnId,
@@ -2505,6 +2507,44 @@ describe("resume cursor lifecycle in projection transitions", () => {
     const state = makeStateWithCursor();
     applyShellEvent(state, { kind: "thread-removed", sequence: 50, threadId });
     expect(hasThreadDetailResumeCursor(threadId)).toBe(false);
+  });
+
+  it("updates sidebarOrderRevision and sidebarOrderItems from thread-removed and syncServerReadModel", () => {
+    const survivingId = ThreadId.makeUnsafe("thread-surviving-order");
+    const now = "2026-11-19T12:00:00.000Z";
+    const orderItems = [
+      {
+        key: SidebarSectionItemKey.makeUnsafe(`thread:${survivingId}`),
+        itemType: "thread" as const,
+        destination: "default" as const,
+        sectionId: null,
+        sectionCreatedAt: null,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    const initial = makeState(makeThread({ id: threadId, projectId }));
+    const afterRemove = applyShellEvent(initial, {
+      kind: "thread-removed",
+      sequence: 50,
+      threadId,
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(2),
+      sidebarOrderMigrationState: "ready",
+      sidebarOrderItems: orderItems,
+    });
+    expect(afterRemove.sidebarOrderRevision).toBe(2);
+    expect(afterRemove.sidebarOrderItems).toEqual(orderItems);
+
+    const afterReadModel = syncServerReadModel(afterRemove, {
+      ...makeReadModel(makeReadModelThread({ id: survivingId, projectId })),
+      snapshotSequence: 60,
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(3),
+      sidebarOrderMigrationState: "ready",
+      sidebarOrderItems: orderItems,
+    });
+    expect(afterReadModel.sidebarOrderRevision).toBe(3);
+    expect(afterReadModel.sidebarOrderItems).toEqual(orderItems);
   });
 
   it("clears the cursor when a shell snapshot prunes the thread", () => {

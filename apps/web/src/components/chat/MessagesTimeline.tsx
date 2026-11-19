@@ -128,6 +128,7 @@ import {
 } from "./transcript/cards/transcriptCards";
 import { stripReplyMarkers } from "./transcript/replyQuote";
 import { isWrapUpTimelineEntry, resolveWrapUpPlan } from "./transcript/wrapUpPlan";
+import { isAgentFeedbackToolName } from "~/lib/toolCallLabel";
 import { WrapUpLiveBox, WrapUpSettledCard } from "./transcript/WrapUpBox";
 import { ChapterHeading } from "./transcript/ChapterHeading";
 import { RewindMarker } from "./transcript/RewindMarker";
@@ -771,15 +772,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         );
       }
     : undefined;
-  // moss_wrap_up never shows as a tool row: it draws the turn-end box instead.
+  // moss_wrap_up draws the turn-end box instead; moss_report_friction stays out of the chat.
   const wrapUpPlan = useMemo(() => resolveWrapUpPlan(rawTimelineEntries), [rawTimelineEntries]);
-  const timelineEntries = useMemo(
-    () =>
-      rawTimelineEntries.some(isWrapUpTimelineEntry)
-        ? rawTimelineEntries.filter((entry) => !isWrapUpTimelineEntry(entry))
-        : rawTimelineEntries,
-    [rawTimelineEntries],
-  );
+  const timelineEntries = useMemo(() => {
+    const isHiddenToolEntry = (entry: (typeof rawTimelineEntries)[number]) =>
+      isWrapUpTimelineEntry(entry) ||
+      (entry.kind === "work" && isAgentFeedbackToolName(entry.entry.toolName));
+    return rawTimelineEntries.some(isHiddenToolEntry)
+      ? rawTimelineEntries.filter((entry) => !isHiddenToolEntry(entry))
+      : rawTimelineEntries;
+  }, [rawTimelineEntries]);
   // The marker stays only while the kept message is still the transcript's tail.
   const lastTimelineMessageId = useMemo(() => {
     for (let index = rawTimelineEntries.length - 1; index >= 0; index -= 1) {

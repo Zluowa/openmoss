@@ -4,13 +4,13 @@
 //          same label as the detail header), the relative time, and the number muted at the
 //          end. A sibling pin control never opens the detail.
 // Layer: Pull request presentation
-// Exports: PullRequestRow, githubInboxItemLabel
+// Exports: PullRequestRow
 
 import type { GitHubInboxItem, GitHubInboxSort } from "@moss/contracts";
 import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
 import type { ReactNode } from "react";
 
-import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
+import { PinStatusIcon } from "~/lib/pin";
 import { formatTimeAgo } from "~/lib/timeFormat";
 import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
@@ -25,10 +25,6 @@ import { GitHubItemStateGlyph } from "./PullRequestStateGlyph";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 /** How a row names its item in accessible labels: "pull request #42", "issue #7". */
-export function githubInboxItemLabel(item: Pick<GitHubInboxItem, "kind" | "number">): string {
-  return `${item.kind === "issue" ? "issue" : "pull request"} #${item.number}`;
-}
-
 export const PullRequestRow = function PullRequestRow({
   entry,
   sort = "created",
@@ -48,19 +44,25 @@ export const PullRequestRow = function PullRequestRow({
   onClick: (entry: GitHubInboxItem) => void;
   onTogglePinned: (entry: GitHubInboxItem) => void;
 }) {
-  const { locale } = useTranslation();
+  const { locale, t, format } = useTranslation();
   const showProjectTitle = showProjectTitleProp ?? false;
   const timestamp = sort === "created" ? entry.createdAt : entry.updatedAt;
   const isPinned = entry.isPinned === true;
   const projectContexts = pullRequestListProjectContexts(entry);
   const projectLabel =
-    projectContexts.length > 1 ? `${projectContexts.length} projects` : entry.projectTitle;
+    projectContexts.length > 1
+      ? format("codeReview.row.projects", { count: projectContexts.length })
+      : entry.projectTitle;
   const projectTitle = projectContexts.map((context) => context.projectTitle).join(", ");
-  const itemLabel = githubInboxItemLabel(entry);
-  const pinLabel = pinActionLabel(
-    showProjectTitle ? `${itemLabel} in ${projectLabel}` : itemLabel,
-    isPinned,
+  const itemLabel = format(
+    entry.kind === "issue" ? "codeReview.item.issue" : "codeReview.item.pullRequest",
+    { number: entry.number },
   );
+  const pinLabel = format(isPinned ? "codeReview.pin.unpin" : "codeReview.pin.pin", {
+    target: showProjectTitle
+      ? format("codeReview.item.inProject", { item: itemLabel, project: projectLabel })
+      : itemLabel,
+  });
   return (
     <div
       className={cn(
@@ -116,7 +118,7 @@ export const PullRequestRow = function PullRequestRow({
           </span>
           <time
             dateTime={timestamp}
-            title={sort === "created" ? "Opened" : "Updated"}
+            title={t(sort === "created" ? "codeReview.row.opened" : "codeReview.row.updated")}
             className="shrink-0 tabular-nums"
           >
             {formatTimeAgo(timestamp, { locale })}

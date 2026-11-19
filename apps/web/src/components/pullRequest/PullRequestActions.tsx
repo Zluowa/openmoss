@@ -19,6 +19,7 @@ import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "~/compon
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { ChatBubbleIcon, HammerIcon, LinkIcon, LoaderIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation, type TranslationKey } from "~/localization";
 import { SendToAgentMenuItems, type GitHubItemSendTarget } from "./GitHubItemAgentActions";
 import { copyPullRequestLink } from "./PullRequestConfirmActionDialog";
 import { PR_STATE_PRESENTATION_ICONS } from "./pullRequestStatePresentation";
@@ -91,11 +92,12 @@ export function PullRequestPrimaryButton({
   /** On the words only, so a narrow host can keep just the glyph (e.g. `sr-only` there). */
   labelClassName?: string;
 }) {
+  const { t } = useTranslation();
   if (action.kind === "ready") {
     return (
       <Button size={size} className={className} disabled={disabled} onClick={onReady}>
         <OpenIcon />
-        <span className={labelClassName}>Ready for review</span>
+        <span className={labelClassName}>{t("codeReview.pr.readyForReview")}</span>
       </Button>
     );
   }
@@ -103,14 +105,16 @@ export function PullRequestPrimaryButton({
   const label = merging ? (
     <>
       <LoaderIcon className="size-4 animate-spin" />
-      <span className={labelClassName}>{stacked ? "Merging stack…" : "Merging…"}</span>
+      <span className={labelClassName}>
+        {t(stacked ? "codeReview.pr.mergingStack" : "codeReview.pr.merging")}
+      </span>
     </>
   ) : (
     <>
       <MergeIcon />
       {stacked ? (
         <>
-          <span className={labelClassName}>Merge stack</span>
+          <span className={labelClassName}>{t("codeReview.pr.mergeStack")}</span>
           <span
             className={cn(
               "rounded-full px-1.5 text-ui-xs tabular-nums",
@@ -121,7 +125,7 @@ export function PullRequestPrimaryButton({
           </span>
         </>
       ) : (
-        <span className={labelClassName}>Merge</span>
+        <span className={labelClassName}>{t("codeReview.pr.merge")}</span>
       )}
     </>
   );
@@ -164,6 +168,7 @@ export function PullRequestDraftStateItems({
   disabled: boolean;
   onChange: (next: "draft" | "ready") => void;
 }) {
+  const { t } = useTranslation();
   return (
     <MenuRadioGroup
       value={isDraft ? "draft" : "ready"}
@@ -175,15 +180,21 @@ export function PullRequestDraftStateItems({
     >
       <MenuRadioItem value="draft" disabled={disabled}>
         <DraftIcon className={MENU_ICON_CLASS_NAME} />
-        <span>Draft</span>
+        <span>{t("codeReview.stateWord.draft")}</span>
       </MenuRadioItem>
       <MenuRadioItem value="ready" disabled={disabled}>
         <OpenIcon className={MENU_ICON_CLASS_NAME} />
-        <span>Ready for review</span>
+        <span>{t("codeReview.pr.readyForReview")}</span>
       </MenuRadioItem>
     </MenuRadioGroup>
   );
 }
+
+const MERGE_METHOD_KEYS: Record<PullRequestMergeMethod, TranslationKey> = {
+  merge: "codeReview.mergeMethod.merge",
+  squash: "codeReview.mergeMethod.squash",
+  rebase: "codeReview.mergeMethod.rebase",
+};
 
 /** Which hand-off to a new thread is being prepared. */
 export type PreparingThreadAction = "send" | "findings" | "conflicts" | null;
@@ -231,6 +242,7 @@ export function PullRequestActionMenuItems({
   onClose: () => void;
   onReopen: () => void;
 }) {
+  const { t } = useTranslation();
   const open = detail.state === "open";
   return (
     <>
@@ -255,7 +267,7 @@ export function PullRequestActionMenuItems({
             {mergeMethods.map((method) => (
               <MenuRadioItem key={method} value={method} disabled={actionPending}>
                 <MergeIcon className={MENU_ICON_CLASS_NAME} />
-                <span className="capitalize">{method}</span>
+                <span>{t(MERGE_METHOD_KEYS[method])}</span>
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
@@ -264,9 +276,9 @@ export function PullRequestActionMenuItems({
       ) : null}
       {host === "dock" ? (
         <>
-          <MenuItem onClick={() => copyPullRequestLink(detail.url)}>
+          <MenuItem onClick={() => copyPullRequestLink(detail.url, t)}>
             <LinkIcon className={MENU_ICON_CLASS_NAME} />
-            <span>Copy link</span>
+            <span>{t("codeReview.copyLink")}</span>
           </MenuItem>
           <SendToAgentMenuItems
             sendTargets={sendTargets}
@@ -277,14 +289,20 @@ export function PullRequestActionMenuItems({
           {onAsk ? (
             <MenuItem onClick={onAsk} disabled={askPending}>
               <ChatBubbleIcon className={MENU_ICON_CLASS_NAME} />
-              <span>Ask in a side chat</span>
+              <span>{t("codeReview.composer.ask")}</span>
             </MenuItem>
           ) : null}
         </>
       ) : null}
       <MenuItem onClick={onFixFindings} disabled={preparingThread !== null}>
         <HammerIcon className={MENU_ICON_CLASS_NAME} />
-        <span>{preparingThread === "findings" ? "Preparing findings…" : "Fix findings"}</span>
+        <span>
+          {t(
+            preparingThread === "findings"
+              ? "codeReview.pr.preparingFindings"
+              : "codeReview.pr.fixFindings",
+          )}
+        </span>
       </MenuItem>
       {/* Beside Fix findings: the same kind of hand-off, offered only while there is a conflict
           to resolve, which is also when Merge is blocked. */}
@@ -292,7 +310,11 @@ export function PullRequestActionMenuItems({
         <MenuItem onClick={onResolveConflicts} disabled={preparingThread !== null}>
           <ConflictIcon className={MENU_ICON_CLASS_NAME} />
           <span>
-            {preparingThread === "conflicts" ? "Preparing conflicts…" : "Resolve conflicts"}
+            {t(
+              preparingThread === "conflicts"
+                ? "codeReview.pr.preparingConflicts"
+                : "codeReview.pr.resolveConflicts",
+            )}
           </span>
         </MenuItem>
       ) : null}
@@ -300,12 +322,12 @@ export function PullRequestActionMenuItems({
       {open ? (
         <MenuItem variant="destructive" disabled={actionPending} onClick={onClose}>
           <ClosedIcon className={MENU_ICON_CLASS_NAME} />
-          <span>Close pull request</span>
+          <span>{t("codeReview.pr.close")}</span>
         </MenuItem>
       ) : detail.state === "closed" ? (
         <MenuItem disabled={actionPending} onClick={onReopen}>
           <OpenIcon className={MENU_ICON_CLASS_NAME} />
-          <span>Reopen pull request</span>
+          <span>{t("codeReview.pr.reopen")}</span>
         </MenuItem>
       ) : null}
     </>
