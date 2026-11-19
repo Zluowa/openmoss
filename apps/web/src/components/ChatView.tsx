@@ -324,7 +324,6 @@ import { useTerminalStateStore } from "../terminalStateStore";
 import { getThreadFromState } from "../threadDerivation";
 import { isThreadDetailAwaitingVerification } from "../threadDetailAuthority";
 import { retryThreadDetailSync } from "../threadDetailSyncRetry";
-import { SETTINGS_TARGETS } from "../settingsNavigation";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -4537,11 +4536,9 @@ export default function ChatView({
     [onProviderModelSelect, selectedModelForPickerWithCustomFallback, selectedProvider],
   );
   const openProviderAccountSettings = useCallback(() => {
-    openSettingsDialog({
-      section: "providers",
-      target: SETTINGS_TARGETS.providerInstalls,
-      provider: selectedProvider,
-    });
+    // Opens the section at its top: a deep link into the installed-CLI card landed the
+    // person in the middle of 模型账号 with no heading in view.
+    openSettingsDialog({ section: "providers", provider: selectedProvider });
   }, [selectedProvider]);
 
   // Why the last send did not go, shown above the composer (the draft stays in the box).

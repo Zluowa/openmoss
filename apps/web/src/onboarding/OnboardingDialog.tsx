@@ -139,7 +139,7 @@ function OnboardingFlow(props: {
       case "welcome":
         return { label: "Get started", onPrimary: goNext };
       case "tour":
-        return { label: "Set up", onPrimary: goNext };
+        return { label: "Continue", onPrimary: goNext };
       case "providers":
       case "theme":
         return { label: "Continue", onPrimary: goNext };
@@ -161,7 +161,11 @@ function OnboardingFlow(props: {
   })();
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col outline-none" tabIndex={-1}>
+    <div
+      className="flex min-h-0 flex-1 flex-col outline-none"
+      tabIndex={-1}
+      data-onboarding-step={step}
+    >
       <DialogHeader
         className={cn(
           "shrink-0 gap-1.5 pt-8 pb-0",
@@ -190,33 +194,36 @@ function OnboardingFlow(props: {
           </DialogDescription>
         ) : null}
       </DialogHeader>
-      <div
-        className={cn(
-          "onboarding-scroll-fade flex min-h-0 flex-1 flex-col overflow-y-auto pt-6",
-          step === "providers" && "overflow-hidden pt-4 [mask-image:none]",
-          ONBOARDING_INSET_CLASS_NAME,
-          hero && "[justify-content:safe_center] pb-6",
-        )}
-      >
-        {step === "welcome" ? <WelcomeStep /> : null}
-        {step === "tour" ? <FeatureTourStep /> : null}
-        {step === "providers" ? <ProvidersStep detection={providerDetection} /> : null}
-        {step === "theme" ? <ThemeStep /> : null}
-        {step === "project" ? (
-          <ProjectStep
-            results={projectResults}
-            onBusyChange={props.onProjectBusyChange}
-            onImportActionChange={setImportAction}
-            onResult={(result) =>
-              setProjectResults((current) =>
-                current.some((entry) => entry.projectId === result.projectId)
-                  ? current
-                  : [...current, result],
-              )
-            }
-          />
-        ) : null}
-      </div>
+      {/* The last step has no body: the summary sits right above its button. */}
+      {step === "done" ? null : (
+        <div
+          className={cn(
+            "onboarding-scroll-fade flex min-h-0 flex-1 flex-col overflow-y-auto pt-6",
+            step === "providers" && "overflow-hidden pt-4 [mask-image:none]",
+            ONBOARDING_INSET_CLASS_NAME,
+            hero && "[justify-content:safe_center] pb-6",
+          )}
+        >
+          {step === "welcome" ? <WelcomeStep /> : null}
+          {step === "tour" ? <FeatureTourStep /> : null}
+          {step === "providers" ? <ProvidersStep detection={providerDetection} /> : null}
+          {step === "theme" ? <ThemeStep /> : null}
+          {step === "project" ? (
+            <ProjectStep
+              results={projectResults}
+              onBusyChange={props.onProjectBusyChange}
+              onImportActionChange={setImportAction}
+              onResult={(result) =>
+                setProjectResults((current) =>
+                  current.some((entry) => entry.projectId === result.projectId)
+                    ? current
+                    : [...current, result],
+                )
+              }
+            />
+          ) : null}
+        </div>
+      )}
       <OnboardingStepFooter
         step={step}
         onBack={goBack}
@@ -256,7 +263,7 @@ export function OnboardingDialog(props: {
       <DialogPopup
         showCloseButton
         initialFocus={primaryRef}
-        className="h-[min(calc(600px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px]"
+        className="h-[min(calc(600px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px] has-[[data-onboarding-step=done]]:h-auto"
       >
         {/* Remount per open so a replay from Settings starts at the first step. */}
         {open ? (

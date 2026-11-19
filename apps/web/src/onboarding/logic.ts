@@ -203,8 +203,30 @@ export function describeOnboardingAgentSummary(
   const zh = locale.toLowerCase().startsWith("zh");
   if (summary.detecting > 0) return zh ? "正在检查智能体…" : "Checking agents…";
   if (summary.checkFailed > 0) return zh ? "有些智能体没能检查" : "Could not check all agents";
-  if (zh) return `已连接 ${summary.connected} 个智能体`;
-  return `${summary.connected} agent${summary.connected === 1 ? "" : "s"} connected`;
+  // Every chosen agent ready: say how many. Otherwise say how many were chosen and what each
+  // still needs; "0 agents connected" after ticking Codex and Claude read as a failure.
+  if (summary.enabled === 0) return zh ? "未选择智能体" : "No agents chosen";
+  if (summary.connected === summary.enabled) {
+    if (zh) return `已连接 ${summary.connected} 个智能体`;
+    return `${summary.connected} agent${summary.connected === 1 ? "" : "s"} connected`;
+  }
+  const others = summary.enabled - summary.connected - summary.needsSignIn - summary.notInstalled;
+  const parts = zh
+    ? [
+        summary.connected > 0 ? `${summary.connected} 个已连接` : null,
+        summary.needsSignIn > 0 ? `${summary.needsSignIn} 个待登录` : null,
+        summary.notInstalled > 0 ? `${summary.notInstalled} 个未安装` : null,
+        others > 0 ? `${others} 个暂不可用` : null,
+      ]
+    : [
+        summary.connected > 0 ? `${summary.connected} connected` : null,
+        summary.needsSignIn > 0 ? `${summary.needsSignIn} to sign in` : null,
+        summary.notInstalled > 0 ? `${summary.notInstalled} not installed` : null,
+        others > 0 ? `${others} unavailable` : null,
+      ];
+  const detail = parts.filter((part) => part !== null).join(zh ? "，" : ", ");
+  if (zh) return `已选择 ${summary.enabled} 个智能体（${detail}）`;
+  return `${summary.enabled} agent${summary.enabled === 1 ? "" : "s"} chosen (${detail})`;
 }
 
 // The last step's one-line summary: agents, theme, projects. It names a project count only

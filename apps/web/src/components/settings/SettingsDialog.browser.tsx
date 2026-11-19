@@ -13,14 +13,28 @@ import { render } from "vitest-browser-react";
 import { closeSettings, openSettings, settingsDialogStore } from "~/settingsDialogStore";
 import type { SettingsLocation } from "~/settingsLocation";
 
-vi.mock("./SettingsContent", () => ({
-  SettingsContent: ({ location }: { location: SettingsLocation }) => (
-    <div data-testid="stub-page">
-      {location.section}
-      {location.pluginTab ? `:${location.pluginTab}` : ""}
-    </div>
-  ),
-}));
+vi.mock("./SettingsContent", async () => {
+  const { useSettingsTargetScroll } = await import("./useSettingsTargetScroll");
+  return {
+    // A page with its own scroll area and a deep-link target far down it, scrolled by the
+    // same hook the real pages use.
+    SettingsContent: ({ location }: { location: SettingsLocation }) => {
+      useSettingsTargetScroll(location.section, location.target);
+      return (
+        <div data-testid="stub-scroll" className="min-h-0 flex-1 overflow-y-auto">
+          <div data-testid="stub-page">
+            {location.section}
+            {location.pluginTab ? `:${location.pluginTab}` : ""}
+          </div>
+          <div style={{ height: 1600 }} />
+          <div id="stub-target" style={{ height: 1600 }}>
+            Target
+          </div>
+        </div>
+      );
+    },
+  };
+});
 
 import { SettingsDialog, SETTINGS_DIALOG_POPUP_CLASS_NAME } from "./SettingsDialog";
 
@@ -87,6 +101,33 @@ describe("SettingsDialog", () => {
     await expect.element(page.getByTestId("settings-dialog")).toBeVisible();
     await page.getByRole("button", { name: "Close settings" }).click();
     await vi.waitFor(() => expect(settingsDialogStore.getState().isOpen).toBe(false));
+    await screen.unmount();
+  });
+
+  it("brings a deep-link target into view without scrolling its title and × away", async () => {
+    await page.viewport(1101, 782);
+    const screen = await render(<SettingsDialog />);
+    openSettings({ section: "providers", target: "stub-target" });
+    const dialog = page.getByTestId("settings-dialog");
+    await expect.element(dialog).toBeVisible();
+    await expect.element(page.getByTestId("stub-scroll")).toBeInTheDocument();
+    const pane = page.getByTestId("stub-scroll").element();
+    await vi.waitFor(() => expect(pane.scrollTop).toBeGreaterThan(1000));
+    const target = document.getElementById("stub-target")!.getBoundingClientRect();
+    expect(Math.round(target.top)).toBe(Math.round(pane.getBoundingClientRect().top));
+    // The dialog's own header stays where it is, inside the window.
+    const box = dialog.element().getBoundingClientRect();
+    const title = page.getByRole("heading", { name: "Settings" }).element().getBoundingClientRect();
+    const close = page
+      .getByRole("button", { name: "Close settings" })
+      .element()
+      .getBoundingClientRect();
+    expect(title.top).toBeGreaterThanOrEqual(box.top);
+    expect(close.top).toBeGreaterThanOrEqual(box.top);
+    expect(box.bottom).toBeLessThanOrEqual(782);
+    for (let node = pane.parentElement; node; node = node.parentElement) {
+      expect(node.scrollTop, node.getAttribute("data-testid") ?? node.tagName).toBe(0);
+    }
     await screen.unmount();
   });
 

@@ -86,6 +86,7 @@ export function MossCloudLoginPage({ addAccount = false }: { readonly addAccount
 
   return (
     <MossAuthShell
+      backToApp
       title={addAccount ? "Add a Moss account" : "Sign in to Moss"}
       description="Continue with Google through the Moss global account service."
       footer={

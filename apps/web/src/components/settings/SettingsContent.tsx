@@ -125,6 +125,7 @@ import {
 } from "~/settingsNavigation";
 import { isAudioLevelAvailable } from "~/lib/audioLevel";
 import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
+import { useSettingsTargetScroll } from "./useSettingsTargetScroll";
 
 // ── Settings taxonomy ──────────────────────────────────────────────────────
 
@@ -467,15 +468,7 @@ export function SettingsContent({
     );
 
   // Deep links and sidebar search targets all resolve to stable DOM ids in the active panel.
-  useEffect(() => {
-    if (!settingsTarget) return;
-    const frame = window.requestAnimationFrame(() => {
-      document
-        .getElementById(settingsTarget)
-        ?.scrollIntoView({ block: "start", behavior: "smooth" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [activeSection, settingsTarget]);
+  useSettingsTargetScroll(activeSection, settingsTarget);
 
   const changedSettingLabels = [
     ...(theme !== "system" ? ["Theme"] : []),
