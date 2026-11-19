@@ -249,6 +249,29 @@ describe("summarizeProviderSetup", () => {
     expect(summaryFor("check-failed")).toBe("Could not check all agents");
     expect(summaryFor("connected")).toBe("1 agent connected");
   });
+
+  it("says what the chosen agents still need instead of 0 connected", () => {
+    const ticked = summarizeProviderSetup([
+      { provider: "codex", state: "needs-sign-in" },
+      { provider: "claudeAgent", state: "needs-sign-in" },
+      { provider: "grok", state: "disabled" },
+    ]);
+    expect(describeOnboardingAgentSummary(ticked)).toBe("2 agents chosen (2 to sign in)");
+    expect(describeOnboardingAgentSummary(ticked, "zh-CN")).toBe("已选择 2 个智能体（2 个待登录）");
+    const mixed = summarizeProviderSetup([
+      { provider: "codex", state: "connected" },
+      { provider: "claudeAgent", state: "needs-sign-in" },
+      { provider: "grok", state: "not-installed" },
+    ]);
+    expect(describeOnboardingAgentSummary(mixed, "zh-CN")).toBe(
+      "已选择 3 个智能体（1 个已连接，1 个待登录，1 个未安装）",
+    );
+    expect(
+      describeOnboardingAgentSummary(
+        summarizeProviderSetup([{ provider: "codex", state: "disabled" }]),
+      ),
+    ).toBe("No agents chosen");
+  });
 });
 
 describe("toggleSelection", () => {

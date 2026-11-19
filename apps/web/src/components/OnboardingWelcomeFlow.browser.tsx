@@ -119,7 +119,7 @@ describe("welcome tour", () => {
       const { screen } = await mountTour();
       try {
         await page.getByRole("button", { name: "Get started", exact: true }).click();
-        await page.getByRole("button", { name: "Set up", exact: true }).click();
+        await page.getByRole("button", { name: "Continue", exact: true }).click();
         await expect.poll(heading).toBe("Choose your agents");
         const grid = document.querySelector<HTMLElement>("[data-onboarding-agent]")!.parentElement!;
         expect(grid.children.length).toBeGreaterThanOrEqual(12);
@@ -156,7 +156,7 @@ describe("welcome tour", () => {
     const { screen } = await mountTour();
     try {
       await page.getByRole("button", { name: "Get started", exact: true }).click();
-      await page.getByRole("button", { name: "Set up", exact: true }).click();
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await expect.poll(heading).toBe("Choose your agents");
       const grid = document.querySelector<HTMLElement>("[data-onboarding-agent]")!.parentElement!;
       expect(grid.scrollHeight).toBeGreaterThan(grid.clientHeight);
@@ -188,12 +188,36 @@ describe("welcome tour", () => {
       expect(dialog.textContent).not.toMatch(/iOS|Simulator|macOS/);
       expect(dialog.textContent).toContain("Verify in a real browser");
 
-      for (const label of ["Set up", "Continue", "Continue", "Skip for now"]) {
+      for (const label of ["Continue", "Continue", "Continue", "Skip for now"]) {
         await page.getByRole("button", { name: label, exact: true }).click();
       }
       await expect.poll(heading).toBe("You're all set");
       expect(dialog.querySelector("dl")).toBeNull();
       expect(dialog.textContent).not.toContain("Shortcuts worth learning today");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("ends with the summary right above its button, without an empty band", async () => {
+    await page.viewport(1101, 782);
+    const { screen } = await mountTour();
+    try {
+      // Through each step by its primary button, whatever it is called.
+      for (const step of ["Welcome", "tour", "agents", "theme", "project"]) {
+        const before = heading();
+        document.querySelector<HTMLElement>("[data-onboarding-primary]")!.click();
+        await expect.poll(heading, { message: step }).not.toBe(before);
+      }
+      await expect.poll(heading).toBe("You're all set");
+      const dialog = document.querySelector<HTMLElement>('[data-slot="dialog-popup"]')!;
+      const description = document.getElementById(dialog.getAttribute("aria-describedby")!)!;
+      const primary = dialog.querySelector<HTMLElement>("[data-onboarding-primary]")!;
+      const gap = primary.getBoundingClientRect().top - description.getBoundingClientRect().bottom;
+      expect(gap).toBeLessThanOrEqual(56);
+      expect(
+        dialog.getBoundingClientRect().bottom - primary.getBoundingClientRect().bottom,
+      ).toBeLessThanOrEqual(40);
     } finally {
       await screen.unmount();
     }

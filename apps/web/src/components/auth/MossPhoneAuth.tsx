@@ -310,6 +310,7 @@ export function MossPhoneLoginPage() {
 
   return (
     <MossAuthShell
+      backToApp
       title="登录 Moss"
       description={`中国大陆手机号 · ${mossAccessLaneSummary("cn")}`}
     >

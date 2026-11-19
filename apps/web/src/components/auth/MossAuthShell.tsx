@@ -1,6 +1,13 @@
 import { type ReactNode, useLayoutEffect } from "react";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 
+import { goBackInAppHistory } from "~/appNavigation";
+import { isElectron } from "~/env";
+import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
+import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 import { MossLogo } from "~/components/MossLogo";
+import { Button } from "~/components/ui/button";
+import { ChevronLeftIcon } from "~/lib/icons";
 
 const OPAQUE_SURFACE_CLASS = "moss-opaque-surface";
 let opaqueSurfaceMountCount = 0;
@@ -24,16 +31,20 @@ export function MossAuthShell({
   description,
   children,
   footer,
+  backToApp = false,
 }: {
   readonly title: string;
   readonly description?: string;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
+  /** A 返回 control in the title bar, for pages a person reaches from inside the app. */
+  readonly backToApp?: boolean;
 }) {
   useMossOpaqueSurface();
 
   return (
     <main className="flex min-h-dvh w-full items-center justify-center overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-6">
+      {backToApp ? <MossAuthBackBar /> : null}
       <div className="mx-auto flex w-full max-w-[360px] flex-col items-stretch">
         <div className="mb-6 flex justify-center" aria-hidden="true">
           <MossLogo className="size-10" />
@@ -72,6 +83,35 @@ export function MossAuthLoading({ label }: { readonly label: string }) {
       role="status"
     >
       {label}
+    </div>
+  );
+}
+
+/** Back to where the person was; to the chats when the page was opened directly. */
+function MossAuthBackBar() {
+  const router = useRouter();
+  const navigate = useNavigate();
+  return (
+    <div
+      data-moss-auth-back
+      // On macOS the traffic lights sit at the top left; the band starts after them.
+      className={cn(
+        "drag-region fixed inset-x-0 top-0 z-10 flex h-11 items-center pr-36 pl-2",
+        isElectron && isMacNavigatorPlatform() && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
+      )}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          if (router.history.canGoBack()) goBackInAppHistory(router.history);
+          else void navigate({ to: "/" });
+        }}
+      >
+        <ChevronLeftIcon className="size-4" />
+        返回
+      </Button>
     </div>
   );
 }
