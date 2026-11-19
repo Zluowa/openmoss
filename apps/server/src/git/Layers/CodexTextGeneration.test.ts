@@ -200,6 +200,8 @@ type FakeCodexOptions = {
   forbiddenCwd?: string;
   trapTerm?: boolean;
   exitOnTerm?: boolean;
+  /** Exits at once with this code when stopped, as a killed Windows job launcher does. */
+  exitCodeOnTerm?: number;
   termMarkerPath?: string;
   pidMarkerPath?: string;
   readyMarkerPath?: string;
@@ -248,7 +250,12 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexOptions) {
       MOSS_FAKE_CODEX_REQUIRE_SECURE_ISOLATION: input.requireSecureIsolation ? "1" : "",
       MOSS_FAKE_CODEX_FORBIDDEN_CWD: input.forbiddenCwd ?? "",
       MOSS_FAKE_CODEX_TRAP_TERM: input.trapTerm ? "1" : "",
-      MOSS_FAKE_CODEX_EXIT_ON_TERM: input.exitOnTerm ? "1" : "",
+      MOSS_FAKE_CODEX_EXIT_ON_TERM:
+        input.exitCodeOnTerm !== undefined
+          ? `now:${input.exitCodeOnTerm}`
+          : input.exitOnTerm
+            ? "1"
+            : "",
       MOSS_FAKE_CODEX_TERM_MARKER: input.termMarkerPath ?? "",
       MOSS_FAKE_CODEX_PID_MARKER: input.pidMarkerPath ?? "",
       MOSS_FAKE_CODEX_READY_MARKER: input.readyMarkerPath ?? "",
@@ -418,7 +425,7 @@ function makeFakeCodexBinary(dir: string, input: FakeCodexOptions) {
         '  node -e \'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)));\' "$MOSS_FAKE_CODEX_RESOURCE_MANIFEST" "$CODEX_HOME" "$PWD" "$schema_path" "$output_path"',
         "fi",
         'if [ "$MOSS_FAKE_CODEX_TRAP_TERM" = "1" ]; then',
-        '  exec node -e \'const fs=require("node:fs"); const [term,pid,ready,diagnostic,exitOnTerm]=process.argv.slice(1); fs.writeFileSync(pid,String(process.pid)); process.on("SIGTERM",()=>{fs.appendFileSync(term,"TERM\\n");if(exitOnTerm==="1")setTimeout(()=>process.exit(0),50)}); fs.writeFileSync(ready,"ready"); if(diagnostic){process.stderr.write(diagnostic.slice(0,12)); setTimeout(()=>process.stderr.write(diagnostic.slice(12)+"\\n"),20)} setInterval(()=>{},1000);\' "$MOSS_FAKE_CODEX_TERM_MARKER" "$MOSS_FAKE_CODEX_PID_MARKER" "$MOSS_FAKE_CODEX_READY_MARKER" "$MOSS_FAKE_CODEX_STDERR" "$MOSS_FAKE_CODEX_EXIT_ON_TERM"',
+        '  exec node -e \'const fs=require("node:fs"); const [term,pid,ready,diagnostic,exitOnTerm]=process.argv.slice(1); fs.writeFileSync(pid,String(process.pid)); process.on("SIGTERM",()=>{fs.appendFileSync(term,"TERM\\n");if(exitOnTerm==="1")setTimeout(()=>process.exit(0),50);else if(exitOnTerm.startsWith("now:"))process.exit(Number(exitOnTerm.slice(4)))}); fs.writeFileSync(ready,"ready"); if(diagnostic){process.stderr.write(diagnostic.slice(0,12)); setTimeout(()=>process.stderr.write(diagnostic.slice(12)+"\\n"),20)} setInterval(()=>{},1000);\' "$MOSS_FAKE_CODEX_TERM_MARKER" "$MOSS_FAKE_CODEX_PID_MARKER" "$MOSS_FAKE_CODEX_READY_MARKER" "$MOSS_FAKE_CODEX_STDERR" "$MOSS_FAKE_CODEX_EXIT_ON_TERM"',
         "fi",
         'if [ -n "$MOSS_FAKE_CODEX_STDERR" ]; then',
         '  printf "%s\\n" "$MOSS_FAKE_CODEX_STDERR" >&2',
@@ -3031,6 +3038,48 @@ for (const [diagnostic, denyTermination, longCleanup] of [
       ),
   );
 }
+
+// The deadline decides a timeout, not which event arrives first: stopping a timed-out CLI
+// makes it exit (a killed Windows job launcher exits with code 1), and that exit can finish
+// the race before the timeout branch does. It is still this request's timeout.
+it.effect.skipIf(process.platform === "win32")(
+  "reports a timed-out request as timed out when stopping it makes the CLI exit non-zero",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const directory = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "moss-codex-timeout-exit-",
+      });
+      const error = yield* withFakeCodexEnv(
+        {
+          output: "",
+          trapTerm: true,
+          exitCodeOnTerm: 1,
+          termMarkerPath: `${directory}/term`,
+          pidMarkerPath: `${directory}/pid`,
+          readyMarkerPath: `${directory}/ready`,
+        },
+        Effect.gen(function* () {
+          const generation = yield* TextGeneration;
+          return yield* generation
+            .generatePrContent({
+              cwd: process.cwd(),
+              baseBranch: "main",
+              headBranch: "feature/timeout-exit",
+              commitSummary: "Update readme",
+              diffSummary: "README.md | 1 +",
+              diffPatch: "",
+            })
+            .pipe(Effect.flip);
+        }),
+      );
+      expect(error.detail).toBe("Codex CLI request timed out.");
+      expect(readFileSync(`${directory}/term`, "utf8")).toContain("TERM");
+    }).pipe(
+      Effect.provide(CodexTextGenerationTimeoutTestLayer),
+      Effect.provideService(Clock.Clock, realTestClock),
+    ),
+);
 
 // Route 2 of a composer prediction on Windows: an own-Codex chat's suggestion comes from the
 // signed-in Moss account's model through the direct HTTP route, never the CLI. A real local
