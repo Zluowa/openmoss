@@ -9,6 +9,7 @@ import {
   isAgentRuntimePending,
   MOSS_BUNDLED_CODEX_ERROR_ENV_KEY,
   MOSS_BUNDLED_CODEX_PATH_ENV_KEY,
+  MOSS_UPDATED_CODEX_PATH_ENV_KEY,
 } from "./codexRuntime";
 import { isCommandOnPath, resolveLocalAgentExecutable } from "./localAgentExecutable";
 
@@ -22,7 +23,7 @@ export interface CodexExecutableResolution {
  *
  * A non-default configured path is user intent and always wins. The literal
  * `codex` (the settings schema default) means "use Moss's best available Codex":
- * the person's own `codex` on PATH when they have one, otherwise the verified
+ * the copy an in-app update installed, then the person's own `codex` on PATH when they have one, otherwise the verified
  * runtime a packaged build ships. A damaged packaged runtime is reported rather
  * than hidden only when there is no own install to fall back to.
  */
@@ -41,14 +42,20 @@ export function resolveCodexExecutable(input: {
   const bundled = env[MOSS_BUNDLED_CODEX_PATH_ENV_KEY]?.trim() ?? "";
   const configured = input.configuredBinaryPath?.trim() ?? "";
   const bundledError = env[MOSS_BUNDLED_CODEX_ERROR_ENV_KEY]?.trim() ?? "";
+  const updated = env[MOSS_UPDATED_CODEX_PATH_ENV_KEY]?.trim() ?? "";
   const resolution = resolveLocalAgentExecutable({
     command: "codex",
     configuredBinaryPath: configured,
     bundledBinaryPath: bundled,
+    updatedBinaryPath: updated,
     env,
     ...(input.isOnPath ? { isOnPath: input.isOnPath } : {}),
   });
-  if (resolution.source !== "path" || resolution.bundledAvailable) {
+  if (
+    resolution.source !== "path" ||
+    resolution.bundledAvailable ||
+    (updated && resolution.binaryPath === updated)
+  ) {
     return { binaryPath: resolution.binaryPath, source: resolution.source };
   }
   const onPath = input.isOnPath ?? ((command: string) => isCommandOnPath(command, { env }));

@@ -90,7 +90,6 @@ import { ServerConfig } from "../../config";
 import {
   agentProgramsForServer,
   agentProgramSourceHome,
-  agentProgramRestartMessage,
   makeAgentProgramOwnership,
   type AgentProgramOwnership,
 } from "../agentProgramOwnership.ts";
@@ -205,6 +204,11 @@ import { collectUint8StreamText } from "../../stream/collectUint8StreamText";
 import { PROVIDER_NOT_INSTALLED_READINESS, withProviderReadiness } from "../providerReadiness.ts";
 import { ensureMossNpm, resolveMossNodeRuntime, writeNodeShim } from "../agentInstallRuntime.ts";
 import {
+  AGENT_UPDATED_LIVE_MESSAGE,
+  installAgentVersionSideBySide,
+  sideBySideUpdateFailureMessage,
+} from "../agentVersionStore.ts";
+import {
   agentInstallRegistries,
   appendManagedAgentBinDirectoryToPath,
   managedAgentBinDirectory,
@@ -258,6 +262,8 @@ const OPENCODE_PROVIDER = "opencode" as const;
 const PI_PROVIDER = "pi" as const;
 const HERMES_PROVIDER = "hermes" as const;
 const OMP_PROVIDER = "omp" as const;
+// Package-manager installs of Codex or Claude update into a folder of their own (agentVersionStore).
+const SIDE_BY_SIDE_UPDATE_LOCK_KEYS = new Set(["npm-global", "bun-global", "pnpm-global"]);
 type ProviderStatuses = ReadonlyArray<ServerProviderStatus>;
 const DISABLED_PROVIDER_STATUS_MESSAGE = "Provider is disabled in Moss settings.";
 const MINIMUM_ANTIGRAVITY_CLI_VERSION = "1.0.12";
@@ -5063,110 +5069,179 @@ export function makeProviderHealthLive(options?: {
               yield* Effect.sleep(Duration.millis(PROVIDER_UPDATE_ENABLEMENT_POLL_MS));
             }
           });
-          // The package coordinator serializes updates; this same epoch record
-          // also excludes every chat/probe/login using the program, across accounts.
-          const runtimePrograms =
-            provider === "codex" || provider === "claudeAgent"
-              ? agentProgramsForServer(serverConfig, provider)
-              : undefined;
-          let updateSpawned = false;
-          let updateCompleted = false;
-          const commandOutcome = yield* Effect.acquireUseRelease(
-            Effect.tryPromise({
-              try: () => {
-                if (!runtimePrograms) return Promise.resolve(undefined);
-                const configuredBinaryPath = providerRuntimeBinaryPath(currentInstance);
-                const binaryPath =
-                  provider === "codex"
-                    ? resolveCodexExecutable({ configuredBinaryPath, env: process.env }).binaryPath
-                    : resolveClaudeCodeRuntime({
-                        binaryPath: configuredBinaryPath,
-                        env: process.env,
-                      }).binaryPath;
-                return runtimePrograms.beginMaintenanceAfterStop(binaryPath);
-              },
-              catch: toUpdateError,
-            }),
-            () => {
-              const runAttempt = (attempt: {
-                readonly args: ReadonlyArray<string>;
-                readonly packageChannel: ProviderPackageChannel | undefined;
-              }) =>
-                runUpdateCommand({
-                  instance: currentInstance,
-                  command: verifiedUpdate.executable,
-                  args: attempt.args,
-                  onSpawn: () => {
-                    updateSpawned = true;
-                    updateCompleted = false;
-                  },
-                  onComplete: () => {
-                    updateCompleted = true;
-                  },
-                  assertSettingsCurrent: () => {
-                    if (
-                      Effect.runSync(serverSettings.getSnapshot).revision !==
-                      currentSnapshot.revision
-                    ) {
-                      throw new Error(PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE);
-                    }
-                  },
-                  ...(verifiedUpdate.pathPrepend
-                    ? { pathPrepend: verifiedUpdate.pathPrepend }
-                    : {}),
-                  ...(attempt.packageChannel ? { packageChannel: attempt.packageChannel } : {}),
-                }).pipe(
-                  Effect.scoped,
-                  Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
-                  Effect.result,
-                );
-              const attempts = Effect.gen(function* () {
-                const first = yield* runAttempt({
-                  args: verifiedUpdate.args,
-                  packageChannel:
-                    verifiedUpdate.packageChannel ?? effectiveCapabilities.packageChannel,
-                });
-                const fallback = verifiedUpdate.registryFallback;
-                // Only a registry or network error gets the second registry: a permission
-                // error would fail there too, and a timeout already used the whole budget
-                // (the person can retry from the status pill).
-                const registryFailed =
-                  Result.isSuccess(first) &&
-                  Option.isSome(first.success) &&
-                  first.success.value.exitCode !== 0 &&
-                  isPackageRegistryFailure(first.success.value);
-                if (!fallback || !registryFailed) return first;
-                // A registry that lagged, was down or refused the request: one more try from
-                // the other registry before telling the person the update failed.
-                yield* Effect.logWarning("provider.update.registry_fallback", {
+          // Codex and Claude update while they are in use: nothing is stopped first. A
+          // package-manager install (and every Windows install, where a running .exe is
+          // locked) goes into its own folder beside the running copy; new launches switch
+          // to it and each running session moves over once its turn has finished.
+          const versionedAgent =
+            provider === "codex" || provider === "claudeAgent" ? provider : undefined;
+          const runtimePrograms = versionedAgent
+            ? agentProgramsForServer(serverConfig, versionedAgent)
+            : undefined;
+          const reportUpdated = (
+            providers: ReadonlyArray<ServerProviderStatus>,
+            updateOutput: string | null,
+            finishedAt: string,
+          ) => {
+            const refreshed = providers.find(
+              (status) =>
+                (status.driver ?? status.provider) === provider &&
+                providerStatusInstanceKey(status) === providerStatusKey(target),
+            );
+            const refreshedAdvisory = refreshed?.versionAdvisory;
+            const targetVersionUnknown = Boolean(
+              verifiedUpdate.targetVersion && !refreshed?.version,
+            );
+            const targetVersionNotReached = Boolean(
+              verifiedUpdate.targetVersion &&
+              refreshed?.version &&
+              compareSemverVersions(refreshed.version, verifiedUpdate.targetVersion) < 0,
+            );
+            const stillOutdated =
+              refreshedAdvisory?.status === "behind_latest" || targetVersionNotReached;
+            const stillOutdatedVersions =
+              refreshedAdvisory?.currentVersion && refreshedAdvisory.latestVersion
+                ? ` (installed ${refreshedAdvisory.currentVersion}, latest ${refreshedAdvisory.latestVersion})`
+                : "";
+            return setProviderUpdateState(
+              target,
+              makeUpdateState({
+                status: targetVersionUnknown ? "failed" : stillOutdated ? "unchanged" : "succeeded",
+                startedAt,
+                finishedAt,
+                message: targetVersionUnknown
+                  ? "Update command completed, but Moss could not verify the requested provider version."
+                  : stillOutdated
+                    ? `Update command completed, but Moss still detects an outdated provider version${stillOutdatedVersions}.`
+                    : versionedAgent
+                      ? AGENT_UPDATED_LIVE_MESSAGE
+                      : "Provider updated.",
+                output: updateOutput ? updateOutput.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
+              }),
+            );
+          };
+          const configuredBinaryPath = providerRuntimeBinaryPath(currentInstance);
+          const runtimeProgram = yield* Effect.try({
+            try: () =>
+              !versionedAgent
+                ? undefined
+                : versionedAgent === "codex"
+                  ? resolveCodexExecutable({ configuredBinaryPath, env: process.env })
+                  : resolveClaudeCodeRuntime({
+                      binaryPath: configuredBinaryPath,
+                      env: process.env,
+                    }),
+            catch: toUpdateError,
+          });
+          const runtimeBinaryPath = runtimeProgram?.binaryPath;
+          // A program path the person chose in Settings stays theirs: it is updated in place.
+          if (
+            versionedAgent &&
+            runtimePrograms &&
+            runtimeProgram?.source !== "configured" &&
+            (process.platform === "win32" ||
+              SIDE_BY_SIDE_UPDATE_LOCK_KEYS.has(verifiedUpdate.lockKey))
+          ) {
+            const channel = effectiveCapabilities.packageChannel ?? verifiedUpdate.packageChannel;
+            const npmCommand = yield* resolveFallbackNpmCommand(channel);
+            const installed = yield* installAgentVersionSideBySide({
+              mossHomeDir: serverConfig.baseDir,
+              agent: versionedAgent,
+              targetVersion: verifiedUpdate.targetVersion ?? null,
+              programs: runtimePrograms,
+              install: (prefix) =>
+                runOneClickAgentInstall({
                   provider,
-                  from: verifiedUpdate.packageChannel ?? "official",
-                  to: fallback.packageChannel,
-                });
-                return yield* runAttempt(fallback);
+                  mossHomeDir: serverConfig.baseDir,
+                  prefix,
+                  ...(verifiedUpdate.targetVersion
+                    ? { version: verifiedUpdate.targetVersion }
+                    : {}),
+                  channel,
+                  env: { ...process.env },
+                  ...(npmCommand ? { npmCommand } : {}),
+                  run: runInstallCommand,
+                }),
+            });
+            const finishedAt = yield* nowIso;
+            if (!installed.ok) {
+              yield* Effect.logWarning("provider.update.side_by_side_failed", {
+                provider,
+                reason: installed.reason,
+                detail: installed.detail,
               });
-              return Effect.raceFirst(
-                attempts.pipe(Effect.map((result) => ({ _tag: "completed" as const, result }))),
-                waitForProviderDisablement.pipe(Effect.as({ _tag: "disabled" as const })),
-              );
-            },
-            (maintenance) =>
-              Effect.sync(() =>
-                maintenance?.finish(updateSpawned, !updateSpawned || updateCompleted),
-              ),
-          ).pipe(
-            Effect.tapError((error) =>
-              setProviderUpdateState(
+              const providers = yield* setProviderUpdateState(
                 target,
                 makeUpdateState({
                   status: "failed",
                   startedAt,
-                  finishedAt: new Date().toISOString(),
-                  message: error.reason,
+                  finishedAt,
+                  message: sideBySideUpdateFailureMessage(installed),
                 }),
-              ).pipe(Effect.asVoid),
-            ),
-          );
+              );
+              return { providers };
+            }
+            yield* Effect.logInfo("provider.update.side_by_side_activated", {
+              provider,
+              version: installed.version,
+            });
+            resetLocalAgentPathLookupCache();
+            const refreshedProviders = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
+            return { providers: yield* reportUpdated(refreshedProviders, null, finishedAt) };
+          }
+          const commandOutcome = yield* Effect.suspend(() => {
+            const runAttempt = (attempt: {
+              readonly args: ReadonlyArray<string>;
+              readonly packageChannel: ProviderPackageChannel | undefined;
+            }) =>
+              runUpdateCommand({
+                instance: currentInstance,
+                command: verifiedUpdate.executable,
+                args: attempt.args,
+                assertSettingsCurrent: () => {
+                  if (
+                    Effect.runSync(serverSettings.getSnapshot).revision !== currentSnapshot.revision
+                  ) {
+                    throw new Error(PROVIDER_UPDATE_SETTINGS_CHANGED_MESSAGE);
+                  }
+                },
+                ...(verifiedUpdate.pathPrepend ? { pathPrepend: verifiedUpdate.pathPrepend } : {}),
+                ...(attempt.packageChannel ? { packageChannel: attempt.packageChannel } : {}),
+              }).pipe(
+                Effect.scoped,
+                Effect.timeoutOption(Duration.millis(providerUpdateTimeoutMs)),
+                Effect.result,
+              );
+            const attempts = Effect.gen(function* () {
+              const first = yield* runAttempt({
+                args: verifiedUpdate.args,
+                packageChannel:
+                  verifiedUpdate.packageChannel ?? effectiveCapabilities.packageChannel,
+              });
+              const fallback = verifiedUpdate.registryFallback;
+              // Only a registry or network error gets the second registry: a permission
+              // error would fail there too, and a timeout already used the whole budget
+              // (the person can retry from the status pill).
+              const registryFailed =
+                Result.isSuccess(first) &&
+                Option.isSome(first.success) &&
+                first.success.value.exitCode !== 0 &&
+                isPackageRegistryFailure(first.success.value);
+              if (!fallback || !registryFailed) return first;
+              // A registry that lagged, was down or refused the request: one more try from
+              // the other registry before telling the person the update failed.
+              yield* Effect.logWarning("provider.update.registry_fallback", {
+                provider,
+                from: verifiedUpdate.packageChannel ?? "official",
+                to: fallback.packageChannel,
+              });
+              return yield* runAttempt(fallback);
+            });
+            return Effect.raceFirst(
+              attempts.pipe(Effect.map((result) => ({ _tag: "completed" as const, result }))),
+              waitForProviderDisablement.pipe(Effect.as({ _tag: "disabled" as const })),
+            );
+          });
           const finishedAt = yield* nowIso;
           if (commandOutcome._tag === "disabled") {
             const providers = yield* setProviderUpdateState(
@@ -5223,53 +5298,13 @@ export function makeProviderHealthLive(options?: {
             return { providers };
           }
 
-          const providers = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
-          if (provider === "codex" || provider === "claudeAgent") {
-            const finalProviders = yield* setProviderUpdateState(
-              target,
-              makeUpdateState({
-                status: "succeeded",
-                startedAt,
-                finishedAt,
-                message: agentProgramRestartMessage(provider),
-                output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
-              }),
-            );
-            return { providers: finalProviders };
+          // POSIX replaces a package in place without disturbing running copies, so the
+          // switch only needs approving: new launches take the updated program.
+          if (runtimePrograms && runtimeBinaryPath) {
+            runtimePrograms.approveProgramSwitch(runtimeBinaryPath);
           }
-          const refreshed = providers.find(
-            (status) =>
-              (status.driver ?? status.provider) === provider &&
-              providerStatusInstanceKey(status) === providerStatusKey(target),
-          );
-          const refreshedAdvisory = refreshed?.versionAdvisory;
-          const targetVersionUnknown = Boolean(verifiedUpdate.targetVersion && !refreshed?.version);
-          const targetVersionNotReached = Boolean(
-            verifiedUpdate.targetVersion &&
-            refreshed?.version &&
-            compareSemverVersions(refreshed.version, verifiedUpdate.targetVersion) < 0,
-          );
-          const stillOutdated =
-            refreshedAdvisory?.status === "behind_latest" || targetVersionNotReached;
-          const stillOutdatedVersions =
-            refreshedAdvisory?.currentVersion && refreshedAdvisory.latestVersion
-              ? ` (installed ${refreshedAdvisory.currentVersion}, latest ${refreshedAdvisory.latestVersion})`
-              : "";
-          const finalProviders = yield* setProviderUpdateState(
-            target,
-            makeUpdateState({
-              status: targetVersionUnknown ? "failed" : stillOutdated ? "unchanged" : "succeeded",
-              startedAt,
-              finishedAt,
-              message: targetVersionUnknown
-                ? "Update command completed, but Moss could not verify the requested provider version."
-                : stillOutdated
-                  ? `Update command completed, but Moss still detects an outdated provider version${stillOutdatedVersions}.`
-                  : "Provider updated.",
-              output: output ? output.slice(0, UPDATE_OUTPUT_MAX_BYTES) : null,
-            }),
-          );
-          return { providers: finalProviders };
+          const providers = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
+          return { providers: yield* reportUpdated(providers, output, finishedAt) };
         });
 
         return yield* commandCoordinator.withCommandLock({

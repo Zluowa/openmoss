@@ -6,9 +6,11 @@
 
 import type { DesktopUpdateState } from "@moss/contracts";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Schema } from "effect";
 import { useState, type CSSProperties } from "react";
 
 import { useAppSettings } from "~/appSettings";
+import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import { CircleCheckIcon, DownloadIcon, TriangleAlertIcon, XIcon } from "~/lib/icons";
 import { serverConfigQueryOptions, serverSettingsQueryOptions } from "~/lib/serverReactQuery";
@@ -17,7 +19,11 @@ import { useTranslation } from "~/localization";
 import { getNotifiableProviderUpdateStatuses } from "~/providerUpdates";
 import { SETTINGS_TARGETS } from "~/settingsNavigation";
 
-import { resolveDesktopUpdateButtonAction } from "../desktopUpdate.logic";
+import {
+  isDesktopUpdateDownloadNotice,
+  resolveDesktopUpdateButtonAction,
+} from "../desktopUpdate.logic";
+import { DesktopUpdateNoticeDialog } from "../DesktopUpdateNoticeDialog";
 import { DesktopUpdateRailButton } from "../DesktopUpdateRailButton";
 import { SidebarIconButton } from "../SidebarIconButton";
 import { Spinner } from "../ui/spinner";
@@ -28,11 +34,16 @@ import {
   resolveRailUpdatePresentation,
   type ProviderUpdatePillTone,
   type ProviderUpdatePillView,
+  type ProviderUpdateTarget,
 } from "./providerUpdateRail.logic";
 import { runProviderUpdates, useProviderUpdateRunStore } from "./providerUpdateRunStore";
 import { RAIL_UPDATE_BUTTON_CLASS_NAME, RailProgressRing } from "./RailUpdateVisuals";
 import { useProviderUpdatePill } from "./useProviderUpdatePill";
 import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
+
+/** The version whose download notice the user put off with「稍后」. */
+const DESKTOP_UPDATE_NOTICE_SNOOZE_KEY = "moss:desktop-update-notice-snoozed:v1";
+const SnoozedNoticeVersion = Schema.NullOr(Schema.String);
 
 const UpdateArrowCircleIcon = createCentralIconComponent("arrow-up-circle");
 const UpdateArrowIcon = createCentralIconComponent("arrow-up");
@@ -177,6 +188,16 @@ export function RailUpdateControl({
   );
   const run = useProviderUpdateRunStore((state) => state.run);
   const [confirming, setConfirming] = useState(false);
+  // The rows the dialog opened with: an agent stays listed while and after it updates.
+  const [dialogTargets, setDialogTargets] = useState<ReadonlyArray<ProviderUpdateTarget> | null>(
+    null,
+  );
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [snoozedNoticeVersion, setSnoozedNoticeVersion] = useLocalStorage(
+    DESKTOP_UPDATE_NOTICE_SNOOZE_KEY,
+    null,
+    SnoozedNoticeVersion,
+  );
 
   const providers = serverConfigQuery.data?.providers ?? [];
   const targets = collectProviderUpdateTargets(
@@ -194,16 +215,19 @@ export function RailUpdateControl({
   );
   const pill = useProviderUpdatePill({ providers, run, i18n });
   const desktopState = desktopUpdate.state;
+  // A build that cannot install updates itself only announces them (macOS without a Developer ID).
+  const notice = isDesktopUpdateDownloadNotice(desktopState) ? desktopState : null;
+  const noticeSnoozed = notice !== null && snoozedNoticeVersion === notice.availableVersion;
   const presentation = resolveRailUpdatePresentation({
     pillTone: pill.liveTone,
     targetCount: targets.length,
     desktop: {
-      visible: desktopUpdate.visible && desktopState !== null,
+      visible: desktopUpdate.visible && desktopState !== null && !noticeSnoozed,
       status: desktopState?.status ?? null,
     },
   });
 
-  if (!presentation && !pill.view) return null;
+  if (!presentation && !pill.view && !confirming) return null;
 
   const appUpdateVersion =
     desktopState && resolveDesktopUpdateButtonAction(desktopState) === "install"
@@ -222,7 +246,12 @@ export function RailUpdateControl({
         <DesktopUpdateRailButton
           state={desktopState}
           installing={desktopUpdate.installing}
-          onClick={desktopUpdate.onClick}
+          label={
+            notice
+              ? format("desktopUpdate.notice.title", { version: notice.availableVersion })
+              : undefined
+          }
+          onClick={notice ? () => setNoticeOpen(true) : desktopUpdate.onClick}
         />
       ) : presentation ? (
         <SidebarIconButton
@@ -238,7 +267,10 @@ export function RailUpdateControl({
             presentation !== "update" && "cursor-default",
           )}
           onClick={() => {
-            if (presentation === "update") setConfirming(true);
+            if (presentation !== "update") return;
+            setDialogTargets(targets);
+            if (!run) useProviderUpdateRunStore.setState({ outcomes: {} });
+            setConfirming(true);
           }}
         >
           {presentation === "updating" ? (
@@ -271,14 +303,31 @@ export function RailUpdateControl({
           retryLabel={t("providerUpdate.pill.retry")}
         />
       ) : null}
+      {notice ? (
+        <DesktopUpdateNoticeDialog
+          open={noticeOpen && !noticeSnoozed}
+          onOpenChange={setNoticeOpen}
+          version={notice.availableVersion}
+          onDownload={() => {
+            setNoticeOpen(false);
+            void window.desktopBridge?.openExternal(notice.manualDownloadUrl);
+          }}
+          onLater={() => {
+            setNoticeOpen(false);
+            setSnoozedNoticeVersion(notice.availableVersion);
+          }}
+        />
+      ) : null}
       <ProviderUpdateDialog
         open={confirming}
-        onOpenChange={setConfirming}
-        targets={targets}
+        onOpenChange={(open) => {
+          setConfirming(open);
+          if (!open) setDialogTargets(null);
+        }}
+        targets={dialogTargets ?? targets}
         appUpdateVersion={appUpdateVersion}
-        onConfirm={() => {
-          setConfirming(false);
-          void runProviderUpdates(targets, queryClient, i18n);
+        onConfirm={(selected) => {
+          void runProviderUpdates(selected, queryClient, i18n);
         }}
       />
     </div>

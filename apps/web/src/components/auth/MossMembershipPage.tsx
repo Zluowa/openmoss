@@ -44,9 +44,11 @@ import {
   serverMossPayOrderQueryOptions,
   serverMossPayQuotaQueryOptions,
 } from "./mossServerReactQuery";
-import { cn } from "~/lib/utils";
+import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 import { useTranslation } from "~/localization";
-import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
+import { isElectron } from "~/env";
+import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
+import { MossBackToAppButton } from "./MossAuthShell";
 
 export type MossMembershipFocus = "plans" | "credits";
 
@@ -65,13 +67,13 @@ function MembershipCatalogSkeleton() {
     <div
       aria-busy="true"
       aria-label={t("mossPay.catalog.loading")}
-      className="grid min-w-0 grid-cols-1 justify-center gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-6"
+      className="grid min-w-0 grid-cols-1 justify-center gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-5"
       data-testid="moss-membership-skeleton"
       role="status"
     >
       {["basic", "plus", "pro", "max"].map((key) => (
         <article
-          className="flex min-h-[560px] flex-col rounded-card border border-border/70 bg-background px-7 py-7"
+          className="flex min-h-[460px] flex-col rounded-card border border-border/70 bg-background px-6 py-7"
           key={key}
         >
           <div className="flex items-start justify-between gap-3">
@@ -163,8 +165,7 @@ function PersonalPlanCard({
   return (
     <article
       className={cn(
-        "flex min-w-0 flex-col rounded-card border bg-background px-6 py-7",
-        "border-border/70 md:min-h-[620px]",
+        "flex min-w-0 flex-col rounded-card border border-border/70 bg-background px-6 py-7",
       )}
       data-plan-code={plan.code}
       data-testid={`moss-membership-plan-${plan.code}`}
@@ -180,25 +181,23 @@ function PersonalPlanCard({
         <span className="text-[48px] leading-none font-semibold tracking-[-0.05em] tabular-nums">
           {formatMossMembershipPriceNumber(plan.monthlyPriceCny, locale)}
         </span>
-        <span className="pb-1 text-ui-sm text-muted-foreground">
+        <span className="ml-1 pb-1 text-ui-sm text-muted-foreground">
           {t("mossPay.catalog.perMonth")}
         </span>
       </div>
       <p className="mt-4 min-h-10 text-ui-lg leading-5 font-medium">{lead}</p>
-      <button
-        className={cn(
-          "mt-5 flex h-11 w-full items-center justify-center rounded-full border px-4 text-ui-lg font-medium transition-colors",
-          current || !purchasable
-            ? "cursor-default border-transparent bg-muted text-muted-foreground"
-            : "border-border bg-background hover:bg-muted/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-        )}
+      <Button
+        className="mt-5 h-11 w-full"
         data-testid={`moss-membership-subscribe-${plan.code}`}
         disabled={current || pending || !purchasable}
         onClick={onSelect}
+        shape="capsule"
+        size="xl"
         type="button"
+        variant={current || !purchasable ? "secondary" : "default"}
       >
         {current ? t("mossPay.membership.currentButton") : t("mossPay.catalog.subscribe")}
-      </button>
+      </Button>
       <p className="mt-2 min-h-4 text-center text-ui-xs text-muted-foreground">
         {!purchasable
           ? t("mossPay.membership.notPurchasableShort")
@@ -335,31 +334,33 @@ export function MossMembershipPage({
     setActiveOrderNo(null);
     createOrder.reset();
   };
-  const handleBack = () => {
-    if (onBack) {
-      onBack();
-      return;
-    }
-    openSettingsDialog({ section: "usage" });
-  };
-
   return (
     <main
       className="flex h-dvh min-h-0 w-full flex-col overflow-hidden bg-background text-foreground"
       data-testid="moss-membership-page"
     >
-      <header className="drag-region relative z-10 flex h-[46px] shrink-0 items-center border-b border-border/55 bg-background pl-[92px] pr-6">
-        <Button
-          variant="ghost"
-          size="default"
-          className="transition-colors"
-          data-testid="moss-membership-back"
-          onClick={handleBack}
-          type="button"
-        >
-          <ArrowLeftIcon aria-hidden="true" className="size-4" />
-          {t("mossPay.membership.back")}
-        </Button>
+      <header
+        className={cn(
+          "drag-region relative z-10 flex h-11 shrink-0 items-center border-b border-border/55 bg-background pr-36 pl-2",
+          isElectron && isMacNavigatorPlatform() && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
+        )}
+      >
+        {onBack ? (
+          <Button
+            data-testid="moss-membership-back"
+            onClick={onBack}
+            size="default"
+            type="button"
+            variant="ghost"
+          >
+            <ArrowLeftIcon aria-hidden="true" className="size-4" />
+            {t("mossPay.membership.back")}
+          </Button>
+        ) : (
+          <MossBackToAppButton data-testid="moss-membership-back">
+            {t("mossPay.membership.back")}
+          </MossBackToAppButton>
+        )}
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto" data-testid="moss-membership-scroll">
@@ -433,7 +434,7 @@ export function MossMembershipPage({
                 </p>
               ) : plans.length > 0 ? (
                 <div
-                  className="grid min-w-0 grid-cols-1 justify-center gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-6"
+                  className="grid min-w-0 grid-cols-1 justify-center gap-4 md:grid-cols-2 xl:grid-cols-4 xl:gap-5"
                   data-testid="moss-membership-plans"
                 >
                   {plans.map((plan) => (

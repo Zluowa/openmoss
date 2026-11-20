@@ -1,71 +1,95 @@
-import { useMemo, useState } from "react";
+// FILE: MossQuotaExhaustedSurface.tsx
+// Purpose: Offers recovery when the current chat account runs out of usage.
+// Layer: Chat composer UI
+// Exports: UsageLimitBanner, MossQuotaExhaustedSurface
 
-import { RefreshCwIcon } from "~/lib/icons";
-import { useTranslation } from "~/localization";
-import type { MossQuotaAdmission } from "~/lib/mossQuotaAdmission";
+import { Alert } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
+import { CircleAlertIcon } from "~/lib/icons";
+import { openExternalLink } from "~/lib/linkChips";
+import { useTranslation } from "~/localization";
 
-type ExhaustedDecision = Extract<MossQuotaAdmission, { readonly kind: "exhausted" }>;
+export type UsageLimitBanner = {
+  readonly resetAt: string | null;
+} & (
+  | { readonly lane: "moss" }
+  | {
+      readonly lane: "personal";
+      readonly accountLabel: string;
+      readonly usageUrl: string | null;
+    }
+);
 
 export function MossQuotaExhaustedSurface({
-  decision,
-  onOpenPlans,
+  limit,
+  onAction,
 }: {
-  readonly decision: ExhaustedDecision;
-  readonly onOpenPlans: () => void;
+  readonly limit: UsageLimitBanner;
+  readonly onAction: () => void;
 }) {
   const { format, locale, t } = useTranslation();
-  const [open, setOpen] = useState(true);
-  const formattedResetAt = useMemo(() => {
-    if (decision.resetAt === null) return null;
-    const resetMs = Date.parse(decision.resetAt);
-    if (!Number.isFinite(resetMs)) return null;
-    return new Intl.DateTimeFormat(locale, {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(resetMs));
-  }, [decision.resetAt, locale]);
-  if (!open) {
-    return null;
-  }
+  const moss = limit.lane === "moss";
+  const resetInstant =
+    limit.resetAt && /^\d{4}-\d{2}-\d{2}[T ]/u.test(limit.resetAt)
+      ? Date.parse(limit.resetAt)
+      : Number.NaN;
+  const reset = Number.isFinite(resetInstant)
+    ? new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(
+        resetInstant,
+      )
+    : limit.resetAt;
+  const usageUrl = !moss ? limit.usageUrl : null;
 
   return (
-    <section
-      aria-live="polite"
-      className="relative isolate flex w-full min-w-0 overflow-hidden rounded-composer border border-primary-outline bg-surface py-2 ps-3 pe-2 text-ui-lg text-pretty shadow-xs"
-      data-testid="moss-quota-exhausted-banner"
+    <Alert
+      variant="error"
+      className="mb-2 gap-y-1.5 overflow-hidden border-border bg-surface px-3 py-2"
       role="status"
+      data-testid={moss ? "moss-quota-exhausted-banner" : "personal-usage-limit-banner"}
     >
-      <div className="absolute inset-0 -z-10 bg-primary-soft" aria-hidden="true" />
-      <div className="flex min-w-0 flex-1 items-start gap-2">
-        <RefreshCwIcon className="icon-sm mt-0.5 shrink-0" aria-hidden="true" />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h2 className="text-ui-lg leading-5 font-semibold" id="moss-quota-exhausted-title">
-            {t("mossQuota.exhausted.title")}
-          </h2>
-          <p className="whitespace-pre-wrap text-ui-lg leading-[18px] font-normal text-codex-description">
-            {t("mossQuota.exhausted.description")}
-          </p>
-          {formattedResetAt !== null ? (
-            <p className="text-ui-sm text-codex-description">
-              {format("mossQuota.exhausted.reset", { resetAt: formattedResetAt })}
-            </p>
+      <CircleAlertIcon aria-hidden="true" />
+      <div className="flex min-w-0 flex-col gap-1.5">
+        <div className="flex flex-wrap items-baseline gap-x-2 text-ui">
+          <strong className="font-medium text-destructive [overflow-wrap:anywhere]">
+            {moss
+              ? t("mossQuota.exhausted.title")
+              : format("chat.usageLimit.personalTitle", { account: limit.accountLabel })}
+          </strong>
+          {moss ? (
+            <span className="text-muted-foreground">{t("mossQuota.exhausted.description")}</span>
           ) : null}
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Button onClick={() => setOpen(false)} size="sm" variant="ghost">
-              {t("mossQuota.exhausted.dismiss")}
-            </Button>
-            <Button
-              data-testid="moss-quota-open-plans"
-              onClick={onOpenPlans}
-              size="sm"
-              type="button"
+          {reset ? (
+            <span className="text-muted-foreground">
+              {format("mossQuota.exhausted.reset", { resetAt: reset })}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="xs"
+            variant="secondary"
+            className="bg-muted"
+            onClick={onAction}
+          >
+            {moss ? t("mossQuota.exhausted.openPlans") : t("chat.usageLimit.switchToMoss")}
+          </Button>
+          {usageUrl ? (
+            <a
+              className="text-ui text-primary underline-offset-2 hover:underline"
+              href={usageUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => {
+                event.preventDefault();
+                openExternalLink(usageUrl);
+              }}
             >
-              {t("mossQuota.exhausted.openPlans")}
-            </Button>
-          </div>
+              {t("chat.usageLimit.providerUsage")}
+            </a>
+          ) : null}
         </div>
       </div>
-    </section>
+    </Alert>
   );
 }

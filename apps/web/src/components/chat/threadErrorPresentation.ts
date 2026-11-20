@@ -23,6 +23,54 @@ import {
   ZH_CN_TURN_FAILURE_MESSAGES,
 } from "~/lib/providerRuntimeMessages";
 
+export interface UsageLimitStop {
+  readonly kind: "usage-limit";
+  /** An ISO instant or a bounded clock/date expression from the provider. */
+  readonly resetAt: string | null;
+}
+
+const QUOTA_CODE_OR_MESSAGE =
+  /\b(?:(?:request|token|credit)_quota_exhausted|insufficient_(?:credits|quota)|usage_limit_reached|service_cost_(?:budget|window)_exhausted)\b|\b(?:exceeded your current quota|quota for this period is exhausted|Moss account quota is exhausted for this period|Moss package usage allowance is exhausted|Moss account (?:five-hour|weekly) usage allowance is exhausted|free credit balance cannot cover this request|Account quota was reached before the response could be settled)\b/iu;
+const USAGE_LIMIT_MESSAGE =
+  /\b(?:usage limit (?:has been |is )?(?:reached|exceeded)|(?:hit|reached|exceeded) (?:your |the )?(?:(?:weekly|5[- ]hour|five[- ]hour|daily|monthly) (?:usage )?|usage )limit|(?:weekly|5[- ]hour|five[- ]hour|daily|monthly)(?: usage)? limit(?: (?:reached|exceeded)|[^\r\n]{0,40}\bresets?)|hit your limit[^\r\n]{0,30}\bresets?)\b/iu;
+const HTTP_QUOTA_MESSAGE =
+  /(?:\b429\b|too many requests)[\s\S]{0,1600}\b(?:quota\b[^\r\n]{0,120}\b(?:exceed\w*|exhaust\w*|reach\w*|insufficient|limit)|(?:insufficient|out of)\s+quota)\b/iu;
+const ISO_RESET_AT =
+  /\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:?\d{2})\b/u;
+const RESET_FIELD =
+  /"(?:reset_at|resets_at|resetAt|resetsAt)"\s*:\s*(?:"([^"\r\n]{1,48})"|(\d{10}|\d{13})(?!\d))/iu;
+const NATURAL_RESET_AT =
+  /(?:\b(?:try again at|resets?(?: at| on)?))\s+((?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)(?:day|sday|nesday|rsday|urday)?,?\s+)?(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?,?\s+(?:at\s+)?)?(?:[01]?\d|2[0-3])(?::[0-5]\d(?:\s?(?:am|pm))?|\s?(?:am|pm))(?:\s*\([A-Za-z_]+(?:\/[A-Za-z_+-]+){1,2}\))?)(?!\w|:)/iu;
+
+/** Keep quota exhaustion distinct from transient HTTP throttling or an ordinary output cap. */
+export function resolveUsageLimitStop(error: string | null | undefined): UsageLimitStop | null {
+  const text = error?.slice(0, 16_000);
+  if (
+    !text ||
+    isProviderDeliveryBlockDetail(text) ||
+    (!QUOTA_CODE_OR_MESSAGE.test(text) &&
+      !USAGE_LIMIT_MESSAGE.test(text) &&
+      !HTTP_QUOTA_MESSAGE.test(text))
+  ) {
+    return null;
+  }
+
+  const field = RESET_FIELD.exec(text);
+  const resetText = /\b(?:try again at|resets?(?: at| on)?)\s+([^\r\n]{1,48})/iu.exec(text)?.[1];
+  const iso = ISO_RESET_AT.exec(field?.[1] ?? resetText ?? "")?.[0];
+  const epoch = field?.[2];
+  const natural = NATURAL_RESET_AT.exec(text)?.[1]?.replace(/(\d)(?:st|nd|rd|th)\b/giu, "$1");
+  return {
+    kind: "usage-limit",
+    resetAt:
+      iso && Number.isFinite(Date.parse(iso))
+        ? iso
+        : epoch
+          ? new Date(Number(epoch) * (epoch.length === 10 ? 1_000 : 1)).toISOString()
+          : (natural ?? null),
+  };
+}
+
 export interface ThreadErrorPresentation {
   readonly title: string;
   readonly copyText: string;
@@ -315,9 +363,7 @@ function workingDirectoryNotFoundError(raw: string, locale: MossLocaleCode): str
  * unblock control even when a quota surface is visible.
  */
 export function isQuotaOwnedThreadError(error: string): boolean {
-  const raw = error.trim();
-  if (raw.length === 0 || isProviderDeliveryBlockDetail(raw)) return false;
-  return PACKAGE_COST_QUOTA_PATTERN.test(raw) || RAW_PERIOD_QUOTA_PATTERN.test(raw);
+  return resolveUsageLimitStop(error.trim()) !== null;
 }
 
 export function resolveQuotaOwnedThreadError(

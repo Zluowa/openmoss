@@ -9,6 +9,7 @@ import {
   getDesktopUpdateDownloadPercent,
   getDesktopUpdateErrorSignature,
   isDesktopUpdateButtonDisabled,
+  isDesktopUpdateDownloadNotice,
   isDesktopUpdateInstallInFlight,
   resolveDesktopUpdateButtonAction,
   shouldRecommendManualDesktopDownload,
@@ -34,6 +35,7 @@ const baseState: DesktopUpdateState = {
   installFailureCount: 0,
   flavor: "production",
   releaseUrl: null,
+  manualDownloadUrl: null,
 };
 
 describe("desktop update button state", () => {
@@ -52,6 +54,39 @@ describe("desktop update button state", () => {
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
     expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
+  });
+
+  it("announces a version a Mac build cannot install, as a clickable notice with no install", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "available",
+      availableVersion: "1.1.0",
+      manualDownloadUrl: "https://mossbotai.com/download",
+    };
+    expect(isDesktopUpdateDownloadNotice(state)).toBe(true);
+    expect(shouldShowDesktopUpdateButton(state)).toBe(true);
+    // Never download or install: the notice opens the download page instead.
+    expect(resolveDesktopUpdateButtonAction(state)).toBe("none");
+    expect(isDesktopUpdateButtonDisabled(state)).toBe(false);
+    expect(getDesktopUpdateButtonTooltip(state)).toBe("Moss 1.1.0 is available");
+  });
+
+  it("does not treat the in-app update as a notice", () => {
+    const state: DesktopUpdateState = {
+      ...baseState,
+      status: "available",
+      availableVersion: "1.1.0",
+    };
+    expect(isDesktopUpdateDownloadNotice(state)).toBe(false);
+    expect(isDesktopUpdateDownloadNotice({ ...state, availableVersion: "1.0.0" })).toBe(false);
+    expect(
+      isDesktopUpdateDownloadNotice({
+        ...state,
+        status: "up-to-date",
+        availableVersion: null,
+        manualDownloadUrl: "https://mossbotai.com/download",
+      }),
+    ).toBe(false);
   });
 
   it("keeps retry action available after a download error", () => {

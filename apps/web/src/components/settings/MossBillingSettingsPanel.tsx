@@ -298,7 +298,7 @@ export function MossBillingSettingsPanel() {
     freePlanLabel: t("mossPay.settings.freePlan"),
   });
   const planPrice = planPresentation.plan
-    ? `${formatMossPayPrice(planPresentation.plan.monthlyPriceCny, locale)}${t("mossPay.catalog.perMonth")}`
+    ? `${formatMossPayPrice(planPresentation.plan.monthlyPriceCny, locale)} ${t("mossPay.catalog.perMonth")}`
     : null;
   const quotaIsUnlimited = quota ? isMossPayQuotaUnlimited(quota) : false;
   const pointPurchasesAvailable = (catalogQuery.data?.pointPackages.length ?? 0) > 0;

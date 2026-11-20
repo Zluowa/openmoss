@@ -11,6 +11,8 @@
 export const MOSS_BUNDLED_CODEX_VERSION = "0.166.0";
 export const MOSS_BUNDLED_CODEX_PATH_ENV_KEY = "MOSS_BUNDLED_CODEX_PATH";
 export const MOSS_BUNDLED_CODEX_ERROR_ENV_KEY = "MOSS_BUNDLED_CODEX_ERROR";
+/** The Codex an in-app update installed side by side; the server sets it when it activates one. */
+export const MOSS_UPDATED_CODEX_PATH_ENV_KEY = "MOSS_UPDATED_CODEX_PATH";
 /** The reserved Codex account id of Moss's own (managed) Codex. */
 export const MOSS_MANAGED_CODEX_ACCOUNT_ID = "moss";
 

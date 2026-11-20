@@ -7,7 +7,7 @@ import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTo
 import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 import { MossLogo } from "~/components/MossLogo";
 import { Button } from "~/components/ui/button";
-import { ChevronLeftIcon } from "~/lib/icons";
+import { ArrowLeftIcon, ChevronLeftIcon } from "~/lib/icons";
 
 const OPAQUE_SURFACE_CLASS = "moss-opaque-surface";
 let opaqueSurfaceMountCount = 0;
@@ -87,10 +87,51 @@ export function MossAuthLoading({ label }: { readonly label: string }) {
   );
 }
 
-/** Back to where the person was; to the chats when the page was opened directly. */
-function MossAuthBackBar() {
+/**
+ * Back to where the person was (the chat they came from); to the chats when the page was
+ * opened directly and the app has no earlier entry to return to.
+ */
+export function useMossGoBackToApp(): () => void {
   const router = useRouter();
   const navigate = useNavigate();
+  return () => {
+    if (router.history.canGoBack()) goBackInAppHistory(router.history);
+    else void navigate({ to: "/" });
+  };
+}
+
+/** The top-left 「← 返回 Moss」 of the full-page account and membership screens. */
+export function MossBackToAppButton({
+  children,
+  className,
+  "aria-label": ariaLabel,
+  "data-testid": testId,
+}: {
+  readonly children: ReactNode;
+  readonly className?: string;
+  readonly "aria-label"?: string;
+  readonly "data-testid"?: string;
+}) {
+  const goBack = useMossGoBackToApp();
+  return (
+    <Button
+      aria-label={ariaLabel}
+      className={className}
+      data-testid={testId}
+      onClick={goBack}
+      size="default"
+      type="button"
+      variant="ghost"
+    >
+      <ArrowLeftIcon aria-hidden="true" className="size-4" />
+      {children}
+    </Button>
+  );
+}
+
+/** Back to where the person was; to the chats when the page was opened directly. */
+function MossAuthBackBar() {
+  const goBack = useMossGoBackToApp();
   return (
     <div
       data-moss-auth-back
@@ -100,15 +141,7 @@ function MossAuthBackBar() {
         isElectron && isMacNavigatorPlatform() && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
       )}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          if (router.history.canGoBack()) goBackInAppHistory(router.history);
-          else void navigate({ to: "/" });
-        }}
-      >
+      <Button type="button" variant="ghost" size="sm" onClick={goBack}>
         <ChevronLeftIcon className="size-4" />
         返回
       </Button>

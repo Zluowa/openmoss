@@ -91,6 +91,8 @@ import { LinkChipIcon } from "../LinkChipIcon";
 import { McpServerIcon } from "./McpServerIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { MossLogo } from "../MossLogo";
+import { ShownVisualToolResult } from "./ShownVisualToolResult";
+import { shownVisualFromWorkEntry } from "./shownVisualToolResult.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { fileDiffStatsByPath, resolveFileDiffStatByChangedPath } from "~/lib/diffRendering";
@@ -1444,6 +1446,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             );
           };
           if (canOpenToolDetails) {
+            // 「已生成图表」 opens onto the chart it published, not the tool's JSON reply.
+            const shownVisual = shownVisualFromWorkEntry(workEntry);
             const parentRow = (
               <ToolDetailsDisclosure
                 details={workEntry.toolDetails}
@@ -1451,7 +1455,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 activity={workEntry.liveActivity}
                 onImageExpand={onImageExpand}
                 detailContent={
-                  monitorNotification ? (
+                  shownVisual ? (
+                    <ShownVisualToolResult visual={shownVisual} />
+                  ) : monitorNotification ? (
                     <div className="space-y-1 text-ui-sm">
                       <time
                         className="text-ui-xs text-muted-foreground"

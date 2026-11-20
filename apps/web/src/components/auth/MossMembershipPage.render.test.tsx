@@ -13,7 +13,11 @@ import {
   serverMossPayCatalogQueryOptions,
 } from "./mossServerReactQuery";
 
-vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => undefined }));
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  useNavigate: () => () => undefined,
+  useRouter: () => ({ history: { canGoBack: () => false } }),
+}));
 
 const plus: MossPayCatalog["plans"][number] = {
   code: "plus",

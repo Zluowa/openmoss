@@ -19,10 +19,13 @@ interface ProgramInput {
   readonly cwd?: string;
 }
 interface ProgramRecord {
+  readonly source: string;
   readonly binaryPath: string;
   readonly program: string;
   readonly owners: Set<symbol>;
   committed: boolean;
+  /** An in-app update replaced this program; its running owners finish on it. */
+  retiring?: boolean;
 }
 
 export function agentProgramSourceHome(
@@ -57,25 +60,29 @@ export type AgentProgramOwnership = ReturnType<typeof makeAgentProgramOwnership>
 
 /**
  * Epochs survive close: changing programs requires restarting this server, even
- * for Effect/PTY entry points without Node's close event. Owners only protect
- * explicit updates. Native owners release at close; operations release after
- * their existing full exit/output collection succeeds. An interrupted operation
- * whose exit remains unconfirmed stays busy until restart.
+ * for Effect/PTY entry points without Node's close event, unless an in-app
+ * update approved the switch (`approveProgramSwitch`). Then new launches use the
+ * new program while running owners finish on the old one, which stays
+ * accounted as retiring until its last owner closes. Native owners release at
+ * close; operations release after their existing full exit/output collection
+ * succeeds. An interrupted operation whose exit remains unconfirmed stays busy
+ * until restart.
  */
 export function makeAgentProgramOwnership(provider: AgentProvider) {
   const sources = new Map<string, ProgramRecord>();
+  const retiringRecords = new Set<ProgramRecord>();
   const maintenance = new Set<string>();
   const changedPrograms = new Set<string>();
-  let maintenanceStopper: ((binaryPath: string) => Promise<void>) | undefined;
+  const switchListeners = new Set<() => void>();
+  let approvedProgram: string | undefined;
   const programPath = (binaryPath: string) => resolveCodexPathIdentity(binaryPath);
   const busyMessage = () =>
     provider === "codex"
       ? "Codex is still in use or its exit is unconfirmed. Finish running work, or restart Moss, before updating."
       : "Claude is still in use or its exit is unconfirmed. Finish running work, or restart Moss, before updating.";
+  const liveRecords = () => [...sources.values(), ...retiringRecords];
   const hasActiveOwners = (binaryPath: string) =>
-    [...sources.values()].some(
-      (record) => record.binaryPath === binaryPath && record.owners.size > 0,
-    );
+    liveRecords().some((record) => record.binaryPath === binaryPath && record.owners.size > 0);
   const createMaintenance = (binaryPath: string) => {
     maintenance.add(binaryPath);
     let finished = false;
@@ -111,11 +118,19 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
     }
     const source = resolveCodexPathIdentity(input.sourceHomePath);
     const program = `${binaryPath}\0${executableIdentity(input.binaryPath) ?? "missing"}`;
-    const previous = sources.get(source);
+    let previous = sources.get(source);
     if (previous && previous.program !== program) {
-      throw new AgentProgramOwnershipError(agentProgramRestartMessage(provider));
+      if (!previous.retiring || binaryPath !== approvedProgram) {
+        throw new AgentProgramOwnershipError(agentProgramRestartMessage(provider));
+      }
+      // The update's program takes over this source for new launches; the old
+      // one keeps its running owners until they close.
+      if (previous.owners.size > 0) retiringRecords.add(previous);
+      sources.delete(source);
+      previous = undefined;
     }
     const record: ProgramRecord = previous ?? {
+      source,
       binaryPath,
       program,
       owners: new Set<symbol>(),
@@ -129,6 +144,7 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
       if (released) return;
       released = true;
       record.owners.delete(owner);
+      if (record.owners.size === 0) retiringRecords.delete(record);
       if (!record.committed && record.owners.size === 0 && sources.get(source) === record) {
         sources.delete(source);
       }
@@ -178,7 +194,8 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
     beginOperation,
     /** Cleanup gates the private root only, not another account's shared projects. */
     assertPrivateSourceIdle(sourceHomePath: string) {
-      if ((sources.get(resolveCodexPathIdentity(sourceHomePath))?.owners.size ?? 0) > 0) {
+      const source = resolveCodexPathIdentity(sourceHomePath);
+      if (liveRecords().some((record) => record.source === source && record.owners.size > 0)) {
         throw new AgentProgramOwnershipError(
           "Claude 私有账户进程尚未结束，请稍后重试退出；若仍无法结束，请重启 Moss。",
         );
@@ -187,15 +204,33 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
     assertCompatible(input: ProgramInput) {
       beginOperation(input).failedToSpawn();
     },
-    registerMaintenanceStopper(stop: (binaryPath: string) => Promise<void>) {
-      const previous = maintenanceStopper;
-      maintenanceStopper = stop;
-      let registered = true;
+    /**
+     * An in-app update installed `binary` beside the old program and made it the
+     * one new launches resolve. Every source may switch to it once; processes
+     * already running keep the old program until they close.
+     */
+    approveProgramSwitch(binary: string) {
+      approvedProgram = programPath(binary);
+      changedPrograms.delete(approvedProgram);
+      for (const record of sources.values()) record.retiring = true;
+      for (const listener of switchListeners) listener();
+    },
+    /** Runtime managers move their sessions to the new program at a safe point. */
+    onProgramSwitched(listener: () => void) {
+      switchListeners.add(listener);
       return () => {
-        if (!registered) return;
-        registered = false;
-        if (maintenanceStopper === stop) maintenanceStopper = previous;
+        switchListeners.delete(listener);
       };
+    },
+    /** Whether a running process Moss started still uses a program inside `directory`. */
+    isDirectoryInUse(directory: string) {
+      const root = programPath(directory);
+      const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+      return liveRecords().some(
+        (record) =>
+          record.owners.size > 0 &&
+          (record.binaryPath === root || record.binaryPath.startsWith(prefix)),
+      );
     },
     forgetCompletedTemporarySource(sourceHomePath: string) {
       for (const source of operationSources(sourceHomePath)) {
@@ -246,46 +281,6 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
         throw new AgentProgramOwnershipError(busyMessage());
       }
       return createMaintenance(binaryPath);
-    },
-    async beginMaintenanceAfterStop(binary: string) {
-      const binaryPath = programPath(binary);
-      if (maintenance.has(binaryPath)) {
-        throw new AgentProgramOwnershipError(busyMessage());
-      }
-      if (changedPrograms.has(binaryPath)) {
-        throw new AgentProgramOwnershipError(agentProgramRestartMessage(provider));
-      }
-      if (!hasActiveOwners(binaryPath)) {
-        return createMaintenance(binaryPath);
-      }
-      const stop = maintenanceStopper;
-      if (!stop) {
-        throw new AgentProgramOwnershipError(busyMessage());
-      }
-      // Fence new launches before asking the registered runtime manager to stop
-      // existing sessions. The callback must resolve only after its process
-      // trees have exited, so the owner set is safe to inspect afterwards.
-      maintenance.add(binaryPath);
-      try {
-        await stop(binaryPath);
-        if (hasActiveOwners(binaryPath)) {
-          throw new AgentProgramOwnershipError(busyMessage());
-        }
-      } catch (cause) {
-        maintenance.delete(binaryPath);
-        if (cause instanceof AgentProgramOwnershipError) throw cause;
-        throw new AgentProgramOwnershipError(busyMessage());
-      }
-      let finished = false;
-      return {
-        finish: (changed: boolean, confirmed = true) => {
-          if (finished) return;
-          finished = true;
-          if (!confirmed) return;
-          if (changed) changedPrograms.add(binaryPath);
-          maintenance.delete(binaryPath);
-        },
-      };
     },
   };
 }

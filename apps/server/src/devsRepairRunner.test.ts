@@ -11,6 +11,7 @@ import {
   type RepairCommand,
   type RepairRunnerConfig,
 } from "./devsRepairRunner";
+import { DevsHandoffError } from "./devsHandoff";
 import { isRegressionTestPath } from "./devsRepairPaths";
 import { githubTransport } from "./devsTrustedGit";
 
@@ -500,6 +501,121 @@ describe("trusted repair controller", () => {
         fetcher,
       )({ id, engine: "codex", description: "bug", context: "" }),
     ).toBe("https://github.com/fixture/repo/pull/44");
+  });
+  it("verifies public local repairs on the public mirror before pushing them to the private repository", async () => {
+    const { root, config } = await fixture();
+    config.localCodex = {
+      executable: "local-codex",
+      model: "codex/test",
+      magpieUrl: "http://127.0.0.1:3425",
+    };
+    config.githubVerifyRef = "main";
+    const toolRoot = path.join(root, "tool");
+    await fs.mkdir(toolRoot);
+    await runRepairCommand("git", ["init", "-q"], { cwd: toolRoot });
+    config.mirrorCi = {
+      toolRoot,
+      clone: path.join(root, "public-clone"),
+      repository: "fixture/public",
+    };
+    const id = randomUUID();
+    const steps: string[] = [];
+    const snapshot = "5".repeat(40);
+    const run: RepairCommand = async (file, args, options) => {
+      if (file === "local-codex") {
+        await fs.writeFile(path.join(options.cwd, "bug.txt"), "fixed\n");
+        await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
+        await summary(options.cwd);
+        return "";
+      }
+      if (file === process.execPath) {
+        steps.push("export");
+        const outDir = args[args.indexOf("--out") + 1]!;
+        await fs.mkdir(outDir, { recursive: true });
+        for (const name of ["bug.txt", "bug.test.ts"])
+          await fs.copyFile(path.join(config.workDir, id, name), path.join(outDir, name));
+        return `committed ${snapshot}; not pushed (pass --push after reviewing it)`;
+      }
+      if (args.includes("push")) {
+        steps.push(
+          args.includes("https://github.com/fixture/public.git") ? "mirror-push" : "private-push",
+        );
+        return "";
+      }
+      return runRepairCommand(file, args, options);
+    };
+    const fetcher = vi.fn(async (url: unknown, options?: RequestInit) => {
+      if (String(url).includes("/actions/runs?")) {
+        steps.push("mirror-run");
+        return Response.json({
+          workflow_runs: [
+            {
+              name: "CI",
+              head_sha: snapshot,
+              status: "completed",
+              conclusion: "success",
+              html_url: "https://github.com/fixture/public/actions/runs/9",
+            },
+          ],
+        });
+      }
+      expect(String(url)).toBe("https://api.github.com/repos/fixture/repo/pulls");
+      steps.push("pr");
+      expect(JSON.parse(String(options?.body)).body).toContain(
+        "public mirror's CI (https://github.com/fixture/public/actions/runs/9)",
+      );
+      return Response.json({ html_url: "https://github.com/fixture/repo/pull/45" });
+    });
+    expect(
+      await createRepairRunner(
+        config,
+        run,
+        fetcher,
+      )({ id, engine: "codex", description: "bug", context: "" }),
+    ).toBe("https://github.com/fixture/repo/pull/45");
+    expect(steps).toEqual(["export", "mirror-push", "mirror-run", "private-push", "pr"]);
+  });
+  it("keeps an unverifiable repair a hand-off, with its commit, after removing credentials", async () => {
+    const { root, config } = await fixture();
+    config.localCodex = {
+      executable: "local-codex",
+      model: "codex/test",
+      magpieUrl: "http://127.0.0.1:3425",
+    };
+    config.githubVerifyRef = "main";
+    const toolRoot = path.join(root, "tool");
+    await fs.mkdir(toolRoot);
+    await runRepairCommand("git", ["init", "-q"], { cwd: toolRoot });
+    config.mirrorCi = {
+      toolRoot,
+      clone: path.join(root, "public-clone"),
+      repository: "fixture/public",
+    };
+    const id = randomUUID();
+    let pushed = false;
+    const run: RepairCommand = async (file, args, options) => {
+      if (file === "local-codex") {
+        await fs.writeFile(path.join(options.cwd, "bug.txt"), "fixed\n");
+        await fs.writeFile(path.join(options.cwd, "bug.test.ts"), "// fails without the fix\n");
+        await summary(options.cwd);
+        return "";
+      }
+      if (file === process.execPath) throw new Error(`export broke near ${FAKE_GITHUB_TOKEN}`);
+      if (args.includes("push")) pushed = true;
+      return runRepairCommand(file, args, options);
+    };
+    const error = await createRepairRunner(
+      config,
+      run,
+      vi.fn(),
+    )({ id, engine: "codex", description: "bug", context: "" }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(DevsHandoffError);
+    expect((error as Error).message).toContain(
+      "Cannot verify on the public mirror: its export failed",
+    );
+    expect((error as Error).message).not.toContain(FAKE_GITHUB_TOKEN);
+    expect((error as DevsHandoffError).details.commit).toMatch(/^[0-9a-f]{40}$/);
+    expect(pushed).toBe(false);
   });
 });
 

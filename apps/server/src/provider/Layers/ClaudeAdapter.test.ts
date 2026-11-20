@@ -5925,6 +5925,62 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
     );
   });
 
+  it.effect("keeps quota diagnostics and reset evidence out of the partial answer", () => {
+    const harness = makeHarness();
+    const quota = "You've hit your weekly limit · resets 11pm (America/Los_Angeles)";
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const events = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil((event) => event.type === "turn.completed"),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "hello", attachments: [] });
+      harness.query.emit({
+        type: "assistant",
+        session_id: "fixture-session-quota",
+        uuid: "fixture-partial",
+        parent_tool_use_id: null,
+        message: { content: [{ type: "text", text: "This part of the answer was delivered." }] },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "assistant",
+        error: "rate_limit",
+        session_id: "fixture-session-quota",
+        uuid: "fixture-quota-error",
+        parent_tool_use_id: null,
+        message: { content: [{ type: "text", text: quota }] },
+      } as unknown as SDKMessage);
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        session_id: "fixture-session-quota",
+        uuid: "fixture-quota-result",
+      } as unknown as SDKMessage);
+      const runtimeEvents = Array.from(yield* Fiber.join(events));
+      const error = runtimeEvents.find((event) => event.type === "runtime.error");
+      const result = runtimeEvents.find((event) => event.type === "turn.completed");
+      assert.equal(error?.payload.message, quota);
+      assert.equal(result?.payload.state, "failed");
+      assert.equal(result?.payload.errorMessage, quota);
+      const output = runtimeEvents
+        .filter((event) => event.type === "content.delta")
+        .map((event) => event.payload.delta)
+        .join("");
+      assert.include(output, "This part of the answer was delivered.");
+      assert.notInclude(output, quota);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it("says why a turn failed without naming a provider when the model or its service failed", () => {
     // Moss lanes reach other models through Claude Code too; these reasons are about the model
     // service, so they never say "Claude" (the web translates each one).

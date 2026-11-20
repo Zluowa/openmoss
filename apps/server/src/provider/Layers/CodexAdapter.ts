@@ -4021,10 +4021,6 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       }),
       (manager) => Effect.promise(() => manager.stopAll()),
     );
-    const unregisterMaintenanceStopper = runtimePrograms.registerMaintenanceStopper(() =>
-      manager.stopAll(),
-    );
-    yield* Effect.addFinalizer(() => Effect.sync(unregisterMaintenanceStopper));
 
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,

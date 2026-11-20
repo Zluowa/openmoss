@@ -137,6 +137,7 @@ import { usePinnedThreadsStore } from "../pinnedThreadsStore";
 import { getAppTypographyScale } from "../lib/appTypography";
 import { threadJumpCommandForIndex } from "../keybindings";
 import { useStore } from "../store";
+import { getThreadFromState } from "../threadDerivation";
 import { clearThreadDetailCache, writeThreadDetailCache } from "../lib/threadDetailCache";
 import {
   createShellSnapshotFromReadModel,
@@ -7084,11 +7085,12 @@ describe("ChatView transcript geometry (full app)", () => {
         >[0],
       ) => void,
       respondDelayMs = 50,
+      configureFixture: (fixture: TestFixture) => void = withClaudeReady,
     ) {
       const mounted = await mountChatView({
         viewport: DEFAULT_VIEWPORT,
         snapshot,
-        configureFixture: withClaudeReady,
+        configureFixture,
       });
       const previousNativeApi = window.nativeApi;
       const api = readNativeApi()!;
@@ -7367,7 +7369,7 @@ describe("ChatView transcript geometry (full app)", () => {
                           threadId: THREAD_ID,
                           status: "ready" as const,
                           providerName: targetProvider,
-                          providerInstanceId: targetProvider,
+                          providerInstanceId: modelSelection?.instanceId ?? targetProvider,
                           runtimeMode: "full-access" as const,
                           activeTurnId: null,
                           lastError: null,
@@ -7424,6 +7426,77 @@ describe("ChatView transcript geometry (full app)", () => {
       sendButton.click();
       return composerEditor;
     }
+
+    it("offers a Moss handoff from the composer when personal usage runs out", async () => {
+      const snapshot = createSnapshotForTargetUser({
+        targetMessageId: "quota-limit-message" as MessageId,
+        targetText: "Help me compare the options.",
+        targetIndex: 0,
+        messagePairCount: 1,
+        sessionStatus: "error",
+      });
+      const limitedSnapshot = {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          session: {
+            ...thread.session!,
+            providerInstanceId: "codex",
+            lastError: "You've hit your usage limit. Try again at Nov 23rd, 2026 11:00 PM.",
+          },
+        })),
+      };
+      const mounted = await mountWithCapturedCommands(
+        limitedSnapshot,
+        respondToHandoff("completed"),
+        50,
+        configureMossManagedDefaults,
+      );
+      try {
+        const banner = page.getByTestId("personal-usage-limit-banner");
+        const editor = await waitForComposerEditor();
+        await expect.element(banner).toBeVisible();
+        await expect.element(page.getByText("assistant filler 0", { exact: true })).toBeVisible();
+        expect(banner.element().getBoundingClientRect().bottom).toBeLessThanOrEqual(
+          editor.getBoundingClientRect().top,
+        );
+        await banner.getByRole("button", { name: "Switch to Moss" }).click();
+        await vi.waitFor(() => {
+          expect(
+            document
+              .querySelector("[data-moss-visible-composer-shell]")
+              ?.getAttribute("data-moss-visible-provider-instance"),
+          ).toBe("codex_moss");
+          expect(document.querySelector('[data-testid="personal-usage-limit-banner"]')).toBeNull();
+        });
+        useComposerDraftStore.getState().setPrompt(THREAD_ID, "Continue the comparison.");
+        const send = await waitForSendButton();
+        await vi.waitFor(() => expect(send.disabled).toBe(false));
+        send.click();
+        await vi.waitFor(
+          () => {
+            expect(mounted.commands).toEqual(
+              expect.arrayContaining([
+                expect.objectContaining({
+                  threadId: THREAD_ID,
+                  type: "thread.meta.update",
+                  providerHandoff: true,
+                  modelSelection: expect.objectContaining({ instanceId: "codex_moss" }),
+                }),
+                expect.objectContaining({
+                  threadId: THREAD_ID,
+                  type: "thread.turn.start",
+                  modelSelection: expect.objectContaining({ instanceId: "codex_moss" }),
+                }),
+              ]),
+            );
+          },
+          { timeout: 8_000 },
+        );
+      } finally {
+        await mounted.cleanup();
+      }
+    });
 
     it("hands the thread off before sending when the composer picks another provider", async () => {
       // The target takes a while to start; the message must show meanwhile.
@@ -12577,6 +12650,154 @@ describe("ChatView transcript geometry (full app)", () => {
     } finally {
       await mounted.cleanup();
     }
+  });
+
+  describe("a follow-up sent while a turn runs", () => {
+    const RUNNING_TURN_ID = TurnId.makeUnsafe("turn-running-follow-up");
+    const runningTurn = {
+      turnId: RUNNING_TURN_ID,
+      state: "running" as const,
+      requestedAt: isoAt(1_000),
+      startedAt: isoAt(1_001),
+      completedAt: null,
+      assistantMessageId: null,
+    };
+    const withSession = (
+      snapshot: OrchestrationReadModel,
+      update: (
+        thread: OrchestrationReadModel["threads"][number],
+      ) => Partial<OrchestrationReadModel["threads"][number]>,
+    ): OrchestrationReadModel => ({
+      ...snapshot,
+      snapshotSequence: snapshot.snapshotSequence + 1,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === THREAD_ID ? { ...thread, ...update(thread) } : thread,
+      ),
+    });
+    const turnStartsWith = (text: string) =>
+      wsRequests
+        .map(readDispatchedCommand)
+        .filter(
+          (command) =>
+            command?.type === "thread.turn.start" &&
+            typeof command.message === "object" &&
+            command.message !== null &&
+            "text" in command.message &&
+            typeof command.message.text === "string" &&
+            command.message.text.includes(text),
+        );
+    const expectNoStartingNotice = () => {
+      const text = document.body.textContent ?? "";
+      expect(text).not.toContain("The session is still starting");
+      expect(text).not.toContain("会话仍在启动");
+    };
+
+    it("queues it while the running turn's session reconnects and sends it once the turn ends", async () => {
+      const restoreNativeApi = installDeterministicSendNativeApi();
+      const followUp = "follow-up typed while the turn reconnects";
+      let snapshot = withSession(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-running-reconnect" as MessageId,
+          targetText: "running reconnect target",
+        }),
+        (thread) => ({
+          latestTurn: runningTurn,
+          session: { ...thread.session!, status: "running", activeTurnId: RUNNING_TURN_ID },
+        }),
+      );
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      try {
+        // The owner's case: Codex is visibly working (Stop shown) when the server
+        // reports the session as `starting` again for a background reconnect.
+        snapshot = withSession(snapshot, (thread) => ({
+          session: { ...thread.session!, status: "starting" },
+        }));
+        fixture = { ...fixture, snapshot };
+        useStore.getState().syncServerReadModel(snapshot);
+        await vi.waitFor(() =>
+          expect(getThreadFromState(useStore.getState(), THREAD_ID)?.session?.status).toBe(
+            "connecting",
+          ),
+        );
+        await expect
+          .element(page.getByRole("button", { name: "Stop generation" }))
+          .toBeInTheDocument();
+        await page.getByTestId("composer-editor").fill(followUp);
+        await userEvent.keyboard("{Enter}");
+
+        await vi.waitFor(
+          () => {
+            const rows = document.querySelectorAll('[data-testid="queued-follow-up-row"]');
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.textContent).toContain(followUp);
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+        expectNoStartingNotice();
+        expect(turnStartsWith(followUp)).toHaveLength(0);
+        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt ?? "").toBe("");
+
+        // The turn ends and the session is ready: the queued message goes out once.
+        snapshot = withSession(snapshot, (thread) => ({
+          latestTurn: { ...runningTurn, state: "completed", completedAt: isoAt(1_100) },
+          session: { ...thread.session!, status: "ready", activeTurnId: null },
+        }));
+        fixture = { ...fixture, snapshot };
+        useStore.getState().syncServerReadModel(snapshot);
+
+        await vi.waitFor(
+          () => {
+            expect(turnStartsWith(followUp)).toHaveLength(1);
+            expect(document.querySelectorAll('[data-testid="queued-follow-up-row"]')).toHaveLength(
+              0,
+            );
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+        await waitForLayout();
+        expect(turnStartsWith(followUp)).toHaveLength(1);
+        expectNoStartingNotice();
+      } finally {
+        await mounted.cleanup();
+        restoreNativeApi();
+      }
+    });
+
+    it("queues it while a running chat's cached detail is still being verified", async () => {
+      const followUp = "follow-up typed during background verification";
+      const mounted = await mountChatView({
+        viewport: DEFAULT_VIEWPORT,
+        snapshot: withSession(
+          createSnapshotForTargetUser({
+            targetMessageId: "msg-user-running-verify" as MessageId,
+            targetText: "running verify target",
+            sessionStatus: "running",
+          }),
+          () => ({ latestTurn: runningTurn }),
+        ),
+      });
+      try {
+        useStore.setState((state) => ({
+          ...state,
+          threadDetailSyncById: { ...(state.threadDetailSyncById ?? {}), [THREAD_ID]: "cached" },
+        }));
+        await page.getByTestId("composer-editor").fill(followUp);
+        await userEvent.keyboard("{Enter}");
+
+        await vi.waitFor(
+          () => {
+            const rows = document.querySelectorAll('[data-testid="queued-follow-up-row"]');
+            expect(rows).toHaveLength(1);
+            expect(rows[0]?.textContent).toContain(followUp);
+          },
+          { timeout: 8_000, interval: 16 },
+        );
+        expectNoStartingNotice();
+        expect(turnStartsWith(followUp)).toHaveLength(0);
+      } finally {
+        await mounted.cleanup();
+      }
+    });
   });
 
   it("marks a chat back from snooze as seen once it is opened", async () => {

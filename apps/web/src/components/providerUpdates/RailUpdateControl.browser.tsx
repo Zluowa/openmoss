@@ -1,12 +1,13 @@
 // FILE: RailUpdateControl.browser.tsx
-// Purpose: The rail's update flow as a person meets it: tooltip, confirm dialog, the running
-//          animation, then the success or failure pill.
+// Purpose: The rail's update flow as a person meets it: tooltip, confirm dialog with each
+//          agent's progress and result, the running animation, then the success or failure pill.
 // Layer: Web shell navigation test.
 
 import "../../index.css";
 
 import {
   DEFAULT_SERVER_SETTINGS_VIEW,
+  type DesktopBridge,
   type DesktopUpdateState,
   type ServerProviderStatus,
 } from "@moss/contracts";
@@ -93,6 +94,17 @@ const DOWNLOADED_APP: DesktopUpdateState = {
   installFailureCount: 0,
   flavor: "production",
   releaseUrl: null,
+  manualDownloadUrl: null,
+};
+
+// A Mac build without a Developer ID: the main process only announces the version.
+const MAC_NOTICE_APP: DesktopUpdateState = {
+  ...DOWNLOADED_APP,
+  status: "available",
+  currentVersion: "1.0.8",
+  availableVersion: "1.0.9",
+  downloadedVersion: null,
+  manualDownloadUrl: "https://mossbotai.com/download",
 };
 
 async function renderControl(
@@ -131,6 +143,14 @@ async function renderControl(
   return { client, screen };
 }
 
+function visibleBox(element: Element): DOMRect {
+  const box = element.getBoundingClientRect();
+  expect(box.width).toBeGreaterThan(0);
+  expect(box.height).toBeGreaterThan(0);
+  expect(getComputedStyle(element).visibility).toBe("visible");
+  return box;
+}
+
 const updateButton = () => page.getByRole("button", { name: "更新 1 个智能体" });
 
 function railState(): string | null {
@@ -156,19 +176,115 @@ describe("RailUpdateControl", () => {
   beforeEach(() => {
     updateProvider.mockReset();
     navigate.mockReset();
-    useProviderUpdateRunStore.setState({ liveVersionCheckCompleted: true, run: null });
+    useProviderUpdateRunStore.setState({
+      liveVersionCheckCompleted: true,
+      run: null,
+      outcomes: {},
+    });
   });
 
   afterEach(() => {
-    useProviderUpdateRunStore.setState({ liveVersionCheckCompleted: false, run: null });
+    useProviderUpdateRunStore.setState({
+      liveVersionCheckCompleted: false,
+      run: null,
+      outcomes: {},
+    });
   });
 
-  it("warns before stopping Codex and lets the user cancel", async () => {
-    await renderControl([provider({ provider: "codex", driver: "codex" })]);
+  it("updates Codex in use inside the dialog: progress per agent, then the switch note", async () => {
+    let finish!: (result: { providers: ServerProviderStatus[] }) => void;
+    updateProvider.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const codex = (overrides: Partial<ServerProviderStatus> = {}) =>
+      provider({ provider: "codex", driver: "codex", instanceId: "codex", ...overrides } as never, {
+        currentVersion: "0.170.0",
+        latestVersion: "0.171.0",
+        updateCommand: "npm install -g @openai/codex@latest",
+      });
+    const { client } = await renderControl([codex()]);
     await userEvent.click(updateButton());
-    await expect.element(page.getByRole("alertdialog")).toHaveTextContent("关闭由它启动的 Codex");
-    await userEvent.click(page.getByRole("button", { name: "取消" }));
-    expect(updateProvider).not.toHaveBeenCalled();
+    const dialog = page.getByRole("alertdialog");
+    // Nothing asks the person to stop work or restart Moss.
+    await expect.element(dialog).toHaveTextContent("更新时智能体照常可用");
+    await expect.element(dialog).not.toHaveTextContent("关闭由它启动的 Codex");
+    await expect.element(dialog).not.toHaveTextContent("重启 Moss");
+
+    await userEvent.click(page.getByRole("button", { name: "更新", exact: true }));
+    expect(updateProvider).toHaveBeenCalledWith({ provider: "codex", instanceId: "codex" });
+    // The dialog stays and shows the agent updating, like a progress row.
+    await expect.element(dialog).toBeVisible();
+    const row = () => document.querySelector('[data-provider-update-row="codex"]');
+    await vi.waitFor(() =>
+      expect(row()?.getAttribute("data-provider-update-row-state")).toBe("updating"),
+    );
+    expect(row()?.textContent).toContain("更新中…");
+    await expect.element(page.getByRole("button", { name: "更新中…" })).toBeDisabled();
+
+    const finishedAt = new Date(Date.now() + 1_000).toISOString();
+    const updated = codex({
+      version: "0.171.0",
+      updateState: {
+        status: "succeeded",
+        startedAt: CHECKED_AT,
+        finishedAt,
+        message:
+          "Updated. Conversations in progress switch to the new version after their current turn.",
+        output: null,
+      },
+    } as never);
+    setProviders(client, [
+      { ...updated, versionAdvisory: { ...updated.versionAdvisory!, status: "current" } },
+    ]);
+    finish({ providers: [updated] });
+
+    await vi.waitFor(() =>
+      expect(row()?.getAttribute("data-provider-update-row-state")).toBe("updated"),
+    );
+    // The row stays listed with its versions after the agent left the "needs update" list.
+    expect(row()?.textContent).toContain("已更新");
+    expect(row()?.textContent).toContain("0.171.0");
+    await expect.element(dialog).toHaveTextContent("智能体已更新");
+    await expect
+      .element(dialog)
+      .toHaveTextContent("已更新，进行中的对话会在本轮结束后切换到新版本。");
+    await userEvent.click(page.getByRole("button", { name: "完成" }));
+    await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
+  });
+
+  it("says why an update failed in the dialog and retries it from there", async () => {
+    const finishedAt = new Date(Date.now() + 1_000).toISOString();
+    const failure = "Moss could not download the update. Check your network, then try again.";
+    const failed = provider({
+      updateState: {
+        status: "failed",
+        startedAt: CHECKED_AT,
+        finishedAt,
+        message: failure,
+        output: null,
+      },
+    });
+    updateProvider.mockResolvedValueOnce({ providers: [failed] });
+    await renderControl([provider()]);
+    await userEvent.click(updateButton());
+    await userEvent.click(page.getByRole("button", { name: "更新", exact: true }));
+
+    const row = () => document.querySelector('[data-provider-update-row="opencode"]');
+    await vi.waitFor(() =>
+      expect(row()?.getAttribute("data-provider-update-row-state")).toBe("failed"),
+    );
+    const dialog = page.getByRole("alertdialog");
+    await expect.element(dialog).toHaveTextContent(/没能下载更新|could not download the update/);
+    await expect.element(dialog).not.toHaveTextContent("重启 Moss");
+
+    updateProvider.mockResolvedValueOnce({ providers: [] });
+    await userEvent.click(page.getByRole("button", { name: "重试", exact: true }));
+    await vi.waitFor(() => expect(updateProvider).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(row()?.getAttribute("data-provider-update-row-state")).toBe("updated"),
+    );
   });
 
   it("takes no room in the rail when nothing needs updating", async () => {
@@ -422,5 +538,80 @@ describe("RailUpdateControl", () => {
     expect(button?.querySelector("[data-rail-progress-ring]")).not.toBeNull();
     button?.click();
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  describe("on a Mac build that cannot install updates itself", () => {
+    const openExternal = vi.fn(async () => true);
+    const originalBridge = window.desktopBridge;
+
+    beforeEach(() => {
+      localStorage.clear();
+      openExternal.mockClear();
+      window.desktopBridge = { openExternal } as unknown as DesktopBridge;
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+      if (originalBridge) window.desktopBridge = originalBridge;
+      else Reflect.deleteProperty(window, "desktopBridge");
+    });
+
+    const noticeButton = (version = "1.0.9") =>
+      page.getByRole("button", { name: `Moss ${version} 已发布` });
+
+    it("announces the version and opens the download page, never an install", async () => {
+      // A desktop window, so the dialog footer lays out in one row as it does in the app.
+      await page.viewport(1280, 800);
+      const onClick = vi.fn();
+      await renderControl([], { state: MAC_NOTICE_APP, onClick });
+
+      await vi.waitFor(() => expect(railState()).toBe("desktop"));
+      await expect.element(noticeButton()).toBeEnabled();
+      visibleBox(noticeButton().element());
+
+      await userEvent.click(noticeButton());
+      const dialog = page.getByRole("alertdialog");
+      await expect.element(dialog).toHaveTextContent("Moss 1.0.9 已发布");
+      await expect.element(dialog).toHaveTextContent("当前版本不支持在应用内更新");
+      const download = page.getByRole("button", { name: "前往下载" });
+      const later = page.getByRole("button", { name: "稍后" });
+      const downloadBox = visibleBox(download.element());
+      const laterBox = visibleBox(later.element());
+      // One footer row, the main action last, as in every Moss dialog.
+      expect(Math.abs(downloadBox.top - laterBox.top)).toBeLessThanOrEqual(1);
+      expect(downloadBox.left).toBeGreaterThan(laterBox.left);
+      expect(dialog.element().textContent).not.toMatch(/安装|重启|Install|Restart/u);
+
+      await userEvent.click(download);
+      expect(openExternal).toHaveBeenCalledWith("https://mossbotai.com/download");
+      // The updater's own click (download or install) is never reached.
+      expect(onClick).not.toHaveBeenCalled();
+      await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
+      // The entry stays until the new version is installed.
+      expect(railState()).toBe("desktop");
+    });
+
+    it("「稍后」 hides this version's notice, and the next version shows again", async () => {
+      const first = await renderControl([], { state: MAC_NOTICE_APP, onClick: vi.fn() });
+      await userEvent.click(noticeButton());
+      await userEvent.click(page.getByRole("button", { name: "稍后" }));
+      await vi.waitFor(() => expect(document.querySelector('[role="alertdialog"]')).toBeNull());
+      await vi.waitFor(() => expect(railState()).toBeNull());
+      expect(openExternal).not.toHaveBeenCalled();
+
+      // Snoozed across restarts of the window for the same version.
+      await first.screen.unmount();
+      const again = await renderControl([], { state: MAC_NOTICE_APP, onClick: vi.fn() });
+      await expect.element(page.getByTestId("rail-avatar")).toBeInTheDocument();
+      expect(railState()).toBeNull();
+
+      await again.screen.unmount();
+      await renderControl([], {
+        state: { ...MAC_NOTICE_APP, availableVersion: "1.0.10" },
+        onClick: vi.fn(),
+      });
+      await expect.element(noticeButton("1.0.10")).toBeInTheDocument();
+      expect(railState()).toBe("desktop");
+    });
   });
 });
