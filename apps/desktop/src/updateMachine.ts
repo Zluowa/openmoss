@@ -24,6 +24,7 @@ export function createInitialDesktopUpdateState(
     installFailureCount: 0,
     flavor,
     releaseUrl: null,
+    manualDownloadUrl: null,
   };
 }
 

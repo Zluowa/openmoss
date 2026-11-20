@@ -49,6 +49,18 @@ describe("provider status in zh-CN", () => {
       "Codex 仍在使用中，或尚未确认退出。请先结束正在运行的任务，或重启 Moss，再更新程序。",
     ],
     [
+      "Updated. Conversations in progress switch to the new version after their current turn.",
+      "已更新，进行中的对话会在本轮结束后切换到新版本。",
+    ],
+    [
+      "There is not enough disk space for the update. Free some space, then try again.",
+      "磁盘空间不足，无法完成更新。请清理一些空间后重试。",
+    ],
+    [
+      "Moss could not download the update. Check your network, then try again.",
+      "Moss 没能下载更新，请检查网络后重试。",
+    ],
+    [
       "Failed to execute Claude Agent CLI health check: The Claude program changed. Restart Moss to apply it; accounts and history are preserved..",
       "无法执行 Claude Agent CLI 健康检查：Claude 程序已更改，重启 Moss 后生效。账号和聊天历史会保留。",
     ],

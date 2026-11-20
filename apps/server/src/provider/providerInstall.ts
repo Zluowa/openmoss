@@ -175,6 +175,8 @@ export function buildAgentInstallArgs(input: {
   readonly install: OneClickAgentInstall;
   readonly prefix: string;
   readonly registry: string;
+  /** An exact release; the latest one when absent. */
+  readonly version?: string | undefined;
 }): ReadonlyArray<string> {
   return [
     "install",
@@ -186,7 +188,7 @@ export function buildAgentInstallArgs(input: {
     "--no-fund",
     "--loglevel=error",
     ...(input.install.npmInstallArgs ?? []),
-    `${input.install.packageName}@latest`,
+    `${input.install.packageName}@${input.version ?? "latest"}`,
   ];
 }
 
@@ -211,6 +213,8 @@ export type AgentInstallOutcome =
       readonly version: string;
       readonly source: "cn-mirror" | "official";
       readonly binDirectory: string;
+      /** The installed command, as the verification found it in `binDirectory`. */
+      readonly executable?: string;
     }
   | {
       readonly ok: false;
@@ -236,6 +240,10 @@ export const runOneClickAgentInstall = Effect.fn("runOneClickAgentInstall")(func
   readonly mossHomeDir: string;
   readonly channel: ProviderPackageChannel | undefined;
   readonly env: NodeJS.ProcessEnv;
+  /** npm `--prefix` to install into; the shared Moss-managed folder when absent. */
+  readonly prefix?: string;
+  /** An exact release to install; the latest one when absent. */
+  readonly version?: string;
   readonly platform?: NodeJS.Platform;
   readonly architecture?: string;
   /** Resolved npm; undefined looks it up on the env's PATH. */
@@ -296,7 +304,7 @@ export const runOneClickAgentInstall = Effect.fn("runOneClickAgentInstall")(func
       detail: "npm is not on PATH.",
     } satisfies AgentInstallOutcome as AgentInstallOutcome;
   }
-  const prefix = managedAgentInstallPrefix(input.mossHomeDir);
+  const prefix = input.prefix ?? managedAgentInstallPrefix(input.mossHomeDir);
   const binDirectory = managedAgentBinDirectory(prefix, platform);
   const pathKey = envPathKeyFor(input.env, platform);
   const quietEnv: NodeJS.ProcessEnv = {
@@ -319,7 +327,7 @@ export const runOneClickAgentInstall = Effect.fn("runOneClickAgentInstall")(func
         command: npm,
         args: [
           ...(input.npmCommand?.prefixArgs ?? []),
-          ...buildAgentInstallArgs({ install, prefix, registry }),
+          ...buildAgentInstallArgs({ install, prefix, registry, version: input.version }),
         ],
         // The mirror env also points native-addon downloads (better-sqlite3) at the mirror.
         env: applyProviderPackageChannelEnv(
@@ -365,7 +373,7 @@ export const runOneClickAgentInstall = Effect.fn("runOneClickAgentInstall")(func
       verified && verified.exitCode === 0
         ? parseGenericCliVersion(`${verified.stdout}\n${verified.stderr}`)
         : null;
-    if (!version) {
+    if (!version || !installed) {
       return {
         ok: false,
         reason: "verify-failed",
@@ -379,6 +387,7 @@ export const runOneClickAgentInstall = Effect.fn("runOneClickAgentInstall")(func
       version,
       source,
       binDirectory,
+      executable: installed,
     } satisfies AgentInstallOutcome as AgentInstallOutcome;
   }
   return (

@@ -189,6 +189,7 @@ import { MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID } from "../claudeEnvironment.t
 import { MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID } from "../mossManagedOpenCodeEnvironment.ts";
 import { MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID } from "../mossManagedPiEnvironment.ts";
 import { isMossManagedRelayInstanceId } from "../../account/managedRelayProviders.ts";
+import { agentProgramsForServer, type AgentProgramOwnership } from "../agentProgramOwnership.ts";
 
 // Devin and Grok report a cursor they cannot reload faithfully (missing native
 // state, or created for other process-start model flags) as resume-state-unavailable.
@@ -204,6 +205,11 @@ export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
   readonly canonicalEventLogger?: EventNdjsonLogger;
   readonly runtimeIdleStopMs?: number;
+  /**
+   * Program ownership of Codex and Claude, whose in-app updates move running sessions to the
+   * new program once their turn ends. Defaults to this server's shared records.
+   */
+  readonly agentPrograms?: (provider: "codex" | "claudeAgent") => AgentProgramOwnership;
   /** Test/embedding override for the lossless runtime-event fan-out budget. */
   readonly runtimeEventBufferCapacity?: number;
   /** Production journal hook. The event must be durable before this effect returns. */
@@ -1659,6 +1665,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     let stopIdleRuntimeSession:
       | ((threadId: ThreadId, generation: symbol, cleanupStarted?: boolean) => void)
       | null = null;
+    // Sessions still running a Codex or Claude program an in-app update replaced. Each one
+    // is stopped like an idle runtime as soon as its turn and tasks have finished, and the
+    // next message resumes the thread on the new program.
+    const programRecycleThreads = new Set<ThreadId>();
+    // Turn sends between their idle-fence and the provider accepting the turn: an idle stop
+    // must never take the runtime away from a message that is being delivered.
+    const turnDispatchesInFlight = new Map<ThreadId, number>();
 
     const invalidateRuntimeIdleGeneration = (threadId: ThreadId): symbol => {
       const generation = Symbol(String(threadId));
@@ -1695,16 +1708,20 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       if ((liveRuntimeTaskIds.get(threadId)?.size ?? 0) > 0) {
         return;
       }
-      if (runtimeIdleStopMs <= 0) {
+      const recycle = programRecycleThreads.has(threadId);
+      if (runtimeIdleStopMs <= 0 && !recycle) {
         retireRuntimeIdleGeneration(threadId);
         return;
       }
 
       const generation = invalidateRuntimeIdleGeneration(threadId);
-      const timer = setTimeout(() => {
-        runtimeIdleTimers.delete(threadId);
-        stopIdleRuntimeSession?.(threadId, generation);
-      }, runtimeIdleStopMs);
+      const timer = setTimeout(
+        () => {
+          runtimeIdleTimers.delete(threadId);
+          stopIdleRuntimeSession?.(threadId, generation);
+        },
+        recycle ? 0 : runtimeIdleStopMs,
+      );
       timer.unref();
       runtimeIdleTimers.set(threadId, timer);
     };
@@ -2118,19 +2135,29 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const displacedIdleStop = existingIdleStop !== undefined || runtimeIdleTimers.has(threadId);
         const waitForExistingIdleStop =
           existingIdleStop !== undefined ? Effect.promise(() => existingIdleStop) : Effect.void;
+        turnDispatchesInFlight.set(threadId, (turnDispatchesInFlight.get(threadId) ?? 0) + 1);
+        const dispatchSettled = Effect.sync(() => {
+          const remaining = (turnDispatchesInFlight.get(threadId) ?? 1) - 1;
+          if (remaining > 0) turnDispatchesInFlight.set(threadId, remaining);
+          else turnDispatchesInFlight.delete(threadId);
+        });
         return waitForInterruptionFence.pipe(
           Effect.andThen(waitForExistingIdleStop),
           Effect.tap(() => Effect.sync(() => clearRuntimeIdleTimer(threadId))),
           Effect.flatMap(() => waitForRuntimeIdleStop(threadId)),
           Effect.flatMap(() => effect),
           Effect.onExit((exit) =>
-            Exit.isSuccess(exit)
-              ? options?.scheduleIdleStopOnSuccess === true
-                ? Effect.sync(() => scheduleRuntimeIdleStop(threadId))
-                : Effect.void
-              : displacedIdleStop
-                ? Effect.sync(() => scheduleRuntimeIdleStop(threadId))
-                : Effect.sync(() => retireRuntimeIdleGeneration(threadId)),
+            dispatchSettled.pipe(
+              Effect.andThen(
+                Exit.isSuccess(exit)
+                  ? options?.scheduleIdleStopOnSuccess === true
+                    ? Effect.sync(() => scheduleRuntimeIdleStop(threadId))
+                    : Effect.void
+                  : displacedIdleStop
+                    ? Effect.sync(() => scheduleRuntimeIdleStop(threadId))
+                    : Effect.sync(() => retireRuntimeIdleGeneration(threadId)),
+              ),
+            ),
           ),
         );
       });
@@ -2160,6 +2187,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           markRuntimeTaskSettled(event.threadId, event.payload.taskId);
           return;
         case "session.started":
+          // A runtime that starts now resolves the current program.
+          programRecycleThreads.delete(event.threadId);
+          scheduleRuntimeIdleStop(event.threadId);
+          return;
         case "thread.started":
         case "turn.completed":
         case "turn.aborted":
@@ -6994,6 +7025,42 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         );
       },
     );
+    // An in-app Codex or Claude update switched the program new launches use. Sessions
+    // still on the old one move over at their next safe point (idle stop + resume).
+    const agentProgramsFor =
+      options?.agentPrograms ??
+      (serverConfig
+        ? (provider: "codex" | "claudeAgent") => agentProgramsForServer(serverConfig, provider)
+        : undefined);
+    for (const agentProvider of ["codex", "claudeAgent"] as const) {
+      const programs = agentProgramsFor?.(agentProvider);
+      if (!programs) continue;
+      const unregister = programs.onProgramSwitched(() => {
+        Effect.runFork(
+          Effect.gen(function* () {
+            const bindings = yield* directory.listBindings();
+            const adapter = yield* registry.getByProvider(agentProvider);
+            const live = new Set(
+              (yield* adapter.listSessions()).map((session) => session.threadId),
+            );
+            for (const binding of bindings) {
+              if (binding.provider !== agentProvider || !live.has(binding.threadId)) continue;
+              programRecycleThreads.add(binding.threadId);
+              scheduleRuntimeIdleStop(binding.threadId);
+            }
+          }).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider.session.program_update_recycle_failed", {
+                provider: agentProvider,
+                cause: Cause.pretty(cause),
+              }),
+            ),
+          ),
+        );
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(unregister));
+    }
+
     if (unregisterMossPluginApprovalChange) {
       yield* Effect.addFinalizer(() => Effect.sync(unregisterMossPluginApprovalChange));
     }
@@ -7016,7 +7083,8 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         if (
           (bindingRuntimePayload.activeTurnId !== null &&
             bindingRuntimePayload.activeTurnId !== undefined) ||
-          (liveRuntimeTaskIds.get(threadId)?.size ?? 0) > 0
+          (liveRuntimeTaskIds.get(threadId)?.size ?? 0) > 0 ||
+          (turnDispatchesInFlight.get(threadId) ?? 0) > 0
         ) {
           retireRuntimeIdleGeneration(threadId, generation);
           return;
@@ -7059,6 +7127,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         cleanupStarted = true;
         runtimeIdleCleanupGenerations.set(threadId, generation);
         yield* stopRuntimeSessionInternal({ threadId }, generation);
+        if (programRecycleThreads.delete(threadId)) {
+          yield* Effect.logInfo("provider.session.program_update_restart", {
+            threadId,
+            provider: binding.provider,
+          });
+        }
       }).pipe(
         Effect.catchCause((cause) => {
           if (

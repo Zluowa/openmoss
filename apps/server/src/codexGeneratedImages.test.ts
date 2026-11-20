@@ -55,6 +55,17 @@ describe("generatedImagePathFromRuntimeEvent", () => {
     );
   });
 
+  it("returns undefined when Codex reports that making the image failed", () => {
+    // Codex still names where the image would have been saved; no file is there, so the
+    // reply must not gain a 「图片无法显示」 reference to it (owner report 2026-11-20).
+    const completed = makeImageGenerationCompletedEvent();
+    const failed = {
+      ...completed,
+      payload: { ...completed.payload, status: "failed" },
+    } as ProviderRuntimeEvent;
+    assert.equal(generatedImagePathFromRuntimeEvent(failed), undefined);
+  });
+
   it("returns undefined when the artifact has the wrong kind", () => {
     const event = makeImageGenerationCompletedEvent({
       data: { kind: "something-else", path: "/whatever.png" },

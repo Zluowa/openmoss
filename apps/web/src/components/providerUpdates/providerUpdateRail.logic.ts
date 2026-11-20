@@ -54,6 +54,8 @@ export interface ProviderUpdateRunProgress {
   readonly total: number;
   readonly settled: number;
   readonly currentName: string | null;
+  /** Row key of the agent updating now. */
+  readonly currentKey?: string | null;
 }
 
 export const PROVIDER_UPDATE_SUCCESS_VISIBLE_MS = 3_000;

@@ -12,7 +12,7 @@ import { translateMoss, useTranslation } from "../../localization";
 import { useStore } from "../../store";
 import type { ThreadShell } from "../../types";
 import { toastManager } from "../ui/toast";
-import { resolveThreadErrorPresentation } from "./threadErrorPresentation";
+import { isQuotaOwnedThreadError, resolveThreadErrorPresentation } from "./threadErrorPresentation";
 
 type ThreadErrorToastOptions = Parameters<typeof toastManager.add>[0];
 
@@ -81,7 +81,7 @@ export function decideThreadErrorToastAction(input: {
   readonly liveToastOpen: boolean;
   readonly threadVisible: boolean;
 }): ThreadErrorToastAction {
-  if (input.threadVisible) {
+  if (input.threadVisible || isQuotaOwnedThreadError(input.error)) {
     return "none";
   }
   if (input.previous !== undefined && input.previous !== input.error) {
@@ -174,7 +174,7 @@ export function useThreadErrorToast(input: {
     const reconcile = (errors: Map<ThreadId, string | null>): void => {
       const previousByThread = lastErrorByThreadRef.current;
       for (const [observedThreadId, error] of errors) {
-        if (!error) {
+        if (!error || isQuotaOwnedThreadError(error)) {
           liveToastThreadRef.current.delete(observedThreadId);
           closeSilently(observedThreadId, closingSilentlyRef);
           continue;

@@ -11,6 +11,7 @@ import { DiffPanelFileList, type DiffFileChatActions } from "./DiffPanelFileList
 import type { DiffLineBlameTarget } from "./DiffLineBlamePopover";
 import { DiffPanelLoadingState } from "./DiffPanelShell";
 import { PanelStateMessage } from "./chat/PanelStateMessage";
+import { Button } from "./ui/button";
 
 type DiffRenderMode = "stacked" | "split";
 
@@ -29,6 +30,8 @@ export const DiffPanelPatchViewport = memo(
     isLoading: boolean;
     hasNoChanges: boolean;
     error: string | null;
+    /** Offered beside an error so a failed load is never a dead end. */
+    onRetry?: (() => void) | undefined;
     refreshStatus?: string | null;
     loadingLabel: string;
     emptyLabel: string;
@@ -50,7 +53,14 @@ export const DiffPanelPatchViewport = memo(
             fill="flex"
             className="items-start justify-start px-3 pt-3"
           >
-            <p className="text-left text-ui-sm text-red-500/80">{props.error}</p>
+            <div className="flex flex-col items-start gap-2">
+              <p className="text-left text-ui-sm text-red-500/80">{props.error}</p>
+              {props.onRetry ? (
+                <Button variant="outline" size="xs" className="font-normal" onClick={props.onRetry}>
+                  Retry
+                </Button>
+              ) : null}
+            </div>
           </PanelStateMessage>
         </div>
       );
@@ -140,6 +150,7 @@ export const DiffPanelPatchViewport = memo(
       previous.isLoading === next.isLoading &&
       previous.hasNoChanges === next.hasNoChanges &&
       previous.error === next.error &&
+      previous.onRetry === next.onRetry &&
       previous.refreshStatus === next.refreshStatus &&
       previous.loadingLabel === next.loadingLabel &&
       previous.emptyLabel === next.emptyLabel &&

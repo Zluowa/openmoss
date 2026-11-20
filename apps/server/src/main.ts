@@ -51,6 +51,8 @@ import { LATEST_MIGRATION_ID } from "./persistence/Migrations";
 import { fixPath, resolveBaseDir } from "./os-jank";
 import { ensureAgentCliPath } from "./provider/agentCliPathFloor.ts";
 import { refreshNodeShim } from "./provider/agentInstallRuntime.ts";
+import { agentProgramsForServer } from "./provider/agentProgramOwnership.ts";
+import { pruneAgentVersions, restoreActiveAgentVersions } from "./provider/agentVersionStore.ts";
 import { managedAgentBinDirectory, managedAgentInstallPrefix } from "./provider/providerInstall.ts";
 import { Open } from "./open";
 import { ServerAuth } from "./auth/Services/ServerAuth";
@@ -451,6 +453,16 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
       await ensureAgentCliPath(config.baseDir, { force: true });
       // Agents Moss installed without the person's own Node start through this shim.
       await refreshNodeShim(managedAgentBinDirectory(managedAgentInstallPrefix(config.baseDir)));
+      // Codex and Claude copies earlier in-app updates installed side by side; older copies
+      // nothing runs from any more are removed in the background.
+      await restoreActiveAgentVersions(config.baseDir);
+      for (const agent of ["codex", "claudeAgent"] as const) {
+        void pruneAgentVersions({
+          mossHomeDir: config.baseDir,
+          agent,
+          isInUse: (directory) => agentProgramsForServer(config, agent).isDirectoryInUse(directory),
+        }).catch(() => undefined);
+      }
     });
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
 

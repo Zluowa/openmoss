@@ -118,6 +118,17 @@ describe("decideThreadErrorToastAction", () => {
     ).toBe("toast");
   });
 
+  it("keeps a usage limit in the affected conversation instead of raising a toast", () => {
+    expect(
+      decideThreadErrorToastAction({
+        previous: null,
+        error: 'HTTP 429 {"error":{"code":"insufficient_quota"}}',
+        liveToastOpen: false,
+        threadVisible: false,
+      }),
+    ).toBe("none");
+  });
+
   it("never toasts a live error while the thread is on screen", () => {
     // The transcript's inline banner already reports it — a toast would show
     // the same failure twice.

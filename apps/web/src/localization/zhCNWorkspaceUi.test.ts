@@ -10,6 +10,14 @@ describe("translateZhCnWorkspaceUiText", () => {
   it("translates visible Git, workspace, composer, automation, Kanban, and preview chrome", () => {
     expect(translateZhCnWorkspaceUiText("Git action in progress.")).toBe("Git 操作正在进行。");
     expect(translateZhCnWorkspaceUiText("Workspace settings")).toBe("工作区设置");
+    expect(
+      translateZhCnWorkspaceUiText("Line-by-line changes are unavailable for this turn."),
+    ).toBe("这一轮无法显示逐行差异。");
+    expect(
+      translateZhCnWorkspaceUiText(
+        "Moss has no snapshot from before this turn to compare with. These are the files the agent reported changing.",
+      ),
+    ).toBe("Moss 没有这一轮开始前的快照可供对比。以下是智能体报告修改的文件。");
     expect(translateZhCnWorkspaceUiText("Session Status")).toBe("会话状态");
     expect(translateZhCnWorkspaceUiText("Approval needed")).toBe("需要批准");
     expect(translateZhCnWorkspaceUiText("Draft sent")).toBe("草稿已发送");

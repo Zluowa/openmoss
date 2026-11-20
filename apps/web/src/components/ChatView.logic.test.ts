@@ -64,7 +64,8 @@ import {
   isVoiceAuthExpiredMessage,
   LOCAL_DISPATCH_TURN_TAKEOVER_TIMEOUT_MS,
   resolveActiveThreadTitle,
-  resolveBlockedComposerSendReason,
+  resolveComposerSendDecision,
+  resolveComposerSendHold,
   resolveDraftFallbackModelSelection,
   resolveActiveTurnLiveDiffState,
   resolveCommittedProviderModel,
@@ -3731,46 +3732,139 @@ describe("turn dispatch settings", () => {
   });
 });
 
-describe("blocked composer sends", () => {
-  it("reports a send refused while another send owns the thread", () => {
+describe("composer send while the chat is busy", () => {
+  const RUNNING_TURN = "turn-running";
+
+  it("calls a session starting only before any turn began", () => {
     expect(
-      resolveBlockedComposerSendReason({
-        sendInFlight: true,
-        sessionStarting: true,
-        hasComposerContent: true,
-      }),
-    ).toBe("send-in-flight");
-    expect(
-      resolveBlockedComposerSendReason({
-        sendInFlight: false,
-        sessionStarting: true,
-        hasComposerContent: true,
+      resolveComposerSendHold({
+        phase: "connecting",
+        activeTurnId: null,
+        latestTurnRunning: false,
+        awaitingVerification: false,
       }),
     ).toBe("session-starting");
+    // A turn that is running while its session reconnects is not starting.
+    expect(
+      resolveComposerSendHold({
+        phase: "connecting",
+        activeTurnId: RUNNING_TURN,
+        latestTurnRunning: true,
+        awaitingVerification: false,
+      }),
+    ).toBe("session-reconnecting");
+    expect(
+      resolveComposerSendHold({
+        phase: "connecting",
+        activeTurnId: null,
+        latestTurnRunning: true,
+        awaitingVerification: false,
+      }),
+    ).toBe("session-reconnecting");
+    // Background verification of a cached chat whose turn is running.
+    expect(
+      resolveComposerSendHold({
+        phase: "running",
+        activeTurnId: RUNNING_TURN,
+        latestTurnRunning: true,
+        awaitingVerification: true,
+      }),
+    ).toBe("detail-verifying");
+    expect(
+      resolveComposerSendHold({
+        phase: "running",
+        activeTurnId: RUNNING_TURN,
+        latestTurnRunning: true,
+        awaitingVerification: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveComposerSendHold({
+        phase: "ready",
+        activeTurnId: null,
+        latestTurnRunning: false,
+        awaitingVerification: false,
+      }),
+    ).toBeNull();
   });
 
-  it("stays silent when nothing blocks the send or there is nothing to send", () => {
+  it("queues a person's message while the chat starts, reconnects or verifies", () => {
+    for (const hold of ["session-starting", "session-reconnecting", "detail-verifying"] as const) {
+      expect(
+        resolveComposerSendDecision({
+          sendInFlight: false,
+          hold,
+          isQueuedTurn: false,
+          hasPendingAnswer: false,
+          hasComposerContent: true,
+        }),
+      ).toEqual({ kind: "queue-until-ready", hold });
+    }
+  });
+
+  it("sends normally when nothing holds the chat", () => {
     expect(
-      resolveBlockedComposerSendReason({
+      resolveComposerSendDecision({
         sendInFlight: false,
-        sessionStarting: false,
+        hold: null,
+        isQueuedTurn: false,
+        hasPendingAnswer: false,
         hasComposerContent: true,
       }),
-    ).toBeNull();
-    expect(
-      resolveBlockedComposerSendReason({
-        sendInFlight: true,
-        sessionStarting: false,
-        hasComposerContent: false,
-      }),
-    ).toBeNull();
+    ).toEqual({ kind: "send" });
   });
 
-  it("explains every blocked send instead of doing nothing", () => {
-    for (const reason of ["send-in-flight", "session-starting", "no-project"] as const) {
+  it("leaves a queued turn in the queue until the chat is ready, without a notice", () => {
+    expect(
+      resolveComposerSendDecision({
+        sendInFlight: false,
+        hold: "session-reconnecting",
+        isQueuedTurn: true,
+        hasPendingAnswer: false,
+        hasComposerContent: true,
+      }),
+    ).toEqual({ kind: "refuse", reason: null });
+  });
+
+  it("reports a send refused while another send owns the thread", () => {
+    expect(
+      resolveComposerSendDecision({
+        sendInFlight: true,
+        hold: "session-starting",
+        isQueuedTurn: false,
+        hasPendingAnswer: false,
+        hasComposerContent: true,
+      }),
+    ).toEqual({ kind: "refuse", reason: "send-in-flight" });
+    expect(
+      resolveComposerSendDecision({
+        sendInFlight: true,
+        hold: null,
+        isQueuedTurn: false,
+        hasPendingAnswer: false,
+        hasComposerContent: false,
+      }),
+    ).toEqual({ kind: "refuse", reason: null });
+  });
+
+  it("keeps an answer to an open question in the composer while the session reconnects", () => {
+    expect(
+      resolveComposerSendDecision({
+        sendInFlight: false,
+        hold: "session-reconnecting",
+        isQueuedTurn: false,
+        hasPendingAnswer: true,
+        hasComposerContent: true,
+      }),
+    ).toEqual({ kind: "refuse", reason: "answer-awaits-connection" });
+  });
+
+  it("explains every refused send without calling a running chat starting", () => {
+    for (const reason of ["send-in-flight", "answer-awaits-connection", "no-project"] as const) {
       const copy = buildBlockedComposerSendToastCopy(reason);
       expect(copy.title.length).toBeGreaterThan(0);
       expect(copy.description.length).toBeGreaterThan(0);
+      expect(`${copy.title} ${copy.description}`).not.toMatch(/starting/i);
     }
   });
 });

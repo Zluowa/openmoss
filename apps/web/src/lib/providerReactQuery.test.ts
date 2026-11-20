@@ -286,6 +286,30 @@ describe("checkpointDiffQueryOptions", () => {
     expect(retryDelay(11, new Error("Network failure"))).toBe(1_000);
   });
 
+  it("asks once when the turn summary already says the checkpoint is missing", () => {
+    const options = checkpointDiffQueryOptions({
+      threadId,
+      fromTurnCount: 0,
+      toTurnCount: 1,
+      ignoreWhitespace: true,
+      cacheScope: "turn:abc:provider-diff:event:missing",
+      awaitPendingCheckpoint: false,
+    });
+    const notReady = new Error("Checkpoint diff is not available yet for turn 1.");
+    if (typeof options.retry !== "function" || typeof options.refetchInterval !== "function") {
+      throw new Error("Expected retry and refetchInterval functions.");
+    }
+    expect(options.retry(0, notReady)).toBe(false);
+    expect(
+      options.refetchInterval({ state: { error: notReady, errorUpdateCount: 1 } } as never),
+    ).toBe(false);
+    // Generic failures and backpressure keep their own budgets.
+    expect(options.retry(0, new Error("Network failure"))).toBe(true);
+    expect(
+      options.refetchInterval({ state: { error: capacityError, errorUpdateCount: 1 } } as never),
+    ).toBe(250);
+  });
+
   it("keeps polling while checkpoint diffs are still materializing", () => {
     const options = checkpointDiffQueryOptions({
       threadId,
@@ -343,9 +367,15 @@ describe("resolveCheckpointDiffQueryDisplayState", () => {
     },
   );
 
-  it("shows loading instead of an error while retries are in flight", () => {
+  it("keeps a failed load on screen while a poll or a retry is in flight", () => {
     const pendingError = new Error("Checkpoint diff is not available yet for turn 1.");
+    const failed = {
+      isLoading: false,
+      error: "Checkpoint diff is not available yet for turn 1.",
+      refreshStatus: null,
+    };
 
+    // Owner 1.0.8: every poll flipped the panel back to skeleton rows.
     expect(
       resolveCheckpointDiffQueryDisplayState({
         isLoading: false,
@@ -353,11 +383,39 @@ describe("resolveCheckpointDiffQueryDisplayState", () => {
         data: undefined,
         error: pendingError,
       }),
-    ).toEqual({
-      isLoading: true,
-      error: null,
-      refreshStatus: null,
-    });
+    ).toEqual(failed);
+    // React Query keeps `error` empty until its retries run out; the failure shows at once.
+    expect(
+      resolveCheckpointDiffQueryDisplayState({
+        isLoading: true,
+        isFetching: true,
+        data: undefined,
+        error: null,
+        failureReason: pendingError,
+      }),
+    ).toEqual(failed);
+  });
+
+  it("shows loading only for an attempt that has not failed yet", () => {
+    expect(
+      resolveCheckpointDiffQueryDisplayState({
+        isLoading: true,
+        isFetching: true,
+        data: undefined,
+        error: null,
+        failureReason: null,
+      }),
+    ).toEqual({ isLoading: true, error: null, refreshStatus: null });
+    // Backpressure is not a failure to show: the transport retries it in place.
+    expect(
+      resolveCheckpointDiffQueryDisplayState({
+        isLoading: true,
+        isFetching: true,
+        data: undefined,
+        error: null,
+        failureReason: Object.assign(new Error("capacity"), capacityError),
+      }),
+    ).toEqual({ isLoading: true, error: null, refreshStatus: null });
   });
 
   it("surfaces the normalized error once fetching stops", () => {

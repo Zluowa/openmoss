@@ -1,8 +1,9 @@
 import * as fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DevsHandoffError } from "./devsHandoff";
 import { DevsOutboundWorker } from "./devsOutboundWorker";
 import type { DevsFetch } from "./devsReports";
 
@@ -177,5 +178,103 @@ describe("outbound-only maintainer worker", () => {
     time += 86_400_000;
     expect(await worker.runOnce()).toBe(true);
     expect(claims).toHaveLength(3);
+  });
+  it("saves an unverifiable report for a maintainer before closing the job as failed", async () => {
+    const stateDir = await directory();
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+    const sha256 = createHash("sha256").update(png).digest("hex");
+    const claimed = {
+      ...report,
+      attachments: [
+        {
+          index: 0,
+          name: "screen.png",
+          kind: "image",
+          mimeType: "image/png",
+          size: png.length,
+          sha256,
+        },
+      ],
+    };
+    const events: string[] = [];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetcher: DevsFetch = async (url, options) => {
+      const route = new URL(String(url)).pathname;
+      events.push(route);
+      if (route.endsWith("claim")) return Response.json({ report: claimed, lease });
+      if (route.endsWith("attachment")) return new Response(png);
+      if (route.endsWith("complete")) {
+        // The report is on disk before the queue hears the job is over.
+        const saved = JSON.parse(
+          await fs.readFile(path.join(stateDir, "handoff", report.id, "report.json"), "utf8"),
+        );
+        expect(saved).toMatchObject({
+          id: report.id,
+          description: report.description,
+          context: report.context,
+          reason:
+            "Cannot verify on the public mirror: it does not publish supabase/functions/x.ts.",
+          commit: "c".repeat(40),
+          attachments: [{ name: "screen.png", file: "0.png" }],
+        });
+        expect(JSON.parse(String(options?.body)).pullRequestUrl).toBeNull();
+        return Response.json({ status: "failed" });
+      }
+      return Response.json({ status: "running" });
+    };
+    const worker = new DevsOutboundWorker({
+      queueUrl: "https://queue.test",
+      token,
+      stateDir,
+      fetcher,
+      repair: async () => {
+        throw new DevsHandoffError(
+          "Cannot verify on the public mirror: it does not publish supabase/functions/x.ts.",
+          { commit: "c".repeat(40) },
+        );
+      },
+    });
+    expect(await worker.runOnce()).toBe(true);
+    expect(events.at(-1)).toBe(`/worker/${report.id}/complete`);
+    expect(
+      new Uint8Array(await fs.readFile(path.join(stateDir, "handoff", report.id, "0.png"))),
+    ).toEqual(png);
+    expect(errors.mock.calls.map((call) => String(call[0])).join("\n")).toContain(
+      `is handed to a maintainer; the report is saved in ${path.join(stateDir, "handoff", report.id)}.`,
+    );
+    errors.mockRestore();
+  });
+  it("keeps the job open when the hand-off cannot be saved, and closes it once it is", async () => {
+    const stateDir = await directory();
+    const completed: string[] = [];
+    const fetcher: DevsFetch = async (url) => {
+      const route = new URL(String(url)).pathname;
+      if (route.endsWith("claim")) return Response.json({ report, lease });
+      if (route.endsWith("complete")) completed.push(route);
+      return Response.json({ status: route.endsWith("complete") ? "failed" : "running" });
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    // A file where the hand-off folder should be makes the save fail.
+    await fs.writeFile(path.join(stateDir, "handoff"), "");
+    const worker = new DevsOutboundWorker({
+      queueUrl: "https://queue.test",
+      token,
+      stateDir,
+      fetcher,
+      repair: async () => {
+        throw new DevsHandoffError("Cannot verify on the public mirror: no CI run started.");
+      },
+    });
+    await expect(worker.runOnce()).rejects.toThrow();
+    expect(completed).toEqual([]);
+    const journal = JSON.parse(
+      await fs.readFile(path.join(stateDir, "worker-journal.json"), "utf8"),
+    );
+    expect(journal).toMatchObject({ stage: "completed", handoff: { reason: expect.any(String) } });
+    await fs.rm(path.join(stateDir, "handoff"));
+    expect(await worker.runOnce()).toBe(true);
+    expect(completed).toHaveLength(1);
+    await fs.stat(path.join(stateDir, "handoff", report.id, "report.json"));
+    errors.mockRestore();
   });
 });

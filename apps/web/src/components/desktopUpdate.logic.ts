@@ -54,6 +54,21 @@ export function hasNewerDesktopUpdateCandidate(state: DesktopUpdateState): boole
   );
 }
 
+/**
+ * A newer version this build cannot install itself (a Mac build without a Developer ID): the
+ * update entry only links to the download page, it never downloads or installs.
+ */
+export function isDesktopUpdateDownloadNotice(
+  state: DesktopUpdateState | null,
+): state is DesktopUpdateState & { manualDownloadUrl: string; availableVersion: string } {
+  return Boolean(
+    state?.manualDownloadUrl &&
+    state.status === "available" &&
+    state.availableVersion &&
+    hasNewerDesktopUpdateCandidate(state),
+  );
+}
+
 export function resolveDesktopUpdateButtonAction(
   state: DesktopUpdateState,
 ): DesktopUpdateButtonAction {
@@ -65,6 +80,8 @@ export function resolveDesktopUpdateButtonAction(
   ) {
     return "check";
   }
+  // Without an in-app install there is nothing to download or install here.
+  if (state.manualDownloadUrl) return "none";
   if (state.status === "available") {
     return hasNewerDesktopUpdateCandidate(state) ? "download" : "none";
   }
@@ -115,6 +132,7 @@ export function shouldShowArm64IntelBuildWarning(state: DesktopUpdateState | nul
 }
 
 export function isDesktopUpdateButtonDisabled(state: DesktopUpdateState | null): boolean {
+  if (isDesktopUpdateDownloadNotice(state)) return false;
   return (
     state?.status === "downloading" ||
     state?.status === "checking" ||
@@ -155,6 +173,9 @@ export function getDesktopUpdateButtonTooltip(
 ): string {
   if (options?.installing) {
     return "Applying update...";
+  }
+  if (isDesktopUpdateDownloadNotice(state)) {
+    return `Moss ${state.availableVersion} is available`;
   }
   if (state.status === "idle") {
     return "Check for updates";

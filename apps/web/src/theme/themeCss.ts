@@ -100,11 +100,76 @@ function acceptsAddress(property: string): boolean {
   return accepts;
 }
 
+const shorthandCache = new Map<string, boolean>();
+
+/** Whether setting `property` sets other properties (`background` sets `background-image`). */
+function isShorthand(property: string): boolean {
+  const cached = shorthandCache.get(property);
+  if (cached !== undefined) return cached;
+  const style = document.createElement("div").style;
+  style.setProperty(property, "initial");
+  const shorthand = style.length > 1 || (style.length === 1 && style.item(0) !== property);
+  shorthandCache.set(property, shorthand);
+  return shorthand;
+}
+
+// Functions whose every argument is a color, a number or a keyword. Whatever a var() inside one
+// becomes, the result is a color or the whole declaration is invalid; no color loads a file.
+const COLOR_FUNCTIONS = new Set([
+  "color-mix",
+  "rgb",
+  "rgba",
+  "hsl",
+  "hsla",
+  "hwb",
+  "lab",
+  "lch",
+  "oklab",
+  "oklch",
+  "color",
+  "light-dark",
+]);
+
+/**
+ * Whether every var() and env() in `value` is an argument of a color function, the way theme
+ * CSS tints a picture: `linear-gradient(color-mix(in srgb, var(--background) 40%, transparent),
+ * …), url(moss-theme-image:…)`. A custom property cannot hold an unmatched `)`, so a value put
+ * in its place cannot leave the function it sits in. attr() is never allowed.
+ */
+function lateValuesOnlyInColors(value: string): boolean {
+  if (/\battr\(/i.test(value)) return false;
+  const stack: string[] = [];
+  let quote: string | null = null;
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index]!;
+    if (quote) {
+      if (char === "\\") index += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "(") {
+      const name = /([a-z-]+)$/i.exec(value.slice(0, index))?.[1]?.toLowerCase() ?? "";
+      if ((name === "var" || name === "env") && !stack.some((open) => COLOR_FUNCTIONS.has(open))) {
+        return false;
+      }
+      stack.push(name);
+    } else if (char === ")") {
+      stack.pop();
+    }
+  }
+  return true;
+}
+
 /** Whether a client drops this declaration: it could load a file or write text. */
 function declarationBlocked(property: string, value: string): boolean {
   if (themeCssDeclarationBlocked(property, value)) return true;
   if (property.startsWith("--")) return false; // inert until used; every use is checked
-  return LATE_RESOLVED.test(value) && acceptsAddress(property);
+  if (!LATE_RESOLVED.test(value) || !acceptsAddress(property)) return false;
+  // A shorthand holding var() hides its longhands until use, so its picture reference cannot be
+  // resolved (step 4 below); only a longhand gets the color allowance.
+  return isShorthand(property) || !lateValuesOnlyInColors(value);
 }
 
 /**
@@ -192,8 +257,8 @@ function stripDeclarations(rule: CSSRule, counts: { declarations: number }): boo
     return true;
   }
   // 4. Only now, on checked declarations, a stored picture reference becomes Moss's own theme
-  // image address. A value with a reference has no var() (step 1 drops it in any property that
-  // takes an address), so every longhand reads its own value here.
+  // image address. A value with a reference has var() only inside a color, and only in a
+  // longhand (step 1 drops the rest), so every longhand reads its own value here.
   for (let item = style.length - 1; item >= 0; item--) {
     const property = style.item(item);
     const value = style.getPropertyValue(property);

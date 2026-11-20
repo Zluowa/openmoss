@@ -99,7 +99,7 @@ import { ChatArtifactCards } from "./ChatArtifactCards";
 import { deckCardPageIds } from "../../lib/chatArtifacts";
 import { ChatDeckCardPagesContext } from "../../lib/chatSpacePageLink";
 import { InlineVisual } from "./InlineVisual";
-import { InlineVisualEmbedContext } from "./inlineVisualEmbedContext";
+import { InlineVisualByIdContext, InlineVisualEmbedContext } from "./inlineVisualEmbedContext";
 import { TimelineCodexNoticeRow } from "./TimelineCodexNoticeRow";
 import { TimelineStreamErrorRow } from "./TimelineStreamErrorRow";
 import { isTypedGeneratedImageEntry } from "./generatedImageGallery.logic";
@@ -3988,85 +3988,87 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   return (
     <BackgroundTaskStopContext.Provider value={onStopBackgroundTask ?? null}>
-      <WorkingMarkContext.Provider value={workingMark}>
-        {/* `data-messages-timeline-root` is a theme hook ("message list area, behind the messages"), so
+      <InlineVisualByIdContext.Provider value={renderInlineVisual}>
+        <WorkingMarkContext.Provider value={workingMark}>
+          {/* `data-messages-timeline-root` is a theme hook ("message list area, behind the messages"), so
             this wrapper needs a box of its own: a background set on it must paint behind the
             list. It is sized exactly as the list was before it had this box: `h-full` with the
             default flex basis, no `flex-1`. `flex-1` sets the basis to 0, so beside a sibling
             that fills the column (the generated-image preview pane) the list got 0 px and drew
             no rows. */}
-        <div
-          ref={timelineRootRef}
-          className="relative flex h-full min-h-0 min-w-0 flex-col"
-          data-messages-timeline-root="true"
-          onContextMenuCapture={handleGeneratedImageContextMenu}
-        >
-          <LegendList<MessagesTimelineRow>
-            recycleItems={false}
-            ref={resolvedListRef}
-            data={rows}
-            keyExtractor={(row) => row.id}
-            renderItem={({ item }) => renderRowContent(item)}
-            estimatedItemSize={90}
-            getEstimatedItemSize={rowHeightHints.getEstimatedItemSize}
-            onItemSizeChanged={rowHeightHints.onItemSizeChanged}
-            // LegendList caches rendered rows, so every local expansion map that changes row content
-            // has to be surfaced through extraData.
-            extraData={timelineExtraData}
-            // Deliberately keyed off the *inherited* anchor rather than
-            // `tailAnchorSlideInFlight`: LegendList re-targets the end on every data
-            // change while this is true, which would yank a live post-send anchor
-            // out of its hold. A remount that inherits an already-settled anchor has
-            // no slide to preserve, so bootstrapping at the end is what we want.
-            initialScrollAtEnd={tailAnchorMessageId === null || hasInheritedTailAnchor}
-            {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
-            maintainScrollAtEnd={followLiveOutput && !tailAnchorSlideInFlight}
-            maintainScrollAtEndThreshold={
-              followLiveOutput && !tailAnchorSlideInFlight ? Number.POSITIVE_INFINITY : 0.1
-            }
-            {...(tailAnchorMessageId !== null
-              ? { maintainVisibleContentPosition: false }
-              : !followLiveOutput
-                ? { maintainVisibleContentPosition: true }
+          <div
+            ref={timelineRootRef}
+            className="relative flex h-full min-h-0 min-w-0 flex-col"
+            data-messages-timeline-root="true"
+            onContextMenuCapture={handleGeneratedImageContextMenu}
+          >
+            <LegendList<MessagesTimelineRow>
+              recycleItems={false}
+              ref={resolvedListRef}
+              data={rows}
+              keyExtractor={(row) => row.id}
+              renderItem={({ item }) => renderRowContent(item)}
+              estimatedItemSize={90}
+              getEstimatedItemSize={rowHeightHints.getEstimatedItemSize}
+              onItemSizeChanged={rowHeightHints.onItemSizeChanged}
+              // LegendList caches rendered rows, so every local expansion map that changes row content
+              // has to be surfaced through extraData.
+              extraData={timelineExtraData}
+              // Deliberately keyed off the *inherited* anchor rather than
+              // `tailAnchorSlideInFlight`: LegendList re-targets the end on every data
+              // change while this is true, which would yank a live post-send anchor
+              // out of its hold. A remount that inherits an already-settled anchor has
+              // no slide to preserve, so bootstrapping at the end is what we want.
+              initialScrollAtEnd={tailAnchorMessageId === null || hasInheritedTailAnchor}
+              {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
+              maintainScrollAtEnd={followLiveOutput && !tailAnchorSlideInFlight}
+              maintainScrollAtEndThreshold={
+                followLiveOutput && !tailAnchorSlideInFlight ? Number.POSITIVE_INFINITY : 0.1
+              }
+              {...(tailAnchorMessageId !== null
+                ? { maintainVisibleContentPosition: false }
+                : !followLiveOutput
+                  ? { maintainVisibleContentPosition: true }
+                  : {})}
+              onClickCapture={onMessagesClickCapture}
+              onMouseUp={onMessagesMouseUp}
+              onPointerCancel={handleMessagesPointerCancel}
+              onPointerDown={handleMessagesPointerDown}
+              onPointerUp={onMessagesPointerUp}
+              onScroll={handleListScroll}
+              {...(onTrailHighlightsChange
+                ? {
+                    onViewableItemsChanged: handleViewableItemsChanged,
+                    viewabilityConfig: TRAIL_VIEWABILITY_CONFIG,
+                  }
                 : {})}
-            onClickCapture={onMessagesClickCapture}
-            onMouseUp={onMessagesMouseUp}
-            onPointerCancel={handleMessagesPointerCancel}
-            onPointerDown={handleMessagesPointerDown}
-            onPointerUp={onMessagesPointerUp}
-            onScroll={handleListScroll}
-            {...(onTrailHighlightsChange
-              ? {
-                  onViewableItemsChanged: handleViewableItemsChanged,
-                  viewabilityConfig: TRAIL_VIEWABILITY_CONFIG,
-                }
-              : {})}
-            onTouchEnd={onMessagesTouchEnd}
-            onTouchMove={handleMessagesTouchMove}
-            onTouchStart={handleMessagesTouchStart}
-            onWheel={handleMessagesWheel}
-            data-chat-scroll-container="true"
-            // LegendList sets overflow inline, so a CSS class cannot keep this
-            // vertical transcript from gaining a horizontal scrollbar.
-            showsHorizontalScrollIndicator={false}
-            ListFooterComponent={listFooter}
-            ListHeaderComponent={historyHeader}
-            // `scroll-edge-fade` (index.css) dissolves rows under the chat header and toward
-            // the composer instead of cutting them. It is scroll-aware via
-            // `animation-timeline: scroll()` and paint-only, so each edge clears once nothing
-            // is scrolled past it (a pinned or non-scrollable transcript stays crisp) without
-            // feeding back into auto-follow or list measurement. With the floating composer,
-            // `listScrollStyle` moves the bottom fade up to the composer's top edge and
-            // intersects the footer-controls dissolve.
-            className={cn(
-              "scroll-edge-fade h-full overscroll-y-contain py-3 [scrollbar-gutter:stable] sm:py-4",
-              ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
-              CHAT_COLUMN_GUTTER_CLASS_NAME,
-            )}
-            {...(listScrollStyle ? { style: listScrollStyle } : {})}
-          />
-        </div>
-      </WorkingMarkContext.Provider>
+              onTouchEnd={onMessagesTouchEnd}
+              onTouchMove={handleMessagesTouchMove}
+              onTouchStart={handleMessagesTouchStart}
+              onWheel={handleMessagesWheel}
+              data-chat-scroll-container="true"
+              // LegendList sets overflow inline, so a CSS class cannot keep this
+              // vertical transcript from gaining a horizontal scrollbar.
+              showsHorizontalScrollIndicator={false}
+              ListFooterComponent={listFooter}
+              ListHeaderComponent={historyHeader}
+              // `scroll-edge-fade` (index.css) dissolves rows under the chat header and toward
+              // the composer instead of cutting them. It is scroll-aware via
+              // `animation-timeline: scroll()` and paint-only, so each edge clears once nothing
+              // is scrolled past it (a pinned or non-scrollable transcript stays crisp) without
+              // feeding back into auto-follow or list measurement. With the floating composer,
+              // `listScrollStyle` moves the bottom fade up to the composer's top edge and
+              // intersects the footer-controls dissolve.
+              className={cn(
+                "scroll-edge-fade h-full overscroll-y-contain py-3 [scrollbar-gutter:stable] sm:py-4",
+                ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
+                CHAT_COLUMN_GUTTER_CLASS_NAME,
+              )}
+              {...(listScrollStyle ? { style: listScrollStyle } : {})}
+            />
+          </div>
+        </WorkingMarkContext.Provider>
+      </InlineVisualByIdContext.Provider>
     </BackgroundTaskStopContext.Provider>
   );
 });

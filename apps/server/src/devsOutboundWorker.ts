@@ -10,6 +10,7 @@ import {
   parseDevsAttachmentManifest,
 } from "@moss/shared/devsReport";
 import { writeFileStringAtomically } from "./atomicWrite";
+import { DevsHandoffError, type DevsHandoffDetails } from "./devsHandoff";
 import type { RepairAttachment, RepairReport } from "./devsRepairRunner";
 import type { DevsFetch } from "./devsReports";
 
@@ -27,6 +28,8 @@ interface Journal {
   report?: Omit<RepairReport, "attachments"> & { attachments?: ClaimedAttachment[] };
   lease?: string;
   pullRequestUrl?: string | null;
+  /** Set when the repair could not be verified; the report is kept for a maintainer. */
+  handoff?: DevsHandoffDetails & { reason: string };
 }
 interface DailyBudget {
   day: string;
@@ -192,6 +195,43 @@ export class DevsOutboundWorker {
     }
     return result;
   }
+  /**
+   * Keeps an unverifiable report for a maintainer, outside any checkout: its text and
+   * receipt in `handoff/<id>/report.json`, and the attachments that arrived beside it.
+   * Saved before the job is closed; a failed save leaves the job open to try again.
+   */
+  private async saveHandoff(journal: Journal): Promise<string> {
+    const report = journal.report!;
+    const folder = path.join(this.options.stateDir, "handoff", report.id);
+    await fs.mkdir(folder, { recursive: true });
+    const received = path.join(this.options.stateDir, "attachments", report.id);
+    const names = await fs.readdir(received).catch(() => [] as string[]);
+    const attachments = [];
+    for (const attachment of report.attachments ?? []) {
+      const file = names.find((name) => name.startsWith(`${attachment.index}.`));
+      if (file) await fs.copyFile(path.join(received, file), path.join(folder, file));
+      attachments.push({ ...attachment, file: file ?? null });
+    }
+    await Effect.runPromise(
+      writeFileStringAtomically({
+        filePath: path.join(folder, "report.json"),
+        contents: JSON.stringify(
+          {
+            id: report.id,
+            engine: report.engine,
+            description: report.description,
+            context: report.context,
+            attachments,
+            ...journal.handoff,
+            savedAt: new Date((this.options.now ?? Date.now)()).toISOString(),
+          },
+          null,
+          2,
+        ),
+      }),
+    );
+    return folder;
+  }
   async runOnce(): Promise<boolean> {
     if (this.working) return false;
     this.working = true;
@@ -286,21 +326,31 @@ export class DevsOutboundWorker {
             heartbeat,
           );
         } catch (error) {
-          console.error(
-            `${new Date().toISOString()} Developer repair ${journal.report.id} failed; inspect the retained job directory.`,
-            redactDiagnosticText(
-              (error instanceof Error ? error.message : "Error")
-                .split(this.options.token)
-                .join("[redacted]"),
-              { maxLength: 2_000 },
-            ),
+          const reason = redactDiagnosticText(
+            (error instanceof Error ? error.message : "Error")
+              .split(this.options.token)
+              .join("[redacted]"),
+            { maxLength: 2_000 },
           );
+          if (error instanceof DevsHandoffError) journal.handoff = { ...error.details, reason };
+          else
+            console.error(
+              `${new Date().toISOString()} Developer repair ${journal.report.id} failed; inspect the retained job directory.`,
+              reason,
+            );
         } finally {
           clearInterval(timer);
         }
         journal.stage = "completed";
         journal.pullRequestUrl = pullRequestUrl;
         await this.save(journal);
+      }
+      if (journal.handoff) {
+        const folder = await this.saveHandoff(journal);
+        console.error(
+          `${new Date().toISOString()} Developer repair ${journal.report.id} could not be verified and is handed to a maintainer; the report is saved in ${folder}.`,
+          journal.handoff.reason,
+        );
       }
       try {
         await this.request(`/worker/${journal.report.id}/complete`, {
