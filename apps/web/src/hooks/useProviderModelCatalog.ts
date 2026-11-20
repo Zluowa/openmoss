@@ -128,7 +128,7 @@ export function modelQueryOptionsForProviderInstance(input: {
   readonly refresh?: "if-stale" | "now";
 }) {
   const providerOptions =
-    input.provider === "kilo"
+    input.provider === "kilo" || input.provider === "gemini"
       ? undefined
       : getProviderStartOptions(input.settings, input.instanceId)?.[input.provider];
   return providerModelsQueryOptions({
@@ -233,7 +233,10 @@ export function useProviderModelCatalog(input: {
       cwd: discoveryCwd,
       // Keep the closed picker scoped to the active account. Enabling every
       // instance would fan model discovery out across all configured accounts.
-      enabled: discoveryEnabled || effectiveSelectedInstanceId === instance.instanceId,
+      enabled:
+        instance.provider !== "kilo" &&
+        instance.provider !== "gemini" &&
+        (discoveryEnabled || effectiveSelectedInstanceId === instance.instanceId),
     }),
   );
   const instanceModelData = useQueries({
@@ -311,7 +314,6 @@ export function useProviderModelCatalog(input: {
   const claudeModelDiscoveryEnabled = shouldDiscoverProvider("claudeAgent");
   const codexModelDiscoveryEnabled = shouldDiscoverProvider("codex");
   const cursorModelDiscoveryEnabled = shouldDiscoverProvider("cursor");
-  const geminiModelDiscoveryEnabled = shouldDiscoverProvider("gemini");
   const hermesModelDiscoveryEnabled = shouldDiscoverProvider("hermes");
   const antigravityModelDiscoveryEnabled = shouldDiscoverProvider("antigravity");
   const grokModelDiscoveryEnabled = shouldDiscoverProvider("grok");
@@ -351,7 +353,6 @@ export function useProviderModelCatalog(input: {
     claudeAgent: queryOptionsForProvider("claudeAgent", claudeModelDiscoveryEnabled),
     codex: queryOptionsForProvider("codex", codexModelDiscoveryEnabled),
     cursor: queryOptionsForProvider("cursor", cursorModelDiscoveryEnabled),
-    gemini: queryOptionsForProvider("gemini", geminiModelDiscoveryEnabled),
     hermes: queryOptionsForProvider("hermes", hermesModelDiscoveryEnabled),
     antigravity: queryOptionsForProvider("antigravity", antigravityModelDiscoveryEnabled),
     grok: queryOptionsForProvider("grok", grokModelDiscoveryEnabled),
@@ -368,7 +369,6 @@ export function useProviderModelCatalog(input: {
   const claudeDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.claudeAgent);
   const codexDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.codex);
   const cursorDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.cursor);
-  const geminiDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.gemini);
   const hermesDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.hermes);
   const antigravityModelsQuery = useQuery(modelQueryOptionsByProvider.antigravity);
   const grokDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.grok);
@@ -377,8 +377,9 @@ export function useProviderModelCatalog(input: {
   const piDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.pi);
   const devinDynamicModelsQuery = useQuery(modelQueryOptionsByProvider.devin);
 
-  // Kilo is retired with no catalog; fall back to codex for key derivation.
-  const catalogSelectedProvider = selectedProvider === "kilo" ? "codex" : selectedProvider;
+  // Kilo and Gemini CLI are retired with no catalog; fall back to codex for key derivation.
+  const catalogSelectedProvider =
+    selectedProvider === "kilo" || selectedProvider === "gemini" ? "codex" : selectedProvider;
   // The key already carries every connection dimension (instance, binary, home,
   // account, endpoint, server URL, credentials hash, websockets, agent dir, cwd),
   // so the selected provider's own catalog key is the discovery priority handle.
@@ -546,11 +547,7 @@ export function useProviderModelCatalog(input: {
         customModelsByProvider.cursor,
         modelHintByProvider?.cursor,
       ),
-      gemini: getAppModelOptions(
-        "gemini",
-        customModelsByProvider.gemini,
-        modelHintByProvider?.gemini,
-      ),
+      gemini: [],
       hermes: getAppModelOptions(
         "hermes",
         customModelsByProvider.hermes,
@@ -597,7 +594,7 @@ export function useProviderModelCatalog(input: {
         cursorDynamicModelsQuery.data === undefined
           ? undefined
           : { ...cursorDynamicModelsQuery.data, models: cursorRuntimeModels },
-      gemini: geminiDynamicModelsQuery.data,
+      gemini: undefined,
       hermes: hermesDynamicModelsQuery.data,
       kilo: undefined,
       antigravity: antigravityModelsQuery.data,
@@ -615,7 +612,6 @@ export function useProviderModelCatalog(input: {
       "claudeAgent",
       "codex",
       "cursor",
-      "gemini",
       "hermes",
       "antigravity",
       "grok",
@@ -761,7 +757,7 @@ export function useProviderModelCatalog(input: {
       codex: codexDynamicModelsQuery.data?.models ?? [],
       cursor: cursorRuntimeModels,
       antigravity: antigravityModelsQuery.data?.models ?? [],
-      gemini: geminiDynamicModelsQuery.data?.models ?? [],
+      gemini: [],
       grok: grokDynamicModelsQuery.data?.models ?? [],
       droid: droidDynamicModelsQuery.data?.models ?? [],
       // Kilo is retired; its historical selections decode to OpenCode.
@@ -781,7 +777,6 @@ export function useProviderModelCatalog(input: {
       codexDynamicModelsQuery.data?.models,
       cursorRuntimeModels,
       droidDynamicModelsQuery.data?.models,
-      geminiDynamicModelsQuery.data?.models,
       grokDynamicModelsQuery.data?.models,
       hermesDynamicModelsQuery.data?.models,
       openCodeDynamicModelsQuery.data?.models,

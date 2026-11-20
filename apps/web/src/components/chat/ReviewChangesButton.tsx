@@ -1,7 +1,5 @@
 // FILE: ReviewChangesButton.tsx
-// Purpose: Compact bordered "Review" action pill shared by the changed-files chrome —
-// the per-turn "Edited N files" card and the live composer changes header — so the
-// open-the-diff affordance stays visually identical across both surfaces.
+// Purpose: Compact outlined "View changes" action button for the per-turn changed-files card.
 // Layer: Chat changed-files UI
 // Exports: ReviewChangesButton
 
@@ -9,7 +7,7 @@ import type { CSSProperties } from "react";
 
 import { useTranslation } from "../../localization";
 import { cn } from "~/lib/utils";
-import { COMPOSER_INLINE_ACTION_PILL_CLASS_NAME } from "./composerPickerStyles";
+import { Button } from "../ui/button";
 
 interface ReviewChangesButtonProps {
   onClick: () => void;
@@ -27,13 +25,14 @@ export const ReviewChangesButton = function ReviewChangesButton({
   const { t } = useTranslation();
   const label = labelProp ?? t("codex.unifiedDiff.viewChanges");
   return (
-    <button
-      type="button"
-      className={cn(COMPOSER_INLINE_ACTION_PILL_CLASS_NAME, className)}
+    <Button
+      variant="outline"
+      size="xs"
+      className={cn("px-2.5 font-normal text-foreground/90 hover:text-foreground", className)}
       style={style}
       onClick={onClick}
     >
       {label}
-    </button>
+    </Button>
   );
 };

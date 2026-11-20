@@ -16,7 +16,6 @@ import type {
 import { antigravitySessionReader, countAntigravityAppConversations } from "./antigravitySessions";
 import { cursorSessionReader } from "./cursorSessions";
 import { devinSessionReader } from "./devinSessions";
-import { geminiSessionReader } from "./geminiSessions";
 import { grokSessionReader } from "./grokSessions";
 import { hermesSessionReader } from "./hermesSessions";
 import { openCodeSessionReader, zcodeSessionReader } from "./openCodeSessions";
@@ -30,7 +29,6 @@ export const LOCAL_HISTORY_READERS: Readonly<
   Record<ProjectImportTranscriptProvider, LocalHistoryReader>
 > = {
   cursor: cursorSessionReader,
-  gemini: geminiSessionReader,
   antigravity: antigravitySessionReader,
   grok: grokSessionReader,
   opencode: openCodeSessionReader,

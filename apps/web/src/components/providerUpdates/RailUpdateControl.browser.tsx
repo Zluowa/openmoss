@@ -163,6 +163,14 @@ describe("RailUpdateControl", () => {
     useProviderUpdateRunStore.setState({ liveVersionCheckCompleted: false, run: null });
   });
 
+  it("warns before stopping Codex and lets the user cancel", async () => {
+    await renderControl([provider({ provider: "codex", driver: "codex" })]);
+    await userEvent.click(updateButton());
+    await expect.element(page.getByRole("alertdialog")).toHaveTextContent("关闭由它启动的 Codex");
+    await userEvent.click(page.getByRole("button", { name: "取消" }));
+    expect(updateProvider).not.toHaveBeenCalled();
+  });
+
   it("takes no room in the rail when nothing needs updating", async () => {
     await renderControl([provider({}, { status: "current" })]);
     await expect.element(page.getByTestId("rail-avatar")).toBeInTheDocument();

@@ -89,6 +89,13 @@ export interface OutboundHttpRequest {
    * a protocol boundary of a stream the server keeps open (an SSE event).
    */
   readonly stopReadingAfter?: (chunk: Uint8Array, headers: Headers) => boolean;
+  /**
+   * Streams each body chunk of the final non-redirect response to the caller
+   * instead of buffering the full body in memory. Returning a promise pauses
+   * reading until the write settles, keeping large downloads bounded in memory.
+   * When set, `response.body` is empty.
+   */
+  readonly onChunk?: (chunk: Uint8Array, headers: Headers) => void | Promise<void>;
 }
 
 export interface OutboundHttpResponse {
@@ -558,6 +565,7 @@ async function requestHop(input: {
   readonly allowBenchmarkAddressRange: boolean;
   readonly signal: AbortSignal;
   readonly stopReadingAfter?: (chunk: Uint8Array, headers: Headers) => boolean;
+  readonly onChunk?: (chunk: Uint8Array, headers: Headers) => void | Promise<void>;
 }): Promise<OutboundHttpResponse> {
   const pinned = await resolvePinnedAddresses(
     input.url,
@@ -611,12 +619,22 @@ async function requestHop(input: {
 
         const chunks: Uint8Array[] = [];
         let size = 0;
+        // Redirect hops are never handed to the caller, so only the final
+        // response may stop early or stream chunks directly.
+        const isRedirect = isRedirectStatus(response.statusCode ?? 0);
+        const stopReadingAfter = isRedirect ? undefined : input.stopReadingAfter;
+        const onChunk = isRedirect ? undefined : input.onChunk;
+        let pendingChunk: Promise<void> = Promise.resolve();
+        let streamEnded = false;
+        let chunkFailed = false;
         const finish = () => {
-          const body = new Uint8Array(size);
-          let offset = 0;
-          for (const chunk of chunks) {
-            body.set(chunk, offset);
-            offset += chunk.byteLength;
+          const body = onChunk ? new Uint8Array(0) : new Uint8Array(size);
+          if (!onChunk) {
+            let offset = 0;
+            for (const chunk of chunks) {
+              body.set(chunk, offset);
+              offset += chunk.byteLength;
+            }
           }
           settle({
             status: response.statusCode ?? 0,
@@ -625,16 +643,13 @@ async function requestHop(input: {
             url: input.url.href,
           });
         };
-        // Redirect hops are never handed to the caller, so only the final
-        // response may stop early.
-        const stopReadingAfter = isRedirectStatus(response.statusCode ?? 0)
-          ? undefined
-          : input.stopReadingAfter;
         response.on("data", (chunk: Buffer | Uint8Array | string) => {
+          if (settled || chunkFailed) return;
           const bytes =
             typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
           size += bytes.byteLength;
           if (size > input.maxResponseBytes) {
+            chunkFailed = true;
             response.destroy();
             settle(
               new OutboundHttpError(
@@ -642,6 +657,46 @@ async function requestHop(input: {
                 `Outbound response exceeded the ${input.maxResponseBytes}-byte limit.`,
               ),
             );
+            return;
+          }
+          if (onChunk) {
+            response.pause();
+            pendingChunk = pendingChunk
+              .then(async () => {
+                if (settled || chunkFailed) return;
+                await onChunk(bytes, headers);
+              })
+              .then(
+                () => {
+                  if (settled || chunkFailed) return;
+                  if (stopReadingAfter) {
+                    let stop: boolean;
+                    try {
+                      stop = stopReadingAfter(bytes, headers);
+                    } catch (cause) {
+                      chunkFailed = true;
+                      response.destroy();
+                      settle(
+                        new OutboundHttpError("request", "Outbound response reader failed.", cause),
+                      );
+                      return;
+                    }
+                    if (stop) {
+                      finish();
+                      response.destroy();
+                      return;
+                    }
+                  }
+                  if (!streamEnded) response.resume();
+                },
+                (cause) => {
+                  chunkFailed = true;
+                  response.destroy();
+                  settle(
+                    new OutboundHttpError("request", "Outbound response writer failed.", cause),
+                  );
+                },
+              );
             return;
           }
           chunks.push(bytes);
@@ -661,7 +716,16 @@ async function requestHop(input: {
             response.destroy();
           }
         });
-        response.once("end", finish);
+        response.once("end", () => {
+          streamEnded = true;
+          if (!onChunk) {
+            finish();
+            return;
+          }
+          void pendingChunk.then(() => {
+            if (!settled && !chunkFailed) finish();
+          });
+        });
         // `on`, not `once`: a stream can emit `error` more than once, and a
         // second emit with no listener attached is fatal to the process.
         response.on("error", (cause) => {
@@ -747,6 +811,7 @@ export class OutboundHttpClient {
           allowBenchmarkAddressRange: policy.allowBenchmarkAddressRange === true,
           signal: controller.signal,
           ...(input.stopReadingAfter ? { stopReadingAfter: input.stopReadingAfter } : {}),
+          ...(input.onChunk ? { onChunk: input.onChunk } : {}),
         });
         if (!isRedirectStatus(response.status)) return response;
         if (redirects >= policy.maxRedirects) {

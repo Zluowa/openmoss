@@ -177,6 +177,8 @@ const ISSUE_42_DETAIL: GitHubIssueDetail = {
     },
   ],
   commentsTruncated: false,
+  linkedPullRequests: [],
+  viewerCanUpdate: false,
 };
 
 const PULL_REQUEST_41_DETAIL: PullRequestDetail = {
@@ -296,6 +298,17 @@ function installNativeApi() {
         } satisfies GitHubInboxListResult),
       issueDetail: () => Promise.resolve(ISSUE_42_DETAIL),
       issueComment: vi.fn(),
+      issueUpdate: vi.fn(),
+      issueCandidates: vi.fn(),
+    },
+    issueSources: {
+      status: ({ source }: { source: string }) =>
+        Promise.resolve({ source, state: "not-connected", teams: [] }),
+      list: () => Promise.resolve({ items: [], truncated: false, failedTeamIds: [] }),
+      detail: vi.fn(),
+      update: vi.fn(),
+      comment: vi.fn(),
+      candidates: vi.fn(),
     },
     pullRequests: {
       detail: () => Promise.resolve(PULL_REQUEST_41_DETAIL),

@@ -764,14 +764,14 @@ describe("Moss-managed Claude launches", () => {
       baseEnvironment,
     });
 
-  it("never lets a Moss-managed session resend a paid request", () => {
+  it("bounds Moss-managed session retries and disables non-streaming fallback", () => {
     for (const environment of [
       managedEnvironment,
       // A stored managed environment that already carries the settings stays verified.
       { ...managedEnvironment, CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: "1" },
     ]) {
       const env = launch(environment, MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID);
-      assert.equal(env.CLAUDE_CODE_MAX_RETRIES, "0");
+      assert.equal(env.CLAUDE_CODE_MAX_RETRIES, "2");
       assert.equal(env.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, "1");
       assert.equal(env.ANTHROPIC_BASE_URL, gateway);
     }
@@ -783,7 +783,7 @@ describe("Moss-managed Claude launches", () => {
       providerInstanceId: MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID,
       hasClaudeCliCredentials: false,
     });
-    assert.equal(probe.CLAUDE_CODE_MAX_RETRIES, "0");
+    assert.equal(probe.CLAUDE_CODE_MAX_RETRIES, "2");
     assert.equal(probe.CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK, "1");
   });
 

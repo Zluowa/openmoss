@@ -9,6 +9,7 @@ import type {
   DevsReportSubmitInput,
   DevsReportPreview,
   DevsReportState,
+  DevsReportListInput,
   DevsReportListResult,
 } from "./devsReport";
 import { Schema } from "effect";
@@ -133,6 +134,7 @@ import type {
   TodoUpdateInput,
 } from "./todo";
 import type { SecretRequestAnswerInput } from "./secretRequest";
+import type { AgentFeedbackDismissInput, AgentFeedbackListResult } from "./agentFeedback";
 import type {
   LibraryCreateFolderInput,
   LibraryDeleteFolderInput,
@@ -281,11 +283,28 @@ import type {
   GitHubConnectionResult,
   GitHubInboxListInput,
   GitHubInboxListResult,
+  GitHubIssueCandidates,
+  GitHubIssueCandidatesInput,
   GitHubIssueCommentInput,
   GitHubIssueCommentResult,
+  GitHubIssueUpdateInput,
+  GitHubIssueUpdateResult,
   GitHubIssueDetail,
   GitHubIssueDetailInput,
 } from "./githubInbox";
+import {
+  ExternalIssueSourceInput,
+  ExternalIssueCandidates,
+  ExternalIssueCandidatesInput,
+  ExternalIssueCommentInput,
+  ExternalIssueDetail,
+  ExternalIssueDetailInput,
+  ExternalIssueListInput,
+  ExternalIssueListResult,
+  ExternalIssueMutationResult,
+  ExternalIssueSourceStatus,
+  ExternalIssueUpdateInput,
+} from "./externalIssues";
 import type {
   ProjectCreateLocalFilePreviewGrantInput,
   ProjectCreateLocalFilePreviewGrantResult,
@@ -953,6 +972,8 @@ export type DesktopAppSnapShortcutModifier = "command" | "control" | "option" | 
 export interface DesktopAppSnapKeyChord {
   kind: "key-chord";
   modifier: DesktopAppSnapShortcutModifier;
+  /** Optional extra modifiers (deduplicated, canonical order) for chords such as Alt+Shift+S. */
+  extraModifiers?: readonly DesktopAppSnapShortcutModifier[];
   /** A physical DOM KeyboardEvent.code, such as `KeyS` or `Space`. */
   key: string;
 }
@@ -2036,6 +2057,16 @@ export interface NativeApi {
     list: (input: GitHubInboxListInput) => Promise<GitHubInboxListResult>;
     issueDetail: (input: GitHubIssueDetailInput) => Promise<GitHubIssueDetail>;
     issueComment: (input: GitHubIssueCommentInput) => Promise<GitHubIssueCommentResult>;
+    issueUpdate: (input: GitHubIssueUpdateInput) => Promise<GitHubIssueUpdateResult>;
+    issueCandidates: (input: GitHubIssueCandidatesInput) => Promise<GitHubIssueCandidates>;
+  };
+  issueSources: {
+    status: (input: ExternalIssueSourceInput) => Promise<ExternalIssueSourceStatus>;
+    list: (input: ExternalIssueListInput) => Promise<ExternalIssueListResult>;
+    detail: (input: ExternalIssueDetailInput) => Promise<ExternalIssueDetail>;
+    update: (input: ExternalIssueUpdateInput) => Promise<ExternalIssueMutationResult>;
+    comment: (input: ExternalIssueCommentInput) => Promise<ExternalIssueMutationResult>;
+    candidates: (input: ExternalIssueCandidatesInput) => Promise<ExternalIssueCandidates>;
   };
   pullRequests: {
     detail: (input: PullRequestDetailInput) => Promise<PullRequestDetail>;
@@ -2127,7 +2158,7 @@ export interface NativeApi {
     getDiagnostics: () => Promise<ServerDiagnosticsResult>;
     prepareDevsReport?: (input: DevsReportSubmitInput) => Promise<DevsReportPreview>;
     submitDevsReport?: (input: DevsReportSubmitInput) => Promise<DevsReportState>;
-    listDevsReports?: (input: { threadId: ThreadId }) => Promise<DevsReportListResult>;
+    listDevsReports?: (input: DevsReportListInput) => Promise<DevsReportListResult>;
     readThreadDiagnostics: (
       input: ServerReadThreadDiagnosticsInput,
     ) => Promise<ServerReadThreadDiagnosticsResult>;
@@ -2462,6 +2493,10 @@ export interface NativeApi {
   };
   secretRequests: {
     answer: (input: SecretRequestAnswerInput) => Promise<void>;
+  };
+  agentFeedback: {
+    list: () => Promise<AgentFeedbackListResult>;
+    dismiss: (input: AgentFeedbackDismissInput) => Promise<void>;
   };
   pages: {
     spaces: (input: PagesScopeInput) => Promise<PagesSpacesResult>;

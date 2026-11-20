@@ -39,9 +39,16 @@ export async function insertAppSnapCaptureIntoDraft(
 ): Promise<"persisted" | "unverified"> {
   const parsedCaptureAt = Date.parse(capture.capturedAt);
   const captureAtMs = Number.isFinite(parsedCaptureAt) ? parsedCaptureAt : Date.now();
-  const bytes = new Uint8Array(capture.bytes);
-  if (bytes.byteLength === 0) throw new Error("The captured AppSnap is empty.");
-  const file = new File([bytes], capture.name, {
+  if (capture.bytes.byteLength === 0) throw new Error("The captured AppSnap is empty.");
+  const rawBuffer = capture.bytes.buffer;
+  const blobPart: BlobPart =
+    capture.bytes instanceof Uint8Array &&
+    rawBuffer instanceof ArrayBuffer &&
+    capture.bytes.byteOffset === 0 &&
+    capture.bytes.byteLength === rawBuffer.byteLength
+      ? rawBuffer
+      : new Uint8Array(capture.bytes);
+  const file = new File([blobPart], capture.name, {
     type: capture.mimeType,
     lastModified: captureAtMs,
   });
@@ -68,13 +75,16 @@ export async function insertAppSnapCaptureIntoDraft(
       appIconDataUrl: capture.sourceAppIconDataUrl,
       windowTitle: capture.sourceWindowTitle,
     };
-    const sourceWithIcon = await sourceWithCachedIcon(source);
+    const [sourceWithIcon, persistedBlobKey] = await Promise.all([
+      sourceWithCachedIcon(source),
+      persistComposerImageBlob({
+        threadId,
+        imageId: image.id,
+        file: image.file,
+      }),
+    ]);
+    blobKey = persistedBlobKey;
     const appSnapImage = { ...image, source: sourceWithIcon };
-    blobKey = await persistComposerImageBlob({
-      threadId,
-      imageId: appSnapImage.id,
-      file: appSnapImage.file,
-    });
 
     if (!draftStore.addImage(threadId, appSnapImage)) {
       throw new Error(

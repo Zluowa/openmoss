@@ -8,6 +8,8 @@ import { ChatComposerFooter } from "./ChatComposerFooter";
 function mountFooter(input: {
   phase: SessionPhase;
   connecting: boolean;
+  busy?: boolean;
+  awaitingTurnStart?: boolean;
   onInterrupt?: () => void;
   voiceEnabled?: boolean;
   voiceRecording?: boolean;
@@ -37,8 +39,11 @@ function mountFooter(input: {
       pendingInput={null}
       submission={{
         phase: input.phase,
-        busy: false,
+        busy: input.busy ?? false,
         connecting: input.connecting,
+        ...(input.awaitingTurnStart !== undefined
+          ? { awaitingTurnStart: input.awaitingTurnStart }
+          : {}),
         expired: false,
         preparingImages: false,
         preparingWorktree: false,
@@ -64,6 +69,26 @@ describe("ChatComposerFooter stop control", () => {
     try {
       const stop = page.getByRole("button", { name: "Stop generation" });
       await expect.element(stop).toBeVisible();
+      await stop.click();
+      expect(onInterrupt).toHaveBeenCalledOnce();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps Stop visible while awaiting turn start after session/ready instead of dropping to a disabled Send arrow", async () => {
+    const onInterrupt = vi.fn();
+    const screen = await mountFooter({
+      phase: "ready",
+      connecting: false,
+      busy: false,
+      awaitingTurnStart: true,
+      onInterrupt,
+    });
+    try {
+      const stop = page.getByRole("button", { name: "Stop generation" });
+      await expect.element(stop).toBeVisible();
+      expect(document.querySelector("[data-moss-visible-send-control='true']")).toBeNull();
       await stop.click();
       expect(onInterrupt).toHaveBeenCalledOnce();
     } finally {

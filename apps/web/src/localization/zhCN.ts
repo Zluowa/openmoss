@@ -1092,7 +1092,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Rebuild local project indexes without clearing existing chats when the local state gets out of sync.":
     "当本地状态不同步时，重建本地项目索引，且不清除现有对话。",
   "Recent Computer actions": "最近的电脑操作",
-  "Record AppSnap shortcut": "录制 AppSnap 快捷键",
+  "Record AppSnap shortcut": "录制应用快照快捷键",
   "Revoke this browser session and close every live Moss connection it owns. A fresh pairing link is required to reconnect.":
     "撤销此浏览器会话，并关闭其拥有的所有活跃 Moss 连接。重新连接需要新的配对链接。",
   "Screen context": "屏幕上下文",
@@ -1173,8 +1173,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   // First-run "what Moss can do" tour cards.
   "Any agent": "任意智能体",
   "Run every coding agent in one workspace": "在一个工作区中运行所有编码智能体",
-  "Moss sits around the agent runtimes you already trust: Codex, Claude Code, Grok, OpenCode, Pi, Hermes, Devin, Cursor, Gemini, Antigravity, Kimi Code, MiniMax Code, and ZCode. The provider keeps its account, models, and limits. Moss owns the durable task, environment, transcript, and delivery workflow around it.":
-    "Moss 围绕你已信赖的智能体运行时构建：Codex、Claude Code、Grok、OpenCode、Pi、Hermes、Devin、Cursor、Gemini、Antigravity、Kimi Code、MiniMax Code 和 ZCode。服务商保留其账号、模型和限额；Moss 负责其外围的持久任务、环境、对话记录和交付工作流。",
+  "Moss sits around the agent runtimes you already trust: Codex, Claude Code, Grok, OpenCode, Pi, Hermes, Devin, Cursor, Antigravity, Kimi Code, MiniMax Code, and ZCode. The provider keeps its account, models, and limits. Moss owns the durable task, environment, transcript, and delivery workflow around it.":
+    "Moss 围绕你已信赖的智能体运行时构建：Codex、Claude Code、Grok、OpenCode、Pi、Hermes、Devin、Cursor、Antigravity、Kimi Code、MiniMax Code 和 ZCode。服务商保留其账号、模型和限额；Moss 负责其外围的持久任务、环境、对话记录和交付工作流。",
   "Switch models mid-thread": "在对话中途切换模型",
   "Hand a thread to another provider": "将对话交给另一个服务商",
   "Usage for every provider": "查看每个服务商的用量",

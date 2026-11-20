@@ -15,6 +15,7 @@ import {
 } from "~/components/auth/MossPayPanel";
 import {
   formatMossMembershipPriceNumber,
+  isBuiltInFreeMossPlanCode,
   isCurrentMossPlan,
   mossMembershipAgentUsageMultiplier,
   mossMembershipPlanName,
@@ -299,7 +300,9 @@ export function MossMembershipPage({
     : null;
   const currentPlanName =
     (currentPlan ? mossMembershipPlanName(currentPlan) : null) ??
-    quota?.planCode ??
+    (isBuiltInFreeMossPlanCode(quota?.planCode)
+      ? t("mossPay.settings.freePlan")
+      : quota?.planCode) ??
     t("mossPay.settings.planUnavailable");
 
   useEffect(() => {

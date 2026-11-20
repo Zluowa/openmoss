@@ -28,6 +28,29 @@ describe("Moss quota admission", () => {
     });
     expect(decision).toMatchObject({ kind: "exhausted", resetAt: null });
   });
+
+  it("blocks an exhausted free wallet lifetime allowance without inventing a renewal date", () => {
+    const decision = evaluateMossQuotaAdmission({
+      instanceId: "codex_moss",
+      driver: "codex",
+      managed: true,
+      quota: {
+        billingModel: "wallet_credits_v1",
+        quotaPolicyMode: "metered",
+        requestLimit: null,
+        requestsUsed: 0,
+        periodEnd: null,
+        usageLimits: [{ key: "lifetime", limit: 5, used: 5, resetsAt: null }],
+      },
+      quotaFetchedAt: NOW,
+      now: NOW,
+    });
+    expect(decision).toMatchObject({
+      kind: "exhausted",
+      resetAt: null,
+      usageBasis: "hidden-cost",
+    });
+  });
   it("recognizes only the exact managed Codex and Claude instances", () => {
     expect(
       isMossManagedProviderInstance({
@@ -256,6 +279,29 @@ describe("Moss quota admission", () => {
     });
 
     await expect(admission).resolves.toEqual({ kind: "allow" });
+  });
+
+  it("fails open promptly when the quota refresh exceeds timeoutMs", async () => {
+    let rejectLate!: (error: Error) => void;
+    const stalledFetch = new Promise<MossQuotaProof>((_resolve, reject) => {
+      rejectLate = reject;
+    });
+    const startedAt = Date.now();
+    const result = await fetchFreshMossQuotaAdmission({
+      instanceId: "codex_moss",
+      driver: "codex",
+      accountIdentity: "phone:account-a:session-a",
+      isTransitionPending: () => false,
+      getCurrentAccountIdentity: () => "phone:account-a:session-a",
+      fetchQuota: () => stalledFetch,
+      getFetchedAt: () => NOW,
+      timeoutMs: 30,
+    });
+    expect(result).toEqual({ kind: "allow" });
+    expect(Date.now() - startedAt).toBeLessThan(500);
+    // Rejecting after the timeout must not produce an unhandled rejection.
+    rejectLate(new Error("late network failure"));
+    await Promise.resolve();
   });
 
   it("omits invalid reset evidence", () => {

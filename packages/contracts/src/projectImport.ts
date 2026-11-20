@@ -15,7 +15,6 @@ export const PROJECT_IMPORT_NATIVE_PROVIDERS = ["codex", "claudeAgent"] as const
 /** Agents whose conversations are read from their local files and copied as messages. */
 export const PROJECT_IMPORT_TRANSCRIPT_PROVIDERS = [
   "cursor",
-  "gemini",
   "antigravity",
   "grok",
   "opencode",

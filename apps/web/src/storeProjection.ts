@@ -1633,9 +1633,43 @@ export function applyShellEvent(state: AppState, event: OrchestrationShellStream
       );
       return commitThreadProjection(nextState, event.thread.id);
     }
-    case "thread-removed":
+    case "thread-removed": {
       // Shell removals can be retryable draft rollbacks; explicit delete reconciliation owns tombstones.
-      return removeThreadState(state, event.threadId);
+      const removed = removeThreadState(state, event.threadId);
+      const applyOrder = shouldApplySidebarOrderRevision(
+        removed,
+        event.sidebarOrderRevision,
+        event.sidebarOrderItems !== undefined,
+      );
+      const sidebarOrderSnapshotValid =
+        event.sidebarOrderItems === undefined ||
+        normalizeSidebarThreadOrder(event.sidebarOrderItems) !== null;
+      if (
+        !applyOrder ||
+        (event.sidebarOrderItems === undefined &&
+          event.sidebarOrderRevision === undefined &&
+          event.sidebarOrderMigrationState === undefined)
+      ) {
+        return removed;
+      }
+      return {
+        ...removed,
+        ...(event.sidebarOrderItems !== undefined
+          ? {
+              sidebarOrderItems: resolveSidebarOrderItems(
+                event.sidebarOrderItems,
+                removed.sidebarOrderItems,
+              ),
+            }
+          : {}),
+        ...(sidebarOrderSnapshotValid && event.sidebarOrderRevision !== undefined
+          ? { sidebarOrderRevision: event.sidebarOrderRevision }
+          : {}),
+        ...(sidebarOrderSnapshotValid && event.sidebarOrderMigrationState !== undefined
+          ? { sidebarOrderMigrationState: event.sidebarOrderMigrationState }
+          : {}),
+      };
+    }
     case "sidebar-sections-updated": {
       const knownThreadIds = new Set((state.threadIds ?? []).map((threadId) => threadId));
       if (event.thread !== undefined) {
@@ -1803,9 +1837,41 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   )
     ? state.sidebarThreadSummaryById
     : nextSidebarThreadSummaryById;
+  const normalizedSidebarSections =
+    readModel.sidebarSections === undefined
+      ? state.sidebarSections
+      : normalizeSidebarSections(readModel.sidebarSections, nextThreadIds);
+  const sidebarSections =
+    normalizedSidebarSections === state.sidebarSections ||
+    sidebarSectionsEqual(normalizedSidebarSections ?? [], state.sidebarSections)
+      ? state.sidebarSections
+      : normalizedSidebarSections;
+  const applyOrder = shouldApplySidebarOrderRevision(
+    state,
+    readModel.sidebarOrderRevision,
+    readModel.sidebarOrderItems !== undefined,
+  );
+  const sidebarOrderSnapshotValid =
+    readModel.sidebarOrderItems === undefined ||
+    normalizeSidebarThreadOrder(readModel.sidebarOrderItems) !== null;
+  const sidebarOrderItems = applyOrder
+    ? resolveSidebarOrderItems(readModel.sidebarOrderItems, state.sidebarOrderItems)
+    : state.sidebarOrderItems;
+  const sidebarOrderRevision =
+    applyOrder && sidebarOrderSnapshotValid && readModel.sidebarOrderRevision !== undefined
+      ? readModel.sidebarOrderRevision
+      : state.sidebarOrderRevision;
+  const sidebarOrderMigrationState =
+    applyOrder && sidebarOrderSnapshotValid && readModel.sidebarOrderMigrationState !== undefined
+      ? readModel.sidebarOrderMigrationState
+      : state.sidebarOrderMigrationState;
   if (
     spaces === state.spaces &&
     projects === state.projects &&
+    sidebarSections === state.sidebarSections &&
+    sidebarOrderItems === state.sidebarOrderItems &&
+    sidebarOrderRevision === state.sidebarOrderRevision &&
+    sidebarOrderMigrationState === state.sidebarOrderMigrationState &&
     sidebarThreadSummaryById === state.sidebarThreadSummaryById &&
     normalizedState.threadIds === state.threadIds &&
     normalizedState.threadShellById === state.threadShellById &&
@@ -1844,6 +1910,10 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
       shellSnapshotSequence: Math.max(state.shellSnapshotSequence ?? 0, readModel.snapshotSequence),
       spaces,
       projects,
+      ...(sidebarSections !== undefined ? { sidebarSections } : {}),
+      ...(sidebarOrderItems !== undefined ? { sidebarOrderItems } : {}),
+      ...(sidebarOrderRevision !== undefined ? { sidebarOrderRevision } : {}),
+      ...(sidebarOrderMigrationState !== undefined ? { sidebarOrderMigrationState } : {}),
       sidebarThreadSummaryById,
       threadsHydrated: true,
     },

@@ -3202,7 +3202,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("find apps/web/src -maxdepth 2 -type d | sort | sed -n");
     expect(markup).not.toContain("data-work-entry-action-word");
     expect(markup).toContain("web/src");
-    expect(markup).toContain(TOOLTIP_TRIGGER_MARKER);
+    expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
     expect(markup).not.toContain(">已列出 web<");
   });
 
@@ -3627,13 +3627,13 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain('data-tool-detail-trigger="true"');
-    expect(markup).toContain(TOOLTIP_TRIGGER_MARKER);
+    expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
     expect(markup).not.toContain('data-tool-details-inline="true"');
     expect(markup).not.toContain("Diff");
     expect(markup).not.toContain("Details");
   });
 
-  it("renders command rows with the literal command and styled hover tooltip trigger", async () => {
+  it("renders command rows with the literal command and no hover tooltip card", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderEnglishMarkup(
       <MessagesTimeline
@@ -3665,7 +3665,7 @@ describe("MessagesTimeline", () => {
     );
     expect(markup).toContain("magnifying-glass.svg");
     expect(markup).not.toContain("data-work-entry-action-word");
-    expect(markup).toContain(TOOLTIP_TRIGGER_MARKER);
+    expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
     expect(markup).not.toContain(
       `title="/bin/zsh -lc &#x27;rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src&#x27;"`,
     );
@@ -4120,10 +4120,12 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Edited 2 files");
     expect(markup).toContain("apps/web/src/components/chat/MessagesTimeline.test.tsx");
     expect(markup).toContain("apps/web/src/components/chat/MessagesTimeline.tsx");
+    expect(markup).toContain(">MessagesTimeline.test.tsx<");
+    expect(markup).toContain(">MessagesTimeline.tsx<");
     expect(markup).toContain("+1");
     expect(markup).toContain("-1");
     expect(markup).toContain("+2");
-    expect(markup).not.toContain(">apps/web/src/components/chat<");
+    expect(markup.match(/data-edited-file-row="true"/g)).toHaveLength(2);
   });
 
   it("renders inline edited rows from the turn summary when the file-change tool call has no filenames", async () => {

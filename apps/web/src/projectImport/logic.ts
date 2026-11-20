@@ -22,7 +22,6 @@ export const IMPORT_PROVIDER_LABELS: Record<
   codex: PROVIDER_DISPLAY_NAMES.codex,
   claudeAgent: "Claude Code",
   cursor: PROVIDER_DISPLAY_NAMES.cursor,
-  gemini: PROVIDER_DISPLAY_NAMES.gemini,
   antigravity: PROVIDER_DISPLAY_NAMES.antigravity,
   grok: PROVIDER_DISPLAY_NAMES.grok,
   opencode: PROVIDER_DISPLAY_NAMES.opencode,

@@ -14,6 +14,7 @@ import {
   type ServerProviderInstallationResult,
 } from "@moss/contracts";
 import { npmGlobalLauncherSuffixes } from "../platform/npmGlobalLayout.ts";
+import { ANTIGRAVITY_INSTALL_METADATA_FILE } from "./antigravityInstall.ts";
 import { managedAgentBinDirectory } from "./managedAgentPaths.ts";
 import { ONE_CLICK_AGENT_INSTALLS, managedAgentInstallPrefix } from "./providerInstall.ts";
 import { LAUNCHER_CMD, LAUNCHER_PS1 } from "./cursorWindowsInstall.ts";
@@ -83,12 +84,34 @@ async function managedRoot(input: InstallationInput): Promise<string | null> {
   const root =
     input.provider === "cursor"
       ? Path.join(prefix, "cursor")
-      : install
-        ? Path.join(prefix, "node_modules", ...install.packageName.split("/"))
-        : null;
+      : input.provider === "antigravity"
+        ? Path.join(prefix, "antigravity")
+        : install
+          ? Path.join(prefix, "node_modules", ...install.packageName.split("/"))
+          : null;
   if (!root || !(await ordinaryDirectory(root))) return null;
   const [realPrefix, realRoot] = await Promise.all([FS.realpath(prefix), FS.realpath(root)]);
   if (!inside(realPrefix, realRoot)) return null;
+  if (input.provider === "antigravity") {
+    const metadataPath = Path.join(root, ANTIGRAVITY_INSTALL_METADATA_FILE);
+    const metadataInfo = await FS.lstat(metadataPath).catch(() => null);
+    if (
+      !metadataInfo ||
+      !metadataInfo.isFile() ||
+      metadataInfo.isSymbolicLink() ||
+      metadataInfo.size > 65_536
+    )
+      return null;
+    try {
+      const metadata = JSON.parse(await FS.readFile(metadataPath, "utf8")) as {
+        provider?: unknown;
+      };
+      if (metadata.provider !== "antigravity") return null;
+    } catch {
+      return null;
+    }
+    return root;
+  }
   if (input.provider !== "cursor") {
     const manifestPath = Path.join(root, "package.json");
     const manifestInfo = await FS.lstat(manifestPath);
@@ -152,6 +175,19 @@ export async function removeManagedProviderInstallation(
         "The Cursor launcher was changed outside Moss.",
       );
     files.push(shim);
+  } else if (input.provider === "antigravity") {
+    const binDirectory = managedAgentBinDirectory(prefix);
+    const binaryName = process.platform === "win32" ? "agy.exe" : "agy";
+    const binary = Path.join(binDirectory, binaryName);
+    const info = await FS.lstat(binary).catch(() => null);
+    if (info) {
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new ProviderInstallationError(
+          PROVIDER_INSTALLATION_ERROR_CODES.modified,
+          "Antigravity binary is not an ordinary file.",
+        );
+      files.push(binary);
+    }
   } else {
     if (!install)
       throw new ProviderInstallationError(

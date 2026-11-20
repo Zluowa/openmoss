@@ -437,4 +437,31 @@ describe("sidebar section decider", () => {
       ),
     ).rejects.toBeInstanceOf(OrchestrationCommandInvariantError);
   });
+
+  it("still fences explicit sidebar placement commands against stale expectedSidebarOrderRevision", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-stale-place");
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel([makeThread({ id: threadId })]),
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(2),
+      sidebarOrderMigrationState: "ready",
+    };
+
+    await expect(
+      Effect.runPromise(
+        decideOrchestrationCommand({
+          command: {
+            type: "sidebar-section.thread.place",
+            commandId: CommandId.makeUnsafe("cmd-stale-place"),
+            threadId,
+            sectionId: null,
+            destination: "pinned",
+            beforeThreadId: null,
+            sectionCreatedAt: null,
+            expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(1),
+          },
+          readModel,
+        }),
+      ),
+    ).rejects.toThrow("SIDEBAR_ORDER_REVISION_CONFLICT: current revision 2.");
+  });
 });

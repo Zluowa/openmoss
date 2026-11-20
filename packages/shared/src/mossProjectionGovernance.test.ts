@@ -99,7 +99,7 @@ function mappingFor(engineId: ProviderKind, resourceId: string) {
 
 describe("buildMossEngineProjection mapping table", () => {
   it("publishes an explicit capability row for every plugin component on active providers", () => {
-    expect(MOSS_GOVERNANCE_ENGINE_IDS).toHaveLength(14);
+    expect(MOSS_GOVERNANCE_ENGINE_IDS).toHaveLength(13);
     for (const engineId of MOSS_GOVERNANCE_ENGINE_IDS) {
       for (const componentKind of MOSS_PLUGIN_COMPONENT_KINDS) {
         const capability = MOSS_PLUGIN_CAPABILITY_MATRIX[engineId][componentKind];
@@ -226,7 +226,7 @@ describe("buildMossEngineProjection mapping table", () => {
   });
 
   it("covers every supported provider engine", () => {
-    expect(MOSS_GOVERNANCE_ENGINE_IDS.length).toBe(14);
+    expect(MOSS_GOVERNANCE_ENGINE_IDS.length).toBe(13);
     expect([...MOSS_GOVERNANCE_ENGINE_IDS].toSorted()).toEqual(
       [...SUPPORTED_PROVIDER_KINDS].toSorted(),
     );
@@ -332,7 +332,7 @@ describe("buildMossEngineProjection mapping table", () => {
 
   // A2 reverse: the ACP family has no native surface for hooks/subagents, so
   // those land as prompt-inject with a paired warning (never a file target).
-  it.each(["cursor", "gemini", "grok"] as const)(
+  it.each(["cursor", "grok", "devin"] as const)(
     "routes %s hook + subagent resources to prompt-inject with warnings",
     (engineId) => {
       const hook = mappingFor(engineId, "moss:hook:on-stop");

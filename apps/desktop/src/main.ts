@@ -504,6 +504,7 @@ import {
 } from "./remoteComputerWorkspace";
 import { sshWorkspaceTransport } from "./sshWorkspacePolicy";
 import { DesktopAppSnapManager } from "./appSnapManager";
+import { bringMainWindowToFrontForAppSnap } from "./appSnapWindowReturn";
 import { notifyBackendComputerEmergencyStop } from "./computerEmergencyStopNotice";
 import { EscapeKillSwitchMonitor } from "./escapeKillSwitchMonitor";
 import {
@@ -3059,7 +3060,11 @@ function ensureMainWindowForAppSnap(): BrowserWindow | null {
     mainWindow = createWindow();
   }
   if (!mainWindow || mainWindow.isDestroyed()) return null;
-  focusMainWindow({ stealAppFocus: true });
+  bringMainWindowToFrontForAppSnap(mainWindow, {
+    platform: process.platform,
+    showApp: () => app.show(),
+    focusApp: (options) => app.focus(options),
+  });
   return mainWindow;
 }
 
@@ -3096,6 +3101,8 @@ function initializeDesktopAppSnap(): void {
     appBundlePath: resolveAppSnapAppBundlePath(),
     cuaEndpoint: () => cuaHostEndpoint,
     cuaCapability: DESKTOP_BROWSER_HOST_CAPABILITY,
+    ownPids: () => new Set([process.pid, ...app.getAppMetrics().map((metric) => metric.pid)]),
+    warmCuaHost: () => cuaDriverHost?.prewarm(),
     shortcutRegistry: globalShortcut,
     openSettingsPane: (pane) => {
       const paneUrl = APP_SNAP_SETTINGS_PANE_URLS[pane];
@@ -6071,6 +6078,11 @@ async function attachCuaHost(host: CuaDriverHost): Promise<void> {
   disposeComputerDesktopLifecycle = registerComputerDesktopLifecycle(powerMonitor, host, (error) =>
     safeConsoleError("[desktop] computer input pause failed", error),
   );
+  // If Windows AppSnap was enabled before the CUA host came online, reconcile
+  // right away so the global shortcut registers and the driver pre-warms.
+  if (process.platform === "win32") {
+    void appSnapManager?.refreshState().catch(() => undefined);
+  }
 }
 
 async function startCuaHost(): Promise<void> {

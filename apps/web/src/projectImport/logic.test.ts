@@ -188,7 +188,6 @@ describe("agents found on this computer", () => {
       "codex",
       "claudeAgent",
       "cursor",
-      "gemini",
       "antigravity",
       "grok",
       "opencode",
@@ -217,7 +216,7 @@ describe("agents found on this computer", () => {
         },
         IMPORT_PROVIDERS,
       ),
-    ).toEqual(["cursor", "gemini", "opencode", "hermes", "devin", "omp", "zcode"]);
+    ).toEqual(["cursor", "opencode", "hermes", "devin", "omp", "zcode"]);
   });
 
   it("explains conversations that were found but can't be copied", () => {
@@ -249,11 +248,11 @@ describe("agents found on this computer", () => {
         ...(state === "notInstalled" ? { readiness: { state: "notInstalled" } } : {}),
       }) as never;
     const split = splitProjectImportNotFoundByDetection(
-      ["devin", "cursor", "gemini"],
+      ["devin", "cursor", "opencode"],
       [status("devin", "ready"), status("cursor", "notInstalled")],
     );
     // Devin is connected in the agents step: it has no conversations, it is not "not found".
-    expect(split).toEqual({ notFound: ["cursor", "gemini"], noConversations: ["devin"] });
+    expect(split).toEqual({ notFound: ["cursor", "opencode"], noConversations: ["devin"] });
     expect(projectImportNoConversationsNote(split.noConversations)).toBe(
       "No conversations yet: Devin.",
     );
@@ -267,7 +266,7 @@ describe("agents found on this computer", () => {
 
   it("folds what won't be imported into one quiet line", () => {
     expect(projectImportQuietNote([], [])).toBeNull();
-    expect(projectImportQuietNote(["cursor", "gemini"], [])).toBe("Not found: Cursor, Gemini.");
+    expect(projectImportQuietNote(["cursor", "opencode"], [])).toBe("Not found: Cursor, OpenCode.");
     expect(
       projectImportQuietNote(
         ["cursor"],

@@ -57,6 +57,7 @@ import {
   XIcon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation, type TranslationKey } from "~/localization";
 import {
   isGitHubInboxLabelSelected,
   toggleGitHubInboxLabel,
@@ -67,39 +68,43 @@ import {
 
 const STATE_OPTIONS: ReadonlyArray<{
   value: GitHubInboxStateFilter;
-  label: string;
+  label: TranslationKey;
   icon: typeof IssueOpenedIcon;
 }> = [
-  { value: "open", label: "Open", icon: IssueOpenedIcon },
+  { value: "open", label: "pullRequests.state.open", icon: IssueOpenedIcon },
   // Closed includes merged pull requests; Merged shows only those.
-  { value: "closed", label: "Closed", icon: IssueClosedIcon },
-  { value: "merged", label: "Merged", icon: GitMergedSimpleIcon },
+  { value: "closed", label: "pullRequests.state.closed", icon: IssueClosedIcon },
+  { value: "merged", label: "pullRequests.state.merged", icon: GitMergedSimpleIcon },
 ];
 
-const SORT_OPTIONS: ReadonlyArray<{ value: GitHubInboxSort; label: string }> = [
-  { value: "created", label: "Newest" },
-  { value: "updated", label: "Recently updated" },
+const SORT_OPTIONS: ReadonlyArray<{ value: GitHubInboxSort; label: TranslationKey }> = [
+  { value: "created", label: "codeReview.sort.created" },
+  { value: "updated", label: "codeReview.sort.updated" },
 ];
 
 const INVOLVEMENT_OPTIONS: ReadonlyArray<{
   value: GitHubInboxInvolvementFilter;
-  label: string;
+  label: TranslationKey;
 }> = [
-  { value: "everything", label: "Anyone" },
-  { value: "involved", label: "Involving me" },
-  { value: "reviewRequested", label: "Review requested" },
-  { value: "authored", label: "Authored by me" },
-  { value: "assigned", label: "Assigned to me" },
+  { value: "everything", label: "codeReview.involvement.everything" },
+  { value: "involved", label: "codeReview.involvement.involved" },
+  { value: "reviewRequested", label: "codeReview.involvement.reviewRequested" },
+  { value: "authored", label: "codeReview.involvement.authored" },
+  { value: "assigned", label: "codeReview.involvement.assigned" },
 ];
 
 const KIND_TABS: ReadonlyArray<{
   value: GitHubInboxKindFilter;
-  label: string;
-  short: string;
+  label: TranslationKey;
+  short: TranslationKey;
 }> = [
-  { value: "all", label: "All", short: "All" },
-  { value: "pullRequest", label: "Pull requests", short: "PRs" },
-  { value: "issue", label: "Issues", short: "Issues" },
+  { value: "all", label: "codeReview.kind.all", short: "codeReview.kind.all" },
+  {
+    value: "pullRequest",
+    label: "codeReview.kind.pullRequest",
+    short: "codeReview.kind.pullRequestShort",
+  },
+  { value: "issue", label: "codeReview.kind.issue", short: "codeReview.kind.issue" },
 ];
 const KIND_VALUES = KIND_TABS.map((tab) => tab.value);
 
@@ -113,13 +118,18 @@ function KindTabs({
   counts: GitHubInboxKindCounts | null;
   onChange: (kind: GitHubInboxKindFilter) => void;
 }) {
+  const { t } = useTranslation();
   const radioItemProps = useRadioGroupKeyboardNav({
     values: KIND_VALUES,
     value,
     onValueChange: onChange,
   });
   return (
-    <div role="radiogroup" aria-label="Kind" className="flex items-center gap-0.5">
+    <div
+      role="radiogroup"
+      aria-label={t("codeReview.kind.group")}
+      className="flex items-center gap-0.5"
+    >
       {KIND_TABS.map((tab) => {
         const active = tab.value === value;
         const count = counts?.[tab.value];
@@ -129,7 +139,7 @@ function KindTabs({
             type="button"
             role="radio"
             aria-checked={active}
-            aria-label={count === undefined ? tab.label : `${tab.label}, ${count}`}
+            aria-label={count === undefined ? t(tab.label) : `${t(tab.label)}, ${count}`}
             className={cn(
               "flex h-5 items-center gap-1 rounded-control-xs px-1.5 text-ui-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               active
@@ -142,7 +152,7 @@ function KindTabs({
             onClick={() => onChange(tab.value)}
             {...radioItemProps(tab.value)}
           >
-            {tab.short}
+            {t(tab.short)}
             {count === undefined ? null : (
               <span className="text-ui-xs font-normal tabular-nums text-muted-foreground/70">
                 {count}
@@ -165,13 +175,14 @@ function ActiveFilterChip({
   icon?: ReactNode;
   onRemove: () => void;
 }) {
+  const { format } = useTranslation();
   return (
     <Badge variant="info" className="max-w-full min-w-0 rounded-full pr-0.5 pl-1.5 font-normal">
       {icon}
       <span className="min-w-0 truncate">{label}</span>
       <button
         type="button"
-        aria-label={`Remove filter: ${label}`}
+        aria-label={format("codeReview.filter.remove", { label })}
         className="flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-info/16 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         onClick={onRemove}
       >
@@ -223,7 +234,8 @@ export function GitHubInboxFilterBar({
   /** Opens the item a pasted link or #number names; false leaves the paste as search text. */
   onPasteReference: (text: string) => boolean;
 }) {
-  const sortLabel = SORT_OPTIONS.find((option) => option.value === sort)!.label;
+  const { t, format } = useTranslation();
+  const sortLabel = t(SORT_OPTIONS.find((option) => option.value === sort)!.label);
   const involvement =
     INVOLVEMENT_OPTIONS.find((option) => option.value === filters.involvement) ??
     INVOLVEMENT_OPTIONS[0]!;
@@ -244,15 +256,15 @@ export function GitHubInboxFilterBar({
 
   return (
     <div className="flex flex-col px-2 pt-2">
-      <SidebarPanelTitle title="Code review" as="h1">
+      <SidebarPanelTitle title={t("codeReview.title")} as="h1">
         <Menu>
           <MenuTrigger
             render={
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label={`Sort: ${sortLabel}`}
-                title={`Sort: ${sortLabel}`}
+                aria-label={format("codeReview.sort.aria", { label: sortLabel })}
+                title={format("codeReview.sort.aria", { label: sortLabel })}
               />
             }
           >
@@ -260,14 +272,14 @@ export function GitHubInboxFilterBar({
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" className="min-w-44">
             <MenuGroup>
-              <MenuGroupLabel>Sort by</MenuGroupLabel>
+              <MenuGroupLabel>{t("codeReview.sort.heading")}</MenuGroupLabel>
               <MenuRadioGroup
                 value={sort}
                 onValueChange={(value) => onSortChange(value as GitHubInboxSort)}
               >
                 {SORT_OPTIONS.map((option) => (
                   <MenuRadioItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.label)}
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -280,8 +292,12 @@ export function GitHubInboxFilterBar({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label={menuFilterCount > 0 ? `Filter (${menuFilterCount} active)` : "Filter"}
-                title="Filter"
+                aria-label={
+                  menuFilterCount > 0
+                    ? format("codeReview.filter.buttonActive", { count: menuFilterCount })
+                    : t("codeReview.filter.button")
+                }
+                title={t("codeReview.filter.button")}
                 className={cn("relative", menuFilterCount > 0 && "text-[var(--color-text-accent)]")}
               />
             }
@@ -296,7 +312,7 @@ export function GitHubInboxFilterBar({
           </MenuTrigger>
           <ComposerPickerMenuPopup align="end" className="min-w-48">
             <MenuGroup>
-              <MenuGroupLabel>Status</MenuGroupLabel>
+              <MenuGroupLabel>{t("codeReview.filter.status")}</MenuGroupLabel>
               <MenuRadioGroup
                 value={filters.state}
                 onValueChange={(value) => onStateChange(value as GitHubInboxStateFilter)}
@@ -304,14 +320,14 @@ export function GitHubInboxFilterBar({
                 {STATE_OPTIONS.map((option) => (
                   <MenuRadioItem key={option.value} value={option.value}>
                     <option.icon aria-hidden className={MENU_ICON_CLASS_NAME} />
-                    {option.label}
+                    {t(option.label)}
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
             </MenuGroup>
             <MenuSeparator />
             <MenuGroup>
-              <MenuGroupLabel>Involvement</MenuGroupLabel>
+              <MenuGroupLabel>{t("codeReview.filter.involvement")}</MenuGroupLabel>
               <MenuRadioGroup
                 value={filters.involvement}
                 onValueChange={(value) =>
@@ -320,7 +336,7 @@ export function GitHubInboxFilterBar({
               >
                 {INVOLVEMENT_OPTIONS.map((option) => (
                   <MenuRadioItem key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.label)}
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
@@ -329,7 +345,7 @@ export function GitHubInboxFilterBar({
             <MenuSub>
               <MenuSubTrigger>
                 <FoldersIcon aria-hidden className={MENU_ICON_CLASS_NAME} />
-                Projects
+                {t("codeReview.filter.projects")}
                 {filters.projectIds.length > 0 ? (
                   <span className="ml-auto tabular-nums text-muted-foreground">
                     {filters.projectIds.length}
@@ -338,7 +354,7 @@ export function GitHubInboxFilterBar({
               </MenuSubTrigger>
               <ComposerPickerMenuSubPopup className="max-h-80 min-w-48 overflow-y-auto">
                 {projectOptions.length === 0 ? (
-                  <MenuItem disabled>No projects</MenuItem>
+                  <MenuItem disabled>{t("codeReview.filter.noProjects")}</MenuItem>
                 ) : (
                   projectOptions.map((option) => (
                     <MenuCheckboxItem
@@ -355,7 +371,7 @@ export function GitHubInboxFilterBar({
             <MenuSub>
               <MenuSubTrigger>
                 <TagIcon aria-hidden className={MENU_ICON_CLASS_NAME} />
-                Labels
+                {t("codeReview.filter.labels")}
                 {filters.labels.length > 0 ? (
                   <span className="ml-auto tabular-nums text-muted-foreground">
                     {filters.labels.length}
@@ -364,7 +380,7 @@ export function GitHubInboxFilterBar({
               </MenuSubTrigger>
               <ComposerPickerMenuSubPopup className="max-h-80 min-w-52 overflow-y-auto">
                 {labelOptions.length === 0 ? (
-                  <MenuItem disabled>No labels in this view</MenuItem>
+                  <MenuItem disabled>{t("codeReview.filter.noLabels")}</MenuItem>
                 ) : (
                   labelOptions.map((option) => (
                     <MenuCheckboxItem
@@ -389,7 +405,7 @@ export function GitHubInboxFilterBar({
             {menuFilterCount > 0 ? (
               <>
                 <MenuSeparator />
-                <MenuItem onClick={onClearFilters}>Clear filters</MenuItem>
+                <MenuItem onClick={onClearFilters}>{t("codeReview.filter.clearAll")}</MenuItem>
               </>
             ) : null}
           </ComposerPickerMenuPopup>
@@ -400,8 +416,8 @@ export function GitHubInboxFilterBar({
               <Button
                 variant="ghost"
                 size="icon-xs"
-                aria-label="More code review actions"
-                title="More"
+                aria-label={t("codeReview.more.aria")}
+                title={t("codeReview.more.title")}
               />
             }
           >
@@ -417,18 +433,18 @@ export function GitHubInboxFilterBar({
                 aria-hidden
                 className={cn(MENU_ICON_CLASS_NAME, refreshing && "animate-spin")}
               />
-              {refreshing ? "Refreshing…" : "Refresh"}
+              {refreshing ? t("codeReview.refreshing") : t("codeReview.refresh")}
             </MenuItem>
             {menuFilterCount > 0 ? (
-              <MenuItem onClick={onClearFilters}>Clear filters</MenuItem>
+              <MenuItem onClick={onClearFilters}>{t("codeReview.filter.clearAll")}</MenuItem>
             ) : null}
           </ComposerPickerMenuPopup>
         </Menu>
       </SidebarPanelTitle>
       <div className="flex flex-col gap-2.5 px-4 pt-1 pb-2">
         <SearchInput
-          placeholder="Search or paste a PR link"
-          aria-label="Search pull requests and issues"
+          placeholder={t("codeReview.search.placeholder")}
+          aria-label={t("codeReview.search.aria")}
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onPaste={(event) => {
@@ -438,23 +454,33 @@ export function GitHubInboxFilterBar({
         />
         <KindTabs value={filters.kind} counts={kindCounts} onChange={onKindChange} />
         {menuFilterCount > 0 ? (
-          <div className="flex flex-wrap items-center gap-1" aria-label="Active filters">
+          <div
+            className="flex flex-wrap items-center gap-1"
+            aria-label={t("codeReview.filter.active")}
+          >
             {filters.state !== "open" ? (
               <ActiveFilterChip
-                label={filters.state === "merged" ? "Merged" : "Closed"}
+                label={t(
+                  filters.state === "merged"
+                    ? "pullRequests.state.merged"
+                    : "pullRequests.state.closed",
+                )}
                 onRemove={() => onStateChange("open")}
               />
             ) : null}
             {filters.involvement !== "everything" ? (
               <ActiveFilterChip
-                label={involvement.label}
+                label={t(involvement.label)}
                 onRemove={() => onInvolvementChange("everything")}
               />
             ) : null}
             {filters.projectIds.map((projectId) => (
               <ActiveFilterChip
                 key={projectId}
-                label={projectOptions.find((option) => option.id === projectId)?.name ?? "Project"}
+                label={
+                  projectOptions.find((option) => option.id === projectId)?.name ??
+                  t("codeReview.filter.project")
+                }
                 onRemove={() => toggleProject(projectId)}
               />
             ))}
@@ -471,7 +497,7 @@ export function GitHubInboxFilterBar({
               className="h-5 rounded-full px-1.5 text-ui-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               onClick={onClearFilters}
             >
-              Clear
+              {t("codeReview.filter.clear")}
             </button>
           </div>
         ) : null}

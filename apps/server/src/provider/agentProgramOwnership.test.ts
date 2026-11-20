@@ -210,6 +210,27 @@ describe.each(["codex", "claudeAgent"] as const)("%s program ownership", (provid
     ).toThrow(/Restart Moss/);
   });
 
+  it("stops registered runtime owners before starting maintenance", async () => {
+    const { first, sourceHomePath } = fixture();
+    const programs = makeAgentProgramOwnership(provider);
+    const child = programs.spawn({
+      binaryPath: first,
+      sourceHomePath,
+      spawn: () => new EventEmitter(),
+    });
+    let stopCalls = 0;
+    const unregister = programs.registerMaintenanceStopper(async () => {
+      stopCalls += 1;
+      child.emit("close");
+    });
+
+    const maintenance = await programs.beginMaintenanceAfterStop(first);
+
+    expect(stopCalls).toBe(1);
+    maintenance.finish(false);
+    unregister();
+  });
+
   it("releases a definite spawn failure and retains an interrupted operation until restart", async () => {
     const { first, second, sourceHomePath } = fixture();
     const programs = makeAgentProgramOwnership(provider);

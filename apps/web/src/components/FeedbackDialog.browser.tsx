@@ -72,7 +72,7 @@ it("previews app feedback, preserves cancelled text, and queues only after confi
   await expect.element(textarea).toHaveValue("侧栏文字折行");
   expect(close).not.toHaveBeenCalled();
   await page.getByRole("button", { name: "提交", exact: true }).click();
-  await page.getByRole("button", { name: "发送报告", exact: true }).click();
+  await page.getByRole("button", { name: "发送", exact: true }).click();
   expect(submit).toHaveBeenCalledOnce();
   expect(prepare.mock.calls[0]?.[0].id).toBe(prepare.mock.calls[1]?.[0].id);
   await vi.waitFor(() => expect(close).toHaveBeenCalledWith(false));

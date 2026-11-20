@@ -58,6 +58,43 @@ coordinator's call, never the worker's.
 
 Cloud sessions follow the same path: they open PRs and never push to `main`.
 
+## The loop
+
+The target is a coordinator that never waits to be started: a scheduled task runs
+one tick every two hours, and the nightly review once a day. Until that task
+exists, the coordinator runs the same tick at the start of each session.
+
+Each tick, in order:
+
+1. **Reds.** Every `red` issue has an owner. One that is unclaimed, or whose claim
+   has had no commit or finding for a day, is briefed to a worker.
+2. **Ready work.** Approved PRs with a green gate join the merge queue; fast-lane
+   PRs are merged on their own (below).
+3. **Stale work.** A PR with no progress for three days is closed or reassigned.
+4. **Developer reports.** A report queued for more than six hours, or a repair
+   worker that has not claimed one in that time, is told to the owner once.
+5. **Usage.** Say before the account's usage runs out.
+6. **Log.** One line on the coordinator log: what the tick merged, assigned or
+   raised.
+
+The nightly review (`nightly-review` skill) reads the day's merged PRs and keeps
+`lessons.md` true.
+
+## Fast lane
+
+A PR that meets all of these is merged by the next tick, alone, pinned to its
+verified head, without waiting for a batch:
+
+- its risk is normal (`quality.md`, "Risk"), it stays in one area, and it changes
+  fewer than 200 lines;
+- it touches no `.github/`, package manifest or lockfile, `patches/`, migration,
+  release script, `AGENTS.md`, handbook page or skill;
+- it names a test that fails on `main` and passes with the change;
+- its PR gate is green on the head commit, and an independent reviewer approved it.
+
+Anything else goes to the batch. A fast-lane merge that turns `main` red is
+reverted first and fixed second, like any other.
+
 ## Handover
 
 1. Merge `main` into the branch (merge, not rebase).

@@ -85,6 +85,7 @@ import { PageDraftsServiceLive } from "./pages/drafts/Layers/PageDraftsService";
 import { PageAppsServiceLive } from "./pages/apps/PageAppsServiceLive";
 import { TodoServiceLive } from "./todo/Layers/TodoService";
 import { SecretRequestsLive } from "./secretRequests/Layers/SecretRequests";
+import { AgentFeedbackLive } from "./agentFeedback/Layers/AgentFeedback";
 import { GuestShareRepositoryLive } from "./persistence/Layers/GuestShareRepository";
 import { GuestShareServiceLive } from "./guestShare/Layers/GuestShareService";
 import { ShareRelayTransportLive } from "./guestShare/Services/ShareRelayTransport";
@@ -112,6 +113,7 @@ import { PullRequestAutoFixRepositoryLive } from "./persistence/Layers/PullReque
 import { PullRequestAutoFixServiceLive } from "./pullRequestAutoFix/Layers/PullRequestAutoFixService";
 import { ComposerPredictionServiceLive } from "./composerPrediction/Layers/ComposerPredictionService";
 import { GitHubInboxServiceLive } from "./githubInbox/Layers/GitHubInboxService";
+import { IssueSourcesLive } from "./issueSources/IssueSources";
 import { ServerProviderHealthLive } from "./provider/Layers/ProviderHealth";
 import { makeServerProviderLayer } from "./provider/runtimeLayer";
 import { MossProjectionAuthorityFactoryLive } from "./provider/mossProjectionAuthorityFactory";
@@ -294,6 +296,8 @@ export function makeServerRuntimeServicesLayer(
   const todoServiceLayer = TodoServiceLive.pipe(Layer.provideMerge(TodoRepositoryLive));
   // One instance for the gateway tool that asks and the secretRequest.answer RPC that answers.
   const secretRequestsLayer = SecretRequestsLive.pipe(Layer.provide(runtimeServicesLayer));
+  // One store for the moss_report_friction tool and the agentFeedback.* RPCs Settings reads.
+  const agentFeedbackLayer = AgentFeedbackLive.pipe(Layer.provide(runtimeServicesLayer));
   const libraryServiceLayer = LibraryServiceLive.pipe(Layer.provideMerge(LibraryRepositoryLive));
   // Connectors publish their proxies into the same credential registry the
   // provider adapters read, so new sessions pick them up.
@@ -374,6 +378,7 @@ export function makeServerRuntimeServicesLayer(
         pageDraftsServiceLayer,
         pageAppsServiceLayer,
         secretRequestsLayer,
+        agentFeedbackLayer,
         mossbotRoomsLayer,
       ),
     ),
@@ -415,6 +420,8 @@ export function makeServerRuntimeServicesLayer(
     Layer.provideMerge(OrchestrationLayerLive),
     Layer.provideMerge(ServerSettingsLive),
   );
+  // Issue sources beside GitHub (Linear, Jira), read through the person's connectors.
+  const issueSourcesLayer = IssueSourcesLive.pipe(Layer.provide(mcpConnectorsLayer));
   const pullRequestServiceLayer = PullRequestServiceLive.pipe(
     Layer.provideMerge(githubInboxServiceLayer),
   );
@@ -501,6 +508,7 @@ export function makeServerRuntimeServicesLayer(
     automationRunReactorLayer,
     todoServiceLayer,
     secretRequestsLayer,
+    agentFeedbackLayer,
     libraryServiceLayer,
     pagesServiceLayer,
     pageDraftsServiceLayer,
@@ -519,6 +527,7 @@ export function makeServerRuntimeServicesLayer(
     providerHealthLayer,
     ProjectPullRequestPinsLive,
     pullRequestServiceLayer,
+    issueSourcesLayer,
     pullRequestAutoFixLayer,
     composerPredictionLayer,
     orchestrationReactorLayer,

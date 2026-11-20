@@ -49,6 +49,9 @@ async function withConnectorServer(
       enabled: options.enabled,
       gatewayEnabled: options.enabled,
       listTools: () => Effect.die("unused"),
+      findConnectedPreset: () => Effect.succeed(null),
+      callTool: () => Effect.die("unused"),
+      listToolInputs: () => Effect.die("unused"),
       servicePlugins: {
         list: () => Effect.succeed({ installed: [], skills: [] }),
         setInstalled: () => Effect.die("unused"),

@@ -5,6 +5,7 @@
 import "../../index.css";
 
 import type { DesktopAppSnapPermissionGuideState, DesktopAppSnapState } from "@moss/contracts";
+import { DEFAULT_WINDOWS_APP_SNAP_SHORTCUT } from "@moss/shared/appSnapShortcut";
 import type { AppSettingsBinding } from "~/appSettings";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
@@ -58,6 +59,11 @@ function settingsBinding(): AppSettingsBinding {
 
 function AppSnapActivityHarness() {
   const [active, setActive] = useState(true);
+  const [settings, setSettings] = useState(() => harness.settings);
+  const updateSettings = (patch: Partial<typeof harness.settings>) => {
+    harness.updateSettings(patch);
+    setSettings((previous) => ({ ...previous, ...patch }));
+  };
   return (
     <QueryClientProvider client={queryClient}>
       <button type="button" onClick={() => setActive(false)}>
@@ -66,7 +72,14 @@ function AppSnapActivityHarness() {
       <button type="button" onClick={() => setActive(true)}>
         Return to AppSnap
       </button>
-      <AppSnapSettingsPanel active={active} {...settingsBinding()} />
+      <AppSnapSettingsPanel
+        active={active}
+        {...({
+          settings,
+          defaults: harness.defaults,
+          updateSettings,
+        } as unknown as AppSettingsBinding)}
+      />
     </QueryClientProvider>
   );
 }
@@ -381,5 +394,157 @@ describe("AppSnapSettingsPanel", () => {
     });
 
     await mounted.unmount();
+  });
+
+  it("shows Alt + Shift + S by default on Windows, records multi-modifier chords, resets to Windows default, and surfaces errors honestly", async () => {
+    const WINDOWS_READY: DesktopAppSnapState = {
+      platform: "windows",
+      supported: true,
+      enabled: true,
+      status: "ready",
+      shortcut: DEFAULT_WINDOWS_APP_SNAP_SHORTCUT,
+      inputMonitoringPermission: "unknown",
+      screenRecordingPermission: "unknown",
+      message: null,
+      appDisplayName: "Moss",
+    };
+    const WINDOWS_ERROR: DesktopAppSnapState = {
+      ...WINDOWS_READY,
+      status: "error",
+      message: "The AppSnap shortcut is already used by Windows or another app.",
+    };
+    const pushedStateRef: { current: ((state: DesktopAppSnapState) => void) | null } = {
+      current: null,
+    };
+    const requestPermissions = vi.fn().mockResolvedValue(WINDOWS_READY);
+    const setEnabled = vi.fn().mockResolvedValue(WINDOWS_READY);
+    const checkShortcut = vi.fn().mockResolvedValue({ available: true, reason: null });
+    const setShortcut = vi.fn(async (shortcut) => ({
+      state: { ...WINDOWS_READY, shortcut },
+      availability: { available: true, reason: null },
+    }));
+    setDesktopBridge({
+      appSnap: {
+        getState: vi.fn().mockResolvedValue(WINDOWS_READY),
+        requestPermissions,
+        setEnabled,
+        checkShortcut,
+        setShortcut,
+        onState: vi.fn((listener: (state: DesktopAppSnapState) => void) => {
+          pushedStateRef.current = listener;
+          return vi.fn();
+        }),
+        onPermissionGuideState: vi.fn(() => vi.fn()),
+      },
+    });
+
+    const prevSettings = { ...harness.settings };
+    harness.settings = {
+      ...harness.settings,
+      enableAppSnap: true,
+      appSnapShortcut: { kind: "both-option-keys" },
+    };
+    try {
+      const mounted = await render(<AppSnapActivityHarness />);
+      // Legacy both-option-keys normalizes to Alt + Shift + S on Windows.
+      await expect.element(mounted.getByText("Capture any window with a shortcut")).toBeVisible();
+      await expect.element(mounted.getByText("Press this shortcut from any app")).toBeVisible();
+      const recorder = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Record AppSnap shortcut"]',
+      )!;
+      expect(recorder.textContent).toContain("Alt");
+      expect(recorder.textContent).toContain("Shift");
+      expect(recorder.textContent).toContain("S");
+      expect(recorder.textContent).not.toContain("⌥");
+      expect(recorder.textContent).not.toContain("Left Alt");
+
+      // Illustration reflects the real Windows default shortcut too.
+      const illustration = document.querySelector('[data-testid="appsnap-illustration"]')!;
+      expect(illustration.textContent).toContain("Alt");
+      expect(illustration.textContent).toContain("Shift");
+      expect(illustration.textContent).toContain("S");
+
+      // Record a 2-modifier Windows chord (Ctrl + Shift + A) and verify equal-height Save button.
+      await mounted.getByRole("button", { name: "Record AppSnap shortcut" }).click();
+      recorder.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "ControlLeft",
+          key: "Control",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      recorder.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "ShiftLeft",
+          key: "Shift",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      recorder.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          code: "KeyA",
+          key: "a",
+          ctrlKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await expect.element(mounted.getByText("Available — save to apply.")).toBeVisible();
+      expect(checkShortcut).toHaveBeenCalledWith({
+        kind: "key-chord",
+        modifier: "control",
+        extraModifiers: ["shift"],
+        key: "KeyA",
+      });
+      const saveButton = mounted.getByRole("button", { name: "Save" }).element();
+      expect(
+        Math.abs(
+          recorder.getBoundingClientRect().height - saveButton.getBoundingClientRect().height,
+        ),
+      ).toBeLessThanOrEqual(1);
+      await mounted.getByRole("button", { name: "Save" }).click();
+      await vi.waitFor(() => {
+        expect(setShortcut).toHaveBeenCalledWith({
+          kind: "key-chord",
+          modifier: "control",
+          extraModifiers: ["shift"],
+          key: "KeyA",
+        });
+        expect(illustration.textContent).toContain("Ctrl");
+        expect(illustration.textContent).toContain("A");
+      });
+
+      // Reset button restores Windows default (Alt + Shift + S), NOT both-option-keys.
+      await mounted.getByRole("button", { name: "Reset", exact: true }).click();
+      await vi.waitFor(() => {
+        expect(setShortcut).toHaveBeenLastCalledWith(DEFAULT_WINDOWS_APP_SNAP_SHORTCUT);
+        expect(illustration.textContent).toContain("Alt");
+        expect(illustration.textContent).toContain("S");
+      });
+
+      // Error state on Windows shows the real conflict message, never macOS "Needs your permission".
+      pushedStateRef.current?.(WINDOWS_ERROR);
+      await expect
+        .element(
+          mounted
+            .getByText("The AppSnap shortcut is already used by Windows or another app.")
+            .first(),
+        )
+        .toBeVisible();
+      expect(document.body.textContent).not.toContain("Needs your permission");
+
+      // Toggling enable on Windows never calls macOS requestPermissions().
+      await mounted.getByLabelText("Enable AppSnap").click();
+      await mounted.getByLabelText("Enable AppSnap").click();
+      await vi.waitFor(() => expect(setEnabled).toHaveBeenCalled());
+      expect(requestPermissions).not.toHaveBeenCalled();
+
+      await mounted.unmount();
+    } finally {
+      harness.settings = prevSettings;
+    }
   });
 });

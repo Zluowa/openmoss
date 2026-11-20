@@ -47,7 +47,7 @@ const CODE_ICON_NAMES = new Set([
   "c",
   "vue",
   "svelte",
-  "cmd",
+  "console",
   "settings-gear-1",
 ]);
 

@@ -1,11 +1,12 @@
 // FILE: MossBillingSettingsPanel.tsx
 // Purpose: Codex-parity Settings -> Usage and billing for Moss-owned plans and credits.
 
-import type { MossPayCatalog, MossPayUsageLimit } from "@moss/contracts";
+import type { MossPayBillingModel, MossPayCatalog, MossPayUsageLimit } from "@moss/contracts";
 import { useIsMutating, useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
+import { isBuiltInFreeMossPlanCode } from "~/components/auth/MossMembershipPage.logic";
 import {
   formatMossPayCount,
   formatMossPayPrice,
@@ -39,13 +40,17 @@ export function mossQuotaRemainingPercent(used: number, limit: number | null): n
   return Math.max(0, Math.min(100, Math.round((1 - used / limit) * 100)));
 }
 
+export { isBuiltInFreeMossPlanCode };
+
 export function resolveMossPlanPresentation(input: {
   readonly planCode: string | null | undefined;
   readonly catalog: MossPayCatalog | undefined;
   readonly unavailableLabel: string;
+  readonly freePlanLabel?: string;
 }): {
   readonly name: string;
   readonly plan: MossPayCatalog["plans"][number] | null;
+  readonly isBuiltInFreePlan: boolean;
 } {
   const planCode = input.planCode?.trim() ?? "";
   const plan =
@@ -53,9 +58,17 @@ export function resolveMossPlanPresentation(input: {
       ? (input.catalog?.plans.find((candidate) => candidate.code === planCode) ?? null)
       : null;
   const catalogName = plan?.displayName.trim() ?? "";
+  if (!plan && isBuiltInFreeMossPlanCode(planCode) && input.freePlanLabel) {
+    return {
+      name: input.freePlanLabel,
+      plan: null,
+      isBuiltInFreePlan: true,
+    };
+  }
   return {
     name: catalogName || planCode || input.unavailableLabel,
     plan,
+    isBuiltInFreePlan: false,
   };
 }
 
@@ -148,11 +161,17 @@ function MossUsageLimitRow({
 function usageWindowLabel(
   key: MossPayUsageLimit["key"],
   t: ReturnType<typeof useTranslation>["t"],
-  packageCost: boolean,
+  billingModel: MossPayBillingModel,
 ) {
   switch (key) {
     case "lifetime":
-      return t(packageCost ? "mossPay.settings.generalLimits" : "mossPay.creditBalance");
+      return t(
+        billingModel === "wallet_credits_v1"
+          ? "mossPay.settings.freeAllowance"
+          : billingModel === "cost_budget_v1"
+            ? "mossPay.settings.generalLimits"
+            : "mossPay.creditBalance",
+      );
     case "five_hour":
       return t("mossPay.settings.fiveHourLimit");
     case "weekly":
@@ -270,10 +289,13 @@ export function MossBillingSettingsPanel() {
     return <MossBillingSkeleton />;
   }
   const quota = accountTransitionPending ? undefined : quotaQuery.data;
+  const usesPercentageBudget =
+    quota?.billingModel === "cost_budget_v1" || quota?.billingModel === "wallet_credits_v1";
   const planPresentation = resolveMossPlanPresentation({
     planCode: quota?.planCode,
     catalog: catalogQuery.data,
     unavailableLabel: t("mossPay.settings.planUnavailable"),
+    freePlanLabel: t("mossPay.settings.freePlan"),
   });
   const planPrice = planPresentation.plan
     ? `${formatMossPayPrice(planPresentation.plan.monthlyPriceCny, locale)}${t("mossPay.catalog.perMonth")}`
@@ -296,7 +318,7 @@ export function MossBillingSettingsPanel() {
               <p className="text-ui-lg font-medium text-foreground">{planPresentation.name}</p>
               {planPrice ? (
                 <p className="mt-0.5 text-ui-sm text-muted-foreground">{planPrice}</p>
-              ) : quota?.planCode ? (
+              ) : quota?.planCode && !planPresentation.isBuiltInFreePlan ? (
                 <p className="mt-0.5 text-ui-sm text-muted-foreground">
                   {format("mossPay.settings.planCode", { code: quota.planCode })}
                 </p>
@@ -320,7 +342,7 @@ export function MossBillingSettingsPanel() {
         ) : null}
       </section>
 
-      {quota?.billingModel !== "cost_budget_v1" && (
+      {!usesPercentageBudget && (
         <section aria-labelledby="moss-credit-balance-heading" className="space-y-1.5">
           <h2 className={SETTINGS_SECTION_LABEL_CLASS_NAME} id="moss-credit-balance-heading">
             {t("mossPay.settings.creditBalance")}
@@ -389,7 +411,7 @@ export function MossBillingSettingsPanel() {
               {quota.usageLimits.map((limit) => (
                 <MossUsageLimitRow
                   key={limit.key}
-                  label={usageWindowLabel(limit.key, t, quota.billingModel === "cost_budget_v1")}
+                  label={usageWindowLabel(limit.key, t, quota.billingModel)}
                   limit={limit}
                   locale={locale}
                   unlimited={quotaIsUnlimited}
@@ -411,9 +433,11 @@ export function MossBillingSettingsPanel() {
           )}
         </SettingsCard>
         <p className="px-2 text-ui-sm leading-relaxed text-muted-foreground">
-          {quota?.billingModel === "legacy_tokens"
-            ? t("mossPay.settings.legacyTransition")
-            : t("mossPay.settings.weightedDescription")}
+          {quota?.billingModel === "wallet_credits_v1"
+            ? t("mossPay.settings.freeAllowanceDescription")
+            : quota?.billingModel === "legacy_tokens"
+              ? t("mossPay.settings.legacyTransition")
+              : t("mossPay.settings.weightedDescription")}
         </p>
       </section>
     </div>

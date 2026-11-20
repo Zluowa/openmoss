@@ -99,12 +99,13 @@ describe("resolveVisibleProviderOptions", () => {
     expect(values).toContain("codex");
     expect(values).toContain("claudeAgent");
     // Nothing else may enter before the server projects a status for it.
-    expect(values).not.toContain("gemini");
+    expect(values).not.toContain("antigravity");
     expect(values).not.toContain("grok");
+    expect(values).not.toContain("gemini");
   });
 
   it("keeps a provider visible when its projected status is unavailable", () => {
-    // Regression: an installed-but-unavailable local CLI (e.g. Claude failing its
+    // Regression: an installed-but-unavailable local CLI (e.g. Antigravity failing its
     // probe) must stay in the picker so its tab can say why and offer setup,
     // instead of silently vanishing.
     const values = visibleValues({
@@ -112,17 +113,28 @@ describe("resolveVisibleProviderOptions", () => {
       lockedProvider: null,
       providers: [
         statusFor("codex"),
-        statusFor("gemini", {
+        statusFor("antigravity", {
           status: "error",
           available: false,
           authStatus: "unknown",
-          message: "Gemini CLI is not installed or not on PATH.",
+          message: "Antigravity CLI (`agy`) is not installed or not on PATH.",
         }),
       ],
       hiddenProviders: undefined,
       providerOrder: undefined,
     });
-    expect(values).toContain("gemini");
+    expect(values).toContain("antigravity");
+  });
+
+  it("never shows retired Gemini CLI even if a stale status is projected", () => {
+    const values = visibleValues({
+      provider: "codex",
+      lockedProvider: null,
+      providers: [statusFor("codex"), statusFor("gemini")],
+      hiddenProviders: undefined,
+      providerOrder: undefined,
+    });
+    expect(values).not.toContain("gemini");
   });
 
   it("keeps a provider visible when its projected status is unauthenticated", () => {
@@ -147,7 +159,7 @@ describe("resolveVisibleProviderOptions", () => {
       hiddenProviders: undefined,
       providerOrder: undefined,
     });
-    expect(values).not.toContain("gemini");
+    expect(values).not.toContain("antigravity");
     expect(values).not.toContain("opencode");
   });
 
@@ -155,11 +167,14 @@ describe("resolveVisibleProviderOptions", () => {
     const values = visibleValues({
       provider: "codex",
       lockedProvider: null,
-      providers: [statusFor("codex"), statusFor("gemini", { enabled: false, available: false })],
+      providers: [
+        statusFor("codex"),
+        statusFor("antigravity", { enabled: false, available: false }),
+      ],
       hiddenProviders: undefined,
       providerOrder: undefined,
     });
-    expect(values).not.toContain("gemini");
+    expect(values).not.toContain("antigravity");
   });
 
   it("matches statuses by driver, so a managed account's status keeps its provider visible", () => {
@@ -170,25 +185,25 @@ describe("resolveVisibleProviderOptions", () => {
       lockedProvider: null,
       providers: [
         statusFor("codex"),
-        statusFor("gemini", { instanceId: "gemini_moss" as ServerProviderStatus["instanceId"] }),
+        statusFor("cursor", { instanceId: "cursor_moss" as ServerProviderStatus["instanceId"] }),
       ],
       hiddenProviders: undefined,
       providerOrder: undefined,
     });
-    expect(values).toContain("gemini");
+    expect(values).toContain("cursor");
   });
 
   it("respects hidden providers except the active and locked ones", () => {
-    const providers = [statusFor("codex"), statusFor("claudeAgent"), statusFor("gemini")];
+    const providers = [statusFor("codex"), statusFor("claudeAgent"), statusFor("cursor")];
     const values = visibleValues({
       provider: "claudeAgent",
-      lockedProvider: "gemini",
+      lockedProvider: "cursor",
       providers,
-      hiddenProviders: ["claudeAgent", "gemini", "codex"],
+      hiddenProviders: ["claudeAgent", "cursor", "codex"],
       providerOrder: undefined,
     });
     expect(values).toContain("claudeAgent");
-    expect(values).toContain("gemini");
+    expect(values).toContain("cursor");
     expect(values).not.toContain("codex");
   });
 });

@@ -5,7 +5,11 @@ import type {
 } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
-import { resolveSidebarAccountIdentity, resolveSidebarAccountLane } from "./SidebarAccountMenu";
+import {
+  fallbackMossPlanName,
+  resolveSidebarAccountIdentity,
+  resolveSidebarAccountLane,
+} from "./SidebarAccountMenu";
 
 const phone = {
   configured: true,
@@ -117,5 +121,12 @@ describe("Sidebar account footer with more than one signed-in lane", () => {
     expect(resolveSidebarAccountLane({ phone: null, cloud, enterprise })).toBe("global");
     expect(resolveSidebarAccountLane({ phone: null, cloud: null, enterprise })).toBe("enterprise");
     expect(resolveSidebarAccountLane({ phone: null, cloud: null, enterprise: null })).toBeNull();
+  });
+
+  it("maps starter-trial to a readable free plan name instead of the internal slug", () => {
+    expect(fallbackMossPlanName("starter-trial")).toBe("Free");
+    expect(fallbackMossPlanName("starter-trial", "免费版")).toBe("免费版");
+    expect(fallbackMossPlanName("free", "免费版")).toBe("免费版");
+    expect(fallbackMossPlanName("enterprise")).toBe("Enterprise");
   });
 });

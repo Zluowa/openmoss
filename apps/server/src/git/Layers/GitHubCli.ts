@@ -3,8 +3,11 @@ import {
   PositiveInt,
   TrimmedNonEmptyString,
   type GitHubInboxSort,
+  type GitHubIssueCandidates,
+  type GitHubIssueLinkedPullRequest,
   type GitHubIssueState,
   type GitHubIssueStateReason,
+  type GitHubIssueUpdate,
   type GitPullRequestCheck,
   type GitPullRequestCheckStatus,
   type GitPullRequestComment,
@@ -1695,6 +1698,17 @@ export function decodeRepositoryInboxItemsJson(
   );
 }
 
+const RawLinkedPullRequestSchema = Schema.Struct({
+  __typename: Schema.optional(Schema.NullOr(Schema.String)),
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+  state: Schema.optional(Schema.NullOr(Schema.String)),
+  isDraft: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  repository: Schema.Struct({ nameWithOwner: TrimmedNonEmptyString }),
+});
+const decodeRawLinkedPullRequest = Schema.decodeUnknownOption(RawLinkedPullRequestSchema);
+
 const RawIssueDetailSchema = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyString,
@@ -1713,6 +1727,19 @@ const RawIssueDetailSchema = Schema.Struct({
   createdAt: TrimmedNonEmptyString,
   updatedAt: TrimmedNonEmptyString,
   closedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  viewerCanUpdate: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  closedByPullRequestsReferences: Schema.optional(
+    Schema.NullOr(rawGraphQlNodes(RawLinkedPullRequestSchema)),
+  ),
+  timelineItems: Schema.optional(
+    Schema.NullOr(
+      rawGraphQlNodes(
+        Schema.Struct({
+          source: Schema.optional(Schema.NullOr(Schema.Unknown)),
+        }),
+      ),
+    ),
+  ),
 });
 const RawIssueDetailResponseSchema = Schema.Struct({
   data: Schema.Struct({ repository: Schema.Struct({ issue: RawIssueDetailSchema }) }),
@@ -1731,9 +1758,57 @@ const ISSUE_DETAIL_QUERY = `query($owner: String!, $name: String!, $number: Int!
         totalCount pageInfo { hasNextPage }
         nodes { id body url createdAt author { login avatarUrl url ... on User { name } } }
       }
+      viewerCanUpdate
+      closedByPullRequestsReferences(first: 20, includeClosedPrs: true) {
+        nodes { number title url state isDraft repository { nameWithOwner } }
+      }
+      timelineItems(last: 50, itemTypes: [CROSS_REFERENCED_EVENT]) {
+        nodes {
+          ... on CrossReferencedEvent {
+            source {
+              __typename
+              ... on PullRequest { number title url state isDraft repository { nameWithOwner } }
+            }
+          }
+        }
+      }
     }
   }
 }`;
+
+/**
+ * Pull requests linked to an issue: GitHub's closing references first, then pull requests that
+ * mention the issue (newest mention first), each listed once.
+ */
+export function normalizeIssueLinkedPullRequests(input: {
+  readonly closing: ReadonlyArray<unknown>;
+  readonly mentions: ReadonlyArray<unknown>;
+}): GitHubIssueLinkedPullRequest[] {
+  const byKey = new Map<string, GitHubIssueLinkedPullRequest>();
+  const add = (raw: unknown, closesIssue: boolean) => {
+    const decoded = decodeRawLinkedPullRequest(raw);
+    if (Option.isNone(decoded)) return;
+    const pr = decoded.value;
+    // Mentions also come from issues; only pull requests belong here.
+    if (pr.__typename !== undefined && pr.__typename !== null && pr.__typename !== "PullRequest") {
+      return;
+    }
+    const key = `${pr.repository.nameWithOwner.toLowerCase()}#${pr.number}`;
+    if (byKey.has(key)) return;
+    byKey.set(key, {
+      repository: pr.repository.nameWithOwner,
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      state: normalizePullRequestState({ state: pr.state }),
+      isDraft: pr.isDraft === true,
+      closesIssue,
+    });
+  };
+  for (const raw of input.closing) add(raw, true);
+  for (const raw of input.mentions.toReversed()) add(raw, false);
+  return [...byKey.values()];
+}
 
 function normalizeIssueDetail(
   raw: Schema.Schema.Type<typeof RawIssueDetailSchema>,
@@ -1762,6 +1837,146 @@ function normalizeIssueDetail(
     comments: comments.toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
     commentsTruncated:
       raw.comments.pageInfo.hasNextPage || comments.length < raw.comments.totalCount,
+    linkedPullRequests: normalizeIssueLinkedPullRequests({
+      closing: (raw.closedByPullRequestsReferences?.nodes ?? []).filter((node) => node !== null),
+      mentions: (raw.timelineItems?.nodes ?? []).flatMap((node) =>
+        node?.source == null ? [] : [node.source],
+      ),
+    }),
+    viewerCanUpdate: raw.viewerCanUpdate === true,
+  };
+}
+
+/** The REST body for one issue change. Reopening clears the close reason, as GitHub's UI does. */
+export function buildIssueUpdateBody(update: GitHubIssueUpdate): Record<string, unknown> {
+  switch (update.op) {
+    case "close":
+      return {
+        state: "closed",
+        state_reason: update.reason === "not-planned" ? "not_planned" : "completed",
+      };
+    case "reopen":
+      return { state: "open", state_reason: "reopened" };
+    case "setLabels":
+      return { labels: [...update.labels] };
+    case "setAssignees":
+      return { assignees: [...update.assignees] };
+  }
+}
+
+const RawIssueUpdateResponseSchema = Schema.Struct({
+  state: Schema.optional(Schema.NullOr(Schema.String)),
+  state_reason: Schema.optional(Schema.NullOr(Schema.String)),
+  labels: Schema.optional(Schema.NullOr(Schema.Array(Schema.Struct({ name: Schema.String })))),
+  assignees: Schema.optional(
+    Schema.NullOr(Schema.Array(Schema.NullOr(Schema.Struct({ login: Schema.String })))),
+  ),
+});
+
+function sameNames(wanted: ReadonlyArray<string>, applied: ReadonlyArray<string>): boolean {
+  const left = new Set(wanted.map((name) => name.toLowerCase()));
+  const right = new Set(applied.map((name) => name.toLowerCase()));
+  return left.size === right.size && [...left].every((name) => right.has(name));
+}
+
+/**
+ * Compare what GitHub says the issue now is with what was asked. GitHub answers 200 while
+ * dropping labels and assignees the caller may not set, and while ignoring a new close reason
+ * on an issue that was already closed; both must reach the person as failures.
+ */
+export function verifyIssueUpdateResponse(
+  update: GitHubIssueUpdate,
+  raw: Schema.Schema.Type<typeof RawIssueUpdateResponseSchema>,
+): string | null {
+  switch (update.op) {
+    case "close": {
+      const wanted = update.reason === "not-planned" ? "not_planned" : "completed";
+      if (raw.state !== "closed") return "GitHub did not close the issue.";
+      if (raw.state_reason !== wanted) {
+        return "GitHub cannot change why a closed issue was closed. Reopen it, then close it again.";
+      }
+      return null;
+    }
+    case "reopen":
+      return raw.state === "open" ? null : "GitHub did not reopen the issue.";
+    case "setLabels":
+      return sameNames(
+        update.labels,
+        (raw.labels ?? []).map((label) => label.name),
+      )
+        ? null
+        : "GitHub did not apply the labels. Changing them needs triage access to the repository.";
+    case "setAssignees":
+      return sameNames(
+        update.assignees,
+        (raw.assignees ?? []).flatMap((actor) => (actor ? [actor.login] : [])),
+      )
+        ? null
+        : "GitHub did not apply the assignees. Changing them needs triage access to the repository, and each person must be able to be assigned.";
+  }
+}
+
+const ISSUE_CANDIDATES_QUERY = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    labels(first: 100, orderBy: { field: NAME, direction: ASC }) {
+      pageInfo { hasNextPage }
+      nodes { name color description }
+    }
+    assignableUsers(first: 100) {
+      pageInfo { hasNextPage }
+      nodes { login name avatarUrl url }
+    }
+  }
+}`;
+
+const RawIssueCandidatesResponseSchema = Schema.Struct({
+  data: Schema.Struct({
+    repository: Schema.Struct({
+      labels: Schema.Struct({
+        pageInfo: Schema.Struct({ hasNextPage: Schema.Boolean }),
+        nodes: Schema.optional(
+          Schema.NullOr(
+            Schema.Array(
+              Schema.NullOr(
+                Schema.Struct({
+                  name: TrimmedNonEmptyString,
+                  color: Schema.optional(Schema.NullOr(Schema.String)),
+                  description: Schema.optional(Schema.NullOr(Schema.String)),
+                }),
+              ),
+            ),
+          ),
+        ),
+      }),
+      assignableUsers: Schema.Struct({
+        pageInfo: Schema.Struct({ hasNextPage: Schema.Boolean }),
+        nodes: Schema.optional(Schema.NullOr(Schema.Array(Schema.NullOr(RawActorSchema)))),
+      }),
+    }),
+  }),
+});
+
+function normalizeIssueCandidates(
+  raw: Schema.Schema.Type<typeof RawIssueCandidatesResponseSchema>,
+): GitHubIssueCandidates {
+  const { labels, assignableUsers } = raw.data.repository;
+  return {
+    labels: (labels.nodes ?? []).flatMap((label) =>
+      label
+        ? [
+            {
+              name: label.name,
+              color: label.color?.trim() || null,
+              description: label.description?.trim() || null,
+            },
+          ]
+        : [],
+    ),
+    assignees: (assignableUsers.nodes ?? []).flatMap((actor) => {
+      const normalized = normalizeActor(actor);
+      return normalized ? [normalized] : [];
+    }),
+    truncated: labels.pageInfo.hasNextPage || assignableUsers.pageInfo.hasNextPage,
   };
 }
 
@@ -1811,6 +2026,8 @@ function decodeGitHubJson<S extends Schema.Top>(
     | "getRepositoryInboxItems"
     | "getPullRequestDetail"
     | "getIssueDetail"
+    | "updateIssue"
+    | "getIssueCandidates"
     | "getRepositoryMergeCapabilities"
     | "runPullRequestAction",
   invalidDetail: string,
@@ -2449,6 +2666,72 @@ const makeGitHubCli = Effect.gen(function* () {
           }),
         ),
         Effect.asVoid,
+      ),
+    updateIssue: (input) =>
+      validateRepository(input.repository, "updateIssue").pipe(
+        Effect.flatMap((repository) =>
+          // The JSON body travels over stdin, never argv: label names are user text.
+          execute({
+            cwd: input.cwd,
+            args: [
+              "api",
+              "--hostname",
+              GITHUB_HOST,
+              "--method",
+              "PATCH",
+              `repos/${repository}/issues/${input.number}`,
+              "--input",
+              "-",
+            ],
+            stdin: JSON.stringify(buildIssueUpdateBody(input.update)),
+          }),
+        ),
+        Effect.flatMap((result) =>
+          decodeGitHubJson(
+            result.stdout.trim(),
+            RawIssueUpdateResponseSchema,
+            "updateIssue",
+            "GitHub CLI returned invalid issue JSON.",
+          ),
+        ),
+        Effect.flatMap((response) => {
+          const detail = verifyIssueUpdateResponse(input.update, response);
+          return detail === null
+            ? Effect.void
+            : Effect.fail(
+                new GitHubCliError({ operation: "updateIssue", detail, reason: "other" }),
+              );
+        }),
+      ),
+    getIssueCandidates: (input) =>
+      validateRepository(input.repository, "getIssueCandidates").pipe(
+        Effect.flatMap((repository) => {
+          const [owner = "", name = ""] = repository.split("/");
+          return execute({
+            cwd: input.cwd,
+            args: [
+              "api",
+              "graphql",
+              "--hostname",
+              GITHUB_HOST,
+              "-f",
+              `query=${ISSUE_CANDIDATES_QUERY}`,
+              "-F",
+              `owner=${owner}`,
+              "-F",
+              `name=${name}`,
+            ],
+          });
+        }),
+        Effect.flatMap((result) =>
+          decodeGitHubJson(
+            result.stdout.trim(),
+            RawIssueCandidatesResponseSchema,
+            "getIssueCandidates",
+            "GitHub CLI returned invalid label and assignee JSON.",
+          ),
+        ),
+        Effect.map(normalizeIssueCandidates),
       ),
     getPullRequestDetail: (input) =>
       validateRepository(input.repository, "getPullRequestDetail").pipe(

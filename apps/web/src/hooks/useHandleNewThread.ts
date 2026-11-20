@@ -524,6 +524,9 @@ export function useHandleNewThread() {
       )
         throw new LocalizedError("newThread.error.cliAccountChanged");
       const skill = await resolveMossImagesConversationSkill(input.modelId, async () => {
+        if (selection.provider === "gemini") {
+          return [];
+        }
         const result = await api.provider.listSkills({
           provider: selection.provider,
           ...(selection.instanceId ? { instanceId: selection.instanceId } : {}),

@@ -32,6 +32,11 @@ import {
 } from "./providerPackageChannel.ts";
 import { resolveMossNodeRuntime } from "./agentInstallRuntime.ts";
 import { parseGenericCliVersion } from "./providerMaintenance.ts";
+import {
+  ANTIGRAVITY_INSTALL_PAGE,
+  runAntigravityInstall,
+  supportsAntigravityInstall,
+} from "./antigravityInstall.ts";
 import { runCursorWindowsInstall, supportsCursorWindowsInstall } from "./cursorWindowsInstall.ts";
 import { managedAgentBinDirectory, managedAgentInstallPrefix } from "./managedAgentPaths.ts";
 
@@ -77,12 +82,6 @@ export const ONE_CLICK_AGENT_INSTALLS: Partial<Record<ProviderKind, OneClickAgen
     versionArgs: ["--version"],
     officialPage: "https://opencode.ai/docs/",
   },
-  gemini: {
-    packageName: "@google/gemini-cli",
-    command: "gemini",
-    versionArgs: ["--version"],
-    officialPage: "https://github.com/google-gemini/gemini-cli",
-  },
   kimi: {
     packageName: KIMI_ACP_AGENT_SPEC.install.npmPackageName,
     command: KIMI_ACP_AGENT_SPEC.command,
@@ -118,7 +117,7 @@ export const ONE_CLICK_AGENT_INSTALLS: Partial<Record<ProviderKind, OneClickAgen
  */
 export const EXTERNAL_AGENT_INSTALL_PAGES: Partial<Record<ProviderKind, string>> = {
   cursor: "https://docs.cursor.com/en/cli/installation",
-  antigravity: "https://antigravity.google/docs/cli-using",
+  antigravity: ANTIGRAVITY_INSTALL_PAGE,
   grok: "https://docs.x.ai/build/overview",
   devin: "https://docs.devin.ai/cli",
   hermes: "https://hermes-agent.nousresearch.com",
@@ -129,9 +128,11 @@ export function providerInstallStrategy(
   provider: ProviderKind,
   platform: NodeJS.Platform = process.platform,
   architecture: string = process.arch,
-): "npm" | "cursor-windows" | null {
+): "npm" | "cursor-windows" | "antigravity-native" | null {
   if (provider === "cursor" && supportsCursorWindowsInstall(platform, architecture))
     return "cursor-windows";
+  if (provider === "antigravity" && supportsAntigravityInstall(platform, architecture))
+    return "antigravity-native";
   return ONE_CLICK_AGENT_INSTALLS[provider] ? "npm" : null;
 }
 
@@ -144,9 +145,8 @@ export function resolveProviderInstallAction(
     readonly architecture?: string;
   } = {},
 ): { readonly install: ServerProviderInstallMode; readonly installUrl?: string } | null {
-  if (
-    providerInstallStrategy(provider, options.platform, options.architecture) === "cursor-windows"
-  ) {
+  const strategy = providerInstallStrategy(provider, options.platform, options.architecture);
+  if (strategy === "cursor-windows" || strategy === "antigravity-native") {
     return { install: "oneClick" };
   }
   const oneClick = ONE_CLICK_AGENT_INSTALLS[provider];
@@ -256,12 +256,21 @@ export const runOneClickAgentInstall = Effect.fn("runOneClickAgentInstall")(func
     readonly source: "cn-mirror" | "official";
   }) => Effect.Effect<void>;
 }) {
-  if (
-    providerInstallStrategy(input.provider, input.platform, input.architecture) === "cursor-windows"
-  ) {
+  const strategy = providerInstallStrategy(input.provider, input.platform, input.architecture);
+  if (strategy === "cursor-windows") {
     return yield* runCursorWindowsInstall({
       mossHomeDir: input.mossHomeDir,
       env: input.env,
+      ...(input.onProgress ? { onProgress: input.onProgress } : {}),
+      ...(input.onCleanupUnproven ? { onCleanupUnproven: input.onCleanupUnproven } : {}),
+    });
+  }
+  if (strategy === "antigravity-native") {
+    return yield* runAntigravityInstall({
+      mossHomeDir: input.mossHomeDir,
+      env: input.env,
+      ...(input.platform ? { platform: input.platform } : {}),
+      ...(input.architecture ? { architecture: input.architecture } : {}),
       ...(input.onProgress ? { onProgress: input.onProgress } : {}),
       ...(input.onCleanupUnproven ? { onCleanupUnproven: input.onCleanupUnproven } : {}),
     });

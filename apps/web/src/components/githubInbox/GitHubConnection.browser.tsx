@@ -297,4 +297,52 @@ describe("GitHub connection entry", () => {
       .element(page.getByRole("heading", { name: "Connect GitHub to Moss" }))
       .toBeVisible();
   });
+
+  it("unblocks children with a calm inline GitHub notice when another issue source is connected", async () => {
+    let approved = false;
+    connection.mockImplementation(async (input) => {
+      if (input.op === "status") return { state: "disconnected" };
+      if (input.op === "cancel") return { state: "cancelled" };
+      return approved
+        ? { state: "connected", login: "verified-user" }
+        : { state: "pending", code: "EFGH-5678" };
+    });
+    const route = createRootRoute({
+      component: () => (
+        <QueryClientProvider client={client}>
+          <TooltipProvider>
+            <SidebarProvider>
+              <GitHubConnectionGate allowChildrenWhenDisconnected>
+                {({ githubUnavailable, githubNotice }) => (
+                  <div>
+                    <h1>External issues visible</h1>
+                    <span data-testid="gh-state">
+                      {githubUnavailable ? "unavailable" : "connected"}
+                    </span>
+                    {githubNotice}
+                  </div>
+                )}
+              </GitHubConnectionGate>
+            </SidebarProvider>
+          </TooltipProvider>
+        </QueryClientProvider>
+      ),
+    });
+    const router = createRouter({
+      routeTree: route,
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    await router.load();
+    await render(<RouterProvider router={router} />);
+
+    await expect
+      .element(page.getByRole("heading", { name: "External issues visible" }))
+      .toBeVisible();
+    await expect.element(page.getByTestId("gh-state")).toHaveTextContent("unavailable");
+    await page.getByRole("button", { name: "Sign in to GitHub", exact: true }).click();
+    await expect.element(page.getByText("EFGH-5678", { exact: true })).toBeVisible();
+    approved = true;
+    await expect.element(page.getByTestId("gh-state")).toHaveTextContent("connected");
+    expect(document.querySelector("[data-github-connection-notice]")).toBeNull();
+  });
 });

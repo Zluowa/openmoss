@@ -6,6 +6,7 @@ import {
   ClientOrchestrationCommand,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  isSupportedProviderKind,
   ModelSelection,
   OrchestrationCommand,
   OrchestrationGetTurnDiffInput,
@@ -19,6 +20,8 @@ import {
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderStartOptions,
   ProjectCreateCommand,
+  RETIRED_PROVIDER_KINDS,
+  SUPPORTED_PROVIDER_KINDS,
   THREAD_NOTES_MAX_CHARS,
   THREAD_GOAL_MAX_CHARS,
   ThreadMetaUpdatedPayload,
@@ -820,7 +823,7 @@ it.effect("ThreadHandoff decodes legacy provider names instead of failing the ro
       importedAt: "2026-01-01T00:00:00Z",
       bootstrapStatus: "completed",
     });
-    // Gemini is a first-class Moss provider, not an antigravity alias.
+    // Retired Gemini CLI threads stay decodable on their original provider label.
     assert.equal(renamed.sourceProvider, "gemini");
 
     const current = yield* decodeThreadHandoff({
@@ -857,4 +860,32 @@ it.effect("preserves optional empty thread shell verification across versions", 
       );
     }
   }),
+);
+
+it.effect(
+  "retires Gemini CLI from supported kinds while keeping legacy SQLite payloads decodable",
+  () =>
+    Effect.gen(function* () {
+      assert.equal(SUPPORTED_PROVIDER_KINDS.includes("gemini" as never), false);
+      assert.equal(RETIRED_PROVIDER_KINDS.includes("gemini"), true);
+      assert.equal(isSupportedProviderKind("gemini"), false);
+
+      const selection = yield* decodeModelSelection({
+        provider: "gemini",
+        model: "gemini-2.5-pro",
+        options: { thinkingLevel: "HIGH" },
+      });
+      assert.equal(selection.provider, "gemini");
+
+      const session = yield* decodeOrchestrationSession({
+        threadId: "thread-legacy-gemini",
+        status: "ready",
+        providerName: "gemini",
+        runtimeMode: DEFAULT_RUNTIME_MODE,
+        activeTurnId: null,
+        lastError: null,
+        updatedAt: "2026-10-13T10:00:00.000Z",
+      });
+      assert.equal(session.providerName, "gemini");
+    }),
 );

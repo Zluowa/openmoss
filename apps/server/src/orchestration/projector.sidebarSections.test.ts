@@ -693,4 +693,91 @@ describe("sidebar section in-memory projector", () => {
       expect(thread?.archivedSidebarSortOrder).toBeNull();
     }
   });
+
+  it("keeps sidebarOrderItems sortOrder contiguous after archiving or deleting the first thread", async () => {
+    const projectId = ProjectId.makeUnsafe("project-compact-archive");
+    const firstId = ThreadId.makeUnsafe("thread-compact-first");
+    const secondId = ThreadId.makeUnsafe("thread-compact-second");
+    const thirdId = ThreadId.makeUnsafe("thread-compact-third");
+
+    let model = createEmptyReadModel(NOW);
+    for (const [sequence, threadId] of [
+      [1, firstId],
+      [2, secondId],
+      [3, thirdId],
+    ] as const) {
+      model = await apply(
+        model,
+        makeEvent({
+          sequence,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: threadId,
+          payload: {
+            threadId,
+            projectId,
+            title: String(threadId),
+            modelSelection: { instanceId: "codex", model: "gpt-5.5" },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: NOW,
+            updatedAt: NOW,
+          },
+        }),
+      );
+    }
+
+    model = await apply(
+      model,
+      makeEvent({
+        sequence: 4,
+        type: "thread.archived",
+        aggregateKind: "thread",
+        aggregateId: firstId,
+        payload: {
+          threadId: firstId,
+          archivedAt: NOW,
+          updatedAt: NOW,
+          sidebarOrderRevision: 1,
+          placement: {
+            destination: "default",
+            sectionId: null,
+            sectionCreatedAt: null,
+            sortOrder: 0,
+          },
+        },
+      }),
+    );
+
+    expect(
+      model.sidebarOrderItems
+        ?.filter((item) => item.destination === "default")
+        .map((item) => [item.key, item.sortOrder]),
+    ).toEqual([
+      [`thread:${secondId}`, 0],
+      [`thread:${thirdId}`, 1],
+    ]);
+
+    model = await apply(
+      model,
+      makeEvent({
+        sequence: 5,
+        type: "thread.deleted",
+        aggregateKind: "thread",
+        aggregateId: secondId,
+        payload: {
+          threadId: secondId,
+          deletedAt: NOW,
+          sidebarOrderRevision: 2,
+        },
+      }),
+    );
+
+    expect(
+      model.sidebarOrderItems
+        ?.filter((item) => item.destination === "default")
+        .map((item) => [item.key, item.sortOrder]),
+    ).toEqual([[`thread:${thirdId}`, 0]]);
+  });
 });

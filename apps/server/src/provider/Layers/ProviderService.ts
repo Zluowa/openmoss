@@ -237,7 +237,9 @@ export interface ProviderServiceLiveOptions {
   ) => (() => void) | undefined;
 }
 
-const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 10 * 60 * 1000;
+// Keep warm provider CLI sessions alive across 30 minutes of tab/window
+// switching (aligned with ProviderSessionReaper and T3 Code's 30m idle budget).
+const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 30 * 60 * 1000;
 export const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
 export const PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES = 16 * 1024;
 const configuredProviderRuntimeIdleStopMs = process.env.MOSS_PROVIDER_RUNTIME_IDLE_STOP_MS;

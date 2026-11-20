@@ -2096,6 +2096,8 @@ function toTurnStatus(value: unknown): "completed" | "failed" | "cancelled" | "i
     case "cancelled":
     case "interrupted":
       return value;
+    case "incomplete":
+      return "failed";
     default:
       return "completed";
   }
@@ -3335,7 +3337,11 @@ function mapToRuntimeEvents(
   }
 
   if (event.method === "turn/completed") {
-    const errorMessage = codexErrorMessage(turn?.error);
+    const errorMessage =
+      codexErrorMessage(turn?.error) ??
+      (turn?.status === "incomplete"
+        ? "The model reached the maximum output length before completing the turn."
+        : undefined);
     const errorCode = codexErrorCode(turn?.error);
     return [
       {
@@ -3951,6 +3957,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           })
         : undefined);
 
+    const runtimePrograms = agentProgramsForServer(serverConfig, "codex");
     const manager = yield* Effect.acquireRelease(
       Effect.gen(function* () {
         if (options?.manager) {
@@ -3963,7 +3970,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
         return (
           options?.makeManager?.(services) ??
           new CodexAppServerManager(services, {
-            runtimePrograms: agentProgramsForServer(serverConfig, "codex"),
+            runtimePrograms,
             mossSkillsDir: mossSkillsDir(serverConfig.baseDir),
             managedCodexHomePath: path.join(serverConfig.stateDir, "moss-codex-home"),
             mossPluginCatalogRoot: mossPluginCatalogRoot(serverConfig.stateDir),
@@ -4009,6 +4016,10 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       }),
       (manager) => Effect.promise(() => manager.stopAll()),
     );
+    const unregisterMaintenanceStopper = runtimePrograms.registerMaintenanceStopper(() =>
+      manager.stopAll(),
+    );
+    yield* Effect.addFinalizer(() => Effect.sync(unregisterMaintenanceStopper));
 
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,

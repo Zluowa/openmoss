@@ -30,17 +30,20 @@ export default function OpenUIRendererInner(props: {
   const followUpsHeading = t("chat.visualReply.followUps");
   const copy = useMemo(() => ({ followUpsHeading }), [followUpsHeading]);
   const [initialState] = useState(() => props.formState.read());
-  // The renderer silently drops unknown component calls, which would otherwise
+  // The renderer silently drops unknown component calls and renders empty when
+  // a truncated/malformed program has no `root` element, which would otherwise
   // surface as a blank frame. While streaming, partial programs routinely look
   // invalid, so only hard-check the finished program.
-  const unknownComponents = useMemo(
-    () =>
-      props.isStreaming ? undefined : validateOpenUIProgram(props.directive.code).unknownComponents,
+  const validation = useMemo(
+    () => (props.isStreaming ? undefined : validateOpenUIProgram(props.directive.code)),
     [props.isStreaming, props.directive.code],
   );
-  if (unknownComponents && unknownComponents.length > 0) {
+  if (validation && (validation.unknownComponents.length > 0 || !validation.hasRoot)) {
     return (
-      <OpenUIFrameFallback directive={props.directive} unknownComponents={unknownComponents} />
+      <OpenUIFrameFallback
+        directive={props.directive}
+        unknownComponents={validation.unknownComponents}
+      />
     );
   }
   return (

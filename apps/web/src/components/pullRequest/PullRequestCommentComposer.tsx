@@ -11,12 +11,13 @@ import { Button } from "~/components/ui/button";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { GLASS_RAISED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import type { PullRequestDetailInput } from "@moss/contracts";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 
 import { toastManager } from "~/components/ui/toast";
 import { ArrowUpIcon, GitHubIcon } from "~/lib/icons";
 import { PR_BODY_TEXT_CLASS_NAME } from "./pullRequestText";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
 /** The item a comment goes to. Pull requests and issues share one number space per repository. */
 export type GitHubCommentTarget = Pick<
@@ -30,41 +31,46 @@ export interface GitHubCommentMutation {
   isPending: boolean;
 }
 
+/** Who a comment is posted as: the source's mark and a line naming the account. */
+export interface CommentAccount {
+  icon: ReactNode;
+  label: string;
+}
+
 export function PullRequestCommentComposer({
-  target,
-  mutation,
+  post,
+  pending,
+  account,
 }: {
-  target: GitHubCommentTarget;
-  mutation: GitHubCommentMutation;
+  /** Posts the comment; the draft clears when it resolves and stays when it fails. */
+  post: (body: string) => Promise<unknown>;
+  pending: boolean;
+  /** Defaults to the person's GitHub account. */
+  account?: CommentAccount;
 }) {
+  const { t } = useTranslation();
   const [body, setBody] = useState("");
   // Synchronous re-entrancy lock: mutation.isPending updates on React's schedule, which is
   // too late to stop a rapid double Enter from posting the comment twice.
   const submittingRef = useRef(false);
   const trimmed = body.trim();
-  const canSubmit = trimmed.length > 0 && !mutation.isPending;
+  const canSubmit = trimmed.length > 0 && !pending;
 
   // Promise chain instead of async/try-catch-finally: React Compiler does not
   // yet support try/finally, and it would skip optimizing this whole component.
   const submit = () => {
     if (!canSubmit || submittingRef.current) return;
     submittingRef.current = true;
-    void mutation
-      .mutateAsync({
-        projectId: target.projectId,
-        repository: target.repository,
-        number: target.number,
-        body: trimmed,
-      })
+    void post(trimmed)
       .then(() => {
         setBody("");
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         // The draft stays in the field on failure — nothing to re-type.
         toastManager.add({
           type: "error",
-          title: "Could not post comment",
-          description: error instanceof Error ? error.message : "GitHub CLI comment failed.",
+          title: t("codeReview.comment.failed"),
+          description: t("codeReview.comment.failedDetail"),
         });
       })
       .finally(() => {
@@ -78,16 +84,16 @@ export function PullRequestCommentComposer({
     >
       <span
         className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-background-elevated-secondary)] text-muted-foreground"
-        title="Commenting as your GitHub account"
+        title={account?.label ?? t("codeReview.comment.asAccount")}
       >
-        <GitHubIcon className="size-3" />
+        {account?.icon ?? <GitHubIcon className="size-3" />}
       </span>
       <textarea
         rows={Math.min(6, body.split("\n").length)}
         value={body}
-        disabled={mutation.isPending}
-        placeholder="Leave a comment"
-        aria-label="Leave a comment"
+        disabled={pending}
+        placeholder={t("codeReview.comment.placeholder")}
+        aria-label={t("codeReview.comment.placeholder")}
         onChange={(event) => setBody(event.target.value)}
         onKeyDown={(event) => {
           // Enter during IME composition confirms the composition, not the comment.
@@ -109,8 +115,8 @@ export function PullRequestCommentComposer({
         shape="capsule"
         type="button"
         disabled={!canSubmit}
-        aria-label="Post comment"
-        title="Post comment"
+        aria-label={t("codeReview.comment.post")}
+        title={t("codeReview.comment.post")}
         onClick={() => void submit()}
         className="shrink-0 self-end transition-opacity"
       >

@@ -839,6 +839,16 @@ export function createWsNativeApi(): WsNativeApi {
       list: (input) => transport.request(WS_METHODS.githubInboxList, input),
       issueDetail: (input) => transport.request(WS_METHODS.githubInboxIssueDetail, input),
       issueComment: (input) => transport.request(WS_METHODS.githubInboxIssueComment, input),
+      issueUpdate: (input) => transport.request(WS_METHODS.githubInboxIssueUpdate, input),
+      issueCandidates: (input) => transport.request(WS_METHODS.githubInboxIssueCandidates, input),
+    },
+    issueSources: {
+      status: (input) => transport.request(WS_METHODS.issueSourcesStatus, input),
+      list: (input) => transport.request(WS_METHODS.issueSourcesList, input),
+      detail: (input) => transport.request(WS_METHODS.issueSourcesDetail, input),
+      update: (input) => transport.request(WS_METHODS.issueSourcesUpdate, input),
+      comment: (input) => transport.request(WS_METHODS.issueSourcesComment, input),
+      candidates: (input) => transport.request(WS_METHODS.issueSourcesCandidates, input),
     },
     pullRequests: {
       detail: (input) => transport.request(WS_METHODS.pullRequestsDetail, input),
@@ -1289,6 +1299,10 @@ export function createWsNativeApi(): WsNativeApi {
     },
     secretRequests: {
       answer: (input) => transport.request(WS_METHODS.secretRequestAnswer, input),
+    },
+    agentFeedback: {
+      list: () => transport.request(WS_METHODS.agentFeedbackList, {}),
+      dismiss: (input) => transport.request(WS_METHODS.agentFeedbackDismiss, input),
     },
     pages: {
       spaces: (input) => transport.request(WS_METHODS.pagesSpaces, input),

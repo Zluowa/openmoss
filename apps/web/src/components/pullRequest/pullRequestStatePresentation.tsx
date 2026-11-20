@@ -25,7 +25,12 @@ import {
 
 import { cn } from "~/lib/utils";
 
-/** Shared PR-state presentation so every PR surface labels, colors, and glyphs PRs identically. */
+/**
+ * Shared PR-state presentation so every PR surface labels, colors, and glyphs PRs identically.
+ * Colors follow the Moss design standard, where color only carries meaning: open work is ink,
+ * finished work (merged, completed) is success green, a conflict is a warning, and drafts and
+ * dismissed work are muted. The glyph's shape tells the states apart.
+ */
 export interface PrStatePresentation {
   label: "PR open" | "PR closed" | "PR merged" | "PR draft" | "PR has conflicts";
   colorClass: string;
@@ -57,7 +62,7 @@ export function resolvePrStatePresentation(pr: {
       return {
         label: "PR draft",
         // GitHub renders drafts gray; reuse the closed treatment so draft reads as "not live yet".
-        colorClass: "text-status-neutral",
+        colorClass: "text-muted-foreground",
         iconKind: "draft",
       };
     }
@@ -65,27 +70,27 @@ export function resolvePrStatePresentation(pr: {
       return {
         label: "PR has conflicts",
         // The same red as a failed check, so one red means "something is wrong" everywhere.
-        colorClass: "text-status-failure",
+        colorClass: "text-warning",
         iconKind: "merge-conflict",
       };
     }
     return {
       label: "PR open",
       // Match the diff "+" green so an opened PR reads as the same positive signal.
-      colorClass: "text-status-open",
+      colorClass: "text-foreground",
       iconKind: "pull-request",
     };
   }
   if (pr.state === "closed") {
     return {
       label: "PR closed",
-      colorClass: "text-status-neutral",
+      colorClass: "text-muted-foreground",
       iconKind: "pull-request-closed",
     };
   }
   return {
     label: "PR merged",
-    colorClass: "text-status-merged",
+    colorClass: "text-status-success",
     iconKind: "merged-simple",
   };
 }
@@ -121,7 +126,7 @@ export function resolveIssueStatePresentation(issue: {
     return {
       label: "Issue open",
       shortLabel: "Open",
-      colorClass: "text-status-open",
+      colorClass: "text-foreground",
       iconKind: "issue-opened",
     };
   }
@@ -129,14 +134,14 @@ export function resolveIssueStatePresentation(issue: {
     return {
       label: "Issue not planned",
       shortLabel: "Not planned",
-      colorClass: "text-status-neutral",
+      colorClass: "text-muted-foreground",
       iconKind: "issue-not-planned",
     };
   }
   return {
     label: "Issue closed",
     shortLabel: "Closed",
-    colorClass: "text-status-merged",
+    colorClass: "text-status-success",
     iconKind: "issue-closed",
   };
 }

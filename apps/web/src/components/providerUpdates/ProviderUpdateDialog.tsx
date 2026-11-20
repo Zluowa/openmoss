@@ -88,7 +88,13 @@ function ProviderUpdateDialogContent({
             ? t("providerUpdate.dialog.title.one")
             : format("providerUpdate.dialog.title.many", { count: targets.length })}
         </AlertDialogTitle>
-        <AlertDialogDescription>{t("providerUpdate.dialog.description")}</AlertDialogDescription>
+        <AlertDialogDescription>
+          {t(
+            targets.some((target) => target.driver === "codex")
+              ? "providerUpdate.dialog.stopCodex"
+              : "providerUpdate.dialog.description",
+          )}
+        </AlertDialogDescription>
       </AlertDialogHeader>
       <div className="flex flex-col gap-3 px-4 pt-1 pb-2">
         <div className="grid grid-cols-[minmax(0,1fr)_max-content_max-content] gap-x-4 text-ui">

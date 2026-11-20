@@ -16,6 +16,7 @@ import type {
 } from "@moss/contracts";
 
 import { cn } from "~/lib/utils";
+import { useTranslation, type TranslationKey } from "~/localization";
 import {
   ISSUE_STATE_PRESENTATION_ICONS,
   PR_STATE_PRESENTATION_ICONS,
@@ -43,6 +44,36 @@ export function pullRequestStateLabel(
   return "Closed";
 }
 
+/** The words a state glyph and pill show, in the reader's language. */
+export const STATE_WORD_KEYS: Record<string, TranslationKey> = {
+  Open: "codeReview.stateWord.open",
+  Closed: "codeReview.stateWord.closed",
+  Merged: "codeReview.stateWord.merged",
+  Draft: "codeReview.stateWord.draft",
+  "Has conflicts": "codeReview.stateWord.conflicts",
+  "Not planned": "codeReview.stateWord.notPlanned",
+};
+
+export const GLYPH_LABEL_KEYS: Record<string, TranslationKey> = {
+  "PR open": "codeReview.glyph.prOpen",
+  "PR closed": "codeReview.glyph.prClosed",
+  "PR merged": "codeReview.glyph.prMerged",
+  "PR draft": "codeReview.glyph.prDraft",
+  "PR has conflicts": "codeReview.glyph.prConflicts",
+  "Issue open": "codeReview.glyph.issueOpen",
+  "Issue closed": "codeReview.glyph.issueClosed",
+  "Issue not planned": "codeReview.glyph.issueNotPlanned",
+};
+
+function translated(
+  t: (key: TranslationKey) => string,
+  keys: Record<string, TranslationKey>,
+  word: string,
+): string {
+  const key = keys[word];
+  return key ? t(key) : word;
+}
+
 // Draft always shows as draft (a draft isn't heading for a merge); an open non-draft PR
 // with conflicts shows the conflict glyph — precedence lives in resolvePrStatePresentation
 // so the thread badge, kanban chip, and every PR surface agree.
@@ -59,15 +90,16 @@ export function PullRequestStateGlyph({
   size?: GlyphSize;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const size = sizeProp ?? "sm";
   const presentation = resolvePrStatePresentation({ state, isDraft, mergeability });
   const Icon = PR_STATE_PRESENTATION_ICONS[presentation.iconKind];
   return (
     <span
       className={cn("flex shrink-0 items-center justify-center", SIZE_CLASS_NAME[size], className)}
-      title={pullRequestStateLabel(state, isDraft, mergeability)}
+      title={translated(t, STATE_WORD_KEYS, pullRequestStateLabel(state, isDraft, mergeability))}
       role="img"
-      aria-label={presentation.label}
+      aria-label={translated(t, GLYPH_LABEL_KEYS, presentation.label)}
     >
       <Icon className={cn("size-full", presentation.colorClass)} aria-hidden="true" />
     </span>
@@ -85,15 +117,16 @@ export function IssueStateGlyph({
   size?: GlyphSize;
   className?: string;
 }) {
+  const { t } = useTranslation();
   const size = sizeProp ?? "sm";
   const presentation = resolveIssueStatePresentation({ state, stateReason });
   const Icon = ISSUE_STATE_PRESENTATION_ICONS[presentation.iconKind];
   return (
     <span
       className={cn("flex shrink-0 items-center justify-center", SIZE_CLASS_NAME[size], className)}
-      title={presentation.shortLabel}
+      title={translated(t, STATE_WORD_KEYS, presentation.shortLabel)}
       role="img"
-      aria-label={presentation.label}
+      aria-label={translated(t, GLYPH_LABEL_KEYS, presentation.label)}
     >
       <Icon className={cn("size-full", presentation.colorClass)} aria-hidden="true" />
     </span>

@@ -375,11 +375,6 @@ const ROOT_SPECS: readonly RootSpec[] = [
   { provider: "cursor", kind: "mcp", relativePath: ".cursor/mcp.json", format: "json" },
   { provider: "cursor", kind: "mcp", relativePath: ".cursor/settings.json", format: "json" },
 
-  { provider: "gemini", kind: "skills", relativePath: ".gemini/skills" },
-  { provider: "gemini", kind: "plugins", relativePath: ".gemini/extensions" },
-  { provider: "gemini", kind: "mcp", relativePath: ".gemini/mcp.json", format: "json" },
-  { provider: "gemini", kind: "mcp", relativePath: ".gemini/settings.json", format: "json" },
-
   { provider: "grok", kind: "skills", relativePath: ".grok/skills" },
   { provider: "grok", kind: "plugins", relativePath: ".grok/plugins" },
   { provider: "grok", kind: "mcp", relativePath: ".grok/mcp.json", format: "json" },

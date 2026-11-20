@@ -41,6 +41,7 @@ import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { createStandaloneSidechat, resolveSidechatRuntimeMode } from "~/lib/sidechatCreation";
 import { registerSidechatCreator } from "~/lib/sidechatCreatorRegistry";
 import { promoteThreadCreate } from "~/lib/threadCreatePromotion";
+import { useTranslation } from "~/localization";
 import { readNativeApi } from "~/nativeApi";
 import { selectRightDockState, useRightDockStore } from "~/rightDockStore";
 import { GITHUB_INBOX_DOCK_HOST_ID } from "~/rightDockStore.logic";
@@ -127,6 +128,7 @@ function enqueueItemQuestion(input: {
 export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
   const queryClient = useQueryClient();
   const { settings } = useAppSettings();
+  const { t } = useTranslation();
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const dockState = useRightDockStore(
     useMemo(() => selectRightDockState(GITHUB_INBOX_DOCK_HOST_ID), []),
@@ -218,14 +220,14 @@ export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
     if (target.projectId === GITHUB_PERSONAL_PROJECT_ID) {
       toastManager.add({
         type: "info",
-        title: "Side chats need a project",
-        description: "Add this repository as a project in Moss to ask an agent about it.",
+        title: t("codeReview.sideChat.needsProject"),
+        description: t("codeReview.sideChat.needsProjectDetail"),
       });
       return Promise.resolve();
     }
     const api = readNativeApi();
     if (!api) {
-      toastManager.add({ type: "error", title: "Could not start a side chat" });
+      toastManager.add({ type: "error", title: t("codeReview.sideChat.failed") });
       return Promise.resolve();
     }
     creatingKeys.current.add(key);
@@ -271,19 +273,16 @@ export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
         if (result.snapshotError) {
           toastManager.add({
             type: "warning",
-            title: "Side chat is still syncing",
-            description: "It will appear as soon as the thread list refreshes.",
+            title: t("codeReview.sideChat.syncing"),
+            description: t("codeReview.sideChat.syncingDetail"),
           });
         }
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         toastManager.add({
           type: "error",
-          title: "Could not start a side chat",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An error occurred while creating the side chat.",
+          title: t("codeReview.sideChat.failed"),
+          description: t("codeReview.sideChat.failedDetail"),
         });
       })
       .finally(() => {
@@ -358,11 +357,11 @@ export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
             .then(githubItemCardSourceFromPullRequest);
     return loadSource.then(
       (source) => createForTarget({ projectId: selection.projectId, source }),
-      (error: unknown) => {
+      () => {
         toastManager.add({
           type: "error",
-          title: "Could not start a side chat",
-          description: error instanceof Error ? error.message : "The item could not be loaded.",
+          title: t("codeReview.sideChat.failed"),
+          description: t("codeReview.sideChat.itemFailed"),
         });
       },
     );

@@ -7,9 +7,10 @@ import { type EditorId, type ResolvedKeybindingsConfig } from "@moss/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useEditorLaunchers, type EditorLaunchers } from "~/hooks/useEditorLaunchers";
-import { ChevronDownIcon } from "~/lib/icons";
+import { ChevronDownIcon, ExternalLinkIcon, MoreHorizontalIcon } from "~/lib/icons";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
+import { Button } from "../ui/button";
 import {
   Menu,
   MenuRadioGroup,
@@ -36,6 +37,7 @@ interface OpenInPickerPrimaryAction {
   onClick: () => void;
   disabled?: boolean;
   icon?: ReactNode;
+  title?: string;
 }
 
 interface OpenInPickerProps {
@@ -127,11 +129,6 @@ interface OpenInPickerFrameProps {
   menuContent: ReactNode;
 }
 
-// Quiet square ghost button shared by both compact controls so the pair reads as
-// one unit; `data-popup-open` keeps the menu trigger highlighted while its menu is up.
-const COMPACT_ACTION_BUTTON_CLASS_NAME =
-  "inline-flex size-6 shrink-0 items-center justify-center rounded-control text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-50 data-popup-open:bg-[var(--color-background-button-secondary-hover)] data-popup-open:text-foreground";
-
 function OpenInPickerFrame(props: OpenInPickerFrameProps) {
   if (props.variant === "compact") {
     return (
@@ -140,26 +137,28 @@ function OpenInPickerFrame(props: OpenInPickerFrameProps) {
         aria-label={props.groupLabel}
         className="flex shrink-0 items-center gap-0.5"
       >
-        <button
-          type="button"
-          className={COMPACT_ACTION_BUTTON_CLASS_NAME}
+        <Button
+          variant="ghost"
+          size="icon-xs"
           disabled={props.primaryAction.disabled ?? false}
           onClick={props.primaryAction.onClick}
+          {...(props.primaryAction.title ? { title: props.primaryAction.title } : {})}
         >
           {props.primaryAction.icon ?? null}
           <span className="sr-only">Open</span>
-        </button>
+        </Button>
         <Menu {...(props.onMenuOpenChange ? { onOpenChange: props.onMenuOpenChange } : {})}>
           <MenuTrigger
             render={
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 aria-label={props.menuLabel}
-                className={COMPACT_ACTION_BUTTON_CLASS_NAME}
+                className="data-popup-open:bg-[var(--color-background-button-secondary-hover)] data-popup-open:text-foreground"
               />
             }
           >
-            <ChevronDownIcon aria-hidden="true" className="size-3" />
+            <MoreHorizontalIcon aria-hidden="true" className="size-4" />
           </MenuTrigger>
           {props.menuContent}
         </Menu>
@@ -209,17 +208,29 @@ function OpenInPickerFrame(props: OpenInPickerFrameProps) {
 
 function EditorActionOpenInPicker(props: OpenInPickerContentProps) {
   const launchers = useEditorLaunchers(props);
+  const variant = props.variant ?? "split";
   const PrimaryIcon = launchers.primaryOption?.Icon;
+  // Compact per-row controls stay in Moss's Central outline icon family instead of
+  // stamping a third-party app badge on every transcript row; editor icons live in the menu.
+  const primaryIcon =
+    variant === "compact" ? (
+      <ExternalLinkIcon aria-hidden="true" className="size-4" />
+    ) : PrimaryIcon ? (
+      <PrimaryIcon aria-hidden="true" className="size-4" />
+    ) : null;
 
   return (
     <OpenInPickerFrame
       labelMode={props.labelMode ?? "responsive"}
-      variant={props.variant ?? "split"}
+      variant={variant}
       groupLabel={props.groupLabel ?? "Open in editor"}
       menuLabel={props.menuLabel ?? "Editor options"}
       primaryAction={{
         disabled: !launchers.preferredEditor || !props.openInTarget,
-        icon: PrimaryIcon ? <PrimaryIcon aria-hidden="true" className="size-4" /> : null,
+        icon: primaryIcon,
+        ...(variant === "compact" && launchers.primaryOption
+          ? { title: `Open in ${launchers.primaryOption.label}` }
+          : {}),
         onClick: () => launchers.openInEditor(launchers.preferredEditor),
       }}
       menuContent={

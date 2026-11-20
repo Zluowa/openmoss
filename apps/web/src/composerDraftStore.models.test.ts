@@ -36,7 +36,7 @@ describe("supported CLI selections keep their exact draft identity", () => {
       const selection = modelSelection(
         provider,
         getDefaultModel(provider) ?? `${provider}/selected-model`,
-        provider === "gemini" ? { thinkingLevel: "HIGH", thinkingBudget: 0 } : undefined,
+        undefined,
         instanceId,
       );
       useComposerDraftStore.getState().setModelSelectionAndSticky(threadId, selection);

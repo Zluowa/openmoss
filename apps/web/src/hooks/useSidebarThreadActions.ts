@@ -39,6 +39,8 @@ import { reconcileDeletedThreadsFromClient } from "../lib/deletedThreadClientRec
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import {
   archiveThreadFromClient,
+  formatThreadArchiveErrorMessage,
+  isThreadAlreadyArchivedError,
   isThreadAlreadyUnarchivedError,
   unarchiveThreadFromClient,
 } from "../lib/threadArchive";
@@ -89,6 +91,18 @@ const SETTLE_OVERRIDE_MAX_LIFETIME_MS = 15_000;
  * cannot lower a `throw` inside a `try`/`catch`, and inlining this would cost the whole sidebar
  * actions hook its compilation.
  */
+async function archiveThreadIgnoringAlreadyArchived(
+  orchestration: NonNullable<ReturnType<typeof readNativeApi>>["orchestration"],
+  threadId: ThreadId,
+): Promise<number | null> {
+  try {
+    return await archiveThreadFromClient(orchestration, threadId);
+  } catch (error) {
+    if (isThreadAlreadyArchivedError(error, threadId)) return null;
+    throw error;
+  }
+}
+
 async function unarchiveThreadIgnoringAlreadyRestored(threadId: ThreadId): Promise<void> {
   try {
     const api = readNativeApi();
@@ -848,7 +862,7 @@ export function useSidebarThreadActions(input: {
       const api = readNativeApi();
       if (!api) return false;
       const thread = getThreadFromState(useStore.getState(), threadId);
-      if (!thread) return false;
+      if (!thread || thread.archivedAt != null) return false;
       const pendingThreadIds = archivePendingThreadIdsRef.current;
       if (pendingThreadIds.has(threadId)) return false;
       const routeVersionAtDispatch =
@@ -858,7 +872,11 @@ export function useSidebarThreadActions(input: {
 
       pendingThreadIds.add(threadId);
       const runArchive = async (): Promise<boolean> => {
-        const archiveSequence = await archiveThreadFromClient(api.orchestration, threadId);
+        const archiveSequence = await archiveThreadIgnoringAlreadyArchived(
+          api.orchestration,
+          threadId,
+        );
+        if (archiveSequence === null) return false;
         archiveCleanupSequenceByThreadIdRef.current.set(threadId, archiveSequence);
         acceptedArchiveSequenceByThreadIdRef.current.set(threadId, archiveSequence);
         // Undo owns its visible lifetime. Other archive entry points get the
@@ -921,7 +939,7 @@ export function useSidebarThreadActions(input: {
           toastManager.add({
             type: "error",
             title: "Could not restore thread",
-            description: error instanceof Error ? error.message : "Unable to restore the thread.",
+            description: formatThreadArchiveErrorMessage(error, "restore"),
           });
           return false;
         }
@@ -979,7 +997,7 @@ export function useSidebarThreadActions(input: {
         toastManager.add({
           type: "error",
           title: "Could not archive thread",
-          description: error instanceof Error ? error.message : "Unable to archive the thread.",
+          description: formatThreadArchiveErrorMessage(error, "archive"),
         });
       }
     },

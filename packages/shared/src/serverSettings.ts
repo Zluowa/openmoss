@@ -40,8 +40,13 @@ export function normalizeRetiredTextGenerationSelection(settings: ServerSettings
   const selection = settings.textGenerationModelSelection;
   const selectedId = selection.instanceId ?? selection.provider;
   const configured = selectedId ? settings.providerInstances[selectedId] : undefined;
-  const isDroid = configured ? configured.driver === "droid" : selectedId === "droid";
-  return isDroid
+  const driver = configured ? configured.driver : selection.provider;
+  const isRetired =
+    !isSupportedProviderKind(driver) ||
+    selectedId === "droid" ||
+    selectedId === "gemini" ||
+    selectedId === "kilo";
+  return isRetired
     ? {
         ...settings,
         textGenerationModelSelection: {

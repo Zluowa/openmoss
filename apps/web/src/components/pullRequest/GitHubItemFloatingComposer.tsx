@@ -36,6 +36,7 @@ import {
 import { resolveVoiceTranscriptionTarget } from "~/lib/providerAvailability";
 import { resolveThreadEnvironmentPresentation } from "~/lib/threadEnvironment";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { newThreadId } from "~/lib/utils";
 import { useStore } from "~/store";
 
@@ -68,6 +69,7 @@ export function GitHubItemFloatingComposer({
   onSubmit: (text: string) => void;
   className?: string;
 }) {
+  const { t, format } = useTranslation();
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const project = useStore((store) => store.projects.find((entry) => entry.id === projectId));
@@ -116,7 +118,7 @@ export function GitHubItemFloatingComposer({
           {projects.length > 1 ? (
             <Menu>
               <MenuTrigger
-                aria-label={`Project: ${projectTitle}`}
+                aria-label={format("codeReview.composer.project", { project: projectTitle })}
                 className={cn(
                   COMPOSER_TOOLBAR_PICKER_TRIGGER_CLASS_NAME,
                   "max-w-full text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -140,12 +142,12 @@ export function GitHubItemFloatingComposer({
               </ComposerPickerMenuPopup>
             </Menu>
           ) : (
-            <span className={CHIP_CLASS_NAME} title="Project">
+            <span className={CHIP_CLASS_NAME} title={t("codeReview.filter.project")}>
               <FolderIcon aria-hidden className="size-4 shrink-0" />
               <span className="truncate">{projectTitle}</span>
             </span>
           )}
-          <span className={CHIP_CLASS_NAME} title="Runs in this project's local checkout">
+          <span className={CHIP_CLASS_NAME} title={t("codeReview.composer.localCheckout")}>
             <CentralIcon name="macbook-air" className="size-4 shrink-0" />
             {LOCAL_ENVIRONMENT.shortLabel}
           </span>
@@ -158,7 +160,7 @@ export function GitHubItemFloatingComposer({
                   variant="ghost"
                   size="icon-sm"
                   className="mb-px shrink-0 text-muted-foreground"
-                  aria-label="More ways to use this item"
+                  aria-label={t("codeReview.composer.more")}
                 />
               }
             >
@@ -206,7 +208,7 @@ export function GitHubItemFloatingComposer({
             size="icon-xs"
             className="mb-0.5 size-7 shrink-0 rounded-full sm:size-7"
             disabled={!canSend}
-            aria-label={pending ? "Starting side chat" : "Ask in a side chat"}
+            aria-label={t(pending ? "codeReview.composer.starting" : "codeReview.composer.ask")}
             onClick={submit}
           >
             {pending ? (

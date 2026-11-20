@@ -23,6 +23,16 @@ import {
   type PullRequestListGroupKey,
 } from "./pullRequestList.logic";
 import { PullRequestRow } from "./PullRequestRow";
+import { useTranslation, type TranslationKey } from "~/localization";
+
+const GROUP_LABEL_KEYS: Record<PullRequestListGroupKey, TranslationKey> = {
+  pinned: "codeReview.group.pinned",
+  authored: "codeReview.group.authored",
+  reviewRequested: "codeReview.group.reviewRequested",
+  involved: "codeReview.group.involved",
+  others: "codeReview.group.others",
+  all: "codeReview.group.all",
+};
 
 /** Rows a section shows first, and how many each "Show more" adds. */
 const SECTION_PAGE_SIZE = 10;
@@ -58,6 +68,7 @@ export const PullRequestList = function PullRequestList({
 }) {
   const showProjectTitle = showProjectTitleProp ?? false;
   // Extra pages each section has revealed. Not persisted: a fresh visit starts at the first page.
+  const { t } = useTranslation();
   const [extraPages, setExtraPages] = useState<Partial<Record<PullRequestListGroupKey, number>>>(
     {},
   );
@@ -117,13 +128,17 @@ export const PullRequestList = function PullRequestList({
           </>
         );
         return (
-          <section key={group.key} aria-label={group.label} data-inbox-section={group.key}>
+          <section
+            key={group.key}
+            aria-label={t(GROUP_LABEL_KEYS[group.key])}
+            data-inbox-section={group.key}
+          >
             {group.key === "pinned" || group.key === "all" ? (
               <>
                 {group.key === "pinned" || groups.length > 1 ? (
                   <SidebarSectionLabel
                     as="h2"
-                    label={group.label}
+                    label={t(GROUP_LABEL_KEYS[group.key])}
                     className={LIST_INSET_CLASS_NAME}
                   />
                 ) : null}
@@ -131,7 +146,7 @@ export const PullRequestList = function PullRequestList({
               </>
             ) : (
               <SidebarCollapsibleSection
-                label={group.label}
+                label={t(GROUP_LABEL_KEYS[group.key])}
                 open={isSectionOpen(group.key)}
                 onToggle={() => onToggleSection(group.key)}
                 headerClassName={LIST_INSET_CLASS_NAME}

@@ -19,12 +19,11 @@ describe("mossProviderReplay", () => {
       issueCount: 0,
     });
     expect(mossProviderReplayExitCode(report)).toBe(0);
-    expect(report.fixtures).toHaveLength(7);
+    expect(report.fixtures).toHaveLength(6);
     expect(report.fixtures.map((fixture) => fixture.provider)).toEqual([
       "claudeAgent",
       "codex",
       "cursor",
-      "gemini",
       "grok",
       "opencode",
       "pi",

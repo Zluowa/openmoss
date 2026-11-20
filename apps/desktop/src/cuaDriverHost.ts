@@ -1943,6 +1943,19 @@ export class CuaDriverHost {
   }
 
   /**
+   * Pre-spawns the native driver and opens its shared session in the background
+   * when an explicit desktop feature (such as Windows AppSnap) is enabled, so
+   * the first capture pays zero cold-start latency. Safe to call repeatedly.
+   */
+  prewarm(): void {
+    if (this.closed || this.suspended) return;
+    if (this.generation && !this.generation.retired && !this.generation.didExit) return;
+    void this.ensureStarted().catch((error: unknown) => {
+      log(`driver prewarm failed: ${String(error)}`);
+    });
+  }
+
+  /**
    * Open (or reopen) this generation's persistent control connection: the one
    * socket that sends `session_begin` and then stays open. The driver ties
    * two things to its lifetime — the active-proxy flag that lets
@@ -2149,7 +2162,7 @@ export class CuaDriverHost {
       });
       try {
         let metadata: CuaReply | undefined;
-        for (let attempt = 0; attempt < 80; attempt++) {
+        for (let attempt = 0; attempt < 90; attempt++) {
           if (generation.retired || generation.didExit)
             throw new Error("Cua Driver stopped during startup.");
           try {
@@ -2160,7 +2173,7 @@ export class CuaDriverHost {
             );
             break;
           } catch {
-            await delay(50);
+            await delay(attempt < 10 ? 15 : 40);
           }
         }
         // `nativeRevision: null` expects an unpatched upstream driver — its

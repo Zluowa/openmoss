@@ -1,7 +1,15 @@
-import { DEFAULT_SERVER_SETTINGS, ProviderSessionStartInput } from "@moss/contracts";
+import {
+  DEFAULT_GIT_TEXT_GENERATION_MODEL,
+  DEFAULT_SERVER_SETTINGS,
+  ProviderSessionStartInput,
+} from "@moss/contracts";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import { applyServerSettingsPatch, providerStartOptionsFromServerSettings } from "./serverSettings";
+import {
+  applyServerSettingsPatch,
+  normalizeRetiredTextGenerationSelection,
+  providerStartOptionsFromServerSettings,
+} from "./serverSettings";
 
 const decodeProviderSessionStartInput = Schema.decodeUnknownSync(ProviderSessionStartInput);
 
@@ -230,5 +238,23 @@ describe("applyServerSettingsPatch: published theme", () => {
     expect(applyServerSettingsPatch(second, { keepAwakeMode: "off" }).agentTheme).toEqual(
       second.agentTheme,
     );
+  });
+});
+
+describe("normalizeRetiredTextGenerationSelection", () => {
+  it("falls back to Codex when persisted settings selected retired Gemini CLI", () => {
+    const legacy = {
+      ...DEFAULT_SERVER_SETTINGS,
+      textGenerationModelSelection: {
+        provider: "gemini" as const,
+        instanceId: "gemini",
+        model: "gemini-2.5-pro",
+      },
+    };
+    expect(normalizeRetiredTextGenerationSelection(legacy).textGenerationModelSelection).toEqual({
+      provider: "codex",
+      instanceId: "codex",
+      model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
+    });
   });
 });

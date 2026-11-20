@@ -58,6 +58,7 @@ import {
   type OrchestrationProject,
   type ProjectDevServerEvent,
   type ProviderStartOptions,
+  type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationShellStreamItem,
   type ProjectId,
@@ -137,6 +138,7 @@ import { AutomationService } from "./automation/Services/AutomationService";
 import { AutomationServiceError } from "./automation/Errors";
 import { TodoService } from "./todo/Services/TodoService";
 import { SecretRequests } from "./secretRequests/Services/SecretRequests";
+import { AgentFeedback } from "./agentFeedback/Services/AgentFeedback";
 import { GuestShareOwnerError } from "./guestShare/Errors";
 import { GuestShareService } from "./guestShare/Services/GuestShareService";
 import { LibraryServiceError } from "./library/Errors";
@@ -324,6 +326,8 @@ import { redactSensitiveProcessArgs } from "./processArgumentRedaction";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ExternalMcpService } from "./externalMcp/Services/ExternalMcpService";
 import { type McpConnectorError, McpConnectors } from "./mcpConnectors/Services/McpConnectors";
+import { IssueSources } from "./issueSources/IssueSources";
+import type { IssueSourceError } from "./issueSources/issueSource";
 import { decorateMcpConnectorsWithApps } from "./mcpApps/connectorDirectory";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup";
@@ -854,6 +858,20 @@ type AdmittedWsFeatureRpc = RpcGroup.Rpcs<typeof AdmittedWsFeatureRpcGroup>;
 export const WsFeatureAndDeviceRpcGroup: typeof AdmittedWsFeatureRpcGroup =
   AdmittedWsFeatureRpcGroup;
 
+function sidebarOrderShellFields(snapshot: OrchestrationShellSnapshot) {
+  return {
+    ...(snapshot.sidebarOrderRevision !== undefined
+      ? { sidebarOrderRevision: snapshot.sidebarOrderRevision }
+      : {}),
+    ...(snapshot.sidebarOrderMigrationState !== undefined
+      ? { sidebarOrderMigrationState: snapshot.sidebarOrderMigrationState }
+      : {}),
+    ...(snapshot.sidebarOrderItems !== undefined
+      ? { sidebarOrderItems: snapshot.sidebarOrderItems }
+      : {}),
+  };
+}
+
 export function toThreadUnarchivedShellEvent(
   projectionReadModelQuery: Pick<
     ProjectionSnapshotQueryShape,
@@ -862,9 +880,10 @@ export function toThreadUnarchivedShellEvent(
   event: Extract<OrchestrationEvent, { type: "thread.unarchived" }>,
 ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>> {
   if (
-    event.payload.isArchiveCohortFinal &&
-    ((event.payload.restoredSidebarPlacements?.length ?? 0) > 0 ||
-      event.payload.restoredSidebarPlacement !== null)
+    event.payload.isArchiveCohortFinal ||
+    event.payload.sidebarOrderRevision !== undefined ||
+    (event.payload.restoredSidebarPlacements?.length ?? 0) > 0 ||
+    event.payload.restoredSidebarPlacement != null
   ) {
     return Effect.all([
       projectionReadModelQuery.getShellSnapshot(),
@@ -877,6 +896,7 @@ export function toThreadUnarchivedShellEvent(
           kind: "sidebar-sections-updated" as const,
           sequence: event.sequence,
           sections: snapshot.sidebarSections ?? [],
+          ...sidebarOrderShellFields(snapshot),
           ...(Option.isSome(thread) ? { thread: thread.value } : {}),
         }),
       ),
@@ -1175,6 +1195,16 @@ function isShellRelevantEvent(event: OrchestrationEvent): boolean {
     event.type === "project.created" ||
     event.type === "project.meta-updated" ||
     event.type === "project.deleted" ||
+    event.type === "sidebar-section.created" ||
+    event.type === "sidebar-section.renamed" ||
+    event.type === "sidebar-section.collapsed" ||
+    event.type === "sidebar-section.deleted" ||
+    event.type === "sidebar-section.order-updated" ||
+    event.type === "sidebar-section.thread-placed" ||
+    event.type === "sidebar-section.project-placed" ||
+    event.type === "sidebar-section.thread-order-updated" ||
+    event.type === "sidebar-projects.order-updated" ||
+    event.type === "sidebar-order.legacy-imported" ||
     event.type === "thread.deleted" ||
     (event.aggregateKind === "thread" && shouldPublishThreadShellForEvent(event))
   );
@@ -1205,6 +1235,7 @@ const makeWsRpcHandlersLayer = () =>
       const automationService = yield* AutomationService;
       const todoService = yield* TodoService;
       const secretRequests = Option.getOrUndefined(yield* Effect.serviceOption(SecretRequests));
+      const agentFeedback = Option.getOrUndefined(yield* Effect.serviceOption(AgentFeedback));
       // Embedded and test servers may run without account sign-in for phones.
       const mossAccountPhoneAccess = Option.getOrUndefined(
         yield* Effect.serviceOption(MossAccountPhoneAccess),
@@ -1312,6 +1343,15 @@ const makeWsRpcHandlersLayer = () =>
       const pullRequests = yield* PullRequestService;
       const pullRequestAutoFix = yield* PullRequestAutoFixService;
       const githubInbox = yield* GitHubInboxService;
+      const issueSources = yield* IssueSources;
+      // The page shows its own sentence per action; the code says which one applies.
+      const issueSourceEffect = <A, R>(effect: Effect.Effect<A, IssueSourceError, R>) =>
+        effect.pipe(
+          Effect.mapError(
+            (cause) =>
+              new WsRpcError({ message: cause.message, code: `issue-source-${cause.reason}` }),
+          ),
+        );
       const githubConnection = yield* Effect.acquireRelease(
         Effect.sync(() =>
           createGitHubConnection(
@@ -2015,13 +2055,66 @@ const makeWsRpcHandlersLayer = () =>
                 projectId: event.payload.projectId,
               }),
             );
-          case "thread.deleted":
-            return Effect.succeed(
-              Option.some({
-                kind: "thread-removed" as const,
-                sequence: event.sequence,
-                threadId: event.payload.threadId,
+          case "sidebar-section.created":
+          case "sidebar-section.renamed":
+          case "sidebar-section.collapsed":
+          case "sidebar-section.deleted":
+          case "sidebar-section.order-updated":
+          case "sidebar-section.project-placed":
+          case "sidebar-section.thread-order-updated":
+          case "sidebar-projects.order-updated":
+          case "sidebar-order.legacy-imported":
+            return projectionReadModelQuery.getShellSnapshot().pipe(
+              Effect.map((snapshot) =>
+                Option.some({
+                  kind: "sidebar-sections-updated" as const,
+                  sequence: event.sequence,
+                  sections: snapshot.sidebarSections ?? [],
+                  ...sidebarOrderShellFields(snapshot),
+                }),
+              ),
+              Effect.catch(() => Effect.succeed(Option.none())),
+            );
+          case "sidebar-section.thread-placed":
+          case "thread.archived":
+            return Effect.all([
+              projectionReadModelQuery.getShellSnapshot(),
+              projectionReadModelQuery.getThreadShellById(event.payload.threadId, {
+                includeLatestReplyPreview: true,
               }),
+            ]).pipe(
+              Effect.map(([snapshot, thread]) =>
+                Option.some({
+                  kind: "sidebar-sections-updated" as const,
+                  sequence: event.sequence,
+                  sections: snapshot.sidebarSections ?? [],
+                  ...sidebarOrderShellFields(snapshot),
+                  ...(Option.isSome(thread) ? { thread: thread.value } : {}),
+                }),
+              ),
+              Effect.catch(() => Effect.succeed(Option.none())),
+            );
+          case "thread.unarchived":
+            return toThreadUnarchivedShellEvent(projectionReadModelQuery, event);
+          case "thread.deleted":
+            return projectionReadModelQuery.getShellSnapshot().pipe(
+              Effect.map((snapshot) =>
+                Option.some({
+                  kind: "thread-removed" as const,
+                  sequence: event.sequence,
+                  threadId: event.payload.threadId,
+                  ...sidebarOrderShellFields(snapshot),
+                }),
+              ),
+              Effect.catch(() =>
+                Effect.succeed(
+                  Option.some({
+                    kind: "thread-removed" as const,
+                    sequence: event.sequence,
+                    threadId: event.payload.threadId,
+                  }),
+                ),
+              ),
             );
           default:
             if (event.aggregateKind !== "thread") return Effect.succeed(Option.none());
@@ -3454,6 +3547,20 @@ const makeWsRpcHandlersLayer = () =>
           pullRequestsEffect(githubInbox.issueDetail(input), "Failed to load issue"),
         [WS_METHODS.githubInboxIssueComment]: (input) =>
           pullRequestsEffect(githubInbox.issueComment(input), "Could not post the comment"),
+        [WS_METHODS.githubInboxIssueUpdate]: (input) =>
+          pullRequestsEffect(githubInbox.issueUpdate(input), "Could not update the issue"),
+        [WS_METHODS.issueSourcesStatus]: (input) => issueSources.status(input),
+        [WS_METHODS.issueSourcesList]: (input) => issueSourceEffect(issueSources.list(input)),
+        [WS_METHODS.issueSourcesDetail]: (input) => issueSourceEffect(issueSources.detail(input)),
+        [WS_METHODS.issueSourcesUpdate]: (input) => issueSourceEffect(issueSources.update(input)),
+        [WS_METHODS.issueSourcesComment]: (input) => issueSourceEffect(issueSources.comment(input)),
+        [WS_METHODS.issueSourcesCandidates]: (input) =>
+          issueSourceEffect(issueSources.candidates(input)),
+        [WS_METHODS.githubInboxIssueCandidates]: (input) =>
+          pullRequestsEffect(
+            githubInbox.issueCandidates(input),
+            "Could not load the repository's labels and people",
+          ),
         [WS_METHODS.pullRequestsDetail]: (input) =>
           pullRequestsEffect(pullRequests.detail(input), "Failed to load pull request"),
         [WS_METHODS.pullRequestsDiff]: (input) =>
@@ -3950,7 +4057,12 @@ const makeWsRpcHandlersLayer = () =>
           ),
         [WS_METHODS.serverListDevsReports]: (input) =>
           rpcEffect(
-            Effect.tryPromise(() => devsReports.list(input.threadId)),
+            Effect.tryPromise(() =>
+              devsReports.list({
+                ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+                ...(input.reportIds === undefined ? {} : { reportIds: input.reportIds }),
+              }),
+            ),
             "Could not load developer reports",
           ),
         [WS_METHODS.serverReadThreadDiagnostics]: (input) =>
@@ -4784,6 +4896,23 @@ const makeWsRpcHandlersLayer = () =>
                     }),
                 ),
               ),
+        // Agent feedback is the owner's local data: paired and guest clients never read it.
+        [WS_METHODS.agentFeedbackList]: () =>
+          requireWsOwnerSession.pipe(
+            Effect.andThen(
+              agentFeedback === undefined
+                ? Effect.succeed({ entries: [] })
+                : agentFeedback.list.pipe(Effect.map((entries) => ({ entries }))),
+            ),
+          ),
+        [WS_METHODS.agentFeedbackDismiss]: (input) =>
+          requireWsOwnerSession.pipe(
+            Effect.andThen(
+              agentFeedback === undefined
+                ? Effect.void
+                : rpcEffect(agentFeedback.dismiss(input.id), "Could not remove the feedback"),
+            ),
+          ),
         [WS_METHODS.subscribeTodoEvents]: (_, { clientId }) =>
           tasksEnabled
             ? streamAdmission.guard(
@@ -5648,6 +5777,8 @@ const makeWsRpcHandlersLayer = () =>
         WS_METHODS.providerStartAppConnection,
         WS_METHODS.providerCompleteAppConnection,
         ...COMPUTER_HISTORY_WS_METHODS,
+        WS_METHODS.agentFeedbackList,
+        WS_METHODS.agentFeedbackDismiss,
         WS_METHODS.realtimeVoiceListVoices,
         WS_METHODS.realtimeVoiceClaim,
         WS_METHODS.realtimeVoiceReleaseClaim,

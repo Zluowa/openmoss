@@ -30,7 +30,11 @@ import {
   resolveMossPayQuotaAccountIdentity,
 } from "~/lib/mossPayQuotaIdentity";
 import type { MossLocaleCode } from "~/uiLocale";
-import { mossPlansPurchasable, safeMossPayOrderErrorMessage } from "./MossMembershipPage.logic";
+import {
+  isBuiltInFreeMossPlanCode,
+  mossPlansPurchasable,
+  safeMossPayOrderErrorMessage,
+} from "./MossMembershipPage.logic";
 
 export {
   isMossPayAccountTransitionPending,
@@ -299,10 +303,14 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
       : t("mossPay.quota.current");
   const currentPlanName =
     (quota?.planCode
-      ? (catalog?.plans.find((plan) => plan.code === quota.planCode)?.displayName ?? quota.planCode)
+      ? (catalog?.plans.find((plan) => plan.code === quota.planCode)?.displayName ??
+        (isBuiltInFreeMossPlanCode(quota.planCode)
+          ? t("mossPay.settings.freePlan")
+          : quota.planCode))
       : null) ?? t("mossPay.settings.planUnavailable");
 
-  const packageCost = quota?.billingModel === "cost_budget_v1";
+  const isFreeWallet = quota?.billingModel === "wallet_credits_v1";
+  const packageCost = quota?.billingModel === "cost_budget_v1" || isFreeWallet;
   const packageLimit = quota?.usageLimits.find((limit) => limit.key === "lifetime");
   const packageUsedPercent = packageLimit
     ? quotaPercent(packageLimit.used, packageLimit.limit)
@@ -343,7 +351,13 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
           {!showCatalog && (quota || quotaLoading) ? (
             <div className="shrink-0 text-right">
               <p className="text-ui-sm text-muted-foreground">
-                {t(packageCost ? "mossPay.settings.generalLimits" : "mossPay.creditBalance")}
+                {t(
+                  isFreeWallet
+                    ? "mossPay.settings.freeAllowance"
+                    : packageCost
+                      ? "mossPay.settings.generalLimits"
+                      : "mossPay.creditBalance",
+                )}
               </p>
               {quota ? (
                 <p className="text-lg font-semibold tabular-nums">
@@ -365,7 +379,13 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-ui-sm font-medium text-background/65">
-                      {t(packageCost ? "mossPay.settings.generalLimits" : "mossPay.catalog.wallet")}
+                      {t(
+                        isFreeWallet
+                          ? "mossPay.settings.freeAllowance"
+                          : packageCost
+                            ? "mossPay.settings.generalLimits"
+                            : "mossPay.catalog.wallet",
+                      )}
                     </p>
                     <p className="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
                       {quota ? (
@@ -485,7 +505,9 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
               <div className="flex items-center justify-between text-ui-sm text-muted-foreground">
                 <span id="moss-pay-text-quota-heading">
                   {quotaHeading}
-                  {quota.planCode ? ` (${quota.planCode})` : ""}
+                  {quota.planCode
+                    ? ` (${isBuiltInFreeMossPlanCode(quota.planCode) ? t("mossPay.settings.freePlan") : quota.planCode})`
+                    : ""}
                 </span>
               </div>
               <div className="mt-2 divide-y divide-border/60">
@@ -502,7 +524,13 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
                 {quota.usageLimits.map((limit) => {
                   const label =
                     limit.key === "lifetime"
-                      ? t(packageCost ? "mossPay.settings.generalLimits" : "mossPay.creditBalance")
+                      ? t(
+                          isFreeWallet
+                            ? "mossPay.settings.freeAllowance"
+                            : packageCost
+                              ? "mossPay.settings.generalLimits"
+                              : "mossPay.creditBalance",
+                        )
                       : limit.key === "five_hour"
                         ? t("mossPay.settings.fiveHourLimit")
                         : limit.key === "weekly"

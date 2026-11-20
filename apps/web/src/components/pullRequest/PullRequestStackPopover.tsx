@@ -13,10 +13,11 @@ import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { ArrowUpRightIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
 import { PullRequestStateGlyph } from "./PullRequestStateGlyph";
 import { PullRequestStackPosition } from "./PullRequestStackPosition";
-import { assessPullRequestStack } from "./pullRequestStack.logic";
+import { assessPullRequestStack, PULL_REQUEST_STACK_LABEL_KEYS } from "./pullRequestStack.logic";
 
 const ASSESSMENT_COLOR_CLASS = {
   ready: "text-status-open",
@@ -35,8 +36,9 @@ export function PullRequestStackPopover({
   currentNumber: number;
   onSelectPullRequest?: ((number: number) => void) | undefined;
 }) {
+  const { t, format } = useTranslation();
   const [open, setOpen] = useState(false);
-  const assessment = assessPullRequestStack(stack);
+  const assessment = assessPullRequestStack(stack, (key, values) => format(key, values ?? {}));
   const entriesTopDown = stack.entries.toReversed();
 
   return (
@@ -47,8 +49,12 @@ export function PullRequestStackPopover({
             variant="chrome-outline"
             size="xs"
             className={cn(CHAT_HEADER_CONTROL_CLASS_NAME, "gap-1.5 px-2 font-normal")}
-            aria-label={`View stack ${stack.number}, pull request ${stack.position} of ${stack.size}`}
-            title={`Stack #${stack.number}`}
+            aria-label={format("codeReview.stack.viewAria", {
+              stack: stack.number,
+              position: stack.position,
+              size: stack.size,
+            })}
+            title={format("codeReview.stack.title", { stack: stack.number })}
           >
             <PullRequestStackPosition stack={stack} appearance="plain" />
           </Button>
@@ -62,10 +68,10 @@ export function PullRequestStackPopover({
       >
         <div className="border-b border-border px-4 py-3">
           <div className={cn("text-ui-lg font-medium", ASSESSMENT_COLOR_CLASS[assessment.tone])}>
-            {assessment.label}
+            {t(PULL_REQUEST_STACK_LABEL_KEYS[assessment.label])}
           </div>
           <div className="mt-0.5 text-ui leading-snug text-muted-foreground">
-            Stack #{stack.number} · targets {stack.baseBranch}
+            {format("codeReview.stack.targets", { stack: stack.number, base: stack.baseBranch })}
           </div>
         </div>
 

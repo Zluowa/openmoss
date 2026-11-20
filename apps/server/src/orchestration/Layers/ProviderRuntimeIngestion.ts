@@ -2930,7 +2930,13 @@ const make = Effect.gen(function* () {
         const status = (() => {
           switch (event.type) {
             case "session.state.changed":
-              return event.payload.state === "waiting" ? "running" : event.payload.state;
+              if (event.payload.state === "waiting") return "running";
+              // Preserve an in-flight turn start so startup readiness does not
+              // dip back to idle `ready` before `turn.started` lands.
+              if (event.payload.state === "ready" && thread.session?.status === "starting") {
+                return "starting";
+              }
+              return event.payload.state;
             case "turn.started":
               return "running";
             case "session.exited":
@@ -2948,8 +2954,13 @@ const make = Effect.gen(function* () {
             case "session.started":
             case "thread.started":
               // Provider thread/session start notifications can arrive during an
-              // active turn; preserve turn-running state in that case.
-              return activeTurnId !== null ? "running" : "ready";
+              // active turn or while a requested turn is starting; preserve that
+              // in-flight state instead of dipping back to ready.
+              return activeTurnId !== null
+                ? "running"
+                : thread.session?.status === "starting"
+                  ? "starting"
+                  : "ready";
           }
         })();
         let lastError = thread.session?.lastError ?? null;
@@ -2958,7 +2969,7 @@ const make = Effect.gen(function* () {
         } else if (status === "error") {
           lastError =
             asString(runtimePayloadRecord(event)?.errorMessage) ?? lastError ?? "Turn failed";
-        } else if (status === "ready" || status === "interrupted") {
+        } else if (status === "ready" || status === "interrupted" || status === "starting") {
           lastError = null;
         }
 

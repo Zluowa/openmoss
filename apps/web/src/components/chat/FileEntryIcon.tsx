@@ -13,7 +13,7 @@ const FILE_ICON_COLOR_CLASS_BY_ICON_NAME: Record<string, string> = {
   bun: "text-[#f4d7a1]",
   "calendar-days": "text-[#f59e0b]",
   c: "text-[#659ad2]",
-  cmd: "text-[#4ade80]",
+  console: "text-[#4ade80]",
   "code-brackets": "text-[#9ca3af]",
   "file-jpg": "text-[#22c55e]",
   "file-pdf": "text-[#ef4444]",

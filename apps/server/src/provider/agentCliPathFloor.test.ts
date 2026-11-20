@@ -219,6 +219,7 @@ describe("agentCliInstallDirectories", () => {
     expect(directories).toEqual(
       expect.arrayContaining([
         "C:\\Users\\ada\\.local\\bin",
+        "C:\\Users\\ada\\AppData\\Local\\agy\\bin",
         "C:\\Users\\ada\\AppData\\Local\\cursor-agent",
         "C:\\Users\\ada\\.grok\\bin",
         "C:\\Users\\ada\\AppData\\Roaming\\npm",
@@ -320,6 +321,18 @@ describe("appendAgentCliDirectoriesToPath", () => {
       ...fakeFolders({ "C:\\Users\\ada\\AppData\\Roaming\\npm": ["codex.cmd", "claude.cmd"] }),
     });
     expect(added).toEqual(["C:\\Users\\ada\\AppData\\Roaming\\npm"]);
+  });
+
+  it("finds Antigravity CLI (agy.exe) in %LOCALAPPDATA%\\agy\\bin even when missing from GUI PATH", async () => {
+    const env: NodeJS.ProcessEnv = { ...WINDOWS_ENV, Path: "C:\\Windows\\System32" };
+    const added = await applyAgentCliPathFloor({
+      env,
+      platform: "win32",
+      readTextFile: () => null,
+      ...fakeFolders({ "C:\\Users\\ada\\AppData\\Local\\agy\\bin": ["agy.exe"] }),
+    });
+    expect(added).toEqual(["C:\\Users\\ada\\AppData\\Local\\agy\\bin"]);
+    expect(env.Path).toContain("C:\\Users\\ada\\AppData\\Local\\agy\\bin");
   });
 });
 

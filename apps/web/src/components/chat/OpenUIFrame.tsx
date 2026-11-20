@@ -149,7 +149,7 @@ export function OpenUIFrame(props: {
             <OpenUIRendererInner
               directive={props.directive}
               formState={formState}
-              isStreaming={props.isStreaming || props.directive.partial}
+              isStreaming={props.isStreaming}
               onAction={handleAction}
             />
           </Suspense>

@@ -30,6 +30,21 @@ describe("getFileIconName", () => {
     assert.equal(getFileIconName("notes"), "code-brackets");
   });
 
+  it("uses the terminal console glyph for shell and PowerShell scripts instead of Mac cmd", () => {
+    for (const file of [
+      "sample-colors.ps1",
+      "module.psm1",
+      "manifest.psd1",
+      "deploy.sh",
+      "init.bash",
+      "env.zsh",
+      "prompt.fish",
+      "build.bat",
+    ]) {
+      assert.equal(getFileIconName(file), "console", file);
+    }
+  });
+
   it("is case insensitive on basename lookup", () => {
     assert.equal(getFileIconName("PACKAGE.JSON"), "npm");
     assert.equal(getFileIconName("Main.PY"), "phyton");

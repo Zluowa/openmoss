@@ -111,11 +111,16 @@ type CommandExecutionState = "queued" | "in-flight" | "abandoned";
 type DispatchTimeoutDecision = { kind: "abandon" } | { kind: "wait" };
 type OrchestrationEnginePhase = "running" | "quiescing" | "draining" | "stopped";
 
+type DispatchReceiptResult = {
+  readonly sequence: number;
+  readonly sidebarOrderRevision?: number;
+};
+
 interface CommandEnvelope {
   command: OrchestrationCommand;
   settleOnly: boolean;
   attachmentPrincipal: ManagedAttachmentPrincipal;
-  result: Deferred.Deferred<{ sequence: number }, OrchestrationDispatchError>;
+  result: Deferred.Deferred<DispatchReceiptResult, OrchestrationDispatchError>;
   executionState: Ref.Ref<CommandExecutionState>;
   deadlineAtMs: number;
 }
@@ -130,6 +135,7 @@ type CommittedCommandResult = {
   readonly committedEvents: OrchestrationEvent[];
   readonly lastSequence: number;
   readonly nextCommandReadModel: OrchestrationReadModel;
+  readonly sidebarOrderRevision?: number;
 };
 
 function commandToAggregateRef(command: OrchestrationCommand): {
@@ -486,7 +492,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     command: OrchestrationCommand,
     principal: ManagedAttachmentPrincipal,
     settleOnly: boolean,
-  ): Effect.Effect<{ sequence: number }, OrchestrationDispatchError, never> =>
+  ): Effect.Effect<DispatchReceiptResult, OrchestrationDispatchError, never> =>
     Effect.gen(function* () {
       const receiptExit = yield* Effect.exit(
         commandReceiptRepository.getByCommandId({
@@ -503,6 +509,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         if (!settleOnly) yield* validateAcceptedAttachmentRetry(command, principal);
         return {
           sequence: existingReceipt.value.resultSequence,
+          ...(existingReceipt.value.sidebarOrderRevision != null
+            ? { sidebarOrderRevision: existingReceipt.value.sidebarOrderRevision }
+            : {}),
         };
       }
       return yield* new OrchestrationCommandPreviouslyRejectedError({
@@ -1074,6 +1083,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
           }
           yield* Deferred.succeed(envelope.result, {
             sequence: existingReceipt.value.resultSequence,
+            ...(existingReceipt.value.sidebarOrderRevision != null
+              ? { sidebarOrderRevision: existingReceipt.value.sidebarOrderRevision }
+              : {}),
           });
           return;
         }
@@ -1373,6 +1385,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 committedEvents,
                 lastSequence: commandReadModel.snapshotSequence,
                 nextCommandReadModel: commandReadModel,
+                sidebarOrderRevision: noOpDecision.sidebarOrderRevision,
               } as const;
             }
 
@@ -1437,14 +1450,19 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               });
             }
 
-            if (
+            const sidebarOrderRevisionChanged =
+              nextCommandReadModel.sidebarOrderRevision !== commandReadModel.sidebarOrderRevision;
+            const sidebarOrderChanged =
               nextCommandReadModel.sidebarOrderItems !== commandReadModel.sidebarOrderItems ||
-              nextCommandReadModel.sidebarOrderRevision !== commandReadModel.sidebarOrderRevision ||
+              sidebarOrderRevisionChanged ||
               nextCommandReadModel.sidebarOrderMigrationState !==
-                commandReadModel.sidebarOrderMigrationState
-            ) {
+                commandReadModel.sidebarOrderMigrationState;
+            if (sidebarOrderChanged) {
               yield* persistSidebarOrder(nextCommandReadModel, lastSavedEvent.sequence);
             }
+            const committedSidebarOrderRevision = sidebarOrderRevisionChanged
+              ? (nextCommandReadModel.sidebarOrderRevision ?? SidebarOrderRevision.makeUnsafe(0))
+              : undefined;
 
             const receiptInserted = yield* commandReceiptRepository.insert({
               commandId: envelope.command.commandId,
@@ -1456,6 +1474,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               error: null,
               fingerprintVersion: commandFingerprint.version,
               commandFingerprint: commandFingerprint.value,
+              ...(committedSidebarOrderRevision !== undefined
+                ? { sidebarOrderRevision: committedSidebarOrderRevision }
+                : {}),
             });
             if (!receiptInserted) {
               return yield* new OrchestrationCommandIdentityCollisionError({
@@ -1468,6 +1489,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
               committedEvents,
               lastSequence: lastSavedEvent.sequence,
               nextCommandReadModel,
+              ...(committedSidebarOrderRevision !== undefined
+                ? { sidebarOrderRevision: committedSidebarOrderRevision }
+                : {}),
             } as const;
           }).pipe(
             Effect.catchCause((cause): Effect.Effect<never, OrchestrationDispatchError, never> => {
@@ -1579,7 +1603,12 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         );
       }
 
-      yield* Deferred.succeed(envelope.result, { sequence: committedCommand.lastSequence });
+      yield* Deferred.succeed(envelope.result, {
+        sequence: committedCommand.lastSequence,
+        ...(committedCommand.sidebarOrderRevision !== undefined
+          ? { sidebarOrderRevision: committedCommand.sidebarOrderRevision }
+          : {}),
+      });
     }).pipe(
       // Interrupts never surface as a typed failure, so they need their own
       // cleanup hook. This finalizer is scoped to the gen, so it runs both when
@@ -1918,7 +1947,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   const dispatch: OrchestrationEngineShape["dispatch"] = (command, context) =>
     Effect.gen(function* () {
-      const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
+      const result = yield* Deferred.make<DispatchReceiptResult, OrchestrationDispatchError>();
       const executionState = yield* Ref.make<CommandExecutionState>("queued");
       const envelope: CommandEnvelope = {
         command,
