@@ -238,6 +238,95 @@ describe("production developer report queue", () => {
       ).json(),
     ).toEqual({ job: null });
   });
+  it("lets a maintainer mark a failed or running report as being fixed or fixed, keeping its history", async () => {
+    const { handle, store, advance } = fixture();
+    const input = report();
+    await handle(call("/reports", readToken, input));
+    const resolve = (body: unknown, token = workerToken) =>
+      handle(call(`/worker/${input.id}/resolve`, token, body));
+    const pr = "https://github.com/fixture/repo/pull/755";
+    // Only the private worker credential resolves, and only a worked-on report.
+    expect((await resolve({ status: "fixed", pullRequestUrl: pr }, readToken)).status).toBe(401);
+    expect((await resolve({ status: "fixed", pullRequestUrl: pr })).status).toBe(409);
+    const first = await (
+      await handle(call("/worker/claim", workerToken, { claimId: randomUUID(), engine: "codex" }))
+    ).json();
+    advance(120_001);
+    // The report the owner saw: the worker disconnected and the repair was handed over.
+    expect((await (await handle(call(`/reports/${input.id}`))).json()).status).toBe("failed");
+    for (const invalid of [
+      { status: "done" },
+      { status: "fixed", pullRequestUrl: "https://github.com/other/repo/pull/1" },
+      { status: "fixed", pullRequestUrl: `${pr}/files` },
+      { status: "fixed" },
+      { status: "in-progress", note: "x".repeat(2_001) },
+    ])
+      expect((await resolve(invalid)).status).toBe(400);
+
+    const working = await (await resolve({ status: "in-progress", note: "picked up" })).json();
+    expect(working).toMatchObject({ status: "running", resolution: "in-progress" });
+    expect(working.message).toContain("开发者正在处理");
+    // A maintainer's report holds no lease: it neither expires nor blocks the next claim.
+    advance(10 * 120_000);
+    expect(await (await handle(call(`/reports/${input.id}`))).json()).toEqual(working);
+    const next = report();
+    await handle(call("/reports", readToken, next));
+    const claimed = await (
+      await handle(call("/worker/claim", workerToken, { claimId: randomUUID(), engine: "codex" }))
+    ).json();
+    expect(claimed.report.id).toBe(next.id);
+    // The old worker lease is gone, so a late receipt cannot overwrite the resolution.
+    expect(
+      (
+        await handle(
+          call(`/worker/${input.id}/complete`, workerToken, {
+            lease: first.lease,
+            pullRequestUrl: null,
+          }),
+        )
+      ).status,
+    ).toBe(409);
+
+    const fixed = await (
+      await resolve({ status: "fixed", pullRequestUrl: pr, note: "merged in #755" })
+    ).json();
+    // Apps that predate resolutions read a submitted fix with its PR link.
+    expect(fixed).toEqual({
+      id: input.id,
+      status: "pull-request",
+      resolution: "fixed",
+      pullRequestUrl: pr,
+      message: expect.stringContaining("开发者已修复，将在下一版更新中送达"),
+    });
+    expect(await (await handle(call(`/reports/${input.id}`))).json()).toEqual(fixed);
+    // A repeat is idempotent and appends nothing.
+    expect(await (await resolve({ status: "fixed", pullRequestUrl: pr })).json()).toEqual(fixed);
+    expect(await (await resolve({ status: "fixed" })).json()).toEqual(fixed);
+    const job = (await store.get<any>(`job:${input.id}`))!;
+    expect(job.history.map((entry: any) => [entry.status, entry.resolution, entry.note])).toEqual([
+      ["failed", null, "picked up"],
+      ["running", "in-progress", "merged in #755"],
+    ]);
+    expect(job.history[0].message).toContain("worker disconnected");
+  });
+  it("resolves a report that already has a worker PR without asking for the PR again", async () => {
+    const { handle } = fixture();
+    const input = report();
+    await handle(call("/reports", readToken, input));
+    const { lease } = await (
+      await handle(call("/worker/claim", workerToken, { claimId: randomUUID(), engine: "codex" }))
+    ).json();
+    const pr = "https://github.com/fixture/repo/pull/7";
+    await handle(call(`/worker/${input.id}/complete`, workerToken, { lease, pullRequestUrl: pr }));
+    const fixed = await (
+      await handle(call(`/worker/${input.id}/resolve`, workerToken, { status: "fixed" }))
+    ).json();
+    expect(fixed).toMatchObject({
+      status: "pull-request",
+      resolution: "fixed",
+      pullRequestUrl: pr,
+    });
+  });
   it("serializes simultaneous claims and rejects unsupported or oversized reports", async () => {
     const { handle } = fixture();
     const input = report();

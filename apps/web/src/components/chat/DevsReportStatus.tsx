@@ -5,10 +5,15 @@ import { readNativeApi } from "../../nativeApi";
 import { DEVS_REPORT_CHANGED } from "./handleDevsReportSend";
 
 /**
- * The card says what is true now: still sending, received, Codex working, fix submitted, or a
- * developer needed. `delivered` is absent only from an older server.
+ * The card says what is true now: still sending, received, Codex working, fix submitted, a
+ * developer needed, a developer on it, or fixed. `delivered` is absent only from an older
+ * server; `resolution` only once a developer has taken the report over.
  */
 export function devsReportCardCopy(report: DevsReportState) {
+  if (report.resolution === "fixed")
+    return { title: "devs.fixed", detail: "devs.fixedDetail" } as const;
+  if (report.resolution === "in-progress")
+    return { title: "devs.inProgress", detail: "devs.inProgressDetail" } as const;
   switch (report.status) {
     case "failed":
       return report.delivered === false
@@ -79,7 +84,7 @@ export function DevsReportStatus({ threadId }: { threadId: ThreadId }) {
             key={report.id}
             className="rounded-card border border-border bg-muted/40 px-3 py-2"
             data-testid="devs-report-card"
-            data-status={report.status}
+            data-status={report.resolution ?? report.status}
           >
             <p className="font-medium">
               @devs · {engine} · {t(copy.title)}

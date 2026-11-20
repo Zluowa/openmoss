@@ -16,6 +16,7 @@ import {
   type ThreadMarker,
   type TurnId,
 } from "@moss/contracts";
+import { MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE } from "@moss/shared/mossManagedSession";
 import { isLocalAbsolutePath } from "@moss/shared/path";
 import { pluralize } from "@moss/shared/text";
 import { parseGuestMessageAttribution } from "@moss/shared/guestShareAttribution";
@@ -521,6 +522,11 @@ interface MessagesTimelineProps {
   /** Coordinator/bot chats hide tool rows and keep a text conversation. */
   conversationOnly?: boolean;
   recoverableTurnId?: TurnId | null;
+  /**
+   * The Moss account service cannot renew this Moss lane's sign-in: the recoverable turn's
+   * card says so and offers no button, because Moss continues it once the service is back.
+   */
+  accountServiceUnavailable?: boolean;
   turnRecoveryDisabled?: boolean;
   onContinueFailedTurn?: (
     turnId: TurnId,
@@ -697,6 +703,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   turnTimingByTurnId,
   conversationOnly: conversationOnlyProp,
   recoverableTurnId,
+  accountServiceUnavailable,
   turnRecoveryDisabled,
   onContinueFailedTurn,
   onChangeRecoveryModel: onChangeRecoveryModelProp,
@@ -1964,13 +1971,20 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const renderConversationCardBody = (row: MessagesTimelineRow) => (
     <>
       {row.kind === "work" &&
-        row.groupedEntries.map((entry) =>
-          entry.turnFailure ? (
+        row.groupedEntries.map((entry) => {
+          if (!entry.turnFailure) return null;
+          const recoverable = Boolean(entry.turnId) && entry.turnId === recoverableTurnId;
+          const waitingForAccountService = recoverable && accountServiceUnavailable === true;
+          return (
             <div key={entry.id} data-turn-failure={entry.turnId ?? entry.id}>
               <ThreadErrorBanner
                 title={t("chat.error.taskInterrupted")}
-                error={entry.turnFailure.cause}
-                {...(entry.turnId && entry.turnId === recoverableTurnId && onContinueFailedTurn
+                error={
+                  waitingForAccountService
+                    ? MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE
+                    : entry.turnFailure.cause
+                }
+                {...(recoverable && !waitingForAccountService && onContinueFailedTurn
                   ? {
                       onContinue: () => {
                         void onContinueFailedTurn(entry.turnId!);
@@ -1981,8 +1995,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 recoveryDisabled={turnRecoveryDisabled ?? false}
               />
             </div>
-          ) : null,
-        )}
+          );
+        })}
       {row.kind === "work" &&
         row.groupedEntries.map((workEntry) =>
           workEntry.providerHandoff ? (

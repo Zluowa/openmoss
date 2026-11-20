@@ -4,6 +4,7 @@
 // Exports: resolveThreadErrorPresentation, ThreadErrorPresentation
 
 import {
+  MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE,
   MOSS_GATEWAY_SESSION_REJECTED_MESSAGE,
   MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
 } from "@moss/shared/mossManagedSession";
@@ -168,6 +169,7 @@ const KNOWN_FAILURE_SENTENCES = [
   "The model response could not be safely accounted for.",
   "Account quota verification is temporarily unavailable.",
   "Account verification is temporarily unavailable.",
+  MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE,
   MOSS_GATEWAY_SESSION_REJECTED_MESSAGE,
   MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
   "A valid Moss account session is required.",

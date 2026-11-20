@@ -301,6 +301,18 @@ it("shows the real state as a report moves from sent to fixed or to a developer"
       },
     ],
     ["failed", "需要开发者人工处理", { ...base, status: "failed" }],
+    // A developer takes over the report the automatic repair could not finish, then fixes it.
+    ["in-progress", "开发者正在处理", { ...base, status: "running", resolution: "in-progress" }],
+    [
+      "fixed",
+      "已修复",
+      {
+        ...base,
+        status: "pull-request",
+        resolution: "fixed",
+        pullRequestUrl: "https://github.com/Zluowa/moss-synara/pull/755",
+      },
+    ],
   ];
   let current = states[0]![2];
   vi.stubGlobal("nativeApi", {
@@ -323,6 +335,13 @@ it("shows the real state as a report moves from sent to fixed or to a developer"
       .getByTestId("devs-report-card")
       .screenshot({ path: `${SHOT_DIR}/round3-devs-${index + 1}-${label}.png` });
   }
+  await expect
+    .element(screen.getByText("开发者已修复，将在下一版更新中送达。", { exact: true }))
+    .toBeVisible();
+  await expect
+    .element(screen.getByRole("link", { name: "查看修复 PR" }))
+    .toHaveAttribute("href", "https://github.com/Zluowa/moss-synara/pull/755");
+  expect(document.body.textContent).not.toContain("需要开发者人工处理");
   await expect
     .element(screen.getByTestId("devs-report-attachments-status"))
     .toHaveTextContent("已附带 3 个截图或文件");

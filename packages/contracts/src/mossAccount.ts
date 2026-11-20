@@ -77,6 +77,11 @@ export const MossAccountSessionState = Schema.Struct({
   ),
   /** Explicitly selected gateway realm. Omitted by older clients. */
   activeRealm: Schema.optional(MossAccountRealm),
+  /**
+   * "unavailable": signed in, but the account service cannot renew the expired sign-in, so
+   * Moss lanes cannot run until it is back. Absent while it works and from older servers.
+   */
+  accountService: Schema.optional(Schema.Literals(["unavailable"])),
 });
 export type MossAccountSessionState = typeof MossAccountSessionState.Type;
 

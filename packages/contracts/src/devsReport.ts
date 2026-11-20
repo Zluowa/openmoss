@@ -74,6 +74,11 @@ export const DevsReportState = Schema.Struct({
   description: Schema.String,
   message: Schema.String,
   pullRequestUrl: Schema.NullOr(Schema.String),
+  /**
+   * A developer took the report over after the automatic repair: still working on it, or
+   * fixed (the fix ships with the next update). Absent from older queues and servers.
+   */
+  resolution: Schema.optional(Schema.Literals(["in-progress", "fixed"])),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
   /** The developer service has acknowledged the report (absent on older servers). */

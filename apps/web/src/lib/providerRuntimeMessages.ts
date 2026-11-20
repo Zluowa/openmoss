@@ -3,7 +3,10 @@
 // Layer: Web presentation helper
 // Exports: narrow provider runtime-message normalization and localization
 
-import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
+import {
+  MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE,
+  MOSS_MANAGED_SESSION_RENEWED_MESSAGE,
+} from "@moss/shared/mossManagedSession";
 import type { MossLocaleCode } from "../appSettings";
 
 export const PERSONAL_CODEX_USAGE_LIMIT_MESSAGE =
@@ -135,6 +138,7 @@ const ZH_CN_EXACT_MESSAGES: Readonly<Record<string, string>> = {
   "Account verification is temporarily unavailable.": "暂时无法验证账号，请稍后重试。",
   "The Moss account session is invalid or expired.": "Moss 登录已失效，请重新登录。",
   [MOSS_MANAGED_SESSION_RENEWED_MESSAGE]: "Moss 已在任务进行中更新登录状态，请重新发送消息继续。",
+  [MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE]: "Moss 账号服务暂时不可用，恢复后会自动继续。",
   "A valid Moss account session is required.": "需要有效的 Moss 登录，请重新登录。",
   "This request id is already in use.": "这个请求 ID 正在使用中，请重试。",
   "An identical request is still running. Retry when it finishes.":

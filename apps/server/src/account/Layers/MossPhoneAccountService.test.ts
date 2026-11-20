@@ -2114,6 +2114,56 @@ describe("MossPhoneAccountService", () => {
     expect(dependencies.getActiveManagedAccessToken()).toBe("still-valid-access");
   });
 
+  it("says the account service is unavailable while it cannot renew an expired sign-in, and clears it once it can", async () => {
+    let now = 1_800_000_000_000;
+    const secrets = makeSecretStore();
+    const dependencies = makePhoneServiceDependencies(secrets.service);
+    const initialAuth = availableAuth(
+      makeClient({
+        sendPhoneOtp: async () => ({ accepted: true }),
+        verifyPhoneOtp: async () =>
+          phoneSession({ accessToken: "expiring-access", expiresAt: now + 1_000 }),
+      }),
+    );
+    await Effect.gen(function* () {
+      const service = yield* makeMossPhoneAccountService({ auth: initialAuth, now: () => now });
+      const challenge = yield* service.startPhoneLogin({ phoneNumber: "13800138000" });
+      yield* service.verifyPhoneLogin({
+        challengeId: challenge.challengeId,
+        phoneNumber: challenge.phoneNumber,
+        code: "123456",
+      });
+    }).pipe(Effect.provide(dependencies.layer), Effect.runPromise);
+
+    // MemFire answers 503 to everything while its subscription is lapsed.
+    let serviceDown = true;
+    const refresh = vi.fn(async () => {
+      if (serviceDown)
+        throw new SupabaseMossAuthError({
+          operation: "refresh",
+          code: "http_503",
+          status: 503,
+          retryable: true,
+          message: "service unavailable fixture",
+        });
+      return phoneSession({ accessToken: "renewed-access", expiresAt: now + 3_600_000 });
+    });
+    const service = await makeMossPhoneAccountService({
+      auth: availableAuth(makeClient({ refresh, getUser: async () => phoneSession({}).user })),
+      now: () => now,
+    }).pipe(Effect.provide(dependencies.layer), Effect.runPromise);
+
+    now += 2_000;
+    const down = await service.getSession().pipe(Effect.runPromise);
+    expect(down).toMatchObject({ authenticated: true, accountService: "unavailable" });
+    expect(dependencies.getActiveManagedAccessToken()).not.toBe("expiring-access");
+
+    serviceDown = false;
+    const back = await service.getSession().pipe(Effect.runPromise);
+    expect(back.authenticated).toBe(true);
+    expect(back).not.toHaveProperty("accountService");
+  });
+
   it("fails closed after clearing a malformed persisted phone token envelope", async () => {
     const secrets = makeSecretStore();
     secrets.values.set("moss.phone.session", new TextEncoder().encode("{not-json"));

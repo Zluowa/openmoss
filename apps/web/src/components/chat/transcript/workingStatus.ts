@@ -37,6 +37,8 @@ export function thinkingStatusKey(elapsedSeconds: number): TranslationKey {
 export function workingStatusKey(label: string, elapsedSeconds: number): TranslationKey | null {
   if (label === "Thinking") return thinkingStatusKey(elapsedSeconds);
   if (label === "Loading") return "transcript.working.sending";
+  if (label === "Waiting for the Moss account service")
+    return "transcript.working.accountServiceUnavailable";
   return null;
 }
 

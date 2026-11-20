@@ -97,6 +97,10 @@ const EN_TRANSLATIONS = {
   "devs.attachmentsPending": "Screenshots and files sent: {delivered} of {count}",
   "devs.attachmentsMissed": "{count} screenshot(s) or file(s) didn't reach the developers",
   "devs.viewPr": "View fix PR",
+  "devs.fixed": "Fixed",
+  "devs.fixedDetail": "A developer fixed this. The fix arrives with the next Moss update.",
+  "devs.inProgress": "A developer is on it",
+  "devs.inProgressDetail": "A developer took this report over and is fixing it.",
   "devs.missingDescription": "Describe the problem after @devs.",
   "devs.composerHint":
     "Describe the problem after @devs. You'll see the report before anything is sent.",
@@ -133,6 +137,8 @@ const EN_TRANSLATIONS = {
   "transcript.silent.keepWaiting": "Keep waiting",
   "transcript.silent.stopAndRetry": "Stop and retry",
   "transcript.working.starting": "Starting {provider}…",
+  "transcript.working.accountServiceUnavailable":
+    "The Moss account service is temporarily unavailable. Moss continues automatically once it is back.",
   "transcript.working.startingSlowly":
     "{provider} is taking longer than usual to start. Moss keeps waiting (up to about two minutes) and sends your message as soon as it's ready.",
   "transcript.readAloud.start": "Read aloud",
@@ -5121,6 +5127,10 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "devs.attachmentsPending": "截图和文件已送达 {delivered}/{count}",
   "devs.attachmentsMissed": "有 {count} 个截图或文件没能送达开发者",
   "devs.viewPr": "查看修复 PR",
+  "devs.fixed": "已修复",
+  "devs.fixedDetail": "开发者已修复，将在下一版更新中送达。",
+  "devs.inProgress": "开发者正在处理",
+  "devs.inProgressDetail": "开发者已接手这份报告，正在修复。",
   "devs.missingDescription": "请在 @devs 后说明遇到的问题。",
   "devs.composerHint": "在 @devs 后写下遇到的问题。发送前会先给你确认报告内容。",
   "devs.unsupported": "当前服务器尚不支持开发者报告，请更新 Moss。",
@@ -5155,6 +5165,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "transcript.silent.keepWaiting": "继续等待",
   "transcript.silent.stopAndRetry": "停止并重试",
   "transcript.working.starting": "正在启动 {provider}…",
+  "transcript.working.accountServiceUnavailable": "Moss 账号服务暂时不可用，恢复后会自动继续。",
   "transcript.working.startingSlowly":
     "{provider} 启动得比平常慢。Moss 会继续等待（最多约两分钟），准备好后马上发出你的消息。",
   "transcript.readAloud.start": "朗读",
