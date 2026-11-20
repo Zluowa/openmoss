@@ -32,7 +32,7 @@ import { localizeProviderRuntimeMessage } from "../../lib/providerRuntimeMessage
 import type { MossLocaleCode } from "../../appSettings";
 import type { ModelReroutedReason } from "../../workLog";
 import type { TaskListTaskSnapshot, WorkLogGeneratedImage } from "../../workLog";
-import { isCodexActivityStatusWorkEntry } from "./agentActivity.logic";
+import { isCodexActivityStatusWorkEntry, isWorkRunNarrationEntry } from "./agentActivity.logic";
 import {
   isSummarizableToolCallEntry,
   MIN_COLLAPSIBLE_TOOL_GROUP_SIZE,
@@ -326,11 +326,16 @@ export function chunkCollapsedTurnItems(
 
   const flushPendingRun = () => {
     if (pendingRun.length === 0) return;
+    // Narration travels with the calls and is a row like them, but a run of
+    // narration alone is not a run of work.
     const pendingRowCount = pendingRun.reduce(
       (total, item) => total + workEntryRowCount(item.entry),
       0,
     );
-    if (pendingRowCount >= MIN_COLLAPSIBLE_TOOL_GROUP_SIZE) {
+    if (
+      pendingRowCount >= MIN_COLLAPSIBLE_TOOL_GROUP_SIZE &&
+      pendingRun.some((item) => !isWorkRunNarrationEntry(item.entry))
+    ) {
       chunks.push({
         kind: "tool-group",
         id: pendingRun[0]!.id,
@@ -345,7 +350,10 @@ export function chunkCollapsedTurnItems(
   };
 
   for (const item of items) {
-    if (item.kind === "work" && isSummarizableToolCallEntry(item.entry)) {
+    if (
+      item.kind === "work" &&
+      (isWorkRunNarrationEntry(item.entry) || isSummarizableToolCallEntry(item.entry))
+    ) {
       pendingRun.push(item);
       continue;
     }

@@ -196,3 +196,37 @@ describe("a read is only a read when nothing else runs", () => {
     expect(resolveCommandVisualKind("rg -n foo src")).toBe("search");
   });
 });
+
+// The owner's 2026-11-21 Codex turn: every row read "Ran $env:NO_PROXY=…" because
+// the proxy and PATH lines came first. The row names the command that does the
+// work; the details below it still hold the whole line.
+describe("command rows behind Windows setup lines", () => {
+  // Codex stores the -Command text POSIX-quoted, backslashes doubled.
+  const psLine = (script: string) =>
+    `${POWERSHELL_EXE} -Command "${script.replaceAll("\\", "\\\\")}"`;
+  const PROXY_SETUP =
+    "$env:NO_PROXY='127.0.0.1,localhost'; Remove-Item Env:HTTP_PROXY,Env:HTTPS_PROXY,Env:ALL_PROXY -ErrorAction SilentlyContinue";
+  const BUN_PATH = "$env:PATH='E:\\DevEnvs\\moss-synara\\bun-1.4.4\\bun-windows-x64;'+$env:PATH";
+
+  it("skips proxy, PATH and folder setup and names the program", () => {
+    expect(
+      deriveLiteralCommand(
+        psLine(
+          `${PROXY_SETUP}; ${BUN_PATH}; Set-Location D:/work; & 'E:\\DevEnvs\\moss-synara\\bun-1.4.4\\bun-windows-x64\\bun.exe' run test apps/server/src/wsRpc.test.ts`,
+        ),
+      ),
+    ).toBe("bun run test apps/server/src/wsRpc.test.ts");
+    expect(deriveLiteralCommand("set NO_PROXY=localhost && npm test")).toBe("npm test");
+  });
+
+  it("reads a search behind setup lines as a search", () => {
+    const command = psLine(`${PROXY_SETUP}; rg -n serverGetSettings apps/server/src`);
+    expect(resolveCommandVisualKind(command)).toBe("search");
+    expect(deriveLiteralCommand(command)).toBe("rg -n serverGetSettings apps/server/src");
+  });
+
+  it("keeps a line that is only setup, and script blocks after the call operator", () => {
+    expect(deriveLiteralCommand("$env:NO_PROXY='localhost'")).toBe("$env:NO_PROXY='localhost'");
+    expect(deriveLiteralCommand("& { Get-Date }")).toBe("& { Get-Date }");
+  });
+});

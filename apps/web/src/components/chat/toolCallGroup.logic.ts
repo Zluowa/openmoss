@@ -17,7 +17,7 @@ import {
   extractWebFetchUrl,
   resolveCommandVisualKind,
 } from "../../lib/toolCallLabel";
-import { isReasoningUpdateWorkEntry } from "./agentActivity.logic";
+import { isReasoningUpdateWorkEntry, isWorkRunNarrationEntry } from "./agentActivity.logic";
 
 // A single tool row collapses into nothing useful; only runs of 2+ rows fold.
 export const MIN_COLLAPSIBLE_TOOL_GROUP_SIZE = 2;
@@ -147,7 +147,10 @@ export function isSummarizableToolCallEntry(entry: WorkLogEntry): boolean {
       (entry.tone === "error" &&
         entry.toolStatus === "failed" &&
         entry.activityKind?.startsWith("tool.") === true)) &&
-    !(entry.toolCallId && isReasoningUpdateWorkEntry(entry)) &&
+    // Narration (reasoning, tool-use summaries) rides along with a run but is
+    // never a call.
+    !isReasoningUpdateWorkEntry(entry) &&
+    !isWorkRunNarrationEntry(entry) &&
     !entry.mossThreadCreation &&
     !entry.automation &&
     !entry.subagentAction &&
@@ -349,8 +352,12 @@ export function summarizeToolCallGroup(
   entries: ReadonlyArray<WorkLogEntry>,
 ): ToolCallGroupSummary | null {
   const summarizable = entries.filter(isSummarizableToolCallEntry);
-  const rowCount = summarizable.reduce((total, entry) => total + workEntryRowCount(entry), 0);
-  if (rowCount < MIN_COLLAPSIBLE_TOOL_GROUP_SIZE) {
+  // Reasoning between the calls is a row of the run (it folds with them) but
+  // never a counted call.
+  const rowCount =
+    summarizable.reduce((total, entry) => total + workEntryRowCount(entry), 0) +
+    entries.filter(isWorkRunNarrationEntry).length;
+  if (summarizable.length === 0 || rowCount < MIN_COLLAPSIBLE_TOOL_GROUP_SIZE) {
     return null;
   }
 

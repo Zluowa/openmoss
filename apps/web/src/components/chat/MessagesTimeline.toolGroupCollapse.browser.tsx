@@ -221,9 +221,11 @@ describe("MessagesTimeline tool group collapse", () => {
     expect(isVisibleOutsideClosedDisclosure("Amber")).toBe(true);
   });
 
-  // Ported from Synara #2009: narration is prose, never a page to open.
+  // Narration between calls folds with them (Synara #2228, every provider in
+  // Moss) and reads as one quiet line that opens in place, never a page and
+  // never stacked bold Markdown (owner, 2026-11-21).
   it.each(["reasoning", "tool summary"] as const)(
-    "keeps %s between tool runs as full Markdown transcript text",
+    "keeps %s inside its run as one quiet line that opens in place",
     async (kind) => {
       const host = createTimelineHost();
       const onOpenAgentActivity = vi.fn();
@@ -235,9 +237,10 @@ describe("MessagesTimeline tool group collapse", () => {
           id: "reasoning-row",
           createdAt: "2026-03-17T19:12:28.000Z",
           label: kind === "reasoning" ? "Reasoning trace" : "Tool summary",
-          tone: kind === "reasoning" ? "tool" : "info",
+          // As the work log hands both over (deriveAgentActivityTimelineState).
+          tone: "tool",
           ...(kind === "reasoning"
-            ? { toolCallId: "reasoning-item", toolStatus: "running" as const }
+            ? { toolCallId: "reasoning-item", toolStatus: "completed" as const }
             : { activityKind: "tool.summary" }),
           detail: "First inspect the `provider` boundary.\n\nThen verify cancellation.",
         },
@@ -248,6 +251,7 @@ describe("MessagesTimeline tool group collapse", () => {
             ...SETTLED_COMMANDS.map((command, index) => commandEntry(`before-${index}`, command)),
             reasoning,
             ...LIVE_COMMANDS.map((command, index) => commandEntry(`after-${index}`, command)),
+            assistantEntry("after-run", "Both checks pass.", false),
           ]}
           onOpenAgentActivity={onOpenAgentActivity}
         />,
@@ -255,18 +259,25 @@ describe("MessagesTimeline tool group collapse", () => {
       );
 
       try {
-        await expect.poll(() => findSummaryTrigger("Ran 4 commands") !== null).toBe(true);
-        await expectLiveRunFoldedToNewestCall();
-        expect(isVisibleOutsideClosedDisclosure("First inspect the")).toBe(true);
-        expect(isVisibleOutsideClosedDisclosure("Then verify cancellation.")).toBe(true);
-        const prose = host.querySelector<HTMLElement>("[data-work-entry-prose='true']");
-        expect(prose).not.toBeNull();
-        expect(prose!.querySelectorAll("p")).toHaveLength(2);
-        expect(prose!.querySelector("code")?.textContent).toBe("provider");
-        expect(prose!.textContent).not.toContain("`");
-        expect(prose!.closest("button")).toBeNull();
-        expect(prose!.closest("[data-tool-group-live='true']")).toBeNull();
-        expect(prose!.querySelector("[data-work-entry-icon='true']")).toBeNull();
+        // One run: the thought no longer splits the six calls in two.
+        await expect.poll(() => findSummaryTrigger("Ran 6 commands") !== null).toBe(true);
+        expect(document.body.textContent).not.toContain("First inspect the");
+        findSummaryTrigger("Ran 6 commands")!.click();
+        await expect.poll(() => isVisibleOutsideClosedDisclosure("First inspect the")).toBe(true);
+        const line = host.querySelector<HTMLElement>("[data-work-entry-narration='true']")!;
+        expect(line.textContent).toBe("First inspect the provider boundary.");
+        expect(line.closest("[data-work-entry-prose]")).toBeNull();
+        expect(host.querySelector("[data-work-entry-prose]")).toBeNull();
+        expect(Number(getComputedStyle(line).fontWeight)).toBeLessThan(600);
+        expect(document.body.textContent).not.toContain("Then verify cancellation.");
+
+        // The rest of the thought opens under its line, in the chat.
+        const row = line.closest<HTMLElement>("[data-tool-detail-disclosure]")!;
+        row.querySelector<HTMLElement>("[data-tool-detail-trigger]")!.click();
+        await expect
+          .poll(() => isVisibleOutsideClosedDisclosure("Then verify cancellation."))
+          .toBe(true);
+        expect(row.querySelector("[data-work-entry-narration-body] code")).toBeNull();
         expect(onOpenAgentActivity).not.toHaveBeenCalled();
       } finally {
         await screen.unmount();

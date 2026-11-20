@@ -199,6 +199,14 @@ at Synara 1.6.1 (commit 68e4589be), with their tests. Moss keeps its own Chinese
 tool labels and icons, the wrap-up box and the connector widget block, and adds the
 Windows PowerShell and `cmd` launcher unwrapping.
 
+Reasoning that travels inside a run of calls without counting as one follows Synara
+PR #2228 (commit 2f60c4b50), which applies it to Codex; Moss applies it to every
+provider and to Claude's tool-use summaries. Reasoning as one quiet line with a brain
+glyph in the row's icon column follows T3 Code's work log
+(https://github.com/pingdotgg/t3code, MIT, `TimelineWorkEntryRow.logic.ts` and
+`TimelineWorkGroupRows.tsx` at 0bc9b57b93), in Moss's own code: Synara #2009's
+Markdown prose rows for reasoning are replaced.
+
 ## Synara Activity reply preview (absorbed)
 
 The latest reply preview under each Activity row's title is adapted from Synara PR #2195

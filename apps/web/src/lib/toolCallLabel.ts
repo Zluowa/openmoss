@@ -1639,7 +1639,21 @@ export function deriveInlineCommandCall(rawCommand: string): string {
 // quoting stay verbatim, unlike `deriveInlineCommandCall`, which keeps only the
 // first pipeline stage for classification.
 export function deriveLiteralCommand(rawCommand: string): string {
-  return deriveCommandScript(rawCommand).replace(/\s+/g, " ").trim();
+  return shortenPowerShellCallOperator(deriveCommandScript(rawCommand).replace(/\s+/g, " ").trim());
+}
+
+// PowerShell runs a program by path through its call operator
+// (`& 'E:	oolsunun.exe' run test`); the row names the program the way a
+// person types it (`bun run test`). The full line stays in the details.
+function shortenPowerShellCallOperator(command: string): string {
+  const match = /^&\s*(?:'([^']+)'|"([^"]+)"|(\S+))(?=\s|$)/u.exec(command);
+  const program = match?.[1] ?? match?.[2] ?? match?.[3];
+  if (!match || !program || program.startsWith("{") || program.startsWith("$")) return command;
+  const name = program
+    .split(/[\\/]/u)
+    .at(-1)!
+    .replace(/\.(?:exe|cmd|bat|ps1)$/iu, "");
+  return name ? `${name}${command.slice(match[0].length)}` : command;
 }
 
 // The unwrapped command with its line breaks kept: line breaks separate
@@ -2192,6 +2206,14 @@ function hasInlineScriptFlag(args: string): boolean {
 
 function searchSummary(args: string, locale: MossLocaleCode): string {
   const { pattern, path } = extractSearchPatternAndPath(args, locale);
+  return formatSearchTarget(pattern, path, locale);
+}
+
+function formatSearchTarget(
+  pattern: string | null,
+  path: string | null,
+  locale: MossLocaleCode,
+): string {
   if (locale === "zh-CN") {
     if (pattern && path) {
       return `${pattern}（${path}）`;
@@ -2208,6 +2230,20 @@ function searchSummary(args: string, locale: MossLocaleCode): string {
     return `in ${path}`;
   }
   return fixedCommandTarget("files", locale);
+}
+
+/**
+ * The object of a search row built from a search tool's own arguments (Claude
+ * `Grep`/`Glob`, ACP `search`), worded exactly like a searched shell command,
+ * so `rg` and `Grep` read the same: "for foo in src" / "foo（src）".
+ */
+export function describeSearchToolTarget(
+  input: { pattern: string | null; path: string | null },
+  locale: MossLocaleCode = "en",
+): string | null {
+  const pattern = input.pattern ? normalizeSearchPatternToken(input.pattern) : null;
+  const path = input.path ? normalizeSearchPathToken(input.path, locale) : null;
+  return pattern || path ? formatSearchTarget(pattern, path, locale) : null;
 }
 
 function extractSearchPatternAndPath(
@@ -2366,9 +2402,10 @@ function unwrapShellCommandIfPresent(rawCommand: string): string {
     ) {
       value = value.slice(1, -1).trim();
     }
-    value = stripLeadingShellPreambles(value);
     break;
   }
+  // Setup lines (`cd`, env and proxy variables) never name what ran.
+  value = stripLeadingShellPreambles(value);
 
   const pipeIndex = value.indexOf("|");
   if (pipeIndex > 0) {
@@ -2380,7 +2417,7 @@ function unwrapShellCommandIfPresent(rawCommand: string): string {
 
 function stripLeadingShellPreambles(value: string): string {
   let current = value.trim();
-  for (let attempts = 0; attempts < 4; attempts += 1) {
+  for (let attempts = 0; attempts < 8; attempts += 1) {
     const chain = findShellChain(current);
     if (!chain) {
       return current;
@@ -2415,7 +2452,23 @@ function isShellSetupPreamble(value: string): boolean {
   ) {
     return true;
   }
-  return false;
+  return isWindowsShellSetupPreamble(normalized);
+}
+
+// The Windows lines an agent puts before the real command: environment and
+// proxy variables, the working folder, error and output settings
+// (`$env:NO_PROXY='…'; Remove-Item Env:HTTP_PROXY; & bun …`, `set X=1 && …`).
+function isWindowsShellSetupPreamble(normalized: string): boolean {
+  return (
+    /^\$env:[A-Za-z_][\w]*\s*=/iu.test(normalized) ||
+    /^(?:remove-item|ri|del|set-item|si)\s+(?:-path\s+|-literalpath\s+)?env:/iu.test(normalized) ||
+    /^(?:set-location|push-location|sl|pushd|chdir)\s+/iu.test(normalized) ||
+    /^\$(?:ErrorActionPreference|ProgressPreference|OutputEncoding|PSNativeCommandUseErrorActionPreference)\s*=/iu.test(
+      normalized,
+    ) ||
+    /^\[(?:System\.)?Console\]::(?:Output|Input)Encoding\s*=/iu.test(normalized) ||
+    /^(?:chcp\s+\d+|set\s+"?[A-Za-z_][\w]*=)/iu.test(normalized)
+  );
 }
 
 function findShellChain(value: string): { operatorStart: number; commandStart: number } | null {

@@ -46,6 +46,76 @@ export function isReasoningUpdateWorkEntry(
   );
 }
 
+// Narration an agent writes between its tool calls: a reasoning item (Codex,
+// Claude, OpenCode, Antigravity all arrive as one "Reasoning trace" shape) or a
+// tool-use summary. It travels inside the run of calls around it, in order,
+// without counting as a call, so one run never splits into single rows
+// (upstream #2228, there for Codex only; Moss applies it to every provider).
+export function isWorkRunNarrationEntry(
+  entry: Pick<WorkLogEntry, "label" | "toolTitle" | "activityKind" | "tone">,
+): boolean {
+  return (
+    (isReasoningUpdateWorkEntry(entry) && entry.tone !== "error") ||
+    entry.activityKind === "tool.summary"
+  );
+}
+
+// A Markdown heading or a paragraph that is only bold text: how Codex, Claude
+// and OpenCode mark the step a thought is about ("**Running the tests**").
+function narrationHeading(paragraph: string): string | null {
+  const heading =
+    /^#{1,6}\s+(.+)$/u.exec(paragraph) ?? /^(?:\*\*|__)(.+?)(?:\*\*|__)$/u.exec(paragraph);
+  return heading?.[1]?.trim() || null;
+}
+
+function plainNarrationText(value: string): string {
+  return value
+    .replace(/^\s*(?:[-*+]|\d+[.)])\s+/gmu, "")
+    .replace(/(\*\*|__|`)/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * The one quiet line a narration row shows: the newest step heading the agent
+ * wrote, or, for prose without headings (Claude thinking), its opening
+ * paragraph. The full text stays one click away in the activity page.
+ */
+function narrationSourceParagraphs(entry: Pick<WorkLogEntry, "detail" | "preview">): string[] {
+  return (entry.detail ?? entry.preview ?? "")
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .split(/\r?\n\s*\r?\n/u)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+}
+
+/**
+ * The narration's whole text as plain paragraphs (heading and emphasis markers
+ * removed), for the row's details when it holds more than its line.
+ */
+export function formatWorkRunNarrationParagraphs(
+  entry: Pick<WorkLogEntry, "detail" | "preview">,
+): string[] {
+  return narrationSourceParagraphs(entry)
+    .map((paragraph) => plainNarrationText(narrationHeading(paragraph) ?? paragraph))
+    .filter((paragraph) => paragraph.length > 0);
+}
+
+export function formatWorkRunNarrationLine(
+  entry: Pick<WorkLogEntry, "detail" | "preview" | "label">,
+): string | null {
+  const paragraphs = narrationSourceParagraphs(entry);
+  const headings = paragraphs.flatMap((paragraph) => {
+    const heading = narrationHeading(paragraph.split(/\r?\n/u, 1)[0]!.trim());
+    return heading ? [heading] : [];
+  });
+  const line = plainNarrationText(headings.at(-1) ?? paragraphs[0] ?? "");
+  const withoutPrefix = line
+    .replace(/^reasoning(?:\s+(?:update|trace|summary))?\b[\s:.-]*/iu, "")
+    .trim();
+  return withoutPrefix || null;
+}
+
 export function isCodexActivityStatusWorkEntry(entry: WorkLogEntry): boolean {
   if (isReasoningUpdateWorkEntry(entry) || entry.activityKind === "tool.summary") {
     return true;
@@ -267,7 +337,11 @@ export function deriveAgentActivityTimelineState(
           preview: reasoningPreview,
           tone: "tool" as const,
         }
-      : entry;
+      : entry.activityKind === "tool.summary"
+        ? // Claude's tool-use summary is narration like a reasoning item: it
+          // rides in the run of calls, not in a status block under the reply.
+          { ...entry, tone: "tool" as const }
+        : entry;
     timelineWorkEntries.push(displayEntry);
     if (isAgentActivityWorkEntry(entry)) {
       detailById.set(entry.id, buildAgentActivityDetail(entry.id, displayEntry, [entry]));

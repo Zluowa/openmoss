@@ -154,6 +154,18 @@ async function settle(frames = 24) {
   for (let index = 0; index < frames; index += 1) await nextFrame();
 }
 
+// The turn's runs of calls fold behind one line each (reasoning included);
+// open them all, as a person reading the whole turn does.
+async function openToolGroups() {
+  for (const trigger of host().querySelectorAll<HTMLElement>(
+    "[data-tool-group-disclosure] button[aria-expanded='false']",
+  )) {
+    trigger.click();
+    await expectNoOverlapAcrossFrames(12);
+  }
+  await settle();
+}
+
 function visibleText(): string {
   return host().innerText;
 }
@@ -162,12 +174,27 @@ function shot(name: string) {
   return page.screenshot({ path: `${SHOTS}/${theme}-${name}.png` });
 }
 
+// The part of a box a person can see: a row inside a disclosure that is still
+// opening is clipped by it, not drawn over the rows below.
+function visibleRect(element: HTMLElement): { top: number; bottom: number; width: number } {
+  const rect = element.getBoundingClientRect();
+  let top = rect.top;
+  let bottom = rect.bottom;
+  for (let node = element.parentElement; node && node !== host(); node = node.parentElement) {
+    if (getComputedStyle(node).overflowY === "visible") continue;
+    const clip = node.getBoundingClientRect();
+    top = Math.max(top, clip.top);
+    bottom = Math.min(bottom, clip.bottom);
+  }
+  return { top, bottom, width: rect.width };
+}
+
 // Every box a person reads as one row: timeline rows, and inside an open turn
-// each work row, prose block, group line and image. None may intersect another.
+// each work row, thought line, group line and image. None may intersect another.
 function deepestOverlap(): { px: number; pair: string } {
   const selectors = [
     "[data-timeline-row-kind]",
-    "[data-work-entry-prose]",
+    "[data-work-entry-narration]",
     "[data-tool-detail-disclosure]",
     "[data-tool-group-disclosure]",
     "[data-testid='generated-image-preview']",
@@ -177,8 +204,8 @@ function deepestOverlap(): { px: number; pair: string } {
   for (const selector of selectors) {
     const boxes = [...host().querySelectorAll<HTMLElement>(selector)]
       .filter((element) => element.closest("[inert]") === null)
-      .map((element) => ({ element, rect: element.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.height > 0 && rect.width > 0)
+      .map((element) => ({ element, rect: visibleRect(element) }))
+      .filter(({ rect }) => rect.bottom - rect.top > 0 && rect.width > 0)
       .toSorted((left, right) => left.rect.top - right.rect.top);
     for (let index = 1; index < boxes.length; index += 1) {
       const previous = boxes[index - 1]!;
@@ -273,8 +300,32 @@ describe.each(["light", "dark"] as const)("the owner's Codex turn (%s)", (mode) 
     expect(visibleText()).toContain("调整位置");
     await shot("1-folded-with-wrap-up-box");
 
-    // Unfolded: every row one line, nothing opened by itself.
+    // Unfolded: each run of calls is one line ("运行了 9 条命令…"), not one
+    // row per call with a bold heading between (owner, 2026-11-21).
     turnHeaderTrigger().click();
+    await expect
+      .poll(() =>
+        [...host().querySelectorAll<HTMLElement>("[data-tool-group-disclosure]")].map((element) =>
+          element.innerText.trim(),
+        ),
+      )
+      .toEqual([
+        // The agent's own messages between them are the only boundaries.
+        "读取了 1 个文件，1 个失败",
+        "运行了 9 条命令、搜索了 1 次代码、使用了 1 个工具，2 个失败",
+        "运行了 2 条命令、使用了 2 个工具",
+      ]);
+    await settle();
+    // No call is listed yet; only a thought that stands between two messages.
+    expect(
+      [...host().querySelectorAll<HTMLElement>("[data-tool-detail-header]")].filter(
+        (header) => header.querySelector("[data-work-entry-narration]") === null,
+      ),
+    ).toEqual([]);
+    await shot("2a-unfolded-runs");
+
+    // Runs opened: every row one line, nothing opened by itself.
+    await openToolGroups();
     await expect
       .poll(() => host().querySelectorAll("[data-tool-detail-header]").length)
       .toBeGreaterThan(5);
@@ -284,14 +335,17 @@ describe.each(["light", "dark"] as const)("the owner's Codex turn (%s)", (mode) 
     const text = visibleText();
     expect(text).not.toContain("powershell.exe");
     expect(text).not.toContain("WindowsPowerShell");
-    expect(text).toContain("已读取 imagegen/SKILL.md");
+    expect(text).toContain("已读取 SKILL.md");
     expect(text).toContain("Get-ChildItem -Force outputs | Select-Object Name,Length");
     expect(text).toContain("失败 · 退出码 1");
-    // Reasoning is prose, not a clickable row.
-    const prose = [...host().querySelectorAll<HTMLElement>("[data-work-entry-prose]")];
+    // Reasoning is one quiet line per thought, not a clickable page link.
+    const prose = [...host().querySelectorAll<HTMLElement>("[data-work-entry-narration]")];
     expect(prose.map((element) => element.innerText.trim())).toEqual(
       expect.arrayContaining(["Preparing original character prompt", "Reading imagegen skill"]),
     );
+    for (const line of prose) {
+      expect(Number(getComputedStyle(line).fontWeight)).toBeLessThan(600);
+    }
     await expectNoOverlapAcrossFrames();
     await shot("2-unfolded");
 
@@ -332,12 +386,12 @@ describe.each(["light", "dark"] as const)("the owner's Codex turn (%s)", (mode) 
     await shot("3-one-command-open");
 
     // Open and close several rows in a row, then fold and unfold the turn.
-    for (const label of ["已读取 imagegen/SKILL.md", "Get-ChildItem -Force outputs"]) {
+    for (const label of ["已读取 SKILL.md", "Get-ChildItem -Force outputs"]) {
       await scrollTurnIntoView(label);
       commandRowTrigger(label).click();
       await expectNoOverlapAcrossFrames(12);
     }
-    for (const label of ["已读取 imagegen/SKILL.md", "Get-ChildItem -Force outputs"]) {
+    for (const label of ["已读取 SKILL.md", "Get-ChildItem -Force outputs"]) {
       await scrollTurnIntoView(label);
       commandRowTrigger(label).click();
       await expectNoOverlapAcrossFrames(12);
@@ -466,6 +520,7 @@ describe("the owner's Codex turn between other turns", () => {
     await scrollToElement(await header(), 40);
     (await header()).click();
     await expectNoOverlapAcrossFrames();
+    await openToolGroups();
     for (const trigger of [
       ...host().querySelectorAll<HTMLElement>("[data-tool-detail-trigger]"),
     ].slice(0, 4)) {
