@@ -37,6 +37,7 @@ const stats: ProfileStats = {
     totalPromptsSent: 4_555,
     totalThreads: 89,
     promptsToday: 8,
+    longestTaskMs: 2_520_000,
     heatmapMetric: "prompts",
     heatmap: heatmapCells(),
   },

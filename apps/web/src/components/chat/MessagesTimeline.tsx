@@ -3028,7 +3028,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   workEntry={item.entry}
                   chatMetaFontSizePx={appTypographyScale.chatMetaPx}
                   textFontSizePx={normalizedChatFontSizePx}
-                  mutedProse
                   density={prefersCompactWorkEntryRow(item.entry) ? "compact" : "default"}
                   markdownCwd={markdownCwd}
                   onImageExpand={onImageExpand}

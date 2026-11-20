@@ -110,6 +110,8 @@ vi.mock("~/localization", () => {
     "settings.history.unavailable": "Computer History is unavailable on this platform.",
     "settings.history.windowsMetadata":
       "Windows records application names only. Browser activity and window titles are excluded.",
+    "settings.history.windowsActivity":
+      "Windows keeps only a short activity summary read with Windows OCR on this computer.",
     "settings.history.state.off": "Off",
     "settings.history.state.on": "On",
     "settings.history.state.paused": "Paused",
@@ -179,6 +181,8 @@ vi.mock("~/localization", () => {
     "settings.history.finderUnavailable": "Finder unavailable.",
     "settings.history.revealFinder": "Reveal in Finder",
     "settings.history.revealFinderFor": "Reveal {title} in Finder",
+    "settings.history.revealExplorer": "Show in File Explorer",
+    "settings.history.revealExplorerFor": "Show {title} in File Explorer",
     "settings.history.deleteTooltip": "Delete",
     "settings.history.deleteItem": "Delete {title}",
     "settings.history.confirmDeleteItem": "Confirm delete {title}",
@@ -481,6 +485,32 @@ describe("ComputerHistorySettingsPanel", () => {
     await page.getByRole("button", { name: "Turn on" }).click();
     await expect.element(page.getByRole("dialog", { name: "You're in control." })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
+    await screen.unmount();
+  });
+
+  it("explains Windows OCR activity summaries before consent", async () => {
+    configureApi(
+      makeState({
+        captureCapability: {
+          mode: "interaction_activity",
+          interactionEvents: false,
+          activitySummaries: true,
+          detail:
+            "Windows samples the front window in memory, reads it with Windows OCR and keeps only an abstract activity summary on this computer.",
+        },
+      }),
+    );
+    const screen = await render(<ComputerHistorySettingsPanel />);
+    await expect
+      .element(
+        page.getByText(
+          "Windows keeps only a short activity summary read with Windows OCR on this computer.",
+        ),
+      )
+      .toBeVisible();
+    await expect
+      .element(page.getByText("Windows records application names only.", { exact: false }))
+      .not.toBeInTheDocument();
     await screen.unmount();
   });
 

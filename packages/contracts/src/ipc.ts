@@ -650,6 +650,13 @@ import type {
   ProviderSubmitPermissionActionResult,
 } from "./provider";
 import type {
+  MossProfileCheckHandleInput,
+  MossProfileCheckHandleResult,
+  MossProfileState,
+  MossProfileUpdateInput,
+  MossProfileUploadAvatarInput,
+} from "./profile";
+import type {
   StatsGetProfileStatsInput,
   StatsGetProfileStatsResult,
   StatsGetProfileTokenStatsInput,
@@ -2253,6 +2260,12 @@ export interface NativeApi {
     getUsageAnalytics: (
       input: StatsGetUsageAnalyticsInput,
     ) => Promise<StatsGetUsageAnalyticsResult>;
+  };
+  profile: {
+    get: () => Promise<MossProfileState>;
+    update: (input: MossProfileUpdateInput) => Promise<MossProfileState>;
+    checkHandle: (input: MossProfileCheckHandleInput) => Promise<MossProfileCheckHandleResult>;
+    uploadAvatar: (input: MossProfileUploadAvatarInput) => Promise<MossProfileState>;
   };
   computerHistory?: {
     getState: (input?: ComputerHistoryGetStateInput) => Promise<ComputerHistoryState>;

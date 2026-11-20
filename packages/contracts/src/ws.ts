@@ -306,6 +306,11 @@ import {
   StatsGetUsageAnalyticsInput,
 } from "./stats";
 import {
+  MossProfileCheckHandleInput,
+  MossProfileUpdateInput,
+  MossProfileUploadAvatarInput,
+} from "./profile";
+import {
   ProviderAddMarketplaceInput,
   ProviderListAppsInput,
   ProviderReadAppToolsInput,
@@ -523,6 +528,10 @@ export const WS_METHODS = {
   statsGetProfileTokenStats: "stats.getProfileTokenStats",
   statsGetRecap: "stats.getRecap",
   statsGetUsageAnalytics: "stats.getUsageAnalytics",
+  profileGet: "profile.get",
+  profileUpdate: "profile.update",
+  profileCheckHandle: "profile.checkHandle",
+  profileUploadAvatar: "profile.uploadAvatar",
   serverGetDiagnostics: "server.getDiagnostics",
   serverWorkspaceImportProbe: "server.workspaceImport.probe",
   serverWorkspaceImportApply: "server.workspaceImport.apply",
@@ -1025,6 +1034,10 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.statsGetProfileTokenStats, StatsGetProfileTokenStatsInput),
   tagRequestBody(WS_METHODS.statsGetRecap, StatsGetRecapInput),
   tagRequestBody(WS_METHODS.statsGetUsageAnalytics, StatsGetUsageAnalyticsInput),
+  tagRequestBody(WS_METHODS.profileGet, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.profileUpdate, MossProfileUpdateInput),
+  tagRequestBody(WS_METHODS.profileCheckHandle, MossProfileCheckHandleInput),
+  tagRequestBody(WS_METHODS.profileUploadAvatar, MossProfileUploadAvatarInput),
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverPrepareDevsReport, DevsReportSubmitInput),
   tagRequestBody(WS_METHODS.serverSubmitDevsReport, DevsReportSubmitInput),

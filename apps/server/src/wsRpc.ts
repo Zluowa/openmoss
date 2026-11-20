@@ -97,6 +97,9 @@ import {
   type MossCloudUpdatePasswordInput,
   type MossEnterpriseKeySignInInput,
   type MossPayCreateOrderInput,
+  type MossProfileCheckHandleInput,
+  type MossProfileUpdateInput,
+  type MossProfileUploadAvatarInput,
   type MossPayGetOrderInput,
   type RealtimeVoiceClaimInput,
   type RealtimeVoiceReleaseClaimInput,
@@ -421,6 +424,7 @@ import {
 } from "./account/Services/MossPhoneAccountService";
 import { accountLane, phoneAccountSignedIn } from "./account/accountLane.ts";
 import { MossPayService, type MossPayServiceShape } from "./account/Services/MossPayService";
+import { makeMossProfileService, type MossProfileServiceShape } from "./profile/mossProfile";
 import { MossCloudAccountServiceError } from "./account/mossCloudAccountErrors";
 import { MossPayError } from "./account/mossPayGateway";
 import {
@@ -465,8 +469,6 @@ import {
   resolveProcessComputerHistoryKeychainNamespace,
   resolveProcessComputerHistoryRoot,
 } from "./computerHistory/shared";
-import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
-import { resolveBrowserHostCapability } from "./browserAutomation/browserHostRpcClient";
 import { resolveLanOrigins } from "./lanOrigins";
 
 export function canManageExternalMcp(role: "owner" | "client"): boolean {
@@ -2451,6 +2453,12 @@ const makeWsRpcHandlersLayer = () =>
       const mossCloudAccountService = yield* MossCloudAccountService;
       const mossEnterpriseKeyAccount = yield* MossEnterpriseKeyAccount;
       const mossPayService = yield* MossPayService;
+      const mossProfileService = yield* makeMossProfileService({
+        phoneAccount: mossPhoneAccountService,
+        cloudAccount: mossCloudAccountService,
+        stateDir: config.stateDir,
+        homeDir: config.homeDir,
+      });
       const realtimeVoiceService = yield* RealtimeVoiceService;
 
       const computerHistory = getProcessComputerHistoryService({
@@ -2459,12 +2467,6 @@ const makeWsRpcHandlersLayer = () =>
           ? { helperPath: process.env.MOSS_APPSNAP_HELPER_PATH }
           : {}),
         keychainNamespace: resolveProcessComputerHistoryKeychainNamespace(config.stateDir),
-        ...(process.env[CUA_HOST_SOCKET_ENV]
-          ? { cuaEndpoint: process.env[CUA_HOST_SOCKET_ENV] }
-          : {}),
-        ...(resolveBrowserHostCapability()
-          ? { cuaCapability: resolveBrowserHostCapability()! }
-          : {}),
       });
       yield* Effect.addFinalizer(() => Effect.promise(() => computerHistory.shutdown()));
 
@@ -5598,6 +5600,7 @@ const makeWsRpcHandlersLayer = () =>
           () => mcpConnectors.servicePlugins.resync(),
         ),
         ...makeMossPayRpcHandlers(mossPayService),
+        ...makeMossProfileRpcHandlers(mossProfileService),
         ...makeRealtimeVoiceRpcHandlers(realtimeVoiceService),
         [WS_METHODS.realtimeVoiceSubscribe]: (_, { clientId }) =>
           streamAdmission.guard(
@@ -6491,6 +6494,16 @@ const mossPayRpcEffect = <A, R>(
       });
     }),
   );
+
+export const makeMossProfileRpcHandlers = (service: MossProfileServiceShape) => ({
+  [WS_METHODS.profileGet]: () => rpcEffect(service.get(), "Failed to load the profile"),
+  [WS_METHODS.profileUpdate]: (input: MossProfileUpdateInput) =>
+    rpcEffect(service.update(input), "Failed to save the profile"),
+  [WS_METHODS.profileCheckHandle]: (input: MossProfileCheckHandleInput) =>
+    rpcEffect(service.checkHandle(input), "Failed to check the handle"),
+  [WS_METHODS.profileUploadAvatar]: (input: MossProfileUploadAvatarInput) =>
+    rpcEffect(service.uploadAvatar(input), "Failed to upload the avatar"),
+});
 
 export const makeMossPayRpcHandlers = (service: MossPayServiceShape) => ({
   [WS_METHODS.serverMossPayCatalog]: () =>

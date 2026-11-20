@@ -2483,4 +2483,73 @@ describe("ProfileStatsQuery", () => {
       }),
     );
   });
+
+  it("reports the longest completed user task and leaves out automation, subagent and unfinished turns", async () => {
+    await runProfileStatsTest(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const statsQuery = yield* ProfileStatsQuery;
+
+        expect(
+          (yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 })).activity.longestTaskMs,
+        ).toBe(null);
+        for (const [threadId, creationSource] of [
+          ["thread-task", null],
+          ["thread-subagent", "provider_native"],
+        ] as const) {
+          yield* sql`
+            INSERT INTO projection_threads (
+              thread_id, project_id, title, model_selection_json, runtime_mode,
+              interaction_mode, env_mode, created_at, updated_at, creation_source
+            )
+            VALUES (
+              ${threadId}, 'project-profile', 'Tasks', '{"provider":"codex","model":"gpt-5.5"}',
+              'full-access', 'default', 'local',
+              '2026-06-14T09:00:00.000Z', '2026-06-14T09:00:00.000Z', ${creationSource}
+            )
+          `;
+        }
+        yield* sql`
+          INSERT INTO projection_thread_messages (
+            message_id, thread_id, turn_id, role, text, is_streaming, source, dispatch_origin,
+            created_at, updated_at
+          )
+          VALUES
+            ('m-short', 'thread-task', 't-short', 'user', 'a', 0, 'native', 'user',
+              '2026-06-14T09:00:00.000Z', '2026-06-14T09:00:00.000Z'),
+            ('m-long', 'thread-task', 't-long', 'user', 'b', 0, 'native', NULL,
+              '2026-06-14T10:00:00.000Z', '2026-06-14T10:00:00.000Z'),
+            ('m-auto', 'thread-task', 't-auto', 'user', 'c', 0, 'native', 'automation',
+              '2026-06-14T11:00:00.000Z', '2026-06-14T11:00:00.000Z'),
+            ('m-error', 'thread-task', 't-error', 'user', 'd', 0, 'native', 'user',
+              '2026-06-14T12:00:00.000Z', '2026-06-14T12:00:00.000Z'),
+            ('m-sub', 'thread-subagent', 't-sub', 'user', 'e', 0, 'native', 'user',
+              '2026-06-14T13:00:00.000Z', '2026-06-14T13:00:00.000Z')
+        `;
+        yield* sql`
+          INSERT INTO projection_turns (
+            thread_id, turn_id, pending_message_id, state, requested_at, started_at, completed_at,
+            checkpoint_files_json
+          )
+          VALUES
+            ('thread-task', 't-short', 'm-short', 'completed', '2026-06-14T09:00:00.000Z',
+              '2026-06-14T09:00:00.000Z', '2026-06-14T09:01:30.000Z', '[]'),
+            ('thread-task', 't-long', 'm-long', 'completed', '2026-06-14T10:00:00.000Z',
+              '2026-06-14T10:00:05.000Z', '2026-06-14T10:42:05.500Z', '[]'),
+            ('thread-task', 't-auto', 'm-auto', 'completed', '2026-06-14T11:00:00.000Z',
+              '2026-06-14T11:00:00.000Z', '2026-06-14T14:00:00.000Z', '[]'),
+            ('thread-task', 't-error', 'm-error', 'error', '2026-06-14T12:00:00.000Z',
+              '2026-06-14T12:00:00.000Z', '2026-06-14T16:00:00.000Z', '[]'),
+            ('thread-task', 't-running', NULL, 'running', '2026-06-14T17:00:00.000Z',
+              '2026-06-14T17:00:00.000Z', NULL, '[]'),
+            ('thread-subagent', 't-sub', 'm-sub', 'completed', '2026-06-14T13:00:00.000Z',
+              '2026-06-14T13:00:00.000Z', '2026-06-14T18:00:00.000Z', '[]')
+        `;
+
+        const stats = yield* statsQuery.getProfileStats({ utcOffsetMinutes: 0 });
+
+        expect(stats.activity.longestTaskMs).toBe(42 * 60_000 + 500);
+      }),
+    );
+  });
 });

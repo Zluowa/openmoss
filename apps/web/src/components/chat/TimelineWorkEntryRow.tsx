@@ -33,6 +33,7 @@ import {
   BackgroundTrayIcon,
   BookOpenIcon,
   BotIcon,
+  BrainIcon,
   CheckIcon,
   ChevronRightIcon,
   CircleAlertIcon,
@@ -69,15 +70,15 @@ import { formatThreadModelSummaryLabel, resolveThreadModelSummary } from "~/lib/
 import { isFileChangeWorkLogEntry, type WorkLogEntry } from "../../session-logic";
 import { wasDeclinedByAutoReview, type WorkLogSubagent } from "../../workLog";
 import {
-  formatAgentActivityEntryPreview,
+  formatWorkRunNarrationLine,
+  formatWorkRunNarrationParagraphs,
   isAgentActivityWorkEntry,
   isCodexActivityStatusWorkEntry,
   isPlainRuntimeNoticeWorkEntry,
-  isReasoningUpdateWorkEntry,
+  isWorkRunNarrationEntry,
 } from "./agentActivity.logic";
 import { AutomationCreatedCard } from "./AutomationCreatedCard";
 import { BackgroundTaskRow } from "./BackgroundTaskRow";
-import { getChatTranscriptTextStyle } from "./chatTypography";
 import { SubagentRunCard } from "./SubagentRunCard";
 import { InlineSubagentActivity } from "./InlineSubagentActivity";
 import type { InlineSubagentStatus } from "./inlineSubagentActivity.logic";
@@ -102,6 +103,7 @@ import {
 } from "../../lib/toolArgumentSummary";
 import {
   deriveReadableCommandDisplay,
+  describeSearchToolTarget,
   codexMcpInvocationTitle,
   deriveMossMcpToolTitle,
   deriveCommandReadTargets,
@@ -234,9 +236,11 @@ function workEntryPreview(
   workEntry: TimelineWorkEntry,
   locale: MossLocaleCode = "en",
 ): string | null {
-  if (isReasoningUpdateWorkEntry(workEntry)) {
-    const preview = formatAgentActivityEntryPreview(workEntry);
-    return preview ? localizeKnownRuntimeMessage(preview, locale) : null;
+  // Reasoning and tool-use summaries read as one quiet line, whichever agent
+  // wrote them: the newest step heading, never stacked bold headings.
+  if (isWorkRunNarrationEntry(workEntry)) {
+    const line = formatWorkRunNarrationLine(workEntry);
+    return line ? localizeKnownRuntimeMessage(line, locale) : null;
   }
   const isFileRelated =
     workEntry.requestKind === "file-read" ||
@@ -419,6 +423,7 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   if (workEntry.activityKind === "user-input.requested") return CircleQuestionIcon;
   if (workEntry.activityKind === "user-input.resolved") return ArrowUpCircleIcon;
   if (workEntry.activityKind === "context-compaction") return ContextCompactionIcon;
+  if (isWorkRunNarrationEntry(workEntry)) return BrainIcon;
   if (workEntry.activityKind === "checkpoint.baseline.skipped") return CircleAlertIcon;
   // "Moved to background" notices read as a tray drop, not a warning check.
   if (workEntry.nativeEventType === "background_tasks_changed") return BackgroundTrayIcon;
@@ -650,9 +655,16 @@ function commandRowDisplay(
   if (readTargets) {
     return {
       heading: localizeToolHeading(running ? "Reading" : "Read", locale),
-      object: readTargets.join(", "),
+      // File names, like a read tool's row and every edited-file row.
+      object: readTargets.map((target) => basenameOfPath(target)).join(", "),
       literal: false,
     };
+  }
+  // A plain search says what it looked for, worded like a search tool's row, so
+  // `rg` (Codex) and `Grep` (Claude) read the same; the details keep the line.
+  if (resolveCommandVisualKind(command) === "search") {
+    const search = deriveReadableCommandDisplay(command, running, locale);
+    return { heading: search.verb, object: search.target, literal: false };
   }
   // Every other command names itself, folded or open; the details below the
   // row hold the output, exit code and duration (upstream).
@@ -664,6 +676,32 @@ function commandRowDisplay(
         literal: true,
       }
     : null;
+}
+
+// A search tool's row (Claude `Grep`/`Glob`, any agent whose search call
+// carries its arguments) reads "Searched for <pattern> in <path>" from them,
+// exactly like a searched shell command.
+function searchToolRowDisplay(
+  workEntry: TimelineWorkEntry,
+  locale: MossLocaleCode,
+): { heading: string; object: string } | null {
+  if (
+    workEntry.command ||
+    workEntry.rawCommand ||
+    workEntry.itemType === "web_search" ||
+    !isSearchToolEntry(workEntry)
+  ) {
+    return null;
+  }
+  const detail = workEntry.detail?.trim() ?? "";
+  const field = (keys: ReadonlyArray<string>) =>
+    detail ? extractToolArgumentField(detail, keys, { fallbackScan: "whenUnparsed" }) : null;
+  const pattern = field(["pattern", "query", "regex"]);
+  const path = field(["path", "directory", "dir"]);
+  const object = describeSearchToolTarget({ pattern, path }, locale);
+  if (!object) return null;
+  const running = toolWorkEntryStatus(workEntry) === "running";
+  return { heading: localizeToolHeading(running ? "Searching" : "Searched", locale), object };
 }
 
 export interface WorkEntryDisplayParts {
@@ -707,6 +745,15 @@ export function workEntryDisplayParts(
       commandLiteral: commandDisplay.literal ? commandDisplay.object : null,
     };
   }
+  const searchDisplay = searchToolRowDisplay(workEntry, locale);
+  if (searchDisplay) {
+    return {
+      heading: searchDisplay.heading,
+      preview: searchDisplay.object,
+      displayText: `${searchDisplay.heading} ${searchDisplay.object}`,
+      commandLiteral: null,
+    };
+  }
   const webFetchUrl = extractWebFetchUrl(workEntry);
   const heading = toolWorkEntryHeading(workEntry, locale);
   const rawPreview =
@@ -726,8 +773,7 @@ export function workEntryDisplayParts(
       : rawPreview;
   const displayText = webFetchUrl
     ? describeLinkChip(webFetchUrl).label
-    : (isReasoningUpdateWorkEntry(workEntry) || workEntry.activityKind === "tool.summary") &&
-        preview
+    : isWorkRunNarrationEntry(workEntry) && preview
       ? preview
       : combineWorkEntryDisplayText(heading, preview);
   return { heading, preview, displayText, commandLiteral: null };
@@ -735,23 +781,6 @@ export function workEntryDisplayParts(
 
 function isFileChangeWorkEntry(workEntry: TimelineWorkEntry): boolean {
   return isFileChangeWorkLogEntry(workEntry);
-}
-
-// Item-scoped reasoning (Codex reasoning items carry their item id) and tool-use
-// summaries are narration and keep their full prose. Legacy reasoning groups
-// (no item id) only carry a compact preview; they keep their opener (upstream #2009).
-function isProseWorkEntry(workEntry: TimelineWorkEntry): boolean {
-  return (
-    (isReasoningUpdateWorkEntry(workEntry) && Boolean(workEntry.toolCallId)) ||
-    workEntry.activityKind === "tool.summary"
-  );
-}
-
-function proseWorkEntryText(workEntry: TimelineWorkEntry): string | null {
-  const source = workEntry.detail ?? workEntry.preview ?? "";
-  // Codex summaries end in an empty `<!-- -->` block separator.
-  const text = source.replace(/<!--[\s\S]*?-->/gu, "").trim();
-  return text.length > 0 ? text : null;
 }
 
 function subagentPrimaryLabel(
@@ -816,8 +845,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   chatMetaFontSizePx: number;
   textFontSizePx?: number;
   density?: "default" | "compact";
-  /** Narration inside a settled turn's disclosure reads muted, like its other rows. */
-  mutedProse?: boolean;
   fileDiffStatByPath?: ReadonlyMap<string, { additions: number; deletions: number }>;
   markdownCwd: string | undefined;
   onImageExpand: (preview: ExpandedImagePreview) => void;
@@ -843,7 +870,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     chatMetaFontSizePx,
     textFontSizePx: textFontSizePxProp,
     density: densityProp,
-    mutedProse,
     fileDiffStatByPath,
     markdownCwd,
     onImageExpand,
@@ -861,8 +887,13 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   const textFontSizePx = textFontSizePxProp ?? chatMetaFontSizePx;
   const density = densityProp ?? "default";
   const compact = density === "compact";
+  // Narration wears its own glyph in the same column as every call, so the
+  // log reads as one list; only bare status lines go without one.
+  const isNarrationRow = isWorkRunNarrationEntry(workEntry);
   const isCodexStatusRow =
-    workEntry.activityKind !== "context-compaction" && isCodexActivityStatusWorkEntry(workEntry);
+    workEntry.activityKind !== "context-compaction" &&
+    !isNarrationRow &&
+    isCodexActivityStatusWorkEntry(workEntry);
   const isPlainRuntimeNoticeRow = isPlainRuntimeNoticeWorkEntry(workEntry);
   const EntryIcon = workEntryIcon(workEntry);
   // Web-fetch tool calls surface the target site (favicon + URL) instead of the raw
@@ -934,15 +965,18 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             : "thread",
         ).title
       : null;
+  const searchDisplay = searchToolRowDisplay(workEntry, locale);
   const displayText = isFixedTextActivity
     ? heading
     : historicalThreadError
       ? historicalThreadError
-      : webFetchUrl
-        ? describeLinkChip(webFetchUrl).label
-        : isReasoningUpdateWorkEntry(workEntry) && preview
-          ? preview
-          : combineWorkEntryDisplayText(heading, preview);
+      : searchDisplay
+        ? `${searchDisplay.heading} ${searchDisplay.object}`
+        : webFetchUrl
+          ? describeLinkChip(webFetchUrl).label
+          : isNarrationRow && preview
+            ? preview
+            : combineWorkEntryDisplayText(heading, preview);
   const showInlineAgentTaskPreview =
     workEntry.itemType === "collab_agent_tool_call" &&
     Boolean(preview) &&
@@ -961,7 +995,16 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     workEntry.itemType === "collab_agent_tool_call" &&
     isTimelineMultiAgentAction(workEntry.subagentAction?.tool);
   const subagentSummary = subagentCardSummary(workEntry, locale);
-  const canOpenAgentActivity = Boolean(onOpenAgentActivity) && isAgentActivityWorkEntry(workEntry);
+  // Narration never opens a page (that took the person out of the chat); when
+  // it holds more than its line, the row opens in place onto the whole text.
+  const canOpenAgentActivity =
+    Boolean(onOpenAgentActivity) && isAgentActivityWorkEntry(workEntry) && !isNarrationRow;
+  const narrationParagraphs = isNarrationRow ? formatWorkRunNarrationParagraphs(workEntry) : [];
+  const narrationBody =
+    narrationParagraphs.length > 1 ||
+    (narrationParagraphs.length === 1 && narrationParagraphs[0] !== preview)
+      ? narrationParagraphs
+      : null;
   const openAgentActivity = canOpenAgentActivity
     ? () => onOpenAgentActivity?.(workEntry.id)
     : undefined;
@@ -1003,11 +1046,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       ? format("chat.tool.failedWithExit", { code: failure.exitCode })
       : t("chat.tool.failed")
     : null;
-  // Reasoning and progress narration reads as prose: it wraps instead of
-  // being cut to one line.
-  const wrapsFullText =
-    isReasoningUpdateWorkEntry(workEntry) || workEntry.activityKind === "tool.summary";
-
   // A computer-control denial renders as an actionable card (enable + retry)
   // instead of a buried tool-error line. Kept after the hooks above so the
   // early return never changes hook order.
@@ -1110,28 +1148,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     );
   }
 
-  // Narration renders like the assistant's own text: full Markdown in the
-  // transcript type, with no glyph, disclosure or page to open (upstream #2009).
-  const proseText = isProseWorkEntry(workEntry) ? proseWorkEntryText(workEntry) : null;
-  if (proseText !== null) {
-    return (
-      <div className="py-1" data-work-entry-prose="true">
-        <ChatMarkdown
-          text={proseText}
-          cwd={markdownCwd}
-          {...(threadId ? { threadId } : {})}
-          directionMode="auto-blocks"
-          isStreaming={false}
-          style={{
-            ...getChatTranscriptTextStyle(textFontSizePx),
-            ...(mutedProse ? { color: MUTED_LABEL_TEXT_COLOR } : {}),
-          }}
-          onImageExpand={onImageExpand}
-        />
-      </div>
-    );
-  }
-
   const readFilePath =
     opener !== null &&
     !canOpenAgentActivity &&
@@ -1148,6 +1164,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       providerHandoff ||
       monitorNotification ||
       workEntry.toolDetails ||
+      narrationBody ||
       (workEntry.liveActivity && !canOpenReadFile),
     );
   const commandIsInProgress = Boolean(
@@ -1406,7 +1423,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   ) : (
                     <p
                       className={cn(
-                        wrapsFullText ? "whitespace-pre-wrap break-words" : "truncate",
+                        "truncate",
                         compact ? "leading-5" : "leading-6",
                         isPlainRuntimeNoticeRow && "italic",
                         // Match the leading icon's tone so the row reads as one muted unit, and
@@ -1416,6 +1433,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                           : WORK_ROW_MUTED_HOVER_TONE["tool-row"],
                       )}
                       data-runtime-notice-row={isPlainRuntimeNoticeRow ? "true" : undefined}
+                      data-work-entry-narration={isNarrationRow ? "true" : undefined}
                       data-codex-status-row={isCodexStatusRow ? "true" : undefined}
                       style={{ fontSize: `${rowFontSizePx}px` }}
                     >
@@ -1457,6 +1475,17 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 detailContent={
                   shownVisual ? (
                     <ShownVisualToolResult visual={shownVisual} />
+                  ) : narrationBody ? (
+                    <div
+                      className="space-y-1 text-ui-sm text-muted-foreground"
+                      data-work-entry-narration-body="true"
+                    >
+                      {narrationBody.map((paragraph, index) => (
+                        <p key={index} className="whitespace-pre-wrap break-words">
+                          {paragraph}
+                        </p>
+                      ))}
+                    </div>
                   ) : monitorNotification ? (
                     <div className="space-y-1 text-ui-sm">
                       <time
@@ -1627,7 +1656,9 @@ function AgentActivityOpenSurface(props: {
   dataToolDetailTrigger?: boolean | undefined;
 }) {
   const className = cn(
-    "group/tool-row flex w-full items-center text-left transition-[opacity,translate] duration-200",
+    // A row with details sits its 20px line in a 24px line box; this row keeps
+    // the same 4px below its line, so thoughts and calls share one rhythm.
+    "group/tool-row flex w-full items-center pb-1 text-left transition-[opacity,translate] duration-200",
     props.compact ? "gap-1.5" : "gap-2",
     props.canOpen ? "cursor-pointer focus-visible:outline-none" : "cursor-default",
   );

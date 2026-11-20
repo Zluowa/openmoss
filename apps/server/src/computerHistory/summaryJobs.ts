@@ -251,7 +251,7 @@ function safeSemantic(
     const normalized = normalizeComputerHistorySemanticSummary(value);
     const title = safeText(normalized.title, "Activity summary");
     const description = safeText(normalized.description, "No additional metadata was captured.");
-    return { title, description, source: "apple_on_device" };
+    return { title, description, source: normalized.source };
   } catch {
     return undefined;
   }

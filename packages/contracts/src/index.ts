@@ -32,6 +32,7 @@ export * from "./wsCompatibility";
 export * from "./keybindings";
 export * from "./server";
 export * from "./stats";
+export * from "./profile";
 export * from "./settings";
 export * from "./git";
 export * from "./githubProjectProvisioning";

@@ -1,22 +1,151 @@
 // FILE: windows.test.ts
-// Purpose: Verify Windows activity privacy boundaries and persistent protected keys.
-// Layer: Computer History adapter tests
+// Purpose: The real Windows helper: OCR on a fixture image, one synthetic window end to end,
+//          adapter selection and the DPAPI-protected key.
+// Layer: Computer History adapter tests (Windows-only cases skip elsewhere)
 
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
-import { makeComputerHistoryService } from "./service.ts";
-import {
-  makeWindowsHistoryKeyProvider,
-  parseWindowsHistorySample,
-  startWindowsHistoryCollector,
-} from "./windows.ts";
 
-describe("Windows foreground history", () => {
-  it.runIf(process.platform === "win32")(
+import { describe, expect, it } from "vitest";
+
+import { makeComputerHistoryService } from "./service.ts";
+import { makeWindowsHistoryKeyProvider, startWindowsHistoryHelper } from "./windows.ts";
+import { assessWindowsHistoryProbe, summarizeWindowsActivity } from "./windowsActivity.ts";
+
+const onWindows = process.platform === "win32";
+const OCR_FIXTURE = fileURLToPath(new URL("./fixtures/windows-ocr-code.png", import.meta.url));
+
+// A small window the test owns. It is parked off every display, never activated and kept out
+// of the taskbar, so the owner's screen and foreground window are never involved.
+async function startSyntheticWindow(): Promise<{ hwnd: number; close: () => void }> {
+  const root = await mkdtemp(join(tmpdir(), "moss-history-synthetic-"));
+  const executable = join(root, "MossHistoryFixture.exe");
+  const script = `
+$ErrorActionPreference='Stop'
+Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -OutputAssembly '${executable.replaceAll("'", "''")}' -OutputType WindowsApplication @'
+using System;
+using System.Drawing;
+using System.Windows.Forms;
+public class MossHistoryFixture : Form {
+  protected override bool ShowWithoutActivation { get { return true; } }
+  protected override CreateParams CreateParams { get { var p = base.CreateParams; p.ExStyle |= 0x08000000; return p; } }
+  public MossHistoryFixture() {
+    Text = "Moss history fixture"; Width = 900; Height = 320; ShowInTaskbar = false; BackColor = Color.White;
+    StartPosition = FormStartPosition.Manual; Location = new Point(-32000, -32000);
+    var label = new Label(); label.Dock = DockStyle.Fill; label.Font = new Font("Consolas", 22); label.ForeColor = Color.Black;
+    label.Text = "import { render } from view;\\nconst total = items.length;\\nfunction draw(items) {\\n  return total;\\n}";
+    Controls.Add(label);
+    var timer = new Timer(); timer.Interval = 30000; timer.Tick += delegate { Close(); }; timer.Start();
+    Shown += delegate { Console.Out.WriteLine(Handle.ToInt64()); Console.Out.Flush(); };
+  }
+  [STAThread] public static void Main() { Application.Run(new MossHistoryFixture()); }
+}
+'@
+`;
+  await promisify(execFile)(
+    "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-EncodedCommand",
+      Buffer.from(script, "utf16le").toString("base64"),
+    ],
+    { windowsHide: true, timeout: 30_000 },
+  );
+  const child = spawn(executable, [], { stdio: ["ignore", "pipe", "ignore"] });
+  let output = "";
+  const hwnd = await new Promise<number>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Synthetic window did not start.")), 15_000);
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+      const match = /^(\d+)\s*$/mu.exec(output);
+      if (match) {
+        clearTimeout(timer);
+        resolve(Number(match[1]));
+      }
+    });
+  });
+  return { hwnd, close: () => child.kill() };
+}
+
+describe("Windows Computer History helper", () => {
+  it.runIf(onWindows)(
+    "reads a fixture image with Windows OCR and summarizes it without its words",
+    async () => {
+      const helper = startWindowsHistoryHelper({ onExit: () => undefined, testTargets: true });
+      try {
+        const ready = await helper.ready;
+        expect(ready).not.toBeNull();
+        if (!ready?.ocr) return; // A Windows without any OCR language records app names only.
+        const text = await helper.ocrFile(OCR_FIXTURE);
+        expect(text).toMatch(/const total/u);
+        expect(text).toMatch(/function draw/u);
+        const summary = summarizeWindowsActivity({
+          processName: "MossHistoryFixture.exe",
+          displayName: "",
+          focusedControl: null,
+          ocrText: text,
+        });
+        expect(summary?.title).toBe("Writing code");
+        expect(JSON.stringify(summary)).not.toMatch(/total|draw|render/u);
+      } finally {
+        await helper.stop();
+      }
+    },
+    60_000,
+  );
+
+  it.runIf(onWindows)(
+    "probes, frames and reads one synthetic window, and never the real foreground window",
+    async () => {
+      const window = await startSyntheticWindow();
+      const helper = startWindowsHistoryHelper({ onExit: () => undefined, testTargets: true });
+      try {
+        const ready = await helper.ready;
+        expect(ready).not.toBeNull();
+        // Without a target the test helper reports nothing rather than the person's window.
+        expect((await helper.probe())?.target).toBeNull();
+        const probe = await helper.probe(window.hwnd);
+        expect(probe?.target).toMatchObject({
+          hwnd: window.hwnd,
+          processName: "MossHistoryFixture.exe",
+          title: "Moss history fixture",
+          minimized: false,
+          displayAffinity: 0,
+        });
+        expect(probe?.others).toEqual([]);
+        expect(assessWindowsHistoryProbe(probe!)).toEqual({ allowed: true });
+        const frame = await helper.capture("synthetic-1", window.hwnd);
+        expect(frame?.fingerprint).toHaveLength(256);
+        // A white window with dark text: mostly bright cells, some darker ones.
+        expect(Math.max(...frame!.fingerprint)).toBeGreaterThan(200);
+        if (!ready?.ocr) return;
+        const text = await helper.ocr("synthetic-1");
+        expect(text).toMatch(/total/u);
+        // The frame is gone once read.
+        expect(await helper.ocr("synthetic-1")).toBeNull();
+        expect(
+          summarizeWindowsActivity({
+            processName: probe!.target!.processName,
+            displayName: probe!.target!.displayName,
+            focusedControl: probe!.target!.focusedControl,
+            ocrText: text,
+          })?.title,
+        ).toBe("Writing code");
+      } finally {
+        await helper.stop();
+        window.close();
+      }
+    },
+    90_000,
+  );
+
+  it.runIf(onWindows)(
     "selects the Windows adapter when desktop also supplies a macOS helper path",
     async () => {
       const rootDir = await mkdtemp(join(tmpdir(), "moss-windows-history-desktop-"));
@@ -33,141 +162,13 @@ describe("Windows foreground history", () => {
           accessibilityPermission: "granted",
           screenRecordingPermission: "granted",
         });
-        expect(await service.listApplications()).toMatchObject({ applications: [] });
       } finally {
         await service.shutdown();
       }
     },
   );
-  // This case needs a real foreground window, so it takes focus from whatever app is in front.
-  // It never runs on a desktop someone is using: opt in with MOSS_TEST_REAL_FOREGROUND_WINDOW=1
-  // on a dedicated Windows runner. Even then the window is parked off-screen, not TopMost and
-  // out of the taskbar, so nothing appears on the screen.
-  it.runIf(process.platform === "win32" && process.env.MOSS_TEST_REAL_FOREGROUND_WINDOW === "1")(
-    "samples an owned real foreground window and stops its native collector",
-    async () => {
-      const root = await mkdtemp(join(tmpdir(), "moss-history-native-window-"));
-      const executable = join(root, "MossHistoryFixture.exe");
-      const script = `
-$ErrorActionPreference='Stop'
-Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -OutputAssembly '${executable.replaceAll("'", "''")}' -OutputType WindowsApplication @'
-using System;
-using System.Windows.Forms;
-using System.Runtime.InteropServices;
-public class MossHistoryFixture {
- [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
- [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr unused);
- [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
- [DllImport("user32.dll")] static extern bool AttachThreadInput(uint first, uint second, bool attach);
- [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr window);
- [STAThread] public static void Main() {
-  Application.EnableVisualStyles();
-  var form=new Form(); form.Text="Moss history isolated test"; form.Width=420; form.Height=150; form.StartPosition=FormStartPosition.Manual; form.Location=new System.Drawing.Point(-32000,-32000); form.ShowInTaskbar=false; form.TopMost=false;
-  var label=new Label(); label.Text="Moss isolated history test window"; label.Dock=DockStyle.Fill; form.Controls.Add(label);
-  var timer=new Timer(); timer.Interval=20000; timer.Tick+=(sender,e)=>form.Close(); timer.Start();
-  form.Shown+=(sender,e)=>{
-   var foreground=GetForegroundWindow(); var other=GetWindowThreadProcessId(foreground,IntPtr.Zero); var current=GetCurrentThreadId();
-   var attached=other!=current && AttachThreadInput(current,other,true);
-   SetForegroundWindow(form.Handle); form.Activate();
-   if(attached) AttachThreadInput(current,other,false);
-  }; Application.Run(form);
- }
-}
-'@
-$fixture = Start-Process -FilePath '${executable.replaceAll("'", "''")}' -WindowStyle Normal -PassThru
-$null = $fixture.WaitForInputIdle(5000)
-[Console]::Out.Write($fixture.Id)
-`;
-      const { stdout: fixturePid } = await promisify(execFile)(
-        "powershell.exe",
-        [
-          "-NoLogo",
-          "-NoProfile",
-          "-NonInteractive",
-          "-EncodedCommand",
-          Buffer.from(script, "utf16le").toString("base64"),
-        ],
-        { windowsHide: true, timeout: 15_000 },
-      );
-      let seen = false;
-      let failure = false;
-      const stop = startWindowsHistoryCollector(
-        (sample) => {
-          if (sample.app.bundleIdentifier === "windows.mosshistoryfixture") {
-            seen = true;
-            expect(sample.window).toEqual({});
-          }
-        },
-        () => {
-          failure = true;
-        },
-      );
-      try {
-        await expect.poll(() => seen, { timeout: 11_000 }).toBe(true);
-        expect(failure).toBe(false);
-      } finally {
-        await stop();
-        // The fixture would otherwise hold the foreground for its full 20 s timer.
-        try {
-          process.kill(Number(fixturePid.trim()));
-        } catch {
-          // Already closed.
-        }
-      }
-    },
-    30_000,
-  );
-  it("keeps only app metadata and drops document titles and paths", () => {
-    expect(
-      parseWindowsHistorySample({
-        processName: "notepad",
-        displayName: "Notepad",
-        windowClass: "Notepad",
-        capturedAtMs: 1_700_000_000_000,
-        title: "private draft",
-        path: "C:/private",
-      }),
-    ).toEqual({
-      app: { bundleIdentifier: "windows.notepad", name: "Notepad" },
-      window: {},
-      capturedAtMs: 1_700_000_000_000,
-    });
-  });
-  it.each(["chrome", "msedge", "firefox", "brave", "qqbrowser", "zen", "360se"])(
-    "excludes browser %s regardless of locale or window title",
-    (processName) => {
-      expect(
-        parseWindowsHistorySample({
-          processName,
-          windowClass: "unknown",
-          capturedAtMs: Date.now(),
-        }),
-      ).toBeNull();
-    },
-  );
-  it("fails closed for unknown Chromium and UWP windows", () => {
-    for (const windowClass of [
-      "Chrome_WidgetWin_1",
-      "MozillaWindowClass",
-      "ApplicationFrameWindow",
-    ]) {
-      expect(
-        parseWindowsHistorySample({
-          processName: "unknown",
-          windowClass,
-          capturedAtMs: Date.now(),
-        }),
-      ).toBeNull();
-    }
-    expect(
-      parseWindowsHistorySample({
-        processName: "code",
-        windowClass: "Chrome_WidgetWin_1",
-        capturedAtMs: Date.now(),
-      })?.app.bundleIdentifier,
-    ).toBe("windows.code");
-  });
-  it.runIf(process.platform === "win32")(
+
+  it.runIf(onWindows)(
     "restores the same DPAPI-protected key after reopening and destroys it on clear",
     async () => {
       const root = await mkdtemp(join(tmpdir(), "moss-windows-history-key-"));
