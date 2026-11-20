@@ -47,11 +47,15 @@ export const ComputerHistoryCaptureCapability = Schema.Struct({
 });
 export type ComputerHistoryCaptureCapability = typeof ComputerHistoryCaptureCapability.Type;
 
-/** A post-redacted summary produced only by Apple's on-device model. */
+/**
+ * A post-redacted summary produced on this computer: by Apple's on-device model on macOS,
+ * or by the local OCR activity classifier on Windows. Nothing leaves the device to make it.
+ */
+export type ComputerHistorySemanticSource = "apple_on_device" | "windows_on_device";
 export interface ComputerHistorySemanticSummary {
   readonly title: string;
   readonly description: string;
-  readonly source: "apple_on_device";
+  readonly source: ComputerHistorySemanticSource;
 }
 
 export const ComputerHistoryRuleBehavior = Schema.Literals(["allow", "block"]);

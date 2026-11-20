@@ -25,6 +25,7 @@ export const baseStats = {
     totalPromptsSent: 0,
     totalThreads: 0,
     promptsToday: 0,
+    longestTaskMs: null,
     heatmapMetric: "prompts",
     heatmap: [promptHeatmapCell],
   },

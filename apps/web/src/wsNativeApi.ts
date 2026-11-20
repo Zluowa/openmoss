@@ -1050,6 +1050,12 @@ export function createWsNativeApi(): WsNativeApi {
       getRecap: (input) => transport.request(WS_METHODS.statsGetRecap, input),
       getUsageAnalytics: (input) => transport.request(WS_METHODS.statsGetUsageAnalytics, input),
     },
+    profile: {
+      get: () => transport.request(WS_METHODS.profileGet),
+      update: (input) => transport.request(WS_METHODS.profileUpdate, input),
+      checkHandle: (input) => transport.request(WS_METHODS.profileCheckHandle, input),
+      uploadAvatar: (input) => transport.request(WS_METHODS.profileUploadAvatar, input),
+    },
     realtimeVoice: {
       listVoices: () => transport.request(WS_METHODS.realtimeVoiceListVoices),
       claim: (input) => transport.request(WS_METHODS.realtimeVoiceClaim, input),

@@ -763,7 +763,7 @@ async function fetchPublicAuthorityCatalog(): Promise<MossPayCatalog> {
   });
 }
 
-function configuredAuthorityRest(input: {
+export function configuredAuthorityRest(input: {
   readonly credential: MossPayAuthorityCredential;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }): { readonly baseUrl: string; readonly publishableKey: string } {
