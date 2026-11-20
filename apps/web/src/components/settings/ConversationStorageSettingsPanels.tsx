@@ -16,7 +16,7 @@ import { deleteArchivedThreadsFromClient } from "~/lib/archivedThreadDelete";
 import { formatRelativeTime } from "~/lib/relativeTime";
 import { useTranslation } from "~/localization";
 import { serverQueryKeys, serverWorktreesQueryOptions } from "~/lib/serverReactQuery";
-import { unarchiveThreadFromClient } from "~/lib/threadArchive";
+import { formatThreadArchiveErrorMessage, unarchiveThreadFromClient } from "~/lib/threadArchive";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi, readNativeApi } from "~/nativeApi";
 import { SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME } from "~/settingsPanelStyles";
@@ -308,7 +308,7 @@ export function ArchivedSettingsPanel({ active }: { readonly active: boolean }) 
         toastManager.add({
           type: "error",
           title: t("settings.archived.restoreFailed"),
-          description: error instanceof Error ? error.message : "Unable to restore the thread.",
+          description: formatThreadArchiveErrorMessage(error, "restore"),
         });
       }
     },

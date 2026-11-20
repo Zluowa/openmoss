@@ -371,8 +371,8 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
     "查看 Moss 和已连接模型账号的剩余用量。",
   Refresh: "刷新",
   "Loading connected account usage…": "正在加载已连接账号的用量…",
-  "Connected Codex, Claude, Cursor, or Gemini accounts will appear here.":
-    "已连接的 Codex、Claude、Cursor 或 Gemini 账号会显示在这里。",
+  "Connected Codex, Claude, Cursor, or Antigravity accounts will appear here.":
+    "已连接的 Codex、Claude、Cursor 或 Antigravity 账号会显示在这里。",
   "Only connected model accounts are shown. Moss shows connection status only; no quota is estimated.":
     "这里只显示已连接的模型账号。Moss 仅显示连接状态，不会估算额度。",
   Available: "可用",

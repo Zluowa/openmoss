@@ -143,11 +143,6 @@ export const MOSS_ENGINE_NATIVE_TARGETS = {
     // file. See deriveMossAcpMcpServers + AcpSessionRuntime (SY8 A3).
     mcpBridge: "session/new mcpServers",
   },
-  gemini: {
-    label: "Gemini",
-    family: "acp",
-    mcpBridge: "session/new mcpServers",
-  },
   antigravity: {
     label: "Antigravity",
     family: "acp",
@@ -375,7 +370,6 @@ export const MOSS_PLUGIN_CAPABILITY_MATRIX = {
   codex: CODEX_PLUGIN_CAPABILITIES,
   claudeAgent: CLAUDE_PLUGIN_CAPABILITIES,
   cursor: ACP_PLUGIN_CAPABILITIES,
-  gemini: ACP_PLUGIN_CAPABILITIES,
   antigravity: {
     ...ACP_PLUGIN_CAPABILITIES,
     mcp: pluginCapability(

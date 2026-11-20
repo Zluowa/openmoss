@@ -1670,7 +1670,6 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<ProviderWithDefaultModel, ModelSl
   codex: "gpt-6-astra",
   claudeAgent: "claude-opus-5-5",
   cursor: "auto",
-  gemini: "auto-gemini-3",
   devin: "adaptive",
   // Antigravity and Grok run the model set in their own CLI unless one is picked.
   antigravity: PROVIDER_CLI_DEFAULT_MODEL,

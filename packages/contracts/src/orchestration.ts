@@ -106,16 +106,15 @@ export const ProviderKind = Schema.Literals([
   "zcode",
 ]);
 export type ProviderKind = typeof ProviderKind.Type;
-// Droid and Kilo remain in ProviderKind only so historical events and threads
-// continue to decode. They are intentionally absent from every active runtime,
-// discovery, settings, and creation surface.
-export const RETIRED_PROVIDER_KINDS = ["droid", "kilo"] as const;
+// Gemini, Droid, and Kilo remain in ProviderKind only so historical events,
+// threads, and settings continue to decode. They are intentionally absent from
+// every active runtime, discovery, settings, and creation surface.
+export const RETIRED_PROVIDER_KINDS = ["gemini", "droid", "kilo"] as const;
 export type RetiredProviderKind = (typeof RETIRED_PROVIDER_KINDS)[number];
 export const SUPPORTED_PROVIDER_KINDS = [
   "codex",
   "claudeAgent",
   "cursor",
-  "gemini",
   "antigravity",
   "grok",
   "opencode",

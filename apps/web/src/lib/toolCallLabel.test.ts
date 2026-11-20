@@ -8,10 +8,12 @@ import {
   deriveReadableToolTitle,
   deriveMossMcpToolTitle,
   deriveToolSearchTitle,
+  isAgentFeedbackToolName,
   isHtmlPageToolCall,
   isHtmlRenderToolCall,
   humanizeToolCallIdentifier,
   localizeMossAppsToolAction,
+  localizeMossToolName,
   localizeToolHeading,
   mcpToolTitleFromName,
   extractMcpServerName,
@@ -991,5 +993,29 @@ describe("isMossUserAnswerToolCall", () => {
     ]) {
       expect(isMossUserAnswerToolCall(name), String(name)).toBe(false);
     }
+  });
+});
+
+describe("agent feedback tool presentation and localization", () => {
+  it("recognizes moss_report_friction across provider MCP prefixes and provides fallback labels", () => {
+    expect(isAgentFeedbackToolName("moss_report_friction")).toBe(true);
+    expect(isAgentFeedbackToolName("mcp__moss__moss_report_friction")).toBe(true);
+    expect(isAgentFeedbackToolName("moss_create_task")).toBe(false);
+    expect(isAgentFeedbackToolName(null)).toBe(false);
+
+    const completed = deriveMossMcpToolTitle({
+      toolName: "mcp__moss__moss_report_friction",
+      status: "completed",
+    });
+    expect(completed).toBe("Moss recorded tool feedback");
+    expect(localizeToolHeading(completed!, "zh-CN")).toBe("已记录工具反馈");
+  });
+
+  it("turns raw snake_case Moss tool names into friendly zh-CN and en labels", () => {
+    expect(localizeMossToolName("moss_pages_mutate", "zh-CN")).toBe("更新页面");
+    expect(localizeMossToolName("mcp__moss__moss_create_task", "zh-CN")).toBe("创建任务");
+    expect(localizeMossToolName("moss_pages_mutate", "en")).toBe("Updating a page");
+    expect(localizeMossToolName("moss_pages_custom_unknown", "zh-CN")).toBe("资料页面");
+    expect(localizeMossToolName("moss_unknown_thing", "zh-CN")).toBe("Moss 工具");
   });
 });

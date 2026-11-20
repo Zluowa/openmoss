@@ -15,6 +15,7 @@ import {
   PullRequestLabel,
   PullRequestListEntry,
   PullRequestProjectContext,
+  PullRequestState,
 } from "./pullRequests";
 
 // The inbox lists pull requests and issues for the GitHub repositories of the projects added in
@@ -204,6 +205,19 @@ export type GitHubInboxListResult = typeof GitHubInboxListResult.Type;
 export const GitHubIssueDetailInput = PullRequestDetailInput;
 export type GitHubIssueDetailInput = typeof GitHubIssueDetailInput.Type;
 
+/** A pull request linked to an issue. `closesIssue` is GitHub's own closing reference ("Fixes
+ * #12" or a manual link); otherwise the pull request only mentions the issue. */
+export const GitHubIssueLinkedPullRequest = Schema.Struct({
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+  title: TrimmedNonEmptyString,
+  url: TrimmedNonEmptyString,
+  state: PullRequestState,
+  isDraft: Schema.Boolean,
+  closesIssue: Schema.Boolean,
+});
+export type GitHubIssueLinkedPullRequest = typeof GitHubIssueLinkedPullRequest.Type;
+
 export const GitHubIssueDetail = Schema.Struct({
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
@@ -225,8 +239,41 @@ export const GitHubIssueDetail = Schema.Struct({
   /** Issue comments, oldest first, with kind `issue-comment`. */
   comments: Schema.Array(PullRequestComment),
   commentsTruncated: Schema.Boolean,
+  /** Pull requests that close the issue, then ones that only mention it. */
+  linkedPullRequests: Schema.Array(GitHubIssueLinkedPullRequest),
+  /** GitHub lets the signed-in person change the issue's state, labels, and assignees. Labels
+   * and assignees also need triage access; GitHub reports that only when the change is made. */
+  viewerCanUpdate: Schema.Boolean,
 });
 export type GitHubIssueDetail = typeof GitHubIssueDetail.Type;
+
+/** Why an issue is being closed. GitHub's third reason, duplicate, is set only from GitHub. */
+export const GitHubIssueCloseReason = Schema.Literals(["completed", "not-planned"]);
+export type GitHubIssueCloseReason = typeof GitHubIssueCloseReason.Type;
+
+/** One change to an issue. Labels and assignees replace the whole set, as GitHub's API does. */
+export const GitHubIssueUpdate = Schema.Union([
+  Schema.Struct({ op: Schema.Literal("close"), reason: GitHubIssueCloseReason }),
+  Schema.Struct({ op: Schema.Literal("reopen") }),
+  Schema.Struct({
+    op: Schema.Literal("setLabels"),
+    labels: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100)),
+  }),
+  Schema.Struct({
+    op: Schema.Literal("setAssignees"),
+    // GitHub accepts at most 10 assignees per issue.
+    assignees: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(10)),
+  }),
+]);
+export type GitHubIssueUpdate = typeof GitHubIssueUpdate.Type;
+
+export const GitHubIssueUpdateInput = Schema.Struct({
+  projectId: ProjectId,
+  repository: TrimmedNonEmptyString,
+  number: PositiveInt,
+  update: GitHubIssueUpdate,
+});
+export type GitHubIssueUpdateInput = typeof GitHubIssueUpdateInput.Type;
 
 export const GitHubIssueCommentInput = Schema.Struct({
   projectId: ProjectId,
@@ -244,3 +291,28 @@ export const GitHubIssueCommentResult = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
 });
 export type GitHubIssueCommentResult = typeof GitHubIssueCommentResult.Type;
+
+export const GitHubIssueUpdateResult = GitHubIssueCommentResult;
+export type GitHubIssueUpdateResult = typeof GitHubIssueUpdateResult.Type;
+
+export const GitHubIssueCandidatesInput = Schema.Struct({
+  projectId: ProjectId,
+  repository: TrimmedNonEmptyString,
+});
+export type GitHubIssueCandidatesInput = typeof GitHubIssueCandidatesInput.Type;
+
+export const GitHubIssueLabelCandidate = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  color: Schema.NullOr(Schema.String),
+  description: Schema.NullOr(Schema.String),
+});
+export type GitHubIssueLabelCandidate = typeof GitHubIssueLabelCandidate.Type;
+
+/** The repository's labels and the people issues can be assigned to, for the detail pickers. */
+export const GitHubIssueCandidates = Schema.Struct({
+  labels: Schema.Array(GitHubIssueLabelCandidate),
+  assignees: Schema.Array(PullRequestActor),
+  /** The repository has more labels or assignable people than one page returned. */
+  truncated: Schema.Boolean,
+});
+export type GitHubIssueCandidates = typeof GitHubIssueCandidates.Type;

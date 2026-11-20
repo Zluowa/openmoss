@@ -9,6 +9,11 @@ import {
   type DesktopBridge,
   type ThreadId,
 } from "@moss/contracts";
+import {
+  appSnapShortcutStorageKey,
+  normalizeAppSnapShortcutForPlatform,
+  sameAppSnapShortcut,
+} from "@moss/shared/appSnapShortcut";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -38,6 +43,10 @@ import {
   deleteOrphanedComposerImageBlobs,
   readComposerImageBlob,
 } from "../lib/composerImageBlobStore";
+import {
+  markAppSnapCaptureArrived,
+  triggerAppSnapWindowReturnAnimation,
+} from "../lib/appSnapArrival";
 import { playAppSnapCaptureSound } from "../lib/appSnapSound";
 import { isComposerAppSnapCaptureSource } from "../lib/composerImageSource";
 import { resolveRecentThreadSplitActivation } from "../recentViewActivation.logic";
@@ -185,7 +194,7 @@ async function hydratePersistedAppSnaps(
 
 export function AppSnapCoordinator() {
   const navigate = useNavigate();
-  const { settings } = useAppSettings();
+  const { settings, updateSettings } = useAppSettings();
   const { handleNewChat } = useHandleNewChat();
   const { focusedThreadId, splitView } = useFocusedChatContext();
   const openChatThreadPage = useTerminalStateStore((state) => state.openChatThreadPage);
@@ -275,28 +284,35 @@ export function AppSnapCoordinator() {
   }, []);
 
   // Settings objects are re-decoded from localStorage on every write, so key
-  // this effect on the chord's primitive fields rather than object identity.
-  const shortcutModifier =
-    settings.appSnapShortcut.kind === "key-chord" ? settings.appSnapShortcut.modifier : null;
-  const shortcutKey =
-    settings.appSnapShortcut.kind === "key-chord" ? settings.appSnapShortcut.key : null;
+  // this effect on the chord's canonical value rather than object identity.
+  const appSnapShortcutRef = useRef<DesktopAppSnapShortcut>(settings.appSnapShortcut);
+  appSnapShortcutRef.current = settings.appSnapShortcut;
+  const shortcutStorageKey = appSnapShortcutStorageKey(settings.appSnapShortcut);
+  const updateSettingsRef = useRef(updateSettings);
+  updateSettingsRef.current = updateSettings;
 
   useEffect(() => {
     const bridge = window.desktopBridge?.appSnap;
     if (!bridge) return;
-    const shortcut: DesktopAppSnapShortcut =
-      shortcutModifier && shortcutKey
-        ? { kind: "key-chord", modifier: shortcutModifier, key: shortcutKey }
-        : { kind: "both-option-keys" };
+    const requestedShortcut = appSnapShortcutRef.current;
     // The opt-in preference lives in the renderer settings store. This root
     // coordinator is mounted for the full UI lifetime and owns the native listener.
-    // AppSnap is macOS-only, so unsupported desktop platforms must not attempt
-    // shortcut registration or log the expected platform availability result.
+    // Unsupported desktop platforms must not attempt shortcut registration or log
+    // the expected platform availability result.
     void bridge
       .getState()
       .then((state) => {
         if (!state.supported) return;
-        return bridge.setShortcut(shortcut).then((result) => {
+        const effectiveShortcut = normalizeAppSnapShortcutForPlatform(
+          requestedShortcut,
+          state.platform,
+        );
+        if (!sameAppSnapShortcut(effectiveShortcut, requestedShortcut)) {
+          updateSettingsRef.current({
+            appSnapShortcut: effectiveShortcut as typeof settings.appSnapShortcut,
+          });
+        }
+        return bridge.setShortcut(effectiveShortcut).then((result) => {
           if (!result.availability.available) {
             console.warn("[appsnap] Saved shortcut is unavailable", result.availability.reason);
           }
@@ -306,7 +322,7 @@ export function AppSnapCoordinator() {
       .catch((error) => {
         console.warn("[appsnap] Could not update native listener state", error);
       });
-  }, [shortcutModifier, shortcutKey, settings.enableAppSnap]);
+  }, [shortcutStorageKey, settings.enableAppSnap]);
 
   const activateExistingTarget = useCallback(
     async (target: AppSnapThreadTarget) => {
@@ -432,6 +448,7 @@ export function AppSnapCoordinator() {
           .captureCurrentApp(requestId)
           .then(async (capture) => {
             if (cancelled) return;
+            markAppSnapCaptureArrived(capture.id);
             const attach = attachCaptureRef.current;
             if (!attach) throw new Error("The AppSnap composer is not ready yet.");
             await attach(capture, bridge, target);
@@ -527,11 +544,15 @@ export function AppSnapCoordinator() {
     };
 
     const unsubscribeCaptured = bridge.onCaptured((capture) => {
-      // Shutter cue for live captures only; captures restored from the pending
-      // store on mount, or replayed after a did-finish-load reload, were
-      // already handled and should land silently.
-      if (playCaptureSoundRef.current && !captureIdsRef.current.has(capture.id)) {
-        void playAppSnapCaptureSound();
+      // Visual return transition, card entrance, and shutter cue run for live
+      // captures only; captures restored from the pending store on mount, or
+      // replayed after a did-finish-load reload, land silently.
+      if (!captureIdsRef.current.has(capture.id)) {
+        markAppSnapCaptureArrived(capture.id);
+        triggerAppSnapWindowReturnAnimation();
+        if (playCaptureSoundRef.current) {
+          void playAppSnapCaptureSound();
+        }
       }
       enqueueCapture(capture);
     });

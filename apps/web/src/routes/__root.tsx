@@ -2113,7 +2113,8 @@ function EventRouter() {
       if (
         item.kind === "thread-removed" ||
         item.kind === "project-removed" ||
-        (item.kind === "thread-upserted" && item.thread.archivedAt != null)
+        (item.kind === "thread-upserted" && item.thread.archivedAt != null) ||
+        (item.kind === "sidebar-sections-updated" && item.thread?.archivedAt != null)
       ) {
         removeOrphanedTerminalsForCurrentState();
       }

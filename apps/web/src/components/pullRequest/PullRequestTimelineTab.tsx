@@ -21,8 +21,10 @@ export function PullRequestTimelineTab({
   detail: GitHubItemTimelineSource;
   noun?: "pull request" | "issue";
 }) {
-  const { locale } = useTranslation();
-  const events = buildPullRequestTimelineEvents(detail, noun);
+  const { locale, format } = useTranslation();
+  const events = buildPullRequestTimelineEvents(detail, noun, (key, values) =>
+    format(key, values ?? {}),
+  );
   return (
     <div className="h-full overflow-y-auto px-5 py-5">
       <div className="relative ml-2 border-l border-border/70 pl-5">

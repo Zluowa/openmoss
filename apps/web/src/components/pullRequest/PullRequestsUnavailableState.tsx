@@ -3,7 +3,7 @@
 //          unauthenticated, rate-limited, or a request otherwise failed — each case gets a short
 //          explanation and a copyable terminal command or reset time instead of a dead end.
 // Layer: Pull request presentation
-// Exports: PullRequestsUnavailableState, isPullRequestsUnavailableError
+// Exports: PullRequestsUnavailableState, isPullRequestsUnavailableError, issueSourceErrorReason
 
 import { useEffect, useRef, useState } from "react";
 
@@ -21,6 +21,7 @@ import {
 import { copyTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { CheckIcon, CopyIcon, GitPullRequestIcon, TriangleAlertIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import { formatShortTimestamp } from "~/timestampFormat";
 import { PR_FINE_TEXT_CLASS_NAME, PR_META_TEXT_CLASS_NAME } from "./pullRequestText";
@@ -47,6 +48,7 @@ function githubCliInstallCommand(platform: string): string | null {
 
 /** A single copyable terminal command — the `brew install gh` / `gh auth login` affordances. */
 function CommandLine({ command }: { command: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const mountedRef = useRef(true);
   const resetTimerRef = useRef<number | null>(null);
@@ -73,17 +75,17 @@ function CommandLine({ command }: { command: string }) {
               setCopied(false);
             }, 1500);
           },
-          (error) => {
+          () => {
             if (!mountedRef.current) return;
             toastManager.add({
               type: "error",
-              title: "Could not copy command",
-              description: error instanceof Error ? error.message : "Clipboard access failed.",
+              title: t("codeReview.copy.failed"),
+              description: t("codeReview.copy.failedDetail"),
             });
           },
         );
       }}
-      title="Copy to clipboard"
+      title={t("codeReview.copy.title")}
       className="group flex w-full items-center gap-2 rounded-row border border-border/60 bg-[var(--color-background-elevated-secondary)] px-3 py-2 text-left transition-colors hover:border-border"
     >
       <code
@@ -100,11 +102,11 @@ function CommandLine({ command }: { command: string }) {
       >
         {copied ? (
           <>
-            <CheckIcon className="size-3" /> Copied
+            <CheckIcon className="size-3" /> {t("codeReview.copied")}
           </>
         ) : (
           <>
-            <CopyIcon className="size-3" /> Copy
+            <CopyIcon className="size-3" /> {t("codeReview.copy")}
           </>
         )}
       </span>
@@ -112,20 +114,43 @@ function CommandLine({ command }: { command: string }) {
   );
 }
 
+export type IssueSourceFailureReason = "not-connected" | "failed" | "unreadable";
+
+/** Extracts `issue-source-<reason>` from a WsRpcError (directly or on `.cause`). */
+export function issueSourceErrorReason(error: unknown): IssueSourceFailureReason | null {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    const code = "code" in current && typeof current.code === "string" ? current.code : null;
+    if (code === "issue-source-not-connected") return "not-connected";
+    if (code === "issue-source-failed") return "failed";
+    if (code === "issue-source-unreadable") return "unreadable";
+    current = "cause" in current ? current.cause : null;
+  }
+  return null;
+}
+
 export function PullRequestsUnavailableState({
   error,
   onRetry,
   subject: subjectProp,
+  sourceName,
 }: {
   error: unknown;
   /** Optional refetch hook so "Retry" re-runs the failed query instead of reloading the app. */
   onRetry?: () => void;
   /** What failed to load, as a plural noun for the title ("Pull requests are unavailable"). */
   subject?: string;
+  /** External issue source name ("Linear", "Jira") so failures never blame GitHub. */
+  sourceName?: string;
 }) {
-  const subject = subjectProp ?? "Pull requests";
+  const { t, format } = useTranslation();
+  const subject = subjectProp ?? t("codeReview.kind.pullRequest");
   const { settings } = useAppSettings();
   const unavailable = isPullRequestsUnavailableError(error) ? error : null;
+  const sourceReason = issueSourceErrorReason(error);
+  const isExternalSource = sourceName !== undefined || sourceReason !== null;
   const notInstalled = unavailable?.reason === "gh-not-installed";
   const notAuthenticated = unavailable?.reason === "gh-not-authenticated";
   const rateLimited = unavailable?.reason === "rate-limited";
@@ -146,25 +171,39 @@ export function PullRequestsUnavailableState({
         </EmptyMedia>
         <EmptyTitle>
           {notInstalled
-            ? "GitHub CLI is required"
+            ? t("codeReview.gh.required")
             : notAuthenticated
-              ? "Sign in to GitHub CLI"
+              ? t("codeReview.gh.signIn")
               : rateLimited
-                ? "GitHub rate limit reached"
-                : `${subject} are unavailable`}
+                ? t("codeReview.rateLimit.title")
+                : sourceReason === "not-connected"
+                  ? sourceName
+                    ? format("issueSources.unavailable.notConnectedTitle", { source: sourceName })
+                    : t("issueSources.unavailable.notConnectedTitleGeneric")
+                  : format("codeReview.unavailable.title", { subject })}
         </EmptyTitle>
         <EmptyDescription>
           {notInstalled
-            ? "Moss reads GitHub data only through the gh CLI. Install it, then reopen this view."
+            ? t("codeReview.gh.requiredHint")
             : notAuthenticated
-              ? "Authenticate the GitHub CLI in a terminal, then retry."
+              ? t("codeReview.gh.signInHint")
               : rateLimited
                 ? resetTime
-                  ? `Moss pauses GitHub requests until the limit resets at ${resetTime}.`
-                  : "Moss pauses GitHub requests until the limit resets."
-                : error instanceof Error
-                  ? error.message
-                  : "The request to GitHub failed."}
+                  ? format("codeReview.rateLimit.pausedAt", { time: resetTime })
+                  : t("codeReview.rateLimit.paused")
+                : sourceReason === "not-connected"
+                  ? sourceName
+                    ? format("issueSources.unavailable.notConnectedHint", { source: sourceName })
+                    : t("issueSources.unavailable.notConnectedHintGeneric")
+                  : sourceReason === "unreadable"
+                    ? sourceName
+                      ? format("issueSources.unavailable.unreadable", { source: sourceName })
+                      : t("issueSources.unavailable.unreadableGeneric")
+                    : isExternalSource
+                      ? sourceName
+                        ? format("issueSources.unavailable.failed", { source: sourceName })
+                        : t("issueSources.unavailable.failedGeneric")
+                      : t("codeReview.unavailable.failed")}
         </EmptyDescription>
       </EmptyHeader>
       {notInstalled || notAuthenticated ? (
@@ -179,7 +218,7 @@ export function PullRequestsUnavailableState({
                 className="flex-1"
                 onClick={() => void ensureNativeApi().shell.openExternal("https://cli.github.com/")}
               >
-                Install instructions
+                {t("codeReview.gh.install")}
               </Button>
             ) : null}
             {onRetry ? (
@@ -189,7 +228,7 @@ export function PullRequestsUnavailableState({
                 className="flex-1"
                 onClick={onRetry}
               >
-                Retry
+                {t("codeReview.retry")}
               </Button>
             ) : null}
           </div>
@@ -205,13 +244,15 @@ export function PullRequestsUnavailableState({
             <TriangleAlertIcon className="size-4" />
             <span>
               {rateLimited
-                ? "The list refreshes on its own once the limit resets."
-                : "Check your connection and try again."}
+                ? t("codeReview.rateLimit.autoRefresh")
+                : sourceReason === "not-connected"
+                  ? t("issueSources.unavailable.checkSettings")
+                  : t("codeReview.checkConnection")}
             </span>
           </div>
           {onRetry ? (
             <Button variant="outline" size="sm" onClick={onRetry}>
-              Retry
+              {t("codeReview.retry")}
             </Button>
           ) : null}
         </div>

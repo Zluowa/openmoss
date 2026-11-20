@@ -7,6 +7,7 @@ import type { DesktopAppSnapState, DesktopAppSnapWindowEntry, ThreadId } from "@
 import { useEffect, useRef, useState } from "react";
 
 import { attachAppSnapCapture } from "~/appSnapAttach";
+import { markAppSnapCaptureArrived } from "~/lib/appSnapArrival";
 import { toastManager } from "../ui/toast";
 
 const APP_SNAP_WINDOW_LIST_ATTEMPT_LIMIT = 2;
@@ -135,6 +136,7 @@ export function useAppSnapWindows(input: {
     void activeBridge
       .captureWindow({ windowId })
       .then(async (capture) => {
+        markAppSnapCaptureArrived(capture.id);
         await attachAppSnapCapture(threadId, capture, () =>
           activeBridge.acknowledgeCapture(capture.id),
         );

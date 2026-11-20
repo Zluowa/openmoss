@@ -62,7 +62,7 @@ const DEFAULT_MOSS_INSTRUCTIONS = `# Moss
 This workspace uses Moss Unified Source as the single source of truth for rules, memory, plugins, skills, MCP, hooks, subagents, and provider routing.
 
 - Keep canonical configuration under .moss.
-- Project provider-native files (Codex, Claude Agent, Cursor, Gemini, Antigravity, Grok, OpenCode, Pi) from .moss instead of maintaining duplicate real data.
+- Project provider-native files (Codex, Claude Agent, Cursor, Antigravity, Grok, OpenCode, Pi) from .moss instead of maintaining duplicate real data.
 - Sessions may remain provider-native, but shared resources and provider routing belong to Moss.
 `;
 
@@ -120,7 +120,7 @@ name: ${MOSS_STARTER_MEMORY_NAME}
 description: Canonical Moss workspace operating memory.
 ---
 
-Moss owns one shared source for this workspace. Rules, memory, plugins, skills, MCP servers, hooks, subagents, and provider routing live under .moss and are projected into each supported provider (Codex, Claude Agent, Cursor, Gemini, Antigravity, Grok, OpenCode, Pi) as needed.
+Moss owns one shared source for this workspace. Rules, memory, plugins, skills, MCP servers, hooks, subagents, and provider routing live under .moss and are projected into each supported provider (Codex, Claude Agent, Cursor, Antigravity, Grok, OpenCode, Pi) as needed.
 
 Do not maintain a second real copy in provider-native folders. If a provider needs a native path, use the Moss projection or adapter output.
 `;

@@ -4,7 +4,7 @@
 // Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, deriveFriendlyCommandTarget, command icon classifiers, deriveInlineCommandCall, deriveLiteralCommand, deriveCommandReadTargets, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
 // Depends on: @moss/contracts tool lifecycle item types
 
-import type { ToolLifecycleItemType } from "@moss/contracts";
+import { AGENT_FEEDBACK_TOOL_NAME, type ToolLifecycleItemType } from "@moss/contracts";
 import { BROWSER_TOOL_TITLES } from "@moss/shared/browserAutomationPresentation";
 import {
   isMossAppsServer,
@@ -678,6 +678,7 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_media_generate: presentMossTool("starting a generation", "started a generation"),
   moss_media_get: presentMossTool("checking a generation", "checked a generation"),
   moss_read_widget_context: presentMossTool("reading widget state", "read widget state"),
+  moss_report_friction: presentMossTool("recording tool feedback", "recorded tool feedback"),
   html_render: {
     running: "Rendering an HTML page",
     completed: "Rendered an HTML page",
@@ -770,6 +771,7 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_media_generate: ["正在提交生成", "已提交生成", "无法提交生成"],
   moss_media_get: ["正在查询生成进度", "已查询生成进度", "无法查询生成进度"],
   moss_read_widget_context: ["正在读取小组件状态", "已读取小组件状态", "无法读取小组件状态"],
+  moss_report_friction: ["正在记录工具反馈", "已记录工具反馈", "无法记录工具反馈"],
 };
 
 const ZH_CN_MOSS_TOOL_HEADINGS: Readonly<Record<string, string>> = Object.fromEntries(
@@ -1017,6 +1019,66 @@ export interface MossMcpToolTitleInput {
   readonly title?: string | null | undefined;
   readonly fallbackLabel?: string | null | undefined;
   readonly status?: MossMcpToolStatus | undefined;
+}
+
+/** True for `moss_report_friction` however a provider prefixes MCP names. */
+export function isAgentFeedbackToolName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return name === AGENT_FEEDBACK_TOOL_NAME || name.endsWith(`__${AGENT_FEEDBACK_TOOL_NAME}`);
+}
+
+const ZH_CN_TOOL_AREA_FALLBACKS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^moss_pages_/u, "资料页面"],
+  [/^moss_canvas_/u, "画布"],
+  [/^moss_media_/u, "图像与视频"],
+  [/^moss_kanban_/u, "看板"],
+  [/^moss_.*automation/u, "自动化"],
+  [/^moss_.*todo/u, "待办"],
+  [/^moss_.*task/u, "任务"],
+  [/^moss_.*thread/u, "对话"],
+  [/^moss_.*theme/u, "外观主题"],
+  [/^(?:moss_)?browser_/u, "浏览器"],
+  [/^(?:moss_)?computer_/u, "电脑操控"],
+];
+
+/**
+ * Plain-language label for a Moss tool name (e.g. `moss_pages_mutate` -> "更新页面" / "Updating a page")
+ * so Settings UI never exposes raw snake_case tool identifiers to ordinary users.
+ */
+export function localizeMossToolName(toolName: string, locale: MossLocaleCode): string {
+  const trimmed = toolName.trim();
+  if (!trimmed) return "";
+  const bare = trimmed.replace(/^mcp__[^_]+__/u, "");
+  const runningTitle = deriveMossMcpToolTitle({ toolName: bare, status: "running" });
+  if (runningTitle && !runningTitle.startsWith("Moss is handling ")) {
+    if (locale === "zh-CN") {
+      const zh = localizeToolHeading(runningTitle, "zh-CN")
+        .replace(/^正在/u, "")
+        .trim();
+      if (zh && zh !== runningTitle) return zh;
+    } else {
+      const stripped = runningTitle.startsWith("Moss is ")
+        ? runningTitle.slice("Moss is ".length)
+        : runningTitle;
+      return stripped.length > 0 ? stripped[0]!.toUpperCase() + stripped.slice(1) : runningTitle;
+    }
+  }
+  if (/^(?:moss_apps_|COMPOSIO_)/u.test(bare)) {
+    return localizeMossAppsToolAction(bare, locale);
+  }
+  if (locale === "zh-CN") {
+    for (const [pattern, label] of ZH_CN_TOOL_AREA_FALLBACKS) {
+      if (pattern.test(bare)) return label;
+    }
+    if (/^[a-z0-9_]+$/u.test(bare) && bare.includes("_")) {
+      return bare.startsWith("moss_") ? "Moss 工具" : mcpToolTitleFromName(bare);
+    }
+    return bare;
+  }
+  if (/^[a-z0-9_]+$/u.test(bare) && bare.includes("_")) {
+    return mcpToolTitleFromName(bare.replace(/^moss_/u, ""));
+  }
+  return bare;
 }
 
 export function isMossBrowserToolCall(input: MossMcpToolTitleInput): boolean {

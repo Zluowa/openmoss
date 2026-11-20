@@ -16,7 +16,7 @@ import {
 import { MOSS_ACTIVE_PROVIDER_KINDS } from "./providerProductCatalog";
 
 describe("providerOrdering", () => {
-  it("ignores fourteen unprobed disabled statuses and managed instances while prioritizing an installed Pi", () => {
+  it("ignores thirteen unprobed disabled statuses and managed instances while prioritizing an installed Pi", () => {
     const statuses = MOSS_ACTIVE_PROVIDER_KINDS.map((provider) => ({
       provider,
       driver: provider,
@@ -28,7 +28,7 @@ describe("providerOrdering", () => {
       readiness: { state: "error" as const, reason: "disabled" },
       checkedAt: "2026-11-06T10:00:00Z",
     }));
-    expect(statuses).toHaveLength(14);
+    expect(statuses).toHaveLength(13);
     expect(statuses.filter(isLocalProviderInstalled)).toEqual([]);
     const installedPi = {
       ...statuses.find((status) => status.provider === "pi")!,

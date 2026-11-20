@@ -16056,4 +16056,56 @@ describe("Claude subagent tracking", () => {
       Effect.provide(harness.layer),
     );
   });
+
+  it.effect(
+    "caches supportedModels per live session instead of querying on every warm turn",
+    () => {
+      const query = new FakeClaudeQuery();
+      let supportedModelsCalls = 0;
+      (
+        query as unknown as {
+          supportedModels: () => Promise<Array<{ value: string; displayName: string }>>;
+        }
+      ).supportedModels = async () => {
+        supportedModelsCalls += 1;
+        return [{ value: "claude-sonnet-4-6", displayName: "Claude Sonnet 4.6" }];
+      };
+      const layer = makeClaudeAdapterLive({ createQuery: () => query }).pipe(
+        Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+          modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+        });
+
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "turn 1",
+          modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+        });
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "turn 2",
+          modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+        });
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "turn 3",
+          modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+        });
+
+        assert.equal(supportedModelsCalls, 1);
+        yield* adapter.stopSession(session.threadId);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(layer),
+      );
+    },
+  );
 });

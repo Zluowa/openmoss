@@ -686,13 +686,14 @@ function isProviderPickerProviderEnabled(
 }
 
 function SortableProviderVisibilityRow(props: {
-  option: { provider: ProviderKind; title: string };
+  option: { provider: ProviderKind; title: string; setupDocsHref?: string };
   providerStatus: ServerProviderStatus | undefined;
   statusReconciled: boolean;
   isDisabled: boolean;
   isHidden: boolean;
   onHiddenChange: (hidden: boolean) => void;
 }) {
+  const { t, format } = useTranslation();
   const {
     attributes,
     listeners,
@@ -705,6 +706,20 @@ function SortableProviderVisibilityRow(props: {
   const isChecking = !props.statusReconciled || props.providerStatus === undefined;
   const isAvailable = props.providerStatus?.available === true;
   const isEnabled = isProviderPickerProviderEnabled(props.providerStatus, props.isHidden);
+  const readiness =
+    !isChecking && !props.isDisabled && props.providerStatus
+      ? resolveAgentReadiness(props.providerStatus)
+      : null;
+  const isNotInstalled = !isAvailable && readiness?.state === "notInstalled";
+  const statusText = isNotInstalled
+    ? readiness.reason === "desktop-app-only"
+      ? format("provider.readiness.notInstalled.desktopApp", { provider: props.option.title })
+      : t("provider.readiness.notInstalled")
+    : providerSetupStatusLabel({
+        status: props.providerStatus,
+        reconciled: props.statusReconciled,
+        disabled: props.isDisabled,
+      });
 
   return (
     <div
@@ -736,27 +751,32 @@ function SortableProviderVisibilityRow(props: {
           <span className="block truncate text-ui-lg leading-snug text-foreground">
             {props.option.title}
           </span>
-          <span className="block text-ui-sm text-muted-foreground">
-            {providerSetupStatusLabel({
-              status: props.providerStatus,
-              reconciled: props.statusReconciled,
-              disabled: props.isDisabled,
-            })}
-          </span>
+          <span className="block text-ui-sm text-muted-foreground">{statusText}</span>
         </span>
       </div>
-      <Switch
-        checked={isEnabled}
-        disabled={isChecking || !isAvailable}
-        onCheckedChange={(checked) => props.onHiddenChange(!Boolean(checked))}
-        aria-label={
-          isChecking
-            ? `Checking ${props.option.title} CLI availability`
-            : isAvailable
-              ? `Show ${props.option.title} in the provider picker`
-              : `${props.option.title} is unavailable in the provider picker`
-        }
-      />
+      <div className="flex shrink-0 items-center gap-2.5">
+        {isNotInstalled ? (
+          <AgentInstallButton
+            provider={props.option.provider}
+            providerLabel={props.option.title}
+            readiness={readiness}
+            status={props.providerStatus}
+            fallbackUrl={props.option.setupDocsHref}
+          />
+        ) : null}
+        <Switch
+          checked={isEnabled}
+          disabled={isChecking || !isAvailable}
+          onCheckedChange={(checked) => props.onHiddenChange(!Boolean(checked))}
+          aria-label={
+            isChecking
+              ? `Checking ${props.option.title} CLI availability`
+              : isAvailable
+                ? `Show ${props.option.title} in the provider picker`
+                : `${props.option.title} is unavailable in the provider picker`
+          }
+        />
+      </div>
     </div>
   );
 }

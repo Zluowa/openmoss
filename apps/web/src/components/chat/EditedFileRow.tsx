@@ -14,7 +14,7 @@ import { MenuItem } from "../ui/menu";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { OpenInPicker } from "./OpenInPicker";
-import { resolveEditedFilePathTargets } from "./editedFilePathActions";
+import { formatEditedFileDisplay, resolveEditedFilePathTargets } from "./editedFilePathActions";
 
 interface EditedFileRowProps {
   filePath: string;
@@ -25,7 +25,7 @@ interface EditedFileRowProps {
   keybindings?: ResolvedKeybindingsConfig;
   availableEditors?: ReadonlyArray<EditorId>;
   resolvedTheme: "light" | "dark";
-  fontSize: CSSProperties["fontSize"];
+  fontSize?: CSSProperties["fontSize"];
   withFirstReset: boolean;
   onReview: () => void;
 }
@@ -46,6 +46,7 @@ export function EditedFileRow(props: EditedFileRowProps) {
     props.filePath,
     props.workspaceRoot,
   );
+  const { fileName, directory } = formatEditedFileDisplay(props.filePath, props.workspaceRoot);
   const isDeleted = props.fileKind === "deleted";
   const launcherTarget = isDeleted ? null : absolutePath;
   const hasDiffStat = props.additions + props.deletions > 0;
@@ -54,14 +55,15 @@ export function EditedFileRow(props: EditedFileRowProps) {
     <div
       data-edited-file-row="true"
       className={cn(
-        "flex w-full min-w-0 items-center gap-1.5 overflow-hidden border-t border-[color:var(--color-border-light)] bg-transparent py-1.5 pr-2 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] dark:bg-transparent dark:hover:bg-transparent",
+        "flex min-h-9 w-full min-w-0 items-center gap-1.5 overflow-hidden border-t border-[color:var(--color-border)] bg-transparent pr-2 transition-colors hover:bg-[var(--color-background-button-secondary-hover)]",
         props.withFirstReset && "first:border-t-0",
       )}
     >
       <button
         type="button"
         aria-label={`Review changes to ${props.filePath}`}
-        className="group/file-row flex min-w-0 flex-1 items-center gap-2 self-stretch bg-transparent py-1 pl-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+        title={props.filePath}
+        className="group/file-row flex min-w-0 flex-1 items-center gap-2 self-stretch bg-transparent py-1.5 pl-3 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/60 focus-visible:ring-inset"
         onClick={props.onReview}
       >
         <FileEntryIcon
@@ -69,28 +71,33 @@ export function EditedFileRow(props: EditedFileRowProps) {
           kind="file"
           theme={props.resolvedTheme}
           colorMode="inherit"
-          className="size-4 shrink-0 text-[var(--color-text-foreground)] opacity-70 dark:opacity-80"
+          className="size-4 shrink-0 text-muted-foreground"
         />
-        <span
-          className="font-system-ui min-w-0 truncate font-normal text-[var(--color-text-foreground)] underline-offset-2 group-hover/file-row:underline group-focus-visible/file-row:underline"
-          style={{ fontSize: props.fontSize }}
-          title={props.filePath}
-        >
-          {props.filePath}
+        <span className="flex min-w-0 flex-1 items-baseline gap-1.5 overflow-hidden font-system-ui">
+          <span
+            data-edited-file-name=""
+            className="max-w-full shrink-0 truncate text-ui-sm font-normal text-foreground underline-offset-2 group-hover/file-row:underline group-focus-visible/file-row:underline"
+          >
+            {fileName}
+          </span>
+          {directory ? (
+            <span
+              data-edited-file-dir=""
+              className="min-w-0 flex-1 truncate text-ui-xs font-normal text-muted-foreground"
+            >
+              {directory}
+            </span>
+          ) : null}
         </span>
         {hasDiffStat ? (
-          <span
-            className="font-system-ui ml-auto shrink-0 tabular-nums"
-            style={{ fontSize: props.fontSize }}
-          >
+          <span className="ml-auto shrink-0 font-system-ui text-ui-xs tabular-nums">
             <DiffStatLabel additions={props.additions} deletions={props.deletions} />
           </span>
         ) : null}
       </button>
 
-      {/* One compact action pair per row: the preferred editor's own icon (opens the
-          file in that app) plus its picker menu. The whole row already opens the
-          review, so no per-row Review button and no separate in-app open. */}
+      {/* Calm Central icon actions: open outside Moss and options menu (editors + copy path).
+          The whole row already opens the in-app diff review. */}
       <OpenInPicker
         variant="compact"
         {...(props.keybindings ? { keybindings: props.keybindings } : {})}

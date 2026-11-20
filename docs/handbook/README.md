@@ -11,6 +11,7 @@ sends you here for the detail.
 | [resources.md](resources.md)       | Worktrees, ports, scratch, builds, tokens, and giving them back         |
 | [quality.md](quality.md)           | Lanes, red means red, when a change is done, risk, isolation, review    |
 | [engineering.md](engineering.md)   | Code conventions that cross areas                                       |
+| [lessons.md](lessons.md)           | Rules learned from merged work, and how a lesson is kept and promoted   |
 | [skills.md](skills.md)             | How skills are written and kept, which exist, which are planned         |
 
 Some pages describe the target way of working, such as the workspace tool and the

@@ -24,7 +24,11 @@ import { menuIcon } from "~/lib/contextMenuIcons";
 import { CheckIcon, Columns2Icon, EllipsisIcon, GitHubIcon, RotateCcwIcon } from "~/lib/icons";
 import { formatSchedule } from "~/lib/automationForm";
 import { formatRelativeTime } from "~/lib/relativeTime";
-import { archiveThreadFromClient, unarchiveThreadFromClient } from "~/lib/threadArchive";
+import {
+  archiveThreadFromClient,
+  formatThreadArchiveErrorMessage,
+  unarchiveThreadFromClient,
+} from "~/lib/threadArchive";
 import { cn } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import type { useAutomations } from "~/routes/-automations.shared";
@@ -158,7 +162,7 @@ export function GroupThreadRow({
       toastManager.add({
         type: "error",
         title: "Could not archive the thread.",
-        description: cause instanceof Error ? cause.message : undefined,
+        description: formatThreadArchiveErrorMessage(cause, "archive"),
       });
     });
   };
@@ -176,7 +180,7 @@ export function GroupThreadRow({
       toastManager.add({
         type: "error",
         title: "Could not reopen the thread.",
-        description: cause instanceof Error ? cause.message : undefined,
+        description: formatThreadArchiveErrorMessage(cause, "restore"),
       });
     });
   };

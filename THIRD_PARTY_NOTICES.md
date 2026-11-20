@@ -53,6 +53,27 @@ Moss-only adaptations:
 - `moss_theme_set` needs a full-access caller thread with a live turn, like T3's environment settings, and acts only on the local server.
 - Not carried over: T3's theme files on disk, the `t3 theme` command line and its dev-home fix (#34700), the import conflict dialog (#37493 keeps CSS in its "Keep both" copy; Moss imports one share string into one pack), the stored copy of published themes for the first frame (#36042; Moss clients apply a published theme into the theme store they already paint from at launch), and the mobile app.
 
+## GitHub issue editing from T3 Code
+
+Closing, reopening, labelling and assigning a GitHub issue from the code review page, and the linked pull requests on an issue, are adapted from T3 Code's issue tracking.
+
+- Source: https://github.com/pingdotgg/t3code at 4d0e2f52d25a7cf663068b2d6f12c290d1a4f40f (2026-11-17), from #19259 (issue tracking core with GitHub issues), #19260 (the Issues page and issue detail panel), #37760 (label and assignee pickers) and #37930 (moving issues between states)
+- License: MIT. Copyright (c) 2026 T3 Tools Inc. (text in the "Server browser streaming and takeover from T3 Code" section)
+
+Carried over:
+
+- the GitHub update rules in `apps/server/src/git/Layers/GitHubCli.ts`: close with `state_reason` completed or not planned, reopen, replace labels and assignees as whole sets, and treat a 200 answer that did not apply the change as a failure (GitHub drops labels and assignees without triage access, and ignores a new close reason on a closed issue)
+- the linked pull requests of an issue: GitHub's closing references first, then pull requests that cross-reference the issue, each once
+- the candidates read (the repository's labels and assignable people) behind searchable pickers, in `apps/web/src/components/githubInbox/GitHubIssueEditors.tsx`
+
+Moss-only adaptations:
+
+- Moss already lists issues in its code review page (`GitHubInbox`), so there is no separate Issues page: the state lives in the header's state pill menu, the pickers sit beside the Assignees and Labels rows, and linked pull requests are a section of the issue's info. A linked pull request in the same repository opens on the code review page; others open on GitHub.
+- Moss talks to GitHub through the `gh` command line (`gh api`), with request bodies on stdin, instead of T3's HTTP and GraphQL clients.
+- A picker keeps its choices while open and saves once when it closes; the detail shows the change at once and returns to GitHub's version if the update fails.
+- Linear and Jira issues (Moss only): T3 reads Linear's GraphQL API with a pasted API key and has no Jira source. Moss reads both through the person's own connectors instead (the hosted Linear and Atlassian MCP servers, `apps/server/src/issueSources/`), so one sign-in serves agents and code review; Settings › Issue sources connects them and chooses the teams and sites.
+- Not carried over: GitLab, Azure DevOps and Forgejo trackers (Moss has no multi-host source control layer), creating issues and issue templates, editing titles and descriptions, reactions, linking issues to threads and the agent issue tools, saved views, and the mobile screens.
+
 ## Server browser streaming and takeover from T3 Code
 
 Moss's server-hosted agent browser, streamed to viewers with take-over control, is adapted from T3 Code's server preview browser.

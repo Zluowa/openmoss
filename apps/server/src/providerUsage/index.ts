@@ -356,10 +356,13 @@ export const listProviderUsage = Effect.fn(function* (
         },
         {
           forceRefresh: input.forceRefresh === true,
-          ...(requestedInstance && requestedInstance.driver !== "droid"
+          ...(requestedInstance &&
+          requestedInstance.driver !== "droid" &&
+          requestedInstance.driver !== "gemini"
             ? {
-                // Kilo is retired and decodes to opencode; droid instances are
-                // filtered above because retired drivers have no usage fetcher.
+                // Kilo is retired and decodes to opencode; droid and gemini
+                // instances are filtered above because retired drivers have no
+                // usage fetcher.
                 provider:
                   requestedInstance.driver === "kilo" ? "opencode" : requestedInstance.driver,
                 providerInstanceId: requestedInstance.instanceId,

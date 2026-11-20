@@ -1065,12 +1065,11 @@ describe("PROVIDER_OPTIONS", () => {
     const droid = PROVIDER_OPTIONS.find((option) => option.value === "droid");
     const opencode = PROVIDER_OPTIONS.find((option) => option.value === "opencode");
     const pi = PROVIDER_OPTIONS.find((option) => option.value === "pi");
-    // Moss keeps Gemini and Hermes as first-class providers and retires Droid.
+    // Moss retires Gemini CLI and Droid while keeping Hermes and the active CLIs.
     expect(PROVIDER_OPTIONS).toEqual([
       { value: "codex", label: "Codex", available: true },
       { value: "claudeAgent", label: "Claude", available: true },
       { value: "cursor", label: "Cursor", available: true },
-      { value: "gemini", label: "Gemini", available: true },
       { value: "antigravity", label: "Antigravity", available: true },
       { value: "grok", label: "Grok", available: true },
       { value: "opencode", label: "OpenCode", available: true },
@@ -1102,11 +1101,7 @@ describe("PROVIDER_OPTIONS", () => {
       label: "Grok",
       available: true,
     });
-    expect(gemini).toEqual({
-      value: "gemini",
-      label: "Gemini",
-      available: true,
-    });
+    expect(gemini).toBeUndefined();
     expect(hermes).toEqual({
       value: "hermes",
       label: "Hermes",

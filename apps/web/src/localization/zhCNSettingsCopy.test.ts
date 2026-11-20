@@ -130,3 +130,29 @@ describe("composer extras copy in zh-CN", () => {
     expect(translateZhCnPresentationText(english)).toBe(chinese);
   });
 });
+
+describe("Windows AppSnap settings and shortcut copy in zh-CN", () => {
+  it.each([
+    ["Capture any window with a shortcut", "用快捷键随时截取最前方的窗口"],
+    ["Press this shortcut from any app", "在任意应用中按下此快捷键"],
+    ["Active and ready", "已生效"],
+    ["Available — save to apply.", "可用 — 点击保存以生效。"],
+    ["Checking Windows and other apps…", "正在检查 Windows 与其他应用…"],
+    [
+      "The AppSnap shortcut is already used by Windows or another app.",
+      "此应用快照快捷键已被 Windows 或其他应用占用，请更换快捷键。",
+    ],
+    [
+      "Windows AppSnap requires a key combination such as Alt + Shift + S.",
+      "Windows 应用快照需要组合键（例如 Alt + Shift + S）。",
+    ],
+    ["Record AppSnap shortcut", "录制应用快照快捷键"],
+    ["Moss already uses this for “Toggle side chat”.", "Moss 已将此快捷键用于“切换侧边对话”。"],
+    [
+      "Ctrl + C is Copy in almost every app.",
+      "Ctrl + C 在几乎所有应用中都是常用快捷键，请换一个组合。",
+    ],
+  ])("translates %s", (english, chinese) => {
+    expect(translateZhCnPresentationText(english)).toBe(chinese);
+  });
+});

@@ -9,8 +9,10 @@ import type { OrchestrationThreadPullRequest } from "@moss/contracts";
 import type { KeyboardEvent, MouseEvent, SyntheticEvent } from "react";
 
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+import { GLYPH_LABEL_KEYS } from "./PullRequestStateGlyph";
 import {
   PR_STATE_PRESENTATION_ICONS,
   resolvePrStatePresentation,
@@ -31,11 +33,13 @@ export function PrStateChip({
       ) => void)
     | undefined;
 }) {
+  const { t } = useTranslation();
   const presentation = resolvePrStatePresentation(pr);
+  const stateLabel = GLYPH_LABEL_KEYS[presentation.label];
   const PrIcon = PR_STATE_PRESENTATION_ICONS[presentation.iconKind];
   return (
     <span
-      title={`#${pr.number} ${presentation.label}: ${pr.title}`}
+      title={`#${pr.number} ${stateLabel ? t(stateLabel) : presentation.label}: ${pr.title}`}
       {...(onOpen
         ? {
             role: "button" as const,
@@ -83,9 +87,13 @@ export function PrStateCountChip({
   className?: string;
   onOpen: (event: MouseEvent<HTMLElement>, pr: OrchestrationThreadPullRequest) => void;
 }) {
+  const { t, format } = useTranslation();
   const presentation = resolvePrStatePresentation(pullRequests[0]);
   const PrIcon = PR_STATE_PRESENTATION_ICONS[presentation.iconKind];
-  const label = `${pullRequests.length} pull requests`;
+  const label = format(
+    pullRequests.length === 1 ? "codeReview.pr.countOne" : "codeReview.pr.countMany",
+    { count: pullRequests.length },
+  );
   return (
     <Menu>
       <MenuTrigger
@@ -125,12 +133,13 @@ export function PrStateCountChip({
       >
         {pullRequests.map((pr) => {
           const itemPresentation = resolvePrStatePresentation(pr);
+          const itemStateLabel = GLYPH_LABEL_KEYS[itemPresentation.label];
           const ItemIcon = PR_STATE_PRESENTATION_ICONS[itemPresentation.iconKind];
           return (
             <MenuItem
               key={pr.url}
               className="min-h-7 gap-2 py-1 leading-snug sm:text-ui"
-              title={`#${pr.number} ${itemPresentation.label}: ${pr.title}`}
+              title={`#${pr.number} ${itemStateLabel ? t(itemStateLabel) : itemPresentation.label}: ${pr.title}`}
               onClick={(event) => onOpen(event, pr)}
             >
               <ItemIcon

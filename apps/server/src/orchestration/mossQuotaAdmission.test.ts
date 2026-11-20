@@ -63,4 +63,30 @@ describe("server Moss quota admission", () => {
       usagePeriod: "period",
     });
   });
+
+  it("blocks an exhausted free wallet lifetime allowance with hidden-cost basis", () => {
+    expect(
+      evaluateMossQuotaAdmission({
+        instanceId: "codex_moss",
+        driver: "codex",
+        managed: true,
+        quota: {
+          billingModel: "wallet_credits_v1",
+          usageLimits: [{ key: "lifetime", limit: 5, used: 5, resetsAt: null }],
+          quotaPolicyMode: "metered",
+          requestLimit: null,
+          requestsUsed: 0,
+          periodEnd: null,
+        },
+        quotaFetchedAt: NOW,
+        now: NOW,
+      }),
+    ).toMatchObject({
+      kind: "exhausted",
+      remainingPercent: 0,
+      resetAt: null,
+      usageBasis: "hidden-cost",
+      usagePeriod: "period",
+    });
+  });
 });

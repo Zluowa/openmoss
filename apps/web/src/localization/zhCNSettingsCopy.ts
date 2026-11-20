@@ -549,10 +549,66 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Press your two-key shortcut while any app is frontmost. Moss captures that window as an image, brings itself forward, and attaches the snap to a task composer — the capture stays on this device until you send the message.":
     "在任意应用位于最前方时，按下你设置的双键快捷键。Moss 会将该窗口截为图像、切回前台并附加到任务输入框；发送消息之前，截图仅保存在此设备上。",
   "Current shortcut": "当前快捷键",
-  "AppSnap shortcut saved": "应用截图快捷键已保存",
-  "AppSnap shortcut saved, but unavailable": "应用截图快捷键已保存，但暂不可用",
-  "The shortcut is reserved while AppSnap is enabled.": "启用应用截图时，这个快捷键会被保留。",
-  "The shortcut will be reserved when you enable AppSnap.": "启用应用截图后，这个快捷键会被保留。",
+  "Active and ready": "已生效",
+  "Available and reserved": "已生效",
+  "AppSnap shortcut saved": "应用快照快捷键已保存",
+  "AppSnap shortcut saved, but unavailable": "应用快照快捷键已保存，但暂不可用",
+  "The shortcut is reserved while AppSnap is enabled.": "开启应用快照期间，此快捷键会保持生效。",
+  "The shortcut will be reserved when you enable AppSnap.": "开启应用快照后，此快捷键将自动生效。",
+  "Capture any window with a shortcut": "用快捷键随时截取最前方的窗口",
+  "Snap the window in front straight into your task without switching away first.":
+    "无需先切回 Moss，按下快捷键即可把最前方的窗口画面直接加入任务。",
+  "Press this shortcut from any app": "在任意应用中按下此快捷键",
+  "AppSnap needs attention": "应用快照需要处理",
+  "Starting…": "正在启动…",
+  "Choose an available shortcut in Settings, then try again.":
+    "请在设置中选择一个可用的快捷键，然后重试。",
+  "Now press a key…": "再按一个键…",
+  "Now press the other key…": "再按另一个键…",
+  "Hold Ctrl or Alt, then press a key. Esc cancels.":
+    "按住 Ctrl 或 Alt 后再按一个键，按 Esc 取消。",
+  "Hold a modifier, then press one other key. Esc cancels.":
+    "按住修饰键后再按另一个键，按 Esc 取消。",
+  "Hold Ctrl or Alt first, then press a key.": "先按住 Ctrl 或 Alt，再按一个键。",
+  "Hold one or two modifiers.": "最多同时按住两个修饰键。",
+  "Checking Windows and other apps…": "正在检查 Windows 与其他应用…",
+  "Checking macOS and other apps…": "正在检查 macOS 与其他应用…",
+  "Available — save to apply.": "可用 — 点击保存以生效。",
+  "Check a new combination before saving.": "请先检查新的快捷键组合再保存。",
+  "Requires the Moss desktop app.": "需要在 Moss 桌面版中使用。",
+  "Shift-only combinations are used for typing and text selection — combine with Ctrl or Alt instead.":
+    "仅含 Shift 的组合用于输入和选字，请搭配 Ctrl 或 Alt 使用。",
+  "⇧ combinations are used for typing and text selection — combine with ⌘, ⌃ or ⌥ instead.":
+    "仅含 ⇧ 的组合用于输入和选字，请搭配 ⌘、⌃ 或 ⌥ 使用。",
+  "Windows reserves Win shortcuts for system actions — use Ctrl or Alt instead.":
+    "Windows 保留了 Win 键组合用于系统操作，请改用 Ctrl 或 Alt。",
+  "Windows uses Ctrl + Esc to open Start.": "Windows 使用 Ctrl + Esc 打开开始菜单。",
+  "Ctrl + Tab is used for tab switching in almost every app.":
+    "几乎所有应用都使用 Ctrl + Tab 切换标签页。",
+  "Windows uses Alt + Tab to switch apps.": "Windows 使用 Alt + Tab 切换应用。",
+  "Windows uses Alt + Esc to cycle windows.": "Windows 使用 Alt + Esc 切换窗口。",
+  "Windows uses Alt + Space for the window menu.": "Windows 使用 Alt + Space 打开窗口菜单。",
+  "Alt + Enter is used for properties or fullscreen in many apps.":
+    "许多应用使用 Alt + Enter 打开属性或切换全屏。",
+  "macOS uses ⌘ Space for Spotlight.": "macOS 使用 ⌘ Space 打开聚焦搜索。",
+  "macOS uses ⌘ Tab to switch apps.": "macOS 使用 ⌘ Tab 切换应用。",
+  "Windows AppSnap requires a key combination such as Alt + Shift + S.":
+    "Windows 应用快照需要组合键（例如 Alt + Shift + S）。",
+  "The AppSnap shortcut is already used by Windows or another app.":
+    "此应用快照快捷键已被 Windows 或其他应用占用，请更换快捷键。",
+  "The AppSnap shortcut is already used by macOS or another app.":
+    "此应用快照快捷键已被 macOS 或其他应用占用，请更换快捷键。",
+  "The operating system or another app is already using this shortcut.":
+    "系统或其他应用已占用此快捷键。",
+  "The operating system could not register this shortcut.": "系统无法注册此快捷键。",
+  "Global shortcut checks are unavailable.": "当前无法检查全局快捷键。",
+  "Choose at least one modifier and one supported keyboard key.":
+    "请至少选择一个修饰键和一个支持的按键。",
+  "No capturable Windows window is available.": "当前没有可截取的 Windows 窗口。",
+  "The requested Windows window is no longer available.": "所选的 Windows 窗口已不可用。",
+  "Computer control is not ready for AppSnap on Windows yet.":
+    "电脑操控尚未就绪，暂时无法在 Windows 上使用应用快照。",
+  "Record AppSnap shortcut": "录制应用快照快捷键",
   "Still denied after an update or rebuild? Remove this app from the list and add this copy again. Complete any macOS authentication, and restart if macOS asks you to quit and reopen.":
     "更新或重新构建后仍被拒绝？请把这个应用从列表中移除，再重新添加这个副本。完成 macOS 要求的身份验证；如果 macOS 要求退出并重新打开，请重启。",
   Grant: "授权",
@@ -879,6 +935,19 @@ const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExec
     ],
     [/^(.+) · Shared \(\.agents\)$/, (match) => `${match[1]} · 共享（.agents）`],
     [/^From Shared \(\.agents\)$/, () => "来自共享（.agents）"],
+    // AppSnap shortcut conflicts with Moss commands or universal OS actions.
+    [
+      /^Moss already uses this for “(.+)”\.$/,
+      (match) => `Moss 已将此快捷键用于“${lookupPhrase(SETTINGS_COPY, match[1]!) ?? match[1]!}”。`,
+    ],
+    [
+      /^(Ctrl \+|⌘) (.+) is (.+) in almost every app\.$/,
+      (match) => `${match[1]} ${match[2]} 在几乎所有应用中都是常用快捷键，请换一个组合。`,
+    ],
+    [
+      /^⌃ (.+) (interrupts the running program|ends input|suspends the running program) in every terminal\.$/,
+      (match) => `⌃ ${match[1]} 在终端中是系统控制快捷键，请换一个组合。`,
+    ],
     // External agent permissions are one " · " list built in externalMcpSetup.ts.
     [
       /^Create and follow its own tasks(?: · .+)?$/,

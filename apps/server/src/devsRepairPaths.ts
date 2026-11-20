@@ -17,8 +17,16 @@ const HIDDEN = /(?:^|\/)(?:\.git|\.github|\.codex|\.agents|\.aws|\.env(?:\.[^/]*
 const PROTECTED =
   /(?:^|\/)(?:\.git[^/]*|\.lfsconfig|\.github|node_modules|patches|\.moss|\.turbo|dist|third_party)(?:\/|$)|(?:^|\/)(?:AGENTS\.md|CLAUDE\.md|package\.json|bun\.lock|bunfig\.toml|turbo\.json|tsconfig[^/]*\.json|vitest[^/]*\.[cm]?[jt]s|\.editorconfig|\.npmrc|\.oxlintrc\.jsonc?|\.oxfmtrc\.jsonc?)$/i;
 
+/** A test the repair adds or changes: the evidence every fix must carry. */
+const REGRESSION_TEST = /(?:^|\/)(?:__tests__|tests?)\/|\.(?:test|spec|browser)\.[cm]?[jt]sx?$/i;
+
 /** The agent's report to the controller. It is read, never committed. */
 export const DEVS_RESULT_FILE = "MOSS_DEVS_RESULT.md";
+
+/** True for a test file, the only proof a repair may offer that it fixed something. */
+export function isRegressionTestPath(name: string): boolean {
+  return REGRESSION_TEST.test(name.replaceAll("\\", "/"));
+}
 
 export function isHiddenRepairPath(name: string): boolean {
   return HIDDEN.test(name.replaceAll("\\", "/"));

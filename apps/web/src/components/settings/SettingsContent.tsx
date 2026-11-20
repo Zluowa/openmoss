@@ -82,6 +82,7 @@ import {
   SettingsSegmentedControl,
   SettingsSelectControl,
 } from "./SettingControls";
+import { IssueSourcesSettings } from "./IssueSourcesSettings";
 import { SettingsRow, SettingsSection, SettingsSectionShell } from "./SettingsPanelPrimitives";
 import { ThemeModePicker } from "./ThemeModePicker";
 import { ThemePackEditor } from "~/components/ThemePackEditor";
@@ -99,6 +100,7 @@ import { useOnboardingDialogStore } from "~/onboarding/onboardingDialogStore";
 import { Input } from "~/components/ui/input";
 import { SelectItem } from "~/components/ui/select";
 import { ErrorReportsSettingsSection } from "./ErrorReportsSettingsSection";
+import { AgentFeedbackSettingsSection } from "./AgentFeedbackSettingsSection";
 import { Switch } from "~/components/ui/switch";
 import { toastManager } from "~/components/ui/toast";
 import { useDesktopCustomTitleBarState } from "~/hooks/useDesktopCustomTitleBar";
@@ -579,6 +581,7 @@ export function SettingsContent({
     ...(settings.githubInboxIncludeUpstreams !== defaults.githubInboxIncludeUpstreams
       ? ["Include fork upstreams"]
       : []),
+    ...(settings.issueSourceHiddenTeams.length > 0 ? ["Issue sources"] : []),
     ...(settings.confirmThreadDelete !== defaults.confirmThreadDelete
       ? ["Delete confirmation"]
       : []),
@@ -996,6 +999,7 @@ export function SettingsContent({
         </SettingsSection>
       </div>
 
+      <AgentFeedbackSettingsSection />
       <ErrorReportsSettingsSection
         checked={settings.errorReportsEnabled}
         isDefault={settings.errorReportsEnabled === defaults.errorReportsEnabled}
@@ -1670,6 +1674,8 @@ export function SettingsContent({
           ariaLabel: "Wrap diff lines by default",
         })}
       </SettingsSection>
+
+      <IssueSourcesSettings />
 
       <SettingsSection title="Safety confirmations">
         {renderBooleanSettingRow({

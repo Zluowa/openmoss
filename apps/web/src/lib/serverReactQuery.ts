@@ -52,6 +52,9 @@ export const serverQueryKeys = {
     ["server", "studioThreadOutputs", threadId] as const,
   computerStatus: () => ["server", "computerStatus"] as const,
   computerAuditHistory: () => ["server", "computerAuditHistory"] as const,
+  agentFeedback: () => ["server", "agentFeedback"] as const,
+  agentFeedbackReports: (reportIds: readonly string[]) =>
+    ["server", "agentFeedbackReports", reportIds.join(",")] as const,
   computerUsedApps: () => ["server", "computerUsedApps"] as const,
 };
 

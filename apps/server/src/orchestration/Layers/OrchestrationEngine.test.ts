@@ -57,6 +57,7 @@ import {
   OrchestrationProjectionPipeline,
   type OrchestrationProjectionPipelineShape,
 } from "../Services/ProjectionPipeline.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import { ORCHESTRATION_EVENT_PUBSUB_CAPACITY } from "../orchestrationAdmission.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -174,7 +175,7 @@ async function createOrchestrationSystem(pipeline?: OrchestrationProjectionPipel
         ? Layer.succeed(OrchestrationProjectionPipeline, pipeline)
         : OrchestrationProjectionPipelineLive,
     ),
-    Layer.provide(OrchestrationProjectionSnapshotQueryLive),
+    Layer.provideMerge(OrchestrationProjectionSnapshotQueryLive),
     Layer.provideMerge(OrchestrationEventStoreLive),
     Layer.provideMerge(OrchestrationCommandReceiptRepositoryLive),
     Layer.provideMerge(ProviderRuntimeEventRepositoryLive),
@@ -200,6 +201,7 @@ async function createOrchestrationSystem(pipeline?: OrchestrationProjectionPipel
   const projectionPipeline = await runtime.runPromise(
     Effect.service(OrchestrationProjectionPipeline),
   );
+  const snapshotQuery = await runtime.runPromise(Effect.service(ProjectionSnapshotQuery));
   return {
     engine,
     sql,
@@ -207,6 +209,7 @@ async function createOrchestrationSystem(pipeline?: OrchestrationProjectionPipel
     runtimeRepository,
     eventStore,
     projectionPipeline,
+    snapshotQuery,
     managedAttachmentRepository,
     stateDir: serverConfig.stateDir,
     run: <A, E>(effect: Effect.Effect<A, E>) => runtime.runPromise(effect),
@@ -331,6 +334,126 @@ describe("OrchestrationEngine", () => {
           )
         )[0]?.revision,
       ).toBe(restored.sidebarOrderRevision);
+    } finally {
+      await system.dispose();
+    }
+  });
+
+  it("compacts persisted sidebar order on archive, handles duplicate archive idempotently, and survives reorder/unarchive/reload without revision conflict", async () => {
+    const system = await createOrchestrationSystem();
+    const projectId = asProjectId("sidebar-archive-flow-project");
+    const firstThreadId = ThreadId.makeUnsafe("sidebar-archive-flow-first");
+    const secondThreadId = ThreadId.makeUnsafe("sidebar-archive-flow-second");
+    const createdAt = now();
+    try {
+      await system.run(
+        system.engine.dispatch({
+          type: "project.create",
+          commandId: CommandId.makeUnsafe("sidebar-flow-create-project"),
+          projectId,
+          title: "Archive Flow",
+          workspaceRoot: "/tmp/sidebar-archive-flow",
+          defaultModelSelection: null,
+          createdAt,
+        }),
+      );
+      for (const [commandId, threadId] of [
+        ["sidebar-flow-create-first", firstThreadId],
+        ["sidebar-flow-create-second", secondThreadId],
+      ] as const) {
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.makeUnsafe(commandId),
+            threadId,
+            projectId,
+            title: String(threadId),
+            modelSelection: { provider: "codex", model: "gpt-5-codex" },
+            interactionMode: "default",
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+          }),
+        );
+      }
+
+      // Archive the first thread: persisted sidebarOrderItems must remain contiguous (0, 1, ...)
+      // and the receipt must report the new sidebarOrderRevision.
+      const firstArchive = await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("sidebar-flow-archive-first-1"),
+          threadId: firstThreadId,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        }),
+      );
+      expect(firstArchive.sidebarOrderRevision).toBe(1);
+      const afterFirstArchive = await system.run(system.snapshotQuery.getShellSnapshot());
+      expect(afterFirstArchive.sidebarOrderRevision).toBe(1);
+      expect(
+        afterFirstArchive.sidebarOrderItems
+          ?.filter((item) => item.destination === "default")
+          .map((item) => item.sortOrder),
+      ).toEqual([0, 1]);
+
+      // Clicking archive a second time on the same thread (even with stale revision 0 and a new
+      // commandId) is an idempotent no-op and never throws SIDEBAR_ORDER_REVISION_CONFLICT.
+      const duplicateArchive = await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("sidebar-flow-archive-first-2"),
+          threadId: firstThreadId,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        }),
+      );
+      expect(duplicateArchive.sidebarOrderRevision).toBe(1);
+
+      // Unarchive with stale revision, pin/reorder, then archive the second thread with stale revision.
+      const unarchived = await system.run(
+        system.engine.dispatch({
+          type: "thread.unarchive",
+          commandId: CommandId.makeUnsafe("sidebar-flow-unarchive-first"),
+          threadId: firstThreadId,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        }),
+      );
+      expect(unarchived.sidebarOrderRevision).toBe(2);
+
+      const pinned = await system.run(
+        system.engine.dispatch({
+          type: "sidebar-section.thread.place",
+          commandId: CommandId.makeUnsafe("sidebar-flow-pin-first"),
+          threadId: firstThreadId,
+          sectionId: null,
+          destination: "pinned",
+          beforeThreadId: null,
+          sectionCreatedAt: null,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(2),
+        }),
+      );
+      expect(pinned.sidebarOrderRevision).toBe(3);
+
+      const secondArchive = await system.run(
+        system.engine.dispatch({
+          type: "thread.archive",
+          commandId: CommandId.makeUnsafe("sidebar-flow-archive-second"),
+          threadId: secondThreadId,
+          expectedSidebarOrderRevision: SidebarOrderRevision.makeUnsafe(0),
+        }),
+      );
+      expect(secondArchive.sidebarOrderRevision).toBe(4);
+
+      // Simulate a pre-fix SQLite database with a non-contiguous sort_order gap;
+      // getShellSnapshot self-heals on read so the web client accepts sidebarOrderRevision.
+      await system.run(
+        system.sql`UPDATE projection_sidebar_order_items SET sort_order = sort_order + 2`,
+      );
+      const healedSnapshot = await system.run(system.snapshotQuery.getShellSnapshot());
+      const defaultOrders = (healedSnapshot.sidebarOrderItems ?? [])
+        .filter((item) => item.destination === "default")
+        .map((item) => item.sortOrder);
+      expect(defaultOrders).toEqual(defaultOrders.map((_, index) => index));
     } finally {
       await system.dispose();
     }

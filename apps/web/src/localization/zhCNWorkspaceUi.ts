@@ -91,6 +91,7 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Default UI font": "默认界面字体",
   "Dark theme pack": "深色主题包",
   "Light theme pack": "浅色主题包",
+  "Issue sources": "议题来源",
   "Import thread from provider": "从服务商导入对话",
   "Create a local app thread and resume it from an existing provider id.":
     "创建本地应用对话，并从已有的服务商 ID 恢复。",
@@ -394,6 +395,10 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Unable to restore the thread.": "无法恢复此对话。",
   "Could not archive thread": "无法归档对话",
   "Unable to archive the thread.": "无法归档此对话。",
+  "The sidebar list changed. Please try archiving again.": "侧边栏列表刚刚发生了变化，请重试归档。",
+  "The sidebar list changed. Please try restoring again.": "侧边栏列表刚刚发生了变化，请重试恢复。",
+  "The original sidebar section is full. Remove an item from it and try again.":
+    "原来的侧边栏分组已满，请移出部分内容后重试。",
   "Archived threads are hidden from the sidebar but can be restored later.":
     "已归档对话会从侧边栏隐藏，但之后仍可恢复。",
   "Nothing to archive": "没有可归档的内容",
@@ -1279,6 +1284,14 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   // Kanban attachment and worktree errors preserve filenames, paths, and diagnostics.
   [/^(\d+) files were not added\.$/, (match) => `未添加 ${match[1]} 个文件。`],
   [/^Could not remove (.+)\. (.+)$/, (match) => `无法移除 ${match[1]}。${match[2]}`],
+  [
+    /^Orchestration command invariant failed \(thread\.archive\):.*$/s,
+    () => "无法归档此对话，请稍后重试。",
+  ],
+  [
+    /^Orchestration command invariant failed \(thread\.unarchive\):.*$/s,
+    () => "无法恢复此对话，请稍后重试。",
+  ],
 ];
 
 /** Translates known workspace/UI chrome while leaving unknown or runtime text untouched. */

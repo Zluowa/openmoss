@@ -83,7 +83,11 @@ A check that fails for reasons other than the change teaches agents to ignore it
 - A test that needs the network is not quarantined: it sits behind an explicit opt-in.
   `backendShutdown.windows.integration` is never quarantined: it finds real regressions.
 - Nobody says "that was already failing" without a control run on the base commit,
-  with both results shown.
+  with both results shown. The control run says whose failure it is, not that it can
+  wait: a failure on `main` is a bug now.
+- A red on `main` gets an issue, labelled `red`, with its command and output, before
+  anyone edits code for it. Filing it is not owning it: take it, or say who has it.
+  A claim with no commit or finding for a day is no claim.
 - Nobody reruns until green. A file that failed under load and passed alone is
   reported as exactly that. A test that fails alone and then passes on retry is
   flaky and is quarantined.

@@ -12,7 +12,6 @@ import { ServerSettingsService } from "../serverSettings";
 import { makeClaudeAdapterLive } from "./Layers/ClaudeAdapter";
 import { makeCodexAdapterLive } from "./Layers/CodexAdapter";
 import { makeCursorAdapterLive } from "./Layers/CursorAdapter";
-import { makeGeminiAdapterLive } from "./Layers/GeminiAdapter";
 import { makeDevinAdapterLive } from "./Layers/DevinAdapter";
 import { makeEventNdjsonLogger } from "./Layers/EventNdjsonLogger";
 import { makeAntigravityAdapterLive } from "./Layers/AntigravityAdapter";
@@ -91,9 +90,6 @@ export function makeServerProviderLayer(
       {},
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(Layer.provide(agentGatewayCredentialsLayer));
-    const geminiAdapterLayer = makeGeminiAdapterLive(
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
     const hermesAdapterLayer = makeHermesAdapterLive(
       {},
       nativeEventLogger ? { nativeEventLogger } : undefined,
@@ -123,7 +119,6 @@ export function makeServerProviderLayer(
       Layer.provide(codexAdapterLayer),
       Layer.provide(claudeAdapterLayer),
       Layer.provide(cursorAdapterLayer),
-      Layer.provide(geminiAdapterLayer),
       Layer.provide(devinAdapterLayer),
       Layer.provide(antigravityAdapterLayer),
       Layer.provide(grokAdapterLayer),

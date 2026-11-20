@@ -68,9 +68,9 @@ import { workingMarkSignal } from "./transcript/workingStatus";
 import { InlineLinkChip } from "../InlineLinkChip";
 import {
   BotIcon,
-  ChangesIcon,
   CircleAlertIcon,
   ClockIcon,
+  FileEditIcon,
   GitForkIcon,
   GoalIcon,
   LoaderIcon,
@@ -128,6 +128,7 @@ import {
 } from "./transcript/cards/transcriptCards";
 import { stripReplyMarkers } from "./transcript/replyQuote";
 import { isWrapUpTimelineEntry, resolveWrapUpPlan } from "./transcript/wrapUpPlan";
+import { isAgentFeedbackToolName } from "~/lib/toolCallLabel";
 import { WrapUpLiveBox, WrapUpSettledCard } from "./transcript/WrapUpBox";
 import { ChapterHeading } from "./transcript/ChapterHeading";
 import { RewindMarker } from "./transcript/RewindMarker";
@@ -771,15 +772,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         );
       }
     : undefined;
-  // moss_wrap_up never shows as a tool row: it draws the turn-end box instead.
+  // moss_wrap_up draws the turn-end box instead; moss_report_friction stays out of the chat.
   const wrapUpPlan = useMemo(() => resolveWrapUpPlan(rawTimelineEntries), [rawTimelineEntries]);
-  const timelineEntries = useMemo(
-    () =>
-      rawTimelineEntries.some(isWrapUpTimelineEntry)
-        ? rawTimelineEntries.filter((entry) => !isWrapUpTimelineEntry(entry))
-        : rawTimelineEntries,
-    [rawTimelineEntries],
-  );
+  const timelineEntries = useMemo(() => {
+    const isHiddenToolEntry = (entry: (typeof rawTimelineEntries)[number]) =>
+      isWrapUpTimelineEntry(entry) ||
+      (entry.kind === "work" && isAgentFeedbackToolName(entry.entry.toolName));
+    return rawTimelineEntries.some(isHiddenToolEntry)
+      ? rawTimelineEntries.filter((entry) => !isHiddenToolEntry(entry))
+      : rawTimelineEntries;
+  }, [rawTimelineEntries]);
   // The marker stays only while the kept message is still the transcript's tail.
   const lastTimelineMessageId = useMemo(() => {
     for (let index = rawTimelineEntries.length - 1; index >= 0; index -= 1) {
@@ -3582,62 +3584,54 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         keybindings={editorKeybindings}
                         availableEditors={installedEditors}
                         resolvedTheme={resolvedTheme}
-                        fontSize={chatTypographyStyle.fontSize}
                         withFirstReset={withFirstReset}
                         onReview={() => onOpenTurnDiff(turnSummaryCard.turnId, file.path)}
                       />
                     );
                   };
                   return (
-                    <div className="mt-2 mb-1 overflow-hidden rounded-card border border-[color:var(--color-border-light)] dark:border-[color:color-mix(in_srgb,var(--color-border-light)_55%,transparent)]">
+                    <div
+                      data-testid="edited-files-card"
+                      className="mt-2.5 mb-1 overflow-hidden rounded-card border border-[color:var(--color-border)] bg-card"
+                    >
                       <div
                         className={cn(
-                          "flex items-center justify-between gap-3 bg-[color:color-mix(in_srgb,var(--app-user-message-background)_40%,transparent)] px-3 py-1.5",
-                          fileChangesExpanded &&
-                            "border-b border-[color:var(--color-border-light)]",
+                          "flex min-h-10 items-center justify-between gap-2 py-1.5 pr-2 pl-3",
+                          fileChangesExpanded && "border-b border-[color:var(--color-border)]",
                         )}
                       >
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          <ChangesIcon className="size-4 shrink-0 text-muted-foreground/70" />
-                          <div className="min-w-0">
-                            <div
-                              className="truncate font-normal text-foreground/92"
-                              style={{ fontSize: chatTypographyStyle.fontSize }}
-                            >
-                              {editedFilesLabel}
-                            </div>
-                            {totalAdditions + totalDeletions > 0 ? (
-                              <div
-                                className="text-size-chat tabular-nums"
-                                style={{ fontSize: chatTypographyStyle.fontSize }}
-                              >
-                                <DiffStatLabel
-                                  additions={totalAdditions}
-                                  deletions={totalDeletions}
-                                />
-                              </div>
-                            ) : null}
-                          </div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileEditIcon className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="truncate text-ui-sm font-medium text-foreground">
+                            {editedFilesLabel}
+                          </span>
+                          {totalAdditions + totalDeletions > 0 ? (
+                            <span className="shrink-0 text-ui-xs tabular-nums">
+                              <DiffStatLabel
+                                additions={totalAdditions}
+                                deletions={totalDeletions}
+                              />
+                            </span>
+                          ) : null}
                         </div>
-                        <div className="flex shrink-0 items-center gap-2">
+                        <div className="flex shrink-0 items-center gap-1">
                           {canUndo && (
-                            <button
-                              type="button"
-                              className="flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground"
-                              style={{ fontSize: chatTypographyStyle.fontSize }}
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              className="font-normal text-muted-foreground hover:text-foreground"
                               onClick={() => onUndoTurnFiles(checkpointTurnCounts)}
                             >
-                              Undo
-                              <Undo2Icon className="size-3" />
-                            </button>
+                              <Undo2Icon className="size-3.5" />
+                              <span>{t("sidebar.activity.undo")}</span>
+                            </Button>
                           )}
                           <ReviewChangesButton
-                            style={{ fontSize: chatTypographyStyle.fontSize }}
                             onClick={() => onOpenTurnDiff(turnSummaryCard.turnId)}
                           />
-                          <button
-                            type="button"
-                            className="inline-flex items-center justify-center rounded-control p-1 text-muted-foreground/70 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground/80"
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
                             aria-expanded={fileChangesExpanded}
                             aria-label={
                               fileChangesExpanded
@@ -3654,11 +3648,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             }}
                             data-scroll-anchor-ignore={isTailContentRow ? true : undefined}
                           >
-                            <DisclosureChevron
-                              open={fileChangesExpanded}
-                              className="dark:text-muted-foreground/50"
-                            />
-                          </button>
+                            <DisclosureChevron open={fileChangesExpanded} />
+                          </Button>
                         </div>
                       </div>
                       <DisclosureRegion open={fileChangesExpanded}>
@@ -3673,8 +3664,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         {overflowCheckpointFiles.length > 0 ? (
                           <button
                             type="button"
-                            className="flex w-full items-center justify-start gap-1.5 border-t border-[color:var(--color-border-light)] bg-transparent px-3 py-2 text-size-chat font-normal text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
-                            style={{ fontSize: chatTypographyStyle.fontSize }}
+                            className="flex min-h-9 w-full items-center justify-start gap-2 border-t border-[color:var(--color-border)] bg-transparent px-3 py-1.5 text-ui-sm font-normal text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
                             aria-expanded={fileListExpanded}
                             onClick={() => toggleFileListExpanded(turnSummaryCard.turnId)}
                           >

@@ -159,6 +159,7 @@ export const ArchiveIcon: LucideIcon = centralIconWrapper("archive-1");
 export const BrainIcon: LucideIcon = centralIconWrapper("brain");
 export const FileIcon: LucideIcon = centralIconWrapper("page-empty");
 export const FileAddIcon: LucideIcon = centralIconWrapper("page-add");
+export const FileEditIcon: LucideIcon = centralIconWrapper("file-edit");
 export const CirclePersonIcon: LucideIcon = centralIconWrapper("circle-person");
 export const BuildingsIcon: LucideIcon = centralIconWrapper("buildings");
 export const FlagIcon: LucideIcon = centralIconWrapper("flag-1");

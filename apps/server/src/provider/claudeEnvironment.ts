@@ -268,12 +268,13 @@ function applyMossManagedClaudeLaunchSettings(env: NodeJS.ProcessEnv): void {
 }
 
 /**
- * One Moss send must be exactly one paid Gateway POST. Claude Code otherwise retries failures
- * itself, and after a stream error before any output it resends once without streaming even
- * when it has no retries left. The Gateway deliberately never replays an ambiguous paid request.
+ * Bound Moss-managed Claude retries to 2 streaming attempts and disable the
+ * non-streaming fallback (which would hit proxy idle limits on long answers).
+ * The gateway marks non-retryable HTTP errors with `x-should-retry: false` and
+ * emits retryable mid-stream `overloaded_error` events on dropped streams.
  */
 const MOSS_MANAGED_CLAUDE_SINGLE_REQUEST_ENVIRONMENT: Readonly<Record<string, string>> = {
-  [MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY]: "0",
+  [MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY]: "2",
   [MOSS_MANAGED_CLAUDE_DISABLE_NONSTREAMING_FALLBACK_ENV_KEY]: "1",
 };
 

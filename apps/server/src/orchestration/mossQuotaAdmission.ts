@@ -92,10 +92,13 @@ export function evaluateMossQuotaAdmission(input: MossQuotaAdmissionInput): Moss
     }
   }
 
-  if (quota.billingModel === "cost_budget_v1") {
+  if (quota.billingModel === "cost_budget_v1" || quota.billingModel === "wallet_credits_v1") {
     const exhaustedCostWindow = quota.usageLimits?.find(
       (window) =>
-        (window.key === "five_hour" || window.key === "weekly" || window.key === "monthly") &&
+        (window.key === "five_hour" ||
+          window.key === "weekly" ||
+          window.key === "monthly" ||
+          window.key === "lifetime") &&
         typeof window.limit === "number" &&
         Number.isFinite(window.limit) &&
         window.limit >= 0 &&

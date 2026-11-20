@@ -440,6 +440,8 @@ interface ClaudeSessionContext {
   initToolNames?: ReadonlySet<string>;
   // `system/init.capabilities`: feature detection for interactive connectors (MCP Apps).
   cliCapabilities?: ReadonlySet<string>;
+  // Initialization metadata from `query.supportedModels()`, cached per live CLI process.
+  supportedModels?: ReadonlyArray<ModelInfo>;
   readonly commandDiscoveryKey: string;
   readonly accountDiscoveryKey: string;
   readonly messageStream?: AsyncIterable<SDKMessage>;
@@ -2509,37 +2511,43 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     const verifyClaudeAutoModelSupport = (input: {
       readonly queryRuntime: ClaudeQueryRuntime;
       readonly discoveryKey: string;
+      readonly cachedModels?: ReadonlyArray<ModelInfo>;
       readonly selectedModel: string | undefined;
       readonly apiModelId: string | undefined;
       readonly operation: "startSession" | "sendTurn";
     }) =>
       Effect.gen(function* () {
         const requestedModel = input.selectedModel ?? input.apiModelId ?? "selected model";
-        const discoveredModels = yield* Effect.tryPromise({
-          try: () => input.queryRuntime.supportedModels(),
-          catch: (cause) =>
-            new ProviderAdapterValidationError({
-              provider: PROVIDER,
-              operation: input.operation,
-              issue:
-                `Claude model capability discovery failed while verifying Auto mode support for "${requestedModel}": ` +
-                toMessage(cause, "unknown discovery error"),
-            }),
-        }).pipe(
-          // ProviderService gives session startup 60 seconds. Let cold startup
-          // discovery use nearly that budget while retaining cleanup headroom;
-          // live model switches keep their short bound.
-          Effect.timeout(Duration.seconds(input.operation === "startSession" ? 55 : 5)),
-          Effect.mapError((cause) =>
-            cause instanceof ProviderAdapterValidationError
-              ? cause
-              : new ProviderAdapterValidationError({
-                  provider: PROVIDER,
-                  operation: input.operation,
-                  issue: `Could not verify that Claude model "${requestedModel}" supports Auto mode before the model discovery timeout.`,
-                }),
-          ),
-        );
+        const discoveredModels =
+          input.cachedModels ??
+          (yield* Effect.tryPromise({
+            try: () => input.queryRuntime.supportedModels(),
+            catch: (cause) =>
+              new ProviderAdapterValidationError({
+                provider: PROVIDER,
+                operation: input.operation,
+                issue:
+                  `Claude model capability discovery failed while verifying Auto mode support for "${requestedModel}": ` +
+                  toMessage(cause, "unknown discovery error"),
+              }),
+          }).pipe(
+            // ProviderService gives session startup 60 seconds. Let cold startup
+            // discovery use nearly that budget while retaining cleanup headroom;
+            // live model switches keep their short bound.
+            Effect.timeout(Duration.seconds(input.operation === "startSession" ? 55 : 5)),
+            Effect.mapError((cause) =>
+              cause instanceof ProviderAdapterValidationError
+                ? cause
+                : new ProviderAdapterValidationError({
+                    provider: PROVIDER,
+                    operation: input.operation,
+                    issue: `Could not verify that Claude model "${requestedModel}" supports Auto mode before the model discovery timeout.`,
+                  }),
+            ),
+          ));
+        if (discoveredModels.length > 0) {
+          discoveredModelsByKey.set(input.discoveryKey, discoveredModels);
+        }
         const requestedModels = new Set(
           [input.selectedModel, input.apiModelId].filter(
             (model): model is string => model !== undefined,
@@ -2567,6 +2575,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             issue: `Claude model "${resolution.model.displayName}" does not support Auto mode.`,
           });
         }
+        return discoveredModels;
       });
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -7411,15 +7420,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         let installationComplete = false;
 
         return yield* Effect.gen(function* () {
-          if (input.runtimeMode === "auto") {
-            yield* verifyClaudeAutoModelSupport({
-              queryRuntime,
-              discoveryKey: accountDiscoveryKey,
-              selectedModel: effectiveClaudeModel,
-              apiModelId,
-              operation: "startSession",
-            });
-          }
+          const initialSupportedModels =
+            input.runtimeMode === "auto"
+              ? yield* verifyClaudeAutoModelSupport({
+                  queryRuntime,
+                  discoveryKey: accountDiscoveryKey,
+                  selectedModel: effectiveClaudeModel,
+                  apiModelId,
+                  operation: "startSession",
+                })
+              : undefined;
 
           // Populate agent cache in background from first session
           if (!cachedAgentsByKey.has(accountDiscoveryKey)) {
@@ -7496,6 +7506,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             promptQueue,
             query: queryRuntime,
             ...(currentStateBinding ? { assertStateBindingCurrent } : {}),
+            ...(initialSupportedModels ? { supportedModels: initialSupportedModels } : {}),
             commandDiscoveryKey,
             accountDiscoveryKey,
             messageStream,
@@ -7881,9 +7892,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           if (apiModelId !== context.currentApiModelId) {
             apiModelChanged = true;
             if (context.session.runtimeMode === "auto") {
-              yield* verifyClaudeAutoModelSupport({
+              context.supportedModels = yield* verifyClaudeAutoModelSupport({
                 queryRuntime: context.query,
                 discoveryKey: context.accountDiscoveryKey,
+                ...(context.supportedModels ? { cachedModels: context.supportedModels } : {}),
                 selectedModel: modelSelection.model,
                 apiModelId,
                 operation: "sendTurn",
@@ -7929,15 +7941,21 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         const turnModels = modelSelection
-          ? yield* Effect.tryPromise(() => context.query.supportedModels()).pipe(
+          ? (context.supportedModels ??
+            (yield* Effect.tryPromise(() => context.query.supportedModels()).pipe(
               Effect.timeoutOption(Duration.seconds(5)),
               Effect.catch(() => Effect.succeed(Option.none<ReadonlyArray<ModelInfo>>())),
-              Effect.map((models) =>
-                Option.isSome(models)
-                  ? models.value
-                  : discoveredModelsByKey.get(context.accountDiscoveryKey),
-              ),
-            )
+              Effect.map((models) => {
+                if (Option.isSome(models)) {
+                  context.supportedModels = models.value;
+                  if (models.value.length > 0) {
+                    discoveredModelsByKey.set(context.accountDiscoveryKey, models.value);
+                  }
+                  return models.value;
+                }
+                return discoveredModelsByKey.get(context.accountDiscoveryKey);
+              }),
+            )))
           : undefined;
         const turnModelResolution =
           modelSelection && turnModels

@@ -210,6 +210,32 @@ describe("MossPayPanel quota presentation", () => {
     expect(markup).not.toContain("媒体积分");
     expect(markup).not.toContain("自动充值");
   });
+
+  it("presents a free starter-trial wallet as remaining percentage without showing 5 or any currency figure", () => {
+    const markup = renderPanel({
+      selectedAccountId: "account-a",
+      showCatalog: false,
+      snapshot: quota({
+        planCode: "starter-trial",
+        billingModel: "wallet_credits_v1",
+        periodEnd: null,
+        requestLimit: null,
+        tokenLimit: null,
+        creditBalance: 5,
+        usageLimits: [
+          { key: "lifetime", limit: 5, used: 1, durationSeconds: null, resetsAt: null },
+        ],
+      }),
+    });
+    expect(markup).toContain("免费版");
+    expect(markup).toContain("免费额度");
+    expect(markup).toContain("剩余 80%");
+    expect(markup).toContain('role="progressbar"');
+    expect(markup).not.toContain("starter-trial");
+    expect(markup).not.toContain("积分余额");
+    expect(markup).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB|CNY\s*5/i);
+    expect(markup).not.toContain(">5<");
+  });
   it("calls a window weekly only for an explicit server role or an exact seven-day duration", () => {
     expect(isWeeklyMossQuotaWindow(quota())).toBe(true);
     expect(

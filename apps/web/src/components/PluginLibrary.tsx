@@ -1531,12 +1531,6 @@ export function PluginLibrary({
       selectedProvider === "cursor" ? selectedProviderInstanceId : null,
     ),
   );
-  const geminiCapabilitiesQuery = useQuery(
-    pluginLibraryCapabilitiesQueryOptions(
-      "gemini",
-      selectedProvider === "gemini" ? selectedProviderInstanceId : null,
-    ),
-  );
   const antigravityCapabilitiesQuery = useQuery(
     pluginLibraryCapabilitiesQueryOptions(
       "antigravity",
@@ -1571,7 +1565,6 @@ export function PluginLibrary({
     codex: codexCapabilitiesQuery,
     claudeAgent: claudeCapabilitiesQuery,
     cursor: cursorCapabilitiesQuery,
-    gemini: geminiCapabilitiesQuery,
     antigravity: antigravityCapabilitiesQuery,
     grok: grokCapabilitiesQuery,
     devin: devinCapabilitiesQuery,
@@ -1598,10 +1591,6 @@ export function PluginLibrary({
       cursor: {
         plugins: supportsPluginDiscovery(cursorCapabilitiesQuery.data),
         skills: supportsSkillDiscovery(cursorCapabilitiesQuery.data),
-      },
-      gemini: {
-        plugins: supportsPluginDiscovery(geminiCapabilitiesQuery.data),
-        skills: supportsSkillDiscovery(geminiCapabilitiesQuery.data),
       },
       antigravity: {
         plugins: supportsPluginDiscovery(antigravityCapabilitiesQuery.data),
@@ -1633,7 +1622,6 @@ export function PluginLibrary({
       claudeCapabilitiesQuery.data,
       codexCapabilitiesQuery.data,
       cursorCapabilitiesQuery.data,
-      geminiCapabilitiesQuery.data,
       antigravityCapabilitiesQuery.data,
       grokCapabilitiesQuery.data,
       devinCapabilitiesQuery.data,

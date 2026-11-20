@@ -10,6 +10,7 @@ import {
   inspectProviderInstallation,
   removeManagedProviderInstallation,
 } from "./managedProviderInstallation.ts";
+import { ANTIGRAVITY_INSTALL_METADATA_FILE } from "./antigravityInstall.ts";
 import { LAUNCHER_CMD, LAUNCHER_PS1 } from "./cursorWindowsInstall.ts";
 
 const roots: string[] = [];
@@ -209,6 +210,29 @@ describe("managed agent installation", () => {
     expect((await inspectProviderInstallation(input)).canUninstall).toBe(true);
     await removeManagedProviderInstallation(input);
     await expect(FS.stat(shim)).rejects.toThrow();
+    await expect(FS.stat(root)).rejects.toThrow();
+    expect(await FS.readFile(f.external, "utf8")).toBe("user-owned");
+  });
+
+  it("inspects and reversibly removes a Moss-managed Antigravity CLI install", async () => {
+    const f = await fixture();
+    const root = Path.join(f.prefix, "antigravity");
+    await FS.mkdir(root);
+    await FS.writeFile(
+      Path.join(root, ANTIGRAVITY_INSTALL_METADATA_FILE),
+      JSON.stringify({ schemaVersion: 1, provider: "antigravity", version: "1.5.12" }),
+    );
+    const bin = process.platform === "win32" ? f.prefix : Path.join(f.prefix, "bin");
+    const binary = Path.join(bin, process.platform === "win32" ? "agy.exe" : "agy");
+    await FS.writeFile(binary, "agy-binary");
+    const input = { ...f.input, provider: "antigravity" as const, binaryPath: binary };
+    expect(await inspectProviderInstallation(input)).toMatchObject({
+      source: "moss",
+      canUninstall: true,
+      managedPath: root,
+    });
+    expect(await removeManagedProviderInstallation(input)).toBe(true);
+    await expect(FS.stat(binary)).rejects.toThrow();
     await expect(FS.stat(root)).rejects.toThrow();
     expect(await FS.readFile(f.external, "utf8")).toBe("user-owned");
   });

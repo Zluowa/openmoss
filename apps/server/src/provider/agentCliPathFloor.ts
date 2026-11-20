@@ -27,7 +27,6 @@ import { appendManagedAgentBinDirectoryToPath } from "./managedAgentPaths.ts";
 export const AGENT_CLI_COMMANDS = [
   "codex",
   "claude",
-  "gemini",
   "opencode",
   "cursor-agent",
   "grok",
@@ -165,6 +164,7 @@ export async function agentCliInstallDirectories(
     }
     if (localAppData) {
       directories.push(
+        win32.join(localAppData, "agy", "bin"),
         win32.join(localAppData, "cursor-agent"),
         win32.join(localAppData, "devin", "cli", "bin"),
         win32.join(localAppData, "Programs", "opencode"),

@@ -10,10 +10,10 @@
 import type { PullRequestComment, PullRequestDetail } from "@moss/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useTranslation } from "~/localization";
+import { useTranslation, type TranslationKey } from "~/localization";
 
 import {
-  PULL_REQUEST_CHECK_STATUS_LABELS,
+  PULL_REQUEST_CHECK_STATUS_LABEL_KEYS,
   summarizePullRequestChecks,
   summarizePullRequestComments,
   withStableCheckKeys,
@@ -34,6 +34,7 @@ import {
   PullRequestCommentComposer,
   type GitHubCommentMutation,
   type GitHubCommentTarget,
+  type CommentAccount,
 } from "./PullRequestCommentComposer";
 import { PullRequestMarkdown } from "./PullRequestMarkdown";
 import { PullRequestDiffStat } from "./PullRequestDiffStat";
@@ -84,7 +85,11 @@ export function GitHubItemPageSummary({
         cwd={workspaceRoot}
       />
       <div className="mt-6">
-        <PullRequestDisclosureSection flush label="Comments" count={commentCount}>
+        <PullRequestDisclosureSection
+          flush
+          label={t("codeReview.info.comments")}
+          count={commentCount}
+        >
           {children}
         </PullRequestDisclosureSection>
       </div>
@@ -100,21 +105,30 @@ export function GitHubItemComments({
   warning,
   target,
   mutation,
+  post,
+  account,
+  replyTitle,
 }: {
   comments: ReadonlyArray<PullRequestComment>;
-  itemUrl: string;
+  itemUrl: string | null;
   workspaceRoot: string;
   /** Why some comments are missing, when they are. */
   warning: string | null;
-  target: GitHubCommentTarget;
-  mutation: GitHubCommentMutation;
+  /** A GitHub item's comment mutation; or `post` for another source. */
+  target?: GitHubCommentTarget;
+  mutation: { isPending: boolean } & Partial<GitHubCommentMutation>;
+  post?: (body: string) => Promise<unknown>;
+  account?: CommentAccount;
+  /** What a comment's Reply opens, for its tooltip. */
+  replyTitle?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-2">
       {warning ? <PullRequestWarningNote>{warning}</PullRequestWarningNote> : null}
       {comments.length === 0 ? (
         <p className={cn(PR_BODY_TEXT_CLASS_NAME, "py-4 text-center text-muted-foreground")}>
-          No comments
+          {t("codeReview.info.noComments")}
         </p>
       ) : (
         <div>
@@ -125,16 +139,33 @@ export function GitHubItemComments({
               prUrl={itemUrl}
               workspaceRoot={workspaceRoot}
               defaultOpen={index >= comments.length - 2}
+              {...(replyTitle ? { replyTitle } : {})}
             />
           ))}
         </div>
       )}
-      <PullRequestCommentComposer target={target} mutation={mutation} />
+      <PullRequestCommentComposer
+        post={
+          post ??
+          ((body) =>
+            target && mutation.mutateAsync
+              ? mutation.mutateAsync({
+                  projectId: target.projectId,
+                  repository: target.repository,
+                  number: target.number,
+                  body,
+                })
+              : Promise.reject(new Error("No comment target.")))
+        }
+        pending={mutation.isPending}
+        {...(account ? { account } : {})}
+      />
     </div>
   );
 }
 
 function PullRequestComments({ detail }: { detail: PullRequestDetail }) {
+  const { t } = useTranslation();
   const commentMutation = usePullRequestCommentMutation();
   return (
     <GitHubItemComments
@@ -143,9 +174,9 @@ function PullRequestComments({ detail }: { detail: PullRequestDetail }) {
       workspaceRoot={detail.workspaceRoot}
       warning={
         detail.commentsIncomplete
-          ? "Some unresolved review comments could not be loaded. Check GitHub for the complete review."
+          ? t("codeReview.comments.incomplete")
           : detail.commentsTruncated
-            ? "More unresolved review comments may be available on GitHub."
+            ? t("codeReview.comments.truncated")
             : null
       }
       target={detail}
@@ -180,7 +211,9 @@ export function PullRequestSummaryTab({
   /** The title and author line. Off when the host already shows them in a GitHubItemHeader. */
   showHeading?: boolean;
 }) {
-  const { locale, t } = useTranslation();
+  const { locale, t, format } = useTranslation();
+  const formatText = (key: TranslationKey, values?: Record<string, string | number>) =>
+    format(key, values ?? {});
   const showHeading = showHeadingProp ?? true;
   return (
     <div className="h-full overflow-y-auto">
@@ -197,12 +230,15 @@ export function PullRequestSummaryTab({
                 className="font-medium text-foreground"
               />
               <span>{formatTimeAgo(detail.updatedAt, { locale })}</span>
-              <span>{describePullRequestState(detail.state, detail.isDraft)}</span>
+              <span>{describePullRequestState(detail.state, detail.isDraft, t)}</span>
             </PullRequestMetaLine>
           </div>
         ) : null}
         <div>
-          <PullRequestMetaRow icon={<GitBranchIcon className="size-4" />} label="Branch">
+          <PullRequestMetaRow
+            icon={<GitBranchIcon className="size-4" />}
+            label={t("codeReview.info.branch")}
+          >
             {/* One line: the branch names absorb every pixel the row has spare, and only the
                 separator and the counts are pinned. */}
             <span className="flex min-w-0 items-center gap-1.5">
@@ -222,13 +258,19 @@ export function PullRequestSummaryTab({
               meta rows, and the call to action lives in the header (a disabled Merge pill
               that says why, plus "Resolve conflicts" in its "…" menu). */}
           {detail.state === "open" && detail.mergeability === "conflicting" ? (
-            <PullRequestMetaRow icon={<PullRequestConflictIcon className="size-4" />} label="Merge">
-              Conflicts with {detail.baseBranch}
+            <PullRequestMetaRow
+              icon={<PullRequestConflictIcon className="size-4" />}
+              label={t("codeReview.info.merge")}
+            >
+              {format("codeReview.merge.conflictsWith", { branch: detail.baseBranch })}
             </PullRequestMetaRow>
           ) : null}
-          <PullRequestMetaRow icon={<UsersIcon className="size-4" />} label="Reviewers">
+          <PullRequestMetaRow
+            icon={<UsersIcon className="size-4" />}
+            label={t("codeReview.info.reviewers")}
+          >
             {detail.reviewers.length === 0 ? (
-              <span className="text-muted-foreground">None</span>
+              <span className="text-muted-foreground">{t("codeReview.info.none")}</span>
             ) : (
               <span className="flex flex-wrap items-center gap-1.5">
                 {detail.reviewers.map((actor) => (
@@ -241,16 +283,19 @@ export function PullRequestSummaryTab({
               </span>
             )}
           </PullRequestMetaRow>
-          <PullRequestMetaRow icon={<ChatBubbleIcon className="size-4" />} label="Comments">
-            {summarizePullRequestComments(detail.comments.length)}
+          <PullRequestMetaRow
+            icon={<ChatBubbleIcon className="size-4" />}
+            label={t("codeReview.info.comments")}
+          >
+            {summarizePullRequestComments(detail.comments.length, false, formatText)}
           </PullRequestMetaRow>
           {/* Tone tinting intentionally omitted: the summary reads as plain metadata
               here, matching the muted meta rows around it. */}
           <PullRequestMetaRow
             icon={<PullRequestChecksRing checks={detail.checks} />}
-            label="Checks"
+            label={t("codeReview.info.checks")}
           >
-            {summarizePullRequestChecks(detail.checks).label}
+            {summarizePullRequestChecks(detail.checks, formatText).label}
           </PullRequestMetaRow>
         </div>
       </section>
@@ -262,11 +307,14 @@ export function PullRequestSummaryTab({
           cwd={detail.workspaceRoot}
         />
       </PullRequestDisclosureSection>
-      <PullRequestDisclosureSection label="Checks" count={detail.checks.length}>
+      <PullRequestDisclosureSection
+        label={t("codeReview.info.checks")}
+        count={detail.checks.length}
+      >
         <div className="space-y-1">
           {detail.checks.length === 0 ? (
             <p className={cn(PR_META_TEXT_CLASS_NAME, "text-muted-foreground")}>
-              No checks reported.
+              {t("codeReview.checks.noneReported")}
             </p>
           ) : (
             withStableCheckKeys(detail.checks).map(({ key, check }) => (
@@ -287,7 +335,7 @@ export function PullRequestSummaryTab({
                 <PullRequestCheckStatusIcon status={check.status} />
                 <span className="min-w-0 flex-1 truncate">{check.name}</span>
                 <span className="text-muted-foreground">
-                  {PULL_REQUEST_CHECK_STATUS_LABELS[check.status]}
+                  {t(PULL_REQUEST_CHECK_STATUS_LABEL_KEYS[check.status])}
                 </span>
               </button>
             ))
@@ -295,7 +343,10 @@ export function PullRequestSummaryTab({
         </div>
       </PullRequestDisclosureSection>
       {/* Open by default so the comment composer is immediately reachable. */}
-      <PullRequestDisclosureSection label="Comments" count={detail.comments.length}>
+      <PullRequestDisclosureSection
+        label={t("codeReview.info.comments")}
+        count={detail.comments.length}
+      >
         <PullRequestComments detail={detail} />
       </PullRequestDisclosureSection>
     </div>

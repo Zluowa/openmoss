@@ -1230,4 +1230,103 @@ describe("McpConnectorRuntime.listTools", () => {
       McpConnectorFailure,
     );
   });
+
+  it("forwards AbortSignal on callTool and listToolInputs", async () => {
+    const harness = makeRuntime();
+    await harness.runtime.init();
+    mocks.probe.mockResolvedValue({ kind: "open" });
+    const { connector } = await harness.runtime.connect({ presetId: "huggingface" });
+    const controller = new AbortController();
+    mocks.forward.mockImplementation(async (request): Promise<McpConnectorProxyResult> => {
+      if (request.method === "DELETE")
+        return { status: 202, sessionId: null, body: { kind: "empty" } };
+      const method = (request.body as { method: string }).method;
+      if (method === "initialize") {
+        return ok({ jsonrpc: "2.0", id: 0, result: { protocolVersion: "2025-06-18" } });
+      }
+      if (method === "notifications/initialized") {
+        return { status: 202, sessionId: null, body: { kind: "empty" } };
+      }
+      if (method === "tools/list") {
+        return ok({
+          jsonrpc: "2.0",
+          id: 1,
+          result: {
+            tools: [{ name: "ping", inputSchema: { properties: { q: { type: "string" } } } }],
+          },
+        });
+      }
+      return ok({
+        jsonrpc: "2.0",
+        id: 1,
+        result: { isError: false, content: [{ type: "text", text: '{"ok":true}' }] },
+      });
+    });
+
+    await harness.runtime.listToolInputs(connector!.connectorId, controller.signal);
+    await harness.runtime.callTool(connector!.connectorId, "ping", { q: "hi" }, controller.signal);
+
+    expect(mocks.forward).toHaveBeenCalledTimes(6);
+    expect(
+      mocks.forward.mock.calls.every(([request]) => request.signal === controller.signal),
+    ).toBe(true);
+  });
+});
+
+describe("McpConnectorRuntime.findConnectedPreset", () => {
+  it("prefers a connected preset connector over an earlier needs-auth one", async () => {
+    const doc = {
+      version: 1,
+      connectors: [
+        {
+          connectorId: "conn-expired",
+          presetId: "linear",
+          name: "Linear",
+          url: "https://mcp.linear.app/mcp?old=1",
+          serverName: "linear_connector",
+          authKind: "none",
+          status: "needs-auth",
+          createdAt: "2026-10-14T10:00:00.000Z",
+          updatedAt: "2026-10-14T10:00:00.000Z",
+          oauth: null,
+        },
+        {
+          connectorId: "conn-live",
+          presetId: "linear",
+          name: "Linear",
+          url: "https://mcp.linear.app/mcp",
+          serverName: "linear_2_connector",
+          authKind: "none",
+          status: "connected",
+          createdAt: "2026-10-14T10:05:00.000Z",
+          updatedAt: "2026-10-14T10:05:00.000Z",
+          oauth: null,
+        },
+        {
+          connectorId: "conn-jira-expired",
+          presetId: "atlassian",
+          name: "Atlassian",
+          url: "https://mcp.atlassian.com/v1/mcp",
+          serverName: "atlassian_connector",
+          authKind: "none",
+          status: "needs-auth",
+          createdAt: "2026-10-14T10:00:00.000Z",
+          updatedAt: "2026-10-14T10:00:00.000Z",
+          oauth: null,
+        },
+      ],
+    };
+    const harness = makeRuntime(JSON.stringify(doc));
+    await harness.runtime.init();
+
+    expect(harness.runtime.findConnectedPreset("linear")).toMatchObject({
+      connectorId: "conn-live",
+      status: "connected",
+    });
+    expect(harness.runtime.findConnectedPreset("atlassian")).toMatchObject({
+      connectorId: "conn-jira-expired",
+      status: "needs-auth",
+    });
+    expect(harness.runtime.findConnectedPreset("notion")).toBeNull();
+  });
 });

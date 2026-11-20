@@ -32,6 +32,7 @@ import {
   SparklesIcon,
 } from "~/lib/icons";
 import { GaugeIcon, LogOutIcon } from "./auth/mossIcons";
+import { useMossQuotaSummary } from "./auth/useMossQuotaSummary";
 import { resolveMossPayQuotaAccountIdentity } from "~/lib/mossPayQuotaIdentity";
 import {
   type MossAccessLaneStates,
@@ -255,6 +256,8 @@ export interface SidebarAccountMenuViewProps {
   readonly signingOut?: boolean;
   /** Plan tier shown under the account name in the menu header (Codex "Free" slot). */
   readonly planName?: string | null;
+  /** Remaining Moss quota summary shown beside "Remaining usage" (e.g. "剩余 80%"). */
+  readonly usageStatus?: string | null;
   /** Optional full help menu control rendered at the trailing edge of the account row. */
   readonly helpControl?: ReactNode;
   readonly onOpenAccount: () => void;
@@ -282,6 +285,7 @@ interface SidebarAccountMenuPopupSectionsProps {
   readonly identity: SidebarAccountIdentity;
   readonly labels: SidebarAccountMenuLabels;
   readonly planName?: string | null;
+  readonly usageStatus?: string | null;
   readonly settingsShortcutLabel: string;
   readonly signingOut: boolean;
   readonly onOpenAccount: () => void;
@@ -297,6 +301,7 @@ function SidebarAccountMenuPopupSections({
   identity,
   labels,
   planName = null,
+  usageStatus = null,
   settingsShortcutLabel,
   signingOut,
   onOpenAccount,
@@ -345,6 +350,11 @@ function SidebarAccountMenuPopupSections({
             <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUsage}>
               <GaugeIcon aria-hidden="true" className="size-4" />
               <span className="min-w-0 flex-1 truncate">{labels.remainingUsage}</span>
+              {usageStatus ? (
+                <span className="shrink-0 text-ui-xs text-muted-foreground tabular-nums">
+                  {usageStatus}
+                </span>
+              ) : null}
               <ChevronRightIcon
                 aria-hidden="true"
                 className="size-4 shrink-0 text-muted-foreground/70"
@@ -381,15 +391,20 @@ function SidebarAccountMenuPopupSections({
   );
 }
 
-// Plans the catalog doesn't list (enterprise keys) still need a readable name, not the raw code.
-// The English names go through the zh-CN copy table like catalog names do.
+// Plans the catalog doesn't list (free starter tier, enterprise keys) still need a readable name,
+// not the raw code. The English names go through the zh-CN copy table like catalog names do.
 const KNOWN_MOSS_PLAN_NAMES: Readonly<Record<string, string>> = {
   free: "Free",
+  "starter-trial": "Free",
   enterprise: "Enterprise",
 };
 
-export function fallbackMossPlanName(planCode: string): string {
-  return KNOWN_MOSS_PLAN_NAMES[planCode.toLowerCase()] ?? planCode;
+export function fallbackMossPlanName(planCode: string, freePlanLabel?: string): string {
+  const normalized = planCode.trim().toLowerCase();
+  if ((normalized === "free" || normalized === "starter-trial") && freePlanLabel) {
+    return freePlanLabel;
+  }
+  return KNOWN_MOSS_PLAN_NAMES[normalized] ?? planCode;
 }
 
 export function SidebarAccountMenuView({
@@ -398,6 +413,7 @@ export function SidebarAccountMenuView({
   settingsShortcutLabel,
   signingOut = false,
   planName = null,
+  usageStatus = null,
   helpControl,
   onOpenAccount,
   onOpenUsage,
@@ -434,6 +450,7 @@ export function SidebarAccountMenuView({
             identity={identity}
             labels={labels}
             planName={planName}
+            usageStatus={usageStatus}
             settingsShortcutLabel={settingsShortcutLabel}
             signingOut={signingOut}
             onOpenAccount={onOpenAccount}
@@ -466,6 +483,7 @@ export function SidebarAccountMenuView({
 interface SidebarAccountMenuModel {
   readonly identity: SidebarAccountIdentity;
   readonly planName: string | null;
+  readonly usageStatus: string | null;
   readonly labels: SidebarAccountMenuLabels;
   readonly settingsShortcutLabel: string;
   readonly signingOut: boolean;
@@ -532,11 +550,13 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   const payCatalogQuery = useQuery(
     serverMossPayCatalogQueryOptions({ enabled: identity.kind === "authenticated" }),
   );
+  const mossQuotaSummary = useMossQuotaSummary();
   const payPlanCode = payQuotaQuery.data?.planCode?.trim() ?? "";
   const planName = payPlanCode
     ? (payCatalogQuery.data?.plans.find((plan) => plan.code === payPlanCode)?.displayName.trim() ??
-      fallbackMossPlanName(payPlanCode))
+      fallbackMossPlanName(payPlanCode, t("mossPay.settings.freePlan")))
     : null;
+  const usageStatus = identity.kind === "authenticated" ? mossQuotaSummary.status : null;
 
   const openSettings = useCallback(() => openSettingsDialog(), []);
 
@@ -584,6 +604,7 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   return {
     identity,
     planName,
+    usageStatus,
     labels: {
       openMenu: t("sidebar.accountMenu.open"),
       remainingUsage: t("sidebar.accountMenu.remainingUsage"),
@@ -658,6 +679,7 @@ export function RailAccountMenu() {
           identity={model.identity}
           labels={model.labels}
           planName={model.planName}
+          usageStatus={model.usageStatus}
           settingsShortcutLabel={model.settingsShortcutLabel}
           signingOut={model.signingOut}
           onOpenAccount={model.onOpenAccount}

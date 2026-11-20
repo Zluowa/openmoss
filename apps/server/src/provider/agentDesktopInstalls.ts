@@ -1,6 +1,6 @@
 // FILE: agentDesktopInstalls.ts
-// Purpose: Finds agents a person installed as desktop apps (Cursor, ZCode, Devin), wherever
-//          they installed them, and the command-line part each app ships, if any.
+// Purpose: Finds agents a person installed as desktop apps (Cursor, ZCode, Devin, Antigravity),
+//          wherever they installed them, and the command-line part each app ships, if any.
 // Layer: Provider runtime discovery (server).
 //
 // The session importer finds these agents by their data folders; their apps can live anywhere
@@ -14,6 +14,7 @@
 // - ZCode: its GLM CLI (`resources/glm/zcode.cjs`), which the `zcode-acp-server` bridge drives;
 //   Moss points the bridge at it with ZCODE_BIN. The bridge itself is a separate npm package.
 // - Cursor: no `cursor-agent`; the app's agent runs inside the editor only.
+// - Antigravity: no `agy`; the CLI is installed separately from the desktop app.
 
 import { execProcessFile } from "@moss/shared/processRuntime";
 import { resolveWindowsSystemExecutable } from "@moss/shared/platformEnvironment";
@@ -22,7 +23,7 @@ import { posix, win32 } from "node:path";
 
 import type { ProviderKind } from "@moss/contracts";
 
-export type DesktopAgentKind = Extract<ProviderKind, "cursor" | "zcode" | "devin">;
+export type DesktopAgentKind = Extract<ProviderKind, "cursor" | "zcode" | "devin" | "antigravity">;
 
 export interface AgentDesktopInstall {
   readonly provider: DesktopAgentKind;
@@ -76,6 +77,14 @@ const DESKTOP_AGENTS: ReadonlyArray<DesktopAgentDescriptor> = [
     linuxFolders: ["/opt/Devin", "/usr/share/devin"],
     cliDirectory: ["app", "extensions", "windsurf", "devin", "bin"],
     cliExecutable: "devin",
+  },
+  {
+    provider: "antigravity",
+    displayName: /^antigravity\b/iu,
+    windowsExe: "Antigravity.exe",
+    windowsFolders: ["Antigravity"],
+    macBundles: ["Antigravity.app"],
+    linuxFolders: ["/opt/Antigravity", "/usr/share/antigravity"],
   },
 ];
 

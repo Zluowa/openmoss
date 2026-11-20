@@ -157,7 +157,6 @@ const PROVIDER_DISCOVERY_OPTION_KEYS = {
   codex: ["binaryPath", "homePath", "shadowHomePath", "accountId", "environment"],
   claudeAgent: ["binaryPath", "homePath", "environment"],
   cursor: ["binaryPath", "apiEndpoint", "environment"],
-  gemini: ["binaryPath", "environment"],
   devin: ["binaryPath", "environment"],
   antigravity: ["binaryPath", "environment"],
   grok: ["binaryPath", "environment"],

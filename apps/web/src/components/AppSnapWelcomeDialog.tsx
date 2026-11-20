@@ -114,8 +114,8 @@ export function AppSnapWelcomeDialog({
         description={
           windows ? (
             <>
-              Pick a shortcut in AppSnap settings to snap any app&rsquo;s window into the task
-              you&rsquo;re working in.
+              Press Alt + Shift + S to snap any app&rsquo;s window into the task you&rsquo;re
+              working in, or pick a shortcut in AppSnap settings.
             </>
           ) : (
             <>

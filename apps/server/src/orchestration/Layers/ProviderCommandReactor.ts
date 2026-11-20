@@ -8815,12 +8815,18 @@ const make = Effect.gen(function* () {
             return;
           }
 
-          if (!thread?.session || thread.session.status === "stopped") {
-            // No live session applies the selection now: it stays on the
+          if (
+            !thread?.session ||
+            thread.session.status === "stopped" ||
+            thread.session.status === "error"
+          ) {
+            // No healthy live session applies the selection now: it stays on the
             // thread while the session-selection cache keeps the provider the
-            // stopped session was actually spawned with. Overwriting that
+            // previous session was actually spawned with. Overwriting that
             // record here would make the next turn read the new provider as
-            // already bound — no rebind, no transcript carry.
+            // already bound — no rebind, no transcript carry. An errored
+            // session also defers recovery until the user sends or clicks
+            // Continue instead of eagerly restarting on a model-picker update.
             return;
           }
 

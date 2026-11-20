@@ -104,7 +104,7 @@ function providerStartOptionsForProvider(
   options: ProviderStartOptions | undefined,
   provider: ProviderKind,
 ) {
-  return provider === "kilo" ? undefined : options?.[provider];
+  return provider === "kilo" || provider === "gemini" ? undefined : options?.[provider];
 }
 
 function providerStartOptionsForInstance(
@@ -286,14 +286,6 @@ export function providerModelsPrefetchQueryOptions(input: {
         cwd,
         priority,
       });
-    case "gemini":
-      return providerModelsQueryOptions({
-        provider: "gemini",
-        instanceId,
-        binaryPath: optionString("binaryPath"),
-        cwd,
-        priority,
-      });
     case "hermes":
       return providerModelsQueryOptions({
         provider: "hermes",
@@ -322,8 +314,9 @@ export function providerModelsPrefetchQueryOptions(input: {
         cwd,
         priority,
       });
+    case "gemini":
     case "kilo":
-      // Retired provider: no runtime discovery surface.
+      // Retired providers: no runtime discovery surface.
       throw new Error(`Unsupported provider model prefetch: ${provider}`);
   }
 }
@@ -372,7 +365,7 @@ export function prefetchProviderModelsForNewThread(
 ): void {
   const cwd = input.cwd ?? null;
   const providers = (input.providers ?? NEW_THREAD_MODEL_PREFETCH_PROVIDERS).filter(
-    (provider) => provider !== "droid",
+    (provider) => provider !== "droid" && provider !== "kilo" && provider !== "gemini",
   );
 
   for (const provider of providers) {
@@ -567,7 +560,8 @@ export function prefetchModelsForNewThread(
   // provider; otherwise it always discovers the selected provider, hidden or
   // unavailable, so the warm must too or mount shows the loading state again.
   const selectedProviderWarmable =
-    selectedProvider === "kilo" ||
+    selectedProvider !== "kilo" &&
+    selectedProvider !== "gemini" &&
     input.serverSettings?.providers[selectedProvider]?.enabled !== false;
   const providers = NEW_THREAD_MODEL_PREFETCH_PROVIDERS.filter(
     (provider) => provider === selectedProvider && selectedProviderWarmable,

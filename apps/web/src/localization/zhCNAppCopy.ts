@@ -15,7 +15,9 @@ const APP_COPY: Readonly<Record<string, string>> = {
   "Press both Option keys (⌥ ⌥) to snap any app’s window into the task you’re working in.":
     "同时按下两个 Option 键（⌥ ⌥），即可把任意应用的窗口截取到你正在处理的任务中。",
   "Pick a shortcut in AppSnap settings to snap any app’s window into the task you’re working in.":
-    "在应用截图设置里选一个快捷键，即可把任意应用的窗口截取到你正在处理的任务中。",
+    "在应用快照设置里选一个快捷键，即可把任意应用的窗口截取到你正在处理的任务中。",
+  "Press Alt + Shift + S to snap any app’s window into the task you’re working in, or pick a shortcut in AppSnap settings.":
+    "按下 Alt + Shift + S 即可把任意应用的窗口截取到当前任务中，也可以在应用快照设置里更换快捷键。",
   "Tools for this app": "此应用的工具",
   "Manage on ChatGPT": "在 ChatGPT 上管理",
   "Loading tools…": "正在加载工具…",

@@ -19,6 +19,11 @@ export function formatMossMembershipPriceNumber(cents: number, locale: MossLocal
   }).format(Math.max(0, cents) / 100);
 }
 
+export function isBuiltInFreeMossPlanCode(planCode: string | null | undefined): boolean {
+  const normalized = planCode?.trim().toLocaleLowerCase("en-US") ?? "";
+  return normalized === "starter-trial" || normalized === "free";
+}
+
 export function isCurrentMossPlan(
   currentPlanCode: string | null | undefined,
   candidatePlanCode: string,

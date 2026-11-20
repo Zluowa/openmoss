@@ -298,7 +298,7 @@ describe("ServerSettingsService", () => {
     expect(result.persisted).not.toContain("opencode-secret");
   });
 
-  it("resolves text generation selection away from disabled providers without rerouting to a static driver", async () => {
+  it("falls back to Codex when persisted settings selected the retired Gemini CLI provider", async () => {
     const settings = await Effect.runPromise(
       Effect.gen(function* () {
         const service = yield* ServerSettingsService;
@@ -309,18 +309,17 @@ describe("ServerSettingsService", () => {
             textGenerationModelSelection: {
               provider: "gemini" as const,
               instanceId: "gemini",
-              model: DEFAULT_MODEL_BY_PROVIDER.gemini,
+              model: "auto-gemini-3",
             },
-            providers: { gemini: { enabled: false } },
+            providers: { gemini: { enabled: true } },
           }),
         ),
       ),
     );
 
-    // A provider-shaped selection has no local instance evidence yet, so it
-    // stays stable instead of falling back to an arbitrary static driver.
-    expect(settings.textGenerationModelSelection.provider).toBe("gemini");
-    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.gemini);
+    // Retired Gemini CLI selections fall back cleanly to Codex without failing settings load.
+    expect(settings.textGenerationModelSelection.provider).toBe("codex");
+    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_GIT_TEXT_GENERATION_MODEL);
   });
 
   it("does not fall back to an undiscovered static provider", async () => {

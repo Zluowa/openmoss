@@ -20,6 +20,7 @@ import {
 } from "~/lib/diffRendering";
 import { pullRequestDiffQueryOptions } from "~/lib/pullRequestReactQuery";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { PullRequestDiffStat } from "./PullRequestDiffStat";
 import { PullRequestMetaLine } from "./PullRequestMetaLine";
 import { PR_META_TEXT_CLASS_NAME } from "./pullRequestText";
@@ -33,6 +34,7 @@ export function PullRequestCodeTab({
   detail: PullRequestDetail;
 }) {
   const { resolvedTheme } = useTheme();
+  const { t, format } = useTranslation();
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(() => new Set());
   const diffQuery = useQuery(pullRequestDiffQueryOptions(input));
 
@@ -68,7 +70,7 @@ export function PullRequestCodeTab({
               "border-b border-border/60 px-3 py-2 text-muted-foreground",
             )}
           >
-            <span>{patchTotals.fileCount} files</span>
+            <span>{format("codeReview.diff.files", { count: patchTotals.fileCount })}</span>
             <PullRequestDiffStat
               additions={patchTotals.additions}
               deletions={patchTotals.deletions}
@@ -77,7 +79,7 @@ export function PullRequestCodeTab({
           </PullRequestMetaLine>
         ) : null}
         {diffQuery.isPending ? (
-          <DiffPanelLoadingState label="Loading pull request diff…" />
+          <DiffPanelLoadingState label={t("codeReview.diff.loading")} />
         ) : (
           <DiffPanelPatchViewport
             renderablePatch={renderablePatch}
@@ -97,16 +99,10 @@ export function PullRequestCodeTab({
             }
             isLoading={diffQuery.isFetching}
             hasNoChanges={diffQuery.isSuccess && !renderablePatch}
-            error={
-              diffQuery.isError
-                ? diffQuery.error instanceof Error
-                  ? diffQuery.error.message
-                  : "Could not load diff."
-                : null
-            }
-            loadingLabel="Loading pull request diff…"
-            emptyLabel="This pull request has no file changes."
-            unavailableLabel="The pull request diff is unavailable."
+            error={diffQuery.isError ? t("codeReview.diff.failed") : null}
+            loadingLabel={t("codeReview.diff.loading")}
+            emptyLabel={t("codeReview.diff.empty")}
+            unavailableLabel={t("codeReview.diff.unavailable")}
             viewKind="repo"
           />
         )}

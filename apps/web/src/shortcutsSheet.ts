@@ -66,6 +66,10 @@ const RETIRED_SPACE_COMMANDS: readonly KeybindingCommand[] = [
   ...SPACE_JUMP_KEYBINDING_COMMANDS,
 ];
 
+// Gemini CLI support was removed in 1.0.8; the command stays in the contract only so old
+// keybinding files load (the server retires it), and is never offered here.
+const RETIRED_PROVIDER_COMMANDS: readonly KeybindingCommand[] = ["chat.newGemini"];
+
 const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
   {
     command: "sidebar.addProject",
@@ -141,11 +145,6 @@ const AVAILABLE_NOW_DEFINITIONS: readonly ShortcutDefinition[] = [
     command: "chat.newAntigravity",
     label: "New Antigravity thread",
     description: "Start a fresh thread with Antigravity selected.",
-  },
-  {
-    command: "chat.newGemini",
-    label: "New Gemini thread",
-    description: "Start a fresh thread with Gemini selected.",
   },
   {
     command: "chat.split",
@@ -442,6 +441,7 @@ export function listShortcutEditorDefinitions(): ShortcutEditorDefinition[] {
   const covered = new Set<KeybindingCommand>([
     ...definitions.flatMap((definition) => definition.commands),
     ...RETIRED_SPACE_COMMANDS,
+    ...RETIRED_PROVIDER_COMMANDS,
   ]);
   for (const command of STATIC_KEYBINDING_COMMANDS) {
     if (covered.has(command) || command.startsWith("terminal.split")) continue;

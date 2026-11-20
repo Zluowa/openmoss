@@ -60,7 +60,12 @@ export const DevsReportPreview = Schema.Struct({
   attachments: Schema.optional(Schema.Array(DevsReportAttachmentPreview)),
 });
 export type DevsReportPreview = typeof DevsReportPreview.Type;
-export const DevsReportListInput = Schema.Struct({ threadId: ThreadId });
+/** One chat's reports, or reports picked by ID (app feedback and agent notes have no chat). */
+export const DevsReportListInput = Schema.Struct({
+  threadId: Schema.optional(ThreadId),
+  reportIds: Schema.optional(Schema.Array(DevsReportId).check(Schema.isMaxLength(200))),
+});
+export type DevsReportListInput = typeof DevsReportListInput.Type;
 export const DevsReportState = Schema.Struct({
   id: DevsReportId,
   threadId: Schema.NullOr(ThreadId),

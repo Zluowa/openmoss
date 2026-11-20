@@ -321,6 +321,8 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "Reload visual": "重新加载可视化内容",
   "Collapse changed files list": "收起已更改文件列表",
   "Expand changed files list": "展开已更改文件列表",
+  "Copy absolute path": "复制绝对路径",
+  "Copy relative path": "复制相对路径",
 
   // Realtime voice and appshots
   "Send a message during voice chat": "在语音对话中发送消息",

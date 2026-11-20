@@ -66,16 +66,6 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     },
   },
   {
-    kind: "gemini",
-    displayName: PROVIDER_DISPLAY_NAMES.gemini,
-    available: true,
-    setupDocsHref: "https://geminicli.com/docs/get-started/",
-    supportsNativeTurnSteering: false,
-    usage: {
-      signInCommand: "gemini",
-    },
-  },
-  {
     kind: "antigravity",
     displayName: PROVIDER_DISPLAY_NAMES.antigravity,
     available: true,

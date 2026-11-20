@@ -8,7 +8,12 @@ import type { ProviderKind, ServerProviderReadiness, ServerProviderStatus } from
 import { type DesktopAgentKind, knownAgentDesktopInstall } from "./agentDesktopInstalls.ts";
 import { resolveProviderInstallAction } from "./providerInstall.ts";
 
-const DESKTOP_AGENT_KINDS: ReadonlySet<ProviderKind> = new Set(["cursor", "zcode", "devin"]);
+const DESKTOP_AGENT_KINDS: ReadonlySet<ProviderKind> = new Set([
+  "cursor",
+  "zcode",
+  "devin",
+  "antigravity",
+]);
 
 const DISABLED_PROVIDER_STATUS_MESSAGE = "Provider is disabled in Moss settings.";
 const UNCHECKED_PROVIDER_STATUS_MESSAGE = "Provider instance has not been checked yet.";

@@ -632,4 +632,62 @@ describe("translateMoss", () => {
       }
     }
   });
+
+  it("localizes code review loading, severity, PR counts, and issue source errors cleanly", () => {
+    expect(translateMoss("en", "codeReview.list.loading")).toBe("Loading code review");
+    expect(translateMoss("zh-CN", "codeReview.list.loading")).toBe("正在加载代码审查");
+    expect(translateMoss("en", "codeReview.comment.severity.high")).toBe("High Severity");
+    expect(translateMoss("zh-CN", "codeReview.comment.severity.high")).toBe("高严重度");
+    expect(translateMoss("zh-CN", "codeReview.comment.severity.medium")).toBe("中严重度");
+    expect(translateMoss("zh-CN", "codeReview.comment.severity.low")).toBe("低严重度");
+    expect(formatMossTranslation("en", "codeReview.pr.countMany", { count: 3 })).toBe(
+      "3 pull requests",
+    );
+    expect(formatMossTranslation("zh-CN", "codeReview.pr.countMany", { count: 3 })).toBe(
+      "3 个拉取请求",
+    );
+    expect(
+      formatMossTranslation("en", "issueSources.unavailable.failed", { source: "Linear" }),
+    ).toBe("The request to Linear failed.");
+    expect(
+      formatMossTranslation("zh-CN", "issueSources.unavailable.failed", { source: "Jira" }),
+    ).toBe("向 Jira 发送请求失败。");
+    expect(
+      formatMossTranslation("zh-CN", "issueSources.unavailable.notConnectedTitle", {
+        source: "Linear",
+      }),
+    ).toBe("Linear 未连接");
+
+    // Terminology consistency in zh-CN code review copy: GitHub CLI (never 命令行工具) and 不予处理 (never 不计划).
+    const unifiedKeys = [
+      "codeReview.gh.required",
+      "codeReview.gh.signIn",
+      "codeReview.gh.requiredHint",
+      "codeReview.gh.signInHint",
+      "codeReview.gh.install.downloading",
+      "codeReview.gh.install.installing",
+      "codeReview.gh.install.mac",
+      "codeReview.gh.installFailed.unsupported",
+      "codeReview.gh.installFailed.verify",
+      "codeReview.gh.installingTitle",
+      "codeReview.gh.installFailedTitle",
+      "codeReview.gh.missingHint",
+      "codeReview.gh.download",
+      "codeReview.gh.installCli",
+      "codeReview.gh.installingAria",
+      "codeReview.stateWord.notPlanned",
+      "codeReview.glyph.issueNotPlanned",
+      "githubIssue.state.closeNotPlanned",
+    ] as const;
+    for (const key of unifiedKeys) {
+      const text = translateMoss("zh-CN", key);
+      expect(text).not.toContain("GitHub 命令行工具");
+      expect(text).not.toContain("不计划");
+    }
+    expect(translateMoss("zh-CN", "codeReview.gh.required")).toBe("需要 GitHub CLI");
+    expect(translateMoss("zh-CN", "codeReview.stateWord.notPlanned")).toBe("不予处理");
+    expect(translateMoss("zh-CN", "codeReview.tab.summary")).toBe("概览");
+    expect(translateMoss("zh-CN", "codeReview.agent.send")).toBe("发送给智能体");
+    expect(translateMoss("zh-CN", "codeReview.group.pinned")).toBe("已固定");
+  });
 });

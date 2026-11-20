@@ -4,6 +4,7 @@
 //          GitHubInbox. The shell is a flex row: the Ask side chat docks beside the inset.
 // Layer: Route
 
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
 import {
@@ -24,6 +25,7 @@ import {
 import { RouteInsetSurface } from "~/components/RouteInsetSurface";
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
 import { useGitHubInboxSidechat } from "~/components/githubInbox/useGitHubInboxSidechat";
+import { issueSourceStatusQueryOptions } from "~/lib/issueSourcesQueryOptions";
 import { cn } from "~/lib/utils";
 
 export const Route = createFileRoute("/_chat/pull-requests/")({
@@ -41,45 +43,53 @@ function GitHubInboxRouteView() {
     });
   const selection = githubInboxSelection(search);
   const sidechat = useGitHubInboxSidechat(selection);
+  const linearStatus = useQuery(issueSourceStatusQueryOptions("linear"));
+  const jiraStatus = useQuery(issueSourceStatusQueryOptions("jira"));
+  const hasConnectedIssueSource =
+    linearStatus.data?.state === "connected" || jiraStatus.data?.state === "connected";
 
   return (
-    <GitHubConnectionGate>
-      <div
-        className={cn(CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME, CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}
-      >
-        <RouteInsetSurface surfaceClassName="bg-transparent">
-          <div
-            className={cn(
-              "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-              CHAT_BACKGROUND_CLASS_NAME,
-            )}
-          >
-            {/* Like Settings: the title lives at the top of the list column, so this strip only
-                holds the sidebar toggle (shown while the sidebar is collapsed) and stays a drag
-                region. */}
-            <RouteSurfaceHeader
-              divider={false}
-              className="app-top-bar shrink-0"
-              // Keeps the shell band's height even though the strip holds only the toggle.
-              rowClassName="h-[var(--app-top-strip-height)]"
+    <GitHubConnectionGate allowChildrenWhenDisconnected={hasConnectedIssueSource}>
+      {({ githubUnavailable, githubNotice }) => (
+        <div
+          className={cn(CHAT_MAIN_VIEWPORT_SHELL_CLASS_NAME, CHAT_MAIN_CONTENT_SURFACE_CLASS_NAME)}
+        >
+          <RouteInsetSurface surfaceClassName="bg-transparent">
+            <div
+              className={cn(
+                "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
+                CHAT_BACKGROUND_CLASS_NAME,
+              )}
+            >
+              {/* Like Settings: the title lives at the top of the list column, so this strip only
+                  holds the sidebar toggle (shown while the sidebar is collapsed) and stays a drag
+                  region. */}
+              <RouteSurfaceHeader
+                divider={false}
+                className="app-top-bar shrink-0"
+                // Keeps the shell band's height even though the strip holds only the toggle.
+                rowClassName="h-[var(--app-top-strip-height)]"
+              />
+              <GitHubInbox
+                search={search}
+                onSearchChange={updateSearch}
+                sidechat={sidechat}
+                dockOpen={selection !== null && sidechat.dockState.open}
+                githubUnavailable={githubUnavailable}
+                githubConnectionNotice={githubNotice}
+              />
+            </div>
+          </RouteInsetSurface>
+          {selection ? (
+            <GitHubInboxSidechatDock
+              dockState={sidechat.dockState}
+              selection={selection}
+              onAskSelected={sidechat.askSelected}
+              onNewSidechat={sidechat.newSidechat}
             />
-            <GitHubInbox
-              search={search}
-              onSearchChange={updateSearch}
-              sidechat={sidechat}
-              dockOpen={selection !== null && sidechat.dockState.open}
-            />
-          </div>
-        </RouteInsetSurface>
-        {selection ? (
-          <GitHubInboxSidechatDock
-            dockState={sidechat.dockState}
-            selection={selection}
-            onAskSelected={sidechat.askSelected}
-            onNewSidechat={sidechat.newSidechat}
-          />
-        ) : null}
-      </div>
+          ) : null}
+        </div>
+      )}
     </GitHubConnectionGate>
   );
 }

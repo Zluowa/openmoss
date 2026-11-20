@@ -92,7 +92,7 @@ export function evaluateMossQuotaAdmission(input: MossQuotaAdmissionInput): Moss
     }
   }
 
-  if (quota.billingModel === "cost_budget_v1") {
+  if (quota.billingModel === "cost_budget_v1" || quota.billingModel === "wallet_credits_v1") {
     const exhaustedCostWindow = quota.usageLimits?.find(
       (window) =>
         (window.key === "five_hour" ||
@@ -168,6 +168,8 @@ export function evaluateMossQuotaAdmission(input: MossQuotaAdmissionInput): Moss
   };
 }
 
+export const DEFAULT_MOSS_QUOTA_ADMISSION_TIMEOUT_MS = 1_500;
+
 export async function fetchFreshMossQuotaAdmission(input: {
   readonly instanceId: string;
   readonly driver: string;
@@ -176,13 +178,30 @@ export async function fetchFreshMossQuotaAdmission(input: {
   readonly getCurrentAccountIdentity: () => string | null;
   readonly fetchQuota: () => Promise<MossQuotaProof>;
   readonly getFetchedAt: () => number;
+  readonly timeoutMs?: number;
 }): Promise<MossQuotaAdmission> {
   const capturedAccountIdentity = input.accountIdentity;
   if (capturedAccountIdentity === null || input.isTransitionPending()) {
     return { kind: "allow" };
   }
+  const timeoutMs = input.timeoutMs ?? DEFAULT_MOSS_QUOTA_ADMISSION_TIMEOUT_MS;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
-    const quota = await input.fetchQuota();
+    const fetchPromise = input.fetchQuota();
+    // Prevent an unhandled rejection if the timeout wins the race first.
+    void fetchPromise.catch(() => undefined);
+    const quota =
+      timeoutMs > 0
+        ? await Promise.race([
+            fetchPromise,
+            new Promise<null>((resolve) => {
+              timeoutId = setTimeout(() => resolve(null), timeoutMs);
+            }),
+          ])
+        : await fetchPromise;
+    if (quota === null) {
+      return { kind: "allow" };
+    }
     if (
       input.isTransitionPending() ||
       input.getCurrentAccountIdentity() !== capturedAccountIdentity
@@ -201,5 +220,9 @@ export async function fetchFreshMossQuotaAdmission(input: {
     });
   } catch {
     return { kind: "allow" };
+  } finally {
+    if (timeoutId !== undefined) {
+      clearTimeout(timeoutId);
+    }
   }
 }

@@ -426,8 +426,24 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
       listTools: (connectorId) =>
         enabled
           ? Effect.tryPromise({
-              try: () => runtime.listTools(connectorId),
+              try: (signal) => runtime.listTools(connectorId, signal),
               catch: toConnectorError("Moss could not list this server's tools."),
+            })
+          : unavailable,
+      findConnectedPreset: (presetId) =>
+        enabled ? Effect.sync(() => runtime.findConnectedPreset(presetId)) : Effect.succeed(null),
+      listToolInputs: (connectorId) =>
+        enabled
+          ? Effect.tryPromise({
+              try: (signal) => runtime.listToolInputs(connectorId, signal),
+              catch: toConnectorError("Moss could not list this server's tools."),
+            })
+          : unavailable,
+      callTool: (connectorId, name, args) =>
+        enabled
+          ? Effect.tryPromise({
+              try: (signal) => runtime.callTool(connectorId, name, args, signal),
+              catch: toConnectorError("Moss could not reach this connector."),
             })
           : unavailable,
       completeAuthorization: (query) =>

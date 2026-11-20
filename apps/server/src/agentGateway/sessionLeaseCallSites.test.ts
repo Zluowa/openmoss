@@ -39,10 +39,6 @@ const LEASE_SITES: readonly LeaseSiteExpectation[] = [
   { file: "CursorAdapter.ts", capabilityArguments: [SESSION_START_INPUT] },
   { file: "DevinAdapter.ts", capabilityArguments: [SESSION_START_INPUT] },
   { file: "DroidAdapter.ts", capabilityArguments: [SESSION_START_INPUT] },
-  {
-    file: "GeminiAdapter.ts",
-    capabilityArguments: [SESSION_START_INPUT, "context.gatewayCapabilityInput"],
-  },
   { file: "GrokAdapter.ts", capabilityArguments: [SESSION_START_INPUT] },
   { file: "HermesAdapter.ts", capabilityArguments: [SESSION_START_INPUT] },
   { file: "OmpAdapter.ts", capabilityArguments: [SESSION_START_INPUT] },

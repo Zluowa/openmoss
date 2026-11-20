@@ -265,7 +265,11 @@ describe("listShortcutEditorDefinitions", () => {
       STATIC_KEYBINDING_COMMANDS.filter(
         // Space commands stay in the contract for old keybinding files only (Spaces were
         // removed), so the editor never offers them.
-        (command) => !command.startsWith("terminal.split") && !command.startsWith("space."),
+        // The same holds for the retired Gemini CLI command.
+        (command) =>
+          !command.startsWith("terminal.split") &&
+          !command.startsWith("space.") &&
+          command !== "chat.newGemini",
       ).toSorted(),
     );
     expect(listed.some((command) => command.startsWith("terminal.split"))).toBe(false);

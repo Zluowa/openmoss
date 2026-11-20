@@ -1387,6 +1387,209 @@ describe("MossPayServiceLive authority routing", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("loads a free starter-trial account with infinite period_end, BIGINT MAX limits, and wallet_credits_v1 snapshot", async () => {
+    const runFreeQuota = async (input: {
+      readonly balance: number;
+      readonly prepaidMicros?: number;
+      readonly omitPrepaidColumn?: boolean;
+      readonly quotaPolicyMode?: "metered" | "unlimited";
+      readonly requestLimit?: number | null;
+    }) => {
+      const fetchMock = vi.fn<TestFetch>(async (url) => {
+        const href = String(url);
+        if (href === "https://moss-test.memfiredb.com/rest/v1/rpc/moss_get_credit_usage_snapshot") {
+          return new Response(
+            JSON.stringify({
+              billing_model: "wallet_credits_v1",
+              usage_limits: [
+                {
+                  key: "lifetime",
+                  duration_seconds: null,
+                  limit: 5,
+                  used: Math.max(5 - input.balance, 0),
+                  resets_at: null,
+                },
+              ],
+              wallet_balance: input.balance,
+            }),
+            { status: 200 },
+          );
+        }
+        if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/account_entitlements?")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: "entitlement-free",
+                plan_code: "starter-trial",
+                realtime_model_allowlist: ["gpt-realtime-2.1", "gpt-live-1"],
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/account_quotas?")) {
+          return new Response(
+            JSON.stringify([
+              {
+                id: "quota-free",
+                entitlement_id: "entitlement-free",
+                period_start: "2026-09-13T16:42:31.000Z",
+                period_end: "infinity",
+                request_limit: input.requestLimit === undefined ? 2 ** 63 : input.requestLimit,
+                requests_used: 3,
+                token_limit: null,
+                quota_policy_mode: input.quotaPolicyMode ?? "metered",
+                input_tokens_used: 1200,
+                output_tokens_used: 400,
+                realtime_cost_limit_nano_usd: 0,
+                realtime_cost_used_nano_usd: 0,
+                realtime_cost_reserved_nano_usd: 0,
+                realtime_session_limit: 2 ** 63,
+                realtime_sessions_used: 0,
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/credit_wallets?")) {
+          if (input.omitPrepaidColumn && href.includes("text_credit_prepaid_micros")) {
+            return new Response(
+              JSON.stringify({
+                code: "42703",
+                message: "column credit_wallets.text_credit_prepaid_micros does not exist",
+              }),
+              { status: 400 },
+            );
+          }
+          return new Response(
+            JSON.stringify([
+              {
+                balance: input.balance,
+                ...(input.prepaidMicros === undefined
+                  ? {}
+                  : { text_credit_prepaid_micros: input.prepaidMicros }),
+              },
+            ]),
+            { status: 200 },
+          );
+        }
+        return new Response(null, { status: 404 });
+      });
+      vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", phoneCredential.gatewayBaseUrl);
+      vi.stubEnv("MOSS_MEMFIRE_PHONE_URL", "https://moss-test.memfiredb.com");
+      vi.stubEnv("MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY", "test-publishable-key");
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        return await Effect.gen(function* () {
+          const service = yield* MossPayService;
+          return yield* service.getQuota();
+        }).pipe(
+          Effect.provide(
+            makeMossPayLayer({
+              phoneAuthority: () => Effect.succeed(phoneCredential),
+              cloudAuthority: () => Effect.succeed(cloudCredential),
+            }),
+          ),
+          Effect.runPromise,
+        );
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+    };
+
+    // Brand-new free account: 100% remaining, no reset date.
+    const fresh = await runFreeQuota({ balance: 5, prepaidMicros: 0 });
+    expect(fresh).toMatchObject({
+      planCode: "starter-trial",
+      billingModel: "wallet_credits_v1",
+      quotaPolicyMode: "metered",
+      periodEnd: null,
+      requestLimit: null,
+      tokenLimit: null,
+      realtimeSessionLimit: null,
+      usageLimits: [{ key: "lifetime", durationSeconds: null, limit: 5, used: 0, resetsAt: null }],
+    });
+
+    // Small first chat deducts 1 point into prepaid micros: remaining stays 99%, not 80%.
+    const lightlyUsed = await runFreeQuota({ balance: 4, prepaidMicros: 950_000 });
+    expect(lightlyUsed.usageLimits[0]?.limit).toBe(5);
+    expect(lightlyUsed.usageLimits[0]?.used).toBeCloseTo(0.05, 6);
+
+    // Balance 0 with 500k prepaid micros still has 10% remaining, not 0%.
+    const subUnitLeft = await runFreeQuota({ balance: 0, prepaidMicros: 500_000 });
+    expect(subUnitLeft.usageLimits[0]?.used).toBeCloseTo(4.5, 6);
+
+    // Exhausted free wallet reaches 100% used (0% remaining).
+    const exhausted = await runFreeQuota({ balance: 0, prepaidMicros: 0 });
+    expect(exhausted.usageLimits[0]).toMatchObject({ key: "lifetime", limit: 5, used: 5 });
+
+    // Older schema lacking text_credit_prepaid_micros falls back to balance-only read.
+    const fallbackSchema = await runFreeQuota({ balance: 3, omitPrepaidColumn: true });
+    expect(fallbackSchema.usageLimits[0]).toMatchObject({ key: "lifetime", limit: 5, used: 2 });
+
+    // Unlimited tester on starter-trial remains unlimited.
+    const tester = await runFreeQuota({
+      balance: 5,
+      quotaPolicyMode: "unlimited",
+      requestLimit: null,
+    });
+    expect(tester.quotaPolicyMode).toBe("unlimited");
+  });
+
+  it("still rejects non-sentinel unsafe request_limit integers as invalid_response", async () => {
+    const fetchMock = vi.fn<TestFetch>(async (url) => {
+      const href = String(url);
+      if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/account_quotas?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "quota-1",
+              entitlement_id: "entitlement-1",
+              period_start: "2026-08-10T00:00:00.000Z",
+              period_end: "2026-08-17T00:00:00.000Z",
+              request_limit: Number.MAX_SAFE_INTEGER + 1,
+              requests_used: 0,
+              token_limit: null,
+              input_tokens_used: 0,
+              output_tokens_used: 0,
+              realtime_cost_limit_nano_usd: 0,
+              realtime_cost_used_nano_usd: 0,
+              realtime_cost_reserved_nano_usd: 0,
+              realtime_session_limit: 0,
+              realtime_sessions_used: 0,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      return quotaRestResponse(href);
+    });
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", phoneCredential.gatewayBaseUrl);
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_URL", "https://moss-test.memfiredb.com");
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY", "test-publishable-key");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const failure = await Effect.gen(function* () {
+        const service = yield* MossPayService;
+        return yield* service.getQuota();
+      }).pipe(
+        Effect.provide(
+          makeMossPayLayer({
+            phoneAuthority: () => Effect.succeed(phoneCredential),
+            cloudAuthority: () => Effect.succeed(cloudCredential),
+          }),
+        ),
+        Effect.flip,
+        Effect.runPromise,
+      );
+      expect(failure).toMatchObject({ code: "invalid_response" });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe("the realtime relay a pay credential is bound to", () => {
