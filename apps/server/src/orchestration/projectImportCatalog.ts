@@ -25,6 +25,13 @@ export interface ResolvedImportSession extends NativeImportSession {
   /** The account the session was discovered through; undefined means the default. */
   providerInstanceId?: ProviderInstanceId;
   sourceHome: string;
+  parentKey?: string;
+}
+
+export function importSessionIdentities(session: ResolvedImportSession): string[] {
+  return [session.id, ...(session.priorSessionIds ?? [])].map(
+    (id) => `${session.provider}:${id.trim().toLowerCase()}`,
+  );
 }
 
 export interface ResolvedImportProject {
@@ -61,6 +68,18 @@ function mostSpecificRoot(roots: ReadonlyArray<string>, cwd: string): string | u
     .toSorted(
       (left, right) => importPathIdentity(right).length - importPathIdentity(left).length,
     )[0];
+}
+
+function claudeWorktreeOrigin(cwd: string): { root: string; originalCwd: string } | undefined {
+  const parsed = path.parse(cwd);
+  const parts = cwd.slice(parsed.root.length).split(path.sep);
+  const names = process.platform === "win32" ? parts.map((part) => part.toLowerCase()) : parts;
+  const marker = names.findIndex(
+    (part, index) => part === ".claude" && names[index + 1] === "worktrees" && names[index + 2],
+  );
+  if (marker < 0) return undefined;
+  const root = path.join(parsed.root, ...parts.slice(0, marker));
+  return { root, originalCwd: path.join(root, ...parts.slice(marker + 3)) };
 }
 
 function cachedLookup<T>(lookup: (value: string) => Promise<T>): (value: string) => Promise<T> {
@@ -128,7 +147,7 @@ export async function buildProjectImportCatalog(
   }
   const declaredRoots = new Map<string, { root: string; title: string }>();
   for (const { provider, catalog } of sources) {
-    // Claude's groups are only cwd hints; every other agent's projects are declared folders.
+    // Claude's discovery may mix transcript cwd hints with explicit desktop origins.
     if (provider === "claudeAgent" || !isAbsoluteDirectory(catalog.sourceHome)) continue;
     for (const project of catalog.projects) {
       for (const value of project.roots) {
@@ -146,14 +165,21 @@ export async function buildProjectImportCatalog(
     ...[...declaredRoots.values()].map((project) => project.root),
   ];
   const projects = new Map<string, ResolvedImportProject>();
-  const importedSessionKeys = new Set<string>();
   // Two accounts of one agent can read the same conversations from different home folders:
   // the Moss-lane Codex account keeps its own home but lists the default account's threads,
   // which doubled the Codex count (297 shown as 594). A session id names one conversation, so
   // it is offered once, from the first source; sources come default account first.
-  const offeredSessionIds = new Set<string>();
+  const offeredSessions = new Map<string, ResolvedImportSession>();
+  const placement = new Map<ResolvedImportSession, ResolvedImportProject>();
 
   const derivedWorkspace = cachedLookup(async (cwd: string): Promise<string> => {
+    const claudeWorktree = claudeWorktreeOrigin(cwd);
+    if (claudeWorktree) {
+      const original = await canonical(claudeWorktree.originalCwd);
+      const existing = mostSpecificRoot(inferenceRoots, original);
+      const root = await canonical(claudeWorktree.root);
+      return existing && contains(root, existing) ? existing : root;
+    }
     const git = await gitWorkspace(cwd);
     const existing = mostSpecificRoot(inferenceRoots, cwd);
     if (!git) return existing ?? cwd;
@@ -197,33 +223,19 @@ export async function buildProjectImportCatalog(
       { title: string; roots: string[]; hasUnavailableRoot: boolean }
     >();
     for (const sourceProject of catalog.projects) {
+      if (provider === "claudeAgent") continue;
       const roots = new Map<string, string>();
       let hasUnavailableRoot = false;
       for (const sourceRoot of sourceProject.roots) {
         if (!isAbsoluteDirectory(sourceRoot)) continue;
-        const physicalRoot = await availableImportEntry(() => canonical(sourceRoot));
-        if (!physicalRoot) {
-          hasUnavailableRoot = true;
-          continue;
-        }
-        // Claude has no native project IDs: its discovery groups are cwd hints.
-        const root =
-          provider === "claudeAgent"
-            ? await availableImportEntry(() => derivedWorkspace(physicalRoot))
-            : physicalRoot;
+        const root = await availableImportEntry(() => canonical(sourceRoot));
         if (!root) {
           hasUnavailableRoot = true;
           continue;
         }
         if (excluded(root)) continue;
         const project = await availableImportEntry(() =>
-          ensureProject(
-            root,
-            provider === "claudeAgent"
-              ? path.basename(root) || sourceProject.title
-              : sourceProject.title,
-            provider,
-          ),
+          ensureProject(root, sourceProject.title, provider),
         );
         if (!project) {
           hasUnavailableRoot = true;
@@ -242,9 +254,21 @@ export async function buildProjectImportCatalog(
       if (++sessionCount % 128 === 0) await setImmediate();
       if (!session.id.trim() || !isAbsoluteDirectory(session.cwd)) continue;
       const key = projectImportKey(provider, sourceHome, session.id);
-      const sessionIdentity = `${provider}:${session.id.trim().toLowerCase()}`;
-      if (importedSessionKeys.has(key) || offeredSessionIds.has(sessionIdentity)) continue;
-      const cwd = await availableImportEntry(() => canonical(session.cwd));
+      const resolved: ResolvedImportSession = {
+        ...session,
+        key,
+        provider,
+        ...(providerInstanceId !== undefined ? { providerInstanceId } : {}),
+        sourceHome,
+      };
+      const identities = importSessionIdentities(resolved);
+      if (identities.some((id) => offeredSessions.has(id))) continue;
+      const explicitRoot = session.projectRoot;
+      const cwd =
+        (await availableImportEntry(() => canonical(session.cwd))) ??
+        (explicitRoot && isAbsoluteDirectory(explicitRoot)
+          ? await availableImportEntry(() => canonical(explicitRoot))
+          : undefined);
       if (!cwd) continue;
       const sourceProject =
         provider !== "claudeAgent" && session.projectId
@@ -266,25 +290,56 @@ export async function buildProjectImportCatalog(
         }
       }
       const assigned = root !== undefined;
+      if (!root && explicitRoot && isAbsoluteDirectory(explicitRoot))
+        root = await availableImportEntry(() => canonical(explicitRoot));
       if (!root) root = await availableImportEntry(() => derivedWorkspace(cwd));
       // Conversations Moss itself ran in its scratch or cache folders are not the person's projects.
       if (!root || excluded(root)) continue;
       const title = assigned ? sourceProject!.title : path.basename(root) || root;
       const project = await availableImportEntry(() => ensureProject(root, title, provider));
       if (!project) continue;
-      project.threads.push({
-        ...session,
-        key,
-        provider,
-        ...(providerInstanceId !== undefined ? { providerInstanceId } : {}),
-        sourceHome,
-      });
-      importedSessionKeys.add(key);
-      offeredSessionIds.add(sessionIdentity);
+      project.threads.push(resolved);
+      placement.set(resolved, project);
+      for (const id of identities) offeredSessions.set(id, resolved);
     }
   }
 
-  for (const project of projects.values()) {
+  // Desktop children may run elsewhere (for example in a detached worktree), but their
+  // sidebar row belongs to the project of the source thread, including for deeper nesting.
+  const parentOf = (session: ResolvedImportSession) =>
+    session.parentSessionId
+      ? offeredSessions.get(`${session.provider}:${session.parentSessionId.toLowerCase()}`)
+      : undefined;
+  const movedFrom = new Set<ResolvedImportProject>();
+  for (const [session, project] of placement) {
+    const parent = parentOf(session);
+    if (!parent) continue;
+    const visited = new Set([session]);
+    let root = parent;
+    let ancestor: ResolvedImportSession | undefined = parent;
+    while (ancestor && !visited.has(ancestor)) {
+      visited.add(ancestor);
+      root = ancestor;
+      ancestor = parentOf(ancestor);
+    }
+    if (ancestor) continue; // Cyclic source metadata must not hide the rows.
+    session.parentKey = parent.key;
+    const parentProject = placement.get(root)!;
+    if (parentProject === project) continue;
+    project.threads = project.threads.filter((thread) => thread !== session);
+    movedFrom.add(project);
+    parentProject.threads.push(session);
+  }
+  for (const [identity, project] of projects) {
+    if (
+      movedFrom.has(project) &&
+      !project.threads.some((thread) => thread.provider === "claudeAgent")
+    )
+      project.providers = project.providers.filter((provider) => provider !== "claudeAgent");
+    if (!project.providers.length) {
+      projects.delete(identity);
+      continue;
+    }
     project.providers = project.providers.toSorted();
     project.threads = project.threads.toSorted(
       (left, right) =>

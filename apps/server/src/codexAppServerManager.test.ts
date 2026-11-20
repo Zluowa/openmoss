@@ -9626,6 +9626,70 @@ describe("collab child routing after the parent turn ends", () => {
 });
 
 describe("start after an unproven stop of the previous runtime", () => {
+  it.each(["captured before exit", "snapshot after exit"] as const)(
+    "delivers the next turn once when only descendants remain (%s)",
+    async (scenario) => {
+      const fake = createSyntheticCodexAppServer();
+      const { manager, teardownProcessTree } = createSyntheticCodexManager(fake);
+      const threadId = asThreadId("previous-runtime-root-exited");
+      const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-previous-root-exited-"));
+      const start = () =>
+        manager.startSession({
+          threadId,
+          provider: "codex",
+          cwd,
+          runtimeMode: "full-access",
+          agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+        });
+      try {
+        await start();
+        await manager.sendTurn({ threadId, input: "Run a command" });
+        const oldChild = fake.children[0]!;
+        const signalLateSnapshot = vi.fn();
+        teardownProcessTree.mockImplementation(async ({ rootPid }, dependencies) => {
+          if (rootPid === oldChild.pid) {
+            oldChild.exitCode = 1;
+            if (scenario === "snapshot after exit") {
+              // A new snapshot can contain unrelated children of a reused root PID.
+              dependencies?.onCapturedTree?.({ descendants: [], captureComplete: true }, false);
+              signalLateSnapshot();
+            }
+            throw new supervisedTeardown.ProviderProcessExitUnprovenError({
+              rootPid,
+              rootExited: true,
+              captureComplete: true,
+              remainingDescendantPids: [51_234, 51_235],
+            });
+          }
+          return { escalated: false, signalErrors: [] };
+        });
+
+        await manager.stopSession(threadId);
+        await start();
+        expect(signalLateSnapshot).not.toHaveBeenCalled();
+        await expect(
+          manager.sendTurn({ threadId, input: "Continue the task" }),
+        ).resolves.toMatchObject({
+          turnId: "synthetic-turn-2",
+        });
+        expect(fake.children).toHaveLength(2);
+        expect(
+          fake.requests.filter(({ method }) => method === "turn/start").map(({ params }) => params),
+        ).toEqual([
+          expect.objectContaining({ input: [expect.objectContaining({ text: "Run a command" })] }),
+          expect.objectContaining({
+            input: [expect.objectContaining({ text: "Continue the task" })],
+          }),
+        ]);
+      } finally {
+        // A failing baseline retains the old context; let teardown finish for the fixture.
+        teardownProcessTree.mockResolvedValue({ escalated: false, signalErrors: [] });
+        await manager.stopAll();
+        rmSync(cwd, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("ends before spawning, says so with its own error, and starts once the stop is proven", async () => {
     const fake = createSyntheticCodexAppServer();
     const { manager, teardownProcessTree } = createSyntheticCodexManager(fake);

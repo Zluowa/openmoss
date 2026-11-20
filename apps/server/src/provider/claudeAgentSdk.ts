@@ -10,12 +10,7 @@ import nodePath from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectClaudeHistoryPage, type ClaudeHistoryPage } from "./claudeHistoryPage.ts";
 import { lazyModule } from "../lazyModule.ts";
-import type {
-  SDKSessionInfo,
-  SessionMessage,
-  SpawnOptions,
-  SpawnedProcess,
-} from "@anthropic-ai/claude-agent-sdk";
+import type { SessionMessage, SpawnOptions, SpawnedProcess } from "@anthropic-ai/claude-agent-sdk";
 import { execProcessFile, spawnProcess } from "@moss/shared/processRuntime";
 import { spawnGuardedProviderChild } from "../platform/windowsProviderProcessGuard.ts";
 import type { ProcessExitHandle } from "./supervisedProcessTeardown.ts";
@@ -68,10 +63,8 @@ const sdk = await import(moduleUrl);
 const options = JSON.parse(optionsJson);
 const selectPage = ${selectClaudeHistoryPage.toString()};
 const result =
-  method === "listSessions"
-    ? await sdk.listSessions(options ?? undefined)
-    : method === "getSessionMessagePage"
-      ? selectPage(await sdk.getSessionMessages(sessionId, options?.dir ? { dir: options.dir } : undefined), options?.before)
+  method === "getSessionMessagePage"
+    ? selectPage(await sdk.getSessionMessages(sessionId, options?.dir ? { dir: options.dir } : undefined), options?.before)
     : await sdk[method](sessionId, options ?? undefined);
 process.stdout.write(JSON.stringify(result ?? null));
 `;
@@ -80,7 +73,6 @@ type ClaudeSessionQueryMethod =
   | "forkSession"
   | "getSessionInfo"
   | "getSessionMessages"
-  | "listSessions"
   | "getSessionMessagePage";
 
 export function claudeHistoricalSessionChildEnvironment(
@@ -169,18 +161,6 @@ export function readClaudeSessionMessagePageInEnvironment(input: {
   });
 }
 
-/** Lists one Claude account's sessions without touching the server's process.env. */
-export function listClaudeSessionsInEnvironment(
-  environment: NodeJS.ProcessEnv,
-): Promise<ReadonlyArray<SDKSessionInfo>> {
-  return runClaudeSessionQueryInChildProcess<ReadonlyArray<SDKSessionInfo>>({
-    method: "listSessions",
-    sessionId: "",
-    dir: undefined,
-    environment,
-  });
-}
-
 /** Reads one Claude account's session messages, in a child process when needed. */
 export function readClaudeSessionMessagesInEnvironment(input: {
   readonly sessionId: string;
@@ -233,14 +213,12 @@ export async function queryClaudeHistoricalSession<T>(input: {
   const sdk = await loadClaudeAgentSdk();
   input.assertStateBindingCurrent?.();
   return (
-    input.method === "listSessions"
-      ? sdk.listSessions(options)
-      : input.method === "getSessionInfo"
-        ? sdk.getSessionInfo(input.sessionId, options)
-        : input.method === "getSessionMessagePage"
-          ? sdk
-              .getSessionMessages(input.sessionId, options)
-              .then((messages) => selectClaudeHistoryPage(messages, input.before))
-          : sdk.getSessionMessages(input.sessionId, options)
+    input.method === "getSessionInfo"
+      ? sdk.getSessionInfo(input.sessionId, options)
+      : input.method === "getSessionMessagePage"
+        ? sdk
+            .getSessionMessages(input.sessionId, options)
+            .then((messages) => selectClaudeHistoryPage(messages, input.before))
+        : sdk.getSessionMessages(input.sessionId, options)
   ) as Promise<T>;
 }

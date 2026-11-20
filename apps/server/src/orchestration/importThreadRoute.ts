@@ -79,7 +79,6 @@ function providerResumeCursorForImport(provider: ProviderKind, externalId: strin
 
 export {
   claudeHistoricalSessionChildEnvironment,
-  listClaudeSessionsInEnvironment,
   readClaudeSessionMessagePageInEnvironment,
   readClaudeSessionMessagesInEnvironment,
 } from "../provider/claudeAgentSdk.ts";

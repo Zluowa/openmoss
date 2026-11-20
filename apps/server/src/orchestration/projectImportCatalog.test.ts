@@ -68,6 +68,61 @@ afterEach(async () => {
 });
 
 describe("buildProjectImportCatalog", () => {
+  it("groups source cwd and old Claude worktree paths under the same physical project", async () => {
+    const home = await fixtureDirectory();
+    const root = path.join(home, "workspace_with-hyphens");
+    const worktreeCwd = path.join(root, ".claude", "worktrees", "feature", "src");
+    const unrelatedCheckout = path.join(home, "detached-worktree");
+    await fs.mkdir(worktreeCwd, { recursive: true });
+    await fs.mkdir(path.join(worktreeCwd, ".git"));
+    const providers = [
+      "codex",
+      "cursor",
+      "opencode",
+      "pi",
+      "grok",
+      "devin",
+      "antigravity",
+      "hermes",
+    ] as const;
+    const projects = await buildProjectImportCatalog(
+      [
+        source("claudeAgent", home, [
+          session("claude-worktree", worktreeCwd),
+          { ...session("claude-detached", unrelatedCheckout), projectRoot: root },
+        ]),
+        ...providers.map((provider) => source(provider, home, [session(provider, worktreeCwd)])),
+      ],
+      [existing("saved", root)],
+    );
+    expect(projects).toHaveLength(1);
+    expect(projects[0]).toMatchObject({ workspaceRoot: root, existingProjectId: "saved" });
+    expect(projects[0]?.threads.map((thread) => thread.id).toSorted()).toEqual(
+      ["claude-worktree", "claude-detached", ...providers].toSorted(),
+    );
+  });
+
+  it("uses a desktop origin inside a repository without offering an empty ancestor project", async () => {
+    const home = await fixtureDirectory();
+    const { root, worktree } = await worktreeFixture(home);
+    const origin = path.join(root, "app");
+    await fs.mkdir(origin);
+    const projects = await buildProjectImportCatalog(
+      [
+        source(
+          "claudeAgent",
+          home,
+          [{ ...session("nested-project", worktree, origin), projectRoot: origin }],
+          [{ id: origin, title: "app", roots: [origin] }],
+        ),
+      ],
+      [],
+    );
+    expect(projects).toHaveLength(1);
+    expect(projects[0]?.workspaceRoot).toBe(origin);
+    expect(projects[0]?.threads[0]?.id).toBe("nested-project");
+  });
+
   it("never offers Moss's own working folders as projects", async () => {
     const home = await fixtureDirectory();
     const repository = path.join(home, "repository");

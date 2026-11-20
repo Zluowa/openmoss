@@ -74,10 +74,13 @@ import {
 import { nonEmptyTrimmed } from "@moss/shared/text";
 import { isCompactionCommandText } from "@moss/shared/contextCompaction";
 import { computerApprovalGate } from "../../computer/ComputerApprovalGate.ts";
+import { CodexTurnNotDispatchedError } from "../../codexErrorClassification.ts";
 
 import {
   type ProviderAdapterError,
   ProviderAdapterProcessError,
+  ProviderAdapterSessionClosedError,
+  ProviderAdapterSessionNotFoundError,
   ProviderUnsupportedError,
   ProviderValidationError,
 } from "../Errors.ts";
@@ -5913,11 +5916,13 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
               options,
               "ProviderService.sendTurn",
             );
-            const routed = yield* resolveRoutableSession({
-              threadId: input.threadId,
-              operation: "ProviderService.sendTurn",
-              allowRecovery: true,
-            });
+            const resolveSendRoute = () =>
+              resolveRoutableSession({
+                threadId: input.threadId,
+                operation: "ProviderService.sendTurn",
+                allowRecovery: true,
+              });
+            let routed = yield* resolveSendRoute();
             const routeValidationError = validateModelSelectionMatchesRoute({
               operation: "ProviderService.sendTurn",
               modelSelection: input.modelSelection,
@@ -5947,9 +5952,28 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 ? { modelSelection: routedModelSelection }
                 : {}),
             };
-            const turn = yield* options
-              ? routed.adapter.sendTurn(routedInput, options)
-              : routed.adapter.sendTurn(routedInput);
+            const send = () =>
+              options
+                ? routed.adapter.sendTurn(routedInput, options)
+                : routed.adapter.sendTurn(routedInput);
+            const turn = yield* send().pipe(
+              Effect.catchIf(
+                (error) =>
+                  (error instanceof ProviderAdapterSessionClosedError ||
+                    error instanceof ProviderAdapterSessionNotFoundError) &&
+                  error.cause instanceof CodexTurnNotDispatchedError,
+                (error) =>
+                  Effect.gen(function* () {
+                    // The old runtime disappeared after routing but before any write.
+                    // Only this evidence permits sending the same message again.
+                    const recovered = yield* resolveSendRoute();
+                    if (recovered.providerInstanceId !== routed.providerInstanceId)
+                      return yield* error;
+                    routed = recovered;
+                    return yield* send();
+                  }),
+              ),
+            );
             const persistenceInput: StartedTurnPersistenceInput = {
               threadId: input.threadId,
               provider: routed.adapter.provider,

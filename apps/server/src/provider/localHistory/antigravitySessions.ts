@@ -11,6 +11,7 @@ import * as nodePath from "node:path";
 import type { NativeImportSession } from "../projectImportTypes";
 import { readJsonlRecords } from "./jsonlRecords";
 import {
+  absolutePath,
   listDirectory,
   mapBounded,
   modifiedAt,
@@ -67,13 +68,18 @@ async function readSummary(
   const file = transcriptPath(input, id);
   const updatedAt = await modifiedAt(file);
   if (!updatedAt) return undefined;
-  const firstPrompt = (await readTranscript(file)).find((message) => message.role === "user")?.text;
+  let cwd: string | undefined;
+  let firstPrompt: string | undefined;
+  for await (const step of readJsonlRecords(file)) {
+    cwd ??= absolutePath(step.cwd) ?? absolutePath(step.working_directory);
+    if (step.type === "USER_INPUT") firstPrompt ||= visibleMessageText(step.content);
+    if (cwd && firstPrompt) break;
+  }
   if (!firstPrompt) return undefined;
   return {
     id,
     title: titleFromText(firstPrompt) ?? "Antigravity",
-    // The transcript does not name a working folder; file it under the home folder.
-    cwd: input.homeDir,
+    cwd: cwd ?? input.homeDir,
     projectId: null,
     createdAt: updatedAt,
     updatedAt,
