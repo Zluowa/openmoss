@@ -591,6 +591,56 @@
   }
 }
 
+/* Crisp, restrained return-to-window and attachment arrival animations for live
+   AppSnap captures. Fill `backwards` (never `both`) with no standing `will-change`
+   so neither root fixed elements nor backdrop blur retain a transform layer. */
+@keyframes appsnap-window-return {
+  from {
+    opacity: 0.92;
+    transform: translateY(4px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.appsnap-window-return {
+  animation: appsnap-window-return 200ms var(--ease-snap) backwards;
+}
+
+@keyframes appsnap-chip-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+    border-color: var(--primary);
+  }
+
+  65% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    border-color: color-mix(in srgb, var(--primary) 55%, var(--color-border-light));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    border-color: var(--color-border-light);
+  }
+}
+
+.appsnap-chip-enter {
+  animation: appsnap-chip-enter 260ms var(--ease-snap) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .appsnap-window-return,
+  .appsnap-chip-enter {
+    animation: none;
+  }
+}
+
 /* Suppress all transitions during theme changes */
 .no-transitions,
 .no-transitions *,
@@ -673,7 +723,8 @@
   --scroll-edge-fade-size: 1.5rem;
   --radius-user-message: var(--radius-bubble);
   /* Claude's type: Latin text in a variable sans at light weights, CJK through the same
-     system fallback chain Claude uses (PingFang on macOS, Microsoft YaHei on Windows).
+     system fallback chain Claude uses (PingFang on macOS, Microsoft YaHei on Windows, named
+     here so Windows never falls back to SimSun; Noto Sans CJK on Linux).
      Claude's own face is proprietary; Inter is the closest open match (within 1% of its
      width and cap height), with its weights tuned to Claude's stems below. */
   --font-ui-family: var(
@@ -686,8 +737,12 @@
     "Segoe UI",
     "PingFang SC",
     "PingFang TC",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
     "Hiragino Sans",
     "Apple SD Gothic Neo",
+    "Noto Sans CJK SC",
+    "Noto Sans SC",
     sans-serif
   );
   /* One family for the whole interface, like Claude: the display role is the UI face. */
@@ -4852,7 +4907,8 @@ diffs-container {
     0 0 0 1px rgb(28 27 25 / 0.04), 0 1px 2px 0 rgb(28 27 25 / 0.05),
     0 4px 16px 0 rgb(28 27 25 / 0.05);
   /* Claude's type: Latin text in a variable sans at light weights, CJK through the same
-     system fallback chain Claude uses (PingFang on macOS, Microsoft YaHei on Windows).
+     system fallback chain Claude uses (PingFang on macOS, Microsoft YaHei on Windows, named
+     here so Windows never falls back to SimSun; Noto Sans CJK on Linux).
      Claude's own face is proprietary; Inter is the closest open match (within 1% of its
      width and cap height), with its weights tuned to Claude's stems below. */
   --font-ui-family: var(
@@ -4865,8 +4921,12 @@ diffs-container {
     "Segoe UI",
     "PingFang SC",
     "PingFang TC",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
     "Hiragino Sans",
     "Apple SD Gothic Neo",
+    "Noto Sans CJK SC",
+    "Noto Sans SC",
     sans-serif
   );
 

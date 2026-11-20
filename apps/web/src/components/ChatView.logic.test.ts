@@ -15,6 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { QueuedComposerChatTurn } from "../composerDraftStore";
 import type { WorkLogEntry } from "../session-logic";
+import type { ThreadSession } from "../types";
 
 import {
   accessModeModelSelectionToPersist,
@@ -33,8 +34,10 @@ import {
   createWorktreeSetupResolution,
   createWorktreeSetupSnapshot,
   derivePromptHistoryFromMessages,
+  deriveWarmProviderSessionKey,
   failWorktreeSetupSnapshot,
   filterSidechatTranscriptMessages,
+  reconcileWarmProviderSessionKeys,
   threadHasProviderLockingActivity,
   turnNeedsProviderHandoff,
   threadHasProviderLockingMessages,
@@ -2437,7 +2440,7 @@ describe("hasLiveTurnTakenOver", () => {
     ).toBe(false);
   });
 
-  it("takes over once the session phase is running or connecting", () => {
+  it("takes over once the session phase is running, not merely connecting", () => {
     expect(
       hasLiveTurnTakenOver({
         localDispatch,
@@ -2449,6 +2452,8 @@ describe("hasLiveTurnTakenOver", () => {
         threadError: null,
       }),
     ).toBe(true);
+    // Codex emits session/connecting -> session/ready -> turn/started; connecting
+    // must not wipe localDispatch before the turn actually starts.
     expect(
       hasLiveTurnTakenOver({
         localDispatch,
@@ -2459,7 +2464,7 @@ describe("hasLiveTurnTakenOver", () => {
         hasPendingUserInput: false,
         threadError: null,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("takes over when an active turn id appears", () => {
@@ -2560,6 +2565,108 @@ describe("hasLiveTurnTakenOver", () => {
     ).toBe(true);
   });
 
+  it("ignores a pre-existing thread error from the failed turn being continued", () => {
+    const previousError = "stream disconnected before completion";
+    const dispatchFromFailedThread: LocalDispatchSnapshot = {
+      ...localDispatch,
+      sessionOrchestrationStatus: "error",
+      sessionUpdatedAt: "2026-04-13T00:00:00.000Z",
+      initialThreadError: previousError,
+    };
+    const unchangedErrorSession = {
+      provider: "codex" as const,
+      status: "error" as const,
+      orchestrationStatus: "error" as const,
+      createdAt: "2026-04-13T00:00:00.000Z",
+      updatedAt: "2026-04-13T00:00:00.000Z",
+    };
+
+    // Frame 1 right after clicking Continue: the old error must not ack or clear localDispatch.
+    expect(
+      hasServerAcknowledgedLocalDispatch({
+        localDispatch: dispatchFromFailedThread,
+        phase: "ready",
+        latestTurn: null,
+        session: unchangedErrorSession,
+        messages: [],
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: previousError,
+      }),
+    ).toBe(false);
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch: dispatchFromFailedThread,
+        phase: "ready",
+        latestTurn: null,
+        session: unchangedErrorSession,
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: previousError,
+      }),
+    ).toBe(false);
+
+    // A newer failure on the retry — even with the exact same error text — does take over.
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch: dispatchFromFailedThread,
+        phase: "ready",
+        latestTurn: null,
+        session: {
+          ...unchangedErrorSession,
+          updatedAt: "2026-04-13T00:00:05.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: previousError,
+      }),
+    ).toBe(true);
+  });
+
+  it("takes over when a pending start is explicitly interrupted or stopped", () => {
+    const dispatchFromInterrupted: LocalDispatchSnapshot = {
+      ...localDispatch,
+      sessionOrchestrationStatus: "interrupted",
+      sessionUpdatedAt: "2026-04-13T00:00:00.000Z",
+    };
+    // Pre-existing interrupted state from the previous turn does not kill a fresh send.
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch: dispatchFromInterrupted,
+        phase: "ready",
+        latestTurn: null,
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "interrupted",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:00.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(false);
+    // A new interrupted/stopped update after dispatch clears the awaiting-turn bridge.
+    expect(
+      hasLiveTurnTakenOver({
+        localDispatch,
+        phase: "ready",
+        latestTurn: null,
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "interrupted",
+          createdAt: "2026-04-13T00:00:00.000Z",
+          updatedAt: "2026-04-13T00:00:02.000Z",
+        },
+        hasPendingApproval: false,
+        hasPendingUserInput: false,
+        threadError: null,
+      }),
+    ).toBe(true);
+  });
+
   it("fails open after the awaiting-turn timeout unless worktree setup is active", () => {
     const now = Date.parse(localDispatch.startedAt) + LOCAL_DISPATCH_TURN_TAKEOVER_TIMEOUT_MS;
     expect(
@@ -2632,6 +2739,29 @@ describe("resolveWorkingLabel", () => {
     ).toBe("Thinking");
   });
 
+  it("shows Thinking instead of Starting provider… when dispatching on a warm session", () => {
+    expect(
+      resolveWorkingLabel({
+        isSendBusy: false,
+        turnTakenOver: true,
+        isConnecting: true,
+        isWarmSession: true,
+        providerName: "Codex",
+      }),
+    ).toBe("Thinking");
+
+    expect(
+      resolveWorkingLabel({
+        isSendBusy: false,
+        turnTakenOver: true,
+        isConnecting: true,
+        isWarmSession: true,
+        providerName: "Grok",
+        retryLabel: "Retrying: connection timed out (1/15)",
+      }),
+    ).toBe("Retrying: connection timed out (1/15)");
+  });
+
   it("shows a Grok connection retry instead of Thinking", () => {
     expect(
       resolveWorkingLabel({
@@ -2640,6 +2770,98 @@ describe("resolveWorkingLabel", () => {
         retryLabel: "Retrying: connection timed out (3/15)",
       }),
     ).toBe("Retrying: connection timed out (3/15)");
+  });
+});
+
+describe("warm provider session tracking", () => {
+  const threadId = ThreadId.makeUnsafe("thread-warm-1");
+  const makeSession = (
+    orchestrationStatus: ThreadSession["orchestrationStatus"],
+    overrides?: Partial<ThreadSession>,
+  ): ThreadSession => ({
+    provider: "codex",
+    providerInstanceId: "codex_moss",
+    runtimeMode: "full-access",
+    status:
+      orchestrationStatus === "starting"
+        ? "connecting"
+        : orchestrationStatus === "stopped"
+          ? "closed"
+          : orchestrationStatus === "running"
+            ? "running"
+            : "ready",
+    orchestrationStatus,
+    createdAt: "2026-11-19T00:00:00.000Z",
+    updatedAt: "2026-11-19T00:00:00.000Z",
+    ...overrides,
+  });
+
+  it("tracks ready/running/interrupted sessions across optimistic starting turns and clears on stop or error", () => {
+    let warm: Readonly<Record<string, string>> = {};
+    // Cold start has no warm key yet.
+    warm = reconcileWarmProviderSessionKeys(warm, {
+      threadId,
+      session: makeSession("starting"),
+      fallbackRuntimeMode: "full-access",
+    });
+    expect(warm[threadId]).toBeUndefined();
+
+    // Once ready, warm key is recorded and survives follow-up starting.
+    warm = reconcileWarmProviderSessionKeys(warm, {
+      threadId,
+      session: makeSession("ready"),
+      fallbackRuntimeMode: "full-access",
+    });
+    const followUpKey = deriveWarmProviderSessionKey({
+      session: makeSession("starting"),
+      selectedProvider: "codex",
+      selectedProviderInstanceId: "codex_moss",
+      runtimeMode: "full-access",
+    });
+    expect(followUpKey).toBe("codex_moss:full-access");
+    expect(warm[threadId]).toBe(followUpKey);
+
+    // Non-native steer (running -> interrupted -> starting) stays warm.
+    warm = reconcileWarmProviderSessionKeys(warm, {
+      threadId,
+      session: makeSession("interrupted"),
+      fallbackRuntimeMode: "full-access",
+    });
+    warm = reconcileWarmProviderSessionKeys(warm, {
+      threadId,
+      session: makeSession("starting"),
+      fallbackRuntimeMode: "full-access",
+    });
+    expect(warm[threadId]).toBe("codex_moss:full-access");
+
+    // Runtime mode change does not match the recorded warm process key.
+    expect(
+      deriveWarmProviderSessionKey({
+        session: makeSession("starting"),
+        selectedProvider: "codex",
+        selectedProviderInstanceId: "codex_moss",
+        runtimeMode: "approval-required",
+      }),
+    ).toBe("codex_moss:approval-required");
+    expect(warm[threadId]).not.toBe("codex_moss:approval-required");
+
+    // Switching provider or instance returns null so cold-start label appears.
+    expect(
+      deriveWarmProviderSessionKey({
+        session: makeSession("starting"),
+        selectedProvider: "claudeAgent",
+        selectedProviderInstanceId: "claude_moss",
+        runtimeMode: "full-access",
+      }),
+    ).toBeNull();
+
+    // Stopped or errored session clears warm state.
+    warm = reconcileWarmProviderSessionKeys(warm, {
+      threadId,
+      session: makeSession("error"),
+      fallbackRuntimeMode: "full-access",
+    });
+    expect(warm[threadId]).toBeUndefined();
   });
 });
 

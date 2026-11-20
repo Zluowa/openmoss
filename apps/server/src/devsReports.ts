@@ -356,8 +356,19 @@ export class DevsReports {
           })),
         };
       }
-      const invocation = parseDevsInvocation(input.text);
-      if (!invocation?.description) throw new Error("Describe the problem after @devs.");
+      let description: string;
+      let invocationEngine: DevsReportState["engine"] | undefined;
+      if (thread) {
+        const invocation = parseDevsInvocation(input.text);
+        if (!invocation?.description) throw new Error("Describe the problem after @devs.");
+        description = invocation.description;
+        invocationEngine = invocation.engine;
+      } else {
+        // App feedback and agent notes are not chat `@devs <engine>` commands:
+        // keep a leading "Claude" or "Codex" inside the problem description intact.
+        description = input.text.replace(/^\s*@devs(?:$|[\s:：,，]+)/i, "").trim();
+        if (!description) throw new Error("Describe the problem after @devs.");
+      }
       this.assertDailyLimit();
       const now = this.now();
       for (const [id, draft] of this.drafts) if (draft.expiresAt <= now) this.drafts.delete(id);
@@ -370,8 +381,8 @@ export class DevsReports {
       const draft: DevsDraft = {
         threadId: input.threadId ?? null,
         text: input.text,
-        engine: input.engine ?? invocation.engine ?? this.defaultEngine,
-        description: clean(invocation.description, 5_000),
+        engine: input.engine ?? invocationEngine ?? this.defaultEngine,
+        description: clean(description, 5_000),
         context: thread ? curateDevsContext(thread) : curateFeedbackContext(input.feedbackContext!),
         attachments: prepareDevsAttachments(input.attachments),
         expiresAt: now + DRAFT_TTL_MS,
@@ -393,13 +404,24 @@ export class DevsReports {
       };
     });
   }
-  list(threadId: string) {
+  /**
+   * One chat's reports, or the reports with the given IDs (app feedback and agent notes have
+   * no chat; their sender knows each report's ID).
+   */
+  list(selector: string | { readonly threadId?: string; readonly reportIds?: readonly string[] }) {
+    const { threadId, reportIds } =
+      typeof selector === "string" ? { threadId: selector, reportIds: undefined } : selector;
+    const wanted = reportIds ? new Set(reportIds) : null;
     return this.serialize(async () => {
       await this.load();
       return {
         configured: this.configured,
         reports: this.reports
-          .filter((entry) => entry.state.threadId === threadId)
+          .filter((entry) =>
+            wanted
+              ? wanted.has(entry.state.id)
+              : threadId !== undefined && entry.state.threadId === threadId,
+          )
           .map(
             (entry): DevsReportState => ({
               ...entry.state,

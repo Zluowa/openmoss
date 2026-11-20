@@ -46,6 +46,7 @@ import {
   APP_SNAP_SHORTCUT_KEYS,
   APP_SNAP_SHORTCUT_MODIFIERS,
   DEFAULT_APP_SNAP_SHORTCUT,
+  DEFAULT_WINDOWS_APP_SNAP_SHORTCUT,
 } from "@moss/shared/appSnapShortcut";
 import type { MossDesktopFlavor } from "@moss/shared/desktopIdentity";
 import { codexAccountInstanceId } from "@moss/shared/providerInstances";
@@ -244,9 +245,18 @@ const AppSnapShortcut = Schema.Union([
   Schema.Struct({
     kind: Schema.Literal("key-chord"),
     modifier: Schema.Literals(APP_SNAP_SHORTCUT_MODIFIERS),
+    extraModifiers: Schema.optionalKey(Schema.Array(Schema.Literals(APP_SNAP_SHORTCUT_MODIFIERS))),
     key: Schema.Literals(APP_SNAP_SHORTCUT_KEYS),
   }),
 ]);
+
+export function getDefaultAppSnapShortcut(
+  platform = globalThis.navigator?.platform ?? "",
+): typeof AppSnapShortcut.Type {
+  return /^win(dows)?/i.test(platform)
+    ? DEFAULT_WINDOWS_APP_SNAP_SHORTCUT
+    : DEFAULT_APP_SNAP_SHORTCUT;
+}
 
 export function getDefaultNativeFontSmoothing(platform = globalThis.navigator?.platform ?? "") {
   return /mac|iphone|ipad|ipod/i.test(platform);
@@ -333,20 +343,21 @@ const PersistedProviderKind = PersistedProviderKindSource.pipe(
   Schema.decodeTo(
     ProviderKind,
     SchemaTransformation.transform<ProviderKind, typeof PersistedProviderKindSource.Type>({
-      // Kilo's only successor is OpenCode, and only for single-value settings.
-      // Gemini and Hermes remain first-class Moss providers.
-      decode: (provider): ProviderKind => (provider === "kilo" ? "opencode" : provider),
+      // Retired providers fall back on single-value settings so old configs never crash:
+      // Kilo hosted sessions on OpenCode; retired Gemini CLI falls back to Codex.
+      decode: (provider): ProviderKind =>
+        provider === "kilo" ? "opencode" : provider === "gemini" ? "codex" : provider,
       encode: (provider): typeof PersistedProviderKindSource.Type => provider,
     }),
   ),
 );
 
 function resolvePersistedProviderListEntry(provider: string): ProviderKind | undefined {
-  // Removed providers with no successor subscription (kilo) must not transfer
+  // Removed providers with no successor subscription (kilo, gemini) must not transfer
   // prefs like "hidden" onto another provider, so their list entries are
   // dropped. Unknown values are dropped too instead of failing the whole
-  // settings decode. Gemini remains a Moss provider.
-  if (provider === "kilo") {
+  // settings decode.
+  if (provider === "kilo" || provider === "gemini") {
     return undefined;
   }
   return Schema.is(ProviderKind)(provider) ? provider : undefined;
@@ -355,7 +366,7 @@ function resolvePersistedProviderListEntry(provider: string): ProviderKind | und
 const PersistedProviderKindList = persistedIdList(ProviderKind, resolvePersistedProviderListEntry);
 const isProviderInstanceId = Schema.is(ProviderInstanceId);
 const PersistedProviderInstanceIdList = persistedIdList(ProviderInstanceId, (value) =>
-  isProviderInstanceId(value) ? value : undefined,
+  isProviderInstanceId(value) && value !== "kilo" && value !== "gemini" ? value : undefined,
 );
 
 const PersistedHiddenModels = Schema.Array(
@@ -468,6 +479,11 @@ export const AppSettingsSchema = Schema.Struct({
   ).pipe(withDefaults(() => ["authored", "reviewRequested"] as const)),
   // Server-backed: the inbox also reads each project's other GitHub remotes (fork upstreams).
   githubInboxIncludeUpstreams: Schema.Boolean.pipe(withDefaults(() => false)),
+  // Issue source teams (Linear) and sites (Jira) the code review list leaves out, as
+  // `<source>:<id>`; every one shows until the person hides it.
+  issueSourceHiddenTeams: Schema.Array(Schema.String.check(Schema.isMaxLength(256))).pipe(
+    withDefaults(() => []),
+  ),
   // Server-backed: how long an idle side chat stays usable before it expires.
   sidechatExpiry: SidechatExpiry.pipe(withDefaults(() => "1h" as const satisfies SidechatExpiry)),
   // Local-only UI preferences for hiding sidebar surfaces a user doesn't want.
@@ -581,7 +597,7 @@ export const AppSettingsSchema = Schema.Struct({
   // AppSnap is opt-in because enabling its Settings toggle requests macOS
   // Input Monitoring and Screen Recording permissions.
   enableAppSnap: Schema.Boolean.pipe(withDefaults(() => false)),
-  appSnapShortcut: AppSnapShortcut.pipe(withDefaults(() => DEFAULT_APP_SNAP_SHORTCUT)),
+  appSnapShortcut: AppSnapShortcut.pipe(withDefaults(getDefaultAppSnapShortcut)),
   // Local desktop preference: play the shutter cue when an AppSnap lands in a composer.
   appSnapPlaySound: Schema.Boolean.pipe(withDefaults(() => true)),
   // Deprecated rename bridge. Normalization migrates this value and then omits the key.
@@ -773,15 +789,6 @@ const PROVIDER_CUSTOM_MODEL_CONFIG: Record<
     description: "Save additional Devin model slugs for the picker and provider runtime.",
     placeholder: "devin-model-slug",
     example: "adaptive",
-  },
-  gemini: {
-    provider: "gemini",
-    settingsKey: "customGeminiModels",
-    defaultSettingsKey: "customGeminiModels",
-    title: "Gemini",
-    description: "Save additional Gemini model slugs for the picker and `/model` command.",
-    placeholder: "your-gemini-model-slug",
-    example: "gemini-3.5-pro-preview",
   },
   antigravity: {
     provider: "antigravity",
@@ -1710,6 +1717,13 @@ function normalizeAppSettings(settings: AppSettings): AppSettings {
       : migrateRailUsageSelection(settings.railUsageInstanceIds ?? settings.railUsageProviders),
     railUsageMossDefaultApplied: true,
     enableAppSnap: settings.enableAppSnap || legacyEnableAppshots === true,
+    // Windows cannot register macOS's double-Option chord; migrate any legacy
+    // saved default so the Windows shortcut works immediately after upgrade.
+    appSnapShortcut:
+      /^win(dows)?/i.test(globalThis.navigator?.platform ?? "") &&
+      settings.appSnapShortcut.kind === "both-option-keys"
+        ? DEFAULT_WINDOWS_APP_SNAP_SHORTCUT
+        : settings.appSnapShortcut,
     // Read the legacy Studio key once: it defaults to true, so only an explicit
     // `false` carries over onto the renamed Groups section.
     showGroupsSection: settings.showGroupsSection && legacyShowStudioSection !== false,
@@ -2405,7 +2419,7 @@ export function getCustomModelsForProvider(
   settings: Pick<AppSettings, CustomModelSettingsKey>,
   provider: ProviderKind,
 ): readonly string[] {
-  if (provider === "kilo") return [];
+  if (provider === "kilo" || provider === "gemini") return [];
   return settings[PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey] ?? [];
 }
 
@@ -2413,7 +2427,7 @@ export function getDefaultCustomModelsForProvider(
   defaults: Pick<AppSettings, CustomModelSettingsKey>,
   provider: ProviderKind,
 ): readonly string[] {
-  if (provider === "kilo") return [];
+  if (provider === "kilo" || provider === "gemini") return [];
   return defaults[PROVIDER_CUSTOM_MODEL_CONFIG[provider].defaultSettingsKey] ?? [];
 }
 
@@ -2421,7 +2435,7 @@ export function patchCustomModels(
   provider: ProviderKind,
   models: string[],
 ): Partial<Pick<AppSettings, CustomModelSettingsKey>> {
-  if (provider === "kilo") return {};
+  if (provider === "kilo" || provider === "gemini") return {};
   return {
     [PROVIDER_CUSTOM_MODEL_CONFIG[provider].settingsKey]: models,
   };
@@ -2468,7 +2482,7 @@ export function getCustomModelsByProvider(
     codex: getCustomModelsForProvider(settings, "codex"),
     claudeAgent: getCustomModelsForProvider(settings, "claudeAgent"),
     cursor: getCustomModelsForProvider(settings, "cursor"),
-    gemini: getCustomModelsForProvider(settings, "gemini"),
+    gemini: [],
     devin: getCustomModelsForProvider(settings, "devin"),
     antigravity: getCustomModelsForProvider(settings, "antigravity"),
     grok: getCustomModelsForProvider(settings, "grok"),

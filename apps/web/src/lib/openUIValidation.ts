@@ -14,6 +14,8 @@ import { mossOpenUILibrary } from "./mossOpenUILibrary";
 export interface OpenUIProgramValidation {
   /** True when the program parsed with no errors at all. */
   readonly ok: boolean;
+  /** True when the program parsed a renderable `root` element. */
+  readonly hasRoot: boolean;
   /** Component names the program calls that the chat library does not define. */
   readonly unknownComponents: ReadonlyArray<string>;
   /** All parser/validation error messages (unknown components included). */
@@ -36,6 +38,7 @@ export function validateOpenUIProgram(code: string): OpenUIProgramValidation {
   ].toSorted();
   return {
     ok: errors.length === 0,
+    hasRoot: Boolean(result.root),
     unknownComponents,
     errors: errors.map((error) => error.message),
   };

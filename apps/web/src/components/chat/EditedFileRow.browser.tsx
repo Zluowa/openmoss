@@ -262,4 +262,45 @@ describe("EditedFileRow", () => {
       host.remove();
     }
   });
+
+  it("uses Moss Central icons and clean basename display for external Windows script paths", async () => {
+    mockOpenInEditor();
+    const externalScriptPath = "C:\\DevTemp\\moss-runs\\ui-showcase\\sample-colors.ps1";
+    const screen = await render(
+      editedFileRow({
+        openFile: () => true,
+        filePath: externalScriptPath,
+      }),
+    );
+
+    try {
+      const row = screen.container.querySelector<HTMLElement>("[data-edited-file-row='true']")!;
+      const nameEl = row.querySelector<HTMLElement>("[data-edited-file-name]")!;
+      const dirEl = row.querySelector<HTMLElement>("[data-edited-file-dir]")!;
+
+      // Clean basename + immediate parent folder; no raw drive or full OS path clutter.
+      expect(nameEl.textContent).toBe("sample-colors.ps1");
+      expect(dirEl.textContent).toBe("ui-showcase");
+      expect(row.textContent).not.toContain("C:\\DevTemp");
+      expect(
+        page.getByRole("button", { name: `Review changes to ${externalScriptPath}` }).element(),
+      ).toHaveAttribute("title", externalScriptPath);
+
+      // Script icon uses Central console (>_), never Mac cmd (⌘).
+      const icons = [...row.querySelectorAll<HTMLElement>('[data-slot="central-icon"]')].map(
+        (icon) => icon.getAttribute("style") ?? "",
+      );
+      expect(icons.some((style) => style.includes("/console.svg"))).toBe(true);
+      expect(icons.some((style) => style.includes("/cmd.svg"))).toBe(false);
+
+      // Trailing actions use Moss Central icons (external link + more), no third-party app logo
+      // and no duplicate disclosure chevron.
+      expect(icons.some((style) => style.includes("/square-arrow-top-right.svg"))).toBe(true);
+      expect(icons.some((style) => style.includes("/dot-grid-1x3-horizontal.svg"))).toBe(true);
+      expect(icons.some((style) => style.includes("/chevron-down-medium.svg"))).toBe(false);
+      expect(row.querySelectorAll("svg, img")).toHaveLength(0);
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

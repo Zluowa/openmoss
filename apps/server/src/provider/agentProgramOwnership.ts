@@ -66,11 +66,29 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
   const sources = new Map<string, ProgramRecord>();
   const maintenance = new Set<string>();
   const changedPrograms = new Set<string>();
+  let maintenanceStopper: ((binaryPath: string) => Promise<void>) | undefined;
   const programPath = (binaryPath: string) => resolveCodexPathIdentity(binaryPath);
   const busyMessage = () =>
     provider === "codex"
       ? "Codex is still in use or its exit is unconfirmed. Finish running work, or restart Moss, before updating."
       : "Claude is still in use or its exit is unconfirmed. Finish running work, or restart Moss, before updating.";
+  const hasActiveOwners = (binaryPath: string) =>
+    [...sources.values()].some(
+      (record) => record.binaryPath === binaryPath && record.owners.size > 0,
+    );
+  const createMaintenance = (binaryPath: string) => {
+    maintenance.add(binaryPath);
+    let finished = false;
+    return {
+      finish: (changed: boolean, confirmed = true) => {
+        if (finished) return;
+        finished = true;
+        if (!confirmed) return;
+        if (changed) changedPrograms.add(binaryPath);
+        maintenance.delete(binaryPath);
+      },
+    };
+  };
   const beginSourceOperation = (input: ProgramInput) => {
     // Installed programs must already have been resolved by the shared resolver.
     // A runnable bare command here could be reinterpreted by an account's PATH.
@@ -169,6 +187,16 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
     assertCompatible(input: ProgramInput) {
       beginOperation(input).failedToSpawn();
     },
+    registerMaintenanceStopper(stop: (binaryPath: string) => Promise<void>) {
+      const previous = maintenanceStopper;
+      maintenanceStopper = stop;
+      let registered = true;
+      return () => {
+        if (!registered) return;
+        registered = false;
+        if (maintenanceStopper === stop) maintenanceStopper = previous;
+      };
+    },
     forgetCompletedTemporarySource(sourceHomePath: string) {
       for (const source of operationSources(sourceHomePath)) {
         const record = sources.get(source);
@@ -214,15 +242,40 @@ export function makeAgentProgramOwnership(provider: AgentProvider) {
     },
     beginMaintenance(binary: string) {
       const binaryPath = programPath(binary);
-      if (
-        maintenance.has(binaryPath) ||
-        [...sources.values()].some(
-          (record) => record.binaryPath === binaryPath && record.owners.size > 0,
-        )
-      ) {
+      if (maintenance.has(binaryPath) || hasActiveOwners(binaryPath)) {
         throw new AgentProgramOwnershipError(busyMessage());
       }
+      return createMaintenance(binaryPath);
+    },
+    async beginMaintenanceAfterStop(binary: string) {
+      const binaryPath = programPath(binary);
+      if (maintenance.has(binaryPath)) {
+        throw new AgentProgramOwnershipError(busyMessage());
+      }
+      if (changedPrograms.has(binaryPath)) {
+        throw new AgentProgramOwnershipError(agentProgramRestartMessage(provider));
+      }
+      if (!hasActiveOwners(binaryPath)) {
+        return createMaintenance(binaryPath);
+      }
+      const stop = maintenanceStopper;
+      if (!stop) {
+        throw new AgentProgramOwnershipError(busyMessage());
+      }
+      // Fence new launches before asking the registered runtime manager to stop
+      // existing sessions. The callback must resolve only after its process
+      // trees have exited, so the owner set is safe to inspect afterwards.
       maintenance.add(binaryPath);
+      try {
+        await stop(binaryPath);
+        if (hasActiveOwners(binaryPath)) {
+          throw new AgentProgramOwnershipError(busyMessage());
+        }
+      } catch (cause) {
+        maintenance.delete(binaryPath);
+        if (cause instanceof AgentProgramOwnershipError) throw cause;
+        throw new AgentProgramOwnershipError(busyMessage());
+      }
       let finished = false;
       return {
         finish: (changed: boolean, confirmed = true) => {

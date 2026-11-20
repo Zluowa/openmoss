@@ -1211,11 +1211,12 @@ export function buildMossManagedCodexConfig(input: {
     `base_url = ${quoteTomlString(baseUrl)}`,
     `env_key = ${quoteTomlString(credentialEnvKey)}`,
     'wire_api = "responses"',
-    // The hosted gateway owns bounded transport retries and durable accounting.
-    // A Codex stream reconnect may rebuild its request from partially accepted
-    // history, so retrying inside the child could create a second paid operation.
-    "request_max_retries = 0",
-    "stream_max_retries = 0",
+    // The gateway no longer replays paid POSTs (it emits retryable response.failed
+    // server_error events and the DB lets retries of finished/dropped streams
+    // through). Bound client retries to 2 so transient disconnects over the
+    // regional tunnel recover cleanly, aligned with T3 Code, without unbounded loops.
+    "request_max_retries = 2",
+    "stream_max_retries = 2",
     // Codex doesn't count the ": PING" comments APIMart sends as activity, so a
     // lower limit fails a healthy slow turn, with no retry. Stay above the gateway's
     // own limits (120 s to the first real event, 90 s of silence): the gateway ends a

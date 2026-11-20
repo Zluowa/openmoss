@@ -1057,16 +1057,16 @@ describe("ProviderModelPicker", () => {
       // no instance only appears under Add Providers.
       providerInstances: [
         {
-          instanceId: "gemini",
-          provider: "gemini",
-          label: "Default Gemini",
+          instanceId: "antigravity",
+          provider: "antigravity",
+          label: "Default Antigravity",
           enabled: true,
           isDefault: true,
         },
       ],
       providers: [
         providerStatus("codex"),
-        providerStatus("gemini", {
+        providerStatus("antigravity", {
           status: "error",
           available: false,
           authStatus: "unauthenticated",
@@ -1077,7 +1077,7 @@ describe("ProviderModelPicker", () => {
 
     try {
       await page.getByRole("button").click();
-      const signIn = page.getByRole("menuitem", { name: /Gemini/ });
+      const signIn = page.getByRole("menuitem", { name: /Antigravity/ });
       await expect.element(signIn).toBeVisible();
       await expect.element(signIn).not.toHaveAttribute("aria-disabled", "true");
       expect(signIn.element().textContent).toContain("Sign in");
@@ -1085,7 +1085,7 @@ describe("ProviderModelPicker", () => {
       await signIn.click();
       // Straight to the agent's own row, where its sign-in runs.
       expect(pushSpy).toHaveBeenCalledWith(
-        "/settings?section=providers&provider=gemini&target=provider-gemini",
+        "/settings?section=providers&provider=antigravity&target=provider-antigravity",
       );
     } finally {
       pushSpy.mockRestore();

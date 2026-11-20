@@ -76,7 +76,7 @@ export function buildMossReleaseGateManifest(
       gate({
         id: "provider-fixture-replay",
         description:
-          "Replay all seven checked-in provider runtime fixtures (Codex, Claude Agent, Cursor, Gemini, Grok, OpenCode, Pi) into normalized events.",
+          "Replay all six checked-in provider runtime fixtures (Codex, Claude Agent, Cursor, Grok, OpenCode, Pi) into normalized events.",
         command: "bun",
         args: ["run", "moss:provider-replay"],
         expectedEvidence: [".moss/ledger/evidence/provider-fixture-replay-2026-07-01.md"],

@@ -3463,6 +3463,44 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       );
     }),
   );
+
+  it.effect(
+    "surfaces an incomplete Codex turn/completed status as failed instead of completed",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const eventsFiber = yield* Stream.take(adapter.streamEvents, 1).pipe(
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+
+        lifecycleManager.emit("event", {
+          id: asEventId("evt-turn-incomplete"),
+          kind: "notification",
+          provider: "codex",
+          createdAt: new Date().toISOString(),
+          method: "turn/completed",
+          threadId: asThreadId("thread-turn-incomplete"),
+          turnId: asTurnId("turn-incomplete"),
+          payload: {
+            turn: {
+              id: "turn-incomplete",
+              status: "incomplete",
+            },
+          },
+        } satisfies ProviderEvent);
+
+        const [event] = Array.from(yield* Fiber.join(eventsFiber));
+        assert.equal(event?.type, "turn.completed");
+        if (event?.type === "turn.completed") {
+          assert.equal(event.payload.state, "failed");
+          assert.equal(
+            event.payload.errorMessage,
+            "The model reached the maximum output length before completing the turn.",
+          );
+        }
+      }),
+  );
 });
 
 afterAll(() => {

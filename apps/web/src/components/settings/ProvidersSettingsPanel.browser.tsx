@@ -1185,3 +1185,63 @@ it.each(["ready", "error", "exited"] as const)(
     }
   },
 );
+
+it("shows desktop-app-only guidance and direct one-click install for Antigravity in Enabled providers and Available CLIs", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "antigravity"
+      ? {
+          ...status,
+          available: false,
+          status: "error",
+          authStatus: "unknown",
+          readiness: {
+            state: "notInstalled",
+            reason: "desktop-app-only",
+            install: "oneClick",
+          },
+        }
+      : status,
+  );
+  harness.api.server.installProvider.mockReset().mockResolvedValue({ providers: [] });
+  harness.api.shell.openExternal.mockClear();
+
+  await render(<ProvidersSettingsPanel {...props} />);
+
+  // 1) Enabled providers row explains the desktop app is installed and runs one-click install directly.
+  const enabledRow = activityRow("Antigravity");
+  expect(enabledRow.textContent).toContain(
+    "The Antigravity app is installed. Moss also needs its command-line part.",
+  );
+  await page
+    .elementLocator(enabledRow)
+    .getByRole("button", { name: "Install", exact: true })
+    .click();
+  expect(harness.api.server.installProvider).toHaveBeenCalledWith({ provider: "antigravity" });
+  expect(harness.api.shell.openExternal).not.toHaveBeenCalled();
+
+  // 2) Advanced -> Available CLIs row shows the same guidance and direct Install action instead of "Unavailable".
+  const availableSwitch = page
+    .getByRole("switch", { name: "Antigravity is unavailable in the provider picker", exact: true })
+    .element();
+  const availableRow =
+    availableSwitch.closest('[data-testid="provider-visibility-row"]') ??
+    availableSwitch.parentElement?.parentElement;
+  expect(availableRow?.textContent).toContain(
+    "The Antigravity app is installed. Moss also needs its command-line part.",
+  );
+  expect(availableRow?.textContent).not.toContain("Unavailable");
+  await page
+    .elementLocator(availableRow as Element)
+    .getByRole("button", { name: "Install", exact: true })
+    .click();
+  expect(harness.api.server.installProvider).toHaveBeenCalledTimes(2);
+  expect(harness.api.shell.openExternal).not.toHaveBeenCalled();
+});
+
+it("never lists retired Gemini CLI anywhere in provider settings", async () => {
+  await render(<ProvidersSettingsPanel {...props} />);
+  expect(page.getByRole("switch", { name: /Enable Gemini/u }).elements()).toHaveLength(0);
+  await page.getByRole("button", { name: /Disabled providers/u }).click();
+  expect(page.getByRole("switch", { name: /Enable Gemini/u }).elements()).toHaveLength(0);
+  expect(page.getByRole("switch", { name: /Gemini.*provider picker/u }).elements()).toHaveLength(0);
+});

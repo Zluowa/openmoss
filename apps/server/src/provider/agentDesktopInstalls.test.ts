@@ -52,6 +52,10 @@ const REG_OUTPUT = [
   "    DisplayIcon    REG_SZ    D:\\ai\\ZCode\\uninstallerIcon.ico",
   '    UninstallString    REG_SZ    "D:\\ai\\ZCode\\Uninstall ZCode.exe" /allusers',
   "",
+  "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\antigravity-app",
+  "    DisplayName    REG_SZ    Antigravity 2.33.0",
+  '    UninstallString    REG_SZ    "E:\\Antigravity\\Uninstall Antigravity.exe" /currentuser',
+  "",
 ].join("\r\n");
 
 const WINDOWS_FILES = new Set(
@@ -61,6 +65,7 @@ const WINDOWS_FILES = new Set(
     "D:\\ai\\ZCode\\resources\\glm\\zcode.cjs",
     "C:\\Users\\p\\AppData\\Local\\Programs\\Devin\\Devin.exe",
     "C:\\Users\\p\\AppData\\Local\\Programs\\Devin\\resources\\app\\extensions\\windsurf\\devin\\bin\\devin.exe",
+    "E:\\Antigravity\\Antigravity.exe",
   ].map((file) => file.toLowerCase()),
 );
 
@@ -71,10 +76,15 @@ afterEach(() => setKnownAgentDesktopInstallsForTest([]));
 describe("desktop agent installs", () => {
   it("reads the install folder an uninstall entry records", () => {
     const entries = parseRegUninstallOutput(REG_OUTPUT);
-    expect(entries.map((entry) => entry.displayName)).toEqual(["Cursor (User)", "ZCode 3.16.3"]);
+    expect(entries.map((entry) => entry.displayName)).toEqual([
+      "Cursor (User)",
+      "ZCode 3.16.3",
+      "Antigravity 2.33.0",
+    ]);
     expect(uninstallEntryFolders(entries[0]!)).toEqual(["D:\\tool\\cursor"]);
     // No InstallLocation: the icon and the uninstaller both name the folder.
     expect(uninstallEntryFolders(entries[1]!)).toEqual(["D:\\ai\\ZCode"]);
+    expect(uninstallEntryFolders(entries[2]!)).toEqual(["E:\\Antigravity"]);
   });
 
   it("finds apps in custom folders and the CLIs they ship", async () => {
@@ -97,6 +107,7 @@ describe("desktop agent installs", () => {
         cliDirectory:
           "C:\\Users\\p\\AppData\\Local\\Programs\\Devin\\resources\\app\\extensions\\windsurf\\devin\\bin",
       },
+      { provider: "antigravity", appPath: "E:\\Antigravity" },
     ]);
     // Devin's bundled CLI joins PATH; Cursor ships none.
     expect(desktopAppCliDirectories(installs)).toEqual([installs[2]!.cliDirectory]);
@@ -146,6 +157,19 @@ describe("desktop agent installs", () => {
         readiness: { state: "notInstalled", reason: "desktop-app-only" },
       }).reason,
     ).toBeUndefined();
+
+    const antigravityMissing = {
+      ...notInstalled,
+      provider: "antigravity",
+      instanceId: "antigravity",
+      driver: "antigravity",
+    } as const;
+    setKnownAgentDesktopInstallsForTest([{ provider: "antigravity", appPath: "E:\\Antigravity" }]);
+    expect(deriveProviderReadiness(antigravityMissing)).toEqual({
+      state: "notInstalled",
+      reason: "desktop-app-only",
+      install: "oneClick",
+    });
   });
 
   it("points the ZCode bridge at an app installed in a custom folder", () => {

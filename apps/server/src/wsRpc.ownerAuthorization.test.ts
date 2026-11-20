@@ -62,4 +62,12 @@ describe("final WebSocket registry owner-only list", () => {
     // Individually listed history methods would let a newly added read slip through.
     expect(block).not.toMatch(/WS_METHODS\.computerHistory/u);
   });
+
+  it("guards agentFeedback list and dismiss as owner-only RPCs", async () => {
+    const source = await readFile(new URL("./wsRpc.ts", import.meta.url), "utf8");
+    const block = /const ownerOnlyMethods = new Set\(\[([\s\S]*?)\]\);/u.exec(source)?.[1];
+    expect(block).toBeDefined();
+    expect(block).toContain("WS_METHODS.agentFeedbackList");
+    expect(block).toContain("WS_METHODS.agentFeedbackDismiss");
+  });
 });

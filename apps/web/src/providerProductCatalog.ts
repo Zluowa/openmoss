@@ -8,6 +8,7 @@
 import type { ProviderKind, SupportedProviderKind } from "@moss/contracts";
 
 export const MOSS_RETIRED_PROVIDER_KINDS = [
+  "gemini",
   "droid",
   "kilo",
 ] as const satisfies readonly ProviderKind[];
@@ -22,7 +23,6 @@ export const MOSS_OPTIONAL_PROVIDER_KINDS = [
   "opencode",
   "grok",
   "cursor",
-  "gemini",
   "antigravity",
   "pi",
   "omp",

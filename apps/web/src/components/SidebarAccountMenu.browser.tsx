@@ -130,7 +130,8 @@ describe("SidebarAccountMenu", () => {
           <SidebarAccountMenuView
             identity={AUTHENTICATED_IDENTITY}
             labels={LABELS}
-            planName="Free"
+            planName="免费版"
+            usageStatus="剩余 80%"
             settingsShortcutLabel="⌘,"
             {...callbacks}
           />
@@ -140,8 +141,11 @@ describe("SidebarAccountMenu", () => {
 
     try {
       await openAccountMenu();
-      const header = page.getByRole("menuitem", { name: /qwer.*Free/ });
+      const header = page.getByRole("menuitem", { name: /qwer.*免费版/ });
       await expect.element(header).toBeVisible();
+      const usageRow = page.getByRole("menuitem", { name: /剩余用量.*剩余 80%/ });
+      await expect.element(usageRow).toBeVisible();
+      expect(document.body.textContent).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB/i);
     } finally {
       await screen.unmount();
     }

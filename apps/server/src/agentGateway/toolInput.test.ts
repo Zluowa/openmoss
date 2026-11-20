@@ -15,7 +15,7 @@ describe("readModelSelectionArg", () => {
     ]);
     for (const provider of SUPPORTED_PROVIDER_KINDS)
       expect(parseProviderKind(provider)).toBe(provider);
-    for (const provider of ["gemini", "hermes"] as const) {
+    for (const provider of ["hermes"] as const) {
       expect(
         readModelSelectionArg({ target: { provider, model: "fixture-model" } }, "target")?.provider,
       ).toBe(provider);

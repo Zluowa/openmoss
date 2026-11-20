@@ -25,8 +25,9 @@ import { IconButton } from "~/components/ui/icon-button";
 import { MenuItem } from "~/components/ui/menu";
 import { Skeleton } from "~/components/ui/skeleton";
 import { ChatBubbleIcon, ExternalLinkIcon, LinkIcon } from "~/lib/icons";
-import { PinStatusIcon, pinActionLabel } from "~/lib/pin";
+import { PinStatusIcon } from "~/lib/pin";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import { SendToAgentMenuItems, type GitHubItemSendTarget } from "./GitHubItemAgentActions";
 import { GitHubItemFloatingComposer } from "./GitHubItemFloatingComposer";
@@ -87,6 +88,7 @@ export function GitHubItemAskComposer({
   host: GitHubItemPageHost;
   onSendToAgent: (projectId: ProjectId) => void;
 }) {
+  const { t } = useTranslation();
   const [chosenProjectId, setChosenProjectId] = useState<ProjectId | null>(null);
   const projectId =
     chosenProjectId !== null && sendTargets.some((target) => target.projectId === chosenProjectId)
@@ -100,7 +102,7 @@ export function GitHubItemAskComposer({
   const { onAskQuestion, onAsk } = host;
   return (
     <GitHubItemFloatingComposer
-      placeholder={`Ask about this ${noun}`}
+      placeholder={t(noun === "issue" ? "codeReview.ask.issue" : "codeReview.ask.pullRequest")}
       projects={sendTargets}
       projectId={projectId}
       onProjectChange={setChosenProjectId}
@@ -111,7 +113,7 @@ export function GitHubItemAskComposer({
           {onAsk ? (
             <MenuItem onClick={() => onAsk(buildTarget(projectId))}>
               <ChatBubbleIcon className={MENU_ICON_CLASS_NAME} />
-              <span>Open side chat</span>
+              <span>{t("codeReview.sideChat.open")}</span>
             </MenuItem>
           ) : null}
           <SendToAgentMenuItems sendTargets={sendTargets} onSendToAgent={onSendToAgent} />
@@ -173,20 +175,28 @@ export function GitHubItemPageIconActions({
   url,
   itemLabel,
   pin,
+  openLabel,
 }: {
   url: string;
   /** "pull request #12", for the pin control's accessible name. */
   itemLabel: string;
   pin: { pinned: boolean; onToggle: () => void } | undefined;
+  /** The external open's name; "Open on GitHub" by default. */
+  openLabel?: string;
 }) {
+  const { t, format } = useTranslation();
+  const open = openLabel ?? t("codeReview.openOnGitHub");
+  const pinLabel = pin
+    ? format(pin.pinned ? "codeReview.pin.unpin" : "codeReview.pin.pin", { target: itemLabel })
+    : "";
   return (
     <>
       {pin ? (
         <IconButton
           variant="ghost"
           size="icon-sm"
-          label={pinActionLabel(itemLabel, pin.pinned)}
-          tooltip={pinActionLabel(itemLabel, pin.pinned)}
+          label={pinLabel}
+          tooltip={pinLabel}
           tooltipSide="bottom"
           aria-pressed={pin.pinned}
           onClick={pin.onToggle}
@@ -197,18 +207,18 @@ export function GitHubItemPageIconActions({
       <IconButton
         variant="ghost"
         size="icon-sm"
-        label="Copy link"
-        tooltip="Copy link"
+        label={t("codeReview.copyLink")}
+        tooltip={t("codeReview.copyLink")}
         tooltipSide="bottom"
-        onClick={() => copyPullRequestLink(url)}
+        onClick={() => copyPullRequestLink(url, t)}
       >
         <LinkIcon className="size-4" />
       </IconButton>
       <IconButton
         variant="ghost"
         size="icon-sm"
-        label="Open on GitHub"
-        tooltip="Open on GitHub"
+        label={open}
+        tooltip={open}
         tooltipSide="bottom"
         onClick={() => void ensureNativeApi().shell.openExternal(url)}
       >
@@ -242,6 +252,8 @@ export function GitHubItemDetailPage({
     initialError: unknown;
     /** What could not be loaded, for the unavailable state ("Issues"). */
     subject?: string;
+    /** External source name ("Linear", "Jira") so failures never blame GitHub. */
+    sourceName?: string;
     onRetry: () => void;
     loaded: boolean;
   };
@@ -275,6 +287,7 @@ export function GitHubItemDetailPage({
           <PullRequestsUnavailableState
             error={query.initialError}
             {...(query.subject ? { subject: query.subject } : {})}
+            {...(query.sourceName ? { sourceName: query.sourceName } : {})}
             onRetry={query.onRetry}
           />
         ) : !query.loaded ? (
@@ -331,6 +344,7 @@ export function GitHubItemPageBody({
   children: ReactNode;
   composer?: ReactNode;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="@container/detail relative flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto" data-github-item-scroll="">
@@ -341,7 +355,7 @@ export function GitHubItemPageBody({
             {children}
           </div>
           <aside
-            aria-label="Details"
+            aria-label={t("codeReview.details")}
             className="sticky top-1 hidden w-[22rem] shrink-0 @min-[52rem]/detail:block"
           >
             {info("column")}

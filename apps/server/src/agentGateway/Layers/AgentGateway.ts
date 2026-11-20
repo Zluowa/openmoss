@@ -178,6 +178,8 @@ import { makeThreadDiagnosticTools } from "../threadDiagnosticTools.ts";
 import { makeAgentGatewayKanbanTools } from "../kanbanTools.ts";
 import { makeAgentGatewayTodoTools } from "../todoTools.ts";
 import { makeAgentGatewaySecretRequestTools } from "../secretRequestTools.ts";
+import { makeAgentGatewayAgentFeedbackTool } from "../agentFeedbackTool.ts";
+import { AgentFeedback } from "../../agentFeedback/Services/AgentFeedback.ts";
 import { SecretRequests } from "../../secretRequests/Services/SecretRequests.ts";
 import { TodoService } from "../../todo/Services/TodoService.ts";
 import { pruneProjectedArchivedManagedWorktrees } from "../../managedWorktrees.ts";
@@ -249,6 +251,8 @@ export const makeAgentGateway = Effect.gen(function* () {
   const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
   // Optional like pages: a host without the secret store offers no moss_request_secret.
   const secretRequests = Option.getOrUndefined(yield* Effect.serviceOption(SecretRequests));
+  // Optional like secret requests: a host without the feedback store offers no moss_report_friction.
+  const agentFeedback = Option.getOrUndefined(yield* Effect.serviceOption(AgentFeedback));
   const git = yield* GitCore;
   const gitManager = yield* GitManager;
   const providerDiscovery = yield* ProviderDiscoveryService;
@@ -2109,6 +2113,7 @@ export const makeAgentGateway = Effect.gen(function* () {
     // Same switch as the todo.* RPCs: a build without Tasks offers agents no to-do tools.
     ...(isServerBetaFeatureEnabled("tasks") ? todoTools : []),
     ...(secretRequests === undefined ? [] : makeAgentGatewaySecretRequestTools({ secretRequests })),
+    ...(agentFeedback === undefined ? [] : [makeAgentGatewayAgentFeedbackTool({ agentFeedback })]),
     ...(deviceService?.supported === true
       ? makeAgentGatewayDeviceTools({
           manager: deviceService.manager,

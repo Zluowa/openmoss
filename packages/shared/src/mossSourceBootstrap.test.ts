@@ -133,7 +133,7 @@ describe("ensureMossSource on a blank workspace (A1/A2)", () => {
     await ensureMossSource({ projectPath: workspace });
 
     const providersYaml = await readFile(layout.providersConfig, "utf8");
-    expect(SUPPORTED_PROVIDER_KINDS).toHaveLength(14);
+    expect(SUPPORTED_PROVIDER_KINDS).toHaveLength(13);
     for (const provider of SUPPORTED_PROVIDER_KINDS) {
       expect(providersYaml).toContain(`  ${provider}:`);
     }

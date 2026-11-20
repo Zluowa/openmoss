@@ -8,7 +8,6 @@ import { antigravityUsageFetcher } from "./providers/antigravity";
 import { claudeUsageFetcher } from "./providers/claude";
 import { codexUsageFetcher } from "./providers/codex";
 import { cursorUsageFetcher } from "./providers/cursor";
-import { geminiUsageFetcher } from "./providers/gemini";
 import { grokUsageFetcher } from "./providers/grok";
 import {
   hermesUsageFetcher,
@@ -25,7 +24,6 @@ export const PROVIDER_USAGE_FETCHERS: Partial<Record<ProviderKind, ProviderUsage
   codex: codexUsageFetcher,
   claudeAgent: claudeUsageFetcher,
   cursor: cursorUsageFetcher,
-  gemini: geminiUsageFetcher,
   antigravity: antigravityUsageFetcher,
   grok: grokUsageFetcher,
   opencode: opencodeUsageFetcher,

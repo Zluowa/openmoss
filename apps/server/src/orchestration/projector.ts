@@ -96,6 +96,8 @@ import {
   placeSidebarOrderItem,
   placeSidebarThreadOrder,
   rehomeSidebarSectionItems,
+  sidebarOrderContainerKey,
+  sidebarOrderItemContainer,
 } from "./sidebarOrder.ts";
 import { resolveStableMessageTurnId } from "./messageTurnId.ts";
 import { deriveTurnStopActivity } from "@moss/shared/turnStopActivity";
@@ -360,7 +362,7 @@ function applySidebarOrderProjection(
         now: event.payload.deletedAt,
       }).items;
     } else {
-      items = items.filter((item) => !removedKeys.has(item.key));
+      items = compactSidebarOrderItems(items.filter((item) => !removedKeys.has(item.key)));
     }
     revision = event.payload.sidebarOrderRevision ?? revision;
     return {
@@ -490,7 +492,7 @@ function applySidebarOrderProjection(
         break;
       }
       case "project.deleted":
-        items = items.filter((item) => item.key !== key);
+        items = compactSidebarOrderItems(items.filter((item) => item.key !== key));
         break;
       case "project.meta-updated": {
         const project = model.projects.find(
@@ -502,7 +504,7 @@ function applySidebarOrderProjection(
           project.deletedAt === null &&
           (project.kind ?? "project") === "project";
         if (!shouldExist) {
-          items = items.filter((item) => item.key !== key);
+          items = compactSidebarOrderItems(items.filter((item) => item.key !== key));
           break;
         }
         if (existing === undefined) {
@@ -561,11 +563,11 @@ function applySidebarOrderProjection(
       }
       case "thread.deleted":
         revision = event.payload.sidebarOrderRevision ?? revision;
-        items = items.filter((item) => item.key !== key);
+        items = compactSidebarOrderItems(items.filter((item) => item.key !== key));
         break;
       case "thread.archived":
         revision = event.payload.sidebarOrderRevision ?? revision;
-        items = items.filter((item) => item.key !== key);
+        items = compactSidebarOrderItems(items.filter((item) => item.key !== key));
         break;
       case "thread.unarchived": {
         revision = event.payload.sidebarOrderRevision ?? revision;
@@ -594,10 +596,42 @@ function applySidebarOrderProjection(
             updatedAt: event.payload.updatedAt ?? event.occurredAt,
           }));
           const restoredKeys = new Set(restoredItems.map((item) => item.key));
-          items = compactSidebarOrderItems([
-            ...items.filter((item) => !restoredKeys.has(item.key)),
-            ...restoredItems,
-          ]);
+          const remaining = items.filter((item) => !restoredKeys.has(item.key));
+          const restoredByContainer = new Map<string, OrchestrationSidebarOrderItem[]>();
+          for (const restored of restoredItems) {
+            const containerKey = sidebarOrderContainerKey(sidebarOrderItemContainer(restored));
+            const group = restoredByContainer.get(containerKey);
+            if (group === undefined) restoredByContainer.set(containerKey, [restored]);
+            else group.push(restored);
+          }
+          const nextItems: OrchestrationSidebarOrderItem[] = remaining.filter(
+            (item) =>
+              !restoredByContainer.has(sidebarOrderContainerKey(sidebarOrderItemContainer(item))),
+          );
+          for (const [containerKey, containerRestored] of restoredByContainer) {
+            const existingInContainer = remaining
+              .filter(
+                (item) =>
+                  sidebarOrderContainerKey(sidebarOrderItemContainer(item)) === containerKey,
+              )
+              .toSorted(
+                (left, right) =>
+                  left.sortOrder - right.sortOrder || left.key.localeCompare(right.key),
+              );
+            const sortedRestored = containerRestored.toSorted(
+              (left, right) =>
+                left.sortOrder - right.sortOrder || left.key.localeCompare(right.key),
+            );
+            const combined = [...existingInContainer];
+            for (const entry of sortedRestored) {
+              const insertionIndex = Math.min(entry.sortOrder, combined.length);
+              combined.splice(insertionIndex, 0, entry);
+            }
+            for (const [index, item] of combined.entries()) {
+              nextItems.push({ ...item, sortOrder: index });
+            }
+          }
+          items = compactSidebarOrderItems(nextItems);
         }
         break;
       }

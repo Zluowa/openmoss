@@ -93,6 +93,7 @@ import {
   TodoUpdateInput,
 } from "./todo";
 import { SecretRequestAnswerInput } from "./secretRequest";
+import { AgentFeedbackDismissInput, AgentFeedbackListResult } from "./agentFeedback";
 import {
   LibraryCreateFolderInput,
   LibraryDeleteFolderInput,
@@ -466,11 +467,28 @@ import {
   GitHubConnectionResult,
   GitHubInboxListInput,
   GitHubInboxListResult,
+  GitHubIssueCandidates,
+  GitHubIssueCandidatesInput,
   GitHubIssueCommentInput,
   GitHubIssueCommentResult,
+  GitHubIssueUpdateInput,
+  GitHubIssueUpdateResult,
   GitHubIssueDetail,
   GitHubIssueDetailInput,
 } from "./githubInbox";
+import {
+  ExternalIssueSourceInput,
+  ExternalIssueCandidates,
+  ExternalIssueCandidatesInput,
+  ExternalIssueCommentInput,
+  ExternalIssueDetail,
+  ExternalIssueDetailInput,
+  ExternalIssueListInput,
+  ExternalIssueListResult,
+  ExternalIssueMutationResult,
+  ExternalIssueSourceStatus,
+  ExternalIssueUpdateInput,
+} from "./externalIssues";
 import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
@@ -1494,6 +1512,54 @@ export const WsGitHubInboxIssueCommentRpc = Rpc.make(WS_METHODS.githubInboxIssue
   payload: GitHubIssueCommentInput,
   success: GitHubIssueCommentResult,
   error: PullRequestsRpcError,
+});
+
+export const WsGitHubInboxIssueUpdateRpc = Rpc.make(WS_METHODS.githubInboxIssueUpdate, {
+  payload: GitHubIssueUpdateInput,
+  success: GitHubIssueUpdateResult,
+  error: PullRequestsRpcError,
+});
+
+export const WsGitHubInboxIssueCandidatesRpc = Rpc.make(WS_METHODS.githubInboxIssueCandidates, {
+  payload: GitHubIssueCandidatesInput,
+  success: GitHubIssueCandidates,
+  error: PullRequestsRpcError,
+});
+
+export const WsIssueSourcesStatusRpc = Rpc.make(WS_METHODS.issueSourcesStatus, {
+  payload: ExternalIssueSourceInput,
+  success: ExternalIssueSourceStatus,
+  error: WsRpcError,
+});
+
+export const WsIssueSourcesListRpc = Rpc.make(WS_METHODS.issueSourcesList, {
+  payload: ExternalIssueListInput,
+  success: ExternalIssueListResult,
+  error: WsRpcError,
+});
+
+export const WsIssueSourcesDetailRpc = Rpc.make(WS_METHODS.issueSourcesDetail, {
+  payload: ExternalIssueDetailInput,
+  success: ExternalIssueDetail,
+  error: WsRpcError,
+});
+
+export const WsIssueSourcesUpdateRpc = Rpc.make(WS_METHODS.issueSourcesUpdate, {
+  payload: ExternalIssueUpdateInput,
+  success: ExternalIssueMutationResult,
+  error: WsRpcError,
+});
+
+export const WsIssueSourcesCommentRpc = Rpc.make(WS_METHODS.issueSourcesComment, {
+  payload: ExternalIssueCommentInput,
+  success: ExternalIssueMutationResult,
+  error: WsRpcError,
+});
+
+export const WsIssueSourcesCandidatesRpc = Rpc.make(WS_METHODS.issueSourcesCandidates, {
+  payload: ExternalIssueCandidatesInput,
+  success: ExternalIssueCandidates,
+  error: WsRpcError,
 });
 
 export const WsPullRequestsDetailRpc = Rpc.make(WS_METHODS.pullRequestsDetail, {
@@ -2866,6 +2932,18 @@ export const WsSecretRequestAnswerRpc = Rpc.make(WS_METHODS.secretRequestAnswer,
   error: WsRpcError,
 });
 
+export const WsAgentFeedbackListRpc = Rpc.make(WS_METHODS.agentFeedbackList, {
+  payload: Schema.Struct({}),
+  success: AgentFeedbackListResult,
+  error: WsRpcError,
+});
+
+export const WsAgentFeedbackDismissRpc = Rpc.make(WS_METHODS.agentFeedbackDismiss, {
+  payload: AgentFeedbackDismissInput,
+  success: Schema.Void,
+  error: WsRpcError,
+});
+
 export const WsPagesSpacesRpc = Rpc.make(WS_METHODS.pagesSpaces, {
   payload: PagesScopeInput,
   success: PagesSpacesResult,
@@ -3369,6 +3447,14 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsGitHubInboxListRpc,
   WsGitHubInboxIssueDetailRpc,
   WsGitHubInboxIssueCommentRpc,
+  WsGitHubInboxIssueUpdateRpc,
+  WsGitHubInboxIssueCandidatesRpc,
+  WsIssueSourcesStatusRpc,
+  WsIssueSourcesListRpc,
+  WsIssueSourcesDetailRpc,
+  WsIssueSourcesUpdateRpc,
+  WsIssueSourcesCommentRpc,
+  WsIssueSourcesCandidatesRpc,
   WsPullRequestsDetailRpc,
   WsPullRequestsDiffRpc,
   WsPullRequestsActionRpc,
@@ -3571,6 +3657,8 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsTodoDeleteRpc,
   WsSubscribeTodoEventsRpc,
   WsSecretRequestAnswerRpc,
+  WsAgentFeedbackListRpc,
+  WsAgentFeedbackDismissRpc,
 );
 
 // Project-agent RPCs live in a satellite group: folding them into

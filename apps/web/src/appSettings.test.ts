@@ -29,6 +29,7 @@ import {
   getCodexProviderDiscoveryOptions,
   getCustomBinaryPathForProvider,
   getCustomBinaryPathForProviderInstance,
+  getDefaultAppSnapShortcut,
   getDefaultNativeFontSmoothing,
   getCustomModelsByProvider,
   getCustomModelsForProviderInstance,
@@ -84,15 +85,15 @@ describe("resolveNewConversationDefaultModelSelection", () => {
     });
   });
 
-  it("uses Gemini's actual static default instead of selecting a different CLI", () => {
+  it("falls back retired persisted Gemini defaultProvider to Codex without crashing", () => {
     const settings = Schema.decodeUnknownSync(AppSettingsSchema)({
       defaultProvider: "gemini",
       disabledProviders: [],
     });
     expect(resolveNewConversationDefaultModelSelection(settings)).toEqual({
-      provider: "gemini",
-      instanceId: "gemini",
-      model: getDefaultModel("gemini"),
+      provider: "codex",
+      instanceId: "codex",
+      model: getDefaultModel("codex"),
     });
   });
 
@@ -281,9 +282,9 @@ describe("server-backed provider enablement", () => {
           },
         },
       }),
-      // Moss optional providers (gemini/hermes and the ACP agents) ship disabled,
+      // Moss optional providers (hermes and the ACP agents) ship disabled,
       // so they are part of the server-reported disabled set alongside explicit toggles.
-    ).toEqual(["opencode", "gemini", "pi", "hermes", "kimi", "minimax", "zcode"]);
+    ).toEqual(["opencode", "pi", "hermes", "kimi", "minimax", "zcode"]);
   });
 
   it("keeps server-backed provider disablement out of local settings", () => {
@@ -345,10 +346,9 @@ describe("server-backed provider enablement", () => {
       currentSettings,
     );
 
-    // pi joins the disabled set; gemini/hermes leave it because the patch is a
+    // pi joins the disabled set; hermes and the ACP agents leave it because the patch is a
     // full-set source of truth that does not list them as disabled.
     expect(patch.providers).toEqual({
-      gemini: { enabled: true },
       pi: { enabled: false },
       hermes: { enabled: true },
       kimi: { enabled: true },
@@ -366,10 +366,9 @@ describe("server-backed provider enablement", () => {
       DEFAULT_SERVER_SETTINGS_VIEW,
     );
 
-    // Moss optional providers (gemini/hermes and the ACP agents) ship disabled; an
+    // Moss optional providers (hermes and the ACP agents) ship disabled; an
     // empty disabled set re-enables them, and the binary path matches the current view.
     expect(patch.providers).toEqual({
-      gemini: { enabled: true },
       hermes: { enabled: true },
       kimi: { enabled: true },
       minimax: { enabled: true },
@@ -760,6 +759,13 @@ describe("normalizeStoredAppSettings", () => {
     expect(getDefaultNativeFontSmoothing("MacIntel")).toBe(true);
     expect(getDefaultNativeFontSmoothing("Win32")).toBe(false);
     expect(getDefaultNativeFontSmoothing("Linux x86_64")).toBe(false);
+    expect(getDefaultAppSnapShortcut("Win32")).toEqual({
+      kind: "key-chord",
+      modifier: "option",
+      extraModifiers: ["shift"],
+      key: "KeyS",
+    });
+    expect(getDefaultAppSnapShortcut("MacIntel")).toEqual({ kind: "both-option-keys" });
   });
 
   it("uses the current platform default for existing settings without a stored value", () => {
@@ -1949,7 +1955,6 @@ describe("resolveSelectableProviderInstanceId", () => {
       "opencode",
       "grok",
       "cursor",
-      "gemini",
       "antigravity",
       "pi",
       "omp",
@@ -2336,27 +2341,30 @@ describe("AppSettingsSchema", () => {
     expect(decode(JSON.stringify({ tasksViewMode: "kanban" })).tasksViewMode).toBe("kanban");
   });
 
-  it("keeps persisted Gemini provider settings as a first-class Moss provider", () => {
+  it("migrates retired persisted Gemini CLI settings safely without transferring list prefs", () => {
     const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
     const decoded = decode(
       JSON.stringify({
         textGenerationProvider: "gemini",
         defaultProvider: "gemini",
-        hiddenProviders: ["gemini"],
-        providerOrder: ["codex", "gemini"],
+        hiddenProviders: ["gemini", "grok"],
+        providerOrder: ["codex", "gemini", "pi"],
         hiddenModels: [{ provider: "gemini", slug: "gemini-3.1-pro-preview" }],
+        railUsageInstanceIds: ["gemini", "codex"],
         geminiBinaryPath: "/custom/bin/gemini",
         customGeminiModels: ["gemini-custom-preview"],
       }),
     );
 
-    // Gemini is a first-class Moss provider: nothing migrates to antigravity.
+    // Retired Gemini CLI falls back to Codex for single-value settings and drops
+    // from provider lists without failing decode or transferring preferences.
     expect(decoded).toMatchObject({
-      textGenerationProvider: "gemini",
-      defaultProvider: "gemini",
-      hiddenProviders: ["gemini"],
-      providerOrder: ["codex", "gemini"],
-      hiddenModels: [{ provider: "gemini", slug: "gemini-3.1-pro-preview" }],
+      textGenerationProvider: "codex",
+      defaultProvider: "codex",
+      hiddenProviders: ["grok"],
+      providerOrder: ["codex", "pi"],
+      hiddenModels: [],
+      railUsageInstanceIds: ["codex"],
     });
     expect(normalizeStoredAppSettings(decoded)).toMatchObject({
       geminiBinaryPath: "/custom/bin/gemini",
@@ -2388,7 +2396,7 @@ describe("AppSettingsSchema", () => {
     });
   });
 
-  it("drops unknown provider names from persisted lists instead of failing decode", () => {
+  it("drops unknown and retired provider names from persisted lists instead of failing decode", () => {
     const decode = Schema.decodeSync(Schema.fromJsonString(AppSettingsSchema));
     const decoded = decode(
       JSON.stringify({
@@ -2399,11 +2407,11 @@ describe("AppSettingsSchema", () => {
       }),
     );
 
-    // gemini is a known Moss provider and survives; only truly unknown values drop.
+    // Both unknown values and retired Gemini CLI drop safely instead of failing decode.
     expect(decoded).toMatchObject({
       hiddenProviders: ["codex"],
-      providerOrder: ["gemini", "codex"],
-      railUsageProviders: ["codex", "gemini"],
+      providerOrder: ["codex"],
+      railUsageProviders: ["codex"],
       chatFontSizePx: 17,
     });
   });
@@ -2423,14 +2431,11 @@ describe("AppSettingsSchema", () => {
         ),
       ).railUsageInstanceIds,
     ).toEqual(["codex", "claudeAgent"]);
-    // Gemini stays a Moss provider, so its rail selection is kept rather than
-    // moved to Antigravity as upstream Synara does.
+    // Retired Gemini CLI is dropped from sidebar rail usage selections on decode.
     expect(
       normalizeStoredAppSettings(decode(JSON.stringify({ railUsageProviders: ["gemini"] })))
         .railUsageInstanceIds,
-      // Gemini remains a first-class provider; its sidebar account must not
-      // migrate to the retired Antigravity runtime.
-    ).toEqual(["gemini"]);
+    ).toEqual([]);
     expect(
       normalizeStoredAppSettings(decode(JSON.stringify({ railUsageProviders: [] })))
         .railUsageInstanceIds,
@@ -2551,7 +2556,7 @@ describe("AppSettingsSchema", () => {
       desktopAppIcon: "default",
       useCustomTitleBar: true,
       enableAppSnap: false,
-      appSnapShortcut: { kind: "both-option-keys" },
+      appSnapShortcut: getDefaultAppSnapShortcut(),
       appSnapPlaySound: true,
       enableAssistantStreaming: true,
       followUpBehavior: DEFAULT_FOLLOW_UP_BEHAVIOR,

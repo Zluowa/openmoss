@@ -19,7 +19,9 @@ import {
   DEVICE_WS_METHODS,
   EventId,
   RuntimeSessionId,
+  SidebarOrderRevision,
   SidebarSectionId,
+  SidebarSectionItemKey,
   ThreadId,
   TurnId,
   WS_METHODS,
@@ -238,6 +240,75 @@ describe("wsRpc archive-cohort shell publication", () => {
     expect(projectionReadModelQuery.getThreadShellById).toHaveBeenCalledWith(rootThreadId, {
       includeLatestReplyPreview: true,
     });
+  });
+
+  it("includes durable sidebarOrderRevision and sidebarOrderItems when unarchiving a default thread", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-default-unarchive-shell");
+    const createdAt = "2026-11-19T00:00:00.000Z";
+    const orderItems = [
+      {
+        key: SidebarSectionItemKey.makeUnsafe(`thread:${threadId}`),
+        itemType: "thread" as const,
+        destination: "default" as const,
+        sectionId: null,
+        sectionCreatedAt: null,
+        sortOrder: 0,
+        createdAt,
+        updatedAt: createdAt,
+      },
+    ];
+    const snapshot = {
+      snapshotSequence: 12,
+      spaces: [],
+      projects: [],
+      threads: [],
+      sidebarSections: [],
+      sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(2),
+      sidebarOrderMigrationState: "ready" as const,
+      sidebarOrderItems: orderItems,
+      updatedAt: createdAt,
+    } as unknown as OrchestrationShellSnapshot;
+    const restoredThread = { id: threadId } as unknown as OrchestrationThreadShell;
+    const projectionReadModelQuery = {
+      getShellSnapshot: vi.fn(() => Effect.succeed(snapshot)),
+      getThreadShellById: vi.fn(() => Effect.succeed(Option.some(restoredThread))),
+    };
+    const event: Extract<OrchestrationEvent, { type: "thread.unarchived" }> = {
+      type: "thread.unarchived",
+      sequence: 13,
+      eventId: EventId.makeUnsafe("event-default-unarchive-shell"),
+      aggregateKind: "thread",
+      aggregateId: threadId,
+      occurredAt: createdAt,
+      commandId: CommandId.makeUnsafe("cmd-default-unarchive-shell"),
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      payload: {
+        threadId,
+        updatedAt: createdAt,
+        restoredSidebarPlacement: null,
+        isArchiveCohortFinal: true,
+        restoredSidebarPlacements: [],
+        sidebarOrderRevision: SidebarOrderRevision.makeUnsafe(2),
+      },
+    };
+
+    const result = await Effect.runPromise(
+      toThreadUnarchivedShellEvent(projectionReadModelQuery, event),
+    );
+
+    expect(result).toEqual(
+      Option.some({
+        kind: "sidebar-sections-updated",
+        sequence: 13,
+        sections: [],
+        sidebarOrderRevision: 2,
+        sidebarOrderMigrationState: "ready",
+        sidebarOrderItems: orderItems,
+        thread: restoredThread,
+      }),
+    );
   });
 });
 

@@ -16,6 +16,7 @@ import {
   pullRequestDetailInputFromPane,
   pullRequestDetailInputKey,
 } from "./pullRequestDetail.logic";
+import { useTranslation } from "~/localization";
 import { PullRequestDetailPanel } from "./PullRequestDetailPanel";
 import { useHostThreadSidechatAsk } from "./useHostThreadSidechatAsk";
 
@@ -33,11 +34,12 @@ export function PullRequestDockPane({
   onSelectPullRequest?: ((number: number) => void) | undefined;
   pollingEnabled?: boolean;
 }) {
+  const { t } = useTranslation();
   const pollingEnabled = pollingEnabledProp ?? true;
   const hostSidechat = useHostThreadSidechatAsk(hostThreadId ?? null);
   const input = pullRequestDetailInputFromPane(pane);
   if (!input) {
-    return <PanelStateMessage>Select a pull request to open it here.</PanelStateMessage>;
+    return <PanelStateMessage>{t("codeReview.dock.selectPullRequest")}</PanelStateMessage>;
   }
   return (
     <PullRequestDetailPanel

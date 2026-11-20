@@ -33,11 +33,13 @@ import {
   type SessionPhase,
   type Thread,
   type ThreadPrimarySurface,
+  type ThreadSession,
   type TurnDiffSummary,
   type WorktreeSetupResolutionAction,
   type WorktreeSetupSnapshot,
   type WorktreeSetupStepId,
 } from "../types";
+import { isEstablishedConversationSession } from "./chat/conversationConnection";
 import {
   type DraftThreadEnvMode,
   type DraftThreadState,
@@ -1418,6 +1420,8 @@ export interface LocalDispatchSnapshot {
       : null
     : null;
   sessionUpdatedAt: string | null;
+  /** Thread error already present before this send (e.g. clicking Continue after a failed turn). */
+  initialThreadError?: string | null;
 }
 
 export function createLocalDispatchSnapshot(
@@ -1438,6 +1442,7 @@ export function createLocalDispatchSnapshot(
     latestTurnCompletedAt: latestTurn?.completedAt ?? null,
     sessionOrchestrationStatus: session?.orchestrationStatus ?? null,
     sessionUpdatedAt: session?.updatedAt ?? null,
+    initialThreadError: activeThread?.error ?? null,
   };
 }
 
@@ -1477,6 +1482,27 @@ export function resolveNextLocalDispatchSnapshot(input: {
       };
 }
 
+function hasNewThreadErrorSinceLocalDispatch(input: {
+  localDispatch: LocalDispatchSnapshot;
+  threadError: string | null | undefined;
+  session: Thread["session"] | null;
+}): boolean {
+  if (!input.threadError) {
+    return false;
+  }
+  const initialThreadError = input.localDispatch.initialThreadError ?? null;
+  if (initialThreadError === null || input.threadError !== initialThreadError) {
+    return true;
+  }
+  // Retrying/continuing from an already-errored thread carries the previous
+  // turn's error on frame 1; only treat it as a failure of this dispatch once
+  // the session records a newer error update.
+  return (
+    input.session?.orchestrationStatus === "error" &&
+    (input.session.updatedAt ?? null) !== input.localDispatch.sessionUpdatedAt
+  );
+}
+
 export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
   phase: SessionPhase;
@@ -1497,7 +1523,11 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.hasPendingUserInput ||
     (input.localDispatch.expectedUserMessageId !== null &&
       input.claudeCacheReview?.messageId === input.localDispatch.expectedUserMessageId) ||
-    Boolean(input.threadError)
+    hasNewThreadErrorSinceLocalDispatch({
+      localDispatch: input.localDispatch,
+      threadError: input.threadError,
+      session: input.session,
+    })
   ) {
     return true;
   }
@@ -1580,10 +1610,65 @@ export function resolveLatestProviderRetryLabel(
 
 const CODEX_RECONNECT_MESSAGE_REGEX = /^Reconnecting(?:\.\.\.|…)\s*(\d+)\s*\/\s*(\d+)$/i;
 
+const MAX_TRACKED_WARM_PROVIDER_SESSIONS = 64;
+
+/**
+ * Identity key for a provider runtime process that can accept the next turn
+ * without spawning a new CLI subprocess. Returns null when no session exists or
+ * when the composer targets a different provider/instance.
+ */
+export function deriveWarmProviderSessionKey(input: {
+  readonly session: ThreadSession | null;
+  readonly selectedProvider: ProviderKind;
+  readonly selectedProviderInstanceId: string | null | undefined;
+  readonly runtimeMode: RuntimeMode;
+}): string | null {
+  if (!input.session) return null;
+  const sessionProviderKey = input.session.providerInstanceId ?? input.session.provider;
+  const selectedProviderKey = input.selectedProviderInstanceId ?? input.selectedProvider;
+  if (sessionProviderKey !== selectedProviderKey) return null;
+  return `${sessionProviderKey}:${input.runtimeMode}`;
+}
+
+export function reconcileWarmProviderSessionKeys(
+  previous: Readonly<Record<string, string>>,
+  input: {
+    readonly threadId: ThreadIdType | null;
+    readonly session: ThreadSession | null;
+    readonly fallbackRuntimeMode: RuntimeMode;
+  },
+): Readonly<Record<string, string>> {
+  if (!input.threadId) return previous;
+  const status = input.session?.orchestrationStatus;
+  if (input.session === null || status === "idle" || status === "stopped" || status === "error") {
+    if (!Object.hasOwn(previous, input.threadId)) return previous;
+    const { [input.threadId]: _removed, ...rest } = previous;
+    return rest;
+  }
+  if (!isEstablishedConversationSession(input.session)) {
+    return previous;
+  }
+  const providerKey = input.session.providerInstanceId ?? input.session.provider;
+  const establishedKey = `${providerKey}:${input.session.runtimeMode ?? input.fallbackRuntimeMode}`;
+  if (previous[input.threadId] === establishedKey) {
+    return previous;
+  }
+  const next: Record<string, string> = { ...previous, [input.threadId]: establishedKey };
+  const keys = Object.keys(next);
+  if (keys.length > MAX_TRACKED_WARM_PROVIDER_SESSIONS) {
+    const oldestKey = keys[0];
+    if (oldestKey !== undefined && oldestKey !== input.threadId) {
+      delete next[oldestKey];
+    }
+  }
+  return next;
+}
+
 export function resolveWorkingLabel(input: {
   isSendBusy: boolean;
   turnTakenOver: boolean;
   isConnecting?: boolean;
+  isWarmSession?: boolean;
   isSettlingTurnDispatch?: boolean;
   providerName?: string;
   retryLabel?: `Retrying: ${string}`;
@@ -1592,7 +1677,7 @@ export function resolveWorkingLabel(input: {
   if (input.isSendBusy && !input.turnTakenOver) {
     return "Loading";
   }
-  if (input.isConnecting && input.providerName) {
+  if (input.isConnecting && !input.isWarmSession && input.providerName) {
     return `Starting ${input.providerName}…`;
   }
   if (input.retryLabel) return input.retryLabel;
@@ -1619,13 +1704,36 @@ export function hasLiveTurnTakenOver(input: {
   if (!input.localDispatch) {
     return false;
   }
-  if (input.phase === "running" || input.phase === "connecting") {
+  // Session startup (`connecting`) is not turn takeover: providers like Codex
+  // emit `session/ready` + `thread/started` (`phase: "ready"`) after connecting
+  // and before `turn/started` (`phase: "running"`). Keeping `localDispatch` alive
+  // until the turn actually starts (or stops/fails) prevents the working UI and
+  // Stop button from vanishing during that gap.
+  if (input.phase === "running") {
     return true;
   }
   if (input.session?.activeTurnId != null) {
     return true;
   }
-  if (input.hasPendingApproval || input.hasPendingUserInput || Boolean(input.threadError)) {
+  if (
+    input.hasPendingApproval ||
+    input.hasPendingUserInput ||
+    hasNewThreadErrorSinceLocalDispatch({
+      localDispatch: input.localDispatch,
+      threadError: input.threadError,
+      session: input.session,
+    })
+  ) {
+    return true;
+  }
+  const sessionChangedSinceDispatch =
+    (input.session?.updatedAt ?? null) !== input.localDispatch.sessionUpdatedAt ||
+    (input.session?.orchestrationStatus ?? null) !== input.localDispatch.sessionOrchestrationStatus;
+  if (
+    sessionChangedSinceDispatch &&
+    (input.session?.orchestrationStatus === "interrupted" ||
+      input.session?.orchestrationStatus === "stopped")
+  ) {
     return true;
   }
   if (

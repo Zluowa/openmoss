@@ -110,6 +110,15 @@ describe("validateOpenUIProgram", () => {
       const validation = validateOpenUIProgram(example);
       expect(validation.unknownComponents, example.split("\n", 1)[0]).toEqual([]);
       expect(validation.ok, example.split("\n", 1)[0]).toBe(true);
+      expect(validation.hasRoot, example.split("\n", 1)[0]).toBe(true);
     }
+  });
+
+  it("reports hasRoot false for truncated or rootless programs so they never vanish blank", () => {
+    const truncatedBeforeRoot = 'header = CardHeader("Moss 实时状态", "已截断")\nkpis = Stack([';
+    const validation = validateOpenUIProgram(truncatedBeforeRoot);
+    expect(validation.unknownComponents).toEqual([]);
+    expect(validation.hasRoot).toBe(false);
+    expect(validation.ok).toBe(false);
   });
 });

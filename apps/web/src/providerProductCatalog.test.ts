@@ -19,7 +19,6 @@ describe("Moss provider product catalog", () => {
       "opencode",
       "grok",
       "cursor",
-      "gemini",
       "antigravity",
       "pi",
       "omp",
@@ -36,10 +35,12 @@ describe("Moss provider product catalog", () => {
   });
 
   it("removes retired providers from new provider surfaces", () => {
-    expect(MOSS_RETIRED_PROVIDER_KINDS).toEqual(["droid", "kilo"]);
+    expect(MOSS_RETIRED_PROVIDER_KINDS).toEqual(["gemini", "droid", "kilo"]);
+    expect(MOSS_ACTIVE_PROVIDER_KINDS).not.toContain("gemini");
     expect(MOSS_ACTIVE_PROVIDER_KINDS).not.toContain("droid");
     expect(MOSS_ACTIVE_PROVIDER_KINDS).not.toContain("kilo");
     expect(isMossActiveProvider("codex")).toBe(true);
+    expect(isMossActiveProvider("gemini")).toBe(false);
     expect(isMossActiveProvider("droid")).toBe(false);
   });
 

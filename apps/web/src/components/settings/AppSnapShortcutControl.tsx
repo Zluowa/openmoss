@@ -1,8 +1,9 @@
 // FILE: AppSnapShortcutControl.tsx
-// Purpose: Record, validate, and save AppSnap's global two-key shortcut.
+// Purpose: Record, validate, and save AppSnap's global shortcut across macOS and Windows.
 
 import {
   type DesktopAppSnapKeyChord,
+  type DesktopAppSnapPlatform,
   type DesktopAppSnapShortcut,
   type DesktopAppSnapShortcutAvailability,
   type DesktopAppSnapShortcutModifier,
@@ -10,20 +11,23 @@ import {
   type ResolvedKeybindingsConfig,
 } from "@moss/contracts";
 import {
-  DEFAULT_APP_SNAP_SHORTCUT,
   appSnapModifierFromEventCode,
   appSnapShortcutLabels,
   appSnapShortcutModifierLabel,
   appSnapShortcutSystemConflict,
+  createAppSnapKeyChord,
+  defaultAppSnapShortcut,
   isAppSnapShortcutKey,
+  normalizeAppSnapShortcutForPlatform,
   sameAppSnapShortcut,
 } from "@moss/shared/appSnapShortcut";
-import { useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { appSnapShortcutConflictCommand } from "~/appSnapShortcut";
+import { suspendShortcutDispatch } from "~/keybindings";
 import { shortcutSheetCommandLabel } from "~/shortcutsSheet";
 import { useTranslation } from "~/localization";
-import { cn, getNavigatorPlatform, isMacPlatform } from "~/lib/utils";
+import { cn, getNavigatorPlatform, isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { toastManager } from "~/components/ui/toast";
@@ -42,31 +46,57 @@ interface CaptureState {
 }
 
 const IDLE_CAPTURE: CaptureState = { capturing: false, heldModifierCodes: [], hint: null };
+const KEYCAP_CLASS_NAME =
+  "border border-[color:var(--color-border)] bg-foreground/[0.06] px-1.5 text-ui-xs font-medium text-foreground dark:bg-foreground/[0.12]";
 
-function heldModifiers(codes: readonly string[]): readonly DesktopAppSnapShortcutModifier[] {
+function heldModifiers(
+  codes: readonly string[],
+  platform: DesktopAppSnapPlatform,
+): readonly DesktopAppSnapShortcutModifier[] {
   const modifiers: DesktopAppSnapShortcutModifier[] = [];
   for (const code of codes) {
     const modifier = appSnapModifierFromEventCode(code);
     if (modifier && !modifiers.includes(modifier)) modifiers.push(modifier);
   }
-  return modifiers;
+  const order: readonly DesktopAppSnapShortcutModifier[] =
+    platform === "windows" || platform === "linux"
+      ? ["control", "option", "shift", "command"]
+      : ["command", "control", "option", "shift"];
+  return order.filter((modifier) => modifiers.includes(modifier));
+}
+
+function resolvePlatform(platform?: DesktopAppSnapPlatform): DesktopAppSnapPlatform {
+  if (platform) return platform;
+  const nav = getNavigatorPlatform();
+  if (isWindowsPlatform(nav)) return "windows";
+  if (isMacPlatform(nav)) return "macos";
+  return "other";
 }
 
 export function AppSnapShortcutControl({
   shortcut,
+  platform: platformProp,
   enabled,
   reserved,
+  stateError,
   keybindings,
   onSaved,
 }: {
   shortcut: DesktopAppSnapShortcut;
+  platform?: DesktopAppSnapPlatform;
   enabled: boolean;
   reserved: boolean;
+  stateError?: string | null;
   keybindings: ResolvedKeybindingsConfig;
   onSaved: (shortcut: DesktopAppSnapShortcut, state: DesktopAppSnapState) => void;
 }) {
+  const platform = resolvePlatform(platformProp);
+  const isWindows = platform === "windows";
+  const defaultShortcut = defaultAppSnapShortcut(platform);
+  const effectiveShortcut = normalizeAppSnapShortcutForPlatform(shortcut, platform);
+
   const [capture, setCapture] = useState<CaptureState>(IDLE_CAPTURE);
-  const [candidate, setCandidate] = useState<DesktopAppSnapShortcut>(shortcut);
+  const [candidate, setCandidate] = useState<DesktopAppSnapShortcut>(effectiveShortcut);
   const [checkState, setCheckState] = useState<ShortcutCheckState>({
     status: "idle",
     availability: null,
@@ -79,15 +109,21 @@ export function AppSnapShortcutControl({
   // Keycaps skip page translation, so the two-Option-key labels come from the locale
   // table, and off macOS they name the key on the keyboard: Alt, not ⌥.
   const onMac = isMacPlatform(getNavigatorPlatform());
-  const labels: readonly [string, string] =
+  const labels: readonly string[] =
     candidate.kind === "both-option-keys"
       ? onMac
         ? [t("settings.appsnap.shortcut.left"), t("settings.appsnap.shortcut.right")]
         : [t("settings.appsnap.shortcut.altLeft"), t("settings.appsnap.shortcut.altRight")]
-      : appSnapShortcutLabels(candidate);
-  const changed = !sameAppSnapShortcut(candidate, shortcut);
+      : appSnapShortcutLabels(candidate, platform);
+  const changed = !sameAppSnapShortcut(candidate, effectiveShortcut);
   const canSave = changed && checkState.availability?.available === true;
-  const capturedModifiers = heldModifiers(capture.heldModifierCodes);
+  const canReset = !sameAppSnapShortcut(candidate, defaultShortcut);
+  const capturedModifiers = heldModifiers(capture.heldModifierCodes, platform);
+
+  useEffect(() => {
+    if (!capture.capturing) return;
+    return suspendShortcutDispatch();
+  }, [capture.capturing]);
 
   function reportUnavailable(reason: string) {
     setCheckState({ status: "checked", availability: { available: false, reason } });
@@ -95,20 +131,20 @@ export function AppSnapShortcutControl({
 
   async function checkCandidate(nextCandidate: DesktopAppSnapKeyChord) {
     const checkId = ++checkIdRef.current;
-    const conflictCommand = appSnapShortcutConflictCommand(nextCandidate, keybindings);
+    const conflictCommand = appSnapShortcutConflictCommand(nextCandidate, keybindings, platform);
     if (conflictCommand) {
       const commandLabel = shortcutSheetCommandLabel(conflictCommand) ?? conflictCommand;
       reportUnavailable(`Moss already uses this for “${commandLabel}”.`);
       return;
     }
-    const systemConflict = appSnapShortcutSystemConflict(nextCandidate);
+    const systemConflict = appSnapShortcutSystemConflict(nextCandidate, platform);
     if (systemConflict) {
       reportUnavailable(systemConflict);
       return;
     }
     const bridge = window.desktopBridge?.appSnap;
     if (!bridge) {
-      reportUnavailable("Requires the Moss desktop app on macOS.");
+      reportUnavailable("Requires the Moss desktop app.");
       return;
     }
     setCheckState({ status: "checking", availability: null });
@@ -148,7 +184,7 @@ export function AppSnapShortcutControl({
       }));
       return;
     }
-    const modifiers = heldModifiers(heldCodesRef.current);
+    const modifiers = heldModifiers(heldCodesRef.current, platform);
     if (code === "Escape" && modifiers.length === 0) {
       stopCapture();
       return;
@@ -160,16 +196,21 @@ export function AppSnapShortcutControl({
     if (modifiers.length === 0) {
       setCapture((previous) => ({
         ...previous,
-        hint: "Hold ⌘, ⌃, ⌥ or ⇧ first, then press the other key.",
+        hint: isWindows
+          ? "Hold Ctrl or Alt first, then press a key."
+          : "Hold ⌘, ⌃, ⌥ or ⇧ first, then press the other key.",
       }));
       return;
     }
-    const modifier = modifiers[0];
-    if (modifiers.length > 1 || modifier === undefined) {
-      setCapture((previous) => ({ ...previous, hint: "Hold only one modifier." }));
+    if (modifiers.length > 2) {
+      setCapture((previous) => ({ ...previous, hint: "Hold one or two modifiers." }));
       return;
     }
-    const nextCandidate: DesktopAppSnapKeyChord = { kind: "key-chord", modifier, key: code };
+    const nextCandidate = createAppSnapKeyChord(modifiers, code);
+    if (!nextCandidate) {
+      setCapture((previous) => ({ ...previous, hint: "That key isn't supported — try another." }));
+      return;
+    }
     stopCapture();
     setCandidate(nextCandidate);
     void checkCandidate(nextCandidate);
@@ -192,6 +233,8 @@ export function AppSnapShortcutControl({
     const bridge = window.desktopBridge?.appSnap;
     if (!bridge) return;
     const result = await bridge.setShortcut(nextShortcut);
+    setCandidate(nextShortcut);
+    setCheckState({ status: "idle", availability: null });
     // The manager adopts every well-formed shortcut, so keep settings in sync
     // even if availability regressed between the check and the save.
     onSaved(nextShortcut, result.state);
@@ -212,28 +255,46 @@ export function AppSnapShortcutControl({
     }
   }
 
+  const activeError =
+    !capture.capturing && !changed && !checkState.availability ? stateError : null;
   const statusText = capture.capturing
     ? (capture.hint ??
       (capturedModifiers.length > 0
-        ? "Now press the other key…"
-        : "Hold a modifier, then press one other key. Esc cancels."))
+        ? "Now press a key…"
+        : isWindows
+          ? "Hold Ctrl or Alt, then press a key. Esc cancels."
+          : "Hold a modifier, then press one other key. Esc cancels."))
     : checkState.status === "checking"
-      ? "Checking macOS and other apps…"
+      ? isWindows
+        ? "Checking Windows and other apps…"
+        : "Checking macOS and other apps…"
       : checkState.availability
         ? checkState.availability.available
           ? "Available — save to apply."
           : checkState.availability.reason
         : changed
           ? "Check a new combination before saving."
-          : reserved && candidate.kind === "key-chord"
-            ? "Available and reserved"
-            : "Current shortcut";
+          : activeError
+            ? activeError
+            : reserved && candidate.kind === "key-chord"
+              ? "Active and ready"
+              : "Current shortcut";
+
+  const statusToneClassName =
+    checkState.availability?.available === false || Boolean(activeError)
+      ? "text-destructive"
+      : checkState.availability?.available === true ||
+          (!capture.capturing && !changed && reserved && candidate.kind === "key-chord")
+        ? "text-[var(--color-status-success)]"
+        : "text-muted-foreground";
 
   return (
-    <div className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:items-end">
+    <div className="flex w-full flex-col items-stretch gap-1.5 sm:w-auto sm:items-end">
       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <button
+        <Button
           type="button"
+          size="sm"
+          variant="outline"
           aria-label="Record AppSnap shortcut"
           aria-pressed={capture.capturing}
           onClick={startCapture}
@@ -241,60 +302,56 @@ export function AppSnapShortcutControl({
           onKeyUp={captureKeyUp}
           onBlur={stopCapture}
           className={cn(
-            "flex min-h-8 items-center gap-1.5 rounded-control border px-2 outline-none transition-colors",
+            "px-2 font-normal transition-colors duration-120 motion-reduce:transition-none",
             capture.capturing
-              ? "border-primary bg-primary/10 ring-2 ring-primary/20"
-              : "border-[color:var(--color-border)] hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-primary/30",
+              ? "border-primary bg-primary/10 ring-2 ring-primary/20 hover:bg-primary/10"
+              : "bg-transparent hover:bg-foreground/[0.04] focus-visible:ring-2 focus-visible:ring-primary/30",
           )}
         >
           {capture.capturing ? (
             capturedModifiers.length > 0 ? (
-              <KbdGroup>
+              <KbdGroup className="gap-1">
                 {capturedModifiers.map((modifier) => (
-                  <Kbd key={modifier}>{appSnapShortcutModifierLabel(modifier)}</Kbd>
+                  <Fragment key={modifier}>
+                    <Kbd className={KEYCAP_CLASS_NAME}>
+                      {appSnapShortcutModifierLabel(modifier, platform)}
+                    </Kbd>
+                    <span className="text-ui-xs text-muted-foreground">+</span>
+                  </Fragment>
                 ))}
-                <span className="text-ui leading-snug text-muted-foreground">+</span>
-                <span className="animate-pulse px-0.5 text-ui leading-snug text-muted-foreground">
+                <span className="animate-pulse px-0.5 text-ui-xs text-muted-foreground motion-reduce:animate-none">
                   …
                 </span>
               </KbdGroup>
             ) : (
-              <span className="animate-pulse px-1 text-ui leading-snug font-medium text-muted-foreground">
-                Press two keys…
+              <span className="animate-pulse px-1 text-ui-sm font-medium text-muted-foreground motion-reduce:animate-none">
+                {isWindows ? "Press shortcut…" : "Press two keys…"}
               </span>
             )
           ) : (
-            <KbdGroup>
-              <Kbd>{labels[0]}</Kbd>
-              <span className="text-ui leading-snug text-muted-foreground">+</span>
-              <Kbd>{labels[1]}</Kbd>
+            <KbdGroup className="gap-1">
+              {labels.map((label, index) => (
+                <Fragment key={`${label}-${index}`}>
+                  {index > 0 ? <span className="text-ui-xs text-muted-foreground">+</span> : null}
+                  <Kbd className={KEYCAP_CLASS_NAME}>{label}</Kbd>
+                </Fragment>
+              ))}
             </KbdGroup>
           )}
-        </button>
+        </Button>
         {changed ? (
-          <Button size="xs" disabled={!canSave} onClick={() => void saveShortcut(candidate)}>
+          <Button size="sm" disabled={!canSave} onClick={() => void saveShortcut(candidate)}>
             Save
           </Button>
-        ) : candidate.kind !== "both-option-keys" ? (
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => void saveShortcut(DEFAULT_APP_SNAP_SHORTCUT)}
-          >
+        ) : canReset ? (
+          <Button size="sm" variant="ghost" onClick={() => void saveShortcut(defaultShortcut)}>
             Reset
           </Button>
         ) : null}
       </div>
       <span
         role="status"
-        className={cn(
-          "max-w-72 text-right text-ui-sm",
-          checkState.availability?.available === false
-            ? "text-destructive"
-            : checkState.availability?.available === true
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-muted-foreground",
-        )}
+        className={cn("max-w-72 text-left text-ui-xs sm:text-right", statusToneClassName)}
       >
         {statusText}
       </span>

@@ -1192,6 +1192,8 @@ describe("GitHubInboxService issues", () => {
             body: "Body",
             comments: [],
             commentsTruncated: false,
+            linkedPullRequests: [],
+            viewerCanUpdate: true,
           };
         }),
     };
@@ -1223,6 +1225,85 @@ describe("GitHubInboxService issues", () => {
       number: 7,
       workspaceRoot: project.workspaceRoot,
     });
+  });
+
+  it("updates an issue and reads it fresh afterwards, also when GitHub refuses", async () => {
+    const project = makeProject("project-issue-update", "App");
+    const detailCalls: number[] = [];
+    const updates: Array<{ repository: string; number: number; op: string }> = [];
+    let refuse = false;
+    const base = createGitHubCliWithFakeGh().service;
+    const github: GitHubCliShape = {
+      ...base,
+      getIssueDetail: ({ number }) =>
+        Effect.sync(() => {
+          detailCalls.push(number);
+          return {
+            number,
+            title: "Issue",
+            url: `https://github.com/acme/app/issues/${number}`,
+            author: null,
+            state: "open",
+            stateReason: null,
+            labels: [],
+            assignees: [],
+            commentCount: 0,
+            createdAt: now,
+            updatedAt: now,
+            closedAt: null,
+            body: "Body",
+            comments: [],
+            commentsTruncated: false,
+            linkedPullRequests: [],
+            viewerCanUpdate: true,
+          };
+        }),
+      updateIssue: ({ repository, number, update }) =>
+        Effect.suspend(() => {
+          updates.push({ repository, number, op: update.op });
+          return refuse
+            ? Effect.fail(
+                new GitHubCliError({
+                  operation: "updateIssue",
+                  detail: "GitHub did not apply the labels.",
+                }),
+              )
+            : Effect.void;
+        }),
+    };
+    const detailInput = { projectId: project.id, repository: "acme/app", number: 9 };
+
+    const results = await runInbox(
+      { projects: [project], repositories: new Map([[project.id, ["acme/app"]]]), github },
+      (service) =>
+        Effect.gen(function* () {
+          yield* service.issueDetail(detailInput);
+          const closed = yield* service.issueUpdate({
+            ...detailInput,
+            update: { op: "close", reason: "not-planned" },
+          });
+          yield* service.issueDetail(detailInput);
+          refuse = true;
+          const refused = yield* service
+            .issueUpdate({ ...detailInput, update: { op: "setLabels", labels: ["bug"] } })
+            .pipe(Effect.flip);
+          yield* service.issueDetail(detailInput);
+          return { closed, refused };
+        }),
+    );
+
+    expect(updates).toEqual([
+      { repository: "acme/app", number: 9, op: "close" },
+      { repository: "acme/app", number: 9, op: "setLabels" },
+    ]);
+    expect(detailCalls).toEqual([9, 9, 9]);
+    expect(results.closed).toEqual({
+      projectId: project.id,
+      repository: "acme/app",
+      number: 9,
+      workspaceRoot: project.workspaceRoot,
+    });
+    expect(String(results.refused)).toContain("did not apply the labels");
   });
 
   it("rejects an issue from a repository the project does not own", async () => {

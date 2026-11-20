@@ -18,7 +18,6 @@ import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { CursorAdapter, CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { DevinAdapter, DevinAdapterShape } from "../Services/DevinAdapter.ts";
 import { DroidAdapter, DroidAdapterShape } from "../Services/DroidAdapter.ts";
-import { GeminiAdapter, GeminiAdapterShape } from "../Services/GeminiAdapter.ts";
 import { GrokAdapter, GrokAdapterShape } from "../Services/GrokAdapter.ts";
 import { OpenCodeAdapter, OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import { PiAdapter, PiAdapterShape } from "../Services/PiAdapter.ts";
@@ -211,23 +210,6 @@ const fakeAntigravityAdapter: AntigravityAdapterShape = {
   streamEvents: Stream.empty,
 };
 
-const fakeGeminiAdapter: GeminiAdapterShape = {
-  provider: "gemini",
-  capabilities: { sessionModelSwitch: "restart-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  streamEvents: Stream.empty,
-};
-
 const registryLayer = (codexAdapter = fakeCodexAdapter) =>
   Layer.mergeAll(
     Layer.provide(
@@ -238,7 +220,6 @@ const registryLayer = (codexAdapter = fakeCodexAdapter) =>
         Layer.succeed(CursorAdapter, fakeCursorAdapter),
         Layer.succeed(DevinAdapter, fakeDevinAdapter),
         Layer.succeed(AntigravityAdapter, fakeAntigravityAdapter),
-        Layer.succeed(GeminiAdapter, fakeGeminiAdapter),
         Layer.succeed(GrokAdapter, fakeGrokAdapter),
         Layer.succeed(DroidAdapter, fakeDroidAdapter),
         Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
@@ -279,7 +260,6 @@ layer("ProviderAdapterRegistryLive", (it) => {
       const codex = yield* registry.getByProvider("codex");
       const claude = yield* registry.getByProvider("claudeAgent");
       const cursor = yield* registry.getByProvider("cursor");
-      const gemini = yield* registry.getByProvider("gemini");
       const hermes = yield* registry.getByProvider("hermes");
       const kimi = yield* registry.getByProvider("kimi");
       const minimax = yield* registry.getByProvider("minimax");
@@ -294,7 +274,8 @@ layer("ProviderAdapterRegistryLive", (it) => {
       assert.equal(codex, fakeCodexAdapter);
       assert.equal(claude, fakeClaudeAdapter);
       assert.equal(cursor, fakeCursorAdapter);
-      assert.equal(gemini, fakeGeminiAdapter);
+      const geminiFailure = yield* Effect.flip(registry.getByProvider("gemini"));
+      assert.equal(geminiFailure._tag, "ProviderUnsupportedError");
       assert.equal(hermes.provider, "hermes");
       assert.equal(kimi.provider, "kimi");
       assert.equal(minimax.provider, "minimax");
@@ -312,7 +293,6 @@ layer("ProviderAdapterRegistryLive", (it) => {
         "codex",
         "claudeAgent",
         "cursor",
-        "gemini",
         "devin",
         "antigravity",
         "grok",

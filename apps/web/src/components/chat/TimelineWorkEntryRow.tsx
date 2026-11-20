@@ -92,7 +92,6 @@ import { McpServerIcon } from "./McpServerIcon";
 import { normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { MossLogo } from "../MossLogo";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { fileDiffStatsByPath, resolveFileDiffStatByChangedPath } from "~/lib/diffRendering";
 import {
@@ -772,74 +771,6 @@ function subagentCardSummary(workEntry: TimelineWorkEntry, locale: MossLocaleCod
   );
 }
 
-function commandTooltipContent(
-  command: string,
-  displayText: string,
-  labels: { summary: string; rawCall: string },
-) {
-  return (
-    <div className="max-w-96 whitespace-pre-wrap leading-tight">
-      <div className="space-y-2">
-        <div className="space-y-0.5">
-          <div className="text-muted-foreground/70">{labels.summary}</div>
-          <div>{displayText}</div>
-        </div>
-        <div className="space-y-0.5">
-          <div className="text-muted-foreground/70">{labels.rawCall}</div>
-          <code className="block whitespace-pre-wrap break-words font-chat-code text-ui-xs text-foreground/92">
-            {command}
-          </code>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Hover content for a tool-call row: the rich command card when a raw command is
-// present, otherwise the plain label (used to reveal truncated text / file paths).
-// Returns null when there's nothing worth showing so the row renders untouched.
-function toolRowTooltipContent(
-  rawCommand: string | null | undefined,
-  displayText: string,
-  fallback: string | undefined,
-  labels: { summary: string; rawCall: string },
-): ReactNode {
-  if (rawCommand) {
-    return commandTooltipContent(rawCommand, displayText, labels);
-  }
-  return fallback ? <span className="whitespace-pre-wrap">{fallback}</span> : null;
-}
-
-// Frosted hover tooltip for tool-call rows — the same surface (via the `default`
-// variant) as the sidebar thread/project hover cards, so the rows read as one
-// system. Replaces the native `title` tooltip; renders the trigger untouched when
-// there's no content to show.
-function ToolRowTooltip(props: {
-  content: ReactNode;
-  children: ReactElement;
-  variant?: "default" | "command" | undefined;
-}) {
-  if (!props.content) {
-    return props.children;
-  }
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        delay={props.variant === "command" ? 200 : undefined}
-        render={props.children}
-      />
-      <TooltipPopup
-        side="top"
-        align="start"
-        variant={props.variant ?? "default"}
-        className="max-w-96 whitespace-normal"
-      >
-        {props.content}
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
-
 function inlineSubagentItemsFromWorkEntry(workEntry: WorkLogEntry) {
   return (workEntry.subagents ?? []).flatMap((agent) => {
     const nickname = agent.nickname?.trim() || agent.title?.trim();
@@ -1322,7 +1253,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   details={workEntry.toolDetails}
                   activity={workEntry.liveActivity}
                   compact={compact}
-                  tooltip={<span className="whitespace-pre-wrap">{changedFilePath}</span>}
                   summaryClassName={editedRowClassName}
                   dataFileChangeRow
                   timestampFormat={timestampFormat}
@@ -1541,19 +1471,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 }
                 compact={compact}
                 timestampFormat={timestampFormat}
-                tooltip={
-                  rawCommand && resolveCommandVisualKind(rawCommand) === "terminal"
-                    ? deriveLiteralCommand(rawCommand)
-                    : toolRowTooltipContent(rawCommand, displayText, displayText, {
-                        summary: locale === "zh-CN" ? "摘要" : "Summary",
-                        rawCall: locale === "zh-CN" ? "原始调用" : "Raw call",
-                      })
-                }
-                tooltipVariant={
-                  rawCommand && resolveCommandVisualKind(rawCommand) === "terminal"
-                    ? "command"
-                    : "default"
-                }
               >
                 {renderRowContentChildren()}
               </ToolDetailsDisclosure>
@@ -1599,15 +1516,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               compact={compact}
               onOpen={openAgentActivity ?? openReadFile}
               onHover={prefetchReadFile}
-              tooltip={toolRowTooltipContent(
-                rawCommand,
-                displayText,
-                canOpenReadFile ? (readFilePath ?? hoverText) : hoverText,
-                {
-                  summary: locale === "zh-CN" ? "摘要" : "Summary",
-                  rawCall: locale === "zh-CN" ? "原始调用" : "Raw call",
-                },
-              )}
             >
               {renderRowContentChildren()}
             </AgentActivityOpenSurface>
@@ -1710,8 +1618,6 @@ function AgentActivityOpenSurface(props: {
   onHover?: (() => void) | undefined;
   onOpen?: (() => void) | undefined;
   title?: string | undefined;
-  /** Styled frosted hover tooltip (preferred over the native `title`). */
-  tooltip?: ReactNode;
   dataToolDetailTrigger?: boolean | undefined;
 }) {
   const className = cn(
@@ -1720,9 +1626,7 @@ function AgentActivityOpenSurface(props: {
     props.canOpen ? "cursor-pointer focus-visible:outline-none" : "cursor-default",
   );
 
-  // Wrap the real DOM element (not this component) so Base UI's tooltip trigger
-  // can attach its hover handlers and compose with our own onClick/onPointerEnter.
-  const surface = props.canOpen ? (
+  return props.canOpen ? (
     <button
       type="button"
       className={className}
@@ -1738,8 +1642,6 @@ function AgentActivityOpenSurface(props: {
       {props.children}
     </div>
   );
-
-  return <ToolRowTooltip content={props.tooltip}>{surface}</ToolRowTooltip>;
 }
 
 function providerContextLifecycleReasonLabel(
@@ -1908,8 +1810,6 @@ function ToolDetailsDisclosure(props: {
   semanticSummary?: string | undefined;
   summaryClassName?: string | undefined;
   timestampFormat: TimestampFormat;
-  tooltip?: ReactNode;
-  tooltipVariant?: "default" | "command" | undefined;
   defaultOpen?: boolean;
   // Rendered between the summary row and its details (e.g. a failure excerpt).
   afterSummary?: ReactNode;
@@ -2037,9 +1937,7 @@ function ToolDetailsDisclosure(props: {
 
   return (
     <div className="group/tool-details min-w-0" data-tool-detail-disclosure="true">
-      <ToolRowTooltip content={props.tooltip} variant={props.tooltipVariant}>
-        {summaryHeader}
-      </ToolRowTooltip>
+      {summaryHeader}
       {props.afterSummary}
       {renderDetails &&
       (props.details || props.mcpToolResult || props.activity || props.detailContent) ? (

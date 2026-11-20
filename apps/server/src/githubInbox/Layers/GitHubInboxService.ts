@@ -643,6 +643,8 @@ export const makeGitHubInboxService = (
           body: detail.body,
           comments: detail.comments,
           commentsTruncated: detail.commentsTruncated,
+          linkedPullRequests: detail.linkedPullRequests,
+          viewerCanUpdate: detail.viewerCanUpdate,
         };
       });
 
@@ -666,10 +668,52 @@ export const makeGitHubInboxService = (
         };
       });
 
+    const issueUpdate: GitHubInboxServiceShape["issueUpdate"] = (input) =>
+      Effect.gen(function* () {
+        const project = yield* access.findProject(input.projectId);
+        const repository = yield* access.validateProjectRepository(project, input.repository);
+        yield* dependencies.github
+          .updateIssue({
+            cwd: project.workspaceRoot,
+            repository,
+            number: input.number,
+            update: input.update,
+          })
+          .pipe(
+            // A failed write may still have changed part of the issue; read it fresh either way.
+            Effect.ensuring(
+              Effect.all(
+                [
+                  issueDetailCache.invalidate(githubItemCacheKey(repository, input.number)),
+                  invalidateRepository(repository),
+                ],
+                { discard: true },
+              ),
+            ),
+          );
+        return {
+          projectId: project.id,
+          repository,
+          number: input.number,
+          workspaceRoot: project.workspaceRoot,
+        };
+      });
+
+    const issueCandidates: GitHubInboxServiceShape["issueCandidates"] = (input) =>
+      Effect.gen(function* () {
+        const project = yield* access.findProject(input.projectId);
+        const repository = yield* access.validateProjectRepository(project, input.repository);
+        return yield* withGitHubRead(
+          dependencies.github.getIssueCandidates({ cwd: project.workspaceRoot, repository }),
+        );
+      });
+
     return {
       list,
       issueDetail,
       issueComment,
+      issueUpdate,
+      issueCandidates,
       resolveProjectRepositories,
       withGitHubRead,
       invalidateRepository,

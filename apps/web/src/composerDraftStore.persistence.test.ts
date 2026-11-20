@@ -46,7 +46,7 @@ describe("composerDraftStore persisted-state hydration", () => {
       const selection = modelSelection(
         provider,
         getDefaultModel(provider) ?? `${provider}/selected-model`,
-        provider === "gemini" ? { thinkingLevel: "HIGH", thinkingBudget: 0 } : undefined,
+        undefined,
         instanceId,
       );
       useComposerDraftStore.getState().setModelSelectionAndSticky(threadId, selection);

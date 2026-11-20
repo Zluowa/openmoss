@@ -1,5 +1,25 @@
 import type { PullRequestDetail, PullRequestStack, PullRequestStackEntry } from "@moss/contracts";
 
+import { formatMossTranslation, type TranslationKey } from "~/localization";
+
+/** Words in the reader's language; English when absent (tests and logs). */
+type StackTextFormat = (key: TranslationKey, values?: Record<string, string | number>) => string;
+
+const englishStackText: StackTextFormat = (key, values) =>
+  formatMossTranslation("en", key, values ?? {});
+
+/** The translation key of each assessment label, for surfaces that show it. */
+export const PULL_REQUEST_STACK_LABEL_KEYS: Record<
+  PullRequestStackAssessment["label"],
+  TranslationKey
+> = {
+  "Ready to merge": "codeReview.stack.label.ready",
+  "Stack needs attention": "codeReview.stack.label.attention",
+  "Merge status pending": "codeReview.stack.label.pending",
+  "Mergeable with failing checks": "codeReview.stack.label.failingChecks",
+  "Stack merged": "codeReview.stack.label.merged",
+};
+
 export type PullRequestStackAssessment = {
   readonly label:
     | "Ready to merge"
@@ -22,7 +42,10 @@ export function pullRequestStackTargetEntries(
   );
 }
 
-export function assessPullRequestStack(stack: PullRequestStack): PullRequestStackAssessment {
+export function assessPullRequestStack(
+  stack: PullRequestStack,
+  format: StackTextFormat = englishStackText,
+): PullRequestStackAssessment {
   const targets = pullRequestStackTargetEntries(stack);
   if (targets.length === 0) {
     return {
@@ -41,7 +64,7 @@ export function assessPullRequestStack(stack: PullRequestStack): PullRequestStac
       tone: "blocked",
       mergeTargetCount: targets.length,
       canAttemptMerge: false,
-      blocker: `#${closed.number} is closed without being merged.`,
+      blocker: format("codeReview.stack.closedBlocker", { number: closed.number }),
     };
   }
 
@@ -52,7 +75,7 @@ export function assessPullRequestStack(stack: PullRequestStack): PullRequestStac
       tone: "blocked",
       mergeTargetCount: targets.length,
       canAttemptMerge: false,
-      blocker: `#${draft.number} is still a draft.`,
+      blocker: format("codeReview.stack.draftBlocker", { number: draft.number }),
     };
   }
 
@@ -67,7 +90,7 @@ export function assessPullRequestStack(stack: PullRequestStack): PullRequestStac
       tone: "blocked",
       mergeTargetCount: targets.length,
       canAttemptMerge: false,
-      blocker: `#${conflicting.number} is not ready to merge.`,
+      blocker: format("codeReview.stack.notReadyBlocker", { number: conflicting.number }),
     };
   }
 
@@ -109,12 +132,13 @@ export function assessPullRequestStack(stack: PullRequestStack): PullRequestStac
 export function pullRequestMergeBlocker(
   detail: Pick<PullRequestDetail, "mergeability" | "stackMetadataIncomplete">,
   stackAssessment: PullRequestStackAssessment | null,
+  format: StackTextFormat = englishStackText,
 ): string | null {
   if (detail.stackMetadataIncomplete === true) {
-    return "Stack details are temporarily unavailable. Refresh before merging.";
+    return format("codeReview.stack.unavailable");
   }
   if (stackAssessment?.canAttemptMerge === false) {
-    return stackAssessment.blocker ?? "This stack is not ready to merge.";
+    return stackAssessment.blocker ?? format("codeReview.stack.notReady");
   }
-  return detail.mergeability === "conflicting" ? "Resolve merge conflicts before merging" : null;
+  return detail.mergeability === "conflicting" ? format("codeReview.merge.resolveConflicts") : null;
 }

@@ -148,10 +148,10 @@ describe("one-click agent install", () => {
   });
 
   it("does not report success unless the installed command reports a version", async () => {
-    const npm = fakeNpm({ command: "gemini", versionOutput: "" });
+    const npm = fakeNpm({ command: "opencode", versionOutput: "" });
     const outcome = await Effect.runPromise(
       runOneClickAgentInstall({
-        provider: "gemini",
+        provider: "opencode",
         mossHomeDir: makeMossHome(),
         channel: "official",
         env: baseEnv(),
@@ -160,6 +160,24 @@ describe("one-click agent install", () => {
       }),
     );
     expect(outcome).toMatchObject({ ok: false, reason: "verify-failed" });
+  });
+
+  it("offers no install action for retired Gemini CLI", async () => {
+    expect(resolveProviderInstallAction("gemini", { npmAvailable: true })).toBeNull();
+    const npm = fakeNpm({ command: "opencode" });
+    await expect(
+      Effect.runPromise(
+        runOneClickAgentInstall({
+          provider: "gemini",
+          mossHomeDir: makeMossHome(),
+          channel: "official",
+          env: baseEnv(),
+          npmExecutable: "fake-npm",
+          run: npm.run,
+        }),
+      ),
+    ).resolves.toMatchObject({ ok: false, reason: "not-installable" });
+    expect(npm.calls).toHaveLength(0);
   });
 
   it("needs npm for npm agents and keeps Cursor external on unsupported platforms", async () => {
@@ -222,7 +240,7 @@ describe("one-click agent install", () => {
       install: "externalPage",
       installUrl: "https://opencode.ai/docs/",
     });
-    for (const provider of ["cursor", "antigravity", "grok", "devin", "hermes", "omp"] as const) {
+    for (const provider of ["cursor", "grok", "devin", "hermes", "omp"] as const) {
       expect(
         resolveProviderInstallAction(provider, { npmAvailable: true, platform: "linux" }),
       ).toMatchObject({
@@ -230,6 +248,27 @@ describe("one-click agent install", () => {
         installUrl: expect.stringMatching(/^https:\/\//u),
       });
     }
+    for (const platform of ["win32", "darwin", "linux"] as const) {
+      for (const architecture of ["x64", "arm64"] as const) {
+        expect(
+          resolveProviderInstallAction("antigravity", {
+            platform,
+            architecture,
+            npmAvailable: false,
+          }),
+        ).toEqual({ install: "oneClick" });
+      }
+    }
+    expect(
+      resolveProviderInstallAction("antigravity", {
+        platform: "win32",
+        architecture: "ia32",
+        npmAvailable: false,
+      }),
+    ).toEqual({
+      install: "externalPage",
+      installUrl: "https://antigravity.google/docs/cli/using",
+    });
   });
 
   it.each(["x64", "arm64"])("offers Cursor native Windows %s without npm", (architecture) => {

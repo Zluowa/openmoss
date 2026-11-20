@@ -167,7 +167,7 @@ it("shows exactly what will be sent, says where it is processed, and sends only 
   await expect
     .element(screen.getByTestId("devs-report-outside-china"))
     .toHaveTextContent("中国大陆境外");
-  await screen.getByRole("button", { name: "发送报告" }).click();
+  await screen.getByRole("button", { name: "发送", exact: true }).click();
   expect(await confirmed).toBe(true);
 });
 
@@ -268,11 +268,11 @@ it("shows the owner the screenshots going with the report before it is sent", as
     { imagePreviews: prepared.imagePreviews, skipped: [{ name: "项目.zip", reason: "type" }] },
   );
   await expect
-    .element(screen.getByText("随报告发送的截图和文件（3）", { exact: true }))
+    .element(screen.getByRole("region", { name: "随报告发送的截图和文件（3）" }))
     .toBeVisible();
   await expect.element(screen.getByTestId("devs-report-skipped")).toHaveTextContent("项目.zip");
   await page.screenshot({ path: `${SHOT_DIR}/round3-devs-0-confirm.png` });
-  await screen.getByRole("button", { name: "发送报告" }).click();
+  await screen.getByRole("button", { name: "发送", exact: true }).click();
   expect(await confirmed).toBe(true);
 });
 

@@ -122,7 +122,7 @@ const runListSkills = (input: {
   adapter: Partial<ProviderAdapterShape<ProviderAdapterError>>;
   disabled?: string[];
   includeDisabled?: boolean;
-  provider: Exclude<ProviderKind, "kilo">;
+  provider: Exclude<ProviderKind, "gemini" | "kilo">;
 }) => {
   const baseLayer = Layer.mergeAll(
     makeConfigLayer(),

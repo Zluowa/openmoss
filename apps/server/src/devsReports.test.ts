@@ -209,6 +209,23 @@ describe("durable developer reporting", () => {
     expect((await restarted.list("chat")).reports).toHaveLength(1);
     expect((await restarted.list("other")).reports).toEqual([]);
   });
+  it("lists reports by ID for senders that have no chat, and never everything", async () => {
+    const directory = await temporary();
+    const client = createLocal(
+      directory,
+      vi.fn<DevsFetch>(async () => {
+        throw new Error("offline");
+      }),
+    );
+    const first = { id: randomUUID(), threadId: ThreadId.makeUnsafe("chat"), text: "@devs one" };
+    const second = { id: randomUUID(), threadId: ThreadId.makeUnsafe("chat"), text: "@devs two" };
+    await send(client, first);
+    await send(client, second);
+    const picked = await client.list({ reportIds: [second.id, randomUUID()] });
+    expect(picked.reports.map((report) => report.id)).toEqual([second.id]);
+    expect((await client.list({})).reports).toEqual([]);
+    expect((await client.list({ threadId: "chat" })).reports).toHaveLength(2);
+  });
   it("is on by default and delivers to the public queue", async () => {
     const urls: string[] = [];
     const fetcher = vi.fn<DevsFetch>(async (url, options) => {
@@ -526,5 +543,32 @@ describe("app feedback without a conversation", () => {
       ),
     ).rejects.toThrow(DEVS_CONSENT_REQUIRED_MESSAGE);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("keeps leading Claude or Codex words intact for app and agent feedback", async () => {
+    const directory = await temporary();
+    const client = createLocal(directory, vi.fn<DevsFetch>());
+    const feedbackContext = {
+      appVersion: "1.0.8-test",
+      platform: "Win32",
+      language: "zh-CN",
+      category: "bug" as const,
+      provider: "claudeAgent",
+      model: null,
+    };
+    const claudePreview = await client.prepare(
+      { id: randomUUID(), text: "@devs Claude 无法连接工具", feedbackContext },
+      null,
+      { phoneAccount: false },
+    );
+    expect(claudePreview.description).toBe("Claude 无法连接工具");
+    expect(claudePreview.engine).toBe("codex");
+
+    const codexPreview = await client.prepare(
+      { id: randomUUID(), text: "@devs Codex", feedbackContext },
+      null,
+      { phoneAccount: false },
+    );
+    expect(codexPreview.description).toBe("Codex");
   });
 });

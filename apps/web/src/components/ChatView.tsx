@@ -345,7 +345,9 @@ import {
   canApplyComposerFocus,
   commitAfterRuntimeModePersistence,
   derivePromptHistoryFromMessages,
+  deriveWarmProviderSessionKey,
   hasFileUndoSettled,
+  reconcileWarmProviderSessionKeys,
   resolveActiveThreadTitle,
   type TurnDispatchSettings,
   resolveActiveTurnLiveDiffState,
@@ -387,6 +389,10 @@ import TerminalWorkspaceTabs from "./TerminalWorkspaceTabs";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
 
 import { ChatComposerFooter } from "./chat/ChatComposerFooter";
+import {
+  isEstablishedConversationSession,
+  readProviderConnectionActivity,
+} from "./chat/conversationConnection";
 import { GuestPendingMessages } from "./chat/guestShare/GuestPendingMessages";
 import { ChatComposerSendButton } from "./chat/ChatProviderSendControl";
 import {
@@ -712,7 +718,9 @@ function resolveGatewayMossQuotaDecision(input: {
           ? "weekly"
           : "period",
     usageBasis:
-      input.quota?.billingModel === "cost_budget_v1" || normalizedError.includes("service_cost_")
+      input.quota?.billingModel === "cost_budget_v1" ||
+      input.quota?.billingModel === "wallet_credits_v1" ||
+      normalizedError.includes("service_cost_")
         ? "hidden-cost"
         : "requests",
   };
@@ -1760,7 +1768,51 @@ export default function ChatView({
   const [mossNativeSurface, setMossNativeSurface] = useState<MossControlPlaneSurface>("events");
 
   const phase = derivePhase(activeThread?.session ?? null);
-  const isConnecting = phase === "connecting" || threadDetailSyncState === "cached";
+  const isSessionConnecting = phase === "connecting";
+  const isDetailSyncCached = threadDetailSyncState === "cached";
+  // Keep action-safety guards gated on cached detail verification while
+  // decoupling cached hydration and warm follow-ups from cold CLI startup UI.
+  const isConnecting = isSessionConnecting || isDetailSyncCached;
+  const activeSession = activeThread?.session ?? null;
+  const activeSessionProviderKey =
+    activeSession?.providerInstanceId ??
+    activeSession?.provider ??
+    selectedProviderInstanceId ??
+    selectedProvider;
+  const activeWarmSessionKey = deriveWarmProviderSessionKey({
+    session: activeSession,
+    selectedProvider,
+    selectedProviderInstanceId,
+    runtimeMode,
+  });
+  const [warmSessionKeysByThreadId, setWarmSessionKeysByThreadId] = useState<
+    Readonly<Record<string, string>>
+  >({});
+  useEffect(() => {
+    setWarmSessionKeysByThreadId((previous) =>
+      reconcileWarmProviderSessionKeys(previous, {
+        threadId: activeThreadId,
+        session: activeSession,
+        fallbackRuntimeMode: runtimeMode,
+      }),
+    );
+  }, [activeSession, activeThreadId, runtimeMode]);
+  const providerConnectionActivity = useMemo(
+    () =>
+      readProviderConnectionActivity(
+        threadActivities,
+        activeSessionProviderKey,
+        activeSession?.provider,
+      ),
+    [activeSession?.provider, activeSessionProviderKey, threadActivities],
+  );
+  const isWarmProviderSession =
+    !providerConnectionActivity.isConnecting &&
+    activeWarmSessionKey !== null &&
+    (isEstablishedConversationSession(activeSession) ||
+      (activeThreadId !== null &&
+        warmSessionKeysByThreadId[activeThreadId] === activeWarmSessionKey));
+  const isColdStartingSession = isSessionConnecting && !isWarmProviderSession;
   const providerDisplayName =
     PROVIDER_DISPLAY_NAMES[activeThread?.session?.provider ?? selectedProvider];
   const {
@@ -2046,8 +2098,13 @@ export default function ChatView({
   });
   // Keep Thinking through the post-ack gap where the server has the message /
   // turn request but the provider session is not live yet (common on first send).
+  // Cached detail hydration is not live work and must not flash a working card.
   const isWorking =
-    hasLiveTurn || isSendBusy || isConnecting || isRevertingCheckpoint || isAwaitingTurnStart;
+    hasLiveTurn ||
+    isSendBusy ||
+    isSessionConnecting ||
+    isRevertingCheckpoint ||
+    isAwaitingTurnStart;
   const providerRetryLabel = resolveLatestProviderRetryLabel(
     threadActivities,
     activeTurnIdForTranscript,
@@ -2095,7 +2152,8 @@ export default function ChatView({
   );
   const isComposerApprovalState = activePendingApproval !== null;
   const isSidechatExpired = Boolean(activeThread?.sidechatExpiredAt);
-  const isComposerEditorDisabled = isConnecting || isComposerApprovalState || isSidechatExpired;
+  const isComposerEditorDisabled =
+    isColdStartingSession || isComposerApprovalState || isSidechatExpired;
   const canCollapsePastedTextToDraft = shouldEnableComposerPastedTextCollapse({
     isComposerApprovalState,
     hasPendingUserInput: pendingUserInputs.length > 0,
@@ -6947,7 +7005,7 @@ export default function ChatView({
       ? "sending"
       : activeProviderSendAdmission.state === "blocked"
         ? "unavailable"
-        : isConnecting || isComposerProjectPending
+        : isSessionConnecting || isComposerProjectPending
           ? "connecting"
           : isVoiceTranscribing
             ? "transcribing"
@@ -8134,7 +8192,8 @@ export default function ChatView({
                     submission={{
                       phase,
                       busy: isSendBusy,
-                      connecting: isConnecting,
+                      connecting: isSessionConnecting,
+                      awaitingTurnStart: isAwaitingTurnStart,
                       expired: isSidechatExpired,
                       hasPendingCacheReview: activeThread?.claudeCacheReview != null,
                       preparingImages: isPreparingComposerImages,
@@ -8584,7 +8643,8 @@ export default function ChatView({
                             isSettlingTurnDispatch,
                             isSendBusy,
                             turnTakenOver,
-                            isConnecting,
+                            isConnecting: isSessionConnecting,
+                            isWarmSession: isWarmProviderSession,
                             providerName: providerDisplayName,
                             ...(providerRetryLabel ? { retryLabel: providerRetryLabel } : {}),
                           })}

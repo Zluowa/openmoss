@@ -23,6 +23,7 @@ test -z "\${MOSS_DEVS_GITHUB_TOKEN:-}"
 test -n "\${ANTHROPIC_API_KEY:-}\${CODEX_API_KEY:-}"
 if touch /workspace/.git/unauthorized-write 2>/dev/null; then exit 21; fi
 printf 'fixed\\n' > /workspace/bug.txt
+printf '// fails without the fix\\n' > /workspace/bug.test.ts
 printf 'Reproduced the fixture. Fixed it and passed the regression check.\\n' > /workspace/MOSS_DEVS_RESULT.md
 `,
       );

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 
 import { PROVIDER_SEND_TURN_MAX_ATTACHMENTS } from "@moss/contracts";
+import { DEFAULT_WINDOWS_APP_SNAP_SHORTCUT } from "@moss/shared/appSnapShortcut";
 import { MOSS_DEVELOPMENT_BUNDLE_ID } from "@moss/shared/desktopIdentity";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
@@ -325,32 +326,98 @@ describe("desktop AppSnap platform state", () => {
     manager.dispose();
   });
 
-  it("exposes Windows as a supported Cua-backed AppSnap platform", async () => {
+  it("exposes Windows as a supported Cua-backed AppSnap platform with a working default shortcut", async () => {
+    const captureDirectory = mkdtempSync(join(tmpdir(), "moss-appsnap-win-default-"));
     const onState = vi.fn();
+    const warmCuaHost = vi.fn();
+    const register = vi.fn(() => true);
+    const unregister = vi.fn();
     const manager = new DesktopAppSnapManager({
       platform: "win32",
-      helperPath: "C:\\missing\\moss-appsnap-helper.exe",
-      captureDirectory: "C:\\tmp\\appsnap",
+      helperPath: join(captureDirectory, "missing-helper"),
+      captureDirectory,
       excludedBundleId: MOSS_DEVELOPMENT_BUNDLE_ID,
       onState,
       onCaptured: vi.fn(),
       onError: vi.fn(),
       cuaEndpoint: () => "fixture",
       cuaCapability: "capability",
-      shortcutRegistry: { register: vi.fn(() => true), unregister: vi.fn() },
+      warmCuaHost,
+      shortcutRegistry: { register, unregister },
     });
 
-    expect(desktopAppSnapPlatform("darwin")).toBe("macos");
-    expect(desktopAppSnapPlatform("linux")).toBe("linux");
-    await manager.setShortcut({ kind: "key-chord", modifier: "control", key: "KeyS" });
-    expect(await manager.setEnabled(true)).toMatchObject({
-      platform: "windows",
-      supported: true,
-      enabled: true,
-      status: "ready",
-      shortcut: { kind: "key-chord", modifier: "control", key: "KeyS" },
+    try {
+      expect(desktopAppSnapPlatform("darwin")).toBe("macos");
+      expect(desktopAppSnapPlatform("linux")).toBe("linux");
+      expect(manager.getState().shortcut).toEqual(DEFAULT_WINDOWS_APP_SNAP_SHORTCUT);
+      expect(manager.checkShortcut({ kind: "both-option-keys" })).toEqual({
+        available: false,
+        reason: "Windows AppSnap requires a key combination such as Alt + Shift + S.",
+      });
+      expect(
+        manager.checkShortcut({ kind: "key-chord", modifier: "control", key: "KeyS" }),
+      ).toMatchObject({ available: false });
+
+      // Enabling immediately without calling setShortcut registers Alt+Shift+S and warms CUA.
+      expect(await manager.setEnabled(true)).toMatchObject({
+        platform: "windows",
+        supported: true,
+        enabled: true,
+        status: "ready",
+        shortcut: DEFAULT_WINDOWS_APP_SNAP_SHORTCUT,
+      });
+      expect(register).toHaveBeenCalledWith("Alt+Shift+S", expect.any(Function));
+      expect(warmCuaHost).toHaveBeenCalledOnce();
+      expect(onState).toHaveBeenCalled();
+
+      // Custom Windows key-chord replaces the registration cleanly.
+      const customShortcut = {
+        kind: "key-chord",
+        modifier: "control",
+        extraModifiers: ["shift"],
+        key: "KeyS",
+      } as const;
+      const updated = await manager.setShortcut(customShortcut);
+      expect(updated.availability).toEqual({ available: true, reason: null });
+      expect(updated.state).toMatchObject({ status: "ready", shortcut: customShortcut });
+      expect(unregister).toHaveBeenCalledWith("Alt+Shift+S");
+      expect(register).toHaveBeenCalledWith("Control+Shift+S", expect.any(Function));
+    } finally {
+      manager.dispose();
+      rmSync(captureDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers when retrying the same Windows shortcut after a conflict clears", async () => {
+    const captureDirectory = mkdtempSync(join(tmpdir(), "moss-appsnap-win-retry-"));
+    let allowRegister = false;
+    const register = vi.fn(() => allowRegister);
+    const manager = new DesktopAppSnapManager({
+      platform: "win32",
+      helperPath: join(captureDirectory, "missing-helper"),
+      captureDirectory,
+      excludedBundleId: MOSS_DEVELOPMENT_BUNDLE_ID,
+      onState: vi.fn(),
+      onCaptured: vi.fn(),
+      onError: vi.fn(),
+      cuaEndpoint: () => "fixture",
+      cuaCapability: "capability",
+      shortcutRegistry: { register, unregister: vi.fn() },
     });
-    expect(onState).toHaveBeenCalled();
+
+    try {
+      expect(await manager.setEnabled(true)).toMatchObject({
+        status: "error",
+        message: "The AppSnap shortcut is already used by Windows or another app.",
+      });
+      allowRegister = true;
+      const retried = await manager.setShortcut(DEFAULT_WINDOWS_APP_SNAP_SHORTCUT);
+      expect(retried.availability).toEqual({ available: true, reason: null });
+      expect(retried.state).toMatchObject({ status: "ready", message: null });
+    } finally {
+      manager.dispose();
+      rmSync(captureDirectory, { recursive: true, force: true });
+    }
   });
 
   it("captures a Windows window through the embedded Cua host", async () => {
@@ -393,7 +460,7 @@ describe("desktop AppSnap platform state", () => {
     const onCaptured = vi.fn();
     const manager = new DesktopAppSnapManager({
       platform: "win32",
-      helperPath: "C:\\missing\\moss-appsnap-helper.exe",
+      helperPath: join(captureDirectory, "missing-helper"),
       captureDirectory,
       excludedBundleId: MOSS_DEVELOPMENT_BUNDLE_ID,
       onState: vi.fn(),
@@ -413,10 +480,148 @@ describe("desktop AppSnap platform state", () => {
       expect(capture.sourceWindowTitle).toBe("Notes");
       expect(request).toHaveBeenCalledWith(
         "fixture",
-        expect.objectContaining({ method: "call", capability: "capability" }),
+        expect.objectContaining({
+          method: "call",
+          name: "list_windows",
+          args: { on_screen_only: true },
+          capability: "capability",
+        }),
         expect.any(Object),
       );
       expect(onCaptured).not.toHaveBeenCalled();
+    } finally {
+      manager.dispose();
+      rmSync(captureDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it("picks the highest-z visible non-Moss Windows window and reads direct screenshot_out_file captures without base64", async () => {
+    const captureDirectory = mkdtempSync(join(tmpdir(), "moss-appsnap-cua-fast-"));
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x42]);
+    let hotkeyCallback: (() => void) | undefined;
+    const request = vi.fn(
+      async (_endpoint: string, body: { name: string; args?: Record<string, unknown> }) => {
+        if (body.name === "list_windows") {
+          return {
+            ok: true,
+            result: {
+              structuredContent: {
+                windows: [
+                  {
+                    pid: 999,
+                    window_id: 1,
+                    app_name: "Moss",
+                    title: "Moss",
+                    z_index: 100,
+                    is_on_screen: true,
+                    minimized: false,
+                    bounds: { x: 0, y: 0, width: 1200, height: 800 },
+                  },
+                  {
+                    pid: 10,
+                    window_id: 2,
+                    app_name: "OldWindow",
+                    title: "Background",
+                    z_index: 5,
+                    is_on_screen: true,
+                    minimized: false,
+                    bounds: { x: 0, y: 0, width: 800, height: 600 },
+                  },
+                  {
+                    pid: 20,
+                    window_id: 3,
+                    app_name: "MinimizedApp",
+                    title: "Hidden",
+                    z_index: 50,
+                    is_on_screen: true,
+                    minimized: true,
+                    bounds: { x: 0, y: 0, width: 800, height: 600 },
+                  },
+                  {
+                    pid: 30,
+                    window_id: 4,
+                    app_name: "cua-cursor-theme",
+                    title: "",
+                    z_index: 90,
+                    is_on_screen: true,
+                    minimized: false,
+                    bounds: { x: 0, y: 0, width: 32, height: 32 },
+                  },
+                  {
+                    pid: 40,
+                    window_id: 5,
+                    app_name: "Chrome",
+                    title: "Docs - Google Chrome",
+                    z_index: 25,
+                    is_on_screen: true,
+                    minimized: false,
+                    bounds: { x: 10, y: 10, width: 1280, height: 900 },
+                  },
+                ],
+              },
+            },
+          };
+        }
+        const outFile = body.args?.screenshot_out_file;
+        expect(typeof outFile).toBe("string");
+        writeFileSync(outFile as string, pngBytes);
+        return {
+          ok: true,
+          result: {
+            content: [{ type: "text", text: "ok" }],
+            structuredContent: {
+              app_name: "Chrome",
+              window_title: "Docs - Google Chrome",
+              screenshot_file_path: outFile,
+            },
+          },
+        };
+      },
+    );
+    const onCaptured = vi.fn();
+    const manager = new DesktopAppSnapManager({
+      platform: "win32",
+      helperPath: join(captureDirectory, "missing-helper"),
+      captureDirectory,
+      excludedBundleId: MOSS_DEVELOPMENT_BUNDLE_ID,
+      ownPids: () => new Set([999]),
+      onState: vi.fn(),
+      onCaptured,
+      onError: vi.fn(),
+      cuaEndpoint: () => "fixture",
+      cuaCapability: "capability",
+      cuaRequest: request as never,
+      shortcutRegistry: {
+        register: vi.fn((_acc, cb) => {
+          hotkeyCallback = cb;
+          return true;
+        }),
+        unregister: vi.fn(),
+      },
+    });
+    try {
+      await manager.setEnabled(true);
+      expect(hotkeyCallback).toBeTypeOf("function");
+      hotkeyCallback!();
+      await vi.waitFor(() => {
+        expect(onCaptured).toHaveBeenCalledOnce();
+      });
+      const captured = onCaptured.mock.calls[0]![0];
+      expect(captured).toMatchObject({
+        sourceAppName: "Chrome",
+        sourceWindowTitle: "Docs - Google Chrome",
+        sizeBytes: pngBytes.length,
+      });
+      expect(Buffer.from(captured.bytes)).toEqual(pngBytes);
+      // Direct file was atomically moved into pending storage (no leftover temp file).
+      const files = FS.readdirSync(captureDirectory);
+      expect(files.some((name) => name.startsWith("appsnap-cua-"))).toBe(false);
+      expect(files.some((name) => name.startsWith("pending-") && name.endsWith(".png"))).toBe(true);
+
+      // Explicit captureCurrentApp works on Windows too without emitting onCaptured.
+      const explicit = await manager.captureCurrentApp("req-win-1");
+      expect(explicit.sourceAppName).toBe("Chrome");
+      expect(onCaptured).toHaveBeenCalledOnce();
     } finally {
       manager.dispose();
       rmSync(captureDirectory, { recursive: true, force: true });

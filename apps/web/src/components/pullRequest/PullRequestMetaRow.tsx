@@ -14,10 +14,13 @@ import { PR_META_TEXT_CLASS_NAME } from "./pullRequestText";
 export function PullRequestMetaRow({
   icon,
   label,
+  action,
   children,
 }: {
   icon: ReactNode;
   label: string;
+  /** A control for the fact (an edit button), at the row's end. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -29,6 +32,7 @@ export function PullRequestMetaRow({
       <div className="flex min-h-6 min-w-0 flex-1 flex-wrap items-center gap-2 text-foreground">
         {children}
       </div>
+      {action ? <div className="flex h-6 shrink-0 items-center">{action}</div> : null}
     </div>
   );
 }

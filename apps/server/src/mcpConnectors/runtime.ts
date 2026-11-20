@@ -50,7 +50,14 @@ import {
   type McpConnectorProxyResult,
   probeMcpConnector,
 } from "./proxy.ts";
-import { listMcpConnectorTools, McpConnectorToolsFailure } from "./tools.ts";
+import {
+  callMcpConnectorTool,
+  listMcpConnectorToolInputs,
+  listMcpConnectorTools,
+  McpConnectorToolsFailure,
+  type McpConnectorToolCallResult,
+  type McpConnectorToolInput,
+} from "./tools.ts";
 
 export const MCP_CONNECTORS_MAX_COUNT = 30;
 const PENDING_AUTHORIZATION_TTL_MS = 10 * 60_000;
@@ -615,7 +622,7 @@ export class McpConnectorRuntime {
   }
 
   /** Asks the server what it offers, signed in the way an agent's call would be. */
-  async listTools(connectorId: string): Promise<McpConnectorListToolsResult> {
+  async listTools(connectorId: string, signal?: AbortSignal): Promise<McpConnectorListToolsResult> {
     const connector = this.find(connectorId);
     if (!connector) throw new McpConnectorFailure("This connector is no longer connected.");
     try {
@@ -623,6 +630,61 @@ export class McpConnectorRuntime {
         forward: (request) => this.forward(connectorId, request),
         displayName: connector.name,
         clientVersion: this.deps.clientVersion,
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      if (error instanceof McpConnectorToolsFailure) throw new McpConnectorFailure(error.message);
+      throw error;
+    }
+  }
+
+  /** The first connected connector made from a preset (Linear, Atlassian), if any. */
+  findConnectedPreset(presetId: string): McpConnector | null {
+    const connectors = this.list();
+    return (
+      connectors.find(
+        (connector) => connector.presetId === presetId && connector.status === "connected",
+      ) ??
+      connectors.find((connector) => connector.presetId === presetId) ??
+      null
+    );
+  }
+
+  async listToolInputs(
+    connectorId: string,
+    signal?: AbortSignal,
+  ): Promise<ReadonlyMap<string, McpConnectorToolInput>> {
+    const connector = this.find(connectorId);
+    if (!connector) throw new McpConnectorFailure("This connector is no longer connected.");
+    try {
+      return await listMcpConnectorToolInputs({
+        forward: (request) => this.forward(connectorId, request),
+        displayName: connector.name,
+        clientVersion: this.deps.clientVersion,
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      if (error instanceof McpConnectorToolsFailure) throw new McpConnectorFailure(error.message);
+      throw error;
+    }
+  }
+
+  async callTool(
+    connectorId: string,
+    name: string,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<McpConnectorToolCallResult> {
+    const connector = this.find(connectorId);
+    if (!connector) throw new McpConnectorFailure("This connector is no longer connected.");
+    try {
+      return await callMcpConnectorTool({
+        forward: (request) => this.forward(connectorId, request),
+        displayName: connector.name,
+        clientVersion: this.deps.clientVersion,
+        name,
+        arguments: args,
+        ...(signal ? { signal } : {}),
       });
     } catch (error) {
       if (error instanceof McpConnectorToolsFailure) throw new McpConnectorFailure(error.message);

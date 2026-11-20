@@ -13,7 +13,6 @@ import {
   FEEDBACK_IMAGE_LIMITS,
   isFeedbackDeliveryConfigured,
   prepareFeedbackAttachments,
-  submitFeedback,
   type FeedbackCategory,
   type FeedbackImageRejection,
   type FeedbackThreadContext,
@@ -22,10 +21,7 @@ import { cn } from "../lib/utils";
 import { ImageIcon, XIcon } from "../lib/icons";
 import { DEVS_CONSENT_REQUIRED_MESSAGE } from "@moss/shared/devsReport";
 import { readNativeApi } from "../nativeApi";
-import {
-  buildFeedbackDeveloperRequest,
-  submitFeedbackToDevelopers,
-} from "../feedbackDeveloperDelivery";
+import { buildFeedbackDeveloperRequest, deliverFeedback } from "../feedbackDeveloperDelivery";
 import { requestDevsReportConfirmation } from "./chat/devsReportConfirmStore";
 import type { DevsReportSubmitInput } from "@moss/contracts";
 import { Button } from "./ui/button";
@@ -54,28 +50,23 @@ export function FeedbackDialog({ open, context, onOpenChange }: FeedbackDialogPr
     try {
       const attachments = await prepareFeedbackAttachments(images);
       const submission = buildFeedbackSubmission({ category, details, context, attachments });
-      let delivery: "queued" | "delivered" = "delivered";
-      if (isFeedbackDeliveryConfigured()) {
-        await submitFeedback(submission);
-      } else {
-        const api = readNativeApi();
-        if (!api) throw new Error("The Moss developer service is not connected yet.");
-        const key = JSON.stringify({ category, details, context });
-        if (request.current?.key !== key)
-          request.current = {
-            key,
-            input: buildFeedbackDeveloperRequest(submission, crypto.randomUUID()),
-          };
-        const result = await submitFeedbackToDevelopers(
-          request.current.input,
-          api,
-          requestDevsReportConfirmation,
-        );
-        if (result === "cancelled") {
-          setIsSending(false);
-          return;
-        }
-        delivery = result;
+      const delivery = await deliverFeedback({
+        submission,
+        // The same text retried keeps its report ID, so the outbox never sends it twice.
+        developerRequest: () => {
+          const key = JSON.stringify({ category, details, context });
+          if (request.current?.key !== key)
+            request.current = {
+              key,
+              input: buildFeedbackDeveloperRequest(submission, crypto.randomUUID()),
+            };
+          return request.current.input;
+        },
+        confirm: requestDevsReportConfirmation,
+      });
+      if (delivery === "cancelled") {
+        setIsSending(false);
+        return;
       }
       request.current = null;
       setIsSending(false);

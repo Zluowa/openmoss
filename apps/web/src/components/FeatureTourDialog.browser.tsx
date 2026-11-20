@@ -275,7 +275,7 @@ it("does not jump ahead of a slow AppSnap probe and then waits for its dismissal
 });
 
 it.each([
-  ["windows", "Pick a shortcut in AppSnap settings"],
+  ["windows", "Press Alt + Shift + S"],
   ["macos", "Press both Option keys"],
 ] as const)("describes the AppSnap shortcut that works on %s", async (platform, text) => {
   // Windows has no Option keys; AppSnap there runs on a key combination the person picks.

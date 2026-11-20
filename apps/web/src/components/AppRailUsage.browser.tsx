@@ -2,6 +2,8 @@ import "../index.css";
 
 import {
   DEFAULT_SERVER_SETTINGS_VIEW,
+  type MossPayCatalog,
+  type MossPayQuota,
   type ServerProviderUsageSnapshot,
   type ServerSettingsView,
 } from "@moss/contracts";
@@ -20,15 +22,27 @@ const settings = vi.hoisted(() => ({
 const updateSettings = vi.hoisted(() => vi.fn());
 const refreshProviderUsage = vi.hoisted(() => vi.fn());
 
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  useNavigate: () => vi.fn(),
+}));
 vi.mock("~/appSettings", () => ({ useAppSettings: () => ({ settings, updateSettings }) }));
 vi.mock("~/lib/serverReactQuery", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/lib/serverReactQuery")>()),
   fetchAllProviderUsage: refreshProviderUsage,
 }));
 
+import {
+  serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+  serverMossPayCatalogQueryOptions,
+  serverMossPayQuotaQueryOptions,
+} from "~/components/auth/mossServerReactQuery";
+import { MossLocaleScope } from "~/localization";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 
 import { AppRailUsage } from "./AppRailUsage";
+import { MOSS_RAIL_USAGE_ID } from "./AppRailUsage.logic";
 import { ProviderUsageSettingsPanel } from "./settings/ProviderUsageSettingsPanel";
 
 async function renderAccounts(
@@ -487,5 +501,110 @@ describe("AppRailUsage", () => {
     await expect.element(button).toBeVisible();
     expect(button.element().querySelectorAll("circle")).toHaveLength(1);
     expect(button.element().querySelectorAll("circle[stroke-dasharray]")).toHaveLength(0);
+  });
+
+  it("shows a free Moss account's sidebar ring and Settings quota bar without any yuan amount", async () => {
+    settings.railUsageInstanceIds = [MOSS_RAIL_USAGE_ID];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, enabled: false } },
+    });
+    const freeQuota: MossPayQuota = {
+      planCode: "starter-trial",
+      billingModel: "wallet_credits_v1",
+      usageLimits: [{ key: "lifetime", durationSeconds: null, limit: 5, used: 1, resetsAt: null }],
+      quotaPolicyMode: "metered",
+      periodStart: "2026-11-19T00:00:00.000Z",
+      periodEnd: null,
+      windowId: "quota-free",
+      windowSource: null,
+      windowDurationSeconds: null,
+      tokenLimit: null,
+      tokensUsed: 1_600,
+      requestLimit: null,
+      requestsUsed: 3,
+      creditBalance: 5,
+      realtimeConfigured: true,
+      realtimeModelAllowlist: ["gpt-realtime-2.1"],
+      realtimeCostLimitNanoUsd: 0,
+      realtimeCostUsedNanoUsd: 0,
+      realtimeCostReservedNanoUsd: 0,
+      realtimeSessionLimit: null,
+      realtimeSessionsUsed: 0,
+      realtimeEstimatedMinutesRemaining: null,
+    };
+    const freeCatalog: MossPayCatalog = {
+      plans: [],
+      pointPackages: [],
+      paymentMethods: [],
+    };
+    client.setQueryData(serverQueryKeys.allProviderUsage(), []);
+    client.setQueryData(serverQueryKeys.settings(), DEFAULT_SERVER_SETTINGS_VIEW);
+    client.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+      configured: true,
+      authenticated: true,
+      session: {
+        id: "phone-session-1",
+        user: { id: "free-user-1", phoneNumber: "+8613800138000", displayName: null },
+      },
+    } as never);
+    client.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+      configured: false,
+      authenticated: false,
+      account: null,
+      session: null,
+      modelGatewayConfigured: false,
+    } as never);
+    client.setQueryData(serverMossPayCatalogQueryOptions().queryKey, freeCatalog);
+    client.setQueryData(
+      serverMossPayQuotaQueryOptions({ accountIdentity: "phone:free-user-1:phone-session-1" })
+        .queryKey,
+      freeQuota,
+    );
+
+    const onOpenUsageSettings = vi.fn();
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        <QueryClientProvider client={client}>
+          <div className="flex items-start gap-6 p-6">
+            <div
+              data-testid="usage-rail"
+              className="flex w-12 shrink-0 flex-col items-center gap-1 rounded-lg bg-sidebar py-2"
+            >
+              <AppRailUsage onOpenUsageSettings={onOpenUsageSettings} />
+            </div>
+            <div className="w-[520px] space-y-6">
+              <ProviderUsageSettingsPanel />
+            </div>
+          </div>
+        </QueryClientProvider>
+      </MossLocaleScope>,
+    );
+
+    try {
+      const mossRing = page.getByRole("button", { name: /Moss, 剩余 80%/ });
+      await expect.element(mossRing).toBeVisible();
+      const fill = mossRing.element().querySelector("circle[stroke-dasharray]");
+      expect(fill?.getAttribute("stroke-dasharray")).toBe("80 100");
+      expect(fill?.getAttribute("class")).toContain("stroke-emerald-500");
+
+      await userEvent.hover(mossRing);
+      const settingsPanel = page.getByTestId("moss-billing-settings-panel");
+      await expect.element(settingsPanel).toBeVisible();
+      await expect.element(settingsPanel.getByText("免费版", { exact: true })).toBeVisible();
+      await expect.element(settingsPanel.getByText("免费额度", { exact: true })).toBeVisible();
+      const progressBar = settingsPanel.getByRole("progressbar");
+      await expect.element(progressBar).toBeVisible();
+      await expect.element(progressBar).toHaveAttribute("aria-valuenow", "80");
+      expect(progressBar.element().getBoundingClientRect().width).toBeGreaterThan(20);
+      await expect.element(settingsPanel.getByText("剩余 80%", { exact: true })).toBeVisible();
+
+      // Critical constraint: never display 5元 / ¥5 / 5 RMB / internal plan slug / credit balance card.
+      const text = document.body.textContent ?? "";
+      expect(text).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB|CNY\s*5/i);
+      expect(text).not.toContain("starter-trial");
+      expect(text).not.toContain("积分余额");
+    } finally {
+      await screen.unmount();
+    }
   });
 });

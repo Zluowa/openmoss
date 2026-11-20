@@ -690,9 +690,9 @@ export const startMossServiceEntryMaintenance = (input: {
   });
 
 /**
- * Codex's code for a turn whose model request failed to connect. The managed Codex lane sends
- * with `request_max_retries = 0`, so a reset on the gateway entry ends the turn with it. Codex
- * 0.166.0's app-server types give this variant an `httpStatusCode: number | null`, so it is not
+ * Codex's code for a turn whose model request failed to connect. Once the managed Codex lane
+ * exhausts its bounded retries (`request_max_retries = 2`), a reset on the gateway entry ends the
+ * turn with it. Codex 0.166.0's app-server types give this variant an `httpStatusCode: number | null`, so it is not
  * proof that no HTTP response arrived: it is treated as a hint only.
  */
 export const MOSS_LANE_CONNECTION_FAILURE_CODE = "httpConnectionFailed";

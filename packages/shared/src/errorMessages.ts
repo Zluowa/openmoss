@@ -9,6 +9,11 @@
 // of truth and cannot silently drift apart when the wording is edited.
 export const THREAD_NOT_ARCHIVED_INVARIANT_MARKER = "is not archived for command";
 
+// Stable phrase embedded in the server's "thread is already archived" orchestration
+// invariant message so client callers can detect an already-archived race cleanly.
+export const THREAD_ALREADY_ARCHIVED_INVARIANT_MARKER =
+  "is already archived and cannot handle command";
+
 // A duplicate approval can race the authoritative interaction update back to
 // the browser. The server still rejects the duplicate, while the client treats
 // this marker as an instruction to refresh the already-settled request.

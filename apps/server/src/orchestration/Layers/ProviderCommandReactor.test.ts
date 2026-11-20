@@ -101,7 +101,6 @@ import { GrokAdapter } from "../../provider/Services/GrokAdapter.ts";
 import { OmpAdapter } from "../../provider/Services/OmpAdapter.ts";
 import { OpenCodeAdapter } from "../../provider/Services/OpenCodeAdapter.ts";
 import { PiAdapter } from "../../provider/Services/PiAdapter.ts";
-import { GeminiAdapter } from "../../provider/Services/GeminiAdapter.ts";
 import { HermesAdapter } from "../../provider/Services/HermesAdapter.ts";
 import { KimiAdapter } from "../../provider/Services/KimiAdapter.ts";
 import { MinimaxAdapter } from "../../provider/Services/MinimaxAdapter.ts";
@@ -471,7 +470,6 @@ function createRetainingRestartProviderServiceLayer(options?: {
         Layer.succeed(OpenCodeAdapter, adapterFor("opencode")),
         Layer.succeed(OmpAdapter, adapterFor("omp")),
         Layer.succeed(PiAdapter, adapterFor("pi")),
-        Layer.succeed(GeminiAdapter, adapterFor("gemini")),
         Layer.succeed(HermesAdapter, adapterFor("hermes")),
         Layer.succeed(KimiAdapter, adapterFor("kimi")),
         Layer.succeed(MinimaxAdapter, adapterFor("minimax")),
@@ -28252,6 +28250,116 @@ describe("ProviderCommandReactor", () => {
     expect(harness.startSession.mock.calls.length).toBe(0);
     expect((await readHarnessThread(harness))?.runtimeMode).toBe("approval-required");
     expect((await readHarnessThread(harness))?.session?.runtimeMode).toBe("full-access");
+  });
+
+  it("defers recovery when switching model on an errored session until the user continues", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "codex", model: "gpt-5.4" },
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-errored-session-seed"),
+        threadId,
+        session: {
+          threadId,
+          status: "error",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: "Connection lost",
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+
+    // Changing the model after an error must not eagerly cold-start or race a
+    // follow-up Continue send.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.meta.update",
+        commandId: CommandId.makeUnsafe("cmd-model-change-on-errored-session"),
+        threadId,
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
+      }),
+    );
+    await harness.drain();
+    expect(harness.startSession).not.toHaveBeenCalled();
+
+    // Clicking Continue recovers in one session start + turn send with the new model.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-continue-after-model-change"),
+        threadId,
+        message: {
+          messageId: asMessageId("user-msg-continue-after-error"),
+          role: "user",
+          text: "Continue where you left off.",
+          attachments: [],
+        },
+        modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession).toHaveBeenCalledTimes(1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      modelSelection: { provider: "codex", model: "gpt-5.3-codex" },
+    });
+  });
+
+  it("reuses a warm session on follow-up turns without restarting the provider CLI", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "codex", model: "gpt-5.4" },
+    });
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-warm-turn-1"),
+        threadId,
+        message: {
+          messageId: asMessageId("user-msg-warm-1"),
+          role: "user",
+          text: "first turn",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession).toHaveBeenCalledTimes(1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-warm-turn-2"),
+        threadId,
+        message: {
+          messageId: asMessageId("user-msg-warm-2"),
+          role: "user",
+          text: "follow-up after switching back",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: new Date(Date.now() + 1_000).toISOString(),
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.startSession).toHaveBeenCalledTimes(1);
   });
 });
 

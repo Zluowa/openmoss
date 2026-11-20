@@ -466,15 +466,24 @@ class AuthorityMissingQuotaPolicyColumnError extends Error {
   }
 }
 
-function isMissingQuotaPolicyColumnResponse(
+class AuthorityMissingWalletPrepaidColumnError extends Error {
+  constructor() {
+    super("credit_wallets prepaid micros column is unavailable");
+    this.name = "AuthorityMissingWalletPrepaidColumnError";
+  }
+}
+
+function isMissingAuthorityColumnResponse(
+  expectedResource: string,
+  column: string,
   resource: string,
   query: URLSearchParams,
   status: number,
   body: string,
 ): boolean {
   if (
-    resource !== "account_quotas" ||
-    !query.get("select")?.split(",").includes("quota_policy_mode") ||
+    resource !== expectedResource ||
+    !query.get("select")?.split(",").includes(column) ||
     (status !== 400 && status !== 422)
   ) {
     return false;
@@ -485,15 +494,47 @@ function isMissingQuotaPolicyColumnResponse(
     const message = value.message;
     return (
       (code === "42703" &&
-        (message === "column account_quotas.quota_policy_mode does not exist" ||
-          message === "column quota_policy_mode does not exist")) ||
+        (message === `column ${expectedResource}.${column} does not exist` ||
+          message === `column ${column} does not exist`)) ||
       (code === "PGRST204" &&
         message ===
-          "Could not find the 'quota_policy_mode' column of 'account_quotas' in the schema cache")
+          `Could not find the '${column}' column of '${expectedResource}' in the schema cache`)
     );
   } catch {
     return false;
   }
+}
+
+function isMissingQuotaPolicyColumnResponse(
+  resource: string,
+  query: URLSearchParams,
+  status: number,
+  body: string,
+): boolean {
+  return isMissingAuthorityColumnResponse(
+    "account_quotas",
+    "quota_policy_mode",
+    resource,
+    query,
+    status,
+    body,
+  );
+}
+
+function isMissingWalletPrepaidColumnResponse(
+  resource: string,
+  query: URLSearchParams,
+  status: number,
+  body: string,
+): boolean {
+  return isMissingAuthorityColumnResponse(
+    "credit_wallets",
+    "text_credit_prepaid_micros",
+    resource,
+    query,
+    status,
+    body,
+  );
 }
 
 const invalidAuthorityResponse = (cause?: unknown): MossPayError =>
@@ -502,6 +543,25 @@ const invalidAuthorityResponse = (cause?: unknown): MossPayError =>
     message: SAFE_MOSS_PAY_ERROR_MESSAGES.invalid_response,
     ...(cause === undefined ? {} : { cause }),
   });
+
+/**
+ * Postgres `BIGINT MAX` (`9223372036854775807`, rounded to `2 ** 63` by JSON.parse) is stored
+ * in `account_quotas` (`request_limit`, `realtime_session_limit`) for lifetime plans whose spend
+ * is governed by a credit/cost budget rather than a request or session ceiling.
+ */
+const POSTGRES_BIGINT_MAX_NUMBER = 2 ** 63;
+
+function isUnboundedPostgresBigint(value: unknown): boolean {
+  return (
+    value === POSTGRES_BIGINT_MAX_NUMBER ||
+    (typeof value === "string" && value.trim() === "9223372036854775807")
+  );
+}
+
+/** Postgres `'infinity'::timestamptz` marks a lifetime quota window with no reset date. */
+function isInfiniteTimestamp(value: unknown): boolean {
+  return typeof value === "string" && /^\+?infinity$/iu.test(value.trim());
+}
 
 function requireSafeString(value: unknown, maxLength = 200): string {
   const normalized = asSafeString(value, maxLength);
@@ -515,6 +575,11 @@ function requireIsoDateTime(value: unknown): string {
   return normalized;
 }
 
+function requirePeriodEnd(value: unknown): string | null {
+  if (isInfiniteTimestamp(value)) return null;
+  return requireIsoDateTime(value);
+}
+
 function requireNonNegativeInteger(value: unknown): number {
   const normalized = asNullableNonNegativeInteger(value);
   if (normalized === null) throw invalidAuthorityResponse();
@@ -523,6 +588,11 @@ function requireNonNegativeInteger(value: unknown): number {
 
 function requireNullableNonNegativeInteger(value: unknown): number | null {
   if (value === null) return null;
+  return requireNonNegativeInteger(value);
+}
+
+function requireNullableLimitInteger(value: unknown): number | null {
+  if (value === null || isUnboundedPostgresBigint(value)) return null;
   return requireNonNegativeInteger(value);
 }
 
@@ -783,6 +853,12 @@ async function fetchAuthorityRows(input: {
   ) {
     throw new AuthorityMissingQuotaPolicyColumnError();
   }
+  if (
+    responseText !== null &&
+    isMissingWalletPrepaidColumnResponse(input.resource, input.query, response.status, responseText)
+  ) {
+    throw new AuthorityMissingWalletPrepaidColumnError();
+  }
   if (response.status === 401 || response.status === 403) {
     throw new MossPayError({
       code: "unauthorized",
@@ -882,6 +958,24 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
     publishableKey: authority.publishableKey,
     accessToken: credential.accessToken,
   };
+  const fetchWalletRows = async () => {
+    try {
+      return await fetchAuthorityRows({
+        ...shared,
+        resource: "credit_wallets",
+        query: new URLSearchParams({ select: "balance,text_credit_prepaid_micros", limit: "1" }),
+      });
+    } catch (firstFailure) {
+      if (!(firstFailure instanceof AuthorityMissingWalletPrepaidColumnError)) {
+        throw firstFailure;
+      }
+      return fetchAuthorityRows({
+        ...shared,
+        resource: "credit_wallets",
+        query: new URLSearchParams({ select: "balance", limit: "1" }),
+      });
+    }
+  };
   const [entitlements, wallets, creditUsageSnapshot] = await Promise.all([
     fetchAuthorityRows({
       ...shared,
@@ -896,11 +990,7 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
         limit: "1",
       }),
     }),
-    fetchAuthorityRows({
-      ...shared,
-      resource: "credit_wallets",
-      query: new URLSearchParams({ select: "balance", limit: "1" }),
-    }),
+    fetchWalletRows(),
     fetchAuthorityCreditUsageSnapshot(shared),
   ]);
   const quotaQuery = (includePolicy: boolean) =>
@@ -940,10 +1030,12 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
   const entitlementId = requireSafeString(entitlement.id);
   if (quota.entitlement_id !== entitlementId) throw invalidAuthorityResponse();
   const periodStart = requireIsoDateTime(quota.period_start);
-  const periodEnd = requireIsoDateTime(quota.period_end);
-  if (Date.parse(periodEnd) <= Date.parse(periodStart)) throw invalidAuthorityResponse();
-  const requestLimit = requireNullableNonNegativeInteger(quota.request_limit);
-  const tokenLimit = requireNullableNonNegativeInteger(quota.token_limit);
+  const periodEnd = requirePeriodEnd(quota.period_end);
+  if (periodEnd !== null && Date.parse(periodEnd) <= Date.parse(periodStart)) {
+    throw invalidAuthorityResponse();
+  }
+  const requestLimit = requireNullableLimitInteger(quota.request_limit);
+  const tokenLimit = requireNullableLimitInteger(quota.token_limit);
   const inputTokens = requireNonNegativeInteger(quota.input_tokens_used);
   const outputTokens = requireNonNegativeInteger(quota.output_tokens_used);
   if (inputTokens > Number.MAX_SAFE_INTEGER - outputTokens) throw invalidAuthorityResponse();
@@ -951,16 +1043,27 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
   const realtimeModelAllowlist = requireStringArray(entitlement.realtime_model_allowlist);
   const quotaPolicyModeRaw = asQuotaPolicyMode(quota.quota_policy_mode);
   const isCostBudgetV1 = creditUsageSnapshot?.billing_model === "cost_budget_v1";
+  const isWalletCreditsV1 = creditUsageSnapshot?.billing_model === "wallet_credits_v1";
+  const explicitUnlimited =
+    quotaPolicyModeRaw === "unlimited" && requestLimit === null && tokenLimit === null;
   const validLegacyQuotaPolicy =
-    (quotaPolicyModeRaw === "unlimited" && requestLimit === null && tokenLimit === null) ||
-    (quotaPolicyModeRaw === "metered" && requestLimit !== null);
-  const quotaPolicyMode = isCostBudgetV1
-    ? "metered"
-    : validLegacyQuotaPolicy
-      ? quotaPolicyModeRaw
-      : quotaPolicyModeRaw === "unavailable" && requestLimit !== null
-        ? "metered"
-        : "unavailable";
+    explicitUnlimited || (quotaPolicyModeRaw === "metered" && requestLimit !== null);
+  const quotaPolicyMode = explicitUnlimited
+    ? "unlimited"
+    : isCostBudgetV1 || isWalletCreditsV1
+      ? "metered"
+      : validLegacyQuotaPolicy
+        ? quotaPolicyModeRaw
+        : quotaPolicyModeRaw === "unavailable" && requestLimit !== null
+          ? "metered"
+          : "unavailable";
+  const walletBalance = requireNonNegativeInteger(wallet.balance);
+  const rawPrepaidMicros =
+    wallet.text_credit_prepaid_micros === undefined || wallet.text_credit_prepaid_micros === null
+      ? null
+      : asNullableNonNegativeInteger(wallet.text_credit_prepaid_micros);
+  const walletPrepaidMicros =
+    rawPrepaidMicros !== null && rawPrepaidMicros < 1_000_000 ? rawPrepaidMicros : 0;
   return {
     account: {
       plan_code: requireSafeString(entitlement.plan_code, 80),
@@ -972,7 +1075,8 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
       request_limit: requestLimit,
       quota_policy_mode: quotaPolicyMode,
       requests_used: requireNonNegativeInteger(quota.requests_used),
-      credit_balance: requireNonNegativeInteger(wallet.balance),
+      credit_balance: walletBalance,
+      wallet_prepaid_micros: walletPrepaidMicros,
       credit_usage_snapshot: creditUsageSnapshot,
     },
     realtime: {
@@ -981,7 +1085,7 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
       plan_limit_nano_usd: requireNullableNonNegativeInteger(quota.realtime_cost_limit_nano_usd),
       plan_used_nano_usd: requireNonNegativeInteger(quota.realtime_cost_used_nano_usd),
       plan_reserved_nano_usd: requireNonNegativeInteger(quota.realtime_cost_reserved_nano_usd),
-      session_limit: requireNullableNonNegativeInteger(quota.realtime_session_limit),
+      session_limit: requireNullableLimitInteger(quota.realtime_session_limit),
       sessions_used: requireNonNegativeInteger(quota.realtime_sessions_used),
       estimated_minutes_remaining: null,
     },
@@ -1075,21 +1179,58 @@ export function normalizeMossPayQuota(
     firstDefined(json.credit_usage_snapshot, json.creditUsageSnapshot),
   );
   const isCostBudgetV1 = creditUsageSnapshot.billing_model === "cost_budget_v1";
+  const isWalletCreditsV1 = creditUsageSnapshot.billing_model === "wallet_credits_v1";
+  const explicitUnlimited =
+    rawQuotaPolicyMode === "unlimited" && requestLimit === null && tokenLimit === null;
   const validLegacyQuotaPolicy =
-    (rawQuotaPolicyMode === "unlimited" && requestLimit === null && tokenLimit === null) ||
-    (rawQuotaPolicyMode === "metered" && requestLimit !== null);
-  const quotaPolicyMode = isCostBudgetV1
-    ? "metered"
-    : validLegacyQuotaPolicy
-      ? rawQuotaPolicyMode
-      : rawQuotaPolicyMode === "unavailable" && requestLimit !== null
-        ? "metered"
-        : "unavailable";
+    explicitUnlimited || (rawQuotaPolicyMode === "metered" && requestLimit !== null);
+  const quotaPolicyMode = explicitUnlimited
+    ? "unlimited"
+    : isCostBudgetV1 || isWalletCreditsV1
+      ? "metered"
+      : validLegacyQuotaPolicy
+        ? rawQuotaPolicyMode
+        : rawQuotaPolicyMode === "unavailable" && requestLimit !== null
+          ? "metered"
+          : "unavailable";
   const realtimeUnlimited = quotaPolicyMode === "unlimited" && realtimeModelAllowlist.length > 0;
-  const weightedUsageLimits =
-    creditUsageSnapshot.billing_model === "weighted_credits_v1" || isCostBudgetV1
+  const creditBalance = asNonNegativeInteger(firstDefined(json.credit_balance, json.creditBalance));
+  const rawWalletPrepaidMicros = asNullableNonNegativeInteger(
+    firstDefined(json.wallet_prepaid_micros, json.walletPrepaidMicros),
+  );
+  const walletPrepaidMicros =
+    rawWalletPrepaidMicros !== null && rawWalletPrepaidMicros < 1_000_000
+      ? rawWalletPrepaidMicros
+      : 0;
+  const rawWeightedUsageLimits =
+    creditUsageSnapshot.billing_model === "weighted_credits_v1" ||
+    isCostBudgetV1 ||
+    isWalletCreditsV1
       ? normalizeCreditUsageLimits(creditUsageSnapshot)
       : [];
+  // Free accounts settle against `credit_wallets.balance` in whole-unit chunks with the
+  // unspent fraction held in `text_credit_prepaid_micros`. Reflect that fraction in the
+  // lifetime meter so a small chat smoothly steps down from 100% rather than dropping 20% at once.
+  const snapshotWalletBalance = asNullableNonNegativeInteger(
+    firstDefined(creditUsageSnapshot.wallet_balance, creditUsageSnapshot.walletBalance),
+  );
+  const weightedUsageLimits =
+    isWalletCreditsV1 && walletPrepaidMicros > 0 && snapshotWalletBalance === creditBalance
+      ? rawWeightedUsageLimits.map((entry) =>
+          entry.key === "lifetime" && entry.limit !== null && entry.limit > 0
+            ? {
+                ...entry,
+                used: Math.max(
+                  0,
+                  Math.min(
+                    entry.limit,
+                    entry.limit - (creditBalance + walletPrepaidMicros / 1_000_000),
+                  ),
+                ),
+              }
+            : entry,
+        )
+      : rawWeightedUsageLimits;
   const legacyWindowKey =
     explicitDurationSeconds !== null && Math.abs(explicitDurationSeconds - 18_000) <= 900
       ? "five_hour"
@@ -1115,7 +1256,9 @@ export function normalizeMossPayQuota(
       weightedUsageLimits.length > 0
         ? isCostBudgetV1
           ? "cost_budget_v1"
-          : "weighted_credits_v1"
+          : isWalletCreditsV1
+            ? "wallet_credits_v1"
+            : "weighted_credits_v1"
         : "legacy_tokens",
     usageLimits: weightedUsageLimits.length > 0 ? weightedUsageLimits : legacyUsageLimits,
     quotaPolicyMode,

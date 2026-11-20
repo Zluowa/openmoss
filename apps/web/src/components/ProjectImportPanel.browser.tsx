@@ -121,7 +121,6 @@ describe("project import panel", () => {
         "codex",
         "claudeAgent",
         "cursor",
-        "gemini",
         "antigravity",
         "grok",
         "opencode",
@@ -136,7 +135,7 @@ describe("project import panel", () => {
     await expect
       .element(
         page.getByText(
-          "Not found: Cursor, Gemini, Antigravity, Grok, OpenCode, Pi, Hermes, Devin, Oh My Pi, ZCode.",
+          "Not found: Cursor, Antigravity, Grok, OpenCode, Pi, Hermes, Devin, Oh My Pi, ZCode.",
         ),
       )
       .toBeVisible();
@@ -361,7 +360,7 @@ describe("agents found on this computer", () => {
     });
     await render(<ProjectImportPanel onBusyChange={vi.fn()} />);
     const note = page.getByText(
-      "Not found: Cursor, Gemini, Grok, OpenCode, Pi, Hermes, Devin, Oh My Pi, ZCode · 2 can't be copied (Antigravity).",
+      "Not found: Cursor, Grok, OpenCode, Pi, Hermes, Devin, Oh My Pi, ZCode · 2 can't be copied (Antigravity).",
     );
     await expect.element(note).toBeVisible();
     await expect

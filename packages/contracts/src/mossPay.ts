@@ -139,6 +139,7 @@ export type MossPayQuotaPolicyMode = typeof MossPayQuotaPolicyMode.Type;
 
 export const MossPayBillingModel = Schema.Literals([
   "cost_budget_v1",
+  "wallet_credits_v1",
   "weighted_credits_v1",
   "legacy_tokens",
 ]);

@@ -1756,16 +1756,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               sourceHomePath: join(baseDir, "other-account"),
               spawn: () => new EventEmitter(),
             });
-            const busy = yield* Effect.flip(health.updateProvider({ provider: "codex" }));
-            assert.include(busy.reason, "still in use");
-            assert.strictEqual(updates, 0);
-            child.emit("exit");
-            assert.include(
-              (yield* Effect.flip(health.updateProvider({ provider: "codex" }))).reason,
-              "still in use",
-            );
-            child.emit("close");
+            let stopCalls = 0;
+            const unregister = programs.registerMaintenanceStopper(async () => {
+              stopCalls += 1;
+              child.emit("close");
+            });
             const result = yield* health.updateProvider({ provider: "codex" });
+            unregister();
+            assert.strictEqual(stopCalls, 1);
             assert.strictEqual(updates, 1);
             assert.include(
               result.providers.find((status) => status.provider === "codex")?.updateState
@@ -2262,9 +2260,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
 
         const errors = yield* Effect.gen(function* () {
           const providerHealth = yield* ProviderHealth;
-          const providers: Array<"pi" | "cursor"> = ["pi"];
+          const providers: Array<"pi" | "cursor" | "antigravity"> = ["pi"];
           if (process.platform === "win32" && ["x64", "arm64"].includes(process.arch))
             providers.push("cursor");
+          if (
+            ["win32", "darwin", "linux"].includes(process.platform) &&
+            ["x64", "arm64"].includes(process.arch)
+          )
+            providers.push("antigravity");
           const errors = [];
           for (const provider of providers) {
             errors.push(yield* Effect.flip(providerHealth.installProvider({ provider })));
@@ -2386,8 +2389,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       );
       const codex = statuses.find((status) => status.provider === "codex");
 
-      // Every built-in driver (14 supported plus legacy Droid settings) gets an inert status.
-      assert.strictEqual(statuses.length, 15);
+      // Every built-in driver (13 supported plus legacy Droid settings; retired Gemini CLI excluded) gets an inert status.
+      assert.strictEqual(statuses.length, 14);
       assert.strictEqual(codex?.available, false);
       assert.strictEqual(codex?.message, "Provider is disabled in Moss settings.");
     });
@@ -2691,7 +2694,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const providerHealth = yield* ProviderHealth;
         const statuses = yield* providerHealth.refresh;
 
-        assert.strictEqual(statuses.length, 15);
+        assert.strictEqual(statuses.length, 14);
         for (const status of statuses) {
           assert.strictEqual(status.available, false);
           assert.strictEqual(status.message, "Provider is disabled in Moss settings.");
@@ -3002,14 +3005,14 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           return yield* providerHealth.getStatuses;
         }).pipe(Effect.provide(layer));
 
-        // Gemini, Hermes, and the ACP agent drivers are built-in but disabled by
-        // default, so they are projected as inert settings statuses; nothing is
-        // probed or cached.
+        // Hermes and the ACP agent drivers are built-in but disabled by default,
+        // so they are projected as inert settings statuses; retired Gemini CLI
+        // never appears even as a disabled row, and nothing is probed or cached.
         assert.deepStrictEqual(
           statuses
             .map(({ provider, available, message }) => ({ provider, available, message }))
             .toSorted((left, right) => left.provider.localeCompare(right.provider)),
-          ["gemini", "hermes", "kimi", "minimax", "zcode"].map((provider) => ({
+          ["hermes", "kimi", "minimax", "zcode"].map((provider) => ({
             provider,
             available: false,
             message: "Provider is disabled in Moss settings.",
@@ -3017,6 +3020,58 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         );
         assert.strictEqual(spawnCount, 0);
       }),
+    );
+
+    it.effect(
+      "ignores legacy persisted Gemini CLI settings without probing or surfacing Gemini",
+      () =>
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "provider-health-retired-gemini-",
+          });
+          const spawnedCommands: string[] = [];
+          const layer = ProviderHealthLive.pipe(
+            Layer.provideMerge(
+              ServerSettingsService.layerTest({
+                ...allProvidersDisabledServerSettings,
+                enableProviderUpdateChecks: false,
+                providers: {
+                  ...allProvidersDisabledServerSettings.providers,
+                  gemini: {
+                    ...DEFAULT_SERVER_SETTINGS.providers.gemini,
+                    enabled: true,
+                    binaryPath: "gemini",
+                  },
+                },
+                providerInstances: {
+                  gemini_work: { driver: "gemini", enabled: true },
+                },
+              }),
+            ),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), baseDir)),
+            Layer.provideMerge(
+              mockSpawnerLayer((_args, command) => {
+                spawnedCommands.push(command);
+                return { stdout: "", stderr: "", code: 0 };
+              }),
+            ),
+          );
+
+          const statuses = yield* Effect.gen(function* () {
+            const providerHealth = yield* ProviderHealth;
+            return yield* providerHealth.refresh;
+          }).pipe(Effect.provide(layer));
+
+          assert.strictEqual(
+            statuses.some((status) => status.provider === "gemini" || status.driver === "gemini"),
+            false,
+          );
+          assert.strictEqual(
+            spawnedCommands.some((command) => command.toLowerCase().includes("gemini")),
+            false,
+          );
+        }).pipe(Effect.scoped),
     );
   });
 

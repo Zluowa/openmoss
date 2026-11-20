@@ -59,6 +59,8 @@ interface ChatComposerFooterProps {
     phase: SessionPhase;
     busy: boolean;
     connecting: boolean;
+    /** Server acknowledged the turn request, waiting for the provider's turn.started. */
+    awaitingTurnStart?: boolean;
     expired: boolean;
     hasPendingCacheReview?: boolean;
     preparingImages: boolean;
@@ -224,12 +226,15 @@ export function ChatComposerFooter({
                 ? "Submit answers"
                 : "Next question"}
           </Button>
-        ) : submission.phase === "running" || submission.connecting ? (
+        ) : submission.phase === "running" ||
+          submission.connecting ||
+          (submission.awaitingTurnStart === true && !submission.busy) ? (
           <>
             {/* Dictating a follow-up is allowed mid-turn: the transcript lands in the
                 composer and sending it follows the queue/steer behavior. */}
             {voice.enabled &&
             !submission.connecting &&
+            !submission.awaitingTurnStart &&
             !voice.recording &&
             !voice.transcribing &&
             !submission.hasPendingUserInputs ? (

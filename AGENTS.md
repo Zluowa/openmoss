@@ -27,21 +27,21 @@ owner's direct yes for that action. Stop and report when you reach one.
 
 ## Where to look
 
-| You are about to…                        | Read                                                    | Use skill       |
-| ---------------------------------------- | ------------------------------------------------------- | --------------- |
-| Start any task                           | `docs/handbook/coordination.md`                         | `start-task`    |
-| Write or change code                     | `docs/handbook/engineering.md`, the area's `README.md`  |                 |
-| Change anything a user can see           | `docs/design/moss-design-standard.md`                   | `design-review` |
-| Write or change user-facing text         | `docs/zh-CN-product-glossary.md`, the design standard   | `design-review` |
-| Open or update a PR                      | `docs/handbook/quality.md`                              | `open-pr`       |
-| Review someone's PR                      | `docs/handbook/roles.md` (Reviewer)                     | `review-pr`     |
-| Run or start Moss to try a change        | `docs/handbook/quality.md` (Isolation)                  | `run-isolated`  |
-| Test as a user                           | `docs/handbook/quality.md`                              | `run-isolated`  |
-| Merge, coordinate, plan a round          | `docs/handbook/roles.md` (Coordinator)                  |                 |
-| Clean up a machine                       | `docs/handbook/resources.md`                            | `reclaim`       |
-| Build, release or change production      | `docs/release.md` ("Unsigned feed release")             |                 |
-| Understand how the system fits together  | `docs/core-concepts.md`, `docs/handbook/engineering.md` |                 |
-| Learn how another product does something | `docs/research/`                                        |                 |
+| You are about to…                        | Read                                                                               | Use skill       |
+| ---------------------------------------- | ---------------------------------------------------------------------------------- | --------------- |
+| Start any task                           | `docs/handbook/coordination.md`                                                    | `start-task`    |
+| Write or change code                     | `docs/handbook/engineering.md`, `docs/handbook/lessons.md`, the area's `README.md` |                 |
+| Change anything a user can see           | `docs/design/moss-design-standard.md`                                              | `design-review` |
+| Write or change user-facing text         | `docs/zh-CN-product-glossary.md`, the design standard                              | `design-review` |
+| Open or update a PR                      | `docs/handbook/quality.md`                                                         | `open-pr`       |
+| Review someone's PR                      | `docs/handbook/roles.md` (Reviewer)                                                | `review-pr`     |
+| Run or start Moss to try a change        | `docs/handbook/quality.md` (Isolation)                                             | `run-isolated`  |
+| Test as a user                           | `docs/handbook/quality.md`                                                         | `run-isolated`  |
+| Merge, coordinate, plan a round          | `docs/handbook/roles.md` (Coordinator)                                             |                 |
+| Clean up a machine                       | `docs/handbook/resources.md`                                                       | `reclaim`       |
+| Build, release or change production      | `docs/release.md` ("Unsigned feed release")                                        |                 |
+| Understand how the system fits together  | `docs/core-concepts.md`, `docs/handbook/engineering.md`                            |                 |
+| Learn how another product does something | `docs/research/`                                                                   |                 |
 
 `docs/design/`, `docs/release.md`, `docs/core-concepts.md` and `docs/research/` are
 kept in the private repository; the public mirror does not include them.

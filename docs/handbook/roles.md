@@ -18,6 +18,8 @@ review, taste) and the efficient one on volume (implementation, sweeps, reading)
 - Decides what gets deleted. Guards the tree against pollution.
 - Talks to the owner. Is the only role that brings gate requests to them.
 - Runs the reclaim sweep after every round (see `resources.md`).
+- Runs the nightly review of the day's merged work and keeps `lessons.md` true
+  (the `nightly-review` skill).
 - Watches the account's usage and says so before it runs out.
 - Keeps one incident note per production finding, outside the repository: what
   was seen, the evidence, what is not known, the options. Tells the owner at once.

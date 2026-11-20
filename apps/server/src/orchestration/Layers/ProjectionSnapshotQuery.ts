@@ -5,6 +5,7 @@ import {
   type ProjectionSidebarSection,
 } from "../../persistence/Services/ProjectionSidebarSections.ts";
 import { ProjectionSidebarOrderRepository } from "../../persistence/Services/ProjectionSidebarOrder.ts";
+import { compactSidebarOrderItems } from "../sidebarOrder.ts";
 import {
   selectMessageTextChunks,
   selectSegmentEndedAt,
@@ -1029,6 +1030,17 @@ function toProjectedThread(input: {
  * bootstrap reconstructs the hot cursor on startup (see
  * initializeHotProjectionCursor), so the error also self-heals on restart.
  */
+function normalizePersistedSidebarOrderItems(
+  items: ReadonlyArray<OrchestrationSidebarOrderItem>,
+): ReadonlyArray<OrchestrationSidebarOrderItem> {
+  if (items.length === 0) return items;
+  try {
+    return compactSidebarOrderItems(items);
+  } catch {
+    return items;
+  }
+}
+
 function computeSnapshotSequence(
   stateRows: ReadonlyArray<Schema.Schema.Type<typeof ProjectionStateDbRowSchema>>,
 ): Effect.Effect<number, ProjectionStateIncompleteError> {
@@ -3405,17 +3417,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             }),
           );
 
+          const normalizedSidebarOrderItems =
+            normalizePersistedSidebarOrderItems(sidebarOrderItems);
           const snapshot = {
             snapshotSequence: yield* computeSnapshotSequence(stateRows),
             spaces: spaceRows.map(toProjectedSpace),
             projects,
             threads,
             sidebarSections: sidebarSectionRows.map((row) =>
-              toProjectedSidebarSection(row, sidebarOrderItems),
+              toProjectedSidebarSection(row, normalizedSidebarOrderItems),
             ),
             sidebarOrderRevision: sidebarOrderState.revision,
             sidebarOrderMigrationState: sidebarOrderState.migrationState,
-            sidebarOrderItems,
+            sidebarOrderItems: normalizedSidebarOrderItems,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 
@@ -3600,17 +3614,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             }),
           );
 
+          const normalizedSidebarOrderItems =
+            normalizePersistedSidebarOrderItems(sidebarOrderItems);
           return yield* decodeReadModel({
             snapshotSequence: yield* computeSnapshotSequence(stateRows),
             spaces: spaceRows.map(toProjectedSpace),
             projects,
             threads,
             sidebarSections: sidebarSectionRows.map((row) =>
-              toProjectedSidebarSection(row, sidebarOrderItems),
+              toProjectedSidebarSection(row, normalizedSidebarOrderItems),
             ),
             sidebarOrderRevision: sidebarOrderState.revision,
             sidebarOrderMigrationState: sidebarOrderState.migrationState,
-            sidebarOrderItems,
+            sidebarOrderItems: normalizedSidebarOrderItems,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           }).pipe(
             Effect.mapError(
@@ -3792,6 +3808,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             ? yield* loadLatestReplyPreviews(null, "ProjectionSnapshotQuery.getShellSnapshot")
             : EMPTY_LATEST_REPLY_PREVIEWS;
 
+          const normalizedSidebarOrderItems =
+            normalizePersistedSidebarOrderItems(sidebarOrderItems);
           const snapshot = {
             snapshotSequence: yield* computeSnapshotSequence(stateRows),
             requiresEmptyProjectShellRepair,
@@ -3811,11 +3829,11 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 }),
               ),
             sidebarSections: sidebarSectionRows.map((row) =>
-              toProjectedSidebarSectionShell(row, sidebarOrderItems),
+              toProjectedSidebarSectionShell(row, normalizedSidebarOrderItems),
             ),
             sidebarOrderRevision: sidebarOrderState.revision,
             sidebarOrderMigrationState: sidebarOrderState.migrationState,
-            sidebarOrderItems,
+            sidebarOrderItems: normalizedSidebarOrderItems,
             ...(unreadableThreads.length > 0 ? { unreadableThreads } : {}),
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };

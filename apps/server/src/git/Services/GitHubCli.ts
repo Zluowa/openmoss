@@ -10,8 +10,11 @@ import type { Effect } from "effect";
 import type {
   GitHubInboxState,
   GitHubInboxSort,
+  GitHubIssueCandidates,
+  GitHubIssueLinkedPullRequest,
   GitHubIssueState,
   GitHubIssueStateReason,
+  GitHubIssueUpdate,
   GitPullRequestCheck,
   GitPullRequestComment,
   PullRequestActor,
@@ -198,6 +201,8 @@ export interface GitHubIssueDetailData extends GitHubInboxIssue {
   readonly body: string;
   readonly comments: ReadonlyArray<PullRequestComment>;
   readonly commentsTruncated: boolean;
+  readonly linkedPullRequests: ReadonlyArray<GitHubIssueLinkedPullRequest>;
+  readonly viewerCanUpdate: boolean;
 }
 
 export interface GitHubPullRequestDetailData {
@@ -331,6 +336,24 @@ export interface GitHubCliShape {
     readonly number: number;
     readonly body: string;
   }) => Effect.Effect<void, GitHubCliError>;
+
+  /**
+   * Close, reopen, or replace the labels or assignees of an issue. Fails when GitHub answers
+   * with success but did not apply the change (it drops labels and assignees without triage
+   * access, and ignores a new close reason on an issue that is already closed).
+   */
+  readonly updateIssue: (input: {
+    readonly cwd: string;
+    readonly repository: string;
+    readonly number: number;
+    readonly update: GitHubIssueUpdate;
+  }) => Effect.Effect<void, GitHubCliError>;
+
+  /** The repository's labels and assignable people, first page of each. */
+  readonly getIssueCandidates: (input: {
+    readonly cwd: string;
+    readonly repository: string;
+  }) => Effect.Effect<GitHubIssueCandidates, GitHubCliError>;
 
   readonly getPullRequestDetail: (input: {
     readonly cwd: string;

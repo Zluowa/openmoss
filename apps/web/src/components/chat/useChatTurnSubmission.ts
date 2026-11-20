@@ -22,7 +22,7 @@ import {
   filterPromptSkillReferences,
 } from "~/lib/composerMentions";
 import { isServerConfiguredMossDefaultManagedProvider } from "~/lib/providerAvailability";
-import { fetchFreshMossQuotaAdmission } from "~/lib/mossQuotaAdmission";
+import { evaluateMossQuotaAdmission, fetchFreshMossQuotaAdmission } from "~/lib/mossQuotaAdmission";
 import { newMessageId, randomUUID } from "~/lib/utils";
 import {
   beginComposerSendTiming,
@@ -409,6 +409,7 @@ export function useChatTurnSubmission({
       requestedDispatchMode?: "queue" | "steer",
       queuedTurn?: QueuedComposerChatTurn,
       echo?: ComposerSendEcho,
+      preflightDispatchArmed?: { current: boolean },
     ): Promise<boolean> => {
       // Fail closed while a worktree is preparing: a native submit must never
       // reach provider refresh, thread creation, or turn dispatch early.
@@ -894,8 +895,14 @@ export function useChatTurnSubmission({
           skills: selectedComposerSkillsForSend,
           mentions: selectedComposerMentionsForSend,
         });
+      const armsPreflightDispatch =
+        preflightDispatchArmed !== undefined && !(hasQueueableLiveTurn && dispatchMode === "queue");
       if (echoesMessage) {
         presentSentMessage(outgoingMessageFor(composerImagesForSend).row);
+        if (armsPreflightDispatch) {
+          beginLocalDispatch({ expectedUserMessageId: messageIdForSend });
+          preflightDispatchArmed.current = true;
+        }
         echo.current = {
           threadId: activeThread.id,
           messageId: messageIdForSend,
@@ -914,6 +921,9 @@ export function useChatTurnSubmission({
         };
         echoesInFlightRef.current += 1;
         await afterNextPaint();
+      } else if (armsPreflightDispatch) {
+        beginLocalDispatch({ expectedUserMessageId: messageIdForSend });
+        preflightDispatchArmed.current = true;
       }
 
       const sendProviderAvailability = await runChatProviderSendPreflight({
@@ -941,21 +951,39 @@ export function useChatTurnSubmission({
       }
       onSendUnblocked();
 
-      // Refresh only the exact managed Moss instances immediately before any
+      // Check only the exact managed Moss instances immediately before any
       // browser/device attachment, queue persistence, optimistic message, or
-      // worktree path. Query errors are unavailable proof and therefore preserve
-      // the normal provider failure path; only a fresh same-account metered zero
-      // gets the dedicated quota outcome.
+      // worktree path. Mid-turn steering rides an already-admitted live turn;
+      // normal sends reuse a fresh non-exhausted cached snapshot (respecting
+      // the 10s staleTime) and force a refresh when exhausted so top-ups take
+      // effect immediately, bounded by a fail-open timeout so flaky networks
+      // never stall sending.
       const managedMossSend = isServerConfiguredMossDefaultManagedProvider(
         serverSettings,
         selectedModelSelectionForSend.instanceId,
       );
       const sendQuotaAccountIdentity = mossQuotaAccountIdentity;
-      if (managedMossSend && sendQuotaAccountIdentity !== null) {
+      const skipQuotaCheckForLiveSteer = hasQueueableLiveTurn && dispatchMode === "steer";
+      if (managedMossSend && sendQuotaAccountIdentity !== null && !skipQuotaCheckForLiveSteer) {
         const quotaOptions = serverMossPayQuotaQueryOptions({
           enabled: true,
           accountIdentity: sendQuotaAccountIdentity,
         });
+        const cachedQuotaState = queryClient.getQueryState(quotaOptions.queryKey);
+        const cachedQuotaDecision =
+          cachedQuotaState?.data !== undefined
+            ? evaluateMossQuotaAdmission({
+                instanceId:
+                  selectedModelSelectionForSend.instanceId ??
+                  selectedModelSelectionForSend.provider,
+                driver: selectedModelSelectionForSend.provider,
+                managed: true,
+                quota: cachedQuotaState.data,
+                quotaFetchedAt: cachedQuotaState.dataUpdatedAt,
+                accountIdentity: sendQuotaAccountIdentity,
+                proofAccountIdentity: sendQuotaAccountIdentity,
+              })
+            : { kind: "allow" as const };
         const freshMossQuotaAdmission = await fetchFreshMossQuotaAdmission({
           instanceId:
             selectedModelSelectionForSend.instanceId ?? selectedModelSelectionForSend.provider,
@@ -963,7 +991,12 @@ export function useChatTurnSubmission({
           accountIdentity: sendQuotaAccountIdentity,
           isTransitionPending: () => mossQuotaAccountTransitionPendingRef.current,
           getCurrentAccountIdentity: () => mossQuotaAccountIdentityRef.current,
-          fetchQuota: () => queryClient.fetchQuery({ ...quotaOptions, staleTime: 0 }),
+          fetchQuota: () =>
+            queryClient.fetchQuery(
+              cachedQuotaDecision.kind === "exhausted"
+                ? { ...quotaOptions, staleTime: 0 }
+                : quotaOptions,
+            ),
           getFetchedAt: () => queryClient.getQueryState(quotaOptions.queryKey)?.dataUpdatedAt ?? 0,
         });
         if (freshMossQuotaAdmission.kind === "exhausted") {
@@ -1114,6 +1147,9 @@ export function useChatTurnSubmission({
       }
 
       sendInFlightRef.current = true;
+      if (preflightDispatchArmed) {
+        preflightDispatchArmed.current = false;
+      }
       beginLocalDispatch({
         expectedUserMessageId: messageIdForSend,
         ...(baseBranchForWorktree
@@ -1442,9 +1478,14 @@ export function useChatTurnSubmission({
       }
       composerSendGateRef.current = { threadId, key: gateContentKey };
       const echo: ComposerSendEcho = { current: null };
+      const preflightDispatchArmed = { current: false };
       // A message shown right after Enter whose checks then stopped the send goes back
       // into the composer (unless the person already started a new draft there).
       const handBackEchoedMessage = () => {
+        if (preflightDispatchArmed.current) {
+          preflightDispatchArmed.current = false;
+          resetLocalDispatch();
+        }
         const unsent = echo.current;
         if (unsent === null) return;
         echo.current = null;
@@ -1459,7 +1500,7 @@ export function useChatTurnSubmission({
           );
         }
       };
-      return performComposerSend(requestedDispatchMode, queuedTurn, echo)
+      return performComposerSend(requestedDispatchMode, queuedTurn, echo, preflightDispatchArmed)
         .then(
           (sent) => {
             handBackEchoedMessage();
@@ -1482,6 +1523,7 @@ export function useChatTurnSubmission({
     [
       threadId,
       performComposerSend,
+      resetLocalDispatch,
       setComposerDraftPrompt,
       setPrompt,
       setComposerTrigger,

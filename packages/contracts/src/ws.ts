@@ -5,6 +5,7 @@ import {
   MossbotRoomSendInput,
 } from "./mossbotRoom";
 import { DevsReportSubmitInput, DevsReportListInput } from "./devsReport";
+import { AgentFeedbackDismissInput } from "./agentFeedback";
 import { Schema, Struct, Tuple } from "effect";
 import {
   AuthCreatePairingCredentialInput,
@@ -345,9 +346,19 @@ import { PullRequestAutoFixGetInput, PullRequestAutoFixSetInput } from "./pullRe
 import {
   GitHubConnectionInput,
   GitHubInboxListInput,
+  GitHubIssueCandidatesInput,
   GitHubIssueCommentInput,
+  GitHubIssueUpdateInput,
   GitHubIssueDetailInput,
 } from "./githubInbox";
+import {
+  ExternalIssueSourceInput,
+  ExternalIssueCandidatesInput,
+  ExternalIssueCommentInput,
+  ExternalIssueDetailInput,
+  ExternalIssueListInput,
+  ExternalIssueUpdateInput,
+} from "./externalIssues";
 import {
   ExternalMcpCreateIntegrationInput,
   ExternalMcpRefreshPairingInput,
@@ -440,6 +451,14 @@ export const WS_METHODS = {
   githubInboxList: "githubInbox.list",
   githubInboxIssueDetail: "githubInbox.issueDetail",
   githubInboxIssueComment: "githubInbox.issueComment",
+  githubInboxIssueUpdate: "githubInbox.issueUpdate",
+  githubInboxIssueCandidates: "githubInbox.issueCandidates",
+  issueSourcesStatus: "issueSources.status",
+  issueSourcesList: "issueSources.list",
+  issueSourcesDetail: "issueSources.detail",
+  issueSourcesUpdate: "issueSources.update",
+  issueSourcesComment: "issueSources.comment",
+  issueSourcesCandidates: "issueSources.candidates",
   pullRequestsDetail: "pullRequests.detail",
   pullRequestsDiff: "pullRequests.diff",
   pullRequestsAction: "pullRequests.action",
@@ -653,6 +672,10 @@ export const WS_METHODS = {
 
   // Secret requests (an agent's private "Save securely" card)
   secretRequestAnswer: "secretRequest.answer",
+
+  // Agent feedback (notes agents leave through moss_report_friction)
+  agentFeedbackList: "agentFeedback.list",
+  agentFeedbackDismiss: "agentFeedback.dismiss",
 
   // Library methods (Moss 资料库 local multi-agent index)
   pagesSpaces: "pages.spaces",
@@ -931,6 +954,14 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.githubInboxList, GitHubInboxListInput),
   tagRequestBody(WS_METHODS.githubInboxIssueDetail, GitHubIssueDetailInput),
   tagRequestBody(WS_METHODS.githubInboxIssueComment, GitHubIssueCommentInput),
+  tagRequestBody(WS_METHODS.githubInboxIssueUpdate, GitHubIssueUpdateInput),
+  tagRequestBody(WS_METHODS.githubInboxIssueCandidates, GitHubIssueCandidatesInput),
+  tagRequestBody(WS_METHODS.issueSourcesStatus, ExternalIssueSourceInput),
+  tagRequestBody(WS_METHODS.issueSourcesList, ExternalIssueListInput),
+  tagRequestBody(WS_METHODS.issueSourcesDetail, ExternalIssueDetailInput),
+  tagRequestBody(WS_METHODS.issueSourcesUpdate, ExternalIssueUpdateInput),
+  tagRequestBody(WS_METHODS.issueSourcesComment, ExternalIssueCommentInput),
+  tagRequestBody(WS_METHODS.issueSourcesCandidates, ExternalIssueCandidatesInput),
 
   // Terminal methods
   tagRequestBody(WS_METHODS.terminalOpen, TerminalOpenInput),
@@ -1165,6 +1196,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.todoUpdate, TodoUpdateInput),
   tagRequestBody(WS_METHODS.todoDelete, TodoDeleteInput),
   tagRequestBody(WS_METHODS.subscribeTodoEvents, Schema.Struct({})),
+
+  tagRequestBody(WS_METHODS.agentFeedbackList, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.agentFeedbackDismiss, AgentFeedbackDismissInput),
 
   tagRequestBody(WS_METHODS.pagesSpaces, PagesScopeInput),
   tagRequestBody(WS_METHODS.pageSpaceSync, PageSpaceSyncInput),

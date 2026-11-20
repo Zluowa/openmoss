@@ -3077,6 +3077,75 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  it("preserves starting status across session/thread startup events until turn.started lands", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-starting-before-ready-events"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "starting",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.emit({
+      type: "session.started",
+      eventId: asEventId("evt-session-started-while-starting"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+    });
+    harness.emit({
+      type: "thread.started",
+      eventId: asEventId("evt-thread-started-while-starting"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+    });
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-session-ready-while-starting"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: { state: "ready" },
+    });
+
+    await harness.drain();
+    const startingModel = await Effect.runPromise(harness.engine.getReadModel());
+    const startingThread = startingModel.threads.find(
+      (entry) => entry.id === asThreadId("thread-1"),
+    );
+    expect(startingThread?.session?.status).toBe("starting");
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-after-starting"),
+      provider: "codex",
+      createdAt: new Date(Date.now() + 100).toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-after-starting"),
+    });
+
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-after-starting",
+    );
+  });
+
   it.each(["pending", "uncertain"] as const)(
     "settles orphaned %s interactions when a provider session (re)starts",
     async (status) => {

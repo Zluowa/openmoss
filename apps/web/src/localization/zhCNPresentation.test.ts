@@ -327,6 +327,8 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       ["Used when your system switches to dark.", "系统切换到深色时使用。"],
       ["Use dark theme", "使用深色主题"],
       ["Use light theme", "使用浅色主题"],
+      ["Copy absolute path", "复制绝对路径"],
+      ["Copy relative path", "复制相对路径"],
     ];
     for (const [english, chinese] of cases) {
       expect(translateZhCnPresentationText(english)).toBe(chinese);

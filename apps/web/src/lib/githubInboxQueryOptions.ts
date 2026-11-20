@@ -1,11 +1,15 @@
 // Query definitions for the GitHub inbox: one list query per state and sort (a superset every filter is
-// applied to on the client), the sidebar review badge that shares it, and issue detail.
+// applied to on the client), the sidebar review badge that shares it, issue detail, the labels and
+// people an issue can be given, and the issue comment and update mutations.
 import type {
   GitHubInboxListResult,
   GitHubInboxState,
   GitHubInboxSort,
+  GitHubIssueCandidatesInput,
   GitHubIssueCommentInput,
+  GitHubIssueDetail,
   GitHubIssueDetailInput,
+  GitHubIssueUpdateInput,
 } from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
@@ -28,6 +32,8 @@ export const githubInboxQueryKeys = {
       input?.repository ?? null,
       input?.number ?? null,
     ] as const,
+  issueCandidates: (input: GitHubIssueCandidatesInput) =>
+    ["github-inbox", "issue-candidates", input.projectId, input.repository] as const,
 };
 
 /** Poll while the page is visible; the server snapshot (4 minutes) makes most polls free. */
@@ -107,9 +113,70 @@ export function githubIssueDetailQueryOptions(
   });
 }
 
+/** A repository's labels and assignable people change rarely; read them when a picker opens. */
+export function githubIssueCandidatesQueryOptions(
+  input: GitHubIssueCandidatesInput,
+  behavior: { enabled: boolean },
+) {
+  return queryOptions({
+    queryKey: githubInboxQueryKeys.issueCandidates(input),
+    queryFn: () => ensureNativeApi().githubInbox.issueCandidates(input),
+    enabled: behavior.enabled,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
 export const githubInboxMutationKeys = {
   issueComment: ["github-inbox", "issue-comment"] as const,
+  issueUpdate: ["github-inbox", "issue-update"] as const,
 };
+
+/**
+ * One issue change, with how the detail should read once it lands. The preview is shown at once
+ * and dropped again if GitHub refuses; the detail is then read fresh either way.
+ */
+export interface GitHubIssueUpdateVariables {
+  readonly input: GitHubIssueUpdateInput;
+  readonly preview: Partial<
+    Pick<GitHubIssueDetail, "state" | "stateReason" | "labels" | "assignees">
+  >;
+}
+
+export function githubIssueUpdateMutationOptions(queryClient: QueryClient) {
+  return mutationOptions({
+    mutationKey: githubInboxMutationKeys.issueUpdate,
+    networkMode: "always",
+    mutationFn: ({ input }: GitHubIssueUpdateVariables) =>
+      ensureNativeApi().githubInbox.issueUpdate(input),
+    onMutate: async ({ input, preview }: GitHubIssueUpdateVariables) => {
+      const queryKey = githubInboxQueryKeys.issueDetail(input);
+      await queryClient.cancelQueries({ queryKey, exact: true });
+      const previous = queryClient.getQueryData<GitHubIssueDetail>(queryKey);
+      if (previous)
+        queryClient.setQueryData<GitHubIssueDetail>(queryKey, { ...previous, ...preview });
+      return { previous };
+    },
+    onError: (_error, { input }, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(githubInboxQueryKeys.issueDetail(input), context.previous);
+      }
+    },
+    // State, labels, and assignees all show in the list rows, and closing moves the issue
+    // between the open and closed lists.
+    onSettled: (_result, _error, { input }) =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: githubInboxQueryKeys.issueDetail(input),
+          exact: true,
+        }),
+        ...GITHUB_INBOX_STATES.map((state) =>
+          queryClient.invalidateQueries({ queryKey: githubInboxQueryKeys.lists(state) }),
+        ),
+      ]),
+  });
+}
 
 export function githubIssueCommentMutationOptions(queryClient: QueryClient) {
   return mutationOptions({

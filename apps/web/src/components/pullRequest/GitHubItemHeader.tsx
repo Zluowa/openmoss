@@ -28,11 +28,8 @@ import {
   IssueStateGlyph,
   PullRequestStateGlyph,
   pullRequestStateLabel,
+  STATE_WORD_KEYS,
 } from "./PullRequestStateGlyph";
-import {
-  resolveIssueStatePresentation,
-  resolvePrStatePresentation,
-} from "./pullRequestStatePresentation";
 import { PR_FINE_TEXT_CLASS_NAME, PR_META_TEXT_CLASS_NAME } from "./pullRequestText";
 
 type HeaderFields =
@@ -64,11 +61,12 @@ export function GitHubItemBackButton({
   onBack: () => void;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <IconButton
       variant="chrome"
-      label="Back to code review"
-      tooltip="Back"
+      label={t("codeReview.back.aria")}
+      tooltip={t("codeReview.back")}
       className={cn("shrink-0", className)}
       onClick={onBack}
     >
@@ -87,12 +85,14 @@ export function GitHubItemHeader({
   stateMenu?: ReactNode;
   className?: string;
 }) {
-  const { locale } = useTranslation();
+  const { locale, t, format } = useTranslation();
   const state =
     item.kind === "pullRequest"
       ? {
-          word: pullRequestStateLabel(item.state, item.isDraft, item.mergeability),
-          colorClass: resolvePrStatePresentation(item).colorClass,
+          word: t(
+            STATE_WORD_KEYS[pullRequestStateLabel(item.state, item.isDraft, item.mergeability)] ??
+              "codeReview.stateWord.open",
+          ),
           glyph: (
             <PullRequestStateGlyph
               state={item.state}
@@ -103,18 +103,23 @@ export function GitHubItemHeader({
           ),
         }
       : {
-          word: resolveIssueStatePresentation(item).shortLabel,
-          colorClass: resolveIssueStatePresentation(item).colorClass,
+          word: t(
+            item.state === "open"
+              ? "codeReview.stateWord.open"
+              : item.stateReason === "not-planned" || item.stateReason === "duplicate"
+                ? "codeReview.stateWord.notPlanned"
+                : "codeReview.stateWord.completed",
+          ),
           glyph: (
             <IssueStateGlyph state={item.state} stateReason={item.stateReason} className="size-4" />
           ),
         };
   const repositoryName = item.repository.split("/").pop() ?? item.repository;
+  // A quiet ink chip, as Moss draws every status: only the glyph carries color, and only when the
+  // state means something finished (green) or blocked (amber).
   const pillClassName = cn(
     PR_META_TEXT_CLASS_NAME,
-    "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2.5 font-medium",
-    "bg-[color-mix(in_srgb,currentColor_12%,transparent)]",
-    state.colorClass,
+    "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2.5 text-muted-foreground",
   );
   const pillContent = (
     <>
@@ -128,7 +133,7 @@ export function GitHubItemHeader({
         {stateMenu ? (
           <Menu>
             <MenuTrigger
-              aria-label={`State: ${state.word}. Change state`}
+              aria-label={format("codeReview.state.change", { state: state.word })}
               className={cn(
                 pillClassName,
                 "cursor-pointer pr-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
@@ -151,11 +156,8 @@ export function GitHubItemHeader({
           {repositoryName} #{item.number}
         </span>
       </div>
-      {/* Large heading: one of the two places a fixed size is allowed. */}
-      <h1
-        className="mt-3 text-[1.75rem] leading-tight font-semibold tracking-tight break-words"
-        data-translation-skip="true"
-      >
+      {/* The page title role (22 on 28), as on every Moss page. */}
+      <h1 className="mt-3 text-title font-semibold break-words" data-translation-skip="true">
         {item.title}
       </h1>
       <PullRequestMetaLine

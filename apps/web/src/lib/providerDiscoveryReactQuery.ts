@@ -384,11 +384,17 @@ export function providerModelDiscoveryRetry(provider: ProviderKind): number {
   return provider === "cursor" ? 0 : provider === "droid" ? 2 : 3;
 }
 
-// The WS runtime API has no kilo surface; callers never route kilo here, so
-// fail closed instead of widening the wire contract.
-function requireRuntimeProviderKind(provider: ProviderKind): Exclude<ProviderKind, "kilo"> {
-  if (provider === "kilo") {
-    throw new Error("Kilo is retired and has no runtime discovery surface.");
+// The WS runtime API has no kilo or gemini surface; callers never route retired
+// providers here, so fail closed instead of widening the wire contract.
+function isRetiredDiscoveryProvider(provider: ProviderKind): provider is "kilo" | "gemini" {
+  return provider === "kilo" || provider === "gemini";
+}
+
+function requireRuntimeProviderKind(
+  provider: ProviderKind,
+): Exclude<ProviderKind, "kilo" | "gemini"> {
+  if (isRetiredDiscoveryProvider(provider)) {
+    throw new Error(`${provider} is retired and has no runtime discovery surface.`);
   }
   return provider;
 }
@@ -413,6 +419,7 @@ export function providerComposerCapabilitiesQueryOptions(
         `${provider} capabilities`,
       );
     },
+    enabled: !isRetiredDiscoveryProvider(provider),
     staleTime: Infinity,
   });
 }
@@ -452,7 +459,8 @@ export function providerSkillsQueryOptions(input: {
         `${input.provider} skill list`,
       );
     },
-    enabled: (input.enabled ?? true) && input.cwd !== null,
+    enabled:
+      !isRetiredDiscoveryProvider(input.provider) && (input.enabled ?? true) && input.cwd !== null,
     staleTime: 30_000,
     placeholderData: (previous) => previous ?? EMPTY_SKILLS_RESULT,
   });
@@ -521,7 +529,8 @@ export function providerCommandsQueryOptions(input: {
         ...(input.agentDir ? { agentDir: input.agentDir } : {}),
       });
     },
-    enabled: (input.enabled ?? true) && input.cwd !== null,
+    enabled:
+      !isRetiredDiscoveryProvider(input.provider) && (input.enabled ?? true) && input.cwd !== null,
     staleTime: 30_000,
     // Keeps the menu populated while refetching. `artifacts` is dropped because the
     // previous entry can belong to another Claude thread, whose session may have a
@@ -607,7 +616,7 @@ export function providerModelsQueryOptions(input: {
           return requireDiscoveredModels(input.provider, result, previous);
         },
       ),
-    enabled: input.enabled ?? true,
+    enabled: !isRetiredDiscoveryProvider(input.provider) && (input.enabled ?? true),
     // Cached catalogs paint immediately while stale entries revalidate in the
     // background. Droid discovery starts a disposable ACP session, so retain its
     // longer cache and never repeat that work merely because the window regained focus.
@@ -688,7 +697,7 @@ export function providerAgentsQueryOptions(input: {
         ...(input.cwd ? { cwd: input.cwd } : {}),
       });
     },
-    enabled: input.enabled ?? true,
+    enabled: !isRetiredDiscoveryProvider(input.provider) && (input.enabled ?? true),
     // Claude can answer "pending" while its SDK fills the agent inventory in
     // the background. Retry that temporary result while the picker is observed;
     // only completed catalogs should keep the longer freshness window.
@@ -724,7 +733,7 @@ export function providerPluginsQueryOptions(input: {
         ...(input.marketplaceKinds ? { marketplaceKinds: [...input.marketplaceKinds] } : {}),
       });
     },
-    enabled: input.enabled ?? true,
+    enabled: !isRetiredDiscoveryProvider(input.provider) && (input.enabled ?? true),
     staleTime: 30_000,
     placeholderData: (previous) => previous ?? EMPTY_PLUGINS_RESULT,
   });

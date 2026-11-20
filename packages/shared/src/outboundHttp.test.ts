@@ -349,4 +349,60 @@ describe("loopback HTTP transport", () => {
       await closeHttpServer(server);
     }
   });
+
+  it("streams response chunks in order without buffering the full body in memory", async () => {
+    const { server, origin } = await listenHttpServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.write("alpha-");
+      setTimeout(() => {
+        response.end("omega");
+      }, 15);
+    });
+    try {
+      const received: string[] = [];
+      const response = await outboundHttp.request({
+        policy: { ...loopbackPolicyFor([origin]), maxResponseBytes: 32 },
+        url: origin,
+        onChunk: async (chunk) => {
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          received.push(new TextDecoder().decode(chunk));
+        },
+      });
+      expect(response.status).toBe(200);
+      expect(response.body.byteLength).toBe(0);
+      expect(received.join("")).toBe("alpha-omega");
+    } finally {
+      server.closeAllConnections();
+      await closeHttpServer(server);
+    }
+  });
+
+  it("enforces maxResponseBytes and propagates writer errors while streaming", async () => {
+    const { server, origin } = await listenHttpServer((request, response) => {
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.end(request.url === "/big" ? "x".repeat(64) : "ok");
+    });
+    try {
+      await expect(
+        outboundHttp.request({
+          policy: { ...loopbackPolicyFor([origin]), maxResponseBytes: 16 },
+          url: `${origin}/big`,
+          onChunk: () => {},
+        }),
+      ).rejects.toMatchObject({ code: "response-too-large" });
+
+      await expect(
+        outboundHttp.request({
+          policy: loopbackPolicyFor([origin]),
+          url: `${origin}/ok`,
+          onChunk: async () => {
+            throw new Error("disk full");
+          },
+        }),
+      ).rejects.toMatchObject({ code: "request", message: "Outbound response writer failed." });
+    } finally {
+      server.closeAllConnections();
+      await closeHttpServer(server);
+    }
+  });
 });

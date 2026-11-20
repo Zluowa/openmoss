@@ -289,3 +289,24 @@ it.each([
     await mounted.unmount();
   }
 });
+
+it.each([
+  [
+    "truncated fenced block without root",
+    '```openui\nheader = CardHeader("Moss 状态", "截断测试")\nkpis = Stack([',
+  ],
+  ["unclosed raw openui tag without root", '<openui>\nheader = CardHeader("Moss 状态", "未闭合")'],
+])("degrades %s to the fallback card instead of rendering blank", async (_label, markdown) => {
+  const mounted = await renderMarkdown(markdown, "openui-boundary-truncated");
+  try {
+    await vi.waitFor(
+      () => {
+        const errorCard = mounted.baseElement.querySelector("[data-openui-state='error']");
+        expect(errorCard).not.toBeNull();
+      },
+      { timeout: 15000 },
+    );
+  } finally {
+    await mounted.unmount();
+  }
+});

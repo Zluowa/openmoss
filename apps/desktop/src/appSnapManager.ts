@@ -29,10 +29,12 @@ import {
   type DesktopAppSnapWindowEntry,
 } from "@moss/contracts";
 import {
-  DEFAULT_APP_SNAP_SHORTCUT,
+  DEFAULT_WINDOWS_APP_SNAP_SHORTCUT,
   appSnapShortcutAccelerator,
   appSnapShortcutSystemConflict,
+  defaultAppSnapShortcut,
   isAppSnapShortcut,
+  normalizeAppSnapShortcutForPlatform,
   sameAppSnapShortcut,
 } from "@moss/shared/appSnapShortcut";
 import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
@@ -47,6 +49,8 @@ const HELPER_CAPTURE_IMAGE_PATTERN =
   /^appsnap-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\.png$/;
 const ORPHANED_PICKER_IMAGE_PATTERN =
   /^appsnap-picker-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.png$/;
+const ORPHANED_CUA_CAPTURE_IMAGE_PATTERN =
+  /^appsnap-cua-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.png$/;
 const LIST_WINDOWS_TIMEOUT_MS = 5_000;
 const CAPTURE_WINDOW_TIMEOUT_MS = 20_000;
 // Permission checks run through the serialized command queue, so a wedged
@@ -174,6 +178,10 @@ export interface DesktopAppSnapManagerOptions {
   cuaEndpoint?: () => string | undefined;
   cuaCapability?: string;
   cuaRequest?: typeof cuaRequest;
+  /** PIDs owned by Moss itself so Windows CUA window enumeration never targets Moss. */
+  ownPids?: () => ReadonlySet<number>;
+  /** Background pre-warm hook for the embedded CUA driver once Windows AppSnap is ready. */
+  warmCuaHost?: () => void;
 }
 
 function normalizeDate(value: unknown, fallback: Date): string {
@@ -595,12 +603,23 @@ export class DesktopAppSnapManager {
   #pendingCaptures: PendingAppSnapCaptureRecord[] = [];
   #pendingCapturesLoadPromise: Promise<void> | null = null;
   #captureReadQueue: Promise<void> = Promise.resolve();
-  #shortcut: DesktopAppSnapShortcut = DEFAULT_APP_SNAP_SHORTCUT;
+  #shortcut: DesktopAppSnapShortcut;
   #registeredAccelerator: string | null = null;
   #pendingWindowRequests = new Map<string, PendingAppSnapRequest<DesktopAppSnapWindowEntry[]>>();
   #pendingCaptureRequests = new Map<string, PendingAppSnapRequest<DesktopAppSnapCapture>>();
   #timedOutCaptureRequestIds = new Set<string>();
-  #cuaWindowTargets = new Map<number, { pid: number; windowId: number }>();
+  #captureDirectoryReady = false;
+  #windowsCaptureInFlight: Promise<DesktopAppSnapCapture> | null = null;
+  #cuaWindowTargets = new Map<
+    number,
+    {
+      pid: number;
+      windowId: number;
+      appName: string | null;
+      bundleIdentifier: string | null;
+      windowTitle: string | null;
+    }
+  >();
   #nextCuaWindowId = 1;
   #guideProcess: AppSnapHelperProcess | null = null;
   #guideOutputLines: Readline.Interface | null = null;
@@ -638,6 +657,7 @@ export class DesktopAppSnapManager {
       spawn: options.spawn ?? ChildProcess.spawn,
     };
     this.#platform = desktopAppSnapPlatform(options.platform);
+    this.#shortcut = defaultAppSnapShortcut(this.#platform);
     this.#status =
       this.#platform === "macos" || this.#platform === "windows" ? "disabled" : "unsupported";
     this.#message =
@@ -709,18 +729,24 @@ export class DesktopAppSnapManager {
     if (!isAppSnapShortcut(shortcut)) {
       return {
         available: false,
-        reason: "Choose one modifier and one supported keyboard key.",
+        reason: "Choose at least one modifier and one supported keyboard key.",
       };
     }
     if (shortcut.kind === "both-option-keys") {
+      if (this.#platform === "windows") {
+        return {
+          available: false,
+          reason: "Windows AppSnap requires a key combination such as Alt + Shift + S.",
+        };
+      }
       return { available: true, reason: null };
     }
-    const systemConflict = appSnapShortcutSystemConflict(shortcut);
+    const systemConflict = appSnapShortcutSystemConflict(shortcut, this.#platform);
     if (systemConflict) {
       return { available: false, reason: systemConflict };
     }
 
-    const accelerator = appSnapShortcutAccelerator(shortcut);
+    const accelerator = appSnapShortcutAccelerator(shortcut, this.#platform);
     if (this.#registeredAccelerator === accelerator) {
       return { available: true, reason: null };
     }
@@ -751,15 +777,24 @@ export class DesktopAppSnapManager {
     const availability = this.checkShortcut(shortcut);
     if (
       (this.#platform !== "macos" && this.#platform !== "windows") ||
-      !isAppSnapShortcut(shortcut) ||
-      sameAppSnapShortcut(this.#shortcut, shortcut)
+      !isAppSnapShortcut(shortcut)
     ) {
+      return { state: this.getState(), availability };
+    }
+    if (this.#platform === "windows" && shortcut.kind === "both-option-keys") {
+      return { state: this.getState(), availability };
+    }
+    const normalized = normalizeAppSnapShortcutForPlatform(shortcut, this.#platform);
+    if (sameAppSnapShortcut(this.#shortcut, normalized)) {
+      if (this.#enabled && this.#status !== "ready") {
+        await this.#reconcileWatchProcess();
+      }
       return { state: this.getState(), availability };
     }
 
     this.#stopWatchProcess();
     this.#releaseShortcutReservation();
-    this.#shortcut = shortcut;
+    this.#shortcut = normalized;
     if (this.#enabled) await this.#reconcileWatchProcess();
     this.#emitState();
     return { state: this.getState(), availability };
@@ -1228,13 +1263,31 @@ export class DesktopAppSnapManager {
     return reply;
   }
 
+  async #ensureCaptureDirectory(): Promise<void> {
+    if (this.#captureDirectoryReady) return;
+    await FS.promises.mkdir(this.#options.captureDirectory, { recursive: true, mode: 0o700 });
+    await FS.promises.chmod(this.#options.captureDirectory, 0o700).catch(() => undefined);
+    this.#captureDirectoryReady = true;
+  }
+
   async #listWindowsViaCua(): Promise<DesktopAppSnapWindowEntry[]> {
-    const reply = await this.#cuaCall("list_windows", {});
+    const reply = await this.#cuaCall("list_windows", { on_screen_only: true });
     const rows = reply.result?.structuredContent?.windows;
     if (!Array.isArray(rows)) return [];
-    this.#cuaWindowTargets.clear();
-    const windows: DesktopAppSnapWindowEntry[] = [];
-    for (const value of rows) {
+    const ownPids = this.#options.ownPids?.();
+    const candidates: Array<{
+      readonly pid: number;
+      readonly windowId: number;
+      readonly appName: string | null;
+      readonly bundleIdentifier: string | null;
+      readonly title: string | null;
+      readonly bounds: { x: number; y: number; width: number; height: number } | null;
+      readonly focused: boolean;
+      readonly zIndex: number | null;
+      readonly index: number;
+    }> = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const value = rows[index];
       if (!value || typeof value !== "object") continue;
       const row = value as Record<string, unknown>;
       const pid = row.pid;
@@ -1246,14 +1299,15 @@ export class DesktopAppSnapManager {
         pid <= 0 ||
         !Number.isSafeInteger(windowId) ||
         windowId <= 0
-      )
+      ) {
         continue;
+      }
+      if (row.minimized === true || row.is_on_screen === false) continue;
+      if (ownPids?.has(pid)) continue;
       const appName = normalizeOptionalText(row.app_name ?? row.appName);
+      if (appName?.toLowerCase().startsWith("cua-")) continue;
       const bundleIdentifier = normalizeOptionalText(row.bundle_id ?? row.bundleIdentifier);
       if (bundleIdentifier === this.#options.excludedBundleId) continue;
-      const syntheticId = this.#nextCuaWindowId++;
-      this.#cuaWindowTargets.set(syntheticId, { pid, windowId });
-      const title = normalizeOptionalText(row.title ?? row.window_title ?? row.windowTitle);
       const bounds =
         row.bounds && typeof row.bounds === "object"
           ? (row.bounds as Record<string, unknown>)
@@ -1267,25 +1321,88 @@ export class DesktopAppSnapManager {
               height: bounds.height as number,
             }
           : null;
-      windows.push({
-        windowId: syntheticId,
+      if (normalizedBounds && (normalizedBounds.width < 2 || normalizedBounds.height < 2)) {
+        continue;
+      }
+      const title = normalizeOptionalText(row.title ?? row.window_title ?? row.windowTitle);
+      const focused =
+        row.focused === true || row.keyboard_focused === true || row.is_focused === true;
+      const zIndex =
+        typeof row.z_index === "number" && Number.isFinite(row.z_index) ? row.z_index : null;
+      candidates.push({
+        pid,
+        windowId,
         appName,
         bundleIdentifier,
-        windowTitle: title,
         title,
         bounds: normalizedBounds,
+        focused,
+        zIndex,
+        index,
+      });
+    }
+    // Select frontmost first: explicit focus flag wins, then higher z_index (closer
+    // to front on Windows cua-driver), then titled windows ahead of untitled helpers.
+    candidates.sort((left, right) => {
+      if (left.focused !== right.focused) return left.focused ? -1 : 1;
+      if (left.zIndex !== null && right.zIndex !== null && left.zIndex !== right.zIndex) {
+        return right.zIndex - left.zIndex;
+      }
+      if (left.zIndex !== null && right.zIndex === null) return -1;
+      if (left.zIndex === null && right.zIndex !== null) return 1;
+      const leftTitled = left.title !== null;
+      const rightTitled = right.title !== null;
+      if (leftTitled !== rightTitled) return leftTitled ? -1 : 1;
+      return left.index - right.index;
+    });
+    this.#cuaWindowTargets.clear();
+    const windows: DesktopAppSnapWindowEntry[] = [];
+    for (const candidate of candidates) {
+      const syntheticId = this.#nextCuaWindowId++;
+      this.#cuaWindowTargets.set(syntheticId, {
+        pid: candidate.pid,
+        windowId: candidate.windowId,
+        appName: candidate.appName,
+        bundleIdentifier: candidate.bundleIdentifier,
+        windowTitle: candidate.title,
+      });
+      windows.push({
+        windowId: syntheticId,
+        appName: candidate.appName,
+        bundleIdentifier: candidate.bundleIdentifier,
+        windowTitle: candidate.title,
+        title: candidate.title,
+        bounds: candidate.bounds,
       });
     }
     return windows;
   }
 
-  async #captureFocusedWindowViaCua(): Promise<DesktopAppSnapCapture> {
-    const windows = await this.#listWindowsViaCua();
-    const target = windows[0];
-    if (!target) throw new Error("No capturable Windows window is available.");
-    const capture = await this.#captureWindowViaCua(target.windowId);
-    this.#options.onCaptured(capture);
-    return capture;
+  async #captureFocusedWindowViaCua(
+    options: { readonly emitCaptured?: boolean } = {},
+  ): Promise<DesktopAppSnapCapture> {
+    if (this.#windowsCaptureInFlight) {
+      throw new Error("A previous AppSnap capture is still in progress.");
+    }
+    const emitCaptured = options.emitCaptured ?? true;
+    const capturePromise = (async () => {
+      const windows = await this.#listWindowsViaCua();
+      const target = windows[0];
+      if (!target) throw new Error("No capturable Windows window is available.");
+      const capture = await this.#captureWindowViaCua(target.windowId);
+      if (emitCaptured) {
+        this.#options.onCaptured(capture);
+      }
+      return capture;
+    })();
+    this.#windowsCaptureInFlight = capturePromise;
+    try {
+      return await capturePromise;
+    } finally {
+      if (this.#windowsCaptureInFlight === capturePromise) {
+        this.#windowsCaptureInFlight = null;
+      }
+    }
   }
 
   async #captureWindowViaCua(windowId: number): Promise<DesktopAppSnapCapture> {
@@ -1295,46 +1412,79 @@ export class DesktopAppSnapManager {
     }
     const resolved = this.#cuaWindowTargets.get(windowId);
     if (!resolved) throw new Error("The requested Windows window is no longer available.");
-    const reply = await this.#cuaCall("get_window_state", {
-      pid: resolved.pid,
-      window_id: resolved.windowId,
-      include_screenshot: true,
-      include_accessibility_tree: false,
-      max_dimension: 1536,
-    });
-    const image = reply.result?.content?.find(
-      (part) => part.type === "image" && typeof part.data === "string",
+    await this.#ensureCaptureDirectory();
+    const captureId = Crypto.randomUUID();
+    const directOutputPath = Path.join(
+      this.#options.captureDirectory,
+      `appsnap-cua-${captureId}.png`,
     );
-    if (!image?.data) throw new Error("Computer control returned no Windows screenshot.");
-    const bytes = Buffer.from(image.data, "base64");
-    if (
-      bytes.length <= 0 ||
-      bytes.length > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES ||
-      !bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
-    ) {
-      throw new Error("Computer control returned an invalid Windows screenshot.");
+    let movedDirectFile = false;
+    try {
+      const reply = await this.#cuaCall("get_window_state", {
+        pid: resolved.pid,
+        window_id: resolved.windowId,
+        include_screenshot: true,
+        include_accessibility_tree: false,
+        max_dimension: 1536,
+        screenshot_out_file: directOutputPath,
+      });
+      const row = (reply.result?.structuredContent ?? {}) as Record<string, unknown>;
+      const reportedFilePath = normalizeOptionalText(row.screenshot_file_path, 4_096);
+      const image = reply.result?.content?.find(
+        (part) => part.type === "image" && typeof part.data === "string",
+      );
+      let bytes: Buffer;
+      let directFileReady = false;
+      if (
+        reportedFilePath &&
+        isPathInsideDirectory(this.#options.captureDirectory, reportedFilePath) &&
+        Path.resolve(reportedFilePath) === Path.resolve(directOutputPath)
+      ) {
+        bytes = await readValidatedPendingPng(directOutputPath);
+        directFileReady = true;
+      } else if (image?.data) {
+        bytes = Buffer.from(image.data, "base64");
+        if (
+          bytes.length <= 0 ||
+          bytes.length > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES ||
+          !bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+        ) {
+          throw new Error("Computer control returned an invalid Windows screenshot.");
+        }
+      } else {
+        try {
+          bytes = await readValidatedPendingPng(directOutputPath);
+          directFileReady = true;
+        } catch {
+          throw new Error("Computer control returned no Windows screenshot.");
+        }
+      }
+      const now = this.#options.now();
+      const capture: DesktopAppSnapCapture = {
+        id: captureId,
+        capturedAt: now.toISOString(),
+        name: `AppSnap-${now.toISOString().replace(/[:.]/g, "-")}.png`,
+        mimeType: "image/png",
+        sizeBytes: bytes.length,
+        bytes: new Uint8Array(bytes),
+        sourceAppName: normalizeOptionalText(row.app_name) ?? resolved.appName,
+        sourceBundleIdentifier: normalizeOptionalText(row.bundle_id) ?? resolved.bundleIdentifier,
+        sourceAppIconDataUrl: null,
+        sourceWindowTitle:
+          normalizeOptionalText(row.window_title ?? row.title) ?? resolved.windowTitle,
+      };
+      await this.#ensurePendingCapturesLoaded();
+      const record = directFileReady
+        ? await this.#persistPendingCaptureFromDirectFile(capture, directOutputPath)
+        : await this.#persistPendingCapture(capture);
+      if (directFileReady) movedDirectFile = true;
+      await this.#recordPendingCapture(record);
+      return capture;
+    } finally {
+      if (!movedDirectFile) {
+        await FS.promises.unlink(directOutputPath).catch(() => undefined);
+      }
     }
-    const now = this.#options.now();
-    const capture: DesktopAppSnapCapture = {
-      id: Crypto.randomUUID(),
-      capturedAt: now.toISOString(),
-      name: `AppSnap-${now.toISOString().replace(/[:.]/g, "-")}.png`,
-      mimeType: "image/png",
-      sizeBytes: bytes.length,
-      bytes: new Uint8Array(bytes),
-      sourceAppName: null,
-      sourceBundleIdentifier: null,
-      sourceAppIconDataUrl: null,
-      sourceWindowTitle: null,
-    };
-    const row = (reply.result?.structuredContent ?? {}) as Record<string, unknown>;
-    capture.sourceAppName = normalizeOptionalText(row.app_name);
-    capture.sourceBundleIdentifier = normalizeOptionalText(row.bundle_id);
-    capture.sourceWindowTitle = normalizeOptionalText(row.title);
-    await this.#ensurePendingCapturesLoaded();
-    const record = await this.#persistPendingCapture(capture);
-    await this.#recordPendingCapture(record);
-    return capture;
   }
 
   #requireWatchProcess(): AppSnapHelperProcess {
@@ -1414,8 +1564,30 @@ export class DesktopAppSnapManager {
 
   /** Explicit read-only request. Independent of shortcut enablement and Input Monitoring. */
   async captureCurrentApp(requestId: string): Promise<DesktopAppSnapCapture> {
-    if (this.#disposed || this.#platform !== "macos") throw new Error("AppSnap is unavailable.");
+    if (this.#disposed || (this.#platform !== "macos" && this.#platform !== "windows")) {
+      throw new Error("AppSnap is unavailable.");
+    }
     if (this.#requestedCapture) throw new Error("An AppSnap request is already in progress.");
+    if (this.#platform === "windows") {
+      let cancelled = false;
+      const request = {
+        id: requestId,
+        cancel: () => {
+          cancelled = true;
+        },
+      };
+      this.#requestedCapture = request;
+      try {
+        const capture = await this.#captureFocusedWindowViaCua({ emitCaptured: false });
+        if (cancelled) {
+          await this.acknowledgeCapture(capture.id).catch(() => undefined);
+          throw new Error("AppSnap request cancelled.");
+        }
+        return capture;
+      } finally {
+        if (this.#requestedCapture === request) this.#requestedCapture = null;
+      }
+    }
     let cancelled = false;
     let cancelChild: (() => void) | undefined;
     const request = {
@@ -1590,7 +1762,11 @@ export class DesktopAppSnapManager {
     // the desktop process crashed before consuming the helper output, there is
     // no safe target thread to recover it into on the next launch.
     for (const entry of entries) {
-      if (!ORPHANED_PICKER_IMAGE_PATTERN.test(entry)) continue;
+      if (
+        !ORPHANED_PICKER_IMAGE_PATTERN.test(entry) &&
+        !ORPHANED_CUA_CAPTURE_IMAGE_PATTERN.test(entry)
+      )
+        continue;
       await FS.promises
         .unlink(Path.join(this.#options.captureDirectory, entry))
         .catch(() => undefined);
@@ -1701,15 +1877,45 @@ export class DesktopAppSnapManager {
     capture: DesktopAppSnapCapture,
   ): Promise<PendingAppSnapCaptureRecord> {
     const paths = pendingCaptureStoragePaths(this.#options.captureDirectory, capture.id);
-    await writePrivateFileAtomically(paths.imagePath, capture.bytes);
+    const metadata = Buffer.from(`${JSON.stringify(toStoredPendingCapture(capture))}\n`, "utf8");
+    if (metadata.byteLength > MAX_PENDING_CAPTURE_METADATA_BYTES) {
+      throw new Error("Pending AppSnap metadata exceeds its storage limit.");
+    }
     try {
-      const metadata = Buffer.from(`${JSON.stringify(toStoredPendingCapture(capture))}\n`, "utf8");
-      if (metadata.byteLength > MAX_PENDING_CAPTURE_METADATA_BYTES) {
-        throw new Error("Pending AppSnap metadata exceeds its storage limit.");
-      }
-      await writePrivateFileAtomically(paths.metadataPath, metadata);
+      await Promise.all([
+        writePrivateFileAtomically(paths.imagePath, capture.bytes),
+        writePrivateFileAtomically(paths.metadataPath, metadata),
+      ]);
     } catch (error) {
-      await FS.promises.unlink(paths.imagePath).catch(() => undefined);
+      await Promise.all([
+        FS.promises.unlink(paths.imagePath).catch(() => undefined),
+        FS.promises.unlink(paths.metadataPath).catch(() => undefined),
+      ]);
+      throw error;
+    }
+    return { capture, ...paths };
+  }
+
+  async #persistPendingCaptureFromDirectFile(
+    capture: DesktopAppSnapCapture,
+    sourceImagePath: string,
+  ): Promise<PendingAppSnapCaptureRecord> {
+    const paths = pendingCaptureStoragePaths(this.#options.captureDirectory, capture.id);
+    const metadata = Buffer.from(`${JSON.stringify(toStoredPendingCapture(capture))}\n`, "utf8");
+    if (metadata.byteLength > MAX_PENDING_CAPTURE_METADATA_BYTES) {
+      throw new Error("Pending AppSnap metadata exceeds its storage limit.");
+    }
+    try {
+      const moveImage = FS.promises
+        .rename(sourceImagePath, paths.imagePath)
+        .then(() => FS.promises.chmod(paths.imagePath, 0o600).catch(() => undefined))
+        .catch(() => writePrivateFileAtomically(paths.imagePath, capture.bytes));
+      await Promise.all([moveImage, writePrivateFileAtomically(paths.metadataPath, metadata)]);
+    } catch (error) {
+      await Promise.all([
+        FS.promises.unlink(paths.imagePath).catch(() => undefined),
+        FS.promises.unlink(paths.metadataPath).catch(() => undefined),
+      ]);
       throw error;
     }
     return { capture, ...paths };
@@ -1801,11 +2007,24 @@ export class DesktopAppSnapManager {
         this.#setState("error", "Computer control is not ready for AppSnap on Windows yet.");
         return;
       }
-      if (this.#shortcut.kind !== "key-chord" || !this.#reserveShortcut(this.#shortcut)) {
-        this.#setState("error", "Choose a Windows AppSnap shortcut that is available.");
+      if (this.#shortcut.kind !== "key-chord") {
+        this.#shortcut = DEFAULT_WINDOWS_APP_SNAP_SHORTCUT;
+      }
+      const systemConflict = appSnapShortcutSystemConflict(this.#shortcut, "windows");
+      if (systemConflict) {
+        this.#releaseShortcutReservation();
+        this.#setState("error", systemConflict);
+        return;
+      }
+      if (!this.#reserveShortcut(this.#shortcut)) {
+        this.#setState("error", "The AppSnap shortcut is already used by Windows or another app.");
         return;
       }
       this.#setState("ready", null);
+      // Warm the embedded CUA driver and preload pending capture state off the
+      // hotkey path so the first Windows capture lands without cold-start lag.
+      this.#options.warmCuaHost?.();
+      void this.#ensurePendingCapturesLoaded().catch(() => undefined);
       return;
     }
     if (!this.#enabled) {
@@ -1926,7 +2145,7 @@ export class DesktopAppSnapManager {
   }
 
   #reserveShortcut(shortcut: Extract<DesktopAppSnapShortcut, { kind: "key-chord" }>): boolean {
-    const accelerator = appSnapShortcutAccelerator(shortcut);
+    const accelerator = appSnapShortcutAccelerator(shortcut, this.#platform);
     if (this.#registeredAccelerator === accelerator) return true;
     const registry = this.#options.shortcutRegistry;
     if (!registry) return false;
@@ -1943,12 +2162,12 @@ export class DesktopAppSnapManager {
     if (this.#disposed || !this.#enabled) return;
     if (this.#platform === "windows") {
       void this.#captureFocusedWindowViaCua().catch((error) => {
-        this.#emitCaptureError(
-          "capture-failed",
-          error instanceof Error ? error.message : String(error),
-          undefined,
-          false,
-        );
+        const message = error instanceof Error ? error.message : String(error);
+        const code =
+          message === "A previous AppSnap capture is still in progress."
+            ? "capture-in-progress"
+            : "capture-failed";
+        this.#emitCaptureError(code, message, undefined, false);
       });
       return;
     }

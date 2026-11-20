@@ -233,17 +233,53 @@ describe("MossBillingSettingsPanel", () => {
 
   it("shows a lightweight catalog failure while retaining the quota plan fallback", () => {
     const markup = renderSettings({
-      snapshot: quota({ planCode: "starter-trial" }),
+      snapshot: quota({ planCode: "legacy-plan" }),
       catalogSnapshot: catalog("other-plan"),
       catalogError: new Error("catalog unavailable"),
     });
 
-    expect(markup).toContain("starter-trial");
-    expect(markup).toContain("套餐代码：starter-trial");
+    expect(markup).toContain("legacy-plan");
+    expect(markup).toContain("套餐代码：legacy-plan");
     expect(markup).not.toContain("{code}");
     expect(markup).toContain("档位暂时不可用");
     expect(markup).toContain('data-testid="moss-pricing-view-plans"');
     expect(markup).toContain('data-testid="moss-pricing-buy-credits"');
+  });
+
+  it("shows a free account's Moss quota bar and percentage without revealing any yuan amount", () => {
+    const markup = renderSettings({
+      snapshot: quota({
+        planCode: "starter-trial",
+        billingModel: "wallet_credits_v1",
+        periodEnd: null,
+        requestLimit: null,
+        tokenLimit: null,
+        creditBalance: 5,
+        usageLimits: [
+          {
+            key: "lifetime",
+            durationSeconds: null,
+            limit: 5,
+            used: 1,
+            resetsAt: null,
+          },
+        ],
+      }),
+      catalogSnapshot: catalog("basic"),
+    });
+
+    expect(markup).toContain("免费版");
+    expect(markup).toContain("免费额度");
+    expect(markup).toContain('role="progressbar"');
+    expect(markup).toContain('aria-valuenow="80"');
+    expect(markup).toContain("剩余 80%");
+    expect(markup).toContain("免费账号包含基础 Moss 体验额度");
+    // Never leak internal plan slug, credit balance card, or the 5 RMB grant figure.
+    expect(markup).not.toContain("starter-trial");
+    expect(markup).not.toContain("积分余额");
+    expect(markup).not.toContain('data-testid="moss-pricing-buy-credits"');
+    expect(markup).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB|CNY\s*5/i);
+    expect(markup).not.toContain(">5<");
   });
 
   it("keeps null metered limits unavailable instead of treating them as unlimited", () => {

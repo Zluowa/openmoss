@@ -112,14 +112,13 @@ it("does not report agents as not installed while the first probe is running", a
 
   await expect.element(page.getByText("Connected", { exact: true })).toBeVisible();
   await expect
-    .element(page.getByText("1 connected · 0 need sign-in · 13 not installed"))
+    .element(page.getByText("1 connected · 0 need sign-in · 12 not installed"))
     .toBeVisible();
 });
 
 it("keeps unchecked choices visible and preserves a user's opt-out after re-detect", async () => {
   mocks.disabledProviders = [
     "cursor",
-    "gemini",
     "antigravity",
     "grok",
     "opencode",
@@ -217,7 +216,7 @@ it("leaves missing agents unknown after a timeout and recovers on retry", async 
   await page.getByRole("button", { name: "Re-detect" }).click();
   await expect.element(page.getByText("Connected", { exact: true })).toBeVisible();
   await expect
-    .element(page.getByText("1 connected · 0 need sign-in · 13 not installed"))
+    .element(page.getByText("1 connected · 0 need sign-in · 12 not installed"))
     .toBeVisible();
 });
 

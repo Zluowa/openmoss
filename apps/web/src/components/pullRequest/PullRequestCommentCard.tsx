@@ -14,8 +14,9 @@ import { useState } from "react";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
 import { formatTimeAgo } from "~/lib/timeFormat";
+import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
-import { useTranslation } from "~/localization";
+import { useTranslation, type TranslationKey } from "~/localization";
 import {
   PR_BODY_TEXT_CLASS_NAME,
   PR_FINE_TEXT_CLASS_NAME,
@@ -25,6 +26,12 @@ import { ensureNativeApi } from "~/nativeApi";
 import { PullRequestActorLabel } from "./PullRequestActorLabel";
 import { PullRequestMarkdown } from "./PullRequestMarkdown";
 import { parseFindingComment, type PullRequestCommentSeverity } from "./pullRequestComment.logic";
+
+const SEVERITY_LABEL_KEYS: Record<PullRequestCommentSeverity, TranslationKey> = {
+  High: "codeReview.comment.severity.high",
+  Medium: "codeReview.comment.severity.medium",
+  Low: "codeReview.comment.severity.low",
+};
 
 function severityToneClassName(severity: PullRequestCommentSeverity): string {
   if (severity === "High") return "text-destructive";
@@ -37,19 +44,22 @@ export function PullRequestCommentCard({
   prUrl,
   workspaceRoot,
   defaultOpen: defaultOpenProp,
+  replyTitle,
 }: {
   comment: PullRequestComment;
-  prUrl: string;
+  prUrl: string | null;
   workspaceRoot: string;
+  /** Where Reply goes, for its tooltip; GitHub by default. */
+  replyTitle?: string;
   /** Long threads start older comments collapsed so the tab doesn't eagerly render
    *  dozens of markdown trees. */
   defaultOpen?: boolean;
 }) {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   const defaultOpen = defaultOpenProp ?? true;
   const [open, setOpen] = useState(defaultOpen);
   const finding = parseFindingComment(comment.body);
-  const replyUrl = comment.url ?? prUrl;
+  const replyUrl = comment.url?.trim() || prUrl?.trim() || null;
 
   return (
     <Collapsible
@@ -97,27 +107,27 @@ export function PullRequestCommentCard({
                   severityToneClassName(finding.severity),
                 )}
               >
-                {`${finding.severity} Severity`}
+                {t(SEVERITY_LABEL_KEYS[finding.severity])}
               </p>
             </div>
           ) : null}
           <PullRequestMarkdown
             text={finding ? finding.body : comment.body}
-            fallback="_No review body._"
+            fallback={`_${t("codeReview.comment.noReviewBody")}_`}
             cwd={workspaceRoot}
           />
-          <div className="mt-2 flex justify-end">
-            <button
-              type="button"
-              onClick={() => void ensureNativeApi().shell.openExternal(replyUrl)}
-              className={cn(
-                PR_META_TEXT_CLASS_NAME,
-                "rounded px-1.5 py-0.5 font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground",
-              )}
-            >
-              Reply
-            </button>
-          </div>
+          {replyUrl ? (
+            <div className="mt-2 flex justify-end">
+              <Button
+                variant="ghost"
+                size="xs"
+                title={replyTitle ?? t("codeReview.comment.replyOnGitHub")}
+                onClick={() => void ensureNativeApi().shell.openExternal(replyUrl)}
+              >
+                {t("codeReview.comment.reply")}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CollapsiblePanel>
     </Collapsible>

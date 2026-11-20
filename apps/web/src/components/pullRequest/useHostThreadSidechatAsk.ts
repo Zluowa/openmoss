@@ -16,6 +16,7 @@ import { addChatPullRequestContext } from "~/lib/chatReferences";
 import { waitForSidechatCreator } from "~/lib/sidechatCreatorRegistry";
 import { selectRightDockState, useRightDockStore } from "~/rightDockStore";
 import { resolveActivePane } from "~/rightDockStore.logic";
+import { useTranslation } from "~/localization";
 import { useStore } from "~/store";
 import { createSidechatSummariesForSourceSelector } from "~/storeSelectors";
 import type { GitHubItemAgentTarget } from "./githubItemAgentContext";
@@ -30,6 +31,7 @@ function seedAndFocus(threadId: ThreadId, target: GitHubItemAgentTarget): void {
 }
 
 export function useHostThreadSidechatAsk(hostThreadId: ThreadId | null) {
+  const { t } = useTranslation();
   const [pending, setPending] = useState(false);
   if (hostThreadId === null) return { ask: undefined, pending: false };
 
@@ -49,8 +51,8 @@ export function useHostThreadSidechatAsk(hostThreadId: ThreadId | null) {
         if (!createSidechat) {
           toastManager.add({
             type: "warning",
-            title: "Side chat is unavailable",
-            description: "Open a server-backed main thread before starting a side chat.",
+            title: t("codeReview.sideChat.unavailable"),
+            description: t("codeReview.sideChat.unavailableDetail"),
           });
           return;
         }
@@ -62,14 +64,11 @@ export function useHostThreadSidechatAsk(hostThreadId: ThreadId | null) {
           if (pane?.kind === "sidechat" && pane.threadId) seedAndFocus(pane.threadId, target);
         });
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         toastManager.add({
           type: "error",
-          title: "Could not start a side chat",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An error occurred while creating the side chat.",
+          title: t("codeReview.sideChat.failed"),
+          description: t("codeReview.sideChat.failedDetail"),
         });
       })
       .finally(() => setPending(false));

@@ -5,12 +5,17 @@
 //          PreviewChannelSettingsPanel
 
 import {
+  type DesktopAppSnapPlatform,
   type DesktopAppSnapSettingsPane,
   type DesktopAppSnapState,
   type DesktopBetaActionResult,
   type DesktopBetaChannelState,
   type ResolvedKeybindingsConfig,
 } from "@moss/contracts";
+import {
+  appSnapShortcutStorageKey,
+  normalizeAppSnapShortcutForPlatform,
+} from "@moss/shared/appSnapShortcut";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 
@@ -19,7 +24,7 @@ import { createLatestAppSnapRequestGuard } from "~/appSnap.logic";
 import { useRefreshOnWindowReturn } from "~/hooks/useRefreshOnWindowReturn";
 import { playAppSnapCaptureSound } from "~/lib/appSnapSound";
 import { CentralIcon } from "~/lib/central-icons";
-import { cn } from "~/lib/utils";
+import { cn, getNavigatorPlatform, isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { isElectron } from "~/env";
 import {
   buildNotificationSettingsSupportText,
@@ -50,17 +55,45 @@ import {
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
+import { StatusDot } from "~/components/ui/status-chip";
 import { Switch } from "~/components/ui/switch";
 import { toastManager } from "~/components/ui/toast";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 
-/** One short line under the AppSnap switch; never a raw helper message. */
-function appSnapStatusText(state: DesktopAppSnapState | null): string {
-  if (!state || !state.supported) return "Works in the Moss desktop app";
-  if (state.status === "ready") return "On while Moss is open";
-  if (state.status === "disabled") return "Off";
-  if (state.status === "starting") return "Starting…";
-  return "Needs your permission";
+interface AppSnapStatusInfo {
+  readonly text: string;
+  readonly tone: "muted" | "success" | "warning" | "danger";
+}
+
+/** One short line under the AppSnap switch; distinguishes Windows errors from macOS permissions. */
+function appSnapStatusInfo(state: DesktopAppSnapState | null): AppSnapStatusInfo {
+  if (!state || !state.supported) {
+    return { text: "Works in the Moss desktop app", tone: "muted" };
+  }
+  if (state.status === "ready") {
+    return { text: "On while Moss is open", tone: "success" };
+  }
+  if (state.status === "disabled") {
+    return { text: "Off", tone: "muted" };
+  }
+  if (state.status === "starting") {
+    return { text: "Starting…", tone: "warning" };
+  }
+  if (state.status === "permission-required") {
+    return { text: "Needs your permission", tone: "warning" };
+  }
+  return {
+    text: state.message?.trim() || "AppSnap needs attention",
+    tone: "danger",
+  };
+}
+
+function resolveAppSnapPlatform(state: DesktopAppSnapState | null): DesktopAppSnapPlatform {
+  if (state?.platform) return state.platform;
+  const nav = getNavigatorPlatform();
+  if (isWindowsPlatform(nav)) return "windows";
+  if (isMacPlatform(nav)) return "macos";
+  return "other";
 }
 
 const EMPTY_KEYBINDINGS: ResolvedKeybindingsConfig = [];
@@ -299,7 +332,7 @@ export function AppSnapSettingsPanel({
     }
 
     try {
-      if (nextEnabled) {
+      if (nextEnabled && appSnapState?.platform !== "windows") {
         const permissionState = await bridge.requestPermissions();
         if (!requestGuard.isCurrent(requestId)) return;
         setAppSnapState(permissionState);
@@ -319,7 +352,11 @@ export function AppSnapSettingsPanel({
         toastManager.add({
           type: "warning",
           title: "Finish AppSnap setup",
-          description: state.message ?? "Allow the required macOS permissions, then try again.",
+          description:
+            state.message ??
+            (state.platform === "windows"
+              ? "Choose an available shortcut in Settings, then try again."
+              : "Allow the required macOS permissions, then try again."),
         });
       }
     } catch (error) {
@@ -335,30 +372,62 @@ export function AppSnapSettingsPanel({
 
   const supported = appSnapState?.supported === true;
   const enabled = supported && settings.enableAppSnap;
+  const platform = resolveAppSnapPlatform(appSnapState);
+  const isWindows = platform === "windows";
+  const effectiveShortcut = normalizeAppSnapShortcutForPlatform(settings.appSnapShortcut, platform);
+  const statusInfo = appSnapStatusInfo(appSnapState);
+  const shortcutError =
+    enabled && appSnapState?.status === "error" ? (appSnapState.message ?? null) : null;
 
   if (!active) return null;
 
   return (
-    <div className="space-y-5">
-      <SettingsCard divided={false} className="flex items-center gap-3 px-4 py-3.5">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground">
+    <div className="space-y-4">
+      <SettingsCard divided={false} className="flex items-start gap-3 px-4 py-3.5">
+        <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-[var(--color-background-control)] text-foreground">
           <CentralIcon name="screen-capture" className="size-5" />
         </span>
         <div className="min-w-0 space-y-0.5">
-          <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>Show Moss the window in front</p>
-          <p className={cn(SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME, "truncate")}>
-            {supported
-              ? "Moss sees the window's picture and text, even the part you'd scroll to."
-              : "AppSnap works in the Moss desktop app."}
+          <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>
+            {isWindows ? "Capture any window with a shortcut" : "Show Moss the window in front"}
+          </p>
+          <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>
+            {!supported
+              ? "AppSnap works in the Moss desktop app."
+              : isWindows
+                ? "Snap the window in front straight into your task without switching away first."
+                : "Moss sees the window's picture and text, even the part you'd scroll to."}
           </p>
         </div>
       </SettingsCard>
 
-      <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className="grid items-stretch gap-4 md:grid-cols-[minmax(0,1.35fr)_minmax(210px,0.85fr)]">
         <SettingsCard>
           <SettingsRow
             title="Turn on AppSnap"
-            description={appSnapStatusText(appSnapState)}
+            status={
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 text-ui-sm",
+                  statusInfo.tone === "danger" ? "text-destructive" : "text-muted-foreground",
+                )}
+              >
+                <StatusDot
+                  aria-hidden
+                  pulse={statusInfo.tone === "warning" && appSnapState?.status === "starting"}
+                  className={
+                    statusInfo.tone === "success"
+                      ? "bg-[var(--color-status-success)]"
+                      : statusInfo.tone === "danger"
+                        ? "bg-destructive"
+                        : statusInfo.tone === "warning"
+                          ? "bg-warning"
+                          : "bg-[color:var(--color-border)]"
+                  }
+                />
+                <span>{statusInfo.text}</span>
+              </span>
+            }
             resetAction={
               settings.enableAppSnap !== defaults.enableAppSnap ? (
                 <SettingResetButton
@@ -378,20 +447,24 @@ export function AppSnapSettingsPanel({
           />
           <SettingsRow
             title="Shortcut"
-            description="Press both keys at once"
+            description={
+              effectiveShortcut.kind === "both-option-keys"
+                ? "Press both keys at once"
+                : "Press this shortcut from any app"
+            }
             control={
               <AppSnapShortcutControl
-                key={
-                  settings.appSnapShortcut.kind === "both-option-keys"
-                    ? settings.appSnapShortcut.kind
-                    : `${settings.appSnapShortcut.modifier}:${settings.appSnapShortcut.key}`
-                }
-                shortcut={settings.appSnapShortcut}
+                key={`${platform}:${appSnapShortcutStorageKey(effectiveShortcut)}`}
+                shortcut={effectiveShortcut}
+                platform={platform}
                 enabled={enabled}
                 reserved={enabled && appSnapState?.status === "ready"}
+                stateError={shortcutError}
                 keybindings={keybindings}
                 onSaved={(shortcut, state) => {
-                  updateSettings({ appSnapShortcut: shortcut });
+                  updateSettings({
+                    appSnapShortcut: shortcut as typeof settings.appSnapShortcut,
+                  });
                   setAppSnapState(state);
                 }}
               />
@@ -437,7 +510,11 @@ export function AppSnapSettingsPanel({
             }
           />
         </SettingsCard>
-        <AppSnapIllustration className="text-foreground" />
+        <AppSnapIllustration
+          className="text-foreground"
+          shortcut={effectiveShortcut}
+          platform={platform}
+        />
       </div>
 
       {supported && appSnapState?.platform === "macos" ? (
