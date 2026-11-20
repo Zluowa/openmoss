@@ -29,6 +29,12 @@ import { writeFileStringAtomically } from "./atomicWrite";
 const MAX_REPORTS = 200;
 const REMOTE_TIMEOUT_MS = 10_000;
 const DRAFT_TTL_MS = 15 * 60_000;
+/**
+ * A report the automatic repair finished (a PR, or handed to a developer) can still be fixed or
+ * taken over by a developer; it is asked about this often, for this long after it was sent.
+ */
+const SETTLED_POLL_MS = 10 * 60_000;
+const SETTLED_POLL_WINDOW_MS = 60 * 86_400_000;
 const MAX_DRAFTS = 20;
 const clean = (value: string, maxLength = 2_000) => redactDevsReportText(value, maxLength);
 
@@ -116,9 +122,9 @@ interface StoredAttachment extends DevsAttachmentManifestEntry {
 type MutableState = {
   -readonly [Key in Exclude<
     keyof DevsReportState,
-    "delivered" | "attachments"
+    "delivered" | "attachments" | "resolution"
   >]: DevsReportState[Key];
-};
+} & { resolution?: DevsReportState["resolution"] };
 interface StoredReport {
   readToken?: string;
   state: MutableState;
@@ -130,6 +136,8 @@ interface StoredReport {
   attachments?: StoredAttachment[];
   /** The report left the queue before every attachment arrived; they are not sent again. */
   attachmentsMissed?: boolean;
+  /** The queue no longer has the report, or refused it: nothing more will come from it. */
+  closed?: boolean;
 }
 
 /** Decodes and checks what the composer sent. Text files are redacted like the description. */
@@ -277,6 +285,18 @@ export class DevsReports {
       const again = request(this.fallbackEndpoint);
       return this.fetcher(again.url, again.init);
     }
+  }
+  /**
+   * A delivered report the repair finished stays open until a developer marks it fixed: the
+   * queue is asked about it now and then, so a later fix reaches the person who reported it.
+   */
+  private awaitsResolution(entry: StoredReport) {
+    return (
+      entry.delivered &&
+      !entry.closed &&
+      entry.state.resolution !== "fixed" &&
+      this.now() - Date.parse(entry.state.createdAt) < SETTLED_POLL_WINDOW_MS
+    );
   }
   get configured() {
     return this.endpoint !== null;
@@ -522,7 +542,8 @@ export class DevsReports {
       const consented = await this.consented();
       for (const entry of [...this.reports]) {
         if (
-          ["pull-request", "failed"].includes(entry.state.status) ||
+          (["pull-request", "failed"].includes(entry.state.status) &&
+            !this.awaitsResolution(entry)) ||
           this.now() < entry.nextAttemptAt ||
           // A report waiting for delivery stays here while error reports are switched off.
           (!entry.delivered && !consented)
@@ -566,8 +587,13 @@ export class DevsReports {
           });
           if (!response.ok) {
             await response.body?.cancel();
-            if (response.status === 404 && entry.delivered) {
+            const settled = ["pull-request", "failed"].includes(entry.state.status);
+            if (settled && [400, 401, 403, 404].includes(response.status)) {
+              // The queue let go of a finished report: keep the outcome the person saw.
+              entry.closed = true;
+            } else if (response.status === 404 && entry.delivered) {
               entry.state.status = "failed";
+              entry.closed = true;
               entry.state.message =
                 "The remote receipt is no longer available. Your original report is saved here; it will not be submitted again automatically.";
             } else if (response.status === 429 && !entry.delivered) {
@@ -585,6 +611,7 @@ export class DevsReports {
               await this.serialize(() => this.save());
               continue;
             } else if ([400, 401, 403, 413].includes(response.status)) {
+              entry.closed = true;
               entry.state.status = "failed";
               entry.state.message =
                 "The developer service refused the report. Check its connection settings.";
@@ -609,12 +636,17 @@ export class DevsReports {
             entry.delivered = true;
             entry.state.status = body.status as DevsReportState["status"];
             entry.state.pullRequestUrl = pr;
+            if (body.resolution === "in-progress" || body.resolution === "fixed")
+              entry.state.resolution = body.resolution;
+            else delete entry.state.resolution;
             entry.state.message = clean(String(body.message ?? "Report received."), 1_000);
             entry.attempts = 0;
             await this.uploadAttachments(entry);
           }
           entry.state.updatedAt = new Date(this.now()).toISOString();
-          entry.nextAttemptAt = this.now() + 15_000;
+          entry.nextAttemptAt =
+            this.now() +
+            (["pull-request", "failed"].includes(entry.state.status) ? SETTLED_POLL_MS : 15_000);
         } catch {
           entry.attempts += 1;
           entry.nextAttemptAt =

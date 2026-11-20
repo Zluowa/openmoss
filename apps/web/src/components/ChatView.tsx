@@ -518,6 +518,7 @@ import {
   shouldShowImageGenerationLimitBanner,
 } from "./chat/imageGenerationLimit.logic";
 import { resolveUsageLimitStop } from "./chat/threadErrorPresentation";
+import { resolveAccountOutageThreadError } from "./chat/mossAccountOutage";
 import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
 import { useUnreadableThread } from "./UnreadableThreadsNotice";
 import { ChatThreadFindHost } from "./chat/ThreadFindBar";
@@ -605,6 +606,7 @@ import { useChatTerminalController } from "./chat/useChatTerminalController";
 import { useChatTimelineMessages } from "./chat/useChatTimelineMessages";
 import { useChatTranscriptScroll } from "./chat/useChatTranscriptScroll";
 import { useChatTurnFollowUps } from "./chat/useChatTurnFollowUps";
+import { useMossAccountOutage } from "./chat/useMossAccountOutage";
 import { useChatTurnSubmission } from "./chat/useChatTurnSubmission";
 import { useChatWorkLog } from "./chat/useChatWorkLog";
 import { useChatWorkspaceSelection } from "./chat/useChatWorkspaceSelection";
@@ -5787,6 +5789,15 @@ export default function ChatView({
     planSidebarOpenOnNextThreadRef,
     navigate,
   });
+  const recoverableFailedTurnId =
+    activeLatestTurnState === "error" && usageLimitStop === null ? activeLatestTurnId : null;
+  // A Moss lane whose expired sign-in the account service cannot renew: the chat says so,
+  // and the failed task continues by itself once the service is back.
+  const mossAccountOutage = useMossAccountOutage({
+    enabled: mossQuotaManagedSelection,
+    recoverableTurnId: recoverableFailedTurnId,
+    onResume: onContinueFailedTurn,
+  });
 
   const setPromptFromTraits = useCallback(
     (nextPrompt: string) => {
@@ -8641,6 +8652,7 @@ export default function ChatView({
                             activePendingApproval !== null || pendingUserInputs.length > 0
                           }
                           workingLabel={resolveWorkingLabel({
+                            accountServiceUnavailable: mossAccountOutage.unavailable,
                             isSettlingTurnDispatch,
                             isSendBusy,
                             turnTakenOver,
@@ -8694,14 +8706,14 @@ export default function ChatView({
                           hubWorkItemsByMessageId={hubWorkItemsByMessageId}
                           threadError={
                             usageLimitStop === null
-                              ? (activeThread?.error ?? localThreadError)
+                              ? resolveAccountOutageThreadError(
+                                  activeThread?.error ?? localThreadError,
+                                  mossAccountOutage.unavailable,
+                                )
                               : null
                           }
-                          recoverableTurnId={
-                            activeLatestTurnState === "error" && usageLimitStop === null
-                              ? activeLatestTurnId
-                              : null
-                          }
+                          recoverableTurnId={recoverableFailedTurnId}
+                          accountServiceUnavailable={mossAccountOutage.unavailable}
                           turnRecoveryDisabled={
                             isSendBusy ||
                             isConnecting ||

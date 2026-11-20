@@ -1121,6 +1121,14 @@ export const makeMossPhoneAccountService = Effect.fn(function* (
             // but an expired bearer must never remain routable through the
             // managed provider surface.
             yield* disableManagedProviderPreservingStoredSession();
+            // Moss lanes cannot run until Auth is back; the chat says so and resumes then.
+            const resolved = resolvedPhoneSession(
+              current,
+              stored.session,
+              true,
+              modelGatewayStatus,
+            );
+            return { ...resolved, state: { ...resolved.state, accountService: "unavailable" } };
           } else if (mode === "synchronize") {
             yield* synchronizeManagedProvider(current, "preserve");
           }

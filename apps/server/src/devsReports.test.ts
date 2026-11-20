@@ -407,6 +407,95 @@ describe("durable developer reporting", () => {
     await client.poll();
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+  it("keeps asking about a report handed to a developer until it is fixed, then stops", async () => {
+    let time = Date.parse("2026-11-20T08:00:00Z");
+    const id = randomUUID();
+    const pr = "https://github.com/Zluowa/moss-synara/pull/755";
+    let remote: Record<string, unknown> = {
+      id,
+      status: "queued",
+      message: "Received by the Moss developers.",
+      pullRequestUrl: null,
+    };
+    const fetcher = vi.fn<DevsFetch>(async () => Response.json(remote));
+    const client = new DevsReports(await temporary(), fetcher, PUBLIC_QUEUE_ENV, {
+      now: () => time,
+    });
+    cleanup.push(() => client.close());
+    const threadId = ThreadId.makeUnsafe("theme-chat");
+    await send(client, { id, threadId, text: "@devs 主题功能没有生效" });
+    await client.poll();
+    // The automatic repair did not finish: the card the owner saw.
+    remote = {
+      ...remote,
+      status: "failed",
+      message: "The developer worker disconnected.",
+    };
+    time += 15_001;
+    await client.poll();
+    expect((await client.list(threadId)).reports[0]).toMatchObject({ status: "failed" });
+    // A developer takes it over.
+    remote = {
+      ...remote,
+      status: "running",
+      resolution: "in-progress",
+      message: "开发者正在处理这份报告。",
+    };
+    await client.poll();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    time += 10 * 60_000 + 1;
+    await client.poll();
+    expect((await client.list(threadId)).reports[0]).toMatchObject({
+      status: "running",
+      resolution: "in-progress",
+    });
+    remote = {
+      ...remote,
+      status: "pull-request",
+      resolution: "fixed",
+      pullRequestUrl: pr,
+      message: "开发者已修复，将在下一版更新中送达。",
+    };
+    time += 15_001;
+    await client.poll();
+    expect((await client.list(threadId)).reports[0]).toMatchObject({
+      status: "pull-request",
+      resolution: "fixed",
+      pullRequestUrl: pr,
+    });
+    const calls = fetcher.mock.calls.length;
+    time += 30 * 86_400_000;
+    await client.poll();
+    expect(fetcher).toHaveBeenCalledTimes(calls);
+  });
+  it("keeps a finished report's outcome when the queue later lets go of it", async () => {
+    let time = Date.parse("2026-11-20T08:00:00Z");
+    const id = randomUUID();
+    const pr = "https://github.com/Zluowa/moss-synara/pull/7";
+    let gone = false;
+    const fetcher = vi.fn<DevsFetch>(async () =>
+      gone
+        ? new Response(null, { status: 404 })
+        : Response.json({ id, status: "pull-request", message: "PR", pullRequestUrl: pr }),
+    );
+    const client = new DevsReports(await temporary(), fetcher, PUBLIC_QUEUE_ENV, {
+      now: () => time,
+    });
+    cleanup.push(() => client.close());
+    const threadId = ThreadId.makeUnsafe("pr-chat");
+    await send(client, { id, threadId, text: "@devs broken" });
+    await client.poll();
+    gone = true;
+    time += 10 * 60_000 + 1;
+    await client.poll();
+    expect((await client.list(threadId)).reports[0]).toMatchObject({
+      status: "pull-request",
+      pullRequestUrl: pr,
+    });
+    time += 86_400_000;
+    await client.poll();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it("refuses missing configuration without acknowledging or clearing the report", async () => {
     const client = new DevsReports(await temporary(), fetch, { MOSS_DEVS_REPORT_URL: "" });
     cleanup.push(() => client.close());

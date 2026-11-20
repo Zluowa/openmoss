@@ -159,6 +159,7 @@ interface ChatTranscriptPaneProps {
   /** Stored thread-level error, rendered in flow above the transcript. */
   threadError?: string | null;
   recoverableTurnId?: ComponentProps<typeof MessagesTimeline>["recoverableTurnId"];
+  accountServiceUnavailable?: boolean;
   turnRecoveryDisabled?: boolean;
   onContinueFailedTurn?: ComponentProps<typeof MessagesTimeline>["onContinueFailedTurn"];
   onChangeRecoveryModel?: () => void;
@@ -271,6 +272,7 @@ export function ChatTranscriptPane({
   conversationOnly,
   threadError,
   recoverableTurnId,
+  accountServiceUnavailable,
   turnRecoveryDisabled,
   onContinueFailedTurn,
   onChangeRecoveryModel,
@@ -523,6 +525,7 @@ export function ChatTranscriptPane({
               timelineEntries={visibleTimelineEntries}
               threadId={activeThreadId}
               {...(recoverableTurnId !== undefined ? { recoverableTurnId } : {})}
+              {...(accountServiceUnavailable ? { accountServiceUnavailable } : {})}
               {...(turnRecoveryDisabled !== undefined ? { turnRecoveryDisabled } : {})}
               {...(onContinueFailedTurn ? { onContinueFailedTurn } : {})}
               {...(onChangeRecoveryModel ? { onChangeRecoveryModel } : {})}

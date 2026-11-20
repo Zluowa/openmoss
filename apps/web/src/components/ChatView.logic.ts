@@ -1575,6 +1575,7 @@ export type WorkingLabel =
   | "Loading"
   | "Thinking"
   | "Checking message delivery…"
+  | "Waiting for the Moss account service"
   | `Starting ${string}…`
   | `Retrying: ${string}`;
 
@@ -1665,6 +1666,8 @@ export function reconcileWarmProviderSessionKeys(
 }
 
 export function resolveWorkingLabel(input: {
+  /** A Moss lane cannot start until the account service renews its sign-in. */
+  accountServiceUnavailable?: boolean;
   isSendBusy: boolean;
   turnTakenOver: boolean;
   isConnecting?: boolean;
@@ -1673,6 +1676,8 @@ export function resolveWorkingLabel(input: {
   providerName?: string;
   retryLabel?: `Retrying: ${string}`;
 }): WorkingLabel {
+  // Never "starting slower than usual" for a start that cannot happen yet.
+  if (input.accountServiceUnavailable) return "Waiting for the Moss account service";
   if (input.isSettlingTurnDispatch) return "Checking message delivery…";
   if (input.isSendBusy && !input.turnTakenOver) {
     return "Loading";

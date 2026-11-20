@@ -33,7 +33,36 @@ interface CloudJob {
   expiresAt?: number;
   /** Declared with the report; each one's bytes arrive in its own upload. */
   attachments?: (DevsAttachmentManifestEntry & { stored: boolean })[];
+  /** A maintainer took the report over after the worker: working on it, or fixed. */
+  resolution?: DevsResolution;
+  /** Every earlier outcome, oldest first; a maintainer's resolution never erases one. */
+  history?: {
+    status: CloudJob["status"];
+    resolution: DevsResolution | null;
+    message: string;
+    pullRequestUrl: string | null;
+    note: string | null;
+    at: number;
+  }[];
 }
+type DevsResolution = "in-progress" | "fixed";
+/**
+ * What the reporter reads once a maintainer resolves a report. Apps that do not know
+ * `resolution` show the status alone: "fixed" reads as a submitted fix with its PR link,
+ * "in-progress" as a repair under way.
+ */
+const RESOLUTION_RECEIPT: Record<DevsResolution, { status: CloudJob["status"]; message: string }> =
+  {
+    "in-progress": {
+      status: "running",
+      message: "开发者正在处理这份报告。A Moss developer is working on this report.",
+    },
+    fixed: {
+      status: "pull-request",
+      message:
+        "开发者已修复，将在下一版更新中送达。The Moss developers fixed this; the fix arrives with the next update.",
+    },
+  };
 /** How long a report waits for its declared attachments before a worker may take it anyway. */
 const ATTACHMENT_GRACE_MS = 10 * 60_000;
 /** Today's counts. Reset when the UTC day changes; holds at most the report cap's installs. */
@@ -68,6 +97,7 @@ const receipt = (job: CloudJob) => ({
   status: job.status,
   message: job.message,
   pullRequestUrl: job.pullRequestUrl,
+  ...(job.resolution ? { resolution: job.resolution } : {}),
   ...(job.attachments?.length
     ? {
         attachments: {
@@ -254,8 +284,12 @@ export function createCloudDevsQueue(options: {
         "retry-after": String(devsSecondsUntilNextDay(now())),
       },
     });
+  const pullRequestPattern = new RegExp(
+    `^https://github\\.com/${options.repository.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/pull/\\d+$`,
+  );
   const expire = async (store: DevsQueueStore, job: CloudJob) => {
-    if (job.status === "running" && (job.expiresAt ?? 0) < now()) {
+    // A maintainer's "in-progress" holds no worker lease, so it never expires.
+    if (job.status === "running" && !job.resolution && (job.expiresAt ?? 0) < now()) {
       job.status = "failed";
       job.message =
         "The developer worker disconnected. The job needs maintainer inspection and will not be replayed automatically.";
@@ -300,7 +334,7 @@ export function createCloudDevsQueue(options: {
       for (const id of ids) {
         const job = await store.get<CloudJob>(`job:${id}`);
         if (job) await expire(store, job);
-        if (job && ["queued", "running"].includes(job.status)) pending++;
+        if (job && !job.resolution && ["queued", "running"].includes(job.status)) pending++;
       }
       if (pending >= 100) return json({ error: "Queue full" }, 429);
       const today = await budget(store);
@@ -347,7 +381,7 @@ export function createCloudDevsQueue(options: {
           const job = await store.get<CloudJob>(`job:${id}`);
           if (!job) continue;
           await expire(store, job);
-          if (job.status === "running")
+          if (job.status === "running" && !job.resolution)
             return job.claimId === input.claimId ? json(claim(job)) : json({ job: null });
           const waitingForAttachments =
             job.attachments?.some((attachment) => !attachment.stored) &&
@@ -415,13 +449,7 @@ export function createCloudDevsQueue(options: {
         if (operation[2] === "heartbeat") job.expiresAt = now() + 120_000;
         else {
           const url = input.pullRequestUrl;
-          if (
-            url !== null &&
-            (typeof url !== "string" ||
-              !new RegExp(
-                `^https://github\\.com/${options.repository.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/pull/\\d+$`,
-              ).test(url))
-          )
+          if (url !== null && (typeof url !== "string" || !pullRequestPattern.test(url)))
             return json({ error: "Invalid PR receipt" }, 400);
           job.pullRequestUrl = url as string | null;
           job.status = url ? "pull-request" : "failed";
@@ -431,6 +459,56 @@ export function createCloudDevsQueue(options: {
           // The worker keeps its copy with the retained job; the queue holds none after completion.
           await dropAttachments(store, job);
         }
+        await store.put(`job:${job.id}`, job);
+        return json(receipt(job));
+      });
+    }
+    const resolve = /^\/worker\/([^/]+)\/resolve$/.exec(path);
+    if (resolve && request.method === "POST" && uuid(resolve[1])) {
+      const input = await body(request);
+      const resolution = input?.status;
+      const url = input?.pullRequestUrl ?? null;
+      const note = input?.note ?? null;
+      if (
+        !input ||
+        (resolution !== "in-progress" && resolution !== "fixed") ||
+        (url !== null && (typeof url !== "string" || !pullRequestPattern.test(url))) ||
+        (note !== null && (typeof note !== "string" || note.length > 2_000))
+      )
+        return json({ error: "Invalid resolution" }, 400);
+      return options.store.transaction(async (store) => {
+        const job = await store.get<CloudJob>(`job:${resolve[1]}`);
+        if (!job) return json({ error: "Report not found" }, 404);
+        await expire(store, job);
+        const pullRequestUrl = (url as string | null) ?? job.pullRequestUrl;
+        const next = RESOLUTION_RECEIPT[resolution];
+        // A repeat of the same resolution changes nothing.
+        if (job.resolution === resolution && job.pullRequestUrl === pullRequestUrl)
+          return json(receipt(job));
+        if (job.status === "queued")
+          return json({ error: "The report has not been worked on yet" }, 409);
+        if (resolution === "fixed" && !pullRequestUrl)
+          return json({ error: "A fixed report needs its pull request" }, 400);
+        job.history = [
+          ...(job.history ?? []),
+          {
+            status: job.status,
+            resolution: job.resolution ?? null,
+            message: job.message,
+            pullRequestUrl: job.pullRequestUrl,
+            note: note === null ? null : redactDevsReportText(note as string, 2_000),
+            at: now(),
+          },
+        ];
+        job.resolution = resolution;
+        job.status = next.status;
+        job.message = next.message;
+        job.pullRequestUrl = pullRequestUrl;
+        // A worker still holding the job loses its lease: its heartbeat and receipt now fail.
+        delete job.lease;
+        delete job.claimId;
+        delete job.expiresAt;
+        await dropAttachments(store, job);
         await store.put(`job:${job.id}`, job);
         return json(receipt(job));
       });
