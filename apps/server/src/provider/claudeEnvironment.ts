@@ -238,6 +238,8 @@ export function buildClaudeInstanceProcessEnv(
 
 export const MOSS_MANAGED_CLAUDE_PROVIDER_INSTANCE_ID = "claude_moss";
 export const MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY = "MOSS_BUNDLED_CLAUDE_PATH";
+/** The Claude Code an in-app update installed side by side (agentVersionStore). */
+export const MOSS_UPDATED_CLAUDE_PATH_ENV_KEY = "MOSS_UPDATED_CLAUDE_PATH";
 export const MOSS_MANAGED_CLAUDE_GATEWAY_API_KEY_ENV_KEY = "MOSS_MODEL_GATEWAY_CLAUDE_API_KEY";
 const MOSS_MANAGED_GATEWAY_API_KEY_ENV_KEY = "MOSS_MODEL_GATEWAY_API_KEY";
 export const MOSS_MANAGED_CLAUDE_MAX_RETRIES_ENV_KEY = "CLAUDE_CODE_MAX_RETRIES";
@@ -363,7 +365,8 @@ export function resolveClaudeAgentSdkExecutable(input?: {
 }
 
 /**
- * A person's own Claude instance: their configured path, else their own `claude` on PATH,
+ * A person's own Claude instance: their configured path, else the copy an in-app update
+ * installed, else their own `claude` on PATH,
  * else the Claude Code a packaged Moss ships (see resolveLocalAgentExecutable).
  */
 export function resolveLocalClaudeCodeExecutable(input?: {
@@ -378,6 +381,7 @@ export function resolveLocalClaudeCodeExecutable(input?: {
     command: "claude",
     configuredBinaryPath: input?.binaryPath,
     bundledBinaryPath: env[MOSS_BUNDLED_CLAUDE_PATH_ENV_KEY],
+    updatedBinaryPath: env[MOSS_UPDATED_CLAUDE_PATH_ENV_KEY],
     env,
     ...(input?.platform ? { platform: input.platform } : {}),
     ...(input?.isOnPath ? { isOnPath: input.isOnPath } : {}),

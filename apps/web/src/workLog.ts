@@ -335,6 +335,8 @@ export type WorkLogGeneratedImage =
       callId: string;
       media?: "video";
       jobId?: string;
+      /** Where a failed Codex call said its image would be saved. No file is there. */
+      path?: string;
     };
 
 export type ModelReroutedReason = "highRiskCyberActivity";
@@ -4918,6 +4920,10 @@ export function parseWorkLogGeneratedImage(
           ? { jobId: failedJobId }
           : {}),
       };
+    }
+    // Codex reports a failed image call with the path the image would have had.
+    if (data?.kind === CODEX_GENERATED_IMAGE_ARTIFACT_KIND && payload?.status === "failed") {
+      return callId ? { state: "failed", callId, ...(path !== null ? { path } : {}) } : undefined;
     }
     if (data?.kind === MOSS_GENERATED_VIDEO_ARTIFACT_KIND && path !== null)
       return { state: "completed", path, media: "video", ...(callId ? { callId } : {}) };

@@ -35,6 +35,17 @@ export function readDevsRepairConfig(env: NodeJS.ProcessEnv = process.env) {
     ...(claudeKey ? { claudeKey } : {}),
     ...(codexKey ? { codexKey } : {}),
     ...(localCodex ? { localCodex, githubVerifyRef: env.MOSS_DEVS_VERIFY_REF ?? "main" } : {}),
+    // Public-report repairs are verified on the public mirror's CI when a clone is configured.
+    ...(localCodex && env.MOSS_DEVS_MIRROR_CI_CLONE?.trim()
+      ? {
+          mirrorCi: {
+            clone: path.resolve(env.MOSS_DEVS_MIRROR_CI_CLONE.trim()),
+            repository: env.MOSS_DEVS_MIRROR_CI_REPOSITORY?.trim() || "Zluowa/openmoss",
+            // This checkout's own export tool, never the repair's.
+            toolRoot: path.resolve(import.meta.dirname, "../../.."),
+          },
+        }
+      : {}),
     verify: [
       ["bun", "run", "fmt:check"],
       ["bun", "run", "lint"],

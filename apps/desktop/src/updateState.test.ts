@@ -31,6 +31,7 @@ const baseState: DesktopUpdateState = {
   installFailureCount: 0,
   flavor: "production",
   releaseUrl: null,
+  manualDownloadUrl: null,
 };
 
 describe("getDownloadStallTimeoutMessage", () => {

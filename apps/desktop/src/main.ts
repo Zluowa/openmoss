@@ -259,6 +259,12 @@ import {
   type WindowMaterialAddon,
 } from "./windowMaterial";
 import { collectMacUpdateDiagnostics } from "./macUpdateDiagnostics";
+import {
+  applyMacUpdateNoticeResult,
+  fetchMacUpdateNotice,
+  MOSS_DOWNLOAD_PAGE_URL,
+  resolveDesktopUpdateDelivery,
+} from "./macUpdateNotice";
 import { BackendLinkDropLog } from "./backendLinkDropLog";
 import { createRendererStorageFlusher } from "./rendererStorageFlush";
 import { openInitialBackendWindow } from "./initialBackendWindowOpen";
@@ -1558,6 +1564,8 @@ let activeUpdateCheck: Promise<void> | null = null;
 let settleActiveUpdateCheck: (() => void) | null = null;
 let activeUpdatePreparation: Promise<void> | null = null;
 let updaterConfigured = false;
+// A Mac build without a Developer ID only announces new versions (macUpdateNotice.ts).
+let macUpdateNoticeOnly = false;
 let updateState: DesktopUpdateState = initialUpdateState();
 let updateBackgroundedAtMs: number | null = null;
 let updateBackgroundBlurTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2808,6 +2816,25 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       ),
       buttons: [nativeText("OK", "好")],
     });
+  } else if (updateState.status === "available" && updateState.manualDownloadUrl) {
+    const downloadUrl = updateState.manualDownloadUrl;
+    const version = updateState.availableVersion ?? "";
+    void dialog
+      .showMessageBox({
+        type: "info",
+        title: nativeText("Update found", "发现更新"),
+        message: nativeText(`Moss ${version} is available`, `Moss ${version} 已发布`),
+        detail: nativeText(
+          "Download the new version from the Moss website and replace this app. Your chats and settings stay.",
+          "请从 Moss 官网下载新版本并替换当前应用，对话和设置都会保留。",
+        ),
+        buttons: [nativeText("Go to download", "前往下载"), nativeText("Later", "稍后")],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) void shell.openExternal(downloadUrl);
+      });
   } else if (updateState.status === "downloading" || updateState.status === "available") {
     void dialog.showMessageBox({
       type: "info",
@@ -5224,7 +5251,42 @@ function beginActiveUpdateCheck(): () => void {
   return finish;
 }
 
+async function checkForMacUpdateNotice(reason: string): Promise<void> {
+  if (isQuitting || updateCheckInFlight) return;
+  updateCheckInFlight = true;
+  const finishCheck = beginActiveUpdateCheck();
+  try {
+    const result = await fetchMacUpdateNotice({
+      sources:
+        MOSS_DOWNLOAD_SOURCES[
+          mossDownloadSourceOrder({
+            lane: null,
+            locale: app.getLocale(),
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          })
+        ],
+      fetch: (url, init) => net.fetch(url, { signal: init.signal }),
+    });
+    setUpdateState(
+      applyMacUpdateNoticeResult(updateState, result, {
+        acceptVersion: isAcceptableUpdateVersion,
+        checkedAt: new Date().toISOString(),
+      }),
+    );
+    console.info(
+      `[desktop-updater] Update notice (${reason}): ${result.status === "found" ? result.version : result.status === "failed" ? result.message : "none published"}.`,
+    );
+  } finally {
+    updateCheckInFlight = false;
+    finishCheck();
+  }
+}
+
 async function checkForUpdates(reason: string): Promise<void> {
+  if (macUpdateNoticeOnly) {
+    await checkForMacUpdateNotice(reason);
+    return;
+  }
   if (isQuitting || isUpdaterInstallPreparing || !updaterConfigured || updateCheckInFlight) return;
   if (automaticUpdateActivitySuppressed) {
     if (!isExplicitUpdateCheckReason(reason)) {
@@ -5700,6 +5762,24 @@ function configureAutoUpdater(): void {
     configuredUpdaterCacheDirName = null;
     return;
   }
+  if (
+    resolveDesktopUpdateDelivery({
+      platform: process.platform,
+      isPackaged: app.isPackaged,
+      readTeamId: ownAppTeamId,
+    }) === "manual-download"
+  ) {
+    // Squirrel.Mac would refuse any other build after the whole zip was downloaded, so
+    // electron-updater is never asked: new versions are announced with the download page.
+    macUpdateNoticeOnly = true;
+    configuredUpdaterCacheDirName = null;
+    setUpdateState({ manualDownloadUrl: MOSS_DOWNLOAD_PAGE_URL });
+    console.info(
+      "[desktop-updater] This Mac build has no Developer ID signature; new versions link to the download page.",
+    );
+    scheduleStartupUpdateChecks();
+    return;
+  }
   updaterConfigured = true;
   hardenElectronUpdater(
     { BaseUpdater },
@@ -5852,6 +5932,10 @@ function configureAutoUpdater(): void {
     void task.then(clearTask, clearTask);
   });
 
+  scheduleStartupUpdateChecks();
+}
+
+function scheduleStartupUpdateChecks(): void {
   clearUpdatePollTimer();
 
   if (automaticUpdateActivitySuppressed) {

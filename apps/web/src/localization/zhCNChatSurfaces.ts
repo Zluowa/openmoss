@@ -58,9 +58,9 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "Chat context uses the new provider’s allowance.": "对话上下文会使用新服务商的额度。",
   "Still sending your last message": "仍在发送你的上一条消息",
   "Wait for it to show in the chat before sending again.": "请等它显示在对话中后再发送。",
-  "The session is still starting": "会话仍在启动",
-  "Send again once it is ready. Your message stays in the composer.":
-    "就绪后请再次发送。你的消息会保留在输入框中。",
+  "Reconnecting to the conversation": "正在重新连接对话",
+  "Send your answer once it is connected. It stays in the composer.":
+    "连接后再发送你的回答，内容会保留在输入框中。",
   "This chat has no project": "这个对话没有项目",
   "Choose a project for this chat, then send again.": "请为这个对话选择项目，然后再次发送。",
   "Continue in this local worktree": "在这个本地工作树中继续",

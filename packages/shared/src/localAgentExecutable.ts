@@ -66,15 +66,19 @@ export function resetLocalAgentPathLookupCache(): void {
  *
  * 1. A path the person configured wins (the bare default command means "not configured";
  *    a configured path equal to the bundled one means "the bundled one").
- * 2. Their own install on PATH wins next, so an agent already on the computer just works
+ * 2. A newer copy Moss installed side by side when the person pressed 更新 comes next: the
+ *    update was asked for, and the copy it replaced may still be running.
+ * 3. Their own install on PATH wins next, so an agent already on the computer just works
  *    with its own version. Account credentials are selected separately.
- * 3. Otherwise the copy Moss ships, so a fresh computer works without installing anything.
- * 4. With neither, the bare command, which the health check reports as not installed.
+ * 4. Otherwise the copy Moss ships, so a fresh computer works without installing anything.
+ * 5. With neither, the bare command, which the health check reports as not installed.
  */
 export function resolveLocalAgentExecutable(input: {
   readonly command: string;
   readonly configuredBinaryPath?: string | null | undefined;
   readonly bundledBinaryPath?: string | null | undefined;
+  /** The side-by-side copy an in-app update activated (the server's agentVersionStore). */
+  readonly updatedBinaryPath?: string | null | undefined;
   readonly env?: NodeJS.ProcessEnv | undefined;
   readonly platform?: NodeJS.Platform | undefined;
   /** Test seam for the PATH lookup. */
@@ -82,6 +86,7 @@ export function resolveLocalAgentExecutable(input: {
 }): LocalAgentExecutableResolution & { readonly bundledAvailable: boolean } {
   const configured = input.configuredBinaryPath?.trim() ?? "";
   const bundled = input.bundledBinaryPath?.trim() ?? "";
+  const updated = input.updatedBinaryPath?.trim() ?? "";
   const bundledAvailable = bundled.length > 0;
   if (configured && configured !== input.command && configured !== bundled) {
     // Resolve relative paths/commands in the server environment, before an
@@ -101,6 +106,9 @@ export function resolveLocalAgentExecutable(input: {
     return { binaryPath, source: "configured", bundledAvailable };
   }
   const explicitlyBundled = bundledAvailable && configured === bundled;
+  if (!explicitlyBundled && updated) {
+    return { binaryPath: updated, source: "path", bundledAvailable };
+  }
   if (!explicitlyBundled) {
     const executablePath = input.isOnPath
       ? !bundledAvailable || input.isOnPath(input.command)

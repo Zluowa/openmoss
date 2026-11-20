@@ -1900,6 +1900,16 @@ function normalizeClaudeUserVisibleErrorMessage(
   return sanitized;
 }
 
+function readClaudeQuotaDiagnostic(lines: readonly string[]): string | undefined {
+  // The SDK's broad rate_limit/billing_error categories discard the actual
+  // verdict and reset. Keep the diagnostic on the error channel for the UI.
+  return lines.find((line) =>
+    /\b(?:quota|usage limit|weekly limit|5[- ]hour limit|five[- ]hour limit|hit your limit|insufficient_credits|insufficient_quota|\w+_quota_exhausted)\b/iu.test(
+      line,
+    ),
+  );
+}
+
 export function claudeAssistantErrorMessage(
   error: SDKAssistantMessageError,
   providerInstanceId: string | undefined,
@@ -5023,18 +5033,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         yield* ensureSyntheticTurn(context);
+        const usageLimitError = message.error
+          ? readClaudeQuotaDiagnostic(extractAssistantTextBlocks(message))
+          : undefined;
         if (message.error && context.turnState) {
           context.turnState = {
             ...context.turnState,
             assistantError: {
               code: message.error,
-              message: claudeAssistantErrorMessage(
-                message.error,
-                context.session.providerInstanceId,
-              ),
+              message:
+                usageLimitError ??
+                claudeAssistantErrorMessage(message.error, context.session.providerInstanceId),
             },
           };
         }
+        // This SDK snapshot is a quota diagnostic, not a new answer. Keep the
+        // assistant deltas from before the failure and let the result settle them.
+        if (usageLimitError) return;
         const content = message.message?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
@@ -5247,12 +5262,11 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           status = turnStatusFromResult(message);
         }
 
-        let errorMessage: string | undefined;
-        if (assistantError) {
-          errorMessage = assistantError.message;
-        } else if (message.subtype !== "success") {
-          errorMessage = normalizeClaudeUserVisibleErrorMessage(message.errors[0], status);
-        }
+        const resultErrors = message.subtype !== "success" ? message.errors : [];
+        const errorMessage =
+          (status === "failed" ? readClaudeQuotaDiagnostic(resultErrors) : undefined) ??
+          assistantError?.message ??
+          normalizeClaudeUserVisibleErrorMessage(resultErrors[0], status);
 
         if (status === "failed") {
           yield* emitRuntimeError(context, errorMessage ?? CLAUDE_TURN_FAILED_MESSAGE);

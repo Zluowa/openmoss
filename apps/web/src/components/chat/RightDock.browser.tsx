@@ -482,3 +482,73 @@ it.skip("restores host accessibility on resize, thread changes, collapse and fin
   expect(covered.inert).toBe(false);
   expect(covered.style.visibility).toBe("");
 });
+
+// Electron folds border-box drag/no-drag rectangles in document order (same
+// model as SidebarHeaderNavigationControls.browser.tsx), so the region under a
+// point is the last matching element's computed `app-region`.
+function nativeDragRegionAt(container: HTMLElement, x: number, y: number) {
+  let region = "";
+  for (const element of container.querySelectorAll<HTMLElement>("*")) {
+    const appRegion = getComputedStyle(element).getPropertyValue("app-region");
+    if (appRegion !== "drag" && appRegion !== "no-drag") continue;
+    const bounds = element.getBoundingClientRect();
+    if (x >= bounds.left && x < bounds.right && y >= bounds.top && y < bounds.bottom) {
+      region = appRegion;
+    }
+  }
+  return region;
+}
+
+it("keeps the dock's top bar a window drag region except over its tabs and buttons", async () => {
+  await page.viewport(1280, 800);
+  const screen = await renderDock(
+    <div style={{ display: "flex", width: 1000, height: 600 }}>
+      <div style={{ flex: 1 }}>Chat</div>
+      <RightDock
+        state={{
+          open: true,
+          activePaneId: "diff",
+          panes: [{ ...makeFilePane("diff"), kind: "diff" as const }],
+        }}
+        paneLabelOverrides={{ diff: "Diff" }}
+        minWidth={300}
+        defaultWidth="500px"
+        windowControlsGutterClassName={null}
+        shouldAcceptWidth={() => true}
+        addMenuKinds={["file"]}
+        onClosePane={() => {}}
+        onCollapse={() => {}}
+        onOpenChange={() => {}}
+        onFullWidthChange={() => {}}
+        onAddPane={() => {}}
+        renderPane={() => <div>Diff body</div>}
+      />
+    </div>,
+  );
+  try {
+    const dock = document.querySelector<HTMLElement>("[data-right-dock-content]")!;
+    const tab = dock.querySelector<HTMLElement>("[data-surface-tab]")!;
+    const addButton = screen.getByRole("button", { name: "Add panel", exact: true }).element();
+    const widthToggle = dock.querySelector<HTMLElement>('[data-testid="right-dock-width-toggle"]')!;
+    const tabRect = tab.getBoundingClientRect();
+    const addRect = addButton.getBoundingClientRect();
+    const toggleRect = widthToggle.getBoundingClientRect();
+    const rowY = tabRect.top + tabRect.height / 2;
+    // Empty bar between the "+" and the panel controls: the user grabs the window here.
+    const emptyX = (addRect.right + toggleRect.left) / 2;
+    expect(toggleRect.left - addRect.right).toBeGreaterThan(100);
+    expect(nativeDragRegionAt(document.body, emptyX, rowY)).toBe("drag");
+    expect(nativeDragRegionAt(document.body, tabRect.left + 4, rowY)).toBe("no-drag");
+    expect(nativeDragRegionAt(document.body, addRect.left + addRect.width / 2, rowY)).toBe(
+      "no-drag",
+    );
+    expect(nativeDragRegionAt(document.body, toggleRect.left + toggleRect.width / 2, rowY)).toBe(
+      "no-drag",
+    );
+    // The pane body below the bar stays an ordinary, clickable surface.
+    const body = screen.getByText("Diff body", { exact: true }).element().getBoundingClientRect();
+    expect(nativeDragRegionAt(document.body, body.left + 2, body.top + 2)).not.toBe("drag");
+  } finally {
+    await screen.unmount();
+  }
+});

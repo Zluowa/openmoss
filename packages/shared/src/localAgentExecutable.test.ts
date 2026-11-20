@@ -43,6 +43,26 @@ describe("resolveLocalAgentExecutable", () => {
     ).toMatchObject({ binaryPath: "/app/claude", source: "bundled" });
   });
 
+  it("runs the copy an in-app update installed before the person's own and the bundled one", () => {
+    const input = {
+      command: "codex",
+      bundledBinaryPath: "/app/codex",
+      updatedBinaryPath: "/moss/agents/versions/codex/0.171.0-x/bin/codex",
+      isOnPath: () => true,
+    } as const;
+    expect(resolveLocalAgentExecutable(input)).toMatchObject({
+      binaryPath: "/moss/agents/versions/codex/0.171.0-x/bin/codex",
+      source: "path",
+    });
+    // A program chosen in Settings, or the bundled one chosen explicitly, still wins.
+    expect(
+      resolveLocalAgentExecutable({ ...input, configuredBinaryPath: "/opt/codex" }),
+    ).toMatchObject({ binaryPath: "/opt/codex", source: "configured" });
+    expect(
+      resolveLocalAgentExecutable({ ...input, configuredBinaryPath: "/app/codex" }),
+    ).toMatchObject({ binaryPath: "/app/codex", source: "bundled" });
+  });
+
   it("keeps a missing relative configured program bound to the server directory", () => {
     const configured = "./missing-runtime15-program/cli";
     expect(

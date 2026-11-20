@@ -10,6 +10,39 @@ import {
 } from "@moss/shared/providerDeliveryBlock";
 import { describe, expect, it } from "vitest";
 
+import { resolveUsageLimitStop } from "./threadErrorPresentation";
+
+describe("resolveUsageLimitStop", () => {
+  it.each([
+    [
+      '{"error":{"code":"token_quota_exhausted","reset_at":"2026-11-23T23:00:00Z"}}',
+      "2026-11-23T23:00:00Z",
+    ],
+    ["The Moss account's free credit balance cannot cover this request.", null],
+    ["Your Moss package usage allowance is exhausted.", null],
+    ["You've hit your usage limit. Try again at Aug 28th, 2026 11:43 PM.", "Aug 28, 2026 11:43 PM"],
+    ["Weekly limit reached · resets 11pm (America/Los_Angeles)", "11pm (America/Los_Angeles)"],
+    ["5-hour limit reached; resets at 4:30 PM", "4:30 PM"],
+    ["5-hour limit · resets 4:30 PM", "4:30 PM"],
+    ['HTTP 429 {"error":{"code":"insufficient_quota"}}', null],
+    ["HTTP 429: your quota for this model has been exceeded", null],
+    ["HTTP 429: insufficient quota", null],
+    ["service_cost_window_exhausted", null],
+  ])("classifies a terminal quota error and retains its reset: %s", (error, resetAt) => {
+    expect(resolveUsageLimitStop(error)).toEqual({ kind: "usage-limit", resetAt });
+  });
+
+  it.each([
+    "HTTP 429: too many requests; retry after 30 seconds",
+    "HTTP 429: rate limit reached for RPM",
+    "The model reached the maximum output length before completing the turn.",
+    "The stream disconnected before completion.",
+    "Account quota verification is temporarily unavailable.",
+  ])("leaves unrelated failures alone: %s", (error) => {
+    expect(resolveUsageLimitStop(error)).toBeNull();
+  });
+});
+
 import { WS_MESSAGE_NOT_SENT_DETAIL } from "../../wsTransportEvents";
 
 import {

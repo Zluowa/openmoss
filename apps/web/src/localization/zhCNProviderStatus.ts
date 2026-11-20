@@ -86,6 +86,17 @@ const EXACT_STATUS: Readonly<Record<string, string>> = {
     "服务商实例已被停用或移除，更新已停止。",
   "Update stopped because the provider was disabled.": "服务商已被停用，更新已停止。",
   "Provider updated.": "服务商已更新。",
+  "Updated. Conversations in progress switch to the new version after their current turn.":
+    "已更新，进行中的对话会在本轮结束后切换到新版本。",
+  "There is not enough disk space for the update. Free some space, then try again.":
+    "磁盘空间不足，无法完成更新。请清理一些空间后重试。",
+  "Moss could not find npm to download the update. Install Node.js, then try again.":
+    "这台电脑上找不到 npm，Moss 无法下载更新。请先安装 Node.js，再重试。",
+  "The update download took too long. Check your network, then try again.":
+    "更新下载超时，请检查网络后重试。",
+  "The downloaded version did not start. Try again.": "下载的新版本没能启动，请重试。",
+  "Moss could not download the update. Check your network, then try again.":
+    "Moss 没能下载更新，请检查网络后重试。",
   "Waiting for another provider update to finish.": "正在等待另一个服务商更新完成。",
 
   // Codex and Claude

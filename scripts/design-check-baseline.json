@@ -262,9 +262,6 @@
   "apps/web/src/components/chat/mossNormalizedTimeline.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/chat/MossQuotaExhaustedSurface.tsx": {
-    "heavy-weight": 1
-  },
   "apps/web/src/components/chat/MultiAgentActionDisclosure.tsx": {
     "raw-button": 1
   },

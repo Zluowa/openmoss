@@ -14,6 +14,7 @@ import {
   type CodexCredentialScopeInput,
 } from "../../codexHomeIdentity.ts";
 import { ServerConfig } from "../../config.ts";
+import { makeAgentProgramOwnership } from "../agentProgramOwnership.ts";
 import { readClaudeStateBinding } from "../claudeStateBinding.ts";
 import {
   buildMossManagedClaudeInstance,
@@ -12013,5 +12014,83 @@ rotationStopRetry.layer("ProviderServiceLive rotation whose old runtime will not
 
       yield* provider.stopSession({ threadId });
     }).pipe(Effect.timeout("3 seconds")),
+  );
+});
+
+const programUpdatePrograms = {
+  codex: makeAgentProgramOwnership("codex"),
+  claudeAgent: makeAgentProgramOwnership("claudeAgent"),
+};
+const programUpdate = makeProviderServiceLayer({
+  runtimeIdleStopMs: 60_000,
+  agentPrograms: (provider) => programUpdatePrograms[provider],
+});
+programUpdate.layer("ProviderServiceLive in-app agent update", (it) => {
+  it.effect(
+    "moves an idle session at once and a running one after its turn, then resumes on the next message",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const busyThread = asThreadId("thread-program-update-busy");
+        const idleThread = asThreadId("thread-program-update-idle");
+        for (const threadId of [busyThread, idleThread]) {
+          yield* provider.startSession(threadId, {
+            provider: "codex",
+            threadId,
+            runtimeMode: "full-access",
+          });
+        }
+        yield* provider.sendTurn({ threadId: busyThread, input: "long task", attachments: [] });
+        yield* programUpdate.codex.waitForRuntimeSubscribers();
+        programUpdate.codex.stopSession.mockClear();
+        programUpdate.codex.startSession.mockClear();
+        programUpdate.codex.sendTurn.mockClear();
+
+        programUpdatePrograms.codex.approveProgramSwitch(
+          path.join(os.tmpdir(), "moss-updated-codex", "codex.cmd"),
+        );
+
+        // The idle session moves now; the running turn is left alone.
+        yield* waitUntil(() =>
+          programUpdate.codex.stopSession.mock.calls.some(([id]) => id === idleThread),
+        );
+        yield* sleep(100);
+        assert.deepStrictEqual(
+          programUpdate.codex.stopSession.mock.calls.map(([id]) => id),
+          [idleThread],
+        );
+        assert.isTrue(yield* programUpdate.codex.adapter.hasSession(busyThread));
+
+        programUpdate.codex.emit({
+          type: "turn.completed",
+          eventId: asEventId("program-update-busy-completed"),
+          provider: "codex",
+          threadId: busyThread,
+          turnId: asTurnId(`turn-${String(busyThread)}`),
+          createdAt: new Date().toISOString(),
+          payload: { state: "completed" },
+        });
+        yield* waitUntil(() =>
+          programUpdate.codex.stopSession.mock.calls.some(([id]) => id === busyThread),
+        );
+
+        // The next message starts the new program once, resumes the thread and is sent once.
+        yield* provider.sendTurn({ threadId: busyThread, input: "next", attachments: [] });
+        assert.strictEqual(programUpdate.codex.startSession.mock.calls.length, 1);
+        assert.deepStrictEqual(programUpdate.codex.startSession.mock.calls[0]?.[0].resumeCursor, {
+          opaque: `resume-${String(busyThread)}`,
+        });
+        assert.deepStrictEqual(
+          programUpdate.codex.sendTurn.mock.calls.map(([input]) => input.input),
+          ["next"],
+        );
+        // The restarted session is on the new program: it is not stopped again.
+        yield* sleep(100);
+        assert.strictEqual(
+          programUpdate.codex.stopSession.mock.calls.filter(([id]) => id === busyThread).length,
+          1,
+        );
+        yield* provider.stopSession({ threadId: busyThread });
+      }),
   );
 });

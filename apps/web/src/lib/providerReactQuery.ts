@@ -27,6 +27,14 @@ interface CheckpointDiffQueryInput {
   cacheScope?: string | null;
   /** Live snapshots are replaced frequently; release unused full patches immediately. */
   liveSnapshot?: boolean;
+  /**
+   * Retry and poll "not available yet" answers while a checkpoint is still being
+   * written (default). Pass false when the turn summary already says the
+   * checkpoint is missing: the answer then only changes with a new summary,
+   * which is a new query key, so retries only queue git work behind the shared
+   * expensive-read slots and keep the panel on a skeleton.
+   */
+  awaitPendingCheckpoint?: boolean;
   enabled?: boolean;
 }
 
@@ -124,16 +132,20 @@ export function resolveCheckpointDiffQueryDisplayState(input: {
   isFetching: boolean;
   data: unknown;
   error: unknown;
+  /** The failure a pending retry or poll is answering; React Query clears `error` per fetch. */
+  failureReason?: unknown;
 }): { isLoading: boolean; error: string | null; refreshStatus: string | null } {
   const hasData = input.data != null;
   const capacityDelayed =
     isRpcCapacityExceededError(input.error) && input.error.retryable !== false;
+  // A settled failure stays on screen while a background poll or a manual retry
+  // runs. Flipping back to the skeleton on every poll read as "loading forever".
+  const failure = input.error ?? (hasData ? null : (input.failureReason ?? null));
+  const failureIsBackpressure = isRpcCapacityExceededError(failure) && failure.retryable !== false;
+  const shownError = capacityDelayed || failureIsBackpressure ? null : failure;
   return {
-    isLoading: input.isLoading || (input.isFetching && !hasData),
-    error:
-      input.isFetching || input.error == null || capacityDelayed
-        ? null
-        : normalizeCheckpointErrorMessage(input.error),
+    isLoading: shownError == null && (input.isLoading || (input.isFetching && !hasData)),
+    error: shownError == null ? null : normalizeCheckpointErrorMessage(shownError),
     refreshStatus: capacityDelayed
       ? input.isFetching
         ? "Refreshing diff..."
@@ -144,6 +156,7 @@ export function resolveCheckpointDiffQueryDisplayState(input: {
 
 export function checkpointDiffQueryOptions(input: CheckpointDiffQueryInput) {
   const decodedRequest = decodeCheckpointDiffRequest(input);
+  const awaitPendingCheckpoint = input.awaitPendingCheckpoint ?? true;
 
   return queryOptions({
     queryKey: providerQueryKeys.checkpointDiff(input),
@@ -171,7 +184,7 @@ export function checkpointDiffQueryOptions(input: CheckpointDiffQueryInput) {
         return shouldRetryExpensiveRead(failureCount, error);
       }
       if (isCheckpointTemporarilyUnavailable(error)) {
-        return failureCount < 12;
+        return awaitPendingCheckpoint && failureCount < 12;
       }
       return failureCount < 3;
     },
@@ -188,7 +201,11 @@ export function checkpointDiffQueryOptions(input: CheckpointDiffQueryInput) {
         return expensiveReadErrorRefetchInterval(query);
       }
       const temporaryError = query.state.error;
-      if (!temporaryError || !isCheckpointTemporarilyUnavailable(temporaryError)) {
+      if (
+        !awaitPendingCheckpoint ||
+        !temporaryError ||
+        !isCheckpointTemporarilyUnavailable(temporaryError)
+      ) {
         return false;
       }
       const temporaryErrorCount = query.state.errorUpdateCount ?? 0;

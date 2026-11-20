@@ -50,6 +50,7 @@ const initial: DesktopUpdateState = {
   installFailureCount: 0,
   flavor: "production",
   releaseUrl: null,
+  manualDownloadUrl: null,
 };
 
 const previousFont = document.documentElement.style.getPropertyValue("--app-font-size-ui-2xs");
