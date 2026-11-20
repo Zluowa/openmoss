@@ -1318,7 +1318,9 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("```tsx");
   });
 
-  it("renders a lone reasoning update as iconless tool text", async () => {
+  // Reasoning reads like every other step: one quiet line with its glyph in the
+  // icon column, never a bold heading.
+  it("renders a lone reasoning update as one quiet line with the reasoning glyph", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const activeTurnId = TurnId.makeUnsafe("turn-reasoning-lone");
     const markup = renderToStaticMarkup(
@@ -1348,9 +1350,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup.match(/data-codex-status-row="true"/g) ?? []).toHaveLength(1);
-    expect(markup).not.toContain('data-work-entry-icon="true"');
+    expect(markup).not.toContain('data-codex-status-row="true"');
+    expect(markup.match(/data-work-entry-icon="true"/g) ?? []).toHaveLength(1);
     expect(markup).toContain("Inspecting apps/web/src/store.ts");
+    expect(markup).not.toContain("<strong");
     expect(markup).not.toContain("Reasoning trace Inspecting");
   });
 
@@ -3150,10 +3153,9 @@ describe("MessagesTimeline", () => {
     // of the DOM until the row is opened.
     expect(markup).not.toContain('data-tool-details-inline="true"');
     expect(markup).not.toContain("apps/web/src/session-logic.ts:55: toolDetails");
-    // A command row names its command, folded or open (Synara).
-    expect(markup).toContain(
-      `已运行 <span data-command-literal="true">rg -n &quot;toolDetails&quot; apps/web/src</span>`,
-    );
+    // A plain search says what it looked for, like a search tool's row; other
+    // commands name themselves (Synara). The whole line stays in the details.
+    expect(markup).toContain(">已搜索 toolDetails（web/src）</span>");
   });
 
   it("renders command text even when commandActions provide a short preview", async () => {
@@ -3658,11 +3660,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    // The command shows verbatim (minus the shell wrapper) instead of a guessed
-    // sentence, and the search wears the magnifier.
-    expect(markup).toContain(
-      `Ran <span data-command-literal="true">rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src</span>`,
-    );
+    // A plain search reads as what it looked for, worded like a Grep row, and
+    // wears the magnifier; the shell wrapper never shows.
+    expect(markup).toContain(">Searched for ProjectionSnapshotQuery in server/src</span>");
     expect(markup).toContain("magnifying-glass.svg");
     expect(markup).not.toContain("data-work-entry-action-word");
     expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
