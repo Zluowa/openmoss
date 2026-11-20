@@ -39,6 +39,7 @@ import type { ProviderServiceShape } from "../provider/Services/ProviderService"
 import type { ServerSettingsShape } from "../serverSettings";
 import {
   buildProjectImportCatalog,
+  importSessionIdentities,
   type ResolvedImportProject,
   type ResolvedImportSession,
 } from "./projectImportCatalog";
@@ -55,7 +56,6 @@ import {
 } from "./projectImportHistory";
 import type { OrchestrationEngineShape } from "./Services/OrchestrationEngine";
 import { makeProjectImportDestinations } from "./projectImportDestinations";
-import { listClaudeSessionsInEnvironment } from "./importThreadRoute";
 import {
   type ImportedTranscriptSource,
   makeImportedTranscriptLoader,
@@ -67,7 +67,7 @@ import {
   resolveProjectImportSourceHome,
   resolveProjectImportSources,
 } from "./projectImportSources";
-import { listWorkspaceImportedConversationKeys } from "./importedConversationKeys";
+import { listWorkspaceImportedConversationThreads } from "./importedConversationKeys";
 
 interface ProjectImportRouteOptions {
   readonly repository: ProjectImportRepository;
@@ -115,6 +115,7 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
     string,
     { session: ResolvedImportSession; projectKey: string; expiresAt: number }
   >();
+  let knownThreads = new Map<string, ThreadId>();
   // One native copy at a time bounds subprocesses, and serializes project creation
   // and origin reservations across browser clients sharing this server.
   const imports = makeKeyedLock<string>();
@@ -132,11 +133,11 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
           ...(source.codexHomePath ? { homePath: source.codexHomePath } : {}),
         });
       }
-      const claudeEnvironment = source.claudeEnvironment;
+      const appData = source.environment.APPDATA;
       return discoverClaudeProjects({
         ...(source.claudeConfigDir ? { configDir: source.claudeConfigDir } : {}),
-        ...(claudeEnvironment
-          ? { listSessions: () => listClaudeSessionsInEnvironment(claudeEnvironment) }
+        ...(appData && nodePath.isAbsolute(appData)
+          ? { desktopSessionsDir: nodePath.join(appData, "Claude", "claude-code-sessions") }
           : {}),
       });
     });
@@ -305,10 +306,22 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
         continue;
       }
       const externalId = nativeImportId(binding.provider, cursor);
-      if (externalId) known.set(`${binding.provider}:${externalId}`, destination);
+      if (externalId) known.set(`${binding.provider}:${externalId.toLowerCase()}`, destination);
     }
     return known;
   });
+
+  function findKnownThread(
+    source: ResolvedImportSession,
+    destinations: ReturnType<typeof makeProjectImportDestinations>,
+  ) {
+    for (const identity of importSessionIdentities(source)) {
+      const id = knownThreads.get(identity);
+      const thread = id && destinations.findThread(id);
+      if (thread) return thread;
+    }
+    return undefined;
+  }
 
   const listProjectImports = Effect.fn(function* (input: ListProjectImportsInput) {
     for (const cache of Object.values(lookups)) cache.clear();
@@ -381,19 +394,30 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
         return destination ? [[destination.sourceKey, destination] as const] : [];
       }),
     );
-    const known = yield* readKnownBindings(destinations);
+    const known = new Map<string, ThreadId>(
+      [...(yield* readKnownBindings(destinations))].map(([identity, entry]) => [
+        identity,
+        entry.threadId,
+      ]),
+    );
     // Chats the older workspace import synced into threads already: offering them here
     // would import the same conversation a second time.
     const stateDir = options.stateDir;
-    const synced = stateDir
-      ? yield* Effect.tryPromise(() =>
-          listWorkspaceImportedConversationKeys({
-            stateDir,
-            threadExists: (threadId) =>
-              destinations.findThread(ThreadId.makeUnsafe(threadId)) !== undefined,
-          }),
-        ).pipe(Effect.orElseSucceed((): ReadonlySet<string> => new Set()))
-      : new Set<string>();
+    if (stateDir) {
+      const synced = yield* Effect.tryPromise(() =>
+        listWorkspaceImportedConversationThreads({
+          stateDir,
+          threadExists: (threadId) =>
+            destinations.findThread(ThreadId.makeUnsafe(threadId)) !== undefined,
+        }),
+      ).pipe(Effect.orElseSucceed(() => new Map<string, ThreadId>()));
+      for (const [identity, id] of synced) if (!known.has(identity)) known.set(identity, id);
+    }
+    for (const origin of origins.values()) {
+      if (origin.status === "completed")
+        known.set(`${origin.provider}:${origin.externalId.toLowerCase()}`, origin.threadId);
+    }
+    knownThreads = known;
     const now = Date.now();
     for (const [key, value] of projects) if (value.expiresAt < now) projects.delete(key);
     for (const [key, value] of sessions) if (value.expiresAt < now) sessions.delete(key);
@@ -413,6 +437,14 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
       discoveryMs,
       sessions: candidates.reduce((total, project) => total + project.threads.length, 0),
     });
+    const skippedSessions = results.reduce(
+      (total, result) => total + (result.catalog?.skippedSessions ?? 0),
+      0,
+    );
+    if (skippedSessions > 0)
+      yield* Effect.logWarning("project import skipped unreadable source entries", {
+        skippedSessions,
+      });
     return {
       projects: candidates.map((project) => ({
         key: project.key,
@@ -439,9 +471,7 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
           archived: session.archived,
           alreadyImported:
             origins.get(session.key)?.status === "completed" ||
-            (!origins.has(session.key) &&
-              (known.has(`${session.provider}:${session.id}`) ||
-                synced.has(`${session.provider}:${session.id.toLowerCase()}`))),
+            (!origins.has(session.key) && findKnownThread(session, destinations) !== undefined),
         })),
       })),
       sources: results.map(({ provider, providerInstanceId, accountLabel, error }) => ({
@@ -486,9 +516,13 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
             status: "already-present",
           } satisfies ImportProjectResult;
         if (source && !origin) {
-          const known = (yield* readKnownBindings(destinations)).get(
-            `${source.provider}:${source.id}`,
-          );
+          const cachedThread = findKnownThread(source, destinations);
+          if (cachedThread)
+            return { ...cachedThread, status: "already-present" } satisfies ImportProjectResult;
+          const bindings = yield* readKnownBindings(destinations);
+          const known = importSessionIdentities(source)
+            .map((id) => bindings.get(id))
+            .find(Boolean);
           if (known) return { ...known, status: "already-present" } satisfies ImportProjectResult;
         }
         let importSource: ProjectImportSource | undefined;
@@ -627,6 +661,19 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
             message: "The import destination was removed. Retry to create a new conversation copy.",
           });
         const sourceAccount = importSource!;
+        const findRelative = (relative: ResolvedImportSession) =>
+          Effect.gen(function* () {
+            const previous = destinations.findOrigin(yield* options.repository.find(relative.key));
+            return previous?.status === "completed"
+              ? destinations.findThread(previous.threadId)
+              : findKnownThread(relative, destinations);
+          });
+        const parent = source.parentKey ? sessions.get(source.parentKey)?.session : undefined;
+        const parentThread = parent ? yield* findRelative(parent) : undefined;
+        const parentThreadId =
+          parentThread?.projectId === project.id && parentThread.threadId !== threadId
+            ? parentThread.threadId
+            : undefined;
         const accountInstance = sourceAccount.isDefault
           ? {}
           : { instanceId: sourceAccount.instanceId };
@@ -701,6 +748,7 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
             branch: null,
             worktreePath,
             ...(workingDirectory ? { workingDirectory } : {}),
+            ...(parentThreadId ? { parentThreadId } : {}),
             createdAt: source.createdAt,
           });
         }
@@ -732,7 +780,24 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
             commandId: CommandId.makeUnsafe(`project-import:${threadId}:archive`),
             threadId,
           });
+        // The user can import a child on its own. If the parent is imported later, attach
+        // the existing child without copying it again or changing its project.
+        for (const candidate of cached.project.threads) {
+          if (candidate.parentKey !== source.key) continue;
+          const child = yield* findRelative(candidate);
+          if (!child || child.projectId !== project.id || child.threadId === threadId) continue;
+          const childThread = model.threads.find((thread) => thread.id === child.threadId);
+          if (childThread?.parentThreadId) continue;
+          yield* options.orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: CommandId.makeUnsafe(`project-import:${child.threadId}:parent:${threadId}`),
+            threadId: child.threadId,
+            parentThreadId: threadId,
+          });
+        }
         yield* options.repository.complete(source.key);
+        for (const identity of importSessionIdentities(source))
+          knownThreads.set(identity, threadId);
         return {
           projectId: project.id,
           threadId,

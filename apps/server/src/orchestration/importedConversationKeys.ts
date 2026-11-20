@@ -4,9 +4,10 @@
 //          workspace import's chat sync both check it so neither brings a conversation in
 //          twice.
 // Layer: Orchestration import helper
-// Exports: listProjectImportedConversationKeys, listWorkspaceImportedConversationKeys
+// Exports: listProjectImportedConversationKeys, listWorkspaceImportedConversationThreads
 
 import { Effect } from "effect";
+import { ThreadId } from "@moss/contracts";
 
 import type { ProjectImportRepository } from "../persistence/projectImportRepository";
 import {
@@ -46,16 +47,16 @@ export const listProjectImportedConversationKeys = (repository: ProjectImportRep
  * Conversations the workspace import's chat sync brought in whose thread still exists.
  * Only Claude Code and Codex chats have an identity the project import can match.
  */
-export async function listWorkspaceImportedConversationKeys(input: {
+export async function listWorkspaceImportedConversationThreads(input: {
   readonly stateDir: string;
   readonly threadExists: (threadId: string) => boolean;
-}): Promise<ReadonlySet<string>> {
+}): Promise<ReadonlyMap<string, ThreadId>> {
   const ledger = await readWorkspaceImportLedger(input.stateDir);
-  const keys = new Set<string>();
+  const threads = new Map<string, ThreadId>();
   for (const entry of Object.values(ledger.entries)) {
     if (!input.threadExists(entry.threadId)) continue;
     const identity = nativeConversationIdentity(entry.source, entry.sourceId);
-    if (identity) keys.add(nativeConversationKey(identity));
+    if (identity) threads.set(nativeConversationKey(identity), ThreadId.makeUnsafe(entry.threadId));
   }
-  return keys;
+  return threads;
 }

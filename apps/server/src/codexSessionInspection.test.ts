@@ -117,10 +117,11 @@ it.each(["first", "changed-account", "unstable"])(
   },
 );
 
-it("bounds a hung revalidation without stopping another auth-tracked session", async () => {
+it("keeps a running session on auth revalidation timeout and checks it again on the next event", async () => {
   const { manager, context, sessions, threadId, stop } = fixture({
     authRevalidationTimeoutMs: 100,
   });
+  context.session.status = "running";
   const healthyThread = ThreadId.makeUnsafe("healthy-session");
   sessions.set(healthyThread, {
     ...context,
@@ -136,15 +137,20 @@ it("bounds a hung revalidation without stopping another auth-tracked session", a
     return realpath(file);
   });
   const origin = manager.getSessionEventOrigin(threadId);
-  await expect(origin.inspect()).rejects.toThrow("revalidated");
-  expect(origin.isAuthRejected()).toBe(true);
-  expect(stop).toHaveBeenCalledExactlyOnceWith(threadId);
-  await expect(manager.inspectSessionAsync(healthyThread)).resolves.toBeDefined();
-  release();
   const slots = (manager as unknown as { authReadSlots: Semaphore.Semaphore }).authReadSlots;
-  await Effect.runPromise(slots.withPermits(2)(Effect.void));
-  await expect(origin.inspect()).rejects.toThrow("revalidated");
-  expect(stop).toHaveBeenCalledOnce();
+  try {
+    await expect(origin.inspect()).resolves.toBeUndefined();
+    expect(origin.isAuthRejected()).toBe(false);
+    expect(manager.hasSession(threadId)).toBe(true);
+    expect(stop).not.toHaveBeenCalled();
+    await expect(manager.inspectSessionAsync(healthyThread)).resolves.toBeDefined();
+    await expect(origin.inspect()).resolves.toMatchObject({
+      session: { threadId, status: "running" },
+    });
+  } finally {
+    release();
+    await Effect.runPromise(slots.withPermits(2)(Effect.void));
+  }
 }, 1_000);
 
 it("binds queued events to their original context even without a generation tag", async () => {
@@ -188,11 +194,11 @@ it("retains native I/O leases after timeout and removes expired lease waiters", 
     const inspections = contexts
       .slice(0, 2)
       .map(({ threadId }) =>
-        expect(manager.inspectSessionAsync(threadId)).rejects.toThrow("revalidated"),
+        expect(manager.inspectSessionAsync(threadId)).resolves.toBeUndefined(),
       );
     await Promise.all(inspections);
     expect(started.size).toBe(2);
-    await expect(manager.inspectSessionAsync(contexts[2]!.threadId)).rejects.toThrow("revalidated");
+    await expect(manager.inspectSessionAsync(contexts[2]!.threadId)).resolves.toBeUndefined();
     expect(started.has(contexts[2]!.homePath)).toBe(false);
     gates[0]!.release();
     await expect(manager.inspectSessionAsync(contexts[3]!.threadId)).resolves.toBeDefined();

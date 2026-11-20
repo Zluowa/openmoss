@@ -13,6 +13,11 @@ export interface NativeImportSession {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly archived: boolean;
+  /** An explicit origin project, separate from the conversation's runtime cwd. */
+  readonly projectRoot?: string;
+  readonly parentSessionId?: string;
+  /** Earlier native IDs for the same conversation. */
+  readonly priorSessionIds?: ReadonlyArray<string>;
   /** Model the conversation used, for agents whose model catalogs exist only at runtime. */
   readonly model?: string;
 }
@@ -21,4 +26,5 @@ export interface NativeProjectImportCatalog {
   readonly sourceHome: string;
   readonly projects: ReadonlyArray<NativeImportProject>;
   readonly sessions: ReadonlyArray<NativeImportSession>;
+  readonly skippedSessions?: number;
 }

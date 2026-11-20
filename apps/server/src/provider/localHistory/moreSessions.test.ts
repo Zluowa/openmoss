@@ -153,7 +153,7 @@ describe("Antigravity local history", () => {
     await fs.writeFile(
       path.join(logs, "transcript.jsonl"),
       [
-        { step_index: 0, type: "USER_INPUT", content: "Draw a chart" },
+        { step_index: 0, type: "USER_INPUT", content: "Draw a chart", cwd: project },
         {
           step_index: 1,
           type: "PLANNER_RESPONSE",
@@ -174,7 +174,7 @@ describe("Antigravity local history", () => {
     const reader = LOCAL_HISTORY_READERS.antigravity;
     const catalog = await reader.discover(input);
     expect(catalog.sessions).toEqual([
-      expect.objectContaining({ id: "conv-1", title: "Draw a chart", cwd: home }),
+      expect.objectContaining({ id: "conv-1", title: "Draw a chart", cwd: project }),
     ]);
     const messages = await reader.readMessages({ ...input, sessionId: "conv-1" });
     expect(messages.map(({ role, text }) => ({ role, text }))).toEqual([

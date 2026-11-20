@@ -328,6 +328,69 @@ afterEach(async () => {
 });
 
 describe("project import routes", () => {
+  it.each([true, false])(
+    "registers a nested conversation with child first: %s",
+    async (childFirst) => {
+      const { root } = await workspace();
+      const test = harness({ root, providers: ["claudeAgent"], projects: [existingProject(root)] });
+      const catalog = test.catalogs.get("claudeAgent")!;
+      const parent = catalog.sessions[0]!;
+      test.catalogs.set("claudeAgent", {
+        ...catalog,
+        sessions: [
+          parent,
+          {
+            ...parent,
+            id: "child",
+            title: "Review notes",
+            cwd: path.join(path.dirname(root), "detached-worktree"),
+            parentSessionId: parent.id,
+          },
+        ],
+      });
+      const preview = await test.preview();
+      expect(preview.projects).toHaveLength(1);
+      const project = preview.projects[0]!;
+      const parentKey = project.threads.find((thread) => thread.title === parent.title)!.key;
+      const childKey = project.threads.find((thread) => thread.title === "Review notes")!.key;
+      const register = (threadKey: string) =>
+        Effect.runPromise(test.importProject({ projectKey: project.key, threadKey }));
+      const first = await register(childFirst ? childKey : parentKey);
+      const second = await register(childFirst ? parentKey : childKey);
+      const child = childFirst ? first : second;
+      const parentResult = childFirst ? second : first;
+      expect(child.projectId).toBe(parentResult.projectId);
+      expect(test.commands).toContainEqual(
+        expect.objectContaining({
+          type: childFirst ? "thread.meta.update" : "thread.create",
+          threadId: child.threadId,
+          parentThreadId: parentResult.threadId,
+        }),
+      );
+      expect(await register(childKey)).toMatchObject({ ...child, status: "already-present" });
+      expect(test.threads).toHaveLength(2);
+    },
+  );
+
+  it("does not duplicate a conversation whose source home and native ID changed", async () => {
+    const { root } = await workspace();
+    const test = harness({ root, providers: ["claudeAgent"] });
+    const first = await Effect.runPromise(test.importProject(await test.request()));
+    const catalog = test.catalogs.get("claudeAgent")!;
+    const original = catalog.sessions[0]!;
+    test.catalogs.set("claudeAgent", {
+      ...catalog,
+      sourceHome: path.join(catalog.sourceHome, "moved"),
+      sessions: [{ ...original, id: "new-id", priorSessionIds: [original.id] }],
+    });
+    expect((await test.preview()).projects[0]?.threads[0]?.alreadyImported).toBe(true);
+    expect(await Effect.runPromise(test.importProject(await test.request()))).toMatchObject({
+      ...first,
+      status: "already-present",
+    });
+    expect(test.threads).toHaveLength(1);
+  });
+
   it("registers a conversation instantly and reads its transcript the first time it is opened", async () => {
     const { root } = await workspace();
     const test = harness({ root, providers: ["grok"] });

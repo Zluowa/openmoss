@@ -6,17 +6,24 @@ import "../index.css";
 
 import { ProjectId, ThreadId, TurnId } from "@moss/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import { cn } from "../lib/utils";
+import { MossLocaleScope } from "../localization";
 import { SIDEBAR_HEADER_ROW_CLASS_NAME } from "../sidebarRowStyles";
 import { useStore } from "../store";
+import {
+  buildThemeCssVariables,
+  DEFAULT_THEME_STATE,
+  resolveThemePack,
+} from "../theme/theme.logic";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   type SidebarThreadSummary,
 } from "../types";
-import { resolveThreadRowClassName } from "./Sidebar.logic";
+import { buildProjectThreadTree, resolveThreadRowClassName } from "./Sidebar.logic";
 import { SidebarThreadRowContent } from "./SidebarThreadRowContent";
 import {
   registerSubagentMarkOrder,
@@ -67,6 +74,95 @@ describe("SidebarThreadRowContent", () => {
   afterEach(() => {
     document.body.innerHTML = "";
     useStore.setState(originalStoreState, true);
+  });
+
+  it("renders an imported child immediately under its parent in the project tree", async () => {
+    const parentId = ThreadId.makeUnsafe("imported-parent");
+    const childId = ThreadId.makeUnsafe("imported-child");
+    const { innerWidth, innerHeight } = window;
+    const root = document.documentElement;
+    const originalStyle = root.style.cssText;
+    const wasDark = root.classList.contains("dark");
+    await page.viewport(340, 480);
+    try {
+      for (const locale of ["zh-CN", "en"] as const) {
+        const parent = makeThread({
+          id: parentId,
+          title: locale === "zh-CN" ? "工作区规划" : "Workspace plan",
+          modelSelection: { provider: "claudeAgent", model: "claude-sonnet" },
+        });
+        const child = makeThread({
+          id: childId,
+          title: locale === "zh-CN" ? "核对导入记录" : "Review import notes",
+          parentThreadId: parentId,
+          modelSelection: parent.modelSelection,
+        });
+        const unrelated = makeThread({ title: locale === "zh-CN" ? "其他对话" : "Another chat" });
+        const rows = buildProjectThreadTree({
+          threads: [child, unrelated, parent],
+          expandedParentThreadIds: new Set([parentId]),
+        });
+        let lightBackground: string | undefined;
+        for (const theme of ["light", "dark"] as const) {
+          const { variables } = buildThemeCssVariables(
+            resolveThemePack(DEFAULT_THEME_STATE, theme),
+            theme,
+            { electron: false, isMac: false },
+          );
+          root.classList.toggle("dark", theme === "dark");
+          for (const [name, value] of Object.entries(variables))
+            root.style.setProperty(name, value);
+          const screen = await render(
+            <MossLocaleScope locale={locale}>
+              <div
+                lang={locale}
+                data-testid="imported-project-tree"
+                className="min-h-screen bg-sidebar p-ui-pad-sm text-sidebar-foreground"
+              >
+                {rows.map(({ thread }) => (
+                  <div
+                    key={thread.id}
+                    className={resolveThreadRowClassName({ isActive: false, isSelected: false })}
+                  >
+                    <SidebarThreadRowContent
+                      thread={thread}
+                      terminalEntryPoint={false}
+                      terminalStatus={null}
+                      terminalCount={0}
+                      isActive={false}
+                      variant="standard"
+                    />
+                  </div>
+                ))}
+              </div>
+            </MossLocaleScope>,
+          );
+          const parentTitle = screen.getByText(parent.title, { exact: true });
+          const childTitle = screen.getByText(child.title, { exact: true });
+          await expect.element(childTitle).toBeVisible();
+          await expect.element(screen.getByTestId("sidebar-subagent-mark")).toBeVisible();
+          const parentBounds = parentTitle.element().getBoundingClientRect();
+          const childBounds = childTitle.element().getBoundingClientRect();
+          const background = getComputedStyle(
+            screen.getByTestId("imported-project-tree").element(),
+          ).backgroundColor;
+          if (theme === "light") lightBackground = background;
+          else expect(background).not.toBe(lightBackground);
+          expect(childBounds.top).toBeGreaterThan(parentBounds.top);
+          expect(childBounds.top - parentBounds.top).toBeLessThan(40);
+          expect(childBounds.left).toBeGreaterThan(parentBounds.left);
+          expect(childBounds.width).toBeGreaterThan(0);
+          await page.screenshot({
+            path: `__screenshots__/cli-import-projects/${locale}-${theme}.png`,
+          });
+          await screen.unmount();
+        }
+      }
+    } finally {
+      root.style.cssText = originalStyle;
+      root.classList.toggle("dark", wasDark);
+      await page.viewport(innerWidth, innerHeight);
+    }
   });
 
   it("preserves the pinned title, pending state, terminal count, and suffix", async () => {

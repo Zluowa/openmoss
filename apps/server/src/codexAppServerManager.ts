@@ -171,6 +171,7 @@ import {
 import {
   CodexPreviousRuntimeNotStoppedError,
   CodexSessionStartError,
+  CodexTurnNotDispatchedError,
   codexErrorMessage,
   isNonFatalCodexErrorMessage,
 } from "./codexErrorClassification.ts";
@@ -201,6 +202,7 @@ import {
   type AgentProgramOwnership,
 } from "./provider/agentProgramOwnership.ts";
 import {
+  ProviderProcessExitUnprovenError,
   spawnChildWithPreparedTree,
   teardownChildProcessTree,
   teardownProviderProcessTree,
@@ -4478,7 +4480,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   }
 
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
-    const context = this.requireSession(input.threadId);
+    let context: CodexSessionContext;
+    try {
+      context = this.requireSession(input.threadId);
+    } catch (cause) {
+      throw new CodexTurnNotDispatchedError(cause);
+    }
     if (context.gatewayCredentialRetired === true) {
       throw new Error(
         "Codex session gateway authority is retired; resume the provider runtime before starting another turn.",
@@ -6309,11 +6316,54 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
-  private async teardownContextProcess(context: CodexSessionContext): Promise<void> {
+  private async teardownContextProcess(
+    context: CodexSessionContext,
+    allowDescendantQuarantine = false,
+  ): Promise<boolean> {
     try {
-      const result = await teardownChildProcessTree(context.child, this.teardownProcessTree);
+      const child = context.child;
+      const result = await teardownChildProcessTree(
+        child,
+        allowDescendantQuarantine
+          ? (input, dependencies) =>
+              this.teardownProcessTree(input, {
+                ...dependencies,
+                onCapturedTree: (_tree, capturedBeforeRootExit) => {
+                  if (
+                    !capturedBeforeRootExit &&
+                    (child.exitCode != null || child.signalCode != null)
+                  ) {
+                    // A stale root PID cannot establish ownership of a new snapshot.
+                    throw new ProviderProcessExitUnprovenError({
+                      rootPid: input.rootPid,
+                      rootExited: true,
+                      captureComplete: false,
+                      remainingDescendantPids: null,
+                    });
+                  }
+                },
+              })
+          : this.teardownProcessTree,
+      );
       context.teardownCapturedBeforeExit = result.capturedBeforeRootExit === true;
+      return true;
     } catch (cause) {
+      if (
+        allowDescendantQuarantine &&
+        cause instanceof ProviderProcessExitUnprovenError &&
+        cause.rootPid === context.child.pid &&
+        cause.rootExited
+      ) {
+        // The old runtime already lost its transport and gateway lease. Never walk
+        // its PID again: unverified descendants cannot receive a new turn from Moss.
+        log.warn("quarantined descendants of an exited Codex app-server", {
+          threadId: context.session.threadId,
+          rootPid: cause.rootPid,
+          captureComplete: cause.captureComplete,
+          remainingDescendantPids: cause.remainingDescendantPids,
+        });
+        return false;
+      }
       const detail = cause instanceof Error ? cause.message : String(cause);
       throw new Error(
         `Failed to prove Codex app-server process-tree exit for '${context.session.threadId}': ${detail}`,
@@ -6503,9 +6553,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       context.detachStdout?.();
 
       // The session becomes unroutable immediately, but remains in the map as a
-      // replacement barrier until teardown proves the old process tree exited.
-      // Otherwise a failed proof could let startSession spawn a second provider
-      // process for the same thread.
+      // replacement barrier until teardown proves the old app-server exited.
       this.updateSession(context, {
         status: "closed",
         activeTurnId: undefined,
@@ -6515,15 +6563,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     // Teardown starts synchronously unless parked requests still need answering,
     // so a stop with nothing parked stays as prompt as it was before settling.
     const teardown = settleBeforeTeardown
-      ? settleBeforeTeardown.then(() => this.teardownContextProcess(context))
-      : this.teardownContextProcess(context);
+      ? settleBeforeTeardown.then(() => this.teardownContextProcess(context, true))
+      : this.teardownContextProcess(context, true);
     stopPromise = teardown.then(
-      () => {
+      (processExitConfirmed) => {
         if (this.sessions.get(threadId) === context) {
           if (context.pendingStopLifecycle) {
             const turnId = context.pendingStopLifecycle.turnId;
             if (turnId !== undefined) {
-              // This is a Moss lifecycle conclusion after process-tree exit,
+              // This is a Moss lifecycle conclusion after the app-server exits,
               // not a provider-native interruption or successful completion.
               this.emitEvent({
                 id: EventId.makeUnsafe(randomUUID()),
@@ -6537,7 +6585,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
                   : {}),
                 method: "session/turn-aborted",
                 message: "Codex runtime stopped before this turn reported its final status.",
-                payload: { authoredBy: "moss", processExitConfirmed: true },
+                payload: { authoredBy: "moss", processExitConfirmed },
               });
             }
             this.emitLifecycleEvent(context, "session/closed", "Session stopped");
@@ -6653,6 +6701,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     )
       return undefined;
     let stalenessMessage: string | undefined;
+    let revalidationTimedOut = false;
     if (context.authTracking && context.authFingerprint !== undefined) {
       try {
         let expired = false;
@@ -6678,18 +6727,18 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             }
           }
         };
-        let fingerprint: string;
+        let fingerprint: string | undefined;
         try {
           fingerprint = await Promise.race([
             Effect.runPromise(
               this.authReadSlots.withPermit(Effect.uninterruptible(Effect.promise(read))),
               { signal: abort.signal },
             ),
-            new Promise<never>((_, reject) => {
+            new Promise<undefined>((resolve) => {
               timer = setTimeout(() => {
                 expired = true;
+                resolve(undefined);
                 abort.abort();
-                reject(new Error("Codex auth revalidation timed out."));
               }, this.authRevalidationTimeoutMs);
               timer.unref();
             }),
@@ -6697,7 +6746,12 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         } finally {
           if (timer) clearTimeout(timer);
         }
-        if (fingerprint !== context.authFingerprint) {
+        if (fingerprint === undefined) {
+          revalidationTimedOut = true;
+          log.warn("Codex auth revalidation timed out; keeping session for a later check", {
+            threadId,
+          });
+        } else if (fingerprint !== context.authFingerprint) {
           stalenessMessage =
             "Codex authentication changed on disk; the stale app-server session was stopped and must be restarted.";
         }
@@ -6715,7 +6769,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (context.authInvalidation)
       throw new CodexSessionAuthInvalidatedError(context.authInvalidation);
     // Filesystem awaits must not attach a replacement session's identity to an old event.
-    if (this.sessions.get(threadId) !== context || !this.isContextRoutable(context))
+    if (
+      revalidationTimedOut ||
+      this.sessions.get(threadId) !== context ||
+      !this.isContextRoutable(context)
+    )
       return undefined;
     const codexOptions = normalizeCodexDiscoveryOptions(context.codexOptions);
     return { session: { ...context.session }, ...(codexOptions ? { codexOptions } : {}) };
