@@ -27,6 +27,8 @@ export interface GeneratedImageGallery {
   pendingModelId?: string;
   /** Nothing was made: the Moss job failed. The card says so and offers to try again. */
   failed?: { readonly media?: "video" };
+  /** Paths failed Codex calls named; the reply's references to them are dropped. */
+  failedPaths?: readonly string[];
 }
 
 function generatedImageGalleriesEqual(
@@ -44,6 +46,7 @@ function generatedImageGalleriesEqual(
     previous.failed?.media !== next.failed?.media ||
     (previous.failed === undefined) !== (next.failed === undefined) ||
     (previous.pendingJobIds ?? []).join() !== (next.pendingJobIds ?? []).join() ||
+    (previous.failedPaths ?? []).join() !== (next.failedPaths ?? []).join() ||
     previous.images.length !== next.images.length
   ) {
     return false;
@@ -85,6 +88,7 @@ type MutableGeneratedImageGallery = {
   pendingDetails: Map<string, { stage?: "queued" | "running"; modelId?: string }>;
   failedVideos: Set<string>;
   failedMoss: Set<string>;
+  failedPaths: Set<string>;
 };
 
 export function generatedImageTurnKey(turnId: TurnId | string | null | undefined): string | null {
@@ -148,6 +152,7 @@ export function groupGeneratedImagesByTurn(
             pendingDetails: new Map(),
             failedVideos: new Set(),
             failedMoss: new Set(),
+            failedPaths: new Set(),
           };
           groups.set(key, created);
           return created;
@@ -158,6 +163,7 @@ export function groupGeneratedImagesByTurn(
         group.failedIds.add(identity);
         if (image.jobId) group.failedMoss.add(identity);
         if (image.media === "video") group.failedVideos.add(identity);
+        if (image.path) group.failedPaths.add(image.path);
         continue;
       }
       if (image.state === "completed") {
@@ -215,6 +221,7 @@ export function groupGeneratedImagesByTurn(
             ...(firstPending !== undefined && group.pendingDetails.get(firstPending)?.modelId
               ? { pendingModelId: group.pendingDetails.get(firstPending)!.modelId! }
               : {}),
+            ...(group.failedPaths.size > 0 ? { failedPaths: [...group.failedPaths] } : {}),
             ...(group.images.size === 0 && group.pendingIds.size === 0 && failedMoss !== undefined
               ? {
                   failed: group.failedVideos.has(failedMoss) ? { media: "video" as const } : {},
@@ -242,10 +249,11 @@ export function suppressGeneratedImageCompatibilityMarkdown(
   text: string,
   gallery: GeneratedImageGallery | null | undefined,
 ): string {
-  if (!gallery || gallery.images.length === 0 || text.length === 0) return text;
+  if (!gallery || text.length === 0) return text;
+  const paths = [...gallery.images.map((image) => image.path), ...(gallery.failedPaths ?? [])];
   let result = text;
-  for (const image of gallery.images) {
-    result = result.replaceAll(generatedImageCompatibilityMarkdown(image.path), "");
+  for (const path of paths) {
+    result = result.replaceAll(generatedImageCompatibilityMarkdown(path), "");
   }
   return result;
 }

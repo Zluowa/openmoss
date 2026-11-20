@@ -791,6 +791,11 @@ export interface DesktopUpdateState {
   // read-only install location, unsupported platform). Null when no GitHub
   // update source is configured.
   releaseUrl: string | null;
+  // Set when this build cannot install a new version itself (a macOS build without a
+  // Developer ID signature, which Squirrel.Mac refuses to replace). A newer version is
+  // then only announced, with this page to download it from; nothing is downloaded or
+  // installed in the app. Null wherever the in-app update works.
+  manualDownloadUrl: string | null;
 }
 
 export interface DesktopUpdateActionResult {

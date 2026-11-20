@@ -3153,6 +3153,7 @@ function generatedImageGalleriesEqual(
     left.createdAt === right.createdAt &&
     left.pendingImageCount === right.pendingImageCount &&
     left.pendingAspectRatio === right.pendingAspectRatio &&
+    (left.failedPaths ?? []).join() === (right.failedPaths ?? []).join() &&
     left.images.length === right.images.length &&
     left.images.every((image, index) => {
       const other = right.images[index];

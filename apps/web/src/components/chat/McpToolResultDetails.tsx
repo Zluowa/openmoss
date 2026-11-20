@@ -500,7 +500,9 @@ export function McpToolResultDetails({
     mediaUnavailable: t("chat.mcpResult.mediaUnavailable"),
   };
   const content = result.result?.content ?? [];
-  const structuredContent = result.result?.structuredContent;
+  // Codex sends every optional field, so a tool without structured content arrives as
+  // `structuredContent: null`; that is "none", not a JSON value worth a code pane.
+  const structuredContent = result.result?.structuredContent ?? undefined;
   const visibleBlocks = content.filter(
     (block) => !(block.type === "text" && isDuplicateStructuredText(block, structuredContent)),
   );

@@ -391,6 +391,8 @@ export function generatedImagePathFromRuntimeEvent(
   if (event.type !== "item.completed" || event.payload.itemType !== "image_generation") {
     return undefined;
   }
+  // A failed call still names where its image would have been saved; nothing is there.
+  if (event.payload.status === "failed") return undefined;
   const artifact = isCodexGeneratedImageArtifact(event.payload.data)
     ? event.payload.data
     : undefined;

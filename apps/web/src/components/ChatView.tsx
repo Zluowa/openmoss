@@ -104,7 +104,9 @@ import {
   findProviderStatus,
   isProviderDurablyUnavailable,
   isProviderUsable,
+  isMossDefaultManagedProviderInstanceId,
   isServerConfiguredMossDefaultManagedProvider,
+  mossDefaultManagedInstanceIdForProvider,
   resolveProviderSendAdmission,
   resolveVoiceTranscriptionTarget,
 } from "~/lib/providerAvailability";
@@ -119,7 +121,7 @@ import {
   isMossPayAccountTransitionPending,
   resolveMossPayQuotaAccountIdentity,
 } from "~/lib/mossPayQuotaIdentity";
-import { evaluateMossQuotaAdmission, type MossQuotaAdmission } from "~/lib/mossQuotaAdmission";
+import { evaluateMossQuotaAdmission } from "~/lib/mossQuotaAdmission";
 import {
   serverProviderUsageSnapshotQueryOptions,
   serverSettingsQueryOptions,
@@ -322,7 +324,10 @@ import {
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 import { getThreadFromState } from "../threadDerivation";
-import { isThreadDetailAwaitingVerification } from "../threadDetailAuthority";
+import {
+  isThreadDetailAwaitingVerification,
+  selectThreadDetailAwaitingVerification,
+} from "../threadDetailAuthority";
 import { retryThreadDetailSync } from "../threadDetailSyncRetry";
 import {
   DEFAULT_INTERACTION_MODE,
@@ -502,7 +507,7 @@ import {
   type RateLimitStatus,
 } from "./chat/RateLimitBanner";
 import { ImageGenerationLimitBanner } from "./chat/ImageGenerationLimitBanner";
-import { MossQuotaExhaustedSurface } from "./chat/MossQuotaExhaustedSurface";
+import { MossQuotaExhaustedSurface, type UsageLimitBanner } from "./chat/MossQuotaExhaustedSurface";
 import {
   PERSONAL_IMAGE_USAGE_URL,
   createImageGenerationLimitThreadSelector,
@@ -512,10 +517,7 @@ import {
   selectImageGenerationLimitState,
   shouldShowImageGenerationLimitBanner,
 } from "./chat/imageGenerationLimit.logic";
-import {
-  isQuotaOwnedThreadError,
-  resolveQuotaOwnedThreadError,
-} from "./chat/threadErrorPresentation";
+import { resolveUsageLimitStop } from "./chat/threadErrorPresentation";
 import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
 import { useUnreadableThread } from "./UnreadableThreadsNotice";
 import { ChatThreadFindHost } from "./chat/ThreadFindBar";
@@ -674,56 +676,6 @@ function getRateLimitBannerDismissalKey(
     status.resetsAt ?? "",
     typeof status.utilization === "number" ? String(Math.round(status.utilization * 100)) : "",
   ].join("\u001f");
-}
-
-function resolveGatewayMossQuotaDecision(input: {
-  readonly managed: boolean;
-  readonly error: string | null | undefined;
-  readonly quota:
-    | {
-        readonly billingModel: string;
-        readonly periodEnd: string | null;
-        readonly usageLimits: readonly {
-          readonly key: string;
-          readonly limit: number | null;
-          readonly used: number;
-          readonly resetsAt: string | null;
-        }[];
-      }
-    | null
-    | undefined;
-}): Extract<MossQuotaAdmission, { readonly kind: "exhausted" }> | null {
-  if (!input.managed || !input.error || !isQuotaOwnedThreadError(input.error)) return null;
-  const normalizedError = input.error.toLocaleLowerCase("en-US");
-  const rejectedWindowKey = /(?:five[- ]hour|5\s*hour)/u.test(normalizedError)
-    ? "five_hour"
-    : /\bweekly\b/u.test(normalizedError)
-      ? "weekly"
-      : "monthly";
-  const rejectedWindow =
-    input.quota?.usageLimits.find((window) => window.key === "lifetime") ??
-    input.quota?.usageLimits.find((window) => window.key === rejectedWindowKey) ??
-    input.quota?.usageLimits.find((window) => window.key === "monthly");
-  const limit = rejectedWindow?.limit ?? 0;
-  return {
-    kind: "exhausted",
-    remainingPercent: 0,
-    limit,
-    used: Math.max(limit, rejectedWindow?.used ?? 0),
-    resetAt: rejectedWindow?.resetsAt ?? input.quota?.periodEnd ?? null,
-    usagePeriod:
-      rejectedWindowKey === "five_hour"
-        ? "five-hour"
-        : rejectedWindowKey === "weekly"
-          ? "weekly"
-          : "period",
-    usageBasis:
-      input.quota?.billingModel === "cost_budget_v1" ||
-      input.quota?.billingModel === "wallet_credits_v1" ||
-      normalizedError.includes("service_cost_")
-        ? "hidden-cost"
-        : "requests",
-  };
 }
 
 const VOICE_RECORDER_ACTION_ARM_DELAY_MS = 250;
@@ -983,6 +935,11 @@ export default function ChatView({
   );
   const threadDetailSyncState = useStore((state) =>
     threadId ? (state.threadDetailSyncById?.[threadId] ?? null) : null,
+  );
+  // Unverified detail can change without the sync state changing (restored history), so a
+  // message queued meanwhile must wait for it reactively.
+  const isDetailAwaitingVerification = useStore((state) =>
+    threadId ? selectThreadDetailAwaitingVerification(state, threadId) : false,
   );
   const composerThreadSummaries = useStore(
     useMemo(() => createComposerThreadMentionSourcesSelector(), []),
@@ -5357,7 +5314,8 @@ export default function ChatView({
     localDispatch,
     isLocalDraftThread,
     activeLatestTurn,
-    isConnecting,
+    // A message held while the chat verifies drains only once it is verified.
+    isConnecting: isConnecting || isDetailAwaitingVerification,
     activePendingApproval,
     activePendingProgress,
     pendingUserInputs,
@@ -5454,20 +5412,62 @@ export default function ChatView({
       selectedProvider,
     ],
   );
-  const gatewayQuotaDecision = resolveGatewayMossQuotaDecision({
-    managed: mossQuotaManagedSelection,
-    error: activeThread?.error,
-    quota: mossQuotaQuery.data,
+  const usageLimitStop = resolveUsageLimitStop(activeThread?.error ?? localThreadError);
+  const failedProvider = activeSession?.provider ?? activeThread?.modelSelection.provider;
+  const failedInstanceId =
+    activeSession?.providerInstanceId ?? activeThread?.modelSelection.instanceId ?? failedProvider;
+  const failedAccountIsMoss = isMossDefaultManagedProviderInstanceId(failedInstanceId);
+  const selectedAccountHitLimit =
+    usageLimitStop !== null && failedInstanceId === selectedProviderInstanceId;
+  const usageLimitBanner: UsageLimitBanner | null =
+    selectedAccountHitLimit && !failedAccountIsMoss && failedProvider
+      ? {
+          lane: "personal",
+          accountLabel:
+            serverSettingsQuery.data?.providerInstances[failedInstanceId]?.displayName ??
+            findProviderStatus(providerStatuses, failedProvider, failedInstanceId)?.displayName ??
+            PROVIDER_DISPLAY_NAMES[failedProvider],
+          resetAt:
+            usageLimitStop.resetAt ??
+            (failedProvider === "claudeAgent" && activeRateLimitStatus?.status === "rejected"
+              ? (activeRateLimitStatus.resetsAt ?? null)
+              : null),
+          usageUrl:
+            failedProvider === "codex"
+              ? PERSONAL_IMAGE_USAGE_URL
+              : failedProvider === "claudeAgent"
+                ? "https://claude.ai/settings/usage"
+                : null,
+        }
+      : (selectedAccountHitLimit && failedAccountIsMoss) || mossQuotaAdmission.kind === "exhausted"
+        ? {
+            lane: "moss",
+            resetAt:
+              (selectedAccountHitLimit ? usageLimitStop.resetAt : null) ??
+              (mossQuotaAdmission.kind === "exhausted" ? mossQuotaAdmission.resetAt : null),
+          }
+        : null;
+  const switchQuotaAccountToMoss = useStableCallback(() => {
+    // Keep the same agent when it has a Moss account. Use the default Moss
+    // agent for integrations that do not have a Moss lane of their own.
+    for (const provider of [selectedProvider, "codex"] as const) {
+      const instanceId = mossDefaultManagedInstanceIdForProvider(provider);
+      if (
+        instanceId &&
+        isServerConfiguredMossDefaultManagedProvider(serverSettingsQuery.data, instanceId)
+      ) {
+        const options = modelOptionsByProviderInstance[instanceId] ?? [];
+        const model =
+          options.find((option) => option.slug === selectedModelSelection.model)?.slug ??
+          defaultModelByProviderInstance[instanceId] ??
+          options[0]?.slug;
+        if (model) void onProviderModelSelect(provider, model, { instanceId });
+        else handleModelPickerOpenChange(true);
+        return;
+      }
+    }
+    void navigate({ to: "/login" });
   });
-  const visibleMossQuotaDecision =
-    mossQuotaAdmission.kind === "exhausted" ? mossQuotaAdmission : gatewayQuotaDecision;
-  const visibleMossQuotaDecisionKey = visibleMossQuotaDecision
-    ? `${activeThread?.id ?? "none"}:${visibleMossQuotaDecision.usageBasis}:${visibleMossQuotaDecision.usagePeriod}:${visibleMossQuotaDecision.resetAt ?? "none"}`
-    : null;
-  const quotaOwnedActiveThreadError = resolveQuotaOwnedThreadError(
-    activeThread?.error,
-    visibleMossQuotaDecision !== null,
-  );
   const previousMossQuotaAccountIdentityRef = useRef<string | null>(null);
   const mossQuotaAccountIdentityRef = useRef<string | null>(mossQuotaAccountIdentity);
   const mossQuotaAccountTransitionPendingRef = useRef(mossQuotaAccountTransitionPending);
@@ -5485,7 +5485,7 @@ export default function ChatView({
   }, [mossQuotaAccountIdentity, mossQuotaAccountTransitionPending, queryClient]);
   const imageGenerationLimitBannerVisible = shouldShowImageGenerationLimitBanner({
     hasImageGenerationLimit: imageGenerationLimitFailure !== null,
-    showMossQuotaExhausted: visibleMossQuotaDecision !== null,
+    showMossQuotaExhausted: usageLimitBanner !== null,
     hardRateLimit: activeRateLimitStatus?.status === "rejected",
     providerHealthUnavailable: isProviderDurablyUnavailable(activeProviderStatus),
   });
@@ -7859,6 +7859,16 @@ export default function ChatView({
                 }}
               />
               {emptyLandingControls}
+              {usageLimitBanner ? (
+                <MossQuotaExhaustedSurface
+                  limit={usageLimitBanner}
+                  onAction={
+                    usageLimitBanner.lane === "moss"
+                      ? () => void navigate({ to: "/membership", search: { focus: "plans" } })
+                      : switchQuotaAccountToMoss
+                  }
+                />
+              ) : null}
               {imageGenerationLimitBannerVisible &&
               imageGenerationLimitFailure &&
               imageGenerationLimitPresentation ? (
@@ -8445,15 +8455,6 @@ export default function ChatView({
           onOpenChange={setRenameDialogOpen}
           onSave={handleRenameActiveThread}
         />
-        {visibleMossQuotaDecision !== null ? (
-          <MossQuotaExhaustedSurface
-            decision={visibleMossQuotaDecision}
-            key={visibleMossQuotaDecisionKey}
-            onOpenPlans={() => {
-              void navigate({ to: "/membership", search: { focus: "plans" } });
-            }}
-          />
-        ) : null}
         {automationCreationPending ? (
           <AutomationCreationPendingDialog
             open={automationCreationPendingOpen}
@@ -8490,7 +8491,7 @@ export default function ChatView({
         />
         <MossGatewayUnreachableBanner instanceId={selectedProviderInstanceId} />
         <RateLimitBanner
-          rateLimitStatus={visibleActiveRateLimitStatusForRender}
+          rateLimitStatus={usageLimitStop === null ? visibleActiveRateLimitStatusForRender : null}
           onDismiss={dismissActiveRateLimitBanner}
         />
         {terminalWorkspaceOpen && !isEditorRail ? (
@@ -8692,12 +8693,14 @@ export default function ChatView({
                           }
                           hubWorkItemsByMessageId={hubWorkItemsByMessageId}
                           threadError={
-                            quotaOwnedActiveThreadError === null
+                            usageLimitStop === null
                               ? (activeThread?.error ?? localThreadError)
                               : null
                           }
                           recoverableTurnId={
-                            activeLatestTurnState === "error" ? activeLatestTurnId : null
+                            activeLatestTurnState === "error" && usageLimitStop === null
+                              ? activeLatestTurnId
+                              : null
                           }
                           turnRecoveryDisabled={
                             isSendBusy ||

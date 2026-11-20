@@ -14,6 +14,12 @@ import {
 } from "./devsLocalExecutor";
 import type { DevsFetch } from "./devsReports";
 import { verifyRepairOnGitHub } from "./devsGithubVerification";
+import { DevsHandoffError } from "./devsHandoff";
+import {
+  parseNameStatus,
+  verifyRepairOnMirror,
+  type MirrorCiConfig,
+} from "./devsMirrorVerification";
 import { DEVS_RESULT_FILE, isProtectedRepairPath, isRegressionTestPath } from "./devsRepairPaths";
 import {
   gitMetadataFingerprint,
@@ -72,6 +78,8 @@ export interface RepairRunnerConfig {
   localCodex?: LocalCodexConfig;
   /** Local public-report workers verify in ephemeral CI, not on the owner's filesystem. */
   githubVerifyRef?: string;
+  /** When set, that CI is the public mirror's, on a guarded snapshot of the repair. */
+  mirrorCi?: MirrorCiConfig;
   beforePublish?: () => Promise<void>;
   /** Administrator-owned verification argv, never supplied by a report or the agent. */
   verify: readonly (readonly string[])[];
@@ -444,6 +452,32 @@ export function createRepairRunner(
     if ((await git(["rev-parse", "HEAD~1"])).trim() !== baseSha)
       throw new Error("The fix commit does not sit on the fetched main branch.");
     await config.beforePublish?.();
+    const mirrorCi = remoteVerification ? config.mirrorCi : undefined;
+    let mirrorRun = "";
+    if (mirrorCi) {
+      // Verified before anything reaches the private repository: only a passing repair is pushed.
+      mirrorRun = (
+        await verifyRepairOnMirror({
+          mirror: mirrorCi,
+          githubToken: config.githubToken,
+          reportId: report.id,
+          sourceSha,
+          baseSha,
+          jobDir: cwd,
+          changed: parseNameStatus(
+            await git(["diff", "--name-status", "--no-renames", "-z", baseSha, sourceSha]),
+          ),
+          run,
+          fetcher,
+        })
+      ).runUrl;
+      if (
+        (await git(["rev-parse", "HEAD"])).trim() !== sourceSha ||
+        (await git(["status", "--porcelain", "--untracked-files=all"])).trim()
+      )
+        throw new Error("The local checkout changed after the verified commit was exported.");
+      await config.beforePublish?.();
+    }
     await pushRepairBranch(run, {
       cwd,
       repository: config.repository,
@@ -452,7 +486,7 @@ export function createRepairRunner(
       branch,
       timeoutMs,
     });
-    if (remoteVerification) {
+    if (remoteVerification && !mirrorCi) {
       await verifyRepairOnGitHub({
         repository: config.repository,
         githubToken: config.githubToken,
@@ -469,9 +503,11 @@ export function createRepairRunner(
         throw new Error("The local checkout changed after the verified commit was pushed.");
     }
     await config.beforePublish?.();
-    const checks = remoteVerification
-      ? "Formatting, lint, typecheck and tests ran on an isolated GitHub runner: dependencies were installed from the reviewed base commit, then the checks ran with no network access, no secrets and a read-only token."
-      : "Formatting, lint, typecheck and tests ran in a local container without model or GitHub credentials.";
+    const checks = mirrorCi
+      ? `Formatting, lint, typecheck and tests ran on the public mirror's CI (${mirrorRun}), on a guarded export of this commit with no secrets; every changed file is published there byte for byte.`
+      : remoteVerification
+        ? "Formatting, lint, typecheck and tests ran on an isolated GitHub runner: dependencies were installed from the reviewed base commit, then the checks ran with no network access, no secrets and a read-only token."
+        : "Formatting, lint, typecheck and tests ran in a local container without model or GitHub credentials.";
     const response = await fetcher(`https://api.github.com/repos/${config.repository}/pulls`, {
       method: "POST",
       redirect: "error",
@@ -507,10 +543,14 @@ export function createRepairRunner(
     } catch (error) {
       // Nothing a failed job reports may carry a controller or model credential, so the
       // original error, whose message may hold one, is deliberately not kept as the cause.
-      // oxlint-disable-next-line preserve-caught-error
-      throw new Error(
-        stripSecrets(error instanceof Error ? error.message : "Repair failed.", secrets),
+      const message = stripSecrets(
+        error instanceof Error ? error.message : "Repair failed.",
+        secrets,
       );
+      // An unverifiable repair stays one, so the worker keeps the report for a maintainer.
+      if (error instanceof DevsHandoffError) throw new DevsHandoffError(message, error.details);
+      // oxlint-disable-next-line preserve-caught-error
+      throw new Error(message);
     }
   };
 }

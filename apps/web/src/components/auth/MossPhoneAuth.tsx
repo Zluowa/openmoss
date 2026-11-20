@@ -18,7 +18,12 @@ import {
   serverMossPhoneLoginMutationOptions,
   synchronizeMossManagedChatReadiness,
 } from "./mossServerReactQuery";
-import { MossAuthLoading, MossAuthShell, useMossOpaqueSurface } from "./MossAuthShell";
+import {
+  MossAuthLoading,
+  MossAuthShell,
+  MossBackToAppButton,
+  useMossOpaqueSurface,
+} from "./MossAuthShell";
 import { MossCloudAccountPage } from "./MossCloudAuthPages";
 import { MossEnterpriseKeyAccountPage } from "./MossEnterpriseKeyPage";
 import { MossGoogleOAuthButton } from "./MossGoogleOAuth";
@@ -416,12 +421,9 @@ export function MossPhoneAccountPage() {
     <main className="min-h-dvh w-full overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-8 sm:py-10">
       <div className="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-7">
         <header className="flex min-w-0 items-center justify-between gap-4">
-          <Link
-            className="text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            to="/"
-          >
-            Moss
-          </Link>
+          <MossBackToAppButton className="-ml-2.5" data-testid="moss-account-back">
+            返回 Moss
+          </MossBackToAppButton>
           <Link
             className="text-ui-lg font-medium underline-offset-4 hover:underline"
             to="/settings"

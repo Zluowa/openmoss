@@ -8,7 +8,12 @@ import {
   writeFileSync,
 } from "node:fs";
 import * as OS from "node:os";
-import { rm as removeDirectory, chmod as changeMode } from "node:fs/promises";
+import {
+  rm as removeDirectory,
+  chmod as changeMode,
+  mkdir as mkdirAsync,
+  writeFile as writeFileAsync,
+} from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { join, win32 } from "node:path";
@@ -16,11 +21,18 @@ import { join, win32 } from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderInstanceId, ServerProviderStatus } from "@moss/contracts";
 import { DEFAULT_SERVER_SETTINGS, ServerProviderUpdateError } from "@moss/contracts";
-import { MOSS_BUNDLED_CODEX_VERSION } from "@moss/shared/codexRuntime";
+import {
+  MOSS_BUNDLED_CODEX_VERSION,
+  MOSS_UPDATED_CODEX_PATH_ENV_KEY,
+} from "@moss/shared/codexRuntime";
 import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
 import { resolveCodexExecutable } from "@moss/shared/codexExecutable";
 import * as ProcessRuntime from "@moss/shared/processRuntime";
 import { agentProgramsForServer } from "../agentProgramOwnership.ts";
+import {
+  AGENT_UPDATED_LIVE_MESSAGE,
+  sideBySideUpdateFailureMessage,
+} from "../agentVersionStore.ts";
 import * as ProviderLoginManagerModule from "../providerLoginManager.ts";
 import * as ManagedProviderInstallationModule from "../managedProviderInstallation.ts";
 import * as ProviderInstallModule from "../providerInstall.ts";
@@ -1706,7 +1718,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
     });
 
     it.effect(
-      "blocks update while another account still owns the program, then requires restart after update",
+      "updates a configured Codex in place without stopping the account still running it",
       () =>
         Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;
@@ -1739,7 +1751,9 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
                 if (command === "npm" && args[0] === "install") updates++;
                 return {
                   stdout: args.includes("--version")
-                    ? "codex-cli 0.166.0"
+                    ? updates > 0
+                      ? "codex-cli 0.167.0"
+                      : "codex-cli 0.166.0"
                     : "Logged in using ChatGPT",
                   stderr: "",
                   code: 0,
@@ -1751,35 +1765,185 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             const health = yield* ProviderHealth;
             const config = yield* ServerConfig;
             const programs = agentProgramsForServer(config, "codex");
-            const child = programs.spawn({
+            // Its exit is never confirmed: the update must not wait for it or stop it.
+            programs.spawn({
               binaryPath,
               sourceHomePath: join(baseDir, "other-account"),
               spawn: () => new EventEmitter(),
             });
-            let stopCalls = 0;
-            const unregister = programs.registerMaintenanceStopper(async () => {
-              stopCalls += 1;
-              child.emit("close");
-            });
             const result = yield* health.updateProvider({ provider: "codex" });
-            unregister();
-            assert.strictEqual(stopCalls, 1);
             assert.strictEqual(updates, 1);
-            assert.include(
-              result.providers.find((status) => status.provider === "codex")?.updateState
-                ?.message ?? "",
-              "Restart Moss",
-            );
-            assert.throws(
-              () =>
-                programs.beginOperation({
-                  binaryPath,
-                  sourceHomePath: join(baseDir, "new-account"),
-                }),
-              /Restart Moss/,
+            const state = result.providers.find(
+              (status) => status.provider === "codex",
+            )?.updateState;
+            assert.strictEqual(state?.status, "succeeded");
+            assert.strictEqual(state?.message, AGENT_UPDATED_LIVE_MESSAGE);
+            assert.doesNotThrow(() =>
+              programs.beginOperation({
+                binaryPath,
+                sourceHomePath: join(baseDir, "new-account"),
+              }),
             );
           }).pipe(Effect.provide(layer));
         }).pipe(Effect.scoped),
+    );
+
+    it.effect("updates Codex beside the running copy when the running one cannot be stopped", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* stubNpmLatestVersion({ "@openai/codex": "0.171.0" });
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "provider-update-live-" });
+        // The person's own npm-installed Codex 0.170.0, found on PATH.
+        const prefix = join(baseDir, "npm-prefix");
+        const isWindows = process.platform === "win32";
+        const packageRoot = isWindows
+          ? join(prefix, "node_modules", "@openai", "codex")
+          : join(prefix, "lib", "node_modules", "@openai", "codex");
+        yield* fs.makeDirectory(join(packageRoot, "bin"), { recursive: true });
+        yield* fs.writeFileString(join(packageRoot, "package.json"), "{}");
+        let binDirectory: string;
+        if (isWindows) {
+          binDirectory = prefix;
+          yield* fs.writeFileString(join(prefix, "codex.cmd"), "@echo off\r\n");
+        } else {
+          binDirectory = join(prefix, "bin");
+          yield* fs.makeDirectory(binDirectory, { recursive: true });
+          const script = join(packageRoot, "bin", "codex.js");
+          yield* fs.writeFileString(script, "#!/bin/sh\n");
+          yield* fs.chmod(script, 0o755);
+          yield* fs.symlink(script, join(binDirectory, "codex"));
+        }
+        const previousPath = process.env.PATH;
+        const previousUpdated = process.env[MOSS_UPDATED_CODEX_PATH_ENV_KEY];
+        const previousBundled = process.env.MOSS_BUNDLED_CODEX_PATH;
+        process.env.PATH = binDirectory;
+        delete process.env[MOSS_UPDATED_CODEX_PATH_ENV_KEY];
+        delete process.env.MOSS_BUNDLED_CODEX_PATH;
+        resetLocalAgentPathLookupCache();
+        let installedPrefix: string | undefined;
+        const install = vi
+          .spyOn(ProviderInstallModule, "runOneClickAgentInstall")
+          .mockImplementation((input) =>
+            Effect.promise(async () => {
+              installedPrefix = input.prefix;
+              const bin = isWindows ? input.prefix! : join(input.prefix!, "bin");
+              await mkdirAsync(bin, { recursive: true });
+              const executable = join(bin, isWindows ? "codex.cmd" : "codex");
+              await writeFileAsync(executable, "new program");
+              return {
+                ok: true as const,
+                version: input.version ?? "0.171.0",
+                source: "cn-mirror" as const,
+                binDirectory: bin,
+                executable,
+              };
+            }),
+          );
+        const runtime = vi
+          .spyOn(AgentInstallRuntimeModule, "resolveMossNodeRuntime")
+          .mockReturnValue(null);
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            install.mockRestore();
+            runtime.mockRestore();
+            if (previousPath === undefined) delete process.env.PATH;
+            else process.env.PATH = previousPath;
+            if (previousUpdated === undefined) delete process.env[MOSS_UPDATED_CODEX_PATH_ENV_KEY];
+            else process.env[MOSS_UPDATED_CODEX_PATH_ENV_KEY] = previousUpdated;
+            if (previousBundled === undefined) delete process.env.MOSS_BUNDLED_CODEX_PATH;
+            else process.env.MOSS_BUNDLED_CODEX_PATH = previousBundled;
+            resetLocalAgentPathLookupCache();
+          }),
+        );
+        const oldBinary = resolveCodexExecutable({ env: process.env }).binaryPath;
+        assert.include(oldBinary.toLowerCase(), "npm-prefix");
+        const inPlaceInstalls: string[] = [];
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          enableProviderUpdateChecks: false,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            codex: { ...DEFAULT_SERVER_SETTINGS.providers.codex, enabled: true },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+        const layer = makeProviderHealthLive().pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(
+            ServerConfig.layerTest(process.cwd(), baseDir, { homeDir: baseDir, stateDir: baseDir }),
+          ),
+          Layer.provideMerge(
+            mockSpawnerLayer((args, command) => {
+              if (args[0] === "install") inPlaceInstalls.push(command);
+              return {
+                stdout: args.includes("--version")
+                  ? installedPrefix
+                    ? "codex-cli 0.171.0"
+                    : "codex-cli 0.170.0"
+                  : "Logged in using ChatGPT",
+                stderr: "",
+                code: 0,
+              };
+            }),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const health = yield* ProviderHealth;
+          const config = yield* ServerConfig;
+          const programs = agentProgramsForServer(config, "codex");
+          const switched = vi.fn();
+          const unregister = programs.onProgramSwitched(switched);
+          // A running Codex whose exit can never be confirmed (the 1.0.8 report).
+          const running = programs.spawn({
+            binaryPath: oldBinary,
+            sourceHomePath: join(baseDir, "codex-home"),
+            spawn: () => new EventEmitter(),
+          });
+
+          const result = yield* health.updateProvider({ provider: "codex" });
+          unregister();
+
+          const state = result.providers.find((status) => status.provider === "codex")?.updateState;
+          assert.strictEqual(state?.status, "succeeded");
+          assert.strictEqual(state?.message, AGENT_UPDATED_LIVE_MESSAGE);
+          // The running copy was neither stopped nor overwritten.
+          assert.deepStrictEqual(inPlaceInstalls, []);
+          assert.strictEqual(running.listenerCount("close"), 1);
+          assert.strictEqual(yield* fs.readFileString(join(packageRoot, "package.json")), "{}");
+          assert.ok(installedPrefix?.startsWith(join(baseDir, "agents", "versions", "codex")));
+          assert.strictEqual(install.mock.calls[0]?.[0].version, "0.171.0");
+          // New launches resolve the new copy, and the same Codex home may start it now.
+          const newBinary = process.env[MOSS_UPDATED_CODEX_PATH_ENV_KEY];
+          assert.ok(newBinary?.startsWith(installedPrefix!));
+          assert.strictEqual(resolveCodexExecutable({ env: process.env }).binaryPath, newBinary);
+          assert.strictEqual(switched.mock.calls.length, 1);
+          programs
+            .beginOperation({ binaryPath: newBinary!, sourceHomePath: join(baseDir, "codex-home") })
+            .failedToSpawn();
+          running.emit("close");
+        }).pipe(Effect.provide(layer));
+      }).pipe(Effect.scoped),
+    );
+
+    it.effect("says in plain words why a side-by-side update failed, with nothing to stop", () =>
+      Effect.sync(() => {
+        assert.include(
+          sideBySideUpdateFailureMessage({
+            ok: false,
+            reason: "download-failed",
+            detail: "npm ERR! code ENOSPC",
+          }),
+          "disk space",
+        );
+        assert.include(
+          sideBySideUpdateFailureMessage({ ok: false, reason: "download-failed", detail: "x" }),
+          "network",
+        );
+        for (const reason of ["download-failed", "timed-out", "verify-failed", "npm-unavailable"]) {
+          const message = sideBySideUpdateFailureMessage({ ok: false, reason, detail: "x" });
+          assert.notInclude(message, "Restart Moss");
+          assert.notInclude(message, "in use");
+        }
+      }),
     );
 
     it("prepends update PATH entries under one Windows path key", () => {
@@ -2062,7 +2226,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
               }
               return {
                 stdout: args.includes("--version")
-                  ? `codex-cli ${CODEX_UPDATE_INSTALLED_VERSION}`
+                  ? `codex-cli ${installs.length === 2 ? CODEX_UPDATE_LATEST_VERSION : CODEX_UPDATE_INSTALLED_VERSION}`
                   : "",
                 stderr: "",
                 code: 0,

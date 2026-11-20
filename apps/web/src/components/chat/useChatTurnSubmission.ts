@@ -51,7 +51,7 @@ import {
 } from "../../lib/terminalContext";
 import { setPendingUserInputCustomAnswer } from "../../pendingUserInput";
 import { resolvePlanFollowUpSubmission } from "../../proposedPlan";
-import { buildSourceProposedPlanReference } from "../../session-logic";
+import { buildSourceProposedPlanReference, derivePhase } from "../../session-logic";
 import {
   buildBlockedComposerSendToastCopy,
   buildExpiredTerminalContextToastCopy,
@@ -59,7 +59,8 @@ import {
   deriveComposerSendState,
   queuedChatTurnDispatchFields,
   queuedPlanFollowUpDispatchFields,
-  resolveBlockedComposerSendReason,
+  resolveComposerSendDecision,
+  resolveComposerSendHold,
   resolveEnvironmentPanelPreferenceAfterFirstSend,
   resolveQueuedTurnDispatchSettings,
   type BlockedComposerSendReason,
@@ -213,7 +214,6 @@ export function useChatTurnSubmission({
   prepareProviderHandoffForSend,
   lateComposerSendHandlersRef,
   activeThread,
-  isConnecting,
   sendPreflightInFlightRef,
   sendInFlightRef,
   showPlanFollowUpPrompt,
@@ -416,12 +416,6 @@ export function useChatTurnSubmission({
       if (!isChatComposerSubmitReady({ isPreparingWorktree })) {
         return false;
       }
-      const dispatchMode =
-        requestedDispatchMode ??
-        resolveFollowUpDispatchMode({
-          behavior: settings.followUpBehavior,
-          hasLiveTurn,
-        });
       const api = readNativeApi();
       const lateSendHandlers = lateComposerSendHandlersRef.current;
       if (
@@ -453,26 +447,44 @@ export function useChatTurnSubmission({
         sendPreflightInFlightRef.current ||
         sendInFlightRef.current ||
         echoesInFlightRef.current > 0;
-      const awaitingVerification = isThreadDetailAwaitingVerification(activeThread.id);
-      if (sendInFlight || isConnecting || awaitingVerification) {
-        const blockedReason = resolveBlockedComposerSendReason({
-          sendInFlight,
-          sessionStarting: isConnecting || awaitingVerification,
-          hasComposerContent:
-            (composerEditorRef.current?.readSnapshot().value ?? promptRef.current).trim().length >
-              0 ||
-            composerImages.length > 0 ||
-            composerFiles.length > 0,
-        });
-        // Queue drains retry on their own; only a person pressing Send needs to hear why.
-        if (blockedReason !== null && !queuedTurn) {
-          notifyBlockedComposerSend(activeThread.id, blockedReason);
+      const sendDecision = resolveComposerSendDecision({
+        sendInFlight,
+        hold: resolveComposerSendHold({
+          phase: derivePhase(activeThread.session ?? null),
+          activeTurnId: activeThread.session?.activeTurnId,
+          latestTurnRunning: activeThread.latestTurn?.state === "running",
+          awaitingVerification: isThreadDetailAwaitingVerification(activeThread.id),
+        }),
+        isQueuedTurn: queuedTurn !== undefined,
+        hasPendingAnswer: activePendingProgress != null,
+        hasComposerContent:
+          (composerEditorRef.current?.readSnapshot().value ?? promptRef.current).trim().length >
+            0 ||
+          composerImages.length > 0 ||
+          composerFiles.length > 0,
+      });
+      if (sendDecision.kind === "refuse") {
+        if (sendDecision.reason !== null) {
+          notifyBlockedComposerSend(activeThread.id, sendDecision.reason);
         }
         return false;
       }
+      // A chat that is starting, reconnecting or verifying holds a person's message in the
+      // queue; the drain sends it once the chat is ready. Steering needs a live turn.
+      const queueUntilReady = sendDecision.kind === "queue-until-ready";
+      const dispatchMode = queueUntilReady
+        ? "queue"
+        : (requestedDispatchMode ??
+          resolveFollowUpDispatchMode({
+            behavior: settings.followUpBehavior,
+            hasLiveTurn,
+          }));
+      const queuesBehindLiveTurn =
+        (hasQueueableLiveTurn || queueUntilReady) && dispatchMode === "queue";
+      // Only enqueueing remains for a held message, so verification no longer blocks it.
       const hasPendingCacheReview = () =>
         getThreadFromState(useStore.getState(), activeThread.id)?.claudeCacheReview != null ||
-        isThreadDetailAwaitingVerification(activeThread.id);
+        (!queueUntilReady && isThreadDetailAwaitingVerification(activeThread.id));
       if (hasPendingCacheReview()) return false;
       const resumeQueueAfterSend =
         !queuedTurn || dispatchMode === "steer"
@@ -683,7 +695,7 @@ export function useChatTurnSubmission({
           interactionModeForSend = followUp.interactionMode;
           trimmedPromptForSend = followUp.text.trim();
         } else {
-          if (hasQueueableLiveTurn && dispatchMode === "queue") {
+          if (queuesBehindLiveTurn) {
             clearComposerInput(activeThread.id);
             scheduleComposerFocus();
             enqueueQueuedComposerTurn(activeThread.id, {
@@ -830,10 +842,7 @@ export function useChatTurnSubmission({
       // If one of them stops the send, the caller hands the message back to the composer.
       const messageIdForSend = newMessageId();
       const messageCreatedAt = new Date().toISOString();
-      const echoesMessage =
-        echo !== undefined &&
-        queuedChatTurn === null &&
-        !(hasQueueableLiveTurn && dispatchMode === "queue");
+      const echoesMessage = echo !== undefined && queuedChatTurn === null && !queuesBehindLiveTurn;
       const presentSentMessage = (row: ChatMessage) => {
         // Sending the first message flips the centered empty landing into a normal
         // transcript. Clear session-only landing overrides when default-open is enabled;
@@ -895,8 +904,7 @@ export function useChatTurnSubmission({
           skills: selectedComposerSkillsForSend,
           mentions: selectedComposerMentionsForSend,
         });
-      const armsPreflightDispatch =
-        preflightDispatchArmed !== undefined && !(hasQueueableLiveTurn && dispatchMode === "queue");
+      const armsPreflightDispatch = preflightDispatchArmed !== undefined && !queuesBehindLiveTurn;
       if (echoesMessage) {
         presentSentMessage(outgoingMessageFor(composerImagesForSend).row);
         if (armsPreflightDispatch) {
@@ -1031,7 +1039,7 @@ export function useChatTurnSubmission({
       markComposerSend("captures-resolved");
       if (hasPendingCacheReview()) return false;
 
-      if (hasQueueableLiveTurn && dispatchMode === "queue" && queuedChatTurn === null) {
+      if (queuesBehindLiveTurn && queuedChatTurn === null) {
         clearComposerInput(activeThread.id);
         scheduleComposerFocus();
         const queuedImagesForPersistence = await Promise.all(
@@ -1276,7 +1284,6 @@ export function useChatTurnSubmission({
       hasLiveTurn,
       lateComposerSendHandlersRef,
       activeThread,
-      isConnecting,
       sendPreflightInFlightRef,
       sendInFlightRef,
       turnDispatchSettings,

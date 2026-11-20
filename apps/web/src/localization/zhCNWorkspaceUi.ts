@@ -278,6 +278,14 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "No net changes in this selection.": "所选范围没有净更改。",
   "No repo diff is available right now.": "当前没有可用的仓库差异。",
   "No patch available for this selection.": "所选范围没有可用补丁。",
+  "Line-by-line changes are unavailable for this turn.": "这一轮无法显示逐行差异。",
+  "This folder is not a Git repository, so Moss keeps no snapshot to compare with. These are the files the agent reported changing.":
+    "此文件夹不是 Git 仓库，Moss 没有可对比的快照。以下是智能体报告修改的文件。",
+  "Moss has no snapshot from before this turn to compare with. These are the files the agent reported changing.":
+    "Moss 没有这一轮开始前的快照可供对比。以下是智能体报告修改的文件。",
+  "Reported changes": "报告的更改",
+  "The agent deleted this file.": "智能体删除了此文件。",
+  "This file can't be shown here.": "无法在此显示此文件。",
   "Diff panel is unavailable because this project is not a git repository.":
     "此项目不是 Git 仓库，因此差异面板不可用。",
   "Loading changed files...": "正在加载已更改文件…",

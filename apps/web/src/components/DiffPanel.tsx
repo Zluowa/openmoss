@@ -79,6 +79,11 @@ import {
 } from "./DiffPanel.logic";
 import { resolveDraftFallbackModelSelection } from "./ChatView.logic";
 import { DiffPanelPatchViewport } from "./DiffPanelPatchViewport";
+import {
+  collectReportedTurnFiles,
+  DiffPanelReportedChanges,
+  type DiffPanelReportedChangesReason,
+} from "./DiffPanelReportedChanges";
 import { DiffPanelCloseButton, DiffPanelToolbar } from "./DiffPanelToolbar";
 import { ReviewFileTreePanel } from "./ReviewFileTreePanel";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
@@ -651,8 +656,15 @@ export default function DiffPanel({
       liveSnapshot:
         selectedTurn?.status === "missing" &&
         selectedTurn.checkpointRef?.startsWith("provider-diff:") === true,
+      // The summary already says this turn has no checkpoint; a new summary is a new key.
+      awaitPendingCheckpoint: selectedTurn?.status !== "missing",
+      // Asked beside the Git check instead of after it: on a large repository that
+      // check waits behind status reads, and the server answers "not a repository" itself.
       enabled:
-        diffQueriesEnabled && isGitRepo && !diffEnvironmentPending && diffViewKind === "turn",
+        diffQueriesEnabled &&
+        gitRepoStatus !== false &&
+        !diffEnvironmentPending &&
+        diffViewKind === "turn",
     }),
   );
   const selectedTurnCheckpointDiff = selectedTurn
@@ -666,11 +678,26 @@ export default function DiffPanel({
     isFetching: activeCheckpointDiffQuery.isFetching,
     data: activeCheckpointDiffQuery.data,
     error: activeCheckpointDiffQuery.error,
+    failureReason: activeCheckpointDiffQuery.failureReason,
   });
   const isLoadingCheckpointDiff = checkpointDiffDisplay.isLoading;
   const checkpointDiffError = checkpointDiffDisplay.error;
 
   const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
+  const reportedTurnFiles = useMemo(
+    () => collectReportedTurnFiles(selectedTurn ? [selectedTurn] : orderedTurnDiffSummaries),
+    [orderedTurnDiffSummaries, selectedTurn],
+  );
+  // No snapshot to compare with: show what the agent reported rather than a skeleton
+  // or a bare error. A patch that does arrive always wins.
+  const reportedChangesReason: DiffPanelReportedChangesReason | null =
+    diffViewKind !== "turn" || reportedTurnFiles.length === 0 || typeof selectedPatch === "string"
+      ? null
+      : gitRepoStatus === false
+        ? "not-git"
+        : checkpointDiffError !== null
+          ? "no-snapshot"
+          : null;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
   // The scope picker shows a file count per scope. Counts come from the stats endpoint rather
@@ -1277,15 +1304,29 @@ export default function DiffPanel({
         <PanelStateMessage density="compact" fill="flex">
           Select a thread to inspect turn diffs.
         </PanelStateMessage>
+      ) : reportedChangesReason && !diffEnvironmentPending ? (
+        <DiffPanelReportedChanges
+          reason={reportedChangesReason}
+          files={reportedTurnFiles}
+          workspaceRoot={activeCwd ?? null}
+          selectedFilePath={selectedFilePath}
+          resolvedTheme={resolvedTheme}
+          retrying={activeCheckpointDiffQuery.isFetching}
+          onSelectFile={selectFile}
+          onRetry={handleDiffReload}
+        />
       ) : gitRepoStatus === false ? (
         <PanelStateMessage density="compact" fill="flex">
           Turn diffs are unavailable because this project is not a git repository.
         </PanelStateMessage>
-      ) : gitRepoStatusError ? (
+      ) : gitRepoStatusError && diffViewKind === "repo" ? (
         <PanelStateMessage density="compact" fill="flex">
           {gitRepoStatusError}
         </PanelStateMessage>
-      ) : gitRepoStatus === undefined && diffQueriesEnabled && activeCwd ? (
+      ) : gitRepoStatus === undefined &&
+        diffViewKind === "repo" &&
+        diffQueriesEnabled &&
+        activeCwd ? (
         <DiffPanelLoadingState label="Checking git repository..." />
       ) : diffEnvironmentPending ? (
         <PanelStateMessage density="compact" fill="flex">
@@ -1312,6 +1353,7 @@ export default function DiffPanel({
               isLoading={activeReviewIsLoading}
               hasNoChanges={activeReviewHasNoChanges}
               error={activeReviewError}
+              onRetry={handleDiffReload}
               refreshStatus={diffViewKind === "turn" ? checkpointDiffDisplay.refreshStatus : null}
               viewKind={diffViewKind}
               loadingLabel={

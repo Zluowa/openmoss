@@ -210,25 +210,43 @@ describe.each(["codex", "claudeAgent"] as const)("%s program ownership", (provid
     ).toThrow(/Restart Moss/);
   });
 
-  it("stops registered runtime owners before starting maintenance", async () => {
-    const { first, sourceHomePath } = fixture();
+  it("lets new launches use an update's program while running owners finish on the old one", () => {
+    const { first, second, sourceHomePath } = fixture();
     const programs = makeAgentProgramOwnership(provider);
-    const child = programs.spawn({
+    const switched = vi.fn();
+    const unregister = programs.onProgramSwitched(switched);
+    const running = programs.spawn({
       binaryPath: first,
       sourceHomePath,
       spawn: () => new EventEmitter(),
     });
-    let stopCalls = 0;
-    const unregister = programs.registerMaintenanceStopper(async () => {
-      stopCalls += 1;
-      child.emit("close");
+    // Without an approved update the epoch still holds.
+    expect(() => programs.assertCompatible({ binaryPath: second, sourceHomePath })).toThrow(
+      /Restart Moss/,
+    );
+
+    programs.approveProgramSwitch(second);
+
+    expect(switched).toHaveBeenCalledTimes(1);
+    const next = programs.spawn({
+      binaryPath: second,
+      sourceHomePath,
+      spawn: () => new EventEmitter(),
     });
-
-    const maintenance = await programs.beginMaintenanceAfterStop(first);
-
-    expect(stopCalls).toBe(1);
-    maintenance.finish(false);
+    // The old copy is still running, so its folder is in use; the new one is too.
+    expect(programs.isDirectoryInUse(path.dirname(first))).toBe(true);
+    expect(() => programs.beginMaintenance(first)).toThrow(/still in use/);
+    next.emit("close");
+    expect(() => programs.beginMaintenance(first)).toThrow(/still in use/);
+    running.emit("close");
+    expect(programs.isDirectoryInUse(path.dirname(first))).toBe(false);
+    // Only the approved program may take over; anything else still needs a restart.
+    expect(() =>
+      programs.assertCompatible({ binaryPath: first, sourceHomePath: `${sourceHomePath}` }),
+    ).toThrow(/Restart Moss/);
     unregister();
+    programs.approveProgramSwitch(first);
+    expect(switched).toHaveBeenCalledTimes(1);
   });
 
   it("releases a definite spawn failure and retains an interrupted operation until restart", async () => {

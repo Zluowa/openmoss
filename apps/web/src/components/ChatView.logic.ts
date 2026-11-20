@@ -2218,21 +2218,60 @@ export function buildExpiredTerminalContextToastCopy(
   };
 }
 
-export type BlockedComposerSendReason = "send-in-flight" | "session-starting" | "no-project";
+export type BlockedComposerSendReason =
+  | "send-in-flight"
+  | "answer-awaits-connection"
+  | "no-project";
+
+/** Why a person's message waits in the queue instead of reaching the provider now. */
+export type ComposerSendHold = "session-starting" | "session-reconnecting" | "detail-verifying";
+
+// "Starting" is only a provider session being created before any turn began. A turn that
+// is running while its session reconnects, and a cached chat whose detail is still being
+// verified, are not starting; none of them may refuse a message.
+export function resolveComposerSendHold(input: {
+  readonly phase: SessionPhase;
+  readonly activeTurnId: string | null | undefined;
+  readonly latestTurnRunning: boolean;
+  readonly awaitingVerification: boolean;
+}): ComposerSendHold | null {
+  if (input.phase === "connecting") {
+    return input.activeTurnId != null || input.latestTurnRunning
+      ? "session-reconnecting"
+      : "session-starting";
+  }
+  if (input.awaitingVerification) return "detail-verifying";
+  return null;
+}
+
+export type ComposerSendDecision =
+  | { readonly kind: "send" }
+  | { readonly kind: "queue-until-ready"; readonly hold: ComposerSendHold }
+  | { readonly kind: "refuse"; readonly reason: BlockedComposerSendReason | null };
 
 // A user send refused by a guard must say why; a silent no-op makes people send again.
 // Expected no-ops (empty prompt, held cache review, expired sidechat, voice note still
-// transcribing) keep their own UI and are not reported here.
-export function resolveBlockedComposerSendReason(input: {
+// transcribing) keep their own UI and are not reported here. A chat that is starting,
+// reconnecting or verifying queues the message and sends it once ready (T3 Code accepts
+// the send and queues it behind the starting run instead of refusing it).
+export function resolveComposerSendDecision(input: {
   readonly sendInFlight: boolean;
-  readonly sessionStarting: boolean;
+  readonly hold: ComposerSendHold | null;
+  /** The queue drain retries on its own once the chat is ready, so it never hears why. */
+  readonly isQueuedTurn: boolean;
+  /** An answer to an open question belongs to the running turn, not to the follow-up queue. */
+  readonly hasPendingAnswer: boolean;
   /** An empty composer has nothing to send, so pressing Send again needs no notice. */
   readonly hasComposerContent: boolean;
-}): BlockedComposerSendReason | null {
-  if (!input.hasComposerContent) return null;
-  if (input.sendInFlight) return "send-in-flight";
-  if (input.sessionStarting) return "session-starting";
-  return null;
+}): ComposerSendDecision {
+  const notify = !input.isQueuedTurn && input.hasComposerContent;
+  if (input.sendInFlight) return { kind: "refuse", reason: notify ? "send-in-flight" : null };
+  if (input.hold === null) return { kind: "send" };
+  if (input.isQueuedTurn) return { kind: "refuse", reason: null };
+  if (input.hasPendingAnswer) {
+    return { kind: "refuse", reason: notify ? "answer-awaits-connection" : null };
+  }
+  return { kind: "queue-until-ready", hold: input.hold };
 }
 
 export function buildBlockedComposerSendToastCopy(reason: BlockedComposerSendReason): {
@@ -2247,11 +2286,11 @@ export function buildBlockedComposerSendToastCopy(reason: BlockedComposerSendRea
         title: "Still sending your last message",
         description: "Wait for it to show in the chat before sending again.",
       };
-    case "session-starting":
+    case "answer-awaits-connection":
       return {
         type: "info",
-        title: "The session is still starting",
-        description: "Send again once it is ready. Your message stays in the composer.",
+        title: "Reconnecting to the conversation",
+        description: "Send your answer once it is connected. It stays in the composer.",
       };
     case "no-project":
       return {

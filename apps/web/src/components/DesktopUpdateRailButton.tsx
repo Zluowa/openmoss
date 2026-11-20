@@ -21,12 +21,15 @@ export function DesktopUpdateRailButton({
   state,
   installing,
   onClick,
+  label: labelOverride,
 }: {
   state: DesktopUpdateState;
   installing: boolean;
   onClick: () => void;
+  /** Localized text for states whose copy lives in the translations (the download notice). */
+  label?: string | undefined;
 }) {
-  const label = getDesktopUpdateButtonTooltip(state, { installing });
+  const label = labelOverride ?? getDesktopUpdateButtonTooltip(state, { installing });
   const disabled = isDesktopUpdateButtonDisabled(state) || installing;
   const percent = getDesktopUpdateDownloadPercent(state);
   const readyToInstall = resolveDesktopUpdateButtonAction(state) === "install";

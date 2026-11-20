@@ -15,12 +15,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { MossLogo } from "~/components/MossLogo";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button, buttonVariants } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 
-import { MossAuthLoading, MossAuthShell, useMossOpaqueSurface } from "./MossAuthShell";
+import {
+  MossAuthLoading,
+  MossAuthShell,
+  MossBackToAppButton,
+  useMossOpaqueSurface,
+} from "./MossAuthShell";
 import { MossPayPanel } from "./MossPayPanel";
 import {
   linkClassName,
@@ -510,14 +514,13 @@ export function MossCloudAccountPage() {
     <main className="min-h-dvh w-full overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-8 sm:py-10">
       <div className="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-7">
         <header className="flex min-w-0 flex-wrap items-center justify-between gap-4">
-          <Link
+          <MossBackToAppButton
             aria-label="Back to Moss chats"
-            className="flex items-center gap-2 rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-            to="/"
+            className="-ml-2.5"
+            data-testid="moss-account-back"
           >
-            <MossLogo className="size-8" />
-            <span className="text-lg font-semibold">Moss</span>
-          </Link>
+            Moss
+          </MossBackToAppButton>
           <Link className={linkClassName} to="/settings">
             Settings
           </Link>

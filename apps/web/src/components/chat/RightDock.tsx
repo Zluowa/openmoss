@@ -576,10 +576,13 @@ function RightDockSurface(
           data-right-dock-content
           className="flex h-full min-h-0 w-full flex-col"
         >
+          {/* The bar sits in the frameless window's title area, so it is a window
+              drag region like the chat header; tabs and buttons opt out through
+              the shared `.drag-region` and `.surface-content-tabs` rules. */}
           <div
             className={cn(
               CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
-              "gap-1 px-1.5",
+              "drag-region gap-1 px-1.5",
               desktopTopBarWindowControlsGutterClassName,
             )}
           >
@@ -597,7 +600,10 @@ function RightDockSurface(
                 right edge just before the window's caption buttons. The side-panel
                 toggle lives here whenever the dock is open, so it sits at the same
                 top-right spot the chat header uses while the dock is closed. */}
-            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Fit the tab strip to its tabs so the rest of the bar stays draggable;
+                Chromium does not clip app regions to this scroller, so the strip is
+                one no-drag box (`.surface-content-tabs`) rather than per-chip boxes. */}
+            <div className="surface-content-tabs flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {props.state.panes.map((pane) => (
                 <RightDockTab
                   key={pane.id}
@@ -667,7 +673,10 @@ function RightDockSurface(
                 </IconButton>
               ) : null}
             </div>
-            <div className="flex shrink-0 items-center gap-1" data-right-dock-layout-controls>
+            <div
+              className="ml-auto flex shrink-0 items-center gap-1"
+              data-right-dock-layout-controls
+            >
               {/* A closed dock stays mounted off-canvas; the chat header owns the
                   side-panel toggle then, so these only exist while the dock is open. */}
               {props.onToggleBottomPanel && props.state.open ? (
