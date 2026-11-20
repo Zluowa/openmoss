@@ -127,6 +127,7 @@ import {
 import {
   CodexPreviousRuntimeNotStoppedError,
   CodexSessionStartError,
+  CodexTurnNotDispatchedError,
   codexErrorMessage,
   isNonFatalCodexErrorMessage,
 } from "../../codexErrorClassification.ts";
@@ -299,7 +300,11 @@ function toSessionError(
   // A closed stdin is the transport-level signature of a dead app-server
   // process; treat it as a closed session so callers recover via resume
   // instead of surfacing a raw request failure.
-  if (normalized.includes("session is closed") || normalized.includes("stdin closed")) {
+  if (
+    cause instanceof CodexTurnNotDispatchedError ||
+    normalized.includes("session is closed") ||
+    normalized.includes("stdin closed")
+  ) {
     return new ProviderAdapterSessionClosedError({
       provider: PROVIDER,
       threadId,

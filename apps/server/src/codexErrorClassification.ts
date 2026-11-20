@@ -15,6 +15,15 @@ export class CodexPreviousRuntimeNotStoppedError extends Error {
   override readonly name = "CodexPreviousRuntimeNotStoppedError";
 }
 
+/** The session was lost before Moss attempted to write a turn/start request. */
+export class CodexTurnNotDispatchedError extends Error {
+  override readonly name = "CodexTurnNotDispatchedError";
+
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : "Codex session is closed.", { cause });
+  }
+}
+
 const NON_FATAL_CODEX_ERROR_SNIPPETS = [
   "write_stdin failed: stdin is closed for this session",
 ] as const;

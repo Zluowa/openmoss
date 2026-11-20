@@ -80,6 +80,7 @@ import {
   ProviderValidationError,
   type ProviderAdapterError,
 } from "../Errors.ts";
+import { CodexTurnNotDispatchedError } from "../../codexErrorClassification.ts";
 import type {
   ProviderAdapterForkThreadInput,
   ProviderAdapterSessionStartInput,
@@ -6627,6 +6628,46 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.equal(devin.sendTurn.mock.calls.length, 0);
       assert.deepEqual(adoptedSessions, []);
       assert.deepEqual(binding?.resumeCursor, staleCursor);
+    }),
+  );
+
+  it.effect("reroutes a Codex message when auth invalidates the runtime just before dispatch", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const threadId = asThreadId("codex-auth-changed-before-dispatch");
+      const initial = yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+
+      routing.codex.sendTurn.mockClear();
+      routing.codex.startSession.mockClear();
+      routing.codex.sendTurn.mockImplementationOnce(() =>
+        routing.codex.stopAll().pipe(
+          Effect.andThen(
+            Effect.fail(
+              new ProviderAdapterSessionClosedError({
+                provider: "codex",
+                threadId,
+                cause: new CodexTurnNotDispatchedError(new Error("Codex authentication changed")),
+              }),
+            ),
+          ),
+        ),
+      );
+
+      yield* provider.sendTurn({ threadId, input: "Continue the task" });
+      assert.equal(routing.codex.startSession.mock.calls.length, 1);
+      assert.deepEqual(
+        routing.codex.startSession.mock.calls[0]?.[0].resumeCursor,
+        initial.resumeCursor,
+      );
+      assert.deepEqual(
+        routing.codex.sendTurn.mock.calls.map(([input]) => input.input),
+        ["Continue the task", "Continue the task"],
+      );
     }),
   );
 
