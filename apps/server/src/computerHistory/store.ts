@@ -109,7 +109,7 @@ export function normalizeComputerHistorySemanticSummary(
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, ["title", "description", "source"]) ||
-    value.source !== "apple_on_device"
+    (value.source !== "apple_on_device" && value.source !== "windows_on_device")
   ) {
     throw new Error("Computer History semantic summary contains unknown fields.");
   }
@@ -121,7 +121,7 @@ export function normalizeComputerHistorySemanticSummary(
   if (!title || !description) {
     throw new Error("Computer History semantic summary is unsafe or out of bounds.");
   }
-  return { title, description, source: "apple_on_device" };
+  return { title, description, source: value.source };
 }
 
 /** Validate and rebuild the exact shape allowed into encrypted persistence. */

@@ -92,6 +92,10 @@ export const ProfileActivity = Schema.Struct({
   totalPromptsSent: NonNegativeInt,
   totalThreads: NonNegativeInt,
   promptsToday: NonNegativeInt,
+  // Longest single user-dispatched turn (start to completion) in a chat still on
+  // this computer; null before any turn completed. Unlike the totals it is not
+  // kept for deleted chats.
+  longestTaskMs: Schema.NullOr(NonNegativeInt),
   // Activity heatmap counts native user prompts per local day (same source as
   // totalPromptsSent), i.e. days the user actually used Moss.
   heatmapMetric: Schema.Literal("prompts"),

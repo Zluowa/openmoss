@@ -577,6 +577,12 @@ function buildHeatmap(countByDay: ReadonlyMap<string, number>, todayKey: string)
   return heatmap;
 }
 
+// A clock running backwards (or no completed turn) yields no duration at all.
+export function longestTaskMs(value: unknown): number | null {
+  const ms = Math.round(num(value));
+  return value === null || value === undefined || ms <= 0 ? null : ms;
+}
+
 function emptyQuota(): ProfileQuota {
   return {
     status: "unavailable",
@@ -1219,6 +1225,27 @@ const makeProfileStatsQuery = Effect.gen(function* () {
       `,
     );
 
+  // Longest completed turn the user dispatched, start to completion. Subagent
+  // (provider-native child) threads are left out: their parent turn covers them.
+  const queryLongestTask = () =>
+    legacyCompatibleQuery(
+      "profileStats.longestTask",
+      sql<{ readonly ms: number | null }>`
+        SELECT MAX((JULIANDAY(pt.completed_at) - JULIANDAY(pt.started_at)) * 86400000.0) AS ms
+        FROM projection_turns pt
+        JOIN projection_threads th ON th.thread_id = pt.thread_id
+        LEFT JOIN projection_thread_messages pm
+          ON pm.thread_id = pt.thread_id
+         AND pm.message_id = pt.pending_message_id
+        WHERE pt.turn_id IS NOT NULL
+          AND pt.state = 'completed'
+          AND pt.started_at IS NOT NULL
+          AND pt.completed_at IS NOT NULL
+          AND COALESCE(th.creation_source, '') != 'provider_native'
+          AND (pm.dispatch_origin IS NULL OR pm.dispatch_origin = 'user')
+      `,
+    );
+
   const queryTurnInsights = () =>
     legacyCompatibleQuery(
       "profileStats.turnInsights",
@@ -1450,6 +1477,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
       const skillMessageRows = yield* querySkillUsageMessages();
       const archivedSkillRows = yield* queryArchivedSkillUsage();
       const mostWorkedProjectRows = yield* queryMostWorkedProject(tz);
+      const longestTaskRows = yield* queryLongestTask();
 
       // ── Activity / heatmap / streaks ──
       const countByDay = new Map<string, number>();
@@ -1622,6 +1650,7 @@ const makeProfileStatsQuery = Effect.gen(function* () {
           totalPromptsSent,
           totalThreads: num(totalThreadRows[0]?.count),
           promptsToday: countByDay.get(todayKey) ?? 0,
+          longestTaskMs: longestTaskMs(longestTaskRows[0]?.ms),
           heatmapMetric: "prompts",
           heatmap,
         },

@@ -41,8 +41,6 @@ import {
   type ComputerHistoryTimelineEntry,
 } from "@moss/contracts";
 import { Effect } from "effect";
-import { cuaRequest, CUA_HOST_SOCKET_ENV, type CuaReply } from "@moss/shared/cuaDriverProtocol";
-import { resolveBrowserHostCapability } from "../browserAutomation/browserHostRpcClient.ts";
 
 import { writeFileStringAtomically } from "../atomicWrite.ts";
 import {
@@ -77,9 +75,18 @@ import {
 } from "./summaryResources.ts";
 import {
   makeWindowsHistoryKeyProvider,
-  startWindowsHistoryCollector,
+  startWindowsHistoryHelper,
   WINDOWS_HISTORY_BROWSER_CAPABILITIES,
+  type WindowsHistoryHelper,
+  type WindowsHistoryHelperOptions,
 } from "./windows.ts";
+import {
+  assessWindowsHistoryProbe,
+  summarizeWindowsActivity,
+  WINDOWS_HISTORY_CADENCE,
+  WindowsHistoryCadence,
+  windowsHistoryAppId,
+} from "./windowsActivity.ts";
 
 const execFile = promisify(execFileCallback);
 const SETTINGS_FILENAME = "settings.json";
@@ -205,6 +212,12 @@ const CAPTURE_CAPABILITY: ComputerHistoryCaptureCapability = {
   detail:
     "Computer History validates one transient in-memory window frame after policy and target checks, but persists only bounded app/window metadata until a privacy-reviewed semantic summarizer is available. Keyboard, mouse, accessibility, URL, OCR text, and private-window data are never persisted.",
 };
+/** The web settings panel keys its Windows notice on these two prefixes. */
+const WINDOWS_ACTIVITY_DETAIL =
+  "Windows samples the front window in memory, reads it with Windows OCR and keeps only an abstract activity summary on this computer. Screenshots, OCR text, window titles, browser activity, password fields and meetings are never stored.";
+const WINDOWS_METADATA_ONLY_DETAIL =
+  "Windows records application names only because Windows OCR is not installed. Window titles, browser activity, URLs, screenshots, audio and input events are excluded.";
+const WINDOWS_HELPER_MAX_RESTARTS = 3;
 const HISTORY_SEMANTIC_CAPABILITY_DETAILS = {
   available: "Apple on-device semantic summaries are available.",
   device_not_eligible: "Apple on-device semantic summaries require an eligible device.",
@@ -222,56 +235,6 @@ const HISTORY_SEMANTIC_CAPABILITY_STATUSES = new Set<
 const KNOWN_BROWSER_BUNDLE_IDENTIFIERS = new Set(
   DEFAULT_BROWSER_CAPABILITIES.map((capability) => capability.bundleIdentifier),
 );
-
-/** Windows browsers by executable name; the Windows driver reports no bundle identifiers. */
-const WINDOWS_BROWSER_EXECUTABLES = new Set([
-  "chrome.exe",
-  "chromium.exe",
-  "msedge.exe",
-  "firefox.exe",
-  "brave.exe",
-  "opera.exe",
-  "vivaldi.exe",
-  "arc.exe",
-  "iexplore.exe",
-  "librewolf.exe",
-  "waterfox.exe",
-  "yandex.exe",
-  "360se.exe",
-  "360chrome.exe",
-  "qqbrowser.exe",
-  "sogouexplorer.exe",
-  "2345explorer.exe",
-  "ucbrowser.exe",
-  "maxthon.exe",
-]);
-
-/**
- * The foreground window in a Windows `list_windows` reply. A driver that marks focus wins;
- * otherwise cua-driver-rs on Windows orders windows by `z_index`, so the visible, non-minimized
- * window with the highest z-index is the one in front. Rows without a usable z-index are never
- * guessed at, and the driver's own helper processes are skipped.
- */
-export function selectWindowsForegroundRow(
-  rows: readonly unknown[],
-): Record<string, unknown> | undefined {
-  const candidates = rows.filter((value): value is Record<string, unknown> => {
-    if (!value || typeof value !== "object") return false;
-    const row = value as Record<string, unknown>;
-    const app = typeof row.app_name === "string" ? row.app_name.toLowerCase() : "";
-    return row.minimized !== true && row.is_on_screen !== false && !app.startsWith("cua-");
-  });
-  const focused = candidates.find(
-    (row) => row.focused === true || row.keyboard_focused === true || row.is_focused === true,
-  );
-  if (focused) return focused;
-  let front: Record<string, unknown> | undefined;
-  for (const row of candidates) {
-    if (typeof row.z_index !== "number" || !Number.isFinite(row.z_index)) continue;
-    if (!front || row.z_index > (front.z_index as number)) front = row;
-  }
-  return front;
-}
 
 const DEFAULT_OBSERVATION_SETTINGS: ComputerHistoryObservationSettings = {
   defaultApplicationBehavior: "allow",
@@ -535,9 +498,9 @@ export interface ComputerHistoryServiceOptions {
   readonly rootDir: string;
   readonly platform?: NodeJS.Platform;
   readonly supported?: boolean;
-  /** Deterministic adapter injection; production uses the Windows foreground collector. */
+  /** Deterministic adapter injection; production starts the Windows history helper. */
   readonly windowsAdapter?: {
-    readonly start: typeof startWindowsHistoryCollector;
+    readonly start: (options: WindowsHistoryHelperOptions) => WindowsHistoryHelper;
     readonly keyProvider: ComputerHistoryKeyProvider;
   };
   readonly helperPath?: string;
@@ -558,10 +521,6 @@ export interface ComputerHistoryServiceOptions {
     accessibility: ComputerHistoryPermissionState;
     screenRecording: ComputerHistoryPermissionState;
   }>;
-  /** Windows Cua Driver endpoint used for privacy-bounded foreground metadata polling. */
-  readonly cuaEndpoint?: string;
-  readonly cuaCapability?: string;
-  readonly cuaRequest?: typeof cuaRequest;
 }
 
 /**
@@ -643,15 +602,13 @@ export function makeComputerHistoryService(
 ): ComputerHistoryService {
   const now = options.now ?? Date.now;
   const platform = options.platform ?? process.platform;
-  const cuaEndpoint = options.cuaEndpoint ?? process.env[CUA_HOST_SOCKET_ENV]?.trim();
-  const cuaCapability = options.cuaCapability ?? resolveBrowserHostCapability() ?? undefined;
   const windows =
     options.windowsAdapter !== undefined ||
     (platform === "win32" && options.supported === undefined);
   const supported =
     options.supported ??
     ((platform === "darwin" && options.helperPath !== undefined) ||
-      (platform === "win32" && (Boolean(cuaEndpoint) || windows)));
+      (platform === "win32" && windows));
   const keyProvider =
     options.keyProvider ??
     options.windowsAdapter?.keyProvider ??
@@ -701,7 +658,12 @@ export function makeComputerHistoryService(
   let queueDepth = 0;
   let keychainState: "ready" | "locked" | "unavailable" | "unknown" = "unknown";
   let privacyDecisionEnforced = false;
-  let stopWindowsCollector: (() => void | Promise<void>) | undefined;
+  let windowsHelper: WindowsHistoryHelper | null = null;
+  let windowsTimer: NodeJS.Timeout | null = null;
+  let windowsCadence = new WindowsHistoryCadence();
+  let windowsHelperRestarts = 0;
+  /** Unknown until a Windows helper has started and reported whether Windows OCR exists. */
+  let windowsOcrAvailable: boolean | null = null;
   let windowsCollectorStopped: Promise<void> = Promise.resolve();
   let windowsClearedThroughMs = -1;
   let shuttingDown = false;
@@ -734,8 +696,6 @@ export function makeComputerHistoryService(
   let activationPromise: Promise<void> | undefined;
   let runtimeWriteChain: Promise<void> = Promise.resolve();
   let historyHelper: ChildProcessByStdio<Writable, Readable, null> | null = null;
-  let windowsHistoryPollTimer: NodeJS.Timeout | null = null;
-  let windowsHistoryPollInFlight = false;
   let historyHelperGeneration = 0;
   const captureReceipts = new Map<string, HistoryCaptureReceipt>();
   let applicationDiscoveryAttempted = false;
@@ -775,15 +735,16 @@ export function makeComputerHistoryService(
 
   const ensureApplicationCatalog = async (): Promise<void> => {
     // Desktop also supplies the AppSnap helper path on Windows. It belongs to
-    // the macOS adapter; Windows discovers its catalog from native observations.
-    if (windows) return;
+    // the macOS adapter; Windows asks its own helper for the Start menu apps.
     if (applicationDiscoveryPromise) return applicationDiscoveryPromise;
     const helperPath = options.helperPath;
-    if (applicationDiscoveryAttempted || !helperPath || !supported) return;
+    if (applicationDiscoveryAttempted || (!windows && !helperPath) || !supported) return;
     applicationDiscoveryAttempted = true;
     const discovery = (async () => {
       try {
-        const discoveredApplications = await readHelperApplications(helperPath);
+        const discoveredApplications = windows
+          ? await readWindowsApplications()
+          : await readHelperApplications(helperPath!);
         for (const [index, application] of discoveredApplications.entries()) {
           applicationDiscoveryOrder.set(application.bundleIdentifier, index);
           cacheApplication(application);
@@ -799,6 +760,35 @@ export function makeComputerHistoryService(
       await discovery;
     } finally {
       if (applicationDiscoveryPromise === discovery) applicationDiscoveryPromise = undefined;
+    }
+  };
+
+  const startWindowsHelperProcess = options.windowsAdapter?.start ?? startWindowsHistoryHelper;
+
+  /** Start menu apps with icons, ids matching what the Windows helper observes. */
+  const readWindowsApplications = async (): Promise<ComputerHistoryApplicationMetadata[]> => {
+    // The permission picker can open while history is off; use a short-lived helper then.
+    const owned = windowsHelper ? null : startWindowsHelperProcess({ onExit: () => undefined });
+    const helper = windowsHelper ?? owned!;
+    try {
+      const applications = await helper.applications();
+      let iconCharacters = 0;
+      return applications.flatMap((application) => {
+        const bundleIdentifier = windowsHistoryAppId(application.processName);
+        const name = application.name.trim().slice(0, COMPUTER_HISTORY_MAX_APPLICATION_NAME_LENGTH);
+        if (!bundleIdentifier || !name) return [];
+        const iconDataURL = normalizeHistoryAppIcon(application.iconDataURL);
+        if (
+          !iconDataURL ||
+          iconCharacters + iconDataURL.length > COMPUTER_HISTORY_APP_ICON_MAX_TOTAL_DATA_URL_LENGTH
+        ) {
+          return [{ bundleIdentifier, name }];
+        }
+        iconCharacters += iconDataURL.length;
+        return [{ bundleIdentifier, name, iconDataURL }];
+      });
+    } finally {
+      await owned?.stop();
     }
   };
 
@@ -1000,7 +990,9 @@ export function makeComputerHistoryService(
       interactionEvents: false,
       activitySummaries: supported && semanticSummaryCapabilityAvailable,
       detail: windows
-        ? "Windows records foreground application names only. Window titles, browser activity, URLs, screenshots, audio and input events are excluded."
+        ? windowsOcrAvailable === false
+          ? WINDOWS_METADATA_ONLY_DETAIL
+          : WINDOWS_ACTIVITY_DETAIL
         : supported && semanticSummaryCapabilityAvailable
           ? "Computer History uses one privacy-authorized in-memory frame and Apple's on-device structured semantic summarizer; raw OCR and private-window data are never persisted."
           : CAPTURE_CAPABILITY.detail,
@@ -1193,7 +1185,6 @@ export function makeComputerHistoryService(
       });
       keychainState = "ready";
       startHistoryHelper();
-      startWindowsHistoryPoller();
       if (options.helperPath && permissionState.screenRecording !== "granted") {
         activationState = "waiting_for_permissions";
         recorderState = "stopped";
@@ -1218,17 +1209,162 @@ export function makeComputerHistoryService(
     }
   };
 
+  const windowsRecording = (generation: number): boolean =>
+    generation === historyHelperGeneration &&
+    !shuttingDown &&
+    enabled &&
+    recorderState === "running" &&
+    activationState === "idle";
+
+  const scheduleWindowsTick = (generation: number, delayMs: number): void => {
+    if (windowsTimer) clearTimeout(windowsTimer);
+    windowsTimer = setTimeout(() => {
+      windowsTimer = null;
+      void windowsTick(generation);
+    }, delayMs);
+    windowsTimer.unref?.();
+  };
+
+  const startWindowsHelper = (generation: number): void => {
+    privacyDecisionEnforced = true;
+    windowsCadence = new WindowsHistoryCadence();
+    const helper = startWindowsHelperProcess({
+      onExit: () => {
+        if (windowsHelper !== helper || generation !== historyHelperGeneration) return;
+        windowsHelper = null;
+        semanticSummaryCapabilityAvailable = false;
+        if (!enabled || recorderState !== "running") return;
+        // A helper that stopped answering was replaced on purpose (for example a hung
+        // target window). Give up only when it keeps dying.
+        windowsHelperRestarts += 1;
+        if (windowsHelperRestarts <= WINDOWS_HELPER_MAX_RESTARTS) {
+          startWindowsHelper(generation);
+          return;
+        }
+        recorderState = "stopped";
+        activationState = "failed";
+        lastError = "Computer History helper stopped unexpectedly.";
+        void persistRuntimeState();
+      },
+    });
+    windowsHelper = helper;
+    void helper.ready.then((ready) => {
+      if (windowsHelper !== helper || !ready) return;
+      windowsOcrAvailable = ready.ocr;
+      semanticSummaryCapabilityAvailable = ready.ocr;
+      scheduleWindowsTick(generation, 0);
+    });
+  };
+
+  /** One Windows sample: probe metadata, apply exclusions and rules, then frame, cadence, OCR. */
+  const sampleWindowsActivity = async (
+    helper: WindowsHistoryHelper,
+    generation: number,
+  ): Promise<number> => {
+    const idleDelay = WINDOWS_HISTORY_CADENCE.firstUnchangedDelayMs;
+    const probe = await helper.probe();
+    if (!probe) return windowsCadence.recordFailure();
+    windowsHelperRestarts = 0;
+    if (WindowsHistoryCadence.idlePaused(probe.idleSeconds)) return idleDelay;
+    const target = probe.target;
+    if (!target || !assessWindowsHistoryProbe(probe).allowed) return idleDelay;
+    const bundleIdentifier = windowsHistoryAppId(target.processName);
+    const name = (target.displayName.trim() || target.processName.replace(/\.exe$/iu, ""))
+      .slice(0, COMPUTER_HISTORY_MAX_APPLICATION_NAME_LENGTH)
+      .trim();
+    if (
+      !bundleIdentifier ||
+      !name ||
+      !windowsRecording(generation) ||
+      !isAllowed(
+        bundleIdentifier,
+        settings.observation.defaultApplicationBehavior,
+        settings.observation.allowlist,
+        settings.observation.blocklist,
+      )
+    ) {
+      return idleDelay;
+    }
+    const requestId = randomBytes(16).toString("hex");
+    const frame = await helper.capture(requestId, target.hwnd);
+    if (!frame) return windowsCadence.recordFailure();
+    const decision = windowsCadence.recordCapture({
+      fingerprint: frame.fingerprint,
+      targetKey: `${bundleIdentifier}:${target.hwnd}`,
+      monotonicMs: performance.now(),
+      wallClockMs: now(),
+      durationMs: frame.durationMs,
+      recentUserInput:
+        probe.idleSeconds !== null &&
+        probe.idleSeconds * 1_000 < WINDOWS_HISTORY_CADENCE.recentInputDelayMs,
+    });
+    if (!decision.evidence || !windowsRecording(generation)) {
+      helper.drop();
+      return decision.nextDelayMs;
+    }
+    let semanticSummary: ComputerHistorySemanticSummary | undefined;
+    if (semanticSummaryCapabilityAvailable) {
+      const ocrText = await helper.ocr(requestId);
+      semanticSummary = summarizeWindowsActivity({
+        processName: target.processName,
+        displayName: name,
+        focusedControl: target.focusedControl,
+        ocrText,
+      });
+    } else {
+      helper.drop();
+    }
+    const capturedAtMs = now();
+    const app = { bundleIdentifier, name };
+    // The helper itself is the receipt: it applied the exclusions above to this frame.
+    const receipt: HistoryCaptureReceipt = {
+      type: "history_capture_candidate",
+      requestId,
+      fingerprint: requestId,
+      app,
+      window: {},
+      privateBrowsing: false,
+      receivedAtMs: capturedAtMs,
+      expiresAtMs: capturedAtMs + HISTORY_CAPTURE_RECEIPT_TIMEOUT_MS,
+      consumed: true,
+    };
+    await persistSafeObservation(
+      { capturedAtMs, app, window: {}, ...(semanticSummary ? { semanticSummary } : {}) },
+      semanticSummary ? receipt : undefined,
+      generation,
+    );
+    return decision.nextDelayMs;
+  };
+
+  // The loop lives exactly as long as its helper: stopping the recorder retires the helper
+  // and its generation. While a settings change re-activates, it waits instead of sampling.
+  const windowsTick = async (generation: number): Promise<void> => {
+    const helper = windowsHelper;
+    if (!helper || generation !== historyHelperGeneration) return;
+    let delayMs = 1_000;
+    if (windowsRecording(generation)) {
+      try {
+        delayMs = await sampleWindowsActivity(helper, generation);
+      } catch {
+        delayMs = windowsCadence.recordFailure();
+      }
+    }
+    if (windowsHelper === helper && generation === historyHelperGeneration) {
+      scheduleWindowsTick(generation, delayMs);
+    }
+  };
+
   const stopHistoryHelper = (): void => {
     captureReceipts.clear();
     historyHelperGeneration += 1;
     semanticSummaryCapabilityAvailable = false;
     void summaryJobEngine.stop();
-    if (windowsHistoryPollTimer) {
-      clearInterval(windowsHistoryPollTimer);
-      windowsHistoryPollTimer = null;
+    if (windowsTimer) {
+      clearTimeout(windowsTimer);
+      windowsTimer = null;
     }
-    windowsCollectorStopped = Promise.resolve(stopWindowsCollector?.());
-    stopWindowsCollector = undefined;
+    windowsCollectorStopped = windowsHelper ? windowsHelper.stop() : Promise.resolve();
+    windowsHelper = null;
     if (!historyHelper) return;
     historyHelper.kill();
     historyHelper = null;
@@ -1340,32 +1476,10 @@ export function makeComputerHistoryService(
 
   const startHistoryHelper = (): void => {
     if (windows) {
-      // When the desktop exposes the CUA host, the host's `list_windows` feed is
-      // the authoritative Windows adapter. Do not also start the PowerShell
-      // collector: both feeds would race and record whichever foreground app
-      // happens to win the next poll. A caller-supplied adapter remains useful
-      // for deterministic tests and explicitly takes precedence. Never fall
-      // through to the macOS helper: desktop passes its path on Windows too.
-      if (!supported || (cuaEndpoint && options.windowsAdapter === undefined)) return;
-      if (stopWindowsCollector) return;
-      const generation = ++historyHelperGeneration;
-      privacyDecisionEnforced = true;
-      const start = options.windowsAdapter?.start ?? startWindowsHistoryCollector;
-      stopWindowsCollector = start(
-        (sample) => {
-          if (historyHelperGeneration === generation)
-            void persistSafeObservation(sample, undefined, generation);
-        },
-        () => {
-          if (historyHelperGeneration !== generation) return;
-          stopWindowsCollector = undefined;
-          if (!enabled || recorderState === "paused") return;
-          recorderState = "stopped";
-          activationState = "failed";
-          lastError = "Computer History helper stopped unexpectedly.";
-          void persistRuntimeState();
-        },
-      );
+      // Windows has its own helper; never fall through to the macOS helper, whose
+      // path desktop passes on Windows too.
+      if (!supported || windowsHelper) return;
+      startWindowsHelper(++historyHelperGeneration);
       return;
     }
     if (!options.helperPath || historyHelper || !supported) return;
@@ -1929,73 +2043,6 @@ export function makeComputerHistoryService(
     }
   };
 
-  let lastWindowsHistoryKey: string | null = null;
-  let lastWindowsHistoryAt = 0;
-  const pollWindowsHistory = async (): Promise<void> => {
-    if (
-      platform !== "win32" ||
-      !cuaEndpoint ||
-      !enabled ||
-      recorderState !== "running" ||
-      windowsHistoryPollInFlight
-    )
-      return;
-    windowsHistoryPollInFlight = true;
-    try {
-      const request = options.cuaRequest ?? cuaRequest;
-      const reply = await request<CuaReply>(
-        cuaEndpoint,
-        {
-          method: "call",
-          name: "list_windows",
-          args: {},
-          ...(cuaCapability ? { capability: cuaCapability } : {}),
-        },
-        { timeoutMs: 5_000 },
-      );
-      if (!reply.ok || reply.result?.isError) return;
-      const rows = reply.result?.structuredContent?.windows;
-      if (!Array.isArray(rows)) return;
-      const row = selectWindowsForegroundRow(rows);
-      if (!row) return;
-      const name = protocolString(
-        row.app_name ?? row.appName,
-        COMPUTER_HISTORY_MAX_APPLICATION_NAME_LENGTH,
-      );
-      // The Windows driver names apps by executable and has no bundle id; the executable name is
-      // the stable identity there.
-      const bundleIdentifier = protocolString(
-        row.bundle_id ?? row.bundleIdentifier ?? name?.toLowerCase(),
-        COMPUTER_HISTORY_MAX_BUNDLE_IDENTIFIER_LENGTH,
-      );
-      if (
-        !bundleIdentifier ||
-        !name ||
-        isWebBrowserBundle(bundleIdentifier) ||
-        WINDOWS_BROWSER_EXECUTABLES.has(bundleIdentifier.toLowerCase())
-      )
-        return;
-      const key = `${bundleIdentifier}\u0000${name}`;
-      const capturedAtMs = now();
-      if (key === lastWindowsHistoryKey && capturedAtMs - lastWindowsHistoryAt < 30_000) return;
-      lastWindowsHistoryKey = key;
-      lastWindowsHistoryAt = capturedAtMs;
-      cacheApplication({ bundleIdentifier, name });
-      await persistSafeObservation({ capturedAtMs, app: { bundleIdentifier, name }, window: {} });
-    } catch {
-      // A disconnected/locked desktop is a normal pause for a best-effort timeline poll.
-    } finally {
-      windowsHistoryPollInFlight = false;
-    }
-  };
-
-  const startWindowsHistoryPoller = (): void => {
-    if (platform !== "win32" || !cuaEndpoint || windowsHistoryPollTimer) return;
-    windowsHistoryPollTimer = setInterval(() => void pollWindowsHistory(), 5_000);
-    windowsHistoryPollTimer.unref?.();
-    void pollWindowsHistory();
-  };
-
   const recordHelperObservation = async (
     observation: ComputerHistoryObservation,
     receipt: HistoryCaptureReceipt,
@@ -2194,7 +2241,7 @@ export function makeComputerHistoryService(
       });
     },
     revealInFinder: async (input: ComputerHistoryRevealInFinderInput) => {
-      if (process.platform !== "darwin") return { opened: false };
+      if (process.platform !== "darwin" && process.platform !== "win32") return { opened: false };
       return runStoreOperation(async () => {
         const baseProjection = projectHistory();
         const resourcePaths = await syncHistoryResources();
@@ -2206,10 +2253,7 @@ export function makeComputerHistoryService(
         const path = resourcePaths.get(resource.entryId);
         const recursivePath = validatedRecursiveResources.get(resource.entryId)?.path;
         const jobPath = recursivePath
-          ? resolveComputerHistorySummaryJobResourcePath(
-              options.rootDir,
-              recursivePath.split("/").pop() ?? "",
-            )
+          ? resolveComputerHistorySummaryJobResourcePath(options.rootDir, basename(recursivePath))
           : null;
         const exactPath =
           jobPath === path
@@ -2221,6 +2265,19 @@ export function makeComputerHistoryService(
         try {
           if (options.revealInFinder) {
             await options.revealInFinder(exactPath);
+          } else if (process.platform === "win32") {
+            // Explorer exits non-zero even when it opened the window; only a spawn failure counts.
+            await new Promise<void>((resolve, reject) => {
+              const child = spawn("explorer.exe", [`/select,${exactPath}`], {
+                stdio: "ignore",
+                detached: true,
+              });
+              child.once("error", reject);
+              child.once("spawn", () => {
+                child.unref();
+                resolve();
+              });
+            });
           } else {
             await execFile("/usr/bin/open", ["-R", exactPath], { maxBuffer: 16 * 1024 });
           }

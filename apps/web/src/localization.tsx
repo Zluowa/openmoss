@@ -3560,8 +3560,10 @@ const EN_TRANSLATIONS = {
   "settings.history.error.newTask": "Unable to open a new task.",
   "settings.history.unavailable":
     "Computer History requires a supported Windows or macOS desktop helper.",
+  "settings.history.windowsActivity":
+    'Windows reads the window in front with Windows OCR on this computer and keeps only a short activity summary, such as "Writing code". Screenshots, screen text, window titles, browsers, password fields and meetings are never stored. History is encrypted on this computer; you can pause or clear it at any time.',
   "settings.history.windowsMetadata":
-    "Windows records application names only. Browser activity, window titles, screenshots and audio are excluded. History is encrypted on this computer; you can pause or clear it at any time.",
+    "Windows OCR is not installed, so Windows records application names only. Browser activity, window titles, screenshots and audio are excluded. History is encrypted on this computer; you can pause or clear it at any time.",
   "settings.history.state.off": "Off",
   "settings.history.state.on": "On",
   "settings.history.state.paused": "Paused",
@@ -3724,6 +3726,8 @@ const EN_TRANSLATIONS = {
   "settings.history.excludeApp": "Exclude app",
   "settings.history.revealFinder": "Reveal in Finder",
   "settings.history.revealFinderFor": "Reveal {title} in Finder",
+  "settings.history.revealExplorer": "Show in File Explorer",
+  "settings.history.revealExplorerFor": "Show {title} in File Explorer",
   "settings.history.deleteInterval": "Delete this interval",
   "settings.history.deleteConfirm": "Delete",
   "settings.history.removeRule": "Remove {value}",
@@ -8366,8 +8370,10 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.error.appPolicy": "无法更新应用的电脑历史记录权限",
   "settings.history.error.newTask": "无法打开新任务。",
   "settings.history.unavailable": "电脑历史需要 Windows 或 macOS 桌面助手。",
+  "settings.history.windowsActivity":
+    "Windows 会在本机用系统自带的文字识别读取最前面的窗口，只保留一句活动摘要，例如“写代码”。截图、屏幕文字、窗口标题、浏览器、密码输入框和会议画面都不会保存。历史加密保存在这台电脑上，可随时暂停或清除。",
   "settings.history.windowsMetadata":
-    "Windows 仅记录正在使用的应用名称，不记录浏览器活动、窗口标题、截图或音频。历史加密保存在这台电脑上，可随时暂停或清除。",
+    "这台电脑没有安装 Windows 文字识别，所以只记录正在使用的应用名称，不记录浏览器活动、窗口标题、截图或音频。历史加密保存在这台电脑上，可随时暂停或清除。",
   "settings.history.state.off": "已关闭",
   "settings.history.state.on": "已开启",
   "settings.history.state.paused": "已暂停",
@@ -8514,6 +8520,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.excludeApp": "排除应用",
   "settings.history.revealFinder": "在 Finder 中显示",
   "settings.history.revealFinderFor": "在 Finder 中显示 {title}",
+  "settings.history.revealExplorer": "在文件资源管理器中显示",
+  "settings.history.revealExplorerFor": "在文件资源管理器中显示 {title}",
   "settings.history.deleteInterval": "删除此时间段",
   "settings.history.deleteConfirm": "删除",
   "settings.history.removeRule": "移除 {value}",

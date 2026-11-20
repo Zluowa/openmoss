@@ -664,6 +664,13 @@ import {
   StatsGetUsageAnalyticsInput,
   StatsGetUsageAnalyticsResult,
 } from "./stats";
+import {
+  MossProfileCheckHandleInput,
+  MossProfileCheckHandleResult,
+  MossProfileState,
+  MossProfileUpdateInput,
+  MossProfileUploadAvatarInput,
+} from "./profile";
 import { WS_METHODS } from "./ws";
 import {
   WS_BOOTSTRAP_METHOD,
@@ -2076,6 +2083,30 @@ export const WsStatsGetProfileStatsRpc = Rpc.make(WS_METHODS.statsGetProfileStat
 export const WsStatsGetProfileTokenStatsRpc = Rpc.make(WS_METHODS.statsGetProfileTokenStats, {
   payload: StatsGetProfileTokenStatsInput,
   success: StatsGetProfileTokenStatsResult,
+  error: WsRpcError,
+});
+
+export const WsProfileGetRpc = Rpc.make(WS_METHODS.profileGet, {
+  payload: Schema.Struct({}),
+  success: MossProfileState,
+  error: WsRpcError,
+});
+
+export const WsProfileUpdateRpc = Rpc.make(WS_METHODS.profileUpdate, {
+  payload: MossProfileUpdateInput,
+  success: MossProfileState,
+  error: WsRpcError,
+});
+
+export const WsProfileCheckHandleRpc = Rpc.make(WS_METHODS.profileCheckHandle, {
+  payload: MossProfileCheckHandleInput,
+  success: MossProfileCheckHandleResult,
+  error: WsRpcError,
+});
+
+export const WsProfileUploadAvatarRpc = Rpc.make(WS_METHODS.profileUploadAvatar, {
+  payload: MossProfileUploadAvatarInput,
+  success: MossProfileState,
   error: WsRpcError,
 });
 
@@ -3534,6 +3565,10 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsStatsGetProfileTokenStatsRpc,
   WsStatsGetRecapRpc,
   WsStatsGetUsageAnalyticsRpc,
+  WsProfileGetRpc,
+  WsProfileUpdateRpc,
+  WsProfileCheckHandleRpc,
+  WsProfileUploadAvatarRpc,
   WsServerGetDiagnosticsRpc,
   WsServerPrepareDevsReportRpc,
   WsServerSubmitDevsReportRpc,

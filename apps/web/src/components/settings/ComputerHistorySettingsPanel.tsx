@@ -960,8 +960,13 @@ export function ComputerHistorySettingsPanel() {
 
   const supported = state?.supported === true;
   const enabled = state?.enabled === true;
-  const windowsMetadataOnly =
-    state?.captureCapability?.detail.startsWith("Windows records") === true;
+  const captureDetail = state?.captureCapability?.detail ?? "";
+  const windowsHistory = captureDetail.startsWith("Windows ");
+  const windowsNoticeKey = captureDetail.startsWith("Windows samples")
+    ? "settings.history.windowsActivity"
+    : captureDetail.startsWith("Windows records")
+      ? "settings.history.windowsMetadata"
+      : null;
   const timelineGroups = useMemo(() => timelineDayGroups(entries), [entries]);
   const permissionApplications = useMemo(() => {
     const byId = new Map<string, ComputerHistoryApp>();
@@ -1887,9 +1892,14 @@ export function ComputerHistorySettingsPanel() {
                                           <button
                                             type="button"
                                             className="inline-flex size-5.5 shrink-0 items-center justify-center rounded-control-xs text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-                                            aria-label={format("settings.history.revealFinderFor", {
-                                              title: entry.title,
-                                            })}
+                                            aria-label={format(
+                                              windowsHistory
+                                                ? "settings.history.revealExplorerFor"
+                                                : "settings.history.revealFinderFor",
+                                              {
+                                                title: entry.title,
+                                              },
+                                            )}
                                             onClick={(event) => {
                                               event.currentTarget.blur();
                                               const api = ensureNativeApi().computerHistory;
@@ -1912,7 +1922,11 @@ export function ComputerHistorySettingsPanel() {
                                           COMPUTER_HISTORY_TOOLTIP_VIEWPORT_CLASS_NAME
                                         }
                                       >
-                                        {t("settings.history.revealFinder")}
+                                        {t(
+                                          windowsHistory
+                                            ? "settings.history.revealExplorer"
+                                            : "settings.history.revealFinder",
+                                        )}
                                       </TooltipPopup>
                                     </Tooltip>
                                     <Tooltip disabled={confirming}>
@@ -2159,9 +2173,9 @@ export function ComputerHistorySettingsPanel() {
   if (!supported || !enabled) {
     return (
       <>
-        {windowsMetadataOnly ? (
+        {windowsNoticeKey ? (
           <p className="mb-4 text-ui text-muted-foreground" role="status">
-            {t("settings.history.windowsMetadata")}
+            {t(windowsNoticeKey)}
           </p>
         ) : null}
         {!supported ? (
@@ -2232,9 +2246,9 @@ export function ComputerHistorySettingsPanel() {
 
   return (
     <div className="flex flex-col gap-8" data-testid="computer-history-settings">
-      {windowsMetadataOnly ? (
+      {windowsNoticeKey ? (
         <p className="text-ui text-muted-foreground" role="status">
-          {t("settings.history.windowsMetadata")}
+          {t(windowsNoticeKey)}
         </p>
       ) : null}
       <div
