@@ -358,13 +358,13 @@ export class DevsReports {
       }
       let description: string;
       let invocationEngine: DevsReportState["engine"] | undefined;
-      if (thread) {
+      if (thread && !input.verbatim) {
         const invocation = parseDevsInvocation(input.text);
         if (!invocation?.description) throw new Error("Describe the problem after @devs.");
         description = invocation.description;
         invocationEngine = invocation.engine;
       } else {
-        // App feedback and agent notes are not chat `@devs <engine>` commands:
+        // App feedback, agent notes and agent drafts are not chat `@devs <engine>` commands:
         // keep a leading "Claude" or "Codex" inside the problem description intact.
         description = input.text.replace(/^\s*@devs(?:$|[\s:：,，]+)/i, "").trim();
         if (!description) throw new Error("Describe the problem after @devs.");

@@ -4,7 +4,11 @@
 // Exports: deriveReadableToolTitle, deriveReadableCommandDisplay, deriveFriendlyCommandTarget, command icon classifiers, deriveInlineCommandCall, deriveLiteralCommand, deriveCommandReadTargets, normalizeCompactToolLabel, isGenericToolTitle, extractWebFetchUrl
 // Depends on: @moss/contracts tool lifecycle item types
 
-import { AGENT_FEEDBACK_TOOL_NAME, type ToolLifecycleItemType } from "@moss/contracts";
+import {
+  AGENT_FEEDBACK_TOOL_NAME,
+  DEVS_REPORT_DRAFT_TOOL_NAME,
+  type ToolLifecycleItemType,
+} from "@moss/contracts";
 import { BROWSER_TOOL_TITLES } from "@moss/shared/browserAutomationPresentation";
 import {
   isMossAppsServer,
@@ -679,6 +683,10 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_media_get: presentMossTool("checking a generation", "checked a generation"),
   moss_read_widget_context: presentMossTool("reading widget state", "read widget state"),
   moss_report_friction: presentMossTool("recording tool feedback", "recorded tool feedback"),
+  moss_draft_devs_report: presentMossTool(
+    "drafting a report for the Moss developers",
+    "drafted a report for the Moss developers",
+  ),
   html_render: {
     running: "Rendering an HTML page",
     completed: "Rendered an HTML page",
@@ -772,6 +780,11 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_media_get: ["正在查询生成进度", "已查询生成进度", "无法查询生成进度"],
   moss_read_widget_context: ["正在读取小组件状态", "已读取小组件状态", "无法读取小组件状态"],
   moss_report_friction: ["正在记录工具反馈", "已记录工具反馈", "无法记录工具反馈"],
+  moss_draft_devs_report: [
+    "正在起草给 Moss 开发者的问题报告",
+    "已起草给 Moss 开发者的问题报告",
+    "无法起草给 Moss 开发者的问题报告",
+  ],
 };
 
 const ZH_CN_MOSS_TOOL_HEADINGS: Readonly<Record<string, string>> = Object.fromEntries(
@@ -1025,6 +1038,12 @@ export interface MossMcpToolTitleInput {
 export function isAgentFeedbackToolName(name: string | null | undefined): boolean {
   if (!name) return false;
   return name === AGENT_FEEDBACK_TOOL_NAME || name.endsWith(`__${AGENT_FEEDBACK_TOOL_NAME}`);
+}
+
+/** True for `moss_draft_devs_report` however a provider prefixes MCP names. */
+export function isDevsReportDraftToolName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  return name === DEVS_REPORT_DRAFT_TOOL_NAME || name.endsWith(`__${DEVS_REPORT_DRAFT_TOOL_NAME}`);
 }
 
 const ZH_CN_TOOL_AREA_FALLBACKS: ReadonlyArray<readonly [RegExp, string]> = [

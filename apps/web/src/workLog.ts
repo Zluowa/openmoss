@@ -33,6 +33,8 @@ import {
   SECRET_REQUEST_ACTIVITY_KIND,
   SECRET_REQUEST_RESOLVED_ACTIVITY_KIND,
   SecretRequestActivityPayload,
+  DEVS_REPORT_DRAFT_ACTIVITY_KIND,
+  DevsReportDraftActivityPayload,
 } from "@moss/contracts";
 import { Option, Schema } from "effect";
 import { INLINE_VISUALS_ON } from "./betaFeatures";
@@ -244,6 +246,8 @@ export interface WorkLogEntry {
   // An agent's private secret request. A pending one (no `outcome`) renders the
   // masked input card; a settled one is a one-line result.
   secretRequest?: SecretRequestActivityPayload;
+  // A report an agent drafted for the Moss developers; the person reviews and sends it.
+  devsReportDraft?: DevsReportDraftActivityPayload;
   providerContextLifecycle?: ProviderContextLifecycleInfo;
   providerHandoff?: ProviderHandoffInfo;
   /** Durable terminal feedback; session readiness never clears a failed turn. */
@@ -1529,6 +1533,10 @@ function shouldKeepActivityForWorkLog(
   if (activity.kind === SECRET_REQUEST_ACTIVITY_KIND) {
     return true;
   }
+  // A drafted report waits on the person, whichever turn wrote it.
+  if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
+    return true;
+  }
   // A slow start comes before its turn has an id; it says why "Thinking" is taking long.
   if (activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND) {
     return true;
@@ -2636,6 +2644,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   ) {
     const secretRequest = Option.getOrUndefined(decodeSecretRequestPayload(activity.payload));
     if (secretRequest) entry.secretRequest = secretRequest;
+  }
+  if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
+    const devsReportDraft = Option.getOrUndefined(decodeDevsReportDraftPayload(activity.payload));
+    if (devsReportDraft) entry.devsReportDraft = devsReportDraft;
   }
   if (activity.kind === PROVIDER_CONTEXT_LIFECYCLE_ACTIVITY_KIND) {
     const providerContextLifecycle = extractProviderContextLifecycleInfo(payload);
@@ -6308,3 +6320,4 @@ function asTimelineToolRequestKind(
 
 const decodeInlineVisualPayload = Schema.decodeUnknownOption(InlineVisualActivityPayload);
 const decodeSecretRequestPayload = Schema.decodeUnknownOption(SecretRequestActivityPayload);
+const decodeDevsReportDraftPayload = Schema.decodeUnknownOption(DevsReportDraftActivityPayload);

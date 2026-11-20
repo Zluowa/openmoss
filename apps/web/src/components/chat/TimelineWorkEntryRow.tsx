@@ -83,6 +83,7 @@ import { InlineSubagentActivity } from "./InlineSubagentActivity";
 import type { InlineSubagentStatus } from "./inlineSubagentActivity.logic";
 import { ConnectedComputerSetupRequiredCard } from "./ComputerSetupRequiredCard";
 import { SecretRequestCard } from "./SecretRequestCard";
+import { DevsReportDraftCard } from "./DevsReportDraftCard";
 import { ComputerControlDeniedCard } from "./ComputerControlDeniedCard";
 import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
@@ -1040,6 +1041,20 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       <div className={cn(compact ? "py-0.5" : "py-1")}>
         <SecretRequestCard
           request={workEntry.secretRequest}
+          threadId={threadId ? ThreadId.makeUnsafe(threadId) : undefined}
+          textFontSizePx={textFontSizePx}
+          metaFontSizePx={chatMetaFontSizePx}
+        />
+      </div>
+    );
+  }
+
+  // A report the agent drafted for the Moss developers; the person reviews and sends it.
+  if (workEntry.devsReportDraft) {
+    return (
+      <div className={cn(compact ? "py-0.5" : "py-1")}>
+        <DevsReportDraftCard
+          draft={workEntry.devsReportDraft}
           threadId={threadId ? ThreadId.makeUnsafe(threadId) : undefined}
           textFontSizePx={textFontSizePx}
           metaFontSizePx={chatMetaFontSizePx}

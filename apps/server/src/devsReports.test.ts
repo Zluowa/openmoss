@@ -340,6 +340,26 @@ describe("durable developer reporting", () => {
       ),
     ).rejects.toThrow("Describe the problem after @devs");
   });
+  it("keeps an agent draft's words as written: a leading engine name is part of the problem", async () => {
+    const client = new DevsReports(await temporary(), vi.fn<DevsFetch>(), PUBLIC_QUEUE_ENV);
+    cleanup.push(() => client.close());
+    const threadId = ThreadId.makeUnsafe("chat");
+    const text = "@devs Codex 回复到一半就停了\n\n连续三次都在同一处停下。";
+    const drafted = await client.prepare(
+      { id: randomUUID(), threadId, text, verbatim: true },
+      thread,
+      { phoneAccount: false },
+    );
+    expect(drafted.description).toBe("Codex 回复到一半就停了\n\n连续三次都在同一处停下。");
+    // The thread's curated facts still go with it; the conversation does not.
+    expect(drafted.context).toContain("Provider: codex");
+    expect(drafted.context).not.toContain("PRIVATE CONVERSATION");
+    // Typed in the composer, the same words still pick the engine.
+    const typed = await client.prepare({ id: randomUUID(), threadId, text }, thread, {
+      phoneAccount: false,
+    });
+    expect(typed.description).toBe("回复到一半就停了\n\n连续三次都在同一处停下。");
+  });
   it("follows the error-report switch: nothing is prepared or delivered while it is off", async () => {
     let consent = false;
     const fetcher = vi.fn<DevsFetch>(async (_url, options) => {

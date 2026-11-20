@@ -7221,6 +7221,44 @@ describe("secret request cards", () => {
   });
 });
 
+describe("developer report drafts", () => {
+  const turnId = TurnId.makeUnsafe("draft-turn");
+  const draftId = `devs-draft:${"d".repeat(32)}`;
+  const drafted = makeActivity({
+    id: draftId,
+    turnId,
+    kind: "devs.report.drafted",
+    tone: "info",
+    summary: "Drafted a report for the Moss developers: 白板一直停在正在加载",
+    payload: { draftId, summary: "白板一直停在正在加载", details: "打开白板后等了两分钟。" },
+  });
+
+  it("shows a drafted report as its card, even outside the visible turns", () => {
+    const entries = deriveWorkLogEntries([drafted], TurnId.makeUnsafe("other-turn"), {
+      visibleTurnIds: new Set([TurnId.makeUnsafe("other-turn")]),
+    });
+    expect(entries.map((entry) => entry.devsReportDraft)).toEqual([
+      { draftId, summary: "白板一直停在正在加载", details: "打开白板后等了两分钟。" },
+    ]);
+  });
+
+  it("draws no card for a payload that is not a draft", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "bad-draft",
+          turnId,
+          kind: "devs.report.drafted",
+          tone: "info",
+          payload: { draftId: "nope", summary: "" },
+        }),
+      ],
+      turnId,
+    );
+    expect(entry?.devsReportDraft).toBeUndefined();
+  });
+});
+
 describe("deriveWorkLogEntries MCP App rows (real-data acceptance)", () => {
   const entryFor = (payload: NonNullable<Parameters<typeof makeActivity>[0]["payload"]>) =>
     deriveWorkLogEntries(
