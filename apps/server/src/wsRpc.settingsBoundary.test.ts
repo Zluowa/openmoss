@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { join } from "node:path";
 import type { ServerSettings, ServerSettingsPatch } from "@moss/contracts";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { ServerConfig } from "./config";
@@ -11,6 +11,7 @@ import {
   type ServerSettingsShape,
 } from "./serverSettings";
 import { serverUpdateSettingsRpcEffect } from "./wsRpc";
+import { bufferLiveUiStream } from "./wsStreamBackpressure";
 
 const nodeLayer = Layer.merge(
   NodeServices.layer,
@@ -47,6 +48,32 @@ function reservation(home: string, enabled: boolean, ownershipNonce = nonce): Se
 }
 
 describe("WebSocket settings reservation boundary", () => {
+  it("delivers a theme saved while the subscribing window receives its initial settings", async () => {
+    const theme = {
+      revision: "first-live-theme",
+      publishedAt: "2026-11-20T00:00:00.000Z",
+      appearance: "dark",
+    } as const;
+    const views = await runWithSettings(
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsService;
+        yield* service.start;
+        return yield* bufferLiveUiStream(service.streamViewsWithSnapshot).pipe(
+          Stream.tap((settings) =>
+            settings.agentTheme === undefined
+              ? service.updateSettings({ agentTheme: theme }).pipe(Effect.asVoid)
+              : Effect.void,
+          ),
+          Stream.take(2),
+          Stream.runCollect,
+          Effect.timeout("5 seconds"),
+        );
+      }),
+    );
+
+    expect(views.map((settings) => settings.agentTheme)).toEqual([undefined, theme]);
+  });
+
   it("cannot reactivate a disabled reservation even with its real nonce, while ordinary edits persist", async () => {
     const result = await runWithSettings(
       Effect.gen(function* () {

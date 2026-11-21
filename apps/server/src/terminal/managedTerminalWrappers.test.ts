@@ -3,7 +3,8 @@
 //          against the caller's `baseEnv`, not this process's, because the wrapper is written for
 //          the terminal that env describes.
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -109,6 +110,59 @@ describeOnPosix("prepareManagedTerminalWrappers", () => {
     expect(env.PATH).toBeUndefined();
     expect(env.MOSS_MANAGED_BIN_DIR).toBe(rootDir);
   });
+
+  // From Synara #2221. Moss's wrappers read T3 Code's variable name while the env set
+  // Moss's, so a terminal's own ZDOTDIR was never followed.
+  it("hands the terminal's own ZDOTDIR to the zsh wrapper, and leaves it unset otherwise", () => {
+    installFakeCli("codex");
+    const withZdotdir = { HOME: dir, ZDOTDIR: path.join(dir, "dots"), PATH: binDir };
+    expect(
+      applyManagedTerminalAgentWrapperEnv(withZdotdir, prepare(withZdotdir)).MOSS_ORIGINAL_ZDOTDIR,
+    ).toBe(path.join(dir, "dots"));
+    const withoutZdotdir = { HOME: dir, PATH: binDir };
+    expect(
+      applyManagedTerminalAgentWrapperEnv(withoutZdotdir, prepare(withoutZdotdir)),
+    ).not.toHaveProperty("MOSS_ORIGINAL_ZDOTDIR");
+  });
+
+  it.skipIf(!existsSync("/bin/zsh"))(
+    "follows ZDOTDIR changes across startup and keeps the CLI wrapper after PATH changes",
+    () => {
+      installFakeCli("codex");
+      const home = path.join(dir, "home");
+      const profileDir = path.join(home, "profile dir");
+      const rcDir = path.join(home, "rc dir");
+      mkdirSync(profileDir, { recursive: true });
+      mkdirSync(rcDir, { recursive: true });
+      writeFileSync(
+        path.join(home, ".zshenv"),
+        '[[ -v ZDOTDIR ]] || export ZDOTDIR="$HOME/profile dir"\n',
+      );
+      writeFileSync(path.join(profileDir, ".zprofile"), 'export ZDOTDIR="$HOME/rc dir"\n');
+      writeFileSync(
+        path.join(rcDir, ".zshrc"),
+        "export ZSHRC_PROBE=loaded\nexport PATH=/usr/bin:/bin\n",
+      );
+      writeFileSync(path.join(rcDir, ".zlogin"), "export ZLOGIN_PROBE=loaded\n");
+
+      const baseEnv = { HOME: home, PATH: `${binDir}:/usr/bin:/bin` };
+      const env = applyManagedTerminalAgentWrapperEnv(baseEnv, prepare(baseEnv));
+      const shell = spawnSync(
+        "/bin/zsh",
+        [
+          "-lic",
+          'print -r -- "${ZSHRC_PROBE:-missing}" "${ZLOGIN_PROBE:-missing}" "$ZDOTDIR"; whence -p codex',
+        ],
+        { env, encoding: "utf8", timeout: 5000 },
+      );
+
+      expect(shell.status, shell.stderr).toBe(0);
+      expect(shell.stdout.trim().split("\n")).toEqual([
+        `loaded loaded ${rcDir}`,
+        path.join(rootDir, "codex"),
+      ]);
+    },
+  );
 
   it("writes provider profiles even when Codex and Claude are not installed", () => {
     const targetPath = installFakeCli("opencode");

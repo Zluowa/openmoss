@@ -13,6 +13,33 @@ import { prepareDevsReportAttachments, type DevsAttachmentSource } from "./devsR
 export const DEVS_REPORT_CHANGED = "moss:devs-report-changed";
 const inFlight = new Set<string>();
 
+type DevsReportCopy = (
+  key:
+    | "devs.sent"
+    | "devs.sentDetail"
+    | "devs.sendFailed"
+    | "devs.sendFailedDetail"
+    | "devs.consentRequired",
+) => string;
+
+/** A report left the confirmation: the chat's report status refreshes and a toast says so. */
+export function announceDevsReportSent(t: DevsReportCopy) {
+  window.dispatchEvent(new Event(DEVS_REPORT_CHANGED));
+  toastManager.add({ type: "success", title: t("devs.sent"), description: t("devs.sentDetail") });
+}
+
+/** One plain sentence for a report that was not queued; consent gets its own words. */
+export function announceDevsReportFailure(t: DevsReportCopy, error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  toastManager.add({
+    type: "error",
+    title: t("devs.sendFailed"),
+    description: message.includes(DEVS_CONSENT_REQUIRED_MESSAGE)
+      ? t("devs.consentRequired")
+      : message || t("devs.sendFailedDetail"),
+  });
+}
+
 /**
  * A message that starts with `@devs` bypasses a broken/busy chat provider and never becomes a
  * provider turn. The server builds the exact report, the user confirms it, and only then is
@@ -92,18 +119,10 @@ export async function handleDevsReportSend(input: {
     await server.submitDevsReport(request);
     input.clear(preview.attachments?.length ? prepared.sentIds : []);
     input.requestRef.current = null;
-    window.dispatchEvent(new Event(DEVS_REPORT_CHANGED));
-    toastManager.add({ type: "success", title: t("devs.sent"), description: t("devs.sentDetail") });
+    announceDevsReportSent(t);
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    toastManager.add({
-      type: "error",
-      title: t("devs.sendFailed"),
-      description: message.includes(DEVS_CONSENT_REQUIRED_MESSAGE)
-        ? t("devs.consentRequired")
-        : message || t("devs.sendFailedDetail"),
-    });
+    announceDevsReportFailure(t, error);
     return false;
   } finally {
     inFlight.delete(input.threadId);

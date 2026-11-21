@@ -74,6 +74,14 @@ function useMossAccountGatewayInputs() {
   };
 }
 
+/** Dictation needs a signed-in account, not a particular chat model or model entitlement.
+ * The server still validates the active credential when it receives the audio. */
+export function useMossSignInState(): "signed-in" | "checking" | "signed-out" {
+  const { accounts, loading } = useMossAccountGatewayInputs();
+  if (accounts.some((account) => account?.authenticated)) return "signed-in";
+  return loading ? "checking" : "signed-out";
+}
+
 export function useMossGatewayUnreachable(): boolean {
   const { accounts } = useMossAccountGatewayInputs();
   return accounts.some(isMossGatewayUnreachableState);

@@ -1030,7 +1030,7 @@ const makeAutomationRepository = Effect.gen(function* () {
             lease_expires_at = NULL,
             claimed_by = NULL
         WHERE run_id = ${id}
-          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted', 'skipped')
         RETURNING run_id AS "id"
       `,
   });
@@ -1067,7 +1067,7 @@ const makeAutomationRepository = Effect.gen(function* () {
             lease_expires_at = NULL,
             claimed_by = NULL
         WHERE run_id = ${id}
-          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted', 'skipped')
         RETURNING run_id AS "id"
       `,
   });
@@ -1139,7 +1139,7 @@ const makeAutomationRepository = Effect.gen(function* () {
             lease_expires_at = NULL,
             claimed_by = NULL
         WHERE run_id = ${id}
-          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+          AND status NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted', 'skipped')
       `,
   });
 

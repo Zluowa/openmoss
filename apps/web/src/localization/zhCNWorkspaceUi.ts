@@ -600,6 +600,10 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
     "Moss 正在恢复账号会话，请稍后重试。",
   "Moss could not verify your account session. Refresh account status and try again.":
     "暂时无法验证 Moss 账号会话，请刷新账号状态后重试。",
+  "Checking your Moss account. Try dictation again in a moment.":
+    "正在检查 Moss 账号，请稍后再试听写。",
+  "Sign in to Moss or connect a personal account that supports dictation.":
+    "请登录 Moss，或连接支持听写的个人账号。",
   "Answer plan questions before recording a voice note.": "录制语音笔记前，请先回答计划问题。",
   "Could not start recording": "无法开始录音",
   "Voice transcription is unavailable right now.": "语音转写当前不可用。",

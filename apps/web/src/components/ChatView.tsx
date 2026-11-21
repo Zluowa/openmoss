@@ -75,6 +75,7 @@ import {
   useDesktopTopBarWindowControlsGutterClassName,
 } from "~/hooks/useDesktopTopBarGutter";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { useComputerPreviewBudgetPx } from "~/hooks/useComputerPreviewBudgetPx";
 import { useIsMobile } from "~/hooks/useMediaQuery";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { useRepoDiffTotals } from "~/hooks/useRepoDiffTotals";
@@ -576,10 +577,6 @@ import { getComposerTraitSelection } from "./chat/composerTraits";
 import { deriveFastModeNotice } from "~/lib/fastModeState";
 import { AmbientRailSlot } from "./chat/AmbientRailSlot";
 import { ComputerPreviewPopover } from "./chat/ComputerPreviewPopover";
-import {
-  computerPreviewBudgetPx,
-  computerPreviewCardCaps,
-} from "./chat/ComputerPreviewPopover.logic";
 import {
   selectThreadComputerPreviewLayout,
   selectThreadComputerPreviewSession,
@@ -6752,20 +6749,9 @@ export default function ChatView({
   }, [setDismissedRateLimitBannerKey, activeRateLimitBannerDismissalKey]);
   const previewSession = useComputerPreviewStore(selectThreadComputerPreviewSession(threadId));
   const previewLayout = useComputerPreviewStore(selectThreadComputerPreviewLayout(threadId));
-  const mainContentRef = useRef<HTMLDivElement | null>(null);
-  const [mainContentWidth, setMainContentWidth] = useState(1600);
-  useEffect(() => {
-    const element = mainContentRef.current;
-    if (!element) return;
-    const update = () => {
-      const width = element.clientWidth;
-      setMainContentWidth((previous) => (previous === width ? previous : width));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+  // Measured by useComputerPreviewBudgetPx below; held as state so the hook attaches whenever
+  // the column mounts.
+  const [mainContentElement, setMainContentElement] = useState<HTMLDivElement | null>(null);
   const composerEffortOptionId = composerTraitSelection.primarySelectDescriptor?.id ?? "effort";
   const applyComputerControlEffortHint = useCallback(() => {
     setComposerDraftProviderModelOptions(
@@ -7481,13 +7467,12 @@ export default function ChatView({
   const environmentInsetPx = environmentAppliesContentInset
     ? ENVIRONMENT_DOCKED_CONTENT_INSET_PX
     : 0;
-  const previewCaps = computerPreviewCardCaps(
-    settings.computerPreviewSize === "large" ? "large" : "compact",
-  );
-  const previewBudgetPx = computerPreviewBudgetPx({
-    mainContentWidthPx: mainContentWidth,
-    environmentInsetPx: environmentInsetPx,
-    caps: previewCaps,
+  // Only the preview's budget follows the column width, so a sidebar slide or window resize
+  // does not re-render the chat on every frame (upstream PR #2231).
+  const previewBudgetPx = useComputerPreviewBudgetPx({
+    column: mainContentElement,
+    environmentInsetPx,
+    size: settings.computerPreviewSize === "large" ? "large" : "compact",
   });
   const previewReservesInset =
     environmentOverlayVariant === "docked" &&
@@ -8527,7 +8512,10 @@ export default function ChatView({
           />
         ) : null}
         {/* Main content area with optional plan sidebar */}
-        <div ref={mainContentRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div
+          ref={setMainContentElement}
+          className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+        >
           {/* Chat column */}
           {/* 18px end padding shifts the centered 48rem column so the approval
               card's gutters match the Codex frame (about 131 left, 149 right). */}

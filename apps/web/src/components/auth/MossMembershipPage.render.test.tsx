@@ -83,6 +83,21 @@ describe("Moss membership page when plans can't be bought", () => {
     expect(subscribeButton(markup)).toContain('disabled=""');
   });
 
+  it("names WeChat Pay once, without repeating the merchant label on each plan", () => {
+    const markup = renderPage(
+      {
+        plans: [plus, { ...plus, code: "max", displayName: "Max" }],
+        pointPackages: [],
+        paymentMethods: [{ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" }],
+        plansPurchasable: true,
+      },
+      "zh-CN",
+    );
+    expect(markup.match(/微信支付/gu)).toHaveLength(1);
+    expect(markup).toContain("请使用微信支付");
+    expect(markup).not.toContain("提市");
+  });
+
   it("still sells the plan when the catalog offers a rail", () => {
     const markup = renderPage(
       {

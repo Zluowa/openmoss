@@ -133,7 +133,6 @@ function PersonalPlanCard({
   plan,
   basicMonthlyPriceCny,
   current,
-  paymentMethod,
   pending,
   purchasable,
   onSelect,
@@ -141,7 +140,6 @@ function PersonalPlanCard({
   readonly plan: MossPayPlan;
   readonly basicMonthlyPriceCny: number;
   readonly current: boolean;
-  readonly paymentMethod: string | null;
   readonly pending: boolean;
   readonly purchasable: boolean;
   readonly onSelect: () => void;
@@ -198,13 +196,11 @@ function PersonalPlanCard({
       >
         {current ? t("mossPay.membership.currentButton") : t("mossPay.catalog.subscribe")}
       </Button>
-      <p className="mt-2 min-h-4 text-center text-ui-xs text-muted-foreground">
-        {!purchasable
-          ? t("mossPay.membership.notPurchasableShort")
-          : paymentMethod
-            ? format("mossPay.membership.paymentVia", { method: paymentMethod })
-            : t("mossPay.catalog.paymentMethodUnavailable")}
-      </p>
+      {!purchasable && (
+        <p className="mt-2 text-center text-ui-xs text-muted-foreground">
+          {t("mossPay.membership.notPurchasableShort")}
+        </p>
+      )}
       <div className="mt-6 border-t border-border/55 pt-5">
         <p className="mb-4 text-ui font-medium">{t("mossPay.membership.included")}</p>
         <ul className="space-y-4">
@@ -287,7 +283,7 @@ export function MossMembershipPage({
     (!plansPurchasable
       ? null
       : phoneAccountQuery.data?.authenticated
-        ? ({ id: "wechat_pay", displayName: "提市微信支付", kind: "qr" } as const)
+        ? ({ id: "wechat_pay", displayName: "WeChat Pay", kind: "qr" } as const)
         : cloudAccountQuery.data?.authenticated
           ? ({ id: "stripe_checkout", displayName: "Stripe", kind: "hosted" } as const)
           : null);
@@ -411,7 +407,9 @@ export function MossMembershipPage({
             >
               {!plansPurchasable
                 ? t("mossPay.catalog.plansNotPurchasable")
-                : (rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable"))}
+                : rail?.id === "wechat_pay"
+                  ? t("mossPay.membership.wechatInstruction")
+                  : (rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable"))}
             </p>
           )}
 
@@ -443,7 +441,6 @@ export function MossMembershipPage({
                       current={isCurrentMossPlan(quota?.planCode, plan.code)}
                       key={plan.code}
                       onSelect={() => startOrder("plan", plan.code)}
-                      paymentMethod={rail?.displayName ?? null}
                       pending={createOrder.isPending}
                       plan={plan}
                       purchasable={plansPurchasable}
@@ -573,9 +570,6 @@ export function MossMembershipPage({
                     {t("mossPay.membership.pointsLead")}
                   </p>
                 </div>
-                <p className="mt-2 text-ui-sm text-muted-foreground sm:mt-0">
-                  {rail?.displayName ?? t("mossPay.catalog.paymentMethodUnavailable")}
-                </p>
               </div>
               <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {catalog.pointPackages

@@ -45,6 +45,7 @@ import {
   Scope,
   ServiceMap,
   Stream,
+  SubscriptionRef,
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { writeFileStringAtomically } from "./atomicWrite";
@@ -95,6 +96,7 @@ export interface ServerSettingsShape {
   readonly subscribeChanges: Effect.Effect<Stream.Stream<ServerSettings>, never, Scope.Scope>;
   readonly streamChanges: Stream.Stream<ServerSettings>;
   readonly streamViews: Stream.Stream<ServerSettingsView>;
+  readonly streamViewsWithSnapshot: Stream.Stream<ServerSettingsView>;
 }
 
 export interface ServerSettingsSnapshot {
@@ -190,19 +192,21 @@ export class ServerSettingsService extends ServiceMap.Service<
           DEFAULT_SERVER_SETTINGS,
           overrides as ServerSettingsPatch,
         );
-        const currentSettingsRef = yield* Ref.make<ServerSettings>(initialSettings);
+        const currentSettingsRef = yield* SubscriptionRef.make(initialSettings);
         const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
         const revisionRef = yield* Ref.make(0);
         const emitChange = (settings: ServerSettings) =>
           PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
         const projectSettings = (settings: ServerSettings) =>
           resolveTextGenerationProvider(gateBetaOnlyProviders(settings));
-        const getSettings = Ref.get(currentSettingsRef).pipe(Effect.map(projectSettings));
+        const getSettings = SubscriptionRef.get(currentSettingsRef).pipe(
+          Effect.map(projectSettings),
+        );
         const updateSettings = (
           patch: ServerSettingsPatch,
           derivePatch?: (current: ServerSettings) => ServerSettingsPatch,
         ) =>
-          Ref.get(currentSettingsRef).pipe(
+          SubscriptionRef.get(currentSettingsRef).pipe(
             Effect.flatMap((currentSettings) =>
               normalizeSettings(
                 "<memory>",
@@ -210,7 +214,7 @@ export class ServerSettingsService extends ServiceMap.Service<
                 derivePatch?.(projectSettings(currentSettings)) ?? patch,
               ),
             ),
-            Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
+            Effect.tap((nextSettings) => SubscriptionRef.set(currentSettingsRef, nextSettings)),
             Effect.tap(() => Ref.update(revisionRef, (revision) => revision + 1)),
             Effect.tap(emitChange),
             Effect.map(projectSettings),
@@ -252,6 +256,10 @@ export class ServerSettingsService extends ServiceMap.Service<
               Stream.map(toServerSettingsView),
             );
           },
+          streamViewsWithSnapshot: SubscriptionRef.changes(currentSettingsRef).pipe(
+            Stream.map(projectSettings),
+            Stream.map(toServerSettingsView),
+          ),
         } satisfies ServerSettingsShape;
       }),
     );
@@ -781,7 +789,7 @@ const makeServerSettings = Effect.gen(function* () {
   const path = yield* Path.Path;
   const writeSemaphore = yield* Semaphore.make(1);
   const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
-  const settingsRef = yield* Ref.make<ServerSettings>(DEFAULT_SERVER_SETTINGS);
+  const settingsRef = yield* SubscriptionRef.make(DEFAULT_SERVER_SETTINGS);
   const revisionRef = yield* Ref.make(0);
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, ServerSettingsError>();
@@ -1309,7 +1317,7 @@ const makeServerSettings = Effect.gen(function* () {
         });
         markLiveSecrets(persisted.liveSecretNames);
       }
-      yield* Ref.set(settingsRef, loaded.settings);
+      yield* SubscriptionRef.set(settingsRef, loaded.settings);
       yield* Ref.set(revisionRef, loaded.revision);
       if (obsoleteSecretNames) {
         yield* runObsoleteSecretCleanup(obsoleteSecretNames);
@@ -1328,7 +1336,7 @@ const makeServerSettings = Effect.gen(function* () {
 
   const projectSettings = (settings: ServerSettings) =>
     resolveTextGenerationProvider(gateBetaOnlyProviders(settings));
-  const getSettings = Ref.get(settingsRef).pipe(Effect.map(projectSettings));
+  const getSettings = SubscriptionRef.get(settingsRef).pipe(Effect.map(projectSettings));
   const updateSettingsInternal = (
     initialPatch: ServerSettingsPatch,
     derivePatch?: (current: ServerSettings) => ServerSettingsPatch,
@@ -1397,7 +1405,7 @@ const makeServerSettings = Effect.gen(function* () {
           return undefined;
         }
         const { next, nextRevision, obsoleteSecretNames } = value;
-        yield* Ref.set(settingsRef, next);
+        yield* SubscriptionRef.set(settingsRef, next);
         yield* Ref.set(revisionRef, nextRevision);
         yield* emitChange(next);
         yield* runObsoleteSecretCleanup(obsoleteSecretNames);
@@ -1450,6 +1458,12 @@ const makeServerSettings = Effect.gen(function* () {
         Stream.map(toServerSettingsView),
       );
     },
+    // A single subscription supplies both the current settings and new writes. Reading a
+    // snapshot first and subscribing afterwards can lose a theme published in between.
+    streamViewsWithSnapshot: SubscriptionRef.changes(settingsRef).pipe(
+      Stream.map(projectSettings),
+      Stream.map(toServerSettingsView),
+    ),
   } satisfies ServerSettingsShape;
 });
 

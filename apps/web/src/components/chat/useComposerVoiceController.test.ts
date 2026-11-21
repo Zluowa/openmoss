@@ -88,6 +88,10 @@ const nativeApi = vi.hoisted(() => ({
 }));
 
 const toast = vi.hoisted(() => ({ add: vi.fn(), reportIssue: vi.fn() }));
+const mossAccount = vi.hoisted(() => ({ state: "signed-out" }));
+vi.mock("../auth/useMossGatewayUnreachable", () => ({
+  useMossSignInState: () => mossAccount.state,
+}));
 const voiceAvailability = vi.hoisted(() => ({
   canStartVoiceNotes: true,
   showVoiceNotesControl: true,
@@ -185,6 +189,7 @@ describe("useComposerVoiceController", () => {
   };
 
   beforeEach(async () => {
+    mossAccount.state = "signed-out";
     reactHarness.reset();
     recorder.isRecording = true;
     recorder.startRecording.mockReset().mockResolvedValue(undefined);
@@ -221,6 +226,30 @@ describe("useComposerVoiceController", () => {
     expect(recorder.stopRecording).not.toHaveBeenCalled();
     expect(nativeApi.transcribeVoice).not.toHaveBeenCalled();
     expect(options.onTranscriptReady).not.toHaveBeenCalled();
+  });
+
+  it("records and submits on the Moss account even when personal Codex has no voice route", async () => {
+    recorder.isRecording = false;
+    voiceAvailability.canStartVoiceNotes = false;
+    voiceAvailability.showVoiceNotesControl = false;
+    mossAccount.state = "signed-in";
+    const r = render({ selectedProvider: "claudeAgent", activeProviderStatus: null });
+    expect(r.showVoiceNotesControl).toBe(true);
+    await r.startComposerVoiceRecording();
+    expect(recorder.startRecording).toHaveBeenCalledTimes(1);
+    expect(nativeApi.prewarmVoice).not.toHaveBeenCalled();
+    recorder.isRecording = true;
+    expect(await render().submitComposerVoiceRecording()).toBe(true);
+    expect(options.onTranscriptReady).toHaveBeenCalledWith("transcribed once");
+  });
+
+  it("does not start recording without either transcription route", async () => {
+    recorder.isRecording = false;
+    voiceAvailability.canStartVoiceNotes = false;
+    render();
+    await result.startComposerVoiceRecording();
+    expect(recorder.startRecording).not.toHaveBeenCalled();
+    expect(toast.add.mock.calls.at(-1)?.[0].title).toContain("Moss");
   });
 
   it("prewarms persistent voice state after recording starts", async () => {

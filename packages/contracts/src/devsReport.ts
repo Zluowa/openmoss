@@ -34,6 +34,11 @@ export const DevsReportSubmitInput = Schema.Struct({
   id: DevsReportId,
   text: TrimmedNonEmptyString.check(Schema.isMaxLength(5_000)),
   engine: Schema.optional(DevsEngine),
+  /**
+   * The text after `@devs` is the description exactly as written, with no engine word to
+   * read: an agent's draft that starts "Codex …" names the problem, not the engine.
+   */
+  verbatim: Schema.optional(Schema.Boolean),
   /** Sent with prepare only; submit sends exactly what prepare kept for this ID. */
   attachments: Schema.optional(
     Schema.Array(DevsReportAttachmentInput).check(Schema.isMaxLength(8)),
@@ -99,3 +104,22 @@ export const DevsReportListResult = Schema.Struct({
   reports: Schema.Array(DevsReportState),
 });
 export type DevsReportListResult = typeof DevsReportListResult.Type;
+
+/**
+ * `moss_draft_devs_report`: an agent drafts a report about a problem the person met. The
+ * chat shows it as a card; nothing is sent until the person reviews and confirms it.
+ */
+export const DEVS_REPORT_DRAFT_TOOL_NAME = "moss_draft_devs_report";
+export const DEVS_REPORT_DRAFT_ACTIVITY_KIND = "devs.report.drafted";
+export const DEVS_REPORT_DRAFT_SUMMARY_MAX_LENGTH = 200;
+export const DEVS_REPORT_DRAFT_DETAILS_MAX_LENGTH = 3_000;
+export const DevsReportDraftId = Schema.String.check(Schema.isPattern(/^devs-draft:[0-9a-f]{32}$/));
+export type DevsReportDraftId = typeof DevsReportDraftId.Type;
+export const DevsReportDraftActivityPayload = Schema.Struct({
+  draftId: DevsReportDraftId,
+  summary: TrimmedNonEmptyString.check(Schema.isMaxLength(DEVS_REPORT_DRAFT_SUMMARY_MAX_LENGTH)),
+  details: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(DEVS_REPORT_DRAFT_DETAILS_MAX_LENGTH)),
+  ),
+});
+export type DevsReportDraftActivityPayload = typeof DevsReportDraftActivityPayload.Type;
