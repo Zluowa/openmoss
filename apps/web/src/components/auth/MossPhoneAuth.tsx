@@ -12,25 +12,12 @@ import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { useTranslation } from "~/localization";
 import {
   serverMossAccountSessionQueryOptions,
-  serverMossCloudAccountStateQueryOptions,
-  serverMossEnterpriseKeyStateQueryOptions,
-  serverMossLogoutMutationOptions,
   serverMossPhoneLoginMutationOptions,
   synchronizeMossManagedChatReadiness,
 } from "./mossServerReactQuery";
-import {
-  MossAuthLoading,
-  MossAuthShell,
-  MossBackToAppButton,
-  useMossOpaqueSurface,
-} from "./MossAuthShell";
-import { MossCloudAccountPage } from "./MossCloudAuthPages";
-import { MossEnterpriseKeyAccountPage } from "./MossEnterpriseKeyPage";
+import { MossAuthLoading, MossAuthShell } from "./MossAuthShell";
 import { MossGoogleOAuthButton } from "./MossGoogleOAuth";
-import { MossAccessLanesPanel } from "./MossAccessLanesPanel";
 import { mossAccessLaneSummary } from "./mossAccessLanes.logic";
-import { MossPayPanel } from "./MossPayPanel";
-import type { MossAccountView } from "./mossAccountRoutes.logic";
 import {
   normalizeMainlandPhoneInput,
   phoneAuthErrorMessageKey,
@@ -42,7 +29,6 @@ import {
   resolveMossPhoneAuthenticatedSurface,
 } from "./mossPhoneLogin.logic";
 import { MOSS_POST_AUTH_CHAT_SEARCH } from "./mossPostAuthLanding";
-import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 const fieldClassName = "flex min-w-0 flex-col gap-2";
 
@@ -407,122 +393,4 @@ export function MossOtherLoginOptions() {
       </div>
     </div>
   );
-}
-
-export function MossPhoneAccountPage() {
-  useMossOpaqueSurface();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const accountQuery = useQuery(serverMossAccountSessionQueryOptions());
-  const logoutMutation = useMutation(serverMossLogoutMutationOptions({ queryClient }));
-  const session = accountQuery.data?.session;
-
-  return (
-    <main className="min-h-dvh w-full overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-8 sm:py-10">
-      <div className="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-7">
-        <header className="flex min-w-0 items-center justify-between gap-4">
-          <MossBackToAppButton className="-ml-2.5" data-testid="moss-account-back">
-            返回 Moss
-          </MossBackToAppButton>
-          <Link
-            className="text-ui-lg font-medium underline-offset-4 hover:underline"
-            to="/settings"
-          >
-            设置
-          </Link>
-        </header>
-
-        {accountQuery.isPending ? (
-          <MossAuthLoading label="正在加载账号…" />
-        ) : accountQuery.isError ? (
-          <Alert variant="error">
-            <AlertDescription>无法加载手机号账号，请重试。</AlertDescription>
-          </Alert>
-        ) : !session ? (
-          <section className="rounded-card border border-dashed p-5 text-ui-lg text-muted-foreground">
-            当前未登录。{" "}
-            <Link className="font-medium text-foreground hover:underline" to="/login">
-              前往登录
-            </Link>
-          </section>
-        ) : (
-          <>
-            <section aria-labelledby="moss-phone-account-heading">
-              <p className="text-ui-lg font-medium text-muted-foreground">Moss 账号</p>
-              <h1
-                id="moss-phone-account-heading"
-                className="mt-1 text-2xl font-semibold tracking-tight"
-              >
-                {session.user.displayName ?? session.user.phoneNumber}
-              </h1>
-              <p className="mt-2 text-ui-lg text-muted-foreground">
-                {session.user.phoneNumber} · 手机号已验证
-              </p>
-            </section>
-
-            <section className="rounded-card border border-border/70 p-4">
-              <h2 className="text-ui-lg font-medium">国内账号服务</h2>
-              <p className="mt-1 text-ui-lg leading-6 text-muted-foreground">
-                短信验证由提市科技的阿里云服务处理，账号与积分数据独立存储在 Moss 项目中。
-              </p>
-            </section>
-
-            <MossAccessLanesPanel />
-
-            <MossPayPanel />
-            <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-card border p-4">
-              <div className="min-w-0">
-                <h2 className="text-ui-lg font-medium">用量与充值</h2>
-                <p className="mt-1 text-ui-lg text-muted-foreground">
-                  在设置 → 用量里查看额度并充值。
-                </p>
-              </div>
-              <Button onClick={() => openSettingsDialog({ section: "usage" })} size="sm">
-                打开用量
-              </Button>
-            </section>
-
-            <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-t pt-5">
-              <p aria-live="polite" className="text-ui-lg text-muted-foreground" role="status">
-                {logoutMutation.isPending
-                  ? "正在退出…"
-                  : "登录状态已安全保存在本机；除非主动退出或服务端撤销，否则无需再次验证。"}
-              </p>
-              <Button
-                disabled={logoutMutation.isPending}
-                onClick={() =>
-                  logoutMutation.mutate(undefined, {
-                    onSuccess: () => void navigate({ to: "/login", replace: true }),
-                  })
-                }
-                variant="outline"
-              >
-                退出登录
-              </Button>
-            </section>
-          </>
-        )}
-      </div>
-    </main>
-  );
-}
-
-export function MossAccountPage({ view }: { readonly view?: MossAccountView | undefined }) {
-  const phoneQuery = useQuery(serverMossAccountSessionQueryOptions());
-  const cloudQuery = useQuery(serverMossCloudAccountStateQueryOptions());
-  const enterpriseQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
-  if (view === "google") return <MossCloudAccountPage />;
-  if (phoneQuery.isPending || enterpriseQuery.isPending) {
-    return (
-      <MossAuthShell title="Moss 账号">
-        <MossAuthLoading label="正在加载账号…" />
-      </MossAuthShell>
-    );
-  }
-  if (phoneQuery.data?.authenticated) return <MossPhoneAccountPage />;
-  // An enterprise key is a complete sign-in; Google keeps its own page.
-  if (enterpriseQuery.data?.authenticated && !cloudQuery.data?.authenticated) {
-    return <MossEnterpriseKeyAccountPage />;
-  }
-  return <MossCloudAccountPage />;
 }

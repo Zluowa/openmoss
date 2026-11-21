@@ -1,13 +1,9 @@
 import type { MossCloudAccountState, MossCloudGoogleOAuthFlowId } from "@moss/contracts";
 import {
   serverMossCloudAccountStateQueryOptions,
-  serverMossCloudAccountsQueryOptions,
   serverMossCloudExchangeCodeMutationOptions,
   serverMossCloudExchangeGoogleOAuthCodeMutationOptions,
-  serverMossCloudLogoutMutationOptions,
-  serverMossCloudRemoveAccountMutationOptions,
   serverMossCloudRequestPasswordResetMutationOptions,
-  serverMossCloudSelectAccountMutationOptions,
   serverMossCloudSignUpMutationOptions,
   serverMossCloudUpdatePasswordMutationOptions,
 } from "./mossServerReactQuery";
@@ -16,16 +12,9 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
-import { Button, buttonVariants } from "~/components/ui/button";
-import { cn } from "~/lib/utils";
+import { Button } from "~/components/ui/button";
 
-import {
-  MossAuthLoading,
-  MossAuthShell,
-  MossBackToAppButton,
-  useMossOpaqueSurface,
-} from "./MossAuthShell";
-import { MossPayPanel } from "./MossPayPanel";
+import { MossAuthLoading, MossAuthShell } from "./MossAuthShell";
 import {
   linkClassName,
   MossCloudForgotPasswordForm,
@@ -39,11 +28,8 @@ import {
   MOSS_IMMEDIATE_MODEL_SELECTION,
 } from "./activateMossChatSelection";
 import { MossGoogleOAuthButton } from "./MossGoogleOAuth";
-import { MossAccessLanesPanel } from "./MossAccessLanesPanel";
-import { mossAccessLaneSummary } from "./mossAccessLanes.logic";
 import { consumeMossGoogleOAuthPurpose } from "./mossGoogleOAuthPurpose";
 import { MOSS_POST_AUTH_CHAT_SEARCH, prepareMossPostAuthChatLanding } from "./mossPostAuthLanding";
-import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
 function ConfigurationUnavailable() {
   return (
@@ -483,233 +469,5 @@ export function MossCloudResetPasswordPage({ code }: { readonly code?: string | 
     >
       {content}
     </MossAuthShell>
-  );
-}
-
-function formatSessionDate(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-export function MossCloudAccountPage() {
-  useMossOpaqueSurface();
-
-  const queryClient = useQueryClient();
-  const accountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
-  const accountsQuery = useQuery(serverMossCloudAccountsQueryOptions());
-  const selectMutation = useMutation(serverMossCloudSelectAccountMutationOptions({ queryClient }));
-  const removeMutation = useMutation(serverMossCloudRemoveAccountMutationOptions({ queryClient }));
-  const logoutMutation = useMutation(serverMossCloudLogoutMutationOptions({ queryClient }));
-
-  const state = accountQuery.data;
-  const account = state?.account;
-  const accounts = accountsQuery.data?.accounts ?? [];
-  const operationError = selectMutation.error ?? removeMutation.error ?? logoutMutation.error;
-
-  return (
-    <main className="min-h-dvh w-full overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-8 sm:py-10">
-      <div className="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-7">
-        <header className="flex min-w-0 flex-wrap items-center justify-between gap-4">
-          <MossBackToAppButton
-            aria-label="Back to Moss chats"
-            className="-ml-2.5"
-            data-testid="moss-account-back"
-          >
-            Moss
-          </MossBackToAppButton>
-          <Link className={linkClassName} to="/settings">
-            Settings
-          </Link>
-        </header>
-
-        {accountQuery.isPending || accountsQuery.isPending ? (
-          <MossAuthLoading label="Loading your Moss account…" />
-        ) : accountQuery.isError || accountsQuery.isError ? (
-          <QueryFailure
-            retry={() => {
-              void accountQuery.refetch();
-              void accountsQuery.refetch();
-            }}
-          />
-        ) : !state?.configured ? (
-          <ConfigurationUnavailable />
-        ) : (
-          <>
-            <section aria-labelledby="moss-account-heading" className="min-w-0">
-              <p className="text-ui-lg font-medium text-muted-foreground">Moss account</p>
-              <h1 id="moss-account-heading" className="mt-1 text-2xl font-semibold tracking-tight">
-                {account ? (account.displayName ?? account.email) : "Your accounts"}
-              </h1>
-              <p className="mt-2 text-ui-lg text-muted-foreground">
-                {account
-                  ? `${account.emailVerified ? "Verified" : "Verification needed"} · ${
-                      state.modelGatewayConfigured ? mossAccessLaneSummary("global") : "Signed in"
-                    }`
-                  : "Choose a saved account or add another one."}
-              </p>
-            </section>
-
-            {operationError ? (
-              <Alert variant="error">
-                <AlertTitle>Account action failed</AlertTitle>
-                <AlertDescription>
-                  {mossCloudAuthErrorMessage(operationError, "account")}
-                </AlertDescription>
-              </Alert>
-            ) : null}
-
-            {account ? <MossAccessLanesPanel /> : null}
-
-            <section aria-labelledby="saved-accounts-heading" className="min-w-0">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <h2 id="saved-accounts-heading" className="text-ui-lg font-medium">
-                    Saved accounts
-                  </h2>
-                  <p className="mt-1 text-ui-lg text-muted-foreground">
-                    Switch without signing out.
-                  </p>
-                </div>
-                <Link
-                  className={cn(buttonVariants({ size: "sm", variant: "outline" }), "shrink-0")}
-                  search={{ add: true }}
-                  to="/login"
-                >
-                  Add account
-                </Link>
-              </div>
-
-              {accounts.length === 0 ? (
-                <p className="mt-4 rounded-card border border-dashed p-4 text-ui-lg text-muted-foreground">
-                  No saved Moss accounts.
-                </p>
-              ) : (
-                <ul
-                  className="mt-4 divide-y overflow-hidden rounded-card border"
-                  aria-label="Saved accounts"
-                >
-                  {accounts.map((saved) => {
-                    const busy =
-                      (selectMutation.isPending &&
-                        selectMutation.variables?.accountId === saved.id) ||
-                      (removeMutation.isPending &&
-                        removeMutation.variables?.accountId === saved.id);
-                    return (
-                      <li className="flex min-w-0 items-center gap-3 p-3" key={saved.id}>
-                        <span
-                          aria-hidden="true"
-                          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-ui-lg font-medium"
-                        >
-                          {saved.email.slice(0, 1).toUpperCase()}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-ui-lg font-medium">
-                            {saved.displayName ?? saved.email}
-                          </p>
-                          <p className="truncate text-ui-sm text-muted-foreground">
-                            {saved.email} ·{" "}
-                            {saved.selected
-                              ? "Current"
-                              : saved.sessionAvailable
-                                ? "Ready"
-                                : "Sign in again"}
-                          </p>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1.5">
-                          {saved.selected ? (
-                            <Button
-                              aria-label={`Use ${saved.email}`}
-                              disabled
-                              size="sm"
-                              variant="outline"
-                            >
-                              Current
-                            </Button>
-                          ) : saved.sessionAvailable ? (
-                            <Button
-                              aria-label={`Use ${saved.email}`}
-                              disabled={
-                                busy || selectMutation.isPending || removeMutation.isPending
-                              }
-                              onClick={() => selectMutation.mutate({ accountId: saved.id })}
-                              size="sm"
-                              variant="outline"
-                            >
-                              {selectMutation.isPending &&
-                              selectMutation.variables?.accountId === saved.id
-                                ? "Switching…"
-                                : "Use"}
-                            </Button>
-                          ) : (
-                            <Link
-                              aria-label={`Use ${saved.email}`}
-                              className={buttonVariants({ size: "sm", variant: "outline" })}
-                              search={{ add: true }}
-                              to="/login"
-                            >
-                              Sign in
-                            </Link>
-                          )}
-                          <Button
-                            aria-label={`Remove ${saved.email}`}
-                            disabled={busy || selectMutation.isPending || removeMutation.isPending}
-                            onClick={() => removeMutation.mutate({ accountId: saved.id })}
-                            size="sm"
-                            variant="ghost"
-                          >
-                            {removeMutation.isPending &&
-                            removeMutation.variables?.accountId === saved.id
-                              ? "Removing…"
-                              : "Remove"}
-                          </Button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-
-            {account && state.session ? <MossPayPanel /> : null}
-            {account && state.session ? (
-              <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-card border p-4">
-                <div className="min-w-0">
-                  <h2 className="text-ui-lg font-medium">Usage and credits</h2>
-                  <p className="mt-1 text-ui-lg text-muted-foreground">
-                    Open Settings → Usage to see quota and buy credits.
-                  </p>
-                </div>
-                <Button onClick={() => openSettingsDialog({ section: "usage" })} size="sm">
-                  Open Usage
-                </Button>
-              </section>
-            ) : null}
-
-            {account && state.session ? (
-              <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-t pt-5">
-                <p aria-live="polite" className="text-ui-lg text-muted-foreground" role="status">
-                  {logoutMutation.isPending
-                    ? "Signing out…"
-                    : `Session expires ${formatSessionDate(state.session.expiresAt)}`}
-                </p>
-                <Button
-                  disabled={
-                    logoutMutation.isPending || selectMutation.isPending || removeMutation.isPending
-                  }
-                  onClick={() => logoutMutation.mutate()}
-                  variant="outline"
-                >
-                  Sign out
-                </Button>
-              </section>
-            ) : null}
-          </>
-        )}
-      </div>
-    </main>
   );
 }

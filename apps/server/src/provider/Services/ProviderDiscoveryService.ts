@@ -30,6 +30,8 @@ import type {
   ProviderListMcpResult,
   ProviderListModelsInput,
   ProviderListModelsResult,
+  ProviderCatalogSnapshotInput,
+  ProviderCatalogSnapshotResult,
   ProviderListPluginsInput,
   ProviderListPluginsResult,
   ProviderListSkillsInput,
@@ -151,6 +153,14 @@ export interface ProviderDiscoveryServiceShape {
   readonly listModels: (
     input: ProviderListModelsInput,
   ) => Effect.Effect<ProviderListModelsResult, ProviderDiscoveryError>;
+  /**
+   * Fast (<10ms) read-only snapshot of every provider instance's health status
+   * plus cached/static model catalogs, kicking off bounded background SWR for
+   * enabled+ready instances without occupying client WS admission slots.
+   */
+  readonly getCatalogSnapshot?: (
+    input: ProviderCatalogSnapshotInput,
+  ) => Effect.Effect<ProviderCatalogSnapshotResult, ProviderDiscoveryError>;
   readonly listAgents: (
     input: ProviderListAgentsInput,
   ) => Effect.Effect<ProviderListAgentsResult, ProviderDiscoveryError>;

@@ -75,6 +75,7 @@ import {
   KeyboardShortcutsResetButton,
   KeyboardShortcutsSettingsPanel,
 } from "./KeyboardShortcutsSettingsPanel";
+import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { ProfileSettingsPanel } from "./ProfileSettingsPanel";
 import { UsageSettingsPanel } from "./UsageSettingsPanel";
 import {
@@ -1737,6 +1738,8 @@ export function SettingsContent({
         return <RealtimeVoiceSettingsPanel />;
       case "profile":
         return <ProfileSettingsPanel />;
+      case "account":
+        return <AccountSettingsPanel accountView={location.accountView} onNavigate={onNavigate} />;
       case "usage":
         return <UsageSettingsPanel />;
       default:
@@ -1749,6 +1752,7 @@ export function SettingsContent({
   // Pages that draw their own header (Profile's hero, Plugins' title with its actions).
   const pageOwnsHeader = activeSection === "profile" || activeSection === "plugins";
   const pageHasNoDefaults =
+    activeSection === "account" ||
     activeSection === "connections" ||
     activeSection === "computer-use" ||
     activeSection === "archived" ||

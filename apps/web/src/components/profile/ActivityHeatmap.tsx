@@ -9,7 +9,7 @@ import type { ProfileHeatmapCell } from "@moss/contracts";
 import type { MossLocaleCode } from "~/appSettings";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { formatCompact, formatShortDate } from "./profileFormatting";
+import { formatCompact, formatMonthLabel, formatShortDate } from "./profileFormatting";
 
 // Single-hue ramp built from the theme accent (`--info`, defaults to blue-500) for the
 // in-app page (level 0 → 4). Mixes toward transparent so it sits well on light/dark.
@@ -33,21 +33,6 @@ export const CARD_HEATMAP_INTENSITY_CLASSES: readonly string[] = [
   "bg-[color-mix(in_srgb,var(--info)_45%,white)]",
   "bg-[color-mix(in_srgb,var(--info)_70%,white)]",
   "bg-[var(--info)]",
-];
-
-const MONTH_LABELS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
 ];
 
 interface ActivityHeatmapProps {
@@ -92,6 +77,19 @@ function heatmapTooltipText(
   view: ProfileActivityView,
 ): string {
   const date = formatShortDate(day) ?? day;
+  if (locale === "zh-CN") {
+    const unitLabel = unit === "tokens" ? "Token" : "次提问";
+    if (view === "weekly") {
+      return `${date} 当周 · ${formatCompact(count, locale)} ${unitLabel}`;
+    }
+    if (view === "cumulative") {
+      return `截至 ${date} 当周累计 · ${formatCompact(count, locale)} ${unitLabel}`;
+    }
+    if (count <= 0) {
+      return `${date} · 无活动记录`;
+    }
+    return `${date} · ${formatCompact(count, locale)} ${unitLabel}`;
+  }
   if (view === "weekly") {
     return `${formatCompact(count, locale)} ${unit} on week of ${date}`;
   }
@@ -211,8 +209,22 @@ export function ActivityHeatmap({
       return null;
     }
     previousMonth = monthIndex;
-    return MONTH_LABELS[monthIndex] ?? null;
+    return formatMonthLabel(monthIndex, locale);
   });
+  // Suppress a 1–2 week partial leading month label right before the first full month
+  // so adjacent labels (e.g. "2月" + "3月") never collide on the left edge.
+  const firstMonthLabelColumn = monthByColumn.findIndex((label) => label !== null);
+  if (firstMonthLabelColumn >= 0) {
+    const secondMonthLabelColumn = monthByColumn.findIndex(
+      (label, index) => index > firstMonthLabelColumn && label !== null,
+    );
+    if (
+      secondMonthLabelColumn > firstMonthLabelColumn &&
+      secondMonthLabelColumn - firstMonthLabelColumn < 3
+    ) {
+      monthByColumn[firstMonthLabelColumn] = null;
+    }
+  }
 
   const columnCount = columns.length;
   const responsiveFill = fill && maxCellSize != null;

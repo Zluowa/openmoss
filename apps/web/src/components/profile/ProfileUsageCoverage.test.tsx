@@ -19,14 +19,21 @@ vi.mock("~/lib/serverReactQuery", () => ({
 vi.mock("~/components/auth/mossServerReactQuery", () => ({
   serverMossAccountSessionQueryOptions: () => ({ queryKey: ["account"] }),
   serverMossCloudAccountStateQueryOptions: () => ({ queryKey: ["account"] }),
+  serverMossEnterpriseKeyStateQueryOptions: () => ({ queryKey: ["account"] }),
+  serverMossPayCatalogQueryOptions: () => ({ queryKey: ["account"] }),
+  serverMossPayQuotaQueryOptions: () => ({ queryKey: ["account"] }),
 }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => () => undefined }));
 vi.mock("@tanstack/react-query", () => ({
+  queryOptions: <T,>(options: T) => options,
+  mutationOptions: <T,>(options: T) => options,
+  useQueryClient: () => ({ setQueryData: () => undefined }),
+  useMutation: () => ({ mutateAsync: async () => undefined, isPending: false }),
   useQuery: (options: { queryKey: string[] }) => ({
     data:
       options.queryKey[0] === "core"
         ? baseStats
-        : options.queryKey[0] === "account"
+        : options.queryKey[0] === "account" || options.queryKey[1] === "mossProfile"
           ? undefined
           : queryState.tokenStats,
     isPending: false,
@@ -34,7 +41,7 @@ vi.mock("@tanstack/react-query", () => ({
   }),
 }));
 vi.mock("./ShareDialog", () => ({ ShareDialog: () => null }));
-vi.mock("./EditProfileDialog", () => ({ EditProfileDialog: () => null }));
+vi.mock("./AvatarPickerDialog", () => ({ AvatarPickerDialog: () => null }));
 
 function renderCard() {
   return renderToStaticMarkup(

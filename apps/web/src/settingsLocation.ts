@@ -18,6 +18,7 @@ export interface SettingsLocation {
   readonly provider?: string | undefined;
   readonly connectionTab?: Exclude<ConnectionTab, "this"> | undefined;
   readonly pluginTab?: PluginSettingsTab | undefined;
+  readonly accountView?: "google" | undefined;
 }
 
 /**
@@ -60,6 +61,9 @@ export function resolveSettingsLocation(request: SettingsOpenRequest = {}): Sett
       ? { connectionTab }
       : {}),
     ...(base.section === "plugins" && pluginTab ? { pluginTab } : {}),
+    ...(base.section === "account" && request.accountView === "google"
+      ? { accountView: "google" as const }
+      : {}),
   };
 }
 
@@ -72,11 +76,13 @@ export function settingsLocationFromSearch(
   if (pathname?.replace(/\/+$/, "") === "/settings/plugins-settings") {
     return resolveSettingsLocation({ section: "plugins", pluginTab: str("tab") });
   }
+  const accountView = str("accountView") === "google" ? "google" : undefined;
   return resolveSettingsLocation({
     section: str("section"),
     target: str("target"),
     provider: str("provider"),
     connectionTab: str("connectionTab"),
     pluginTab: str("tab"),
+    accountView,
   });
 }

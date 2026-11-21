@@ -69,6 +69,22 @@ export function settingsSearchEntryTitle(
 // null while inactive, so the sidebar cannot read every row at runtime; keep this list in sync
 // when rows are added, renamed, hidden conditionally, or represented as panel-level results.
 export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
+  // ── Account & Profile ──────────────────────────────────────────────────────
+  {
+    id: "profile:identity",
+    section: "profile",
+    title: "Profile avatar and handle",
+    keywords: "avatar preset upload photo display name handle id 个人资料 头像 昵称 预设",
+    target: null,
+  },
+  {
+    id: "account:moss-account",
+    section: "account",
+    title: "Moss account",
+    keywords:
+      "sign in sign out login methods phone google enterprise api key credits plan 账号 登录方式 会员 积分 退出登录",
+    target: null,
+  },
   // ── General ────────────────────────────────────────────────────────────────
   {
     id: "general:default-provider",

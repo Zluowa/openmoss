@@ -285,7 +285,7 @@ function destinationMatchesPath(
   const path = MOSS_DESTINATION_CATALOG.find((item) => item.id === id)?.path;
   if (path) return pathname === path || pathname.startsWith(`${path}/`);
   if (id === "help") return pathname === "/settings";
-  if (id === "profile") return pathname === "/account";
+  if (id === "profile") return pathname === "/profile";
   return false;
 }
 
@@ -430,7 +430,7 @@ export function SidebarNavigationRail() {
       : (MOSS_DESTINATION_CATALOG.find(({ id }) =>
           destinationMatchesPath(pathname, id, location.search),
         )?.id ??
-        (pathname === "/settings" ? "help" : pathname === "/account" ? "profile" : "home"));
+        (pathname === "/settings" ? "help" : pathname === "/profile" ? "profile" : "home"));
   const moreSelected = moreDestinationIds.some((id) => id === selectedId);
 
   const updatePreferences = (
@@ -486,7 +486,7 @@ export function SidebarNavigationRail() {
     } else if (id === "help") {
       openSettingsDialog({ section: "shortcuts" });
     } else if (id === "profile") {
-      void navigate({ to: "/account", search: clearSurfaceSearch });
+      void navigate({ to: "/profile", search: clearSurfaceSearch });
     } else if (id === "mentions") {
       void navigate({ to: ".", search: clearSurfaceSearch, replace: true });
       window.dispatchEvent(

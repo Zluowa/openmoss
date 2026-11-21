@@ -29,6 +29,7 @@ import { isMossPayOrderSettled } from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
 import { providerDiscoveryQueryKeys } from "~/lib/providerDiscoveryReactQuery";
+import { profileQueryKeys } from "~/components/profile/profileReactQuery";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { MOSS_APPS_QUERY_KEY, MOSS_APP_CONNECTIONS_QUERY_KEY } from "~/lib/mossAppsReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
@@ -75,6 +76,7 @@ async function refreshMossManagedProviderCaches(queryClient: QueryClient): Promi
     queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() }),
     queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() }),
     queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),
+    queryClient.invalidateQueries({ queryKey: profileQueryKeys.state() }),
   ]);
 }
 
@@ -163,6 +165,9 @@ export function serverMossSelectRealmMutationOptions(input: { queryClient: Query
         }),
         input.queryClient.invalidateQueries({
           queryKey: mossServerQueryKeys.mossCloudAccountState(),
+        }),
+        input.queryClient.invalidateQueries({
+          queryKey: profileQueryKeys.state(),
         }),
       ]);
       await synchronizeMossManagedChatReadiness(input.queryClient).catch(() => {

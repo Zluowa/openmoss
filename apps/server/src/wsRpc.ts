@@ -1837,7 +1837,9 @@ const makeWsRpcHandlersLayer = () =>
       const loadServerConfig = Effect.gen(function* () {
         const keybindingsConfig = yield* keybindings.loadConfigState;
         const providerStatuses = yield* providerHealth.getStatuses;
-        yield* Effect.promise(() => refreshWindowsInstalledApps({ waitMs: 1_500 }));
+        // Kick off Windows installed-editor discovery asynchronously if stale so
+        // `server.getConfig` returns immediately instead of blocking up to 1.5s on PowerShell.
+        void refreshWindowsInstalledApps();
         return {
           ...(config.publicUrl ? { shareableOrigin: config.publicUrl.origin } : {}),
           ...lanOriginsField(config),
@@ -4400,6 +4402,18 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(providerDiscoveryService.readPlugin(input), "Failed to read plugin"),
         [WS_METHODS.providerListModels]: (input) =>
           rpcEffect(providerDiscoveryService.listModels(input), "Failed to list models"),
+        [WS_METHODS.providerGetCatalogSnapshot]: (input) =>
+          rpcEffect(
+            providerDiscoveryService.getCatalogSnapshot
+              ? providerDiscoveryService.getCatalogSnapshot(input)
+              : providerHealth.getStatuses.pipe(
+                  Effect.map((providers) => ({
+                    providers: [...providers],
+                    modelsByInstance: {},
+                  })),
+                ),
+            "Failed to load provider catalog snapshot",
+          ),
         [WS_METHODS.providerListAgents]: (input) =>
           rpcEffect(providerDiscoveryService.listAgents(input), "Failed to list agents"),
         [WS_METHODS.automationList]: (input) =>

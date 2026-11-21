@@ -13,6 +13,7 @@ export const SETTINGS_SECTION_IDS = [
   "plugins",
   "import",
   "profile",
+  "account",
   "appearance",
   "notifications",
   "behavior",
@@ -124,6 +125,14 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: "Your activity and a shareable stats card.",
     icon: "user",
     eyebrow: "Your stats",
+  },
+  {
+    id: "account",
+    group: "personal",
+    label: "Account",
+    description: "Sign-in methods, plan, credits, and sign out.",
+    icon: "circle-person",
+    eyebrow: "Moss account",
   },
   {
     id: "appearance",

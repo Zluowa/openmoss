@@ -23,12 +23,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { MossEnterpriseKeyPage } from "./MossEnterpriseKeyPage";
-import {
-  MossCloudAccountPage,
-  MossCloudAuthCallbackPage,
-  MossCloudLoginPage,
-} from "./MossCloudAuthPages";
-import { MossAccountPage, MossPhoneLoginPage } from "./MossPhoneAuth";
+import { MossCloudAuthCallbackPage, MossCloudLoginPage } from "./MossCloudAuthPages";
+import { MossPhoneLoginPage } from "./MossPhoneAuth";
+import { AccountSettingsPanel } from "../settings/AccountSettingsPanel";
 
 async function renderWithQueryClient(
   element: ReactNode,
@@ -256,10 +253,13 @@ describe("Moss auth pages", () => {
       ],
     } satisfies MossCloudListAccountsResult;
 
-    const markup = await renderWithQueryClient(<MossCloudAccountPage />, (queryClient) => {
-      queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, state);
-      queryClient.setQueryData(serverMossCloudAccountsQueryOptions().queryKey, saved);
-    });
+    const markup = await renderWithQueryClient(
+      <AccountSettingsPanel accountView="google" />,
+      (queryClient) => {
+        queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, state);
+        queryClient.setQueryData(serverMossCloudAccountsQueryOptions().queryKey, saved);
+      },
+    );
     const text = textContent(markup);
 
     expect(text).toContain("Saved accounts");
@@ -269,7 +269,7 @@ describe("Moss auth pages", () => {
     expect(text).not.toMatch(/access.?token|refresh.?token|session.?secret/iu);
   });
 
-  it("opens the global Google account surface without replacing an active phone session", async () => {
+  it("opens the global Google account surface in Settings without replacing an active phone session", async () => {
     const cloudState = {
       configured: true,
       authenticated: false,
@@ -280,20 +280,23 @@ describe("Moss auth pages", () => {
       authProvider: "supabase_google",
     } satisfies MossCloudAccountState;
 
-    const markup = await renderWithQueryClient(<MossAccountPage view="google" />, (queryClient) => {
-      queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
-        configured: true,
-        authenticated: true,
-        session: null,
-        smsProvider: "aliyun",
-        aliyunSmsConfigured: true,
-      });
-      queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, cloudState);
-      queryClient.setQueryData(serverMossCloudAccountsQueryOptions().queryKey, { accounts: [] });
-    });
+    const markup = await renderWithQueryClient(
+      <AccountSettingsPanel accountView="google" />,
+      (queryClient) => {
+        queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+          configured: true,
+          authenticated: true,
+          session: null,
+          smsProvider: "aliyun",
+          aliyunSmsConfigured: true,
+        });
+        queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, cloudState);
+        queryClient.setQueryData(serverMossCloudAccountsQueryOptions().queryKey, { accounts: [] });
+      },
+    );
     const text = textContent(markup);
 
-    expect(text).toContain("Your accounts");
+    expect(text).toContain("Saved accounts");
     expect(text).toContain("Add account");
     expect(text).not.toContain("国内账号服务");
     expect(text).not.toContain("手机号已验证");

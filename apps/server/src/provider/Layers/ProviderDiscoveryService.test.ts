@@ -793,7 +793,7 @@ describe("ProviderDiscoveryService.getComposerCapabilities", () => {
 });
 
 describe("ProviderDiscoveryService.listModels", () => {
-  it("keeps OMP discovery on the adapter-owned cache cadence", async () => {
+  it("caches and persists OMP discovery with a 5-minute fresh window across restarts", async () => {
     let calls = 0;
     const results = await runDiscovery({
       adapter: {
@@ -809,17 +809,23 @@ describe("ProviderDiscoveryService.listModels", () => {
         // An installed omp: without one Moss answers empty instead of asking the CLI.
         const binaryPath = process.execPath;
         const first = yield* discovery.listModels({ provider: "omp", cwd, binaryPath });
+        const repeatSameCwd = yield* discovery.listModels({ provider: "omp", cwd, binaryPath });
         const second = yield* discovery.listModels({ provider: "omp", cwd: homeDir, binaryPath });
-        return { first, second };
+        return { first, repeatSameCwd, second };
       }),
     });
 
     expect(results.first.models[0]?.slug).toBe("upstream/model-1");
+    expect(results.repeatSameCwd.models[0]?.slug).toBe("upstream/model-1");
+    expect(results.repeatSameCwd.cached).toBe(true);
     expect(results.second.models[0]?.slug).toBe("upstream/model-2");
     expect(calls).toBe(2);
-    expect(existsSync(path.join(baseDir, "userdata", "provider-models", "catalogs.json"))).toBe(
-      false,
-    );
+    const catalogPath = path.join(baseDir, "userdata", "provider-models", "catalogs.json");
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(catalogPath) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(existsSync(catalogPath)).toBe(true);
   });
 
   it("answers an empty OMP catalog without spawning when omp is not installed", async () => {
@@ -842,7 +848,7 @@ describe("ProviderDiscoveryService.listModels", () => {
           return yield* discovery.listModels({ provider: "omp", cwd });
         }),
       });
-      expect(result).toEqual({ models: [], source: "not-installed", cached: false });
+      expect(result).toEqual({ models: [], source: "not-installed", cached: true });
       expect(calls).toBe(0);
     } finally {
       for (const [key, value] of savedPath) process.env[key] = value;
@@ -1220,5 +1226,138 @@ describe("ProviderDiscoveryService.listModels", () => {
 
     expect(result.models).toHaveLength(1);
     expect(adapterCalls).toBe(1);
+  });
+
+  it("short-circuits notInstalled providers across all CLIs with zero adapter spawns", async () => {
+    const providers = ["devin", "cursor", "opencode", "pi", "claudeAgent", "codex"] as const;
+    let adapterCalls = 0;
+    const statuses = providers.map((provider) => ({
+      provider,
+      driver: provider,
+      instanceId: provider,
+      enabled: true,
+      status: "error" as const,
+      available: false,
+      authStatus: "unknown" as const,
+      readiness: { state: "notInstalled" as const },
+      checkedAt: new Date().toISOString(),
+    }));
+    const layer = ProviderDiscoveryServiceLive.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          makeConfigLayer(() => statuses),
+          ServerSettingsService.layerTest(),
+          makeRegistryLayer({
+            listModels: () => {
+              adapterCalls += 1;
+              return Effect.succeed({
+                models: [{ slug: "fallback", name: "Fallback" }],
+                source: "static",
+                cached: false,
+              });
+            },
+          }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+
+    const results = await Effect.runPromise(
+      Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* Effect.all(providers.map((provider) => discovery.listModels({ provider })));
+      }).pipe(Effect.provide(layer)) as Effect.Effect<ProviderListModelsResult[], never, never>,
+    );
+
+    expect(adapterCalls).toBe(0);
+    for (const result of results) {
+      expect(result).toEqual({ models: [], source: "not-installed", cached: true });
+    }
+  });
+
+  it("getCatalogSnapshot returns statuses + cached/static models immediately and never spawns uninstalled CLIs", async () => {
+    let spawnCount = 0;
+    const spawnedProviders: string[] = [];
+    const nowIso = new Date().toISOString();
+    const statuses = [
+      {
+        provider: "codex" as const,
+        driver: "codex" as const,
+        instanceId: "codex" as const,
+        enabled: true,
+        status: "ready" as const,
+        available: true,
+        authStatus: "authenticated" as const,
+        readiness: { state: "ready" as const },
+        checkedAt: nowIso,
+      },
+      {
+        provider: "claudeAgent" as const,
+        driver: "claudeAgent" as const,
+        instanceId: "claudeAgent" as const,
+        enabled: true,
+        status: "ready" as const,
+        available: true,
+        authStatus: "authenticated" as const,
+        readiness: { state: "ready" as const },
+        checkedAt: nowIso,
+      },
+      {
+        provider: "devin" as const,
+        driver: "devin" as const,
+        instanceId: "devin" as const,
+        enabled: true,
+        status: "error" as const,
+        available: false,
+        authStatus: "unknown" as const,
+        readiness: { state: "notInstalled" as const },
+        checkedAt: nowIso,
+      },
+    ];
+    const layer = ProviderDiscoveryServiceLive.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          makeConfigLayer(() => statuses),
+          ServerSettingsService.layerTest(),
+          makeRegistryLayer({
+            listModels: (input) => {
+              spawnCount += 1;
+              spawnedProviders.push(input.provider);
+              return Effect.succeed({
+                models: [{ slug: `${input.provider}-live`, name: `${input.provider} Live` }],
+                source: "live-cli",
+                cached: false,
+              });
+            },
+          }),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
+      ),
+    );
+
+    const snapshot = await Effect.runPromise(
+      Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        // Pre-warm codex in cache (simulating Desktop warm catalog with a cwd)
+        yield* discovery.listModels({ provider: "codex", cwd });
+        const started = performance.now();
+        const snap = yield* discovery.getCatalogSnapshot!({ refreshStale: true });
+        const elapsedMs = performance.now() - started;
+        return { snap, elapsedMs };
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(snapshot.elapsedMs).toBeLessThan(100);
+    expect(snapshot.snap.providers).toHaveLength(3);
+    // Warm cached codex served directly from cache (even with cwd omitted)
+    expect(snapshot.snap.modelsByInstance.codex?.cached).toBe(true);
+    expect(snapshot.snap.modelsByInstance.codex?.stale).toBe(false);
+    expect(snapshot.snap.modelsByInstance.codex?.models[0]?.slug).toBe("codex-live");
+    // Uncached ready claudeAgent served immediately via static fallback
+    expect(snapshot.snap.modelsByInstance.claudeAgent?.source).toBe("static-fallback");
+    expect((snapshot.snap.modelsByInstance.claudeAgent?.models.length ?? 0) > 0).toBe(true);
+    // Uninstalled devin is omitted from modelsByInstance and never spawned
+    expect(snapshot.snap.modelsByInstance.devin).toBeUndefined();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(spawnedProviders).not.toContain("devin");
+    expect(spawnCount).toBeGreaterThanOrEqual(1);
   });
 });

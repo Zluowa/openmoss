@@ -30,6 +30,12 @@ export const PROVIDER_MODEL_DISCOVERY_STALE_TTL_MS = 24 * 60 * 60_000;
  */
 export const PROVIDER_MODEL_DISCOVERY_FAILURE_TTL_MS = 30_000;
 /**
+ * Degraded or error-tagged fallback catalogs (e.g. broken or unauthenticated CLI
+ * returning a static fallback) cool down longer than transient errors so periodic
+ * mobile/web refreshes do not thrash subprocess spawns every minute.
+ */
+export const PROVIDER_MODEL_DISCOVERY_DEGRADED_TTL_MS = 5 * 60_000;
+/**
  * Hard ceiling on a single discovery run. Some adapters (Pi, OpenCode CLI) have
  * no internal timeout; this keeps every provider under the 60s WebSocket RPC
  * timeout so the client sees a real error instead of a transport timeout.
@@ -84,6 +90,23 @@ function environmentFingerprint(
   );
 }
 
+export interface ProviderModelDiscoveryLookupOptions {
+  /** Override fresh window for a single lookup (e.g. shorter cadence for OMP). */
+  readonly freshTtlMs?: number | undefined;
+  /**
+   * When true and the exact `cwd` key misses, reuse the freshest non-expired
+   * catalog matching every other key dimension (for clients like mobile that
+   * omit `cwd` and want to hit desktop's warm catalog).
+   */
+  readonly allowCwdFallback?: boolean | undefined;
+}
+
+export interface ProviderModelDiscoveryPeekResult {
+  readonly result: ProviderListModelsResult;
+  readonly storedAt: number;
+  readonly stale: boolean;
+}
+
 export interface ProviderModelDiscoveryCache<E> {
   /**
    * Resolve a model catalog for `key`, running `discover` only when the cache
@@ -94,7 +117,18 @@ export interface ProviderModelDiscoveryCache<E> {
     key: ProviderModelDiscoveryCacheKey,
     discover: Effect.Effect<ProviderListModelsResult, E>,
     refresh?: ProviderListModelsInput["refresh"],
+    options?: ProviderModelDiscoveryLookupOptions,
   ) => Effect.Effect<ProviderListModelsResult, E | ProviderAdapterRequestError>;
+  /**
+   * Synchronous in-memory peek for the freshest non-expired catalog belonging
+   * to `(provider, instanceId)` — zero I/O and zero subprocess spawns.
+   */
+  readonly peekBestForInstance: (
+    provider: ProviderListModelsInput["provider"],
+    instanceId: string | null,
+    cwd?: string | null,
+    freshTtlMs?: number,
+  ) => ProviderModelDiscoveryPeekResult | undefined;
   /** Forget every entry (settings changes, tests). */
   readonly clear: () => void;
   /** Number of catalog entries currently retained (tests/diagnostics). */
@@ -102,6 +136,7 @@ export interface ProviderModelDiscoveryCache<E> {
 }
 
 interface CatalogEntry {
+  readonly key: ProviderModelDiscoveryCacheKey | null;
   readonly result: ProviderListModelsResult;
   readonly storedAt: number;
 }
@@ -109,6 +144,7 @@ interface CatalogEntry {
 interface FailureEntry {
   readonly exit: Exit.Exit<ProviderListModelsResult, unknown>;
   readonly storedAt: number;
+  readonly degraded: boolean;
 }
 
 type DiscoveryExit<E> = Exit.Exit<ProviderListModelsResult, E | ProviderAdapterRequestError>;
@@ -160,6 +196,79 @@ export const serializeProviderModelDiscoveryCacheKey = (
     ...(key.configFingerprint !== undefined ? [key.configFingerprint] : []),
   ]);
 
+const parseSerializedProviderModelDiscoveryCacheKey = (
+  serialized: string,
+): ProviderModelDiscoveryCacheKey | null => {
+  try {
+    const parsed = JSON.parse(serialized) as unknown;
+    if (!Array.isArray(parsed) || parsed.length < 13 || typeof parsed[0] !== "string") {
+      return null;
+    }
+    const provider = parsed[0] as ProviderListModelsInput["provider"];
+    const base: ProviderModelDiscoveryCacheKey = {
+      provider,
+      instanceId: typeof parsed[1] === "string" ? parsed[1] : null,
+      binaryPath: typeof parsed[2] === "string" ? parsed[2] : null,
+      homePath: typeof parsed[3] === "string" ? parsed[3] : null,
+      shadowHomePath: typeof parsed[4] === "string" ? parsed[4] : null,
+      accountId: typeof parsed[5] === "string" ? parsed[5] : null,
+      apiEndpoint: typeof parsed[6] === "string" ? parsed[6] : null,
+      agentDir: typeof parsed[7] === "string" ? parsed[7] : null,
+      serverUrl: typeof parsed[8] === "string" ? parsed[8] : null,
+      serverPasswordKey: typeof parsed[9] === "string" ? parsed[9] : null,
+      experimentalWebSockets: parsed[10] === true,
+      environmentKey: typeof parsed[11] === "string" ? parsed[11] : null,
+      cwd: typeof parsed[12] === "string" ? parsed[12] : null,
+    };
+    if (parsed.length === 14) {
+      const tail = typeof parsed[13] === "string" ? parsed[13] : null;
+      return provider === "opencode"
+        ? { ...base, configFingerprint: tail }
+        : { ...base, runtimeVersion: tail };
+    }
+    if (parsed.length >= 15) {
+      return {
+        ...base,
+        runtimeVersion: typeof parsed[13] === "string" ? parsed[13] : null,
+        configFingerprint: typeof parsed[14] === "string" ? parsed[14] : null,
+      };
+    }
+    return base;
+  } catch {
+    return null;
+  }
+};
+
+const matchesInstanceId = (
+  provider: ProviderListModelsInput["provider"],
+  left: string | null,
+  right: string | null,
+): boolean =>
+  left === right || (left === null && right === provider) || (right === null && left === provider);
+
+const matchesIgnoringCwd = (
+  entryKey: ProviderModelDiscoveryCacheKey | null,
+  target: ProviderModelDiscoveryCacheKey,
+): boolean => {
+  if (!entryKey) return false;
+  return (
+    entryKey.provider === target.provider &&
+    matchesInstanceId(target.provider, entryKey.instanceId, target.instanceId) &&
+    entryKey.binaryPath === target.binaryPath &&
+    entryKey.homePath === target.homePath &&
+    entryKey.shadowHomePath === target.shadowHomePath &&
+    entryKey.accountId === target.accountId &&
+    entryKey.apiEndpoint === target.apiEndpoint &&
+    entryKey.agentDir === target.agentDir &&
+    entryKey.serverUrl === target.serverUrl &&
+    entryKey.serverPasswordKey === target.serverPasswordKey &&
+    entryKey.experimentalWebSockets === target.experimentalWebSockets &&
+    entryKey.environmentKey === target.environmentKey &&
+    (entryKey.runtimeVersion ?? null) === (target.runtimeVersion ?? null) &&
+    (entryKey.configFingerprint ?? null) === (target.configFingerprint ?? null)
+  );
+};
+
 /**
  * Only a complete, non-empty, error-free catalog is worth remembering as "good".
  * Partial catalogs, static fallbacks that carry `error`, and empty lists are
@@ -168,6 +277,9 @@ export const serializeProviderModelDiscoveryCacheKey = (
  */
 const isUsableCatalog = (result: ProviderListModelsResult): boolean =>
   result.models.length > 0 && result.error === undefined && result.degraded !== true;
+
+const isDegradedCatalogExit = (exit: Exit.Exit<ProviderListModelsResult, unknown>): boolean =>
+  Exit.isSuccess(exit) && (exit.value.degraded === true || exit.value.error !== undefined);
 
 export interface PersistedModelCatalogEntryInput {
   /** Serialized ProviderModelDiscoveryCacheKey — the map key. */
@@ -181,6 +293,7 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
   readonly freshTtlMs?: number;
   readonly staleTtlMs?: number;
   readonly failureTtlMs?: number;
+  readonly degradedFailureTtlMs?: number;
   readonly timeoutMs?: number;
   readonly maxEntries?: number;
   /**
@@ -195,6 +308,10 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
   const freshTtlMs = options?.freshTtlMs ?? PROVIDER_MODEL_DISCOVERY_FRESH_TTL_MS;
   const staleTtlMs = options?.staleTtlMs ?? PROVIDER_MODEL_DISCOVERY_STALE_TTL_MS;
   const failureTtlMs = options?.failureTtlMs ?? PROVIDER_MODEL_DISCOVERY_FAILURE_TTL_MS;
+  const degradedFailureTtlMs =
+    options?.degradedFailureTtlMs ??
+    options?.failureTtlMs ??
+    PROVIDER_MODEL_DISCOVERY_DEGRADED_TTL_MS;
   const timeoutMs = options?.timeoutMs ?? PROVIDER_MODEL_DISCOVERY_TIMEOUT_MS;
   const maxEntries = options?.maxEntries ?? PROVIDER_MODEL_DISCOVERY_CACHE_MAX_ENTRIES;
 
@@ -226,7 +343,11 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
       droppedPersisted = true;
       continue;
     }
-    catalogs.set(entry.key, { result: entry.result, storedAt: entry.storedAt });
+    catalogs.set(entry.key, {
+      key: parseSerializedProviderModelDiscoveryCacheKey(entry.key),
+      result: entry.result,
+      storedAt: entry.storedAt,
+    });
     while (catalogs.size > maxEntries) {
       const oldest = catalogs.keys().next().value;
       if (oldest === undefined) break;
@@ -247,21 +368,46 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
     return entry;
   };
 
+  const readCwdFallbackCatalog = (
+    key: ProviderModelDiscoveryCacheKey,
+    at: number,
+  ): CatalogEntry | undefined => {
+    let best: CatalogEntry | undefined;
+    let expiredAny = false;
+    for (const [entrySerialized, entry] of catalogs.entries()) {
+      if (at - entry.storedAt > staleTtlMs) {
+        catalogs.delete(entrySerialized);
+        expiredAny = true;
+        continue;
+      }
+      if (!matchesIgnoringCwd(entry.key, key)) continue;
+      if (!best || entry.storedAt > best.storedAt) best = entry;
+    }
+    if (expiredAny) emitCatalogsChanged();
+    return best;
+  };
+
   const readFailure = (serialized: string, at: number): FailureEntry | undefined => {
     const entry = failures.get(serialized);
     if (entry === undefined) return undefined;
-    if (at - entry.storedAt > failureTtlMs) {
+    const ttl = entry.degraded ? degradedFailureTtlMs : failureTtlMs;
+    if (at - entry.storedAt > ttl) {
       failures.delete(serialized);
       return undefined;
     }
     return entry;
   };
 
-  const storeCatalog = (serialized: string, result: ProviderListModelsResult, at: number) => {
+  const storeCatalog = (
+    key: ProviderModelDiscoveryCacheKey,
+    serialized: string,
+    result: ProviderListModelsResult,
+    at: number,
+  ) => {
     failures.delete(serialized);
     // Re-insert so Map iteration order doubles as an LRU order.
     catalogs.delete(serialized);
-    catalogs.set(serialized, { result: { ...result, cached: false }, storedAt: at });
+    catalogs.set(serialized, { key, result: { ...result, cached: false }, storedAt: at });
     while (catalogs.size > maxEntries) {
       const oldest = catalogs.keys().next().value;
       if (oldest === undefined) break;
@@ -275,7 +421,7 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
     exit: Exit.Exit<ProviderListModelsResult, unknown>,
     at: number,
   ) => {
-    failures.set(serialized, { exit, storedAt: at });
+    failures.set(serialized, { exit, storedAt: at, degraded: isDegradedCatalogExit(exit) });
     while (failures.size > maxEntries) {
       const oldest = failures.keys().next().value;
       if (oldest === undefined) break;
@@ -283,10 +429,14 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
     }
   };
 
-  const applyExit = (serialized: string, exit: DiscoveryExit<E>) => {
+  const applyExit = (
+    key: ProviderModelDiscoveryCacheKey,
+    serialized: string,
+    exit: DiscoveryExit<E>,
+  ) => {
     const at = now();
     if (Exit.isSuccess(exit) && isUsableCatalog(exit.value)) {
-      storeCatalog(serialized, exit.value, at);
+      storeCatalog(key, serialized, exit.value, at);
       return;
     }
     // An error-free empty response is authoritative: do not keep offering
@@ -333,7 +483,7 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
         Effect.exit,
         Effect.flatMap((exit) => {
           inflight.delete(serialized);
-          applyExit(serialized, exit as DiscoveryExit<E>);
+          applyExit(key, serialized, exit as DiscoveryExit<E>);
           return Deferred.done(deferred, exit);
         }),
       );
@@ -357,11 +507,20 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
       Effect.map((result) => retainLastGoodCatalog(serialized, result)),
     ) as Effect.Effect<ProviderListModelsResult, E | ProviderAdapterRequestError>;
 
-  const lookup: ProviderModelDiscoveryCache<E>["lookup"] = (key, discover, refresh) =>
+  const lookup: ProviderModelDiscoveryCache<E>["lookup"] = (
+    key,
+    discover,
+    refresh,
+    lookupOptions,
+  ) =>
     Effect.gen(function* () {
       const serialized = serializeProviderModelDiscoveryCacheKey(key);
       const at = now();
-      const entry = readCatalog(serialized, at);
+      const effectiveFreshTtlMs = lookupOptions?.freshTtlMs ?? freshTtlMs;
+      const exactEntry = readCatalog(serialized, at);
+      const entry =
+        exactEntry ??
+        (lookupOptions?.allowCwdFallback ? readCwdFallbackCatalog(key, at) : undefined);
       const failure = readFailure(serialized, at);
       if (refresh !== undefined) {
         const pending = inflight.get(serialized);
@@ -369,14 +528,15 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
         if (failure !== undefined) {
           return retainLastGoodCatalog(serialized, yield* failure.exit as DiscoveryExit<E>);
         }
-        const freshWindow = refresh === "now" ? MANUAL_REFRESH_MIN_INTERVAL_MS : freshTtlMs;
+        const freshWindow =
+          refresh === "now" ? MANUAL_REFRESH_MIN_INTERVAL_MS : effectiveFreshTtlMs;
         if (entry !== undefined && at - entry.storedAt <= freshWindow) {
           return { ...entry.result, cached: true };
         }
         return yield* awaitDiscovery(serialized, yield* startDiscovery(key, serialized, discover));
       }
       if (entry !== undefined) {
-        if (at - entry.storedAt <= freshTtlMs) {
+        if (at - entry.storedAt <= effectiveFreshTtlMs) {
           return { ...entry.result, cached: true };
         }
         // Stale-while-revalidate: answer now, refresh behind the caller.
@@ -396,8 +556,44 @@ export function makeProviderModelDiscoveryCache<E>(options?: {
       return yield* awaitDiscovery(serialized, deferred);
     });
 
+  const peekBestForInstance: ProviderModelDiscoveryCache<E>["peekBestForInstance"] = (
+    provider,
+    instanceId,
+    cwd,
+    overrideFreshTtlMs,
+  ) => {
+    const at = now();
+    const effectiveFreshTtlMs = overrideFreshTtlMs ?? freshTtlMs;
+    let exactMatch: CatalogEntry | undefined;
+    let anyMatch: CatalogEntry | undefined;
+    let expiredAny = false;
+    for (const [entrySerialized, entry] of catalogs.entries()) {
+      if (at - entry.storedAt > staleTtlMs) {
+        catalogs.delete(entrySerialized);
+        expiredAny = true;
+        continue;
+      }
+      if (!entry.key) continue;
+      if (entry.key.provider !== provider) continue;
+      if (!matchesInstanceId(provider, entry.key.instanceId, instanceId)) continue;
+      if (cwd && entry.key.cwd === cwd) {
+        if (!exactMatch || entry.storedAt > exactMatch.storedAt) exactMatch = entry;
+      }
+      if (!anyMatch || entry.storedAt > anyMatch.storedAt) anyMatch = entry;
+    }
+    if (expiredAny) emitCatalogsChanged();
+    const picked = exactMatch ?? anyMatch;
+    if (!picked) return undefined;
+    return {
+      result: picked.result,
+      storedAt: picked.storedAt,
+      stale: at - picked.storedAt > effectiveFreshTtlMs,
+    };
+  };
+
   return {
     lookup,
+    peekBestForInstance,
     clear: () => {
       const hadCatalogs = catalogs.size > 0;
       catalogs.clear();

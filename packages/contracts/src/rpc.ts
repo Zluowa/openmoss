@@ -595,6 +595,8 @@ import {
 } from "./project";
 import {
   ServerConfig,
+  ProviderCatalogSnapshotInput,
+  ProviderCatalogSnapshotResult,
   ServerRuntimeStatus,
   ServerConfigStreamEvent,
   ServerDiagnosticsResult,
@@ -2639,6 +2641,12 @@ export const WsProviderListModelsRpc = Rpc.make(WS_METHODS.providerListModels, {
   error: WsRpcError,
 });
 
+export const WsProviderGetCatalogSnapshotRpc = Rpc.make(WS_METHODS.providerGetCatalogSnapshot, {
+  payload: ProviderCatalogSnapshotInput,
+  success: ProviderCatalogSnapshotResult,
+  error: WsRpcError,
+});
+
 export const WsProviderListAgentsRpc = Rpc.make(WS_METHODS.providerListAgents, {
   payload: ProviderListAgentsInput,
   success: ProviderListAgentsResult,
@@ -3645,6 +3653,7 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsProviderStartAppConnectionRpc,
   WsProviderCompleteAppConnectionRpc,
   WsProviderListModelsRpc,
+  WsProviderGetCatalogSnapshotRpc,
   WsProviderListAgentsRpc,
   WsProviderListMcpRpc,
   WsProviderCatalogSelectionRpc,
