@@ -49,8 +49,75 @@ export function formatNumber(value: number | null | undefined): string {
   return WHOLE_NUMBER_FORMATTER.format(value);
 }
 
-export function formatDays(value: number): string {
+export function formatDays(value: number, locale: MossLocaleCode = "en"): string {
+  if (locale === "zh-CN") {
+    return `${formatNumber(value)} 天`;
+  }
   return `${formatNumber(value)} ${value === 1 ? "day" : "days"}`;
+}
+
+// Human duration for "longest task" (e.g. "17 小时 42 分" / "17h 42m").
+export function formatDuration(
+  ms: number | null | undefined,
+  locale: MossLocaleCode = "en",
+): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms) || ms <= 0) {
+    return "—";
+  }
+  const totalSeconds = Math.max(1, Math.round(ms / 1_000));
+  if (totalSeconds < 60) {
+    return locale === "zh-CN" ? `${totalSeconds} 秒` : `${totalSeconds}s`;
+  }
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) {
+    return locale === "zh-CN" ? `${totalMinutes} 分钟` : `${totalMinutes}m`;
+  }
+  if (minutes === 0) {
+    return locale === "zh-CN" ? `${hours} 小时` : `${hours}h`;
+  }
+  return locale === "zh-CN" ? `${hours} 小时 ${minutes} 分` : `${hours}h ${minutes}m`;
+}
+
+const MONTH_LABELS_EN = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+export function formatMonthLabel(monthIndex: number, locale: MossLocaleCode = "en"): string | null {
+  if (!Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+    return null;
+  }
+  if (locale === "zh-CN") {
+    return `${monthIndex + 1}月`;
+  }
+  return MONTH_LABELS_EN[monthIndex] ?? null;
+}
+
+export function deriveProfileInitials(displayName: string, fallback = "M"): string {
+  const cleaned = displayName.trim();
+  if (!cleaned) {
+    return fallback;
+  }
+  const words = cleaned.split(/[\s._-]+/u).filter((part) => part.length > 0);
+  if (words.length >= 2) {
+    const first = Array.from(words[0] ?? "")[0] ?? "";
+    const second = Array.from(words[1] ?? "")[0] ?? "";
+    return `${first}${second}`.toLocaleUpperCase() || fallback;
+  }
+  const chars = Array.from(cleaned.replace(/\s+/gu, ""));
+  return chars.slice(0, 2).join("").toLocaleUpperCase() || fallback;
 }
 
 // Title-case a home-directory basename into a friendly display name.

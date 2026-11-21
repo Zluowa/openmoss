@@ -24,10 +24,16 @@ import { useTheme } from "~/hooks/useTheme";
 import { MossLocaleScope } from "~/localization";
 import { DEFAULT_THEME_STATE } from "~/theme/theme.logic";
 import { MossMembershipPage } from "./MossMembershipPage";
-import { MossPhoneAccountPage } from "./MossPhoneAuth";
+import { ProfilePage } from "~/components/profile/ProfilePage";
+import { baseStats, tokenStats } from "~/components/profile/profileTestFixtures";
+import {
+  serverProfileStatsQueryOptions,
+  serverProfileTokenStatsQueryOptions,
+} from "~/lib/serverReactQuery";
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,
+  serverMossEnterpriseKeyStateQueryOptions,
   serverMossPayCatalogQueryOptions,
 } from "./mossServerReactQuery";
 
@@ -89,6 +95,16 @@ function seededQueryClient() {
     authProvider: "supabase_google",
   });
   queryClient.setQueryData(serverMossPayCatalogQueryOptions().queryKey, CATALOG);
+  queryClient.setQueryData(serverMossEnterpriseKeyStateQueryOptions().queryKey, {
+    configured: true,
+    authenticated: false,
+    keyPrefix: null,
+    verifiedAt: null,
+    modelCount: 0,
+    active: false,
+  });
+  queryClient.setQueryData(serverProfileStatsQueryOptions().queryKey, baseStats);
+  queryClient.setQueryData(serverProfileTokenStatsQueryOptions().queryKey, tokenStats);
   return queryClient;
 }
 
@@ -132,8 +148,8 @@ async function mount(initialEntries: string[]) {
     }),
     createRoute({
       getParentRoute: () => rootRoute,
-      path: "/account",
-      component: MossPhoneAccountPage,
+      path: "/profile",
+      component: ProfilePage,
     }),
   ]);
   const router = createRouter({
@@ -190,10 +206,10 @@ describe("「← 返回 Moss」 on the full-page account screens", () => {
     await screen.unmount();
   });
 
-  it("returns from the Moss 账号 page to the chat the person came from", async () => {
-    const { router, screen } = await mount(["/thread-1", "/account"]);
-    const back = page.getByRole("button", { name: "返回 Moss" });
-    await expect.element(back).toBeVisible();
+  it("returns from the Moss 个人资料 page to the chat the person came from", async () => {
+    const { router, screen } = await mount(["/thread-1", "/profile"]);
+    const back = page.getByTestId("moss-profile-back");
+    await expect.element(back).toHaveTextContent("返回 Moss");
     const box = back.element().getBoundingClientRect();
     expect(box.width).toBeGreaterThan(40);
     expect(box.left).toBeLessThan(window.innerWidth / 2);

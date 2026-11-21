@@ -9,13 +9,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 
-import { MossAccessLanesPanel } from "./MossAccessLanesPanel";
-import {
-  MossAuthLoading,
-  MossAuthShell,
-  MossBackToAppButton,
-  useMossOpaqueSurface,
-} from "./MossAuthShell";
+import { MossAuthLoading, MossAuthShell } from "./MossAuthShell";
 import { activateMossChatSelection } from "./activateMossChatSelection";
 import { mossAccessLaneSummary } from "./mossAccessLanes.logic";
 import {
@@ -115,80 +109,6 @@ function EnterpriseKeyForm({
         Key 由企业管理员在 Moss 签发，用量按企业合同单独结算
       </p>
     </form>
-  );
-}
-
-/** Account page for a desktop signed in only with an enterprise key. */
-export function MossEnterpriseKeyAccountPage() {
-  useMossOpaqueSurface();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const stateQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
-  const signOut = useMutation(serverMossEnterpriseKeySignOutMutationOptions({ queryClient }));
-  const state = stateQuery.data;
-  const statusNotice = mossEnterpriseKeyStatusNotice(state?.modelGatewayStatus);
-
-  return (
-    <main className="min-h-dvh w-full overflow-y-auto bg-background px-4 py-8 text-foreground sm:px-8 sm:py-10">
-      <div className="mx-auto flex w-full max-w-xl min-w-0 flex-col gap-7">
-        <header className="flex min-w-0 items-center justify-between gap-4">
-          <MossBackToAppButton className="-ml-2.5" data-testid="moss-account-back">
-            返回 Moss
-          </MossBackToAppButton>
-          <Link className={linkClassName} to="/settings">
-            设置
-          </Link>
-        </header>
-        {stateQuery.isPending ? (
-          <MossAuthLoading label="正在加载账号…" />
-        ) : !state?.authenticated ? (
-          <section className="rounded-card border border-dashed p-5 text-ui-lg text-muted-foreground">
-            当前未登录。{" "}
-            <Link className={linkClassName} to="/login">
-              前往登录
-            </Link>
-          </section>
-        ) : (
-          <>
-            <section aria-labelledby="moss-enterprise-account-heading">
-              <p className="text-ui-lg font-medium text-muted-foreground">Moss 企业账号</p>
-              <h1
-                id="moss-enterprise-account-heading"
-                className="mt-1 font-mono text-2xl font-semibold tracking-tight"
-              >
-                {state.keyPrefix}…
-              </h1>
-              <p className="mt-2 text-ui-lg text-muted-foreground">
-                {state.modelCount > 0 ? `${state.modelCount} 个可用模型 · ` : ""}
-                {mossAccessLaneSummary("enterprise")}
-              </p>
-            </section>
-            {statusNotice ? (
-              <Alert role="alert" variant="error">
-                <AlertDescription>{statusNotice}</AlertDescription>
-              </Alert>
-            ) : null}
-            <MossAccessLanesPanel />
-            <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-t pt-5">
-              <p className="text-ui-lg text-muted-foreground" role="status">
-                {signOut.isPending ? "正在退出…" : "Key 只保存在本机的安全存储中。"}
-              </p>
-              <Button
-                disabled={signOut.isPending}
-                onClick={() =>
-                  signOut.mutate(undefined, {
-                    onSuccess: () => void navigate({ to: "/login", replace: true }),
-                  })
-                }
-                variant="outline"
-              >
-                退出登录
-              </Button>
-            </section>
-          </>
-        )}
-      </div>
-    </main>
   );
 }
 

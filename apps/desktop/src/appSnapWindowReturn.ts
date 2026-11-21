@@ -35,21 +35,19 @@ export function bringMainWindowToFrontForAppSnap(
   if (window.isMinimized()) {
     window.restore();
   }
-  if (!window.isVisible()) {
-    window.show();
-  }
-  if (options.platform === "darwin") {
-    options.showApp?.();
-    options.focusApp?.({ steal: true });
-    window.focus();
-    return;
-  }
   if (options.platform === "win32") {
-    window.moveTop?.();
-    if (!window.isFocused() && !window.isAlwaysOnTop?.() && window.setAlwaysOnTop) {
+    const needsForegroundLift =
+      !window.isFocused() && !window.isAlwaysOnTop?.() && Boolean(window.setAlwaysOnTop);
+    if (needsForegroundLift && window.setAlwaysOnTop) {
       try {
+        // Elevate z-order BEFORE the single show() so a hidden/occluded window
+        // surfaces directly to the foreground without flashing behind the
+        // captured app for a frame.
         window.setAlwaysOnTop(true, "pop-up-menu");
-        window.show();
+        if (!window.isVisible()) {
+          window.show();
+        }
+        window.moveTop?.();
         window.focus();
       } finally {
         if (!window.isDestroyed()) {
@@ -58,6 +56,19 @@ export function bringMainWindowToFrontForAppSnap(
       }
       return;
     }
+    if (!window.isVisible()) {
+      window.show();
+    }
+    window.moveTop?.();
+    window.focus();
+    return;
+  }
+  if (!window.isVisible()) {
+    window.show();
+  }
+  if (options.platform === "darwin") {
+    options.showApp?.();
+    options.focusApp?.({ steal: true });
     window.focus();
     return;
   }

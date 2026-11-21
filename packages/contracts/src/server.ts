@@ -17,6 +17,7 @@ import {
   SupportedProviderKind,
 } from "./orchestration";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance";
+import { ProviderDiscoveryKind, ProviderModelDescriptor } from "./providerDiscovery";
 import { KeepAwakeMode, ServerSettingsPatch, ServerSettingsView } from "./settings";
 import { ExecutionEnvironmentDescriptor } from "./environment";
 import { AutomationCompletionPolicy, AutomationMode, AutomationSchedule } from "./automation";
@@ -301,6 +302,29 @@ export type ServerProviderUpdateState = NonNullable<ServerProviderStatus["update
 export type ServerProviderLoginState = NonNullable<ServerProviderStatus["loginState"]>;
 
 const ServerProviderStatuses = Schema.Array(ServerProviderStatus);
+
+export const ProviderCatalogSnapshotInput = Schema.Struct({
+  cwd: Schema.optional(TrimmedNonEmptyString),
+  refreshStale: Schema.optional(Schema.Boolean),
+});
+export type ProviderCatalogSnapshotInput = typeof ProviderCatalogSnapshotInput.Type;
+
+export const ProviderCatalogInstanceModels = Schema.Struct({
+  provider: ProviderDiscoveryKind,
+  instanceId: ProviderInstanceId,
+  models: Schema.Array(ProviderModelDescriptor),
+  defaultModel: Schema.optional(TrimmedNonEmptyString),
+  cached: Schema.Boolean,
+  stale: Schema.Boolean,
+  source: TrimmedNonEmptyString,
+});
+export type ProviderCatalogInstanceModels = typeof ProviderCatalogInstanceModels.Type;
+
+export const ProviderCatalogSnapshotResult = Schema.Struct({
+  providers: ServerProviderStatuses,
+  modelsByInstance: Schema.Record(Schema.String, ProviderCatalogInstanceModels),
+});
+export type ProviderCatalogSnapshotResult = typeof ProviderCatalogSnapshotResult.Type;
 
 export const ServerConfig = Schema.Struct({
   /** Explicitly configured secure address; a loopback listener is not shareable. */

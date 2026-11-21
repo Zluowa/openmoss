@@ -591,53 +591,145 @@
   }
 }
 
-/* Crisp, restrained return-to-window and attachment arrival animations for live
-   AppSnap captures. Fill `backwards` (never `both`) with no standing `will-change`
-   so neither root fixed elements nor backdrop blur retain a transform layer. */
+/* Crisp, GPU-composited return-to-window, fly-to-composer, and attachment settle
+   animations for live AppSnap captures. Pure `transform` and `opacity` only (zero
+   layout jank or border-color repaints), fill `backwards` with no standing
+   `will-change` so neither fixed chrome nor backdrop blur retain a transform layer. */
 @keyframes appsnap-window-return {
   from {
-    opacity: 0.92;
-    transform: translateY(4px) scale(0.992);
+    opacity: 0.96;
+    transform: translate3d(0, 6px, 0) scale(0.994);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
 .appsnap-window-return {
-  animation: appsnap-window-return 200ms var(--ease-snap) backwards;
+  animation: appsnap-window-return 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@keyframes appsnap-flight-veil {
+  from {
+    opacity: 0.14;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+.appsnap-flight-veil {
+  background: radial-gradient(
+    85% 65% at 50% 22%,
+    color-mix(in srgb, var(--primary) 26%, transparent) 0%,
+    transparent 72%
+  );
+  animation: appsnap-flight-veil 200ms ease-out forwards;
+}
+
+@keyframes appsnap-fly-to-composer {
+  0% {
+    opacity: 0;
+    transform: translate3d(var(--appsnap-fly-dx, 0px), var(--appsnap-fly-dy, -180px), 0)
+      scale(var(--appsnap-fly-scale, 1.52));
+  }
+
+  22% {
+    opacity: 1;
+    transform: translate3d(var(--appsnap-fly-mid-dx, 0px), var(--appsnap-fly-mid-dy, -140px), 0)
+      scale(var(--appsnap-fly-mid-scale, 1.34));
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.appsnap-flight-card {
+  transform-origin: center center;
+  animation: appsnap-fly-to-composer var(--appsnap-fly-duration, 240ms)
+    cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Reserves the exact composer chip slot while the GPU flight preview is in air,
+   preventing any layout jump or duplicate thumbnail on landing. */
+.appsnap-chip-flight-target {
+  opacity: 0;
+}
+
+@keyframes appsnap-chip-settle {
+  0% {
+    transform: scale(1.028);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 @keyframes appsnap-chip-enter {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.96);
-    border-color: var(--primary);
-  }
-
-  65% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    border-color: color-mix(in srgb, var(--primary) 55%, var(--color-border-light));
+    transform: translate3d(0, -16px, 0) scale(1.06);
   }
 
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
-    border-color: var(--color-border-light);
+    transform: translate3d(0, 0, 0) scale(1);
   }
 }
 
+@keyframes appsnap-chip-ring-fade {
+  0% {
+    opacity: 0.9;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+.appsnap-chip-settle {
+  animation: appsnap-chip-settle 210ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
 .appsnap-chip-enter {
-  animation: appsnap-chip-enter 260ms var(--ease-snap) backwards;
+  animation: appsnap-chip-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.appsnap-chip-settle::after,
+.appsnap-chip-enter::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px var(--primary);
+  animation: appsnap-chip-ring-fade 220ms ease-out forwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .appsnap-window-return,
-  .appsnap-chip-enter {
+  .appsnap-flight-veil,
+  .appsnap-flight-card,
+  .appsnap-chip-settle,
+  .appsnap-chip-enter,
+  .appsnap-chip-settle::after,
+  .appsnap-chip-enter::after {
     animation: none;
+  }
+
+  .appsnap-flight-veil,
+  .appsnap-flight-card {
+    display: none;
+  }
+
+  .appsnap-chip-flight-target {
+    opacity: 1;
   }
 }
 

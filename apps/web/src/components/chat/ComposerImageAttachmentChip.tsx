@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { useTranslation } from "~/localization";
 // FILE: ComposerImageAttachmentChip.tsx
 // Purpose: Renders image attachments, including source-aware AppSnap cards.
@@ -5,7 +6,7 @@ import { useTranslation } from "~/localization";
 // Depends on: composer draft image metadata, shared chip styles, and expanded image preview helpers.
 
 import { WindowIcon } from "~/lib/icons";
-import { isRecentlyArrivedAppSnapCapture } from "~/lib/appSnapArrival";
+import { getAppSnapCaptureMotionPhase, subscribeAppSnapArrival } from "~/lib/appSnapArrival";
 import { cn } from "~/lib/utils";
 import { type ComposerImageAttachment } from "../../composerDraftStore";
 import { normalizeComposerImageSource } from "../../lib/composerImageSource";
@@ -39,6 +40,12 @@ export function ComposerImageAttachmentChip({
   const { format } = useTranslation();
   // Normalize here so a legacy "appshot" provenance still renders as an AppSnap.
   const appSnapSource = normalizeComposerImageSource(image.source) ?? null;
+  const appSnapCaptureId = appSnapSource?.captureId ?? null;
+  const motionPhase = useSyncExternalStore(
+    subscribeAppSnapArrival,
+    () => getAppSnapCaptureMotionPhase(appSnapCaptureId),
+    () => getAppSnapCaptureMotionPhase(appSnapCaptureId),
+  );
   const previewImage = () => {
     if (onOpenPreview) {
       onOpenPreview(image.id);
@@ -59,14 +66,18 @@ export function ComposerImageAttachmentChip({
         ? `${windowTitle} / ${appName}`
         : appName;
     const appIconDataUrl = appSnapSource.appIconDataUrl ?? null;
-    const entering = isRecentlyArrivedAppSnapCapture(appSnapSource.captureId);
+    const entering = motionPhase !== "idle";
 
     return (
       <div
+        data-appsnap-capture-id={appSnapSource.captureId}
         data-appsnap-entering={entering ? "true" : undefined}
+        data-appsnap-motion={entering ? motionPhase : undefined}
         className={cn(
           "group relative h-32 w-52 shrink-0 overflow-hidden rounded-card border border-[color:var(--color-border-light)] bg-[var(--color-background-secondary)] transition-colors duration-150 hover:border-[color:var(--color-border)]",
-          entering && "appsnap-chip-enter",
+          motionPhase === "flying" && "appsnap-chip-flight-target",
+          motionPhase === "settling" && "appsnap-chip-settle",
+          motionPhase === "entering" && "appsnap-chip-enter",
         )}
       >
         <button

@@ -1,5 +1,10 @@
 import {
+  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
+  MODEL_OPTIONS_BY_PROVIDER,
+  ProviderCatalogSnapshotInput,
+  type ProviderCatalogInstanceModels,
+  type ProviderCatalogSnapshotResult,
   type ProviderComposerCapabilities,
   ProviderGetComposerCapabilitiesInput,
   type ProviderKind,
@@ -43,6 +48,7 @@ import {
   resolveProviderInstance,
 } from "@moss/shared/providerInstances";
 import { expandHomePath } from "@moss/shared/mossHome";
+import { getProviderOptionDescriptors } from "@moss/shared/model";
 import { Effect, Exit, Layer, Option, Queue, Schema, SchemaIssue, Semaphore } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -234,6 +240,55 @@ const withDiscoveryDeadline =
     });
 
 const mcpCatalogReadAdmission = Semaphore.makeUnsafe(1);
+
+const OMP_MODEL_DISCOVERY_FRESH_TTL_MS = 5 * 60_000;
+
+const DISCOVERY_PROVIDER_KINDS = new Set<ProviderListModelsInput["provider"]>([
+  "codex",
+  "claudeAgent",
+  "cursor",
+  "antigravity",
+  "grok",
+  "droid",
+  "opencode",
+  "pi",
+  "hermes",
+  "devin",
+  "omp",
+  "kimi",
+  "minimax",
+  "zcode",
+]);
+
+function isDiscoveryProviderKind(value: string): value is ProviderListModelsInput["provider"] {
+  return DISCOVERY_PROVIDER_KINDS.has(value as ProviderListModelsInput["provider"]);
+}
+
+function staticFallbackModelsForProvider(provider: ProviderListModelsInput["provider"]): {
+  readonly models: ProviderModelDescriptor[];
+  readonly defaultModel?: string;
+} {
+  const definitions = MODEL_OPTIONS_BY_PROVIDER[provider] ?? [];
+  if (definitions.length === 0) return { models: [] };
+  const models: ProviderModelDescriptor[] = definitions.map((definition) => {
+    const optionDescriptors = getProviderOptionDescriptors({
+      provider,
+      caps: definition.capabilities,
+    });
+    return {
+      slug: definition.slug,
+      name: definition.name,
+      ...(optionDescriptors.length > 0 ? { optionDescriptors: [...optionDescriptors] } : {}),
+      ...(definition.capabilities.supportsFastMode ? { supportsFastMode: true } : {}),
+      ...(definition.capabilities.supportsThinkingToggle ? { supportsThinkingToggle: true } : {}),
+    };
+  });
+  const defaultModel =
+    provider in DEFAULT_MODEL_BY_PROVIDER
+      ? DEFAULT_MODEL_BY_PROVIDER[provider as keyof typeof DEFAULT_MODEL_BY_PROVIDER]
+      : undefined;
+  return { models, ...(defaultModel ? { defaultModel } : {}) };
+}
 
 type ProviderDiscoveryCatalogLookup = (input: {
   readonly kind: ProviderCatalogResourceKind;
@@ -443,6 +498,8 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
         Queue.offerUnsafe(catalogWriteQueue, entries);
       },
     });
+    const snapshotRefreshAdmission = Semaphore.makeUnsafe(2);
+    const snapshotRefreshInflight = new Set<string>();
     const applyProviderStartOptions = <T extends { readonly provider: ProviderKind }>(
       parsed: T,
       providerOptions: ProviderStartOptions | undefined,
@@ -1232,6 +1289,24 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
             cached: false,
           };
         }
+        const providerStatuses = yield* providerHealth.getStatuses;
+        const status = providerStatuses.find(
+          (entry) =>
+            (entry.driver ?? entry.provider) === resolved.provider &&
+            (entry.instanceId ?? entry.provider) === resolved.instanceId,
+        );
+        // Short-circuit uninstalled CLIs across every provider before spawning any
+        // subprocess or returning a static fallback catalog (e.g. Devin).
+        if (parsed.refresh !== "now") {
+          const notInstalled =
+            status?.readiness?.state === "notInstalled" ||
+            (resolved.provider === "omp" &&
+              status?.readiness?.state !== "ready" &&
+              resolveOmpCliBinaryPath(resolved.binaryPath) === "omp");
+          if (notInstalled) {
+            return { models: [], source: "not-installed", cached: true };
+          }
+        }
         const listModelsFromAdapter = adapter.listModels;
         const discover = (input: Parameters<typeof listModelsFromAdapter>[0]) =>
           Effect.suspend(() => listModelsFromAdapter(input)).pipe(
@@ -1239,28 +1314,15 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
               isolateMalformedModelDescriptors({ provider: resolved.provider, result }),
             ),
           );
-        // OMP re-resolves file-backed modelRoles per request, so a shared fresh
-        // window would freeze role/config edits for up to 30 minutes and persist
-        // them across restarts. `omp models` is a cheap subprocess — bypass the
-        // shared cache so every picker read reflects the live catalog.
+        const allowCwdFallback = parsed.cwd === undefined;
+        // OMP uses the shared persisted disk cache with a shorter 5-minute fresh window so
+        // cold restarts answer immediately via SWR instead of blocking 30s on `omp models`.
         if (resolved.provider === "omp") {
-          // Without the CLI there is nothing to ask: answer empty instead of spawning a
-          // missing `omp` (and logging a failure) on every picker read.
-          const status = (yield* providerHealth.getStatuses).find(
-            (entry) =>
-              (entry.driver ?? entry.provider) === "omp" &&
-              (entry.instanceId ?? entry.provider) === resolved.instanceId,
-          );
-          // Before the first health check answers, the bare command not resolving says
-          // the same thing.
-          const missing =
-            status?.readiness?.state === "notInstalled" ||
-            (status?.readiness?.state !== "ready" &&
-              resolveOmpCliBinaryPath(resolved.binaryPath) === "omp");
-          if (missing) {
-            return { models: [], source: "not-installed", cached: false };
-          }
-          return yield* discover(resolved);
+          const cacheKey = providerModelDiscoveryCacheKey(resolved);
+          return yield* modelDiscoveryCache.lookup(cacheKey, discover(resolved), parsed.refresh, {
+            freshTtlMs: OMP_MODEL_DISCOVERY_FRESH_TTL_MS,
+            allowCwdFallback,
+          });
         }
         const discoveryInput =
           resolved.provider === "opencode"
@@ -1268,12 +1330,7 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
             : resolved;
         const cacheKey = providerModelDiscoveryCacheKey(discoveryInput);
         const runtimeVersion =
-          resolved.provider === "claudeAgent"
-            ? ((yield* providerHealth.getStatuses).find(
-                (status) =>
-                  status.provider === "claudeAgent" && status.instanceId === resolved.instanceId,
-              )?.version ?? null)
-            : undefined;
+          resolved.provider === "claudeAgent" ? (status?.version ?? null) : undefined;
         // OpenCode discovery shells out to the CLI, which reads its own config
         // file. Editing that file (for example renaming a model) changes nothing
         // else in the key, so fold in a fingerprint of the files the CLI will
@@ -1313,7 +1370,87 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
               : discoveryInput,
           ),
           parsed.refresh,
+          { allowCwdFallback },
         );
+      });
+
+    const getCatalogSnapshot: NonNullable<ProviderDiscoveryServiceShape["getCatalogSnapshot"]> = (
+      input,
+    ) =>
+      Effect.gen(function* () {
+        const parsed = yield* decodeInputOrValidationError({
+          operation: "ProviderDiscoveryService.getCatalogSnapshot",
+          schema: ProviderCatalogSnapshotInput,
+          payload: input,
+        });
+        const providerStatuses = yield* providerHealth.getStatuses;
+        const modelsByInstance: Record<string, ProviderCatalogInstanceModels> = {};
+        const staleToRefresh: Array<{
+          readonly provider: ProviderListModelsInput["provider"];
+          readonly instanceId: ProviderCatalogInstanceModels["instanceId"];
+        }> = [];
+        for (const status of providerStatuses) {
+          const rawProvider = status.driver ?? status.provider;
+          if (!isDiscoveryProviderKind(rawProvider)) continue;
+          if (status.enabled === false || status.readiness?.state !== "ready") continue;
+          const instanceId = status.instanceId ?? rawProvider;
+          const hit = modelDiscoveryCache.peekBestForInstance(
+            rawProvider,
+            instanceId,
+            parsed.cwd ?? null,
+            rawProvider === "omp" ? OMP_MODEL_DISCOVERY_FRESH_TTL_MS : undefined,
+          );
+          if (hit) {
+            modelsByInstance[instanceId] = {
+              provider: rawProvider,
+              instanceId,
+              models: hit.result.models,
+              ...(hit.result.defaultModel ? { defaultModel: hit.result.defaultModel } : {}),
+              cached: true,
+              stale: hit.stale,
+              source: hit.result.source ?? "cache",
+            };
+            if (hit.stale) staleToRefresh.push({ provider: rawProvider, instanceId });
+            continue;
+          }
+          const fallback = staticFallbackModelsForProvider(rawProvider);
+          if (fallback.models.length > 0) {
+            modelsByInstance[instanceId] = {
+              provider: rawProvider,
+              instanceId,
+              models: fallback.models,
+              ...(fallback.defaultModel ? { defaultModel: fallback.defaultModel } : {}),
+              cached: false,
+              stale: true,
+              source: "static-fallback",
+            };
+          }
+          staleToRefresh.push({ provider: rawProvider, instanceId });
+        }
+        if (parsed.refreshStale !== false) {
+          for (const target of staleToRefresh) {
+            const inflightKey = `${target.provider}:${target.instanceId}:${parsed.cwd ?? ""}`;
+            if (snapshotRefreshInflight.has(inflightKey)) continue;
+            snapshotRefreshInflight.add(inflightKey);
+            yield* snapshotRefreshAdmission
+              .withPermits(1)(
+                listModels({
+                  provider: target.provider,
+                  instanceId: target.instanceId,
+                  ...(parsed.cwd ? { cwd: parsed.cwd } : {}),
+                }),
+              )
+              .pipe(
+                Effect.catchCause(() => Effect.void),
+                Effect.ensuring(Effect.sync(() => snapshotRefreshInflight.delete(inflightKey))),
+                Effect.forkDetach,
+              );
+          }
+        }
+        return {
+          providers: [...providerStatuses],
+          modelsByInstance,
+        } satisfies ProviderCatalogSnapshotResult;
       });
 
     const listAgents: ProviderDiscoveryServiceShape["listAgents"] = (input) =>
@@ -1363,6 +1500,7 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
       startAppConnection,
       completeAppConnection,
       listModels,
+      getCatalogSnapshot,
       listAgents,
       listMcp,
     } satisfies ProviderDiscoveryServiceShape;

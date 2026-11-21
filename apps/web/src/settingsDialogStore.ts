@@ -23,6 +23,8 @@ export interface SettingsOpenRequest {
   readonly provider?: string | undefined;
   readonly connectionTab?: string | undefined;
   readonly pluginTab?: PluginSettingsTab | string | undefined;
+  /** Optional sub-view when opening Settings → 账号 (e.g. Google saved accounts). */
+  readonly accountView?: "google" | undefined;
 }
 
 export interface SettingsDialogState {

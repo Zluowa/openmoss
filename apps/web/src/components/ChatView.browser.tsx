@@ -1641,6 +1641,73 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   if (tag === WS_METHODS.serverMossEnterpriseKeyState) {
     return unconfiguredMossEnterpriseKeyState;
   }
+  if (tag === WS_METHODS.profileGet) {
+    return {
+      scope: "local",
+      realm: null,
+      sync: "local",
+      editable: true,
+      profile: {
+        displayName: "Moss",
+        handle: null,
+        avatar: { kind: "initials" },
+        updatedAt: null,
+      },
+    };
+  }
+  if (tag === WS_METHODS.statsGetProfileStats) {
+    return {
+      generatedAt: "2026-09-02T00:00:00.000Z",
+      timezone: { utcOffsetMinutes: 0, today: "2026-09-02" },
+      identity: { homeDirBasename: "moss", initials: "MO", defaultHandle: "@moss" },
+      activity: {
+        currentStreakDays: 0,
+        longestStreakDays: 0,
+        totalPromptsSent: 0,
+        totalThreads: 0,
+        promptsToday: 0,
+        longestTaskMs: null,
+        heatmapMetric: "prompts",
+        heatmap: [],
+      },
+      activeHours: { startHour: null, endHour: null, turnCount: 0, label: null },
+      insights: {
+        topProvider: null,
+        topProviderPercent: null,
+        topReasoning: null,
+        topReasoningPercent: null,
+        skillsExplored: 0,
+        totalSkillsUsed: 0,
+      },
+      providerModels: [],
+      skills: [],
+      mostUsedSkill: null,
+      mostWorkedProject: null,
+      quota: {
+        status: "unavailable",
+        provider: null,
+        window: null,
+        usedPercent: null,
+        resetsAt: null,
+        planName: null,
+      },
+    };
+  }
+  if (tag === WS_METHODS.statsGetProfileTokenStats) {
+    return {
+      available: false,
+      lifetimeTotalTokens: null,
+      peakDayTokens: null,
+      peakDay: null,
+      providers: [],
+      unavailableProviders: [],
+      topProvider: null,
+      topProviderPercent: null,
+      models: [],
+      heatmapMetric: "tokens",
+      heatmap: [],
+    };
+  }
   if (tag === WS_METHODS.serverGetProviderUsageSnapshot) {
     return fixture.providerUsageSnapshot;
   }
@@ -5773,13 +5840,17 @@ describe("ChatView transcript geometry (full app)", () => {
         .toBe("collapsed");
       await expect.element(rail).toBeVisible();
       await expect.element(rail.getByRole("button", { name: "Home", exact: true })).toBeVisible();
-      await rail.getByTestId("rail-account-menu-trigger").click();
-      await expect.element(page.getByRole("menuitem", { name: "Sign in" })).toBeVisible();
-      await userEvent.keyboard("{Escape}");
+      await expect.element(rail.getByTestId("rail-account-menu-trigger")).toBeVisible();
       await page.getByRole("button", { name: "Toggle thread sidebar", exact: true }).click();
       await expect
         .poll(() => document.querySelector('[data-slot="sidebar"]')?.getAttribute("data-state"))
         .toBe("expanded");
+      await expect.element(rail).toBeVisible();
+      await rail.getByTestId("rail-account-menu-trigger").click();
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/profile");
+      await expect.element(page.getByTestId("profile-sign-in")).toBeVisible();
+      await page.getByTestId("moss-profile-back").click();
+      await expect.poll(() => mounted.router.state.location.pathname).not.toBe("/profile");
       await expect.element(rail).toBeVisible();
       // The old History proxy opened this same search palette. Both existing
       // search entries remain connected after the clock becomes Scheduled.
@@ -6228,8 +6299,10 @@ describe("ChatView transcript geometry (full app)", () => {
       // Codex bottom-left account entry: signed out, so the avatar opens a menu whose
       // account action is the sign-in entry.
       await rail.getByTestId("rail-account-menu-trigger").click();
-      await expect.element(page.getByRole("menuitem", { name: "Sign in" })).toBeVisible();
-      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/profile");
+      await expect.element(page.getByTestId("profile-sign-in")).toBeVisible();
+      await page.getByTestId("moss-profile-back").click();
+      await expect.poll(() => mounted.router.state.location.pathname).not.toBe("/profile");
     } finally {
       await mounted.cleanup();
     }

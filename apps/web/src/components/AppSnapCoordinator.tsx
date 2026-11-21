@@ -45,7 +45,7 @@ import {
 } from "../lib/composerImageBlobStore";
 import {
   markAppSnapCaptureArrived,
-  triggerAppSnapWindowReturnAnimation,
+  scheduleAppSnapWindowReturnAnimation,
 } from "../lib/appSnapArrival";
 import { playAppSnapCaptureSound } from "../lib/appSnapSound";
 import { isComposerAppSnapCaptureSource } from "../lib/composerImageSource";
@@ -53,6 +53,7 @@ import { resolveRecentThreadSplitActivation } from "../recentViewActivation.logi
 import { useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
+import { AppSnapFlightOverlay } from "./AppSnapFlightOverlay";
 import { toastManager } from "./ui/toast";
 
 const MAX_REMEMBERED_CAPTURE_IDS = 100;
@@ -544,12 +545,12 @@ export function AppSnapCoordinator() {
     };
 
     const unsubscribeCaptured = bridge.onCaptured((capture) => {
-      // Visual return transition, card entrance, and shutter cue run for live
-      // captures only; captures restored from the pending store on mount, or
+      // Visual return transition, fly-to-composer flight, and shutter cue run for
+      // live captures only; captures restored from the pending store on mount, or
       // replayed after a did-finish-load reload, land silently.
       if (!captureIdsRef.current.has(capture.id)) {
-        markAppSnapCaptureArrived(capture.id);
-        triggerAppSnapWindowReturnAnimation();
+        markAppSnapCaptureArrived(capture.id, undefined, { withReturnVeil: true });
+        scheduleAppSnapWindowReturnAnimation();
         if (playCaptureSoundRef.current) {
           void playAppSnapCaptureSound();
         }
@@ -593,5 +594,5 @@ export function AppSnapCoordinator() {
     };
   }, []);
 
-  return null;
+  return <AppSnapFlightOverlay />;
 }

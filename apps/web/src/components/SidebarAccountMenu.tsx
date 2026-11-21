@@ -32,7 +32,6 @@ import {
   SparklesIcon,
 } from "~/lib/icons";
 import { GaugeIcon, LogOutIcon } from "./auth/mossIcons";
-import { useMossQuotaSummary } from "./auth/useMossQuotaSummary";
 import { resolveMossPayQuotaAccountIdentity } from "~/lib/mossPayQuotaIdentity";
 import {
   type MossAccessLaneStates,
@@ -44,6 +43,7 @@ import { useTranslation } from "~/localization";
 
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { MossLogoMark } from "./MossLogoMark";
+import { useResolvedMossProfileAvatar } from "./profile/useMossProfile";
 import { useProfileAvatarImage } from "./profile/useProfileAvatarImage";
 import { Menu, MenuGroup, MenuItem, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { SidebarMenuButton } from "./ui/sidebar";
@@ -108,11 +108,18 @@ function phoneAccountInitials(user: {
   return Array.from(source.replace(/\s+/gu, "")).slice(0, 2).join("").toLocaleUpperCase();
 }
 
-/** The account badge: the person's photo, their initials, or the Moss mark. */
-function AccountBadgeContent({ initials }: { readonly initials: string }) {
-  const { image } = useProfileAvatarImage();
-  if (image) {
-    return <img src={image} alt="" draggable={false} className="size-full object-cover" />;
+/** The account badge: the person's preset/uploaded avatar, their initials, or the Moss mark. */
+function AccountBadgeContent({
+  initials,
+  avatarSrc,
+}: {
+  readonly initials: string;
+  readonly avatarSrc?: string | null | undefined;
+}) {
+  const { image: legacyImage } = useProfileAvatarImage();
+  const resolvedImage = avatarSrc !== undefined ? avatarSrc : legacyImage;
+  if (resolvedImage) {
+    return <img src={resolvedImage} alt="" draggable={false} className="size-full object-cover" />;
   }
   if (!initials) return <MossLogoMark className="size-[62%]" aria-hidden="true" />;
   return <>{initials}</>;
@@ -258,6 +265,8 @@ export interface SidebarAccountMenuViewProps {
   readonly planName?: string | null;
   /** Remaining Moss quota summary shown beside "Remaining usage" (e.g. "剩余 80%"). */
   readonly usageStatus?: string | null;
+  /** Resolved profile avatar URL (preset SVG or uploaded photo) from `#759`. */
+  readonly avatarSrc?: string | null | undefined;
   /** Optional full help menu control rendered at the trailing edge of the account row. */
   readonly helpControl?: ReactNode;
   readonly onOpenAccount: () => void;
@@ -268,13 +277,19 @@ export interface SidebarAccountMenuViewProps {
   readonly onSignOut: () => void;
 }
 
-function AccountAvatar({ identity }: { readonly identity: SidebarAccountIdentity }) {
+function AccountAvatar({
+  identity,
+  avatarSrc,
+}: {
+  readonly identity: SidebarAccountIdentity;
+  readonly avatarSrc?: string | null | undefined;
+}) {
   return (
     <span
       aria-hidden="true"
       className="flex size-[18px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-timestamp font-medium leading-none text-[var(--color-text-accent)]"
     >
-      <AccountBadgeContent initials={identity.initials} />
+      <AccountBadgeContent initials={identity.initials} avatarSrc={avatarSrc} />
     </span>
   );
 }
@@ -286,6 +301,7 @@ interface SidebarAccountMenuPopupSectionsProps {
   readonly labels: SidebarAccountMenuLabels;
   readonly planName?: string | null;
   readonly usageStatus?: string | null;
+  readonly avatarSrc?: string | null | undefined;
   readonly settingsShortcutLabel: string;
   readonly signingOut: boolean;
   readonly onOpenAccount: () => void;
@@ -301,7 +317,8 @@ function SidebarAccountMenuPopupSections({
   identity,
   labels,
   planName = null,
-  usageStatus = null,
+  usageStatus: _usageStatus = null,
+  avatarSrc,
   settingsShortcutLabel,
   signingOut,
   onOpenAccount,
@@ -328,7 +345,7 @@ function SidebarAccountMenuPopupSections({
           disabled={accountRowDisabled}
           onClick={onOpenAccount}
         >
-          <AccountAvatar identity={identity} />
+          <AccountAvatar identity={identity} avatarSrc={avatarSrc} />
           <span
             className="flex min-w-0 flex-1 flex-col"
             title={identity.menuTitle ?? identity.title}
@@ -350,11 +367,6 @@ function SidebarAccountMenuPopupSections({
             <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUsage}>
               <GaugeIcon aria-hidden="true" className="size-4" />
               <span className="min-w-0 flex-1 truncate">{labels.remainingUsage}</span>
-              {usageStatus ? (
-                <span className="shrink-0 text-ui-xs text-muted-foreground tabular-nums">
-                  {usageStatus}
-                </span>
-              ) : null}
               <ChevronRightIcon
                 aria-hidden="true"
                 className="size-4 shrink-0 text-muted-foreground/70"
@@ -414,6 +426,7 @@ export function SidebarAccountMenuView({
   signingOut = false,
   planName = null,
   usageStatus = null,
+  avatarSrc,
   helpControl,
   onOpenAccount,
   onOpenUsage,
@@ -436,7 +449,7 @@ export function SidebarAccountMenuView({
             />
           }
         >
-          <AccountAvatar identity={identity} />
+          <AccountAvatar identity={identity} avatarSrc={avatarSrc} />
           <span className="min-w-0 flex-1 truncate">{identity.label}</span>
         </MenuTrigger>
 
@@ -451,6 +464,7 @@ export function SidebarAccountMenuView({
             labels={labels}
             planName={planName}
             usageStatus={usageStatus}
+            avatarSrc={avatarSrc}
             settingsShortcutLabel={settingsShortcutLabel}
             signingOut={signingOut}
             onOpenAccount={onOpenAccount}
@@ -484,9 +498,12 @@ interface SidebarAccountMenuModel {
   readonly identity: SidebarAccountIdentity;
   readonly planName: string | null;
   readonly usageStatus: string | null;
+  readonly avatarSrc: string | null;
+  readonly openProfileLabel: string;
   readonly labels: SidebarAccountMenuLabels;
   readonly settingsShortcutLabel: string;
   readonly signingOut: boolean;
+  readonly onOpenProfile: () => void;
   readonly onOpenAccount: () => void;
   readonly onOpenUsage: () => void;
   readonly onOpenUpgrade: () => void;
@@ -550,13 +567,20 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   const payCatalogQuery = useQuery(
     serverMossPayCatalogQueryOptions({ enabled: identity.kind === "authenticated" }),
   );
-  const mossQuotaSummary = useMossQuotaSummary();
+  const { avatarSrc, profileState } = useResolvedMossProfileAvatar();
+  const customProfileName =
+    profileState?.profile.updatedAt !== null ? profileState?.profile.displayName.trim() : "";
+  const effectiveIdentity: SidebarAccountIdentity =
+    customProfileName && identity.kind === "authenticated"
+      ? { ...identity, label: customProfileName, title: customProfileName }
+      : identity;
   const payPlanCode = payQuotaQuery.data?.planCode?.trim() ?? "";
   const planName = payPlanCode
     ? (payCatalogQuery.data?.plans.find((plan) => plan.code === payPlanCode)?.displayName.trim() ??
       fallbackMossPlanName(payPlanCode, t("mossPay.settings.freePlan")))
     : null;
-  const usageStatus = identity.kind === "authenticated" ? mossQuotaSummary.status : null;
+  // Remaining quota % is shown once on the sidebar rail ring; keep the account menu entry clean without repeating it.
+  const usageStatus = null;
 
   const openSettings = useCallback(() => openSettingsDialog(), []);
 
@@ -602,9 +626,11 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   };
 
   return {
-    identity,
+    identity: effectiveIdentity,
     planName,
     usageStatus,
+    avatarSrc,
+    openProfileLabel: t("sidebar.accountMenu.openProfile"),
     labels: {
       openMenu: t("sidebar.accountMenu.open"),
       remainingUsage: t("sidebar.accountMenu.remainingUsage"),
@@ -623,8 +649,9 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
       phoneLogoutMutation.isPending ||
       cloudLogoutMutation.isPending ||
       enterpriseSignOutMutation.isPending,
+    onOpenProfile: () => void navigate({ to: "/profile" }),
     onOpenAccount: () =>
-      void navigate({ to: identity.kind === "anonymous" ? "/login" : "/account" }),
+      void navigate({ to: identity.kind === "anonymous" ? "/login" : "/profile" }),
     onOpenHelp: () => openSettingsDialog({ section: "shortcuts" }),
     onOpenSettings: openSettings,
     onOpenUsage: () => openSettingsDialog({ section: "usage" }),
@@ -639,56 +666,28 @@ export function SidebarAccountMenu(props?: { readonly helpControl?: ReactNode })
 }
 
 /**
- * Codex rail account entry: the bottom rail avatar opens the account menu next to
- * the rail instead of navigating away. Content is shared with the footer view.
+ * Bottom-left rail avatar button: clicking opens the ChatGPT-style Moss Profile page
+ * directly (no intermediate menu). Account & login settings live under Settings → 账号.
  */
 export function RailAccountMenu() {
   const model = useSidebarAccountMenuModel();
-  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <Menu open={menuOpen} onOpenChange={setMenuOpen}>
-      <MenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label={`${model.labels.openMenu}: ${model.identity.label}`}
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            data-sidebar-rail-item="profile"
-            data-testid="rail-account-menu-trigger"
-            title={model.identity.title}
-            className="group/rail-item flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-control text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
-          />
-        }
+    <button
+      type="button"
+      aria-label={`${model.openProfileLabel}: ${model.identity.label}`}
+      data-sidebar-rail-item="profile"
+      data-testid="rail-account-menu-trigger"
+      title={model.identity.title ?? model.identity.label}
+      onClick={model.onOpenProfile}
+      className="group/rail-item flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-control text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+    >
+      <span
+        aria-hidden="true"
+        className="flex size-[22px] items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
       >
-        <span
-          aria-hidden="true"
-          className="flex size-[22px] items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
-        >
-          <AccountBadgeContent initials={model.identity.initials} />
-        </span>
-      </MenuTrigger>
-      <ComposerPickerMenuPopup
-        align="end"
-        className="min-w-56 max-w-[calc(100vw-1rem)] rounded-xl border-[0.5px] border-border bg-[color-mix(in_srgb,var(--color-background-elevated-primary-opaque)_94%,transparent)] shadow-lg backdrop-blur-xl before:hidden"
-        side="right"
-        sideOffset={8}
-      >
-        <SidebarAccountMenuPopupSections
-          identity={model.identity}
-          labels={model.labels}
-          planName={model.planName}
-          usageStatus={model.usageStatus}
-          settingsShortcutLabel={model.settingsShortcutLabel}
-          signingOut={model.signingOut}
-          onOpenAccount={model.onOpenAccount}
-          onOpenUsage={model.onOpenUsage}
-          onOpenUpgrade={model.onOpenUpgrade}
-          onOpenSettings={model.onOpenSettings}
-          onSignOut={model.onSignOut}
-        />
-      </ComposerPickerMenuPopup>
-    </Menu>
+        <AccountBadgeContent initials={model.identity.initials} avatarSrc={model.avatarSrc} />
+      </span>
+    </button>
   );
 }

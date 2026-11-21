@@ -13,7 +13,7 @@ import {
 import { ProviderOptionDescriptor } from "./model";
 import { ProviderInstanceId } from "./providerInstance";
 
-const ProviderDiscoveryKind = Schema.Literals([
+export const ProviderDiscoveryKind = Schema.Literals([
   "codex",
   "claudeAgent",
   "cursor",

@@ -29,6 +29,7 @@ import { isMossPayOrderSettled } from "@moss/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 
 import { providerDiscoveryQueryKeys } from "~/lib/providerDiscoveryReactQuery";
+import { profileQueryKeys } from "~/components/profile/profileReactQuery";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { MOSS_APPS_QUERY_KEY, MOSS_APP_CONNECTIONS_QUERY_KEY } from "~/lib/mossAppsReactQuery";
 import { ensureNativeApi } from "~/nativeApi";
@@ -75,6 +76,7 @@ async function refreshMossManagedProviderCaches(queryClient: QueryClient): Promi
     queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() }),
     queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() }),
     queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),
+    queryClient.invalidateQueries({ queryKey: profileQueryKeys.state() }),
   ]);
 }
 
@@ -164,6 +166,9 @@ export function serverMossSelectRealmMutationOptions(input: { queryClient: Query
         input.queryClient.invalidateQueries({
           queryKey: mossServerQueryKeys.mossCloudAccountState(),
         }),
+        input.queryClient.invalidateQueries({
+          queryKey: profileQueryKeys.state(),
+        }),
       ]);
       await synchronizeMossManagedChatReadiness(input.queryClient).catch(() => {
         // Keep the committed realm visible; a later account/provider refetch
@@ -204,8 +209,23 @@ export function serverMossPayCatalogQueryOptions(input: { enabled?: boolean } = 
   });
 }
 
+function shouldRetryMossPayQuotaFailure(failureCount: number, error: unknown): boolean {
+  if (failureCount >= 2) return false;
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (
+      code === "unauthorized" ||
+      code === "authentication_required" ||
+      code === "not_configured"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function serverMossPayQuotaQueryOptions(
-  input: { enabled?: boolean; accountIdentity?: string | null } = {},
+  input: { enabled?: boolean; accountIdentity?: string | null; retry?: boolean | number } = {},
 ) {
   return queryOptions({
     queryKey: mossServerQueryKeys.mossPayQuota(input.accountIdentity),
@@ -215,7 +235,8 @@ export function serverMossPayQuotaQueryOptions(
       return api.server.getMossPayQuota();
     },
     staleTime: 10_000,
-    retry: false,
+    retry: input.retry ?? shouldRetryMossPayQuotaFailure,
+    retryDelay: (attemptIndex) => Math.min(400 * 2 ** attemptIndex, 1_500),
   });
 }
 

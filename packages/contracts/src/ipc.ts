@@ -1054,6 +1054,12 @@ export interface DesktopAppSnapCapture {
   sourceBundleIdentifier: string | null;
   sourceAppIconDataUrl: string | null;
   sourceWindowTitle: string | null;
+  sourceWindowBounds?: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  } | null;
 }
 
 export type DesktopSafariAccessInfo =

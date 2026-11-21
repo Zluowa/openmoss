@@ -298,6 +298,7 @@ import {
   ServerStopLocalServerInput,
   ServerVoicePrewarmInput,
   ServerVoiceTranscriptionInput,
+  ProviderCatalogSnapshotInput,
 } from "./server";
 import {
   StatsGetProfileStatsInput,
@@ -619,6 +620,7 @@ export const WS_METHODS = {
   providerStartAppConnection: "provider.startAppConnection",
   providerCompleteAppConnection: "provider.completeAppConnection",
   providerListModels: "provider.listModels",
+  providerGetCatalogSnapshot: "provider.getCatalogSnapshot",
   providerListAgents: "provider.listAgents",
   providerListMcp: "provider.listMcp",
   providerCatalogSelection: "provider.catalogSelection",
@@ -1125,6 +1127,7 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerStartAppConnection, ProviderStartAppConnectionInput),
   tagRequestBody(WS_METHODS.providerCompleteAppConnection, ProviderCompleteAppConnectionInput),
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
+  tagRequestBody(WS_METHODS.providerGetCatalogSnapshot, ProviderCatalogSnapshotInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
   tagRequestBody(WS_METHODS.providerListMcp, ProviderListMcpInput),
   tagRequestBody(WS_METHODS.providerCatalogSelection, MossCatalogSelectionInput),

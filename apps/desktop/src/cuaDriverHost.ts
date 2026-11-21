@@ -155,6 +155,8 @@ interface Generation {
   taskCursors: Map<string, TaskCursor>;
   /** Single-use cleanup receipts, scoped to the task and this live driver. */
   clipboardRestores: Map<string, string>;
+  /** True once a background Windows window-listing probe has initialized UIA/Win32 enumeration. */
+  windowListingWarmed?: boolean;
   retirement?: Promise<void>;
 }
 
@@ -1945,14 +1947,45 @@ export class CuaDriverHost {
   /**
    * Pre-spawns the native driver and opens its shared session in the background
    * when an explicit desktop feature (such as Windows AppSnap) is enabled, so
-   * the first capture pays zero cold-start latency. Safe to call repeatedly.
+   * the first capture pays zero cold-start latency. When `warmWindowListing` is
+   * set on Windows, also primes `list_windows` once so the driver's Win32/UIA
+   * enumeration subsystem is already warm before the first hotkey press.
+   * Safe to call repeatedly.
    */
-  prewarm(): void {
+  prewarm(options?: { readonly warmWindowListing?: boolean }): void {
     if (this.closed || this.suspended) return;
-    if (this.generation && !this.generation.retired && !this.generation.didExit) return;
-    void this.ensureStarted().catch((error: unknown) => {
-      log(`driver prewarm failed: ${String(error)}`);
-    });
+    const warmListing = options?.warmWindowListing === true && this.policyPlatform === "win32";
+    const active =
+      this.generation && !this.generation.retired && !this.generation.didExit
+        ? this.generation
+        : undefined;
+    if (active && (!warmListing || active.windowListingWarmed)) return;
+    void this.ensureStarted()
+      .then(async (generation) => {
+        if (
+          !warmListing ||
+          generation.windowListingWarmed ||
+          generation.retired ||
+          generation.didExit ||
+          this.closed ||
+          this.suspended
+        ) {
+          return;
+        }
+        generation.windowListingWarmed = true;
+        await cuaRequest<CuaReply>(
+          generation.socket,
+          {
+            method: "call",
+            name: "list_windows",
+            args: { on_screen_only: true, session: generation.session },
+          },
+          { timeoutMs: this.options.startupTimeoutMs ?? 5_000 },
+        );
+      })
+      .catch((error: unknown) => {
+        log(`driver prewarm failed: ${String(error)}`);
+      });
   }
 
   /**

@@ -638,4 +638,103 @@ describe("makeProviderModelDiscoveryCache", () => {
 
     expect(snapshots).toEqual([]);
   });
+
+  it("reuses a warm workspace catalog when allowCwdFallback is set and cwd is omitted", async () => {
+    const clock = makeClock();
+    const cache = makeProviderModelDiscoveryCache<ProviderAdapterRequestError>({
+      now: clock.now,
+    });
+    let calls = 0;
+    const discover = Effect.sync(() => {
+      calls += 1;
+      return CATALOG;
+    });
+
+    await Effect.runPromise(cache.lookup({ ...KEY, cwd: "/repo/desktop" }, discover));
+    expect(calls).toBe(1);
+
+    const mobileHit = await Effect.runPromise(
+      cache.lookup({ ...KEY, cwd: null }, discover, undefined, { allowCwdFallback: true }),
+    );
+    expect(mobileHit).toEqual({ ...CATALOG, cached: true });
+    expect(calls).toBe(1);
+
+    // Different configFingerprint must NOT reuse across workspaces.
+    const configChanged = await Effect.runPromise(
+      cache.lookup(
+        { ...KEY, cwd: null, configFingerprint: "project-local-override" },
+        discover,
+        undefined,
+        { allowCwdFallback: true },
+      ),
+    );
+    expect(configChanged.cached).toBe(false);
+    expect(calls).toBe(2);
+  });
+
+  it("cools down degraded catalogs for 5 minutes by default instead of thrashing every 30s", async () => {
+    const clock = makeClock();
+    const cache = makeProviderModelDiscoveryCache<ProviderAdapterRequestError>({
+      now: clock.now,
+    });
+    const degraded: ProviderListModelsResult = {
+      models: [{ slug: "static", name: "Static" }],
+      source: "devin.static",
+      cached: false,
+      error: "Devin CLI failed",
+    };
+    let calls = 0;
+    const discover = Effect.sync(() => {
+      calls += 1;
+      return calls === 1 ? degraded : CATALOG;
+    });
+
+    const first = await Effect.runPromise(cache.lookup(KEY, discover));
+    expect(first.error).toBe("Devin CLI failed");
+    clock.advance(60_000);
+    const replayedAt60s = await Effect.runPromise(cache.lookup(KEY, discover));
+    expect(replayedAt60s.error).toBe("Devin CLI failed");
+    expect(calls).toBe(1);
+
+    clock.advance(5 * 60_000);
+    const recovered = await Effect.runPromise(cache.lookup(KEY, discover));
+    expect(recovered.models).toEqual(CATALOG.models);
+    expect(calls).toBe(2);
+  });
+
+  it("peeks the freshest catalog for an instance synchronously with exact cwd preference", async () => {
+    const clock = makeClock();
+    const cache = makeProviderModelDiscoveryCache<ProviderAdapterRequestError>({
+      now: clock.now,
+      freshTtlMs: 10_000,
+    });
+    const catalogA: ProviderListModelsResult = {
+      models: [{ slug: "model-a", name: "Model A" }],
+      source: "opencode-cli",
+      cached: false,
+    };
+    const catalogB: ProviderListModelsResult = {
+      models: [{ slug: "model-b", name: "Model B" }],
+      source: "opencode-cli",
+      cached: false,
+    };
+    await Effect.runPromise(
+      cache.lookup({ ...KEY, instanceId: "opencode", cwd: "/repo/a" }, Effect.succeed(catalogA)),
+    );
+    clock.advance(1_000);
+    await Effect.runPromise(
+      cache.lookup({ ...KEY, instanceId: "opencode", cwd: "/repo/b" }, Effect.succeed(catalogB)),
+    );
+
+    expect(cache.peekBestForInstance("opencode", "opencode", "/repo/a")?.result.models).toEqual(
+      catalogA.models,
+    );
+    expect(cache.peekBestForInstance("opencode", "opencode", null)?.result.models).toEqual(
+      catalogB.models,
+    );
+    expect(cache.peekBestForInstance("opencode", "opencode", null)?.stale).toBe(false);
+
+    clock.advance(11_000);
+    expect(cache.peekBestForInstance("opencode", "opencode", null)?.stale).toBe(true);
+  });
 });

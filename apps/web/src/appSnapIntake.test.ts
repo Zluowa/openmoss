@@ -11,6 +11,7 @@ const persistComposerImageBlob = vi.fn();
 const deleteComposerImageBlob = vi.fn();
 const persistAppSnapIcon = vi.fn();
 const readAppSnapIcon = vi.fn();
+const peekCachedAppSnapIcon = vi.fn(() => undefined);
 
 vi.mock("./lib/composerSend", () => ({
   effectiveComposerAttachmentCount: (...args: unknown[]) =>
@@ -24,6 +25,7 @@ vi.mock("./lib/composerImageBlobStore", () => ({
   readComposerImageBlob: vi.fn(),
 }));
 vi.mock("./lib/appSnapIconStore", () => ({
+  peekCachedAppSnapIcon: (...args: unknown[]) => peekCachedAppSnapIcon(...(args as [])),
   persistAppSnapIcon: (...args: unknown[]) => persistAppSnapIcon(...(args as [])),
   readAppSnapIcon: (...args: unknown[]) => readAppSnapIcon(...(args as [])),
 }));
@@ -103,6 +105,37 @@ describe("insertAppSnapCaptureIntoDraft", () => {
     expect(setPromptHistorySavedDraft).toHaveBeenCalledWith(threadId, null);
   });
 
+  it("adds the image to the draft immediately before IndexedDB persistence finishes", async () => {
+    let resolveBlob!: (key: string) => void;
+    persistComposerImageBlob.mockImplementation(
+      () =>
+        new Promise<string>((resolve) => {
+          resolveBlob = resolve;
+        }),
+    );
+
+    const pending = insertAppSnapCaptureIntoDraft(threadId, captureFixture());
+    await vi.waitFor(() => {
+      expect(addImage).toHaveBeenCalledOnce();
+    });
+    expect(syncPersistedAttachments).not.toHaveBeenCalled();
+
+    resolveBlob("blob-key-fast");
+    await expect(pending).resolves.toBe("persisted");
+    expect(syncPersistedAttachments).toHaveBeenCalledOnce();
+  });
+
+  it("rolls back the optimistically added image if IndexedDB blob persistence fails", async () => {
+    persistComposerImageBlob.mockRejectedValue(new Error("IndexedDB quota exceeded"));
+    await expect(insertAppSnapCaptureIntoDraft(threadId, captureFixture())).rejects.toThrow(
+      "IndexedDB quota exceeded",
+    );
+    expect(addImage).toHaveBeenCalledOnce();
+    expect(removeImage).toHaveBeenCalledExactlyOnceWith(threadId, "image-1");
+    expect(deleteComposerImageBlob).not.toHaveBeenCalled();
+    expect(setPromptHistorySavedDraft).not.toHaveBeenCalled();
+  });
+
   it("rolls back the image and blob without discarding prompt history when persistence rejects", async () => {
     syncPersistedAttachments.mockResolvedValue("rejected");
     await expect(insertAppSnapCaptureIntoDraft(threadId, captureFixture())).rejects.toThrow(
@@ -110,11 +143,11 @@ describe("insertAppSnapCaptureIntoDraft", () => {
     );
     expect(addImage).toHaveBeenCalledWith(threadId, expect.anything());
     expect(setPromptHistorySavedDraft).not.toHaveBeenCalled();
-    expect(removeImage).toHaveBeenCalledWith(threadId, "image-1");
-    expect(deleteComposerImageBlob).toHaveBeenCalledWith("blob-key-1");
+    expect(removeImage).toHaveBeenCalledExactlyOnceWith(threadId, "image-1");
+    expect(deleteComposerImageBlob).toHaveBeenCalledExactlyOnceWith("blob-key-1");
   });
 
-  it("rolls back the prepared image when the draft is already full", async () => {
+  it("rejects immediately without writing an orphan blob when the draft is already full", async () => {
     addImage.mockReturnValue(false);
     const revokeObjectUrl = vi.fn();
     const originalRevoke = URL.revokeObjectURL;
@@ -124,7 +157,8 @@ describe("insertAppSnapCaptureIntoDraft", () => {
         "maximum number of references",
       );
       expect(revokeObjectUrl).toHaveBeenCalledWith("blob:image-1");
-      expect(deleteComposerImageBlob).toHaveBeenCalledWith("blob-key-1");
+      expect(persistComposerImageBlob).not.toHaveBeenCalled();
+      expect(deleteComposerImageBlob).not.toHaveBeenCalled();
       expect(setPromptHistorySavedDraft).not.toHaveBeenCalled();
     } finally {
       URL.revokeObjectURL = originalRevoke;

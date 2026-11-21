@@ -33,7 +33,13 @@ const SIGN_IN_ROUTE: Readonly<
  * Every sign-in lane with its reach and status. Exactly one lane powers the
  * managed Moss models at a time; switching keeps the other lanes signed in.
  */
-export function MossAccessLanesPanel() {
+export function MossAccessLanesPanel({
+  onNavigateToAuth,
+  onManageGoogle,
+}: {
+  readonly onNavigateToAuth?: () => void;
+  readonly onManageGoogle?: () => void;
+} = {}) {
   const queryClient = useQueryClient();
   const phone = useQuery(serverMossAccountSessionQueryOptions());
   const cloud = useQuery(serverMossCloudAccountStateQueryOptions());
@@ -99,21 +105,41 @@ export function MossAccessLanesPanel() {
                   </Button>
                 ) : null}
                 {lane === "enterprise" && signedIn ? (
-                  <Button render={<Link to="/login/api-key" />} size="sm" variant="ghost">
-                    管理
-                  </Button>
-                ) : null}
-                {lane === "global" && signedIn ? (
                   <Button
-                    render={<Link search={{ accountView: "google" }} to="/account" />}
+                    render={<Link onClick={onNavigateToAuth} to="/login/api-key" />}
                     size="sm"
                     variant="ghost"
                   >
                     管理
                   </Button>
                 ) : null}
+                {lane === "global" && signedIn ? (
+                  onManageGoogle ? (
+                    <Button onClick={onManageGoogle} size="sm" variant="ghost">
+                      管理
+                    </Button>
+                  ) : (
+                    <Button
+                      render={
+                        <Link
+                          onClick={onNavigateToAuth}
+                          search={{ accountView: "google" }}
+                          to="/account"
+                        />
+                      }
+                      size="sm"
+                      variant="ghost"
+                    >
+                      管理
+                    </Button>
+                  )
+                ) : null}
                 {!signedIn ? (
-                  <Button render={<Link to={SIGN_IN_ROUTE[lane]} />} size="sm" variant="ghost">
+                  <Button
+                    render={<Link onClick={onNavigateToAuth} to={SIGN_IN_ROUTE[lane]} />}
+                    size="sm"
+                    variant="ghost"
+                  >
                     登录
                   </Button>
                 ) : null}
