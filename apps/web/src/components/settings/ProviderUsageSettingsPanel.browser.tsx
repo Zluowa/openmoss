@@ -577,7 +577,7 @@ describe("ProviderUsageSettingsPanel", () => {
         .element(page.getByText("1 倍 Agent 使用额度", { exact: true }))
         .toBeInTheDocument();
       expect(page.getByTestId("moss-payment-method").element().textContent).toContain(
-        "提市微信支付",
+        "请使用微信支付",
       );
       await expect.element(page.getByTestId("moss-membership-subscribe-basic")).toBeDisabled();
       await expect.element(page.getByTestId("moss-membership-subscribe-plus")).not.toBeDisabled();

@@ -20,8 +20,16 @@ import {
   listAgentGatewayMcpTools,
   MOSS_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV,
   MOSS_AGENT_GATEWAY_TOKEN_ENV,
+  MOSS_MCP_SERVER_NAME,
   MOSS_MCP_TOOL_TIMEOUT_MS,
 } from "./mcpInjection.ts";
+import { MOSS_CODEX_MCP_SERVER_NAME } from "@moss/shared/codexDiagnostics";
+
+describe("MOSS_MCP_SERVER_NAME", () => {
+  it("matches the name the Codex diagnostics rules treat as Moss's own server", () => {
+    assert.strictEqual(MOSS_CODEX_MCP_SERVER_NAME, MOSS_MCP_SERVER_NAME);
+  });
+});
 
 const connection = {
   url: "http://127.0.0.1:3773/mcp",

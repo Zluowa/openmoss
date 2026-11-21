@@ -833,6 +833,65 @@ layer("AutomationRepository", (it) => {
     }),
   );
 
+  // Synara #2181: the failed, succeeded and interrupted guards left `skipped` out of their
+  // terminal set, so a late reconciler could overwrite a run the service had skipped.
+  it.effect("keeps a skipped run skipped when a late observer marks it", () =>
+    Effect.gen(function* () {
+      const repository = yield* AutomationRepository;
+      yield* runMigrations();
+
+      yield* repository.createDefinition({
+        id: AutomationId.makeUnsafe("automation-skipped"),
+        input: createInputForProject("project-skipped"),
+        now: "2026-06-16T10:00:00.000Z",
+      });
+      const id = AutomationRunId.makeUnsafe("run-skipped");
+      yield* repository.createRun({
+        id,
+        automationId: AutomationId.makeUnsafe("automation-skipped"),
+        projectId: ProjectId.makeUnsafe("project-skipped"),
+        threadId: ThreadId.makeUnsafe("thread-skipped"),
+        trigger: { type: "manual" },
+        scheduledFor: "2026-06-16T10:05:00.000Z",
+        permissionSnapshot,
+        now: "2026-06-16T10:00:00.000Z",
+      });
+      const skipped = yield* repository.markRunSkipped({
+        id,
+        reason: "previous run still active",
+        finishedAt: "2026-06-16T10:05:00.000Z",
+      });
+      assert.strictEqual(skipped.status, "skipped");
+
+      const failed = yield* repository.markRunFailed({
+        id,
+        error: "late failure",
+        finishedAt: "2026-06-16T10:06:00.000Z",
+      });
+      assert.isFalse(failed.transitioned);
+      assert.strictEqual(failed.run.status, "skipped");
+      assert.strictEqual(failed.run.error, "previous run still active");
+
+      const succeeded = yield* repository.markRunSucceeded({
+        id,
+        turnId: TurnId.makeUnsafe("turn-late"),
+        result: null,
+        finishedAt: "2026-06-16T10:07:00.000Z",
+        accountedAt: "2026-06-16T10:07:00.000Z",
+      });
+      assert.isFalse(succeeded.transitioned);
+      assert.strictEqual(succeeded.run.status, "skipped");
+
+      const interrupted = yield* repository.markRunInterrupted({
+        id,
+        turnId: TurnId.makeUnsafe("turn-late"),
+        finishedAt: "2026-06-16T10:08:00.000Z",
+      });
+      assert.strictEqual(interrupted.status, "skipped");
+      assert.strictEqual(interrupted.finishedAt, "2026-06-16T10:05:00.000Z");
+    }),
+  );
+
   it.effect("admits at most one active run for a thread", () =>
     Effect.gen(function* () {
       const repository = yield* AutomationRepository;

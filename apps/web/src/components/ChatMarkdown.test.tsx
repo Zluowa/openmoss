@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ThreadMarker } from "@moss/contracts";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -898,6 +899,65 @@ it("opens Obsidian aliases relative to the vault and leaves code unchanged", asy
   expect(markup).toContain('href="/vault/My%20note.md"');
   expect(markup).toContain("<code>[[literal|text]]</code>");
   expect(markup).not.toContain("[[03-Resources");
+});
+
+// From Synara #2215: settled transcript rows share one parse across remounts.
+it("shares a settled parse only between opted-in renders with the same parse inputs", async () => {
+  const { default: ChatMarkdown } = await import("./ChatMarkdown");
+  const text = "Shared parse: see [[My note]] and **bold**.";
+  const render = (props: { wikiLinkRoot: string; variant?: "user" }) =>
+    renderWithQueryClient(<ChatMarkdown text={text} cwd="/vault/notes" shareParse {...props} />);
+  const first = render({ wikiLinkRoot: "/vault" });
+  const again = render({ wikiLinkRoot: "/vault" });
+  const otherRoot = render({ wikiLinkRoot: "/other" });
+  const user = render({ wikiLinkRoot: "/vault", variant: "user" });
+
+  expect(again).toBe(first);
+  expect(first).toContain('href="/vault/My%20note.md"');
+  expect(otherRoot).toContain('href="/other/My%20note.md"');
+  expect(otherRoot).not.toContain("/vault/");
+  // User messages parse with their own plugins (no wiki links), never the shared tree.
+  expect(user).not.toContain('href="/vault/My%20note.md"');
+});
+
+it("keeps previews, huge, marked and streaming messages out of the shared parse cache", async () => {
+  const { default: ChatMarkdown, getSharedParseCacheSizeForTests } = await import("./ChatMarkdown");
+  const before = getSharedParseCacheSizeForTests();
+  // Not opted in: file previews, PR bodies and dialogs change or can be huge.
+  renderWithQueryClient(<ChatMarkdown text={"# Preview\n\nbody v1"} cwd="/repo" parseHtml />);
+  renderWithQueryClient(<ChatMarkdown text={"# Preview\n\nbody v2"} cwd="/repo" />);
+  // Opted in, but one entry may not outweigh the rest of the cache.
+  renderWithQueryClient(
+    <ChatMarkdown text={`huge ${"word ".repeat(40_000)}`} cwd="/repo" shareParse />,
+  );
+  renderWithQueryClient(<ChatMarkdown text="streaming reply" cwd="/repo" shareParse isStreaming />);
+  // A Moss marker decorates the parse of its own message, so that parse is never shared.
+  const markedText = "A marked reply with a highlight.";
+  const start = markedText.indexOf("highlight");
+  const marker = {
+    id: "marker-1",
+    messageId: "message-1",
+    startOffset: start,
+    endOffset: start + "highlight".length,
+    selectedText: "highlight",
+    style: "highlight",
+    color: "yellow",
+    label: null,
+    done: false,
+    createdAt: "2026-11-21T00:00:00.000Z",
+    updatedAt: "2026-11-21T00:00:00.000Z",
+  } as unknown as ThreadMarker;
+  const marked = renderWithQueryClient(
+    <ChatMarkdown text={markedText} cwd="/repo" shareParse markers={[marker]} />,
+  );
+  expect(getSharedParseCacheSizeForTests()).toBe(before);
+  // The same text without the marker parses on its own, without the marked tree.
+  const unmarked = renderWithQueryClient(<ChatMarkdown text={markedText} cwd="/repo" shareParse />);
+  expect(unmarked).not.toBe(marked);
+  expect(getSharedParseCacheSizeForTests()).toBe(before + 1);
+
+  renderWithQueryClient(<ChatMarkdown text="settled transcript reply" cwd="/repo" shareParse />);
+  expect(getSharedParseCacheSizeForTests()).toBe(before + 2);
 });
 
 it.each(["\n", "\r\n"])(

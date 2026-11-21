@@ -4289,15 +4289,11 @@ const makeWsRpcHandlersLayer = () =>
           streamAdmission.guard(
             clientId,
             { key: "server.settings" },
-            Stream.concat(
-              Stream.fromEffect(
-                serverSettings.getSettingsView.pipe(Effect.map((settings) => ({ settings }))),
-              ),
-              bufferLiveUiStream(serverSettings.streamViews, {
-                label: "server.settings",
-                onDroppedEvents: failLiveUiStreamForSnapshotResync,
-              }).pipe(Stream.map((settings) => ({ settings }))),
-            ).pipe(
+            bufferLiveUiStream(serverSettings.streamViewsWithSnapshot, {
+              label: "server.settings",
+              onDroppedEvents: failLiveUiStreamForSnapshotResync,
+            }).pipe(
+              Stream.map((settings) => ({ settings })),
               Stream.mapError((cause) => toWsRpcError(cause, "Server settings stream failed")),
             ),
           ),

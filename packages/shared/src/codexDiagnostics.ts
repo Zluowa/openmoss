@@ -4,6 +4,11 @@
 //   fallbacks that also arrive as `warning` notifications.
 // Layer: Shared provider presentation policy (server stderr routing + web replay of old rows)
 
+import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "./mcpConnectors";
+
+/** Moss's own MCP server in Codex's config (`MOSS_MCP_SERVER_NAME` in the server's mcpInjection). */
+export const MOSS_CODEX_MCP_SERVER_NAME = "moss";
+
 // Codex's own background subsystems log every retry on stderr. Codex reports the
 // user-relevant outcome through the turn itself (a failed turn carries the auth error),
 // and neither the Codex CLI nor its desktop app shows these lines. A refused Responses
@@ -135,4 +140,19 @@ export function readCodexMcpSubscriptionError(message: string): string | undefin
   } catch {
     return;
   }
+}
+
+/**
+ * Codex could not start an MCP server from the person's own Codex config because its OAuth
+ * grant needs renewing (`codex mcp login <name>`). That is their Codex setup, not this chat,
+ * so it stays in the server log like the same failure on stderr. Moss's own server and its
+ * connectors never use Codex OAuth, so a failure naming them stays visible. Upstream PR #2213.
+ */
+export function isCodexUserMcpOAuthStartupError(server: string, error: string): boolean {
+  return (
+    server !== MOSS_CODEX_MCP_SERVER_NAME &&
+    !server.endsWith(MCP_CONNECTOR_SERVER_NAME_SUFFIX) &&
+    error ===
+      `The ${server} MCP server requires OAuth reauthentication. Run \`codex mcp login ${server}\`.`
+  );
 }

@@ -383,13 +383,25 @@ function synchronizeProviderProfileWrappers(
   );
 }
 
-function buildManagedZshRc(quotedZshDir: string): string {
+// Restore the user's parameter, including the unset state that makes zsh use HOME.
+function restoreZshDotDir(variable: "MOSS_ORIGINAL_ZDOTDIR" | "_moss_user_zdotdir"): string {
+  return `if [[ -v ${variable} ]]; then
+  ZDOTDIR="\${${variable}}"
+else
+  unset ZDOTDIR
+fi
+`;
+}
+
+function sourceZshStartupFile(file: ".zshenv" | ".zprofile" | ".zshrc"): string {
+  return `[[ -f "\${ZDOTDIR-$HOME}/${file}" ]] && source "\${ZDOTDIR-$HOME}/${file}"
+`;
+}
+
+function buildManagedZshRc(): string {
   return `# Moss zsh rc wrapper
-_t3code_home="\${T3CODE_ORIGINAL_ZDOTDIR:-$HOME}"
-export ZDOTDIR="$_t3code_home"
-[[ -f "$_t3code_home/.zshrc" ]] && source "$_t3code_home/.zshrc"
-export ZDOTDIR=${quotedZshDir}
-if [ -n "\${MOSS_MANAGED_BIN_DIR:-}" ] && [ -d "\${MOSS_MANAGED_BIN_DIR}" ]; then
+${restoreZshDotDir("_moss_user_zdotdir")}unset _moss_user_zdotdir
+${sourceZshStartupFile(".zshrc")}if [ -n "\${MOSS_MANAGED_BIN_DIR:-}" ] && [ -d "\${MOSS_MANAGED_BIN_DIR}" ]; then
   case ":$PATH:" in
     *:\${MOSS_MANAGED_BIN_DIR}:*) ;;
     *) export PATH="\${MOSS_MANAGED_BIN_DIR}:$PATH" ;;
@@ -426,32 +438,31 @@ fi
 
 function ensureManagedZshWrappers(zshDir: string): void {
   ensurePrivateDirectorySync(zshDir);
-  const quotedZshDir = shellQuote(zshDir);
+  // Only the interactive startup stages still need Moss's wrapper directory.
+  // Carry any change made by user code forward, and let zsh use it after .zshrc.
+  const continueToManagedRc = `if [[ -o interactive && -o rcs ]]; then
+  if [[ -v ZDOTDIR ]]; then
+    _moss_user_zdotdir="$ZDOTDIR"
+  else
+    unset _moss_user_zdotdir
+  fi
+  ZDOTDIR=${shellQuote(zshDir)}
+fi
+`;
   writeFileIfChanged(
     path.join(zshDir, ".zshenv"),
     `# Moss zsh env wrapper
-_t3code_home="\${T3CODE_ORIGINAL_ZDOTDIR:-$HOME}"
-export ZDOTDIR="$_t3code_home"
-[[ -f "$_t3code_home/.zshenv" ]] && source "$_t3code_home/.zshenv"
-export ZDOTDIR=${quotedZshDir}
-`,
+${restoreZshDotDir("MOSS_ORIGINAL_ZDOTDIR")}unset MOSS_ORIGINAL_ZDOTDIR
+${sourceZshStartupFile(".zshenv")}${continueToManagedRc}`,
     PRIVATE_FILE_MODE,
   );
   writeFileIfChanged(
     path.join(zshDir, ".zprofile"),
     `# Moss zsh profile wrapper
-_t3code_home="\${T3CODE_ORIGINAL_ZDOTDIR:-$HOME}"
-export ZDOTDIR="$_t3code_home"
-[[ -f "$_t3code_home/.zprofile" ]] && source "$_t3code_home/.zprofile"
-export ZDOTDIR=${quotedZshDir}
-`,
+${restoreZshDotDir("_moss_user_zdotdir")}${sourceZshStartupFile(".zprofile")}${continueToManagedRc}`,
     PRIVATE_FILE_MODE,
   );
-  writeFileIfChanged(
-    path.join(zshDir, ".zshrc"),
-    buildManagedZshRc(quotedZshDir),
-    PRIVATE_FILE_MODE,
-  );
+  writeFileIfChanged(path.join(zshDir, ".zshrc"), buildManagedZshRc(), PRIVATE_FILE_MODE);
 }
 
 export function prepareManagedTerminalWrappers(options: {
@@ -565,7 +576,7 @@ function applyManagedTerminalWrapperEnvState(
   return {
     ...env,
     MOSS_MANAGED_BIN_DIR: wrapperState.binDir,
-    MOSS_ORIGINAL_ZDOTDIR: env.ZDOTDIR ?? env.HOME ?? "",
+    ...(env.ZDOTDIR !== undefined ? { MOSS_ORIGINAL_ZDOTDIR: env.ZDOTDIR } : {}),
     ...(wrapperState.zshDir ? { ZDOTDIR: wrapperState.zshDir } : {}),
     [envPathKey]: currentEntries.join(path.delimiter),
   };

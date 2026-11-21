@@ -1199,6 +1199,47 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("keeps user MCP OAuth reauthentication notices out of runtime warnings", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const sentinel = "MCP OAuth fixture complete";
+      const oauthError = (name: string) =>
+        `The ${name} MCP server requires OAuth reauthentication. Run \`codex mcp login ${name}\`.`;
+      const eventsFiber = yield* Stream.takeUntil(
+        adapter.streamEvents,
+        (event) => event.type === "runtime.warning" && event.payload.message === sentinel,
+      ).pipe(Stream.runCollect, Effect.forkChild);
+      // From Synara #2213: the person's own servers stay in the log; a Moss-managed connector
+      // still says it failed, because Moss can act on it.
+      for (const name of ["stripe", "polar", "stripe_connector"]) {
+        lifecycleManager.emit("event", {
+          id: asEventId(`oauth-${name}`),
+          kind: "notification",
+          provider: "codex",
+          threadId: asThreadId("thread-oauth"),
+          createdAt: new Date().toISOString(),
+          method: "mcpServer/startupStatus/updated",
+          payload: { name, status: "failed", error: oauthError(name) },
+        } satisfies ProviderEvent);
+      }
+      lifecycleManager.emit("event", {
+        id: asEventId("mcp-oauth-complete"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-oauth"),
+        createdAt: new Date().toISOString(),
+        method: "warning",
+        payload: { message: sentinel },
+      } satisfies ProviderEvent);
+      const messages = Array.from(yield* Fiber.join(eventsFiber))
+        .slice(0, -1)
+        .flatMap((event) => (event.type === "runtime.warning" ? [event.payload.message] : []));
+      assert.deepEqual(messages, [
+        'MCP server "stripe_connector" could not start. Its tools are unavailable for now.',
+      ]);
+    }),
+  );
+
   it.effect("says a not-signed-in MCP server once per app start, not in every new chat", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

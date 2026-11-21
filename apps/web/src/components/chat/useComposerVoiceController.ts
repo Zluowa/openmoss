@@ -11,6 +11,7 @@ import {
 } from "@moss/contracts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { useMossSignInState } from "../auth/useMossGatewayUnreachable";
 import type { Project } from "../../types";
 import {
   formatVoiceRecordingDuration,
@@ -150,7 +151,8 @@ export function useComposerVoiceController(
   }, [threadId, selectedProvider, selectedProviderInstanceId, voiceProviderInstanceId]);
 
   const voiceRecordingDurationLabel = formatVoiceRecordingDuration(voiceRecordingDurationMs);
-  const { canStartVoiceNotes, showVoiceNotesControl } = deriveComposerVoiceState({
+  const mossSignIn = useMossSignInState();
+  const personalVoice = deriveComposerVoiceState({
     enabled: activeProviderStatus?.enabled,
     available: activeProviderStatus?.available === true,
     authStatus: activeProviderStatus?.authStatus,
@@ -158,6 +160,9 @@ export function useComposerVoiceController(
     isRecording: isVoiceRecording,
     isTranscribing: isVoiceTranscribing,
   });
+
+  const canStartVoiceNotes = mossSignIn === "signed-in" || personalVoice.canStartVoiceNotes;
+  const showVoiceNotesControl = mossSignIn === "signed-in" || personalVoice.showVoiceNotesControl;
 
   useEffect(() => {
     const invalidatedRequestId = voiceTranscriptionRequestIdRef.current + 1;
@@ -230,17 +235,13 @@ export function useComposerVoiceController(
     if (!activeProject) {
       return;
     }
-    if (activeProviderStatus?.authStatus === "unauthenticated") {
-      toastManager.add({
-        type: "error",
-        title: "Sign in to ChatGPT in Codex before using voice notes.",
-      });
-      return;
-    }
     if (!canStartVoiceNotes) {
       toastManager.add({
         type: "error",
-        title: "Voice notes require a ChatGPT-authenticated Codex session.",
+        title:
+          mossSignIn === "checking"
+            ? "Checking your Moss account. Try dictation again in a moment."
+            : "Sign in to Moss or connect a personal account that supports dictation.",
       });
       return;
     }
@@ -255,6 +256,8 @@ export function useComposerVoiceController(
     try {
       await startVoiceRecording();
       voiceRecordingStartedAtRef.current = performance.now();
+      // Personal prewarming starts a Codex process. Moss transcribes on its own gateway.
+      if (mossSignIn === "signed-in") return;
       const api = readNativeApi();
       void api?.server
         .prewarmVoice?.({

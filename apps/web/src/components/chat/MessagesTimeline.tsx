@@ -129,7 +129,7 @@ import {
 } from "./transcript/cards/transcriptCards";
 import { stripReplyMarkers } from "./transcript/replyQuote";
 import { isWrapUpTimelineEntry, resolveWrapUpPlan } from "./transcript/wrapUpPlan";
-import { isAgentFeedbackToolName } from "~/lib/toolCallLabel";
+import { isAgentFeedbackToolName, isDevsReportDraftToolName } from "~/lib/toolCallLabel";
 import { WrapUpLiveBox, WrapUpSettledCard } from "./transcript/WrapUpBox";
 import { ChapterHeading } from "./transcript/ChapterHeading";
 import { RewindMarker } from "./transcript/RewindMarker";
@@ -779,12 +779,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         );
       }
     : undefined;
-  // moss_wrap_up draws the turn-end box instead; moss_report_friction stays out of the chat.
+  // moss_wrap_up draws the turn-end box instead; moss_report_friction stays out of the chat;
+  // moss_draft_devs_report shows as the report card its activity draws.
   const wrapUpPlan = useMemo(() => resolveWrapUpPlan(rawTimelineEntries), [rawTimelineEntries]);
   const timelineEntries = useMemo(() => {
     const isHiddenToolEntry = (entry: (typeof rawTimelineEntries)[number]) =>
       isWrapUpTimelineEntry(entry) ||
-      (entry.kind === "work" && isAgentFeedbackToolName(entry.entry.toolName));
+      (entry.kind === "work" &&
+        (isAgentFeedbackToolName(entry.entry.toolName) ||
+          isDevsReportDraftToolName(entry.entry.toolName)));
     return rawTimelineEntries.some(isHiddenToolEntry)
       ? rawTimelineEntries.filter((entry) => !isHiddenToolEntry(entry))
       : rawTimelineEntries;
@@ -2063,11 +2066,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             // The capability-denied and secret request cards carry the only
             // affordance to unblock the agent, so they must never disappear behind
             // the "Show more" cap. Nor does the subagent card: the "N running" chip
-            // scrolls to it.
+            // scrolls to it. A drafted developer report waits on the person too.
             shouldCapEntry: (workEntry) =>
               !workEntry.computerControlDenied &&
               !workEntry.computerSetupRequired &&
               !workEntry.secretRequest &&
+              !workEntry.devsReportDraft &&
               !workEntry.subagentRun,
           });
           const renderChunks = cappedRenderPlan.chunks;
@@ -2232,6 +2236,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         segmentIndex={row.segmentIndex}
                         renderInlineVisualizations={row.message.role === "assistant"}
                         isStreaming={false}
+                        shareParse
                         style={chatTypographyStyle}
                         onImageExpand={onImageExpand}
                         {...(onOpenHtmlDocument
@@ -3107,6 +3112,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     messageId={item.message.id}
                     renderInlineVisualizations={item.message.role === "assistant"}
                     isStreaming={false}
+                    shareParse
                     style={chatTypographyStyle}
                     onImageExpand={onImageExpand}
                     {...(onOpenHtmlDocument
@@ -3398,6 +3404,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             messageId={row.message.id}
                             renderInlineVisualizations={row.message.role === "assistant"}
                             isStreaming={Boolean(row.message.streaming)}
+                            shareParse
                             style={chatTypographyStyle}
                             onImageExpand={onImageExpand}
                             {...(onOpenHtmlDocument
