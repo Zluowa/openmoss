@@ -4,31 +4,23 @@
 
 import type { MossPayOrder, MossPayQuota } from "@moss/contracts";
 import { isMossPayOrderSettled } from "@moss/contracts";
-import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { QrCode as SharedQrCode } from "~/components/ui/qr-code";
 import { useEffect, useState } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { serverMutationKeys, serverQueryKeys } from "~/lib/serverReactQuery";
 import {
-  mossServerMutationKeys,
   mossServerQueryKeys,
-  serverMossAccountSessionQueryOptions,
-  serverMossCloudAccountStateQueryOptions,
   serverMossPayCatalogQueryOptions,
   serverMossPayCreateOrderMutationOptions,
   serverMossPayOrderQueryOptions,
-  serverMossPayQuotaQueryOptions,
 } from "./mossServerReactQuery";
+import { useMossPayQuotaQuery } from "./useMossPayQuotaQuery";
 import { openExternalLink } from "~/lib/linkChips";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
-import {
-  isMossPayAccountTransitionPending,
-  resolveMossPayQuotaAccountIdentity,
-} from "~/lib/mossPayQuotaIdentity";
 import type { MossLocaleCode } from "~/uiLocale";
 import {
   isBuiltInFreeMossPlanCode,
@@ -195,49 +187,24 @@ function MossPayCatalogSkeleton() {
 export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } = {}) {
   const { format, locale, t } = useTranslation();
   const queryClient = useQueryClient();
-  const phoneAccountQuery = useQuery(serverMossAccountSessionQueryOptions());
-  const accountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
-  const phoneLoginCount = useIsMutating({ mutationKey: mossServerMutationKeys.mossPhoneLogin() });
-  const phoneLogoutCount = useIsMutating({ mutationKey: mossServerMutationKeys.mossLogout() });
-  const cloudAccountSwitchCount = useIsMutating({
-    mutationKey: mossServerMutationKeys.mossCloudSelect(),
-  });
-  const cloudLogoutCount = useIsMutating({ mutationKey: mossServerMutationKeys.mossCloudLogout() });
-  const accountTransitionPending = isMossPayAccountTransitionPending({
-    phoneLoginCount,
-    phoneLogoutCount,
-    cloudAccountSwitchCount,
-    cloudLogoutCount,
-  });
-  const selectedAccountIdentity = resolveMossPayQuotaAccountIdentity(
-    phoneAccountQuery.data,
-    accountQuery.data,
-    accountTransitionPending,
-  );
+  const {
+    phoneAccountQuery,
+    cloudAccountQuery: accountQuery,
+    accountIdentity: selectedAccountIdentity,
+    quotaQuery,
+    quota,
+    accountLoading,
+    quotaLoading,
+  } = useMossPayQuotaQuery();
   const catalogQuery = useQuery(serverMossPayCatalogQueryOptions({ enabled: showCatalog }));
-  const quotaQuery = useQuery(
-    serverMossPayQuotaQueryOptions({
-      enabled: selectedAccountIdentity !== null,
-      accountIdentity: selectedAccountIdentity,
-    }),
-  );
   const createOrder = useMutation(serverMossPayCreateOrderMutationOptions({ queryClient }));
   const [activeOrderNo, setActiveOrderNo] = useState<string | null>(null);
   const [commerceTab, setCommerceTab] = useState<"plans" | "usage">("plans");
   const orderQuery = useQuery(serverMossPayOrderQueryOptions(activeOrderNo));
 
   const catalog = catalogQuery.data;
-  const quota = accountTransitionPending ? undefined : quotaQuery.data;
   const order = orderQuery.data;
-  const accountLoading =
-    accountTransitionPending ||
-    (selectedAccountIdentity === null &&
-      (phoneAccountQuery.isPending ||
-        phoneAccountQuery.isFetching ||
-        accountQuery.isPending ||
-        accountQuery.isFetching));
   const catalogLoading = showCatalog && catalogQuery.isPending && !catalog;
-  const quotaLoading = selectedAccountIdentity !== null && quotaQuery.isPending && !quota;
 
   const plansPurchasable = mossPlansPurchasable(catalog);
   const rail =
@@ -309,7 +276,8 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
           : quota.planCode))
       : null) ?? t("mossPay.settings.planUnavailable");
 
-  const isFreeWallet = quota?.billingModel === "wallet_credits_v1";
+  const isFreeWallet =
+    quota?.billingModel === "wallet_credits_v1" || isBuiltInFreeMossPlanCode(quota?.planCode);
   const packageCost = quota?.billingModel === "cost_budget_v1" || isFreeWallet;
   const packageLimit = quota?.usageLimits.find((limit) => limit.key === "lifetime");
   const packageUsedPercent = packageLimit
@@ -498,6 +466,17 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
           <Alert className="mt-4" variant="error">
             <AlertTitle>{t("mossPay.quota.loadFailedTitle")}</AlertTitle>
             <AlertDescription>{safeMossPayErrorMessage(quotaQuery.error, locale)}</AlertDescription>
+            <div className="mt-2">
+              <Button
+                data-testid="moss-quota-retry"
+                disabled={quotaQuery.isFetching}
+                onClick={() => void quotaQuery.refetch()}
+                size="xs"
+                variant="outline"
+              >
+                {quotaQuery.isFetching ? t("mossPay.quota.retrying") : t("mossPay.quota.retry")}
+              </Button>
+            </div>
           </Alert>
         ) : quota ? (
           <div className="mt-4 space-y-3 rounded-card bg-muted/50 p-3">

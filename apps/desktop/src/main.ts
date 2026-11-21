@@ -510,6 +510,10 @@ import {
 } from "./remoteComputerWorkspace";
 import { sshWorkspaceTransport } from "./sshWorkspacePolicy";
 import { DesktopAppSnapManager } from "./appSnapManager";
+import {
+  DesktopAppSnapCaptureOverlay,
+  shouldShowAppSnapCaptureOverlay,
+} from "./appSnapCaptureOverlay";
 import { bringMainWindowToFrontForAppSnap } from "./appSnapWindowReturn";
 import { notifyBackendComputerEmergencyStop } from "./computerEmergencyStopNotice";
 import { EscapeKillSwitchMonitor } from "./escapeKillSwitchMonitor";
@@ -972,6 +976,7 @@ const browserManager = new DesktopBrowserManager({
 });
 let browserHostPipeServer: BrowserHostPipeServer | null = null;
 let appSnapManager: DesktopAppSnapManager | null = null;
+let appSnapCaptureOverlay: DesktopAppSnapCaptureOverlay | null = null;
 let realtimeVoiceShortcutManager: DesktopRealtimeVoiceShortcutManager | null = null;
 let realtimeVoiceOverlayWindow: BrowserWindow | null = null;
 let realtimeVoiceOverlayRendererReady = false;
@@ -3119,6 +3124,70 @@ function clearRealtimeVoiceOverlayRecreateTimer(): void {
 
 function initializeDesktopAppSnap(): void {
   if (appSnapManager) return;
+  appSnapCaptureOverlay =
+    process.platform === "win32"
+      ? new DesktopAppSnapCaptureOverlay({
+          platform: process.platform,
+          shouldShow: () =>
+            shouldShowAppSnapCaptureOverlay({
+              platform: process.platform,
+              highContrast: nativeTheme.shouldUseHighContrastColors,
+              offscreen: selfReportWindowPlacement === "offscreen",
+              disabled: process.env.MOSS_DISABLE_CAPTURE_OVERLAY === "1",
+            }),
+          toDipBounds: (bounds) => {
+            try {
+              return screen.screenToDipRect(null, bounds);
+            } catch {
+              return bounds;
+            }
+          },
+          getDisplayBounds: (bounds) => {
+            const display = screen.getDisplayMatching(bounds);
+            return display?.bounds ?? null;
+          },
+          createWindow: async (htmlDataUrl) => {
+            const overlay = new BrowserWindow({
+              show: false,
+              frame: false,
+              transparent: true,
+              backgroundColor: "#00000000",
+              resizable: false,
+              movable: false,
+              minimizable: false,
+              maximizable: false,
+              fullscreenable: false,
+              focusable: false,
+              skipTaskbar: true,
+              hasShadow: false,
+              alwaysOnTop: true,
+              webPreferences: {
+                sandbox: true,
+                contextIsolation: true,
+                nodeIntegration: false,
+                backgroundThrottling: false,
+              },
+            });
+            overlay.setAlwaysOnTop(true, "screen-saver");
+            overlay.setIgnoreMouseEvents(true, { forward: true });
+            overlay.setContentProtection(true);
+            await overlay.loadURL(htmlDataUrl);
+            return {
+              isDestroyed: () => overlay.isDestroyed(),
+              setBounds: (bounds, animate) => overlay.setBounds(bounds, animate),
+              showInactive: () => overlay.showInactive(),
+              hide: () => overlay.hide(),
+              destroy: () => overlay.destroy(),
+              executePlay: async () =>
+                Boolean(
+                  await overlay.webContents.executeJavaScript(
+                    "typeof window.__mossPlayAppSnapOverlay === 'function' ? window.__mossPlayAppSnapOverlay() : false",
+                  ),
+                ),
+            };
+          },
+        })
+      : null;
   appSnapManager = new DesktopAppSnapManager({
     platform: process.platform,
     helperPath: resolveAppSnapHelperPath(),
@@ -3129,7 +3198,9 @@ function initializeDesktopAppSnap(): void {
     cuaEndpoint: () => cuaHostEndpoint,
     cuaCapability: DESKTOP_BROWSER_HOST_CAPABILITY,
     ownPids: () => new Set([process.pid, ...app.getAppMetrics().map((metric) => metric.pid)]),
-    warmCuaHost: () => cuaDriverHost?.prewarm(),
+    warmCuaHost: () => cuaDriverHost?.prewarm({ warmWindowListing: process.platform === "win32" }),
+    warmCaptureOverlay: () => appSnapCaptureOverlay?.prewarm(),
+    onCaptureFeedback: (bounds) => appSnapCaptureOverlay?.play(bounds),
     shortcutRegistry: globalShortcut,
     openSettingsPane: (pane) => {
       const paneUrl = APP_SNAP_SETTINGS_PANE_URLS[pane];
@@ -7604,6 +7675,8 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
       cancelBackendReadinessWait();
       appSnapManager?.dispose();
       appSnapManager = null;
+      appSnapCaptureOverlay?.dispose();
+      appSnapCaptureOverlay = null;
       realtimeVoiceShortcutManager?.dispose();
       realtimeVoiceShortcutManager = null;
       screen.removeListener("display-added", repositionRealtimeVoiceOverlayAfterDisplayChange);

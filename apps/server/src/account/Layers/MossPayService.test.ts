@@ -421,6 +421,36 @@ describe("resolveMossPayAuthorityCredential", () => {
     expect(failure).toMatchObject({ code: "provider_error" });
     expect(cloudAuthority).toHaveBeenCalledOnce();
   });
+
+  it("uses the Google authority when both lanes are signed in and activeRealm is global", async () => {
+    const phoneAuthority = vi.fn(() => Effect.succeed(phoneCredential));
+    const credential = await resolveMossPayAuthorityCredential({
+      phoneAccount: {
+        getSession: () =>
+          Effect.succeed({
+            configured: true,
+            authenticated: true,
+            activeRealm: "global",
+            session: { id: "phone-session", user: { id: "phone-user" } },
+          } as never),
+        getAuthorityCredential: phoneAuthority,
+      },
+      cloudAccount: {
+        getState: () =>
+          Effect.succeed({
+            configured: true,
+            authenticated: true,
+            activeRealm: "global",
+            account: { id: "cloud-user" },
+            session: { accountId: "cloud-user", refreshedAt: "2026-08-13T00:00:00.000Z" },
+          } as never),
+        getAuthorityCredential: () => Effect.succeed(cloudCredential),
+      },
+    }).pipe(Effect.runPromise);
+
+    expect(credential).toEqual(cloudCredential);
+    expect(phoneAuthority).not.toHaveBeenCalled();
+  });
 });
 
 function makeMossPayLayer(input: {
@@ -1536,6 +1566,138 @@ describe("MossPayServiceLive authority routing", () => {
       requestLimit: null,
     });
     expect(tester.quotaPolicyMode).toBe("unlimited");
+  });
+
+  it("loads a free starter-trial wallet_credits_v1 account even when account_quotas has no active row and realtime_model_allowlist is null", async () => {
+    const fetchMock = vi.fn<TestFetch>(async (url) => {
+      const href = String(url);
+      if (href === "https://moss-test.memfiredb.com/rest/v1/rpc/moss_get_credit_usage_snapshot") {
+        return new Response(
+          JSON.stringify({
+            billing_model: "wallet_credits_v1",
+            usage_limits: [
+              {
+                key: "lifetime",
+                duration_seconds: null,
+                limit: 5,
+                used: 1,
+                resets_at: null,
+              },
+            ],
+            wallet_balance: 4,
+          }),
+          { status: 200 },
+        );
+      }
+      if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/account_entitlements?")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "entitlement-free",
+              plan_code: "starter-trial",
+              realtime_model_allowlist: null,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/account_quotas?")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/credit_wallets?")) {
+        return new Response(JSON.stringify([{ balance: 4, text_credit_prepaid_micros: 0 }]), {
+          status: 200,
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", phoneCredential.gatewayBaseUrl);
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_URL", "https://moss-test.memfiredb.com");
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY", "test-publishable-key");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const quota = await Effect.gen(function* () {
+        const service = yield* MossPayService;
+        return yield* service.getQuota();
+      }).pipe(
+        Effect.provide(
+          makeMossPayLayer({
+            phoneAuthority: () => Effect.succeed(phoneCredential),
+            cloudAuthority: () => Effect.succeed(cloudCredential),
+          }),
+        ),
+        Effect.runPromise,
+      );
+      expect(quota).toMatchObject({
+        planCode: "starter-trial",
+        billingModel: "wallet_credits_v1",
+        quotaPolicyMode: "metered",
+        creditBalance: 4,
+        realtimeConfigured: false,
+        usageLimits: [
+          { key: "lifetime", durationSeconds: null, limit: 5, used: 1, resetsAt: null },
+        ],
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("filters account_quotas by the resolved entitlement_id so overlapping older quota rows cannot cause invalid_response", async () => {
+    const fetchMock = vi.fn<TestFetch>(async (url) => {
+      const href = String(url);
+      if (href.startsWith("https://moss-test.memfiredb.com/rest/v1/account_quotas?")) {
+        const parsed = new URL(href);
+        const filteredByEntitlement =
+          parsed.searchParams.get("entitlement_id") === "eq.entitlement-1";
+        return new Response(
+          JSON.stringify([
+            {
+              id: filteredByEntitlement ? "quota-1" : "quota-stale-other",
+              entitlement_id: filteredByEntitlement ? "entitlement-1" : "entitlement-old",
+              period_start: "2026-08-10T00:00:00.000Z",
+              period_end: "2026-08-17T00:00:00.000Z",
+              request_limit: 500,
+              requests_used: 42,
+              token_limit: 100_000,
+              input_tokens_used: 10_000,
+              output_tokens_used: 2_345,
+              realtime_cost_limit_nano_usd: 500_000_000,
+              realtime_cost_used_nano_usd: 100_000_000,
+              realtime_cost_reserved_nano_usd: 20_000_000,
+              realtime_session_limit: 20,
+              realtime_sessions_used: 3,
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      return quotaRestResponse(href);
+    });
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL", phoneCredential.gatewayBaseUrl);
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_URL", "https://moss-test.memfiredb.com");
+    vi.stubEnv("MOSS_MEMFIRE_PHONE_PUBLISHABLE_KEY", "test-publishable-key");
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const quota = await Effect.gen(function* () {
+        const service = yield* MossPayService;
+        return yield* service.getQuota();
+      }).pipe(
+        Effect.provide(
+          makeMossPayLayer({
+            phoneAuthority: () => Effect.succeed(phoneCredential),
+            cloudAuthority: () => Effect.succeed(cloudCredential),
+          }),
+        ),
+        Effect.runPromise,
+      );
+      expect(quota.planCode).toBe("starter");
+      expect(quota.windowId).toBe("quota-1");
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
   });
 
   it("still rejects non-sentinel unsafe request_limit integers as invalid_response", async () => {

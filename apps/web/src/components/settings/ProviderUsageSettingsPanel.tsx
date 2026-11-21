@@ -1,7 +1,10 @@
 // FILE: ProviderUsageSettingsPanel.tsx
-// Purpose: Settings → Usage panel. One card per supported provider showing live remaining
-// quota/credits with linear progress meters, the provider brand icon, and plan/status pills.
-// Usage is fetched read-only from each CLI's stored credentials by the server.
+// Purpose: Settings → Usage & limits Overview tab. Organizes Moss cloud plan & quota,
+//          7d/30d usage trends & product breakdown, user's own Codex/Claude CLI limits
+//          (clearly separated from Moss cloud quota), and sidebar/popover display preferences.
+// Layer: Settings UI components
+// Exports: ProviderUsageSettingsPanel, resolveMossUsageState, shouldShowProviderUsageSnapshot,
+//          resolveCodexUsageProviderInstanceId, MossUsageState
 
 import {
   DEFAULT_SERVER_SETTINGS_VIEW,
@@ -20,6 +23,7 @@ import { deriveProviderInstances } from "@moss/shared/providerInstances";
 import { useId, useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { appHistory } from "~/appNavigation";
 import { useAppSettings, type RailUsageWindow } from "~/appSettings";
 import {
   getRailUsageAccounts,
@@ -46,6 +50,7 @@ import {
   SettingsSectionShell,
 } from "~/components/settings/SettingsPanelPrimitives";
 import { SettingsSegmentedControl } from "~/components/settings/SettingControls";
+import { UsageOverviewActivitySection } from "~/components/settings/UsageOverviewActivitySection";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
 import { Switch } from "~/components/ui/switch";
@@ -64,33 +69,37 @@ import {
   serverSettingsQueryOptions,
 } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
+import { closeSettings } from "~/settingsDialogStore";
 import { useStore } from "~/store";
 import { createAllThreadsSelector } from "~/storeSelectors";
 
-const RAIL_USAGE_WINDOW_OPTIONS = [
-  { value: "both", label: "Both" },
-  { value: "fiveHour", label: "5h" },
-  { value: "weekly", label: "Weekly" },
-] as const satisfies ReadonlyArray<{ value: RailUsageWindow; label: string }>;
-
-const PILL_CLASS_NAME = "shrink-0 rounded-full px-2 py-1 text-ui-sm font-medium leading-none";
+const PILL_CLASS_NAME = "shrink-0 rounded-full px-2 py-1 text-ui-xs font-medium leading-none";
 
 interface StatusPill {
   label: string;
   className: string;
 }
 
-function statusPill(status: ServerProviderUsageSnapshot["status"]): StatusPill | null {
+function statusPill(
+  status: ServerProviderUsageSnapshot["status"],
+  t: ReturnType<typeof useTranslation>["t"],
+): StatusPill | null {
   switch (status) {
     case "needs-auth":
       return {
-        label: "Not signed in",
-        className: "bg-amber-500/12 text-amber-600 dark:text-amber-400",
+        label: t("settings.usage.status.notSignedIn"),
+        className: "bg-warning/12 text-warning-foreground",
       };
     case "unsupported":
-      return { label: "Unsupported", className: "bg-muted text-muted-foreground" };
+      return {
+        label: t("settings.usage.status.unsupported"),
+        className: "bg-foreground/[0.06] text-muted-foreground",
+      };
     case "error":
-      return { label: "Unavailable", className: "bg-red-500/12 text-red-600 dark:text-red-400" };
+      return {
+        label: t("settings.usage.status.unavailable"),
+        className: "bg-destructive/12 text-destructive",
+      };
     default:
       return null;
   }
@@ -198,7 +207,14 @@ export function resolveCodexUsageProviderInstanceId(input: {
     : input.defaultProviderInstanceId;
 }
 
-function MossUsageCard({ state }: { state: MossUsageState }) {
+function MossUsageCard({
+  state,
+  onRetry,
+}: {
+  readonly state: MossUsageState;
+  readonly onRetry: () => void;
+}) {
+  const { t } = useTranslation();
   const providerNameId = useId();
   const statusId = useId();
   const descriptionId = useId();
@@ -209,22 +225,21 @@ function MossUsageCard({ state }: { state: MossUsageState }) {
     switch (state) {
       case "ready":
         return {
-          label: "Available",
-          description:
-            "Moss is connected and ready to use. No quota data is available to display yet.",
-          className: "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400",
+          label: t("settings.usage.status.available"),
+          description: t("settings.usage.moss.ready"),
+          className: "bg-success/12 text-success-foreground",
         };
       case "signed-out":
         return {
-          label: "Not signed in",
-          description: "Sign in to Moss to use the included models.",
-          className: "bg-amber-500/12 text-amber-600 dark:text-amber-400",
+          label: t("settings.usage.status.notSignedIn"),
+          description: t("settings.usage.moss.signedOut"),
+          className: "bg-warning/12 text-warning-foreground",
         };
       case "unavailable":
         return {
-          label: "Unavailable",
-          description: "Moss model service is temporarily unavailable. Try again shortly.",
-          className: "bg-red-500/12 text-red-600 dark:text-red-400",
+          label: t("settings.usage.status.unavailable"),
+          description: t("settings.usage.moss.unavailable"),
+          className: "bg-destructive/12 text-destructive",
         };
     }
   })();
@@ -237,12 +252,12 @@ function MossUsageCard({ state }: { state: MossUsageState }) {
         aria-labelledby={providerNameId}
         aria-describedby={`${statusId} ${descriptionId}`}
       >
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-muted/60">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-foreground/[0.03]">
               <MossLogo className="size-4" />
             </span>
-            <h3 id={providerNameId} className="truncate text-ui-lg font-semibold text-foreground">
+            <h3 id={providerNameId} className="truncate text-ui-lg font-medium text-foreground">
               Moss
             </h3>
           </div>
@@ -250,27 +265,50 @@ function MossUsageCard({ state }: { state: MossUsageState }) {
             {presentation.label}
           </span>
         </div>
-        <p id={descriptionId} className="text-ui-sm leading-relaxed text-muted-foreground">
-          {presentation.description}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p
+            id={descriptionId}
+            className="min-w-0 flex-1 text-ui-sm leading-relaxed text-muted-foreground"
+          >
+            {presentation.description}
+          </p>
+          {state === "signed-out" ? (
+            <Button
+              data-testid="moss-usage-sign-in"
+              onClick={() => {
+                closeSettings();
+                appHistory.push("/login");
+              }}
+              size="sm"
+              variant="default"
+            >
+              {t("settings.usage.moss.signInAction")}
+            </Button>
+          ) : state === "unavailable" ? (
+            <Button data-testid="moss-usage-retry" onClick={onRetry} size="sm" variant="outline">
+              {t("settings.usage.moss.retryAction")}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </SettingsCard>
   );
 }
 
 function MossUsageSkeletonCard() {
+  const { t } = useTranslation();
   return (
     <SettingsCard>
       <div
         aria-busy="true"
-        aria-label="Checking your Moss account…"
+        aria-label={t("settings.usage.moss.checking")}
         className="space-y-3.5 p-4"
         data-testid="moss-usage-skeleton"
         role="status"
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-muted/60">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-foreground/[0.03]">
               <MossLogo className="size-4" />
             </span>
             <span className="text-ui-lg font-medium text-foreground">Moss</span>
@@ -294,6 +332,7 @@ function ProviderUsageCard({
   threadRateLimits: ReadonlyArray<ProviderRateLimit>;
   codexHomePath: string | null;
 }) {
+  const { t } = useTranslation();
   const provider = snapshot.provider;
   const providerName = providerUsageDisplayName(provider);
   const providerNameId = useId();
@@ -312,7 +351,7 @@ function ProviderUsageCard({
   const resetCredits = provider === "codex" ? snapshot.resetCredits : undefined;
   const hasResetCredits = Boolean(resetCredits && resetCredits.availableCount > 0);
   const hasUsage = meterRows.length > 0 || usageLines.length > 0 || hasResetCredits;
-  const pill = status === "ok" ? null : statusPill(snapshot.status);
+  const pill = status === "ok" ? null : statusPill(snapshot.status, t);
   const hasVisibleStatus = Boolean((status === "ok" && snapshot.planName) || pill);
   const showsStatusDescription = status !== "ok" || !hasUsage;
   const describedBy = [
@@ -332,7 +371,7 @@ function ProviderUsageCard({
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-muted/60">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-[color:var(--color-border)] bg-foreground/[0.03]">
               <ProviderIcon provider={provider} className="size-4" />
             </span>
             <div className="min-w-0 space-y-0.5">
@@ -350,7 +389,10 @@ function ProviderUsageCard({
             </div>
           </div>
           {status === "ok" && snapshot.planName ? (
-            <span id={statusId} className={cn(PILL_CLASS_NAME, "bg-muted text-muted-foreground")}>
+            <span
+              id={statusId}
+              className={cn(PILL_CLASS_NAME, "bg-foreground/[0.06] text-muted-foreground")}
+            >
               {snapshot.planName}
             </span>
           ) : pill ? (
@@ -363,7 +405,7 @@ function ProviderUsageCard({
         {status === "ok" && hasUsage ? (
           <>
             {usageSummary.usageNotice ? (
-              <p className="flex items-start gap-1.5 text-ui leading-relaxed text-amber-600 dark:text-amber-300/90">
+              <p className="flex items-start gap-1.5 text-ui leading-relaxed text-warning-foreground">
                 <TriangleAlertIcon className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
                 <span>{usageSummary.usageNotice}</span>
               </p>
@@ -386,9 +428,9 @@ function ProviderUsageCard({
             ) : null}
           </>
         ) : (
-          <p id={descriptionId} className="text-ui leading-relaxed text-muted-foreground">
+          <p id={descriptionId} className="text-ui-sm leading-relaxed text-muted-foreground">
             {status === "ok"
-              ? "No usage data reported yet."
+              ? t("settings.usage.noData")
               : (snapshot.detail ?? providerUsageNeedsAuthDetail(provider))}
           </p>
         )}
@@ -397,8 +439,12 @@ function ProviderUsageCard({
   );
 }
 
-export function ProviderUsageSettingsPanel() {
-  const { t } = useTranslation();
+export function ProviderUsageSettingsPanel({
+  onOpenAnalytics,
+}: {
+  readonly onOpenAnalytics?: (() => void) | undefined;
+} = {}) {
+  const { format, t } = useTranslation();
   const queryClient = useQueryClient();
   const { settings, updateSettings } = useAppSettings();
   const codexHomePath = settings.codexHomePath || null;
@@ -460,7 +506,6 @@ export function ProviderUsageSettingsPanel() {
   );
 
   const showInitialLoading = usageQuery.isPending && !usageQuery.data;
-
   const isRefreshing = usageQuery.isFetching || refreshMutation.isPending;
 
   const mossUsageState = resolveMossUsageState({
@@ -474,180 +519,224 @@ export function ProviderUsageSettingsPanel() {
     failed: mossAccountQuery.isError && mossPhoneQuery.isError,
   });
 
+  const railUsageWindowOptions = useMemo(
+    () =>
+      [
+        { value: "both", label: t("settings.usage.rings.windowBoth") },
+        { value: "fiveHour", label: t("settings.usage.rings.windowFiveHour") },
+        { value: "weekly", label: t("settings.usage.rings.windowWeekly") },
+      ] as const satisfies ReadonlyArray<{ value: RailUsageWindow; label: string }>,
+    [t],
+  );
+
+  const retryMossStatus = () => {
+    void mossPhoneQuery.refetch();
+    void mossAccountQuery.refetch();
+  };
+
   return (
-    <>
-      {mossUsageState === "ready" ? (
-        <MossBillingSettingsPanel />
-      ) : (
-        <SettingsSection title="Moss">
-          <MossUsageCard state={mossUsageState} />
-        </SettingsSection>
-      )}
-      <SettingsSection title="Sidebar usage rings">
-        <SettingsListRow
-          title={
-            <span className="flex items-center gap-2">
-              <span className="flex size-6 items-center justify-center">
-                <MossLogo className="size-4" />
-              </span>
-              <span className="truncate">Moss</span>
-            </span>
+    <div className="flex flex-col gap-8">
+      {/* 1. Moss cloud plan & quota */}
+      <div className="space-y-2" data-testid="usage-moss-cloud-section">
+        {mossUsageState === "ready" ? (
+          <MossBillingSettingsPanel />
+        ) : (
+          <SettingsSection title="Moss">
+            <MossUsageCard onRetry={retryMossStatus} state={mossUsageState} />
+          </SettingsSection>
+        )}
+      </div>
+
+      {/* 2. 7d / 30d activity chart & per-product / model breakdown */}
+      <UsageOverviewActivitySection onOpenAnalytics={onOpenAnalytics} />
+
+      {/* 3. Personal CLI accounts' own limits — visually separated from Moss cloud quota */}
+      <div
+        className="border-t border-[color:var(--color-border)] pt-6"
+        data-testid="usage-personal-cli-section"
+      >
+        <SettingsSectionShell
+          title={t("settings.usage.personal.title")}
+          action={
+            <Button
+              size="xs"
+              variant="outline"
+              className="shrink-0"
+              disabled={isRefreshing}
+              onClick={() => refreshMutation.mutate()}
+            >
+              <RotateCcwIcon className={cn("size-3.5", isRefreshing && "animate-spin")} />
+              {t("settings.usage.refresh")}
+            </Button>
           }
-          actions={
-            <Switch
-              checked={mossRingChecked}
-              onCheckedChange={(next) =>
-                updateSettings({
-                  railUsageInstanceIds: toggleRailUsageAccount(
-                    savedRailUsageInstanceIds,
-                    MOSS_RAIL_USAGE_ID,
-                    Boolean(next),
-                  ),
-                })
-              }
-              aria-label="Show Moss usage at the bottom of the sidebar"
-            />
-          }
-        />
-        {railUsageAccounts.map(({ instance, label }) => {
-          const checked = railUsageInstanceIds.includes(instance.instanceId);
-          return (
-            <SettingsListRow
-              key={instance.instanceId}
-              title={
-                <span className="flex items-center gap-2">
-                  <ProviderAccountAvatar
-                    provider={instance.driver}
-                    accentColor={instance.raw.accentColor}
-                    className="size-6"
+        >
+          <p className="-mt-1 px-2 text-ui-sm leading-relaxed text-muted-foreground">
+            {t("settings.usage.personal.subtitle")}
+          </p>
+          {showInitialLoading ? (
+            <SettingsCard>
+              <div className="px-4 py-3.5 text-ui leading-snug text-muted-foreground">
+                {t("settings.usage.loading")}
+              </div>
+            </SettingsCard>
+          ) : cards.length === 0 ? (
+            <SettingsCard divided={false}>
+              <div className="space-y-1 px-4 py-4" data-testid="usage-personal-cli-empty">
+                <p className="text-ui font-medium text-foreground">
+                  {t("settings.usage.personal.emptyTitle")}
+                </p>
+                <p className="text-ui-sm text-muted-foreground">
+                  {t("settings.usage.personal.emptyDescription")}
+                </p>
+              </div>
+            </SettingsCard>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {cards.map((snapshot) => {
+                const instanceId = providerUsageSnapshotInstanceId(snapshot);
+                const instance = providerInstances.get(instanceId);
+                const accountLabel =
+                  instanceId !== snapshot.provider
+                    ? (instance?.displayName ?? instanceId)
+                    : instance?.raw.displayName?.trim() ||
+                      (snapshot.providerInstanceId || snapshot.instanceId
+                        ? t("settings.usage.personal.defaultAccount")
+                        : null);
+                return (
+                  <ProviderUsageCard
+                    key={instanceId}
+                    snapshot={snapshot}
+                    accountLabel={accountLabel}
+                    threadRateLimits={threadRateLimits}
+                    codexHomePath={codexHomePath}
                   />
-                  <span className="truncate">{label}</span>
-                </span>
-              }
-              actions={
-                <Switch
-                  checked={checked}
-                  disabled={serverSettingsQuery.isPending}
-                  onCheckedChange={(next) =>
-                    updateSettings({
-                      railUsageInstanceIds: toggleRailUsageAccount(
-                        savedRailUsageInstanceIds,
-                        instance.instanceId,
-                        Boolean(next),
-                      ),
-                    })
-                  }
-                  aria-label={`Show ${label} usage at the bottom of the sidebar`}
-                />
-              }
-            />
-          );
-        })}
-        <SettingsListRow
-          title="Ring"
-          description="Show both limits as two rings, or a single ring for one of them."
-          actions={
-            <SettingsSegmentedControl
-              value={settings.railUsageWindow}
-              onValueChange={(value) => updateSettings({ railUsageWindow: value })}
-              ariaLabel="Sidebar usage ring"
-              options={RAIL_USAGE_WINDOW_OPTIONS}
-            />
-          }
-        />
-      </SettingsSection>
-      <SettingsSection title="Usage popovers">
-        <SettingsListRow
-          title="Show details by default"
-          description="Open the details below the limits. When off, they stay behind the Details toggle; your last toggle also updates this preference."
-          actions={
-            <Switch
-              checked={settings.usageDetailsDefaultOpen}
-              onCheckedChange={(next) => updateSettings({ usageDetailsDefaultOpen: Boolean(next) })}
-              aria-label="Show usage details by default in usage popovers"
-            />
-          }
-        />
-        {!settings.disabledProviders.includes("codex") ? (
+                );
+              })}
+            </div>
+          )}
+        </SettingsSectionShell>
+      </div>
+
+      {/* 4. Sidebar usage rings & popover display preferences */}
+      <div className="space-y-6 border-t border-[color:var(--color-border)] pt-6">
+        <SettingsSection title={t("settings.usage.rings.title")}>
           <SettingsListRow
-            title="Banked resets"
-            description="Include Codex banked resets in the details."
+            title={
+              <span className="flex items-center gap-2">
+                <span className="flex size-6 items-center justify-center">
+                  <MossLogo className="size-4" />
+                </span>
+                <span className="truncate">Moss</span>
+              </span>
+            }
             actions={
               <Switch
-                checked={settings.usagePopoverShowResetCredits}
+                checked={mossRingChecked}
                 onCheckedChange={(next) =>
-                  updateSettings({ usagePopoverShowResetCredits: Boolean(next) })
+                  updateSettings({
+                    railUsageInstanceIds: toggleRailUsageAccount(
+                      savedRailUsageInstanceIds,
+                      MOSS_RAIL_USAGE_ID,
+                      Boolean(next),
+                    ),
+                  })
                 }
-                aria-label="Show banked resets in usage popovers"
+                aria-label={format("settings.usage.rings.toggleAria", { name: "Moss" })}
               />
             }
           />
-        ) : null}
-        <SettingsListRow
-          title="Credits and token totals"
-          description="Include credit balances and recent token totals (24h, 7d, 30d) in the details."
-          actions={
-            <Switch
-              checked={settings.usagePopoverShowUsageLines}
-              onCheckedChange={(next) =>
-                updateSettings({ usagePopoverShowUsageLines: Boolean(next) })
-              }
-              aria-label="Show credits and token totals in usage popovers"
-            />
-          }
-        />
-      </SettingsSection>
-      <SettingsSectionShell
-        title="Provider usage"
-        action={
-          <Button
-            size="xs"
-            variant="outline"
-            className="shrink-0"
-            disabled={isRefreshing}
-            onClick={() => refreshMutation.mutate()}
-          >
-            <RotateCcwIcon className={cn("size-4", isRefreshing && "animate-spin")} />
-            Refresh
-          </Button>
-        }
-      >
-        {showInitialLoading ? (
-          <SettingsCard>
-            <div className="px-4 py-3.5 text-ui leading-snug text-muted-foreground">
-              Loading provider usage…
-            </div>
-          </SettingsCard>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {cards.map((snapshot) => {
-              const instanceId = providerUsageSnapshotInstanceId(snapshot);
-              const instance = providerInstances.get(instanceId);
-              const accountLabel =
-                instanceId !== snapshot.provider
-                  ? (instance?.displayName ?? instanceId)
-                  : instance?.raw.displayName?.trim() ||
-                    (snapshot.providerInstanceId || snapshot.instanceId ? "Default account" : null);
-              return (
-                <ProviderUsageCard
-                  key={instanceId}
-                  snapshot={snapshot}
-                  accountLabel={accountLabel}
-                  threadRateLimits={threadRateLimits}
-                  codexHomePath={codexHomePath}
-                />
-              );
-            })}
-          </div>
-        )}
+          {railUsageAccounts.map(({ instance, label }) => {
+            const checked = railUsageInstanceIds.includes(instance.instanceId);
+            return (
+              <SettingsListRow
+                key={instance.instanceId}
+                title={
+                  <span className="flex items-center gap-2">
+                    <ProviderAccountAvatar
+                      provider={instance.driver}
+                      accentColor={instance.raw.accentColor}
+                      className="size-6"
+                    />
+                    <span className="truncate">{label}</span>
+                  </span>
+                }
+                actions={
+                  <Switch
+                    checked={checked}
+                    disabled={serverSettingsQuery.isPending}
+                    onCheckedChange={(next) =>
+                      updateSettings({
+                        railUsageInstanceIds: toggleRailUsageAccount(
+                          savedRailUsageInstanceIds,
+                          instance.instanceId,
+                          Boolean(next),
+                        ),
+                      })
+                    }
+                    aria-label={format("settings.usage.rings.toggleAria", { name: label })}
+                  />
+                }
+              />
+            );
+          })}
+          <SettingsListRow
+            title={t("settings.usage.rings.ringLabel")}
+            description={t("settings.usage.rings.ringDescription")}
+            actions={
+              <SettingsSegmentedControl
+                value={settings.railUsageWindow}
+                onValueChange={(value) => updateSettings({ railUsageWindow: value })}
+                ariaLabel={t("settings.usage.rings.title")}
+                options={railUsageWindowOptions}
+              />
+            }
+          />
+        </SettingsSection>
 
-        <p className="px-2 text-ui-sm leading-relaxed text-muted-foreground">
-          Usage is read locally from each provider CLI&apos;s stored credentials and fetched
-          directly from the provider. The list follows whatever you are signed into; unsigned
-          providers stay visible until any account is connected, then drop away. Short-lived tokens
-          are refreshed through the provider&apos;s own CLI or official token endpoint.
-        </p>
-      </SettingsSectionShell>
-    </>
+        <SettingsSection title={t("settings.usage.popovers.title")}>
+          <SettingsListRow
+            title={t("settings.usage.popovers.detailsTitle")}
+            description={t("settings.usage.popovers.detailsDescription")}
+            actions={
+              <Switch
+                checked={settings.usageDetailsDefaultOpen}
+                onCheckedChange={(next) =>
+                  updateSettings({ usageDetailsDefaultOpen: Boolean(next) })
+                }
+                aria-label={t("settings.usage.popovers.detailsTitle")}
+              />
+            }
+          />
+          {!settings.disabledProviders.includes("codex") ? (
+            <SettingsListRow
+              title={t("settings.usage.popovers.bankedResetsTitle")}
+              description={t("settings.usage.popovers.bankedResetsDescription")}
+              actions={
+                <Switch
+                  checked={settings.usagePopoverShowResetCredits}
+                  onCheckedChange={(next) =>
+                    updateSettings({ usagePopoverShowResetCredits: Boolean(next) })
+                  }
+                  aria-label={t("settings.usage.popovers.bankedResetsTitle")}
+                />
+              }
+            />
+          ) : null}
+          <SettingsListRow
+            title={t("settings.usage.popovers.creditsTokensTitle")}
+            description={t("settings.usage.popovers.creditsTokensDescription")}
+            actions={
+              <Switch
+                checked={settings.usagePopoverShowUsageLines}
+                onCheckedChange={(next) =>
+                  updateSettings({ usagePopoverShowUsageLines: Boolean(next) })
+                }
+                aria-label={t("settings.usage.popovers.creditsTokensTitle")}
+              />
+            }
+          />
+        </SettingsSection>
+      </div>
+    </div>
   );
 }

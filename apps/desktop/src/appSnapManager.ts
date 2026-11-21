@@ -182,6 +182,17 @@ export interface DesktopAppSnapManagerOptions {
   ownPids?: () => ReadonlySet<number>;
   /** Background pre-warm hook for the embedded CUA driver once Windows AppSnap is ready. */
   warmCuaHost?: () => void;
+  /** Pre-warms the transparent Windows capture highlight overlay off the hotkey path. */
+  warmCaptureOverlay?: () => void;
+  /** Plays crisp visual capture feedback over the snapped Windows target bounds. */
+  onCaptureFeedback?: (
+    bounds: {
+      readonly x: number;
+      readonly y: number;
+      readonly width: number;
+      readonly height: number;
+    } | null,
+  ) => Promise<unknown> | void;
 }
 
 function normalizeDate(value: unknown, fallback: Date): string {
@@ -199,6 +210,30 @@ function normalizeOptionalText(value: unknown, maxLength = 512): string | null {
 function normalizeAppIconDataUrl(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 256_000) return null;
   return /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value) ? value : null;
+}
+
+function normalizeWindowBounds(
+  value: unknown,
+): { x: number; y: number; width: number; height: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  const x = candidate.x;
+  const y = candidate.y;
+  const width = candidate.width ?? candidate.w;
+  const height = candidate.height ?? candidate.h;
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof width !== "number" ||
+    typeof height !== "number" ||
+    !Number.isFinite(x) ||
+    !Number.isFinite(y) ||
+    !Number.isFinite(width) ||
+    !Number.isFinite(height)
+  ) {
+    return null;
+  }
+  return { x, y, width, height };
 }
 
 function pendingCaptureStorageKey(captureId: string): string {
@@ -305,7 +340,9 @@ async function writePrivateFileAtomically(filePath: string, bytes: Uint8Array): 
   try {
     await FS.promises.writeFile(temporaryPath, bytes, { flag: "wx", mode: 0o600 });
     await FS.promises.rename(temporaryPath, filePath);
-    await FS.promises.chmod(filePath, 0o600).catch(() => undefined);
+    if (process.platform !== "win32") {
+      await FS.promises.chmod(filePath, 0o600).catch(() => undefined);
+    }
   } finally {
     await FS.promises.unlink(temporaryPath).catch(() => undefined);
   }
@@ -618,6 +655,7 @@ export class DesktopAppSnapManager {
       appName: string | null;
       bundleIdentifier: string | null;
       windowTitle: string | null;
+      bounds: { x: number; y: number; width: number; height: number } | null;
     }
   >();
   #nextCuaWindowId = 1;
@@ -1266,7 +1304,9 @@ export class DesktopAppSnapManager {
   async #ensureCaptureDirectory(): Promise<void> {
     if (this.#captureDirectoryReady) return;
     await FS.promises.mkdir(this.#options.captureDirectory, { recursive: true, mode: 0o700 });
-    await FS.promises.chmod(this.#options.captureDirectory, 0o700).catch(() => undefined);
+    if (this.#platform !== "windows") {
+      await FS.promises.chmod(this.#options.captureDirectory, 0o700).catch(() => undefined);
+    }
     this.#captureDirectoryReady = true;
   }
 
@@ -1365,6 +1405,7 @@ export class DesktopAppSnapManager {
         appName: candidate.appName,
         bundleIdentifier: candidate.bundleIdentifier,
         windowTitle: candidate.title,
+        bounds: candidate.bounds,
       });
       windows.push({
         windowId: syntheticId,
@@ -1389,7 +1430,9 @@ export class DesktopAppSnapManager {
       const windows = await this.#listWindowsViaCua();
       const target = windows[0];
       if (!target) throw new Error("No capturable Windows window is available.");
-      const capture = await this.#captureWindowViaCua(target.windowId);
+      const capture = await this.#captureWindowViaCua(target.windowId, {
+        playFeedback: emitCaptured,
+      });
       if (emitCaptured) {
         this.#options.onCaptured(capture);
       }
@@ -1405,7 +1448,10 @@ export class DesktopAppSnapManager {
     }
   }
 
-  async #captureWindowViaCua(windowId: number): Promise<DesktopAppSnapCapture> {
+  async #captureWindowViaCua(
+    windowId: number,
+    options: { readonly playFeedback?: boolean } = {},
+  ): Promise<DesktopAppSnapCapture> {
     const target = this.#cuaWindowTargets.get(windowId);
     if (!target) {
       await this.#listWindowsViaCua();
@@ -1420,6 +1466,9 @@ export class DesktopAppSnapManager {
     );
     let movedDirectFile = false;
     try {
+      // Overlap pending-capture index hydration with the native screenshot grab
+      // so the disk scan never sits sequentially on the hotkey critical path.
+      const pendingLoaded = this.#ensurePendingCapturesLoaded();
       const reply = await this.#cuaCall("get_window_state", {
         pid: resolved.pid,
         window_id: resolved.windowId,
@@ -1429,6 +1478,17 @@ export class DesktopAppSnapManager {
         screenshot_out_file: directOutputPath,
       });
       const row = (reply.result?.structuredContent ?? {}) as Record<string, unknown>;
+      const sourceWindowBounds =
+        normalizeWindowBounds(row.window_bounds ?? row.bounds) ?? resolved.bounds;
+      // Trigger the Windows selection highlight overlay immediately once the
+      // frame is captured, overlapping its brief peak beat with PNG validation
+      // and durable pending-store persistence so feedback adds zero stall.
+      const feedbackPromise =
+        options.playFeedback === true && this.#options.onCaptureFeedback
+          ? Promise.resolve(this.#options.onCaptureFeedback(sourceWindowBounds)).catch(
+              () => undefined,
+            )
+          : null;
       const reportedFilePath = normalizeOptionalText(row.screenshot_file_path, 4_096);
       const image = reply.result?.content?.find(
         (part) => part.type === "image" && typeof part.data === "string",
@@ -1460,25 +1520,31 @@ export class DesktopAppSnapManager {
         }
       }
       const now = this.#options.now();
+      // Zero-copy view over the freshly allocated read/decode buffer.
+      const pngBytes = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const capture: DesktopAppSnapCapture = {
         id: captureId,
         capturedAt: now.toISOString(),
         name: `AppSnap-${now.toISOString().replace(/[:.]/g, "-")}.png`,
         mimeType: "image/png",
         sizeBytes: bytes.length,
-        bytes: new Uint8Array(bytes),
+        bytes: pngBytes,
         sourceAppName: normalizeOptionalText(row.app_name) ?? resolved.appName,
         sourceBundleIdentifier: normalizeOptionalText(row.bundle_id) ?? resolved.bundleIdentifier,
         sourceAppIconDataUrl: null,
         sourceWindowTitle:
           normalizeOptionalText(row.window_title ?? row.title) ?? resolved.windowTitle,
+        ...(sourceWindowBounds ? { sourceWindowBounds } : {}),
       };
-      await this.#ensurePendingCapturesLoaded();
+      await pendingLoaded;
       const record = directFileReady
         ? await this.#persistPendingCaptureFromDirectFile(capture, directOutputPath)
         : await this.#persistPendingCapture(capture);
       if (directFileReady) movedDirectFile = true;
       await this.#recordPendingCapture(record);
+      if (feedbackPromise) {
+        await feedbackPromise;
+      }
       return capture;
     } finally {
       if (!movedDirectFile) {
@@ -1908,7 +1974,11 @@ export class DesktopAppSnapManager {
     try {
       const moveImage = FS.promises
         .rename(sourceImagePath, paths.imagePath)
-        .then(() => FS.promises.chmod(paths.imagePath, 0o600).catch(() => undefined))
+        .then(() =>
+          this.#platform === "windows"
+            ? undefined
+            : FS.promises.chmod(paths.imagePath, 0o600).catch(() => undefined),
+        )
         .catch(() => writePrivateFileAtomically(paths.imagePath, capture.bytes));
       await Promise.all([moveImage, writePrivateFileAtomically(paths.metadataPath, metadata)]);
     } catch (error) {
@@ -2021,9 +2091,12 @@ export class DesktopAppSnapManager {
         return;
       }
       this.#setState("ready", null);
-      // Warm the embedded CUA driver and preload pending capture state off the
-      // hotkey path so the first Windows capture lands without cold-start lag.
+      // Warm the embedded CUA driver, capture highlight overlay, capture
+      // directory, and pending-capture index off the hotkey path so the first
+      // Windows capture lands without cold-start lag.
       this.#options.warmCuaHost?.();
+      this.#options.warmCaptureOverlay?.();
+      void this.#ensureCaptureDirectory().catch(() => undefined);
       void this.#ensurePendingCapturesLoaded().catch(() => undefined);
       return;
     }
