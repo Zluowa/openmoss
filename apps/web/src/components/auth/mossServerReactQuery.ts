@@ -204,8 +204,23 @@ export function serverMossPayCatalogQueryOptions(input: { enabled?: boolean } = 
   });
 }
 
+function shouldRetryMossPayQuotaFailure(failureCount: number, error: unknown): boolean {
+  if (failureCount >= 2) return false;
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as { code?: unknown }).code;
+    if (
+      code === "unauthorized" ||
+      code === "authentication_required" ||
+      code === "not_configured"
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export function serverMossPayQuotaQueryOptions(
-  input: { enabled?: boolean; accountIdentity?: string | null } = {},
+  input: { enabled?: boolean; accountIdentity?: string | null; retry?: boolean | number } = {},
 ) {
   return queryOptions({
     queryKey: mossServerQueryKeys.mossPayQuota(input.accountIdentity),
@@ -215,7 +230,8 @@ export function serverMossPayQuotaQueryOptions(
       return api.server.getMossPayQuota();
     },
     staleTime: 10_000,
-    retry: false,
+    retry: input.retry ?? shouldRetryMossPayQuotaFailure,
+    retryDelay: (attemptIndex) => Math.min(400 * 2 ** attemptIndex, 1_500),
   });
 }
 

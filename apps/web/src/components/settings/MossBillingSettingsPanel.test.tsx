@@ -93,11 +93,14 @@ const catalog = (planCode = "starter"): MossPayCatalog => ({
 function renderSettings(
   input: {
     readonly snapshot?: MossPayQuota;
+    readonly quotaError?: Error;
     readonly catalogSnapshot?: MossPayCatalog;
     readonly catalogError?: Error;
   } = {},
 ): string {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, retryOnMount: false } },
+  });
   queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
     configured: true,
     authenticated: false,
@@ -124,11 +127,22 @@ function renderSettings(
         status: "error",
       });
   }
+  const quotaOptions = serverMossPayQuotaQueryOptions({ accountIdentity: ACCOUNT_IDENTITY });
   if (input.snapshot) {
-    queryClient.setQueryData(
-      serverMossPayQuotaQueryOptions({ accountIdentity: ACCOUNT_IDENTITY }).queryKey,
-      input.snapshot,
-    );
+    queryClient.setQueryData(quotaOptions.queryKey, input.snapshot);
+  }
+  if (input.quotaError) {
+    queryClient
+      .getQueryCache()
+      .build(queryClient, queryClient.defaultQueryOptions(quotaOptions))
+      .setState({
+        ...(input.snapshot ? { data: input.snapshot } : { data: undefined }),
+        error: input.quotaError,
+        errorUpdatedAt: Date.now(),
+        errorUpdateCount: 1,
+        fetchStatus: "idle",
+        status: "error",
+      });
   }
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
@@ -314,5 +328,49 @@ describe("MossBillingSettingsPanel", () => {
     expect(markup).toContain('aria-busy="true"');
     expect(markup).not.toContain("套餐暂不可用");
     expect(markup).not.toContain("暂不可用");
+  });
+
+  it("shows a retry control on real quota load failure without leaking the legacy credit balance card", () => {
+    const markup = renderSettings({
+      quotaError: new Error("gateway_unavailable"),
+    });
+
+    expect(markup).toContain('data-testid="moss-quota-retry"');
+    expect(markup).toContain("重试");
+    expect(markup).toContain("Moss 额度暂时不可用");
+    expect(markup).not.toContain("积分余额");
+    expect(markup).not.toContain("自动充值");
+    expect(markup).not.toContain("赠送额度");
+  });
+
+  it("renders a Claude-style limit-hit alert matching composer wording when quota reaches 0% remaining", () => {
+    const markup = renderSettings({
+      snapshot: quota({
+        planCode: "starter-trial",
+        billingModel: "wallet_credits_v1",
+        periodEnd: null,
+        requestLimit: null,
+        tokenLimit: null,
+        creditBalance: 0,
+        usageLimits: [
+          {
+            key: "lifetime",
+            durationSeconds: null,
+            limit: 5,
+            used: 5,
+            resetsAt: null,
+          },
+        ],
+      }),
+      catalogSnapshot: catalog("basic"),
+    });
+
+    expect(markup).toContain('data-testid="moss-usage-limit-hit-banner"');
+    expect(markup).toContain("Moss 额度已用完");
+    expect(markup).toContain("开通会员继续使用");
+    expect(markup).toContain("开通会员");
+    expect(markup).toContain("剩余 0%");
+    expect(markup).not.toContain("额度加载失败");
+    expect(markup).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB|CNY\s*5/i);
   });
 });

@@ -21,7 +21,7 @@ import { SidebarProvider } from "./ui/sidebar";
 
 const LABELS: SidebarAccountMenuLabels = {
   openMenu: "打开账号菜单",
-  remainingUsage: "剩余用量",
+  remainingUsage: "查看用量",
   upgrade: "升级以获享更高限额",
   settings: "设置",
   signIn: "登录",
@@ -95,7 +95,7 @@ describe("SidebarAccountMenu", () => {
       await openAccountMenu();
 
       await expect.element(page.getByRole("menuitem", { name: "qwer" })).toBeVisible();
-      await expect.element(page.getByRole("menuitem", { name: "剩余用量" })).toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: "查看用量" })).toBeVisible();
       await expect
         .element(page.getByRole("menuitem", { name: "升级以获享更高限额" }))
         .toBeVisible();
@@ -115,7 +115,7 @@ describe("SidebarAccountMenu", () => {
     }
   });
 
-  it("shows the plan tier under the account name in the menu header", async () => {
+  it("shows the plan tier and a clean View usage entry without repeating a duplicate remaining-percentage badge", async () => {
     const callbacks = {
       onOpenAccount: vi.fn(),
       onOpenUsage: vi.fn(),
@@ -143,8 +143,10 @@ describe("SidebarAccountMenu", () => {
       await openAccountMenu();
       const header = page.getByRole("menuitem", { name: /qwer.*免费版/ });
       await expect.element(header).toBeVisible();
-      const usageRow = page.getByRole("menuitem", { name: /剩余用量.*剩余 80%/ });
+      const usageRow = page.getByRole("menuitem", { name: "查看用量" });
       await expect.element(usageRow).toBeVisible();
+      expect(usageRow.element().textContent).not.toContain("剩余 80%");
+      expect(document.body.textContent).not.toContain("剩余 80%");
       expect(document.body.textContent).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB/i);
     } finally {
       await screen.unmount();
@@ -160,7 +162,7 @@ describe("SidebarAccountMenu", () => {
       expect(callbacks.onOpenAccount).toHaveBeenCalledOnce();
 
       await openAccountMenu();
-      await page.getByRole("menuitem", { name: "剩余用量" }).click();
+      await page.getByRole("menuitem", { name: "查看用量" }).click();
       expect(callbacks.onOpenUsage).toHaveBeenCalledOnce();
 
       await openAccountMenu();
@@ -216,7 +218,7 @@ describe("SidebarAccountMenu", () => {
       await page.screenshot({ path: "../../../../output/playwright/account-sign-in.png" });
       expect(page.getByRole("menuitem", { name: "退出登录" }).length).toBe(0);
       // Signed out there is no usage to show and no plan to upgrade.
-      expect(page.getByRole("menuitem", { name: "剩余用量" }).length).toBe(0);
+      expect(page.getByRole("menuitem", { name: "查看用量" }).length).toBe(0);
       expect(page.getByRole("menuitem", { name: "升级以获享更高限额" }).length).toBe(0);
       await expect.element(page.getByRole("menuitem", { name: /设置/ })).toBeVisible();
       await page.getByRole("menuitem", { name: "登录" }).click();
@@ -237,7 +239,7 @@ describe("SidebarAccountMenu", () => {
     try {
       await openAccountMenu();
       await expect.element(page.getByRole("menuitem", { name: "选择账号" })).toBeVisible();
-      expect(page.getByRole("menuitem", { name: "剩余用量" }).length).toBe(0);
+      expect(page.getByRole("menuitem", { name: "查看用量" }).length).toBe(0);
       expect(page.getByRole("menuitem", { name: "升级以获享更高限额" }).length).toBe(0);
     } finally {
       await screen.unmount();

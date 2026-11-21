@@ -32,7 +32,6 @@ import {
   SparklesIcon,
 } from "~/lib/icons";
 import { GaugeIcon, LogOutIcon } from "./auth/mossIcons";
-import { useMossQuotaSummary } from "./auth/useMossQuotaSummary";
 import { resolveMossPayQuotaAccountIdentity } from "~/lib/mossPayQuotaIdentity";
 import {
   type MossAccessLaneStates,
@@ -301,7 +300,7 @@ function SidebarAccountMenuPopupSections({
   identity,
   labels,
   planName = null,
-  usageStatus = null,
+  usageStatus: _usageStatus = null,
   settingsShortcutLabel,
   signingOut,
   onOpenAccount,
@@ -350,11 +349,6 @@ function SidebarAccountMenuPopupSections({
             <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenUsage}>
               <GaugeIcon aria-hidden="true" className="size-4" />
               <span className="min-w-0 flex-1 truncate">{labels.remainingUsage}</span>
-              {usageStatus ? (
-                <span className="shrink-0 text-ui-xs text-muted-foreground tabular-nums">
-                  {usageStatus}
-                </span>
-              ) : null}
               <ChevronRightIcon
                 aria-hidden="true"
                 className="size-4 shrink-0 text-muted-foreground/70"
@@ -550,13 +544,13 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
   const payCatalogQuery = useQuery(
     serverMossPayCatalogQueryOptions({ enabled: identity.kind === "authenticated" }),
   );
-  const mossQuotaSummary = useMossQuotaSummary();
   const payPlanCode = payQuotaQuery.data?.planCode?.trim() ?? "";
   const planName = payPlanCode
     ? (payCatalogQuery.data?.plans.find((plan) => plan.code === payPlanCode)?.displayName.trim() ??
       fallbackMossPlanName(payPlanCode, t("mossPay.settings.freePlan")))
     : null;
-  const usageStatus = identity.kind === "authenticated" ? mossQuotaSummary.status : null;
+  // Remaining quota % is shown once on the sidebar rail ring; keep the account menu entry clean without repeating it.
+  const usageStatus = null;
 
   const openSettings = useCallback(() => openSettingsDialog(), []);
 

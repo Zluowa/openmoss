@@ -579,6 +579,8 @@ describe("desktop AppSnap platform state", () => {
       },
     );
     const onCaptured = vi.fn();
+    const warmCaptureOverlay = vi.fn();
+    const onCaptureFeedback = vi.fn(async () => undefined);
     const manager = new DesktopAppSnapManager({
       platform: "win32",
       helperPath: join(captureDirectory, "missing-helper"),
@@ -588,6 +590,8 @@ describe("desktop AppSnap platform state", () => {
       onState: vi.fn(),
       onCaptured,
       onError: vi.fn(),
+      warmCaptureOverlay,
+      onCaptureFeedback,
       cuaEndpoint: () => "fixture",
       cuaCapability: "capability",
       cuaRequest: request as never,
@@ -601,16 +605,24 @@ describe("desktop AppSnap platform state", () => {
     });
     try {
       await manager.setEnabled(true);
+      expect(warmCaptureOverlay).toHaveBeenCalledOnce();
       expect(hotkeyCallback).toBeTypeOf("function");
       hotkeyCallback!();
       await vi.waitFor(() => {
         expect(onCaptured).toHaveBeenCalledOnce();
+      });
+      expect(onCaptureFeedback).toHaveBeenCalledExactlyOnceWith({
+        x: 10,
+        y: 10,
+        width: 1280,
+        height: 900,
       });
       const captured = onCaptured.mock.calls[0]![0];
       expect(captured).toMatchObject({
         sourceAppName: "Chrome",
         sourceWindowTitle: "Docs - Google Chrome",
         sizeBytes: pngBytes.length,
+        sourceWindowBounds: { x: 10, y: 10, width: 1280, height: 900 },
       });
       expect(Buffer.from(captured.bytes)).toEqual(pngBytes);
       // Direct file was atomically moved into pending storage (no leftover temp file).
@@ -618,10 +630,11 @@ describe("desktop AppSnap platform state", () => {
       expect(files.some((name) => name.startsWith("appsnap-cua-"))).toBe(false);
       expect(files.some((name) => name.startsWith("pending-") && name.endsWith(".png"))).toBe(true);
 
-      // Explicit captureCurrentApp works on Windows too without emitting onCaptured.
+      // Explicit captureCurrentApp works on Windows too without emitting onCaptured or feedback.
       const explicit = await manager.captureCurrentApp("req-win-1");
       expect(explicit.sourceAppName).toBe("Chrome");
       expect(onCaptured).toHaveBeenCalledOnce();
+      expect(onCaptureFeedback).toHaveBeenCalledOnce();
     } finally {
       manager.dispose();
       rmSync(captureDirectory, { recursive: true, force: true });

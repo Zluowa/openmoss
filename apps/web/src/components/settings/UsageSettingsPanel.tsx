@@ -27,7 +27,11 @@ export function UsageSettingsPanel() {
           { id: "analytics", label: t("settings.usage.tabs.analytics") },
         ]}
       />
-      {tab === "analytics" ? <UsageAnalyticsPanel /> : <ProviderUsageSettingsPanel />}
+      {tab === "analytics" ? (
+        <UsageAnalyticsPanel />
+      ) : (
+        <ProviderUsageSettingsPanel onOpenAnalytics={() => setTab("analytics")} />
+      )}
     </div>
   );
 }

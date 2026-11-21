@@ -12,6 +12,34 @@ const MAX_BUNDLE_IDENTIFIER_LENGTH = 512;
 const MAX_ICON_DATA_URL_LENGTH = 256_000;
 const MAX_STORED_APP_ICONS = 100;
 
+// In-memory read-through cache so repeated AppSnaps from the same app resolve
+// their cached icon in 0 ms without opening IndexedDB on the capture hot path.
+const memoryIconCache = new Map<string, string | null>();
+
+function rememberCachedIcon(bundleIdentifier: string, dataUrl: string | null): void {
+  if (memoryIconCache.has(bundleIdentifier)) {
+    memoryIconCache.delete(bundleIdentifier);
+  }
+  memoryIconCache.set(bundleIdentifier, dataUrl);
+  while (memoryIconCache.size > MAX_STORED_APP_ICONS) {
+    const oldest = memoryIconCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    memoryIconCache.delete(oldest);
+  }
+}
+
+export function peekCachedAppSnapIcon(
+  bundleIdentifier: string | null | undefined,
+): string | null | undefined {
+  const normalized = normalizeBundleIdentifier(bundleIdentifier);
+  if (!normalized) return undefined;
+  return memoryIconCache.has(normalized) ? memoryIconCache.get(normalized) : undefined;
+}
+
+export function clearAppSnapIconMemoryCacheForTests(): void {
+  memoryIconCache.clear();
+}
+
 interface StoredAppSnapIcon {
   bundleIdentifier: string;
   dataUrl: string;
@@ -68,6 +96,7 @@ export async function persistAppSnapIcon(input: {
   const bundleIdentifier = normalizeBundleIdentifier(input.bundleIdentifier);
   const dataUrl = normalizeIconDataUrl(input.dataUrl);
   if (!bundleIdentifier || !dataUrl) return;
+  rememberCachedIcon(bundleIdentifier, dataUrl);
 
   const database = await openAppSnapIconDatabase();
   try {
@@ -94,6 +123,9 @@ export async function persistAppSnapIcon(input: {
 export async function readAppSnapIcon(bundleIdentifier: string): Promise<string | null> {
   const normalizedBundleIdentifier = normalizeBundleIdentifier(bundleIdentifier);
   if (!normalizedBundleIdentifier) return null;
+  if (memoryIconCache.has(normalizedBundleIdentifier)) {
+    return memoryIconCache.get(normalizedBundleIdentifier) ?? null;
+  }
 
   const database = await openAppSnapIconDatabase();
   try {
@@ -104,7 +136,9 @@ export async function readAppSnapIcon(bundleIdentifier: string): Promise<string 
       "Could not read the AppSnap icon cache.",
     )) as StoredAppSnapIcon | undefined;
     await completion;
-    return normalizeIconDataUrl(stored?.dataUrl);
+    const dataUrl = normalizeIconDataUrl(stored?.dataUrl);
+    rememberCachedIcon(normalizedBundleIdentifier, dataUrl);
+    return dataUrl;
   } finally {
     database.close();
   }

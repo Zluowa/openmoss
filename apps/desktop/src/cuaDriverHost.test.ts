@@ -53,7 +53,7 @@ afterEach(async () => {
 async function fixture(
   authority = capability,
   options: {
-    platform?: "darwin" | "linux" | "native";
+    platform?: "darwin" | "linux" | "win32" | "native";
     cleanup?: "incomplete" | "wrong-pid" | "missing-admission";
     interruptCleanup?: "incomplete" | "wrong-pid" | "missing-admission" | "once-incomplete";
     inputMonitorState?: (() => ComputerInputMonitorState) | undefined;
@@ -2130,6 +2130,32 @@ describe("driver warm-up on first touch", () => {
       cuaRequest(f.endpoint, { method: "call", name: "press_key" }),
     ).resolves.toMatchObject({ ok: true });
     expect((await f.events()).filter((event) => event.event === "start")).toHaveLength(2);
+  });
+
+  it("prewarms session and one Windows list_windows probe when warmWindowListing is requested", async () => {
+    const f = await fixture(capability, {
+      platform: "win32",
+    });
+    f.host.prewarm({ warmWindowListing: true });
+    const warmed = await waitForEvent(f, "list-windows");
+    expect(warmed.filter((event) => event.event === "start")).toHaveLength(1);
+    expect(warmed.filter((event) => event.event === "motion-100-0")).toHaveLength(1);
+    expect(warmed.filter((event) => event.event === "list-windows")).toHaveLength(1);
+
+    // Repeat prewarm calls on the same warmed generation are idempotent.
+    f.host.prewarm({ warmWindowListing: true });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await f.events()).filter((event) => event.event === "list-windows")).toHaveLength(1);
+  });
+
+  it("does not run the Windows list_windows warm probe on macOS", async () => {
+    const f = await fixture(capability, {
+      platform: "darwin",
+    });
+    f.host.prewarm({ warmWindowListing: true });
+    await waitForEvent(f, "motion-100-0");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await f.events()).some((event) => event.event === "list-windows")).toBe(false);
   });
 
   it("does not treat housekeeping requests as first touches", async () => {

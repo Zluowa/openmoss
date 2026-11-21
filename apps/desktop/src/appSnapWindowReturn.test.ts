@@ -38,15 +38,26 @@ function makeWindow(
 }
 
 describe("bringMainWindowToFrontForAppSnap", () => {
-  it("forces reliable foreground activation on Windows and restores alwaysOnTop", () => {
+  it("forces reliable single-show foreground activation on Windows and restores alwaysOnTop", () => {
     const win = makeWindow({ isMinimized: () => true, isVisible: () => false });
     bringMainWindowToFrontForAppSnap(win, { platform: "win32" });
     expect(win.calls).toEqual([
       "restore",
-      "show",
-      "moveTop",
       "alwaysOnTop:true:pop-up-menu",
       "show",
+      "moveTop",
+      "focus",
+      "alwaysOnTop:false",
+    ]);
+    expect(win.isAlwaysOnTop?.()).toBe(false);
+  });
+
+  it("does not call show again when an unfocused Windows window is already visible", () => {
+    const win = makeWindow({ isVisible: () => true, isFocused: () => false });
+    bringMainWindowToFrontForAppSnap(win, { platform: "win32" });
+    expect(win.calls).toEqual([
+      "alwaysOnTop:true:pop-up-menu",
+      "moveTop",
       "focus",
       "alwaysOnTop:false",
     ]);

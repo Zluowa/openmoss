@@ -572,4 +572,134 @@ describe("MossPayPanel quota presentation", () => {
     expect(markup).not.toContain("额度加载失败");
     expect(markup).not.toContain(raw);
   });
+
+  it("keeps the same account's last-known-good quota across a session refresh failure without leaking across accounts", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+      configured: true,
+      authenticated: false,
+      session: null,
+      smsProvider: "aliyun",
+      aliyunSmsConfigured: true,
+    });
+    queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+      configured: true,
+      authenticated: true,
+      account: {
+        id: "account-a" as MossCloudAccountId,
+        email: "test@example.com",
+        emailVerified: true,
+        displayName: "Test",
+        status: "active",
+        createdAt: SESSION_REFRESHED_AT,
+        updatedAt: SESSION_REFRESHED_AT,
+        lastLoginAt: SESSION_REFRESHED_AT,
+      },
+      session: {
+        accountId: "account-a" as MossCloudAccountId,
+        expiresAt: "2026-09-13T00:00:00.000Z",
+        refreshedAt: "2026-08-14T00:00:00.000Z",
+      },
+      emailVerificationRequired: false,
+      modelGatewayConfigured: true,
+      authProvider: "supabase_google",
+    });
+    // Earlier session timestamp for the SAME account already populated the cache (e.g. from sidebar).
+    queryClient.setQueryData(
+      mossPayQuotaIdentityKey(`cloud:account-a:${SESSION_REFRESHED_AT}`),
+      quota({
+        planCode: "starter-trial",
+        billingModel: "wallet_credits_v1",
+        usageLimits: [
+          { key: "lifetime", limit: 5, used: 1, durationSeconds: null, resetsAt: null },
+        ],
+      }),
+    );
+    // Refreshed session key transiently errored.
+    const nextIdentity = "cloud:account-a:2026-08-14T00:00:00.000Z";
+    queryClient
+      .getQueryCache()
+      .build(
+        queryClient,
+        queryClient.defaultQueryOptions(
+          serverMossPayQuotaQueryOptions({ accountIdentity: nextIdentity }),
+        ),
+      )
+      .setState({
+        data: undefined,
+        error: new Error("temporary blip"),
+        errorUpdatedAt: Date.now(),
+        errorUpdateCount: 1,
+        fetchStatus: "idle",
+        status: "error",
+      });
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <MossPayPanel />
+      </QueryClientProvider>,
+    );
+    expect(markup).toContain("免费额度");
+    expect(markup).toContain("剩余 80%");
+    expect(markup).not.toContain("额度加载失败");
+  });
+
+  it("offers a retry control when quota truly fails to load with no cached snapshot", () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, retryOnMount: false } },
+    });
+    queryClient.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+      configured: true,
+      authenticated: false,
+      session: null,
+      smsProvider: "aliyun",
+      aliyunSmsConfigured: true,
+    });
+    queryClient.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+      configured: true,
+      authenticated: true,
+      account: {
+        id: "account-err" as MossCloudAccountId,
+        email: "err@example.com",
+        emailVerified: true,
+        displayName: "Err",
+        status: "active",
+        createdAt: SESSION_REFRESHED_AT,
+        updatedAt: SESSION_REFRESHED_AT,
+        lastLoginAt: SESSION_REFRESHED_AT,
+      },
+      session: {
+        accountId: "account-err" as MossCloudAccountId,
+        expiresAt: "2026-09-13T00:00:00.000Z",
+        refreshedAt: SESSION_REFRESHED_AT,
+      },
+      emailVerificationRequired: false,
+      modelGatewayConfigured: true,
+      authProvider: "supabase_google",
+    });
+    const errIdentity = `cloud:account-err:${SESSION_REFRESHED_AT}`;
+    queryClient
+      .getQueryCache()
+      .build(
+        queryClient,
+        queryClient.defaultQueryOptions(
+          serverMossPayQuotaQueryOptions({ accountIdentity: errIdentity }),
+        ),
+      )
+      .setState({
+        data: undefined,
+        error: new Error("gateway_unavailable"),
+        errorUpdatedAt: Date.now(),
+        errorUpdateCount: 1,
+        fetchStatus: "idle",
+        status: "error",
+      });
+    const markup = renderToStaticMarkup(
+      <QueryClientProvider client={queryClient}>
+        <MossPayPanel />
+      </QueryClientProvider>,
+    );
+    expect(markup).toContain("额度加载失败");
+    expect(markup).toContain('data-testid="moss-quota-retry"');
+    expect(markup).toContain("重试");
+  });
 });

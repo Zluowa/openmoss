@@ -85,45 +85,107 @@ export type MossPayAuthorityCredential =
   | MossSupabaseGoogleAuthorityCredential;
 
 export function resolveMossPayAuthorityCredential(input: {
-  readonly phoneAccount: Pick<MossPhoneAccountServiceShape, "getAuthorityCredential">;
-  readonly cloudAccount: Pick<MossCloudAccountServiceShape, "getAuthorityCredential">;
+  readonly phoneAccount: Pick<MossPhoneAccountServiceShape, "getAuthorityCredential"> &
+    Partial<Pick<MossPhoneAccountServiceShape, "getSession">>;
+  readonly cloudAccount: Pick<MossCloudAccountServiceShape, "getAuthorityCredential"> &
+    Partial<Pick<MossCloudAccountServiceShape, "getState">>;
 }): Effect.Effect<
   MossPayAuthorityCredential,
   MossAccountServiceError | MossCloudAccountServiceError
 > {
-  return input.phoneAccount.getAuthorityCredential().pipe(
-    Effect.flatMap((credential) =>
-      credential.realm === "memfire-phone"
-        ? Effect.succeed<MossPayAuthorityCredential>(credential)
-        : Effect.fail(
-            new MossAccountServiceError({
-              code: "invalid_authentication_response",
-              message: "The phone account authority is invalid.",
-            }),
-          ),
-    ),
-    Effect.catch(
-      (
-        error,
-      ): Effect.Effect<
-        MossPayAuthorityCredential,
-        MossAccountServiceError | MossCloudAccountServiceError
-      > =>
-        error.code !== "authentication_required"
-          ? Effect.fail(error)
-          : input.cloudAccount.getAuthorityCredential().pipe(
-              Effect.flatMap((credential) =>
-                credential.realm === "supabase-google"
-                  ? Effect.succeed<MossPayAuthorityCredential>(credential)
-                  : Effect.fail(
-                      new MossCloudAccountServiceError({
-                        code: "provider_error",
-                        message: "The Google account authority is invalid.",
-                      }),
-                    ),
-              ),
+  const resolvePhoneFirst = (): Effect.Effect<
+    MossPayAuthorityCredential,
+    MossAccountServiceError | MossCloudAccountServiceError
+  > =>
+    input.phoneAccount.getAuthorityCredential().pipe(
+      Effect.flatMap((credential) =>
+        credential.realm === "memfire-phone"
+          ? Effect.succeed<MossPayAuthorityCredential>(credential)
+          : Effect.fail(
+              new MossAccountServiceError({
+                code: "invalid_authentication_response",
+                message: "The phone account authority is invalid.",
+              }),
             ),
-    ),
+      ),
+      Effect.catch(
+        (
+          error,
+        ): Effect.Effect<
+          MossPayAuthorityCredential,
+          MossAccountServiceError | MossCloudAccountServiceError
+        > =>
+          error.code !== "authentication_required"
+            ? Effect.fail(error)
+            : input.cloudAccount.getAuthorityCredential().pipe(
+                Effect.flatMap((credential) =>
+                  credential.realm === "supabase-google"
+                    ? Effect.succeed<MossPayAuthorityCredential>(credential)
+                    : Effect.fail(
+                        new MossCloudAccountServiceError({
+                          code: "provider_error",
+                          message: "The Google account authority is invalid.",
+                        }),
+                      ),
+                ),
+              ),
+      ),
+    );
+
+  if (!input.phoneAccount.getSession || !input.cloudAccount.getState) {
+    return resolvePhoneFirst();
+  }
+
+  return Effect.all([
+    Effect.result(input.phoneAccount.getSession()),
+    Effect.result(input.cloudAccount.getState()),
+  ]).pipe(
+    Effect.flatMap(([phoneResult, cloudResult]) => {
+      const preferGlobal =
+        phoneResult._tag === "Success" &&
+        cloudResult._tag === "Success" &&
+        cloudResult.success.authenticated === true &&
+        cloudResult.success.account !== null &&
+        (cloudResult.success.activeRealm === "global" ||
+          phoneResult.success.activeRealm === "global");
+      if (!preferGlobal) {
+        return resolvePhoneFirst();
+      }
+      return input.cloudAccount.getAuthorityCredential().pipe(
+        Effect.flatMap((credential) =>
+          credential.realm === "supabase-google"
+            ? Effect.succeed<MossPayAuthorityCredential>(credential)
+            : Effect.fail(
+                new MossCloudAccountServiceError({
+                  code: "provider_error",
+                  message: "The Google account authority is invalid.",
+                }),
+              ),
+        ),
+        Effect.catch(
+          (
+            error,
+          ): Effect.Effect<
+            MossPayAuthorityCredential,
+            MossAccountServiceError | MossCloudAccountServiceError
+          > =>
+            error.code !== "authentication_required"
+              ? Effect.fail(error)
+              : input.phoneAccount.getAuthorityCredential().pipe(
+                  Effect.flatMap((credential) =>
+                    credential.realm === "memfire-phone"
+                      ? Effect.succeed<MossPayAuthorityCredential>(credential)
+                      : Effect.fail(
+                          new MossAccountServiceError({
+                            code: "invalid_authentication_response",
+                            message: "The phone account authority is invalid.",
+                          }),
+                        ),
+                  ),
+                ),
+        ),
+      );
+    }),
   );
 }
 
@@ -993,11 +1055,21 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
     fetchWalletRows(),
     fetchAuthorityCreditUsageSnapshot(shared),
   ]);
+  const entitlement = entitlements[0];
+  if (!entitlement) throw invalidAuthorityResponse();
+  const entitlementId = requireSafeString(entitlement.id);
+  const planCode = requireSafeString(entitlement.plan_code, 80);
+  const realtimeModelAllowlist =
+    entitlement.realtime_model_allowlist === null ||
+    entitlement.realtime_model_allowlist === undefined
+      ? []
+      : requireStringArray(entitlement.realtime_model_allowlist);
   const quotaQuery = (includePolicy: boolean) =>
     new URLSearchParams({
       select: includePolicy
         ? "id,entitlement_id,period_start,period_end,request_limit,requests_used,token_limit,quota_policy_mode,input_tokens_used,output_tokens_used,realtime_cost_limit_nano_usd,realtime_cost_used_nano_usd,realtime_cost_reserved_nano_usd,realtime_session_limit,realtime_sessions_used"
         : "id,entitlement_id,period_start,period_end,request_limit,requests_used,token_limit,input_tokens_used,output_tokens_used,realtime_cost_limit_nano_usd,realtime_cost_used_nano_usd,realtime_cost_reserved_nano_usd,realtime_session_limit,realtime_sessions_used",
+      entitlement_id: `eq.${entitlementId}`,
       period_start: `lte.${now}`,
       period_end: `gt.${now}`,
       order: "period_start.desc",
@@ -1023,11 +1095,61 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
       query: quotaQuery(false),
     });
   }
-  const entitlement = entitlements[0];
   const quota = quotas[0];
   const wallet = wallets[0];
-  if (!entitlement || !quota || !wallet) throw invalidAuthorityResponse();
-  const entitlementId = requireSafeString(entitlement.id);
+  const isCostBudgetV1 = creditUsageSnapshot?.billing_model === "cost_budget_v1";
+  const isWalletCreditsV1 = creditUsageSnapshot?.billing_model === "wallet_credits_v1";
+  const hasAuthoritativeFreeWalletSnapshot =
+    isWalletCreditsV1 &&
+    creditUsageSnapshot !== null &&
+    normalizeCreditUsageLimits(creditUsageSnapshot).length > 0;
+  const walletBalance = wallet
+    ? requireNonNegativeInteger(wallet.balance)
+    : hasAuthoritativeFreeWalletSnapshot
+      ? requireNonNegativeInteger(creditUsageSnapshot.wallet_balance)
+      : (() => {
+          throw invalidAuthorityResponse();
+        })();
+  const rawPrepaidMicros =
+    !wallet ||
+    wallet.text_credit_prepaid_micros === undefined ||
+    wallet.text_credit_prepaid_micros === null
+      ? null
+      : asNullableNonNegativeInteger(wallet.text_credit_prepaid_micros);
+  const walletPrepaidMicros =
+    rawPrepaidMicros !== null && rawPrepaidMicros < 1_000_000 ? rawPrepaidMicros : 0;
+
+  if (!quota) {
+    if (!hasAuthoritativeFreeWalletSnapshot) {
+      throw invalidAuthorityResponse();
+    }
+    return {
+      account: {
+        plan_code: planCode,
+        period_start: null,
+        period_end: null,
+        window_id: null,
+        token_limit: null,
+        tokens_used: 0,
+        request_limit: null,
+        quota_policy_mode: "metered",
+        requests_used: 0,
+        credit_balance: walletBalance,
+        wallet_prepaid_micros: walletPrepaidMicros,
+        credit_usage_snapshot: creditUsageSnapshot,
+      },
+      realtime: {
+        configured: false,
+        model_allowlist: realtimeModelAllowlist,
+        plan_limit_nano_usd: null,
+        plan_used_nano_usd: 0,
+        plan_reserved_nano_usd: 0,
+        session_limit: null,
+        sessions_used: 0,
+        estimated_minutes_remaining: null,
+      },
+    };
+  }
   if (quota.entitlement_id !== entitlementId) throw invalidAuthorityResponse();
   const periodStart = requireIsoDateTime(quota.period_start);
   const periodEnd = requirePeriodEnd(quota.period_end);
@@ -1040,10 +1162,7 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
   const outputTokens = requireNonNegativeInteger(quota.output_tokens_used);
   if (inputTokens > Number.MAX_SAFE_INTEGER - outputTokens) throw invalidAuthorityResponse();
   const tokensUsed = inputTokens + outputTokens;
-  const realtimeModelAllowlist = requireStringArray(entitlement.realtime_model_allowlist);
   const quotaPolicyModeRaw = asQuotaPolicyMode(quota.quota_policy_mode);
-  const isCostBudgetV1 = creditUsageSnapshot?.billing_model === "cost_budget_v1";
-  const isWalletCreditsV1 = creditUsageSnapshot?.billing_model === "wallet_credits_v1";
   const explicitUnlimited =
     quotaPolicyModeRaw === "unlimited" && requestLimit === null && tokenLimit === null;
   const validLegacyQuotaPolicy =
@@ -1057,16 +1176,9 @@ async function fetchAuthorityAccountQuota(credential: MossPayAuthorityCredential
         : quotaPolicyModeRaw === "unavailable" && requestLimit !== null
           ? "metered"
           : "unavailable";
-  const walletBalance = requireNonNegativeInteger(wallet.balance);
-  const rawPrepaidMicros =
-    wallet.text_credit_prepaid_micros === undefined || wallet.text_credit_prepaid_micros === null
-      ? null
-      : asNullableNonNegativeInteger(wallet.text_credit_prepaid_micros);
-  const walletPrepaidMicros =
-    rawPrepaidMicros !== null && rawPrepaidMicros < 1_000_000 ? rawPrepaidMicros : 0;
   return {
     account: {
-      plan_code: requireSafeString(entitlement.plan_code, 80),
+      plan_code: planCode,
       period_start: periodStart,
       period_end: periodEnd,
       window_id: requireSafeString(quota.id),
