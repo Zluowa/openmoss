@@ -33,6 +33,8 @@ import {
   SECRET_REQUEST_ACTIVITY_KIND,
   SECRET_REQUEST_RESOLVED_ACTIVITY_KIND,
   SecretRequestActivityPayload,
+  DEVS_REPORT_DRAFT_ACTIVITY_KIND,
+  DevsReportDraftActivityPayload,
 } from "@moss/contracts";
 import { Option, Schema } from "effect";
 import { INLINE_VISUALS_ON } from "./betaFeatures";
@@ -48,7 +50,10 @@ import {
   type ApprovalRequestKind,
 } from "@moss/shared/threadSummary";
 import { stripTrailingToolExitCode, summarizeToolRawOutput } from "@moss/shared/toolOutputSummary";
-import { isCodexDiagnosticWarningMessage } from "@moss/shared/codexDiagnostics";
+import {
+  isCodexDiagnosticWarningMessage,
+  isCodexUserMcpOAuthStartupError,
+} from "@moss/shared/codexDiagnostics";
 import { pluralize, stripTerminalControlSequences } from "@moss/shared/text";
 import { suppressCoordinatorCheckinMessages } from "@moss/shared/coordinatorCheckin";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
@@ -244,6 +249,8 @@ export interface WorkLogEntry {
   // An agent's private secret request. A pending one (no `outcome`) renders the
   // masked input card; a settled one is a one-line result.
   secretRequest?: SecretRequestActivityPayload;
+  // A report an agent drafted for the Moss developers; the person reviews and sends it.
+  devsReportDraft?: DevsReportDraftActivityPayload;
   providerContextLifecycle?: ProviderContextLifecycleInfo;
   providerHandoff?: ProviderHandoffInfo;
   /** Durable terminal feedback; session readiness never clears a failed turn. */
@@ -1435,6 +1442,14 @@ function shouldKeepActivityForWorkLog(
   if (activity.kind === "runtime.warning") {
     const message = asTrimmedString(asRecord(activity.payload)?.message);
     if (message !== null && isCodexDiagnosticWarningMessage(message)) return false;
+    // A user MCP server's OAuth reauthentication notice saved before the server kept it in
+    // its log (upstream PR #2213). The startup notification is the row's detail.
+    const startup = asRecord(asRecord(activity.payload)?.detail);
+    if (startup?.status === "failed") {
+      const name = asTrimmedString(startup.name);
+      const error = asTrimmedString(startup.error);
+      if (name && error && isCodexUserMcpOAuthStartupError(name, error)) return false;
+    }
   }
   // Compatibility for activities persisted before the server stopped
   // misclassifying Codex's automatic `item/tool/call` envelope as an approval.
@@ -1529,6 +1544,10 @@ function shouldKeepActivityForWorkLog(
   }
   // A waiting secret card is the only way to answer the agent blocked on it.
   if (activity.kind === SECRET_REQUEST_ACTIVITY_KIND) {
+    return true;
+  }
+  // A drafted report waits on the person, whichever turn wrote it.
+  if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
     return true;
   }
   // A slow start comes before its turn has an id; it says why "Thinking" is taking long.
@@ -2638,6 +2657,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   ) {
     const secretRequest = Option.getOrUndefined(decodeSecretRequestPayload(activity.payload));
     if (secretRequest) entry.secretRequest = secretRequest;
+  }
+  if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
+    const devsReportDraft = Option.getOrUndefined(decodeDevsReportDraftPayload(activity.payload));
+    if (devsReportDraft) entry.devsReportDraft = devsReportDraft;
   }
   if (activity.kind === PROVIDER_CONTEXT_LIFECYCLE_ACTIVITY_KIND) {
     const providerContextLifecycle = extractProviderContextLifecycleInfo(payload);
@@ -6314,3 +6337,4 @@ function asTimelineToolRequestKind(
 
 const decodeInlineVisualPayload = Schema.decodeUnknownOption(InlineVisualActivityPayload);
 const decodeSecretRequestPayload = Schema.decodeUnknownOption(SecretRequestActivityPayload);
+const decodeDevsReportDraftPayload = Schema.decodeUnknownOption(DevsReportDraftActivityPayload);

@@ -52,6 +52,12 @@ export const WS_THREAD_GOAL_VISIBLE_START_CAPABILITY = "orchestration.thread-goa
 export const WS_SERVER_RUNTIME_STATUS_CAPABILITY = "server.runtime-status";
 export const WS_GIT_ACTION_RECOVERY_CAPABILITY = "git.action-recovery";
 /**
+ * Group posts take pictures and files (`MossbotRoomSendInput.attachments`, uploaded under the
+ * room's project id). A client that sends them asks for this first, so an older server says
+ * "update" instead of dropping them.
+ */
+export const WS_MOSSBOT_ROOM_ATTACHMENTS_CAPABILITY = "mossbotRoom.attachments";
+/**
  * Advertised only by a server whose agents use its own headless browser (no
  * desktop app hosts one). Clients then show the streamed server-browser panel
  * instead of the desktop's native one. Not in the static list below: it
@@ -83,6 +89,7 @@ export const WS_SERVER_CAPABILITIES = [
   WS_THREAD_GOAL_VISIBLE_START_CAPABILITY,
   WS_GIT_ACTION_RECOVERY_CAPABILITY,
   WS_SERVER_RUNTIME_STATUS_CAPABILITY,
+  WS_MOSSBOT_ROOM_ATTACHMENTS_CAPABILITY,
   // Single-handshake connect: negotiation is available over plain HTTP at
   // WS_NEGOTIATE_HTTP_PATH, so a connect costs exactly one WebSocket upgrade.
   "transport.http-negotiate",

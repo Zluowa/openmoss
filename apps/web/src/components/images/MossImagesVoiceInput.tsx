@@ -22,6 +22,44 @@ export function MossImagesVoiceInput({
   readonly onTranscript: (text: string) => void;
   readonly selection: ModelSelection;
 }) {
+  // Without a project the button is disabled and recording is a no-op; avoid mounting
+  // the voice controller's account queries when no voice target exists.
+  if (!project) {
+    return (
+      <ComposerVoiceButton
+        disabled
+        isRecording={false}
+        isStarting={false}
+        isTranscribing={false}
+        durationLabel="0:00"
+        onClick={() => undefined}
+      />
+    );
+  }
+  return (
+    <MossImagesVoiceInputActive
+      project={project}
+      scopeId={scopeId}
+      disabled={disabled}
+      onTranscript={onTranscript}
+      selection={selection}
+    />
+  );
+}
+
+function MossImagesVoiceInputActive({
+  project,
+  scopeId,
+  disabled,
+  onTranscript,
+  selection,
+}: {
+  readonly project: Project;
+  readonly scopeId: string;
+  readonly disabled: boolean;
+  readonly onTranscript: (text: string) => void;
+  readonly selection: ModelSelection;
+}) {
   const { settings } = useAppSettings();
   const statuses = useProviderStatusesForLocalConfig();
   const refreshVoiceStatus = useRefreshProviderStatusesNow();

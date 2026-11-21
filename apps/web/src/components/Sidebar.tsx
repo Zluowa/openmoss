@@ -3011,17 +3011,19 @@ export default function Sidebar() {
     [openRenameThreadDialog],
   );
 
-  const { prewarmThreadDetail: prewarmThreadDetailForIntent } = useThreadDetailPrewarm();
+  const { prewarmThreadDetail: prewarmThreadDetailForIntent, prewarmThreadDetailForActivation } =
+    useThreadDetailPrewarm();
 
   const primeThreadActivation = useCallback(
     (event: ReactPointerEvent<HTMLElement>, threadId: ThreadId) => {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
         return;
       }
-      prewarmThreadDetailForIntent(threadId);
+      // A press all but opens the thread, so an uncached one subscribes now (upstream PR #2215).
+      prewarmThreadDetailForActivation(threadId);
       setOptimisticActiveThreadId(threadId);
     },
-    [prewarmThreadDetailForIntent],
+    [prewarmThreadDetailForActivation],
   );
 
   const copyThreadIdToClipboard = useCopyThreadIdToClipboard();

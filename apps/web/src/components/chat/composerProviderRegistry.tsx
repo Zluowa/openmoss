@@ -196,7 +196,14 @@ function getProviderStateFromCapabilities(
     case "antigravity": {
       const providerOptions = modelOptions?.antigravity;
       rawEffort = trimOrNull(providerOptions?.reasoningEffort);
-      normalizedOptions = normalizeAntigravityModelOptions(model, providerOptions, caps);
+      // Antigravity effort ladders come only from discovery, so a missing
+      // ladder is "unknown", not "unsupported": keep an explicit pick for
+      // dispatch instead of silently running the session default, matching
+      // how Codex treats a stored effort before discovery resolves (upstream PR #2173).
+      normalizedOptions =
+        rawEffort && runtimeModel?.supportedReasoningEfforts === undefined
+          ? { reasoningEffort: rawEffort }
+          : normalizeAntigravityModelOptions(model, providerOptions, caps);
       break;
     }
     case "grok": {
@@ -339,7 +346,10 @@ function getProviderStateFromCapabilities(
                 effort: draftEffort,
                 ...(runtimeModel ? { runtimeModel } : {}),
               }) !== "unsupported"
-            : hasEffortLevel(caps, draftEffort))
+            : provider === "antigravity"
+              ? runtimeModel?.supportedReasoningEfforts === undefined ||
+                hasEffortLevel(caps, draftEffort)
+              : hasEffortLevel(caps, draftEffort))
         ? draftEffort
         : defaultEffort && hasEffortLevel(caps, defaultEffort)
           ? defaultEffort

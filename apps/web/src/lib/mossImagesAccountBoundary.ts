@@ -114,11 +114,15 @@ export function useMossImagesAccountBoundary() {
   const queryClient = useQueryClient();
   const subscribe = useCallback(
     (notify: () => void) => {
-      // Ignore unrelated cache events: queries may be registered during another
+      // Ignore unrelated cache events and query/observer registration during another
       // component's render, when notifying an account observer would update it
-      // from inside that render. Identity changes come only from these records.
+      // from inside that render. Identity changes come only from data updates or removals.
       const offQueries = queryClient.getQueryCache().subscribe((event) => {
-        if (ACCOUNT_QUERIES.has(JSON.stringify(event.query.queryKey))) notify();
+        if (
+          (event.type === "updated" || event.type === "removed") &&
+          ACCOUNT_QUERIES.has(JSON.stringify(event.query.queryKey))
+        )
+          notify();
       });
       const offMutations = queryClient.getMutationCache().subscribe((event) => {
         if (

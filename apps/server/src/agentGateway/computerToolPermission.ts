@@ -252,6 +252,8 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "moss_wrap_up",
   // Agent feedback (agentFeedbackTool.ts): writes one note to a local file, sends nothing.
   "moss_report_friction",
+  // Developer report draft (devsReportDraftTool.ts): shows a card in the chat, sends nothing.
+  "moss_draft_devs_report",
   // Moss's own theme (themeTools.ts). The set tool checks a full-access caller itself.
   "moss_theme_read",
   "moss_theme_set",

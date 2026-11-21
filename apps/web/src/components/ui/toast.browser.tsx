@@ -9,6 +9,7 @@ const route = vi.hoisted(() => ({ threadId: "toast-thread" }));
 vi.mock("@tanstack/react-router", () => ({ useParams: () => route.threadId }));
 vi.mock("../../hooks/useDiffRouteSearch", () => ({ useDiffRouteSearch: () => ({}) }));
 
+import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@moss/shared/desktopChrome";
 import { ToastProvider, toastManager } from "./toast";
 import { buildGitActionFailureToast } from "../GitActionsControl.logic";
 
@@ -89,6 +90,21 @@ it.each(["light", "dark"])("keeps %s error toasts tinted on whole-window glass",
     else html.dataset.windowTranslucency = previousScope;
     html.classList.toggle("dark", previousDark);
   }
+});
+
+it("starts a centered toast below the 44px title bar, clear of the window controls", () => {
+  // From Synara #2179: in a narrow window the centered toast sat inside the title bar,
+  // under the minimize/maximize/close buttons.
+  flushSync(() => toastManager.add({ title: "Title bar notice", timeout: 0 }));
+  const viewport = document.querySelector<HTMLElement>('[data-slot="toast-viewport"]')!;
+  expect(viewport.dataset.position ?? "top-center").toBe("top-center");
+  const popup = viewport.querySelector<HTMLElement>("[data-position]")!;
+  expect(popup.getBoundingClientRect().height).toBeGreaterThan(0);
+  // Where the card rests once its entry slide ends: the fixed viewport's top plus the card's
+  // layout offset in it (offsetTop ignores the slide's transform).
+  const restingTop = viewport.getBoundingClientRect().top + popup.offsetTop;
+  expect(restingTop).toBeGreaterThanOrEqual(CHAT_SURFACE_HEADER_HEIGHT_PX);
+  expect(restingTop).toBeLessThan(CHAT_SURFACE_HEADER_HEIGHT_PX + 24);
 });
 
 beforeEach(() => {

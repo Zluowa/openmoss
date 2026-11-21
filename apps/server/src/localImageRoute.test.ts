@@ -223,6 +223,7 @@ function makeServerSettings(getSettings: ServerSettingsShape["getSettings"]): Se
     subscribeChanges: Effect.succeed(Stream.empty),
     streamChanges: Stream.empty,
     streamViews: Stream.empty,
+    streamViewsWithSnapshot: Stream.empty,
   };
 }
 

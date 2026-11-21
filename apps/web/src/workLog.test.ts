@@ -431,6 +431,40 @@ describe("deriveWorkLogEntries", () => {
     expect(entries.map((entry) => entry.id)).toEqual(["real"]);
   });
 
+  it("hides stored Codex user MCP OAuth startup warnings while keeping actionable failures", () => {
+    // From Synara #2213, in the row shape Moss's Codex adapter saves.
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const oauthError = (name: string) =>
+      `The ${name} MCP server requires OAuth reauthentication. Run \`codex mcp login ${name}\`.`;
+    const startupWarning = (name: string, error: string) =>
+      makeActivity({
+        id: name,
+        kind: "runtime.warning",
+        tone: "info",
+        summary: "Runtime warning",
+        turnId,
+        payload: {
+          message: `MCP server "${name}" could not start. Its tools are unavailable for now.`,
+          detail: { name, status: "failed", error },
+        },
+      });
+    const entries = deriveWorkLogEntries(
+      [
+        startupWarning("stripe", oauthError("stripe")),
+        startupWarning("polar", oauthError("polar")),
+        startupWarning("stripe_connector", oauthError("stripe_connector")),
+        startupWarning("moss", oauthError("moss")),
+        startupWarning("other", "MCP connection failed: Workspace access denied"),
+      ],
+      turnId,
+    );
+    expect(entries.map((entry) => entry.id).toSorted()).toEqual([
+      "moss",
+      "other",
+      "stripe_connector",
+    ]);
+  });
+
   it("exposes a runtime.error payload message as work-row detail", () => {
     const entries = deriveWorkLogEntries(
       [
@@ -7218,6 +7252,44 @@ describe("secret request cards", () => {
       visibleTurnIds: new Set([TurnId.makeUnsafe("other-turn")]),
     });
     expect(entries.map((entry) => entry.secretRequest?.requestId)).toEqual([requestId]);
+  });
+});
+
+describe("developer report drafts", () => {
+  const turnId = TurnId.makeUnsafe("draft-turn");
+  const draftId = `devs-draft:${"d".repeat(32)}`;
+  const drafted = makeActivity({
+    id: draftId,
+    turnId,
+    kind: "devs.report.drafted",
+    tone: "info",
+    summary: "Drafted a report for the Moss developers: 白板一直停在正在加载",
+    payload: { draftId, summary: "白板一直停在正在加载", details: "打开白板后等了两分钟。" },
+  });
+
+  it("shows a drafted report as its card, even outside the visible turns", () => {
+    const entries = deriveWorkLogEntries([drafted], TurnId.makeUnsafe("other-turn"), {
+      visibleTurnIds: new Set([TurnId.makeUnsafe("other-turn")]),
+    });
+    expect(entries.map((entry) => entry.devsReportDraft)).toEqual([
+      { draftId, summary: "白板一直停在正在加载", details: "打开白板后等了两分钟。" },
+    ]);
+  });
+
+  it("draws no card for a payload that is not a draft", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "bad-draft",
+          turnId,
+          kind: "devs.report.drafted",
+          tone: "info",
+          payload: { draftId: "nope", summary: "" },
+        }),
+      ],
+      turnId,
+    );
+    expect(entry?.devsReportDraft).toBeUndefined();
   });
 });
 

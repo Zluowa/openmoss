@@ -284,6 +284,7 @@ function probeColorBounds(
 }
 
 const wsLink = ws.link(/ws(s)?:\/\/.*/);
+let sendSettingsUpdate: ((settings: TestFixture["serverSettings"]) => void) | undefined;
 const worker = setupWorker(
   wsLink.addEventListener("connection", ({ client }) => {
     client.addEventListener("message", (event) => {
@@ -306,6 +307,13 @@ const worker = setupWorker(
         });
         return;
       }
+      if (method === WS_METHODS.subscribeServerSettings) {
+        const send = (settings: TestFixture["serverSettings"]) =>
+          sendEffectRpcChunk(client, parsed.request.id, { settings });
+        sendSettingsUpdate = send;
+        send(fixture.serverSettings);
+        return;
+      }
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         sendEffectRpcChunk(client, parsed.request.id, {
           kind: "snapshot",
@@ -323,7 +331,6 @@ const worker = setupWorker(
       }
       if (
         method === WS_METHODS.subscribeServerProviderStatuses ||
-        method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeServerKeepAwake ||
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
@@ -457,6 +464,7 @@ describe("theme hooks on the chat screen", () => {
 
   beforeEach(async () => {
     await resetWsNativeApiForTest();
+    sendSettingsUpdate = undefined;
     localStorage.clear();
     document.body.innerHTML = "";
     applyThemeCss("");
@@ -484,6 +492,32 @@ describe("theme hooks on the chat screen", () => {
       sidebarThreadSummaryById: {},
       threadsHydrated: false,
     });
+  });
+
+  it("applies a theme published after the chat has opened without reloading", async () => {
+    fixture = buildFixture();
+    const app = await mountApp("light");
+    try {
+      await vi.waitFor(() => expect(sendSettingsUpdate).toBeTypeOf("function"));
+      expect(document.documentElement.dataset.themeVariant).toBe("light");
+      fixture = buildFixture({
+        revision: "published-live",
+        publishedAt: NOW_ISO,
+        appearance: "dark",
+        dark: {
+          css: '[data-workspace-area="conversation"] { background-color: #294d3a !important; }',
+        },
+      });
+      sendSettingsUpdate?.(fixture.serverSettings);
+
+      await vi.waitFor(() => {
+        expect(document.documentElement.dataset.themeVariant).toBe("dark");
+        const conversation = document.querySelector('[data-workspace-area="conversation"]')!;
+        expect(getComputedStyle(conversation).backgroundColor).toBe("rgb(41, 77, 58)");
+      });
+    } finally {
+      await app.cleanup();
+    }
   });
 
   afterEach(() => {

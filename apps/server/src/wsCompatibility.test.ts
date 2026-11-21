@@ -1,6 +1,7 @@
 import {
   WS_COMPATIBILITY_QUERY,
   WS_CLIENT_REQUIRED_CAPABILITIES,
+  WS_MOSSBOT_ROOM_ATTACHMENTS_CAPABILITY,
   WS_PROTOCOL_EPOCH,
   WS_PROTOCOL_MAX_REVISION,
   WS_PROTOCOL_MIN_REVISION,
@@ -60,6 +61,9 @@ describe("WebSocket compatibility bootstrap", () => {
     expect(result.capabilities).toContain("projects.github-provisioning");
     expect(result.capabilities).toContain(WS_PROJECT_FILE_WATCH_CAPABILITY);
     expect(result.capabilities).toContain(WS_THREAD_GOAL_VISIBLE_START_CAPABILITY);
+    // The phone attaches pictures and files to group posts only once the server says so.
+    expect(result.capabilities).toContain(WS_MOSSBOT_ROOM_ATTACHMENTS_CAPABILITY);
+    expect(WS_MOSSBOT_ROOM_ATTACHMENTS_CAPABILITY).toBe("mossbotRoom.attachments");
     expect(WS_CLIENT_REQUIRED_CAPABILITIES).not.toContain("projects.github-provisioning");
     expect(WS_CLIENT_REQUIRED_CAPABILITIES).not.toContain(WS_PROJECT_FILE_WATCH_CAPABILITY);
     expect(WS_CLIENT_REQUIRED_CAPABILITIES).not.toContain(WS_THREAD_GOAL_VISIBLE_START_CAPABILITY);

@@ -77,6 +77,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import { copyTextToClipboard, useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
+import { LRUCache } from "../lib/lruCache";
 import { dedentCode, parseCodeFenceInfo, type CodeFenceInfo } from "../lib/codeFence";
 import { MAX_SYNTAX_HIGHLIGHT_INPUT_CHARS } from "../lib/syntaxHighlightingLimits";
 import { basenameOfPath, getFileIconName, pathLooksLikeKnownFile } from "../file-icons";
@@ -288,6 +289,12 @@ interface ChatMarkdownProps {
    * text.
    */
   parseHtml?: boolean | undefined;
+  /**
+   * Shares the parsed tree of this settled text with every other mount of the same
+   * text (see `parsedMarkdownCache`). Only for transcript rows, whose settled text is
+   * immutable and remounts as the list scrolls.
+   */
+  shareParse?: boolean | undefined;
   onOpenThread?: ((threadId: ThreadId) => void) | undefined;
   /** Terminal selections rendered as inline chips inside user-message markdown. */
   terminalContexts?: ReadonlyArray<ParsedTerminalContextEntry> | undefined;
@@ -347,6 +354,37 @@ interface ParsedMarkdownProps {
   remarkPlugins: MarkdownRemarkPlugins;
   rehypePlugins: MarkdownRehypePlugins;
   components: Components;
+  /**
+   * Everything besides the text that shapes the parse output, when the parse may be
+   * shared through `parsedMarkdownCache`; null for streaming or per-message plugins.
+   */
+  parseCacheScope: string | null;
+}
+
+// Parsed element trees of settled transcript messages, keyed by parse scope and source
+// text (upstream PR #2215). A virtualized transcript unmounts rows that scroll away and remounts
+// them on the way back, which re-ran the whole unified pipeline for every remount. Element
+// trees are immutable and every render-time input (theme, find highlights, file chips, links)
+// is read from context by the markdown components, so one tree serves every mount of the
+// same text.
+//
+// Sharing is opt-in (`shareParse`): only transcript rows remount the same settled text.
+// Other surfaces (file previews, PR bodies, dialogs) render text that changes while it
+// is shown or can be very large, and would only fill the cache with dead versions.
+// Upstream measured ~13.5 retained bytes per source character; 14 is used. One entry may
+// not exceed `PARSED_MARKDOWN_CACHE_MAX_SOURCE_CHARS`: the LRU admits an entry larger than
+// its whole budget by evicting everything else, so a huge message would flush the cache.
+const PARSED_MARKDOWN_CACHE_MAX_ENTRIES = 600;
+const PARSED_MARKDOWN_CACHE_MAX_BYTES = 32 * 1024 * 1024;
+const PARSED_MARKDOWN_BYTES_PER_SOURCE_CHAR = 14;
+const PARSED_MARKDOWN_CACHE_MAX_SOURCE_CHARS = 64 * 1024;
+const parsedMarkdownCache = new LRUCache<readonly ReactNode[]>(
+  PARSED_MARKDOWN_CACHE_MAX_ENTRIES,
+  PARSED_MARKDOWN_CACHE_MAX_BYTES,
+);
+
+export function getSharedParseCacheSizeForTests(): number {
+  return parsedMarkdownCache.size;
 }
 
 // react-markdown's `Markdown` is synchronous and hook-free, so calling it as a
@@ -370,9 +408,34 @@ interface MarkdownParseOptions {
   readonly remarkPlugins: MarkdownRemarkPlugins;
   readonly rehypePlugins: MarkdownRehypePlugins;
   readonly components: Components;
+  readonly parseCacheScope: string | null;
 }
 
 function parseMarkdownBlock(
+  block: StreamingMarkdownBlock,
+  options: MarkdownParseOptions,
+): readonly ReactNode[] {
+  // Only a whole-message parse (offset 0, not split for streaming) is shared.
+  if (
+    options.parseCacheScope === null ||
+    block.offset !== 0 ||
+    block.text.length > PARSED_MARKDOWN_CACHE_MAX_SOURCE_CHARS
+  ) {
+    return parseMarkdownBlockUncached(block, options);
+  }
+  const cacheKey = `${options.parseCacheScope}\u0000${block.text}`;
+  const cached = parsedMarkdownCache.get(cacheKey);
+  if (cached !== null) return cached;
+  const children = parseMarkdownBlockUncached(block, options);
+  parsedMarkdownCache.set(
+    cacheKey,
+    children,
+    block.text.length * PARSED_MARKDOWN_BYTES_PER_SOURCE_CHAR,
+  );
+  return children;
+}
+
+function parseMarkdownBlockUncached(
   block: StreamingMarkdownBlock,
   options: MarkdownParseOptions,
 ): readonly ReactNode[] {
@@ -396,11 +459,17 @@ const ParsedMarkdown = memo(function ParsedMarkdown({
   remarkPlugins,
   rehypePlugins,
   components,
+  parseCacheScope,
 }: ParsedMarkdownProps) {
   const children = useStreamingMarkdownChildren(
     text,
     splitBlocks,
-    { remarkPlugins, rehypePlugins, components },
+    {
+      remarkPlugins,
+      rehypePlugins,
+      components,
+      parseCacheScope: splitBlocks ? null : parseCacheScope,
+    },
     parseMarkdownBlock,
   );
   return <>{children}</>;
@@ -2677,6 +2746,7 @@ function ChatMarkdown({
   segmentIndex,
   renderInlineVisualizations: renderInlineVisualizationsProp,
   onOpenInlineVisualization,
+  shareParse: shareParseProp,
 }: ChatMarkdownProps) {
   // Defaults applied with ?? in the body, not in the destructuring: default
   // values in parameter destructuring make React Compiler 1.0.0 bail on the
@@ -2809,6 +2879,14 @@ function ChatMarkdown({
       ? ([...basePlugins, rehypeBidiBlockDirection] as MarkdownRehypePlugins)
       : basePlugins;
   }, [isUserVariant, parseHtml, usesAutomaticBlockDirection]);
+  // The parse depends on the text plus exactly these inputs (see remarkPlugins and
+  // rehypePlugins above). User messages carry per-message chip plugins and a message with
+  // markers carries its own range decorations, so neither is shared. Only opted-in callers
+  // share (see `parsedMarkdownCache`).
+  const parseCacheScope =
+    !shareParseProp || isStreaming || composerChipsRemarkPlugin || markers?.length
+      ? null
+      : `${parseHtml ? 1 : 0}${usesAutomaticBlockDirection ? 1 : 0}${renderInlineVisualizations ? 1 : 0}:${wikiLinkRoot ?? cwd ?? ""}`;
   const rootRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     applyActiveChatFindMatch(rootRef.current, findActiveRange);
@@ -2902,6 +2980,7 @@ function ChatMarkdown({
                       remarkPlugins={remarkPlugins}
                       rehypePlugins={rehypePlugins}
                       components={MARKDOWN_COMPONENTS}
+                      parseCacheScope={parseCacheScope}
                     />
                   </CodeRunContext.Provider>
                 </CodeHighlightErrorBoundary>

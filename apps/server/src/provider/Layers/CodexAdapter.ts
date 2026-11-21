@@ -59,6 +59,7 @@ import {
 import { Cause, Effect, Layer, Option, Queue, Schema, ServiceMap, Stream } from "effect";
 import {
   isCodexDiagnosticWarningMessage,
+  isCodexUserMcpOAuthStartupError,
   readCodexMcpSubscriptionError,
 } from "@moss/shared/codexDiagnostics";
 import { isMossAppsServer, mossAppsToolTitle } from "@moss/shared/mossAppsPresentation";
@@ -3737,6 +3738,9 @@ function mapToRuntimeEvents(
     const name = asTrimmedString(payload?.name);
     const error = asTrimmedString(payload?.error);
     if (payload?.status === "failed" && name && error) {
+      // An expired OAuth grant of the person's own MCP server is their Codex setup, not this
+      // chat (upstream PR #2213); its stderr twin is already server-log only.
+      if (isCodexUserMcpOAuthStartupError(name, error)) return [];
       return [
         {
           type: "runtime.warning",
@@ -5083,6 +5087,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
           const nativeEvent = compactCodexNativeEventForIngress(
             hasUnmappedEvent ||
               mappedRuntimeEvents.some((runtimeEvent) => runtimeEvent.type === "runtime.warning") ||
+              stampedEvent.method === "mcpServer/startupStatus/updated" ||
               CODEX_RUNTIME_WARNING_METHODS.has(stampedEvent.method)
               ? sanitizeUnmappedProviderEvent(stampedEvent)
               : stampedEvent,

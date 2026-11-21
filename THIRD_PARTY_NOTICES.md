@@ -253,6 +253,24 @@ sent by an automation or another agent are left out of what the model reads so i
 not imitate them. T3 Code's provider-native suggestion sources (the Claude Agent SDK
 `promptSuggestions` option and Codex `thread/sample`) are not used.
 
+## Synara 1.6.1–1.6.3 fixes (absorbed)
+
+These changes from Synara (https://github.com/Emanuele-web04/synara, MIT) are adapted with
+their tests:
+
+- A skipped automation run stays skipped when a late observer marks it failed, succeeded
+  or interrupted, from PR #2181 (commit ca56c4524). Its lifecycle declarations, queue hold
+  and worktree-setup ordering are not included.
+- A stored Antigravity effort pick is kept for dispatch until model discovery resolves,
+  from PR #2173 (commit d7cfc34cf).
+- OAuth reauthentication notices of the person's own Codex MCP servers stay in the server
+  log instead of the chat, from PR #2213 (commit c8c1ed4f1). Moss's own server and its
+  connectors still say when they fail.
+- The integrated zsh follows the person's ZDOTDIR through its startup files, from PR #2221
+  (commit f1c6e408a).
+- Centered toasts start below the title bar, from PR #2179 (commit e5e122c22). Moss keeps
+  its window controls above toasts.
+
 ## Synara 1.6.2 fixes (absorbed)
 
 These changes from Synara 1.6.2 (https://github.com/Emanuele-web04/synara, MIT, release
@@ -280,6 +298,15 @@ has been proven on a Mac.
 macOS window capture teardown in AppSnap and the Computer frame tap, and task-owned window
 stills, are adapted with their tests from Synara PR #2202
 (https://github.com/Emanuele-web04/synara/pull/2202, MIT, commit 2a4df05a0).
+
+## Synara chat performance (absorbed)
+
+From Synara (https://github.com/Emanuele-web04/synara, MIT), adapted with their tests: the
+computer preview budget hook that keeps a sidebar slide from re-rendering the chat on every
+frame, from PR #2231 (commit b0a8340d8); and the press-time subscription of an uncached chat
+plus the shared parse of settled transcript markdown, from PR #2215 (commit 1a3604983).
+Moss keeps messages with markers out of the shared parse. The benchmark suite and the
+desktop permessage-deflate opt-out of PR #2215 are not included.
 
 ## OpenUI Lang and open-intelligent-ui components (absorbed)
 

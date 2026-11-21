@@ -132,6 +132,7 @@ import { MossEnterpriseKeyAccount } from "../../account/Services/MossEnterpriseK
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService.ts";
 import { makeAgentGatewayInlineVisualTools } from "../inlineVisualTools.ts";
 import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
+import { MOSS_DEVS_REPORTS_ENABLED } from "@moss/shared/devsReport";
 import { makeAgentGatewayOpenUIReferenceTool } from "../openUIReferenceTool.ts";
 import { makeAgentGatewayPlacePhotoTool } from "../placePhotoTools.ts";
 import { makeAgentGatewayVisualGuideTool } from "../visualGuideTool.ts";
@@ -179,6 +180,7 @@ import { makeAgentGatewayKanbanTools } from "../kanbanTools.ts";
 import { makeAgentGatewayTodoTools } from "../todoTools.ts";
 import { makeAgentGatewaySecretRequestTools } from "../secretRequestTools.ts";
 import { makeAgentGatewayAgentFeedbackTool } from "../agentFeedbackTool.ts";
+import { makeAgentGatewayDevsReportDraftTool } from "../devsReportDraftTool.ts";
 import { AgentFeedback } from "../../agentFeedback/Services/AgentFeedback.ts";
 import { SecretRequests } from "../../secretRequests/Services/SecretRequests.ts";
 import { TodoService } from "../../todo/Services/TodoService.ts";
@@ -2114,6 +2116,10 @@ export const makeAgentGateway = Effect.gen(function* () {
     ...(isServerBetaFeatureEnabled("tasks") ? todoTools : []),
     ...(secretRequests === undefined ? [] : makeAgentGatewaySecretRequestTools({ secretRequests })),
     ...(agentFeedback === undefined ? [] : [makeAgentGatewayAgentFeedbackTool({ agentFeedback })]),
+    // Same switch as the chat's @devs: a build without developer reports offers no drafts.
+    ...(MOSS_DEVS_REPORTS_ENABLED
+      ? [makeAgentGatewayDevsReportDraftTool({ orchestrationEngine })]
+      : []),
     ...(deviceService?.supported === true
       ? makeAgentGatewayDeviceTools({
           manager: deviceService.manager,
