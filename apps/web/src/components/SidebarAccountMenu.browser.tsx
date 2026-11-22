@@ -27,6 +27,7 @@ import {
   serverMossPayCatalogQueryOptions,
   serverMossPayQuotaQueryOptions,
 } from "./auth/mossServerReactQuery";
+import { serverMossProfileQueryOptions } from "./profile/profileReactQuery";
 import { MossLocaleScope } from "~/localization";
 import {
   maskPhoneNumber,
@@ -526,6 +527,18 @@ describe("RailAccountMenu", () => {
         quotaPolicyMode: "metered",
       } as never,
     );
+    client.setQueryData(serverMossProfileQueryOptions().queryKey, {
+      scope: "account",
+      realm: "cn",
+      sync: "synced",
+      editable: true,
+      profile: {
+        displayName: "Milo charis",
+        handle: "milo",
+        avatar: { kind: "preset", id: "smiling-glasses" },
+        updatedAt: null,
+      },
+    } as never);
 
     const rootRoute = createRootRoute({
       component: () => (
@@ -560,6 +573,14 @@ describe("RailAccountMenu", () => {
     const screen = await render(<RouterProvider router={router} />);
 
     try {
+      const triggerEl = page.getByTestId("rail-account-menu-trigger").element();
+      const discEl = page.getByTestId("rail-account-avatar-disc").element();
+      expect(Math.round(triggerEl.getBoundingClientRect().width)).toBe(32);
+      expect(Math.round(discEl.getBoundingClientRect().width)).toBe(28);
+      expect(Math.round(discEl.getBoundingClientRect().height)).toBe(28);
+      const avatarImg = discEl.querySelector("img");
+      expect(avatarImg?.getAttribute("src")).toBe("/avatars/smiling-glasses.svg");
+
       await page.getByTestId("rail-account-menu-trigger").click();
       await vi.waitFor(() => {
         expect(document.querySelector('[role="menu"]')).not.toBeNull();

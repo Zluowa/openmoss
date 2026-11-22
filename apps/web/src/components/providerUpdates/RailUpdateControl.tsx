@@ -20,12 +20,14 @@ import { getNotifiableProviderUpdateStatuses } from "~/providerUpdates";
 import { SETTINGS_TARGETS } from "~/settingsNavigation";
 
 import {
+  getDesktopUpdateDownloadPercent,
   isDesktopUpdateDownloadNotice,
   resolveDesktopUpdateButtonAction,
 } from "../desktopUpdate.logic";
 import { DesktopUpdateNoticeDialog } from "../DesktopUpdateNoticeDialog";
 import { DesktopUpdateRailButton } from "../DesktopUpdateRailButton";
 import { SidebarIconButton } from "../SidebarIconButton";
+import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProviderUpdateDialog } from "./ProviderUpdateDialog";
@@ -37,7 +39,11 @@ import {
   type ProviderUpdateTarget,
 } from "./providerUpdateRail.logic";
 import { runProviderUpdates, useProviderUpdateRunStore } from "./providerUpdateRunStore";
-import { RAIL_UPDATE_BUTTON_CLASS_NAME, RailProgressRing } from "./RailUpdateVisuals";
+import {
+  RAIL_UPDATE_BUTTON_CLASS_NAME,
+  RAIL_UPDATE_DISC_CLASS_NAME,
+  RailProgressRing,
+} from "./RailUpdateVisuals";
 import { useProviderUpdatePill } from "./useProviderUpdatePill";
 import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 
@@ -193,6 +199,9 @@ export function RailUpdateControl({
     null,
   );
   const [noticeOpen, setNoticeOpen] = useState(false);
+  const [dismissedDesktopProgressKey, setDismissedDesktopProgressKey] = useState<string | null>(
+    null,
+  );
   const [snoozedNoticeVersion, setSnoozedNoticeVersion] = useLocalStorage(
     DESKTOP_UPDATE_NOTICE_SNOOZE_KEY,
     null,
@@ -240,6 +249,40 @@ export function RailUpdateControl({
         : format("providerUpdate.tooltip.many", { count: targets.length })
       : (pill.view?.description ?? "");
 
+  const desktopDownloadPercent = desktopState
+    ? getDesktopUpdateDownloadPercent(desktopState)
+    : null;
+  const desktopProgressPill =
+    presentation === "desktop" && desktopState && !pill.view && !notice
+      ? desktopUpdate.installing
+        ? {
+            key: `${desktopState.downloadedVersion ?? desktopState.availableVersion ?? "app"}:installing`,
+            phase: "installing" as const,
+            label: t("desktopUpdate.progress.installing"),
+            percent: null,
+          }
+        : desktopDownloadPercent !== null
+          ? {
+              key: `${desktopState.availableVersion ?? "app"}:downloading`,
+              phase: "downloading" as const,
+              label: format("desktopUpdate.progress.downloading", {
+                percent: desktopDownloadPercent,
+              }),
+              percent: desktopDownloadPercent,
+            }
+          : (desktopState.status === "available" && desktopState.errorContext !== "download") ||
+              desktopState.status === "downloading"
+            ? {
+                key: `${desktopState.availableVersion ?? "app"}:preparing`,
+                phase: "preparing" as const,
+                label: t("desktopUpdate.progress.preparing"),
+                percent: null,
+              }
+            : null
+      : null;
+  const showDesktopProgressPill =
+    desktopProgressPill !== null && dismissedDesktopProgressKey !== desktopProgressPill.key;
+
   return (
     <div className="relative flex shrink-0 flex-col items-center">
       {presentation === "desktop" && desktopState ? (
@@ -276,11 +319,45 @@ export function RailUpdateControl({
           {presentation === "updating" ? (
             <UpdatingIcon />
           ) : presentation === "success" ? (
-            <CircleCheckIcon className="size-4 animate-update-pop motion-reduce:animate-none" />
+            <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
+              <CircleCheckIcon className="size-3.5 animate-update-pop motion-reduce:animate-none" />
+            </span>
           ) : (
-            <UpdateArrowCircleIcon className="size-4" />
+            <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
+              <UpdateArrowCircleIcon className="size-3.5" />
+            </span>
           )}
         </SidebarIconButton>
+      ) : null}
+      {showDesktopProgressPill && desktopProgressPill ? (
+        <div
+          data-desktop-update-pill={desktopProgressPill.phase}
+          className="absolute bottom-0 left-full z-30 ml-2 w-max max-w-64 overflow-hidden rounded-popover border-[0.5px] border-border bg-popover text-ui-sm font-medium text-foreground shadow-lg transition-[opacity,translate] duration-180 ease-out starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none"
+        >
+          <div className="relative flex min-h-8 items-center">
+            {desktopProgressPill.percent !== null ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 w-full origin-left bg-[color-mix(in_srgb,var(--color-text-accent,var(--primary))_12%,transparent)] transition-transform duration-300 ease-out motion-reduce:transition-none"
+                style={{ transform: `scaleX(${desktopProgressPill.percent / 100})` }}
+              />
+            ) : null}
+            <div className="relative flex items-center gap-1.5 py-1.5 pr-1 pl-2.5">
+              <Spinner className="size-3 shrink-0 text-[var(--color-text-accent,var(--primary))]" />
+              <span className="truncate tabular-nums">{desktopProgressPill.label}</span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={t("desktopUpdate.progress.dismiss")}
+              className="relative mr-1 text-muted-foreground hover:text-foreground"
+              onClick={() => setDismissedDesktopProgressKey(desktopProgressPill.key)}
+            >
+              <XIcon className="size-3" />
+            </Button>
+          </div>
+        </div>
       ) : null}
       {pill.view ? (
         <RailUpdatePill
