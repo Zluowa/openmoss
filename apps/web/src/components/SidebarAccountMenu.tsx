@@ -244,6 +244,7 @@ export function resolveSidebarAccountIdentity(input: {
 
 export interface SidebarAccountMenuLabels {
   readonly openMenu: string;
+  readonly profile?: string | undefined;
   readonly remainingUsage: string;
   readonly upgrade: string;
   readonly settings: string;
@@ -254,21 +255,23 @@ export interface SidebarAccountMenuLabels {
   readonly loading: string;
   readonly unavailable: string;
   readonly help: string;
+  readonly helpShort?: string | undefined;
 }
 
 export interface SidebarAccountMenuViewProps {
   readonly identity: SidebarAccountIdentity;
   readonly labels: SidebarAccountMenuLabels;
   readonly settingsShortcutLabel: string;
-  readonly signingOut?: boolean;
+  readonly signingOut?: boolean | undefined;
   /** Plan tier shown under the account name in the menu header (Codex "Free" slot). */
-  readonly planName?: string | null;
+  readonly planName?: string | null | undefined;
   /** Remaining Moss quota summary shown beside "Remaining usage" (e.g. "剩余 80%"). */
-  readonly usageStatus?: string | null;
+  readonly usageStatus?: string | null | undefined;
   /** Resolved profile avatar URL (preset SVG or uploaded photo) from `#759`. */
   readonly avatarSrc?: string | null | undefined;
   /** Optional full help menu control rendered at the trailing edge of the account row. */
-  readonly helpControl?: ReactNode;
+  readonly helpControl?: ReactNode | undefined;
+  readonly onOpenProfile?: (() => void) | undefined;
   readonly onOpenAccount: () => void;
   readonly onOpenUsage: () => void;
   readonly onOpenUpgrade: () => void;
@@ -299,20 +302,21 @@ const ACCOUNT_MENU_ITEM_CLASS_NAME = "min-h-8 gap-2 rounded-lg px-2 py-1 text-ui
 interface SidebarAccountMenuPopupSectionsProps {
   readonly identity: SidebarAccountIdentity;
   readonly labels: SidebarAccountMenuLabels;
-  readonly planName?: string | null;
-  readonly usageStatus?: string | null;
+  readonly planName?: string | null | undefined;
+  readonly usageStatus?: string | null | undefined;
   readonly avatarSrc?: string | null | undefined;
   readonly settingsShortcutLabel: string;
   readonly signingOut: boolean;
+  readonly onOpenProfile?: (() => void) | undefined;
   readonly onOpenAccount: () => void;
   readonly onOpenUsage: () => void;
   readonly onOpenUpgrade: () => void;
   readonly onOpenSettings: () => void;
+  readonly onOpenHelp?: (() => void) | undefined;
   readonly onSignOut: () => void;
 }
 
-/** Codex account menu body: plan header, then 剩余用量 / 升级 / 设置 / 退出登录 (no Mini).
- *  Signed out: 设置 and 登录 / 选择账号 only. */
+/** Codex/Moss bottom-left avatar account menu body: plan header, 个人资料 / 查看用量 / 升级 / 设置, then 帮助 / 退出登录 (or 登录 / 选择账号). */
 function SidebarAccountMenuPopupSections({
   identity,
   labels,
@@ -321,10 +325,12 @@ function SidebarAccountMenuPopupSections({
   avatarSrc,
   settingsShortcutLabel,
   signingOut,
+  onOpenProfile,
   onOpenAccount,
   onOpenUsage,
   onOpenUpgrade,
   onOpenSettings,
+  onOpenHelp,
   onSignOut,
 }: SidebarAccountMenuPopupSectionsProps) {
   const accountRowDisabled =
@@ -361,6 +367,10 @@ function SidebarAccountMenuPopupSections({
       <MenuSeparator className="mx-2 my-1" />
 
       <MenuGroup>
+        <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenProfile ?? onOpenAccount}>
+          <CirclePersonIcon aria-hidden="true" className="size-4" />
+          <span className="min-w-0 flex-1 truncate">{labels.profile ?? "个人资料"}</span>
+        </MenuItem>
         {/* Usage and plan belong to a signed-in account; signed out there is nothing to show. */}
         {identity.kind === "authenticated" ? (
           <>
@@ -383,6 +393,17 @@ function SidebarAccountMenuPopupSections({
           <span className="min-w-0 flex-1 truncate">{labels.settings}</span>
           <MenuShortcut>{settingsShortcutLabel}</MenuShortcut>
         </MenuItem>
+      </MenuGroup>
+
+      <MenuSeparator className="mx-2 my-1" />
+
+      <MenuGroup>
+        {onOpenHelp ? (
+          <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenHelp}>
+            <CircleQuestionIcon aria-hidden="true" className="size-4" />
+            <span className="min-w-0 flex-1 truncate">{labels.helpShort ?? labels.help}</span>
+          </MenuItem>
+        ) : null}
         {identity.kind === "authenticated" ? (
           <MenuItem
             className={ACCOUNT_MENU_ITEM_CLASS_NAME}
@@ -428,6 +449,7 @@ export function SidebarAccountMenuView({
   usageStatus = null,
   avatarSrc,
   helpControl,
+  onOpenProfile,
   onOpenAccount,
   onOpenUsage,
   onOpenUpgrade,
@@ -467,10 +489,12 @@ export function SidebarAccountMenuView({
             avatarSrc={avatarSrc}
             settingsShortcutLabel={settingsShortcutLabel}
             signingOut={signingOut}
+            onOpenProfile={onOpenProfile}
             onOpenAccount={onOpenAccount}
             onOpenUsage={onOpenUsage}
             onOpenUpgrade={onOpenUpgrade}
             onOpenSettings={onOpenSettings}
+            onOpenHelp={onOpenHelp}
             onSignOut={onSignOut}
           />
         </ComposerPickerMenuPopup>
@@ -633,6 +657,7 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
     openProfileLabel: t("sidebar.accountMenu.openProfile"),
     labels: {
       openMenu: t("sidebar.accountMenu.open"),
+      profile: t("sidebar.accountMenu.profile"),
       remainingUsage: t("sidebar.accountMenu.remainingUsage"),
       upgrade: t("sidebar.accountMenu.upgrade"),
       settings: t("sidebar.settings"),
@@ -643,6 +668,7 @@ function useSidebarAccountMenuModel(): SidebarAccountMenuModel {
       loading: t("sidebar.accountMenu.loading"),
       unavailable: t("sidebar.accountMenu.unavailable"),
       help: t("sidebar.accountMenu.help"),
+      helpShort: t("sidebar.accountMenu.helpShort"),
     },
     settingsShortcutLabel,
     signingOut:
@@ -666,28 +692,59 @@ export function SidebarAccountMenu(props?: { readonly helpControl?: ReactNode })
 }
 
 /**
- * Bottom-left rail avatar button: clicking opens the ChatGPT-style Moss Profile page
- * directly (no intermediate menu). Account & login settings live under Settings → 账号.
+ * Bottom-left rail avatar button: clicking opens the account/settings menu beside the rail
+ * (with Profile, View usage, Upgrade, Settings, Help, Sign in/out). Quota details live on the ring above it.
  */
 export function RailAccountMenu() {
   const model = useSidebarAccountMenuModel();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <button
-      type="button"
-      aria-label={`${model.openProfileLabel}: ${model.identity.label}`}
-      data-sidebar-rail-item="profile"
-      data-testid="rail-account-menu-trigger"
-      title={model.identity.title ?? model.identity.label}
-      onClick={model.onOpenProfile}
-      className="group/rail-item flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-control text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
-    >
-      <span
-        aria-hidden="true"
-        className="flex size-[22px] items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
+    <Menu open={menuOpen} onOpenChange={setMenuOpen}>
+      <MenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label={`${model.labels.openMenu}: ${model.identity.label}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            data-sidebar-rail-item="profile"
+            data-testid="rail-account-menu-trigger"
+            title={model.identity.title ?? model.identity.label}
+            className="group/rail-item flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-control text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+          />
+        }
       >
-        <AccountBadgeContent initials={model.identity.initials} avatarSrc={model.avatarSrc} />
-      </span>
-    </button>
+        <span
+          aria-hidden="true"
+          className="flex size-[22px] items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
+        >
+          <AccountBadgeContent initials={model.identity.initials} avatarSrc={model.avatarSrc} />
+        </span>
+      </MenuTrigger>
+      <ComposerPickerMenuPopup
+        align="end"
+        className="min-w-56 max-w-[calc(100vw-1rem)] rounded-xl border-[0.5px] border-border bg-[color-mix(in_srgb,var(--color-background-elevated-primary-opaque)_94%,transparent)] shadow-lg backdrop-blur-xl before:hidden"
+        side="right"
+        sideOffset={8}
+      >
+        <SidebarAccountMenuPopupSections
+          identity={model.identity}
+          labels={model.labels}
+          planName={model.planName}
+          usageStatus={model.usageStatus}
+          avatarSrc={model.avatarSrc}
+          settingsShortcutLabel={model.settingsShortcutLabel}
+          signingOut={model.signingOut}
+          onOpenProfile={model.onOpenProfile}
+          onOpenAccount={model.onOpenAccount}
+          onOpenUsage={model.onOpenUsage}
+          onOpenUpgrade={model.onOpenUpgrade}
+          onOpenSettings={model.onOpenSettings}
+          onOpenHelp={model.onOpenHelp}
+          onSignOut={model.onSignOut}
+        />
+      </ComposerPickerMenuPopup>
+    </Menu>
   );
 }

@@ -108,7 +108,7 @@ import {
   mossDesktopIdentity,
 } from "@moss/shared/desktopIdentity";
 import { decodeNativeOutput } from "@moss/shared/platformEncoding";
-import { CUA_HOST_SOCKET_ENV } from "@moss/shared/cuaDriverProtocol";
+import { CUA_HOST_SOCKET_ENV, cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
 import { resolveMossDownloadChannel } from "@moss/shared/mossDownloadChannel";
 import {
   MOSS_PRODUCTION_PUBLIC_CONFIG_FILE,
@@ -119,6 +119,7 @@ import { MOSS_ERROR_REPORTS_ENABLED_ENV } from "@moss/shared/observability";
 import { NetService } from "@moss/shared/Net";
 import { applyShellEnvironmentHydrationMarker } from "@moss/shared/shell";
 import { readAppFileIconDataUrl } from "./appFileIcon";
+import { createWindowsAppMetadataResolver } from "./windowsAppMetadata";
 import { RotatingFileSink } from "@moss/shared/logging";
 import {
   MIGRATION_DIVERGENCE_CONSENT_ENV,
@@ -3188,6 +3189,51 @@ function initializeDesktopAppSnap(): void {
           },
         })
       : null;
+  const resolveWindowsApps =
+    process.platform === "win32"
+      ? createWindowsAppMetadataResolver({
+          listApps: async () => {
+            if (!cuaHostEndpoint) return [];
+            try {
+              const reply = await cuaRequest<CuaReply>(
+                cuaHostEndpoint,
+                {
+                  method: "call",
+                  name: "list_apps",
+                  args: {},
+                  capability: DESKTOP_BROWSER_HOST_CAPABILITY,
+                },
+                { timeoutMs: 2_000 },
+              );
+              const rows = reply.result?.structuredContent?.apps;
+              if (!Array.isArray(rows)) return [];
+              const parsed: Array<{
+                pid: number;
+                name?: string | null;
+                launchPath?: string | null;
+              }> = [];
+              for (const value of rows) {
+                if (!value || typeof value !== "object") continue;
+                const row = value as Record<string, unknown>;
+                const pid = row.pid;
+                if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) continue;
+                const rawName = row.name ?? row.app_name;
+                const rawLaunchPath = row.launch_path;
+                parsed.push({
+                  pid,
+                  name: typeof rawName === "string" ? rawName : null,
+                  launchPath: typeof rawLaunchPath === "string" ? rawLaunchPath : null,
+                });
+              }
+              return parsed;
+            } catch {
+              return [];
+            }
+          },
+          getFileIcon: (exePath) =>
+            readAppFileIconDataUrl(exePath, (p) => app.getFileIcon(p, { size: "normal" })),
+        })
+      : undefined;
   appSnapManager = new DesktopAppSnapManager({
     platform: process.platform,
     helperPath: resolveAppSnapHelperPath(),
@@ -3201,6 +3247,7 @@ function initializeDesktopAppSnap(): void {
     warmCuaHost: () => cuaDriverHost?.prewarm({ warmWindowListing: process.platform === "win32" }),
     warmCaptureOverlay: () => appSnapCaptureOverlay?.prewarm(),
     onCaptureFeedback: (bounds) => appSnapCaptureOverlay?.play(bounds),
+    ...(resolveWindowsApps ? { resolveWindowsApps } : {}),
     shortcutRegistry: globalShortcut,
     openSettingsPane: (pane) => {
       const paneUrl = APP_SNAP_SETTINGS_PANE_URLS[pane];

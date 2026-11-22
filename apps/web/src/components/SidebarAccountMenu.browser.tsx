@@ -5,13 +5,32 @@ import type {
   MossCloudAccountState,
   MossCloudAccountSummary,
 } from "@moss/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import type { ReactNode } from "react";
 
 import {
+  serverMossAccountSessionQueryOptions,
+  serverMossCloudAccountStateQueryOptions,
+  serverMossCloudAccountsQueryOptions,
+  serverMossEnterpriseKeyStateQueryOptions,
+  serverMossPayCatalogQueryOptions,
+  serverMossPayQuotaQueryOptions,
+} from "./auth/mossServerReactQuery";
+import { MossLocaleScope } from "~/localization";
+import {
   maskPhoneNumber,
+  RailAccountMenu,
   resolveSidebarAccountIdentity,
   SidebarAccountMenuView,
   type SidebarAccountIdentity,
@@ -21,6 +40,7 @@ import { SidebarProvider } from "./ui/sidebar";
 
 const LABELS: SidebarAccountMenuLabels = {
   openMenu: "打开账号菜单",
+  profile: "个人资料",
   remainingUsage: "查看用量",
   upgrade: "升级以获享更高限额",
   settings: "设置",
@@ -31,6 +51,7 @@ const LABELS: SidebarAccountMenuLabels = {
   loading: "正在检查账号…",
   unavailable: "账号暂不可用",
   help: "帮助与快捷键",
+  helpShort: "帮助",
 };
 
 const AUTHENTICATED_IDENTITY: SidebarAccountIdentity = {
@@ -45,6 +66,7 @@ async function renderAccountMenu(
   helpControl?: ReactNode,
 ) {
   const callbacks = {
+    onOpenProfile: vi.fn(),
     onOpenAccount: vi.fn(),
     onOpenUsage: vi.fn(),
     onOpenUpgrade: vi.fn(),
@@ -95,11 +117,13 @@ describe("SidebarAccountMenu", () => {
       await openAccountMenu();
 
       await expect.element(page.getByRole("menuitem", { name: "qwer" })).toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: "个人资料" })).toBeVisible();
       await expect.element(page.getByRole("menuitem", { name: "查看用量" })).toBeVisible();
       await expect
         .element(page.getByRole("menuitem", { name: "升级以获享更高限额" }))
         .toBeVisible();
       await expect.element(page.getByRole("menuitem", { name: /设置.*⌘,/ })).toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: "帮助" })).toBeVisible();
       await expect.element(page.getByRole("menuitem", { name: "退出登录" })).toBeVisible();
       expect(
         page
@@ -162,6 +186,10 @@ describe("SidebarAccountMenu", () => {
       expect(callbacks.onOpenAccount).toHaveBeenCalledOnce();
 
       await openAccountMenu();
+      await page.getByRole("menuitem", { name: "个人资料" }).click();
+      expect(callbacks.onOpenProfile).toHaveBeenCalledOnce();
+
+      await openAccountMenu();
       await page.getByRole("menuitem", { name: "查看用量" }).click();
       expect(callbacks.onOpenUsage).toHaveBeenCalledOnce();
 
@@ -174,11 +202,15 @@ describe("SidebarAccountMenu", () => {
       expect(callbacks.onOpenSettings).toHaveBeenCalledOnce();
 
       await openAccountMenu();
+      await page.getByRole("menuitem", { name: "帮助" }).click();
+      expect(callbacks.onOpenHelp).toHaveBeenCalledOnce();
+
+      await openAccountMenu();
       await page.getByRole("menuitem", { name: "退出登录" }).click();
       expect(callbacks.onSignOut).toHaveBeenCalledOnce();
 
       await page.getByRole("button", { name: "帮助与快捷键" }).click();
-      expect(callbacks.onOpenHelp).toHaveBeenCalledOnce();
+      expect(callbacks.onOpenHelp).toHaveBeenCalledTimes(2);
     } finally {
       await screen.unmount();
     }
@@ -444,5 +476,110 @@ describe("resolveSidebarAccountIdentity", () => {
         unavailable: false,
       }),
     ).toEqual({ kind: "anonymous", label: "Moss", initials: "M" });
+  });
+});
+
+describe("RailAccountMenu", () => {
+  it("opens the account and settings popover on avatar click instead of jumping away immediately", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+    });
+    client.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+      configured: true,
+      authenticated: true,
+      session: {
+        id: "phone-session-rail",
+        user: {
+          id: "phone-user-rail",
+          phoneNumber: "+8613800138000",
+          displayName: "Milo charis",
+        },
+      },
+    } as never);
+    client.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+      configured: false,
+      authenticated: false,
+      account: null,
+      session: null,
+      modelGatewayConfigured: false,
+    } as never);
+    client.setQueryData(serverMossCloudAccountsQueryOptions().queryKey, { accounts: [] });
+    client.setQueryData(serverMossEnterpriseKeyStateQueryOptions().queryKey, {
+      configured: false,
+      authenticated: false,
+    } as never);
+    client.setQueryData(serverMossPayCatalogQueryOptions().queryKey, {
+      plans: [],
+      pointPackages: [],
+      paymentMethods: [],
+    });
+    client.setQueryData(
+      serverMossPayQuotaQueryOptions({
+        accountIdentity: "phone:phone-user-rail:phone-session-rail",
+      }).queryKey,
+      {
+        planCode: "free",
+        billingModel: "wallet_credits_v1",
+        usageLimits: [
+          { key: "lifetime", durationSeconds: null, limit: 100, used: 20, resetsAt: null },
+        ],
+        quotaPolicyMode: "metered",
+      } as never,
+    );
+
+    const rootRoute = createRootRoute({
+      component: () => (
+        <QueryClientProvider client={client}>
+          <MossLocaleScope locale="zh-CN">
+            <Outlet />
+          </MossLocaleScope>
+        </QueryClientProvider>
+      ),
+    });
+    const routeTree = rootRoute.addChildren([
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: "/thread-1",
+        component: () => (
+          <div className="flex h-dvh items-end p-4">
+            <RailAccountMenu />
+          </div>
+        ),
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: "/profile",
+        component: () => <div data-testid="profile-route">个人资料页面</div>,
+      }),
+    ]);
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/thread-1"] }),
+    });
+    await router.load();
+    const screen = await render(<RouterProvider router={router} />);
+
+    try {
+      await page.getByTestId("rail-account-menu-trigger").click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      });
+      // Clicking avatar must open the menu and keep the user in the current route.
+      expect(router.state.location.pathname).toBe("/thread-1");
+      await expect.element(page.getByRole("menuitem", { name: "个人资料" })).toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: "查看用量" })).toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "升级以获享更高限额" }))
+        .toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: /设置/ })).toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: "帮助" })).toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: "退出登录" })).toBeVisible();
+
+      await page.getByRole("menuitem", { name: "个人资料" }).click();
+      await expect.poll(() => router.state.location.pathname).toBe("/profile");
+      await expect.element(page.getByTestId("profile-route")).toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
   });
 });
