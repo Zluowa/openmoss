@@ -10,7 +10,7 @@ import {
 import { useLayoutEffect } from "react";
 
 import { isElectron } from "~/env";
-import { useSidebar } from "~/components/ui/sidebar";
+import { useOptionalSidebar } from "~/components/ui/sidebar";
 import { useDesktopCustomTitleBarActive } from "~/hooks/useDesktopCustomTitleBar";
 import { readDesktopZoomFactor, subscribeDesktopZoomFactor } from "~/lib/desktopZoom";
 import { isMacNavigatorPlatform } from "~/lib/utils";
@@ -104,13 +104,13 @@ export function useSyncDesktopTopBarTrafficLightGutterZoom(): void {
  * window's left edge: chat header, settings header, workspace header, etc.
  */
 export function useDesktopTopBarTrafficLightGutterClassName(): string {
-  const { isMobile, open } = useSidebar();
+  const sidebar = useOptionalSidebar();
   const isMacDesktop = isMacNavigatorPlatform();
   const gutterClassName = shouldReserveDesktopTopBarTrafficLightGutter({
     isElectron,
     isMacDesktop,
-    sidebarOpen: open,
-    isMobile,
+    sidebarOpen: sidebar?.open ?? false,
+    isMobile: sidebar?.isMobile ?? false,
   })
     ? DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS
     : null;

@@ -614,4 +614,55 @@ describe("Profile page, avatar presets, and Settings → 账号", () => {
       await screen.unmount();
     }
   });
+
+  it("opens Settings → 插件 from standalone /profile without SidebarProvider crashing", async () => {
+    await page.viewport(1280, 860);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+    });
+    seedBaseQueries(queryClient, true);
+
+    const rootRoute = createRootRoute({
+      component: () => (
+        <QueryClientProvider client={queryClient}>
+          <ThemeHarness />
+          <MossLocaleScope locale="zh-CN">
+            <Outlet />
+          </MossLocaleScope>
+        </QueryClientProvider>
+      ),
+    });
+    const routeTree = rootRoute.addChildren([
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: "/profile",
+        component: ProfilePage,
+      }),
+    ]);
+    const router = createRouter({
+      routeTree,
+      history: createMemoryHistory({ initialEntries: ["/profile"] }),
+    });
+    await router.load();
+    const screen = await render(<RouterProvider router={router} />);
+
+    try {
+      await expect.element(page.getByTestId("moss-profile-page")).toBeVisible();
+      await page.getByTestId("moss-profile-open-settings").click();
+      await expect.element(page.getByTestId("settings-dialog")).toBeVisible();
+
+      const nav = page.getByTestId("settings-dialog-nav");
+      await expect.element(nav).toBeVisible();
+      await nav.getByRole("button", { name: "插件", exact: true }).click();
+
+      await expect
+        .element(nav.getByRole("button", { name: "插件", exact: true }))
+        .toHaveAttribute("aria-current", "page");
+      await expect
+        .element(page.getByTestId("settings-dialog-page").getByRole("heading", { name: "插件" }))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
+  });
 });
