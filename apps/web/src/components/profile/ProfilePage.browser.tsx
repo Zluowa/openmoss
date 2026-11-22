@@ -315,8 +315,12 @@ describe("Profile page, avatar presets, and Settings → 账号", () => {
 
     try {
       await page.getByTestId("rail-account-menu-trigger").click();
-      // Goes directly to /profile without opening an intermediate popover menu.
-      expect(document.querySelector('[role="menu"]')).toBeNull();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      });
+      expect(router.state.location.pathname).toBe("/thread-1");
+      await expect.element(page.getByRole("menuitem", { name: "个人资料" })).toBeVisible();
+      await page.getByRole("menuitem", { name: "个人资料" }).click();
       await expect.poll(() => router.state.location.pathname).toBe("/profile");
       await expect.element(page.getByTestId("moss-profile-page")).toBeVisible();
 
@@ -534,6 +538,78 @@ describe("Profile page, avatar presets, and Settings → 账号", () => {
 
       await page.getByRole("button", { name: "打开用量" }).click();
       expect(navigatedSections).toEqual(["usage"]);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("keeps 未登录 heading when only a preset avatar is saved while signed out", async () => {
+    await page.viewport(1024, 820);
+
+    function SignedOutAvatarHarness() {
+      const [profileState, setProfileState] = useState<MossProfileState>({
+        scope: "account",
+        realm: "cn",
+        sync: "local",
+        editable: true,
+        profile: {
+          displayName: "milo",
+          handle: null,
+          avatar: { kind: "initials" },
+          updatedAt: null,
+        },
+      });
+
+      return (
+        <MossLocaleScope locale="zh-CN">
+          <div className="mx-auto max-w-3xl bg-background p-6 text-foreground">
+            <ProfileContent
+              account="signedOut"
+              planName={null}
+              accountSummary={null}
+              presentation="page"
+              profileState={profileState}
+              stats={RICH_STATS}
+              tokenStats={RICH_TOKEN_STATS}
+              tokensPending={false}
+              onSignIn={() => undefined}
+              onCheckHandle={async (rawHandle) => ({ handle: rawHandle, status: "available" })}
+              onUpdateProfile={async (input) => {
+                setProfileState((prev) => ({
+                  ...prev,
+                  profile: {
+                    ...prev.profile,
+                    ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
+                    ...(input.handle !== undefined ? { handle: input.handle } : {}),
+                    ...(input.avatar !== undefined ? { avatar: input.avatar } : {}),
+                    updatedAt: "2026-08-25T01:00:00.000Z",
+                  },
+                }));
+              }}
+            />
+          </div>
+        </MossLocaleScope>
+      );
+    }
+
+    const screen = await render(<SignedOutAvatarHarness />);
+    try {
+      await expect.element(page.getByRole("heading", { level: 2, name: "未登录" })).toBeVisible();
+      await page.getByTestId("profile-avatar-trigger").click();
+      await expect.element(page.getByTestId("avatar-picker-dialog")).toBeVisible();
+      const presetGrid = page.getByTestId("avatar-preset-grid").element();
+      await userEvent.click(
+        presetGrid.querySelector<HTMLElement>('[data-avatar-preset="moss-cat"]')!,
+      );
+      await page.getByTestId("avatar-picker-save").click();
+      await expect.element(page.getByTestId("avatar-picker-dialog")).not.toBeInTheDocument();
+
+      await vi.waitFor(() => {
+        const heroImg = page.getByTestId("profile-avatar-trigger").element().querySelector("img");
+        expect(heroImg?.getAttribute("src")).toBe("/avatars/moss-cat.svg");
+      });
+      await expect.element(page.getByRole("heading", { level: 2, name: "未登录" })).toBeVisible();
+      expect(page.getByRole("heading", { level: 2, name: "milo" }).elements()).toHaveLength(0);
     } finally {
       await screen.unmount();
     }

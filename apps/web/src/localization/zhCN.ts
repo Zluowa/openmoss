@@ -1944,7 +1944,7 @@ const WORD_LEVEL_NAME_RULES: ReadonlyArray<readonly [RegExp, string]> = [
   [/^Import ([A-Z一-鿿][^.]*)$/, "导入 $1"],
   // An id, not a phrase: the sidebar's drag handles name what they move by project key or thread id.
   [/^Move (\S*[\d:_-]\S*)$/, "移动 $1"],
-  [/^Attach ([A-Z][^.]*)$/, "附加 $1"],
+  [/^Attach ([A-Z0-9\u4e00-\u9fff](?:[^\n]*[^.\s])?)$/, "附加 $1"],
   [/^Move to ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "移到 $1"],
   [/^Switch to ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "切换到 $1"],
   [/^Go to ([A-Z]\S*(?: [A-Z]\S*){0,2})$/, "前往 $1"],

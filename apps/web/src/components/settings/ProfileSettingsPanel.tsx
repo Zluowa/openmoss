@@ -269,7 +269,12 @@ export function ProfileContent({
   const effectiveDisplayName = serverProfile
     ? serverProfile.displayName.trim() || defaultName
     : localName;
-  const hasCustomName = serverProfile ? serverProfileCustomized : localName !== defaultName;
+  const hasCustomName = serverProfile
+    ? serverProfileCustomized &&
+      serverProfile.displayName.trim().length > 0 &&
+      serverProfile.displayName.trim().toLocaleLowerCase() !==
+        defaultName.trim().toLocaleLowerCase()
+    : localName !== defaultName;
 
   const effectiveHandle: string | null = serverProfile
     ? serverProfile.handle

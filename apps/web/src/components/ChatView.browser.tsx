@@ -5847,6 +5847,17 @@ describe("ChatView transcript geometry (full app)", () => {
         .toBe("expanded");
       await expect.element(rail).toBeVisible();
       await rail.getByTestId("rail-account-menu-trigger").click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      });
+      await expect
+        .element(page.getByRole("menuitem", { name: "Profile", exact: true }))
+        .toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: /Settings/ })).toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "Sign in", exact: true }))
+        .toBeVisible();
+      await page.getByRole("menuitem", { name: "Profile", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/profile");
       await expect.element(page.getByTestId("profile-sign-in")).toBeVisible();
       await page.getByTestId("moss-profile-back").click();
@@ -6299,6 +6310,17 @@ describe("ChatView transcript geometry (full app)", () => {
       // Codex bottom-left account entry: signed out, so the avatar opens a menu whose
       // account action is the sign-in entry.
       await rail.getByTestId("rail-account-menu-trigger").click();
+      await vi.waitFor(() => {
+        expect(document.querySelector('[role="menu"]')).not.toBeNull();
+      });
+      await expect
+        .element(page.getByRole("menuitem", { name: "Profile", exact: true }))
+        .toBeVisible();
+      await expect.element(page.getByRole("menuitem", { name: /Settings/ })).toBeVisible();
+      await expect
+        .element(page.getByRole("menuitem", { name: "Sign in", exact: true }))
+        .toBeVisible();
+      await page.getByRole("menuitem", { name: "Profile", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/profile");
       await expect.element(page.getByTestId("profile-sign-in")).toBeVisible();
       await page.getByTestId("moss-profile-back").click();

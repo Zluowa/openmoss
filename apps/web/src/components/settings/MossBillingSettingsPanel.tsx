@@ -234,7 +234,7 @@ function MossUsageLimitRow({
   );
 }
 
-function usageWindowLabel(
+export function usageWindowLabel(
   key: MossPayUsageLimit["key"],
   t: ReturnType<typeof useTranslation>["t"],
   billingModel: MossPayBillingModel,

@@ -22,6 +22,7 @@ import {
   WindowIcon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import {
   COMPOSER_MENU_PANEL_GLYPH_CLASS_NAME,
   ComposerMenuPanel,
@@ -51,11 +52,27 @@ function toggleSecondary(label: string, enabled: boolean): string {
 }
 
 function windowGlyph(entry: DesktopAppSnapWindowEntry): ReactNode {
-  return entry.appIconDataUrl ? (
-    <img src={entry.appIconDataUrl} alt="" className="size-4 shrink-0 rounded-inline" />
+  const iconSrc = entry.appIconDataUrl ?? entry.iconDataUrl ?? null;
+  return iconSrc ? (
+    <img
+      src={iconSrc}
+      alt=""
+      draggable={false}
+      className="size-4 shrink-0 rounded-inline object-contain"
+    />
   ) : (
     <WindowIcon className={GLYPH} />
   );
+}
+
+function formatComposerAppSnapName(entry: DesktopAppSnapWindowEntry): string | null {
+  const raw = entry.appName?.trim();
+  if (!raw || /^applicationframehost(?:\.exe)?$/iu.test(raw)) {
+    const title = entry.windowTitle?.trim();
+    return title && title.length > 0 ? title : null;
+  }
+  const stripped = raw.replace(/\.(?:exe|com)$/iu, "").trim();
+  return stripped.length > 0 ? stripped : null;
 }
 
 export function ComposerExtrasPanel(props: {
@@ -71,6 +88,7 @@ export function ComposerExtrasPanel(props: {
   onClose: () => void;
   panelId: string;
 }) {
+  const { format, t } = useTranslation();
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,6 +110,7 @@ export function ComposerExtrasPanel(props: {
           (entry) => entry.bundleIdentifier === firstWindow.bundleIdentifier && entry.windowTitle,
         )
       : null) ?? firstWindow;
+  const frontmostAppName = frontmostWindow ? formatComposerAppSnapName(frontmostWindow) : null;
 
   const openWindows = () => {
     setView("windows");
@@ -130,7 +149,9 @@ export function ComposerExtrasPanel(props: {
                       ? {
                           id: ROW_WINDOW,
                           icon: windowGlyph(frontmostWindow),
-                          title: `Attach ${frontmostWindow.appName?.trim() || "window"}`,
+                          title: format("composer.extras.attachApp", {
+                            app: frontmostAppName || t("composer.extras.windowFallback"),
+                          }),
                           disabled: appSnap.busy,
                           trailing: (
                             <button
@@ -372,11 +393,19 @@ function appSnapWindowRows(appSnap: ReturnType<typeof useAppSnapWindows>): Compo
     ];
   }
 
-  return appSnap.windows.map((entry) => ({
-    id: `${WINDOW_ROW_PREFIX}${entry.windowId}`,
-    icon: windowGlyph(entry),
-    title: entry.appName?.trim() || "Captured app",
-    secondary: entry.windowTitle?.trim() || null,
-    disabled: appSnap.busy,
-  }));
+  return appSnap.windows.map((entry) => {
+    const title = formatComposerAppSnapName(entry) || "Captured app";
+    const rawSecondary = entry.windowTitle?.trim() || null;
+    const secondary =
+      rawSecondary && rawSecondary.localeCompare(title, undefined, { sensitivity: "accent" }) !== 0
+        ? rawSecondary
+        : null;
+    return {
+      id: `${WINDOW_ROW_PREFIX}${entry.windowId}`,
+      icon: windowGlyph(entry),
+      title,
+      secondary,
+      disabled: appSnap.busy,
+    };
+  });
 }
