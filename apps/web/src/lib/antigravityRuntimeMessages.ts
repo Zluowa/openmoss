@@ -19,6 +19,9 @@ const ZH_CN_EXACT_MESSAGES: Readonly<Record<string, string>> = {
   "Antigravity CLI session started": "Antigravity CLI 会话已启动",
   "Antigravity CLI print mode cannot pause for interactive approvals. Select Full access to use this provider.":
     "Antigravity CLI 的打印模式无法暂停并等待交互式批准。请选择“完全访问”以使用此服务商。",
+  "Moss runs Antigravity with full access because the CLI does not surface per-call approvals. Select Full access to use this provider.":
+    "Moss 以完全访问模式运行 Antigravity，因为该 CLI 不提供单次调用批准。请选择“完全访问”以使用此服务商。",
+  "Antigravity is not signed in.": "Antigravity 尚未登录。",
   "An Antigravity turn is already active for this thread.":
     "此线程已有一个正在运行的 Antigravity 回合。",
   "Failed to prepare Antigravity turn files.": "准备 Antigravity 回合文件失败。",

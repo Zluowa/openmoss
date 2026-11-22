@@ -1664,6 +1664,18 @@ function recoverDesktopAfterUpdaterInstallFailure(): void {
 
   // The backend was already stopped for install preparation. When no quit was
   // requested in the meantime, restore the live app and its update polling.
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      if (process.platform === "win32") {
+        mainWindow.setSkipTaskbar(false);
+      }
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
+    } catch {
+      // Best-effort window restore when recovering from a failed updater handoff.
+    }
+  }
   startBackend();
   scheduleUpdatePoll();
 }
@@ -5749,7 +5761,13 @@ async function runDownloadedUpdateInstall(
   try {
     isQuitting = true;
     clearUpdatePollTimer();
-    await stopBackendAndWaitForExit();
+    await stopDesktopOwnedRuntimesAndBackend();
+    remoteComputersManager = undefined;
+    sshConnectionManager = undefined;
+    await bundledMossCanvas.shutdown().catch(() => undefined);
+    appSnapCaptureOverlay?.dispose();
+    appSnapCaptureOverlay = null;
+    disposeRealtimeVoiceOverlay();
     updateInstallPreparation.requireActive(preparationAttempt);
     await logMacUpdateDiagnostics("before install handoff");
     updateInstallPreparation.requireActive(preparationAttempt);
@@ -10078,6 +10096,7 @@ app.on("before-quit", (event) => {
     if (deferredDesktopQuitIntent.observeUpdaterQuitAttempt()) {
       writeDesktopLogHeader("deferred quit preserved through updater quit-and-install attempt");
     }
+    hideDesktopWindowForImmediateQuit();
     writeDesktopLogHeader("before-quit allowing updater quit-and-install");
     return;
   }
@@ -10094,6 +10113,11 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
+  if (isUpdaterQuitAndInstallInFlight) {
+    browserManager.dispose();
+    backendLogSink?.close();
+    desktopLogSink?.close();
+  }
   removeHoolaCanvasBridgeDescriptor();
   if (browserPanelPreferences.get().cookieRetention === "untilQuit") {
     void clearBrowserPanelData();

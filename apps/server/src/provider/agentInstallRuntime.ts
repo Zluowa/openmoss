@@ -16,6 +16,7 @@ import { promisify } from "node:util";
 import { gunzip } from "node:zlib";
 
 import { outboundHttp, resolveOutboundProxyUrl } from "@moss/shared/outboundHttp";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 
 /** A Node runtime Moss can run npm on, and the environment that puts it in Node mode. */
 export interface MossNodeRuntime {
@@ -149,7 +150,7 @@ const REGISTRY_ORIGINS = [
 ];
 
 async function fetchBytes(url: string, maxBytes: number): Promise<Uint8Array> {
-  const proxyUrl = resolveOutboundProxyUrl(url, process.env);
+  const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(process.env));
   const response = await outboundHttp.request({
     url,
     policy: {

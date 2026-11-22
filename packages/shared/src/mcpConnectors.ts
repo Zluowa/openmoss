@@ -430,9 +430,9 @@ export function serverNameFromMcpConnectorMentionPath(path: string): string | nu
 }
 
 /**
- * Providers whose sessions receive connector servers. ACP agents that only
- * speak stdio MCP skip them at session start; Pi, Devin, and Antigravity never
- * receive them.
+ * Providers whose sessions receive connector servers. ACP agents (including
+ * Antigravity's `agy acp`) negotiate HTTP or use Moss's stdio proxy; Pi and
+ * Devin never receive them.
  */
 const MCP_CONNECTOR_PROVIDERS = new Set([
   "claudeAgent",
@@ -442,6 +442,7 @@ const MCP_CONNECTOR_PROVIDERS = new Set([
   "grok",
   "droid",
   "omp",
+  "antigravity",
 ]);
 
 export function providerSupportsMcpConnectors(provider: string): boolean {

@@ -15,6 +15,7 @@ import {
   outboundHttp,
   resolveOutboundProxyUrl,
 } from "@moss/shared/outboundHttp";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 import { Duration, Effect, Option } from "effect";
 
 import { managedAgentBinDirectory, managedAgentInstallPrefix } from "./managedAgentPaths.ts";
@@ -29,7 +30,8 @@ export const ANTIGRAVITY_DOWNLOAD_ORIGINS = [
   ANTIGRAVITY_MANIFEST_ORIGIN,
 ] as const;
 export const ANTIGRAVITY_INSTALL_PAGE = "https://antigravity.google/docs/cli/using";
-export const MINIMUM_ANTIGRAVITY_CLI_VERSION = "1.0.12";
+// `agy acp`, which Moss drives Antigravity through, shipped in 1.5.0.
+export const MINIMUM_ANTIGRAVITY_CLI_VERSION = "1.5.0";
 /** File name of the Antigravity CLI binary Moss installs for `platform`. */
 export function antigravityBinaryName(platform: NodeJS.Platform = process.platform): string {
   return platform === "win32" ? "agy.exe" : "agy";
@@ -163,7 +165,7 @@ async function fetchManifest(
   env: NodeJS.ProcessEnv,
 ): Promise<AntigravityReleaseManifest> {
   const url = antigravityManifestUrl(platformKey);
-  const proxyUrl = resolveOutboundProxyUrl(url, env);
+  const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(env));
   const response = await outboundHttp.request({
     url,
     policy: {
@@ -201,7 +203,7 @@ async function downloadPayloadToFile(
   destinationPath: string,
   env: NodeJS.ProcessEnv,
 ): Promise<{ readonly sha512: string; readonly bytes: number }> {
-  const proxyUrl = resolveOutboundProxyUrl(url, env);
+  const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(env));
   const hash = createHash("sha512");
   let bytes = 0;
   const handle = await FS.open(destinationPath, "wx");
@@ -233,6 +235,42 @@ async function downloadPayloadToFile(
   } finally {
     await handle.close();
   }
+}
+
+function unwrapInstallError(cause: unknown): unknown {
+  let current = cause;
+  for (let depth = 0; depth < 4; depth += 1) {
+    if (
+      current instanceof Error &&
+      current.name === "UnknownException" &&
+      "cause" in current &&
+      current.cause !== undefined
+    ) {
+      current = current.cause;
+      continue;
+    }
+    break;
+  }
+  return current;
+}
+
+function formatAntigravityInstallError(cause: unknown): string {
+  const unwrapped = unwrapInstallError(cause);
+  if (unwrapped instanceof OutboundHttpError) {
+    const inner =
+      unwrapped.cause instanceof Error
+        ? unwrapped.cause.message.trim() || (unwrapped.cause as NodeJS.ErrnoException).code
+        : undefined;
+    return inner
+      ? `${unwrapped.message} (${unwrapped.code}: ${inner})`
+      : `${unwrapped.message} (${unwrapped.code})`;
+  }
+  return unwrapped instanceof Error ? unwrapped.message : String(unwrapped);
+}
+
+function isRetryableAntigravityDownloadError(cause: unknown): boolean {
+  const unwrapped = unwrapInstallError(cause);
+  return unwrapped instanceof OutboundHttpError && unwrapped.code === "request";
 }
 
 function readTarString(block: Uint8Array, offset: number, length: number): string {
@@ -575,20 +613,36 @@ export const runAntigravityInstall = Effect.fn("runAntigravityInstall")(function
     );
 
     yield* input.onProgress?.({ phase: "installing", source: "official" }) ?? Effect.void;
-    const manifest = yield* Effect.tryPromise(() =>
-      input.fetchManifest
-        ? input.fetchManifest(platformKey)
-        : fetchManifest(platformKey, input.env),
-    );
+    const manifest = yield* Effect.tryPromise({
+      try: () =>
+        input.fetchManifest
+          ? input.fetchManifest(platformKey)
+          : fetchManifest(platformKey, input.env),
+      catch: (cause) => cause,
+    });
     const validatedManifest = parseAntigravityManifest(manifest);
 
     const isTarGz = /\.tar\.gz(?:$|\?)/iu.test(validatedManifest.url);
     const stagedDownload = Path.join(staging, isTarGz ? "agy.tar.gz" : binaryName);
     const stagedBinary = Path.join(staging, binaryName);
-    const download = yield* Effect.tryPromise(() =>
-      input.downloadPayload
-        ? input.downloadPayload(validatedManifest.url, stagedDownload)
-        : downloadPayloadToFile(validatedManifest.url, stagedDownload, input.env),
+    const downloadAttempt = () =>
+      Effect.tryPromise({
+        try: () =>
+          input.downloadPayload
+            ? input.downloadPayload(validatedManifest.url, stagedDownload)
+            : downloadPayloadToFile(validatedManifest.url, stagedDownload, input.env),
+        catch: (cause) => cause,
+      });
+    const download = yield* downloadAttempt().pipe(
+      Effect.catch((firstCause) => {
+        if (!isRetryableAntigravityDownloadError(firstCause)) {
+          return Effect.fail(firstCause);
+        }
+        return Effect.tryPromise({
+          try: () => FS.rm(stagedDownload, { force: true }),
+          catch: (cause) => cause,
+        }).pipe(Effect.andThen(downloadAttempt()));
+      }),
     );
     if (download.sha512.toLowerCase() !== validatedManifest.sha512.toLowerCase()) {
       return {
@@ -695,7 +749,8 @@ export const runAntigravityInstall = Effect.fn("runAntigravityInstall")(function
 
   const outcome = yield* work.pipe(
     Effect.catch((cause) => {
-      const timedOut = cause instanceof OutboundHttpError && cause.code === "timeout";
+      const unwrapped = unwrapInstallError(cause);
+      const timedOut = unwrapped instanceof OutboundHttpError && unwrapped.code === "timeout";
       return Effect.succeed({
         ok: false,
         reason: timedOut
@@ -703,7 +758,7 @@ export const runAntigravityInstall = Effect.fn("runAntigravityInstall")(function
           : phase === "verifying"
             ? "verify-failed"
             : "download-failed",
-        detail: cause instanceof Error ? cause.message : String(cause),
+        detail: formatAntigravityInstallError(unwrapped),
       } satisfies AgentInstallOutcome);
     }),
   );

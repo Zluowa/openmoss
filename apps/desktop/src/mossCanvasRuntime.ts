@@ -49,7 +49,9 @@ export function createBundledMossCanvas(endpoint: () => MossCanvasEndpoint) {
       return (await runtime).open();
     },
     async shutdown(): Promise<void> {
-      if (runtime) await (await runtime).shutdown();
+      const pending = runtime;
+      runtime = null;
+      if (pending) await (await pending).shutdown();
     },
   };
 }

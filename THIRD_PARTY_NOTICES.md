@@ -308,6 +308,18 @@ plus the shared parse of settled transcript markdown, from PR #2215 (commit 1a36
 Moss keeps messages with markers out of the shared parse. The benchmark suite and the
 desktop permessage-deflate opt-out of PR #2215 are not included.
 
+## Synara Antigravity ACP runtime (absorbed)
+
+Driving Antigravity through `agy acp` (CLI 1.5.0+) on the shared ACP runtime is adapted with its
+tests from Synara PR #2233 (https://github.com/Emanuele-web04/synara/pull/2233, MIT, commit
+f17587b4932f6b48f9d0ac8d1b2f3362b7b969e4) and PR #2238
+(https://github.com/Emanuele-web04/synara/pull/2238, MIT, commit
+be606bbd8d7a401dad8e99a1b8f3f6bf40b9d5b9): `antigravityCli.ts`, `AntigravityAcpSupport.ts`,
+`AntigravityAdapter.ts`, provider health version floor (1.5.0), and Antigravity docs. Moss keeps
+its own one-shot stdio MCP bootstrap token flow (`buildAcpMossMcpServers`), its `__cli_default__`
+model pass-through, its system-proxy environment propagation (`withOutboundProxyEnv`), and its
+zh-CN runtime copy.
+
 ## OpenUI Lang and open-intelligent-ui components (absorbed)
 
 Moss uses OpenUI Lang and selected browser-only components adapted from

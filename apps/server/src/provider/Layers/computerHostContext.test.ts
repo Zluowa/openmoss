@@ -6,7 +6,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { computerToolInstructions } from "../../agentGateway/computerGuidance.ts";
 import { buildEmbeddedClaudeSystemPromptAppend } from "./ClaudeAdapter.ts";
-import { buildAntigravityTurnPrompt } from "./AntigravityAdapter.ts";
+import { takeAntigravityMossHarnessPolicyTextPart } from "./AntigravityAdapter.ts";
 
 import { buildPiTurnPrompt } from "./PiAdapter.ts";
 
@@ -81,22 +81,14 @@ describe("conditional Computer host context", () => {
       "continue",
     );
   });
-  it("delivers Antigravity Computer context once across credential rotations", () => {
+  it("delivers Antigravity Computer context once per session", () => {
     expect(
-      buildAntigravityTurnPrompt(
-        { enableComputerControl: false },
-        { prompt: "code", hasGatewaySessionLease: true },
-      ),
+      takeAntigravityMossHarnessPolicyTextPart({ enableComputerControl: false }, true)?.text,
     ).not.toContain(marker);
     const state = { enableComputerControl: true };
-    const first = buildAntigravityTurnPrompt(state, {
-      prompt: "inspect",
-      hasGatewaySessionLease: true,
-    });
-    expect(first).toContain(computerContext);
-    expect(first.split(marker)).toHaveLength(2);
-    expect(
-      buildAntigravityTurnPrompt(state, { prompt: "continue", hasGatewaySessionLease: true }),
-    ).toBe("continue");
+    const first = takeAntigravityMossHarnessPolicyTextPart(state, true);
+    expect(first?.text).toContain(computerContext);
+    expect(first?.text.split(marker)).toHaveLength(2);
+    expect(takeAntigravityMossHarnessPolicyTextPart(state, true)).toBeNull();
   });
 });

@@ -489,6 +489,36 @@ export function invokePinnedDnsLookup(
   });
 }
 
+/**
+ * Validates literal IP targets before handing a request to an explicit HTTP(S)
+ * CONNECT proxy. The proxy performs DNS resolution for domain hostnames, so
+ * skipping local DNS prevents poisoned local ISP answers from blocking
+ * allowlisted domains while still rejecting private IP literals.
+ */
+function assertProxyTargetLiteralAllowed(
+  url: URL,
+  requirePublicAddress: boolean,
+  allowLoopbackHttp: boolean,
+  allowBenchmarkAddressRange: boolean,
+): ReadonlyArray<PinnedAddress> {
+  const hostname =
+    url.hostname.startsWith("[") && url.hostname.endsWith("]")
+      ? url.hostname.slice(1, -1)
+      : url.hostname;
+  const literalFamily = Net.isIP(hostname);
+  if (literalFamily === 4 || literalFamily === 6) {
+    const requireLoopbackAddress = allowLoopbackHttp && url.protocol === "http:";
+    if (requireLoopbackAddress) assertExactLoopbackIpAddress(hostname);
+    else if (requirePublicAddress) {
+      if (!(allowBenchmarkAddressRange && isBenchmarkIpAddress(hostname))) {
+        assertPublicIpAddress(hostname);
+      }
+    }
+    return [{ address: hostname, family: literalFamily }];
+  }
+  return [];
+}
+
 function createPinnedRequest(
   input: {
     readonly url: URL;
@@ -500,14 +530,8 @@ function createPinnedRequest(
   },
   onResponse: (response: Http.IncomingMessage) => void,
 ): Http.ClientRequest {
-  const pinnedList = "address" in input.pinned ? [input.pinned] : input.pinned;
-  const firstPinned = pinnedList[0];
-  if (!firstPinned) {
-    throw new OutboundHttpError("dns", "Outbound destination DNS lookup returned no addresses.");
-  }
-  const target = buildPinnedRequestTarget(input.url, firstPinned);
   const headers = new Headers(input.headers);
-  headers.set("host", target.hostHeader);
+  headers.set("host", input.url.host);
   if (input.proxyUrl) {
     return Https.request(
       input.url,
@@ -520,6 +544,13 @@ function createPinnedRequest(
       onResponse,
     );
   }
+  const pinnedList = "address" in input.pinned ? [input.pinned] : input.pinned;
+  const firstPinned = pinnedList[0];
+  if (!firstPinned) {
+    throw new OutboundHttpError("dns", "Outbound destination DNS lookup returned no addresses.");
+  }
+  const target = buildPinnedRequestTarget(input.url, firstPinned);
+  headers.set("host", target.hostHeader);
 
   // A fresh connection bypasses the agent, so inherit the default agent's
   // explicit socket binding (e.g. tests and multi-homed hosts that pin
@@ -567,16 +598,24 @@ async function requestHop(input: {
   readonly stopReadingAfter?: (chunk: Uint8Array, headers: Headers) => boolean;
   readonly onChunk?: (chunk: Uint8Array, headers: Headers) => void | Promise<void>;
 }): Promise<OutboundHttpResponse> {
-  const pinned = await resolvePinnedAddresses(
-    input.url,
-    input.requirePublicAddress,
-    input.allowLoopbackHttp,
-    input.allowBenchmarkAddressRange,
-    input.signal,
-  );
+  const pinned = input.proxyUrl
+    ? assertProxyTargetLiteralAllowed(
+        input.url,
+        input.requirePublicAddress,
+        input.allowLoopbackHttp,
+        input.allowBenchmarkAddressRange,
+      )
+    : await resolvePinnedAddresses(
+        input.url,
+        input.requirePublicAddress,
+        input.allowLoopbackHttp,
+        input.allowBenchmarkAddressRange,
+        input.signal,
+      );
 
   return await new Promise<OutboundHttpResponse>((resolve, reject) => {
     let settled = false;
+    let activeResponse: Http.IncomingMessage | undefined;
     const settle = (result: OutboundHttpResponse | Error) => {
       if (settled) return;
       settled = true;
@@ -593,6 +632,7 @@ async function requestHop(input: {
         signal: input.signal,
       },
       (response) => {
+        activeResponse = response;
         const headers = responseHeaders(response.headers);
         const encoding = headers.get("content-encoding")?.trim().toLowerCase();
         if (encoding && encoding !== "identity") {
@@ -624,9 +664,6 @@ async function requestHop(input: {
         const isRedirect = isRedirectStatus(response.statusCode ?? 0);
         const stopReadingAfter = isRedirect ? undefined : input.stopReadingAfter;
         const onChunk = isRedirect ? undefined : input.onChunk;
-        let pendingChunk: Promise<void> = Promise.resolve();
-        let streamEnded = false;
-        let chunkFailed = false;
         const finish = () => {
           const body = onChunk ? new Uint8Array(0) : new Uint8Array(size);
           if (!onChunk) {
@@ -643,13 +680,84 @@ async function requestHop(input: {
             url: input.url.href,
           });
         };
+
+        if (onChunk) {
+          // Consume streaming bodies via Node's native Readable async iterator
+          // instead of toggling `pause()`/`resume()` on every data event. Rapid
+          // per-chunk pause/resume cycles trigger BoringSSL `ERR_SSL_BAD_DECRYPT`
+          // on large proxied HTTPS transfers in packaged Electron builds.
+          void (async () => {
+            try {
+              for await (const rawChunk of response) {
+                if (settled) {
+                  response.destroy();
+                  return;
+                }
+                const bytes =
+                  typeof rawChunk === "string"
+                    ? new TextEncoder().encode(rawChunk)
+                    : new Uint8Array(rawChunk as Uint8Array);
+                size += bytes.byteLength;
+                if (size > input.maxResponseBytes) {
+                  response.destroy();
+                  settle(
+                    new OutboundHttpError(
+                      "response-too-large",
+                      `Outbound response exceeded the ${input.maxResponseBytes}-byte limit.`,
+                    ),
+                  );
+                  return;
+                }
+                try {
+                  await onChunk(bytes, headers);
+                } catch (cause) {
+                  response.destroy();
+                  settle(
+                    new OutboundHttpError("request", "Outbound response writer failed.", cause),
+                  );
+                  return;
+                }
+                if (settled) {
+                  response.destroy();
+                  return;
+                }
+                if (stopReadingAfter) {
+                  let stop: boolean;
+                  try {
+                    stop = stopReadingAfter(bytes, headers);
+                  } catch (cause) {
+                    response.destroy();
+                    settle(
+                      new OutboundHttpError("request", "Outbound response reader failed.", cause),
+                    );
+                    return;
+                  }
+                  if (stop) {
+                    finish();
+                    response.destroy();
+                    return;
+                  }
+                }
+              }
+              if (!settled) finish();
+            } catch (cause) {
+              if (settled) return;
+              if (input.signal.aborted) {
+                settle(abortedError(input.signal.reason));
+              } else {
+                settle(new OutboundHttpError("request", "Outbound response failed.", cause));
+              }
+            }
+          })();
+          return;
+        }
+
         response.on("data", (chunk: Buffer | Uint8Array | string) => {
-          if (settled || chunkFailed) return;
+          if (settled) return;
           const bytes =
             typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
           size += bytes.byteLength;
           if (size > input.maxResponseBytes) {
-            chunkFailed = true;
             response.destroy();
             settle(
               new OutboundHttpError(
@@ -657,46 +765,6 @@ async function requestHop(input: {
                 `Outbound response exceeded the ${input.maxResponseBytes}-byte limit.`,
               ),
             );
-            return;
-          }
-          if (onChunk) {
-            response.pause();
-            pendingChunk = pendingChunk
-              .then(async () => {
-                if (settled || chunkFailed) return;
-                await onChunk(bytes, headers);
-              })
-              .then(
-                () => {
-                  if (settled || chunkFailed) return;
-                  if (stopReadingAfter) {
-                    let stop: boolean;
-                    try {
-                      stop = stopReadingAfter(bytes, headers);
-                    } catch (cause) {
-                      chunkFailed = true;
-                      response.destroy();
-                      settle(
-                        new OutboundHttpError("request", "Outbound response reader failed.", cause),
-                      );
-                      return;
-                    }
-                    if (stop) {
-                      finish();
-                      response.destroy();
-                      return;
-                    }
-                  }
-                  if (!streamEnded) response.resume();
-                },
-                (cause) => {
-                  chunkFailed = true;
-                  response.destroy();
-                  settle(
-                    new OutboundHttpError("request", "Outbound response writer failed.", cause),
-                  );
-                },
-              );
             return;
           }
           chunks.push(bytes);
@@ -717,14 +785,7 @@ async function requestHop(input: {
           }
         });
         response.once("end", () => {
-          streamEnded = true;
-          if (!onChunk) {
-            finish();
-            return;
-          }
-          void pendingChunk.then(() => {
-            if (!settled && !chunkFailed) finish();
-          });
+          finish();
         });
         // `on`, not `once`: a stream can emit `error` more than once, and a
         // second emit with no listener attached is fatal to the process.
@@ -736,9 +797,15 @@ async function requestHop(input: {
     // Also `on` rather than `once`: abort and TLS/socket teardown can emit
     // cascading errors. `settle` ignores duplicates while the persistent
     // listener prevents a later error from becoming process-fatal.
+    // Once the HTTP parser has received the complete message (`complete`),
+    // ignore post-response TLS teardown errors (e.g. BoringSSL BAD_DECRYPT on
+    // proxied `Connection: close` responses) while an async `onChunk` writer
+    // finishes flushing the final bytes.
     request.on("error", (cause) => {
       if (input.signal.aborted) {
         settle(abortedError(input.signal.reason));
+      } else if (activeResponse?.complete) {
+        return;
       } else {
         settle(new OutboundHttpError("request", "Outbound request failed.", cause));
       }

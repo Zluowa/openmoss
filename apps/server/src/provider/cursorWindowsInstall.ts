@@ -3,6 +3,7 @@ import * as FS from "node:fs/promises";
 import * as Path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { outboundHttp, resolveOutboundProxyUrl } from "@moss/shared/outboundHttp";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 import { Duration, Effect, Option } from "effect";
 import { AGENT_ZIP_LIMITS, extractAgentZip } from "./agentInstallZip.ts";
 import type { AgentInstallCommandRunner, AgentInstallOutcome } from "./providerInstall.ts";
@@ -36,7 +37,7 @@ export function parseCursorWindowsArchitecture(
 }
 
 async function downloadArchive(url: string, env: NodeJS.ProcessEnv): Promise<Uint8Array> {
-  const proxyUrl = resolveOutboundProxyUrl(url, env);
+  const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(env));
   const response = await outboundHttp.request({
     url,
     policy: {

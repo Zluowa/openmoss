@@ -253,17 +253,58 @@ describe("createDesktopPlatformBuildConfig", () => {
     });
   });
 
-  it("runs Windows updates silently, because installed apps don't pass /S", () => {
-    // electron-builder picks installer.nsh up from buildResources on its own. Without
-    // this macro an update reopens the install-mode and finish pages of the wizard.
+  it("runs Windows updates visibly without wizard prompts, waits for shutdown, and relaunches Moss", () => {
+    // electron-builder picks installer.nsh up from buildResources on its own. For --updated
+    // runs from inside Moss we keep the progress window visible (no forced SetSilent silent
+    // that hides progress and turns process-wait prompts into silent aborts), skip the
+    // install-mode and finish wizard pages, wait patiently for $INSTDIR processes to exit,
+    // and relaunch Moss in .onInstSuccess with fallbacks if the shortcut launch fails.
     const installerScript = readFileSync(
       new URL("../apps/desktop/resources/installer.nsh", import.meta.url),
       "utf8",
     );
+    const customInit = /!macro customInit([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    assert.match(customInit, /\$\{if\} \$\{isUpdated\}\s+SetAutoClose true\s+\$\{endIf\}/);
+    assert.notMatch(customInit, /SetSilent silent/);
+
+    const customInstallMode =
+      /!macro customInstallMode([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    assert.match(customInstallMode, /!ifndef BUILD_UNINSTALLER/);
+    assert.match(customInstallMode, /StrCpy \$isForceMachineInstall "1"/);
+    assert.match(customInstallMode, /StrCpy \$isForceCurrentInstall "1"/);
+
+    const customFinishPage =
+      /!macro customFinishPage([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
     assert.match(
-      installerScript,
-      /!macro customInit\s+\$\{if\} \$\{isUpdated\}\s+SetSilent silent\s+\$\{endIf\}\s+!macroend/,
+      customFinishPage,
+      /!define MUI_PAGE_CUSTOMFUNCTION_PRE mossSkipFinishPageIfUpdated/,
     );
+    assert.match(customFinishPage, /!insertmacro MUI_PAGE_FINISH/);
+
+    const customHeader = /!macro customHeader([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    assert.match(customHeader, /!include "getProcessInfo\.nsh"/);
+    assert.match(customHeader, /Function \.onInstSuccess/);
+    assert.match(customHeader, /\$\{andIfNot\} \$\{Silent\}/);
+    assert.match(customHeader, /!insertmacro mossLaunchApp "--updated"/);
+
+    const launchMacro =
+      /!macro mossLaunchApp ARGS([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    assert.match(
+      launchMacro,
+      /\$\{StdUtils\.ExecShellAsUser\} \$0 "\$launchLink" "open" "\$\{ARGS\}"/,
+    );
+    assert.match(
+      launchMacro,
+      /\$\{StdUtils\.ExecShellAsUser\} \$0 "\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}" "open" "\$\{ARGS\}"/,
+    );
+    assert.match(launchMacro, /Exec '"\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}" \$\{ARGS\}'/);
+
+    const customCheck =
+      /!macro customCheckAppRunning([\s\S]*?)!macroend/.exec(installerScript)?.[1] ?? "";
+    assert.match(customCheck, /!insertmacro IS_POWERSHELL_AVAILABLE/);
+    assert.match(customCheck, /mossWaitGraceful:/);
+    assert.match(customCheck, /mossWaitForce:/);
+    assert.match(customCheck, /!insertmacro _CHECK_APP_RUNNING/);
   });
 
   it("removes only this install's URL handlers, only on a real uninstall", () => {

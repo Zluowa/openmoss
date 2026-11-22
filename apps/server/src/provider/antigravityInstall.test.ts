@@ -10,6 +10,7 @@ import * as Path from "node:path";
 import { promisify } from "node:util";
 import { gzip } from "node:zlib";
 
+import { OutboundHttpError } from "@moss/shared/outboundHttp";
 import { Effect, Option } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -330,10 +331,10 @@ describe("runAntigravityInstall", () => {
         env: { PROCESSOR_ARCHITECTURE: "AMD64" },
         platform: "win32",
         architecture: "x64",
-        run: () => Effect.succeed(Option.some({ exitCode: 0, stdout: "1.0.5", stderr: "" })),
+        run: () => Effect.succeed(Option.some({ exitCode: 0, stdout: "1.4.9", stderr: "" })),
         fetchManifest: async () => ({
-          version: "1.0.5",
-          url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.0.5/windows-x64/cli_windows_x64.exe",
+          version: "1.4.9",
+          url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.4.9/windows-x64/cli_windows_x64.exe",
           sha512: hash,
         }),
         downloadPayload: async (_url, destinationPath) => {
@@ -344,6 +345,67 @@ describe("runAntigravityInstall", () => {
     );
 
     expect(outcome).toMatchObject({ ok: false, reason: "verify-failed" });
+  });
+
+  it("classifies OutboundHttpError timeouts as timed-out with the real diagnostic detail", async () => {
+    const mossHomeDir = await makeMossHome();
+
+    const outcome = await Effect.runPromise(
+      runAntigravityInstall({
+        mossHomeDir,
+        env: { PROCESSOR_ARCHITECTURE: "AMD64" },
+        platform: "win32",
+        architecture: "x64",
+        run: () => Effect.succeed(Option.some({ exitCode: 0, stdout: "1.5.14", stderr: "" })),
+        fetchManifest: async () => {
+          throw new OutboundHttpError("timeout", "Outbound request exceeded its 30000ms deadline.");
+        },
+      }),
+    );
+
+    expect(outcome).toMatchObject({
+      ok: false,
+      reason: "timed-out",
+      detail: expect.stringContaining("30000ms deadline"),
+    });
+  });
+
+  it("retries once on a transient download error and cleans up the partial file", async () => {
+    const mossHomeDir = await makeMossHome();
+    const binaryPayload = Buffer.from("MZ-retry-agy-payload");
+    const hash = sha512Hex(binaryPayload);
+    let attempts = 0;
+
+    const outcome = await Effect.runPromise(
+      runAntigravityInstall({
+        mossHomeDir,
+        env: { PROCESSOR_ARCHITECTURE: "AMD64" },
+        platform: "win32",
+        architecture: "x64",
+        run: () => Effect.succeed(Option.some({ exitCode: 0, stdout: "1.5.14\n", stderr: "" })),
+        fetchManifest: async () => ({
+          version: "1.5.14",
+          url: "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14/windows-x64/cli_windows_x64.exe",
+          sha512: hash,
+        }),
+        downloadPayload: async (_url, destinationPath) => {
+          attempts += 1;
+          if (attempts === 1) {
+            await FS.writeFile(destinationPath, Buffer.from("partial-bytes"));
+            throw new OutboundHttpError(
+              "request",
+              "Outbound request failed.",
+              Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+            );
+          }
+          await FS.writeFile(destinationPath, binaryPayload);
+          return { sha512: hash, bytes: binaryPayload.byteLength };
+        },
+      }),
+    );
+
+    expect(attempts).toBe(2);
+    expect(outcome).toMatchObject({ ok: true, version: "1.5.14", source: "official" });
   });
 
   it("rejects tar.gz archives that lack the expected binary entry", async () => {
