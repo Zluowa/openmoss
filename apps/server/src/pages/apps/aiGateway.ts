@@ -89,12 +89,21 @@ export function makePageAppAiGateway(options: {
   readonly resolveEndpoint: () => Promise<PageAppAiEndpoint>;
   readonly fetch?: typeof fetch;
   readonly timeoutMs?: number;
+  /**
+   * Disable model thinking passes (e.g. DeepSeek) when low time-to-first-line matters
+   * (such as whiteboard quick edits).
+   */
+  readonly fast?: boolean;
+  /** Models to prefer before falling back to `pickPageAppAiModel`. */
+  readonly preferModels?: ReadonlyArray<string>;
 }): PageAppAiGateway {
   const doFetch = options.fetch ?? fetch;
   return {
     async *ask(request, signal) {
       const endpoint = await options.resolveEndpoint();
-      const model = pickPageAppAiModel(endpoint.models, request.tier);
+      const model =
+        options.preferModels?.find((candidate) => endpoint.models.includes(candidate)) ??
+        pickPageAppAiModel(endpoint.models, request.tier);
       if (!model)
         throw new PageAppCapabilityError("unavailable", "No model is available for this account.");
       const target = new URL(endpoint.baseUrl);
@@ -117,6 +126,9 @@ export function makePageAppAiGateway(options: {
             stream: true,
             max_tokens: request.maxTokens ?? 2_048,
             messages: messagesFor(request),
+            ...(options.fast && model.toLowerCase().includes("deepseek")
+              ? { thinking: { type: "disabled" } }
+              : {}),
           }),
         });
       } catch {

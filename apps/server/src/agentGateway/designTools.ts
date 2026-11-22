@@ -33,6 +33,7 @@ import type { PageTypesServiceShape } from "../pages/types/PageTypesService";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol";
 import { errorText, ToolInputError } from "./toolInput";
 import { READ_ONLY_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime";
+import { COMPANION_CONTEXT_SCHEMA_PROPERTY } from "./pageCompanionHelpers";
 
 const scopeProperty = {
   anyOf: [{ type: "string" }, { type: "null" }],
@@ -203,6 +204,7 @@ export function makeDesignTools({
           ...(kind === "write" ? { requestId: { type: "string", maxLength: 128 } } : {}),
           scopeSpaceId: scopeProperty,
           ...properties,
+          companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
         },
         required: [...(kind === "write" ? ["requestId"] : []), "scopeSpaceId", ...required],
       },
@@ -267,6 +269,9 @@ export function makeDesignTools({
       return {
         pageId: saved.page.id,
         revision: saved.page.revision,
+        previousRevision: expectedRevision,
+        undoRevision: expectedRevision,
+        applied: true,
         href: designHref(saved.page.id),
         boards: next.boards.map((board) => ({
           id: board.id,

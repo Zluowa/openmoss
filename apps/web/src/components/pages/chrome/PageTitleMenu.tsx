@@ -78,7 +78,7 @@ export function PageTitleMenu(
         render={
           <button
             type="button"
-            className={cn(PAGE_CHROME_PILL_CLASS_NAME, "max-w-[min(22rem,40vw)] min-w-0")}
+            className={cn(PAGE_CHROME_PILL_CLASS_NAME, "max-w-[min(22rem,100%)] min-w-0 shrink")}
             aria-label={`${props.title} 页面菜单`}
             data-page-title-pill
           />
@@ -127,8 +127,12 @@ export function PageTitleMenu(
                     props.onDocStyle?.({ width: width as PageEditorDocStyle["width"] })
                   }
                 >
-                  <MenuRadioItem value="default">默认宽度</MenuRadioItem>
-                  <MenuRadioItem value="wide">宽页面</MenuRadioItem>
+                  <MenuRadioItem closeOnClick value="default">
+                    默认宽度
+                  </MenuRadioItem>
+                  <MenuRadioItem closeOnClick value="wide">
+                    宽页面
+                  </MenuRadioItem>
                 </MenuRadioGroup>
               </MenuSubPopup>
             </MenuSub>
@@ -145,8 +149,10 @@ export function PageTitleMenu(
                       })
                     }
                   >
-                    <MenuRadioItem value="sans">无衬线</MenuRadioItem>
-                    <MenuRadioItem value="serif" className="font-serif">
+                    <MenuRadioItem closeOnClick value="sans">
+                      无衬线
+                    </MenuRadioItem>
+                    <MenuRadioItem closeOnClick value="serif" className="font-serif">
                       衬线
                     </MenuRadioItem>
                   </MenuRadioGroup>
@@ -160,8 +166,10 @@ export function PageTitleMenu(
                       props.onDocStyle?.({ textFont: font as PageEditorDocStyle["textFont"] })
                     }
                   >
-                    <MenuRadioItem value="sans">无衬线</MenuRadioItem>
-                    <MenuRadioItem value="serif" className="font-serif">
+                    <MenuRadioItem closeOnClick value="sans">
+                      无衬线
+                    </MenuRadioItem>
+                    <MenuRadioItem closeOnClick value="serif" className="font-serif">
                       衬线
                     </MenuRadioItem>
                   </MenuRadioGroup>
@@ -182,9 +190,16 @@ export function PageTitleMenu(
                     )
                   }
                 >
-                  <MenuRadioItem value="auto">跟随 Moss</MenuRadioItem>
+                  <MenuRadioItem closeOnClick value="auto">
+                    跟随 Moss
+                  </MenuRadioItem>
                   {PAGE_DOC_LANGUAGES.map((language) => (
-                    <MenuRadioItem key={language.tag} value={language.tag} lang={language.tag}>
+                    <MenuRadioItem
+                      closeOnClick
+                      key={language.tag}
+                      value={language.tag}
+                      lang={language.tag}
+                    >
                       {language.name}
                     </MenuRadioItem>
                   ))}

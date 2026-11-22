@@ -44,6 +44,7 @@ import { ServerConfig } from "../../config";
 import { McpConnectors } from "../../mcpConnectors/Services/McpConnectors";
 import { makePageAppMcpSources, type PageAppMcpSources } from "../apps/extensions/mcpSources";
 import { LibraryService } from "../../library/Services/LibraryService";
+import { publishPageUpdate } from "../pageEvents";
 import {
   makeDashboardRuntime,
   readLibraryDataFile,
@@ -330,7 +331,7 @@ export const makePageTypesServiceShape = (
             )
               return yield* Effect.fail(failure("invalid", "Board storage identity is immutable"));
           }
-          return yield* sql.withTransaction(
+          const saved = yield* sql.withTransaction(
             Effect.gen(function* () {
               const updated = yield* pages.mutate(
                 {
@@ -352,6 +353,22 @@ export const makePageTypesServiceShape = (
               });
             }),
           );
+          publishPageUpdate({
+            type: "page-updated",
+            pageId: saved.page.id,
+            scopeSpaceId: saved.page.scopeSpaceId,
+            kind: saved.kind,
+            revision: saved.page.revision,
+            previousRevision: current.page.revision,
+            ...(principal.kind === "agent"
+              ? { undoRevision: current.page.revision, applyMode: "auto" as const }
+              : {}),
+            author: principal.kind,
+            authorThreadId: principal.kind === "agent" ? principal.threadId : null,
+            operation: "save",
+            updatedAt: saved.page.updatedAt,
+          });
+          return saved;
         }),
       );
 
@@ -563,3 +580,47 @@ export const PageTypesServiceLive = Layer.effect(
     return yield* makePageTypesServiceShape(pages, { mcpSources, libraryFiles });
   }),
 );
+
+/** Restores a typed Space item (dashboard, sheet, slides, design) to a prior revision. */
+export const restorePageTypeRevision = (
+  types: PageTypesServiceShape,
+  input: {
+    readonly requestId: string;
+    readonly scopeSpaceId: SpaceId | null;
+    readonly pageId: PageId;
+    readonly expectedRevision: number;
+    readonly targetRevision: number;
+  },
+  principal: PagesPrincipal,
+) =>
+  Effect.gen(function* () {
+    const snapshot = yield* types.read(
+      {
+        scopeSpaceId: input.scopeSpaceId,
+        pageId: input.pageId,
+        revision: input.targetRevision,
+      },
+      principal,
+    );
+    if (snapshot.data === null) {
+      return yield* Effect.fail(
+        failure("invalid", `Revision ${input.targetRevision} has no typed payload to restore`),
+      );
+    }
+    const saved = yield* types.save(
+      {
+        requestId: input.requestId,
+        scopeSpaceId: input.scopeSpaceId,
+        pageId: input.pageId,
+        expectedRevision: input.expectedRevision,
+        data: snapshot.data,
+        ...(snapshot.page.title ? { title: snapshot.page.title } : {}),
+      },
+      principal,
+    );
+    return {
+      item: saved,
+      previousRevision: input.expectedRevision,
+      restoredFromRevision: input.targetRevision,
+    };
+  });

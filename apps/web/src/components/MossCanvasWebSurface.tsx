@@ -79,6 +79,19 @@ interface MossCanvasWebSurfaceProps {
    */
   readonly occludedBy?: HTMLElement | null;
   readonly onImportStateChange?: (state: "loading" | "ready" | "failed") => void;
+  /** Host-shell chrome overrides (hide inner bars, keep bottom/right clear of Space Dock). */
+  readonly hostChrome?: {
+    readonly hideTopBar?: boolean;
+    readonly bottomInsetPx?: number;
+    readonly rightInsetPx?: number;
+  };
+  /** Emitted when the board's "问 Moss" toolbar or selection button is pressed. */
+  readonly onAskDock?: (request: {
+    prompt?: string;
+    selectedShapeIds?: string[];
+    selectionText?: string;
+    origin?: "toolbar" | "selection" | "comment";
+  }) => void;
 }
 
 function canvasFrame(
@@ -155,6 +168,8 @@ export function MossCanvasWebSurface({
   onImageOpen,
   occludedBy,
   onImportStateChange,
+  hostChrome,
+  onAskDock,
 }: MossCanvasWebSurfaceProps) {
   const boundary = useMossImagesAccountBoundary();
   const desktopTopBarWindowControlsGutterClassName =
@@ -288,14 +303,45 @@ export function MossCanvasWebSurface({
     });
     return () => observer?.disconnect();
   }, [frameKey, readyFrameKey, src]);
+  const hostHideTopBar = hostChrome?.hideTopBar;
+  const hostBottomInsetPx = hostChrome?.bottomInsetPx;
+  const hostRightInsetPx = hostChrome?.rightInsetPx;
+  useEffect(() => {
+    const target = frame.current;
+    if (!target || !src || readyFrameKey !== frameKey) return;
+    if (
+      hostHideTopBar === undefined &&
+      hostBottomInsetPx === undefined &&
+      hostRightInsetPx === undefined
+    ) {
+      return;
+    }
+    target.contentWindow?.postMessage(
+      {
+        type: "moss-canvas-host-chrome",
+        version: 1,
+        hostChrome: {
+          ...(hostHideTopBar !== undefined ? { hideTopBar: hostHideTopBar } : {}),
+          ...(hostBottomInsetPx !== undefined ? { bottomInsetPx: hostBottomInsetPx } : {}),
+          ...(hostRightInsetPx !== undefined ? { rightInsetPx: hostRightInsetPx } : {}),
+        },
+      },
+      new URL(src).origin,
+    );
+  }, [frameKey, readyFrameKey, src, hostHideTopBar, hostBottomInsetPx, hostRightInsetPx]);
   const binding = useRef<MossCanvasBinding | null>(null);
   const latestSelection = useRef<MossCanvasSelection | null>(null);
   const selectionCallback = useRef(onSelectionChange);
   selectionCallback.current = onSelectionChange;
   const imageOpenCallback = useRef(onImageOpen);
   imageOpenCallback.current = onImageOpen;
+  const askDockCallback = useRef(onAskDock);
+  askDockCallback.current = onAskDock;
   // Told to the Canvas with its bootstrap: what this host handles itself.
-  const hostCapabilities = onImageOpen ? [MOSS_CANVAS_IMAGE_OPEN_CAPABILITY] : [];
+  const hostCapabilities = [
+    ...(onImageOpen ? [MOSS_CANVAS_IMAGE_OPEN_CAPABILITY] : []),
+    ...(onAskDock ? ["ask-dock"] : []),
+  ];
   const selectionSequence = useRef(0);
   const selectionEpoch = useRef(-1);
   const documentGeneration = useRef(0);
@@ -655,6 +701,42 @@ export function MossCanvasWebSurface({
           imageOpenCallback.current?.(open, binding.current);
         return;
       }
+      if (event.data?.type === "moss-canvas-ask-dock" && event.data.version === 1) {
+        if (resolvedThread && event.data.threadId !== resolvedThread) return;
+        if (
+          !resolvedThread &&
+          boardScope &&
+          (event.data.boardScope?.pageId !== boardScope.pageId ||
+            event.data.boardScope?.canvasProjectKey !== boardScope.canvasProjectKey)
+        ) {
+          return;
+        }
+        const rawIds: unknown[] = Array.isArray(event.data.selectedShapeIds)
+          ? (event.data.selectedShapeIds as unknown[])
+          : [];
+        const selectedShapeIds = rawIds
+          .filter((id: unknown): id is string => typeof id === "string" && id.length <= 128)
+          .slice(0, 64);
+        const prompt =
+          typeof event.data.prompt === "string" ? event.data.prompt.slice(0, 4000) : undefined;
+        const selectionText =
+          typeof event.data.selectionText === "string"
+            ? event.data.selectionText.slice(0, 4000)
+            : undefined;
+        const origin =
+          event.data.origin === "selection" ||
+          event.data.origin === "comment" ||
+          event.data.origin === "toolbar"
+            ? (event.data.origin as "toolbar" | "selection" | "comment")
+            : undefined;
+        askDockCallback.current?.({
+          ...(prompt ? { prompt } : {}),
+          ...(selectedShapeIds.length ? { selectedShapeIds } : {}),
+          ...(selectionText ? { selectionText } : {}),
+          ...(origin ? { origin } : {}),
+        });
+        return;
+      }
       if (event.data?.type === "moss-canvas-bootstrap-ready") {
         frame.current?.contentWindow?.postMessage(
           {
@@ -749,6 +831,7 @@ export function MossCanvasWebSurface({
     navigate,
     boundary.isCurrent,
     resolvedThread,
+    boardScope,
     onSelectionChange,
   ]);
 

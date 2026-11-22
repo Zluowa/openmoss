@@ -9,6 +9,7 @@ export const PAGE_AI_EDITOR_GLYPHS = [
   "arrow-up",
   "bubble-quotes",
   "bubble-text",
+  "chat-bubbles",
   "checklist",
   "code-brackets",
   "divider",

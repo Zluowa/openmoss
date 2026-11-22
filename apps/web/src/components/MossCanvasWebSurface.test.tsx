@@ -938,4 +938,53 @@ describe("Canvas compose context", () => {
     expect(host.requests("moss-canvas-compose-context")).toHaveLength(0);
     expect(host.props.onClose).not.toHaveBeenCalled();
   });
+
+  it("forwards hostChrome updates, advertises ask-dock, and handles boardScope ask-dock messages", async () => {
+    const onAskDock = vi.fn();
+    const host = await mount(
+      {
+        boardScope: {
+          pageId: "board-page-1",
+          canvasProjectKey: "board-proj-1",
+          scopeSpaceId: "space-1",
+        },
+        canvasProjectKey: "board-proj-1",
+        hostChrome: { hideTopBar: true, bottomInsetPx: 64, rightInsetPx: 320 },
+        onAskDock,
+      },
+      true,
+    );
+    fireEvent.load(host.iframe);
+    await tick();
+    expect(host.post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "moss-canvas-bootstrap",
+        capabilities: ["ask-dock"],
+      }),
+      "http://moss.test",
+    );
+    expect(host.post).toHaveBeenCalledWith(
+      {
+        type: "moss-canvas-host-chrome",
+        version: 1,
+        hostChrome: { hideTopBar: true, bottomInsetPx: 64, rightInsetPx: 320 },
+      },
+      "http://moss.test",
+    );
+    await host.emit({
+      type: "moss-canvas-ask-dock",
+      version: 1,
+      boardScope: { pageId: "board-page-1", canvasProjectKey: "board-proj-1" },
+      prompt: "重排分区",
+      selectedShapeIds: ["shape:a"],
+      selectionText: "节点 A",
+      origin: "selection",
+    });
+    expect(onAskDock).toHaveBeenCalledWith({
+      prompt: "重排分区",
+      selectedShapeIds: ["shape:a"],
+      selectionText: "节点 A",
+      origin: "selection",
+    });
+  });
 });

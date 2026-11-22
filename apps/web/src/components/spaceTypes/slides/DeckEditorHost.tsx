@@ -18,7 +18,7 @@ import {
 import { applyDeckOps, diffDecks, type DeckOp } from "@moss/shared/spaceItems/deckOps";
 import type { SlidesDeck } from "@moss/shared/spaceItems/slidesDeck";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { useTheme } from "~/hooks/useTheme";
@@ -27,10 +27,15 @@ import {
   DeckEditorChannel,
   type DeckEditorDraft,
   type DeckEditorEvent,
+  type DeckEditorHostChrome,
   type DeckExportQuality,
   type DeckTarget,
   type DeckViewContext,
 } from "~/lib/deckEditorChannel";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+} from "../../space/spaceCanvasDockContract";
 import { spacePageSlideLink, takeStartSlide } from "~/lib/spacePageLink";
 import { uploadLibraryFiles } from "~/lib/libraryUpload";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
@@ -134,6 +139,16 @@ export function DeckEditorHost(props: {
   saveState?: "saved" | "dirty" | "saving" | "failed" | "conflict";
   /** Re-reads the item and reloads it when someone else (an agent) saved a newer revision. */
   reloadIfChanged?: () => Promise<boolean>;
+  /** Host-shell coordination for hiding duplicate top chrome and clearing floating docks. */
+  hostChrome?: DeckEditorHostChrome;
+  /** Overlay insets from Space Dock when hostChrome omits explicit numbers. */
+  hostInsets?: SpaceCanvasHostInsets;
+  /** Unified Space Dock controller (optional fallback when onAskDock is omitted). */
+  dock?: SpaceCanvasDockController | null;
+  /** Routes inline / bottom-pill "问 Moss" requests into Space Dock. */
+  onAskDock?: (request: { prompt?: string; target?: DeckTarget; mode?: "ask" | "change" }) => void;
+  /** Optional host header action lifting hook; clears on unmount. */
+  onHostActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const client = useQueryClient();
   const { resolvedTheme } = useTheme();
@@ -681,6 +696,42 @@ export function DeckEditorHost(props: {
             event.requestId ? current.filter((run) => run.requestId !== event.requestId) : [],
           );
           return;
+        case "ask-dock": {
+          const current = latest.current;
+          if (current.onAskDock) {
+            current.onAskDock({
+              ...(event.prompt !== undefined ? { prompt: event.prompt } : {}),
+              ...(event.target !== undefined ? { target: event.target } : {}),
+              ...(event.mode !== undefined ? { mode: event.mode } : {}),
+            });
+            return;
+          }
+          if (current.dock) {
+            void current.dock.ask({
+              ...(event.prompt ? { prompt: event.prompt } : {}),
+              origin: "bottom-pill",
+              selection: {
+                kind: "slides",
+                itemId: page.id,
+                title: current.title || "幻灯片",
+                ...(event.target?.slideIds?.length ? { slideIds: event.target.slideIds } : {}),
+                ...(event.target?.elementIds?.length
+                  ? { elementIds: event.target.elementIds }
+                  : {}),
+              },
+            });
+            return;
+          }
+          if (event.prompt && event.target) {
+            requestChange({
+              requestId: crypto.randomUUID(),
+              instruction: event.prompt,
+              target: event.target,
+              mode: event.mode ?? "change",
+            });
+          }
+          return;
+        }
         case "thumbnail":
           return;
         case "error":
@@ -725,6 +776,20 @@ export function DeckEditorHost(props: {
     const n = takeStartSlide(page.id);
     return n ? (props.deck.slides[n - 1]?.id ?? null) : null;
   });
+  const hideTopBar = props.hostChrome?.hideTopBar;
+  const bottomInsetPx = props.hostChrome?.bottomInsetPx ?? props.hostInsets?.bottomInsetPx;
+  const rightInsetPx = props.hostChrome?.rightInsetPx ?? props.hostInsets?.rightInsetPx;
+  const effectiveHostChrome = useMemo<DeckEditorHostChrome | undefined>(
+    () =>
+      hideTopBar === undefined && bottomInsetPx === undefined && rightInsetPx === undefined
+        ? undefined
+        : {
+            ...(hideTopBar !== undefined ? { hideTopBar } : {}),
+            ...(bottomInsetPx !== undefined ? { bottomInsetPx } : {}),
+            ...(rightInsetPx !== undefined ? { rightInsetPx } : {}),
+          },
+    [hideTopBar, bottomInsetPx, rightInsetPx],
+  );
   // Load (and reload after an outside replacement: conflict reload or a Moss-side accept).
   useEffect(() => {
     channel.load({
@@ -737,9 +802,14 @@ export function DeckEditorHost(props: {
       mode: props.readOnly ? "view" : "edit",
       theme: resolvedTheme === "dark" ? "dark" : "light",
       locale: navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en",
+      ...(effectiveHostChrome ? { hostChrome: effectiveHostChrome } : {}),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, page.id, props.epoch]);
+  useEffect(() => {
+    if (effectiveHostChrome) channel.setHostChrome(effectiveHostChrome);
+  }, [channel, effectiveHostChrome]);
+  useEffect(() => () => props.onHostActionsChange?.(null), [props.onHostActionsChange]);
   useEffect(() => channel.setReadOnly(props.readOnly), [channel, props.readOnly]);
   useEffect(() => {
     if (props.saveState === "saved") channel.saveStatus("saved");

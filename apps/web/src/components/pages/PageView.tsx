@@ -33,12 +33,21 @@ import { AutomationCreateDialog } from "~/routes/-automations.list";
 import { useAutomations } from "~/routes/-automations.shared";
 import { useStore } from "~/store";
 import { pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
+import type {
+  PageEditorDocStylePatch,
+  PageRichEditorHostChrome,
+} from "~/lib/pageRichEditorChannel";
 import { readAloudSupported, useReadAloud } from "../chat/transcript/readAloud";
 import { usePageComments, usePageCommentsStore } from "~/pageCommentsStore";
 
 import { CodeEditorPane } from "../codeEditor/CodeEditorPane";
 import { MossPageRichEditor } from "../MossPageRichEditor";
 import { SidebarIconButton } from "../SidebarIconButton";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasDockRequest,
+  SpaceCanvasHostInsets,
+} from "../space/spaceCanvasDockContract";
 import { spaceKindMeta } from "../space/spaceKinds";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
@@ -84,6 +93,8 @@ export interface PageViewProps {
   /** After a duplicate is created, open it. */
   onOpenCreated: (document: PagesReadResult) => void;
   onOpenInNewWindow: (pageId: PageId) => void;
+  /** Unified 3-state canvas-chat companion dock hosted in MossDataSpaceDestination. */
+  dock?: SpaceCanvasDockController | null | undefined;
 }
 
 export function PageView(props: PageViewProps) {
@@ -231,6 +242,25 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [editorHeaderSupport, setEditorHeaderSupport] = useState(false);
   const [reloadConfirm, setReloadConfirm] = useState(false);
+  const [hostInsets, setHostInsets] = useState<SpaceCanvasHostInsets>({
+    bottomInsetPx: 0,
+    rightInsetPx: 0,
+  });
+  const [scrollToHeadingRequest, setScrollToHeadingRequest] = useState<{
+    line: number;
+    level: number;
+    text: string;
+    seq: number;
+  } | null>(null);
+  const [activeHeadingLine, setActiveHeadingLine] = useState<number | null>(null);
+  const dockRegisterInsets = props.dock?.registerHostInsets;
+  useEffect(() => {
+    if (!dockRegisterInsets) {
+      setHostInsets({ bottomInsetPx: 0, rightInsetPx: 0 });
+      return;
+    }
+    return dockRegisterInsets(setHostInsets);
+  }, [dockRegisterInsets]);
   const requestedEnabled = useRef(true);
   const readOnly = page.trashedAt !== null;
   const projects = useStore((store) => store.projects);
@@ -458,6 +488,17 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     }
   };
 
+  const handleDocStyle = (patch: PageEditorDocStylePatch) =>
+    void perform((saved) =>
+      mutate(saved, {
+        op: "page-appearance",
+        docStyle: nextPageDocStyle(pageDocStyleOf(saved.page), patch),
+      }),
+    );
+
+  const tocOpen = panel === "navigation";
+  const onToggleToc = () => setPanel(tocOpen ? null : "navigation");
+
   const context: PageChromeContext = {
     account: props.account,
     scopeSpaceId: props.scopeSpaceId,
@@ -470,6 +511,14 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     activePanel: panel === "move" ? null : panel,
     openPanel: setPanel,
     createChildPage: () => props.onCreateChild(page),
+    dock: props.dock ?? null,
+    tocOpen,
+    onToggleToc,
+  };
+  const richHostChrome: PageRichEditorHostChrome = {
+    hideTopBar: true,
+    bottomInsetPx: hostInsets.bottomInsetPx,
+    rightInsetPx: hostInsets.rightInsetPx,
   };
   const openSourceThread = () =>
     void perform(async (saved) => {
@@ -516,6 +565,34 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     },
   };
   const kindMeta = spaceKindMeta(page.kind ?? "page");
+  const richAiOptions = {
+    account: props.account,
+    scopeSpaceId: props.scopeSpaceId,
+    document: state.document,
+    isCurrent: props.isCurrent,
+    flush: flushPage,
+    createChildPage: () => props.onCreateChild(page),
+    openPage: props.onSelect,
+    openFiles: () => setPanel("files"),
+    ...(props.dock ? { dock: props.dock } : {}),
+  };
+  const richHostBridgeProps = {
+    hostChrome: richHostChrome,
+    scrollToHeadingRequest,
+    ...(props.dock
+      ? { onAskDock: (request: SpaceCanvasDockRequest) => void props.dock?.ask(request) }
+      : {}),
+  };
+  const navHeadingProps = {
+    activeHeadingLine,
+    onSelectHeading: (heading: { line: number; level: number; text: string }) => {
+      setActiveHeadingLine(heading.line);
+      setScrollToHeadingRequest((prev) => ({
+        ...heading,
+        seq: (prev?.seq ?? 0) + 1,
+      }));
+    },
+  };
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-page-id={page.id}>
@@ -791,25 +868,17 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                       ),
                     );
                 }}
-                ai={{
-                  account: props.account,
-                  scopeSpaceId: props.scopeSpaceId,
-                  document: state.document,
-                  isCurrent: props.isCurrent,
-                  flush: flushPage,
-                  createChildPage: () => props.onCreateChild(page),
-                  openPage: props.onSelect,
-                  openFiles: () => setPanel("files"),
-                }}
+                ai={richAiOptions}
                 header={editorHeader}
                 onHeaderSupportChange={setEditorHeaderSupport}
                 onOpenCommentThread={setFocusedThreadId}
                 onSuggestingChange={setSuggesting}
+                {...richHostBridgeProps}
               />
             )}
           </div>
           <div data-page-slot="bottomComposer">
-            <BottomComposer context={context} />
+            <BottomComposer context={context} docStyle={docStyle} onDocStyle={handleDocStyle} />
           </div>
         </section>
         {panel ? (
@@ -933,6 +1002,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                   pages={props.pages}
                   markdown={state.content}
                   onSelect={props.onSelect}
+                  {...navHeadingProps}
                 />
               ) : (
                 <form

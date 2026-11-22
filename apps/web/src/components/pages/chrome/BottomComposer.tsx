@@ -1,146 +1,275 @@
 // FILE: BottomComposer.tsx
-// Purpose: The page composer: a compact pill docked at the page's lower right. It sends one turn
-//          to the selected Moss agent with this page as context; the agent's edits come back as
-//          drafts in the page. While idle after a run, the pill shows how that run went, and
-//          offers 重试 after one that did not finish.
-// Layer: Space page chrome slot `bottomComposer` — owned by page-ai.
+// Purpose: Claude-1:1 centered bottom floating pill toolbar for Docs pages (`Fonts`, quick insert
+//          actions, `More ...` with page-width toggle, `评论`, and `问 Moss` bound in place to the
+//          SpaceCanvasChatDock). Respects `--foot-bar-room` (60px) clearance and avoids raw HTML
+//          buttons/shadows so `design:check` stays green.
+// Layer: Space page chrome slot `bottomComposer`
 
-import { useNavigate } from "@tanstack/react-router";
-import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
-import { useEffect, useRef, useState } from "react";
+import {
+  ChevronDownIcon,
+  CodeIcon,
+  ListChecksIcon,
+  ListTodoIcon,
+  MinusIcon,
+  MoreHorizontalIcon,
+  PageCommentIcon,
+  PageImageIcon,
+  SparklesIcon,
+  TableIcon,
+  TextSizeIcon,
+} from "~/lib/icons";
+import { pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
+import { type PageEditorDocStyle, type PageEditorDocStylePatch } from "~/lib/pageRichEditorChannel";
 
-import { ComposerSendArrowIcon } from "~/lib/icons";
-import { isActiveRun, pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
-import { cn } from "~/lib/utils";
-
+import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
 import { Button } from "../../ui/button";
-
-import { pageAiLocale, pageAiText } from "../ai/pageAiText";
+import { IconButton } from "../../ui/icon-button";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "../../ui/menu";
+import { pageDocStyleOf } from "../comments/pageDocComments";
 import type { PageChromeSlotProps } from "./pageChromeContext";
 
-function useNow(active: boolean) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [active]);
-  return now;
+export interface PageBottomComposerProps extends PageChromeSlotProps {
+  readonly docStyle?: PageEditorDocStyle | undefined;
+  readonly onDocStyle?: ((patch: PageEditorDocStylePatch) => void) | undefined;
 }
 
-export function BottomComposer({ context }: PageChromeSlotProps) {
-  const navigate = useNavigate();
-  const text = pageAiText(pageAiLocale());
+export function BottomComposer({
+  context,
+  docStyle: docStyleProp,
+  onDocStyle,
+}: PageBottomComposerProps) {
   const session = usePageAiSession(
     pageAiKey(context.account, context.scopeSpaceId, context.page.id),
   );
-  const [value, setValue] = useState("");
-  const input = useRef<HTMLInputElement>(null);
-  const latest = session.runs.at(-1);
-  const running = !!latest && isActiveRun(latest);
-  const now = useNow(running);
   if (context.readOnly) return null;
+
   const editor = session.editor;
-  const busy = session.runs.some((run) => run.mode === "compose" && isActiveRun(run));
-  const submit = () => {
-    const prompt = value.trim();
-    if (!prompt || !editor || busy) return;
-    setValue("");
-    void editor.startRun({ mode: "compose", prompt, anchorBlockId: null });
+  const dock = context.dock ?? null;
+  const docStyle = docStyleProp ?? pageDocStyleOf(context.page);
+  const isWide = docStyle.width === "wide";
+  const commentsOpen = context.activePanel === "comments";
+
+  const handleAskMoss = () => {
+    if (dock) {
+      void dock.ask();
+      return;
+    }
+    editor?.openAiInput("generate");
   };
-  const seconds = latest
-    ? Math.max(1, Math.round(((latest.finishedAt ?? now) - latest.startedAt) / 1000))
-    : 0;
-  // The last run's state reads in the empty pill, the way a page reports what it just did.
-  const status = !latest
-    ? null
-    : running
-      ? text.workingFor(seconds)
-      : latest.status === "failed"
-        ? `${text.failed}${latest.error ? `：${latest.error}` : ""}`
-        : text.doneIn(seconds);
-  const placeholder = !editor ? text.noAgent : (status ?? text.composerPlaceholder);
-  const ready = Boolean(value.trim()) && !!editor && !busy;
+
   return (
     <div
-      className="pointer-events-none sticky bottom-0 z-10 flex justify-end px-6 pb-4 pt-2"
+      className="pointer-events-none sticky bottom-0 z-10 flex min-h-[60px] items-end justify-center px-4 pb-3 pt-1"
       data-page-composer
     >
       <div
-        className="pointer-events-auto flex h-11 w-full max-w-[440px] items-center gap-2 rounded-full border border-border bg-background pl-4 pr-1.5 shadow-[0_4px_16px_rgba(0,0,0,0.08)] focus-within:border-ring"
-        onClick={() => input.current?.focus()}
+        role="toolbar"
+        aria-label="文档底部工具栏"
+        className="pointer-events-auto inline-flex h-10 max-w-full flex-nowrap items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-popover/95 px-2 shadow-xl backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <span
-          aria-hidden
-          className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            running
-              ? "animate-pulse bg-emerald-500"
-              : latest?.status === "failed"
-                ? "bg-destructive"
-                : "hidden",
-          )}
-        />
-        <input
-          ref={input}
-          value={value}
-          aria-label={text.composerLabel}
-          placeholder={placeholder}
-          title={status ?? undefined}
-          disabled={!editor}
-          onFocus={() => editor?.prepare()}
-          onChange={(event) => setValue(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !isImeComposingKeyEvent(event)) {
-              event.preventDefault();
-              submit();
+        {/* Fonts & headings */}
+        <Menu modal={false}>
+          <MenuTrigger
+            render={
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label="字体与标题"
+                className="h-7 shrink-0 gap-1 rounded-full px-2.5 text-ui-sm text-foreground"
+              />
             }
-          }}
-          className="min-w-0 flex-1 bg-transparent text-ui outline-none placeholder:text-muted-foreground"
-        />
-        {latest?.status === "failed" && latest.prompt && editor && !value ? (
-          <Button
-            size="xs"
-            variant="ghost"
-            className="shrink-0"
-            onClick={(event) => {
-              event.stopPropagation();
-              void editor.startRun({
-                mode: latest.mode,
-                prompt: latest.prompt,
-                anchorBlockId: latest.anchorBlockId,
-              });
-            }}
           >
-            {text.retry}
-          </Button>
-        ) : null}
-        {latest?.threadId && !value ? (
-          <button
-            type="button"
-            className="shrink-0 rounded-full px-2 text-ui-xs text-muted-foreground hover:text-foreground"
-            onClick={(event) => {
-              event.stopPropagation();
-              void context
-                .flush()
-                .then(() => navigate({ to: "/$threadId", params: { threadId: latest.threadId! } }));
-            }}
-          >
-            {text.openChat}
-          </button>
-        ) : null}
-        <button
-          type="button"
-          aria-label={text.send}
-          disabled={!ready}
-          onClick={submit}
-          className={cn(
-            "grid size-8 shrink-0 place-items-center rounded-full text-background transition-colors",
-            ready ? "bg-foreground" : "bg-foreground/30",
-          )}
+            <TextSizeIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span>字体</span>
+            <ChevronDownIcon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
+          </MenuTrigger>
+          <ComposerPickerMenuPopup align="start" side="top" className="w-52 min-w-52">
+            <MenuGroup>
+              <MenuGroupLabel>段落层级</MenuGroupLabel>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("h1")}>
+                <span>一级标题</span>
+              </MenuItem>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("h2")}>
+                <span>二级标题</span>
+              </MenuItem>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("h3")}>
+                <span>三级标题</span>
+              </MenuItem>
+            </MenuGroup>
+            {onDocStyle ? (
+              <>
+                <MenuSeparator />
+                <MenuGroup>
+                  <MenuGroupLabel>标题字体</MenuGroupLabel>
+                  <MenuRadioGroup
+                    value={docStyle.headingFont}
+                    onValueChange={(value) =>
+                      onDocStyle({ headingFont: value as PageEditorDocStyle["headingFont"] })
+                    }
+                  >
+                    <MenuRadioItem closeOnClick value="sans">
+                      无衬线
+                    </MenuRadioItem>
+                    <MenuRadioItem closeOnClick value="serif" className="font-serif">
+                      衬线
+                    </MenuRadioItem>
+                  </MenuRadioGroup>
+                </MenuGroup>
+                <MenuSeparator />
+                <MenuGroup>
+                  <MenuGroupLabel>正文字体</MenuGroupLabel>
+                  <MenuRadioGroup
+                    value={docStyle.textFont}
+                    onValueChange={(value) =>
+                      onDocStyle({ textFont: value as PageEditorDocStyle["textFont"] })
+                    }
+                  >
+                    <MenuRadioItem closeOnClick value="sans">
+                      无衬线
+                    </MenuRadioItem>
+                    <MenuRadioItem closeOnClick value="serif" className="font-serif">
+                      衬线
+                    </MenuRadioItem>
+                  </MenuRadioGroup>
+                </MenuGroup>
+              </>
+            ) : null}
+          </ComposerPickerMenuPopup>
+        </Menu>
+
+        {/* Quick insert shortcuts */}
+        <IconButton
+          size="icon-xs"
+          variant="ghost"
+          label="插入表格"
+          tooltip="插入表格"
+          tooltipSide="top"
+          disabled={!editor}
+          className="h-7 w-7 shrink-0 rounded-full"
+          onClick={() => editor?.runInsertItem("table")}
         >
-          <ComposerSendArrowIcon aria-hidden className="size-4" />
-        </button>
+          <TableIcon className="size-3.5" />
+        </IconButton>
+        <IconButton
+          size="icon-xs"
+          variant="ghost"
+          label="插入图像"
+          tooltip="插入图像"
+          tooltipSide="top"
+          disabled={!editor}
+          className="h-7 w-7 shrink-0 rounded-full"
+          onClick={() => editor?.runInsertItem("page_ai_image")}
+        >
+          <PageImageIcon className="size-3.5" />
+        </IconButton>
+        <IconButton
+          size="icon-xs"
+          variant="ghost"
+          label="插入待办清单"
+          tooltip="待办清单"
+          tooltipSide="top"
+          disabled={!editor}
+          className="h-7 w-7 shrink-0 rounded-full"
+          onClick={() => editor?.runInsertItem("todo")}
+        >
+          <ListChecksIcon className="size-3.5" />
+        </IconButton>
+        <IconButton
+          size="icon-xs"
+          variant="ghost"
+          label="插入列表"
+          tooltip="无序列表"
+          tooltipSide="top"
+          disabled={!editor}
+          className="h-7 w-7 shrink-0 rounded-full"
+          onClick={() => editor?.runInsertItem("disc")}
+        >
+          <ListTodoIcon className="size-3.5" />
+        </IconButton>
+
+        {/* More ... */}
+        <Menu modal={false}>
+          <MenuTrigger
+            render={
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="更多操作"
+                className="h-7 w-7 shrink-0 rounded-full"
+              />
+            }
+          >
+            <MoreHorizontalIcon className="size-3.5" aria-hidden />
+          </MenuTrigger>
+          <ComposerPickerMenuPopup align="center" side="top" className="w-52 min-w-52">
+            <MenuGroup>
+              <MenuGroupLabel>常用块</MenuGroupLabel>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("decimal")}>
+                <span>有序列表</span>
+              </MenuItem>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("blockquote")}>
+                <span>引用</span>
+              </MenuItem>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("code_block")}>
+                <CodeIcon className="size-3.5 shrink-0" aria-hidden />
+                <span>代码块</span>
+              </MenuItem>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("hr")}>
+                <MinusIcon className="size-3.5 shrink-0" aria-hidden />
+                <span>分隔线</span>
+              </MenuItem>
+              <MenuItem disabled={!editor} onClick={() => editor?.runInsertItem("callout")}>
+                <span>强调块</span>
+              </MenuItem>
+              <MenuItem onClick={() => context.createChildPage()}>
+                <span>新建子页面</span>
+              </MenuItem>
+            </MenuGroup>
+            {onDocStyle ? (
+              <>
+                <MenuSeparator />
+                <MenuItem onClick={() => onDocStyle({ width: isWide ? "default" : "wide" })}>
+                  <span>{isWide ? "恢复默认宽度" : "加宽页面"}</span>
+                </MenuItem>
+              </>
+            ) : null}
+          </ComposerPickerMenuPopup>
+        </Menu>
+
+        <span aria-hidden="true" className="mx-1 h-4 w-px shrink-0 bg-border" />
+
+        {/* Comment panel toggle */}
+        <Button
+          size="xs"
+          variant={commentsOpen ? "secondary" : "ghost"}
+          aria-pressed={commentsOpen}
+          className="h-7 shrink-0 gap-1.5 rounded-full px-2.5 text-ui-sm"
+          onClick={() => context.openPanel(commentsOpen ? null : "comments")}
+        >
+          <PageCommentIcon className="size-3.5 shrink-0" aria-hidden />
+          <span>评论</span>
+        </Button>
+
+        {/* Ask Moss pill opening SpaceCanvasChatDock in place */}
+        <Button
+          size="xs"
+          variant={dock?.busy ? "secondary" : "default"}
+          data-page-ask-moss
+          className="h-7 shrink-0 gap-1.5 rounded-full px-3 text-ui-sm font-medium tabular-nums"
+          onClick={handleAskMoss}
+        >
+          <SparklesIcon className="size-3.5 shrink-0" aria-hidden />
+          <span>{dock?.busy && dock.statusLabel ? dock.statusLabel : "问 Moss"}</span>
+        </Button>
       </div>
     </div>
   );

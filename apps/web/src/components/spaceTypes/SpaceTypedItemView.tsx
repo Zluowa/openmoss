@@ -15,14 +15,29 @@ import {
 import { parseSheetWorkbook, type SheetWorkbook } from "@moss/shared/spaceItems/sheetWorkbook";
 import { parseSlidesDeck, type SlidesDeck } from "@moss/shared/spaceItems/slidesDeck";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
 import { TemplateGridIcon } from "~/lib/icons";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+} from "../space/spaceCanvasDockContract";
+import { spaceKindMeta } from "../space/spaceKinds";
 import { Button } from "../ui/button";
 import { AppItemView } from "./app/AppItemView";
 import { BoardItemView } from "./board/BoardItemView";
 import { DashboardItemView } from "./dashboard/DashboardItemView";
+import { SpaceUnifiedTopChrome } from "./shared/SpaceEditorChrome";
 import { DeckEditorHost } from "./slides/DeckEditorHost";
 import { pageTypesQueryKeys } from "./spaceItemTypes";
 
@@ -54,6 +69,10 @@ export function SpaceTypedItemView(props: {
   onGuardChange?: (guard: (() => Promise<boolean>) | null) => void;
   /** Hide the built-in title row when the host page chrome shows the title. */
   hideHeader?: boolean;
+  /** Unified 3-state Space canvas chat dock controller. */
+  dock?: SpaceCanvasDockController | null | undefined;
+  /** Optional back callback to Space Home when mounted as an opened artifact. */
+  onBack?: (() => void) | undefined;
 }) {
   const query = useQuery({
     queryKey: pageTypesQueryKeys.item(props.account, props.scopeSpaceId, props.pageId),
@@ -91,6 +110,22 @@ function TypedItemEditor(
   const [title, setTitle] = useState(props.item.page.title);
   const [state, setState] = useState<SaveState>("saved");
   const [templateNote, setTemplateNote] = useState<string | null>(null);
+  const [hostActions, setHostActions] = useState<ReactNode | null>(null);
+  const [hostInsets, setHostInsets] = useState<SpaceCanvasHostInsets>({
+    bottomInsetPx: 0,
+    rightInsetPx: 0,
+  });
+  const dockRegisterInsets = props.dock?.registerHostInsets;
+  useEffect(() => {
+    setHostActions(null);
+  }, [item.page.id, item.kind]);
+  useEffect(() => {
+    if (!dockRegisterInsets) {
+      setHostInsets({ bottomInsetPx: 0, rightInsetPx: 0 });
+      return;
+    }
+    return dockRegisterInsets(setHostInsets);
+  }, [dockRegisterInsets]);
   // Bumped when the payload is replaced from outside the editor (import, conflict reload).
   const [epoch, setEpoch] = useState(0);
   const latest = useRef({
@@ -312,9 +347,48 @@ function TypedItemEditor(
     </span>
   );
 
+  const kindMeta = spaceKindMeta(item.kind);
+  const editorHostBridgeProps = {
+    dock: props.dock ?? null,
+    hostInsets,
+    hostChrome: {
+      hideTopBar: true,
+      bottomInsetPx: hostInsets.bottomInsetPx,
+      rightInsetPx: hostInsets.rightInsetPx,
+    },
+    onHostActionsChange: setHostActions,
+  };
+
+  const unifiedTopChrome = props.hideHeader ? null : (
+    <SpaceUnifiedTopChrome
+      icon={kindMeta.icon}
+      onBack={props.onBack}
+      titleSlot={titleField}
+      statusSlot={
+        <>
+          {templateNote ? (
+            <span className="shrink-0 text-ui-xs text-muted-foreground">{templateNote}</span>
+          ) : null}
+          {saveStatus}
+        </>
+      }
+      hostActions={hostActions}
+      trailingActions={
+        readOnly || item.kind === "board" ? null : (
+          <Button size="xs" variant="ghost" onClick={() => void saveAsTemplate()}>
+            <TemplateGridIcon />
+            <span>存为模板</span>
+          </Button>
+        )
+      }
+      dock={props.dock ?? null}
+    />
+  );
+
   if (dashboard) {
     return (
       <div className="flex min-h-0 flex-1 flex-col" data-typed-item={item.kind}>
+        {unifiedTopChrome}
         <DashboardItemView
           account={props.account}
           scopeSpaceId={props.scopeSpaceId}
@@ -322,19 +396,12 @@ function TypedItemEditor(
           dashboard={dashboard}
           title={title}
           readOnly={readOnly}
-          header={
-            <>
-              {titleField}
-              {templateNote ? (
-                <span className="shrink-0 text-ui-sm text-muted-foreground">{templateNote}</span>
-              ) : null}
-              {saveStatus}
-            </>
-          }
+          header={null}
           onChange={(next) => change(JSON.stringify(next))}
           flush={save}
           revision={() => latest.current.revision}
           reloadIfChanged={reloadIfChanged}
+          {...editorHostBridgeProps}
         />
       </div>
     );
@@ -342,33 +409,7 @@ function TypedItemEditor(
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-typed-item={item.kind}>
-      {props.hideHeader ? null : (
-        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
-          <input
-            aria-label="标题"
-            value={title}
-            readOnly={readOnly}
-            maxLength={256}
-            onChange={(event) => {
-              setTitle(event.target.value);
-              latest.current.title = event.target.value;
-              if (event.target.value.trim()) schedule();
-            }}
-            className="min-w-0 flex-1 truncate bg-transparent text-ui-lg font-medium outline-none"
-          />
-          {templateNote ? (
-            <span className="text-ui-sm text-muted-foreground">{templateNote}</span>
-          ) : null}
-          <span role="status" className="text-ui-sm text-muted-foreground" data-save-state={state}>
-            {readOnly ? "只读" : SAVE_LABELS[state]}
-          </span>
-          {readOnly || item.kind === "board" ? null : (
-            <Button size="xs" variant="ghost" onClick={() => void saveAsTemplate()}>
-              <TemplateGridIcon /> 存为模板
-            </Button>
-          )}
-        </div>
-      )}
+      {unifiedTopChrome}
       {item.kind === "slides" && deck ? (
         <DeckEditorHost
           account={props.account}
@@ -392,6 +433,7 @@ function TypedItemEditor(
           revision={() => latest.current.revision}
           reloadIfChanged={reloadIfChanged}
           saveState={state}
+          {...editorHostBridgeProps}
         />
       ) : item.kind === "sheet" && workbook ? (
         <Suspense fallback={<p className="p-8 text-muted-foreground">正在载入表格…</p>}>
@@ -410,6 +452,7 @@ function TypedItemEditor(
             flush={save}
             revision={() => latest.current.revision}
             reloadIfChanged={reloadIfChanged}
+            {...editorHostBridgeProps}
           />
         </Suspense>
       ) : item.kind === "design" && design ? (
@@ -426,10 +469,16 @@ function TypedItemEditor(
             flush={save}
             revision={() => latest.current.revision}
             reloadIfChanged={reloadIfChanged}
+            {...editorHostBridgeProps}
           />
         </Suspense>
       ) : item.kind === "board" && item.data ? (
-        <BoardItemView data={item.data} pageId={item.page.id} scopeSpaceId={props.scopeSpaceId} />
+        <BoardItemView
+          data={item.data}
+          pageId={item.page.id}
+          scopeSpaceId={props.scopeSpaceId}
+          {...editorHostBridgeProps}
+        />
       ) : item.kind === "app" && item.data ? (
         <AppItemView
           pageId={item.page.id}
@@ -437,6 +486,7 @@ function TypedItemEditor(
           dataRevision={item.dataRevision}
           title={title}
           data={item.data}
+          {...editorHostBridgeProps}
         />
       ) : (
         <p role="alert" className="p-8 text-destructive">

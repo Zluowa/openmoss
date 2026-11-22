@@ -41,8 +41,13 @@ import {
   type GuestRoomCommit,
   type FrozenGuestRoom,
   type GuestRoomPublication,
+  type AgentPresenceOptions,
+  type AgentPresencePayload,
+  type AgentPresenceState,
   type PublishedRoomSeed,
 } from "./PageRealtimeRoom";
+
+export type { AgentPresenceOptions, AgentPresencePayload, AgentPresenceState };
 import { appendRoomUpdate, commitRoomCheckpoint, journalContributors } from "./pageRoomPublication";
 import { encodeContributors, unrecordedContributor } from "../pageVersionContributors";
 import { makePageRoomReservations } from "./pageRoomReservations";
@@ -108,9 +113,14 @@ export interface PageRealtimeServiceShape {
     pageId: string,
     task: Effect.Effect<A, E, R>,
   ) => Effect.Effect<A, E | PagesServiceError, R>;
-  /** Shows an agent as editing a page that has a live room (no-op otherwise), for example while
-   * it writes a draft that only lands when the person accepts it. */
-  readonly showAgent: (pageId: string, threadId: string, name?: string) => void;
+  /** Shows an agent as thinking/editing a page that has a live room (no-op otherwise). */
+  readonly showAgent: (
+    pageId: string,
+    threadId: string,
+    nameOrOptions?: string | AgentPresenceOptions,
+  ) => void;
+  /** Clears an agent's awareness state on a live room (no-op otherwise). */
+  readonly clearAgent: (pageId: string, threadId: string) => void;
 }
 
 export class PageRealtimeService extends ServiceMap.Service<
@@ -578,9 +588,13 @@ export const makePageRealtime = (base: PagesServiceShape) =>
             return yield* task;
           }),
         ),
-      showAgent: (pageId, threadId, name) => {
+      showAgent: (pageId, threadId, nameOrOptions) => {
         const room = rooms.get(pageId)?.room;
-        if (room?.seeded) room.showAgent(threadId, name);
+        if (room?.seeded) room.showAgent(threadId, nameOrOptions);
+      },
+      clearAgent: (pageId, threadId) => {
+        const room = rooms.get(pageId)?.room;
+        if (room?.seeded) room.clearAgent(threadId);
       },
     };
 

@@ -517,6 +517,11 @@ export function useDashboardRuntime(props: {
       if (dataset.source.kind === "file") void load(id, { force: true });
   }, [load]);
 
+  const clearPick = useCallback(() => setPick(null), []);
+  const clearAnchor = useCallback(() => setAnchor(null), []);
+  const resetParams = useCallback(() => setParamsState({ ...latest.current.dashboard.params }), []);
+  const reload = useCallback(() => setEpoch((value) => value + 1), []);
+
   const usedIds = useMemo(() => used.current, [sources]);
   return {
     frame,
@@ -526,20 +531,20 @@ export function useDashboardRuntime(props: {
     loaders,
     faults,
     pick,
-    clearPick: () => setPick(null),
+    clearPick,
     anchor,
-    clearAnchor: () => setAnchor(null),
+    clearAnchor,
     rects,
     selection,
     edits,
     pageText,
     params,
-    resetParams: () => setParamsState({ ...latest.current.dashboard.params }),
+    resetParams,
     used: usedIds,
     send,
     load,
     refreshAll,
-    reload: () => setEpoch((value) => value + 1),
+    reload,
   };
 }
 

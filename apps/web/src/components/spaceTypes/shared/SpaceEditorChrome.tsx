@@ -8,10 +8,12 @@
 
 import type { ReactNode } from "react";
 
-import type { LucideIcon } from "~/lib/icons";
+import { ArrowLeftIcon, type LucideIcon, SparklesIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import type { SpaceCanvasDockController } from "../../space/spaceCanvasDockContract";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "../../chat/chatHeaderControls";
 import { DockPaneHeader } from "../../chat/DockPaneHeader";
+import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
 
 /** Toolbar button: icon only, label as its tooltip (and the shortcut, when it has one). */
@@ -154,5 +156,87 @@ export function SpaceSidePanel(props: {
       <div className="min-h-0 flex-1 overflow-y-auto">{props.children}</div>
       {props.footer}
     </aside>
+  );
+}
+
+/**
+ * Unified calm 44px Claude-style top bar shared across typed Space artifacts. Keeps one
+ * subtle hairline row with Back navigation, kind icon, editable title, save status, lifted
+ * editor-specific actions (`onHostActionsChange`), and the `问 Moss` Dock toggle pill.
+ */
+export function SpaceUnifiedTopChrome(props: {
+  readonly icon?: LucideIcon | undefined;
+  readonly onBack?: (() => void) | undefined;
+  readonly backLabel?: string | undefined;
+  readonly titleSlot: ReactNode;
+  readonly statusSlot?: ReactNode;
+  readonly hostActions?: ReactNode;
+  readonly trailingActions?: ReactNode;
+  readonly dock?: SpaceCanvasDockController | null | undefined;
+  readonly testId?: string;
+}) {
+  const Icon = props.icon;
+  const dock = props.dock ?? null;
+  const dockOpen = Boolean(dock && dock.state !== "collapsed");
+  const handleToggleDock = () => {
+    if (!dock) return;
+    if (dock.state === "collapsed") {
+      void dock.ask();
+    } else {
+      dock.setState("collapsed");
+    }
+  };
+  return (
+    <header
+      role="toolbar"
+      aria-label="画布工具栏"
+      data-space-unified-chrome
+      data-testid={props.testId}
+      className="flex h-[44px] shrink-0 items-center justify-between gap-2 border-b border-border/70 bg-background/95 px-3 select-none"
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        {props.onBack ? (
+          <IconButton
+            size="icon-xs"
+            variant="ghost"
+            label={props.backLabel ?? "返回资料空间"}
+            tooltip={props.backLabel ?? "返回资料空间"}
+            tooltipSide="bottom"
+            onClick={props.onBack}
+          >
+            <ArrowLeftIcon className="size-4" />
+          </IconButton>
+        ) : null}
+        {Icon ? <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
+        <div className="flex min-w-0 flex-1 items-center gap-2">{props.titleSlot}</div>
+        {props.statusSlot ? (
+          <div className="flex shrink-0 items-center gap-2">{props.statusSlot}</div>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5" data-space-unified-chrome-actions>
+        {props.hostActions}
+        {props.trailingActions}
+        {dock ? (
+          <Button
+            size="xs"
+            variant={dockOpen ? "secondary" : "outline"}
+            aria-pressed={dockOpen}
+            aria-label="问 Moss"
+            data-space-dock-toggle
+            onClick={handleToggleDock}
+            className="h-7 gap-1.5 rounded-full px-2.5 text-ui-sm font-medium tabular-nums"
+          >
+            <SparklesIcon className="size-3.5 shrink-0" aria-hidden />
+            <span>{dock.busy && dock.statusLabel ? dock.statusLabel : "问 Moss"}</span>
+            {dock.busy ? (
+              <span
+                className="size-1.5 shrink-0 rounded-full animate-pulse bg-primary"
+                aria-hidden
+              />
+            ) : null}
+          </Button>
+        ) : null}
+      </div>
+    </header>
   );
 }

@@ -116,14 +116,14 @@ it.effect("is declared additive, so the floor release opens a database migrated 
     assert.deepStrictEqual(decodeMigrationReaderFloor(marker?.user_version), {
       kind: "floor",
       floor: MIGRATION_READER_FLOOR,
-      writtenAt: 170,
+      writtenAt: 171,
     });
 
     // The previous release opens it and runs nothing, and upgrading again runs nothing either.
     assert.deepStrictEqual(yield* runMigrationsAsFloorRelease(), []);
     assert.deepStrictEqual(yield* runMigrations(), []);
     const inspection = yield* inspectCurrentMigrationLineage;
-    assert.deepStrictEqual(inspection.classification, { kind: "moss-prefix", highWaterMark: 170 });
+    assert.deepStrictEqual(inspection.classification, { kind: "moss-prefix", highWaterMark: 171 });
   }).pipe(Effect.provide(NodeSqliteClient.layerMemory())),
 );
 
@@ -163,12 +163,12 @@ it.effect("opens for the floor release after a later additive release too (two s
     yield* runMigrations({ toMigrationInclusive: FLOOR_RELEASE_LATEST_MIGRATION_ID });
     yield* insertThread(sql, "a-object", JSON.stringify(pullRequest));
     yield* runMigrations();
-    // A later release adds 171 (also additive) and writes the floor for it, still 169.
+    // A later release adds 172 (also additive) and writes the floor for it, still 169.
     yield* sql`ALTER TABLE projection_threads ADD COLUMN later_release_json TEXT`;
     yield* sql`UPDATE projection_threads SET later_release_json = '"kept"'`;
-    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (171, 'LaterRelease')`;
+    yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (172, 'LaterRelease')`;
     yield* sql.unsafe(
-      `PRAGMA user_version = ${encodeMigrationReaderFloor(FLOOR_RELEASE_LATEST_MIGRATION_ID, 171)}`,
+      `PRAGMA user_version = ${encodeMigrationReaderFloor(FLOOR_RELEASE_LATEST_MIGRATION_ID, 172)}`,
     );
     const linksBefore = (yield* readLinks(sql))[0]!.links;
 

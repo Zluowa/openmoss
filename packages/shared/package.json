@@ -857,6 +857,14 @@
       "types": "./src/mossServicePlugins.ts",
       "import": "./src/mossServicePlugins.ts"
     },
+    "./spaceItems/boardAssist": {
+      "types": "./src/spaceItems/boardAssist.ts",
+      "import": "./src/spaceItems/boardAssist.ts"
+    },
+    "./spaceItems/boardCanvas": {
+      "types": "./src/spaceItems/boardCanvas.ts",
+      "import": "./src/spaceItems/boardCanvas.ts"
+    },
     "./spaceItems/deckLayoutCheck": {
       "types": "./src/spaceItems/deckLayoutCheck.ts",
       "import": "./src/spaceItems/deckLayoutCheck.ts"

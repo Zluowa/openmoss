@@ -1,6 +1,12 @@
 import { PAGE_COVER_IDS, type PageCover } from "@moss/contracts";
 import { parsePageRichContent } from "@moss/shared/pageRichContent";
 
+export interface PageRichEditorHostChrome {
+  hideTopBar?: boolean;
+  bottomInsetPx?: number;
+  rightInsetPx?: number;
+}
+
 export interface PageRichEditorDocument {
   documentKey: string;
   richContent: string | null;
@@ -10,6 +16,8 @@ export interface PageRichEditorDocument {
   fontSize?: number;
   /** The Page's live room, relayed by the parent; the editor holds the Yjs replica. */
   collab?: PageRichEditorCollab;
+  /** Optional host-shell coordination for hiding duplicate bars or clearing floating docks. */
+  hostChrome?: PageRichEditorHostChrome;
 }
 export interface PageRichEditorCollab {
   pageId: string;
@@ -58,7 +66,13 @@ export type PageEditorAiEvent =
    * The page shows a saved Moss media file. The editor frame has no Moss credential, so Moss
    * reads the file and hands its bytes over (`mediaAsset`).
    */
-  | { event: "media-asset-request"; url: string };
+  | { event: "media-asset-request"; url: string }
+  | {
+      event: "ask-dock";
+      prompt?: string;
+      anchorBlockId?: string | null;
+      quote?: string | null;
+    };
 
 export type PageEditorMediaEvent = Extract<
   PageEditorAiEvent,
@@ -264,6 +278,19 @@ export function parsePageEditorAiEvent(value: Message): PageEditorAiEvent | null
       return typeof value.url === "string" && PAGE_MEDIA_ASSET_PATH.test(value.url)
         ? (value as unknown as PageEditorAiEvent)
         : null;
+    case "ask-dock":
+      return (value.prompt === undefined || shortString(value.prompt, 20_000)) &&
+        nullableId(value.anchorBlockId ?? null) &&
+        (value.quote === undefined || value.quote === null || shortString(value.quote, 4_000))
+        ? {
+            event: "ask-dock",
+            ...(typeof value.prompt === "string" ? { prompt: value.prompt } : {}),
+            ...(value.anchorBlockId !== undefined
+              ? { anchorBlockId: value.anchorBlockId as string | null }
+              : {}),
+            ...(value.quote !== undefined ? { quote: value.quote as string | null } : {}),
+          }
+        : null;
     default:
       return null;
   }
@@ -458,6 +485,13 @@ export class PageRichEditorChannel {
   setPresentation = (presentation: Pick<PageRichEditorDocument, "theme" | "fontSize">) => {
     if (this.document) this.document = { ...this.document, ...presentation };
     if (this.ready && !this.disposed) this.post("set-presentation", presentation);
+  };
+  setHostChrome = (hostChrome: PageRichEditorHostChrome) => {
+    if (this.document) this.document = { ...this.document, hostChrome };
+    if (this.ready && !this.disposed) this.post("set-host-chrome", { hostChrome });
+  };
+  scrollToHeading = (target: { text: string; level?: number; index?: number }) => {
+    if (this.ready && this.loaded && !this.disposed) this.post("scroll-to-heading", target);
   };
   /** Drafts, reference lists and language for the editor's AI features; resent after each load. */
   setAiContext = (context: PageEditorAiContext) => {
@@ -709,6 +743,7 @@ export class PageRichEditorChannel {
         if (
           !this.document.readOnly ||
           aiEvent.event === "open-ref" ||
+          aiEvent.event === "ask-dock" ||
           aiEvent.event === "media-resume" ||
           aiEvent.event === "media-asset-request"
         )

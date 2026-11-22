@@ -5,7 +5,7 @@
 // Geometry: the shared sidebar tokens (32px rows 2px apart, 16px glyphs, section labels at
 //           footnote size), so this panel reads like every other rail destination's.
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useState, useSyncExternalStore } from "react";
 import {
   SPACE_ICON_NAMES,
   type Page,
@@ -17,14 +17,18 @@ import {
 import {
   AddPlusIcon,
   ChevronRightIcon,
+  DataDashboardIcon,
   EllipsisIcon,
   FoldersIcon,
   GlobeIcon,
   ImagesIcon,
   LayoutGridIcon,
   PageTextIcon,
+  PaletteIcon,
   SlidesIcon,
+  TableIcon,
   TrashCanIcon,
+  WhiteboardIcon,
   WindowAppIcon,
   XIcon,
   type LucideIcon,
@@ -54,18 +58,41 @@ import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
 import { SpaceSyncMenuItem } from "./SpaceSyncMenuItem";
 import {
   formatRelativeTime,
+  getSyncedSpaceHomeKind,
+  groupRecentItems,
+  setSyncedSpaceHomeKind,
   spaceItemDisplayTitle,
+  subscribeSyncedSpaceHomeKind,
   type SpaceItem,
+  type SpaceKindFilter,
   type SpaceKindSection,
   type SpaceSection,
 } from "./spaceItems";
 
-const KIND_ROWS: ReadonlyArray<{ kind: SpaceKindSection; label: string; icon: LucideIcon }> = [
-  { kind: "page", label: "页面", icon: PageTextIcon },
-  { kind: "slides", label: "幻灯片", icon: SlidesIcon },
-  { kind: "site", label: "站点", icon: GlobeIcon },
-  { kind: "image", label: "图像", icon: ImagesIcon },
-  { kind: "app", label: "应用", icon: WindowAppIcon },
+type SidebarKindRow =
+  | {
+      readonly target: "section";
+      readonly kind: SpaceKindSection;
+      readonly label: string;
+      readonly icon: LucideIcon;
+    }
+  | {
+      readonly target: "filter";
+      readonly kind: SpaceKindFilter;
+      readonly label: string;
+      readonly icon: LucideIcon;
+    };
+
+const KIND_ROWS: ReadonlyArray<SidebarKindRow> = [
+  { target: "section", kind: "page", label: "页面", icon: PageTextIcon },
+  { target: "section", kind: "slides", label: "幻灯片", icon: SlidesIcon },
+  { target: "filter", kind: "sheet", label: "电子表格", icon: TableIcon },
+  { target: "filter", kind: "design", label: "设计", icon: PaletteIcon },
+  { target: "filter", kind: "dashboard", label: "数据看板", icon: DataDashboardIcon },
+  { target: "filter", kind: "board", label: "白板", icon: WhiteboardIcon },
+  { target: "section", kind: "app", label: "应用页", icon: WindowAppIcon },
+  { target: "section", kind: "image", label: "图像", icon: ImagesIcon },
+  { target: "section", kind: "site", label: "站点", icon: GlobeIcon },
 ];
 
 /** Space icons are stored as a Central glyph name from the curated Space set. */
@@ -94,6 +121,7 @@ export function SpaceSidebar(props: {
   onClose: () => void;
 }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const syncedKind = useSyncExternalStore(subscribeSyncedSpaceHomeKind, getSyncedSpaceHomeKind);
   const toggle = (id: string) =>
     setExpanded((previous) => {
       const next = new Set(previous);
@@ -104,6 +132,11 @@ export function SpaceSidebar(props: {
   const isSection = (section: SpaceSection) =>
     props.openKey === null && sameSection(props.section, section);
   const livePages = props.pages.filter((page) => page.trashedAt === null);
+  const recentGroups = groupRecentItems(
+    props.recent,
+    Date.now(),
+    Math.max(12, props.recent.length),
+  );
 
   const renderPage = (page: Page, depth: number, seen: ReadonlySet<PageId>): ReactNode => {
     if (seen.has(page.id) || depth > 32) return null;
@@ -207,42 +240,66 @@ export function SpaceSidebar(props: {
             <NavRow
               icon={LayoutGridIcon}
               label="全部"
-              active={isSection({ type: "all" })}
-              onClick={() => props.onSection({ type: "all" })}
+              active={isSection({ type: "all" }) && syncedKind === "any"}
+              onClick={() => {
+                setSyncedSpaceHomeKind("any");
+                props.onSection({ type: "all" });
+              }}
             />
             {KIND_ROWS.map((row) => (
               <NavRow
                 key={row.kind}
                 icon={row.icon}
                 label={row.label}
-                active={isSection({ type: "kind", kind: row.kind })}
-                onClick={() => props.onSection({ type: "kind", kind: row.kind })}
+                active={
+                  row.target === "section"
+                    ? isSection({ type: "kind", kind: row.kind })
+                    : isSection({ type: "all" }) && syncedKind === row.kind
+                }
+                onClick={() => {
+                  if (row.target === "section") {
+                    setSyncedSpaceHomeKind("any");
+                    props.onSection({ type: "kind", kind: row.kind });
+                    return;
+                  }
+                  setSyncedSpaceHomeKind(row.kind);
+                  props.onSection({ type: "all" });
+                }}
               />
             ))}
           </SidebarMenu>
         </nav>
 
-        {props.recent.length ? (
+        {recentGroups.length ? (
           <section className="mt-4" aria-label="最近">
             <h3 className={cn("flex h-7 items-center px-2.5", SIDEBAR_SECTION_LABEL_CLASS_NAME)}>
               最近
             </h3>
-            <SidebarMenu className="gap-0.5">
-              {props.recent.map((item) => {
-                const untitled = item.title.trim() === "";
-                return (
-                  <RecentRow
-                    key={item.key}
-                    item={item}
-                    label={spaceItemDisplayTitle(item)}
-                    // An untitled row also says when it was made, so two of them differ.
-                    detail={untitled ? formatRelativeTime(item.updatedAt, Date.now()) : undefined}
-                    active={props.openKey === item.key}
-                    onClick={() => props.onOpen(item)}
-                  />
-                );
-              })}
-            </SidebarMenu>
+            <div className="flex flex-col gap-2">
+              {recentGroups.map((group) => (
+                <div key={group.id}>
+                  <p className="px-2.5 py-0.5 text-ui-xs text-muted-foreground">{group.label}</p>
+                  <SidebarMenu className="gap-0.5">
+                    {group.items.map((item) => {
+                      const untitled = item.title.trim() === "";
+                      return (
+                        <RecentRow
+                          key={item.key}
+                          item={item}
+                          label={spaceItemDisplayTitle(item)}
+                          // An untitled row also says when it was made, so two of them differ.
+                          detail={
+                            untitled ? formatRelativeTime(item.updatedAt, Date.now()) : undefined
+                          }
+                          active={props.openKey === item.key}
+                          onClick={() => props.onOpen(item)}
+                        />
+                      );
+                    })}
+                  </SidebarMenu>
+                </div>
+              ))}
+            </div>
           </section>
         ) : null}
 
@@ -303,7 +360,10 @@ export function SpaceSidebar(props: {
                         type="button"
                         className="min-w-0 flex-1 truncate py-1.5 text-left"
                         aria-current={active ? "page" : undefined}
-                        onClick={() => props.onSection({ type: "space", spaceId: space.id })}
+                        onClick={() => {
+                          setSyncedSpaceHomeKind("any");
+                          props.onSection({ type: "space", spaceId: space.id });
+                        }}
                       >
                         {space.title}
                       </button>
@@ -338,9 +398,13 @@ export function SpaceSidebar(props: {
             icon={TrashCanIcon}
             label="回收站"
             active={isSection({ type: "trash" })}
-            onClick={() => props.onSection({ type: "trash" })}
+            onClick={() => {
+              setSyncedSpaceHomeKind("any");
+              props.onSection({ type: "trash" });
+            }}
           />
         </SidebarMenu>
+        <p className="px-2.5 pt-0.5 text-ui-xs text-muted-foreground">已删除条目保留 30 天</p>
       </div>
     </aside>
   );

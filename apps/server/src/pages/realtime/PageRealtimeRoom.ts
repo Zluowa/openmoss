@@ -174,10 +174,34 @@ const outsidePage = Symbol("outside Page revision");
 const serverWriter = Symbol("authorized room writer");
 const committedGuest = Symbol("already stored guest update");
 
+export type AgentPresenceState = "thinking" | "editing" | "done";
+
+export interface AgentPresenceOptions {
+  readonly name?: string;
+  readonly state?: AgentPresenceState;
+  readonly label?: string;
+  readonly blockIds?: readonly string[];
+  readonly threadId?: string;
+  readonly ttlMs?: number;
+}
+
+export interface AgentPresencePayload {
+  readonly id: string;
+  readonly name: string;
+  readonly state?: AgentPresenceState;
+  readonly label?: string;
+  readonly blockIds?: readonly string[];
+  readonly threadId?: string;
+}
+
 interface AgentPresence {
   readonly id: string;
   readonly name: string;
   readonly until: number;
+  readonly state?: AgentPresenceState;
+  readonly label?: string;
+  readonly blockIds?: readonly string[];
+  readonly threadId?: string;
 }
 
 export class PageRealtimeRoom {
@@ -859,17 +883,79 @@ export class PageRealtimeRoom {
   }
 
   /** Shows an agent in presence for a few seconds, for example while it drafts this page. */
-  showAgent(threadId: string, name = "智能体") {
+  showAgent(threadId: string, nameOrOptions: string | AgentPresenceOptions = "智能体") {
     if (this.isClosing) return;
-    this.agents.set(threadId, { id: threadId, name, until: Date.now() + this.agentPresenceMs });
+    if (typeof nameOrOptions === "string") {
+      this.agents.set(threadId, {
+        id: threadId,
+        name: nameOrOptions,
+        until: Date.now() + this.agentPresenceMs,
+      });
+      this.publishAgents();
+      return;
+    }
+    const name = nameOrOptions.name?.trim() || "Moss";
+    const state = nameOrOptions.state;
+    const label =
+      typeof nameOrOptions.label === "string" && nameOrOptions.label.trim()
+        ? nameOrOptions.label.trim().slice(0, 120)
+        : undefined;
+    const blockIds = Array.isArray(nameOrOptions.blockIds)
+      ? [
+          ...new Set(
+            nameOrOptions.blockIds
+              .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+              .map((id) => id.trim().slice(0, 120)),
+          ),
+        ].slice(0, 50)
+      : undefined;
+    const presenceThreadId =
+      typeof nameOrOptions.threadId === "string" && nameOrOptions.threadId.trim()
+        ? nameOrOptions.threadId.trim().slice(0, 120)
+        : threadId;
+    const defaultTtl =
+      state === "done"
+        ? Math.min(1_500, this.agentPresenceMs)
+        : state === "thinking"
+          ? Math.max(this.agentPresenceMs, 30_000)
+          : this.agentPresenceMs;
+    const ttlMs =
+      typeof nameOrOptions.ttlMs === "number" && Number.isFinite(nameOrOptions.ttlMs)
+        ? Math.max(0, nameOrOptions.ttlMs)
+        : defaultTtl;
+    if (ttlMs === 0) {
+      if (this.agents.delete(threadId)) this.publishAgents();
+      return;
+    }
+    this.agents.set(threadId, {
+      id: threadId,
+      name,
+      until: Date.now() + ttlMs,
+      ...(state ? { state } : {}),
+      ...(label ? { label } : {}),
+      ...(blockIds && blockIds.length > 0 ? { blockIds } : {}),
+      threadId: presenceThreadId,
+    });
     this.publishAgents();
+  }
+
+  clearAgent(threadId: string) {
+    if (this.isClosing) return;
+    if (this.agents.delete(threadId)) this.publishAgents();
   }
 
   private publishAgents() {
     clearTimeout(this.agentTimer);
     const now = Date.now();
     for (const [id, agent] of this.agents) if (agent.until <= now) this.agents.delete(id);
-    const agents = [...this.agents.values()].map(({ id, name }) => ({ id, name }));
+    const agents: AgentPresencePayload[] = [...this.agents.values()].map((agent) => ({
+      id: agent.id,
+      name: agent.name,
+      ...(agent.state ? { state: agent.state } : {}),
+      ...(agent.label ? { label: agent.label } : {}),
+      ...(agent.blockIds?.length ? { blockIds: agent.blockIds } : {}),
+      ...(agent.threadId ? { threadId: agent.threadId } : {}),
+    }));
     this.awareness.setLocalState(agents.length ? { moss: { kind: "agents", agents } } : null);
     if (agents.length) {
       const next = Math.min(...[...this.agents.values()].map((agent) => agent.until)) - now;

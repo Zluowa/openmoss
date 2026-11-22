@@ -47,6 +47,11 @@ import {
   readOutputText,
 } from "./space/SpaceItemViewers";
 import { AccountPageRecovery } from "./space/AccountPageRecovery";
+import {
+  type SpaceCanvasActiveArtifact,
+  SpaceCanvasChatDockHost,
+} from "./space/SpaceCanvasChatDock";
+import type { SpaceArtifactKind, SpaceCanvasDockController } from "./space/spaceCanvasDockContract";
 import { SpaceSidebar } from "./space/SpaceSidebar";
 import { SpaceTrash } from "./space/SpaceTrash";
 import { convertSpaceFile } from "./spaceTypes/spaceFileConversion";
@@ -290,6 +295,101 @@ function DataSpaceWorkspace({
   };
   const openedItem =
     open?.type === "item" ? (items.find((item) => item.key === open.key) ?? null) : null;
+
+  const workspaceHostRef = useRef<HTMLDivElement | null>(null);
+  const dockControllerRef = useRef<SpaceCanvasDockController | null>(null);
+  const [pendingStarter, setPendingStarter] = useState<{
+    readonly itemId: string;
+    readonly prompt: string;
+    readonly prefillOnly?: boolean;
+  } | null>(null);
+
+  const activeArtifact = useMemo<SpaceCanvasActiveArtifact | null>(() => {
+    if (open?.type === "page") {
+      const page = allPages.find((entry) => entry.id === open.pageId);
+      return {
+        kind: "page",
+        itemId: open.pageId,
+        title: page?.title ?? "未命名页面",
+        scopeSpaceId,
+        account,
+        sourceThreadId: page?.sourceThreadId ?? null,
+        revision: page?.revision ?? null,
+      };
+    }
+    if (!openedItem) return null;
+    if (openedItem.source.type === "page" && isTypedSpaceKind(openedItem.source.page.kind)) {
+      const resolvedKind: SpaceArtifactKind =
+        openedItem.kind === "dashboard"
+          ? "dashboard"
+          : (openedItem.source.page.kind as SpaceArtifactKind);
+      return {
+        kind: resolvedKind,
+        itemId: openedItem.source.page.id,
+        title: openedItem.title,
+        scopeSpaceId,
+        account,
+        sourceThreadId: openedItem.sourceThreadId ?? null,
+        revision: openedItem.source.page.revision,
+      };
+    }
+    if (openedItem.source.type === "app") {
+      return {
+        kind: "app",
+        itemId: openedItem.source.app.id,
+        title: openedItem.title,
+        scopeSpaceId,
+        account,
+        sourceThreadId: openedItem.sourceThreadId ?? null,
+      };
+    }
+    return null;
+  }, [account, allPages, open, openedItem, scopeSpaceId]);
+
+  useEffect(() => {
+    if (!pendingStarter || !activeArtifact || activeArtifact.itemId !== pendingStarter.itemId) {
+      return;
+    }
+    const dock = dockControllerRef.current;
+    if (!dock) return;
+    const queued = pendingStarter;
+    setPendingStarter(null);
+    void dock.ask({
+      prompt: queued.prompt,
+      autoRun: !queued.prefillOnly,
+      prefillOnly: Boolean(queued.prefillOnly),
+      keepItemOpen: true,
+      preferredState: "pip",
+      origin: "template-auto-run",
+    });
+  }, [activeArtifact, pendingStarter]);
+
+  // Listen for `moss:space-template-launch` dispatched by template galleries so created starter
+  // items stay open in place and hand their prompt to SpaceCanvasChatDock (`autoRun` / `prefillOnly`).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleTemplateLaunch = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown> | null>).detail;
+      if (!detail || typeof detail !== "object") return;
+      const itemId =
+        typeof detail.itemId === "string"
+          ? detail.itemId
+          : typeof detail.pageId === "string"
+            ? detail.pageId
+            : null;
+      const starterPrompt =
+        typeof detail.starterPrompt === "string" && detail.starterPrompt.trim()
+          ? detail.starterPrompt.trim()
+          : typeof detail.prefillPrompt === "string" && detail.prefillPrompt.trim()
+            ? detail.prefillPrompt.trim()
+            : null;
+      if (!itemId || !starterPrompt) return;
+      const prefillOnly = detail.autoRun === false && !detail.starterPrompt;
+      setPendingStarter({ itemId, prompt: starterPrompt, prefillOnly });
+    };
+    window.addEventListener("moss:space-template-launch", handleTemplateLaunch);
+    return () => window.removeEventListener("moss:space-template-launch", handleTemplateLaunch);
+  }, []);
 
   const run = async (label: string, task: () => Promise<void>) => {
     if (busy || !isCurrent()) return;
@@ -617,142 +717,171 @@ function DataSpaceWorkspace({
         }}
         onClose={libraryProps.onClose}
       />
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="资料空间内容">
-        {(error && !dialog) || notice ? (
-          <div
-            role={error ? "alert" : "status"}
-            className="flex items-center gap-2 border-b border-border px-4 py-2 text-ui-sm"
-          >
-            <span className={error ? "flex-1 text-destructive" : "flex-1"}>{error ?? notice}</span>
-            <Button size="xs" variant="ghost" onClick={() => (setError(null), setNotice(null))}>
-              知道了
-            </Button>
-          </div>
-        ) : null}
-        {open?.type === "library" ? (
-          <MossLibraryDestination {...libraryProps} onCanvasLeaveGuardChange={registerGuard} />
-        ) : open?.type === "page" ? (
-          <PageView
-            key={open.pageId}
-            pageId={open.pageId}
-            account={account}
-            scopeSpaceId={scopeSpaceId}
-            pages={allPages}
-            isCurrent={isCurrent}
-            onChanged={refresh}
-            onSelect={(id) => void openPage(id)}
-            onCreateChild={(parent) => void startCreate("page", parent)}
-            onGuardChange={registerGuard}
-            onFiles={() => void leave().then((ok) => ok && setOpen({ type: "library" }))}
-            onStartConversation={onStartPageConversation}
-            onOpenCreated={(document) => {
-              client.setQueryData(
-                pagesQueryKeys.read(account, scopeSpaceId, document.page.id),
-                document,
-              );
-              setOpen({ type: "page", pageId: document.page.id });
-            }}
-            onOpenInNewWindow={(pageId) => {
-              const url = `${window.location.origin}${window.location.pathname}${SPACE_PAGE_HASH_PREFIX}${encodeURIComponent(pageId)}`;
-              const opened = window.open(url, "_blank", "noopener");
-              if (!opened) setNotice("这个窗口不能再打开新窗口。页面仍在当前窗口中。");
-            }}
-          />
-        ) : open?.type === "stub" ? (
-          <SpaceComingSoon
-            kind={open.kind}
-            action={
-              open.kind === "image"
-                ? { label: "在图像工作区创建", onClick: () => libraryProps.onClose?.() }
-                : undefined
-            }
-          />
-        ) : openedItem ? (
-          openedItem.source.type === "output" || openedItem.source.type === "library" ? (
-            <SpaceOutputViewer
-              item={openedItem}
-              onContinueInChat={(item) => void continueInChat(item)}
-              onSaveAsApp={(item) => void saveAsApp(item)}
-              onTrash={(item) => void trashItem(item)}
-              onConvert={(file) =>
-                void run("转换", async () => {
-                  const { item, skipped } = await convertSpaceFile({ scopeSpaceId, ...file });
-                  await refresh();
-                  setOpen(openPageState(item.page));
-                  if (skipped) setNotice(`已转换。${skipped} 个图表、表格或组合未能转换。`);
-                })
-              }
-            />
-          ) : openedItem.source.type === "page" && isTypedSpaceKind(openedItem.source.page.kind) ? (
-            <SpaceTypedItemView
-              key={openedItem.key}
-              account={account}
-              scopeSpaceId={scopeSpaceId}
-              pageId={openedItem.source.page.id}
-              onSaved={() => void refresh()}
-              onGuardChange={registerGuard}
-            />
-          ) : openedItem.source.type === "app" ? (
-            <SpaceAppViewer
-              item={openedItem}
-              onContinueInChat={(item) => void continueInChat(item)}
-            />
-          ) : (
-            <SpaceComingSoon kind={openedItem.kind} item={openedItem} />
-          )
-        ) : open?.type === "item" ? (
-          <p role="status" className="p-8 text-ui text-muted-foreground">
-            这个条目已不可用。
-          </p>
-        ) : section.type === "trash" ? (
-          <SpaceTrash
-            items={items}
-            busy={busy}
-            error={null}
-            onRestore={(item) => void restoreItem(item)}
-            canPurge={(item) => item.source.type !== "app"}
-            onPurge={purgeItems}
-          />
-        ) : section.type === "kind" && section.kind === "site" ? (
-          // 站点: published pages and 应用页, owned by sharing.
-          <MossSitesView
-            account={account}
-            scopeSpaceId={scopeSpaceId}
-            onOpenPage={(pageId) => void openPage(pageId)}
-          />
-        ) : (
-          <SpaceHome
-            headerAction={
-              scopeSpaceId === null && section.type === "all" ? (
-                <AccountPageRecovery
-                  onRestored={(pageId) => {
-                    if (!isCurrent()) return;
-                    void openPage(pageId);
-                    void refresh();
-                  }}
-                />
-              ) : undefined
-            }
-            section={section}
-            title={sectionCopy.title}
-            description={sectionCopy.description}
-            items={items}
-            loading={listQuery.isLoading || spacesQuery.isLoading}
-            error={failure ? failure.message : null}
-            onRetry={() => void refresh()}
-            onCreate={(action) => void startCreate(action)}
-            emptyCreate={
-              section.type === "kind" && section.kind !== "image" ? section.kind : "page"
-            }
-            placeOf={placeOf}
-            onOpen={(item) => void openItem(item)}
-            onContinueInChat={(item) => void continueInChat(item)}
-            onSaveAsApp={(item) => void saveAsApp(item)}
-            onTogglePin={(item) => void togglePin(item)}
-            onTrash={(item) => void trashItem(item)}
-          />
-        )}
-      </main>
+      <div ref={workspaceHostRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <SpaceCanvasChatDockHost
+          artifact={activeArtifact}
+          containerRef={workspaceHostRef}
+          keepItemOpen
+        >
+          {(dock) => {
+            dockControllerRef.current = dock;
+            return (
+              <main className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="资料空间内容">
+                {(error && !dialog) || notice ? (
+                  <div
+                    role={error ? "alert" : "status"}
+                    className="flex items-center gap-2 border-b border-border px-4 py-2 text-ui-sm"
+                  >
+                    <span className={error ? "flex-1 text-destructive" : "flex-1"}>
+                      {error ?? notice}
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => (setError(null), setNotice(null))}
+                    >
+                      知道了
+                    </Button>
+                  </div>
+                ) : null}
+                {open?.type === "library" ? (
+                  <MossLibraryDestination
+                    {...libraryProps}
+                    onCanvasLeaveGuardChange={registerGuard}
+                  />
+                ) : open?.type === "page" ? (
+                  <PageView
+                    key={open.pageId}
+                    pageId={open.pageId}
+                    account={account}
+                    scopeSpaceId={scopeSpaceId}
+                    pages={allPages}
+                    isCurrent={isCurrent}
+                    onChanged={refresh}
+                    onSelect={(id) => void openPage(id)}
+                    onCreateChild={(parent) => void startCreate("page", parent)}
+                    onGuardChange={registerGuard}
+                    onFiles={() => void leave().then((ok) => ok && setOpen({ type: "library" }))}
+                    onStartConversation={onStartPageConversation}
+                    dock={dock}
+                    onOpenCreated={(document) => {
+                      client.setQueryData(
+                        pagesQueryKeys.read(account, scopeSpaceId, document.page.id),
+                        document,
+                      );
+                      setOpen({ type: "page", pageId: document.page.id });
+                    }}
+                    onOpenInNewWindow={(pageId) => {
+                      const url = `${window.location.origin}${window.location.pathname}${SPACE_PAGE_HASH_PREFIX}${encodeURIComponent(pageId)}`;
+                      const opened = window.open(url, "_blank", "noopener");
+                      if (!opened) setNotice("这个窗口不能再打开新窗口。页面仍在当前窗口中。");
+                    }}
+                  />
+                ) : open?.type === "stub" ? (
+                  <SpaceComingSoon
+                    kind={open.kind}
+                    action={
+                      open.kind === "image"
+                        ? { label: "在图像工作区创建", onClick: () => libraryProps.onClose?.() }
+                        : undefined
+                    }
+                  />
+                ) : openedItem ? (
+                  openedItem.source.type === "output" || openedItem.source.type === "library" ? (
+                    <SpaceOutputViewer
+                      item={openedItem}
+                      onContinueInChat={(item) => void continueInChat(item)}
+                      onSaveAsApp={(item) => void saveAsApp(item)}
+                      onTrash={(item) => void trashItem(item)}
+                      onConvert={(file) =>
+                        void run("转换", async () => {
+                          const { item, skipped } = await convertSpaceFile({
+                            scopeSpaceId,
+                            ...file,
+                          });
+                          await refresh();
+                          setOpen(openPageState(item.page));
+                          if (skipped) setNotice(`已转换。${skipped} 个图表、表格或组合未能转换。`);
+                        })
+                      }
+                    />
+                  ) : openedItem.source.type === "page" &&
+                    isTypedSpaceKind(openedItem.source.page.kind) ? (
+                    <SpaceTypedItemView
+                      key={openedItem.key}
+                      account={account}
+                      scopeSpaceId={scopeSpaceId}
+                      pageId={openedItem.source.page.id}
+                      onSaved={() => void refresh()}
+                      onGuardChange={registerGuard}
+                      dock={dock}
+                      onBack={() => void leave().then((ok) => ok && setOpen(null))}
+                    />
+                  ) : openedItem.source.type === "app" ? (
+                    <SpaceAppViewer
+                      item={openedItem}
+                      onContinueInChat={(item) => void continueInChat(item)}
+                    />
+                  ) : (
+                    <SpaceComingSoon kind={openedItem.kind} item={openedItem} />
+                  )
+                ) : open?.type === "item" ? (
+                  <p role="status" className="p-8 text-ui text-muted-foreground">
+                    这个条目已不可用。
+                  </p>
+                ) : section.type === "trash" ? (
+                  <SpaceTrash
+                    items={items}
+                    busy={busy}
+                    error={null}
+                    onRestore={(item) => void restoreItem(item)}
+                    canPurge={(item) => item.source.type !== "app"}
+                    onPurge={purgeItems}
+                  />
+                ) : section.type === "kind" && section.kind === "site" ? (
+                  // 站点: published pages and 应用页, owned by sharing.
+                  <MossSitesView
+                    account={account}
+                    scopeSpaceId={scopeSpaceId}
+                    onOpenPage={(pageId) => void openPage(pageId)}
+                  />
+                ) : (
+                  <SpaceHome
+                    headerAction={
+                      scopeSpaceId === null && section.type === "all" ? (
+                        <AccountPageRecovery
+                          onRestored={(pageId) => {
+                            if (!isCurrent()) return;
+                            void openPage(pageId);
+                            void refresh();
+                          }}
+                        />
+                      ) : undefined
+                    }
+                    section={section}
+                    title={sectionCopy.title}
+                    description={sectionCopy.description}
+                    items={items}
+                    loading={listQuery.isLoading || spacesQuery.isLoading}
+                    error={failure ? failure.message : null}
+                    onRetry={() => void refresh()}
+                    onCreate={(action) => void startCreate(action)}
+                    emptyCreate={
+                      section.type === "kind" && section.kind !== "image" ? section.kind : "page"
+                    }
+                    placeOf={placeOf}
+                    onOpen={(item) => void openItem(item)}
+                    onContinueInChat={(item) => void continueInChat(item)}
+                    onSaveAsApp={(item) => void saveAsApp(item)}
+                    onTogglePin={(item) => void togglePin(item)}
+                    onTrash={(item) => void trashItem(item)}
+                  />
+                )}
+              </main>
+            );
+          }}
+        </SpaceCanvasChatDockHost>
+      </div>
       <input
         ref={uploadInput}
         type="file"
@@ -819,9 +948,19 @@ function DataSpaceWorkspace({
         scopeSpaceId={scopeSpaceId}
         spaceId={section.type === "space" ? section.spaceId : null}
         {...(templatePicker?.kind ? { initialKind: templatePicker.kind } : {})}
-        onCreated={(item) => {
+        onCreated={(
+          item,
+          starter?: { readonly starterPrompt?: string; readonly prefillOnly?: boolean },
+        ) => {
           void refresh();
           setOpen(openPageState(item.page));
+          if (starter?.starterPrompt) {
+            setPendingStarter({
+              itemId: item.page.id,
+              prompt: starter.starterPrompt,
+              ...(starter.prefillOnly !== undefined ? { prefillOnly: starter.prefillOnly } : {}),
+            });
+          }
         }}
         createAppPage={async (template) => {
           const app = await createAppPageFromTemplate({

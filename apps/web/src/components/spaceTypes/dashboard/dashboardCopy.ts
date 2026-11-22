@@ -160,6 +160,11 @@ const zh = {
   systemStored: "资料空间里的设计系统",
   systemUpdate: "更新到最新",
   systemNone: "不用设计系统",
+  askMoss: "问 Moss",
+  mossUpdating: "Moss · 正在更新图表…",
+  mossUpdated: "Moss 已更新看板",
+  undoMossEdit: "撤销 Moss 的修改",
+  undoneMossEdit: "已撤销 Moss 的修改",
 };
 export type DashboardCopy = typeof zh;
 
@@ -327,6 +332,11 @@ const en: DashboardCopy = {
   systemStored: "A design system in this 资料空间",
   systemUpdate: "Update to latest",
   systemNone: "Use no design system",
+  askMoss: "Ask Moss",
+  mossUpdating: "Moss · Updating charts…",
+  mossUpdated: "Moss updated the dashboard",
+  undoMossEdit: "Undo Moss changes",
+  undoneMossEdit: "Reverted Moss changes",
 };
 
 export function dashboardCopy(locale: MossLocaleCode): DashboardCopy {

@@ -163,6 +163,7 @@ import { makePageAppTools } from "../pageAppTools";
 import { PageAppsService } from "../../pages/apps/PageAppsService";
 import { PagesService } from "../../pages/Services/PagesService";
 import { PageDraftsService } from "../../pages/drafts/Services/PageDraftsService";
+import { PageRealtimeService } from "../../pages/realtime/PageRealtimeService";
 import { makePageDraftTools } from "../pageDraftTools";
 import { makePageVisualizeTool } from "../pageVisualizeTool";
 import { makeSlidesTools } from "../slidesTools";
@@ -248,6 +249,9 @@ export const makeAgentGateway = Effect.gen(function* () {
   const pagesService = Option.getOrUndefined(yield* Effect.serviceOption(PagesService));
   const pageTypesService = Option.getOrUndefined(yield* Effect.serviceOption(PageTypesService));
   const pageDraftsService = Option.getOrUndefined(yield* Effect.serviceOption(PageDraftsService));
+  const pageRealtimeService = Option.getOrUndefined(
+    yield* Effect.serviceOption(PageRealtimeService),
+  );
   const pageAppsService = Option.getOrUndefined(yield* Effect.serviceOption(PageAppsService));
   // Interactive connectors: widget context for the model, and `moss` widgets' own calls.
   const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
@@ -2020,9 +2024,19 @@ export const makeAgentGateway = Effect.gen(function* () {
 
   const catalog: ReadonlyArray<ToolEntry> = [
     ...(roomRuntime ? makeMossbotRoomTools(roomRuntime) : []),
-    ...(pagesService ? makePageTools({ pages: pagesService, drafts: pageDraftsService }) : []),
+    ...(pagesService
+      ? makePageTools({
+          pages: pagesService,
+          drafts: pageDraftsService,
+          realtime: pageRealtimeService,
+        })
+      : []),
     ...(pageDraftsService
-      ? makePageDraftTools({ drafts: pageDraftsService, pages: pagesService })
+      ? makePageDraftTools({
+          drafts: pageDraftsService,
+          pages: pagesService,
+          realtime: pageRealtimeService,
+        })
       : []),
     ...(pageAppsService ? makePageAppTools({ apps: pageAppsService }) : []),
     ...(pagesService && pageAppsService && pageDraftsService

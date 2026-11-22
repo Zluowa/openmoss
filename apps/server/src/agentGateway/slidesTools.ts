@@ -56,6 +56,7 @@ import {
   type ToolContext,
   type ToolEntry,
 } from "./toolRuntime";
+import { COMPANION_CONTEXT_SCHEMA_PROPERTY } from "./pageCompanionHelpers";
 
 const scopeProperty = {
   anyOf: [{ type: "string" }, { type: "null" }],
@@ -273,6 +274,7 @@ export function makeSlidesTools({
           ...(kind === "write" ? { requestId: { type: "string", maxLength: 128 } } : {}),
           scopeSpaceId: scopeProperty,
           ...properties,
+          companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
         },
         required: [...(kind === "write" ? ["requestId"] : []), "scopeSpaceId", ...required],
       },
@@ -402,7 +404,15 @@ export function makeSlidesTools({
           },
           principal(threadId),
         );
-        return { applied: true, pageId, revision: saved.page.revision, changes, ...check };
+        return {
+          applied: true,
+          pageId,
+          revision: saved.page.revision,
+          previousRevision: revision,
+          undoRevision: revision,
+          changes,
+          ...check,
+        };
       }
       if (!drafts)
         return yield* Effect.fail(

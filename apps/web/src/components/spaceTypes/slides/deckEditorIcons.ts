@@ -26,6 +26,7 @@ export const DECK_EDITOR_ICON_NAMES = [
   "canvas-grid",
   "chain-link-1",
   "chart-2",
+  "chat-bubbles",
   "checkmark-1",
   "checkmark-1-small",
   "chevron-bottom",

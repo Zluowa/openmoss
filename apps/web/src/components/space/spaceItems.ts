@@ -142,12 +142,19 @@ export type SpaceSection =
 
 export type SpaceKindSection = "page" | "slides" | "site" | "image" | "app";
 
+/** Extended kind targets navigable from the sidebar or home filter. */
+export type SpaceExtendedKindSection =
+  | SpaceKindSection
+  | "sheet"
+  | "design"
+  | "dashboard"
+  | "board";
+
 /** Tabs of the 全部 view. */
-export type SpaceTab = "recommended" | "favorites" | "mine" | "shared";
+export type SpaceTab = "all" | "recommended" | "favorites" | "mine" | "shared";
 
 export const SPACE_TABS: ReadonlyArray<{ id: SpaceTab; label: string }> = [
-  { id: "recommended", label: "推荐" },
-  { id: "favorites", label: "收藏" },
+  { id: "all", label: "全部" },
   { id: "mine", label: "你的条目" },
   { id: "shared", label: "与你共享" },
 ];
@@ -159,6 +166,8 @@ export type SpaceKindFilter =
   | "slides"
   | "sheet"
   | "design"
+  | "dashboard"
+  | "board"
   | "site"
   | "app"
   | "image"
@@ -170,11 +179,64 @@ export const SPACE_KIND_FILTERS: ReadonlyArray<{ id: SpaceKindFilter; label: str
   { id: "slides", label: "幻灯片" },
   { id: "sheet", label: "电子表格" },
   { id: "design", label: "设计" },
-  { id: "site", label: "站点" },
+  { id: "dashboard", label: "数据看板" },
+  { id: "board", label: "白板" },
   { id: "app", label: "应用页" },
+  { id: "site", label: "站点" },
   { id: "image", label: "图像" },
   { id: "file", label: "文件" },
 ];
+
+export type SpaceOwnerFilter = "any" | "mine" | "agent";
+export type SpaceSortOrder = "updated" | "created" | "title";
+
+const dashboardKeyMap = new Map<string, boolean>();
+const dashboardListeners = new Set<() => void>();
+let dashboardRegistryVersion = 0;
+
+/** Records whether an app-backed item actually renders a 数据看板 payload. */
+export function markSpaceDashboardItem(key: string, isDashboard: boolean): void {
+  if (dashboardKeyMap.get(key) === isDashboard) return;
+  dashboardKeyMap.set(key, isDashboard);
+  dashboardRegistryVersion += 1;
+  for (const listener of dashboardListeners) listener();
+}
+
+export function subscribeSpaceDashboardRegistry(listener: () => void): () => void {
+  dashboardListeners.add(listener);
+  return () => dashboardListeners.delete(listener);
+}
+
+export function getSpaceDashboardRegistryVersion(): number {
+  return dashboardRegistryVersion;
+}
+
+/** Resolves the visual/filter kind, distinguishing 数据看板 from generic 应用页. */
+export function effectiveSpaceItemKind(
+  item: Pick<SpaceItem, "key" | "kind">,
+): SpaceItemKind | (string & {}) {
+  if (item.kind === "dashboard") return "dashboard";
+  if (item.kind === "app" && dashboardKeyMap.get(item.key) === true) return "dashboard";
+  return item.kind;
+}
+
+let syncedHomeKind: SpaceKindFilter = "any";
+const homeKindListeners = new Set<() => void>();
+
+export function getSyncedSpaceHomeKind(): SpaceKindFilter {
+  return syncedHomeKind;
+}
+
+export function setSyncedSpaceHomeKind(kind: SpaceKindFilter): void {
+  if (syncedHomeKind === kind) return;
+  syncedHomeKind = kind;
+  for (const listener of homeKindListeners) listener();
+}
+
+export function subscribeSyncedSpaceHomeKind(listener: () => void): () => void {
+  homeKindListeners.add(listener);
+  return () => homeKindListeners.delete(listener);
+}
 
 /**
  * A page is listed on its own when it is a top-level personal page or a top-level page of a
@@ -192,40 +254,77 @@ function isListed(item: SpaceItem): boolean {
 export function itemsForSection(
   items: readonly SpaceItem[],
   section: SpaceSection,
-  options: { tab: SpaceTab; kind: SpaceKindFilter; query: string },
+  options: {
+    tab: SpaceTab;
+    kind: SpaceKindFilter;
+    query: string;
+    owner?: SpaceOwnerFilter;
+    sort?: SpaceSortOrder;
+  },
 ): SpaceItem[] {
   const query = options.query.trim().toLocaleLowerCase();
   const matchesQuery = (item: SpaceItem) =>
-    query === "" || item.title.toLocaleLowerCase().includes(query);
+    query === "" ||
+    item.title.toLocaleLowerCase().includes(query) ||
+    spaceItemDisplayTitle(item).toLocaleLowerCase().includes(query);
   if (section.type === "trash") {
     return items.filter(
       (item) => item.trashedAt !== null && isTrashRoot(item, items) && matchesQuery(item),
     );
   }
-  const live = items.filter((item) => item.trashedAt === null && matchesQuery(item));
+  const matchesOwner = (item: SpaceItem) => {
+    if (options.owner === "mine") return item.sourceThreadId === null;
+    if (options.owner === "agent") return item.sourceThreadId !== null;
+    return true;
+  };
+  const live = items.filter(
+    (item) => item.trashedAt === null && matchesQuery(item) && matchesOwner(item),
+  );
   if (section.type === "space") {
-    return live.filter(
-      (item) => item.spaceId === section.spaceId && (query !== "" || isListed(item)),
+    return sortSpaceItems(
+      live.filter((item) => item.spaceId === section.spaceId && (query !== "" || isListed(item))),
+      options.sort,
     );
   }
   if (section.type === "kind") {
     // Search reaches subpages too; browsing a kind lists only what stands on its own.
-    return live.filter((item) => item.kind === section.kind && (query !== "" || isListed(item)));
+    return sortSpaceItems(
+      live.filter(
+        (item) => effectiveSpaceItemKind(item) === section.kind && (query !== "" || isListed(item)),
+      ),
+      options.sort,
+    );
   }
   const listed = live.filter((item) => query !== "" || isListed(item));
   const byKind =
     options.kind === "any" ? listed : listed.filter((item) => kindFilterOf(item) === options.kind);
   switch (options.tab) {
     case "favorites":
-      return byKind.filter((item) => item.pinned);
+      return sortSpaceItems(
+        byKind.filter((item) => item.pinned),
+        options.sort,
+      );
+    case "all":
     case "mine":
-      return byKind;
+      return sortSpaceItems(byKind, options.sort);
     case "shared":
       // Nothing is shared into a local profile yet; sharing fills this once links exist.
       return [];
     case "recommended":
-      return recommended(byKind);
+      return sortSpaceItems(recommended(byKind), options.sort);
   }
+}
+
+function sortSpaceItems(items: SpaceItem[], sort?: SpaceSortOrder): SpaceItem[] {
+  if (sort === "created") {
+    return items.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  if (sort === "title") {
+    return items.toSorted((a, b) =>
+      spaceItemDisplayTitle(a).localeCompare(spaceItemDisplayTitle(b), "zh-CN"),
+    );
+  }
+  return items;
 }
 
 /** 推荐: pinned first, then what changed most recently, a short list. */
@@ -240,13 +339,16 @@ const FILTERED_KINDS: ReadonlySet<string> = new Set([
   "slides",
   "sheet",
   "design",
+  "dashboard",
+  "board",
   "site",
   "app",
   "image",
 ]);
 
 function kindFilterOf(item: SpaceItem): SpaceKindFilter {
-  return FILTERED_KINDS.has(item.kind) ? (item.kind as SpaceKindFilter) : "file";
+  const kind = effectiveSpaceItemKind(item);
+  return FILTERED_KINDS.has(kind) ? (kind as SpaceKindFilter) : "file";
 }
 
 /** A trashed page whose parent was trashed with it is restored with that parent. */
@@ -273,6 +375,57 @@ export function spaceItemDisplayTitle(item: Pick<SpaceItem, "title" | "kind">): 
 /** Recent items for the sidebar list. */
 export function recentItems(items: readonly SpaceItem[], limit = 8): SpaceItem[] {
   return items.filter((item) => item.trashedAt === null).slice(0, limit);
+}
+
+export interface SpaceRecentGroup {
+  readonly id: "today" | "yesterday" | "week" | "earlier";
+  readonly label: string;
+  readonly items: readonly SpaceItem[];
+}
+
+/** Groups non-trashed recent items into 今天 / 昨天 / 近 7 天 / 更早 buckets for the sidebar. */
+export function groupRecentItems(
+  items: readonly SpaceItem[],
+  now = Date.now(),
+  limit = 12,
+): SpaceRecentGroup[] {
+  const recent = recentItems(items, limit);
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const todayMs = startOfToday.getTime();
+  const yesterdayMs = todayMs - 86_400_000;
+  const weekMs = todayMs - 6 * 86_400_000;
+
+  const buckets: Record<SpaceRecentGroup["id"], SpaceItem[]> = {
+    today: [],
+    yesterday: [],
+    week: [],
+    earlier: [],
+  };
+
+  for (const item of recent) {
+    const ms = Date.parse(item.updatedAt);
+    if (!Number.isFinite(ms) || ms < weekMs) {
+      buckets.earlier.push(item);
+    } else if (ms >= todayMs) {
+      buckets.today.push(item);
+    } else if (ms >= yesterdayMs) {
+      buckets.yesterday.push(item);
+    } else {
+      buckets.week.push(item);
+    }
+  }
+
+  const order: ReadonlyArray<{ id: SpaceRecentGroup["id"]; label: string }> = [
+    { id: "today", label: "今天" },
+    { id: "yesterday", label: "昨天" },
+    { id: "week", label: "近 7 天" },
+    { id: "earlier", label: "更早" },
+  ];
+
+  return order
+    .map(({ id, label }) => ({ id, label, items: buckets[id] }))
+    .filter((group) => group.items.length > 0);
 }
 
 export function spaceTitle(spaces: readonly PageSpace[], spaceId: PageSpaceId | null): string {

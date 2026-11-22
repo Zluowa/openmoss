@@ -43,6 +43,11 @@ import { DASHBOARD_GUIDE } from "./dashboardGuide";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol";
 import { errorText, ToolInputError } from "./toolInput";
 import { READ_ONLY_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime";
+import {
+  APPLY_MODE_SCHEMA_PROPERTY,
+  COMPANION_CONTEXT_SCHEMA_PROPERTY,
+  extractCompanionMeta,
+} from "./pageCompanionHelpers";
 
 const scopeProperty = {
   anyOf: [{ type: "string" }, { type: "null" }],
@@ -145,7 +150,11 @@ export function makePageTypeTools({
       description,
       inputSchema: {
         type: "object",
-        properties: { scopeSpaceId: scopeProperty, ...properties },
+        properties: {
+          scopeSpaceId: scopeProperty,
+          ...properties,
+          companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
+        },
         required: ["scopeSpaceId", ...required],
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
@@ -174,6 +183,7 @@ export function makePageTypeTools({
           requestId: { type: "string", maxLength: 128 },
           scopeSpaceId: scopeProperty,
           ...properties,
+          companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
         },
         required: ["requestId", "scopeSpaceId", ...required],
       },
@@ -253,7 +263,14 @@ export function makePageTypeTools({
       }
       const changed = yield* parseInput(() => next(current.data!));
       const saved = yield* types.save({ ...input, data: changed.data }, principal(threadId));
-      return { pageId: saved.page.id, revision: saved.page.revision, ...changed.extra };
+      return {
+        pageId: saved.page.id,
+        revision: saved.page.revision,
+        previousRevision: current.page.revision,
+        undoRevision: current.page.revision,
+        applied: true,
+        ...changed.extra,
+      };
     });
 
   return [
@@ -517,10 +534,13 @@ export function makePageTypeTools({
             required: ["op", "path"],
           },
         },
+        applyMode: APPLY_MODE_SCHEMA_PROPERTY,
       },
       ["pageId", "expectedRevision", "writes"],
       (args, threadId) =>
         Effect.gen(function* () {
+          const meta = extractCompanionMeta(args);
+          const applyMode = meta.applyMode ?? "auto";
           const input = yield* parseInput(() => ({
             requestId: field.string(args, "requestId")!,
             scopeSpaceId: field.scope(args),
@@ -548,14 +568,52 @@ export function makePageTypeTools({
           }
           // A design system named by source ("builtin:<id>" or "page:<id>") is copied in here,
           // and the dashboard's look is derived from it.
-          const writes = yield* Effect.forEach(args.writes as DashboardWrite[], (entry) =>
+          const resolvedWrites = yield* Effect.forEach(args.writes as DashboardWrite[], (entry) =>
             entry.path === "system" && entry.op === "set"
               ? resolveSystemWrite(entry, input.scopeSpaceId, threadId)
               : Effect.succeed(entry),
           );
+          const parsedBefore = yield* parseInput(() => parseDashboard(current.data!));
+          const writes: DashboardWrite[] =
+            applyMode === "draft"
+              ? (() => {
+                  const staged: DashboardWrite[] = [];
+                  const touchesDraftParts = resolvedWrites.some(
+                    (entry) =>
+                      entry.path === "params" ||
+                      entry.path.startsWith("files/") ||
+                      entry.path.startsWith("datasets/"),
+                  );
+                  const hasDraftInit = resolvedWrites.some((entry) => entry.path === "draft");
+                  if (touchesDraftParts && !hasDraftInit && !parsedBefore.draft) {
+                    staged.push({
+                      op: "set",
+                      path: "draft",
+                      data: {
+                        files: parsedBefore.files ?? {},
+                        datasets: {},
+                        params: parsedBefore.params ?? {},
+                        at: new Date().toISOString(),
+                      },
+                    });
+                  }
+                  for (const entry of resolvedWrites) {
+                    if (
+                      entry.path === "params" ||
+                      entry.path.startsWith("files/") ||
+                      entry.path.startsWith("datasets/")
+                    ) {
+                      staged.push({ ...entry, path: `draft/${entry.path}` });
+                    } else {
+                      staged.push(entry);
+                    }
+                  }
+                  return staged;
+                })()
+              : resolvedWrites;
           const wearsSystem = writes.some((entry) => entry.path === "system");
           const next = yield* parseInput(() => {
-            const applied = applyDashboardWrites(parseDashboard(current.data!), writes);
+            const applied = applyDashboardWrites(parsedBefore, writes);
             return wearsSystem
               ? applyDashboardSystem(applied, applied.system ?? null, DASHBOARD_STANDARD_LOOK)
               : applied;
@@ -573,6 +631,10 @@ export function makePageTypeTools({
           return {
             pageId: saved.page.id,
             revision: saved.page.revision,
+            previousRevision: current.page.revision,
+            undoRevision: current.page.revision,
+            applied: applyMode === "auto",
+            applyMode,
             check: checkDashboard(next, compileCheck),
           };
         }),
@@ -688,6 +750,9 @@ export function makePageTypeTools({
           );
           return {
             revision: saved.page.revision,
+            previousRevision: current.page.revision,
+            undoRevision: current.page.revision,
+            applied: true,
             ...(result.changedNothing.length ? { changedNothing: result.changedNothing } : {}),
             ...(result.made.length ? { made: result.made } : {}),
           };

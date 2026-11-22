@@ -1,9 +1,11 @@
-import { ThreadId, TurnId } from "@moss/contracts";
+import { SpaceId, ThreadId, TurnId } from "@moss/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  artifactAssistantThreadKey,
   createPageAssistantKeeper,
   createPageRunStallGuard,
+  PAGE_ASSISTANT_THREAD_LRU_LIMIT,
   PAGE_RUN_OPEN_TOOL_STALL_MS,
   PAGE_RUN_STALL_MS,
   pageAssistantThreads,
@@ -66,6 +68,41 @@ describe("pageAssistantThreads", () => {
     expect(pageAssistantThreads.get(PAGE)).toBe(OLD);
     pageAssistantThreads.forget(PAGE, OLD);
     expect(pageAssistantThreads.get(PAGE)).toBeNull();
+  });
+
+  it("keys pages consistently with pageAiKey and namespaces non-page artifacts", () => {
+    const space9 = SpaceId.makeUnsafe("space-9");
+    expect(artifactAssistantThreadKey("acct", null, "page", "item-1")).toBe("acct:local:item-1");
+    expect(artifactAssistantThreadKey("acct", space9, "slides", "item-1")).toBe(
+      "acct:space-9:slides:item-1",
+    );
+    expect(artifactAssistantThreadKey("acct", space9, "sheet", "item-1")).toBe(
+      "acct:space-9:sheet:item-1",
+    );
+  });
+
+  it("caps stored artifact bindings at the 500-entry LRU limit", () => {
+    for (let i = 0; i < PAGE_ASSISTANT_THREAD_LRU_LIMIT; i++) {
+      pageAssistantThreads.set(`acct:local:slides:item-${i}`, ThreadId.makeUnsafe(`thread-${i}`));
+    }
+    expect(pageAssistantThreads.size()).toBe(PAGE_ASSISTANT_THREAD_LRU_LIMIT);
+    // Touch item-0 so it becomes MRU; item-1 becomes LRU and must be evicted when 501st arrives.
+    expect(pageAssistantThreads.get("acct:local:slides:item-0")).toBe(
+      ThreadId.makeUnsafe("thread-0"),
+    );
+    pageAssistantThreads.set(
+      `acct:local:slides:item-${PAGE_ASSISTANT_THREAD_LRU_LIMIT}`,
+      ThreadId.makeUnsafe(`thread-${PAGE_ASSISTANT_THREAD_LRU_LIMIT}`),
+    );
+    pageAssistantThreads.resetForTests();
+    expect(pageAssistantThreads.size()).toBe(PAGE_ASSISTANT_THREAD_LRU_LIMIT);
+    expect(pageAssistantThreads.get("acct:local:slides:item-0")).toBe(
+      ThreadId.makeUnsafe("thread-0"),
+    );
+    expect(pageAssistantThreads.get("acct:local:slides:item-1")).toBeNull();
+    expect(
+      pageAssistantThreads.get(`acct:local:slides:item-${PAGE_ASSISTANT_THREAD_LRU_LIMIT}`),
+    ).toBe(ThreadId.makeUnsafe(`thread-${PAGE_ASSISTANT_THREAD_LRU_LIMIT}`));
   });
 });
 

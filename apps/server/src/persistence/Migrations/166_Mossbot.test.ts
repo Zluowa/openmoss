@@ -56,6 +56,7 @@ it.layer(NodeSqliteClient.layerMemory())(
             [168, "PageItemKindsOpen"],
             [169, "PageDocStyleAndTextComments"],
             [170, "ProjectionThreadsPullRequestLinks"],
+            [171, "PageAssistantThread"],
           ],
         );
         const after = yield* snapshot;
@@ -71,8 +72,9 @@ it.layer(NodeSqliteClient.layerMemory())(
         );
         assert.deepStrictEqual(after.messages, before.messages);
         assert.deepStrictEqual(
-          yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 5`,
+          yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 6`,
           [
+            { migration_id: 171, name: "PageAssistantThread" },
             { migration_id: 170, name: "ProjectionThreadsPullRequestLinks" },
             { migration_id: 169, name: "PageDocStyleAndTextComments" },
             { migration_id: 168, name: "PageItemKindsOpen" },
@@ -103,7 +105,7 @@ it.layer(NodeSqliteClient.layerMemory())(
           const executed = yield* runMigrations();
           assert.deepStrictEqual(
             executed.map(([id]) => id),
-            [166, 167, 168, 169, 170],
+            [166, 167, 168, 169, 170, 171],
           );
           assert.deepStrictEqual(yield* snapshot, before);
           assert.deepStrictEqual(

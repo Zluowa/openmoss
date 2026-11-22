@@ -15,6 +15,7 @@ import {
   type SheetChartKind,
 } from "@moss/shared/spaceItems/sheetWorkbook";
 import { formatSheetNumber, SHEET_NUMBER_FORMATS } from "@moss/shared/spaceItems/sheetValues";
+import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useState, type ReactNode } from "react";
 
 import {
@@ -36,6 +37,7 @@ import {
   FillColorIcon,
   FilterIcon,
   ListBulletsIcon,
+  PageCommentIcon,
   PercentIcon,
   SheetBorderAllIcon,
   SheetBorderBottomIcon,
@@ -126,6 +128,11 @@ export interface SheetToolState {
   readonly hasFilter: boolean;
   readonly mossLabel: string | null;
   readonly mossBusy: boolean;
+  readonly dockAvailable?: boolean;
+  readonly commentAvailable?: boolean;
+  readonly commentActive?: boolean;
+  readonly commentCount?: number;
+  readonly bottomOffsetPx?: number;
 }
 
 export interface SheetToolActions {
@@ -157,6 +164,8 @@ export interface SheetToolActions {
   /** Groups the selected rows or columns, folds or unfolds the group there, or ungroups it. */
   group(axis: "row" | "column", how: "group" | "toggle" | "ungroup"): void;
   askMoss(text: string): void;
+  onToggleComments?: () => void;
+  onAskDock?: () => void;
 }
 
 export const NUMBER_FORMAT_CHOICES: readonly {
@@ -369,9 +378,16 @@ export function SheetToolCard(props: {
     a.askMoss(text);
     setAsk("");
   };
+  const commentCount = s.commentCount ?? 0;
+  const commentLabel = commentCount
+    ? `评论，${commentCount} 条未解决`
+    : s.commentActive
+      ? "退出评论"
+      : "评论";
   return (
     <div
       className="pointer-events-none absolute inset-x-3 bottom-3 z-20 flex flex-col items-center gap-2"
+      style={s.bottomOffsetPx ? { bottom: Math.max(12, s.bottomOffsetPx + 12) } : undefined}
       data-sheet-foot
     >
       {props.above}
@@ -379,8 +395,9 @@ export function SheetToolCard(props: {
         role="toolbar"
         aria-label="工具"
         data-sheet-tools
-        className="pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-card border border-border bg-popover p-1 shadow-xl backdrop-blur-sm [scrollbar-width:none]"
+        className="pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-card border border-border bg-popover/95 p-1 shadow-xl backdrop-blur-sm [scrollbar-width:none]"
       >
+        {/* Group 1: Typography & Alignment */}
         <SpaceToolbarButton
           icon={TextBoldIcon}
           label="加粗"
@@ -417,22 +434,6 @@ export function SheetToolCard(props: {
           onClick={() => a.toggle("strike")}
           testId="sheet-tool-strike"
         />
-        <SpaceToolbarDivider />
-        <ColorPicker
-          icon={TextColorIcon}
-          label="文字颜色"
-          disabled={off}
-          onPick={(hex) => a.color("text", hex)}
-          testId="sheet-tool-text-color"
-        />
-        <ColorPicker
-          icon={FillColorIcon}
-          label="单元格颜色"
-          disabled={off}
-          onPick={(hex) => a.color("fill", hex)}
-          testId="sheet-tool-fill"
-        />
-        <SpaceToolbarDivider />
         <ToolMenu
           icon={
             s.align === "center"
@@ -472,6 +473,22 @@ export function SheetToolCard(props: {
             </MenuItem>
           </MenuGroup>
         </ToolMenu>
+        <SpaceToolbarDivider />
+        {/* Group 2: Colors, Borders, Merge & Chart */}
+        <ColorPicker
+          icon={TextColorIcon}
+          label="文字颜色"
+          disabled={off}
+          onPick={(hex) => a.color("text", hex)}
+          testId="sheet-tool-text-color"
+        />
+        <ColorPicker
+          icon={FillColorIcon}
+          label="单元格颜色"
+          disabled={off}
+          onPick={(hex) => a.color("fill", hex)}
+          testId="sheet-tool-fill"
+        />
         <SpaceToolbarButton
           icon={TextWrapIcon}
           label={s.wrap ? "取消自动换行" : "自动换行"}
@@ -480,7 +497,69 @@ export function SheetToolCard(props: {
           onClick={() => a.wrap(!s.wrap)}
           testId="sheet-tool-wrap"
         />
+        <ToolMenu
+          icon={SheetBorderAllIcon}
+          label="边框"
+          disabled={off}
+          testId="sheet-tool-borders"
+          width="w-60"
+        >
+          <div className="grid grid-cols-5 gap-1 p-1" role="group" aria-label="边框位置">
+            {BORDER_EDGES.map((edge) => (
+              <MenuItem
+                key={edge.edges}
+                aria-label={edge.label}
+                title={edge.label}
+                className="justify-center px-0"
+                onClick={() => a.borders(edge.edges, borderStyle, null)}
+              >
+                <edge.icon aria-hidden />
+              </MenuItem>
+            ))}
+          </div>
+          <MenuSeparator />
+          <MenuSub>
+            <MenuSubTrigger>
+              线条：{BORDER_STYLES.find((b) => b.style === borderStyle)?.label}
+            </MenuSubTrigger>
+            <ComposerPickerMenuSubPopup className="w-40">
+              {BORDER_STYLES.map((b) => (
+                <MenuItem
+                  key={b.style}
+                  closeOnClick={false}
+                  onClick={() => setBorderStyle(b.style)}
+                  data-checked={b.style === borderStyle ? "" : undefined}
+                >
+                  {b.label}
+                </MenuItem>
+              ))}
+            </ComposerPickerMenuSubPopup>
+          </MenuSub>
+        </ToolMenu>
+        <SpaceToolbarButton
+          icon={s.isMerged ? SheetUnmergeIcon : SheetMergeIcon}
+          label={s.isMerged ? "取消合并" : "合并单元格"}
+          disabled={off || (!s.isMerged && !s.canMerge)}
+          {...(off ? {} : { disabledReason: "选择两个或更多单元格后才能合并。" })}
+          onClick={() => a.merge(!s.isMerged)}
+          testId="sheet-tool-merge"
+        />
+        <ToolMenu icon={ChartBarIcon} label="插入图表" disabled={off} testId="sheet-tool-chart">
+          <MenuItem onClick={() => a.chart("bar")}>
+            <ChartBarIcon aria-hidden /> 柱状图
+          </MenuItem>
+          <MenuItem onClick={() => a.chart("stackedBar")}>
+            <ChartStackedIcon aria-hidden /> 堆积柱状图
+          </MenuItem>
+          <MenuItem onClick={() => a.chart("line")}>
+            <ChartLineIcon aria-hidden /> 折线图
+          </MenuItem>
+          <MenuItem onClick={() => a.chart("pie")}>
+            <ChartPieIcon aria-hidden /> 饼图
+          </MenuItem>
+        </ToolMenu>
         <SpaceToolbarDivider />
+        {/* Group 3: Number Format, Data, Insert & More */}
         <Menu>
           <MenuTrigger
             render={
@@ -544,54 +623,6 @@ export function SheetToolCard(props: {
           onClick={() => a.decimals(1)}
           testId="sheet-tool-decimal-more"
         />
-        <SpaceToolbarDivider />
-        <ToolMenu
-          icon={SheetBorderAllIcon}
-          label="边框"
-          disabled={off}
-          testId="sheet-tool-borders"
-          width="w-60"
-        >
-          <div className="grid grid-cols-5 gap-1 p-1" role="group" aria-label="边框位置">
-            {BORDER_EDGES.map((edge) => (
-              <MenuItem
-                key={edge.edges}
-                aria-label={edge.label}
-                title={edge.label}
-                className="justify-center px-0"
-                onClick={() => a.borders(edge.edges, borderStyle, null)}
-              >
-                <edge.icon aria-hidden />
-              </MenuItem>
-            ))}
-          </div>
-          <MenuSeparator />
-          <MenuSub>
-            <MenuSubTrigger>
-              线条：{BORDER_STYLES.find((b) => b.style === borderStyle)?.label}
-            </MenuSubTrigger>
-            <ComposerPickerMenuSubPopup className="w-40">
-              {BORDER_STYLES.map((b) => (
-                <MenuItem
-                  key={b.style}
-                  closeOnClick={false}
-                  onClick={() => setBorderStyle(b.style)}
-                  data-checked={b.style === borderStyle ? "" : undefined}
-                >
-                  {b.label}
-                </MenuItem>
-              ))}
-            </ComposerPickerMenuSubPopup>
-          </MenuSub>
-        </ToolMenu>
-        <SpaceToolbarButton
-          icon={s.isMerged ? SheetUnmergeIcon : SheetMergeIcon}
-          label={s.isMerged ? "取消合并" : "合并单元格"}
-          disabled={off || (!s.isMerged && !s.canMerge)}
-          {...(off ? {} : { disabledReason: "选择两个或更多单元格后才能合并。" })}
-          onClick={() => a.merge(!s.isMerged)}
-          testId="sheet-tool-merge"
-        />
         <ToolMenu
           icon={SheetRowInsertBelowIcon}
           label="插入和删除"
@@ -639,20 +670,6 @@ export function SheetToolCard(props: {
           <MenuSeparator />
           <MenuItem onClick={() => a.filter()} data-checked={s.hasFilter ? "" : undefined}>
             <FilterIcon aria-hidden /> {s.hasFilter ? "关闭筛选" : "筛选"}
-          </MenuItem>
-        </ToolMenu>
-        <ToolMenu icon={ChartBarIcon} label="插入图表" disabled={off} testId="sheet-tool-chart">
-          <MenuItem onClick={() => a.chart("bar")}>
-            <ChartBarIcon aria-hidden /> 柱状图
-          </MenuItem>
-          <MenuItem onClick={() => a.chart("stackedBar")}>
-            <ChartStackedIcon aria-hidden /> 堆积柱状图
-          </MenuItem>
-          <MenuItem onClick={() => a.chart("line")}>
-            <ChartLineIcon aria-hidden /> 折线图
-          </MenuItem>
-          <MenuItem onClick={() => a.chart("pie")}>
-            <ChartPieIcon aria-hidden /> 饼图
           </MenuItem>
         </ToolMenu>
         <ToolMenu
@@ -732,29 +749,62 @@ export function SheetToolCard(props: {
             <EraserIcon aria-hidden /> 清除格式
           </MenuItem>
         </ToolMenu>
-        {s.mossLabel ? (
-          <>
-            <SpaceToolbarDivider />
-            <form
-              className="flex h-7 w-56 shrink-0 items-center rounded-control border border-border bg-background px-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                send();
+        {s.commentAvailable || s.dockAvailable || s.mossLabel ? <SpaceToolbarDivider /> : null}
+        {s.commentAvailable && a.onToggleComments ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            aria-pressed={Boolean(s.commentActive)}
+            aria-label={commentLabel}
+            title={s.commentActive ? "退出评论 (Esc)" : "评论单元格"}
+            data-testid="sheet-comments"
+            className={cn(
+              "shrink-0 gap-1 tabular-nums",
+              s.commentActive ? "bg-accent text-foreground" : "text-muted-foreground",
+            )}
+            onClick={() => a.onToggleComments?.()}
+          >
+            <PageCommentIcon aria-hidden />
+            {commentCount ? commentCount : null}
+          </Button>
+        ) : null}
+        {s.dockAvailable ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={off || s.mossBusy}
+            data-testid="sheet-ask-moss-trigger"
+            className="shrink-0 gap-1 rounded-full px-2.5 text-ui-sm font-medium"
+            onClick={() => (a.onAskDock ? a.onAskDock() : a.askMoss(""))}
+          >
+            <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+            <span>{s.mossBusy ? "Moss 正在思考…" : "问 Moss"}</span>
+          </Button>
+        ) : s.mossLabel ? (
+          <form
+            className="flex h-7 w-48 shrink-0 items-center rounded-control border border-border bg-background px-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              send();
+            }}
+          >
+            <input
+              aria-label="让 Moss 修改"
+              data-testid="sheet-ask-moss"
+              value={ask}
+              maxLength={2_000}
+              disabled={off || s.mossBusy}
+              placeholder={s.mossBusy ? "Moss 正在修改…" : "问 Moss…"}
+              onChange={(event) => setAsk(event.target.value)}
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (isImeComposingKeyEvent(event)) return;
               }}
-            >
-              <input
-                aria-label="让 Moss 修改"
-                data-testid="sheet-ask-moss"
-                value={ask}
-                maxLength={2_000}
-                disabled={off || s.mossBusy}
-                placeholder={s.mossBusy ? "Moss 正在修改…" : "让 Moss 修改这些单元格…"}
-                onChange={(event) => setAsk(event.target.value)}
-                onKeyDown={(event) => event.stopPropagation()}
-                className="min-w-0 flex-1 bg-transparent text-ui-sm outline-none placeholder:text-muted-foreground"
-              />
-            </form>
-          </>
+              className="min-w-0 flex-1 bg-transparent text-ui-sm outline-none placeholder:text-muted-foreground"
+            />
+          </form>
         ) : null}
       </div>
     </div>

@@ -140,7 +140,7 @@ export function SheetBar(props: {
       role="toolbar"
       aria-label="工作表"
       data-sheet-bar
-      className="relative flex h-9 shrink-0 items-center gap-1 border-t border-border bg-[var(--color-background-elevated,var(--background))] pr-3"
+      className="relative flex h-9 shrink-0 items-center gap-1 border-t border-border/80 bg-[var(--color-background-elevated,var(--background))] pr-3"
     >
       <div className="flex w-12 shrink-0 justify-center">
         {props.readOnly ? null : (

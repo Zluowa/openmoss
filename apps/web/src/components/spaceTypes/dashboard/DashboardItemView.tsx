@@ -40,8 +40,10 @@ import {
   PointerIcon,
   Redo2Icon,
   RefreshCwIcon,
+  SparklesIcon,
   Undo2Icon,
 } from "~/lib/icons";
+import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
@@ -57,6 +59,11 @@ import {
   resolvePageCommentAgentReply,
 } from "../../chat/pageComments/pageComments.logic";
 import { useCurrentAccountIdentity } from "../../SidebarAccountMenu";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+  SpaceCanvasSelectionContext,
+} from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
 import { toastManager } from "../../ui/toast";
 import {
@@ -103,6 +110,12 @@ function RunWatcher(props: { run: Run; onDone: (id: string) => void }) {
   return null;
 }
 
+export interface DashboardItemHostChrome {
+  readonly hideTopBar?: boolean;
+  readonly bottomInsetPx?: number;
+  readonly rightInsetPx?: number;
+}
+
 export function DashboardItemView(props: {
   readonly account: string;
   readonly scopeSpaceId: SpaceId | null;
@@ -116,12 +129,17 @@ export function DashboardItemView(props: {
   readonly flush: () => Promise<boolean>;
   readonly revision: () => number;
   readonly reloadIfChanged: () => Promise<boolean>;
+  readonly dock?: SpaceCanvasDockController | null;
+  readonly hostInsets?: SpaceCanvasHostInsets;
+  readonly hostChrome?: DashboardItemHostChrome;
+  readonly onHostActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const { locale } = useTranslation();
   const copy = dashboardCopy(locale);
   const { resolvedTheme } = useTheme();
   const theme = resolvedTheme === "dark" ? "dark" : "light";
   const page = props.item.page;
+  const dock = props.dock ?? null;
   const [panel, setPanel] = useState<Panel | null>(null);
   const [commenting, setCommenting] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -132,8 +150,17 @@ export function DashboardItemView(props: {
   const [runs, setRuns] = useState<Run[]>([]);
   const [noticeHidden, setNoticeHidden] = useState<string | null>(null);
   const [ask, setAsk] = useState("");
-  /** With a draft open: show the saved dashboard instead (撤销 / 重做 between the two). */
-  const [showSaved, setShowSaved] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+  const [undoSnapshot, setUndoSnapshot] = useState<{
+    dashboard: DashboardItem;
+    at: number;
+  } | null>(null);
+  const autoAppliedDraftRef = useRef<string | null>(null);
+  const preTurnRef = useRef<{
+    pageId: string;
+    revision: number;
+    dashboard: DashboardItem;
+  } | null>(null);
   /** 调整: the look being tweaked and the steps to undo. */
   const [style, setStyle] = useState<{ look: DashboardLook; history: DashboardLook[] } | null>(
     null,
@@ -145,11 +172,11 @@ export function DashboardItemView(props: {
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
   const agent = threads.describePageAgent({ page, content: "" } as PagesReadResult);
-  const canAsk = agent !== null && !props.readOnly;
+  const canAsk = (dock !== null || agent !== null) && !props.readOnly;
 
   const draft = props.dashboard.draft;
   const draftReady = Boolean(draft?.files[DASHBOARD_PAGE_FILE]?.text.trim());
-  const showingDraft = Boolean(draft && draftReady && !showSaved && !viewing);
+  const showingDraft = Boolean(draft && draftReady && !viewing);
   const shown = useMemo(
     () =>
       viewing?.dashboard ?? (showingDraft ? dashboardWithDraft(props.dashboard) : props.dashboard),
@@ -157,7 +184,110 @@ export function DashboardItemView(props: {
   );
   const hasPage = Boolean(shown.files[DASHBOARD_PAGE_FILE]?.text.trim());
   const readOnly = props.readOnly || viewing !== null;
-  const working = runs.length > 0;
+  const working = runs.length > 0 || Boolean(dock?.busy);
+
+  const [dockInsets, setDockInsets] = useState<SpaceCanvasHostInsets | null>(null);
+  const dockRegisterInsets = dock?.registerHostInsets;
+  useEffect(() => {
+    if (!dockRegisterInsets) {
+      setDockInsets(null);
+      return;
+    }
+    return dockRegisterInsets((next) => setDockInsets(next));
+  }, [dockRegisterInsets]);
+
+  useEffect(() => {
+    setUndoSnapshot(null);
+    autoAppliedDraftRef.current = null;
+    preTurnRef.current = null;
+    setAskOpen(false);
+  }, [page.id]);
+
+  // Auto-apply ready AI drafts live onto the dashboard and preserve a single-click undo snapshot.
+  useEffect(() => {
+    if (!draft || !draftReady || working || viewing || props.readOnly) return;
+    const html = draft.files[DASHBOARD_PAGE_FILE]?.text ?? "";
+    const sig = `${page.id}:${draft.shape}:${html.length}:${html.slice(0, 64)}`;
+    if (autoAppliedDraftRef.current === sig) return;
+    autoAppliedDraftRef.current = sig;
+    setUndoSnapshot({ dashboard: discardDashboardDraft(props.dashboard), at: Date.now() });
+    props.onChange(saveDashboardDraft(props.dashboard));
+    toastManager.add({ type: "success", title: copy.mossUpdated });
+  }, [
+    copy.mossUpdated,
+    draft,
+    draftReady,
+    page.id,
+    props.dashboard,
+    props.onChange,
+    props.readOnly,
+    viewing,
+    working,
+  ]);
+
+  // Capture baseline before AI work begins and offer one-click undo if the server updated live.
+  useEffect(() => {
+    if (working) {
+      if (!preTurnRef.current || preTurnRef.current.pageId !== page.id) {
+        preTurnRef.current = {
+          pageId: page.id,
+          revision: page.revision,
+          dashboard: discardDashboardDraft(props.dashboard),
+        };
+      }
+      return;
+    }
+    const baseline = preTurnRef.current;
+    if (baseline && baseline.pageId === page.id && page.revision > baseline.revision) {
+      setUndoSnapshot((current) => current ?? { dashboard: baseline.dashboard, at: Date.now() });
+      preTurnRef.current = null;
+    }
+  }, [page.id, page.revision, props.dashboard, working]);
+
+  // Clear stale draft-review state on page switch if dock finished a turn.
+  const prevDockBusyRef = useRef(Boolean(dock?.busy));
+  useEffect(() => {
+    const busy = Boolean(dock?.busy);
+    const wasBusy = prevDockBusyRef.current;
+    prevDockBusyRef.current = busy;
+    if (wasBusy && !busy) void latest.current.reloadIfChanged();
+  }, [dock?.busy]);
+
+  // Optional live server SSE stream for immediate dashboard refresh when Moss edits server-side.
+  useEffect(() => {
+    if (typeof EventSource !== "function" || typeof window === "undefined") return;
+    const hasRealtimeOrigin =
+      Boolean(window.desktopBridge?.getWsUrl?.()) || Boolean(import.meta.env.VITE_WS_URL);
+    if (!hasRealtimeOrigin) return;
+    const params = new URLSearchParams({ pageId: page.id });
+    if (props.scopeSpaceId) params.set("scopeSpaceId", props.scopeSpaceId);
+    let source: EventSource | null = null;
+    try {
+      source = new EventSource(resolveWsHttpUrl(`/api/moss/pages/events?${params.toString()}`), {
+        withCredentials: true,
+      });
+      source.addEventListener("page-updated", (event) => {
+        try {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { pageId?: string };
+          if (!payload.pageId || payload.pageId === page.id) {
+            void latest.current.reloadIfChanged();
+          }
+        } catch {
+          void latest.current.reloadIfChanged();
+        }
+      });
+    } catch {
+      return undefined;
+    }
+    return () => source?.close();
+  }, [page.id, props.scopeSpaceId]);
+
+  const handleUndoMoss = useCallback(() => {
+    if (!undoSnapshot || props.readOnly) return;
+    props.onChange(undoSnapshot.dashboard);
+    setUndoSnapshot(null);
+    toastManager.add({ type: "success", title: copy.undoneMossEdit });
+  }, [copy.undoneMossEdit, props, undoSnapshot]);
 
   const runtime = useDashboardRuntime({
     scopeSpaceId: props.scopeSpaceId,
@@ -486,10 +616,46 @@ export function DashboardItemView(props: {
     (failing.length > 0 || runtime.faults.length > 0) &&
     noticeHidden !== noticeKey;
 
+  const currentSelectionContext = useCallback(
+    (): SpaceCanvasSelectionContext => ({
+      kind: "dashboard",
+      itemId: page.id,
+      title: props.title || copy.kind,
+      summary: runtime.selection?.text ?? (selected ? `source:${selected}` : null),
+    }),
+    [copy.kind, page.id, props.title, runtime.selection?.text, selected],
+  );
+
+  const dockSetSelection = dock?.setSelection;
+  useEffect(() => {
+    if (!dockSetSelection) return;
+    dockSetSelection(currentSelectionContext());
+  }, [currentSelectionContext, dockSetSelection]);
+
+  const askDockWithPrompt = useCallback(
+    (promptText?: string, origin: "bottom-pill" | "inline-card" = "inline-card") => {
+      if (!dock) return false;
+      const selection = currentSelectionContext();
+      dock.setSelection(selection);
+      const trimmed = promptText?.trim() ?? "";
+      void dock.ask({
+        ...(trimmed ? { prompt: trimmed, autoRun: true } : { prefillOnly: true }),
+        preferredState: dock.state === "collapsed" ? "pip" : dock.state,
+        selection,
+        keepItemOpen: true,
+        origin,
+      });
+      return true;
+    },
+    [currentSelectionContext, dock],
+  );
+
   const sendAsk = () => {
     const request = ask.trim();
     if (!request || !canAsk) return;
     setAsk("");
+    setAskOpen(false);
+    if (askDockWithPrompt(request, "bottom-pill")) return;
     void startTurn({
       kind: "change",
       request,
@@ -513,13 +679,11 @@ export function DashboardItemView(props: {
   const opened = pins.find((entry) => entry.comment.id === openThread);
   const newAnchor = commenting && runtime.anchor ? runtime.anchor : null;
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col" data-dashboard-item data-testid="dashboard-item">
-      <header
-        className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3"
-        data-testid="dashboard-toolbar"
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-2">{props.header}</div>
+  const toggleReadingRef = useRef(toggleReading);
+  toggleReadingRef.current = toggleReading;
+  const hostActions = useMemo(
+    () => (
+      <>
         {hasPage && !editing ? (
           <>
             <SpaceToolbarButton
@@ -594,7 +758,7 @@ export function DashboardItemView(props: {
             pressed={reading}
             disabled={typeof window === "undefined" || !("speechSynthesis" in window)}
             disabledReason={copy.readUnavailable}
-            onClick={() => toggleReading()}
+            onClick={() => toggleReadingRef.current()}
             testId="dashboard-read"
           />
         ) : null}
@@ -645,65 +809,73 @@ export function DashboardItemView(props: {
           onClick={() => togglePanel("sources")}
           testId="dashboard-sources"
         />
-      </header>
-      {draft && !viewing ? (
+      </>
+    ),
+    [
+      attention,
+      commenting,
+      copy,
+      editReason,
+      editing,
+      hasPage,
+      loading,
+      panel,
+      reading,
+      runtime.clearAnchor,
+      runtime.edits,
+      runtime.refreshAll,
+      runtime.send,
+      viewing,
+    ],
+  );
+
+  const onHostActionsChange = props.onHostActionsChange;
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    onHostActionsChange(hostActions);
+  }, [hostActions, onHostActionsChange]);
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    return () => onHostActionsChange(null);
+  }, [onHostActionsChange]);
+
+  const bottomInsetPx =
+    props.hostChrome?.bottomInsetPx ??
+    props.hostInsets?.bottomInsetPx ??
+    dockInsets?.bottomInsetPx ??
+    0;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col" data-dashboard-item data-testid="dashboard-item">
+      {!props.hostChrome?.hideTopBar ? (
+        <header
+          className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-3"
+          data-testid="dashboard-toolbar"
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2">{props.header}</div>
+          {!onHostActionsChange ? hostActions : null}
+        </header>
+      ) : null}
+      {draft && !draftReady && !viewing ? (
         <div
           className="flex shrink-0 items-center gap-2 border-b border-border bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)] px-4 py-1.5 text-ui-sm"
           data-testid="dashboard-draft-bar"
         >
           <span className="min-w-0 flex-1 truncate text-foreground">
-            {!draftReady
-              ? working
-                ? copy.draftWorking
-                : copy.draftWaiting
-              : showSaved
-                ? copy.draftShowingSaved
-                : `${copy.forms[draft.shape] ?? ""} · ${copy.draftReady}`}
+            {working ? copy.draftWorking : copy.draftWaiting}
           </span>
-          {draftReady ? (
-            <>
-              <SpaceToolbarButton
-                icon={Undo2Icon}
-                label={copy.draftShowSaved}
-                disabled={showSaved}
-                onClick={() => setShowSaved(true)}
-              />
-              <SpaceToolbarButton
-                icon={Redo2Icon}
-                label={copy.draftShowDraft}
-                disabled={!showSaved}
-                onClick={() => setShowSaved(false)}
-              />
-            </>
-          ) : null}
           <Button
             size="xs"
             variant="ghost"
             disabled={props.readOnly}
             onClick={() => {
               props.onChange(discardDashboardDraft(props.dashboard));
-              setShowSaved(false);
               toastManager.add({ type: "success", title: copy.draftDiscarded });
             }}
             data-testid="dashboard-draft-cancel"
           >
             {copy.draftCancel}
           </Button>
-          {draftReady ? (
-            <Button
-              size="xs"
-              variant="secondary"
-              disabled={props.readOnly || working}
-              onClick={() => {
-                props.onChange(saveDashboardDraft(props.dashboard));
-                setShowSaved(false);
-                toastManager.add({ type: "success", title: copy.draftSaved });
-              }}
-              data-testid="dashboard-draft-save"
-            >
-              {copy.draftSave}
-            </Button>
-          ) : null}
         </div>
       ) : null}
       {viewing ? (
@@ -730,19 +902,30 @@ export function DashboardItemView(props: {
             <Button
               size="xs"
               variant="secondary"
-              onClick={() =>
+              onClick={() => {
+                const faults = [
+                  ...failing.map(([id, state]) => ({
+                    where: `datasets/${id}`,
+                    message: state.message,
+                  })),
+                  ...runtime.faults,
+                ];
+                if (
+                  askDockWithPrompt(
+                    `${copy.askFix}：${faults
+                      .map((f) => `${f.where} (${f.message})`)
+                      .join("；")
+                      .slice(0, 280)}`,
+                    "inline-card",
+                  )
+                )
+                  return;
                 void startTurn({
                   kind: "fix",
                   request: copy.askFix,
-                  faults: [
-                    ...failing.map(([id, state]) => ({
-                      where: `datasets/${id}`,
-                      message: state.message,
-                    })),
-                    ...runtime.faults,
-                  ],
-                })
-              }
+                  faults,
+                });
+              }}
             >
               {copy.askFix}
             </Button>
@@ -779,17 +962,52 @@ export function DashboardItemView(props: {
                   mode={theme}
                   onAsk={(request, form, look) => {
                     if (look) props.onChange({ ...props.dashboard, look });
+                    if (askDockWithPrompt(request, "inline-card")) return;
                     void startTurn({ kind: "build", request, form, look: look?.name ?? null });
                   }}
                 />
               </div>
             ) : runtime.status !== "ready" ? (
-              <p
+              <div
                 role="status"
-                className="absolute inset-0 grid place-items-center bg-background text-ui-sm text-muted-foreground"
+                data-testid="dashboard-shimmer"
+                className="absolute inset-0 flex flex-col gap-4 overflow-hidden bg-background p-6"
               >
-                {runtime.status === "timeout" ? copy.frameTimeout : copy.loading}
-              </p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="h-20 animate-pulse rounded-card border border-border/60 bg-muted/60" />
+                  <div className="h-20 animate-pulse rounded-card border border-border/60 bg-muted/60" />
+                  <div className="h-20 animate-pulse rounded-card border border-border/60 bg-muted/60" />
+                </div>
+                <div className="grid min-h-0 flex-1 grid-cols-2 gap-3">
+                  <div className="animate-pulse rounded-card border border-border/60 bg-muted/50" />
+                  <div className="animate-pulse rounded-card border border-border/60 bg-muted/50" />
+                </div>
+                <p className="text-center text-ui-sm text-muted-foreground">
+                  {runtime.status === "timeout"
+                    ? copy.frameTimeout
+                    : working
+                      ? copy.mossUpdating
+                      : copy.loading}
+                </p>
+              </div>
+            ) : working || loading ? (
+              <div
+                role="status"
+                data-testid="dashboard-shimmer"
+                className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4"
+              >
+                <div className="flex justify-center">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[color-mix(in_srgb,var(--primary)_30%,transparent)] bg-[color-mix(in_srgb,var(--primary)_10%,var(--background))] px-3 py-1 text-ui-xs font-medium text-[var(--primary)] shadow-sm backdrop-blur-sm">
+                    <SparklesIcon className="size-3.5 animate-pulse" aria-hidden />
+                    <span>{working ? copy.mossUpdating : copy.loading}</span>
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-3 opacity-40">
+                  <div className="h-14 animate-pulse rounded-card border border-border/60 bg-muted/60" />
+                  <div className="h-14 animate-pulse rounded-card border border-border/60 bg-muted/60" />
+                  <div className="h-14 animate-pulse rounded-card border border-border/60 bg-muted/60" />
+                </div>
+              </div>
             ) : null}
             <div
               className="pointer-events-none absolute inset-0 overflow-hidden"
@@ -870,59 +1088,102 @@ export function DashboardItemView(props: {
                 />
               ) : null}
             </div>
-          </div>
-          {hasPage && !readOnly && !editing ? (
-            <div
-              className="flex shrink-0 justify-center border-t border-border px-3 py-2"
-              data-testid="dashboard-ask"
-            >
-              <form
-                className="flex w-full max-w-[680px] items-end gap-1.5 rounded-composer border border-border bg-background py-1.5 pr-1.5 pl-3 shadow-xs"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  sendAsk();
-                }}
+            {hasPage && !readOnly && !editing ? (
+              <div
+                className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-2 px-3"
+                style={{ bottom: Math.max(12, bottomInsetPx + 12) }}
+                data-testid="dashboard-ask"
               >
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                {!dock && askOpen ? (
+                  <form
+                    className="pointer-events-auto flex w-full max-w-[440px] items-end gap-1.5 rounded-composer border border-border bg-popover/95 py-1.5 pr-1.5 pl-3 shadow-lg backdrop-blur-sm"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      sendAsk();
+                    }}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      {runtime.selection ? (
+                        <span className="truncate text-ui-xs text-muted-foreground">
+                          {copy.askSelected(runtime.selection.text.slice(0, 60))}
+                        </span>
+                      ) : null}
+                      <textarea
+                        aria-label={copy.askPlaceholder}
+                        value={ask}
+                        rows={1}
+                        autoFocus
+                        placeholder={canAsk ? copy.askPlaceholder : copy.noAgent}
+                        style={{ fontFamily: "var(--font-ui-family)" }}
+                        disabled={!canAsk}
+                        onChange={(event) => setAsk(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            !isImeComposingKeyEvent(event)
+                          ) {
+                            event.preventDefault();
+                            sendAsk();
+                          }
+                        }}
+                        className="max-h-28 min-h-7 resize-none bg-transparent py-1 text-ui text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/70"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      size="icon-sm"
+                      className="rounded-full"
+                      aria-label={copy.send}
+                      disabled={!ask.trim() || !canAsk}
+                      data-testid="dashboard-ask-send"
+                    >
+                      <ArrowUpIcon className="size-4" aria-hidden />
+                    </Button>
+                  </form>
+                ) : null}
+                <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-1 shadow-md backdrop-blur-sm">
+                  {undoSnapshot ? (
+                    <>
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        className="gap-1 rounded-full text-ui-xs text-[var(--primary)]"
+                        data-testid="dashboard-undo-moss"
+                        onClick={handleUndoMoss}
+                      >
+                        <Undo2Icon className="size-3.5" aria-hidden />
+                        <span>{copy.undoMossEdit}</span>
+                      </Button>
+                      <SpaceToolbarDivider />
+                    </>
+                  ) : null}
                   {runtime.selection ? (
-                    <span className="truncate text-ui-xs text-muted-foreground">
-                      {copy.askSelected(runtime.selection.text.slice(0, 60))}
+                    <span className="max-w-44 truncate px-1.5 text-ui-xs text-muted-foreground">
+                      {copy.askSelected(runtime.selection.text.slice(0, 40))}
                     </span>
                   ) : null}
-                  <textarea
-                    aria-label={copy.askPlaceholder}
-                    value={ask}
-                    rows={1}
-                    placeholder={canAsk ? copy.askPlaceholder : copy.noAgent}
-                    style={{ fontFamily: "var(--font-ui-family)" }}
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="gap-1 rounded-full px-2.5 text-ui-sm font-medium"
                     disabled={!canAsk}
-                    onChange={(event) => setAsk(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Enter" &&
-                        !event.shiftKey &&
-                        !isImeComposingKeyEvent(event)
-                      ) {
-                        event.preventDefault();
-                        sendAsk();
+                    data-testid="dashboard-ask-trigger"
+                    onClick={() => {
+                      if (dock) {
+                        askDockWithPrompt(undefined, "bottom-pill");
+                        return;
                       }
+                      setAskOpen((prev) => !prev);
                     }}
-                    className="max-h-32 min-h-7 resize-none bg-transparent py-1 text-ui text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/70"
-                  />
+                  >
+                    <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+                    <span>{copy.askMoss}</span>
+                  </Button>
                 </div>
-                <Button
-                  type="submit"
-                  size="icon-sm"
-                  className="rounded-full"
-                  aria-label={copy.send}
-                  disabled={!ask.trim() || !canAsk}
-                  data-testid="dashboard-ask-send"
-                >
-                  <ArrowUpIcon className="size-4" aria-hidden />
-                </Button>
-              </form>
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         {panel ? (
           <SpaceSidePanel
@@ -959,14 +1220,18 @@ export function DashboardItemView(props: {
                 }
                 onSaveDataset={saveDataset}
                 onTest={testDataset}
-                onAskFix={(id, message) =>
+                onAskFix={(id, message) => {
+                  if (
+                    askDockWithPrompt(`${copy.askFix}：datasets/${id} (${message})`, "inline-card")
+                  )
+                    return;
                   void startTurn({
                     kind: "fix",
                     request: copy.askFix,
                     source: id,
                     faults: [{ where: `datasets/${id}`, message }],
-                  })
-                }
+                  });
+                }}
               />
             ) : panel === "design" ? (
               <DashboardDesignPanel
@@ -982,12 +1247,12 @@ export function DashboardItemView(props: {
                   props.onChange(look ? { ...rest, look } : rest);
                 }}
                 onRemake={(form: DashboardForm) => {
-                  // A remix is written beside the dashboard as a draft; nothing changes until 保存.
+                  if (askDockWithPrompt(`${copy.remake}：${copy.forms[form]}`, "inline-card"))
+                    return;
                   props.onChange({
                     ...props.dashboard,
                     draft: { shape: form, at: new Date().toISOString(), files: {}, datasets: {} },
                   });
-                  setShowSaved(false);
                   void startTurn({
                     kind: "reshape",
                     request: `${copy.remake}：${copy.forms[form]}`,

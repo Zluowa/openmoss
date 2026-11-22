@@ -170,6 +170,22 @@ interface RightDockProps {
    * the desktop), so this row leaves it out rather than show two.
    */
   activePaneOwnsWidthToggle?: boolean | undefined;
+  /** Pane IDs anchored in the tab strip without a close button (e.g. primary canvas companion). */
+  pinnedPaneIds?: ReadonlySet<string> | undefined;
+  /** Extra pane IDs whose DOM subtree should remain mounted even while inactive. */
+  keepMountedPaneIds?: ReadonlySet<string> | undefined;
+  /** Extra controls placed before the collapse toggle in the right-dock header bar. */
+  headerExtraControls?: ReactNode;
+  /** Chrome-style close-lock duration in ms so rapid tab closes don't shift X under the pointer. */
+  tabCloseLockMs?: number | undefined;
+  /** Dragging the seam divider below this width (px) auto-collapses the dock when shrinking past minWidth. */
+  collapseBelowMinWidthPx?: number | undefined;
+  /** Live docked panel width updates (px) for host chrome inset coordination. */
+  onWidthChange?: ((widthPx: number) => void) | undefined;
+  /** Opt out of the mobile Sheet overlay when hosted inside a desktop-only split container. */
+  mobileSheet?: boolean | undefined;
+  /** Explicit initial docked width (px) when no persisted user resize exists (does not affect other hosts). */
+  preferredDefaultWidthPx?: number | undefined;
 }
 
 function RightDockLauncher(props: {
@@ -210,28 +226,37 @@ function RightDockTab(props: {
   label: string;
   icon?: ReactNode;
   active: boolean;
+  lockedWidthPx?: number | null | undefined;
+  closable?: boolean | undefined;
   onSelect?: (() => void) | undefined;
-  onClose: () => void;
+  onClose?: (() => void) | undefined;
 }) {
   const { format } = useTranslation();
+  const closable = props.closable !== false && props.onClose !== undefined;
+  const tabStyle: CSSProperties | undefined =
+    props.lockedWidthPx && props.lockedWidthPx > 0
+      ? { width: `${props.lockedWidthPx}px`, minWidth: `${props.lockedWidthPx}px` }
+      : undefined;
   return (
-    <SurfaceTabChip
-      active={props.active}
-      title={props.label}
-      label={props.label}
-      labelClassName="max-w-[10rem]"
-      icon={
-        props.icon ??
-        ("kind" in props.pane ? (
-          resolveRightDockPaneIcon(props.pane)
-        ) : (
-          <SurfaceChipIcon icon={AppsIcon} />
-        ))
-      }
-      closeLabel={format("rightDock.closePane", { label: props.label })}
-      onSelect={props.onSelect}
-      onClose={props.onClose}
-    />
+    <div style={tabStyle} className={props.lockedWidthPx ? "shrink-0" : undefined}>
+      <SurfaceTabChip
+        active={props.active}
+        title={props.label}
+        label={props.label}
+        labelClassName="max-w-[10rem]"
+        icon={
+          props.icon ??
+          ("kind" in props.pane ? (
+            resolveRightDockPaneIcon(props.pane)
+          ) : (
+            <SurfaceChipIcon icon={AppsIcon} />
+          ))
+        }
+        closeLabel={closable ? format("rightDock.closePane", { label: props.label }) : undefined}
+        onSelect={props.onSelect}
+        onClose={closable ? props.onClose : undefined}
+      />
+    </div>
   );
 }
 
@@ -354,6 +379,17 @@ function RightDockSurface(
   // Codex keeps the right panel as a sibling pane by default, including the
   // empty quick-start state. The width button is the explicit full-width mode.
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const tabLockTimerRef = useRef<number | null>(null);
+  const [lockedTabWidths, setLockedTabWidths] = useState<Readonly<Record<string, number>> | null>(
+    null,
+  );
+  const [collapseCueActive, setCollapseCueActive] = useState(false);
+  const railDragRef = useRef<{
+    startX: number;
+    startWidth: number;
+    movedPastThreshold: boolean;
+  } | null>(null);
   // The cached ratio belongs to one chat's width key; another chat brings its own width.
   const regularWidthRatioRef = useRef<
     { readonly key: string | undefined; readonly ratio: number } | undefined
@@ -361,6 +397,87 @@ function RightDockSurface(
   const minWidth = props.minWidth;
   const activePaneKind = activePane?.kind ?? null;
   const widthStorageKey = props.widthStorageKey;
+  const onWidthChange = props.onWidthChange;
+  const onWidthChangeRef = useRef(onWidthChange);
+  onWidthChangeRef.current = onWidthChange;
+  const onCollapse = props.onCollapse;
+  const onCollapseRef = useRef(onCollapse);
+  onCollapseRef.current = onCollapse;
+  const collapseBelowMinWidthPx = props.collapseBelowMinWidthPx;
+
+  const clearTabCloseLock = () => {
+    if (tabLockTimerRef.current !== null && typeof window !== "undefined") {
+      window.clearTimeout(tabLockTimerRef.current);
+      tabLockTimerRef.current = null;
+    }
+    setLockedTabWidths(null);
+  };
+
+  useEffect(() => clearTabCloseLock, []);
+
+  const handleClosePaneWithLock = (paneId: string) => {
+    const closeLockMs = props.tabCloseLockMs ?? 0;
+    if (closeLockMs > 0 && tabStripRef.current && typeof window !== "undefined") {
+      const nextWidths: Record<string, number> = {};
+      const chips = tabStripRef.current.querySelectorAll<HTMLElement>("[data-right-dock-tab-id]");
+      chips.forEach((chip) => {
+        const id = chip.dataset.rightDockTabId;
+        if (!id || id === paneId) return;
+        const measured = Math.round(chip.getBoundingClientRect().width);
+        if (measured > 0) {
+          nextWidths[id] = Math.max(90, Math.min(240, measured));
+        }
+      });
+      if (Object.keys(nextWidths).length > 0) {
+        setLockedTabWidths(nextWidths);
+        if (tabLockTimerRef.current !== null) {
+          window.clearTimeout(tabLockTimerRef.current);
+        }
+        tabLockTimerRef.current = window.setTimeout(() => {
+          tabLockTimerRef.current = null;
+          setLockedTabWidths(null);
+        }, closeLockMs);
+      }
+    }
+    props.onClosePane(paneId);
+  };
+
+  useEffect(() => {
+    if (!collapseBelowMinWidthPx || typeof window === "undefined") {
+      return;
+    }
+    const handlePointerMove = (event: PointerEvent) => {
+      const drag = railDragRef.current;
+      if (!drag) return;
+      const rawWidth = drag.startWidth + (drag.startX - event.clientX);
+      const below = rawWidth < collapseBelowMinWidthPx - 24;
+      if (below) {
+        drag.movedPastThreshold = true;
+      }
+      setCollapseCueActive(below);
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      const drag = railDragRef.current;
+      if (!drag) return;
+      const rawWidth = drag.startWidth + (drag.startX - event.clientX);
+      railDragRef.current = null;
+      setCollapseCueActive(false);
+      if (
+        rawWidth < collapseBelowMinWidthPx &&
+        (drag.movedPastThreshold || drag.startWidth - rawWidth >= 24)
+      ) {
+        onCollapseRef.current();
+      }
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerEnd);
+    window.addEventListener("pointercancel", handlePointerEnd);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerEnd);
+      window.removeEventListener("pointercancel", handlePointerEnd);
+    };
+  }, [collapseBelowMinWidthPx]);
 
   useLayoutEffect(() => {
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
@@ -396,6 +513,7 @@ function RightDockSurface(
 
       if (panelFullWidth) {
         setInlineStyleIfChanged(wrapper, "--sidebar-width", `${mainContentWidth}px`);
+        onWidthChangeRef.current?.(mainContentWidth);
         return;
       }
 
@@ -408,21 +526,23 @@ function RightDockSurface(
         sharedValue: getLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, Schema.Finite),
       });
       if (preferredWidth !== undefined && storedValue == null) {
-        setInlineStyleIfChanged(
-          wrapper,
-          "--sidebar-width",
-          `${Math.max(minWidth, preferredWidth)}px`,
-        );
+        const nextPreferredWidth = Math.max(minWidth, preferredWidth);
+        setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextPreferredWidth}px`);
+        onWidthChangeRef.current?.(nextPreferredWidth);
         return;
       }
 
+      const resolvedDefaultWidth =
+        props.preferredDefaultWidthPx && Number.isFinite(props.preferredDefaultWidthPx)
+          ? props.preferredDefaultWidthPx
+          : RIGHT_DOCK_DEFAULT_WIDTH;
       let cached = regularWidthRatioRef.current;
       if (cached === undefined || cached.key !== widthStorageKey) {
         cached = {
           key: widthStorageKey,
           ratio: resolvePersistedRightDockWidthRatio({
             storedValue,
-            defaultWidth: RIGHT_DOCK_DEFAULT_WIDTH,
+            defaultWidth: resolvedDefaultWidth,
             mainContentWidth,
             shellHeight,
             widthMode: "regular",
@@ -433,6 +553,7 @@ function RightDockSurface(
 
       const nextWidth = resolveRightDockWidthFromRatio(cached.ratio, mainContentWidth, "regular");
       setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextWidth}px`);
+      onWidthChangeRef.current?.(nextWidth);
     };
 
     applyMeasuredWidth();
@@ -457,6 +578,7 @@ function RightDockSurface(
     panelFullWidth,
     props.layoutHostRef,
     props.mainContentRef,
+    props.preferredDefaultWidthPx,
     props.state.open,
     widthStorageKey,
   ]);
@@ -480,6 +602,7 @@ function RightDockSurface(
   };
 
   const persistRegularWidth = (width: number) => {
+    onWidthChangeRef.current?.(width);
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     const shellWidth = resolveRightDockStableWidth(props.layoutHostRef, wrapper);
     if (shellWidth <= 0) {
@@ -498,7 +621,10 @@ function RightDockSurface(
     return clampRightDockWidth(Math.round(shellWidth / 2), shellWidth, "regular");
   };
   const renderedPanes = props.state.panes.filter(
-    (pane) => pane.id === activePane?.id || keepMountedPaneIds.has(pane.id),
+    (pane) =>
+      pane.id === activePane?.id ||
+      keepMountedPaneIds.has(pane.id) ||
+      Boolean(props.keepMountedPaneIds?.has(pane.id)),
   );
   // Motion allowance keyed to the current motionKey: a key change (reposition/
   // remount) derives straight back to "suppressed" in that same render, and the
@@ -536,18 +662,22 @@ function RightDockSurface(
       onMobileOpenChange={props.onOpenChange}
       className={cn(
         "w-auto min-h-0 flex-none bg-transparent",
-        props.containerMode === "parent" && "h-full",
+        props.containerMode === "parent" && "relative h-full",
       )}
+      data-right-dock-collapse-cue={collapseCueActive ? "true" : undefined}
       data-testid="right-dock-provider"
       style={
         {
-          "--sidebar-width": panelFullWidth ? "100%" : `${RIGHT_DOCK_DEFAULT_WIDTH}px`,
+          "--sidebar-width": panelFullWidth
+            ? "100%"
+            : `${props.preferredDefaultWidthPx ?? RIGHT_DOCK_DEFAULT_WIDTH}px`,
         } as CSSProperties
       }
     >
       <Sidebar
         side="right"
         collapsible="offcanvas"
+        {...(props.mobileSheet !== undefined ? { mobileSheet: props.mobileSheet } : {})}
         className={cn(
           chromeContract.panelClassName,
           chromeMotionClass,
@@ -603,21 +733,32 @@ function RightDockSurface(
             {/* Fit the tab strip to its tabs so the rest of the bar stays draggable;
                 Chromium does not clip app regions to this scroller, so the strip is
                 one no-drag box (`.surface-content-tabs`) rather than per-chip boxes. */}
-            <div className="surface-content-tabs flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {props.state.panes.map((pane) => (
-                <RightDockTab
-                  key={pane.id}
-                  pane={pane}
-                  label={
-                    props.paneLabelOverrides?.[pane.id] ??
-                    t(RIGHT_DOCK_LABEL_KEY_BY_KIND[pane.kind])
-                  }
-                  icon={props.paneIconOverrides?.[pane.id]}
-                  active={activeMcpAppId === null && pane.id === props.state.activePaneId}
-                  onSelect={onSelectPane ? () => onSelectPane(pane.id) : undefined}
-                  onClose={() => props.onClosePane(pane.id)}
-                />
-              ))}
+            <div
+              ref={tabStripRef}
+              onPointerLeave={clearTabCloseLock}
+              data-tab-close-locked={lockedTabWidths ? "true" : undefined}
+              className="surface-content-tabs flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {props.state.panes.map((pane) => {
+                const pinned = Boolean(props.pinnedPaneIds?.has(pane.id));
+                return (
+                  <div key={pane.id} data-right-dock-tab-id={pane.id} className="min-w-0 shrink-0">
+                    <RightDockTab
+                      pane={pane}
+                      label={
+                        props.paneLabelOverrides?.[pane.id] ??
+                        t(RIGHT_DOCK_LABEL_KEY_BY_KIND[pane.kind])
+                      }
+                      icon={props.paneIconOverrides?.[pane.id]}
+                      active={activeMcpAppId === null && pane.id === props.state.activePaneId}
+                      lockedWidthPx={lockedTabWidths?.[pane.id]}
+                      closable={!pinned}
+                      onSelect={onSelectPane ? () => onSelectPane(pane.id) : undefined}
+                      onClose={pinned ? undefined : () => handleClosePaneWithLock(pane.id)}
+                    />
+                  </div>
+                );
+              })}
               {mcpAppEntries.map((entry) => (
                 <RightDockTab
                   key={entry.id}
@@ -677,6 +818,7 @@ function RightDockSurface(
               className="ml-auto flex shrink-0 items-center gap-1"
               data-right-dock-layout-controls
             >
+              {props.headerExtraControls}
               {/* A closed dock stays mounted off-canvas; the chat header owns the
                   side-panel toggle then, so these only exist while the dock is open. */}
               {props.onToggleBottomPanel && props.state.open ? (
@@ -800,7 +942,24 @@ function RightDockSurface(
             })}
           </div>
         </div>
-        {chromeContract.showSidebarRail ? <SidebarRail placement="dock-seam" /> : null}
+        {chromeContract.showSidebarRail ? (
+          <SidebarRail
+            placement="dock-seam"
+            onPointerDown={(event) => {
+              if (!props.collapseBelowMinWidthPx || event.button !== 0 || !props.state.open) return;
+              const sidebarContainer = event.currentTarget
+                .closest<HTMLElement>("[data-slot='sidebar']")
+                ?.querySelector<HTMLElement>("[data-slot='sidebar-container']");
+              const startWidth =
+                sidebarContainer?.getBoundingClientRect().width ?? RIGHT_DOCK_DEFAULT_WIDTH;
+              railDragRef.current = {
+                startX: event.clientX,
+                startWidth,
+                movedPastThreshold: false,
+              };
+            }}
+          />
+        ) : null}
       </Sidebar>
     </SidebarProvider>
   );

@@ -5,25 +5,73 @@
 //          quiet spell or when the page closes. Stopping never interrupts a running turn.
 // Layer: Web lib (page AI)
 
-import type { ThreadId, TurnId } from "@moss/contracts";
+import type { SpaceId, ThreadId, TurnId } from "@moss/contracts";
+
+import type { SpaceArtifactKind } from "~/components/space/spaceCanvasDockContract";
 
 const STORAGE_KEY = "moss.pageAssistantThreads.v1";
+/** Cap remembered artifact-assistant bindings (matches LRU 500 companion cache bound). */
+export const PAGE_ASSISTANT_THREAD_LRU_LIMIT = 500;
 /** How long a page's agent stays started with nothing happening on the page. */
 export const PAGE_ASSISTANT_IDLE_MS = 10 * 60_000;
 /** A second warm-up request inside this window is not sent again. */
 const WARM_AGAIN_AFTER_MS = 30_000;
 
-let memory: Record<string, string> | null = null;
+/**
+ * Stable lookup key for an artifact's primary assistant conversation. Docs keep the legacy
+ * `pageAiKey` shape (`account:space:itemId`) so inline page AI and the Canvas Dock share one
+ * primary thread; other artifact kinds include `:kind:` to avoid id collisions.
+ */
+export function artifactAssistantThreadKey(
+  account: string,
+  scopeSpaceId: SpaceId | null,
+  kind: SpaceArtifactKind,
+  itemId: string,
+): string {
+  const space = scopeSpaceId ?? "local";
+  return kind === "page"
+    ? `${account}:${space}:${itemId}`
+    : `${account}:${space}:${kind}:${itemId}`;
+}
 
-const read = (): Record<string, string> => {
+let memory: Map<string, string> | null = null;
+
+const trimToLruLimit = (entries: Map<string, string>) => {
+  while (entries.size > PAGE_ASSISTANT_THREAD_LRU_LIMIT) {
+    const oldestKey = entries.keys().next().value;
+    if (oldestKey === undefined) break;
+    entries.delete(oldestKey);
+  }
+};
+
+const read = (): Map<string, string> => {
   if (memory) return memory;
-  memory = {};
+  memory = new Map();
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === "string" && value) memory[key] = value;
+      if ("entries" in parsed && Array.isArray((parsed as { entries?: unknown }).entries)) {
+        for (const item of (parsed as { entries: unknown[] }).entries) {
+          if (
+            Array.isArray(item) &&
+            item.length === 2 &&
+            typeof item[0] === "string" &&
+            typeof item[1] === "string" &&
+            item[0] &&
+            item[1]
+          ) {
+            memory.delete(item[0]);
+            memory.set(item[0], item[1]);
+          }
+        }
+      } else {
+        for (const [key, value] of Object.entries(parsed)) {
+          if (typeof value === "string" && value) {
+            memory.set(key, value);
+          }
+        }
       }
+      trimToLruLimit(memory);
     }
   } catch {
     // Storage can be unavailable; the registry then lasts until the app closes.
@@ -31,28 +79,53 @@ const read = (): Record<string, string> => {
   return memory;
 };
 
-const write = (next: Record<string, string>) => {
+const write = (next: Map<string, string>) => {
+  trimToLruLimit(next);
   memory = next;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: 2, entries: Array.from(next.entries()) }),
+    );
   } catch {
     // See read().
   }
 };
 
-/** Which chat is each page's assistant, keyed by pageAiKey. */
+/** Which chat is each page/artifact's assistant, keyed by pageAiKey / artifactAssistantThreadKey. */
 export const pageAssistantThreads = {
-  get: (pageKey: string): ThreadId | null => (read()[pageKey] as ThreadId | undefined) ?? null,
+  get: (pageKey: string): ThreadId | null => {
+    const current = read();
+    const existing = current.get(pageKey);
+    if (!existing) return null;
+    // Promote on access when not already MRU so hot artifacts survive LRU eviction.
+    let lastKey: string | undefined;
+    for (const key of current.keys()) lastKey = key;
+    if (lastKey !== pageKey) {
+      current.delete(pageKey);
+      current.set(pageKey, existing);
+      write(current);
+    }
+    return existing as ThreadId;
+  },
   set: (pageKey: string, threadId: ThreadId) => {
-    if (read()[pageKey] === threadId) return;
-    write({ ...read(), [pageKey]: threadId });
+    const current = read();
+    let lastKey: string | undefined;
+    for (const key of current.keys()) lastKey = key;
+    if (current.get(pageKey) === threadId && lastKey === pageKey) return;
+    current.delete(pageKey);
+    current.set(pageKey, threadId);
+    write(current);
   },
   forget: (pageKey: string, threadId?: ThreadId) => {
     const current = read();
-    if (!(pageKey in current) || (threadId && current[pageKey] !== threadId)) return;
-    const { [pageKey]: _removed, ...rest } = current;
-    write(rest);
+    const existing = current.get(pageKey);
+    if (!existing || (threadId && existing !== threadId)) return;
+    current.delete(pageKey);
+    write(current);
   },
+  /** Snapshot of all remembered bindings in LRU -> MRU order (primarily for diagnostics/tests). */
+  size: (): number => read().size,
   /** Test seam: drops the in-memory copy so the next read comes from storage. */
   resetForTests: () => {
     memory = null;

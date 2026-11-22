@@ -10,6 +10,16 @@ import { Effect, Schema } from "effect";
 
 import type { PageDraftsServiceShape } from "../pages/drafts/Services/PageDraftsService";
 import { PagesServiceError, type PagesServiceShape } from "../pages/Services/PagesService";
+import type { PageRealtimeServiceShape } from "../pages/realtime/PageRealtimeService";
+import {
+  APPLY_MODE_SCHEMA_PROPERTY,
+  COMPANION_CONTEXT_SCHEMA_PROPERTY,
+  TARGET_BLOCK_IDS_SCHEMA_PROPERTY,
+  applyDraftOpsToRichPage,
+  collectDraftOpBlockIds,
+  emitAgentPresence,
+  extractCompanionMeta,
+} from "./pageCompanionHelpers";
 import { parsePageRichContent } from "@moss/shared/pageRichContent";
 
 import { normalizePageDraftArgs } from "./pageDraftInput";
@@ -60,10 +70,12 @@ const decode = <S extends Schema.Top & { readonly DecodingServices: never }>(
 export function makePageDraftTools({
   drafts,
   pages,
+  realtime,
 }: {
   readonly drafts: PageDraftsServiceShape;
-  /** Fills a baseRevision the model left out with the page's current revision. */
+  /** Fills a baseRevision the model left out with the page's current revision, and enables live auto-apply. */
   readonly pages?: PagesServiceShape | undefined;
+  readonly realtime?: PageRealtimeServiceShape | undefined;
 }): ReadonlyArray<ToolEntry> {
   return [
     {
@@ -120,6 +132,9 @@ export function makePageDraftTools({
             },
             kind: { type: "string", enum: ["text", "image", "visualization"] },
             summary: { type: "string", maxLength: 500 },
+            applyMode: APPLY_MODE_SCHEMA_PROPERTY,
+            targetBlockIds: TARGET_BLOCK_IDS_SCHEMA_PROPERTY,
+            companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
             ops: {
               anyOf: [
                 {
@@ -162,7 +177,8 @@ export function makePageDraftTools({
       handler: (args, context) =>
         Effect.gen(function* () {
           yield* context.assertCallerTurnActive();
-          const normalized = normalizePageDraftArgs(args);
+          const meta = extractCompanionMeta(args);
+          const normalized = normalizePageDraftArgs(meta.cleanArgs);
           if ("hint" in normalized)
             return yield* Effect.fail(new ToolInputError(`${normalized.hint} ${RESEND_HINT}`));
           const fields = normalized.args;
@@ -171,6 +187,17 @@ export function makePageDraftTools({
             threadId: ThreadId.makeUnsafe(context.callerThreadId),
           };
           const ops = fields.ops as Record<string, unknown>[];
+          const opBlockIds = collectDraftOpBlockIds(ops, meta.blockIds);
+          emitAgentPresence(
+            realtime,
+            String(fields.pageId),
+            context.callerThreadId,
+            "thinking",
+            "Moss · 正在思考...",
+            opBlockIds,
+          );
+          const resolvedMode =
+            meta.applyMode ?? (meta.companionContext !== undefined && pages ? "auto" : "draft");
           if (ops.some((op) => op.kind === "replace-text")) {
             if (!pages)
               return yield* Effect.fail(
@@ -213,6 +240,88 @@ export function makePageDraftTools({
             PageDraftsMutateInput,
             { ...fields, op: "create" },
             RESEND_HINT,
+          );
+          if (resolvedMode === "auto" && input.op === "create") {
+            if (!pages) {
+              return yield* Effect.fail(
+                new ToolInputError("Live auto-apply requires PagesService; use applyMode='draft'."),
+              );
+            }
+            const current = yield* pages.read(
+              { scopeSpaceId: input.scopeSpaceId, pageId: input.pageId },
+              principal,
+            );
+            if (current.page.revision !== input.baseRevision) {
+              return yield* Effect.fail(
+                new PagesServiceError({
+                  code: "conflict",
+                  message: "Page changed since it was read; read it again and retry.",
+                  currentRevision: current.page.revision,
+                }),
+              );
+            }
+            const effectiveBlockIds = collectDraftOpBlockIds(
+              input.ops as unknown as Record<string, unknown>[],
+              opBlockIds,
+            );
+            emitAgentPresence(
+              realtime,
+              input.pageId,
+              context.callerThreadId,
+              "editing",
+              "Moss 正在修改...",
+              effectiveBlockIds,
+            );
+            const applied = yield* Effect.try({
+              try: () =>
+                applyDraftOpsToRichPage({
+                  ops: input.ops,
+                  currentRichContent: current.richContent ?? null,
+                  currentContent: current.content,
+                }),
+              catch: (cause) =>
+                new ToolInputError(cause instanceof Error ? cause.message : String(cause)),
+            });
+            const saved = yield* pages.mutate(
+              {
+                op: "update",
+                requestId: input.requestId,
+                scopeSpaceId: input.scopeSpaceId,
+                pageId: input.pageId,
+                expectedRevision: current.page.revision,
+                richContent: applied.richContent,
+                ...(applied.richContent === null ? { content: applied.content } : {}),
+              },
+              principal,
+            );
+            const doneBlockIds =
+              applied.touchedBlockIds.length > 0 ? applied.touchedBlockIds : effectiveBlockIds;
+            emitAgentPresence(
+              realtime,
+              input.pageId,
+              context.callerThreadId,
+              "done",
+              "Moss 已修改",
+              doneBlockIds,
+            );
+            return mcpToolResultJson({
+              status: "applied",
+              applyMode: "auto",
+              applied: true,
+              pageId: saved.page.id,
+              revision: saved.page.revision,
+              previousRevision: current.page.revision,
+              undoRevision: current.page.revision,
+              touchedBlockIds: doneBlockIds,
+            });
+          }
+          emitAgentPresence(
+            realtime,
+            input.pageId,
+            context.callerThreadId,
+            "editing",
+            "Moss 建议修改...",
+            opBlockIds,
           );
           const result = yield* drafts.mutate(input, principal);
           const trimmed =

@@ -164,6 +164,7 @@ import { PageAppPublicationOwner } from "./pages/sharing/PageAppPublicationOwner
 import { PageRealtimeService } from "./pages/realtime/PageRealtimeService";
 import { makePageRealtimeRouteLayer } from "./pages/realtime/pageRealtimeRoute";
 import { makeDesignRoomRouteLayer } from "./pages/designRoom/designRoomRoute";
+import { makeBoardRoomRouteLayer } from "./pages/boardRoom/boardRoomRoute";
 import { PageDraftsService } from "./pages/drafts/Services/PageDraftsService";
 import { isServerBetaFeatureEnabled } from "./betaFeatureGate";
 import { readInlineVisual } from "./inlineVisualStore";
@@ -6207,27 +6208,35 @@ const pageRealtimeRouteLayer = makePageRealtimeRouteLayer({
     }),
 });
 
+const authorizeRoomSocketUpgrade = (request: Parameters<typeof makeEffectAuthRequest>[0]) =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const serverAuth = yield* ServerAuth;
+    const url = trustedWebSocketRequestUrl(request, config);
+    if (url === null) return false;
+    return yield* authorizeDeviceFrameWebSocketUpgrade({
+      config,
+      legacyToken: url.searchParams.get("token"),
+      request: makeEffectAuthRequest(request),
+      serverAuth,
+    });
+  });
+
 /** 设计 rooms: everyone with a design open edits one live canvas (design ops + presence). */
 const designRoomRouteLayer = makeDesignRoomRouteLayer({
-  authorizeUpgrade: (request) =>
-    Effect.gen(function* () {
-      const config = yield* ServerConfig;
-      const serverAuth = yield* ServerAuth;
-      const url = trustedWebSocketRequestUrl(request, config);
-      if (url === null) return false;
-      return yield* authorizeDeviceFrameWebSocketUpgrade({
-        config,
-        legacyToken: url.searchParams.get("token"),
-        request: makeEffectAuthRequest(request),
-        serverAuth,
-      });
-    }),
+  authorizeUpgrade: authorizeRoomSocketUpgrade,
+});
+
+/** 白板 rooms: live room for presence, ops relay, and revision-safe saves. */
+const boardRoomRouteLayer = makeBoardRoomRouteLayer({
+  authorizeUpgrade: authorizeRoomSocketUpgrade,
 });
 
 export const websocketRpcRouteLayer = Layer.mergeAll(
   deviceFrameRouteLayer,
   pageRealtimeRouteLayer,
   designRoomRouteLayer,
+  boardRoomRouteLayer,
   computerFrameRouteLayer,
   serverBrowserStreamRouteLayer,
   makeWebsocketNegotiationRouteLayer(),

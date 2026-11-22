@@ -8,8 +8,13 @@ import {
   PageRichEditorChannel,
   type PageEditorHeaderEvent,
   type PageRichEditorHeader,
+  type PageRichEditorHostChrome,
   type PageRichEditorValue,
 } from "~/lib/pageRichEditorChannel";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+} from "./space/spaceCanvasDockContract";
 import {
   localDeviceLabel,
   localPresenceColor,
@@ -76,6 +81,26 @@ export function MossPageRichEditor(props: {
   onSuggestingChange?: (on: boolean) => void;
   /** Whether the loaded editor draws the header, so the page does not draw a second one. */
   onHeaderSupportChange?: (supported: boolean) => void;
+  /** Host-shell coordination for hiding duplicate bars and clearing floating docks. */
+  hostChrome?: PageRichEditorHostChrome;
+  /** Overlay insets from Space Dock when hostChrome omits explicit numbers. */
+  hostInsets?: SpaceCanvasHostInsets;
+  /** Unified Space Dock controller (optional fallback when onAskDock is omitted). */
+  dock?: SpaceCanvasDockController | null;
+  /** Routes inline / floating toolbar "问 Moss" requests into Space Dock. */
+  onAskDock?: (request: {
+    prompt?: string;
+    anchorBlockId?: string | null;
+    quote?: string | null;
+  }) => void;
+  /** Scrolls the iframe editor to a heading chosen in PageNavigationPanel. */
+  scrollToHeadingRequest?: {
+    line?: number;
+    level?: number;
+    text: string;
+    index?: number;
+    seq: number;
+  } | null;
 }) {
   const { resolvedTheme } = useTheme();
   const { settings } = useAppSettings();
@@ -221,6 +246,47 @@ export function MossPageRichEditor(props: {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== origin) return;
+      const packet = event.data as Record<string, unknown> | null;
+      if (
+        packet &&
+        typeof packet === "object" &&
+        packet.type === "moss-page-editor" &&
+        packet.version === 1 &&
+        packet.sessionNonce === nonce &&
+        packet.event === "ask-dock"
+      ) {
+        const current = latest.current;
+        const dockController =
+          current.dock ??
+          (current.ai as { dock?: SpaceCanvasDockController | null } | null)?.dock ??
+          null;
+        const prompt = typeof packet.prompt === "string" ? packet.prompt : undefined;
+        const anchorBlockId =
+          typeof packet.anchorBlockId === "string" ? packet.anchorBlockId : null;
+        const quote = typeof packet.quote === "string" ? packet.quote : null;
+        if (current.onAskDock) {
+          current.onAskDock({
+            ...(prompt !== undefined ? { prompt } : {}),
+            ...(packet.anchorBlockId !== undefined ? { anchorBlockId } : {}),
+            ...(packet.quote !== undefined ? { quote } : {}),
+          });
+          return;
+        }
+        if (dockController) {
+          void dockController.ask({
+            ...(prompt ? { prompt } : {}),
+            origin: "selection-bar",
+            selection: {
+              kind: "page",
+              itemId: current.documentKey,
+              title: current.header?.title || "文档",
+              anchorBlockId,
+              quote,
+            },
+          });
+          return;
+        }
+      }
       channel.receive(event.data);
     };
     window.addEventListener("message", handler);
@@ -228,16 +294,33 @@ export function MossPageRichEditor(props: {
       window.removeEventListener("message", handler);
       channel.reset();
     };
-  }, [channel, origin]);
+  }, [channel, origin, nonce]);
+  const effectiveHostChrome = useCallback((): PageRichEditorHostChrome | undefined => {
+    const current = latest.current;
+    if (!current.hostChrome && !current.hostInsets) return undefined;
+    return {
+      ...(current.hostChrome ?? {}),
+      ...(current.hostChrome?.bottomInsetPx === undefined &&
+      current.hostInsets?.bottomInsetPx !== undefined
+        ? { bottomInsetPx: current.hostInsets.bottomInsetPx }
+        : {}),
+      ...(current.hostChrome?.rightInsetPx === undefined &&
+      current.hostInsets?.rightInsetPx !== undefined
+        ? { rightInsetPx: current.hostInsets.rightInsetPx }
+        : {}),
+    };
+  }, []);
   const loadDocument = (collab?: { generation: string | null; mode: "edit" | "view" }) => {
     const current = latest.current;
     const target = current.realtime;
+    const hostChrome = effectiveHostChrome();
     channel.load({
       documentKey: current.documentKey,
       content: current.content,
       richContent: current.richContent,
       readOnly: current.readOnly || collab?.mode === "view",
       ...presentation.current,
+      ...(hostChrome ? { hostChrome } : {}),
       ...(collab && target
         ? {
             collab: {
@@ -255,6 +338,29 @@ export function MossPageRichEditor(props: {
     if (live.current.loaded) return;
     loadDocument();
   }, [channel, props.documentKey, props.valueVersion]);
+  const hideTopBar = props.hostChrome?.hideTopBar;
+  const bottomInsetPx = props.hostChrome?.bottomInsetPx ?? props.hostInsets?.bottomInsetPx;
+  const rightInsetPx = props.hostChrome?.rightInsetPx ?? props.hostInsets?.rightInsetPx;
+  useEffect(() => {
+    if (hideTopBar === undefined && bottomInsetPx === undefined && rightInsetPx === undefined) {
+      return;
+    }
+    channel.setHostChrome({
+      ...(hideTopBar !== undefined ? { hideTopBar } : {}),
+      ...(bottomInsetPx !== undefined ? { bottomInsetPx } : {}),
+      ...(rightInsetPx !== undefined ? { rightInsetPx } : {}),
+    });
+  }, [channel, hideTopBar, bottomInsetPx, rightInsetPx]);
+  const scrollSeq = props.scrollToHeadingRequest?.seq ?? 0;
+  useEffect(() => {
+    const req = latest.current.scrollToHeadingRequest;
+    if (!req || !ready) return;
+    channel.scrollToHeading({
+      text: req.text,
+      ...(req.level !== undefined ? { level: req.level } : {}),
+      ...(req.index !== undefined ? { index: req.index } : {}),
+    });
+  }, [channel, ready, scrollSeq]);
   const pageId = props.realtime?.pageId ?? null;
   const scopeSpaceId = props.realtime?.scopeSpaceId ?? null;
   useEffect(() => {

@@ -96,10 +96,11 @@ it.effect("appends upstream cursor invalidation without reusing Moss migration 9
       165,
       "PageRoomPrivateStores",
     ]);
-    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [
+    assert.deepStrictEqual(migrationEntries.find(([id]) => id === 170)?.slice(0, 2), [
       170,
       "ProjectionThreadsPullRequestLinks",
     ]);
+    assert.deepStrictEqual(migrationEntries.at(-1)?.slice(0, 2), [171, "PageAssistantThread"]);
     assert.equal(new Set(migrationEntries.map(([id]) => id)).size, migrationEntries.length);
   }),
 );

@@ -232,6 +232,7 @@ import Migration0167 from "./Migrations/167_UsageAnalyticsDeletedTokens.ts";
 import Migration0168 from "./Migrations/168_PageItemKindsOpen.ts";
 import Migration0169 from "./Migrations/169_PageDocStyleAndTextComments.ts";
 import Migration0170 from "./Migrations/170_ProjectionThreadsPullRequestLinks.ts";
+import Migration0171 from "./Migrations/171_PageAssistantThread.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -416,6 +417,7 @@ export const migrationEntries = [
   [168, "PageItemKindsOpen", Migration0168],
   [169, "PageDocStyleAndTextComments", Migration0169],
   [170, "ProjectionThreadsPullRequestLinks", Migration0170],
+  [171, "PageAssistantThread", Migration0171],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -473,6 +475,7 @@ export const MIGRATIONS_OLDER_READERS_MAY_IGNORE: ReadonlyArray<readonly [number
   // optional field older decoders drop. After a downgrade the newer build takes a
   // `lastKnownPr` the older build changed (see `resolveStoredPullRequestLinks`).
   [170, "ProjectionThreadsPullRequestLinks"],
+  [171, "PageAssistantThread"],
 ];
 
 /**

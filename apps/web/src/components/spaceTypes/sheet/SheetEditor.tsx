@@ -84,6 +84,11 @@ import {
 import { cn } from "~/lib/utils";
 import { usePageComments } from "~/pageCommentsStore";
 import { ENGINE_DEFAULT_INK } from "~/theme/sheetPalette";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+  SpaceCanvasSelectionContext,
+} from "../../space/spaceCanvasDockContract";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "../../chat/chatHeaderControls";
 import {
   ComposerPickerMenuPopup,
@@ -372,6 +377,27 @@ export function SheetEditor(props: {
   viewerKey?: string | null;
   /** Opens one cell's edit history beside the grid. */
   onCellHistory?: ((target: CellHistoryTarget) => void) | null;
+  /** Unified 3-state canvas dock attached by Space host (null/absent standalone). */
+  dock?: SpaceCanvasDockController | null;
+  hostInsets?: SpaceCanvasHostInsets;
+  hostChrome?: {
+    readonly hideTopBar?: boolean;
+    readonly bottomInsetPx?: number;
+    readonly rightInsetPx?: number;
+  };
+  onHostActionsChange?: (actions: ReactNode | null) => void;
+  onAskDock?: (context: {
+    sheetName: string;
+    range: string | null;
+    activeCell: string | null;
+  }) => void;
+  onSelectionReport?: (context: {
+    sheetName: string;
+    range: string | null;
+    activeCell: string | null;
+  }) => void;
+  loading?: boolean;
+  mossWorkingLabel?: string | null;
 }) {
   const readOnly = props.readOnly ?? false;
   const engine = useRef<EngineApi | null>(null);
@@ -1418,6 +1444,45 @@ export function SheetEditor(props: {
       ),
     );
 
+  const [dockInsets, setDockInsets] = useState<SpaceCanvasHostInsets | null>(null);
+  const dockRegisterInsets = props.dock?.registerHostInsets;
+  useEffect(() => {
+    if (!dockRegisterInsets) {
+      setDockInsets(null);
+      return;
+    }
+    return dockRegisterInsets((next) => setDockInsets(next));
+  }, [dockRegisterInsets]);
+
+  const currentRangeLabel = selection ? formatSheetRange(toRange(selection)) : null;
+  const currentActiveCellLabel = selection ? cellAddress(selection.row, selection.col) : null;
+  const onSelectionReport = props.onSelectionReport;
+  const directDock = props.dock ?? null;
+  useEffect(() => {
+    onSelectionReport?.({
+      sheetName: activeSheet.name,
+      range: currentRangeLabel,
+      activeCell: currentActiveCellLabel,
+    });
+    if (!onSelectionReport && directDock) {
+      directDock.setSelection({
+        kind: "sheet",
+        itemId: props.viewerKey ?? props.title,
+        title: props.title,
+        sheetName: activeSheet.name,
+        range: currentRangeLabel ?? currentActiveCellLabel,
+      });
+    }
+  }, [
+    activeSheet.name,
+    currentActiveCellLabel,
+    currentRangeLabel,
+    directDock,
+    onSelectionReport,
+    props.title,
+    props.viewerKey,
+  ]);
+
   const toolState: SheetToolState = {
     bold: !!activeCell?.s?.bold,
     italic: !!activeCell?.s?.italic,
@@ -1450,7 +1515,16 @@ export function SheetEditor(props: {
         | undefined
     )?.filter_select,
     mossLabel: props.moss?.label ?? null,
-    mossBusy: props.moss?.busy ?? false,
+    mossBusy: (props.moss?.busy ?? false) || Boolean(props.dock?.busy),
+    dockAvailable: Boolean(props.onAskDock || props.dock),
+    commentAvailable: commentsOn && !readOnly,
+    commentActive: commenting,
+    commentCount: commentThreads.size,
+    bottomOffsetPx:
+      props.hostChrome?.bottomInsetPx ??
+      props.hostInsets?.bottomInsetPx ??
+      dockInsets?.bottomInsetPx ??
+      0,
   };
 
   const toolActions: SheetToolActions = {
@@ -1777,6 +1851,38 @@ export function SheetEditor(props: {
       setGeometry((n) => n + 1);
     },
     askMoss: (text) => ask("change", text),
+    onToggleComments: () => {
+      setCommenting((on) => !on);
+      setCommentOpen(null);
+    },
+    onAskDock: () => {
+      const ctx = {
+        sheetName: activeSheet.name,
+        range: currentRangeLabel,
+        activeCell: currentActiveCellLabel,
+      };
+      if (props.onAskDock) {
+        props.onAskDock(ctx);
+        return;
+      }
+      if (props.dock) {
+        const sel: SpaceCanvasSelectionContext = {
+          kind: "sheet",
+          itemId: props.viewerKey ?? props.title,
+          title: props.title,
+          sheetName: ctx.sheetName,
+          range: ctx.range ?? ctx.activeCell,
+        };
+        props.dock.setSelection(sel);
+        void props.dock.ask({
+          prefillOnly: true,
+          preferredState: props.dock.state === "collapsed" ? "pip" : props.dock.state,
+          selection: sel,
+          keepItemOpen: true,
+          origin: "bottom-pill",
+        });
+      }
+    },
   };
   const actions = Object.fromEntries(
     Object.entries(toolActions).map(([name, run]) => [
@@ -2197,6 +2303,65 @@ export function SheetEditor(props: {
       )
     : undefined;
 
+  const exportAsRef = useRef(exportAs);
+  exportAsRef.current = exportAs;
+
+  const fileMenuElement = useMemo(
+    () => (
+      <Menu>
+        <MenuTrigger
+          render={
+            <IconButton
+              size="icon-xs"
+              variant="chrome"
+              label="导入和下载"
+              tooltip="导入和下载"
+              tooltipSide="bottom"
+              className={cn(DOCK_HEADER_ICON_BUTTON_CLASS, "text-muted-foreground")}
+            >
+              <EllipsisIcon className="size-4" aria-hidden />
+            </IconButton>
+          }
+          data-testid="sheet-file-menu"
+        />
+        <ComposerPickerMenuPopup align="end" className="w-56">
+          {readOnly ? null : (
+            <>
+              <MenuItem onClick={() => fileInput.current?.click()}>
+                <FileAddIcon aria-hidden /> 导入 CSV 或 Excel…
+              </MenuItem>
+              <MenuSeparator />
+            </>
+          )}
+          <MenuGroupLabel>下载</MenuGroupLabel>
+          <MenuItem onClick={() => void exportAsRef.current("xlsx")}>
+            <DownloadIcon aria-hidden /> Excel 工作簿（.xlsx）
+          </MenuItem>
+          <MenuItem onClick={() => void exportAsRef.current("csv")}>
+            <DownloadIcon aria-hidden /> 当前工作表（.csv）
+          </MenuItem>
+        </ComposerPickerMenuPopup>
+      </Menu>
+    ),
+    [readOnly],
+  );
+
+  const onHostActionsChange = props.onHostActionsChange;
+  const hostActionsElement = useMemo(() => {
+    if (!onHostActionsChange) return null;
+    return <>{fileMenuElement}</>;
+  }, [fileMenuElement, onHostActionsChange]);
+
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    onHostActionsChange(hostActionsElement);
+  }, [hostActionsElement, onHostActionsChange]);
+
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    return () => onHostActionsChange(null);
+  }, [onHostActionsChange]);
+
   const viewTools = (
     <div className="flex shrink-0 items-center gap-1 pr-2" data-sheet-view-tools>
       {errorText && !readOnly ? (
@@ -2209,7 +2374,7 @@ export function SheetEditor(props: {
             <Button
               size="xs"
               variant="ghost"
-              disabled={props.moss.busy}
+              disabled={toolState.mossBusy}
               onClick={() => ask("fix", "修复这些单元格里的错误。")}
             >
               <SparklesIcon /> 让 Moss 修复
@@ -2217,7 +2382,7 @@ export function SheetEditor(props: {
           ) : null}
         </span>
       ) : null}
-      {commentsOn ? (
+      {commentsOn && readOnly ? (
         <Button
           size="xs"
           variant="ghost"
@@ -2335,40 +2500,7 @@ export function SheetEditor(props: {
           <HistoryIcon className="size-4" aria-hidden />
         </IconButton>
       ) : null}
-      <Menu>
-        <MenuTrigger
-          render={
-            <IconButton
-              size="icon-xs"
-              variant="chrome"
-              label="导入和下载"
-              tooltip="导入和下载"
-              tooltipSide="bottom"
-              className={cn(DOCK_HEADER_ICON_BUTTON_CLASS, "text-muted-foreground")}
-            >
-              <EllipsisIcon className="size-4" aria-hidden />
-            </IconButton>
-          }
-          data-testid="sheet-file-menu"
-        />
-        <ComposerPickerMenuPopup align="end" className="w-56">
-          {readOnly ? null : (
-            <>
-              <MenuItem onClick={() => fileInput.current?.click()}>
-                <FileAddIcon aria-hidden /> 导入 CSV 或 Excel…
-              </MenuItem>
-              <MenuSeparator />
-            </>
-          )}
-          <MenuGroupLabel>下载</MenuGroupLabel>
-          <MenuItem onClick={() => void exportAs("xlsx")}>
-            <DownloadIcon aria-hidden /> Excel 工作簿（.xlsx）
-          </MenuItem>
-          <MenuItem onClick={() => void exportAs("csv")}>
-            <DownloadIcon aria-hidden /> 当前工作表（.csv）
-          </MenuItem>
-        </ComposerPickerMenuPopup>
-      </Menu>
+      {!onHostActionsChange ? fileMenuElement : null}
     </div>
   );
 
@@ -2662,6 +2794,57 @@ export function SheetEditor(props: {
                 />
               );
             })()}
+            {toolState.mossBusy
+              ? (() => {
+                  const topBox = selection ? cellBox(selection.r0, selection.c0) : cellBox(0, 0);
+                  const bottomBox = selection ? cellBox(selection.r1, selection.c1) : topBox;
+                  const box =
+                    topBox && bottomBox
+                      ? {
+                          left: topBox.left,
+                          top: topBox.top,
+                          width: Math.max(88, bottomBox.left + bottomBox.width - topBox.left),
+                          height: Math.max(24, bottomBox.top + bottomBox.height - topBox.top),
+                        }
+                      : { left: 56, top: 28, width: 160, height: 48 };
+                  const badgeInside = box.top < 28;
+                  return (
+                    <div
+                      aria-live="polite"
+                      data-testid="sheet-moss-presence"
+                      className="pointer-events-none absolute rounded-inline border-2 border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_10%,transparent)] motion-safe:animate-pulse"
+                      style={box}
+                    >
+                      <span
+                        className={cn(
+                          "absolute left-0 inline-flex items-center gap-1 whitespace-nowrap rounded-inline bg-[var(--primary)] px-1.5 py-0.5 text-ui-xs font-medium text-[var(--primary-foreground)] shadow-sm",
+                          badgeInside ? "top-1 left-1" : "-top-6",
+                        )}
+                      >
+                        <SparklesIcon className="size-3" aria-hidden />
+                        <span>{props.mossWorkingLabel ?? "Moss · 正在思考..."}</span>
+                      </span>
+                    </div>
+                  );
+                })()
+              : null}
+            {props.loading || busy === "正在导入…" ? (
+              <div
+                aria-label="表格载入中"
+                data-testid="sheet-shimmer"
+                className="pointer-events-none absolute inset-0 grid grid-cols-6 gap-px bg-background/90 p-3 backdrop-blur-[1px]"
+              >
+                {Array.from({ length: 48 }, (_, index) => (
+                  <div
+                    key={index}
+                    className={cn(
+                      "h-6 rounded-inline border border-border/40 bg-muted/60 motion-safe:animate-pulse",
+                      index < 6 && "bg-muted",
+                    )}
+                  />
+                ))}
+              </div>
+            ) : null}
             <SheetGroupMarks
               rowGroups={sheetLayers.rowGroups ?? []}
               columnGroups={sheetLayers.columnGroups ?? []}

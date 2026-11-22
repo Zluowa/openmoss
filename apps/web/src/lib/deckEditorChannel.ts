@@ -9,6 +9,12 @@ import { parseSlidesDeck, type SlidesDeck } from "@moss/shared/spaceItems/slides
 
 type Message = Record<string, unknown>;
 
+export interface DeckEditorHostChrome {
+  hideTopBar?: boolean;
+  bottomInsetPx?: number;
+  rightInsetPx?: number;
+}
+
 export interface DeckEditorDocument {
   documentKey: string;
   deck: SlidesDeck;
@@ -18,6 +24,8 @@ export interface DeckEditorDocument {
   startSlideId?: string;
   theme: "light" | "dark";
   locale: "zh-CN" | "en";
+  /** Optional host-shell coordination for hiding duplicate bars or clearing floating docks. */
+  hostChrome?: DeckEditorHostChrome;
 }
 
 export interface DeckTarget {
@@ -136,6 +144,12 @@ export type DeckEditorEvent =
   | { event: "thumbnail"; slideId: string; png: string }
   | { event: "view-context"; context: DeckViewContext }
   | { event: "stop-ai"; requestId: string | null }
+  | {
+      event: "ask-dock";
+      prompt?: string;
+      target?: DeckTarget;
+      mode?: "ask" | "change";
+    }
   | { event: "error"; message: string };
 
 const short = (value: unknown, max: number): value is string =>
@@ -345,6 +359,18 @@ export function parseDeckEditorEvent(value: Message): DeckEditorEvent | null {
     case "stop-ai":
     case "cancel-ai":
       return { event: "stop-ai", requestId: short(value.requestId, 128) ? value.requestId : null };
+    case "ask-dock": {
+      const t = value.target === undefined ? undefined : target(value.target);
+      if (value.target !== undefined && !t) return null;
+      return value.prompt === undefined || short(value.prompt, 20_000)
+        ? {
+            event: "ask-dock",
+            ...(typeof value.prompt === "string" ? { prompt: value.prompt } : {}),
+            ...(t ? { target: t } : {}),
+            ...(value.mode === "ask" || value.mode === "change" ? { mode: value.mode } : {}),
+          }
+        : null;
+    }
     case "error":
       return {
         event: "error",
@@ -415,6 +441,10 @@ export class DeckEditorChannel {
   setPresentation = (theme: "light" | "dark") => {
     if (this.document) this.document = { ...this.document, theme };
     if (this.ready && !this.disposed) this.post("set-presentation", { theme });
+  };
+  setHostChrome = (hostChrome: DeckEditorHostChrome) => {
+    if (this.document) this.document = { ...this.document, hostChrome };
+    if (this.ready && !this.disposed) this.post("set-host-chrome", { hostChrome });
   };
   setAiContext = (context: DeckEditorAiContext) => {
     this.aiContext = context;

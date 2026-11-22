@@ -5,13 +5,25 @@
 // It has no published capability consent; the preview never calls an owner broker.
 
 import { parseAppItem } from "@moss/shared/spaceItems/itemData";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+  SpaceCanvasSelectionContext,
+} from "../../space/spaceCanvasDockContract";
 import { ReadonlyAppItemFrame } from "./ReadonlyAppItemFrame";
 import { readonlyAppItemCopy } from "./readonlyAppItemCopy";
 
-import { DashboardLayoutIcon } from "~/lib/icons";
+import { DashboardLayoutIcon, SparklesIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
+import { Button } from "../../ui/button";
+
+export interface AppItemHostChrome {
+  hideTopBar?: boolean;
+  bottomInsetPx?: number;
+  rightInsetPx?: number;
+}
 
 export function AppItemView(props: {
   pageId: string;
@@ -19,9 +31,14 @@ export function AppItemView(props: {
   dataRevision: number | null;
   title: string;
   data: string;
+  dock?: SpaceCanvasDockController | null;
+  hostInsets?: SpaceCanvasHostInsets;
+  hostChrome?: AppItemHostChrome;
+  onHostActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const { locale } = useTranslation();
   const copy = readonlyAppItemCopy(locale);
+  const { onHostActionsChange, dock } = props;
   const app = useMemo(() => {
     try {
       return parseAppItem(props.data);
@@ -29,6 +46,70 @@ export function AppItemView(props: {
       return null;
     }
   }, [props.data]);
+
+  const dockSetSelection = dock?.setSelection;
+  useEffect(() => {
+    if (!dockSetSelection || !app) return;
+    const selection: SpaceCanvasSelectionContext = {
+      kind: "app",
+      itemId: props.pageId,
+      title: props.title || copy.title,
+    };
+    dockSetSelection(selection);
+  }, [app, copy.title, dockSetSelection, props.pageId, props.title]);
+
+  const capabilitySummary = useMemo(
+    () =>
+      app?.capabilities.length
+        ? app.capabilities
+            .map((name) => copy.capability[name])
+            .join(locale === "zh-CN" ? "、" : ", ")
+        : "",
+    [app, copy.capability, locale],
+  );
+
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    if (!app || props.dataRevision === null) {
+      onHostActionsChange(null);
+      return;
+    }
+    onHostActionsChange(
+      <div
+        className="flex items-center gap-1.5 text-ui-xs text-muted-foreground"
+        data-app-host-status
+      >
+        <DashboardLayoutIcon className="size-3.5" aria-hidden />
+        <span>{copy.title}</span>
+        {capabilitySummary ? (
+          <span className="max-w-44 truncate">
+            · {copy.unavailable}: {capabilitySummary}
+          </span>
+        ) : null}
+        <span>· {copy.limit}</span>
+      </div>,
+    );
+    return () => onHostActionsChange(null);
+  }, [
+    app,
+    capabilitySummary,
+    copy.limit,
+    copy.title,
+    copy.unavailable,
+    onHostActionsChange,
+    props.dataRevision,
+  ]);
+
+  const [dockInsets, setDockInsets] = useState<SpaceCanvasHostInsets | null>(null);
+  const dockRegisterInsets = dock?.registerHostInsets;
+  useEffect(() => {
+    if (!dockRegisterInsets) {
+      setDockInsets(null);
+      return;
+    }
+    return dockRegisterInsets((next) => setDockInsets(next));
+  }, [dockRegisterInsets]);
+
   if (!app || props.dataRevision === null) {
     return (
       <p role="alert" className="p-8 text-destructive">
@@ -36,21 +117,32 @@ export function AppItemView(props: {
       </p>
     );
   }
+
+  const bottomInsetPx =
+    props.hostChrome?.bottomInsetPx ??
+    props.hostInsets?.bottomInsetPx ??
+    dockInsets?.bottomInsetPx ??
+    0;
+
+  const askDockFromPill = () => {
+    if (!dock) return;
+    const selection: SpaceCanvasSelectionContext = {
+      kind: "app",
+      itemId: props.pageId,
+      title: props.title || copy.title,
+    };
+    dock.setSelection(selection);
+    void dock.ask({
+      prefillOnly: true,
+      preferredState: dock.state === "collapsed" ? "pip" : dock.state,
+      selection,
+      keepItemOpen: true,
+      origin: "bottom-pill",
+    });
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col" data-app-item>
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-4 text-ui-sm text-muted-foreground">
-        <DashboardLayoutIcon className="size-4" aria-hidden />
-        <span>{copy.title}</span>
-        {app.capabilities.length ? (
-          <span className="truncate">
-            · {copy.unavailable}:{" "}
-            {app.capabilities
-              .map((name) => copy.capability[name])
-              .join(locale === "zh-CN" ? "、" : ", ")}
-          </span>
-        ) : null}
-        <span className="ml-auto text-ui-xs">{copy.limit}</span>
-      </div>
+    <div className="relative flex min-h-0 flex-1 flex-col" data-app-item>
       <div className="min-h-0 flex-1">
         <ReadonlyAppItemFrame
           context={{
@@ -68,6 +160,31 @@ export function AppItemView(props: {
           }}
         />
       </div>
+      {dock ? (
+        <div
+          className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-3"
+          style={{ bottom: Math.max(12, bottomInsetPx + 12) }}
+          data-app-floating-pill
+        >
+          <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-1 shadow-md backdrop-blur-sm">
+            {capabilitySummary ? (
+              <span className="max-w-48 truncate px-1.5 text-ui-xs text-muted-foreground">
+                {copy.limit}
+              </span>
+            ) : null}
+            <Button
+              size="xs"
+              variant="ghost"
+              className="gap-1 rounded-full px-2.5 text-ui-sm font-medium"
+              data-testid="app-ask-moss"
+              onClick={askDockFromPill}
+            >
+              <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+              <span>{locale.startsWith("zh") ? "问 Moss" : "Ask Moss"}</span>
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

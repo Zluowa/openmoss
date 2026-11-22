@@ -1,13 +1,34 @@
 // FILE: SpaceHome.tsx
-// Purpose: The 资料空间's item views: 全部 (tabs 推荐 / 收藏 / 你的条目 / 与你共享, search,
-//          kind filter, masonry grid or list), one item family (页面, 幻灯片…) and one
-//          资料空间's pages.
+// Purpose: The 资料空间's item views: 全部 (tabs 全部 / 你的条目 / 与你共享, pastel 新建 tiles,
+//          dismissible 快速开始 template strip, search, kind/owner/sort filter, 3-col grid or
+//          list), one item family (页面, 幻灯片…) and one 资料空间's pages.
 // Layer: Space UI
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { PageTypedItem, SpaceId, SpaceTemplateKind } from "@moss/contracts";
+import {
+  BUILT_IN_TEMPLATES,
+  type SpaceTemplateDefinition,
+} from "@moss/shared/spaceItems/templates";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
-import { CheckIcon, FilterIcon, LayoutGridIcon, ListBulletsIcon } from "~/lib/icons";
+import {
+  AddPlusIcon,
+  CheckIcon,
+  DataDashboardIcon,
+  FilterIcon,
+  LayoutGridIcon,
+  ListBulletsIcon,
+  PageTextIcon,
+  PaletteIcon,
+  SlidesIcon,
+  SparklesIcon,
+  TableIcon,
+  WhiteboardIcon,
+  XIcon,
+  type LucideIcon,
+} from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { ensureNativeApi } from "~/nativeApi";
 import {
   PAGE_TITLE_CLASS_NAME,
   TAB_IDLE_SURFACE_CLASS_NAME,
@@ -15,28 +36,156 @@ import {
 } from "~/surfaceStyles";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
+import { createSpaceItem } from "../spaceTypes/spaceItemTypes";
+import {
+  dispatchSpaceTemplateLaunch,
+  getTemplateLaunchMetadata,
+  type SpaceTemplateLaunchMetadata,
+} from "../spaceTypes/templates/TemplatePickerDialog";
+import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
+import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SearchInput } from "../ui/search-input";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
 import { SpaceItemCard, SpaceListHeader, type SpaceItemActions } from "./SpaceItemCard";
 import {
+  getSpaceDashboardRegistryVersion,
+  getSyncedSpaceHomeKind,
   itemsForSection,
+  pageItem,
+  setSyncedSpaceHomeKind,
   SPACE_KIND_FILTERS,
   SPACE_TABS,
+  subscribeSpaceDashboardRegistry,
+  subscribeSyncedSpaceHomeKind,
   type SpaceItem,
   type SpaceKindFilter,
+  type SpaceOwnerFilter,
   type SpaceSection,
+  type SpaceSortOrder,
   type SpaceTab,
 } from "./spaceItems";
+import { spaceKindMeta } from "./spaceKinds";
 
 const VIEW_STORAGE_KEY = "moss:space:view";
+const HIDE_CREATE_TILES_KEY = "moss:space:hide-create-tiles";
+const HIDE_QUICK_START_KEY = "moss:space:hide-quick-start";
+
+const OWNER_FILTERS: ReadonlyArray<{ id: SpaceOwnerFilter; label: string }> = [
+  { id: "any", label: "全部来源" },
+  { id: "mine", label: "由我新建" },
+  { id: "agent", label: "对话协作生成" },
+];
+
+const SORT_OPTIONS: ReadonlyArray<{ id: SpaceSortOrder; label: string }> = [
+  { id: "updated", label: "最近更新" },
+  { id: "created", label: "最近创建" },
+  { id: "title", label: "标题排序" },
+];
+
+interface CreationTile {
+  readonly action: SpaceCreateAction;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly hue: string;
+  readonly beta?: boolean;
+}
+
+const CREATION_TILES: ReadonlyArray<CreationTile> = [
+  {
+    action: "page",
+    label: "文档",
+    icon: PageTextIcon,
+    hue: "var(--color-accent-blue)",
+  },
+  {
+    action: "slides",
+    label: "幻灯片",
+    icon: SlidesIcon,
+    hue: "var(--color-accent-yellow)",
+  },
+  {
+    action: "sheet",
+    label: "电子表格",
+    icon: TableIcon,
+    hue: "var(--color-accent-green)",
+    beta: true,
+  },
+  {
+    action: "design",
+    label: "设计",
+    icon: PaletteIcon,
+    hue: "var(--color-accent-purple)",
+  },
+  {
+    action: "dashboard",
+    label: "数据看板",
+    icon: DataDashboardIcon,
+    hue: "var(--color-accent-red)",
+  },
+  {
+    action: "board",
+    label: "白板",
+    icon: WhiteboardIcon,
+    hue: "color-mix(in srgb, var(--color-accent-red) 58%, var(--color-accent-yellow))",
+    beta: true,
+  },
+];
+
+function pickQuickStartTemplates(): readonly SpaceTemplateDefinition[] {
+  const findByIdOrKind = (preferredId: string, kind: SpaceTemplateKind) =>
+    BUILT_IN_TEMPLATES.find((entry) => entry.id === preferredId) ??
+    BUILT_IN_TEMPLATES.find((entry) => entry.kind === kind);
+  return [
+    findByIdOrKind("builtin:meeting-notes", "page"),
+    findByIdOrKind("builtin:weekly-report-deck", "slides"),
+    findByIdOrKind("builtin:budget-sheet", "sheet"),
+  ].filter((entry): entry is SpaceTemplateDefinition => entry !== undefined);
+}
+
+const QUICK_START_TEMPLATES = pickQuickStartTemplates();
 
 function readStoredView(): "grid" | "list" {
   try {
     return window.localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "grid";
   } catch {
     return "grid";
+  }
+}
+
+function readStoredFlag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredFlag(key: string, value: boolean): void {
+  try {
+    if (value) window.localStorage.setItem(key, "1");
+    else window.localStorage.removeItem(key);
+  } catch {
+    // Storage convenience; state still updates cleanly in memory.
+  }
+}
+
+function filterEmptyCreateAction(
+  kind: SpaceKindFilter,
+  fallback: SpaceCreateAction,
+): SpaceCreateAction {
+  switch (kind) {
+    case "page":
+    case "slides":
+    case "sheet":
+    case "design":
+    case "dashboard":
+    case "board":
+    case "app":
+    case "image":
+      return kind;
+    default:
+      return fallback;
   }
 }
 
@@ -55,17 +204,34 @@ export function SpaceHome(
     placeOf: (item: SpaceItem) => string;
     /** The create action the empty state offers for this view. */
     emptyCreate: SpaceCreateAction;
+    scopeSpaceId?: SpaceId | null;
+    onLaunchTemplate?: (payload: {
+      item: PageTypedItem;
+      launch: SpaceTemplateLaunchMetadata;
+    }) => void;
+    onBrowseTemplates?: () => void;
   },
 ) {
-  const [tab, setTab] = useState<SpaceTab>("recommended");
-  const [kind, setKind] = useState<SpaceKindFilter>("any");
+  const [tab, setTab] = useState<SpaceTab>("all");
+  const kind = useSyncExternalStore(subscribeSyncedSpaceHomeKind, getSyncedSpaceHomeKind);
+  useSyncExternalStore(subscribeSpaceDashboardRegistry, getSpaceDashboardRegistryVersion);
+  const [owner, setOwner] = useState<SpaceOwnerFilter>("any");
+  const [sort, setSort] = useState<SpaceSortOrder>("updated");
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">(readStoredView);
+  const [hideCreateTiles, setHideCreateTiles] = useState(() =>
+    readStoredFlag(HIDE_CREATE_TILES_KEY),
+  );
+  const [hideQuickStart, setHideQuickStart] = useState(() => readStoredFlag(HIDE_QUICK_START_KEY));
+  const [launchingTemplateId, setLaunchingTemplateId] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
   const changeView = (next: "grid" | "list") => {
     setView(next);
     try {
@@ -74,26 +240,80 @@ export function SpaceHome(
       // A remembered view is a convenience; the toggle still works without storage.
     }
   };
+
+  const dismissCreateTiles = (hidden: boolean) => {
+    setHideCreateTiles(hidden);
+    writeStoredFlag(HIDE_CREATE_TILES_KEY, hidden);
+  };
+
+  const dismissQuickStart = (hidden: boolean) => {
+    setHideQuickStart(hidden);
+    writeStoredFlag(HIDE_QUICK_START_KEY, hidden);
+  };
+
+  const launchStarterTemplate = async (template: SpaceTemplateDefinition) => {
+    const api = ensureNativeApi();
+    if (typeof api.pageTypes?.create !== "function") {
+      props.onCreate("template");
+      return;
+    }
+    setLaunchingTemplateId(template.id);
+    setLaunchError(null);
+    try {
+      const item = await createSpaceItem(api, {
+        scopeSpaceId: props.scopeSpaceId ?? null,
+        kind: template.kind,
+        title: template.title,
+        templateId: template.id,
+        spaceId: props.section.type === "space" ? props.section.spaceId : null,
+      });
+      const launch = getTemplateLaunchMetadata(template, { autoRun: true });
+      dispatchSpaceTemplateLaunch({ item, launch });
+      if (props.onLaunchTemplate) {
+        props.onLaunchTemplate({ item, launch });
+      } else {
+        props.onOpen(pageItem(item.page));
+      }
+    } catch (cause) {
+      setLaunchError(cause instanceof Error ? cause.message : "无法从该模板创建，请稍后再试。");
+    } finally {
+      setLaunchingTemplateId(null);
+    }
+  };
+
   const isAll = props.section.type === "all";
-  const visible = itemsForSection(props.items, props.section, { tab, kind, query });
+  const effectiveKind = isAll ? kind : "any";
+  const visible = itemsForSection(props.items, props.section, {
+    tab,
+    kind: effectiveKind,
+    query,
+    owner,
+    sort,
+  });
   const kindLabel = SPACE_KIND_FILTERS.find((entry) => entry.id === kind)?.label ?? "全部类型";
+  const hasActiveFilter = (isAll && kind !== "any") || owner !== "any" || sort !== "updated";
+  const showHomeStarters = isAll && kind === "any" && query.trim() === "";
+  const effectiveTitle =
+    isAll && kind !== "any"
+      ? (SPACE_KIND_FILTERS.find((e) => e.id === kind)?.label ?? props.title)
+      : props.title;
+  const emptyCreateAction = isAll
+    ? filterEmptyCreateAction(kind, props.emptyCreate)
+    : props.emptyCreate;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-space-home={props.section.type}>
       <header className="flex flex-col gap-3 px-6 pt-6 pb-3 md:px-10 md:pt-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className={PAGE_TITLE_CLASS_NAME}>{props.title}</h1>
-            <p className="mt-1 text-ui-sm text-muted-foreground">{props.description}</p>
+            <h1 className={PAGE_TITLE_CLASS_NAME}>{effectiveTitle}</h1>
+            {props.description ? (
+              <p className="mt-1 text-ui-sm text-muted-foreground">{props.description}</p>
+            ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {props.headerAction}
-            <SpaceCreateMenu
-              align="end"
-              onCreate={props.onCreate}
-              trigger={<Button size="sm">创建</Button>}
-            />
-          </div>
+          {props.headerAction ? (
+            <div className="flex flex-wrap items-center gap-2">{props.headerAction}</div>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isAll ? (
@@ -117,7 +337,7 @@ export function SpaceHome(
               ))}
             </div>
           ) : null}
-          <div className="ms-auto flex items-center gap-1.5">
+          <div className="ms-auto flex flex-wrap items-center gap-1.5">
             <div className="w-56 max-sm:w-40">
               <SearchInput
                 size="sm"
@@ -127,31 +347,82 @@ export function SpaceHome(
                 onChange={(event) => setQuery(event.target.value)}
               />
             </div>
-            {isAll ? (
-              <Menu>
-                <MenuTrigger
-                  render={
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`筛选：${kindLabel}`}
-                      data-pressed={kind !== "any" ? "" : undefined}
-                    >
-                      <FilterIcon aria-hidden className="size-4" />
-                      {kind === "any" ? "筛选" : kindLabel}
-                    </Button>
-                  }
-                />
-                <ComposerPickerMenuPopup align="end" className="w-40 min-w-40">
-                  {SPACE_KIND_FILTERS.map((entry) => (
-                    <MenuItem key={entry.id} onClick={() => setKind(entry.id)}>
+            <Menu>
+              <MenuTrigger
+                render={
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label={isAll ? `筛选：${kindLabel}` : "排序与筛选"}
+                    data-pressed={hasActiveFilter ? "" : undefined}
+                  >
+                    <FilterIcon aria-hidden className="size-4" />
+                    {isAll && kind !== "any" ? kindLabel : "筛选"}
+                  </Button>
+                }
+              />
+              <ComposerPickerMenuPopup align="end" className="w-48 min-w-48">
+                <MenuGroup>
+                  <MenuGroupLabel>排序方式</MenuGroupLabel>
+                  {SORT_OPTIONS.map((entry) => (
+                    <MenuItem key={entry.id} onClick={() => setSort(entry.id)}>
                       <span className="flex-1">{entry.label}</span>
-                      {kind === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
+                      {sort === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
                     </MenuItem>
                   ))}
-                </ComposerPickerMenuPopup>
-              </Menu>
-            ) : null}
+                </MenuGroup>
+                <MenuSeparator />
+                <MenuGroup>
+                  <MenuGroupLabel>创建来源</MenuGroupLabel>
+                  {OWNER_FILTERS.map((entry) => (
+                    <MenuItem key={entry.id} onClick={() => setOwner(entry.id)}>
+                      <span className="flex-1">{entry.label}</span>
+                      {owner === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
+                    </MenuItem>
+                  ))}
+                </MenuGroup>
+                {isAll ? (
+                  <>
+                    <MenuSeparator />
+                    <MenuGroup>
+                      <MenuGroupLabel>条目类型</MenuGroupLabel>
+                      {SPACE_KIND_FILTERS.map((entry) => (
+                        <MenuItem key={entry.id} onClick={() => setSyncedSpaceHomeKind(entry.id)}>
+                          <span className="flex-1">{entry.label}</span>
+                          {kind === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
+                        </MenuItem>
+                      ))}
+                    </MenuGroup>
+                  </>
+                ) : null}
+                {hasActiveFilter || (isAll && (hideCreateTiles || hideQuickStart)) ? (
+                  <>
+                    <MenuSeparator />
+                    {hasActiveFilter ? (
+                      <MenuItem
+                        onClick={() => {
+                          setSort("updated");
+                          setOwner("any");
+                          if (isAll) setSyncedSpaceHomeKind("any");
+                        }}
+                      >
+                        重置筛选条件
+                      </MenuItem>
+                    ) : null}
+                    {isAll && (hideCreateTiles || hideQuickStart) ? (
+                      <MenuItem
+                        onClick={() => {
+                          dismissCreateTiles(false);
+                          dismissQuickStart(false);
+                        }}
+                      >
+                        显示新建与快速开始
+                      </MenuItem>
+                    ) : null}
+                  </>
+                ) : null}
+              </ComposerPickerMenuPopup>
+            </Menu>
             <div className="flex items-center rounded-control bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-0.5">
               {(
                 [
@@ -177,10 +448,129 @@ export function SpaceHome(
                 </button>
               ))}
             </div>
+            <SpaceCreateMenu
+              align="end"
+              onCreate={props.onCreate}
+              trigger={
+                <Button size="sm" aria-label="创建">
+                  <AddPlusIcon aria-hidden className="size-4" />
+                  创建
+                </Button>
+              }
+            />
           </div>
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 md:px-10">
+        {showHomeStarters && !hideCreateTiles ? (
+          <section className="mb-6" aria-label="新建" data-space-create-tiles>
+            <div className="mb-2.5 flex items-center justify-between gap-2">
+              <h2 className="text-ui-sm font-medium text-muted-foreground">新建</h2>
+              <Button
+                size="icon-xs"
+                variant="ghost"
+                aria-label="收起新建卡片"
+                onClick={() => dismissCreateTiles(true)}
+              >
+                <XIcon aria-hidden className="size-3.5" />
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {CREATION_TILES.map((tile) => {
+                const Icon = tile.icon;
+                return (
+                  <Button
+                    key={tile.action}
+                    variant="outline"
+                    data-space-create-tile={tile.action}
+                    className="relative flex h-24 min-h-0 w-34 shrink-0 flex-col items-center justify-center gap-2 rounded-composer border-border/60 bg-card px-3 py-2.5 text-center shadow-2xs transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-border hover:shadow-sm max-sm:w-28"
+                    style={{
+                      backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${tile.hue} 24%, transparent) 0%, color-mix(in srgb, ${tile.hue} 15%, transparent) 35%, color-mix(in srgb, ${tile.hue} 7%, transparent) 70%, color-mix(in srgb, ${tile.hue} 3%, transparent) 100%)`,
+                    }}
+                    onClick={() => props.onCreate(tile.action)}
+                  >
+                    {tile.beta ? (
+                      <Badge variant="secondary" size="sm" className="absolute top-1.5 right-1.5">
+                        Beta
+                      </Badge>
+                    ) : null}
+                    <Icon aria-hidden className="size-5 shrink-0" style={{ color: tile.hue }} />
+                    <span className="truncate text-ui font-medium text-foreground">
+                      {tile.label}
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        {showHomeStarters && !hideQuickStart && QUICK_START_TEMPLATES.length > 0 ? (
+          <section className="mb-6" aria-label="快速开始" data-space-quick-start>
+            <div className="mb-2.5 flex items-center justify-between gap-2">
+              <h2 className="flex items-center gap-1.5 text-ui-sm font-medium text-muted-foreground">
+                <SparklesIcon aria-hidden className="size-3.5" />
+                快速开始
+              </h2>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() =>
+                    props.onBrowseTemplates ? props.onBrowseTemplates() : props.onCreate("template")
+                  }
+                >
+                  浏览全部模板
+                </Button>
+                <Button
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label="收起快速开始"
+                  onClick={() => dismissQuickStart(true)}
+                >
+                  <XIcon aria-hidden className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+            {launchError ? (
+              <p role="alert" className="mb-2 text-ui-sm text-destructive">
+                {launchError}
+              </p>
+            ) : null}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {QUICK_START_TEMPLATES.map((template) => {
+                const kindMeta = spaceKindMeta(template.kind);
+                const Icon = kindMeta.icon;
+                const launchMeta = getTemplateLaunchMetadata(template, { autoRun: true });
+                const isBusy = launchingTemplateId === template.id;
+                return (
+                  <Button
+                    key={template.id}
+                    variant="outline"
+                    disabled={launchingTemplateId !== null}
+                    data-space-quick-start-template={template.id}
+                    className="flex h-auto min-h-0 flex-col items-start justify-between gap-1.5 rounded-panel border-border/70 bg-card px-3.5 py-3 text-left shadow-2xs transition-[box-shadow,border-color] hover:border-border hover:shadow-sm"
+                    onClick={() => void launchStarterTemplate(template)}
+                  >
+                    <span className="flex w-full items-center gap-1.5">
+                      <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
+                        {template.title}
+                      </span>
+                      <Badge variant="secondary" size="sm" className="shrink-0">
+                        {isBusy ? "创建中…" : kindMeta.label}
+                      </Badge>
+                    </span>
+                    <span className="line-clamp-2 w-full whitespace-normal text-ui-xs font-normal text-muted-foreground">
+                      {template.description || launchMeta.starterPrompt}
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         {props.error ? (
           <div role="alert" className="flex items-center gap-2 py-6 text-ui text-destructive">
             {props.error}
@@ -193,16 +583,24 @@ export function SpaceHome(
             正在加载…
           </p>
         ) : visible.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center text-ui text-muted-foreground">
-            <p>{emptyMessage(props.section, tab, query)}</p>
+          <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-ui text-muted-foreground">
+            <p>{emptyMessage(props.section, tab, query, effectiveKind)}</p>
+            {tab === "shared" && !query ? (
+              <p className="text-ui-sm text-muted-foreground">
+                当协作者将页面或制品共享给你时，会汇总到此标签页。
+              </p>
+            ) : null}
             {query === "" && tab !== "shared" ? (
-              <Button size="sm" variant="outline" onClick={() => props.onCreate(props.emptyCreate)}>
+              <Button size="sm" variant="outline" onClick={() => props.onCreate(emptyCreateAction)}>
                 创建
               </Button>
             ) : null}
           </div>
         ) : view === "grid" ? (
-          <div className="columns-[15rem] gap-3" data-space-grid>
+          <div
+            className="grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,max(15rem,30%)),1fr))]"
+            data-space-grid
+          >
             {visible.map((item) => (
               <SpaceItemCard
                 key={item.key}
@@ -236,16 +634,23 @@ export function SpaceHome(
   );
 }
 
-function emptyMessage(section: SpaceSection, tab: SpaceTab, query: string): string {
+function emptyMessage(
+  section: SpaceSection,
+  tab: SpaceTab,
+  query: string,
+  kind: SpaceKindFilter,
+): string {
   if (query) return "没有匹配的条目";
   if (section.type === "space") return "这个资料空间还没有页面";
-  if (section.type === "kind") return "这里还没有内容";
+  if (section.type === "kind" || (section.type === "all" && kind !== "any")) {
+    return "这里还没有内容";
+  }
   switch (tab) {
     case "favorites":
       return "收藏的条目会显示在这里";
     case "shared":
       return "别人与你共享的条目会显示在这里";
     default:
-      return "还没有条目。创建一个页面，或让对话里的助手生成文件。";
+      return "还没有条目。从上方挑选一种类型新建，或让对话里的助手生成文件。";
   }
 }

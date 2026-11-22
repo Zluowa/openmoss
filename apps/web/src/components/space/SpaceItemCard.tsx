@@ -4,26 +4,31 @@
 //          small actions menu.
 // Layer: Space UI
 
-import { useState } from "react";
+import { parseSheetWorkbook, readSheetRange } from "@moss/shared/spaceItems/sheetWorkbook";
+import { useQuery } from "@tanstack/react-query";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { EllipsisIcon, PinFilledIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
+import { ensureNativeApi } from "~/nativeApi";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { LocalImagePreview } from "../LocalImagePreview";
 import { SidebarIconButton } from "../SidebarIconButton";
+import { DashboardThumbnail } from "../spaceTypes/dashboard/DashboardPanels";
+import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
 import { DesignCardPreview } from "../spaceTypes/design/DesignThumbnail";
 import { SlidesCardPreview } from "../spaceTypes/slides/SlidesCardPreview";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import {
   formatRelativeTime,
+  markSpaceDashboardItem,
   spaceItemDisplayTitle,
   spaceMossMediaPath,
   type SpaceItem,
 } from "./spaceItems";
-import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
-import { isHtmlOutput } from "./spaceKinds";
+import { isHtmlOutput, type SpaceKindMeta } from "./spaceKinds";
 
 export interface SpaceItemActions {
   onOpen: (item: SpaceItem) => void;
@@ -45,8 +50,15 @@ export function SpaceItemCard(
   const { item } = props;
   const meta = useSpaceItemMeta(item);
   const Icon = meta.icon;
+  const isDashboard = item.kind === "dashboard" || meta.label === "数据看板";
   const time = formatRelativeTime(item.updatedAt, props.now);
   const actions = <SpaceItemMenu {...props} />;
+
+  useEffect(() => {
+    if (item.kind === "app") {
+      markSpaceDashboardItem(item.key, isDashboard);
+    }
+  }, [item.key, item.kind, isDashboard]);
 
   if (props.view === "list") {
     return (
@@ -91,17 +103,17 @@ export function SpaceItemCard(
 
   return (
     <div
-      className="group/space-item relative mb-3 break-inside-avoid rounded-panel border border-border bg-card shadow-xs transition-shadow hover:shadow-md"
+      className="group/space-item relative flex flex-col overflow-hidden rounded-panel border border-border/80 bg-card shadow-xs transition-[box-shadow,border-color] hover:border-border hover:shadow-md"
       data-space-item={item.key}
     >
       <button
         type="button"
-        className="flex w-full flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-panel"
+        className="flex w-full flex-col overflow-hidden rounded-panel text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
         onClick={() => props.onOpen(item)}
       >
-        <SpaceItemPreview item={item} />
-        <span className="flex min-w-0 flex-col gap-1 px-3 pt-2.5 pb-3">
-          <span className="flex min-w-0 items-center gap-1.5">
+        <SpaceItemPreview item={item} meta={meta} isDashboard={isDashboard} />
+        <span className="flex min-h-15 min-w-0 flex-col justify-center gap-1 px-3 py-2.5">
+          <span className="flex min-w-0 items-center gap-1.5 pr-6">
             <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-ui font-medium">
               {spaceItemDisplayTitle(item)}
@@ -114,45 +126,67 @@ export function SpaceItemCard(
             ) : null}
           </span>
           <span className="truncate text-ui-sm text-muted-foreground">
-            {props.place} · {time}
+            {meta.label} · {time}
+            {props.place && props.place !== "个人" ? ` · ${props.place}` : ""}
           </span>
         </span>
       </button>
-      <span className="absolute top-2 right-2 rounded-control bg-card opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
+      <span className="absolute top-2 right-2 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
         {actions}
       </span>
     </div>
   );
 }
 
-/** A real picture of the item when there is one; nothing otherwise (no placeholder art). */
-function SpaceItemPreview({ item }: { item: SpaceItem }) {
+function PreviewFrame(props: { kind: string; className?: string; children: ReactNode }) {
+  return (
+    <span
+      data-space-card-preview={props.kind}
+      className={cn(
+        "relative flex aspect-[2/1] w-full items-center justify-center overflow-hidden rounded-t-panel border-b border-border/60 bg-[var(--color-background-elevated-secondary)]",
+        props.className,
+      )}
+    >
+      {props.children}
+    </span>
+  );
+}
+
+/** Miniature 2:1 visual preview for cards in the 资料空间 gallery grid. */
+function SpaceItemPreview({
+  item,
+  meta,
+  isDashboard,
+}: {
+  item: SpaceItem;
+  meta: SpaceKindMeta;
+  isDashboard: boolean;
+}) {
   const [failed, setFailed] = useState(false);
-  if (failed) return null;
-  if (item.source.type === "output" && item.kind === "image") {
+  if (!failed && item.source.type === "output" && item.kind === "image") {
     const { output } = item.source;
     return (
-      <span className="block h-36 overflow-hidden rounded-t-panel border-b border-border bg-muted/40">
+      <PreviewFrame kind="image" className="block bg-muted/40">
         <LocalImagePreview
           src={output.path}
           cwd={output.workspaceRoot}
           alt={spaceItemDisplayTitle(item)}
-          className="h-36"
-          imageClassName="h-36 w-full object-cover"
+          className="h-full w-full"
+          imageClassName="h-full w-full object-cover"
           onPreviewError={() => setFailed(true)}
         />
-      </span>
+      </PreviewFrame>
     );
   }
   const mediaPath =
-    item.source.type === "library" && !item.source.item.path
+    !failed && item.source.type === "library" && !item.source.item.path
       ? spaceMossMediaPath(item.source.item)
       : null;
   if (mediaPath && item.source.type === "library") {
     // An image or video made in a chat, read from Moss's media cache.
     const url = resolveWsHttpUrl(mediaPath);
     return (
-      <span className="block h-36 overflow-hidden rounded-t-panel border-b border-border bg-muted/40">
+      <PreviewFrame kind="image" className="block bg-muted/40">
         {item.source.item.kind === "video" ? (
           <video
             src={url}
@@ -161,52 +195,276 @@ function SpaceItemPreview({ item }: { item: SpaceItem }) {
             preload="metadata"
             aria-hidden
             data-space-card-video
-            className="h-36 w-full object-cover"
+            className="h-full w-full object-cover"
             onError={() => setFailed(true)}
           />
         ) : (
           <img
             src={url}
             alt={spaceItemDisplayTitle(item)}
-            className="h-36 w-full object-cover"
+            className="h-full w-full object-cover"
             onError={() => setFailed(true)}
           />
         )}
-      </span>
+      </PreviewFrame>
     );
   }
-  if (item.source.type === "library" && item.kind === "image" && item.source.item.path) {
+  if (!failed && item.source.type === "library" && item.kind === "image" && item.source.item.path) {
     const { item: entry } = item.source;
     return (
-      <span className="block h-36 overflow-hidden rounded-t-panel border-b border-border bg-muted/40">
+      <PreviewFrame kind="image" className="block bg-muted/40">
         <LocalImagePreview
           src={entry.previewPath ?? entry.path!}
           cwd={null}
           alt={spaceItemDisplayTitle(item)}
-          className="h-36"
-          imageClassName="h-36 w-full object-cover"
+          className="h-full w-full"
+          imageClassName="h-full w-full object-cover"
           onPreviewError={() => setFailed(true)}
         />
-      </span>
+      </PreviewFrame>
     );
   }
   if (item.source.type === "page" && item.source.page.kind === "slides") {
-    return <SlidesCardPreview page={item.source.page} />;
-  }
-  if (item.source.type === "page" && item.source.page.kind === "design") {
-    return <DesignCardPreview page={item.source.page} />;
-  }
-  if (item.source.type === "app" && item.source.app.thumbnail) {
     return (
-      <img
-        src={item.source.app.thumbnail}
-        alt=""
-        className="block h-36 w-full rounded-t-panel border-b border-border object-cover"
-        onError={() => setFailed(true)}
-      />
+      <PreviewFrame
+        kind="slides"
+        className="block [&>*]:h-full [&>*]:w-full [&>*]:rounded-none [&>*]:border-0"
+      >
+        <SlidesCardPreview page={item.source.page} />
+      </PreviewFrame>
     );
   }
-  return null;
+  if (item.source.type === "page" && item.source.page.kind === "design") {
+    return (
+      <PreviewFrame
+        kind="design"
+        className="block [&>*]:h-full [&>*]:w-full [&>*]:rounded-none [&>*]:border-0"
+      >
+        <DesignCardPreview page={item.source.page} />
+      </PreviewFrame>
+    );
+  }
+  if (isDashboard) {
+    return (
+      <PreviewFrame kind="dashboard" className="p-2">
+        <DashboardThumbnail />
+      </PreviewFrame>
+    );
+  }
+  if (!failed && item.source.type === "app" && item.source.app.thumbnail) {
+    return (
+      <PreviewFrame kind="app" className="block bg-muted/40">
+        <img
+          src={item.source.app.thumbnail}
+          alt=""
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      </PreviewFrame>
+    );
+  }
+  if (item.source.type === "page" && item.kind === "page") {
+    return <PageCardPreview page={item.source.page} />;
+  }
+  if (item.source.type === "page" && item.kind === "sheet") {
+    return <SheetCardPreview page={item.source.page} />;
+  }
+  if (item.kind === "board") {
+    return <BoardCardPreview />;
+  }
+  const Icon = meta.icon;
+  return (
+    <PreviewFrame kind={item.kind}>
+      <Icon aria-hidden className="size-6 text-muted-foreground/75" />
+    </PreviewFrame>
+  );
+}
+
+function PageCardPreview({
+  page,
+}: {
+  page: Extract<SpaceItem["source"], { type: "page" }>["page"];
+}) {
+  const api = ensureNativeApi();
+  const canRead = typeof api.pages?.read === "function";
+  const query = useQuery({
+    queryKey: ["space-card-page", page.scopeSpaceId ?? "local", page.id, page.revision],
+    queryFn: async () => {
+      const result = await api.pages.read({
+        scopeSpaceId: page.scopeSpaceId,
+        pageId: page.id,
+      });
+      return result.content ?? "";
+    },
+    enabled: canRead,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const lines = (query.data ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("---"))
+    .slice(0, 4);
+
+  return (
+    <PreviewFrame kind="page" className="items-end px-4 pt-2.5 pb-0">
+      <span className="flex h-full w-full flex-col gap-1 overflow-hidden rounded-t-control border border-b-0 border-border/70 bg-background px-3 py-2 text-left shadow-xs">
+        {lines.length ? (
+          lines.map((line, index) => {
+            const clean = line
+              .replace(/^#+\s*/u, "")
+              .replace(/^[-*+]\s+/u, "• ")
+              .replaceAll("**", "")
+              .replaceAll("`", "");
+            return (
+              <span
+                key={index}
+                className={cn(
+                  "block truncate text-ui-xs leading-snug",
+                  index === 0 || line.startsWith("#")
+                    ? "font-medium text-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                {clean}
+              </span>
+            );
+          })
+        ) : (
+          <>
+            <span className="block h-2.5 w-3/5 rounded-control-xs bg-foreground/15" />
+            <span className="mt-1 block h-2 w-full rounded-control-xs bg-muted-foreground/15" />
+            <span className="block h-2 w-5/6 rounded-control-xs bg-muted-foreground/15" />
+            <span className="block h-2 w-2/3 rounded-control-xs bg-muted-foreground/15" />
+          </>
+        )}
+      </span>
+    </PreviewFrame>
+  );
+}
+
+function SheetCardPreview({
+  page,
+}: {
+  page: Extract<SpaceItem["source"], { type: "page" }>["page"];
+}) {
+  const api = ensureNativeApi();
+  const canRead = typeof api.pageTypes?.read === "function";
+  const query = useQuery({
+    queryKey: ["space-card-sheet", page.scopeSpaceId ?? "local", page.id, page.revision],
+    queryFn: () =>
+      api.pageTypes.read({
+        scopeSpaceId: page.scopeSpaceId,
+        pageId: page.id,
+      }),
+    enabled: canRead,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  let rows: string[][] = [];
+  if (query.data?.data) {
+    try {
+      const read = readSheetRange(parseSheetWorkbook(query.data.data), undefined, "A1:D5");
+      rows = read.values
+        .map((row, r) =>
+          row.map((value, c) =>
+            value === null ? (read.formulas[r]?.[c] ? "ƒx" : "") : String(value),
+          ),
+        )
+        .filter((row) => row.some((cell) => cell !== ""));
+    } catch {
+      rows = [];
+    }
+  }
+
+  return (
+    <PreviewFrame kind="sheet" className="p-2.5">
+      <span className="block h-full w-full overflow-hidden rounded-control-xs border border-border/70 bg-background">
+        {rows.length ? (
+          <table className="h-full w-full table-fixed border-collapse text-left text-ui-xs">
+            <tbody>
+              {rows.slice(0, 4).map((row, r) => (
+                <tr key={r}>
+                  {row.slice(0, 4).map((cell, c) => (
+                    <td
+                      key={c}
+                      className={cn(
+                        "truncate border-r border-b border-border/60 px-1.5 py-0.5 tabular-nums last:border-r-0",
+                        r === 0 && "bg-[var(--color-background-elevated-secondary)] font-medium",
+                      )}
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <span className="grid h-full w-full grid-cols-4 grid-rows-4">
+            {Array.from({ length: 16 }, (_, idx) => (
+              <span
+                key={idx}
+                className={cn(
+                  "border-r border-b border-border/60",
+                  idx < 4 && "bg-[var(--color-background-elevated-secondary)]",
+                )}
+              />
+            ))}
+          </span>
+        )}
+      </span>
+    </PreviewFrame>
+  );
+}
+
+function BoardCardPreview() {
+  return (
+    <PreviewFrame kind="board" className="p-3">
+      <span
+        aria-hidden
+        className="relative flex h-full w-full items-center justify-between overflow-hidden rounded-control border border-border/60 bg-background/95 px-3 py-2"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, color-mix(in srgb, var(--foreground) 14%, transparent) 1px, transparent 1px)",
+          backgroundSize: "10px 10px",
+        }}
+      >
+        <span
+          className="flex h-10 w-16 shrink-0 flex-col gap-1 rounded-control-xs border border-border/70 p-1.5 shadow-2xs"
+          style={{
+            backgroundColor:
+              "color-mix(in srgb, var(--color-accent-yellow) 22%, var(--background))",
+          }}
+        >
+          <span className="h-1.5 w-8 rounded-full bg-foreground/25" />
+          <span className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+        </span>
+        <svg viewBox="0 0 40 20" className="h-5 w-9 shrink-0 text-muted-foreground/60" aria-hidden>
+          <path
+            d="M2 10 C 14 2, 26 18, 36 10"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="3 2"
+          />
+          <path d="M33 7 L38 10 L33 13" fill="none" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+        <span
+          className="flex h-11 w-16 shrink-0 flex-col gap-1 rounded-control-xs border border-border/70 p-1.5 shadow-2xs"
+          style={{
+            backgroundColor: "color-mix(in srgb, var(--color-accent-blue) 18%, var(--background))",
+          }}
+        >
+          <span className="h-1.5 w-9 rounded-full bg-foreground/25" />
+          <span className="h-1 w-11 rounded-full bg-muted-foreground/30" />
+          <span className="h-1 w-7 rounded-full bg-muted-foreground/25" />
+        </span>
+      </span>
+    </PreviewFrame>
+  );
 }
 
 function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem }) {

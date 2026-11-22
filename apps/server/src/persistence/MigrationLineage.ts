@@ -308,6 +308,7 @@ export const MOSS_RELEASED_DESCRIPTOR: ReadonlyArray<readonly [number, string]> 
   [168, "PageItemKindsOpen"],
   [169, "PageDocStyleAndTextComments"],
   [170, "ProjectionThreadsPullRequestLinks"],
+  [171, "PageAssistantThread"],
 ]);
 
 export const UPSTREAM_3CEFD5A_DESCRIPTOR: ReadonlyArray<readonly [number, string]> = Object.freeze([

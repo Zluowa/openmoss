@@ -42,11 +42,14 @@ export function SidechatDockPane({
   pane,
   runtimeMode,
   threadExists,
+  isFocusedPane = false,
 }: {
   pane: RightDockPane;
   runtimeMode: DockPaneRuntimeMode;
   /** Whether the embedded thread has reached the shell projection yet. */
   threadExists: boolean;
+  /** Allows Space dock surfaces to focus the nested ChatView when open/active. */
+  isFocusedPane?: boolean;
 }) {
   if (!pane.threadId) {
     return (
@@ -68,7 +71,7 @@ export function SidechatDockPane({
       paneScopeId={dockSidechatPaneScopeId(pane.id)}
       deferMount={false}
       surfaceMode="split"
-      isFocusedPane={false}
+      isFocusedPane={isFocusedPane}
       panelState={DOCK_EMBEDDED_PANEL_STATE}
       onToggleDiff={noopChatSurfaceAction}
       onToggleBrowser={noopChatSurfaceAction}

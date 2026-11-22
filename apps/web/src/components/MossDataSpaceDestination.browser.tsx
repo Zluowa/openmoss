@@ -706,7 +706,9 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     fixture.put(pageDocument("page-one", "Research page", "Saved page content and more content"));
     await mount();
     await openPage();
-    await editorFrame().getByText("Saved page content and more content").click();
+    await editorFrame()
+      .getByText("Saved page content and more content")
+      .click({ position: { x: 4, y: 8 } });
     await userEvent.keyboard("{Control>}h{/Control}");
     const bar = editorFrame().getByRole("search", { name: "查找和替换", exact: true });
     await expect.element(bar).toBeVisible();

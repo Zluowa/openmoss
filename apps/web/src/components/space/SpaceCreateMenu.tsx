@@ -7,22 +7,23 @@ import type { ReactElement } from "react";
 
 import {
   CloudUploadIcon,
-  PaletteIcon,
   DataDashboardIcon,
   FoldersIcon,
   GlobeIcon,
   ImagesIcon,
   PageTextIcon,
+  PaletteIcon,
   PluginIcon,
-  SketchPenIcon,
   SlidesIcon,
   TableIcon,
   TemplateIcon,
+  WhiteboardIcon,
   WindowAppIcon,
   type LucideIcon,
 } from "~/lib/icons";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
+import { Badge } from "../ui/badge";
 import { Menu, MenuGroup, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 
 /** What the user picked; the destination decides what each one opens. */
@@ -41,27 +42,33 @@ export type SpaceCreateAction =
   | "upload"
   | "plugin";
 
-const GROUPS: ReadonlyArray<
-  ReadonlyArray<{ id: SpaceCreateAction; label: string; icon: LucideIcon; hint?: string }>
-> = [
+interface SpaceCreateMenuEntry {
+  readonly id: SpaceCreateAction;
+  readonly label: string;
+  readonly icon: LucideIcon;
+  readonly badge?: string;
+  readonly disabledHint?: string;
+}
+
+const GROUPS: ReadonlyArray<ReadonlyArray<SpaceCreateMenuEntry>> = [
   [
     { id: "page", label: "页面", icon: PageTextIcon },
     { id: "slides", label: "幻灯片", icon: SlidesIcon },
-    { id: "sheet", label: "电子表格", icon: TableIcon },
-    { id: "board", label: "白板", icon: SketchPenIcon },
+    { id: "sheet", label: "电子表格", icon: TableIcon, badge: "Beta" },
+    { id: "board", label: "白板", icon: WhiteboardIcon, badge: "Beta" },
     { id: "design", label: "设计", icon: PaletteIcon },
     { id: "dashboard", label: "数据看板", icon: DataDashboardIcon },
-    { id: "site", label: "站点", icon: GlobeIcon },
     { id: "app", label: "应用页", icon: WindowAppIcon },
     { id: "image", label: "图像", icon: ImagesIcon },
   ],
   [
-    { id: "space", label: "资料空间", icon: FoldersIcon },
     { id: "template", label: "从模板开始", icon: TemplateIcon },
+    { id: "space", label: "资料空间", icon: FoldersIcon },
+    { id: "upload", label: "上传文件", icon: CloudUploadIcon },
   ],
   [
-    { id: "upload", label: "上传文件", icon: CloudUploadIcon },
-    { id: "plugin", label: "连接插件", icon: PluginIcon },
+    { id: "site", label: "站点", icon: GlobeIcon, disabledHint: "页面内发布" },
+    { id: "plugin", label: "连接插件", icon: PluginIcon, disabledHint: "即将推出" },
   ],
 ];
 
@@ -74,21 +81,33 @@ export function SpaceCreateMenu(props: {
   return (
     <Menu>
       <MenuTrigger render={props.trigger} />
-      <ComposerPickerMenuPopup align={props.align ?? "start"} className="w-52 min-w-52">
+      <ComposerPickerMenuPopup align={props.align ?? "start"} className="w-56 min-w-56">
         {GROUPS.map((group, index) => (
           <div key={group[0]!.id}>
             {index > 0 ? <MenuSeparator /> : null}
             <MenuGroup>
               {group.map((entry) => {
                 const Icon = entry.icon;
+                const isDisabled = entry.disabledHint !== undefined;
                 return (
                   <MenuItem
                     key={entry.id}
                     data-space-create={entry.id}
-                    onClick={() => props.onCreate(entry.id)}
+                    disabled={isDisabled}
+                    onClick={isDisabled ? undefined : () => props.onCreate(entry.id)}
                   >
                     <Icon aria-hidden className="size-4 shrink-0" />
-                    {entry.label}
+                    <span className="truncate">{entry.label}</span>
+                    {entry.badge ? (
+                      <Badge variant="secondary" size="sm" className="ml-auto shrink-0">
+                        {entry.badge}
+                      </Badge>
+                    ) : null}
+                    {entry.disabledHint ? (
+                      <span className="ml-auto shrink-0 text-ui-xs text-muted-foreground">
+                        {entry.disabledHint}
+                      </span>
+                    ) : null}
                   </MenuItem>
                 );
               })}

@@ -23,7 +23,10 @@ import {
 import { automationLifecycleState } from "~/lib/automationStatus";
 import { formFromAutomationDraft, type AutomationCreateDraft } from "~/lib/automationForm";
 import { AutomationCreateIntent, isAutomationCreateRejected } from "~/lib/automationCreateIntent";
-import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
+import {
+  isMossImagesAccountIdentityChange,
+  useMossImagesAccountBoundary,
+} from "~/lib/mossImagesAccountBoundary";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "~/components/ui/dialog";
@@ -271,6 +274,10 @@ export function AutomationCreateDialog({
   readonly projectIds?: readonly string[];
 }) {
   const accountBoundary = useMossImagesAccountBoundary();
+  const accountBoundaryRef = useRef(accountBoundary);
+  accountBoundaryRef.current = accountBoundary;
+  const onCreatedRef = useRef(onCreated);
+  onCreatedRef.current = onCreated;
   const creation = useMemo(
     () =>
       new AutomationCreateIntent(
@@ -363,6 +370,7 @@ export function AutomationCreateDialog({
 
   const sendCreation = async (input: AutomationCreateInput) => {
     if (creatingRef.current || busy || !accountBoundary.isCurrent()) return;
+    const startedIdentity = accountBoundary.identityKey;
     creatingRef.current = true;
     setCreating(true);
     setCreationError(null);
@@ -371,7 +379,8 @@ export function AutomationCreateDialog({
         if (
           !mountedRef.current ||
           currentCreation.current !== creation ||
-          !accountBoundary.isCurrent()
+          !accountBoundaryRef.current.isCurrent() ||
+          isMossImagesAccountIdentityChange(startedIdentity, accountBoundaryRef.current.identityKey)
         )
           throw new Error(
             "The account or creation context changed. Reopen the original creation to confirm its result.",
@@ -384,15 +393,19 @@ export function AutomationCreateDialog({
       if (
         !mountedRef.current ||
         currentCreation.current !== creation ||
-        !accountBoundary.isCurrent()
+        !accountBoundaryRef.current.isCurrent() ||
+        isMossImagesAccountIdentityChange(startedIdentity, accountBoundaryRef.current.identityKey)
       )
         return;
       await completion.complete(definition, async (saved) => {
-        await onCreated?.(saved);
+        await onCreatedRef.current?.(saved);
+        const latestBoundary = accountBoundaryRef.current;
         if (
           !mountedRef.current ||
           currentCreation.current !== creation ||
-          !accountBoundary.isCurrent()
+          latestBoundary.transitioning ||
+          !latestBoundary.isCurrent() ||
+          isMossImagesAccountIdentityChange(startedIdentity, latestBoundary.identityKey)
         )
           throw new Error("The account changed. Reopen this creation in its original account.");
         creation.clear();

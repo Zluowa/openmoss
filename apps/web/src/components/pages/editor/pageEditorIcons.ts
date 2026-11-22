@@ -22,6 +22,7 @@ export const PAGE_EDITOR_ICON_NAMES = [
   "bubble-text",
   "calendar-days",
   "chain-link-1",
+  "chat-bubbles",
   "checklist",
   "checkmark-1-small",
   "chevron-down-small",

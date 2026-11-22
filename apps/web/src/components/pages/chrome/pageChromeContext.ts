@@ -8,6 +8,7 @@
 //      tell the lead.
 
 import type { Page, PagesReadResult, SpaceId } from "@moss/contracts";
+import type { SpaceCanvasDockController } from "../../space/spaceCanvasDockContract";
 
 /** Side panels the page view can show to the right of the document. */
 export type PageSidePanel = "history" | "comments" | "activity" | "files" | "navigation";
@@ -32,6 +33,11 @@ export interface PageChromeContext {
   readonly openPanel: (panel: PageSidePanel | null) => void;
   /** Opens the "new subpage" flow under this page. */
   readonly createChildPage: () => void;
+  /** Unified 3-state canvas-bound AI dock attached by 资料空间 host. */
+  readonly dock?: SpaceCanvasDockController | null;
+  /** Floating outline / TOC rail visibility synced with the host chrome toggle. */
+  readonly tocOpen?: boolean;
+  readonly onToggleToc?: () => void;
 }
 
 export interface PageChromeSlotProps {

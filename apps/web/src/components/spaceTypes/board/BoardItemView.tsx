@@ -4,9 +4,13 @@
 //        this file only hosts the existing Canvas surface.
 
 import { parseBoardItem } from "@moss/shared/spaceItems/itemData";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { WhiteboardIcon } from "~/lib/icons";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+} from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
 import { MossCanvasWebSurface } from "../../MossCanvasWebSurface";
 
@@ -15,6 +19,16 @@ export function BoardItemView(props: {
   pageId: string;
   scopeSpaceId: string | null;
   onLeaveGuardChange?: (guard: (() => Promise<boolean>) | null) => void;
+  dock?: SpaceCanvasDockController | null;
+  hostInsets?: SpaceCanvasHostInsets;
+  hostChrome?: { hideTopBar?: boolean; bottomInsetPx?: number; rightInsetPx?: number };
+  onAskDock?: (request: {
+    prompt?: string;
+    selectedShapeIds?: string[];
+    selectionText?: string;
+    origin?: "toolbar" | "selection" | "comment";
+  }) => void;
+  onHostActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const board = useMemo(() => {
     try {
@@ -24,6 +38,51 @@ export function BoardItemView(props: {
     }
   }, [props.data]);
   const [open, setOpen] = useState(true);
+  useEffect(() => () => props.onHostActionsChange?.(null), [props.onHostActionsChange]);
+  const effectiveHostChrome = useMemo(
+    () =>
+      props.hostChrome || props.hostInsets
+        ? {
+            ...(props.hostChrome ?? {}),
+            ...(props.hostChrome?.bottomInsetPx === undefined &&
+            props.hostInsets?.bottomInsetPx !== undefined
+              ? { bottomInsetPx: props.hostInsets.bottomInsetPx }
+              : {}),
+            ...(props.hostChrome?.rightInsetPx === undefined &&
+            props.hostInsets?.rightInsetPx !== undefined
+              ? { rightInsetPx: props.hostInsets.rightInsetPx }
+              : {}),
+          }
+        : undefined,
+    [props.hostChrome, props.hostInsets],
+  );
+  const handleAskDock = useMemo(() => {
+    if (props.onAskDock) return props.onAskDock;
+    if (!props.dock) return undefined;
+    return (request: {
+      prompt?: string;
+      selectedShapeIds?: string[];
+      selectionText?: string;
+      origin?: "toolbar" | "selection" | "comment";
+    }) => {
+      void props.dock?.ask({
+        ...(request.prompt ? { prompt: request.prompt } : {}),
+        origin:
+          request.origin === "selection"
+            ? "selection-bar"
+            : request.origin === "comment"
+              ? "comment-mention"
+              : "bottom-pill",
+        selection: {
+          kind: "board",
+          itemId: props.pageId,
+          title: "白板",
+          ...(request.selectedShapeIds?.length ? { boardIds: request.selectedShapeIds } : {}),
+          ...(request.selectionText ? { summary: request.selectionText } : {}),
+        },
+      });
+    };
+  }, [props.dock, props.onAskDock, props.pageId]);
   if (!board) {
     return (
       <p role="alert" className="p-8 text-destructive">
@@ -41,6 +100,8 @@ export function BoardItemView(props: {
           canvasProjectKey: board.canvasProjectKey,
           scopeSpaceId: props.scopeSpaceId,
         }}
+        {...(effectiveHostChrome ? { hostChrome: effectiveHostChrome } : {})}
+        {...(handleAskDock ? { onAskDock: handleAskDock } : {})}
         onClose={() => setOpen(false)}
         {...(props.onLeaveGuardChange ? { onLeaveGuardChange: props.onLeaveGuardChange } : {})}
       />

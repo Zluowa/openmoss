@@ -15,18 +15,20 @@ import {
   type DesignNote,
   type DesignPaper,
 } from "@moss/shared/spaceItems/designCanvas";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { downloadBlob } from "~/lib/browserDownload";
 import { uploadLibraryFiles } from "~/lib/libraryUpload";
 import { cn } from "~/lib/utils";
+import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
 import { openSpacePage, spacePageIdOfLink } from "~/lib/spacePageLink";
 import { ensureNativeApi } from "~/nativeApi";
 import {
   ArtboardToolIcon,
   ChevronDownIcon,
   DownloadIcon,
+  EllipsisIcon,
   HandToolIcon,
   ExpandArrowsIcon,
   PageCommentIcon,
@@ -60,6 +62,11 @@ import {
 } from "../../chat/pageComments/pageComments.logic";
 import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
 import { useCurrentAccountIdentity } from "../../SidebarAccountMenu";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+  SpaceCanvasSelectionContext,
+} from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
 import {
   Menu,
@@ -173,6 +180,7 @@ function ToolGroupButton(props: {
   last: DesignTool;
   current: DesignTool;
   label: string;
+  side?: "top" | "bottom";
   onPick: (tool: DesignTool) => void;
 }) {
   const active = props.tools.includes(props.current) ? props.current : props.last;
@@ -200,7 +208,11 @@ function ToolGroupButton(props: {
             </Button>
           }
         />
-        <ComposerPickerMenuPopup align="start" className="w-44 min-w-44">
+        <ComposerPickerMenuPopup
+          side={props.side ?? "bottom"}
+          align="start"
+          className="w-44 min-w-44"
+        >
           <MenuGroup>
             {props.tools.map((tool) => {
               const item = toolEntry(tool);
@@ -270,6 +282,12 @@ const pickFile = (accept: string) =>
     input.click();
   });
 
+export interface DesignEditorHostChrome {
+  readonly hideTopBar?: boolean;
+  readonly bottomInsetPx?: number;
+  readonly rightInsetPx?: number;
+}
+
 export function DesignEditor(props: {
   account: string;
   scopeSpaceId: SpaceId | null;
@@ -282,6 +300,10 @@ export function DesignEditor(props: {
   flush: () => Promise<boolean>;
   revision: () => number;
   reloadIfChanged?: () => Promise<boolean>;
+  dock?: SpaceCanvasDockController | null;
+  hostInsets?: SpaceCanvasHostInsets;
+  hostChrome?: DesignEditorHostChrome;
+  onHostActionsChange?: (actions: ReactNode | null) => void;
 }) {
   // Live room: everyone with this design open edits one canvas; the server saves it.
   const room = useRef<DesignRoomClient | null>(null);
@@ -290,6 +312,9 @@ export function DesignEditor(props: {
   const live = roomStatus === "live";
   const liveRef = useRef(false);
   liveRef.current = live;
+  const dock = props.dock ?? null;
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
   const editor = useDesignEditor({
     initial: props.canvas,
     epoch: props.epoch,
@@ -321,6 +346,10 @@ export function DesignEditor(props: {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [runs, setRuns] = useState<DesignRun[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [undoAiSnapshot, setUndoAiSnapshot] = useState<DesignCanvas | null>(null);
+  const preAiCanvasRef = useRef<{ pageId: string; revision: number; canvas: DesignCanvas } | null>(
+    null,
+  );
   const canvasElement = useRef<HTMLDivElement | null>(null);
   const latest = useRef(props);
   latest.current = props;
@@ -329,11 +358,20 @@ export function DesignEditor(props: {
   threadsRef.current = threads;
   const startAccount = useRef(props.account);
   const agent = threads.describePageAgent({ page, content: "" } as PagesReadResult);
-  const canAsk = agent !== null && !props.readOnly;
+  const canAsk = (dock !== null || agent !== null) && !props.readOnly;
   const [linkDialog, setLinkDialog] = useState<{ x: number; y: number } | null>(null);
   const [follow, setFollow] = useState<string | null>(null);
   const [lastShape, setLastShape] = useState<DesignTool>("rect");
   const [lastDraw, setLastDraw] = useState<DesignTool>("pencil");
+  const [dockInsets, setDockInsets] = useState<SpaceCanvasHostInsets | null>(null);
+  const dockRegisterInsets = dock?.registerHostInsets;
+  useEffect(() => {
+    if (!dockRegisterInsets) {
+      setDockInsets(null);
+      return;
+    }
+    return dockRegisterInsets((next) => setDockInsets(next));
+  }, [dockRegisterInsets]);
   useEffect(() => {
     if (SHAPE_TOOLS.includes(editor.tool)) setLastShape(editor.tool);
     if (DRAW_TOOLS.includes(editor.tool)) setLastDraw(editor.tool);
@@ -522,9 +560,74 @@ export function DesignEditor(props: {
     };
   }, [canvas, editor, selection, view]);
 
+  const currentDockSelection = useCallback((): SpaceCanvasSelectionContext => {
+    const context = viewContext();
+    const boardIds = context.selectedBoardIds.length
+      ? context.selectedBoardIds
+      : context.selectedElements.length
+        ? [context.selectedElements[0]!.boardId]
+        : context.visibleBoardIds.slice(0, 1);
+    return {
+      kind: "design",
+      itemId: page.id,
+      title: latest.current.title || editorRef.current.page.name,
+      boardIds,
+      ...(context.selectedElements.length
+        ? { elementIds: context.selectedElements.map((e) => e.path) }
+        : {}),
+      summary: editorRef.current.page.name,
+    };
+  }, [page.id, viewContext]);
+
+  const dockSetSelection = dock?.setSelection;
+  useEffect(() => {
+    if (!dockSetSelection) return;
+    dockSetSelection(currentDockSelection());
+  }, [currentDockSelection, dockSetSelection, selection, editor.page.name]);
+
+  useEffect(() => {
+    setUndoAiSnapshot(null);
+    preAiCanvasRef.current = null;
+  }, [page.id]);
+
   const startRun = useCallback(
-    async (build: () => ReturnType<typeof designChangePrompt>): Promise<string | null> => {
+    async (
+      build: () => ReturnType<typeof designChangePrompt>,
+      origin: "bottom-pill" | "inline-card" | "comment-mention" = "inline-card",
+    ): Promise<string | null> => {
       const requestId = crypto.randomUUID();
+      preAiCanvasRef.current = {
+        pageId: page.id,
+        revision: page.revision,
+        canvas: editorRef.current.latest.current,
+      };
+      setUndoAiSnapshot(null);
+      const currentDock = dockRef.current;
+      if (currentDock) {
+        try {
+          if (!(await flushAll())) throw new Error("请先保存设计，再交给 Moss。");
+          const built = build();
+          const prompt = `${built.request}\n\n${built.context}`;
+          const selectionContext = currentDockSelection();
+          currentDock.setSelection(selectionContext);
+          await currentDock.ask({
+            prompt,
+            autoRun: true,
+            preferredState: currentDock.state === "collapsed" ? "pip" : currentDock.state,
+            selection: selectionContext,
+            keepItemOpen: true,
+            origin,
+          });
+          return currentDock.activeThreadId;
+        } catch (cause) {
+          toastManager.add({
+            type: "error",
+            title: "没有交给 Moss",
+            description: cause instanceof Error ? cause.message : undefined,
+          });
+          return null;
+        }
+      }
       setRuns((current) => [...current, { requestId, startedAt: Date.now() }]);
       try {
         if (!(await flushAll())) throw new Error("请先保存设计，再交给 Moss。");
@@ -547,7 +650,7 @@ export function DesignEditor(props: {
         return null;
       }
     },
-    [flushAll, savedRevision],
+    [currentDockSelection, flushAll, page.id, page.revision, savedRevision],
   );
   const ask = useCallback(
     (instruction: string) => {
@@ -580,6 +683,27 @@ export function DesignEditor(props: {
     },
     [savedRevision, startRun],
   );
+  const openDockFromPill = useCallback(() => {
+    const currentDock = dockRef.current;
+    if (!currentDock) {
+      setAsking((open) => !open);
+      return;
+    }
+    const selectionContext = currentDockSelection();
+    currentDock.setSelection(selectionContext);
+    preAiCanvasRef.current = {
+      pageId: page.id,
+      revision: page.revision,
+      canvas: editorRef.current.latest.current,
+    };
+    void currentDock.ask({
+      prefillOnly: true,
+      preferredState: currentDock.state === "collapsed" ? "pip" : currentDock.state,
+      selection: selectionContext,
+      keepItemOpen: true,
+      origin: "bottom-pill",
+    });
+  }, [currentDockSelection, page.id, page.revision]);
   useEffect(() => {
     const prompt = takeDesignGeneration(page.id);
     if (prompt) generate(prompt);
@@ -588,9 +712,74 @@ export function DesignEditor(props: {
   }, [page.id]);
 
   // While Moss works, newer revisions it saves stream into the canvas.
-  const running = runs.length > 0;
+  const dockBusy = Boolean(dock?.busy);
+  const running = runs.length > 0 || dockBusy;
+
+  const prevDockBusyRef = useRef(dockBusy);
   useEffect(() => {
-    if (!running) return;
+    const wasBusy = prevDockBusyRef.current;
+    prevDockBusyRef.current = dockBusy;
+    if (!wasBusy && dockBusy) {
+      preAiCanvasRef.current = {
+        pageId: page.id,
+        revision: page.revision,
+        canvas: editorRef.current.latest.current,
+      };
+      return;
+    }
+    if (wasBusy && !dockBusy && !liveRef.current) {
+      void latest.current.reloadIfChanged?.().catch(() => false);
+    }
+  }, [dockBusy, page.id, page.revision]);
+
+  useEffect(() => {
+    const baseline = preAiCanvasRef.current;
+    if (baseline && baseline.pageId === page.id && page.revision > baseline.revision) {
+      setUndoAiSnapshot(baseline.canvas);
+      if (!running) preAiCanvasRef.current = null;
+    }
+  }, [page.id, page.revision, props.epoch, running]);
+
+  const handleUndoAi = useCallback(() => {
+    if (!undoAiSnapshot || editorRef.current.readOnly) return;
+    editorRef.current.receive(undoAiSnapshot);
+    latest.current.onChange(undoAiSnapshot);
+    setUndoAiSnapshot(null);
+    toastManager.add({ type: "success", title: "已撤销 Moss 的修改" });
+  }, [undoAiSnapshot]);
+
+  // Optional live server SSE stream for immediate reload when Moss edits server-side.
+  useEffect(() => {
+    if (typeof EventSource !== "function" || typeof window === "undefined") return;
+    const hasRealtimeOrigin =
+      Boolean(window.desktopBridge?.getWsUrl?.()) || Boolean(import.meta.env.VITE_WS_URL);
+    if (!hasRealtimeOrigin) return;
+    const params = new URLSearchParams({ pageId: page.id });
+    if (props.scopeSpaceId) params.set("scopeSpaceId", props.scopeSpaceId);
+    let source: EventSource | null = null;
+    try {
+      source = new EventSource(resolveWsHttpUrl(`/api/moss/pages/events?${params.toString()}`), {
+        withCredentials: true,
+      });
+      source.addEventListener("page-updated", (event) => {
+        if (liveRef.current) return;
+        try {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { pageId?: string };
+          if (!payload.pageId || payload.pageId === page.id) {
+            void latest.current.reloadIfChanged?.().catch(() => false);
+          }
+        } catch {
+          void latest.current.reloadIfChanged?.().catch(() => false);
+        }
+      });
+    } catch {
+      return undefined;
+    }
+    return () => source?.close();
+  }, [page.id, props.scopeSpaceId]);
+
+  useEffect(() => {
+    if (!runs.length) return;
     let changedAt = Date.now();
     const timer = setInterval(async () => {
       // In a live room the server pushes Moss's writes; nothing to poll.
@@ -608,7 +797,7 @@ export function DesignEditor(props: {
         );
     }, 2_500);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [runs.length]);
   useEffect(() => {
     const focus = () => {
       if (!liveRef.current) void latest.current.reloadIfChanged?.().catch(() => false);
@@ -701,7 +890,7 @@ export function DesignEditor(props: {
     zoomToRect(presence.view, 8);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [follow, followed?.presence?.view, followed?.presence?.page]);
-  const others = peers.filter((peer) => !peer.self);
+  const others = useMemo(() => peers.filter((peer) => !peer.self), [peers]);
 
   // ─── Comments ──────────────────────────────────────────────────────────────────────────
 
@@ -839,6 +1028,18 @@ export function DesignEditor(props: {
     void (async () => {
       try {
         if (!(await flushAll())) throw new Error("请先保存设计。");
+        if (dockRef.current) {
+          const selectionContext = currentDockSelection();
+          dockRef.current.setSelection(selectionContext);
+          await dockRef.current.ask({
+            prefillOnly: true,
+            preferredState: "docked",
+            selection: selectionContext,
+            keepItemOpen: true,
+            origin: "top-chrome",
+          });
+          return;
+        }
         await threadsRef.current.startPageConversation(
           {
             page: { ...latest.current.item.page, revision: savedRevision() },
@@ -1417,114 +1618,178 @@ export function DesignEditor(props: {
     </>
   );
 
-  return (
-    <div ref={root} className="flex min-h-0 flex-1 flex-col" data-design-editor="">
-      <div
-        className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-2"
-        role="toolbar"
-        aria-label="设计工具"
-      >
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="xs"
-                variant="ghost"
-                className="max-w-40 gap-1 px-2 font-normal"
-                aria-label="页面：切换、新建、重命名或删除页面"
+  const chromeRef = useRef({
+    selectPage: editor.selectPage,
+    addPage: editor.addPage,
+    deletePage: editor.deletePage,
+    renameCurrentPage: () => {
+      setPanelOpen(true);
+      setPanelTab("properties");
+      editor.setSelection(EMPTY_SELECTION);
+    },
+    toggleFollow: (peerId: string) => setFollow((current) => (current === peerId ? null : peerId)),
+    zoomStep,
+    fit,
+    zoomToSelection,
+    setZoom,
+    play: (boardId: string) => setPlaying({ boardId, surface: "full" }),
+    toggleComments: () => setShowComments((shown) => !shown),
+    exportPng,
+    exportSvg,
+    exportPdf,
+    exportHtml,
+    copyAsPng,
+    copyAsSvg,
+    copyAsHtml,
+    sendToChat,
+    saveToLibrary,
+    togglePanel: () => setPanelOpen((open) => !open),
+  });
+  chromeRef.current = {
+    selectPage: editor.selectPage,
+    addPage: editor.addPage,
+    deletePage: editor.deletePage,
+    renameCurrentPage: () => {
+      setPanelOpen(true);
+      setPanelTab("properties");
+      editor.setSelection(EMPTY_SELECTION);
+    },
+    toggleFollow: (peerId: string) => setFollow((current) => (current === peerId ? null : peerId)),
+    zoomStep,
+    fit,
+    zoomToSelection,
+    setZoom,
+    play: (boardId: string) => setPlaying({ boardId, surface: "full" }),
+    toggleComments: () => setShowComments((shown) => !shown),
+    exportPng,
+    exportSvg,
+    exportPdf,
+    exportHtml,
+    copyAsPng,
+    copyAsSvg,
+    copyAsHtml,
+    sendToChat,
+    saveToLibrary,
+    togglePanel: () => setPanelOpen((open) => !open),
+  };
+
+  const unreadComments = comments.some((comment) => !comment.read);
+  const pageSwitcherMenu = useMemo(
+    () => (
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              size="xs"
+              variant="ghost"
+              className="max-w-40 gap-1 px-2 font-normal"
+              aria-label="页面：切换、新建、重命名或删除页面"
+            >
+              <span className="truncate">{editor.page.name}</span>
+              {canvas.pages.length > 1 ? (
+                <span className="text-muted-foreground">{canvas.pages.length}</span>
+              ) : null}
+              <ChevronDownIcon className="size-3.5 text-muted-foreground" />
+            </Button>
+          }
+        />
+        <ComposerPickerMenuPopup align="start" className="w-56 min-w-56">
+          <MenuGroup>
+            <MenuGroupLabel>页面</MenuGroupLabel>
+            {canvas.pages.map((entry) => (
+              <MenuItem
+                key={entry.id}
+                data-design-page={entry.id}
+                onClick={() => chromeRef.current.selectPage(entry.id)}
               >
-                <span className="truncate">{editor.page.name}</span>
-                {canvas.pages.length > 1 ? (
-                  <span className="text-muted-foreground">{canvas.pages.length}</span>
+                <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                {entry.id === editor.pageId ? (
+                  <span className="text-ui-xs text-muted-foreground">当前</span>
                 ) : null}
-                <ChevronDownIcon className="size-3.5 text-muted-foreground" />
-              </Button>
-            }
-          />
-          <ComposerPickerMenuPopup align="start" className="w-56 min-w-56">
-            <MenuGroup>
-              <MenuGroupLabel>页面</MenuGroupLabel>
-              {canvas.pages.map((entry) => (
-                <MenuItem
-                  key={entry.id}
-                  data-design-page={entry.id}
-                  onClick={() => editor.selectPage(entry.id)}
-                >
-                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-                  {entry.id === editor.pageId ? (
-                    <span className="text-ui-xs text-muted-foreground">当前</span>
-                  ) : null}
+              </MenuItem>
+            ))}
+          </MenuGroup>
+          {!editor.readOnly ? (
+            <>
+              <MenuSeparator />
+              <MenuGroup>
+                <MenuItem onClick={() => chromeRef.current.addPage()}>新建页面</MenuItem>
+                <MenuItem onClick={() => chromeRef.current.renameCurrentPage()}>
+                  重命名当前页面
                 </MenuItem>
-              ))}
-            </MenuGroup>
-            {!editor.readOnly ? (
-              <>
-                <MenuSeparator />
-                <MenuGroup>
-                  <MenuItem onClick={editor.addPage}>新建页面</MenuItem>
-                  <MenuItem
-                    onClick={() => {
-                      setPanelOpen(true);
-                      setPanelTab("properties");
-                      editor.setSelection(EMPTY_SELECTION);
-                    }}
-                  >
-                    重命名当前页面
-                  </MenuItem>
-                  <MenuItem
-                    disabled={canvas.pages.length <= 1}
-                    onClick={() => editor.deletePage(editor.pageId)}
-                  >
-                    删除当前页面
-                  </MenuItem>
-                </MenuGroup>
-              </>
-            ) : null}
-          </ComposerPickerMenuPopup>
-        </Menu>
-        <SpaceToolbarDivider />
-        {(editor.readOnly
-          ? (["select", "hand"] as const)
-          : (["select", "hand", "frame", "text"] as const)
-        ).map((tool) => renderTool(tool))}
-        {!editor.readOnly ? (
-          <>
-            <ToolGroupButton
-              tools={SHAPE_TOOLS}
-              last={lastShape}
-              current={editor.tool}
-              label="形状"
-              onPick={editor.setTool}
-            />
-            <ToolGroupButton
-              tools={DRAW_TOOLS}
-              last={lastDraw}
-              current={editor.tool}
-              label="绘制"
-              onPick={editor.setTool}
-            />
-            {(["scale", "image", "note"] as const).map((tool) => renderTool(tool))}
-          </>
-        ) : null}
-        {renderTool("comment")}
-        <SpaceToolbarDivider />
-        <SpaceToolbarButton
-          icon={Undo2Icon}
-          label="撤销"
-          shortcut={`${MOD}Z`}
-          disabled={!editor.canUndo}
-          onClick={editor.undo}
-          testId="design-undo"
+                <MenuItem
+                  disabled={canvas.pages.length <= 1}
+                  onClick={() => chromeRef.current.deletePage(editor.pageId)}
+                >
+                  删除当前页面
+                </MenuItem>
+              </MenuGroup>
+            </>
+          ) : null}
+        </ComposerPickerMenuPopup>
+      </Menu>
+    ),
+    [canvas.pages, editor.page.name, editor.pageId, editor.readOnly],
+  );
+
+  const exportMenu = useMemo(
+    () => (
+      <Menu>
+        <MenuTrigger
+          render={
+            <Button
+              size="xs"
+              variant="ghost"
+              className="gap-1 px-2 font-normal"
+              disabled={busy !== null}
+              data-design-export=""
+            >
+              <DownloadIcon className="size-4" />
+              {busy ? `正在导出 ${busy}…` : "导出"}
+            </Button>
+          }
         />
-        <SpaceToolbarButton
-          icon={Redo2Icon}
-          label="重做"
-          shortcut={isMac ? "⇧⌘Z" : "Ctrl+Shift+Z"}
-          disabled={!editor.canRedo}
-          onClick={editor.redo}
-          testId="design-redo"
-        />
-        <div className="min-w-2 flex-1" />
+        <ComposerPickerMenuPopup align="end" className="w-60 min-w-60">
+          <MenuGroup>
+            <MenuGroupLabel>
+              {selection.boards.length || selection.element ? "选中的画板" : "这一页的全部画板"}
+            </MenuGroupLabel>
+            <MenuItem onClick={() => chromeRef.current.exportPng(1)}>PNG 1×</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportPng(2)}>PNG 2×</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportPng(3)}>PNG 3×</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportSvg()}>SVG</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportPdf()}>PDF（每个画板一页）</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportPdf("a4")}>PDF（按 A4 分页）</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportPdf("letter")}>
+              PDF（按 Letter 分页）
+            </MenuItem>
+            <MenuItem onClick={() => chromeRef.current.exportHtml()}>HTML 网页（.zip）</MenuItem>
+          </MenuGroup>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuItem onClick={() => chromeRef.current.copyAsPng()}>复制为图片</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.copyAsSvg()}>复制为 SVG</MenuItem>
+            <MenuItem onClick={() => chromeRef.current.copyAsHtml()}>复制 HTML</MenuItem>
+          </MenuGroup>
+          <MenuSeparator />
+          <MenuGroup>
+            <MenuGroupLabel>发送到</MenuGroupLabel>
+            <MenuItem onClick={() => chromeRef.current.sendToChat()} disabled={editor.readOnly}>
+              对话（让 Moss 接着做）
+            </MenuItem>
+            <MenuItem onClick={() => chromeRef.current.saveToLibrary()}>
+              资料库（PNG 图片）
+            </MenuItem>
+          </MenuGroup>
+        </ComposerPickerMenuPopup>
+      </Menu>
+    ),
+    [busy, editor.readOnly, selection.boards.length, selection.element],
+  );
+
+  const rightChromeControls = useMemo(
+    () => (
+      <>
         {others.length ? (
           <span className="flex items-center -space-x-1" data-design-peers={others.length}>
             {others.slice(0, 4).map((peer) => (
@@ -1544,7 +1809,7 @@ export function DesignEditor(props: {
                   follow === peer.id && "ring-2 ring-[var(--color-text-accent)]",
                 )}
                 style={{ background: peer.color }}
-                onClick={() => setFollow((current) => (current === peer.id ? null : peer.id))}
+                onClick={() => chromeRef.current.toggleFollow(peer.id)}
               >
                 {peer.name.slice(0, 1)}
               </Button>
@@ -1562,10 +1827,10 @@ export function DesignEditor(props: {
         {running ? (
           <span
             role="status"
-            className="flex items-center gap-1.5 text-ui-sm text-muted-foreground"
+            className="flex items-center gap-1.5 text-ui-sm text-[var(--primary)]"
           >
-            <span className="size-1.5 rounded-full bg-[var(--color-text-accent)] motion-safe:animate-pulse" />
-            Moss 正在设计…
+            <span className="size-1.5 rounded-full bg-[var(--primary)] motion-safe:animate-pulse" />
+            Moss · 正在思考...
           </span>
         ) : null}
         <Menu>
@@ -1585,23 +1850,23 @@ export function DesignEditor(props: {
           />
           <ComposerPickerMenuPopup align="end" className="w-52 min-w-52">
             <MenuGroup>
-              <MenuItem onClick={() => zoomStep(1)}>
+              <MenuItem onClick={() => chromeRef.current.zoomStep(1)}>
                 放大 <MenuShortcut>{MOD}+</MenuShortcut>
               </MenuItem>
-              <MenuItem onClick={() => zoomStep(-1)}>
+              <MenuItem onClick={() => chromeRef.current.zoomStep(-1)}>
                 缩小 <MenuShortcut>{MOD}-</MenuShortcut>
               </MenuItem>
-              <MenuItem onClick={fit}>
+              <MenuItem onClick={() => chromeRef.current.fit()}>
                 显示全部 <MenuShortcut>⇧1</MenuShortcut>
               </MenuItem>
-              <MenuItem onClick={zoomToSelection}>
+              <MenuItem onClick={() => chromeRef.current.zoomToSelection()}>
                 缩放到选中 <MenuShortcut>⇧2</MenuShortcut>
               </MenuItem>
             </MenuGroup>
             <MenuSeparator />
             <MenuGroup>
               {[0.25, 0.5, 0.75, 1, 1.5, 2].map((zoom) => (
-                <MenuItem key={zoom} onClick={() => setZoom(zoom)}>
+                <MenuItem key={zoom} onClick={() => chromeRef.current.setZoom(zoom)}>
                   {zoom * 100}%
                 </MenuItem>
               ))}
@@ -1613,365 +1878,569 @@ export function DesignEditor(props: {
           label="播放原型"
           tooltip={playTarget ? "全屏播放原型" : "这一页还没有画板"}
           disabled={!playTarget}
-          onClick={() => playTarget && setPlaying({ boardId: playTarget, surface: "full" })}
+          onClick={() => playTarget && chromeRef.current.play(playTarget)}
           testId="design-play"
         />
         <SpaceToolbarButton
           icon={PageCommentIcon}
           label={showComments ? "隐藏评论" : "显示评论"}
           pressed={showComments}
-          attention={comments.some((comment) => !comment.read)}
-          onClick={() => setShowComments((shown) => !shown)}
+          attention={unreadComments}
+          onClick={() => chromeRef.current.toggleComments()}
           testId="design-comments"
         />
-        <SpaceToolbarButton
-          icon={SparklesIcon}
-          label="让 Moss 修改"
-          tooltip={
-            canAsk ? "让 Moss 修改（会带上你选中的内容）" : "这个资料空间还没有可用的 Moss 智能体"
-          }
-          disabled={!canAsk}
-          pressed={asking}
-          busy={running}
-          onClick={() => setAsking((open) => !open)}
-          testId="design-ask"
-        />
-        <Menu>
-          <MenuTrigger
-            render={
-              <Button
-                size="xs"
-                variant="ghost"
-                className="gap-1 px-2 font-normal"
-                disabled={busy !== null}
-                data-design-export=""
-              >
-                <DownloadIcon className="size-4" />
-                {busy ? `正在导出 ${busy}…` : "导出"}
-              </Button>
-            }
-          />
-          <ComposerPickerMenuPopup align="end" className="w-60 min-w-60">
-            <MenuGroup>
-              <MenuGroupLabel>
-                {selection.boards.length || selection.element ? "选中的画板" : "这一页的全部画板"}
-              </MenuGroupLabel>
-              <MenuItem onClick={() => exportPng(1)}>PNG 1×</MenuItem>
-              <MenuItem onClick={() => exportPng(2)}>PNG 2×</MenuItem>
-              <MenuItem onClick={() => exportPng(3)}>PNG 3×</MenuItem>
-              <MenuItem onClick={exportSvg}>SVG</MenuItem>
-              <MenuItem onClick={() => exportPdf()}>PDF（每个画板一页）</MenuItem>
-              <MenuItem onClick={() => exportPdf("a4")}>PDF（按 A4 分页）</MenuItem>
-              <MenuItem onClick={() => exportPdf("letter")}>PDF（按 Letter 分页）</MenuItem>
-              <MenuItem onClick={exportHtml}>HTML 网页（.zip）</MenuItem>
-            </MenuGroup>
-            <MenuSeparator />
-            <MenuGroup>
-              <MenuItem onClick={copyAsPng}>复制为图片</MenuItem>
-              <MenuItem onClick={copyAsSvg}>复制为 SVG</MenuItem>
-              <MenuItem onClick={copyAsHtml}>复制 HTML</MenuItem>
-            </MenuGroup>
-            <MenuSeparator />
-            <MenuGroup>
-              <MenuGroupLabel>发送到</MenuGroupLabel>
-              <MenuItem onClick={sendToChat} disabled={editor.readOnly}>
-                对话（让 Moss 接着做）
-              </MenuItem>
-              <MenuItem onClick={saveToLibrary}>资料库（PNG 图片）</MenuItem>
-            </MenuGroup>
-          </ComposerPickerMenuPopup>
-        </Menu>
+        {exportMenu}
         <SpaceToolbarButton
           icon={PanelRightOpenIcon}
           label={panelOpen ? "隐藏属性面板" : "显示属性面板"}
           shortcut={`${MOD}\\`}
           pressed={panelOpen}
-          onClick={() => setPanelOpen((open) => !open)}
+          onClick={() => chromeRef.current.togglePanel()}
           testId="design-panel-toggle"
         />
-      </div>
+      </>
+    ),
+    [
+      exportMenu,
+      follow,
+      others,
+      panelOpen,
+      playTarget,
+      roomStatus,
+      running,
+      showComments,
+      unreadComments,
+      view.zoom,
+    ],
+  );
+
+  const onHostActionsChange = props.onHostActionsChange;
+  const hostChromeActions = useMemo(() => {
+    if (!onHostActionsChange) return null;
+    return (
+      <>
+        {pageSwitcherMenu}
+        <SpaceToolbarDivider />
+        {rightChromeControls}
+      </>
+    );
+  }, [onHostActionsChange, pageSwitcherMenu, rightChromeControls]);
+
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    onHostActionsChange(hostChromeActions);
+  }, [hostChromeActions, onHostActionsChange]);
+
+  useEffect(() => {
+    if (!onHostActionsChange) return;
+    return () => onHostActionsChange(null);
+  }, [onHostActionsChange]);
+
+  const bottomInsetPx =
+    props.hostChrome?.bottomInsetPx ??
+    props.hostInsets?.bottomInsetPx ??
+    dockInsets?.bottomInsetPx ??
+    0;
+  const presenceBoard =
+    editor.boardById(selection.boards[0] ?? selection.element?.boardId ?? "") ??
+    editor.pageBoards[0] ??
+    null;
+
+  return (
+    <div ref={root} className="flex min-h-0 flex-1 flex-col" data-design-editor="">
+      {!props.hostChrome?.hideTopBar ? (
+        <div
+          className="flex h-9 shrink-0 items-center gap-1 border-b border-border/80 px-2"
+          data-design-topbar=""
+        >
+          {pageSwitcherMenu}
+          <div className="min-w-2 flex-1" />
+          {!onHostActionsChange ? rightChromeControls : null}
+        </div>
+      ) : null}
 
       <div
         className="relative flex min-h-0 flex-1"
         onPointerDownCapture={() => follow && setFollow(null)}
         onWheelCapture={() => follow && setFollow(null)}
       >
-        <DesignCanvasView
-          editor={editor}
-          playing={playing?.surface === "canvas" ? playing.boardId : null}
-          onPlay={(boardId) => setPlaying(boardId ? { boardId, surface: "canvas" } : null)}
-          onNavigate={(_from, target) => {
-            if (target.url) return void window.open(target.url, "_blank", "noopener,noreferrer");
-            const board = canvas.boards.find((entry) => entry.id === target.board);
-            if (!board)
-              return void toastManager.add({
-                type: "info",
-                title: "这个链接指向的画板不在这份设计里",
+        <div className="relative flex min-h-0 min-w-0 flex-1">
+          <DesignCanvasView
+            editor={editor}
+            playing={playing?.surface === "canvas" ? playing.boardId : null}
+            onPlay={(boardId) => setPlaying(boardId ? { boardId, surface: "canvas" } : null)}
+            onNavigate={(_from, target) => {
+              if (target.url) return void window.open(target.url, "_blank", "noopener,noreferrer");
+              const board = canvas.boards.find((entry) => entry.id === target.board);
+              if (!board)
+                return void toastManager.add({
+                  type: "info",
+                  title: "这个链接指向的画板不在这份设计里",
+                });
+              setPlaying({ boardId: board.id, surface: "canvas" });
+              if (board.page !== editor.pageId) editor.selectPage(board.page);
+              zoomToRect(board, view.zoom);
+            }}
+            onRequestImage={(boardId, at, file) => void addImage(boardId, at, file)}
+            onRequestVideo={(boardId, at, file) => void addVideo(boardId, at, file)}
+            onOpenLink={openLink}
+            peers={peers}
+            onCursor={(point) => {
+              cursor.current = point;
+              sharePresence();
+            }}
+            onComment={(target, screen) => {
+              const rect = canvasElement.current?.getBoundingClientRect();
+              setDraftComment({
+                target,
+                at: { left: screen.x - (rect?.left ?? 0) + 12, top: screen.y - (rect?.top ?? 0) },
               });
-            setPlaying({ boardId: board.id, surface: "canvas" });
-            if (board.page !== editor.pageId) editor.selectPage(board.page);
-            zoomToRect(board, view.zoom);
-          }}
-          onRequestImage={(boardId, at, file) => void addImage(boardId, at, file)}
-          onRequestVideo={(boardId, at, file) => void addVideo(boardId, at, file)}
-          onOpenLink={openLink}
-          peers={peers}
-          onCursor={(point) => {
-            cursor.current = point;
-            sharePresence();
-          }}
-          onComment={(target, screen) => {
-            const rect = canvasElement.current?.getBoundingClientRect();
-            setDraftComment({
-              target,
-              at: { left: screen.x - (rect?.left ?? 0) + 12, top: screen.y - (rect?.top ?? 0) },
-            });
-            editor.setTool("select");
-          }}
-          onContextMenu={(screen) => setMenu(screen)}
-          rootRef={(element) => {
-            canvasElement.current = element;
-          }}
-          overlay={(toScreen) =>
-            showComments ? (
+              editor.setTool("select");
+            }}
+            onContextMenu={(screen) => setMenu(screen)}
+            rootRef={(element) => {
+              canvasElement.current = element;
+            }}
+            overlay={(toScreen) => (
               <>
-                {comments.map((comment) => {
-                  const at = commentPoint(comment, toScreen);
-                  if (!at) return null;
-                  return (
-                    <span key={comment.id} className="pointer-events-auto">
-                      <CommentPin
-                        comment={comment}
-                        left={at.x}
-                        top={at.y}
-                        side="above"
-                        open={openComment === comment.id}
-                        pulse={false}
-                        onOpen={() => {
-                          setOpenComment(comment.id);
-                          usePageCommentsStore.getState().markPageRead(pageKey);
+                {showComments ? (
+                  <>
+                    {comments.map((comment) => {
+                      const at = commentPoint(comment, toScreen);
+                      if (!at) return null;
+                      return (
+                        <span key={comment.id} className="pointer-events-auto">
+                          <CommentPin
+                            comment={comment}
+                            left={at.x}
+                            top={at.y}
+                            side="above"
+                            open={openComment === comment.id}
+                            pulse={false}
+                            onOpen={() => {
+                              setOpenComment(comment.id);
+                              usePageCommentsStore.getState().markPageRead(pageKey);
+                            }}
+                          />
+                          {openComment === comment.id ? (
+                            <ThreadCard
+                              comment={comment}
+                              position={{ left: at.x + 16, top: at.y }}
+                              pulse={false}
+                              author={me}
+                              onReply={(body) =>
+                                postDeckComment({
+                                  pageKey,
+                                  author: me,
+                                  threadId: comment.id,
+                                  anchor: null,
+                                  label: comment.anchor.label,
+                                  body,
+                                  sendToAgent:
+                                    canAsk &&
+                                    (comment.sentToAgentAt !== null ||
+                                      pageCommentMentionsAgent(body)),
+                                  ask: askFromComment,
+                                })
+                              }
+                              onDelete={() => {
+                                usePageCommentsStore.getState().deleteComment(pageKey, comment.id);
+                                setOpenComment(null);
+                              }}
+                              onClose={() => setOpenComment(null)}
+                            />
+                          ) : null}
+                        </span>
+                      );
+                    })}
+                    {draftComment ? (
+                      <NewCommentCard
+                        threadId={page.sourceThreadId ?? ""}
+                        pageTitle={props.title}
+                        anchor={{ selector: "", label: draftComment.target.label, text: "" }}
+                        position={draftComment.at}
+                        onCancel={() => setDraftComment(null)}
+                        onPost={(body, sendToAgent) => {
+                          const target = draftComment.target;
+                          postDeckComment({
+                            pageKey,
+                            author: me,
+                            threadId: null,
+                            anchor: target.boardId
+                              ? {
+                                  slideId: target.boardId,
+                                  ...(target.path ? { elementId: target.path } : {}),
+                                }
+                              : {
+                                  slideId: "~canvas",
+                                  elementId: `${Math.round(target.world.x)}_${Math.round(target.world.y)}`,
+                                },
+                            label: target.label,
+                            body,
+                            sendToAgent: sendToAgent && canAsk,
+                            ask: askFromComment,
+                          });
+                          if (sendToAgent && !canAsk)
+                            toastManager.add({
+                              type: "info",
+                              title: "评论已保存；这个资料空间还没有可用的 Moss 智能体",
+                            });
+                          setDraftComment(null);
                         }}
                       />
-                      {openComment === comment.id ? (
-                        <ThreadCard
-                          comment={comment}
-                          position={{ left: at.x + 16, top: at.y }}
-                          pulse={false}
-                          author={me}
-                          onReply={(body) =>
-                            postDeckComment({
-                              pageKey,
-                              author: me,
-                              threadId: comment.id,
-                              anchor: null,
-                              label: comment.anchor.label,
-                              body,
-                              sendToAgent:
-                                canAsk &&
-                                (comment.sentToAgentAt !== null || pageCommentMentionsAgent(body)),
-                              ask: askFromComment,
-                            })
-                          }
-                          onDelete={() => {
-                            usePageCommentsStore.getState().deleteComment(pageKey, comment.id);
-                            setOpenComment(null);
-                          }}
-                          onClose={() => setOpenComment(null)}
-                        />
-                      ) : null}
-                    </span>
-                  );
-                })}
-                {draftComment ? (
-                  <NewCommentCard
-                    threadId={page.sourceThreadId ?? ""}
-                    pageTitle={props.title}
-                    anchor={{ selector: "", label: draftComment.target.label, text: "" }}
-                    position={draftComment.at}
-                    onCancel={() => setDraftComment(null)}
-                    onPost={(body, sendToAgent) => {
-                      const target = draftComment.target;
-                      postDeckComment({
-                        pageKey,
-                        author: me,
-                        threadId: null,
-                        anchor: target.boardId
-                          ? {
-                              slideId: target.boardId,
-                              ...(target.path ? { elementId: target.path } : {}),
-                            }
-                          : {
-                              slideId: "~canvas",
-                              elementId: `${Math.round(target.world.x)}_${Math.round(target.world.y)}`,
-                            },
-                        label: target.label,
-                        body,
-                        sendToAgent: sendToAgent && canAsk,
-                        ask: askFromComment,
-                      });
-                      if (sendToAgent && !canAsk)
-                        toastManager.add({
-                          type: "info",
-                          title: "评论已保存；这个资料空间还没有可用的 Moss 智能体",
-                        });
-                      setDraftComment(null);
-                    }}
-                  />
+                    ) : null}
+                  </>
                 ) : null}
+                {running
+                  ? (() => {
+                      const boardOrigin = presenceBoard
+                        ? toScreen({ x: presenceBoard.x, y: presenceBoard.y })
+                        : null;
+                      const boardW = presenceBoard ? presenceBoard.w * view.zoom : 0;
+                      const boardH = presenceBoard ? presenceBoard.h * view.zoom : 0;
+                      const caretLeft = boardOrigin
+                        ? boardOrigin.x + Math.min(boardW * 0.6, 180)
+                        : 140;
+                      const caretTop = boardOrigin ? Math.max(16, boardOrigin.y + 36) : 112;
+                      return (
+                        <div
+                          className="pointer-events-none absolute inset-0"
+                          data-design-moss-presence="true"
+                        >
+                          {boardOrigin ? (
+                            <div
+                              data-design-artboard-shimmer="true"
+                              className="absolute rounded-card border-2 border-[var(--primary)] bg-[color-mix(in_srgb,var(--primary)_8%,transparent)] motion-safe:animate-pulse"
+                              style={{
+                                left: boardOrigin.x,
+                                top: boardOrigin.y,
+                                width: Math.max(80, boardW),
+                                height: Math.max(80, boardH),
+                              }}
+                            />
+                          ) : null}
+                          <div
+                            className="absolute flex items-center gap-1 transition-all duration-500 ease-out"
+                            style={{ left: caretLeft, top: caretTop }}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 16 16"
+                              className="shrink-0 drop-shadow-sm"
+                              aria-hidden
+                            >
+                              <path d="M2 1.5L13.5 7.5L8 9L5.5 14L2 1.5Z" fill="var(--primary)" />
+                            </svg>
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-[var(--primary)] px-2 py-0.5 text-ui-xs font-medium text-[var(--primary-foreground)] shadow-md">
+                              <SparklesIcon className="size-3" aria-hidden />
+                              <span>Moss · 正在思考...</span>
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()
+                  : null}
               </>
-            ) : null
-          }
-        />
-        <DeckCommentAgentReplies pageKey={pageKey} comments={comments} />
+            )}
+          />
+          <DeckCommentAgentReplies pageKey={pageKey} comments={comments} />
 
-        {empty ? (
-          <div
-            className="pointer-events-none absolute inset-0 flex items-center justify-center"
-            data-design-empty=""
-          >
-            <div className="pointer-events-auto flex w-[420px] max-w-[calc(100%-32px)] flex-col gap-3 rounded-card border border-border bg-background p-5 shadow-sm">
-              <h2 className="text-ui-lg font-medium">这一页还没有画板</h2>
-              <p className="text-ui-sm text-muted-foreground">
-                添加一个画板开始设计，或者告诉 Moss 你想要什么，让它来做。
-              </p>
-              {!editor.readOnly ? (
-                <>
-                  <div className="flex flex-wrap gap-1.5">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => editor.addBoard({ x: 0, y: 0, w: 1440, h: 900 }, "网页")}
-                    >
-                      网页 1440×900
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => editor.addBoard({ x: 0, y: 0, w: 390, h: 844 }, "手机")}
-                    >
-                      手机 390×844
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => editor.addBoard({ x: 0, y: 0, w: 1080, h: 1350 }, "海报")}
-                    >
-                      海报 1080×1350
-                    </Button>
-                  </div>
-                  <textarea
-                    aria-label="描述你想要的设计"
-                    rows={3}
-                    value={generateText}
-                    disabled={!canAsk}
-                    placeholder={
-                      canAsk
-                        ? "比如：一个咖啡店的手机点餐应用，三屏，温暖的配色"
-                        : "这个资料空间还没有可用的 Moss 智能体"
-                    }
-                    className="w-full resize-none rounded-control border border-border bg-transparent p-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]"
-                    onChange={(event) => setGenerateText(event.target.value)}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      if (
-                        event.key === "Enter" &&
-                        !event.shiftKey &&
-                        !isImeComposingKeyEvent(event)
-                      ) {
-                        event.preventDefault();
-                        generate(generateText);
-                      }
-                    }}
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      disabled={!canAsk || !generateText.trim() || running}
-                      onClick={() => generate(generateText)}
-                    >
-                      <SparklesIcon className="size-4" /> 让 Moss 来做
-                    </Button>
-                  </div>
-                </>
-              ) : null}
+          {empty && running ? (
+            <div
+              className="pointer-events-none absolute inset-0 flex items-center justify-center gap-4 p-8"
+              data-design-artboard-shimmer="true"
+              aria-label="Moss 正在生成画板"
+            >
+              {[0, 1, 2].map((index) => (
+                <div
+                  key={index}
+                  className="flex h-72 w-48 flex-col gap-3 rounded-card border border-[color-mix(in_srgb,var(--primary)_30%,var(--border))] bg-background/90 p-3 shadow-sm motion-safe:animate-pulse"
+                >
+                  <div className="h-3 w-20 rounded-inline bg-muted" />
+                  <div className="h-24 rounded-control bg-muted/70" />
+                  <div className="h-3 w-28 rounded-inline bg-muted/80" />
+                  <div className="h-3 w-24 rounded-inline bg-muted/60" />
+                </div>
+              ))}
             </div>
-          </div>
-        ) : null}
+          ) : empty ? (
+            <div
+              className="pointer-events-none absolute inset-0 flex items-center justify-center"
+              data-design-empty=""
+            >
+              <div className="pointer-events-auto flex w-[420px] max-w-[calc(100%-32px)] flex-col gap-3 rounded-card border border-border bg-background p-5 shadow-sm">
+                <h2 className="text-ui-lg font-medium">这一页还没有画板</h2>
+                <p className="text-ui-sm text-muted-foreground">
+                  添加一个画板开始设计，或者告诉 Moss 你想要什么，让它来做。
+                </p>
+                {!editor.readOnly ? (
+                  <>
+                    <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editor.addBoard({ x: 0, y: 0, w: 1440, h: 900 }, "网页")}
+                      >
+                        网页 1440×900
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editor.addBoard({ x: 0, y: 0, w: 390, h: 844 }, "手机")}
+                      >
+                        手机 390×844
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => editor.addBoard({ x: 0, y: 0, w: 1080, h: 1350 }, "海报")}
+                      >
+                        海报 1080×1350
+                      </Button>
+                    </div>
+                    <textarea
+                      aria-label="描述你想要的设计"
+                      rows={3}
+                      value={generateText}
+                      disabled={!canAsk}
+                      placeholder={
+                        canAsk
+                          ? "比如：一个咖啡店的手机点餐应用，三屏，温暖的配色"
+                          : "这个资料空间还没有可用的 Moss 智能体"
+                      }
+                      className="w-full resize-none rounded-control border border-border bg-transparent p-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]"
+                      onChange={(event) => setGenerateText(event.target.value)}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !isImeComposingKeyEvent(event)
+                        ) {
+                          event.preventDefault();
+                          generate(generateText);
+                        }
+                      }}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        size="sm"
+                        disabled={!canAsk || !generateText.trim() || running}
+                        onClick={() => generate(generateText)}
+                      >
+                        <SparklesIcon className="size-4" /> 让 Moss 来做
+                      </Button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
-        {asking ? (
-          <div
-            className="absolute top-2 right-2 z-20 flex w-80 flex-col gap-2 rounded-popover border border-border bg-popover p-3 shadow-xl"
-            data-design-ask=""
-            style={panelOpen ? { right: 328 } : undefined}
-          >
-            <span className="text-ui-sm text-muted-foreground">
-              {selection.element
-                ? `针对选中的 ${selection.element.paths.length} 个元素`
-                : selection.boards.length
-                  ? `针对选中的 ${selection.boards.length} 个画板`
-                  : "针对你现在看到的画板"}
-            </span>
-            <textarea
-              autoFocus
-              aria-label="告诉 Moss 要怎么改"
-              rows={3}
-              value={askText}
-              placeholder="比如：把按钮改成圆角，主色换成深绿"
-              className="w-full resize-none rounded-control border border-border bg-transparent p-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]"
-              onChange={(event) => setAskText(event.target.value)}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Escape") setAsking(false);
-                if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
-                  event.preventDefault();
-                  if (askText.trim()) {
-                    void ask(askText);
-                    setAskText("");
-                    setAsking(false);
-                  }
-                }
+          {!dock && asking ? (
+            <div
+              className="absolute inset-x-0 z-20 flex justify-center px-3"
+              style={{ bottom: Math.max(66, bottomInsetPx + 66) }}
+              data-design-ask=""
+            >
+              <div className="flex w-full max-w-[360px] flex-col gap-2 rounded-popover border border-border bg-popover p-3 shadow-xl">
+                <span className="text-ui-sm text-muted-foreground">
+                  {selection.element
+                    ? `针对选中的 ${selection.element.paths.length} 个元素`
+                    : selection.boards.length
+                      ? `针对选中的 ${selection.boards.length} 个画板`
+                      : "针对你现在看到的画板"}
+                </span>
+                <textarea
+                  autoFocus
+                  aria-label="告诉 Moss 要怎么改"
+                  rows={3}
+                  value={askText}
+                  placeholder="比如：把按钮改成圆角，主色换成深绿"
+                  className="w-full resize-none rounded-control border border-border bg-transparent p-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]"
+                  onChange={(event) => setAskText(event.target.value)}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Escape") setAsking(false);
+                    if (
+                      event.key === "Enter" &&
+                      !event.shiftKey &&
+                      !isImeComposingKeyEvent(event)
+                    ) {
+                      event.preventDefault();
+                      if (askText.trim()) {
+                        void ask(askText);
+                        setAskText("");
+                        setAsking(false);
+                      }
+                    }
+                  }}
+                />
+                <div className="flex justify-end gap-1">
+                  <Button size="xs" variant="ghost" onClick={() => setAsking(false)}>
+                    取消
+                  </Button>
+                  <Button
+                    size="xs"
+                    disabled={!askText.trim()}
+                    onClick={() => {
+                      void ask(askText);
+                      setAskText("");
+                      setAsking(false);
+                    }}
+                  >
+                    发送给 Moss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {linkDialog ? (
+            <DesignLinkDialog
+              scopeSpaceId={props.scopeSpaceId}
+              selfPageId={page.id}
+              onClose={() => setLinkDialog(null)}
+              onAdd={(card) => {
+                editor.addCanvasNote({
+                  kind: "link",
+                  x: Math.round(linkDialog.x),
+                  y: Math.round(linkDialog.y),
+                  w: 640,
+                  h: 112,
+                  text: card.text.slice(0, 200),
+                  href: card.href,
+                  ...(card.subtitle ? { subtitle: card.subtitle } : {}),
+                });
+                setLinkDialog(null);
               }}
             />
-            <div className="flex justify-end gap-1">
-              <Button size="xs" variant="ghost" onClick={() => setAsking(false)}>
-                取消
-              </Button>
+          ) : null}
+
+          {/* Claude-style centered bottom floating tool pill */}
+          <div
+            className="pointer-events-none absolute inset-x-0 z-20 flex justify-center px-3"
+            style={{ bottom: Math.max(12, bottomInsetPx + 12) }}
+          >
+            <div
+              role="toolbar"
+              aria-label="设计工具"
+              data-design-bottom-pill=""
+              className="pointer-events-auto flex max-w-full items-center gap-0.5 overflow-x-auto rounded-full border border-border bg-popover/95 px-2 py-1 shadow-xl backdrop-blur-sm [scrollbar-width:none]"
+            >
+              {(["select", "hand"] as const).map((tool) => renderTool(tool))}
+              {!editor.readOnly ? (
+                <>
+                  <SpaceToolbarDivider />
+                  {(["text", "frame", "note"] as const).map((tool) => renderTool(tool))}
+                  <ToolGroupButton
+                    tools={DRAW_TOOLS}
+                    last={lastDraw}
+                    current={editor.tool}
+                    label="绘制"
+                    side="top"
+                    onPick={editor.setTool}
+                  />
+                  <ToolGroupButton
+                    tools={SHAPE_TOOLS}
+                    last={lastShape}
+                    current={editor.tool}
+                    label="形状"
+                    side="top"
+                    onPick={editor.setTool}
+                  />
+                  <SpaceToolbarDivider />
+                  <Menu>
+                    <MenuTrigger
+                      render={
+                        <Button
+                          size="icon-xs"
+                          variant="ghost"
+                          aria-label="更多工具"
+                          data-testid="design-tool-more"
+                          className="text-muted-foreground"
+                        >
+                          <EllipsisIcon className="size-4" aria-hidden />
+                        </Button>
+                      }
+                    />
+                    <ComposerPickerMenuPopup side="top" align="center" className="w-48 min-w-48">
+                      <MenuGroup>
+                        <MenuItem
+                          data-testid="design-tool-scale"
+                          onClick={() => editor.setTool("scale")}
+                        >
+                          <ExpandArrowsIcon className="size-4 text-muted-foreground" />
+                          <span className="min-w-0 flex-1">等比缩放</span>
+                          <MenuShortcut>K</MenuShortcut>
+                        </MenuItem>
+                        <MenuItem
+                          data-testid="design-tool-image"
+                          onClick={() => editor.setTool("image")}
+                        >
+                          <PictureIcon className="size-4 text-muted-foreground" />
+                          <span className="min-w-0 flex-1">图片</span>
+                          <MenuShortcut>I</MenuShortcut>
+                        </MenuItem>
+                      </MenuGroup>
+                      <MenuSeparator />
+                      <MenuGroup>
+                        <MenuItem
+                          disabled={!editor.canUndo}
+                          data-testid="design-undo"
+                          onClick={editor.undo}
+                        >
+                          <Undo2Icon className="size-4 text-muted-foreground" />
+                          <span className="min-w-0 flex-1">撤销</span>
+                          <MenuShortcut>{MOD}Z</MenuShortcut>
+                        </MenuItem>
+                        <MenuItem
+                          disabled={!editor.canRedo}
+                          data-testid="design-redo"
+                          onClick={editor.redo}
+                        >
+                          <Redo2Icon className="size-4 text-muted-foreground" />
+                          <span className="min-w-0 flex-1">重做</span>
+                          <MenuShortcut>{isMac ? "⇧⌘Z" : "Ctrl+Shift+Z"}</MenuShortcut>
+                        </MenuItem>
+                      </MenuGroup>
+                    </ComposerPickerMenuPopup>
+                  </Menu>
+                </>
+              ) : null}
+              {renderTool("comment")}
+              <SpaceToolbarDivider />
+              {undoAiSnapshot && !editor.readOnly ? (
+                <>
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="gap-1 rounded-full text-ui-xs text-[var(--primary)]"
+                    data-testid="design-undo-moss"
+                    onClick={handleUndoAi}
+                  >
+                    <Undo2Icon className="size-3.5" aria-hidden />
+                    <span>撤销 Moss 的修改</span>
+                  </Button>
+                  <SpaceToolbarDivider />
+                </>
+              ) : null}
               <Button
                 size="xs"
-                disabled={!askText.trim()}
-                onClick={() => {
-                  void ask(askText);
-                  setAskText("");
-                  setAsking(false);
-                }}
+                variant="ghost"
+                disabled={!canAsk}
+                aria-pressed={!dock ? asking : undefined}
+                data-testid="design-ask"
+                className="shrink-0 gap-1 rounded-full px-2.5 text-ui-sm font-medium"
+                onClick={openDockFromPill}
               >
-                发送给 Moss
+                <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+                <span>{running ? "Moss 正在思考…" : "问 Moss"}</span>
               </Button>
             </div>
           </div>
-        ) : null}
-
-        {linkDialog ? (
-          <DesignLinkDialog
-            scopeSpaceId={props.scopeSpaceId}
-            selfPageId={page.id}
-            {...(panelOpen ? { style: { right: 328 } } : {})}
-            onClose={() => setLinkDialog(null)}
-            onAdd={(card) => {
-              editor.addCanvasNote({
-                kind: "link",
-                x: Math.round(linkDialog.x),
-                y: Math.round(linkDialog.y),
-                w: 640,
-                h: 112,
-                text: card.text.slice(0, 200),
-                href: card.href,
-                ...(card.subtitle ? { subtitle: card.subtitle } : {}),
-              });
-              setLinkDialog(null);
-            }}
-          />
-        ) : null}
+        </div>
 
         {panelOpen ? (
           <SpaceSidePanel
@@ -1986,7 +2455,7 @@ export function DesignEditor(props: {
               onTab={setPanelTab}
               scopeSpaceId={props.scopeSpaceId}
               selfPageId={page.id}
-              onAsk={() => setAsking(true)}
+              onAsk={openDockFromPill}
               onExportBoard={(board) =>
                 void runExport("PNG", () => exportBoardPng(board, canvas, 2))
               }

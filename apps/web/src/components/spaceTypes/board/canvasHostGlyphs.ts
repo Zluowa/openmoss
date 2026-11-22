@@ -1,0 +1,50 @@
+// FILE: canvasHostGlyphs.ts
+// Purpose: Central icon names Moss Canvas's whiteboard (`HoolaCodexCanvas.tsx` & `mossBoard/*`)
+//          loads from this origin's /central-icons-reversed/. The production build keeps only
+//          icons named in Moss web source (scripts/production-assets.ts), so every whiteboard
+//          glyph is mirrored here to prevent asset pruning.
+// Layer: web asset manifest
+
+export const CANVAS_HOST_GLYPH_NAMES = [
+  "alignment-center",
+  "alignment-left",
+  "alignment-right",
+  "arrow-down-wall",
+  "arrow-right",
+  "arrow-rotate-clockwise",
+  "arrow-rotate-counter-clockwise",
+  "arrow-up",
+  "audio",
+  "books",
+  "bubble-annotation-2",
+  "chain-link-1",
+  "chat-bubbles",
+  "checkmark-1-small",
+  "chevron-down-medium",
+  "chevron-top-medium",
+  "circle",
+  "cloud",
+  "cloud-upload",
+  "crop",
+  "cross-small",
+  "cursor-1",
+  "diamond",
+  "dot-grid-1x3-horizontal",
+  "eraser",
+  "folder-2",
+  "folder-upload",
+  "hand-5-finger",
+  "images-1",
+  "layout-align-left",
+  "line-thickness",
+  "note-1",
+  "page-text",
+  "pencil-line",
+  "play",
+  "settings-gear-1",
+  "shapes-plus-x-square-circle",
+  "square-placeholder",
+  "star",
+  "text-1",
+  "video",
+] as const;

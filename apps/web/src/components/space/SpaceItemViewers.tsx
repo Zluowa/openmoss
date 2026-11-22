@@ -216,20 +216,29 @@ export function SpaceAppViewer(props: {
 }
 
 const STUB_COPY: Record<string, { title: string; body: string }> = {
-  slides: { title: "幻灯片", body: "幻灯片编辑器会在这个版本中推出。" },
-  sheet: { title: "电子表格", body: "电子表格会在这个版本中推出。" },
-  site: { title: "站点", body: "站点发布会在这个版本中推出。" },
-  board: { title: "白板", body: "白板会在这个版本中推出。" },
+  slides: { title: "幻灯片", body: "从「创建」菜单或「全部」页的新建卡片中打开幻灯片工作区。" },
+  sheet: { title: "电子表格", body: "从「创建」菜单或「全部」页的新建卡片中创建电子表格。" },
+  site: {
+    title: "站点",
+    body: "在任意页面的右上角「分享」中发布为站点后，会自动汇总在这里。",
+  },
+  board: { title: "白板", body: "从「创建」菜单或「全部」页的新建卡片中打开白板画布。" },
   app: {
     title: "应用页",
-    body: "可运行的应用页会在这个版本中推出。你也可以把对话里生成的网页保存为应用页。",
+    body: "可在页面中生成可运行应用页，或将对话里生成的网页直接保存为应用页。",
   },
-  image: { title: "图像", body: "在图像工作区生成或编辑图像，生成的图像会出现在资料空间。" },
-  template: { title: "从模板开始", body: "模板库会在这个版本中推出。" },
-  plugin: { title: "连接插件", body: "连接云端文档等插件的入口会在这个版本中推出。" },
+  image: { title: "图像", body: "在图像工作区生成或上传图像后，会自动收录到资料空间。" },
+  template: {
+    title: "从模板开始",
+    body: "从首页「快速开始」或创建菜单中的「从模板开始」挑选模板。",
+  },
+  plugin: {
+    title: "连接插件",
+    body: "用于连接第三方知识库与同步目录的插件能力正在开发中，敬请期待。",
+  },
 };
 
-/** Placeholder for a kind another stream of this build owns; that stream replaces it. */
+/** Informational empty/guidance view when an entry redirects rather than instantiating directly. */
 export function SpaceComingSoon(props: {
   kind: string;
   /** The stored item, when one was opened (e.g. a 幻灯片 row created elsewhere). */
@@ -238,7 +247,7 @@ export function SpaceComingSoon(props: {
 }) {
   const copy = STUB_COPY[props.kind] ?? {
     title: spaceKindMeta(props.kind).label,
-    body: "这个类型会在这个版本中推出。",
+    body: "可返回资料空间首页从「创建」菜单或模板开始。",
   };
   const Icon = spaceKindMeta(props.kind).icon;
   return (

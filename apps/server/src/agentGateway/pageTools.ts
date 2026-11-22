@@ -14,6 +14,14 @@ import { parsePageRichContent } from "@moss/shared/pageRichContent";
 
 import type { PageDraftsServiceShape } from "../pages/drafts/Services/PageDraftsService";
 import { PagesServiceError, type PagesServiceShape } from "../pages/Services/PagesService";
+import type { PageRealtimeServiceShape } from "../pages/realtime/PageRealtimeService";
+import {
+  APPLY_MODE_SCHEMA_PROPERTY,
+  COMPANION_CONTEXT_SCHEMA_PROPERTY,
+  TARGET_BLOCK_IDS_SCHEMA_PROPERTY,
+  emitAgentPresence,
+  extractCompanionMeta,
+} from "./pageCompanionHelpers";
 import { pageBlockOutline } from "./pageTextEdits";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol";
 import { errorText, ToolInputError } from "./toolInput";
@@ -142,10 +150,12 @@ export function normalizePagesMutateArgs(raw: Record<string, unknown>):
 export function makePageTools({
   pages,
   drafts,
+  realtime,
 }: {
   readonly pages: PagesServiceShape;
-  /** When present, an agent's body edit to an existing page becomes a reviewable draft. */
+  /** When present and applyMode is omitted without companionContext, body edits become drafts. */
   readonly drafts?: PageDraftsServiceShape | undefined;
+  readonly realtime?: PageRealtimeServiceShape | undefined;
 }): ReadonlyArray<ToolEntry> {
   // 助手说明 blocks are standing instructions for agents; surface them beside the body.
   const readWithInstructions: PagesServiceShape["read"] = (input, principal) =>
@@ -179,21 +189,41 @@ export function makePageTools({
       description,
       inputSchema: {
         type: "object",
-        properties: { scopeSpaceId: scopeProperty, ...fields },
+        properties: {
+          scopeSpaceId: scopeProperty,
+          ...fields,
+          companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
+        },
         ...(required.length ? { required } : {}),
       },
       annotations: READ_ONLY_TOOL_ANNOTATIONS,
     },
     handler: (args, context) =>
       Effect.gen(function* () {
+        const meta = extractCompanionMeta(args);
         const input = yield* Effect.try({
-          try: () => Schema.decodeUnknownSync(schema)(withDefaultScope(args)),
+          try: () => Schema.decodeUnknownSync(schema)(withDefaultScope(meta.cleanArgs)),
           catch: (error) => new ToolInputError(`Invalid tool input: ${errorText(error)}`),
         });
-        const result = yield* handler(input, {
-          kind: "agent",
+        const callerPrincipal = {
+          kind: "agent" as const,
           threadId: ThreadId.makeUnsafe(context.callerThreadId),
-        });
+        };
+        if (
+          meta.companionContext !== undefined &&
+          (name === "moss_pages_read" || name === "moss_pages_outline") &&
+          typeof (input as { readonly pageId?: unknown }).pageId === "string"
+        ) {
+          emitAgentPresence(
+            realtime,
+            (input as { readonly pageId: string }).pageId,
+            context.callerThreadId,
+            "thinking",
+            "Moss · 正在思考...",
+            meta.blockIds,
+          );
+        }
+        const result = yield* handler(input, callerPrincipal);
         return mcpToolResultJson(result);
       }).pipe(Effect.catch((error) => Effect.succeed(errorResult(error)))),
   });
@@ -332,6 +362,9 @@ export function makePageTools({
               description:
                 "Canonical Plate JSON node array, including empty arrays. String sets rich mode and server derives content projection. Omit to preserve mode; null explicitly converts to plain Markdown. Existing rich pages reject content-only edits. Known link/media URLs must be durable HTTP(S) or relative paths (mailto is link-only), without credentials or control characters; temporary blob/data/file URLs are rejected. Preserve unknown legal node structure.",
             },
+            applyMode: APPLY_MODE_SCHEMA_PROPERTY,
+            targetBlockIds: TARGET_BLOCK_IDS_SCHEMA_PROPERTY,
+            companionContext: COMPANION_CONTEXT_SCHEMA_PROPERTY,
             spaceId: {
               ...nullableId,
               description: "Document space for create/move; omit or null for Personal.",
@@ -359,7 +392,8 @@ export function makePageTools({
           // This also protects direct dispatch; the shared gateway independently
           // applies capability, active-turn, approval and audit policies.
           yield* context.assertCallerTurnActive();
-          const normalized = normalizePagesMutateArgs(args);
+          const meta = extractCompanionMeta(args);
+          const normalized = normalizePagesMutateArgs(meta.cleanArgs);
           if ("hint" in normalized) return yield* Effect.fail(new ToolInputError(normalized.hint));
           const principal = {
             kind: "agent" as const,
@@ -386,38 +420,80 @@ export function makePageTools({
             catch: (error) => new ToolInputError(`Invalid tool input: ${errorText(error)}`),
           });
           if (
-            drafts &&
             input.op === "update" &&
             (input.content !== undefined || input.richContent !== undefined)
           ) {
-            // Agent body edits are never applied silently: they become a draft the person
-            // accepts or discards in the page. Title and metadata still apply directly.
-            const { content, richContent, ...rest } = input;
-            const draft = yield* drafts.mutate(
-              {
-                op: "create",
-                requestId: `mutate:${input.requestId}`,
-                scopeSpaceId: input.scopeSpaceId,
-                pageId: input.pageId,
-                baseRevision: input.expectedRevision,
-                summary: "整页修改",
-                ops: [
-                  typeof richContent === "string"
-                    ? { kind: "replace-all", richContent }
-                    : { kind: "replace-all", markdown: content ?? "" },
-                ],
-              },
-              principal,
+            const resolvedMode =
+              meta.applyMode ??
+              (meta.companionContext !== undefined ? "auto" : drafts ? "draft" : "auto");
+            if (resolvedMode === "draft" && drafts) {
+              emitAgentPresence(
+                realtime,
+                input.pageId,
+                context.callerThreadId,
+                "editing",
+                "Moss 建议修改...",
+                meta.blockIds,
+              );
+              const { content, richContent, ...rest } = input;
+              const draft = yield* drafts.mutate(
+                {
+                  op: "create",
+                  requestId: `mutate:${input.requestId}`,
+                  scopeSpaceId: input.scopeSpaceId,
+                  pageId: input.pageId,
+                  baseRevision: input.expectedRevision,
+                  summary: "整页修改",
+                  ops: [
+                    typeof richContent === "string"
+                      ? { kind: "replace-all", richContent }
+                      : { kind: "replace-all", markdown: content ?? "" },
+                  ],
+                },
+                principal,
+              );
+              const metadataChanged = Object.keys(rest).some(
+                (field) =>
+                  !["op", "requestId", "scopeSpaceId", "pageId", "expectedRevision"].includes(
+                    field,
+                  ),
+              );
+              const result = metadataChanged ? yield* pages.mutate(rest, principal) : undefined;
+              return mcpToolResultJson({
+                ...(result ?? {}),
+                drafts: draft.drafts,
+                note: "Body changes were saved as a draft for the person to review; the page body is unchanged until they accept. Prefer moss_pages_draft for targeted edits.",
+              });
+            }
+            emitAgentPresence(
+              realtime,
+              input.pageId,
+              context.callerThreadId,
+              "editing",
+              "Moss 正在修改...",
+              meta.blockIds,
             );
-            const metadataChanged = Object.keys(rest).some(
-              (field) =>
-                !["op", "requestId", "scopeSpaceId", "pageId", "expectedRevision"].includes(field),
+            const result = yield* pages.mutate(input, principal);
+            const previousRevision =
+              typeof input.expectedRevision === "number"
+                ? input.expectedRevision
+                : result.page.revision > 1
+                  ? result.page.revision - 1
+                  : result.page.revision;
+            emitAgentPresence(
+              realtime,
+              input.pageId,
+              context.callerThreadId,
+              "done",
+              "Moss 已修改",
+              meta.blockIds,
             );
-            const result = metadataChanged ? yield* pages.mutate(rest, principal) : undefined;
             return mcpToolResultJson({
-              ...(result ?? {}),
-              drafts: draft.drafts,
-              note: "Body changes were saved as a draft for the person to review; the page body is unchanged until they accept. Prefer moss_pages_draft for targeted edits.",
+              ...result,
+              applied: true,
+              applyMode: "auto",
+              previousRevision,
+              undoRevision: previousRevision,
             });
           }
           const result = yield* pages.mutate(input, principal);

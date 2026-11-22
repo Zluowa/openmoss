@@ -255,25 +255,25 @@ function drawCheckbox(ctx: CanvasRenderingContext2D, info: Info, cell: Cell | nu
     value === 0;
   if (!checked && !unchecked) return;
   const width = info.endX - info.startX;
-  const size = 14;
+  const size = 12;
   const x = info.startX + (width - size) / 2;
   const y =
     info.startY + (Math.min(info.endY - info.startY, SHEET_GRID_METRICS.rowHeight) - size) / 2;
   ctx.save();
   ctx.fillStyle = fill;
   ctx.fillRect(info.startX, info.startY, width - 1, info.endY - info.startY - 1);
-  roundRect(ctx, x, y, size, size, 3.5);
+  roundRect(ctx, x, y, size, size, 3);
   if (checked) {
     ctx.fillStyle = ACCENT;
     ctx.fill();
     ctx.strokeStyle = WHITE;
-    ctx.lineWidth = 1.75;
+    ctx.lineWidth = 1.6;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.beginPath();
-    ctx.moveTo(x + 3.5, y + 7.25);
-    ctx.lineTo(x + 6, y + 9.75);
-    ctx.lineTo(x + 10.5, y + 4.5);
+    ctx.moveTo(x + 2.75, y + 6.1);
+    ctx.lineTo(x + 5, y + 8.35);
+    ctx.lineTo(x + 9.25, y + 3.75);
     ctx.stroke();
   } else {
     ctx.fillStyle = PAPER;

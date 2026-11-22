@@ -4,8 +4,10 @@ import {
   type ProjectId,
   type ProviderInstanceId,
   type ProviderKind,
+  type SpaceId,
   ThreadId,
 } from "@moss/contracts";
+import type { SpaceArtifactKind } from "../components/space/spaceCanvasDockContract";
 import { getDefaultModel } from "@moss/shared/model";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -68,7 +70,11 @@ import { readNativeApi } from "../nativeApi";
 import { promoteCanvasDraftThread } from "../lib/canvasDraftThread";
 import { createDraftThread } from "../lib/draftThreadCreate";
 import { createDraftThreadWithoutTurn, dispatchDraftThread } from "../lib/draftThreadDispatch";
-import { pageAssistantThreads, sendPageAssistantTurn } from "../lib/pageAi/pageAssistantThread";
+import {
+  artifactAssistantThreadKey,
+  pageAssistantThreads,
+  sendPageAssistantTurn,
+} from "../lib/pageAi/pageAssistantThread";
 import {
   mossImagesComposerAttachments,
   mossImagesConversationPrompt,
@@ -107,6 +113,15 @@ export interface NewThreadNavigationOptions {
   replace?: boolean;
   /** Parks the previous unsent project draft instead of deleting its composer data. */
   preservePreviousDraft?: boolean;
+}
+
+export interface SpaceArtifactAssistantTarget {
+  readonly kind: SpaceArtifactKind;
+  readonly itemId: string;
+  readonly title: string;
+  readonly scopeSpaceId: SpaceId | null;
+  readonly sourceThreadId?: string | null | undefined;
+  readonly revision?: number | null | undefined;
 }
 
 // Coordinator hand-off threads never mint through this hook, so every caller
@@ -283,11 +298,85 @@ export function useHandleNewThread() {
     return resolveNewConversationDefaultModelSelection(settings);
   };
 
+  /**
+   * Resolves a project matching a Space artifact (`scopeSpaceId`). Unlike general new-chat creation,
+   * an artifact stays valid even if the user switched into Spaces before focusing a Space thread.
+   */
+  const resolveArtifactConversationProject = (
+    scopeSpaceId: SpaceId | null,
+    originThreadId?: string,
+    fallbackLocalProjectId?: ProjectId | null,
+  ) => {
+    const state = useStore.getState();
+    const origin = originThreadId
+      ? getThreadFromState(state, originThreadId as ThreadId)
+      : undefined;
+    const originProject = origin
+      ? state.projects.find((entry) => entry.id === origin.projectId)
+      : undefined;
+    if (origin && originProject && (originProject.spaceId ?? null) === scopeSpaceId) {
+      return {
+        ...resolveNewConversationContext(originThreadId, originProject.id),
+      };
+    }
+
+    const activeCandidateId =
+      activeDraftThread?.projectId ?? activeThread?.projectId ?? activeProjectId;
+    const activeCandidate = activeCandidateId
+      ? state.projects.find((entry) => entry.id === activeCandidateId)
+      : undefined;
+    const matchingProject =
+      activeCandidate && (activeCandidate.spaceId ?? null) === scopeSpaceId
+        ? activeCandidate
+        : (state.projects.find((entry) => (entry.spaceId ?? null) === scopeSpaceId) ??
+          (scopeSpaceId === null && fallbackLocalProjectId
+            ? state.projects.find((entry) => entry.id === fallbackLocalProjectId)
+            : undefined));
+    if (!matchingProject) {
+      throw new LocalizedError("newThread.error.pageWorkspaceMismatch");
+    }
+
+    const api = readNativeApi();
+    if (!api || !state.threadsHydrated) {
+      throw new LocalizedError("newThread.error.chooseFolder");
+    }
+    const inheritActive = activeCandidate?.id === matchingProject.id;
+    const sourceThread = inheritActive ? activeThread : null;
+    const sourceDraft = inheritActive ? activeDraftThread : null;
+    const creation = resolveTerminalThreadCreationState({
+      newChatRuntimeMode: useComposerDraftStore.getState().stickyRuntimeMode,
+      activeDraftThread: sourceDraft,
+      activeThread: sourceThread,
+      draftThread: sourceDraft,
+      draftComposerState:
+        inheritActive && focusedThreadId
+          ? (useComposerDraftStore.getState().draftsByThreadId[focusedThreadId] ?? null)
+          : null,
+      defaultProvider: settings.defaultProvider,
+      projectId: matchingProject.id,
+      projectDefaultModelSelection: matchingProject.defaultModelSelection,
+      options: inheritActive
+        ? resolveInheritedThreadContext({
+            activeThread: sourceThread,
+            activeDraftThread: sourceDraft,
+          })
+        : undefined,
+      resolveProviderForInstanceId,
+      defaultInstanceIdForProvider,
+    });
+    if (creation.envMode === "worktree" && !creation.worktreePath) {
+      throw new LocalizedError("newThread.error.folderNotReadySend");
+    }
+    return { api, project: matchingProject, creation };
+  };
+
   /** Which agent a page AI action would use, or null when none is ready for this page. */
   const describePageAgent = (document: PagesReadResult) => {
     try {
-      const { project } = resolveNewConversationContext(document.page.sourceThreadId ?? undefined);
-      if ((project.spaceId ?? null) !== document.page.scopeSpaceId) return null;
+      resolveArtifactConversationProject(
+        document.page.scopeSpaceId,
+        document.page.sourceThreadId ?? undefined,
+      );
       return { modelSelection: pageAgentSelection() };
     } catch {
       return null;
@@ -357,11 +446,10 @@ export function useHandleNewThread() {
 
   const resolvePageChatContext = (document: PagesReadResult, isCurrent: () => boolean) => {
     if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedPage");
-    const { project, creation } = resolveNewConversationContext(
+    const { project, creation } = resolveArtifactConversationProject(
+      document.page.scopeSpaceId,
       document.page.sourceThreadId ?? undefined,
     );
-    if ((project.spaceId ?? null) !== document.page.scopeSpaceId)
-      throw new LocalizedError("newThread.error.pageWorkspaceMismatch");
     return { project, creation, selection: pageAgentSelection() };
   };
 
@@ -474,6 +562,332 @@ export function useHandleNewThread() {
       },
       discardUnsent: (threadId) => useComposerDraftStore.getState().clearComposerContent(threadId),
       startNewChat: () => startPageChat(document, prompt, isCurrent, title),
+    });
+  };
+
+  /**
+   * Resolves a project/creation context for any Space artifact (`page`, `slides`, `sheet`,
+   * `design`, `dashboard`, `board`, `app`), falling back to the local Chats project when
+   * opened directly from Home without a focused thread.
+   */
+  const resolveArtifactCompanionContext = async (
+    target: SpaceArtifactAssistantTarget,
+    isCurrent: () => boolean,
+  ) => {
+    if (!isCurrent()) throw new LocalizedError("newThread.error.accountChangedPage");
+    let fallbackLocalProjectId: ProjectId | null = null;
+    if (target.scopeSpaceId === null) {
+      const state = useStore.getState();
+      const hasLocalProject = state.projects.some((entry) => (entry.spaceId ?? null) === null);
+      if (!hasLocalProject) {
+        fallbackLocalProjectId = await ensureHomeChatProject(useWorkspacePathsStore.getState());
+      }
+    }
+    const { project, creation } = resolveArtifactConversationProject(
+      target.scopeSpaceId,
+      target.sourceThreadId ?? undefined,
+      fallbackLocalProjectId,
+    );
+    return { project, creation, selection: pageAgentSelection() };
+  };
+
+  /** Checks whether an AI lane is usable for this artifact without creating a conversation. */
+  const describeArtifactAgent = (target: SpaceArtifactAssistantTarget) => {
+    try {
+      resolveArtifactConversationProject(target.scopeSpaceId, target.sourceThreadId ?? undefined);
+      return { modelSelection: pageAgentSelection() };
+    } catch {
+      if (target.scopeSpaceId === null && readNativeApi() && useStore.getState().threadsHydrated) {
+        return { modelSelection: pageAgentSelection() };
+      }
+      return null;
+    }
+  };
+
+  const artifactThreadMatchesProject = (
+    threadId: ThreadId,
+    scopeSpaceId: SpaceId | null,
+    keyToForget?: string,
+  ): ThreadId | null => {
+    const state = useStore.getState();
+    const summary = state.sidebarThreadSummaryById[threadId];
+    if (summary) {
+      const project = state.projects.find((entry) => entry.id === summary.projectId);
+      if (summary.archivedAt || !project || (project.spaceId ?? null) !== scopeSpaceId) {
+        if (keyToForget) pageAssistantThreads.forget(keyToForget, threadId);
+        return null;
+      }
+      return summary.id;
+    }
+    const draft = useComposerDraftStore.getState().draftThreadsByThreadId[threadId];
+    if (draft) {
+      const project = state.projects.find((entry) => entry.id === draft.projectId);
+      if (project && (project.spaceId ?? null) === scopeSpaceId) {
+        return threadId;
+      }
+    }
+    if (state.threadsHydrated && keyToForget) {
+      pageAssistantThreads.forget(keyToForget, threadId);
+    }
+    return null;
+  };
+
+  /** Resolves the remembered companion thread for any Space artifact if still alive in workspace. */
+  const resolveExistingArtifactThread = (
+    target: SpaceArtifactAssistantTarget,
+    artifactKey?: string,
+  ): ThreadId | null => {
+    const key =
+      artifactKey ??
+      artifactAssistantThreadKey("default", target.scopeSpaceId, target.kind, target.itemId);
+    const remembered = pageAssistantThreads.get(key);
+    if (remembered) {
+      const matched = artifactThreadMatchesProject(remembered, target.scopeSpaceId, key);
+      if (matched) return matched;
+    }
+    if (target.sourceThreadId) {
+      const sourceMatched = artifactThreadMatchesProject(
+        target.sourceThreadId as ThreadId,
+        target.scopeSpaceId,
+      );
+      if (sourceMatched) return sourceMatched;
+    }
+    return null;
+  };
+
+  /**
+   * Ensures an artifact has a persistent companion conversation inside its workspace without
+   * leaving the canvas or sending a turn yet.
+   */
+  const prepareArtifactAssistant = async (
+    target: SpaceArtifactAssistantTarget,
+    isCurrent: () => boolean,
+    options?: { readonly key?: string; readonly title?: string },
+  ): Promise<ThreadId | null> => {
+    const key =
+      options?.key ??
+      artifactAssistantThreadKey("default", target.scopeSpaceId, target.kind, target.itemId);
+    const existing = resolveExistingArtifactThread(target, key);
+    if (existing) return existing;
+    try {
+      const { project, creation, selection } = await resolveArtifactCompanionContext(
+        target,
+        isCurrent,
+      );
+      const existingAfterResolve = reusablePageAssistantThread(key, project.id);
+      if (existingAfterResolve) return existingAfterResolve.id;
+      const remembered = pageAssistantThreads.get(key);
+      if (remembered) {
+        const alive = artifactThreadMatchesProject(remembered, target.scopeSpaceId, key);
+        if (alive) return alive;
+      }
+      const threadId = createDraftThread({
+        projectId: project.id,
+        prompt: "",
+        modelSelection: selection,
+        runtimeMode: creation.runtimeMode,
+        interactionMode: creation.interactionMode,
+        envMode: creation.envMode,
+        workingDirectory: creation.workingDirectory,
+      });
+      useComposerDraftStore.getState().setDraftThreadContext(threadId, {
+        branch: creation.branch,
+        worktreePath: creation.worktreePath,
+      });
+      const created = await createDraftThreadWithoutTurn({
+        threadId,
+        projectId: project.id,
+        title: options?.title ?? target.title,
+        defaultProvider: selection.provider,
+        providerInstances,
+      });
+      if (!created) return threadId;
+      pageAssistantThreads.set(key, threadId);
+      return threadId;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Creates a temporary sidechat tab draft for the current Space artifact without overwriting
+   * the primary artifact-bound conversation.
+   */
+  const createTemporaryArtifactSidechat = async (
+    target: SpaceArtifactAssistantTarget,
+    isCurrent: () => boolean,
+    options?: { readonly title?: string },
+  ): Promise<ThreadId | null> => {
+    try {
+      const { project, creation, selection } = await resolveArtifactCompanionContext(
+        target,
+        isCurrent,
+      );
+      const threadId = createDraftThread({
+        projectId: project.id,
+        prompt: "",
+        modelSelection: selection,
+        runtimeMode: creation.runtimeMode,
+        interactionMode: creation.interactionMode,
+        envMode: creation.envMode,
+        workingDirectory: creation.workingDirectory,
+      });
+      useComposerDraftStore.getState().setDraftThreadContext(threadId, {
+        branch: creation.branch,
+        worktreePath: creation.worktreePath,
+      });
+      await createDraftThreadWithoutTurn({
+        threadId,
+        projectId: project.id,
+        title: options?.title ?? `${target.title} · 临时对话`,
+        defaultProvider: selection.provider,
+        providerInstances,
+      });
+      return threadId;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * Sends a companion turn directly from an artifact canvas/pill/dock without navigating away
+   * from the Space workspace.
+   */
+  const startArtifactAssistantTurn = async (
+    target: SpaceArtifactAssistantTarget,
+    prompt: { readonly request: string; readonly context: string },
+    isCurrent: () => boolean,
+    options?: {
+      readonly key?: string;
+      readonly threadId?: ThreadId | null;
+      readonly title?: string;
+    },
+  ): Promise<{ threadId: ThreadId; baselineTurnId: string | null; reused: boolean }> => {
+    const key =
+      options?.key ??
+      artifactAssistantThreadKey("default", target.scopeSpaceId, target.kind, target.itemId);
+    const { project, creation, selection } = await resolveArtifactCompanionContext(
+      target,
+      isCurrent,
+    );
+    const draftStore = useComposerDraftStore.getState();
+
+    const dispatchFreshThread = async (bindAsPrimary: boolean): Promise<ThreadId> => {
+      const threadId = createDraftThread({
+        projectId: project.id,
+        prompt: prompt.request,
+        modelSelection: selection,
+        runtimeMode: creation.runtimeMode,
+        interactionMode: creation.interactionMode,
+        envMode: creation.envMode,
+        workingDirectory: creation.workingDirectory,
+      });
+      draftStore.setDraftThreadContext(threadId, {
+        branch: creation.branch,
+        worktreePath: creation.worktreePath,
+      });
+      if (prompt.context.trim()) {
+        draftStore.addPastedTexts(threadId, [
+          createPastedTextDraft({
+            id: `space-companion:${target.kind}:${target.itemId}`,
+            createdAt: new Date().toISOString(),
+            text: prompt.context,
+          }),
+        ]);
+      }
+      const dispatch = await dispatchDraftThread({
+        threadId,
+        projectId: project.id,
+        thread: null,
+        defaultProvider: selection.provider,
+        assistantDeliveryMode: resolveAssistantDeliveryMode(settings),
+        providerOptions: getProviderStartOptions(
+          settings,
+          selection.instanceId ?? selection.provider,
+        ),
+        providerInstances,
+        title: options?.title ?? target.title,
+      });
+      if (dispatch.kind === "error") throw new Error(dispatch.message);
+      if (dispatch.kind === "unavailable") {
+        throw new LocalizedError("newThread.error.connectionUnavailable");
+      }
+      if (dispatch.kind === "open-thread") {
+        throw new LocalizedError("newThread.error.folderNotReadySend");
+      }
+      if (bindAsPrimary) {
+        pageAssistantThreads.set(key, threadId);
+      }
+      return threadId;
+    };
+
+    if (options?.threadId) {
+      const state = useStore.getState();
+      const targetSummary = state.sidebarThreadSummaryById[options.threadId];
+      const baselineTurnId = targetSummary?.latestTurn?.turnId ?? null;
+      draftStore.setPrompt(options.threadId, prompt.request);
+      draftStore.setModelSelection(options.threadId, selection);
+      if (prompt.context.trim()) {
+        draftStore.addPastedTexts(options.threadId, [
+          createPastedTextDraft({
+            id: `space-companion:${target.kind}:${target.itemId}`,
+            createdAt: new Date().toISOString(),
+            text: prompt.context,
+          }),
+        ]);
+      }
+      const dispatch = await dispatchDraftThread({
+        threadId: options.threadId,
+        projectId: project.id,
+        thread: targetSummary ?? null,
+        defaultProvider: selection.provider,
+        assistantDeliveryMode: resolveAssistantDeliveryMode(settings),
+        providerOptions: getProviderStartOptions(
+          settings,
+          selection.instanceId ?? selection.provider,
+        ),
+        providerInstances,
+        title: options?.title ?? target.title,
+      });
+      if (dispatch.kind === "dispatched") {
+        return { threadId: options.threadId, baselineTurnId, reused: true };
+      }
+      if (dispatch.kind === "error" && dispatch.outcomeUnknown) {
+        throw new Error(dispatch.message);
+      }
+      draftStore.clearComposerContent(options.threadId);
+    }
+
+    return sendPageAssistantTurn({
+      pageKey: key,
+      reusable: () => reusablePageAssistantThread(key, project.id),
+      sendToExisting: (summary) => {
+        draftStore.setPrompt(summary.id, prompt.request);
+        draftStore.setModelSelection(summary.id, selection);
+        if (prompt.context.trim()) {
+          draftStore.addPastedTexts(summary.id, [
+            createPastedTextDraft({
+              id: `space-companion:${target.kind}:${target.itemId}`,
+              createdAt: new Date().toISOString(),
+              text: prompt.context,
+            }),
+          ]);
+        }
+        return dispatchDraftThread({
+          threadId: summary.id,
+          projectId: project.id,
+          thread: summary,
+          defaultProvider: selection.provider,
+          assistantDeliveryMode: resolveAssistantDeliveryMode(settings),
+          providerOptions: getProviderStartOptions(
+            settings,
+            selection.instanceId ?? selection.provider,
+          ),
+          providerInstances,
+        });
+      },
+      discardUnsent: (threadId) => useComposerDraftStore.getState().clearComposerContent(threadId),
+      startNewChat: () => dispatchFreshThread(true),
     });
   };
 
@@ -1103,6 +1517,11 @@ export function useHandleNewThread() {
     startPageAiTurn,
     startPageAssistantTurn,
     preparePageAssistant,
+    prepareArtifactAssistant,
+    startArtifactAssistantTurn,
+    createTemporaryArtifactSidechat,
+    resolveExistingArtifactThread,
+    describeArtifactAgent,
     warmPageAssistant,
     releasePageAssistant,
     describePageAgent,

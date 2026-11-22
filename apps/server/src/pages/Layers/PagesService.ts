@@ -41,6 +41,7 @@ import {
   type PagesPrincipal,
   type PagesServiceShape,
 } from "../Services/PagesService";
+import { publishPageUpdate } from "../pageEvents";
 
 type Scope = SpaceId | null;
 type DocumentRow = {
@@ -911,6 +912,27 @@ export const makePagesServiceShape = (
             (input.op !== "move" || result.page.spaceId !== previousSpace)
           )
             changingSpaceMembership(sql, input.scopeSpaceId, previousSpace);
+          if (result.page.kind === "page" || input.op !== "update") {
+            const previousRevision =
+              input.op !== "create" && result.page.revision > 1
+                ? result.page.revision - 1
+                : undefined;
+            publishPageUpdate({
+              type: "page-updated",
+              pageId: result.page.id,
+              scopeSpaceId: result.page.scopeSpaceId,
+              ...(result.page.kind ? { kind: result.page.kind } : {}),
+              revision: result.page.revision,
+              ...(previousRevision !== undefined ? { previousRevision } : {}),
+              ...(principal.kind === "agent" && previousRevision !== undefined
+                ? { undoRevision: previousRevision, applyMode: "auto" as const }
+                : {}),
+              author: principal.kind,
+              authorThreadId: principal.kind === "agent" ? principal.threadId : null,
+              operation: input.op,
+              updatedAt: result.page.updatedAt,
+            });
+          }
           return result;
         }),
       );
@@ -1020,3 +1042,103 @@ export const makePagesServiceShape = (
   });
 
 export const PagesServiceLive = Layer.effect(PagesService, makePagesServiceShape());
+
+export interface PageAssistantThreadResult {
+  readonly pageId: PageId;
+  readonly defaultAssistantThreadId: string | null;
+}
+
+const mapAssistantStorageError = (error: unknown) =>
+  error instanceof PagesServiceError
+    ? Effect.fail(error)
+    : Effect.fail(
+        new PagesServiceError({
+          code: "storage",
+          message: "Could not access page assistant thread metadata",
+          cause: error,
+        }),
+      );
+
+export const getPageAssistantThread = (
+  sql: SqlClient.SqlClient,
+  input: { readonly scopeSpaceId: Scope; readonly pageId: PageId },
+): Effect.Effect<PageAssistantThreadResult, PagesServiceError> =>
+  sql<{ readonly page_id: PageId; readonly default_assistant_thread_id: string | null }>`
+    SELECT page_id, default_assistant_thread_id
+    FROM pages_documents
+    WHERE page_id = ${input.pageId} AND scope_key = ${scopeKey(input.scopeSpaceId)}
+  `.pipe(
+    Effect.flatMap((rows) =>
+      rows[0]
+        ? Effect.succeed({
+            pageId: rows[0].page_id,
+            defaultAssistantThreadId: rows[0].default_assistant_thread_id ?? null,
+          })
+        : Effect.fail(failure("not-found", "Page not found in this space")),
+    ),
+    Effect.catch(mapAssistantStorageError),
+  );
+
+export const setPageAssistantThread = (
+  sql: SqlClient.SqlClient,
+  input: {
+    readonly scopeSpaceId: Scope;
+    readonly pageId: PageId;
+    readonly threadId: string | null;
+    readonly ifUnset?: boolean;
+  },
+): Effect.Effect<PageAssistantThreadResult, PagesServiceError> =>
+  sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const key = scopeKey(input.scopeSpaceId);
+        const existing = yield* sql<{
+          readonly page_id: PageId;
+          readonly default_assistant_thread_id: string | null;
+        }>`
+          SELECT page_id, default_assistant_thread_id
+          FROM pages_documents
+          WHERE page_id = ${input.pageId} AND scope_key = ${key}
+        `;
+        if (!existing[0]) {
+          return yield* Effect.fail(failure("not-found", "Page not found in this space"));
+        }
+        if (input.ifUnset) {
+          if (existing[0].default_assistant_thread_id) {
+            return {
+              pageId: existing[0].page_id,
+              defaultAssistantThreadId: existing[0].default_assistant_thread_id,
+            };
+          }
+          yield* sql`
+            UPDATE pages_documents
+            SET default_assistant_thread_id = ${input.threadId}
+            WHERE page_id = ${input.pageId}
+              AND scope_key = ${key}
+              AND (default_assistant_thread_id IS NULL OR default_assistant_thread_id = '')
+          `;
+          const after = yield* sql<{
+            readonly page_id: PageId;
+            readonly default_assistant_thread_id: string | null;
+          }>`
+            SELECT page_id, default_assistant_thread_id
+            FROM pages_documents
+            WHERE page_id = ${input.pageId} AND scope_key = ${key}
+          `;
+          return {
+            pageId: input.pageId,
+            defaultAssistantThreadId: after[0]?.default_assistant_thread_id ?? null,
+          };
+        }
+        yield* sql`
+          UPDATE pages_documents
+          SET default_assistant_thread_id = ${input.threadId}
+          WHERE page_id = ${input.pageId} AND scope_key = ${key}
+        `;
+        return {
+          pageId: input.pageId,
+          defaultAssistantThreadId: input.threadId,
+        };
+      }),
+    )
+    .pipe(Effect.catch(mapAssistantStorageError));

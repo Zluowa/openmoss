@@ -723,4 +723,39 @@ describe("live page room relay", () => {
     old.channel.collabFrame("x");
     expect(old.send.mock.calls.some(([value]) => value.action === "collab-frame")).toBe(false);
   });
+
+  it("sends hostChrome, scrollToHeading, and forwards ask-dock events even when readOnly", () => {
+    const h = harness();
+    const onAiEvent = vi.fn();
+    h.channel.onAiEvent = onAiEvent;
+    h.channel.load({ ...document, readOnly: true });
+    expect(h.child("ready", { capabilities: [...capabilities, "ai-drafts"] })).toBe(true);
+    expect(h.acknowledgeLoad()).toBe(true);
+    h.channel.setHostChrome({ hideTopBar: true, bottomInsetPx: 60, rightInsetPx: 300 });
+    expect(h.lastSent()).toMatchObject({
+      action: "set-host-chrome",
+      hostChrome: { hideTopBar: true, bottomInsetPx: 60, rightInsetPx: 300 },
+    });
+    h.channel.scrollToHeading({ text: "概述", level: 2, index: 0 });
+    expect(h.lastSent()).toMatchObject({
+      action: "scroll-to-heading",
+      text: "概述",
+      level: 2,
+      index: 0,
+    });
+    expect(
+      h.child("ask-dock", {
+        ...h.currentFields(),
+        prompt: "总结",
+        anchorBlockId: "b1",
+        quote: "选中的文本",
+      }),
+    ).toBe(true);
+    expect(onAiEvent).toHaveBeenLastCalledWith({
+      event: "ask-dock",
+      prompt: "总结",
+      anchorBlockId: "b1",
+      quote: "选中的文本",
+    });
+  });
 });

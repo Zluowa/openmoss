@@ -5,13 +5,36 @@
 // Layer: 资料空间 电子表格 AI (types stream)
 // Exports: SheetEditorHost.
 
-import { PROVIDER_DISPLAY_NAMES, type PagesReadResult, type PageTypedItem } from "@moss/contracts";
+import {
+  PROVIDER_DISPLAY_NAMES,
+  type PagesReadResult,
+  type PageTypedItem,
+  type ThreadId,
+} from "@moss/contracts";
 import { parseSheetWorkbook, type SheetWorkbook } from "@moss/shared/spaceItems/sheetWorkbook";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { ensureNativeApi } from "~/nativeApi";
 import { SparklesIcon } from "~/lib/icons";
+import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
+import { useStore } from "~/store";
+import { createThreadSelector } from "~/storeSelectors";
+import { retainThreadDetailSubscription } from "~/threadDetailSubscriptionRetention";
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasHostInsets,
+  SpaceCanvasSelectionContext,
+} from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
 import { toastManager } from "../../ui/toast";
 import { formatRelativeTime } from "../../space/spaceItems";
@@ -50,6 +73,12 @@ function changedCells(before: SheetWorkbook, after: SheetWorkbook): string[] {
   return out;
 }
 
+export interface SheetEditorHostChrome {
+  readonly hideTopBar?: boolean;
+  readonly bottomInsetPx?: number;
+  readonly rightInsetPx?: number;
+}
+
 export function SheetEditorHost(props: {
   account: string;
   item: PageTypedItem;
@@ -66,6 +95,10 @@ export function SheetEditorHost(props: {
   revision: () => number;
   /** Re-reads the item and reloads it when someone else (an agent) saved a newer revision. */
   reloadIfChanged: () => Promise<boolean>;
+  dock?: SpaceCanvasDockController | null;
+  hostInsets?: SpaceCanvasHostInsets;
+  hostChrome?: SheetEditorHostChrome;
+  onHostActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const threads = useHandleNewThread();
   const threadsRef = useRef(threads);
@@ -74,6 +107,9 @@ export function SheetEditorHost(props: {
   latest.current = props;
   const startAccount = useRef(props.account);
   const page = props.item.page;
+  const dock = props.dock ?? null;
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
   const [run, setRun] = useState<{ startedAt: number; changedAt: number } | null>(null);
   const [lastChange, setLastChange] = useState<{ before: SheetWorkbook; count: number } | null>(
     null,
@@ -93,6 +129,8 @@ export function SheetEditorHost(props: {
   const [opening, setOpening] = useState<number | null>(null);
   /** The cell whose edit history the side pane shows, instead of the version list. */
   const [cellTarget, setCellTarget] = useState<CellHistoryTarget | null>(null);
+  const dockBusy = Boolean(dock?.busy);
+  const aiWorking = run !== null || dockBusy;
 
   // Cell comments live with the page on the server, as 文档's do.
   usePageCommentSync({
@@ -111,16 +149,94 @@ export function SheetEditorHost(props: {
     shown.current = props.workbook;
     lastLive.current = props.workbook;
     mountedAt.current = Date.now();
-    if (before === props.workbook || !run) return;
+    if (before === props.workbook || (!run && !dockBusy && !beforeRun.current)) return;
     const changed = changedCells(before, props.workbook);
     if (!changed.length) return;
     setFlash(new Set(changed));
+    if (beforeRun.current) {
+      const totalCount = changedCells(beforeRun.current, props.workbook).length;
+      if (totalCount > 0) setLastChange({ before: beforeRun.current, count: totalCount });
+    }
     setRun((current) => (current ? { ...current, changedAt: Date.now() } : current));
     const timer = setTimeout(() => setFlash(new Set()), FLASH_MS);
     return () => clearTimeout(timer);
     // Only a new epoch is a new workbook from outside.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.epoch]);
+
+  // Immediate refresh when dock turns settle or active dock thread updates.
+  const dockThreadId = dock?.activeThreadId ?? null;
+  useEffect(() => {
+    if (!dockThreadId) return;
+    return retainThreadDetailSubscription(dockThreadId);
+  }, [dockThreadId]);
+  const dockThread = useStore(
+    useMemo(
+      () => (dockThreadId ? createThreadSelector(dockThreadId as ThreadId) : () => undefined),
+      [dockThreadId],
+    ),
+  );
+  const dockLatestTurnState = dockThread?.latestTurn?.state ?? null;
+  const dockLatestTurnId = dockThread?.latestTurn?.turnId ?? null;
+  useEffect(() => {
+    if (!dockThreadId || !dockBusy) return;
+    if (dockLatestTurnState === "completed") {
+      void latest.current.reloadIfChanged().catch(() => false);
+    }
+  }, [dockBusy, dockLatestTurnId, dockLatestTurnState, dockThreadId]);
+
+  const prevDockBusyRef = useRef(dockBusy);
+  useEffect(() => {
+    const wasBusy = prevDockBusyRef.current;
+    prevDockBusyRef.current = dockBusy;
+    if (!wasBusy && dockBusy) {
+      beforeRun.current = shown.current;
+      setLastChange(null);
+      return;
+    }
+    if (wasBusy && !dockBusy) {
+      void latest.current
+        .reloadIfChanged()
+        .catch(() => false)
+        .finally(() => {
+          const before = beforeRun.current;
+          if (before) {
+            const count = changedCells(before, shown.current).length;
+            if (count) setLastChange({ before, count });
+          }
+          beforeRun.current = null;
+        });
+    }
+  }, [dockBusy]);
+
+  // Optional live server SSE stream for immediate workbook refresh on agent saves.
+  useEffect(() => {
+    if (typeof EventSource !== "function" || typeof window === "undefined") return;
+    const hasRealtimeOrigin =
+      Boolean(window.desktopBridge?.getWsUrl?.()) || Boolean(import.meta.env.VITE_WS_URL);
+    if (!hasRealtimeOrigin) return;
+    const params = new URLSearchParams({ pageId: page.id });
+    if (page.scopeSpaceId) params.set("scopeSpaceId", page.scopeSpaceId);
+    let source: EventSource | null = null;
+    try {
+      source = new EventSource(resolveWsHttpUrl(`/api/moss/pages/events?${params.toString()}`), {
+        withCredentials: true,
+      });
+      source.addEventListener("page-updated", (event) => {
+        try {
+          const payload = JSON.parse((event as MessageEvent<string>).data) as { pageId?: string };
+          if (!payload.pageId || payload.pageId === page.id) {
+            void latest.current.reloadIfChanged().catch(() => false);
+          }
+        } catch {
+          void latest.current.reloadIfChanged().catch(() => false);
+        }
+      });
+    } catch {
+      return undefined;
+    }
+    return () => source?.close();
+  }, [page.id, page.scopeSpaceId]);
 
   // While Moss works, take in what it writes; the run ends once the sheet is quiet.
   useEffect(() => {
@@ -158,33 +274,98 @@ export function SheetEditorHost(props: {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  /** Sends a request to Moss; resolves to the conversation that does it, or null. */
-  const onAsk = useCallback(async (ask: SheetAskRequest): Promise<string | null> => {
-    try {
-      // The agent reads the saved sheet, so unsaved edits are saved first.
-      if (!(await latest.current.flush())) throw new Error("请先保存表格，再请 Moss 修改。");
-      const saved: PagesReadResult = {
-        page: { ...latest.current.item.page, revision: latest.current.revision() },
-        content: "",
+  const syncDockSelection = useCallback(
+    (context: { sheetName: string; range: string | null; activeCell: string | null }) => {
+      const currentDock = dockRef.current;
+      if (!currentDock) return;
+      const selection: SpaceCanvasSelectionContext = {
+        kind: "sheet",
+        itemId: page.id,
+        title: latest.current.title,
+        sheetName: context.sheetName,
+        range: context.range ?? context.activeCell,
       };
+      currentDock.setSelection(selection);
+    },
+    [page.id],
+  );
+
+  const onAskDock = useCallback(
+    (context: { sheetName: string; range: string | null; activeCell: string | null }) => {
+      const currentDock = dockRef.current;
+      if (!currentDock) return;
+      const selection: SpaceCanvasSelectionContext = {
+        kind: "sheet",
+        itemId: page.id,
+        title: latest.current.title,
+        sheetName: context.sheetName,
+        range: context.range ?? context.activeCell,
+      };
+      currentDock.setSelection(selection);
       beforeRun.current = shown.current;
-      setLastChange(null);
-      setRun({ startedAt: Date.now(), changedAt: 0 });
-      return await threadsRef.current.startPageAiTurn(
-        saved,
-        sheetAskPrompt(saved.page, ask),
-        () => latest.current.account === startAccount.current,
-      );
-    } catch (cause) {
-      setRun(null);
-      toastManager.add({
-        type: "error",
-        title: "请求没有发出",
-        description: cause instanceof Error ? cause.message : "无法交给 Moss 处理",
+      void currentDock.ask({
+        prefillOnly: true,
+        preferredState: currentDock.state === "collapsed" ? "pip" : currentDock.state,
+        selection,
+        keepItemOpen: true,
+        origin: "bottom-pill",
       });
-      return null;
-    }
-  }, []);
+    },
+    [page.id],
+  );
+
+  /** Sends a request to Moss; resolves to the conversation that does it, or null. */
+  const onAsk = useCallback(
+    async (ask: SheetAskRequest): Promise<string | null> => {
+      try {
+        // The agent reads the saved sheet, so unsaved edits are saved first.
+        if (!(await latest.current.flush())) throw new Error("请先保存表格，再请 Moss 修改。");
+        const saved: PagesReadResult = {
+          page: { ...latest.current.item.page, revision: latest.current.revision() },
+          content: "",
+        };
+        beforeRun.current = shown.current;
+        setLastChange(null);
+        const currentDock = dockRef.current;
+        if (currentDock) {
+          const selection: SpaceCanvasSelectionContext = {
+            kind: "sheet",
+            itemId: page.id,
+            title: latest.current.title,
+            sheetName: ask.sheetName,
+            range: ask.range ?? ask.activeCell,
+          };
+          currentDock.setSelection(selection);
+          const builtPrompt = sheetAskPrompt(saved.page, ask);
+          await currentDock.ask({
+            prompt: `${builtPrompt.request}\n\n${builtPrompt.context}`,
+            autoRun: Boolean(ask.text.trim()),
+            prefillOnly: !ask.text.trim(),
+            preferredState: currentDock.state === "collapsed" ? "pip" : currentDock.state,
+            selection,
+            keepItemOpen: true,
+            origin: ask.kind === "comment" ? "comment-mention" : "inline-card",
+          });
+          return currentDock.activeThreadId;
+        }
+        setRun({ startedAt: Date.now(), changedAt: 0 });
+        return await threadsRef.current.startPageAiTurn(
+          saved,
+          sheetAskPrompt(saved.page, ask),
+          () => latest.current.account === startAccount.current,
+        );
+      } catch (cause) {
+        setRun(null);
+        toastManager.add({
+          type: "error",
+          title: "请求没有发出",
+          description: cause instanceof Error ? cause.message : "无法交给 Moss 处理",
+        });
+        return null;
+      }
+    },
+    [page.id],
+  );
   const askFromComment = useCallback(
     (body: string, cell: SheetCommentCell) => {
       const sheets = latest.current.workbook.sheets;
@@ -207,7 +388,7 @@ export function SheetEditorHost(props: {
     },
     [onAsk],
   );
-  const canAskMoss = agent != null && !props.readOnly;
+  const canAskMoss = (dock !== null || agent != null) && !props.readOnly;
   const comments = useMemo(
     () => ({
       pageKey: sheetCommentsKey(page.id),
@@ -326,14 +507,38 @@ export function SheetEditorHost(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run, lastChange]);
 
+  const sheetSkeletonFallback = (
+    <div
+      aria-label="正在载入表格"
+      data-testid="sheet-shimmer"
+      className="flex min-h-0 flex-1 flex-col gap-3 p-4"
+    >
+      <div className="h-9 animate-pulse rounded-control bg-muted/60" />
+      <div className="grid min-h-0 flex-1 grid-cols-6 gap-1.5">
+        {Array.from({ length: 42 }, (_, index) => (
+          <div
+            key={index}
+            className="h-7 animate-pulse rounded-inline border border-border/40 bg-muted/50"
+          />
+        ))}
+      </div>
+    </div>
+  );
+
   return (
-    <Suspense fallback={<p className="p-8 text-muted-foreground">正在载入表格…</p>}>
+    <Suspense fallback={sheetSkeletonFallback}>
       <SheetEditor
         key={viewing ? `version-${viewing.revision}` : props.epoch}
         workbook={viewing ? viewing.workbook : props.workbook}
         title={props.title}
         readOnly={props.readOnly || viewing !== null}
         banner={historyBanner}
+        dock={dock}
+        {...(props.hostInsets ? { hostInsets: props.hostInsets } : {})}
+        {...(props.hostChrome ? { hostChrome: props.hostChrome } : {})}
+        {...(props.onHostActionsChange ? { onHostActionsChange: props.onHostActionsChange } : {})}
+        {...(dock && !props.readOnly && !viewing ? { onAskDock } : {})}
+        onSelectionReport={syncDockSelection}
         history={{
           open: historyOpen,
           onToggle: () => {
@@ -378,8 +583,12 @@ export function SheetEditorHost(props: {
         }}
         onReplace={props.onReplace}
         moss={
-          agent && !props.readOnly && !viewing
-            ? { label: agentLabel ?? "Moss", busy: run !== null, onAsk: (ask) => void onAsk(ask) }
+          (dock || agent) && !props.readOnly && !viewing
+            ? {
+                label: agentLabel ?? "Moss",
+                busy: aiWorking,
+                onAsk: (ask) => void onAsk(ask),
+              }
             : null
         }
         flash={flash}

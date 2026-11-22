@@ -16,8 +16,12 @@ import { pageBlockAuthor } from "@moss/shared/pageAi";
 import { parsePageRichContent } from "@moss/shared/pageRichContent";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type {
+  SpaceCanvasDockController,
+  SpaceCanvasSelectionContext,
+} from "~/components/space/spaceCanvasDockContract";
 import { useHandleNewThread } from "~/hooks/useHandleNewThread";
 import { ensureNativeApi } from "~/nativeApi";
 import { uploadPickedLibraryFiles } from "~/lib/libraryUpload";
@@ -46,6 +50,11 @@ import { useStore } from "~/store";
 import { toastManager } from "../../ui/toast";
 import { pageAiErrorText, pageAiText, pageAiLocale } from "./pageAiText";
 
+export interface PageAiLastChange {
+  readonly beforeRevision: number;
+  readonly revision: number;
+}
+
 export interface PageAiHostOptions {
   readonly account: string;
   readonly scopeSpaceId: SpaceId | null;
@@ -57,6 +66,13 @@ export interface PageAiHostOptions {
   readonly createChildPage: () => void;
   readonly openPage: (pageId: PageId) => void;
   readonly openFiles: () => void;
+  /** Unified 3-state canvas dock attached by Space host (null/absent in standalone). */
+  readonly dock?: SpaceCanvasDockController | null;
+  /** Suggesting / 建议模式 flag: when false, AI edits can land directly with undo snapshot. */
+  readonly suggestMode?: boolean;
+  /** Optional host callback invoked when a dock turn settles or undo restores a revision. */
+  readonly onRefreshPage?: () => Promise<void> | void;
+  readonly onUndoAiChange?: (beforeRevision: number) => Promise<boolean> | boolean | void;
 }
 
 export const pageDraftsQueryKey = (account: string, scopeSpaceId: SpaceId | null, pageId: PageId) =>
@@ -91,6 +107,7 @@ export function usePageAiBridge(
   options: PageAiHostOptions | null,
   /** Moves keyboard focus into the editor frame; menus and cards there open only when focused. */
   focusEditor: () => void = () => {},
+  dockOverride: SpaceCanvasDockController | null = null,
 ) {
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -99,14 +116,23 @@ export function usePageAiBridge(
   const threads = useHandleNewThread();
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
+  const dock = options?.dock ?? dockOverride ?? null;
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+  const focusEditorRef = useRef(focusEditor);
+  focusEditorRef.current = focusEditor;
   const latest = useRef(options);
   latest.current = options;
   const page = options?.document.page;
   const key = page ? pageAiKey(options.account, options.scopeSpaceId, page.id) : "";
   const session = usePageAiSession(key);
   const active = session.runs.some(isActiveRun);
+  const dockBusy = Boolean(dock?.busy);
+  const aiBusy = active || dockBusy;
   const locale = pageAiLocale();
   const text = pageAiText(locale);
+  const [lastAiChange, setLastAiChange] = useState<PageAiLastChange | null>(null);
+  const aiBaselineRef = useRef<{ pageId: string; beforeRevision: number } | null>(null);
 
   const drafts = useQuery({
     queryKey: page
@@ -115,7 +141,7 @@ export function usePageAiBridge(
     queryFn: () =>
       ensureNativeApi().pages.drafts({ scopeSpaceId: options!.scopeSpaceId, pageId: page!.id }),
     enabled: !!page,
-    refetchInterval: active ? 2_500 : 15_000,
+    refetchInterval: aiBusy ? 2_500 : 15_000,
   });
   const pages = useQuery({
     queryKey: options
@@ -295,9 +321,114 @@ export function usePageAiBridge(
     });
   }, [client]);
 
+  const savedRevision = options?.document.page.revision;
+
+  const dockSetSelection = dock?.setSelection;
+  useEffect(() => {
+    if (!page || !dockSetSelection) return;
+    dockSetSelection({
+      kind: "page",
+      itemId: page.id,
+      title: page.title,
+    });
+  }, [dockSetSelection, page?.id, page?.title]);
+
+  useEffect(() => {
+    setLastAiChange(null);
+    aiBaselineRef.current = null;
+  }, [page?.id]);
+
+  useEffect(() => {
+    if (!page) {
+      aiBaselineRef.current = null;
+      return;
+    }
+    if (aiBusy) {
+      if (!aiBaselineRef.current || aiBaselineRef.current.pageId !== page.id) {
+        aiBaselineRef.current = { pageId: page.id, beforeRevision: page.revision };
+      }
+      return;
+    }
+  }, [aiBusy, page?.id, page?.revision]);
+
+  const prevDockBusyRef = useRef(dockBusy);
+  useEffect(() => {
+    const wasBusy = prevDockBusyRef.current;
+    prevDockBusyRef.current = dockBusy;
+    if (!wasBusy || dockBusy) return;
+    const current = latest.current;
+    if (!current) return;
+    void refreshDrafts();
+    void client.invalidateQueries({
+      queryKey: pagesQueryKeys.read(
+        current.account,
+        current.scopeSpaceId,
+        current.document.page.id,
+      ),
+    });
+    void current.onRefreshPage?.();
+  }, [client, dockBusy, refreshDrafts]);
+
+  useEffect(() => {
+    if (!page) return;
+    const baseline = aiBaselineRef.current;
+    if (
+      baseline &&
+      baseline.pageId === page.id &&
+      page.revision > baseline.beforeRevision &&
+      !options?.suggestMode
+    ) {
+      setLastAiChange({
+        beforeRevision: baseline.beforeRevision,
+        revision: page.revision,
+      });
+      if (!aiBusy) aiBaselineRef.current = null;
+    }
+  }, [aiBusy, options?.suggestMode, page?.id, page?.revision]);
+
+  const undoAiChange = useCallback(async (): Promise<boolean> => {
+    const current = latest.current;
+    if (!current || !lastAiChange) return false;
+    try {
+      if (current.onUndoAiChange) {
+        const result = await current.onUndoAiChange(lastAiChange.beforeRevision);
+        if (result === false) return false;
+      } else {
+        if (!(await current.flush())) return false;
+        const latestDoc = latest.current?.document ?? current.document;
+        await ensureNativeApi().pages.mutate({
+          op: "restore-version",
+          requestId: newCommandId(),
+          scopeSpaceId: current.scopeSpaceId,
+          pageId: current.document.page.id,
+          expectedRevision: latestDoc.page.revision,
+          revision: lastAiChange.beforeRevision,
+        });
+        await current.onRefreshPage?.();
+      }
+      setLastAiChange(null);
+      aiBaselineRef.current = null;
+      await client.invalidateQueries({
+        queryKey: pagesQueryKeys.read(
+          current.account,
+          current.scopeSpaceId,
+          current.document.page.id,
+        ),
+      });
+      await refreshDrafts();
+      return true;
+    } catch (cause) {
+      toastManager.add({
+        type: "error",
+        title: text.resolveFailed,
+        description: cause instanceof Error ? cause.message : undefined,
+      });
+      return false;
+    }
+  }, [client, lastAiChange, refreshDrafts, text.resolveFailed]);
+
   // A save of the page re-reads its drafts at once, so a suggestion never lingers over blocks
   // the person just changed (the server leaves those changes out).
-  const savedRevision = options?.document.page.revision;
   useEffect(() => {
     if (savedRevision !== undefined) void refreshDrafts();
   }, [refreshDrafts, savedRevision]);
@@ -409,6 +540,7 @@ export function usePageAiBridge(
     (event: PageEditorAiEvent) => {
       const current = latest.current;
       if (!current) return;
+      const activeDock = dockRef.current;
       switch (event.event) {
         case "ai-request":
           void startRun({
@@ -417,6 +549,43 @@ export function usePageAiBridge(
             anchorBlockId: event.anchorBlockId,
           });
           return;
+        case "ask-dock": {
+          const prompt = event.prompt?.trim() ?? "";
+          if (!aiBaselineRef.current || aiBaselineRef.current.pageId !== current.document.page.id) {
+            aiBaselineRef.current = {
+              pageId: current.document.page.id,
+              beforeRevision: current.document.page.revision,
+            };
+          }
+          if (activeDock) {
+            const selection: SpaceCanvasSelectionContext = {
+              kind: "page",
+              itemId: current.document.page.id,
+              title: current.document.page.title,
+              ...(event.anchorBlockId !== undefined ? { anchorBlockId: event.anchorBlockId } : {}),
+              ...(event.quote !== undefined ? { quote: event.quote } : {}),
+            };
+            activeDock.setSelection(selection);
+            void activeDock.ask({
+              ...(prompt ? { prompt, autoRun: true } : { prefillOnly: true }),
+              preferredState: activeDock.state === "collapsed" ? "pip" : activeDock.state,
+              selection,
+              keepItemOpen: true,
+              origin: "editor-bridge",
+            });
+          } else if (prompt) {
+            void startRun({
+              mode: "prompt",
+              prompt,
+              anchorBlockId: event.anchorBlockId ?? null,
+              ...(event.quote ? { quote: event.quote } : {}),
+            });
+          } else {
+            focusEditorRef.current();
+            channel.openAiInput("generate");
+          }
+          return;
+        }
         case "drafts-resolved":
           void resolveDrafts(event.draftIds, event.action);
           return;
@@ -431,11 +600,22 @@ export function usePageAiBridge(
           if (event.mode) prepare();
           return;
         case "open-ref":
-          if (event.kind === "thread" || event.kind === "chat")
+          if (event.kind === "thread" || event.kind === "chat") {
+            if (activeDock) {
+              void current.flush().then(() => {
+                if (activeDock.state === "collapsed") activeDock.setState("pip");
+                const titles = JSON.parse(threadTitles) as Record<string, string>;
+                const title = titles[event.id];
+                activeDock.openSideChatTab(title ? { title } : undefined);
+              });
+              return;
+            }
             void current
               .flush()
               .then(() => navigate({ to: "/$threadId", params: { threadId: event.id } }));
-          else if (event.kind === "page") current.openPage(event.id as PageId);
+            return;
+          }
+          if (event.kind === "page") current.openPage(event.id as PageId);
           else if (event.kind === "file") current.openFiles();
           else
             void current
@@ -444,7 +624,7 @@ export function usePageAiBridge(
           return;
       }
     },
-    [key, navigate, prepare, resolveDrafts, startRun, upload],
+    [channel, key, navigate, prepare, resolveDrafts, startRun, threadTitles, upload],
   );
   useEffect(() => {
     channel.onAiEvent = handleEvent;
@@ -487,5 +667,15 @@ export function usePageAiBridge(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel, key, prepare, startRun]);
 
-  return { key, runs: session.runs, refreshDrafts, startRun, agentReady: !!agent };
+  return {
+    key,
+    runs: session.runs,
+    refreshDrafts,
+    startRun,
+    agentReady: !!agent,
+    aiBusy,
+    suggestMode: options?.suggestMode ?? false,
+    lastAiChange,
+    undoAiChange,
+  };
 }

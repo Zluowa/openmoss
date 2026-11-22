@@ -698,9 +698,15 @@ export function PageFilesPanel(props: {
   );
 }
 
+export interface PageOutlineHeading {
+  line: number;
+  level: number;
+  text: string;
+}
+
 /** Headings of the page's Markdown projection, for the outline. */
-export function pageOutline(markdown: string): { line: number; level: number; text: string }[] {
-  const outline: { line: number; level: number; text: string }[] = [];
+export function pageOutline(markdown: string): PageOutlineHeading[] {
+  const outline: PageOutlineHeading[] = [];
   let inCode = false;
   for (const [line, text] of markdown.split(/\r?\n/).entries()) {
     if (/^\s*```/.test(text)) inCode = !inCode;
@@ -712,13 +718,38 @@ export function pageOutline(markdown: string): { line: number; level: number; te
   return outline;
 }
 
+function scrollHeadingInDocument(heading: PageOutlineHeading, occurrenceIndex: number) {
+  if (typeof document === "undefined") return;
+  const byAttr = document.querySelector(`[data-heading-line="${heading.line}"]`);
+  if (byAttr instanceof HTMLElement) {
+    byAttr.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const normalizedTarget = heading.text.trim();
+  if (!normalizedTarget) return;
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>("h1, h2, h3, h4"));
+  const matching = candidates.filter(
+    (node) => (node.textContent ?? "").trim() === normalizedTarget,
+  );
+  const target = matching[occurrenceIndex] ?? matching[0];
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 export function PageNavigationPanel(props: {
   page: Page;
   pages: readonly Page[];
   markdown: string;
   onSelect: (pageId: PageId) => void;
+  onSelectHeading?: (heading: PageOutlineHeading) => void;
+  activeHeadingLine?: number | null;
 }) {
   const outline = pageOutline(props.markdown);
+  const [selectedHeadingLine, setSelectedHeadingLine] = useState<number | null>(null);
+  useEffect(() => {
+    setSelectedHeadingLine(null);
+  }, [props.page.id]);
+  const activeHeadingLine =
+    props.activeHeadingLine !== undefined ? props.activeHeadingLine : selectedHeadingLine;
   const ancestors: Page[] = [];
   const seen = new Set<PageId>([props.page.id]);
   let parent = props.page.parentPageId;
@@ -742,6 +773,16 @@ export function PageNavigationPanel(props: {
       {entry.title}
     </button>
   );
+  const handleSelectHeading = (entry: PageOutlineHeading, index: number) => {
+    setSelectedHeadingLine(entry.line);
+    props.onSelectHeading?.(entry);
+    if (!props.onSelectHeading) {
+      const sameTextOrdinal = outline
+        .slice(0, index)
+        .filter((prior) => prior.text.trim() === entry.text.trim()).length;
+      scrollHeadingInDocument(entry, sameTextOrdinal);
+    }
+  };
   return (
     <nav className="flex flex-col gap-3" aria-label="页面导航" data-page-panel="navigation">
       {ancestors.length ? (
@@ -753,15 +794,30 @@ export function PageNavigationPanel(props: {
       <section className="flex flex-col gap-0.5">
         <h3 className="px-2 text-ui-sm text-muted-foreground">大纲</h3>
         {outline.length ? (
-          outline.map((entry) => (
-            <p
-              key={entry.line}
-              className="truncate px-2 py-1 text-ui"
-              style={{ paddingInlineStart: `${8 + (entry.level - 1) * 12}px` }}
-            >
-              {entry.text}
-            </p>
-          ))
+          outline.map((entry, index) => {
+            const isActive = activeHeadingLine === entry.line;
+            return (
+              <Button
+                key={entry.line}
+                type="button"
+                size="xs"
+                variant="ghost"
+                data-outline-line={entry.line}
+                data-active={isActive ? "true" : undefined}
+                aria-current={isActive ? "location" : undefined}
+                className={cn(
+                  "h-7 w-full justify-start rounded-row px-2 text-left text-ui font-normal",
+                  isActive
+                    ? "bg-accent text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                style={{ paddingInlineStart: `${8 + (entry.level - 1) * 12}px` }}
+                onClick={() => handleSelectHeading(entry, index)}
+              >
+                <span className="min-w-0 truncate">{entry.text}</span>
+              </Button>
+            );
+          })
         ) : (
           <p className="px-2 text-ui-sm text-muted-foreground">添加标题后，这里会显示大纲。</p>
         )}

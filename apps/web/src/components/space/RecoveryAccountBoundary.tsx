@@ -24,7 +24,10 @@ export function RecoveryAccountBoundary({
       prior = next;
       setGeneration(++serial.current);
     };
-    const offQueries = client.getQueryCache().subscribe(changed);
+    const offQueries = client.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" && event.type !== "removed") return;
+      changed();
+    });
     const offMutations = client.getMutationCache().subscribe(changed);
     return () => {
       offQueries();
