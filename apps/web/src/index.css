@@ -3,6 +3,7 @@
    and theme CSS always win over it wherever the page inserts it. */
 @layer ui-sdk;
 @import "tailwindcss";
+@import "./components/kineticIcons/mossKineticIcons.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 /* Named-group `:has()` variants. Tailwind's `group-has-*` compiles to

@@ -48,6 +48,11 @@ import {
   workEntryDisplayParts,
   workEntryLeftIcon,
 } from "./TimelineWorkEntryRow";
+import { MossKineticIcon } from "../kineticIcons/MossKineticIcon";
+import {
+  resolveToolGroupSummaryKineticIcon,
+  resolveWorkEntryKineticIcon,
+} from "../kineticIcons/workEntryKineticIcon";
 
 // One glyph per kind, matching the expanded rows; a mixed group wears the
 // working hammer. Tool calls and uncategorized calls keep their first entry's
@@ -151,6 +156,11 @@ export function ToolCallGroupSummaryRow(
     : summary
       ? summaryIcon(summary)
       : props.icon!;
+  const kineticIconId = liveEntry
+    ? resolveWorkEntryKineticIcon(liveEntry, Icon)
+    : summary
+      ? resolveToolGroupSummaryKineticIcon(summary, Icon)
+      : null;
   const liveMultiFileLabel = liveEntry ? multiFileEditLabel(liveEntry) : null;
 
   const caret = (
@@ -184,6 +194,13 @@ export function ToolCallGroupSummaryRow(
               <LinkChipIcon url={iconWebFetchUrl} className="size-4" />
             ) : Icon === McpIcon && iconEntry?.mcpServer ? (
               <McpServerIcon serverName={iconEntry.mcpServer} className="size-4" />
+            ) : kineticIconId ? (
+              <MossKineticIcon
+                name={kineticIconId}
+                active={liveEntry != null}
+                morph={liveEntry != null}
+                className="size-4"
+              />
             ) : (
               renderWorkEntryIcon(Icon, "size-4")
             )}

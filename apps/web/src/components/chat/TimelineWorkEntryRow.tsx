@@ -143,6 +143,8 @@ import { isTimelineMultiAgentAction } from "../../lib/multiAgentAction";
 import { MultiAgentActionDisclosure } from "./MultiAgentActionDisclosure";
 import { commandActivitySummary } from "./commandActivitySummary";
 import { toolActivityBodyClassName } from "./toolActivityLayout";
+import { MossKineticIcon } from "../kineticIcons/MossKineticIcon";
+import { resolveWorkEntryKineticIcon } from "../kineticIcons/workEntryKineticIcon";
 
 // Rest tone is the shared quiet-label gray (same one the composer pickers use for
 // their effort/thinking labels) so a tool row and the picker below it read as one
@@ -158,7 +160,7 @@ const EMPTY_FILE_DIFF_STATS: ReadonlyMap<string, { additions: number; deletions:
 
 type TimelineWorkEntry = WorkLogEntry;
 
-const AgentTaskIcon: LucideIcon = (props) => <BotIcon {...props} />;
+const AgentTaskIcon: LucideIcon = BotIcon;
 
 const MossToolIcon: LucideIcon = ({ className }) => (
   <MossLogo className={cn("text-current", className)} />
@@ -486,6 +488,19 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
 // component binding to React Compiler.
 export function renderWorkEntryIcon(Icon: LucideIcon, className: string): ReactElement {
   return createElement(Icon, { className });
+}
+
+function renderWorkEntryLeadingIcon(
+  workEntry: TimelineWorkEntry,
+  LeftIcon: LucideIcon,
+  className: string,
+  active: boolean,
+): ReactElement {
+  const kineticId = resolveWorkEntryKineticIcon(workEntry, LeftIcon);
+  if (kineticId) {
+    return <MossKineticIcon name={kineticId} active={active} className={className} />;
+  }
+  return renderWorkEntryIcon(LeftIcon, className);
 }
 
 // The leading glyph for a tool row: recognizable product and surface icons win
@@ -1373,6 +1388,13 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 ? workEntryDisplayParts(workEntry, locale)
                 : null;
             const summaryText = commandSummary ?? displayText;
+            const isWorkEntryActive =
+              commandIsInProgress ||
+              workEntry.mcpToolResult?.status === "inProgress" ||
+              workEntry.toolStatus === "running" ||
+              (workEntry.toolStatus === undefined &&
+                (workEntry.activityKind === "tool.started" ||
+                  workEntry.activityKind === "tool.updated"));
             return (
               <>
                 {!isCodexStatusRow && !isPlainRuntimeNoticeRow ? (
@@ -1393,7 +1415,12 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                         className={compact ? "size-4" : "size-4"}
                       />
                     ) : (
-                      renderWorkEntryIcon(LeftIcon, compact ? "size-4" : "size-4")
+                      renderWorkEntryLeadingIcon(
+                        workEntry,
+                        LeftIcon,
+                        compact ? "size-4" : "size-4",
+                        isWorkEntryActive,
+                      )
                     )}
                   </span>
                 ) : null}
@@ -1628,7 +1655,7 @@ export function EditedFileRowContent(props: {
         )}
         data-tool-icon="edit"
       >
-        <PencilIcon className={compact ? "size-4" : "size-4"} />
+        <MossKineticIcon name="editing" active={props.active ?? false} className="size-4" />
       </span>
       <ConversationShimmer
         active={props.active ?? false}

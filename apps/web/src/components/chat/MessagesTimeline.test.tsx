@@ -3340,7 +3340,8 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("已搜索网页");
     expect(markup).toContain("48 个文件");
-    expect(markup).toContain("/central-icons-reversed/globe.svg");
+    expect(markup).toContain('data-slot="moss-kinetic-icon"');
+    expect(markup).toContain('data-kinetic-icon="browser"');
     expect(markup).not.toContain("tabler-icon-world");
   });
 
@@ -3663,7 +3664,8 @@ describe("MessagesTimeline", () => {
     // A plain search reads as what it looked for, worded like a Grep row, and
     // wears the magnifier; the shell wrapper never shows.
     expect(markup).toContain(">Searched for ProjectionSnapshotQuery in server/src</span>");
-    expect(markup).toContain("magnifying-glass.svg");
+    expect(markup).toContain('data-slot="moss-kinetic-icon"');
+    expect(markup).toContain('data-kinetic-icon="search"');
     expect(markup).not.toContain("data-work-entry-action-word");
     expect(markup).not.toContain(TOOLTIP_TRIGGER_MARKER);
     expect(markup).not.toContain(
@@ -3792,9 +3794,9 @@ describe("MessagesTimeline", () => {
         />,
       );
       expect(markup).toContain('data-tool-icon="computer"');
-      // The computer-use glyph comes from the shared outline family.
-      expect(markup).toContain('data-slot="central-icon"');
-      expect(markup).toContain("/central-icons-reversed/computer-use.svg");
+      // The computer-use glyph comes from the Moss Kinetic Icons outline family.
+      expect(markup).toContain('data-slot="moss-kinetic-icon"');
+      expect(markup).toContain('data-kinetic-icon="computer"');
       expect(markup).toContain(
         toolName.includes("browser") ? "Click in the browser" : "Click on “Search” in Safari",
       );
