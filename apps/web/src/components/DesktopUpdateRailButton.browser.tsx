@@ -192,6 +192,11 @@ describe("desktop update rail control", () => {
             const box = button.getBoundingClientRect();
             expect(disc.left).toBeGreaterThanOrEqual(box.left - 0.5);
             expect(disc.right).toBeLessThanOrEqual(box.right + 0.5);
+            const pctText = button.querySelector("[data-desktop-update-percent]")!;
+            expect(pctText.textContent).toBe(`${percent}%`);
+            const pctBox = pctText.getBoundingClientRect();
+            expect(pctBox.left).toBeGreaterThanOrEqual(disc.left);
+            expect(pctBox.right).toBeLessThanOrEqual(disc.right);
             const rail = page
               .getByRole("navigation", { name: "Primary" })
               .element()
@@ -279,9 +284,9 @@ describe("desktop update rail control", () => {
         .click();
       expect(onClick).toHaveBeenCalledOnce();
       await screen.rerender(<DesktopUpdateRailButton state={ready} installing onClick={onClick} />);
-      await expect
-        .element(page.getByRole("button", { name: "Applying update...", exact: true }))
-        .toBeDisabled();
+      const applyingButton = page.getByRole("button", { name: "Applying update...", exact: true });
+      await expect.element(applyingButton).toBeDisabled();
+      expect(applyingButton.element().querySelector("[data-rail-progress-ring]")).not.toBeNull();
       await screen.rerender(
         <DesktopUpdateRailButton
           state={{ ...ready, errorContext: "install" }}

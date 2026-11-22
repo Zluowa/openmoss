@@ -536,6 +536,13 @@ describe("RailUpdateControl", () => {
     const button = document.querySelector<HTMLButtonElement>("[data-rail-update-state]");
     expect(button?.getAttribute("aria-label")).toBe("Preparing update (42%)");
     expect(button?.querySelector("[data-rail-progress-ring]")).not.toBeNull();
+    expect(button?.querySelector("[data-desktop-update-percent]")?.textContent).toBe("42%");
+    const progressPill = document.querySelector('[data-desktop-update-pill="downloading"]');
+    expect(progressPill?.textContent).toContain("正在下载更新 42%");
+    await userEvent.click(page.getByRole("button", { name: "隐藏更新进度" }));
+    await vi.waitFor(() => expect(document.querySelector("[data-desktop-update-pill]")).toBeNull());
+    // Dismissing the floating pill keeps the inline percentage ring visible on the rail.
+    expect(button?.querySelector("[data-desktop-update-percent]")?.textContent).toBe("42%");
     button?.click();
     expect(onClick).not.toHaveBeenCalled();
   });
