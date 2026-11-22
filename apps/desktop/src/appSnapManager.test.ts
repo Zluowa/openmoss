@@ -641,6 +641,105 @@ describe("desktop AppSnap platform state", () => {
     }
   });
 
+  it("populates Windows listWindows and captureWindow with resolved app icons and human display names", async () => {
+    const captureDirectory = mkdtempSync(join(tmpdir(), "moss-appsnap-cua-icons-"));
+    const chromeIcon = "data:image/png;base64,Y2hyb21l";
+    const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x24]);
+    const request = vi.fn(
+      async (_endpoint: string, body: { name: string; args?: Record<string, unknown> }) => {
+        if (body.name === "list_windows") {
+          return {
+            ok: true,
+            result: {
+              structuredContent: {
+                windows: [
+                  {
+                    pid: 501,
+                    window_id: 11,
+                    app_name: "chrome.exe",
+                    bundle_id: "chrome.exe",
+                    title: "Moss Docs",
+                    z_index: 50,
+                  },
+                  {
+                    pid: 502,
+                    window_id: 12,
+                    app_name: "ApplicationFrameHost",
+                    bundle_id: "ApplicationFrameHost.exe",
+                    title: "设置",
+                    z_index: 20,
+                  },
+                ],
+              },
+            },
+          };
+        }
+        const outFile = body.args?.screenshot_out_file;
+        expect(typeof outFile).toBe("string");
+        writeFileSync(outFile as string, pngBytes);
+        return {
+          ok: true,
+          result: {
+            content: [{ type: "text", text: "ok" }],
+            structuredContent: {
+              app_name: "chrome.exe",
+              bundle_id: "chrome.exe",
+              title: "Moss Docs",
+              screenshot_file_path: outFile,
+            },
+          },
+        };
+      },
+    );
+    const resolveWindowsApps = vi.fn(async () => {
+      return new Map([
+        [501, { displayName: "Google Chrome", iconDataUrl: chromeIcon }],
+        [502, { displayName: "设置", iconDataUrl: null }],
+      ]);
+    });
+    const manager = new DesktopAppSnapManager({
+      platform: "win32",
+      helperPath: join(captureDirectory, "missing-helper"),
+      captureDirectory,
+      excludedBundleId: MOSS_DEVELOPMENT_BUNDLE_ID,
+      onState: vi.fn(),
+      onCaptured: vi.fn(),
+      onError: vi.fn(),
+      cuaEndpoint: () => "fixture",
+      cuaCapability: "capability",
+      cuaRequest: request as never,
+      resolveWindowsApps,
+      shortcutRegistry: { register: vi.fn(() => true), unregister: vi.fn() },
+    });
+    try {
+      await manager.setEnabled(true);
+      const windows = await manager.listWindows();
+      expect(resolveWindowsApps).toHaveBeenCalledOnce();
+      expect(windows).toEqual([
+        expect.objectContaining({
+          appName: "Google Chrome",
+          windowTitle: "Moss Docs",
+          appIconDataUrl: chromeIcon,
+          iconDataUrl: chromeIcon,
+        }),
+        expect.objectContaining({
+          appName: "设置",
+          windowTitle: "设置",
+          appIconDataUrl: null,
+          iconDataUrl: null,
+        }),
+      ]);
+
+      const capture = await manager.captureWindow(windows[0]!.windowId);
+      expect(capture.sourceAppName).toBe("Google Chrome");
+      expect(capture.sourceAppIconDataUrl).toBe(chromeIcon);
+      expect(capture.sourceWindowTitle).toBe("Moss Docs");
+    } finally {
+      manager.dispose();
+      rmSync(captureDirectory, { recursive: true, force: true });
+    }
+  });
+
   it("preserves a missing-helper error instead of reporting a permission problem", async () => {
     const manager = new DesktopAppSnapManager({
       platform: "darwin",

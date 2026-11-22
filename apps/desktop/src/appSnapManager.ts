@@ -38,6 +38,11 @@ import {
   sameAppSnapShortcut,
 } from "@moss/shared/appSnapShortcut";
 import { cuaRequest, type CuaReply } from "@moss/shared/cuaDriverProtocol";
+import {
+  formatWindowsAppDisplayName,
+  type WindowsAppWindowTarget,
+  type WindowsResolvedAppMetadata,
+} from "./windowsAppMetadata";
 
 const MAX_PENDING_CAPTURES = PROVIDER_SEND_TURN_MAX_ATTACHMENTS;
 const MAX_HELPER_STDERR_CHARS = 4_096;
@@ -193,6 +198,10 @@ export interface DesktopAppSnapManagerOptions {
       readonly height: number;
     } | null,
   ) => Promise<unknown> | void;
+  /** Optional Windows metadata resolver (PE FileDescription/ProductName + system icon). */
+  resolveWindowsApps?: (
+    targets: readonly WindowsAppWindowTarget[],
+  ) => Promise<ReadonlyMap<number, WindowsResolvedAppMetadata>>;
 }
 
 function normalizeDate(value: unknown, fallback: Date): string {
@@ -655,6 +664,7 @@ export class DesktopAppSnapManager {
       appName: string | null;
       bundleIdentifier: string | null;
       windowTitle: string | null;
+      appIconDataUrl: string | null;
       bounds: { x: number; y: number; width: number; height: number } | null;
     }
   >();
@@ -1395,24 +1405,52 @@ export class DesktopAppSnapManager {
       if (leftTitled !== rightTitled) return leftTitled ? -1 : 1;
       return left.index - right.index;
     });
+    const uniqueTargets = new Map<number, WindowsAppWindowTarget>();
+    for (const candidate of candidates) {
+      if (!uniqueTargets.has(candidate.pid)) {
+        uniqueTargets.set(candidate.pid, {
+          pid: candidate.pid,
+          appName: candidate.appName,
+          bundleIdentifier: candidate.bundleIdentifier,
+          windowTitle: candidate.title,
+        });
+      }
+    }
+    const resolvedMetadata = this.#options.resolveWindowsApps
+      ? await this.#options.resolveWindowsApps([...uniqueTargets.values()]).catch(() => new Map())
+      : new Map<number, WindowsResolvedAppMetadata>();
+
     this.#cuaWindowTargets.clear();
     const windows: DesktopAppSnapWindowEntry[] = [];
     for (const candidate of candidates) {
+      const meta = resolvedMetadata.get(candidate.pid);
+      const displayName =
+        meta?.displayName ??
+        formatWindowsAppDisplayName({
+          rawAppName: candidate.appName,
+          windowTitle: candidate.title,
+          bundleIdentifier: candidate.bundleIdentifier,
+        }) ??
+        candidate.appName;
+      const appIconDataUrl = normalizeAppIconDataUrl(meta?.iconDataUrl);
       const syntheticId = this.#nextCuaWindowId++;
       this.#cuaWindowTargets.set(syntheticId, {
         pid: candidate.pid,
         windowId: candidate.windowId,
-        appName: candidate.appName,
+        appName: displayName,
         bundleIdentifier: candidate.bundleIdentifier,
         windowTitle: candidate.title,
+        appIconDataUrl,
         bounds: candidate.bounds,
       });
       windows.push({
         windowId: syntheticId,
-        appName: candidate.appName,
+        appName: displayName,
         bundleIdentifier: candidate.bundleIdentifier,
         windowTitle: candidate.title,
         title: candidate.title,
+        appIconDataUrl,
+        iconDataUrl: appIconDataUrl,
         bounds: candidate.bounds,
       });
     }
@@ -1522,6 +1560,17 @@ export class DesktopAppSnapManager {
       const now = this.#options.now();
       // Zero-copy view over the freshly allocated read/decode buffer.
       const pngBytes = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      const captureWindowTitle =
+        normalizeOptionalText(row.window_title ?? row.title) ?? resolved.windowTitle;
+      const captureBundleIdentifier =
+        normalizeOptionalText(row.bundle_id) ?? resolved.bundleIdentifier;
+      const captureAppName =
+        resolved.appName ??
+        formatWindowsAppDisplayName({
+          rawAppName: normalizeOptionalText(row.app_name),
+          windowTitle: captureWindowTitle,
+          bundleIdentifier: captureBundleIdentifier,
+        });
       const capture: DesktopAppSnapCapture = {
         id: captureId,
         capturedAt: now.toISOString(),
@@ -1529,11 +1578,10 @@ export class DesktopAppSnapManager {
         mimeType: "image/png",
         sizeBytes: bytes.length,
         bytes: pngBytes,
-        sourceAppName: normalizeOptionalText(row.app_name) ?? resolved.appName,
-        sourceBundleIdentifier: normalizeOptionalText(row.bundle_id) ?? resolved.bundleIdentifier,
-        sourceAppIconDataUrl: null,
-        sourceWindowTitle:
-          normalizeOptionalText(row.window_title ?? row.title) ?? resolved.windowTitle,
+        sourceAppName: captureAppName,
+        sourceBundleIdentifier: captureBundleIdentifier,
+        sourceAppIconDataUrl: resolved.appIconDataUrl,
+        sourceWindowTitle: captureWindowTitle,
         ...(sourceWindowBounds ? { sourceWindowBounds } : {}),
       };
       await pendingLoaded;

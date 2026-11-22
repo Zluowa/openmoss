@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   parseSettingsFile,
+  parseSyncUpdateMirrorArgs,
   readUpdateMirrorS3ClientOptions,
   readUpdateMirrorStoreSettings,
   resolveUpdateMirrorStores,
@@ -990,5 +991,419 @@ describe("several stores", () => {
       expect(resolution).toMatchObject({ severalStores: false, listedIn: null });
       expect(resolution.stores).toHaveLength(1);
     });
+  });
+});
+
+describe("parseSyncUpdateMirrorArgs", () => {
+  it("enables pruning by default with 2 Windows and 1 macOS versions", () => {
+    expect(parseSyncUpdateMirrorArgs([])).toEqual({
+      assetsDirectory: undefined,
+      prune: {
+        enabled: true,
+        dryRun: false,
+        keepWinVersions: 2,
+        keepMacVersions: 1,
+      },
+    });
+  });
+
+  it("parses pruning and assets-dir flags", () => {
+    expect(
+      parseSyncUpdateMirrorArgs([
+        "--assets-dir",
+        "/tmp/release",
+        "--prune-dry-run",
+        "--keep-win-versions",
+        "3",
+        "--keep-mac-versions=2",
+      ]),
+    ).toEqual({
+      assetsDirectory: "/tmp/release",
+      prune: {
+        enabled: true,
+        dryRun: true,
+        keepWinVersions: 3,
+        keepMacVersions: 2,
+      },
+    });
+    expect(parseSyncUpdateMirrorArgs(["--no-prune"]).prune.enabled).toBe(false);
+  });
+
+  it("rejects conflicting, invalid, or unknown CLI flags", () => {
+    expect(() => parseSyncUpdateMirrorArgs(["--no-prune", "--prune-dry-run"])).toThrow(
+      /Cannot combine --no-prune and --prune-dry-run/,
+    );
+    expect(() => parseSyncUpdateMirrorArgs(["--keep-win-versions", "0"])).toThrow(
+      /positive integer/,
+    );
+    expect(() => parseSyncUpdateMirrorArgs(["--keep-mac-versions", "abc"])).toThrow(
+      /positive integer/,
+    );
+    expect(() => parseSyncUpdateMirrorArgs(["--keep-win-versions"])).toThrow(/Missing value/);
+    expect(() => parseSyncUpdateMirrorArgs(["--assets-dir"])).toThrow(/Missing value/);
+    expect(() => parseSyncUpdateMirrorArgs(["--unknown-flag"])).toThrow(/Unknown option/);
+  });
+});
+
+describe("automatic pruning during syncUpdateMirror", () => {
+  const PREFIX = "desktop/";
+
+  function prunableWorld(tag: string, assets: Record<string, Buffer | string>) {
+    const base = world(tag, assets);
+    const events: string[] = [];
+    const deleted: string[] = [];
+    const extraObjects = new Map<string, Buffer>();
+    let listError: unknown = null;
+    let deleteError: unknown = null;
+    let listCalls = 0;
+
+    const store: UpdateMirrorStore = {
+      prefix: PREFIX,
+      upload: async (fileName, localPath) => {
+        events.push(`upload:${fileName}`);
+        await base.store.upload(fileName, localPath);
+      },
+      sizeOf: (fileName) => base.store.sizeOf(fileName),
+      list: async () => {
+        listCalls += 1;
+        events.push("list");
+        if (listError !== null) throw listError;
+        return [
+          ...[...base.mirror.entries()].map(([name, bytes]) => ({
+            key: `${PREFIX}${name}`,
+            size: bytes.length,
+          })),
+          ...[...extraObjects.entries()].map(([key, bytes]) => ({
+            key,
+            size: bytes.length,
+          })),
+        ];
+      },
+      readText: async (fileName) => {
+        const bytes = base.mirror.get(fileName);
+        return bytes ? bytes.toString("utf8") : null;
+      },
+      delete: async (fileName) => {
+        events.push(`delete:${fileName}`);
+        if (deleteError !== null) throw deleteError;
+        deleted.push(fileName);
+        base.mirror.delete(fileName);
+      },
+    };
+
+    const fetchImpl: typeof fetch = (async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.hostname === "updates.example.cn") {
+        const name = url.pathname.replace("/moss/", "");
+        events.push(`readback:${name}`);
+      }
+      return base.fetchImpl(input, init);
+    }) as typeof fetch;
+
+    return {
+      base,
+      store,
+      fetchImpl,
+      events,
+      deleted,
+      extraObjects,
+      get listCalls() {
+        return listCalls;
+      },
+      setListError(error: unknown) {
+        listError = error;
+      },
+      setDeleteError(error: unknown) {
+        deleteError = error;
+      },
+    };
+  }
+
+  it("prunes strictly AFTER upload, manifest publish, and public read-back succeed", async () => {
+    const installer1010 = Buffer.from("installer-1.0.10");
+    const env = prunableWorld("v1.0.10", {
+      "latest.yml": manifestFor("1.0.10", installer1010),
+      "moss.yml": manifestFor("1.0.10", installer1010),
+      "Moss-1.0.10-x64.exe": installer1010,
+      "Moss-1.0.10-x64.exe.blockmap": Buffer.from("blockmap-1.0.10"),
+    });
+    // Pre-populate older installers plus immune nested prefixes.
+    env.base.mirror.set("Moss-1.0.2-x64.exe", Buffer.alloc(1000, 1));
+    env.base.mirror.set("Moss-1.0.2-x64.exe.blockmap", Buffer.alloc(100, 2));
+    env.base.mirror.set("Moss-1.0.9-x64.exe", Buffer.alloc(1200, 3));
+    env.base.mirror.set("Moss-1.0.9-x64.exe.blockmap", Buffer.alloc(120, 4));
+    env.base.mirror.set("Moss-1.0.8-arm64.dmg", Buffer.alloc(2000, 5));
+    env.base.mirror.set("Moss-1.0.9-arm64.dmg", Buffer.alloc(2100, 6));
+    env.extraObjects.set(
+      "desktop/code/v1/moss-code-abc123456789-0123456789abcdef.asar.zst",
+      Buffer.alloc(500),
+    );
+    env.extraObjects.set(
+      "runtimes/v1/codex/1.0.0/codex-1.0.0-win32-x64-0123456789abcdef.tar.zst",
+      Buffer.alloc(500),
+    );
+    env.extraObjects.set("plugin-catalog/v1/index.json", Buffer.from("{}"));
+    env.extraObjects.set("preview/Moss-1.0.0-x64.exe", Buffer.alloc(500));
+
+    const logs: string[] = [];
+    const result = await syncUpdateMirror({
+      repository: REPOSITORY,
+      feedUrl: FEED,
+      privateKey,
+      store: env.store,
+      githubApiUrl: API,
+      fetchImpl: env.fetchImpl,
+      verifyRetryDelayMs: 0,
+      log: (message) => logs.push(message),
+    });
+
+    expect(result).toMatchObject({
+      status: "synced",
+      tag: "v1.0.10",
+      prune: {
+        status: "pruned",
+        dryRun: false,
+        deleted: ["Moss-1.0.8-arm64.dmg", "Moss-1.0.2-x64.exe", "Moss-1.0.2-x64.exe.blockmap"],
+        bytesFreed: 3100,
+      },
+    });
+
+    // Strict ordering: list and every delete occur strictly AFTER final manifest upload & read-back.
+    const lastUploadIndex = env.events.findLastIndex((event) => event.startsWith("upload:"));
+    const lastReadbackIndex = env.events.findLastIndex((event) => event.startsWith("readback:"));
+    const listIndex = env.events.indexOf("list");
+    const firstDeleteIndex = env.events.findIndex((event) => event.startsWith("delete:"));
+    expect(lastUploadIndex).toBeGreaterThanOrEqual(0);
+    expect(lastReadbackIndex).toBeGreaterThan(lastUploadIndex);
+    expect(listIndex).toBeGreaterThan(lastReadbackIndex);
+    expect(firstDeleteIndex).toBeGreaterThan(listIndex);
+
+    // Kept: latest 2 Win (1.0.10, 1.0.9), latest 1 Mac (1.0.9), all manifests and nested prefixes.
+    expect(env.base.mirror.has("Moss-1.0.10-x64.exe")).toBe(true);
+    expect(env.base.mirror.has("Moss-1.0.9-x64.exe")).toBe(true);
+    expect(env.base.mirror.has("Moss-1.0.9-x64.exe.blockmap")).toBe(true);
+    expect(env.base.mirror.has("Moss-1.0.9-arm64.dmg")).toBe(true);
+    expect(env.base.mirror.has("Moss-1.0.2-x64.exe")).toBe(false);
+    expect(env.base.mirror.has("Moss-1.0.2-x64.exe.blockmap")).toBe(false);
+    expect(env.base.mirror.has("Moss-1.0.8-arm64.dmg")).toBe(false);
+    expect(logs.some((line) => line.startsWith("Prune summary: deleted 3 object(s)"))).toBe(true);
+  });
+
+  it("never lists or deletes anything when upload or read-back verification fails", async () => {
+    const installer1010 = Buffer.from("installer-1.0.10");
+    const env = prunableWorld("v1.0.10", {
+      "moss.yml": manifestFor("1.0.10", installer1010),
+      "Moss-1.0.10-x64.exe": installer1010,
+    });
+    env.base.mirror.set("Moss-1.0.1-x64.exe", Buffer.alloc(1000));
+    env.base.mirror.set("Moss-1.0.2-x64.exe", Buffer.alloc(1000));
+    env.base.rangeSupported = false;
+
+    await expect(
+      syncUpdateMirror({
+        repository: REPOSITORY,
+        feedUrl: FEED,
+        privateKey,
+        store: env.store,
+        githubApiUrl: API,
+        fetchImpl: env.fetchImpl,
+        verifyRetryDelayMs: 0,
+      }),
+    ).rejects.toThrow("byte ranges");
+
+    expect(env.listCalls).toBe(0);
+    expect(env.deleted).toEqual([]);
+    expect(env.base.mirror.has("Moss-1.0.1-x64.exe")).toBe(true);
+  });
+
+  it("protects the macOS version named by moss-mac-notice.json and fails closed if unreadable", async () => {
+    const installer1010 = Buffer.from("installer-1.0.10");
+    const env = prunableWorld("v1.0.10", {
+      "moss.yml": manifestFor("1.0.10", installer1010),
+      "Moss-1.0.10-x64.exe": installer1010,
+    });
+    env.base.mirror.set("Moss-1.0.8-arm64.dmg", Buffer.alloc(1000));
+    env.base.mirror.set("Moss-1.0.9-arm64.dmg", Buffer.alloc(1000));
+    env.base.mirror.set("Moss-1.0.10-arm64.dmg", Buffer.alloc(1000));
+    env.base.mirror.set("moss-mac-notice.json", Buffer.from('{"version":"1.0.9"}\n'));
+
+    const result = await syncUpdateMirror({
+      repository: REPOSITORY,
+      feedUrl: FEED,
+      privateKey,
+      store: env.store,
+      githubApiUrl: API,
+      fetchImpl: env.fetchImpl,
+      verifyRetryDelayMs: 0,
+    });
+
+    expect(result.prune).toMatchObject({
+      status: "pruned",
+      deleted: ["Moss-1.0.8-arm64.dmg"],
+    });
+    expect(env.base.mirror.has("Moss-1.0.9-arm64.dmg")).toBe(true);
+    expect(env.base.mirror.has("Moss-1.0.10-arm64.dmg")).toBe(true);
+
+    // Now corrupt moss-mac-notice.json and add another older dmg: fail-closed protects all Mac dmgs.
+    env.base.mirror.set("Moss-1.0.7-arm64.dmg", Buffer.alloc(1000));
+    env.base.mirror.set("moss-mac-notice.json", Buffer.from("{broken"));
+    const logs: string[] = [];
+    const second = await syncUpdateMirror({
+      repository: REPOSITORY,
+      feedUrl: FEED,
+      privateKey,
+      store: env.store,
+      githubApiUrl: API,
+      fetchImpl: env.fetchImpl,
+      verifyRetryDelayMs: 0,
+      log: (message) => logs.push(message),
+    });
+
+    expect(second).toMatchObject({
+      status: "in-sync",
+      prune: { status: "pruned", deleted: [] },
+    });
+    expect(env.base.mirror.has("Moss-1.0.7-arm64.dmg")).toBe(true);
+    expect(logs.some((line) => line.includes("protecting all macOS installers"))).toBe(true);
+  });
+
+  it("supports --prune-dry-run and --no-prune through runUpdateMirrorSync", async () => {
+    const folders: string[] = [];
+    try {
+      const folder = mkdtempSync(join(tmpdir(), "moss-prune-cli-"));
+      folders.push(folder);
+      writeFileSync(join(folder, "update-mirror.env"), `MOSS_UPDATE_MIRROR_FEED_URL=${FEED}\n`);
+      writeFileSync(
+        join(folder, "update-mirror-signing.env"),
+        `MOSS_UPDATE_MIRROR_SIGNING_KEY=${privateKey}\n`,
+      );
+      writeFileSync(
+        join(folder, "update-mirror-upload.env"),
+        Object.entries(storage("test-bucket"))
+          .map(([k, v]) => `${k}=${v}\n`)
+          .join(""),
+      );
+
+      const installer1010 = Buffer.from("installer-1.0.10");
+      const env = prunableWorld("v1.0.10", {
+        "moss.yml": manifestFor("1.0.10", installer1010),
+        "Moss-1.0.10-x64.exe": installer1010,
+      });
+      env.base.mirror.set("Moss-1.0.1-x64.exe", Buffer.alloc(1000));
+      env.base.mirror.set("Moss-1.0.9-x64.exe", Buffer.alloc(1000));
+
+      const dryRunLogs: string[] = [];
+      const dryRunOutcomes = await runUpdateMirrorSync({
+        args: ["--prune-dry-run"],
+        env: {
+          MOSS_UPDATE_MIRROR_SETTINGS_DIR: folder,
+          MOSS_UPDATE_MIRROR_GITHUB_API_URL: API,
+          MOSS_DESKTOP_UPDATE_REPOSITORY: REPOSITORY,
+        },
+        homeDirectory: tmpdir(),
+        createStore: () => env.store,
+        builtInPublicKey: manifestPublicKey,
+        fetchImpl: env.fetchImpl,
+        verifyRetryDelayMs: 0,
+        log: (message) => dryRunLogs.push(message),
+      });
+
+      expect(dryRunOutcomes[0]?.result).toMatchObject({
+        status: "synced",
+        prune: {
+          status: "dry-run",
+          dryRun: true,
+          wouldDelete: ["Moss-1.0.1-x64.exe"],
+          bytesToFree: 1000,
+        },
+      });
+      expect(env.deleted).toEqual([]);
+      expect(env.base.mirror.has("Moss-1.0.1-x64.exe")).toBe(true);
+      expect(dryRunLogs.some((line) => line.includes("Prune dry-run summary:"))).toBe(true);
+
+      // With --no-prune, neither list nor delete runs.
+      const callsBefore = env.listCalls;
+      const noPruneOutcomes = await runUpdateMirrorSync({
+        args: ["--no-prune"],
+        env: {
+          MOSS_UPDATE_MIRROR_SETTINGS_DIR: folder,
+          MOSS_UPDATE_MIRROR_GITHUB_API_URL: API,
+          MOSS_DESKTOP_UPDATE_REPOSITORY: REPOSITORY,
+        },
+        homeDirectory: tmpdir(),
+        createStore: () => env.store,
+        builtInPublicKey: manifestPublicKey,
+        fetchImpl: env.fetchImpl,
+        verifyRetryDelayMs: 0,
+      });
+
+      expect(noPruneOutcomes[0]?.result).toEqual({ status: "in-sync", tag: "v1.0.10" });
+      expect(env.listCalls).toBe(callsBefore);
+      expect(env.deleted).toEqual([]);
+    } finally {
+      for (const folder of folders) rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("logs an actionable warning instead of failing when list or delete returns 403 / AccessDenied", async () => {
+    const installer1010 = Buffer.from("installer-1.0.10");
+    const env = prunableWorld("v1.0.10", {
+      "moss.yml": manifestFor("1.0.10", installer1010),
+      "Moss-1.0.10-x64.exe": installer1010,
+    });
+    env.base.mirror.set("Moss-1.0.1-x64.exe", Buffer.alloc(1000));
+    env.base.mirror.set("Moss-1.0.9-x64.exe", Buffer.alloc(1000));
+    env.setListError(
+      Object.assign(new Error("Access Denied."), { name: "S3Error", code: "AccessDenied" }),
+    );
+
+    const listWarnLogs: string[] = [];
+    const listResult = await syncUpdateMirror({
+      repository: REPOSITORY,
+      feedUrl: FEED,
+      privateKey,
+      store: env.store,
+      githubApiUrl: API,
+      fetchImpl: env.fetchImpl,
+      verifyRetryDelayMs: 0,
+      log: (message) => listWarnLogs.push(message),
+    });
+
+    expect(listResult).toMatchObject({
+      status: "synced",
+      tag: "v1.0.10",
+      prune: {
+        status: "permission-denied",
+        operation: "list",
+        deleted: [],
+      },
+    });
+    expect(listWarnLogs.some((line) => line.includes("lack ListBucket permission"))).toBe(true);
+
+    // Now allow list, deny delete with 403.
+    env.setListError(null);
+    env.setDeleteError(Object.assign(new Error("HTTP 403 Forbidden"), { status: 403 }));
+    const deleteWarnLogs: string[] = [];
+    const deleteResult = await syncUpdateMirror({
+      repository: REPOSITORY,
+      feedUrl: FEED,
+      privateKey,
+      store: env.store,
+      githubApiUrl: API,
+      fetchImpl: env.fetchImpl,
+      verifyRetryDelayMs: 0,
+      log: (message) => deleteWarnLogs.push(message),
+    });
+
+    expect(deleteResult).toMatchObject({
+      status: "in-sync",
+      tag: "v1.0.10",
+      prune: {
+        status: "permission-denied",
+        operation: "delete",
+        deleted: [],
+      },
+    });
+    expect(deleteWarnLogs.some((line) => line.includes("lack DeleteObject permission"))).toBe(true);
   });
 });

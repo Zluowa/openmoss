@@ -8,7 +8,7 @@ import {
   type ServerSettingsView,
 } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { page, userEvent } from "vitest/browser";
+import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
@@ -261,12 +261,20 @@ describe("AppRailUsage", () => {
     );
     expect(dotBounds.y + dotBounds.height / 2).toBeLessThan(glyphBounds.y + glyphBounds.height / 2);
     expect(dotBounds.right).toBeLessThanOrEqual(glyphBounds.right + 5);
-    await userEvent.hover(work);
+    await work.click();
+    await expect.element(page.getByText("Usage source: Claude · Work")).toBeVisible();
     await expect.element(page.getByText("Claude · Work", { exact: true }).last()).toBeVisible();
     await expect.element(page.getByText("20% left", { exact: true }).last()).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "Manage usage", exact: true }))
+      .toBeVisible();
     await page
       .getByTestId("usage-rail")
       .screenshot({ path: "node_modules/.cache/multiple-claude-accounts.png" });
+    await page.getByRole("button", { name: "Manage usage", exact: true }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Manage usage", exact: true }))
+      .not.toBeInTheDocument();
 
     await workSwitch.click();
     await rerender();
@@ -434,13 +442,18 @@ describe("AppRailUsage", () => {
     expect(fills[0]?.getAttribute("class")).toContain("stroke-yellow-500");
     expect(fills[1]?.getAttribute("class")).toContain("stroke-emerald-500");
 
-    await userEvent.hover(button);
+    await button.click();
+    expect(onOpenUsageSettings).not.toHaveBeenCalled();
+    await expect.element(page.getByText("Usage source: Codex")).toBeVisible();
     await expect.element(page.getByText("Weekly · outer")).toBeVisible();
     await expect.element(page.getByText("5h · inner")).toBeVisible();
     await expect.element(page.getByText("43% left", { exact: true })).toBeVisible();
     await expect.element(page.getByText("78% left", { exact: true })).toBeVisible();
-    await button.click();
+    const manageButton = page.getByRole("button", { name: "Manage usage", exact: true });
+    await expect.element(manageButton).toBeVisible();
+    await manageButton.click();
     expect(onOpenUsageSettings).toHaveBeenCalledOnce();
+    await expect.element(manageButton).not.toBeInTheDocument();
   });
 
   it.each([
@@ -475,7 +488,7 @@ describe("AppRailUsage", () => {
       { window: "5h", usedPercent: 100 },
     ]);
     const button = page.getByRole("button", {
-      name: "Codex usage: 5h 0% remaining, Weekly 100% remaining. Open usage settings",
+      name: "Codex usage: 5h 0% remaining, Weekly 100% remaining. Show usage",
     });
     await expect.element(button).toBeVisible();
     expect(button.element().querySelectorAll("circle")).toHaveLength(3);
@@ -496,7 +509,7 @@ describe("AppRailUsage", () => {
   it("keeps the unavailable provider visible without a quota arc", async () => {
     await renderUsage([], "error");
     const button = page.getByRole("button", {
-      name: "Codex usage: Unavailable. Open usage settings",
+      name: "Codex usage: Unavailable. Show usage",
     });
     await expect.element(button).toBeVisible();
     expect(button.element().querySelectorAll("circle")).toHaveLength(1);
@@ -587,7 +600,14 @@ describe("AppRailUsage", () => {
       expect(fill?.getAttribute("stroke-dasharray")).toBe("80 100");
       expect(fill?.getAttribute("class")).toContain("stroke-emerald-500");
 
-      await userEvent.hover(mossRing);
+      await mossRing.click();
+      expect(onOpenUsageSettings).not.toHaveBeenCalled();
+      await expect.element(page.getByText("额度来源：Moss · 免费版")).toBeVisible();
+      const manageUsage = page.getByRole("button", { name: "管理用量", exact: true });
+      await expect.element(manageUsage).toBeVisible();
+      await expect.element(page.getByText("免费额度", { exact: true }).first()).toBeVisible();
+      await expect.element(page.getByText("剩余 80%", { exact: true }).first()).toBeVisible();
+
       const settingsPanel = page.getByTestId("moss-billing-settings-panel");
       await expect.element(settingsPanel).toBeVisible();
       await expect.element(settingsPanel.getByText("免费版", { exact: true })).toBeVisible();
@@ -603,6 +623,10 @@ describe("AppRailUsage", () => {
       expect(text).not.toMatch(/5\s*元|[¥￥]\s*5|5\s*RMB|CNY\s*5/i);
       expect(text).not.toContain("starter-trial");
       expect(text).not.toContain("积分余额");
+
+      await manageUsage.click();
+      expect(onOpenUsageSettings).toHaveBeenCalledOnce();
+      await expect.element(manageUsage).not.toBeInTheDocument();
     } finally {
       await screen.unmount();
     }

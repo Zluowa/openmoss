@@ -5,7 +5,11 @@
 //          with what the mirror serves, copies whatever is missing, signs the manifests, and reads
 //          everything back through the public URL, so a stale mirror fails the run instead.
 // Usage:   bun run scripts/sync-update-mirror.ts [--assets-dir <release-directory>]
+//            [--no-prune] [--prune-dry-run] [--keep-win-versions <n>] [--keep-mac-versions <n>]
 //          `--assets-dir` uses the files already on this machine instead of downloading them again.
+//          Automatic pruning runs strictly after upload and public URL read-back succeed, keeping
+//          the latest 2 Windows versions and 1 macOS version per architecture (plus any file named
+//          in synced manifests or `moss-mac-notice.json`).
 //          Settings come from the environment and one settings folder per store, listed in
 //          `MOSS_UPDATE_MIRROR_SETTINGS_DIRS` (the environment, or a line in `~/.moss-release`) for
 //          several stores, e.g. COS and R2; see docs/ops/moss-cn-update-mirror.md.
@@ -41,6 +45,18 @@ import {
   runtimeSourceBaseUrl,
 } from "./lib/runtime-archive-check.ts";
 import {
+  DEFAULT_KEEP_MAC_VERSIONS,
+  DEFAULT_KEEP_WIN_VERSIONS,
+  formatByteSize,
+  formatGigabytes,
+  formatUpdateMirrorPruneSummary,
+  isS3PermissionError,
+  MAC_UPDATE_NOTICE_FILE_NAME,
+  parseMacUpdateNoticeVersion,
+  planUpdateMirrorPrune,
+  type UpdateMirrorObject,
+} from "./lib/update-mirror-prune.ts";
+import {
   describeUpdateMirrorStoreList,
   LOCAL_SETTINGS_FILES,
   resolveUpdateMirrorStores,
@@ -70,13 +86,57 @@ interface ManifestFile {
 
 /** Where mirror objects are written. Anything meant to prove the mirror works reads the public URL. */
 export interface UpdateMirrorStore {
+  /** Bucket key prefix for this feed (e.g. "desktop/"); empty when keys are unprefixed. */
+  readonly prefix?: string;
   upload(fileName: string, localPath: string): Promise<void>;
   /**
    * The stored size, or null if absent. This asks storage directly: asking through the CDN would
    * make it remember "not found" for a file that is about to exist.
    */
   sizeOf(fileName: string): Promise<number | null>;
+  /** Lists objects stored under `prefix` (optional; enables automatic post-sync pruning). */
+  list?(): Promise<ReadonlyArray<UpdateMirrorObject>>;
+  /** Reads a UTF-8 text object directly from storage (e.g. `moss-mac-notice.json`). */
+  readText?(fileName: string): Promise<string | null>;
+  /** Deletes one object under `prefix` by its prefix-relative file name. */
+  delete?(fileName: string): Promise<void>;
 }
+
+export interface UpdateMirrorPruneOptions {
+  /** Whether pruning runs after upload and read-back succeed. Default: true. */
+  readonly enabled?: boolean;
+  /** When true, plans and logs deletions without removing any objects. Default: false. */
+  readonly dryRun?: boolean;
+  /** Number of latest Windows versions to retain per architecture lane. Default: 2. */
+  readonly keepWinVersions?: number;
+  /** Number of latest macOS versions to retain per architecture lane. Default: 1. */
+  readonly keepMacVersions?: number;
+}
+
+export type UpdateMirrorPruneResult =
+  | {
+      readonly status: "pruned";
+      readonly dryRun: false;
+      readonly deleted: ReadonlyArray<string>;
+      readonly bytesFreed: number;
+      readonly remainingObjects: number;
+      readonly remainingBytes: number;
+    }
+  | {
+      readonly status: "dry-run";
+      readonly dryRun: true;
+      readonly wouldDelete: ReadonlyArray<string>;
+      readonly bytesToFree: number;
+      readonly remainingObjects: number;
+      readonly remainingBytes: number;
+    }
+  | {
+      readonly status: "permission-denied";
+      readonly operation: "list" | "delete";
+      readonly deleted: ReadonlyArray<string>;
+      readonly bytesFreed: number;
+      readonly message: string;
+    };
 
 export interface SyncUpdateMirrorInput {
   readonly repository: string;
@@ -85,6 +145,7 @@ export interface SyncUpdateMirrorInput {
   readonly store: UpdateMirrorStore;
   /** A folder holding this release's files, used instead of downloading them when they match. */
   readonly assetsDirectory?: string;
+  readonly prune?: UpdateMirrorPruneOptions;
   readonly githubApiUrl?: string;
   readonly githubToken?: string;
   readonly verifyRetryDelayMs?: number;
@@ -93,12 +154,17 @@ export interface SyncUpdateMirrorInput {
 }
 
 export type SyncUpdateMirrorResult =
-  | { readonly status: "in-sync"; readonly tag: string }
+  | {
+      readonly status: "in-sync";
+      readonly tag: string;
+      readonly prune?: UpdateMirrorPruneResult;
+    }
   | {
       readonly status: "synced";
       readonly tag: string;
       readonly manifests: ReadonlyArray<string>;
       readonly copied: ReadonlyArray<string>;
+      readonly prune?: UpdateMirrorPruneResult;
     };
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -313,6 +379,182 @@ async function findPublishProblems(input: {
   return problems;
 }
 
+function errorDetail(error: unknown): string {
+  if (error instanceof Error) {
+    const code = (error as { readonly code?: unknown }).code;
+    return typeof code === "string" && code.trim() !== ""
+      ? `${code.trim()}: ${error.message}`
+      : error.message;
+  }
+  return String(error);
+}
+
+function collectManifestProtectedFileNames(
+  manifests: ReadonlyMap<string, string>,
+): ReadonlyArray<string> {
+  const names: string[] = [];
+  for (const [channelFile, manifest] of manifests) {
+    if (!isChannelManifestFileName(channelFile)) continue;
+    for (const file of parseManifestFiles(channelFile, manifest)) {
+      names.push(file.url);
+    }
+  }
+  return names;
+}
+
+/**
+ * Removes obsolete versioned desktop installers strictly AFTER upload and public read-back checks
+ * have passed for this store. Permission errors (403 / AccessDenied) log an actionable warning
+ * without failing the release publish.
+ */
+async function pruneObsoleteInstallers(input: {
+  readonly store: UpdateMirrorStore;
+  readonly feedUrl: string;
+  readonly manifests: ReadonlyMap<string, string>;
+  readonly options: UpdateMirrorPruneOptions | undefined;
+  readonly fetchImpl: typeof fetch;
+  readonly log: (message: string) => void;
+}): Promise<UpdateMirrorPruneResult | undefined> {
+  const { store, feedUrl, log } = input;
+  const enabled = input.options?.enabled ?? true;
+  if (!enabled || !store.list) return undefined;
+
+  const dryRun = input.options?.dryRun ?? false;
+  const keepWinVersions = input.options?.keepWinVersions ?? DEFAULT_KEEP_WIN_VERSIONS;
+  const keepMacVersions = input.options?.keepMacVersions ?? DEFAULT_KEEP_MAC_VERSIONS;
+  const prefix = store.prefix ?? "";
+  const prefixScope = prefix ? `prefix "${prefix}"` : "this store";
+
+  let objects: ReadonlyArray<UpdateMirrorObject>;
+  try {
+    objects = await store.list();
+  } catch (error) {
+    if (isS3PermissionError(error)) {
+      const detail = errorDetail(error);
+      const message = `Warning: skipped pruning on ${feedUrl} — storage credentials lack ListBucket permission (${detail}). Grant ListBucket/GetBucket and DeleteObject on ${prefixScope} to enable automatic pruning.`;
+      log(message);
+      return {
+        status: "permission-denied",
+        operation: "list",
+        deleted: [],
+        bytesFreed: 0,
+        message,
+      };
+    }
+    throw error;
+  }
+
+  const protectedMacVersions: string[] = [];
+  let protectAllMacVersions = false;
+  const macNoticeKey = `${prefix}${MAC_UPDATE_NOTICE_FILE_NAME}`;
+  if (objects.some((object) => object.key === macNoticeKey)) {
+    const noticeText = store.readText
+      ? await store.readText(MAC_UPDATE_NOTICE_FILE_NAME).catch(() => null)
+      : await fetchText(input.fetchImpl, uncachedUrl(feedUrl, MAC_UPDATE_NOTICE_FILE_NAME));
+    const noticeVersion = noticeText === null ? null : parseMacUpdateNoticeVersion(noticeText);
+    if (noticeVersion !== null) {
+      protectedMacVersions.push(noticeVersion);
+    } else {
+      protectAllMacVersions = true;
+      log(
+        `Warning: could not read or parse ${MAC_UPDATE_NOTICE_FILE_NAME} on ${feedUrl}; protecting all macOS installers from pruning.`,
+      );
+    }
+  }
+
+  const plan = planUpdateMirrorPrune({
+    objects,
+    prefix,
+    keepWinVersions,
+    keepMacVersions,
+    protectedFileNames: collectManifestProtectedFileNames(input.manifests),
+    protectedMacVersions,
+    protectAllMacVersions,
+  });
+
+  if (dryRun) {
+    for (const candidate of plan.toDelete) {
+      log(`Prune dry-run: would delete ${candidate.fileName} (${formatByteSize(candidate.size)})`);
+    }
+    log(
+      formatUpdateMirrorPruneSummary({
+        dryRun: true,
+        deletedCount: plan.toDelete.length,
+        freedBytes: plan.bytesToFree,
+        remainingObjects: plan.remainingObjectCount,
+        remainingBytes: plan.remainingBytes,
+        prefix,
+      }),
+    );
+    return {
+      status: "dry-run",
+      dryRun: true,
+      wouldDelete: plan.toDelete.map((candidate) => candidate.fileName),
+      bytesToFree: plan.bytesToFree,
+      remainingObjects: plan.remainingObjectCount,
+      remainingBytes: plan.remainingBytes,
+    };
+  }
+
+  if (plan.toDelete.length > 0 && !store.delete) {
+    const message = `Warning: skipped pruning on ${feedUrl} — storage client does not support object deletion.`;
+    log(message);
+    return {
+      status: "permission-denied",
+      operation: "delete",
+      deleted: [],
+      bytesFreed: 0,
+      message,
+    };
+  }
+
+  const deleted: string[] = [];
+  let bytesFreed = 0;
+  for (const candidate of plan.toDelete) {
+    try {
+      await store.delete!(candidate.fileName);
+    } catch (error) {
+      if (isS3PermissionError(error)) {
+        const detail = errorDetail(error);
+        const remainingObjects = objects.length - deleted.length;
+        const remainingBytes = Math.max(0, plan.totalBytesBefore - bytesFreed);
+        const message = `Warning: stopped pruning on ${feedUrl} while deleting ${candidate.fileName} — storage credentials lack DeleteObject permission (${detail}). Grant DeleteObject on ${prefixScope} to enable automatic pruning. (Deleted ${deleted.length} object(s), freed ${formatByteSize(bytesFreed)}; remaining ${remainingObjects} object(s), ${formatGigabytes(remainingBytes)}.)`;
+        log(message);
+        return {
+          status: "permission-denied",
+          operation: "delete",
+          deleted,
+          bytesFreed,
+          message,
+        };
+      }
+      throw error;
+    }
+    deleted.push(candidate.fileName);
+    bytesFreed += candidate.size;
+    log(`Pruned ${candidate.fileName} (${formatByteSize(candidate.size)})`);
+  }
+
+  log(
+    formatUpdateMirrorPruneSummary({
+      dryRun: false,
+      deletedCount: deleted.length,
+      freedBytes: bytesFreed,
+      remainingObjects: plan.remainingObjectCount,
+      remainingBytes: plan.remainingBytes,
+      prefix,
+    }),
+  );
+  return {
+    status: "pruned",
+    dryRun: false,
+    deleted,
+    bytesFreed,
+    remainingObjects: plan.remainingObjectCount,
+    remainingBytes: plan.remainingBytes,
+  };
+}
+
 export async function syncUpdateMirror(
   input: SyncUpdateMirrorInput,
 ): Promise<SyncUpdateMirrorResult> {
@@ -384,7 +626,19 @@ export async function syncUpdateMirror(
   });
   if (problemsBefore.length === 0) {
     log(`Mirror already serves ${release.tag}.`);
-    return { status: "in-sync", tag: release.tag };
+    const prune = await pruneObsoleteInstallers({
+      store: input.store,
+      feedUrl: input.feedUrl,
+      manifests,
+      options: input.prune,
+      fetchImpl,
+      log,
+    });
+    return {
+      status: "in-sync",
+      tag: release.tag,
+      ...(prune ? { prune } : {}),
+    };
   }
   log(`Mirror is behind ${release.tag}: ${problemsBefore.join(" ")}`);
 
@@ -471,7 +725,21 @@ export async function syncUpdateMirror(
       throw new Error(`Mirror is still wrong after syncing: ${problemsAfter.join(" ")}`);
     }
     log(`Mirror now serves ${release.tag}.`);
-    return { status: "synced", tag: release.tag, manifests: [...manifests.keys()], copied };
+    const prune = await pruneObsoleteInstallers({
+      store: input.store,
+      feedUrl: input.feedUrl,
+      manifests,
+      options: input.prune,
+      fetchImpl,
+      log,
+    });
+    return {
+      status: "synced",
+      tag: release.tag,
+      manifests: [...manifests.keys()],
+      copied,
+      ...(prune ? { prune } : {}),
+    };
   } finally {
     await rm(workDirectory, { recursive: true, force: true });
   }
@@ -520,6 +788,7 @@ function createS3MirrorStore(env: Readonly<Record<string, string | undefined>>):
   const prefix = env.MOSS_UPDATE_MIRROR_S3_PREFIX?.trim() ?? "";
   const client = new Bun.S3Client(readUpdateMirrorS3ClientOptions(env));
   return {
+    prefix,
     upload: async (fileName, localPath) => {
       await client.file(`${prefix}${fileName}`).write(Bun.file(localPath), {
         type: isChannelManifestFileName(fileName)
@@ -537,6 +806,32 @@ function createS3MirrorStore(env: Readonly<Record<string, string | undefined>>):
         // Treated as missing: the worst case is uploading a file again.
         return null;
       }
+    },
+    list: async () => {
+      const objects: UpdateMirrorObject[] = [];
+      let continuationToken: string | undefined;
+      do {
+        const response = await client.list({
+          ...(prefix ? { prefix } : {}),
+          maxKeys: 1000,
+          ...(continuationToken ? { continuationToken } : {}),
+        });
+        for (const entry of response.contents ?? []) {
+          objects.push({ key: entry.key, size: entry.size ?? 0 });
+        }
+        continuationToken = response.isTruncated ? response.nextContinuationToken : undefined;
+      } while (continuationToken);
+      return objects;
+    },
+    readText: async (fileName) => {
+      try {
+        return await client.file(`${prefix}${fileName}`).text();
+      } catch {
+        return null;
+      }
+    },
+    delete: async (fileName) => {
+      await client.file(`${prefix}${fileName}`).delete();
     },
   };
 }
@@ -585,6 +880,97 @@ export interface UpdateMirrorStoreOutcome {
   readonly error: string | null;
 }
 
+export interface SyncUpdateMirrorCliOptions {
+  readonly assetsDirectory: string | undefined;
+  readonly prune: Required<UpdateMirrorPruneOptions>;
+}
+
+function parsePositiveIntegerFlag(flag: string, rawValue: string | undefined): number {
+  if (!rawValue || rawValue.startsWith("--")) {
+    throw new Error(`Missing value for ${flag}.`);
+  }
+  if (!/^[1-9]\d*$/u.test(rawValue)) {
+    throw new Error(`${flag} must be a positive integer (>= 1), got "${rawValue}".`);
+  }
+  const value = Number(rawValue);
+  if (!Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${flag} must be a positive integer (>= 1), got "${rawValue}".`);
+  }
+  return value;
+}
+
+export function parseSyncUpdateMirrorArgs(args: ReadonlyArray<string>): SyncUpdateMirrorCliOptions {
+  let assetsDirectory: string | undefined;
+  let noPrune = false;
+  let pruneDryRun = false;
+  let keepWinVersions = DEFAULT_KEEP_WIN_VERSIONS;
+  let keepMacVersions = DEFAULT_KEEP_MAC_VERSIONS;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--assets-dir") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) throw new Error("Missing value for --assets-dir.");
+      assetsDirectory = value;
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--assets-dir=")) {
+      const value = arg.slice("--assets-dir=".length);
+      if (!value) throw new Error("Missing value for --assets-dir.");
+      assetsDirectory = value;
+      continue;
+    }
+    if (arg === "--no-prune") {
+      noPrune = true;
+      continue;
+    }
+    if (arg === "--prune-dry-run") {
+      pruneDryRun = true;
+      continue;
+    }
+    if (arg === "--keep-win-versions") {
+      keepWinVersions = parsePositiveIntegerFlag("--keep-win-versions", args[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--keep-win-versions=")) {
+      keepWinVersions = parsePositiveIntegerFlag(
+        "--keep-win-versions",
+        arg.slice("--keep-win-versions=".length),
+      );
+      continue;
+    }
+    if (arg === "--keep-mac-versions") {
+      keepMacVersions = parsePositiveIntegerFlag("--keep-mac-versions", args[index + 1]);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--keep-mac-versions=")) {
+      keepMacVersions = parsePositiveIntegerFlag(
+        "--keep-mac-versions",
+        arg.slice("--keep-mac-versions=".length),
+      );
+      continue;
+    }
+    throw new Error(`Unknown option: ${arg}`);
+  }
+
+  if (noPrune && pruneDryRun) {
+    throw new Error("Cannot combine --no-prune and --prune-dry-run.");
+  }
+
+  return {
+    assetsDirectory,
+    prune: {
+      enabled: !noPrune,
+      dryRun: pruneDryRun,
+      keepWinVersions,
+      keepMacVersions,
+    },
+  };
+}
+
 /**
  * Syncs every configured store, one after another, each with its own feed URL and storage, then
  * fails if any store failed or is still stale. One store failing never hides another's result.
@@ -601,6 +987,7 @@ export async function runUpdateMirrorSync(input: {
   readonly log?: (message: string) => void;
 }): Promise<ReadonlyArray<UpdateMirrorStoreOutcome>> {
   const log = input.log ?? (() => undefined);
+  const cli = parseSyncUpdateMirrorArgs(input.args);
   const resolution = await resolveUpdateMirrorStores({
     env: input.env,
     homeDirectory: input.homeDirectory,
@@ -621,12 +1008,7 @@ export async function runUpdateMirrorSync(input: {
   if (builtInPublicKey !== null && builtInPublicKey !== publicKey) {
     throw new Error("The signing key does not match the public key built into the app.");
   }
-  const assetsDirectoryFlag = input.args.indexOf("--assets-dir");
-  const assetsDirectory =
-    assetsDirectoryFlag >= 0 ? input.args[assetsDirectoryFlag + 1] : undefined;
-  if (assetsDirectoryFlag >= 0 && !assetsDirectory) {
-    throw new Error("Missing value for --assets-dir.");
-  }
+  const { assetsDirectory, prune } = cli;
 
   const outcomes: UpdateMirrorStoreOutcome[] = [];
   const feedUrlsSeen = new Set<string>();
@@ -659,6 +1041,7 @@ export async function runUpdateMirrorSync(input: {
         privateKey,
         store: (input.createStore ?? createS3MirrorStore)(store.env),
         ...(assetsDirectory ? { assetsDirectory } : {}),
+        prune,
         ...(githubApiUrl ? { githubApiUrl } : {}),
         ...(githubToken ? { githubToken } : {}),
         ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),

@@ -28,6 +28,7 @@ vi.mock("~/components/ui/toast", () => ({
   toastManager: { add: harness.toastAdd },
 }));
 
+import { MossLocaleScope } from "~/localization";
 import { composeChineseWithEnter } from "../../test/imeComposition";
 import { ComposerExtrasPanel } from "./ComposerExtrasPanel";
 
@@ -73,7 +74,8 @@ function appSnapBridge(overrides: {
       appName: string | null;
       bundleIdentifier: string | null;
       windowTitle: string | null;
-      appIconDataUrl: string | null;
+      appIconDataUrl?: string | null;
+      iconDataUrl?: string | null;
     }>
   >;
   captureWindow?: (input: { windowId: number }) => Promise<DesktopAppSnapCapture>;
@@ -501,5 +503,80 @@ describe("ComposerExtrasPanel", () => {
     emitState?.(READY_STATE);
     expect(listWindows).toHaveBeenCalledTimes(2);
     await expect.element(page.getByText("Could not list windows.")).toBeVisible();
+  });
+
+  it("renders real app icons from appIconDataUrl or iconDataUrl and sanitizes zh-CN Attach labels", async () => {
+    const mossIcon =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    const chromeIcon =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+    setDesktopBridge(
+      appSnapBridge({
+        listWindows: async () => [
+          {
+            windowId: 88,
+            appName: "Moss",
+            bundleIdentifier: "com.moss.desktop",
+            windowTitle: "Moss",
+            appIconDataUrl: mossIcon,
+          },
+          {
+            windowId: 89,
+            appName: "chrome.exe",
+            bundleIdentifier: "chrome.exe",
+            windowTitle: "GitHub",
+            iconDataUrl: chromeIcon,
+          },
+          {
+            windowId: 90,
+            appName: "ApplicationFrameHost",
+            bundleIdentifier: "ApplicationFrameHost.exe",
+            windowTitle: "微信",
+            appIconDataUrl: null,
+          },
+        ],
+      }),
+    );
+
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        <ComposerExtrasPanel
+          interactionMode="default"
+          supportsFastMode
+          fastModeEnabled={false}
+          threadId={threadId}
+          onAddAttachments={vi.fn()}
+          onToggleFastMode={vi.fn()}
+          onInteractionModeChange={vi.fn()}
+          onInsertGoal={vi.fn()}
+          onClose={vi.fn()}
+          panelId="composer-extras-panel-icons"
+        />
+      </MossLocaleScope>,
+    );
+
+    try {
+      await expect.element(page.getByText("附加 Moss", { exact: true })).toBeVisible();
+      const rootImg = page
+        .getByTestId("composer-extras-panel")
+        .element()
+        .querySelector(`img[src="${mossIcon}"]`);
+      expect(rootImg).not.toBeNull();
+
+      await page.getByRole("button", { name: "Choose another window" }).click();
+      await expect.element(page.getByText("chrome", { exact: true })).toBeVisible();
+      await expect.element(page.getByText("微信", { exact: true })).toBeVisible();
+      expect(document.body.textContent).not.toContain("chrome.exe");
+      expect(document.body.textContent).not.toContain("ApplicationFrameHost");
+      expect(
+        page
+          .getByTestId("composer-extras-panel")
+          .element()
+          .querySelector(`img[src="${chromeIcon}"]`),
+      ).not.toBeNull();
+    } finally {
+      await screen.unmount();
+    }
   });
 });
