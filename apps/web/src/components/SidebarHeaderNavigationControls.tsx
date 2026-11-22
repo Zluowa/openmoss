@@ -16,7 +16,12 @@ import {
 
 import { isElectron } from "~/env";
 import { AppNavigationButtons } from "./AppNavigationButtons";
-import { SIDEBAR_OFFCANVAS_MOTION_CLASS, SidebarTrigger, useSidebar } from "./ui/sidebar";
+import {
+  SIDEBAR_OFFCANVAS_MOTION_CLASS,
+  SidebarTrigger,
+  useOptionalSidebar,
+  useSidebar,
+} from "./ui/sidebar";
 import { cn } from "~/lib/utils";
 import { useMossbotOnboardingPresence } from "~/components/mossbot/mossbotOnboardingPresence";
 
@@ -244,8 +249,12 @@ export function SidebarHeaderNavigationControls({
   className?: string;
   collapsedGapClassName?: string;
 }) {
-  const { isMobile, open } = useSidebar();
+  const sidebar = useOptionalSidebar();
   const register = useContext(LeadingControlsDockContext);
+  if (!sidebar) {
+    return null;
+  }
+  const { isMobile, open } = sidebar;
   const shown = isMobile || !open;
 
   if (!register) {
