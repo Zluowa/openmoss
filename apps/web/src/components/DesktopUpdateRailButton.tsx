@@ -10,6 +10,7 @@ import {
 } from "./desktopUpdate.logic";
 import {
   RAIL_UPDATE_BUTTON_CLASS_NAME,
+  RAIL_UPDATE_DISC_CLASS_NAME,
   RailProgressRing,
 } from "./providerUpdates/RailUpdateVisuals";
 import { SidebarIconButton } from "./SidebarIconButton";
@@ -33,6 +34,12 @@ export function DesktopUpdateRailButton({
   const disabled = isDesktopUpdateButtonDisabled(state) || installing;
   const percent = getDesktopUpdateDownloadPercent(state);
   const readyToInstall = resolveDesktopUpdateButtonAction(state) === "install";
+  const preparing =
+    !installing &&
+    percent === null &&
+    !state.manualDownloadUrl &&
+    ((state.status === "available" && state.errorContext !== "download") ||
+      state.status === "downloading");
   return (
     <SidebarIconButton
       icon={UpdateDownloadIcon}
@@ -46,14 +53,32 @@ export function DesktopUpdateRailButton({
       className={cn(RAIL_UPDATE_BUTTON_CLASS_NAME, disabled && "cursor-not-allowed")}
       onClick={onClick}
     >
-      {percent !== null ? (
+      {installing ? (
+        <RailProgressRing spinning>
+          <RestartIcon className="size-3.5" />
+        </RailProgressRing>
+      ) : percent !== null ? (
         <RailProgressRing percent={percent}>
+          <span
+            data-desktop-update-percent={percent}
+            style={{ fontSize: percent >= 100 ? "7.5px" : "8.5px" }}
+            className="font-medium leading-none tracking-[-0.04em] text-foreground tabular-nums"
+          >
+            {percent}%
+          </span>
+        </RailProgressRing>
+      ) : preparing ? (
+        <RailProgressRing spinning>
           <UpdateDownloadIcon className="size-3.5" />
         </RailProgressRing>
       ) : readyToInstall ? (
-        <RestartIcon className="size-4" />
+        <RailProgressRing percent={100}>
+          <RestartIcon className="size-3.5" />
+        </RailProgressRing>
       ) : (
-        <UpdateDownloadIcon className="size-4" />
+        <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
+          <UpdateDownloadIcon className="size-3.5" />
+        </span>
       )}
     </SidebarIconButton>
   );

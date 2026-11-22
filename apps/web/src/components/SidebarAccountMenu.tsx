@@ -119,7 +119,17 @@ function AccountBadgeContent({
   const { image: legacyImage } = useProfileAvatarImage();
   const resolvedImage = avatarSrc !== undefined ? avatarSrc : legacyImage;
   if (resolvedImage) {
-    return <img src={resolvedImage} alt="" draggable={false} className="size-full object-cover" />;
+    const isBuiltInPreset = resolvedImage.startsWith("/avatars/");
+    return (
+      <img
+        src={resolvedImage}
+        alt=""
+        draggable={false}
+        className={
+          isBuiltInPreset ? "size-full scale-[1.15] object-cover" : "size-full object-cover"
+        }
+      />
+    );
   }
   if (!initials) return <MossLogoMark className="size-[62%]" aria-hidden="true" />;
   return <>{initials}</>;
@@ -711,13 +721,14 @@ export function RailAccountMenu() {
             data-sidebar-rail-item="profile"
             data-testid="rail-account-menu-trigger"
             title={model.identity.title ?? model.identity.label}
-            className="group/rail-item flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-control text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+            className="group/rail-item flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
           />
         }
       >
         <span
           aria-hidden="true"
-          className="flex size-[22px] items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-2xs font-medium leading-none text-[var(--color-text-accent)]"
+          data-testid="rail-account-avatar-disc"
+          className="flex size-7 items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--color-text-accent)_16%,transparent)] text-ui-xs font-medium leading-none text-[var(--color-text-accent)] ring-1 ring-inset ring-black/8 dark:ring-white/12"
         >
           <AccountBadgeContent initials={model.identity.initials} avatarSrc={model.avatarSrc} />
         </span>
