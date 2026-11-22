@@ -33,6 +33,7 @@ import { envPathKeyFor, resolveExecutable } from "@moss/shared/executable";
 import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
 import { PROVIDER_CLI_COMMAND_BY_KIND } from "@moss/shared/providerCliProfiles";
 import { isPathName, mergePathEntries } from "@moss/shared/shell";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 import {
   deriveProviderInstances,
   deriveUnsupportedProviderInstances,
@@ -267,7 +268,8 @@ const OMP_PROVIDER = "omp" as const;
 const SIDE_BY_SIDE_UPDATE_LOCK_KEYS = new Set(["npm-global", "bun-global", "pnpm-global"]);
 type ProviderStatuses = ReadonlyArray<ServerProviderStatus>;
 const DISABLED_PROVIDER_STATUS_MESSAGE = "Provider is disabled in Moss settings.";
-const MINIMUM_ANTIGRAVITY_CLI_VERSION = "1.0.12";
+// `agy acp`, which Moss drives Antigravity through, shipped in 1.5.0.
+const MINIMUM_ANTIGRAVITY_CLI_VERSION = "1.5.0";
 
 const PROVIDERS = [
   CODEX_PROVIDER,
@@ -2665,7 +2667,7 @@ export const checkAntigravityProviderStatus = (
     const checkedAt = new Date().toISOString();
     const executable = nonEmptyTrimmed(binaryPath) ?? "agy";
     const probeEnv = {
-      ...makeProviderProbeEnv(ANTIGRAVITY_PROVIDER, environment),
+      ...withOutboundProxyEnv(makeProviderProbeEnv(ANTIGRAVITY_PROVIDER, environment)),
       NO_BROWSER: "true",
       // Health probes are read-only. Prevent Antigravity from starting its
       // detached updater, which can flash a console on Windows when Moss
