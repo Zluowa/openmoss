@@ -14,6 +14,7 @@ import {
 } from "@moss/contracts";
 import { type ReactNode } from "react";
 
+import { isMossManagedCliAuthorized } from "@moss/shared/providerInstances";
 import { supportsAgentSignIn, useAgentSignIn } from "~/lib/agentSignIn";
 
 import { DownloadIcon, SettingsIcon, StarFilledIcon } from "~/lib/icons";
@@ -141,6 +142,9 @@ export function resolveComposerModelPickerProviderTabs(input: {
   activeInstanceId?: ProviderInstanceId | null | undefined;
   /** Signed in, but Moss's gateway can't be reached: Moss rows say so, never "sign in". */
   mossGatewayUnreachable?: boolean | undefined;
+  /** Server-backed CLI model auth switch + per-CLI exclusions. */
+  mossCliModelAuthEnabled?: boolean | undefined;
+  mossCliModelAuthDisabledProviders?: ReadonlyArray<ProviderKind> | undefined;
 }): ComposerModelPickerProviderTab[] {
   const tabs = resolveComposerModelPickerProviderTabsReachable(input);
   if (!input.mossGatewayUnreachable) return tabs;
@@ -164,11 +168,25 @@ function resolveComposerModelPickerProviderTabsReachable(input: {
   lockedInstanceProvider?: ProviderKind | null | undefined;
   /** The account the composer runs on: its tab always stays listed. */
   activeInstanceId?: ProviderInstanceId | null | undefined;
+  mossCliModelAuthEnabled?: boolean | undefined;
+  mossCliModelAuthDisabledProviders?: ReadonlyArray<ProviderKind> | undefined;
 }): ComposerModelPickerProviderTab[] {
+  const authSettings = {
+    ...(input.mossCliModelAuthEnabled !== undefined
+      ? { mossCliModelAuthEnabled: input.mossCliModelAuthEnabled }
+      : {}),
+    ...(input.mossCliModelAuthDisabledProviders !== undefined
+      ? { mossCliModelAuthDisabledProviders: input.mossCliModelAuthDisabledProviders }
+      : {}),
+  };
   const signedInToMoss = (input.providerInstances ?? []).some(
-    (instance) => instance.enabled && isMossManagedSourceInstanceId(instance.instanceId),
+    (instance) =>
+      instance.enabled &&
+      isMossManagedSourceInstanceId(instance.instanceId) &&
+      isMossManagedCliAuthorized(authSettings, instance.provider),
   );
   return input.options.flatMap((option) => {
+    const mossAuthorized = isMossManagedCliAuthorized(authSettings, option.value);
     const lockedToSibling = (instanceId: ProviderInstanceId) =>
       input.lockedInstanceId != null &&
       instanceId !== input.lockedInstanceId &&
@@ -182,6 +200,7 @@ function resolveComposerModelPickerProviderTabsReachable(input: {
       .filter(
         (instance) =>
           instance.enabled &&
+          (!isMossManagedSourceInstanceId(instance.instanceId) || mossAuthorized) &&
           findProviderStatusForInstance({
             providers: input.providers,
             provider: option.value,
@@ -256,11 +275,16 @@ function resolveComposerModelPickerProviderTabsReachable(input: {
     // Moss ships Codex and Claude itself; the other agents' Moss lane still runs their
     // own CLI, so a missing CLI keeps reading as "install", not "sign in".
     const mossInstanceId = mossSourceInstanceIdForAgent(option.value);
+    const hasProvisionedMossForAgent = knownAccounts.some((instance) =>
+      isMossManagedSourceInstanceId(instance.instanceId),
+    );
     const cliAvailable =
       MOSS_BUNDLED_AGENTS.has(option.value) ||
       resolved.some((tab) => tab.readiness.state !== "notInstalled");
     if (
       !signedInToMoss &&
+      !hasProvisionedMossForAgent &&
+      mossAuthorized &&
       cliAvailable &&
       mossInstanceId !== undefined &&
       !resolved.some((tab) => tab.instanceId === mossInstanceId)

@@ -241,6 +241,34 @@ describe("applyServerSettingsPatch: published theme", () => {
   });
 });
 
+describe("applyServerSettingsPatch: mossCliModelAuth", () => {
+  it("defaults CLI model auth to enabled with no disabled providers", () => {
+    expect(DEFAULT_SERVER_SETTINGS.mossCliModelAuthEnabled).toBe(true);
+    expect(DEFAULT_SERVER_SETTINGS.mossCliModelAuthDisabledProviders).toEqual([]);
+  });
+
+  it("replaces mossCliModelAuthDisabledProviders wholesale instead of merging arrays", () => {
+    const first = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      mossCliModelAuthEnabled: false,
+      mossCliModelAuthDisabledProviders: ["codex", "opencode"],
+    });
+    expect(first.mossCliModelAuthEnabled).toBe(false);
+    expect(first.mossCliModelAuthDisabledProviders).toEqual(["codex", "opencode"]);
+
+    const replaced = applyServerSettingsPatch(first, {
+      mossCliModelAuthEnabled: true,
+      mossCliModelAuthDisabledProviders: ["claudeAgent"],
+    });
+    expect(replaced.mossCliModelAuthEnabled).toBe(true);
+    expect(replaced.mossCliModelAuthDisabledProviders).toEqual(["claudeAgent"]);
+
+    const cleared = applyServerSettingsPatch(replaced, {
+      mossCliModelAuthDisabledProviders: [],
+    });
+    expect(cleared.mossCliModelAuthDisabledProviders).toEqual([]);
+  });
+});
+
 describe("normalizeRetiredTextGenerationSelection", () => {
   it("falls back to Codex when persisted settings selected retired Gemini CLI", () => {
     const legacy = {

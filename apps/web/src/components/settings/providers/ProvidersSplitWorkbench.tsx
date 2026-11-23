@@ -91,6 +91,7 @@ export function ProvidersSplitWorkbench(props: {
   readonly unifiedProviders: ReadonlyArray<UnifiedModelProviderConfig>;
   readonly defaultUnifiedProviderId: string | null | undefined;
   readonly unifiedProviderByCli: Readonly<Record<string, string>> | undefined;
+  readonly mossCliModelAuthEnabled: boolean;
   readonly enabledCliOptions: ReadonlyArray<SplitWorkbenchCliOption>;
   readonly disabledCliOptions: ReadonlyArray<SplitWorkbenchCliOption>;
   readonly disabledOpen: boolean;
@@ -200,12 +201,18 @@ export function ProvidersSplitWorkbench(props: {
             <div className={cn("flex flex-col", SETTINGS_SIDEBAR_LIST_GAP_CLASS_NAME)}>
               <RailNavButton
                 selected={props.selection.kind === "moss"}
+                className={!props.mossCliModelAuthEnabled ? "opacity-75" : undefined}
                 onClick={() => props.onSelect({ kind: "moss" })}
               >
                 <ProviderBrandTile variant="bare" iconId="moss" size="sm" />
                 <span className={SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME}>
                   {isZh ? "Moss 官方服务" : "Moss Service"}
                 </span>
+                {!props.mossCliModelAuthEnabled ? (
+                  <span className="shrink-0 text-ui-xs text-muted-foreground">
+                    {isZh ? "已关闭" : "Off"}
+                  </span>
+                ) : null}
               </RailNavButton>
 
               {props.unifiedProviders.map((provider) => {

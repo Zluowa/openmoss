@@ -15,11 +15,10 @@ import {
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
-  EmptyMedia,
   EmptyTitle,
 } from "~/components/ui/empty";
 import { copyTextToClipboard } from "~/hooks/useCopyToClipboard";
-import { CheckIcon, CopyIcon, GitPullRequestIcon, TriangleAlertIcon } from "~/lib/icons";
+import { CheckIcon, CopyIcon, TriangleAlertIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
@@ -166,9 +165,6 @@ export function PullRequestsUnavailableState({
   return (
     <Empty className="py-16">
       <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <GitPullRequestIcon />
-        </EmptyMedia>
         <EmptyTitle>
           {notInstalled
             ? t("codeReview.gh.required")

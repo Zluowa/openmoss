@@ -275,6 +275,14 @@ function DataSpaceWorkspace({
   );
   const leave = async () =>
     (await (leaveGuard.current?.() ?? Promise.resolve(true))) && isCurrent();
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
+  const handleTypedItemSaved = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+  const handleTypedItemBack = useCallback(() => {
+    void leaveRef.current().then((ok) => ok && setOpen(null));
+  }, []);
 
   const showSection = async (next: SpaceSection) => {
     if (!(await leave())) return;
@@ -304,15 +312,13 @@ function DataSpaceWorkspace({
     readonly prefillOnly?: boolean;
   } | null>(null);
 
-  const activeArtifact = useMemo<SpaceCanvasActiveArtifact | null>(() => {
+  const rawArtifact = (() => {
     if (open?.type === "page") {
       const page = allPages.find((entry) => entry.id === open.pageId);
       return {
-        kind: "page",
+        kind: "page" as const,
         itemId: open.pageId,
         title: page?.title ?? "未命名页面",
-        scopeSpaceId,
-        account,
         sourceThreadId: page?.sourceThreadId ?? null,
         revision: page?.revision ?? null,
       };
@@ -327,24 +333,47 @@ function DataSpaceWorkspace({
         kind: resolvedKind,
         itemId: openedItem.source.page.id,
         title: openedItem.title,
-        scopeSpaceId,
-        account,
         sourceThreadId: openedItem.sourceThreadId ?? null,
         revision: openedItem.source.page.revision,
       };
     }
     if (openedItem.source.type === "app") {
       return {
-        kind: "app",
+        kind: "app" as const,
         itemId: openedItem.source.app.id,
         title: openedItem.title,
-        scopeSpaceId,
-        account,
         sourceThreadId: openedItem.sourceThreadId ?? null,
+        revision: undefined,
       };
     }
     return null;
-  }, [account, allPages, open, openedItem, scopeSpaceId]);
+  })();
+  const rawArtifactKind = rawArtifact?.kind ?? null;
+  const rawArtifactItemId = rawArtifact?.itemId ?? null;
+  const rawArtifactTitle = rawArtifact?.title ?? null;
+  const rawArtifactSourceThreadId = rawArtifact?.sourceThreadId ?? null;
+  const rawArtifactRevision = rawArtifact?.revision;
+
+  const activeArtifact = useMemo<SpaceCanvasActiveArtifact | null>(() => {
+    if (!rawArtifactKind || !rawArtifactItemId || rawArtifactTitle === null) return null;
+    return {
+      kind: rawArtifactKind,
+      itemId: rawArtifactItemId,
+      title: rawArtifactTitle,
+      scopeSpaceId,
+      account,
+      sourceThreadId: rawArtifactSourceThreadId,
+      ...(rawArtifactRevision !== undefined ? { revision: rawArtifactRevision } : {}),
+    };
+  }, [
+    account,
+    rawArtifactItemId,
+    rawArtifactKind,
+    rawArtifactRevision,
+    rawArtifactSourceThreadId,
+    rawArtifactTitle,
+    scopeSpaceId,
+  ]);
 
   useEffect(() => {
     if (!pendingStarter || !activeArtifact || activeArtifact.itemId !== pendingStarter.itemId) {
@@ -812,10 +841,10 @@ function DataSpaceWorkspace({
                       account={account}
                       scopeSpaceId={scopeSpaceId}
                       pageId={openedItem.source.page.id}
-                      onSaved={() => void refresh()}
+                      onSaved={handleTypedItemSaved}
                       onGuardChange={registerGuard}
                       dock={dock}
-                      onBack={() => void leave().then((ok) => ok && setOpen(null))}
+                      onBack={handleTypedItemBack}
                     />
                   ) : openedItem.source.type === "app" ? (
                     <SpaceAppViewer

@@ -120,11 +120,17 @@ function TypedItemEditor(
     setHostActions(null);
   }, [item.page.id, item.kind]);
   useEffect(() => {
+    const updateInsets = (next: SpaceCanvasHostInsets) =>
+      setHostInsets((prev) =>
+        prev.bottomInsetPx === next.bottomInsetPx && prev.rightInsetPx === next.rightInsetPx
+          ? prev
+          : next,
+      );
     if (!dockRegisterInsets) {
-      setHostInsets({ bottomInsetPx: 0, rightInsetPx: 0 });
+      updateInsets({ bottomInsetPx: 0, rightInsetPx: 0 });
       return;
     }
-    return dockRegisterInsets(setHostInsets);
+    return dockRegisterInsets(updateInsets);
   }, [dockRegisterInsets]);
   // Bumped when the payload is replaced from outside the editor (import, conflict reload).
   const [epoch, setEpoch] = useState(0);
@@ -348,14 +354,18 @@ function TypedItemEditor(
   );
 
   const kindMeta = spaceKindMeta(item.kind);
-  const editorHostBridgeProps = {
-    dock: props.dock ?? null,
-    hostInsets,
-    hostChrome: {
+  const hostChrome = useMemo(
+    () => ({
       hideTopBar: true,
       bottomInsetPx: hostInsets.bottomInsetPx,
       rightInsetPx: hostInsets.rightInsetPx,
-    },
+    }),
+    [hostInsets.bottomInsetPx, hostInsets.rightInsetPx],
+  );
+  const editorHostBridgeProps = {
+    dock: props.dock ?? null,
+    hostInsets,
+    hostChrome,
     onHostActionsChange: setHostActions,
   };
 

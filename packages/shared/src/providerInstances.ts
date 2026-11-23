@@ -525,6 +525,72 @@ function isMossOwnedRuntimeInstance(instanceId: string, raw: ProviderInstanceCon
 }
 
 /**
+ * Coding CLI agents that can route model calls through the Moss server gateway.
+ */
+export const MOSS_SERVER_AUTHORIZED_CLI_DRIVERS = [
+  "codex",
+  "claudeAgent",
+  "opencode",
+  "pi",
+  "grok",
+  "hermes",
+  "kimi",
+  "minimax",
+  "zcode",
+] as const satisfies ReadonlyArray<ProviderKind>;
+
+export const MOSS_SERVER_AUTHORIZED_INSTANCE_IDS: ReadonlySet<string> = new Set([
+  "codex_moss",
+  "claude_moss",
+  "opencode_moss",
+  "pi_moss",
+  "grok_moss",
+  "hermes_moss",
+  "kimi_moss",
+  "minimax_moss",
+  "zcode_moss",
+]);
+
+/**
+ * True for server-provisioned `*_moss` CLI lanes (excluding `codex_byok`, which
+ * routes through the user's own BYOK key rather than Moss server-managed models).
+ */
+export function isMossManagedCliInstance(
+  instanceId: string | null | undefined,
+  raw?: Pick<ProviderInstanceConfig, "config"> | null,
+): boolean {
+  if (typeof instanceId !== "string" || !instanceId) {
+    return false;
+  }
+  if (MOSS_SERVER_AUTHORIZED_INSTANCE_IDS.has(instanceId)) {
+    return true;
+  }
+  if (instanceId === "codex_byok") {
+    return false;
+  }
+  return instanceConfigRecord(raw?.config).managed === true;
+}
+
+/**
+ * Whether Moss server-side model authorization is allowed for `driver`.
+ */
+export function isMossManagedCliAuthorized(
+  settings:
+    | Partial<Pick<ServerSettings, "mossCliModelAuthEnabled" | "mossCliModelAuthDisabledProviders">>
+    | null
+    | undefined,
+  driver: ProviderKind,
+): boolean {
+  if (!settings) {
+    return true;
+  }
+  if (settings.mossCliModelAuthEnabled === false) {
+    return false;
+  }
+  return settings.mossCliModelAuthDisabledProviders?.includes(driver) !== true;
+}
+
+/**
  * Older settings allow per-account executable paths. Resolve that legacy input
  * once per provider without rewriting it: accounts may select credentials, not
  * different programs that could concurrently write the same native state.
@@ -614,11 +680,14 @@ export function deriveProviderInstances(
       raw.config && typeof raw.config === "object" && !Array.isArray(raw.config)
         ? (raw.config as Record<string, unknown>)
         : {};
+    const mossAuthorized =
+      !isMossManagedCliInstance(instanceId, raw) ||
+      isMossManagedCliAuthorized(settings, raw.driver);
     resolved.push({
       instanceId,
       driver: raw.driver,
       displayName: displayNameForInstance(instanceId, raw.driver, raw),
-      enabled: raw.enabled !== false && config.enabled !== false,
+      enabled: raw.enabled !== false && config.enabled !== false && mossAuthorized,
       isDefault: instanceId === raw.driver,
       config,
       environment: materializeProviderInstanceEnvironment(raw),

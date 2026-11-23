@@ -4,7 +4,7 @@
 //        this file only hosts the existing Canvas surface.
 
 import { parseBoardItem } from "@moss/shared/spaceItems/itemData";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { WhiteboardIcon } from "~/lib/icons";
 import type {
@@ -38,7 +38,19 @@ export function BoardItemView(props: {
     }
   }, [props.data]);
   const [open, setOpen] = useState(true);
+  const handleClose = useCallback(() => setOpen(false), []);
   useEffect(() => () => props.onHostActionsChange?.(null), [props.onHostActionsChange]);
+  const boardScope = useMemo(
+    () =>
+      board
+        ? {
+            pageId: props.pageId,
+            canvasProjectKey: board.canvasProjectKey,
+            scopeSpaceId: props.scopeSpaceId,
+          }
+        : undefined,
+    [board?.canvasProjectKey, props.pageId, props.scopeSpaceId],
+  );
   const effectiveHostChrome = useMemo(
     () =>
       props.hostChrome || props.hostInsets
@@ -95,14 +107,10 @@ export function BoardItemView(props: {
       <MossCanvasWebSurface
         embedded
         canvasProjectKey={board.canvasProjectKey}
-        boardScope={{
-          pageId: props.pageId,
-          canvasProjectKey: board.canvasProjectKey,
-          scopeSpaceId: props.scopeSpaceId,
-        }}
+        {...(boardScope ? { boardScope } : {})}
         {...(effectiveHostChrome ? { hostChrome: effectiveHostChrome } : {})}
         {...(handleAskDock ? { onAskDock: handleAskDock } : {})}
-        onClose={() => setOpen(false)}
+        onClose={handleClose}
         {...(props.onLeaveGuardChange ? { onLeaveGuardChange: props.onLeaveGuardChange } : {})}
       />
     </div>
