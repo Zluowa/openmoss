@@ -175,7 +175,7 @@ export type SpaceKindFilter =
 
 export const SPACE_KIND_FILTERS: ReadonlyArray<{ id: SpaceKindFilter; label: string }> = [
   { id: "any", label: "全部类型" },
-  { id: "page", label: "页面" },
+  { id: "page", label: "文档" },
   { id: "slides", label: "幻灯片" },
   { id: "sheet", label: "电子表格" },
   { id: "design", label: "设计" },
@@ -363,13 +363,13 @@ function isTrashRoot(item: SpaceItem, items: readonly SpaceItem[]): boolean {
 }
 
 /**
- * The name a person sees for an item. Untitled ones read 「未命名页面」 (or 「未命名」 for
+ * The name a person sees for an item. Untitled ones read 「未命名文档」 (or 「未命名」 for
  * other kinds) rather than an empty row or a stored id.
  */
 export function spaceItemDisplayTitle(item: Pick<SpaceItem, "title" | "kind">): string {
   const title = item.title.trim();
   if (title) return title;
-  return item.kind === "page" ? "未命名页面" : "未命名";
+  return item.kind === "page" ? "未命名文档" : "未命名";
 }
 
 /** Recent items for the sidebar list. */

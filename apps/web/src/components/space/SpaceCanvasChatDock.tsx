@@ -105,7 +105,6 @@ import {
   formatSpaceDockSelectionSummary,
   formatSpaceDockTimerBadge,
   isNearSpaceDockRightSnapZone,
-  readPersistedSpaceDockMode,
   readPersistedSpaceDockPipSize,
   readSkipSidechatCloseConfirmation,
   readSpaceDockRecentThreads,
@@ -311,9 +310,8 @@ export function SpaceCanvasChatDockHost(props: {
   const inFlightPrepareRef = useRef(new Map<string, Promise<ThreadId | null>>());
   const openChatThreadPage = useTerminalStateStore((store) => store.openChatThreadPage);
 
-  const [dockState, setDockStateRaw] = useState<SpaceCanvasDockState>(() =>
-    readPersistedSpaceDockMode(),
-  );
+  // Closed until asked (as in Claude): an opened item never brings the panel up by itself.
+  const [dockState, setDockStateRaw] = useState<SpaceCanvasDockState>("collapsed");
   const [selection, setSelectionRaw] = useState<SpaceCanvasSelectionContext | null>(null);
   const selectionRef = useRef<SpaceCanvasSelectionContext | null>(null);
   selectionRef.current = selection;
@@ -404,6 +402,8 @@ export function SpaceCanvasChatDockHost(props: {
     setFailureRecovery(null);
     setPrefillPrompt("");
     setHasUnreadDot(false);
+    // Another item opens with the panel closed; a template launch asks for it right after.
+    setDockStateRaw("collapsed");
     runStartMsRef.current = null;
     wasBusyRef.current = false;
     setElapsedSeconds(0);

@@ -4,7 +4,16 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { affectedTests, importsOf, mentionNeedles, reach, reverseGraph } from "./lib/graph.ts";
+import {
+  affectedTests,
+  diffStrings,
+  importsOf,
+  isTranslationTable,
+  isTranslationTest,
+  mentionNeedles,
+  reach,
+  reverseGraph,
+} from "./lib/graph.ts";
 import {
   DEFAULT_MAX_WAIT_MINUTES,
   describeLoad,
@@ -30,6 +39,7 @@ import {
 import { readTypeScopes } from "./lib/typeScope.ts";
 import {
   buildResolver,
+  git,
   changedFiles,
   readSources,
   repoRootOf,
@@ -51,8 +61,11 @@ import { createRunTemp } from "../ws/lib/runTemp.ts";
 /** Same exit code as `ws lane` below the disk floor. */
 const EXIT_DISK_FLOOR = 9;
 
+/** Past this many component files the browser tests are left to the full lanes (--browser-limit). */
+const BROWSER_LIMIT = 20;
+
 const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--no-types] [--allow-root] [--dry-run]
-                     [--no-wait] [--max-wait <minutes>] [--test-budget <seconds>]
+                     [--no-wait] [--max-wait <minutes>] [--test-budget <seconds>] [--browser-limit <files>]
 
   --base <ref>          compare with the merge base of HEAD and <ref> (default origin/main)
   --json                print one JSON report instead of lines
@@ -63,9 +76,9 @@ const USAGE = `usage: bun run check [--base <ref>] [--json] [--no-tests] [--no-t
   --no-wait             run the tests even while another owner's heavy lane runs
   --test-budget <s>     CI's quick job: when the selected tests are estimated over <s> seconds,
                         leave them to the full lanes (the tools' own tests still run) and pass
+  --browser-limit <n>   run at most <n> component browser files here (default ${BROWSER_LIMIT}); more are
+                        left to the full lanes
   --max-wait <minutes>  wait at most this long for a heavy lane, then test anyway (default ${DEFAULT_MAX_WAIT_MINUTES})`;
-
-const BROWSER_LIMIT = 20;
 
 interface Options {
   base: string;
@@ -78,6 +91,8 @@ interface Options {
   maxWaitMinutes: number;
   /** CI's quick job: past this many estimated seconds the selected tests are left to the full lanes. */
   testBudgetSeconds: number | undefined;
+  /** Component browser files run here at most; more are left to the full lanes. */
+  browserLimit: number;
 }
 
 function parseOptions(argv: readonly string[]): Options {
@@ -91,6 +106,7 @@ function parseOptions(argv: readonly string[]): Options {
     wait: true,
     maxWaitMinutes: DEFAULT_MAX_WAIT_MINUTES,
     testBudgetSeconds: undefined,
+    browserLimit: BROWSER_LIMIT,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -108,6 +124,10 @@ function parseOptions(argv: readonly string[]): Options {
       const value = Number(argv[(index += 1)]);
       if (!Number.isFinite(value) || value < 0) throw new Error("--max-wait needs minutes");
       options.maxWaitMinutes = value;
+    } else if (arg === "--browser-limit") {
+      const value = Number(argv[(index += 1)]);
+      if (!Number.isInteger(value) || value < 0) throw new Error("--browser-limit needs a count");
+      options.browserLimit = value;
     } else if (arg === "--test-budget") {
       const value = Number(argv[(index += 1)]);
       if (!Number.isFinite(value) || value <= 0) throw new Error("--test-budget needs seconds");
@@ -320,10 +340,32 @@ async function main(argv: readonly string[]): Promise<number> {
   const packages = readWorkspace(repoRoot);
   const { all, sources } = readSources(repoRoot);
   const imports = importsOf(sources, buildResolver(repoRoot, packages), all);
+  const importedBy = reverseGraph(imports);
   const reached = reach(
     files.map((file) => file.path),
-    reverseGraph(imports),
+    importedBy,
   );
+  // A translation table reaches nearly every test through the import graph; its tests are the
+  // ones that mention a string its diff changed, and the tables' own tests. Type and lint scope
+  // still follow the full graph (`reached`).
+  const tables = files.filter((file) => isTranslationTable(file.path)).map((file) => file.path);
+  const reachedForTests =
+    tables.length === 0
+      ? reached
+      : reach(
+          files.map((file) => file.path).filter((path) => !isTranslationTable(path)),
+          importedBy,
+        );
+  const translationTests =
+    tables.length === 0
+      ? []
+      : [
+          ...testsMentioning(
+            repoRoot,
+            diffStrings(git(repoRoot, ["diff", "-U0", mergeBase, "--", ...tables])),
+          ),
+          ...[...all].filter(isTranslationTest),
+        ];
   const selection = select(
     files,
     packages,
@@ -334,13 +376,13 @@ async function main(argv: readonly string[]): Promise<number> {
   const existing = files.filter((file) => file.exists).map((file) => file.path);
   const deleted = new Set(files.filter((file) => !file.exists).map((file) => file.path));
   const tests = options.tests
-    ? affectedTests(
-        new Set([...reached].filter((path) => !deleted.has(path))),
-        testsMentioning(
+    ? affectedTests(new Set([...reachedForTests].filter((path) => !deleted.has(path))), [
+        ...testsMentioning(
           repoRoot,
           mentionNeedles(existing, (path) => packageOf(path, packages)?.dir),
         ),
-      )
+        ...translationTests.filter((path) => !deleted.has(path)),
+      ])
     : [];
   const groups = groupTests(tests, packages);
   const planSeconds = (performance.now() - started) / 1000;
@@ -497,12 +539,12 @@ async function main(argv: readonly string[]): Promise<number> {
       detail: `${list(groups.browserLeft)} is left to the coordinator's lane`,
     });
   }
-  if (groups.browser.length > BROWSER_LIMIT) {
+  if (groups.browser.length > options.browserLimit) {
     emit({
       name: "browser",
       status: "left",
       seconds: 0,
-      detail: `${groups.browser.length} component files selected (over ${BROWSER_LIMIT}): left to the coordinator's lane`,
+      detail: `${groups.browser.length} component files selected (over ${options.browserLimit}): left to the coordinator's lane`,
     });
   } else if (groups.browser.length > 0) {
     const offset = Number(process.env.MOSS_PORT_OFFSET);

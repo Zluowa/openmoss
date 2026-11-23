@@ -48,7 +48,6 @@ import { parseManagedWorktreeWorkspaceRoot } from "../workspace/managedWorktree"
 import {
   mapClaudeSessionMessages,
   mapCodexSnapshotMessages,
-  mapFactorySnapshotMessages,
   mapOmpSnapshotMessages,
   mapOpenCodeSnapshotMessages,
 } from "./importedThreadMessages";
@@ -67,7 +66,6 @@ function providerResumeCursorForImport(provider: ProviderKind, externalId: strin
   switch (provider) {
     case "claudeAgent":
       return { resume: externalId };
-    case "droid":
     case "omp":
       return { schemaVersion: 1, sessionId: externalId };
     case "opencode":
@@ -216,7 +214,7 @@ export function makeImportThreadHandler(options: ImportThreadHandlerOptions) {
   });
 
   const resolveImportedProviderThreadContext = Effect.fn(function* (input: {
-    readonly provider: "codex" | "droid" | "opencode" | "omp";
+    readonly provider: "codex" | "opencode" | "omp";
     readonly externalId: string;
     readonly providerInstanceId: ProviderInstanceId;
     readonly projectWorkspaceRoot: string;
@@ -405,37 +403,6 @@ export function makeImportThreadHandler(options: ImportThreadHandlerOptions) {
     });
   });
 
-  const importDroidThreadHistory = Effect.fn(function* (input: {
-    readonly externalId: string;
-    readonly importedAt: string;
-    readonly threadId: ThreadId;
-  }) {
-    const adapter = yield* options.providerAdapterRegistry.getByProvider("droid");
-    if (!adapter.readExternalThread) {
-      return yield* Effect.fail(importMessagesError("Droid session import is unavailable."));
-    }
-    const snapshot = yield* adapter
-      .readExternalThread({ externalThreadId: input.externalId })
-      .pipe(
-        Effect.mapError((cause) =>
-          importMessagesError(
-            cause instanceof Error && cause.message.length > 0
-              ? cause.message
-              : "Failed to read Droid session history.",
-          ),
-        ),
-      );
-    yield* dispatchImportedMessages({
-      threadId: input.threadId,
-      messages: mapFactorySnapshotMessages({
-        threadId: input.threadId,
-        turns: snapshot.turns,
-        importedAt: input.importedAt,
-      }),
-      createdAt: input.importedAt,
-    });
-  });
-
   const importOmpThreadHistory = Effect.fn(function* (input: {
     readonly snapshot: ProviderThreadSnapshot;
     readonly importedAt: string;
@@ -562,11 +529,7 @@ export function makeImportThreadHandler(options: ImportThreadHandlerOptions) {
         : thread.modelSelection;
 
     const importedProviderContext =
-      (provider === "codex" ||
-        provider === "droid" ||
-        provider === "opencode" ||
-        provider === "omp") &&
-      project
+      (provider === "codex" || provider === "opencode" || provider === "omp") && project
         ? yield* resolveImportedProviderThreadContext({
             provider,
             externalId,
@@ -632,12 +595,6 @@ export function makeImportThreadHandler(options: ImportThreadHandlerOptions) {
           cwd,
           providerInstanceId: resolvedProvider.instance.instanceId,
           ...(providerOptions ? { providerOptions } : {}),
-          importedAt: session.updatedAt,
-        });
-      } else if (provider === "droid") {
-        yield* importDroidThreadHistory({
-          threadId: thread.id,
-          externalId,
           importedAt: session.updatedAt,
         });
       } else if (provider === "opencode") {

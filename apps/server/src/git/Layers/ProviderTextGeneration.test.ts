@@ -9,7 +9,6 @@ import {
   ClaudeTextGeneration,
   CodexTextGeneration,
   CursorTextGeneration,
-  DroidTextGeneration,
   OpenCodeTextGeneration,
   type TextGenerationShape,
   TextGeneration,
@@ -126,7 +125,6 @@ function makeProviderTextGenerationTestLayer(
   const claude = createTextGenerationDouble("claude");
   const codex = createTextGenerationDouble("codex");
   const cursor = createTextGenerationDouble("cursor");
-  const droid = createTextGenerationDouble("droid");
   const opencode = createTextGenerationDouble("opencode");
   const listRecentCommits = vi.fn<GitCoreShape["listRecentCommits"]>(() =>
     Effect.succeed({
@@ -146,7 +144,6 @@ function makeProviderTextGenerationTestLayer(
     Layer.provide(Layer.succeed(ClaudeTextGeneration, claude.service)),
     Layer.provide(Layer.succeed(CodexTextGeneration, codex.service)),
     Layer.provide(Layer.succeed(CursorTextGeneration, cursor.service)),
-    Layer.provide(Layer.succeed(DroidTextGeneration, droid.service)),
     Layer.provide(Layer.succeed(OpenCodeTextGeneration, opencode.service)),
     Layer.provide(ServerSettingsService.layerTest(settingsOverrides)),
     Layer.provide(Layer.succeed(GitCore, { listRecentCommits } as unknown as GitCoreShape)),
@@ -158,7 +155,7 @@ function makeProviderTextGenerationTestLayer(
     ),
   );
 
-  return { layer, claude, codex, cursor, droid, opencode, listRecentCommits, execute };
+  return { layer, claude, codex, cursor, opencode, listRecentCommits, execute };
 }
 
 describe("ProviderTextGenerationLive", () => {
@@ -540,61 +537,33 @@ describe("ProviderTextGenerationLive", () => {
     expect(cursor.generateThreadTitle).not.toHaveBeenCalled();
   });
 
-  // Droid is retired: old settings that still enable it must not send any generation to it.
-  it("refuses explicit Droid selections even if old settings enabled Droid", async () => {
-    const { layer, codex, cursor, droid, opencode } = makeProviderTextGenerationTestLayer({
+  // Droid is retired and has no text generation: a stale Droid selection, even one old settings
+  // still enable, takes the configured supported fallback like any unsupported provider.
+  it("routes a stale Droid selection to the configured supported fallback", async () => {
+    const { layer, codex, cursor, opencode } = makeProviderTextGenerationTestLayer({
       providers: { droid: { enabled: true } },
+      textGenerationModelSelection: { provider: "cursor", model: "composer-2" },
     });
 
-    await expect(
-      Effect.runPromise(
-        Effect.gen(function* () {
-          const textGeneration = yield* TextGeneration;
-          return yield* textGeneration.generateThreadTitle({
-            cwd: "/repo",
-            message: "Plan the Droid integration work",
-            modelSelection: {
-              provider: "droid",
-              model: "deepseek-v4-flash-0731",
-              options: { reasoningEffort: "high" },
-            },
-          });
-        }).pipe(Effect.provide(layer)),
-      ),
-    ).rejects.toMatchObject({
-      _tag: "TextGenerationError",
-      detail: "Provider instance 'droid' is disabled.",
-    });
-    expect(droid.generateThreadTitle).not.toHaveBeenCalled();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const textGeneration = yield* TextGeneration;
+        return yield* textGeneration.generateThreadTitle({
+          cwd: "/repo",
+          message: "Plan the integration work",
+          modelSelection: { provider: "droid", model: "deepseek-v4-flash-0731" },
+        });
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(cursor.generateThreadTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelSelection: { provider: "cursor", instanceId: "cursor", model: "composer-2" },
+      }),
+    );
     expect(codex.generateThreadTitle).not.toHaveBeenCalled();
-    expect(cursor.generateThreadTitle).not.toHaveBeenCalled();
     expect(opencode.generateThreadTitle).not.toHaveBeenCalled();
   });
-
-  it.each(["droid:deepseek-v4-flash-0731", "droid/deepseek-v4-flash-0731"] as const)(
-    "never sends raw %s slugs to Droid",
-    async (model) => {
-      const { layer, droid } = makeProviderTextGenerationTestLayer({
-        providers: { droid: { enabled: true } },
-      });
-
-      await expect(
-        Effect.runPromise(
-          Effect.gen(function* () {
-            const textGeneration = yield* TextGeneration;
-            return yield* textGeneration.generateCommitMessage({
-              cwd: "/repo",
-              branch: null,
-              stagedSummary: "",
-              stagedPatch: "",
-              model,
-            });
-          }).pipe(Effect.provide(layer)),
-        ),
-      ).rejects.toMatchObject({ _tag: "TextGenerationError" });
-      expect(droid.generateCommitMessage).not.toHaveBeenCalled();
-    },
-  );
 
   it("routes automation intent generation through the selected provider", async () => {
     const { layer, codex, cursor, opencode } = makeProviderTextGenerationTestLayer();

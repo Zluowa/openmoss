@@ -12,7 +12,6 @@ import {
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
-  AddPlusIcon,
   CheckIcon,
   DataDashboardIcon,
   FilterIcon,
@@ -27,6 +26,7 @@ import {
   XIcon,
   type LucideIcon,
 } from "~/lib/icons";
+import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
 import {
@@ -46,7 +46,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SearchInput } from "../ui/search-input";
-import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
+import type { SpaceCreateAction } from "./SpaceCreateMenu";
 import { SpaceItemCard, SpaceListHeader, type SpaceItemActions } from "./SpaceItemCard";
 import {
   getSpaceDashboardRegistryVersion,
@@ -213,6 +213,7 @@ export function SpaceHome(
   },
 ) {
   const [tab, setTab] = useState<SpaceTab>("all");
+  const dark = useTheme().resolvedTheme === "dark";
   const kind = useSyncExternalStore(subscribeSyncedSpaceHomeKind, getSyncedSpaceHomeKind);
   useSyncExternalStore(subscribeSpaceDashboardRegistry, getSpaceDashboardRegistryVersion);
   const [owner, setOwner] = useState<SpaceOwnerFilter>("any");
@@ -448,16 +449,6 @@ export function SpaceHome(
                 </button>
               ))}
             </div>
-            <SpaceCreateMenu
-              align="end"
-              onCreate={props.onCreate}
-              trigger={
-                <Button size="sm" aria-label="创建">
-                  <AddPlusIcon aria-hidden className="size-4" />
-                  创建
-                </Button>
-              }
-            />
           </div>
         </div>
       </header>
@@ -484,8 +475,10 @@ export function SpaceHome(
                     variant="outline"
                     data-space-create-tile={tile.action}
                     className="relative flex h-24 min-h-0 w-34 shrink-0 flex-col items-center justify-center gap-2 rounded-composer border-border/60 bg-card px-3 py-2.5 text-center shadow-2xs transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-border hover:shadow-sm max-sm:w-28"
+                    // A flat, quiet tint of the kind's colour; in dark the colour is lifted
+                    // toward the text colour so it does not turn muddy.
                     style={{
-                      backgroundImage: `linear-gradient(180deg, color-mix(in srgb, ${tile.hue} 24%, transparent) 0%, color-mix(in srgb, ${tile.hue} 15%, transparent) 35%, color-mix(in srgb, ${tile.hue} 7%, transparent) 70%, color-mix(in srgb, ${tile.hue} 3%, transparent) 100%)`,
+                      backgroundColor: `color-mix(in srgb, ${tile.hue} ${dark ? 8 : 7}%, var(--card))`,
                     }}
                     onClick={() => props.onCreate(tile.action)}
                   >
@@ -494,7 +487,15 @@ export function SpaceHome(
                         Beta
                       </Badge>
                     ) : null}
-                    <Icon aria-hidden className="size-5 shrink-0" style={{ color: tile.hue }} />
+                    <Icon
+                      aria-hidden
+                      className="size-5 shrink-0"
+                      style={{
+                        color: dark
+                          ? `color-mix(in srgb, ${tile.hue} 72%, var(--foreground))`
+                          : tile.hue,
+                      }}
+                    />
                     <span className="truncate text-ui font-medium text-foreground">
                       {tile.label}
                     </span>
@@ -549,7 +550,7 @@ export function SpaceHome(
                     variant="outline"
                     disabled={launchingTemplateId !== null}
                     data-space-quick-start-template={template.id}
-                    className="flex h-auto min-h-0 flex-col items-start justify-between gap-1.5 rounded-panel border-border/70 bg-card px-3.5 py-3 text-left shadow-2xs transition-[box-shadow,border-color] hover:border-border hover:shadow-sm"
+                    className="@container flex h-auto min-h-0 flex-col items-start justify-between gap-1.5 rounded-panel border-border/70 bg-card px-3.5 py-3 text-left shadow-2xs transition-[box-shadow,border-color] hover:border-border hover:shadow-sm"
                     onClick={() => void launchStarterTemplate(template)}
                   >
                     <span className="flex w-full items-center gap-1.5">
@@ -557,7 +558,8 @@ export function SpaceHome(
                       <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
                         {template.title}
                       </span>
-                      <Badge variant="secondary" size="sm" className="shrink-0">
+                      {/* On a narrow card the title wins: the kind tag gives way first. */}
+                      <Badge variant="secondary" size="sm" className="shrink-0 @max-[10rem]:hidden">
                         {isBusy ? "创建中…" : kindMeta.label}
                       </Badge>
                     </span>
@@ -585,12 +587,8 @@ export function SpaceHome(
         ) : visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-ui text-muted-foreground">
             <p>{emptyMessage(props.section, tab, query, effectiveKind)}</p>
-            {tab === "shared" && !query ? (
-              <p className="text-ui-sm text-muted-foreground">
-                当协作者将页面或制品共享给你时，会汇总到此标签页。
-              </p>
-            ) : null}
-            {query === "" && tab !== "shared" ? (
+            {/* Creating lives in the sidebar and the 新建 tiles; an empty kind list offers its own. */}
+            {query === "" && tab !== "shared" && !(showHomeStarters && !hideCreateTiles) ? (
               <Button size="sm" variant="outline" onClick={() => props.onCreate(emptyCreateAction)}>
                 创建
               </Button>
@@ -651,6 +649,6 @@ function emptyMessage(
     case "shared":
       return "别人与你共享的条目会显示在这里";
     default:
-      return "还没有条目。从上方挑选一种类型新建，或让对话里的助手生成文件。";
+      return "这里还没有内容";
   }
 }

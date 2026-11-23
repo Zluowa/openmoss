@@ -18,11 +18,27 @@ jobs:
     name: Static Checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    outputs:
+      quick_covers: ${{ steps.pick.outputs.quick_covers }}
+      chat_covers: ${{ steps.pick.outputs.chat_covers }}
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          fetch-depth: 2
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+      - name: Pick the test lanes
+        id: pick
+        continue-on-error: true
+        env:
+          LANES: ${{ contains(github.event.head_commit.message, 'Moss-Lanes:') }}
+        run: |
+          # A pull request snapshot (Moss-Lanes line) leans on this check for its web tests, so it
+          # takes more of them here than a run whose full lanes all start anyway.
+          if [ "$LANES" = "true" ]; then limits="--test-budget 480 --browser-limit 60"; else limits="--test-budget 240"; fi
+          bun run check --base HEAD~1 --dry-run --json --no-types --allow-root $limits --no-wait > "$RUNNER_TEMP/quick-plan.json"
+          node scripts/ci-lanes.mjs --quick-plan "$RUNNER_TEMP/quick-plan.json" >> "$GITHUB_OUTPUT"
       - parallel:
           - name: Verify Windows runtime boundary
             run: bun run windows-runtime:check
@@ -44,7 +60,7 @@ jobs:
   quick:
     name: Quick Check (changed files)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -71,6 +87,7 @@ jobs:
       - name: Check the changed files
         env:
           NODE_OPTIONS: --max-old-space-size=6144
+          LANES: ${{ contains(github.event.head_commit.message, 'Moss-Lanes:') }}
         run: |
           set +e
           # --allow-root: a root configuration change still gets its selection here; the full run
@@ -78,7 +95,10 @@ jobs:
           # --test-budget: a wide change leaves its tests to the full lanes and passes instead of
           # running out of the job's 10 minutes (run 44356541505). tee: the log shows as it runs, so
           # a cancelled job still shows where it was.
-          bun run check --base HEAD~1 --no-types --no-wait --allow-root --test-budget 240 2>&1 | tee "$RUNNER_TEMP/quick-check.log"
+          # A pull request snapshot (Moss-Lanes line) leans on this check for its web tests, so it
+          # takes more of them here than a run whose full lanes all start anyway.
+          if [ "$LANES" = "true" ]; then limits="--test-budget 480 --browser-limit 60"; else limits="--test-budget 240"; fi
+          bun run check --base HEAD~1 --no-types --no-wait --allow-root $limits 2>&1 | tee "$RUNNER_TEMP/quick-check.log"
           status=${PIPESTATUS[0]}
           {
             echo "### Quick check of the changed files (exit $status)"
@@ -89,6 +109,8 @@ jobs:
           exit "$status"
   unit_tests:
     name: Unit Tests (${{ matrix.lane }})
+    needs: static
+    if: ${{ !cancelled() && (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, ' unit:') || needs.static.outputs.quick_covers != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
@@ -121,20 +143,23 @@ jobs:
             test_args: ""
     steps:
       - name: Checkout
+        if: ${{ (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, format(' unit:{0};', matrix.lane)) || (startsWith(matrix.lane, 'web-') && needs.static.outputs.quick_covers != 'true')) }}
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
       - name: Setup workspace
+        if: ${{ (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, format(' unit:{0};', matrix.lane)) || (startsWith(matrix.lane, 'web-') && needs.static.outputs.quick_covers != 'true')) }}
         uses: ./.github/actions/setup-workspace
         with:
           electron: "true"
           turbo-cache: "false"
       - name: Verify Linux terminal PTY native dependency
-        if: ${{ startsWith(matrix.lane, 'server-') }}
+        if: ${{ startsWith(matrix.lane, 'server-') && (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, format(' unit:{0};', matrix.lane)) || (startsWith(matrix.lane, 'web-') && needs.static.outputs.quick_covers != 'true')) }}
         run: node scripts/node-pty-smoke.mjs
       - name: Install browser test runtime
-        if: ${{ matrix.lane == 'shared' }}
+        if: ${{ matrix.lane == 'shared' && (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, format(' unit:{0};', matrix.lane)) || (startsWith(matrix.lane, 'web-') && needs.static.outputs.quick_covers != 'true')) }}
         timeout-minutes: 10
         run: cd apps/web && ./node_modules/.bin/playwright install chromium
       - name: Test
+        if: ${{ (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, format(' unit:{0};', matrix.lane)) || (startsWith(matrix.lane, 'web-') && needs.static.outputs.quick_covers != 'true')) }}
         timeout-minutes: 15
         env:
           NODE_OPTIONS: --max-old-space-size=6144
@@ -169,13 +194,20 @@ jobs:
       - name: Aggregate unit results
         env:
           UNIT: ${{ needs.unit_tests.result }}
+          LANES: ${{ contains(github.event.head_commit.message, 'Moss-Lanes:') }}
         run: |
+          if [ "$UNIT" = "skipped" ] && [ "$LANES" = "true" ]; then
+            echo "unit_tests skipped: the Quick Check ran this change's tests"
+            exit 0
+          fi
           if [ "$UNIT" != "success" ]; then
             echo "unit_tests=$UNIT"
             exit 1
           fi
   browser:
     name: Browser Tests (${{ matrix.lane }})
+    needs: static
+    if: ${{ !cancelled() && (!contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, ' browser;') || needs.static.outputs.quick_covers != 'true' || needs.static.outputs.chat_covers != 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     strategy:
@@ -215,35 +247,49 @@ jobs:
             file_shard: ""
             case_partition: 4/4
     steps:
+      - name: Pick this shard's work
+        id: work
+        env:
+          ALL: ${{ !contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, ' browser;') }}
+          COMPONENTS_COVERED: ${{ needs.static.outputs.quick_covers }}
+          CHAT_COVERED: ${{ needs.static.outputs.chat_covers }}
+          PROJECT: ${{ matrix.project }}
+        run: |
+          covered="$COMPONENTS_COVERED"
+          if [ "$PROJECT" = "chat" ]; then covered="$CHAT_COVERED"; fi
+          if [ "$ALL" = "true" ] || [ "$covered" != "true" ]; then echo "run=true"; else echo "run=false"; fi >> "$GITHUB_OUTPUT"
       - name: Checkout
+        if: ${{ steps.work.outputs.run == 'true' }}
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
       - name: Record hosted component browser initial disk space
-        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        if: ${{ steps.work.outputs.run == 'true' && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         run: df -Pk "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
       - name: Setup workspace
+        if: ${{ steps.work.outputs.run == 'true' }}
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache: "false"
       - name: Observe hosted component browser workspace disk space
-        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        if: ${{ steps.work.outputs.run == 'true' && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts observe after-workspace-setup
       - name: Restore Playwright browsers for pull requests
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ steps.work.outputs.run == 'true' && github.event_name == 'pull_request' }}
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
       - name: Cache Playwright browsers on main
-        if: ${{ github.event_name != 'pull_request' }}
+        if: ${{ steps.work.outputs.run == 'true' && github.event_name != 'pull_request' }}
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
       - name: Install browser test runtime
+        if: ${{ steps.work.outputs.run == 'true' }}
         timeout-minutes: 15
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -251,13 +297,14 @@ jobs:
           cd apps/web
           ./node_modules/.bin/playwright install chromium
       - name: Prepare hosted component browser phase caches
-        if: ${{ runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        if: ${{ steps.work.outputs.run == 'true' && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts initialize
       - name: Browser test (stable)
+        if: ${{ steps.work.outputs.run == 'true' }}
         timeout-minutes: 20
         env:
           NODE_OPTIONS: --max-old-space-size=6144
@@ -265,28 +312,28 @@ jobs:
           MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_STABLE_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:ci --project=${{ matrix.project }} ${{ matrix.file_shard }}
       - name: Release completed stable browser phase cache
-        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        if: ${{ steps.work.outputs.run == 'true' && success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts release-stable
       - name: Browser test (compiled transcript render scope)
-        if: ${{ matrix.project == 'components' && matrix.lane == '1/4' }}
+        if: ${{ steps.work.outputs.run == 'true' && matrix.project == 'components' && matrix.lane == '1/4' }}
         timeout-minutes: 5
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_COMPILER_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:compiler
       - name: Release completed compiler browser phase cache
-        if: ${{ success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' && matrix.lane == '1/4' }}
+        if: ${{ steps.work.outputs.run == 'true' && success() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' && matrix.lane == '1/4' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
           MOSS_CI_BROWSER_LANE: ${{ matrix.lane }}
         run: node scripts/ci-browser-disk.ts release-compiler
       - name: Browser test (Linux geometry quarantine)
-        if: ${{ matrix.project == 'components' && matrix.lane == '1/4' }}
+        if: ${{ steps.work.outputs.run == 'true' && matrix.project == 'components' && matrix.lane == '1/4' }}
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -294,7 +341,7 @@ jobs:
           MOSS_BROWSER_VITE_CACHE_DIR: ${{ env.MOSS_BROWSER_GEOMETRY_CACHE_DIR }}
         run: bun run --cwd apps/web test:browser:geometry
       - name: Observe hosted component browser final disk space
-        if: ${{ always() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
+        if: ${{ steps.work.outputs.run == 'true' && always() && runner.os == 'Linux' && runner.environment == 'github-hosted' && matrix.project == 'components' }}
         env:
           MOSS_CI_RUNNER_ENVIRONMENT: ${{ runner.environment }}
           MOSS_CI_BROWSER_PROJECT: ${{ matrix.project }}
@@ -302,6 +349,7 @@ jobs:
         run: node scripts/ci-browser-disk.ts observe after-browser-attempt
   windows_process:
     name: Windows Process Regression
+    if: ${{ !contains(github.event.head_commit.message, 'Moss-Lanes:') || contains(github.event.head_commit.message, ' windows;') }}
     runs-on: windows-2022
     timeout-minutes: 25
     steps:

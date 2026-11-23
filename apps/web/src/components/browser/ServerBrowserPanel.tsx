@@ -674,11 +674,6 @@ export function ServerBrowserPanel({
                   ? t("browser.server.unavailable")
                   : t("browser.server.emptyTitle")}
               </p>
-              {state !== "unavailable" ? (
-                <p className="max-w-72 text-ui-sm text-muted-foreground">
-                  {t("browser.server.emptyBody")}
-                </p>
-              ) : null}
             </div>
           ) : null}
           {youControl && dialog ? (

@@ -47,7 +47,6 @@ import {
   findProviderStatus,
   hasUsableProviderAccount,
   isProviderUsable,
-  resolveAvailableProviderPreference,
 } from "../lib/providerAvailability";
 import {
   buildDraftThreadContextPatch,
@@ -1227,12 +1226,8 @@ export function useHandleNewThread() {
         return;
       }
 
-      const fallbackProvider = resolveAvailableProviderPreference({
-        preferredProvider: projectDefaultModelSelection?.provider ?? settings.defaultProvider,
-        statuses: providerStatuses,
-        providerOrder: settings.providerOrder,
-        hiddenProviders: settings.hiddenProviders,
-      });
+      // Back to the one default, never to whichever other agent happens to be signed in.
+      const fallbackProvider = projectDefaultModelSelection?.provider ?? settings.defaultProvider;
       if (!hasUsableProviderAccount(providerStatuses, fallbackProvider)) {
         return;
       }

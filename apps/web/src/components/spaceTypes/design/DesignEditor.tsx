@@ -430,6 +430,15 @@ export function DesignEditor(props: {
     };
   }, [editor.pageBoards, editor.pageNotes]);
   const fit = useCallback(() => zoomToRect(pageBounds()), [pageBounds, zoomToRect]);
+  /** A new artboard is shown whole: fitted once the side panel it opens has taken its room. */
+  const addFittedBoard = (frame: { x: number; y: number; w: number; h: number }, name: string) => {
+    if (!editor.addBoard(frame, name)) return;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        zoomToRect({ x: frame.x, y: frame.y - 28, w: frame.w, h: frame.h + 28 }),
+      ),
+    );
+  };
   const selectionBounds = useCallback(() => {
     const current = editor.selectedElements();
     if (current) {
@@ -2171,30 +2180,27 @@ export function DesignEditor(props: {
             >
               <div className="pointer-events-auto flex w-[420px] max-w-[calc(100%-32px)] flex-col gap-3 rounded-card border border-border bg-background p-5 shadow-sm">
                 <h2 className="text-ui-lg font-medium">这一页还没有画板</h2>
-                <p className="text-ui-sm text-muted-foreground">
-                  添加一个画板开始设计，或者告诉 Moss 你想要什么，让它来做。
-                </p>
                 {!editor.readOnly ? (
                   <>
                     <div className="flex flex-wrap gap-1.5">
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => editor.addBoard({ x: 0, y: 0, w: 1440, h: 900 }, "网页")}
+                        onClick={() => addFittedBoard({ x: 0, y: 0, w: 1440, h: 900 }, "网页")}
                       >
                         网页 1440×900
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => editor.addBoard({ x: 0, y: 0, w: 390, h: 844 }, "手机")}
+                        onClick={() => addFittedBoard({ x: 0, y: 0, w: 390, h: 844 }, "手机")}
                       >
                         手机 390×844
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => editor.addBoard({ x: 0, y: 0, w: 1080, h: 1350 }, "海报")}
+                        onClick={() => addFittedBoard({ x: 0, y: 0, w: 1080, h: 1350 }, "海报")}
                       >
                         海报 1080×1350
                       </Button>
@@ -2426,18 +2432,20 @@ export function DesignEditor(props: {
                   <SpaceToolbarDivider />
                 </>
               ) : null}
-              <Button
-                size="xs"
-                variant="ghost"
-                disabled={!canAsk}
-                aria-pressed={!dock ? asking : undefined}
-                data-testid="design-ask"
-                className="shrink-0 gap-1 rounded-full px-2.5 text-ui-sm font-medium"
-                onClick={openDockFromPill}
-              >
-                <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
-                <span>{running ? "Moss 正在思考…" : "问 Moss"}</span>
-              </Button>
+              {dock ? null : (
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={!canAsk}
+                  aria-pressed={asking}
+                  data-testid="design-ask"
+                  className="shrink-0 gap-1 rounded-full px-2.5 text-ui-sm font-medium"
+                  onClick={openDockFromPill}
+                >
+                  <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+                  <span>{running ? "Moss 正在思考…" : "问 Moss"}</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>

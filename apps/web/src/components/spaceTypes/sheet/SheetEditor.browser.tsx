@@ -204,12 +204,16 @@ describe("电子表格 editor", () => {
     },
   );
 
-  it("adds a sheet and offers Moss or an import on a blank sheet", async () => {
+  it("adds a sheet, with nothing floating over a blank sheet's cells", async () => {
     await page.viewport(1200, 760);
     const onReplace = vi.fn<(next: SheetWorkbook) => void>();
     await mount(undefined, onReplace);
     await page.getByRole("tab", { name: "笔记" }).click();
-    await expect.element(page.getByText("导入一个文件开始。")).toBeVisible();
+    await expect
+      .element(page.getByRole("tab", { name: "笔记" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(document.querySelector("[data-sheet-empty]")).toBeNull();
+    await expect.element(page.getByText("导入一个文件开始。")).not.toBeInTheDocument();
     await page.getByRole("button", { name: "添加工作表" }).click();
     await page.getByRole("menuitem", { name: "空白工作表" }).click();
     expect(onReplace.mock.lastCall?.[0].sheets.map((sheet) => sheet.name)).toEqual([
@@ -239,15 +243,33 @@ describe("电子表格 editor", () => {
         </div>
       );
     }
-    for (const mode of ["light", "dark"] as const) {
-      const view = await render(<Themed mode={mode} />);
-      await expect.element(page.getByRole("figure", { name: "每月花费" })).toBeVisible();
-      await vi.waitFor(() =>
-        expect(document.querySelector(`[data-sheet-theme="${mode}"]`)).not.toBeNull(),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      await page.screenshot({ path: `__screenshots__/sheet-editor/${mode}.png` });
-      await view.unmount();
+    // Which font each number is painted in, as the canvas draws it.
+    const drawnFonts = new Map<string, string>();
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) {
+      drawnFonts.set(String(text), this.font);
+      return fillText.call(this, text, ...rest);
+    };
+    try {
+      for (const mode of ["light", "dark"] as const) {
+        const view = await render(<Themed mode={mode} />);
+        await expect.element(page.getByRole("figure", { name: "每月花费" })).toBeVisible();
+        await vi.waitFor(() =>
+          expect(document.querySelector(`[data-sheet-theme="${mode}"]`)).not.toBeNull(),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        // Numbers are in the UI font, never a serif fallback.
+        expect(drawnFonts.get("1,200"), "1,200 is drawn").toBeDefined();
+        expect(drawnFonts.get("1,200")).not.toMatch(/Times New Roman/u);
+        // The corner above the row numbers is painted like the headers beside it (dark too).
+        const corner = document.querySelector<HTMLElement>(".fortune-left-top")!;
+        const canvas = document.querySelector<HTMLElement>("[data-sheet-engine] canvas")!;
+        expect(getComputedStyle(corner).filter).toBe(getComputedStyle(canvas).filter);
+        await page.screenshot({ path: `__screenshots__/sheet-editor/${mode}.png` });
+        await view.unmount();
+      }
+    } finally {
+      CanvasRenderingContext2D.prototype.fillText = fillText;
     }
   });
 

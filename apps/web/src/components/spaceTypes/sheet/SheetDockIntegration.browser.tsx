@@ -82,21 +82,8 @@ describe("Sheet dock integration", () => {
       expect(
         document.querySelector('[data-sheet-view-tools] [data-testid="sheet-file-menu"]'),
       ).toBeNull();
-      const askTrigger = page.getByTestId("sheet-ask-moss-trigger");
-      await expect.element(askTrigger).toBeVisible();
-      await askTrigger.click();
-      expect(dock.ask).toHaveBeenCalledWith(
-        expect.objectContaining({
-          origin: "bottom-pill",
-          prefillOnly: true,
-          keepItemOpen: true,
-          selection: expect.objectContaining({
-            kind: "sheet",
-            sheetName: "预算",
-            range: "A1",
-          }),
-        }),
-      );
+      // With a dock, 问 Moss is the one entry in the header; no second one floats over the work.
+      await expect.element(page.getByTestId("sheet-ask-moss-trigger")).not.toBeInTheDocument();
 
       await mounted.rerender(
         <div style={{ width: 1100, height: 640, display: "flex", flexDirection: "column" }}>

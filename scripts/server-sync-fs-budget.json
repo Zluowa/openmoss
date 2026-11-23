@@ -260,12 +260,6 @@
       "realpathSync": 1
     }
   },
-  "apps/server/src/provider/acp/DroidAcpSupport.ts": {
-    "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
-    "references": {
-      "existsSync": 1
-    }
-  },
   "apps/server/src/provider/acp/OmpAcpSupport.ts": {
     "reason": "Existing unprofiled boundary; frozen reference budget, no new sync operations.",
     "references": {

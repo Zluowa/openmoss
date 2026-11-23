@@ -28,7 +28,7 @@ export interface SpaceKindMeta {
 }
 
 const KINDS: Record<string, SpaceKindMeta> = {
-  page: { label: "页面", icon: PageTextIcon },
+  page: { label: "文档", icon: PageTextIcon },
   app: { label: "应用页", icon: WindowAppIcon },
   slides: { label: "幻灯片", icon: SlidesIcon },
   sheet: { label: "电子表格", icon: TableIcon },

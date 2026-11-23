@@ -186,11 +186,6 @@ export function BrowserCookieImport({
               <option value="profile">All sites in this profile</option>
             </select>
           </label>
-          <p className="text-ui leading-snug text-muted-foreground">
-            {scope === "profile"
-              ? "Imports all compatible cookies from the selected profile. Every imported signed-in session becomes available across Moss browser tabs and agent workflows."
-              : "Imports this site, its subdomains, and matching parent domains. Imported sessions are shared across Moss browser tabs and agent workflows."}
-          </p>
           <div className="grid grid-cols-2 gap-3">
             <label className="min-w-0 space-y-1">
               <span>Browser</span>

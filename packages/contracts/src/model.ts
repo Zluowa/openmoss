@@ -1694,7 +1694,6 @@ export const GIT_TEXT_GENERATION_PROVIDERS = [
   "claudeAgent",
   "cursor",
   "opencode",
-  "droid",
 ] as const satisfies readonly ProviderKind[];
 export type GitTextGenerationProvider = (typeof GIT_TEXT_GENERATION_PROVIDERS)[number];
 

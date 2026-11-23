@@ -74,7 +74,8 @@
 
 /* Dark sheet: the canvas is painted in the light palette and turned, so a colour keeps its
    place among the others (pale fills become deep, deep text becomes light). */
-[data-sheet-theme="dark"] [data-sheet-engine] canvas {
+[data-sheet-theme="dark"] [data-sheet-engine] canvas,
+[data-sheet-theme="dark"] [data-sheet-engine] .fortune-left-top {
   filter: invert(0.885) hue-rotate(180deg) saturate(1.1);
 }
 [data-sheet-theme="dark"] [data-sheet-engine] .fortune-container {

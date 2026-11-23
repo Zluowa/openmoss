@@ -119,7 +119,10 @@ import {
   setThreadDetailResumeCursor,
 } from "../threadDetailResumeCursors";
 import { resetHomeChatProjectPrewarmStateForTests } from "../lib/chatProjects";
-import { hasReconciledServerProviderStatuses } from "../lib/serverReactQuery";
+import {
+  hasReconciledServerProviderStatuses,
+  reconcileServerProviderStatuses,
+} from "../lib/serverReactQuery";
 import { getRouter } from "../router";
 import { showContextMenuFallback } from "../contextMenuFallback";
 import { useRightDockStore } from "../rightDockStore";
@@ -16840,6 +16843,71 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(page.getByTestId("composer-send-blocked-notice").elements()).toHaveLength(0),
       );
       expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(draft);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  // WALK-1 D-2: signed out, the chip showed another signed-in agent instead of the default
+  // and changed by itself when statuses refreshed. It shows the default, and stays there.
+  it("keeps the default agent on the composer chip when another agent is signed in", async () => {
+    let providers: ServerConfig["providers"] = [];
+    // A new chat, nothing sent yet: the composer chooses the agent.
+    useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, THREAD_ID);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withoutProjectDefaultModelSelection(createDraftOnlySnapshot()),
+      configureFixture: (nextFixture) => {
+        providers = [
+          ...nextFixture.serverConfig.providers.map((provider) =>
+            provider.provider === "codex"
+              ? { ...provider, status: "warning" as const, authStatus: "unauthenticated" as const }
+              : provider,
+          ),
+          {
+            provider: "claudeAgent",
+            instanceId: "claudeAgent",
+            driver: "claudeAgent",
+            status: "ready",
+            available: true,
+            authStatus: "authenticated",
+            checkedAt: NOW_ISO,
+          },
+        ];
+        nextFixture.serverConfig = { ...nextFixture.serverConfig, providers };
+        nextFixture.providerStatusesSnapshot = providers;
+        // Claude is turned on here, as Devin was on the walk's PC.
+        nextFixture.serverSettings = {
+          ...nextFixture.serverSettings,
+          providers: {
+            ...nextFixture.serverSettings.providers,
+            claudeAgent: { ...nextFixture.serverSettings.providers.claudeAgent, enabled: true },
+          },
+        };
+      },
+    });
+
+    try {
+      // The server's status push, as the app applies it.
+      await reconcileServerProviderStatuses(mounted.router.options.context.queryClient, providers);
+      await vi.waitFor(() => {
+        expect(
+          hasReconciledServerProviderStatuses(mounted.router.options.context.queryClient),
+        ).toBe(true);
+      });
+      const chip = page.getByRole("button", { name: "Change model and reasoning" });
+      await expect.element(chip).toBeVisible();
+      const readChip = () => (chip.element() as HTMLElement).textContent ?? "";
+      const shown = readChip();
+      // The person starts typing; the chip is read again after the composer re-renders.
+      const editor = await waitForComposerEditor();
+      editor.focus();
+      await userEvent.keyboard("hello");
+      await vi.waitFor(() => expect(editor.textContent).toContain("hello"));
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      // The person sees Codex's model, not the signed-in Claude one, and it never changed.
+      expect(readChip()).not.toMatch(/Claude|Opus|Sonnet|Haiku|Fable/u);
+      expect(readChip()).toBe(shown);
     } finally {
       await mounted.cleanup();
     }

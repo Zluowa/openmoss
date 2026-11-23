@@ -10,9 +10,9 @@ import {
   normalizeProviderStatusForLocalConfig,
   providerUnavailableReason,
   resolveAgentReadiness,
-  resolveAvailableProviderPreference,
   resolveProviderSendAvailability,
   resolveProviderSendAvailabilityWithRefresh,
+  resolveUnsentComposerProvider,
   resolveVoiceTranscriptionTarget,
 } from "./providerAvailability";
 
@@ -423,101 +423,31 @@ describe("isProviderUsable", () => {
   });
 });
 
-describe("resolveAvailableProviderPreference", () => {
-  it("keeps an installed preferred provider", () => {
+describe("resolveUnsentComposerProvider", () => {
+  // WALK-1 D-2: signed out, the composer showed Devin, then Codex, then Devin again while
+  // settings said Codex. The default stays the default whatever the statuses say.
+  it("shows the person's pick, else the chat's agent, else the one default", () => {
     expect(
-      resolveAvailableProviderPreference({
-        preferredProvider: "antigravity",
-        statuses: [READY_STATUS],
-      }),
-    ).toBe("antigravity");
-  });
-
-  it("falls back to the first visible authenticated provider in picker order", () => {
-    expect(
-      resolveAvailableProviderPreference({
-        preferredProvider: "antigravity",
-        statuses: [
-          BASE_STATUS,
-          {
-            ...READY_STATUS,
-            provider: "claudeAgent",
-            instanceId: "claudeAgent",
-            driver: "claudeAgent",
-            authStatus: "unauthenticated",
-          },
-          {
-            ...READY_STATUS,
-            provider: "cursor",
-            instanceId: "cursor",
-            driver: "cursor",
-          },
-        ],
-        providerOrder: ["claudeAgent", "cursor"],
+      resolveUnsentComposerProvider({
+        explicitProvider: "cursor",
+        threadProvider: "claudeAgent",
+        defaultProvider: "codex",
       }),
     ).toBe("cursor");
-  });
-
-  it("falls back when the preferred provider is installed but unauthenticated", () => {
     expect(
-      resolveAvailableProviderPreference({
-        preferredProvider: "claudeAgent",
-        statuses: [
-          {
-            ...READY_STATUS,
-            provider: "claudeAgent",
-            instanceId: "claudeAgent",
-            driver: "claudeAgent",
-            authStatus: "unauthenticated",
-          },
-          {
-            ...READY_STATUS,
-            provider: "codex",
-            instanceId: "codex",
-            driver: "codex",
-          },
-        ],
+      resolveUnsentComposerProvider({
+        explicitProvider: null,
+        threadProvider: "claudeAgent",
+        defaultProvider: "codex",
+      }),
+    ).toBe("claudeAgent");
+    expect(
+      resolveUnsentComposerProvider({
+        explicitProvider: null,
+        threadProvider: null,
+        defaultProvider: "codex",
       }),
     ).toBe("codex");
-  });
-
-  it("keeps the default agent while its Moss lane works and its local login is signed out", () => {
-    expect(
-      resolveAvailableProviderPreference({
-        preferredProvider: "codex",
-        statuses: [
-          {
-            ...READY_STATUS,
-            provider: "codex",
-            instanceId: "codex",
-            driver: "codex",
-            authStatus: "unauthenticated",
-          },
-          {
-            ...READY_STATUS,
-            provider: "pi",
-            instanceId: "pi",
-            driver: "pi",
-          },
-          {
-            ...READY_STATUS,
-            provider: "codex",
-            instanceId: "codex_moss",
-            driver: "codex",
-          },
-        ],
-        providerOrder: ["pi", "codex"],
-      }),
-    ).toBe("codex");
-  });
-
-  it("preserves the preference while provider status is loading", () => {
-    expect(
-      resolveAvailableProviderPreference({
-        preferredProvider: "antigravity",
-        statuses: [],
-      }),
-    ).toBe("antigravity");
   });
 });
 
