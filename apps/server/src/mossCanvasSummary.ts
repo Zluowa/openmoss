@@ -11,6 +11,7 @@ const MAX_ITEMS = 40;
 const MAX_VISITED_RECORDS = 20_000;
 
 export interface MossCanvasShapeSummary {
+  readonly id?: string;
   readonly type: string;
   readonly text?: string;
   readonly assetName?: string;
@@ -180,6 +181,7 @@ export function summarizeMossCanvasSnapshot(snapshot: unknown): {
     const width = finite(props.w);
     const height = finite(props.h);
     shapes.push({
+      ...(typeof item.id === "string" ? { id: item.id } : {}),
       type,
       ...(text ? { text } : {}),
       ...(assetName ? { assetName } : {}),

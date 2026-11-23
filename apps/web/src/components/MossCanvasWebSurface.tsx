@@ -12,7 +12,11 @@ import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 
 import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
-import type { MossCanvasImageFocus } from "../lib/mossCanvasBridge";
+import {
+  MOSS_CANVAS_RELOAD_EVENT,
+  type MossCanvasImageFocus,
+  type MossCanvasReloadDetail,
+} from "../lib/mossCanvasBridge";
 import { mossCanvasOcclusionRect } from "../lib/mossCanvasOcclusion";
 import { isEmbeddedBundleVerified, verifyEmbeddedBundle } from "../lib/embeddedBundleCheck";
 import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
@@ -46,6 +50,7 @@ export type MossCanvasComposeContextReader = () => Promise<{
 // Import completion is awaited separately; leave enough time for the final
 // save acknowledgement instead of reporting failure while it is still active.
 const CANVAS_FLUSH_TIMEOUT_MS = 100_000;
+const STANDALONE_BOARD_FLUSH_TIMEOUT_MS = 5_000;
 
 interface MossCanvasWebSurfaceProps {
   readonly onClose: () => void;
@@ -238,15 +243,34 @@ export function MossCanvasWebSurface({
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [imageImportError, setImageImportError] = useState("");
   const [contextError, setContextError] = useState("");
-  const frameKey = JSON.stringify([src, boundary.key]);
+  const [reloadNonce, setReloadNonce] = useState(0);
+  useEffect(() => {
+    if (!resolvedThread) return;
+    const onReload = (event: Event) => {
+      const detail = (event as CustomEvent<MossCanvasReloadDetail | undefined>).detail;
+      if (detail?.threadId === resolvedThread) {
+        setReloadNonce((current) => current + 1);
+      }
+    };
+    window.addEventListener(MOSS_CANVAS_RELOAD_EVENT, onReload);
+    return () => window.removeEventListener(MOSS_CANVAS_RELOAD_EVENT, onReload);
+  }, [resolvedThread]);
+  const frameKey = JSON.stringify([src, boundary.key, reloadNonce]);
   const currentFrameKey = useRef(frameKey);
   currentFrameKey.current = frameKey;
   const [readyFrameKey, setReadyFrameKey] = useState<string | null>(null);
+  const readyFrameKeyRef = useRef(readyFrameKey);
+  readyFrameKeyRef.current = readyFrameKey;
+  const [bootstrappedFrameKey, setBootstrappedFrameKey] = useState<string | null>(null);
+  const bootstrappedFrameKeyRef = useRef(bootstrappedFrameKey);
+  bootstrappedFrameKeyRef.current = bootstrappedFrameKey;
+  const surfaceReady =
+    readyFrameKey === frameKey || (!resolvedThread && bootstrappedFrameKey === frameKey);
   // Tell the ready Canvas where host chrome covers it, in the frame's own
   // coordinates, whenever either moves or resizes.
   useEffect(() => {
     const target = frame.current;
-    if (!target || !src || readyFrameKey !== frameKey) return;
+    if (!target || !src || !surfaceReady) return;
     let sent = "";
     const send = () => {
       const window_ = target.contentWindow;
@@ -272,12 +296,12 @@ export function MossCanvasWebSurface({
       observer?.disconnect();
       window.removeEventListener("resize", send);
     };
-  }, [frameKey, readyFrameKey, occludedBy, src]);
+  }, [frameKey, surfaceReady, bootstrappedFrameKey, occludedBy, src]);
   // Tell the ready Canvas the surface colour of the pane it sits in, so its
   // board matches Moss (light and dark, and when the theme changes).
   useEffect(() => {
     const target = frame.current;
-    if (!target || !src || readyFrameKey !== frameKey) return;
+    if (!target || !src || !surfaceReady) return;
     const send = () => {
       let surface = "";
       for (let node = target.parentElement; node && !surface; node = node.parentElement) {
@@ -302,13 +326,13 @@ export function MossCanvasWebSurface({
       attributeFilter: ["class", "style"],
     });
     return () => observer?.disconnect();
-  }, [frameKey, readyFrameKey, src]);
+  }, [frameKey, surfaceReady, bootstrappedFrameKey, src]);
   const hostHideTopBar = hostChrome?.hideTopBar;
   const hostBottomInsetPx = hostChrome?.bottomInsetPx;
   const hostRightInsetPx = hostChrome?.rightInsetPx;
   useEffect(() => {
     const target = frame.current;
-    if (!target || !src || readyFrameKey !== frameKey) return;
+    if (!target || !src || !surfaceReady) return;
     if (
       hostHideTopBar === undefined &&
       hostBottomInsetPx === undefined &&
@@ -328,11 +352,23 @@ export function MossCanvasWebSurface({
       },
       new URL(src).origin,
     );
-  }, [frameKey, readyFrameKey, src, hostHideTopBar, hostBottomInsetPx, hostRightInsetPx]);
+  }, [
+    frameKey,
+    surfaceReady,
+    bootstrappedFrameKey,
+    src,
+    hostHideTopBar,
+    hostBottomInsetPx,
+    hostRightInsetPx,
+  ]);
   const binding = useRef<MossCanvasBinding | null>(null);
   const latestSelection = useRef<MossCanvasSelection | null>(null);
   const selectionCallback = useRef(onSelectionChange);
   selectionCallback.current = onSelectionChange;
+  const closeCallback = useRef(onClose);
+  closeCallback.current = onClose;
+  const boardScopeRef = useRef(boardScope);
+  boardScopeRef.current = boardScope;
   const imageOpenCallback = useRef(onImageOpen);
   imageOpenCallback.current = onImageOpen;
   const askDockCallback = useRef(onAskDock);
@@ -342,6 +378,8 @@ export function MossCanvasWebSurface({
     ...(onImageOpen ? [MOSS_CANVAS_IMAGE_OPEN_CAPABILITY] : []),
     ...(onAskDock ? ["ask-dock"] : []),
   ];
+  const hostCapabilitiesRef = useRef(hostCapabilities);
+  hostCapabilitiesRef.current = hostCapabilities;
   const selectionSequence = useRef(0);
   const selectionEpoch = useRef(-1);
   const documentGeneration = useRef(0);
@@ -382,6 +420,12 @@ export function MossCanvasWebSurface({
   // of an empty editor with placeholders. Re-asked whenever the account changes.
   const [signedOutKey, setSignedOutKey] = useState<string | null>(null);
   const signedOut = signedOutKey === frameKey;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const bootstrapErrorRef = useRef(bootstrapError);
+  bootstrapErrorRef.current = bootstrapError;
+  const signedOutRef = useRef(signedOut);
+  signedOutRef.current = signedOut;
   useEffect(() => {
     if (!resolvedThread || !src) return;
     const controller = new AbortController();
@@ -393,6 +437,7 @@ export function MossCanvasWebSurface({
 
   useEffect(() => {
     setReadyFrameKey(null);
+    setBootstrappedFrameKey(null);
     binding.current = null;
     latestSelection.current = null;
     selectionSequence.current = 0;
@@ -644,6 +689,7 @@ export function MossCanvasWebSurface({
         setBootstrapError(event.data.code);
         if (event.data.code === "authentication_required") setSignedOutKey(frameKey);
         setReadyFrameKey(null);
+        setBootstrappedFrameKey(null);
         return;
       }
       if (
@@ -703,11 +749,12 @@ export function MossCanvasWebSurface({
       }
       if (event.data?.type === "moss-canvas-ask-dock" && event.data.version === 1) {
         if (resolvedThread && event.data.threadId !== resolvedThread) return;
+        const currentBoardScope = boardScopeRef.current;
         if (
           !resolvedThread &&
-          boardScope &&
-          (event.data.boardScope?.pageId !== boardScope.pageId ||
-            event.data.boardScope?.canvasProjectKey !== boardScope.canvasProjectKey)
+          currentBoardScope &&
+          (event.data.boardScope?.pageId !== currentBoardScope.pageId ||
+            event.data.boardScope?.canvasProjectKey !== currentBoardScope.canvasProjectKey)
         ) {
           return;
         }
@@ -738,11 +785,12 @@ export function MossCanvasWebSurface({
         return;
       }
       if (event.data?.type === "moss-canvas-bootstrap-ready") {
+        setBootstrappedFrameKey(frameKey);
         frame.current?.contentWindow?.postMessage(
           {
             type: "moss-canvas-bootstrap",
             token: connection?.token ?? "",
-            capabilities: hostCapabilities,
+            capabilities: hostCapabilitiesRef.current,
           },
           new URL(src).origin,
         );
@@ -814,7 +862,7 @@ export function MossCanvasWebSurface({
           if (destination === "account") useRailShellStore.getState().selectRouteItem("settings");
           else if (destination === "skills" || destination === "plugins")
             useRailShellStore.getState().selectRouteItem("skills");
-          onClose();
+          closeCallback.current();
         })
         .catch(() => {
           if (boundary.isCurrent() && requestVersion === navigationVersion.current)
@@ -823,21 +871,24 @@ export function MossCanvasWebSurface({
     };
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
-  }, [
-    src,
-    frameKey,
-    connection,
-    onClose,
-    navigate,
-    boundary.isCurrent,
-    resolvedThread,
-    boardScope,
-    onSelectionChange,
-  ]);
+  }, [src, frameKey, connection, navigate, boundary.isCurrent, resolvedThread]);
 
   const requestFlush = useCallback((): Promise<boolean> => {
     if (leaving.current) return leaving.current;
     if (!src || !frame.current?.contentWindow) return Promise.resolve(true);
+    if (
+      stateRef.current !== "ready" ||
+      bootstrapErrorRef.current !== null ||
+      signedOutRef.current
+    ) {
+      return Promise.resolve(true);
+    }
+    const handshakeComplete = resolvedThread
+      ? readyFrameKeyRef.current === frameKey
+      : bootstrappedFrameKeyRef.current === frameKey;
+    if (!handshakeComplete) {
+      return Promise.resolve(true);
+    }
     const generation = documentGeneration.current;
     const current = () =>
       currentFrameKey.current === frameKey &&
@@ -857,8 +908,11 @@ export function MossCanvasWebSurface({
       const target = frame.current?.contentWindow;
       if (!target) return false;
       const id = crypto.randomUUID();
+      const flushTimeoutMs = resolvedThread
+        ? CANVAS_FLUSH_TIMEOUT_MS
+        : STANDALONE_BOARD_FLUSH_TIMEOUT_MS;
       return new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => finish(false), CANVAS_FLUSH_TIMEOUT_MS);
+        const timer = setTimeout(() => finish(false), flushTimeoutMs);
         const finish = (ok: boolean) => {
           clearTimeout(timer);
           if (pendingFlush.current?.id === id) pendingFlush.current = null;
@@ -885,7 +939,7 @@ export function MossCanvasWebSurface({
       });
     leaving.current = flight;
     return flight;
-  }, [src, frameKey, boundary.isCurrent]);
+  }, [src, frameKey, boundary.isCurrent, resolvedThread]);
   flushLatest.current = requestFlush;
 
   const readComposeContext = useCallback<MossCanvasComposeContextReader>(() => {

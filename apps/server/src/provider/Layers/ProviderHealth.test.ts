@@ -84,6 +84,7 @@ import {
   checkAcpAgentProviderStatus,
   checkOmpProviderStatus,
   checkPiProviderStatus,
+  extractUpdaterCommandHint,
   makeCheckClaudeProviderStatus,
   makeCheckCodexProviderStatus,
   makeCheckCursorProviderStatus,
@@ -114,6 +115,7 @@ import {
 } from "../acp/AcpAgentSpec";
 import { buildMossManagedAcpAgentProviderInstance } from "../mossManagedAcpAgentEnvironment";
 import { resolvePackageManagedProviderMaintenance } from "../providerMaintenance";
+import { DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND } from "../devinWindowsUpdate";
 import { providerIsolatedHomePath } from "../providerProcessEnv.ts";
 import { PROVIDER_NOT_INSTALLED_READINESS } from "../providerReadiness.ts";
 import * as AgentCliPathFloor from "../agentCliPathFloor.ts";
@@ -2756,6 +2758,85 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         unsupported?.unavailableReason,
         "Provider driver 'customFork' is not supported by this Moss build.",
       );
+    });
+
+    it("reflects mossCliModelAuthEnabled and mossCliModelAuthDisabledProviders immediately in projected statuses", () => {
+      const cachedStatuses: ReadonlyArray<ServerProviderStatus> = [
+        cachedReadyCodexStatus,
+        {
+          ...cachedReadyCodexStatus,
+          instanceId: "codex_moss" as ProviderInstanceId,
+          displayName: "Moss",
+        },
+        {
+          ...cachedReadyCodexStatus,
+          provider: "claudeAgent",
+          driver: "claudeAgent",
+          instanceId: "claude_moss" as ProviderInstanceId,
+          displayName: "Moss",
+        },
+      ];
+      const baseInstances = {
+        codex_moss: {
+          driver: "codex" as const,
+          displayName: "Moss",
+          enabled: true,
+          config: { managed: true, accountId: "moss" },
+        },
+        claude_moss: {
+          driver: "claudeAgent" as const,
+          displayName: "Moss",
+          enabled: true,
+          config: { managed: true, accountId: "moss" },
+        },
+      };
+
+      const perCliRevoked = projectProviderStatusesForSettings(
+        cachedStatuses,
+        {
+          ...DEFAULT_SERVER_SETTINGS,
+          providerInstances: baseInstances,
+          mossCliModelAuthEnabled: true,
+          mossCliModelAuthDisabledProviders: ["codex"],
+        },
+        "2026-06-16T12:05:00.000Z",
+      );
+      assert.strictEqual(
+        perCliRevoked.find((entry) => entry.instanceId === "codex_moss")?.enabled,
+        false,
+      );
+      assert.strictEqual(
+        perCliRevoked.find((entry) => entry.instanceId === "codex_moss")?.available,
+        false,
+      );
+      assert.strictEqual(
+        perCliRevoked.find((entry) => entry.instanceId === "claude_moss")?.enabled,
+        true,
+      );
+      assert.strictEqual(
+        perCliRevoked.find((entry) => entry.instanceId === "claude_moss")?.available,
+        true,
+      );
+
+      const masterOff = projectProviderStatusesForSettings(
+        cachedStatuses,
+        {
+          ...DEFAULT_SERVER_SETTINGS,
+          providerInstances: baseInstances,
+          mossCliModelAuthEnabled: false,
+          mossCliModelAuthDisabledProviders: [],
+        },
+        "2026-06-16T12:05:00.000Z",
+      );
+      assert.strictEqual(
+        masterOff.find((entry) => entry.instanceId === "codex_moss")?.enabled,
+        false,
+      );
+      assert.strictEqual(
+        masterOff.find((entry) => entry.instanceId === "claude_moss")?.enabled,
+        false,
+      );
+      assert.strictEqual(masterOff.find((entry) => entry.instanceId === "codex")?.available, true);
     });
 
     it.effect("does not expose cached ready statuses for disabled providers", () =>
@@ -6113,6 +6194,225 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         assert.strictEqual(devinStatus?.versionAdvisory?.latestVersion, "3000.11.234");
         assert.strictEqual(devinStatus?.versionAdvisory?.status, "behind_latest");
       }).pipe(Effect.scoped),
+    );
+
+    it("extractUpdaterCommandHint parses 'To update, run:' hints from updater output", () => {
+      assert.strictEqual(
+        extractUpdaterCommandHint(
+          "Auto-update is not supported on Windows.\nTo update, run: irm https://cli.devin.ai/install.ps1 | iex\n",
+        ),
+        "irm https://cli.devin.ai/install.ps1 | iex",
+      );
+      assert.strictEqual(
+        extractUpdaterCommandHint("To update, run: `brew upgrade devin-cli`"),
+        "brew upgrade devin-cli",
+      );
+      assert.strictEqual(extractUpdaterCommandHint("Already up to date."), null);
+      assert.strictEqual(extractUpdaterCommandHint(null), null);
+    });
+
+    it.effect(
+      "routes Windows native Devin updates through atomic archive swap and surfaces manual command",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "devin-win-update-" });
+          const cacheDir = join(tempDir, "devin", "cli");
+          const binDir = join(cacheDir, "bin");
+          mkdirSync(binDir, { recursive: true });
+          const exePath = join(binDir, "devin.exe");
+          writeFileSync(exePath, "old-devin-binary");
+          writeFileSync(join(cacheDir, "cached_version.json"), '{"latest":"3000.14.30821"}\n');
+
+          const pathKey =
+            Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+          const prevPath = process.env[pathKey];
+          const prevLocalAppData = process.env.LOCALAPPDATA;
+          const prevXdgDataHome = process.env.XDG_DATA_HOME;
+          delete process.env.PATH;
+          process.env[pathKey] = binDir;
+          process.env.LOCALAPPDATA = tempDir;
+          process.env.XDG_DATA_HOME = tempDir;
+          resetLocalAgentPathLookupCache();
+
+          const realFetch = globalThis.fetch;
+          globalThis.fetch = (async () => {
+            throw new TypeError("offline");
+          }) as unknown as typeof fetch;
+
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              globalThis.fetch = realFetch;
+              delete process.env[pathKey];
+              if (prevPath !== undefined) process.env.PATH = prevPath;
+              if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+              else process.env.LOCALAPPDATA = prevLocalAppData;
+              if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+              else process.env.XDG_DATA_HOME = prevXdgDataHome;
+              resetLocalAgentPathLookupCache();
+            }),
+          );
+
+          const settings = {
+            ...allProvidersDisabledServerSettings,
+            providers: {
+              ...allProvidersDisabledServerSettings.providers,
+              devin: {
+                ...DEFAULT_SERVER_SETTINGS.providers.devin,
+                enabled: true,
+                binaryPath: exePath,
+              },
+            },
+          } satisfies typeof DEFAULT_SERVER_SETTINGS;
+
+          let installedVersion = "3000.11.3";
+          const spawnedCommands: Array<string> = [];
+          const nativeCalls: Array<{ readonly binaryPath: string }> = [];
+
+          const spawnerLayer = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) => {
+              const cmd = command as unknown as { command: string; args: ReadonlyArray<string> };
+              spawnedCommands.push([cmd.command, ...cmd.args].join(" "));
+              if (cmd.args.includes("--version")) {
+                return Effect.succeed(
+                  mockHandle({ stdout: `devin ${installedVersion}\n`, stderr: "", code: 0 }),
+                );
+              }
+              return Effect.succeed(mockHandle({ stdout: "", stderr: "", code: 0 }));
+            }),
+          );
+
+          const layer = makeProviderHealthLive({
+            platform: "win32",
+            updateDevinWindowsNative: async (input) => {
+              nativeCalls.push({ binaryPath: input.binaryPath });
+              installedVersion = "3000.14.30821";
+              return {
+                version: "3000.14.30821",
+                targetPath: exePath,
+                triple: "x86_64-pc-windows",
+                output: "Downloaded Devin CLI 3000.14.30821 (x86_64-pc-windows).",
+              };
+            },
+          }).pipe(
+            Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), tempDir)),
+            Layer.provideMerge(spawnerLayer),
+          );
+
+          const { initialStatus, updatedStatus } = yield* Effect.gen(function* () {
+            const health = yield* ProviderHealth;
+            const before = yield* health.refresh;
+            const after = yield* health.updateProvider({ provider: "devin" });
+            return {
+              initialStatus: before.find((status) => status.provider === "devin"),
+              updatedStatus: after.providers.find((status) => status.provider === "devin"),
+            };
+          }).pipe(Effect.provide(layer));
+
+          assert.strictEqual(
+            initialStatus?.versionAdvisory?.updateCommand,
+            DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND,
+          );
+          assert.strictEqual(initialStatus?.versionAdvisory?.canUpdate, true);
+          assert.strictEqual(nativeCalls.length, 1);
+          assert.strictEqual(
+            spawnedCommands.some((cmd) => cmd.includes(" update")),
+            false,
+          );
+          assert.strictEqual(updatedStatus?.version, "3000.14.30821");
+          assert.strictEqual(updatedStatus?.updateState?.status, "succeeded");
+        }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "appends extracted 'To update, run:' hint when native updater exits 0 without updating",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "devin-hint-unchanged-" });
+          const cacheDir = join(tempDir, "devin", "cli");
+          const binDir = join(cacheDir, "bin");
+          mkdirSync(binDir, { recursive: true });
+          const exePath = join(binDir, "devin");
+          writeFileSync(exePath, "#!/bin/sh\n");
+          writeFileSync(join(cacheDir, "cached_version.json"), '{"latest":"3000.14.30821"}\n');
+
+          const prevLocalAppData = process.env.LOCALAPPDATA;
+          const prevXdgDataHome = process.env.XDG_DATA_HOME;
+          process.env.LOCALAPPDATA = tempDir;
+          process.env.XDG_DATA_HOME = tempDir;
+
+          const realFetch = globalThis.fetch;
+          globalThis.fetch = (async () => {
+            throw new TypeError("offline");
+          }) as unknown as typeof fetch;
+
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              globalThis.fetch = realFetch;
+              if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+              else process.env.LOCALAPPDATA = prevLocalAppData;
+              if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+              else process.env.XDG_DATA_HOME = prevXdgDataHome;
+            }),
+          );
+
+          const settings = {
+            ...allProvidersDisabledServerSettings,
+            providers: {
+              ...allProvidersDisabledServerSettings.providers,
+              devin: {
+                ...DEFAULT_SERVER_SETTINGS.providers.devin,
+                enabled: true,
+                binaryPath: exePath,
+              },
+            },
+          } satisfies typeof DEFAULT_SERVER_SETTINGS;
+
+          const spawnerLayer = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) => {
+              const cmd = command as unknown as { command: string; args: ReadonlyArray<string> };
+              if (cmd.args.includes("--version")) {
+                return Effect.succeed(
+                  mockHandle({ stdout: "devin 3000.11.3\n", stderr: "", code: 0 }),
+                );
+              }
+              if (cmd.args.includes("update")) {
+                return Effect.succeed(
+                  mockHandle({
+                    stdout: "To update, run: curl -fsSL https://cli.devin.ai/install.sh | sh\n",
+                    stderr: "",
+                    code: 0,
+                  }),
+                );
+              }
+              return Effect.succeed(mockHandle({ stdout: "", stderr: "", code: 0 }));
+            }),
+          );
+
+          const layer = makeProviderHealthLive({
+            platform: "linux",
+          }).pipe(
+            Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), tempDir)),
+            Layer.provideMerge(spawnerLayer),
+          );
+
+          const result = yield* Effect.gen(function* () {
+            const health = yield* ProviderHealth;
+            return yield* health.updateProvider({ provider: "devin" });
+          }).pipe(Effect.provide(layer));
+
+          const updatedStatus = result.providers.find((status) => status.provider === "devin");
+          assert.strictEqual(updatedStatus?.updateState?.status, "unchanged");
+          assert.match(
+            updatedStatus?.updateState?.message ?? "",
+            /Suggested command: curl -fsSL https:\/\/cli\.devin\.ai\/install\.sh \| sh/u,
+          );
+        }).pipe(Effect.scoped),
     );
   });
 });

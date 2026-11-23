@@ -62,6 +62,7 @@ import {
   createAppPageFromTemplate,
   createSpaceItem,
   isTypedSpaceKind,
+  pageTypesQueryKeys,
 } from "./spaceTypes/spaceItemTypes";
 import { SpaceTypedItemView } from "./spaceTypes/SpaceTypedItemView";
 import { TemplatePickerDialog } from "./spaceTypes/templates/TemplatePickerDialog";
@@ -275,6 +276,14 @@ function DataSpaceWorkspace({
   );
   const leave = async () =>
     (await (leaveGuard.current?.() ?? Promise.resolve(true))) && isCurrent();
+  const leaveRef = useRef(leave);
+  leaveRef.current = leave;
+  const handleTypedItemSaved = useCallback(() => {
+    void refresh();
+  }, [refresh]);
+  const handleTypedItemBack = useCallback(() => {
+    void leaveRef.current().then((ok) => ok && setOpen(null));
+  }, []);
 
   const showSection = async (next: SpaceSection) => {
     if (!(await leave())) return;
@@ -304,15 +313,13 @@ function DataSpaceWorkspace({
     readonly prefillOnly?: boolean;
   } | null>(null);
 
-  const activeArtifact = useMemo<SpaceCanvasActiveArtifact | null>(() => {
+  const rawArtifact = (() => {
     if (open?.type === "page") {
       const page = allPages.find((entry) => entry.id === open.pageId);
       return {
-        kind: "page",
+        kind: "page" as const,
         itemId: open.pageId,
         title: page?.title ?? "未命名页面",
-        scopeSpaceId,
-        account,
         sourceThreadId: page?.sourceThreadId ?? null,
         revision: page?.revision ?? null,
       };
@@ -327,24 +334,47 @@ function DataSpaceWorkspace({
         kind: resolvedKind,
         itemId: openedItem.source.page.id,
         title: openedItem.title,
-        scopeSpaceId,
-        account,
         sourceThreadId: openedItem.sourceThreadId ?? null,
         revision: openedItem.source.page.revision,
       };
     }
     if (openedItem.source.type === "app") {
       return {
-        kind: "app",
+        kind: "app" as const,
         itemId: openedItem.source.app.id,
         title: openedItem.title,
-        scopeSpaceId,
-        account,
         sourceThreadId: openedItem.sourceThreadId ?? null,
+        revision: undefined,
       };
     }
     return null;
-  }, [account, allPages, open, openedItem, scopeSpaceId]);
+  })();
+  const rawArtifactKind = rawArtifact?.kind ?? null;
+  const rawArtifactItemId = rawArtifact?.itemId ?? null;
+  const rawArtifactTitle = rawArtifact?.title ?? null;
+  const rawArtifactSourceThreadId = rawArtifact?.sourceThreadId ?? null;
+  const rawArtifactRevision = rawArtifact?.revision;
+
+  const activeArtifact = useMemo<SpaceCanvasActiveArtifact | null>(() => {
+    if (!rawArtifactKind || !rawArtifactItemId || rawArtifactTitle === null) return null;
+    return {
+      kind: rawArtifactKind,
+      itemId: rawArtifactItemId,
+      title: rawArtifactTitle,
+      scopeSpaceId,
+      account,
+      sourceThreadId: rawArtifactSourceThreadId,
+      ...(rawArtifactRevision !== undefined ? { revision: rawArtifactRevision } : {}),
+    };
+  }, [
+    account,
+    rawArtifactItemId,
+    rawArtifactKind,
+    rawArtifactRevision,
+    rawArtifactSourceThreadId,
+    rawArtifactTitle,
+    scopeSpaceId,
+  ]);
 
   useEffect(() => {
     if (!pendingStarter || !activeArtifact || activeArtifact.itemId !== pendingStarter.itemId) {
@@ -472,6 +502,27 @@ function DataSpaceWorkspace({
           ids: [item.source.item.id],
           favorite: !item.pinned,
         });
+    });
+  const renameItem = (item: SpaceItem, title: string) =>
+    run("重命名", async () => {
+      if (item.source.type === "page") {
+        const pageId = item.source.page.id;
+        await pageMutation(item.source.page, { op: "update", title });
+        // An editor opened later reads the new name, not a cached one.
+        await Promise.all([
+          client.invalidateQueries({
+            queryKey: pagesQueryKeys.read(account, scopeSpaceId, pageId),
+          }),
+          client.invalidateQueries({
+            queryKey: pageTypesQueryKeys.item(account, scopeSpaceId, pageId),
+          }),
+        ]);
+      } else if (item.source.type === "library") {
+        await ensureNativeApi().library.rename({ id: item.source.item.id, title });
+        await client.invalidateQueries({
+          queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "library"],
+        });
+      }
     });
   const continueInChat = async (item: SpaceItem) => {
     if (item.source.type === "page") {
@@ -812,10 +863,10 @@ function DataSpaceWorkspace({
                       account={account}
                       scopeSpaceId={scopeSpaceId}
                       pageId={openedItem.source.page.id}
-                      onSaved={() => void refresh()}
+                      onSaved={handleTypedItemSaved}
                       onGuardChange={registerGuard}
                       dock={dock}
-                      onBack={() => void leave().then((ok) => ok && setOpen(null))}
+                      onBack={handleTypedItemBack}
                     />
                   ) : openedItem.source.type === "app" ? (
                     <SpaceAppViewer
@@ -874,6 +925,7 @@ function DataSpaceWorkspace({
                     onContinueInChat={(item) => void continueInChat(item)}
                     onSaveAsApp={(item) => void saveAsApp(item)}
                     onTogglePin={(item) => void togglePin(item)}
+                    onRename={(item, title) => void renameItem(item, title)}
                     onTrash={(item) => void trashItem(item)}
                   />
                 )}

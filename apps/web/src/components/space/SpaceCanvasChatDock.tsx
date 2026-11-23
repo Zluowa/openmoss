@@ -31,7 +31,6 @@ import {
   ExternalLinkIcon,
   LayoutRightIcon,
   Maximize2,
-  Minimize2,
   MoreHorizontalIcon,
   PlusIcon,
   PopOutIcon,
@@ -60,6 +59,7 @@ function readStartupBearerHeaders(): Record<string, string> {
 import { createDefaultRightDockState, type RightDockPane } from "~/rightDockStore.logic";
 import { useStore } from "~/store";
 import { useTerminalStateStore } from "~/terminalStateStore";
+import { retainThreadDetailSubscription } from "~/threadDetailSubscriptionRetention";
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
   CHAT_SURFACE_HEADER_HEIGHT_CLASS,
@@ -300,8 +300,15 @@ export function SpaceCanvasChatDockHost(props: {
   readonly children: (dock: SpaceCanvasDockController) => ReactNode;
 }) {
   const artifact = props.artifact;
+  const artifactRef = useRef(artifact);
+  artifactRef.current = artifact;
   const navigate = useNavigate();
   const threads = useHandleNewThread();
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
+  const fetchedAssistantThreadKeysRef = useRef(new Set<string>());
+  const autoPreparedKeysRef = useRef(new Set<string>());
+  const inFlightPrepareRef = useRef(new Map<string, Promise<ThreadId | null>>());
   const openChatThreadPage = useTerminalStateStore((store) => store.openChatThreadPage);
 
   const [dockState, setDockStateRaw] = useState<SpaceCanvasDockState>(() =>
@@ -326,9 +333,6 @@ export function SpaceCanvasChatDockHost(props: {
     Readonly<Record<string, readonly ExtraSidechatTab[]>>
   >({});
   const [activeTabIdByKey, setActiveTabIdByKey] = useState<Readonly<Record<string, string>>>({});
-  const [minimizedNoticeByKey, setMinimizedNoticeByKey] = useState<
-    Readonly<Record<string, boolean>>
-  >({});
   const [lastPromptSnippet, setLastPromptSnippet] = useState<string | null>(null);
   const [prefillPrompt, setPrefillPrompt] = useState("");
   const [askSubmitting, setAskSubmitting] = useState(false);
@@ -384,9 +388,19 @@ export function SpaceCanvasChatDockHost(props: {
     [artifactKey],
   );
 
+  const prevArtifactKeyRef = useRef(artifactKey);
   // Clear selection/failure when switching artifacts cleanly while keeping mounted portal intact.
   useEffect(() => {
-    setSelection(null);
+    if (prevArtifactKeyRef.current === artifactKey) return;
+    prevArtifactKeyRef.current = artifactKey;
+    setSelectionRaw((prev) =>
+      prev &&
+      artifactRef.current &&
+      prev.kind === artifactRef.current.kind &&
+      prev.itemId === artifactRef.current.itemId
+        ? prev
+        : null,
+    );
     setFailureRecovery(null);
     setPrefillPrompt("");
     setHasUnreadDot(false);
@@ -399,7 +413,7 @@ export function SpaceCanvasChatDockHost(props: {
     if (!artifact || !artifactKey) return null;
     const explicit = boundThreadsByKey[artifactKey];
     if (explicit) return explicit;
-    return threads.resolveExistingArtifactThread(
+    return threadsRef.current.resolveExistingArtifactThread(
       {
         kind: artifact.kind,
         itemId: artifact.itemId,
@@ -410,15 +424,19 @@ export function SpaceCanvasChatDockHost(props: {
       },
       artifactKey,
     );
-  }, [artifact, artifactKey, boundThreadsByKey, threads]);
+  }, [artifact, artifactKey, boundThreadsByKey, threads.projects]);
 
   // Best-effort sync of per-item default assistant thread with server (#159 / #161), falling back gracefully.
   useEffect(() => {
-    if (!artifact || !artifactKey || primaryThreadId || typeof window === "undefined") return;
+    const currentArtifact = artifactRef.current;
+    if (!currentArtifact || !artifactKey || primaryThreadId || typeof window === "undefined")
+      return;
+    if (fetchedAssistantThreadKeysRef.current.has(artifactKey)) return;
+    fetchedAssistantThreadKeysRef.current.add(artifactKey);
     let cancelled = false;
     const targetKey = artifactKey;
-    const targetItemId = artifact.itemId;
-    const scopeSpaceId = artifact.scopeSpaceId;
+    const targetItemId = currentArtifact.itemId;
+    const scopeSpaceId = currentArtifact.scopeSpaceId;
     void (async () => {
       try {
         const params = new URLSearchParams();
@@ -436,19 +454,21 @@ export function SpaceCanvasChatDockHost(props: {
         const payload = (await res.json()) as { defaultAssistantThreadId?: string | null };
         const serverThreadId = payload.defaultAssistantThreadId as ThreadId | undefined;
         if (!serverThreadId) return;
-        const matched = threads.resolveExistingArtifactThread(
+        const matched = threadsRef.current.resolveExistingArtifactThread(
           {
-            kind: artifact.kind,
-            itemId: artifact.itemId,
-            title: artifact.title,
-            scopeSpaceId: artifact.scopeSpaceId,
+            kind: currentArtifact.kind,
+            itemId: currentArtifact.itemId,
+            title: currentArtifact.title,
+            scopeSpaceId: currentArtifact.scopeSpaceId,
             sourceThreadId: serverThreadId,
           },
           targetKey,
         );
         if (matched && !cancelled && artifactKeyRef.current === targetKey) {
           pageAssistantThreads.set(targetKey, matched);
-          setBoundThreadsByKey((prev) => ({ ...prev, [targetKey]: matched }));
+          setBoundThreadsByKey((prev) =>
+            prev[targetKey] === matched ? prev : { ...prev, [targetKey]: matched },
+          );
         }
       } catch {
         // Endpoint may not exist on older server builds; local LRU stays authoritative.
@@ -457,7 +477,7 @@ export function SpaceCanvasChatDockHost(props: {
     return () => {
       cancelled = true;
     };
-  }, [artifact, artifactKey, primaryThreadId, threads]);
+  }, [artifactKey, primaryThreadId]);
 
   const persistPrimaryBinding = useCallback(
     (
@@ -467,7 +487,9 @@ export function SpaceCanvasChatDockHost(props: {
       force = false,
     ) => {
       pageAssistantThreads.set(key, threadId);
-      setBoundThreadsByKey((prev) => ({ ...prev, [key]: threadId }));
+      setBoundThreadsByKey((prev) =>
+        prev[key] === threadId ? prev : { ...prev, [key]: threadId },
+      );
       recordSpaceDockRecentThread({
         threadId,
         title: currentArtifact.title,
@@ -511,6 +533,23 @@ export function SpaceCanvasChatDockHost(props: {
       artifactKey ? (extraSidechatTabsByKey[artifactKey] ?? EMPTY_EXTRA_TABS) : EMPTY_EXTRA_TABS,
     [artifactKey, extraSidechatTabsByKey],
   );
+  // The panel's conversations render a full ChatView, which shows a conversation only once its
+  // detail has synced; that needs a detail lease, as split-view and right-dock panes hold.
+  // Without one the panel sat on 「正在加载对话」 for good.
+  const leasedThreadIds = useMemo(
+    () =>
+      [primaryThreadId, ...(dockState === "docked" ? extraTabs.map((tab) => tab.threadId) : [])]
+        .filter((id): id is ThreadId => id !== null)
+        .join(","),
+    [dockState, extraTabs, primaryThreadId],
+  );
+  useEffect(() => {
+    if (!leasedThreadIds) return;
+    const releases = leasedThreadIds
+      .split(",")
+      .map((id) => retainThreadDetailSubscription(id as ThreadId));
+    return () => releases.forEach((release) => release());
+  }, [leasedThreadIds]);
   const activeTabId =
     artifactKey && activeTabIdByKey[artifactKey] ? activeTabIdByKey[artifactKey]! : PRIMARY_PANE_ID;
   const activeTabThreadId: ThreadId | null =
@@ -573,29 +612,51 @@ export function SpaceCanvasChatDockHost(props: {
     writePersistedSpaceDockMode(next);
     if (next !== "collapsed") {
       setHasUnreadDot(false);
-      if (artifactKeyRef.current) {
-        const key = artifactKeyRef.current;
-        setMinimizedNoticeByKey((prev) => ({ ...prev, [key]: false }));
-      }
-    } else if (artifactKeyRef.current) {
-      const key = artifactKeyRef.current;
-      setMinimizedNoticeByKey((prev) => ({ ...prev, [key]: true }));
     }
   }, []);
+
+  // Esc closes the floating panel, as it closes any popover, when the key is not someone else's:
+  // focus is in the panel, on the 问 Moss toggle, or nowhere in particular.
+  useEffect(() => {
+    if (dockState !== "pip") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isImeComposingKeyEvent(event)) return;
+      const active = document.activeElement as HTMLElement | null;
+      const pip = pipSlotEl?.closest("[data-space-canvas-dock='pip']");
+      const ours =
+        !active ||
+        active === document.body ||
+        Boolean(pip?.contains(active)) ||
+        active.closest("[data-space-dock-toggle], [data-page-dock-toggle]") !== null;
+      if (!ours) return;
+      event.preventDefault();
+      setState("collapsed");
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [dockState, pipSlotEl, setState]);
 
   // Measure workspace container bounds for clamping PiP cleanly inside workspace.
   useEffect(() => {
     const element = props.containerRef.current;
     if (!element || typeof ResizeObserver === "undefined") {
       if (typeof window !== "undefined") {
-        setContainerBounds({ width: window.innerWidth, height: window.innerHeight });
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        setContainerBounds((prev) =>
+          prev.width === width && prev.height === height ? prev : { width, height },
+        );
       }
       return;
     }
     const update = () => {
       const rect = element.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        setContainerBounds({ width: Math.round(rect.width), height: Math.round(rect.height) });
+        const width = Math.round(rect.width);
+        const height = Math.round(rect.height);
+        setContainerBounds((prev) =>
+          prev.width === width && prev.height === height ? prev : { width, height },
+        );
       }
     };
     update();
@@ -649,24 +710,12 @@ export function SpaceCanvasChatDockHost(props: {
     }
   }, [activeTabId, dockState, dockedSlotEl, parkedSlotEl, pipSlotEl, portalHostEl]);
 
+  // A closed panel leaves nothing behind unless there is something to report: Moss is working,
+  // a request failed, or an answer came while the panel was closed.
   const showCollapsedPill = useMemo(() => {
     if (!artifact || dockState !== "collapsed") return false;
-    if (busy || failureRecovery !== null || elapsedSeconds > 0 || hasUnreadDot) return true;
-    if (artifactKey && minimizedNoticeByKey[artifactKey]) return true;
-    if (artifact.kind !== "page") return true;
-    return primaryThreadId !== null && Boolean(lastPromptSnippet);
-  }, [
-    artifact,
-    artifactKey,
-    busy,
-    dockState,
-    elapsedSeconds,
-    failureRecovery,
-    hasUnreadDot,
-    lastPromptSnippet,
-    minimizedNoticeByKey,
-    primaryThreadId,
-  ]);
+    return busy || failureRecovery !== null || hasUnreadDot;
+  }, [artifact, busy, dockState, failureRecovery, hasUnreadDot]);
 
   // Host insets listeners (Canvas/Docs/Sheets/Design bottom pills stay clear of the Dock).
   const insetListenersRef = useRef(new Set<(insets: SpaceCanvasHostInsets) => void>());
@@ -718,28 +767,43 @@ export function SpaceCanvasChatDockHost(props: {
         sourceThreadId: currentArtifact.sourceThreadId,
         revision: currentArtifact.revision,
       };
-      const existing = threads.resolveExistingArtifactThread(target, key);
+      const existing = threadsRef.current.resolveExistingArtifactThread(target, key);
       if (existing) {
         persistPrimaryBinding(key, currentArtifact, existing);
         return existing;
       }
-      const created = await threads.prepareArtifactAssistant(
-        target,
-        () => artifactKeyRef.current === key,
-        { key, title: currentArtifact.title },
-      );
-      if (created) {
-        persistPrimaryBinding(key, currentArtifact, created);
+      const inFlight = inFlightPrepareRef.current.get(key);
+      if (inFlight) return inFlight;
+
+      const flight = (async () => {
+        const created = await threadsRef.current.prepareArtifactAssistant(
+          target,
+          () => artifactKeyRef.current === key,
+          { key, title: currentArtifact.title },
+        );
+        if (created) {
+          persistPrimaryBinding(key, currentArtifact, created);
+        }
+        return created;
+      })();
+      inFlightPrepareRef.current.set(key, flight);
+      try {
+        return await flight;
+      } finally {
+        if (inFlightPrepareRef.current.get(key) === flight) {
+          inFlightPrepareRef.current.delete(key);
+        }
       }
-      return created;
     },
-    [persistPrimaryBinding, threads],
+    [persistPrimaryBinding],
   );
 
   // Prepare the primary companion thread immediately whenever PiP/Docked is open so the real
   // ChatView composer & history appear inside the single Portal right away.
   useEffect(() => {
     if (!artifact || !artifactKey || dockState === "collapsed" || primaryThreadId) return;
+    if (autoPreparedKeysRef.current.has(artifactKey)) return;
+    autoPreparedKeysRef.current.add(artifactKey);
     void ensurePrimaryThread(artifact, artifactKey);
   }, [artifact, artifactKey, dockState, ensurePrimaryThread, primaryThreadId]);
 
@@ -786,7 +850,7 @@ export function SpaceCanvasChatDockHost(props: {
         return;
       }
 
-      const agentReady = threads.describeArtifactAgent(target);
+      const agentReady = threadsRef.current.describeArtifactAgent(target);
       if (!agentReady) {
         // Fallback when no AI lane is configured/ready: prefill prompt + non-destructive notice.
         setPrefillPrompt(rawPrompt);
@@ -809,7 +873,7 @@ export function SpaceCanvasChatDockHost(props: {
       setElapsedSeconds(0);
       wasBusyRef.current = true;
       try {
-        const result = await threads.startArtifactAssistantTurn(
+        const result = await threadsRef.current.startArtifactAssistantTurn(
           target,
           { request: rawPrompt, context: contextBlock },
           isCurrentArtifact,
@@ -847,7 +911,6 @@ export function SpaceCanvasChatDockHost(props: {
       primaryThreadId,
       setSelection,
       setState,
-      threads,
     ],
   );
 
@@ -864,9 +927,13 @@ export function SpaceCanvasChatDockHost(props: {
         revision: artifact.revision,
       };
       void (async () => {
-        const created = await threads.createTemporaryArtifactSidechat(target, isCurrentArtifact, {
-          title: options?.title ?? `${artifact.title} · 临时对话`,
-        });
+        const created = await threadsRef.current.createTemporaryArtifactSidechat(
+          target,
+          isCurrentArtifact,
+          {
+            title: options?.title ?? `${artifact.title} · 临时对话`,
+          },
+        );
         if (!created || artifactKeyRef.current !== artifactKey) return;
         const nextTab: ExtraSidechatTab = {
           id: `sidechat-${created}`,
@@ -891,13 +958,13 @@ export function SpaceCanvasChatDockHost(props: {
         setActiveTabIdByKey((prev) => ({ ...prev, [artifactKey]: nextTab.id }));
       })();
     },
-    [artifact, artifactKey, isCurrentArtifact, setState, threads],
+    [artifact, artifactKey, isCurrentArtifact, setState],
   );
 
   const handleCreateFreshBoundThread = useCallback(async () => {
     if (!artifact || !artifactKey) return;
     pageAssistantThreads.forget(artifactKey);
-    const freshId = await threads.prepareArtifactAssistant(
+    const freshId = await threadsRef.current.prepareArtifactAssistant(
       {
         kind: artifact.kind,
         itemId: artifact.itemId,
@@ -913,7 +980,7 @@ export function SpaceCanvasChatDockHost(props: {
       persistPrimaryBinding(artifactKey, artifact, freshId, true);
       setActiveTabIdByKey((prev) => ({ ...prev, [artifactKey]: PRIMARY_PANE_ID }));
     }
-  }, [artifact, artifactKey, isCurrentArtifact, persistPrimaryBinding, threads]);
+  }, [artifact, artifactKey, isCurrentArtifact, persistPrimaryBinding]);
 
   const handleSelectRecentThread = useCallback(
     (threadId: ThreadId) => {
@@ -1149,6 +1216,40 @@ export function SpaceCanvasChatDockHost(props: {
     return map;
   }, [artifact, extraTabs]);
 
+  const primaryPipPane = useMemo(
+    () => (primaryThreadId ? makeSidechatDockPane(PRIMARY_PANE_ID, primaryThreadId) : null),
+    [primaryThreadId],
+  );
+
+  const handleDockedWidthChange = useCallback(
+    (next: number) => setDockedWidthPx((prev) => (prev === next ? prev : next)),
+    [],
+  );
+  const shouldAcceptRightDockWidth = useCallback(() => true, []);
+  const rightDockAddAction = useMemo(
+    () => ({
+      label: "新建临时对话",
+      onClick: () => openSideChatTab(),
+    }),
+    [openSideChatTab],
+  );
+  const handleSelectRightDockPane = useCallback((paneId: string) => {
+    const key = artifactKeyRef.current;
+    if (key) {
+      setActiveTabIdByKey((prev) => (prev[key] === paneId ? prev : { ...prev, [key]: paneId }));
+    }
+  }, []);
+  const handleCollapseDock = useCallback(() => setState("collapsed"), [setState]);
+  const handleRightDockOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open && dockState === "docked") {
+        setState("collapsed");
+      }
+    },
+    [dockState, setState],
+  );
+  const handleAddRightDockPane = useCallback(() => openSideChatTab(), [openSideChatTab]);
+
   const recentThreads = (() => {
     const list = readSpaceDockRecentThreads();
     if (!artifactKey) return list.slice(0, 6);
@@ -1216,9 +1317,9 @@ export function SpaceCanvasChatDockHost(props: {
         </div>
       ) : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {primaryThreadId ? (
+        {primaryPipPane ? (
           <SidechatDockPane
-            pane={makeSidechatDockPane(PRIMARY_PANE_ID, primaryThreadId)}
+            pane={primaryPipPane}
             runtimeMode="live"
             threadExists={primaryThreadExists}
             isFocusedPane={dockState !== "collapsed"}
@@ -1436,15 +1537,6 @@ export function SpaceCanvasChatDockHost(props: {
                   <IconButton
                     size="icon-xs"
                     variant="ghost"
-                    label="收起为状态条"
-                    tooltip="收起为状态条"
-                    onClick={() => setState("collapsed")}
-                  >
-                    <Minimize2 className="size-3.5" />
-                  </IconButton>
-                  <IconButton
-                    size="icon-xs"
-                    variant="ghost"
                     label="停靠到右侧分栏"
                     tooltip="停靠到右侧分栏"
                     onClick={() => setState("docked")}
@@ -1468,6 +1560,16 @@ export function SpaceCanvasChatDockHost(props: {
                       </MenuItem>
                     </ComposerPickerMenuPopup>
                   </Menu>
+                  <IconButton
+                    size="icon-xs"
+                    variant="ghost"
+                    label="关闭"
+                    tooltip="关闭"
+                    data-space-dock-close
+                    onClick={() => setState("collapsed")}
+                  >
+                    <XIcon className="size-3.5" />
+                  </IconButton>
                 </div>
               </div>
 
@@ -1494,7 +1596,7 @@ export function SpaceCanvasChatDockHost(props: {
             minWidth={SPACE_DOCK_RIGHT_COLLAPSE_THRESHOLD_PX}
             defaultWidth={420}
             preferredDefaultWidthPx={420}
-            shouldAcceptWidth={() => true}
+            shouldAcceptWidth={shouldAcceptRightDockWidth}
             widthStorageKey={SPACE_DOCK_PERSIST_KEYS.rightWidthRatio}
             containerMode="parent"
             mobileSheet={false}
@@ -1502,28 +1604,17 @@ export function SpaceCanvasChatDockHost(props: {
             windowControlsGutterClassName=""
             paneLabelOverrides={paneLabelOverrides}
             addMenuKinds={RIGHT_DOCK_ADD_MENU_KINDS}
-            addAction={{
-              label: "新建临时对话",
-              onClick: () => openSideChatTab(),
-            }}
+            addAction={rightDockAddAction}
             pinnedPaneIds={PINNED_PRIMARY_PANE_IDS}
             keepMountedPaneIds={PINNED_PRIMARY_PANE_IDS}
             tabCloseLockMs={SPACE_DOCK_TAB_CLOSE_LOCK_MS}
             collapseBelowMinWidthPx={SPACE_DOCK_RIGHT_COLLAPSE_THRESHOLD_PX}
-            onWidthChange={setDockedWidthPx}
-            onSelectPane={(paneId) => {
-              if (artifactKey) {
-                setActiveTabIdByKey((prev) => ({ ...prev, [artifactKey]: paneId }));
-              }
-            }}
+            onWidthChange={handleDockedWidthChange}
+            onSelectPane={handleSelectRightDockPane}
             onClosePane={handleRequestCloseDockedPane}
-            onCollapse={() => setState("collapsed")}
-            onOpenChange={(open) => {
-              if (!open && dockState === "docked") {
-                setState("collapsed");
-              }
-            }}
-            onAddPane={() => openSideChatTab()}
+            onCollapse={handleCollapseDock}
+            onOpenChange={handleRightDockOpenChange}
+            onAddPane={handleAddRightDockPane}
             headerExtraControls={
               <div className="flex items-center gap-0.5">
                 {activeTabThreadId ? (

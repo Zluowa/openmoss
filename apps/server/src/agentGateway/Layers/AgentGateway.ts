@@ -121,6 +121,7 @@ import { makeAgentGatewayMediaTools } from "../mediaTools.ts";
 import { conversationImageActivityCommands } from "../mediaImageActivities.ts";
 import { resolveMossCanvasWorkspace } from "../../mossCanvasWorkspace.ts";
 import { readMossCanvasSummary } from "../../mossCanvasSummary.ts";
+import { mutateMossCanvas } from "../../mossCanvasMutate.ts";
 import {
   installedMossMediaModels,
   mossMediaJobsServiceFor,
@@ -380,6 +381,49 @@ export const makeAgentGateway = Effect.gen(function* () {
                   }),
                 catch: (error) => error,
               });
+            }),
+          mutateCanvas: (request, credential, context) =>
+            Effect.gen(function* () {
+              yield* context.assertCallerTurnActive();
+              const workspace = yield* resolveMossCanvasWorkspace(request.threadId).pipe(
+                Effect.provideService(ProjectionSnapshotQuery, snapshotQuery),
+                Effect.provideService(ServerConfig, serverConfig),
+              );
+              yield* context.assertCallerTurnActive();
+              const result = yield* Effect.tryPromise({
+                try: () =>
+                  mutateMossCanvas({
+                    stateDirectory: serverConfig.stateDir,
+                    identity: credential,
+                    workspace,
+                    ops: request.ops,
+                    ...(request.title ? { title: request.title } : {}),
+                  }),
+                catch: (error) => error,
+              });
+              yield* context.assertCallerTurnActive();
+              const id = `agent:${randomUUID()}:canvas-update`;
+              yield* orchestrationEngine.dispatch({
+                type: "thread.activity.append",
+                commandId: CommandId.makeUnsafe(id),
+                threadId: ThreadId.makeUnsafe(request.threadId),
+                createdAt: isoNow(),
+                activity: {
+                  id: EventId.makeUnsafe(id),
+                  tone: "info",
+                  kind: "canvas.updated",
+                  summary: "Update conversation Whiteboard",
+                  payload: {
+                    source: "moss-mcp-canvas",
+                    threadId: request.threadId,
+                    revision: result.revision,
+                    open: request.open,
+                  },
+                  turnId: context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null,
+                  createdAt: isoNow(),
+                },
+              });
+              return result;
             }),
         })
       : [];

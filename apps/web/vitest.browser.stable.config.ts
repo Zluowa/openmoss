@@ -7,12 +7,17 @@ import browserConfig from "./vitest.browser.config";
  * built; `test:browser:page-editor` serves that bundle and runs it in CI's Desktop Build job.
  */
 export const PAGE_EDITOR_BROWSER_SPEC = "src/components/MossDataSpaceDestination.browser.tsx";
+export const PAGE_EDITOR_BROWSER_SPECS = [
+  PAGE_EDITOR_BROWSER_SPEC,
+  "src/components/MossDataSpaceBoardStability.browser.tsx",
+  "src/components/chat/RightDockWhiteboard.browser.tsx",
+] as const;
 
 export default mergeConfig(
   browserConfig,
   defineConfig({
     test: {
-      exclude: [...configDefaults.exclude, PAGE_EDITOR_BROWSER_SPEC],
+      exclude: [...configDefaults.exclude, ...PAGE_EDITOR_BROWSER_SPECS],
       testNamePattern: /^(?!.*\[geometry:linux\])/,
       browser: {
         fileParallelism: false,
