@@ -400,7 +400,6 @@ export function DesignInspector(props: {
           selected={props.tab}
           onSelect={props.onTab}
           testId="design-panel-tabs"
-          compact
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto" data-design-scrollable="">
