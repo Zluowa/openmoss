@@ -225,7 +225,7 @@ function PopoverTitle({
   return (
     <PopoverTitlePrimitive
       {...definedProps<object, ComponentProps<typeof PopoverTitlePrimitive>>(props)}
-      className={cn("font-semibold text-lg leading-none", className)}
+      className={cn("font-medium text-lg leading-none", className)}
       data-slot="popover-title"
     />
   );

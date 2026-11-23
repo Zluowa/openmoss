@@ -502,7 +502,7 @@ describe("translateMoss", () => {
   });
 
   it("localizes provider settings copy", () => {
-    expect(translateMoss("zh-CN", "settings.nav.providers.label")).toBe("模型账号");
+    expect(translateMoss("zh-CN", "settings.nav.providers.label")).toBe("模型与智能体");
     expect(translateMoss("zh-CN", "settings.providers.providerUpdates.title")).toBe("服务商更新");
     expect(translateMoss("en", "settings.providers.status.inDevelopment")).toBe("In development");
     expect(translateMoss("zh-CN", "settings.providers.status.inDevelopment")).toBe("开发中");

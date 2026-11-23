@@ -109,12 +109,15 @@ export function updateDesktopPreferences(
 function isPackagedDesktopExecutable(input: {
   readonly isPackaged?: boolean | undefined;
   readonly execPath?: string | undefined;
+  readonly platform: NodeJS.Platform;
 }): boolean {
   if (input.isPackaged !== true) {
     return false;
   }
   const execPath = input.execPath ?? process.execPath;
-  const executableName = Path.basename(execPath).toLowerCase();
+  // The target platform's path rules, so a Windows path is read the same on any host.
+  const pathRules = input.platform === "win32" ? Path.win32 : Path.posix;
+  const executableName = pathRules.basename(execPath).toLowerCase();
   // Dev/unpackaged binaries named electron(.exe) would register bare Electron instead of Moss.
   return executableName !== "electron" && executableName !== "electron.exe";
 }
@@ -130,7 +133,11 @@ export function isLoginItemSupported(input: {
     return false;
   }
   if (
-    !isPackagedDesktopExecutable({ isPackaged: input.app.isPackaged, execPath: input.execPath })
+    !isPackagedDesktopExecutable({
+      isPackaged: input.app.isPackaged,
+      execPath: input.execPath,
+      platform,
+    })
   ) {
     return false;
   }

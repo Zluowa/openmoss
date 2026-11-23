@@ -243,18 +243,16 @@ export function RemoteComputersSettingsPanel({ active }: { readonly active: bool
       data-testid="remote-computers-settings"
     >
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-ui-lg font-semibold">{t("settings.connections.remote.title")}</h2>
+        <h2 className="text-ui-lg font-medium">{t("settings.connections.remote.title")}</h2>
         <Button size="sm" className="rounded-full" disabled={!api} onClick={() => openPair()}>
           {t("settings.connections.remote.add")}
         </Button>
       </div>
-      <p className="text-ui text-muted-foreground">
-        {t(
-          api
-            ? "settings.connections.remote.description"
-            : "settings.connections.remote.desktopOnly",
-        )}
-      </p>
+      {api ? null : (
+        <p className="text-ui text-muted-foreground">
+          {t("settings.connections.remote.desktopOnly")}
+        </p>
+      )}
       {notice ? (
         <p role="status" className="text-ui text-muted-foreground">
           {t(notice)}

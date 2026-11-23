@@ -48,7 +48,6 @@ import {
   TERMINAL_FONT_FAMILY_SUGGESTIONS,
   useAppSettings,
 } from "~/appSettings";
-import { APP_VERSION } from "~/branding";
 import { AboutSettingsSection, KeybindingsFileRow } from "./AdvancedSettingsPanel";
 import { ComputerSettingsPanel } from "./ComputerSettingsPanel";
 import { PluginLibrary } from "~/components/PluginLibrary";
@@ -71,7 +70,6 @@ import { ImportSettingsPanel } from "./ImportSettingsPanel";
 import { ModelsSettingsPanel } from "./ModelsSettingsPanel";
 import { isProviderInstallSettingsDirty, ProvidersSettingsPanel } from "./ProvidersSettingsPanel";
 import { ProviderOptionLabel } from "~/components/ProviderIcon";
-import ReleaseHistoryDialog from "~/components/ReleaseHistoryDialog";
 import {
   KeyboardShortcutsResetButton,
   KeyboardShortcutsSettingsPanel,
@@ -379,7 +377,6 @@ export function SettingsContent({
   } = useAppSettings();
   const publishedAgentTheme = serverSettings?.agentTheme;
   const keepAwake = useKeepAwakeState();
-  const [releaseHistoryOpen, setReleaseHistoryOpen] = useState(false);
   const [resetEpoch, setResetEpoch] = useState(0);
   const platform = getNavigatorPlatform();
   const desktopFlavor = useMemo(
@@ -1009,7 +1006,7 @@ export function SettingsContent({
         defaultValue={defaults.errorReportsEnabled}
         onChange={(errorReportsEnabled) => updateSettings({ errorReportsEnabled })}
       />
-      <AboutSettingsSection onOpenReleaseHistory={() => setReleaseHistoryOpen(true)} />
+      <AboutSettingsSection />
     </div>
   );
 
@@ -1050,19 +1047,8 @@ export function SettingsContent({
           <ThemeModePicker value={theme} onValueChange={setTheme} ariaLabel="Theme preference" />
         </div>
 
-        <div className="space-y-3">
-          {(resolvedTheme === "dark"
-            ? (["dark", "light"] as const)
-            : (["light", "dark"] as const)
-          ).map((variant) => (
-            <ThemePackEditor
-              key={variant}
-              variant={variant}
-              isActive={resolvedTheme === variant}
-              mode={theme}
-            />
-          ))}
-        </div>
+        {/* One set of controls: the theme in use. Switch 浅色 / 深色 above to edit the other. */}
+        <ThemePackEditor key={resolvedTheme} variant={resolvedTheme} isActive={true} mode={theme} />
       </SettingsSectionShell>
 
       {isElectron ? (
@@ -1752,9 +1738,9 @@ export function SettingsContent({
   const pageTitle = t(settingsSectionTranslationKeys(activeSection).label);
   const pageDescription = t(settingsSectionTranslationKeys(activeSection).description);
   // Pages that draw their own header (Profile's hero, Plugins' title with its actions).
-  const pageOwnsHeader =
-    activeSection === "profile" || activeSection === "plugins" || activeSection === "providers";
+  const pageOwnsHeader = activeSection === "plugins" || activeSection === "providers";
   const pageHasNoDefaults =
+    activeSection === "profile" ||
     activeSection === "account" ||
     activeSection === "connections" ||
     activeSection === "computer-use" ||
@@ -1782,7 +1768,7 @@ export function SettingsContent({
             activeSection === "providers"
               ? "flex min-h-0 flex-1 flex-col overflow-hidden"
               : activeSection === "plugins"
-                ? "max-w-3xl px-3 pb-12"
+                ? "pb-12"
                 : "max-w-[46rem] px-8 pt-7 pb-12",
           )}
           data-settings-section={activeSection}
@@ -1858,12 +1844,6 @@ export function SettingsContent({
           </div>
         </div>
       </div>
-      {/* Mounted beside the scroller so the dialog portal is never clipped by it. */}
-      <ReleaseHistoryDialog
-        open={releaseHistoryOpen}
-        onOpenChange={setReleaseHistoryOpen}
-        defaultExpandedVersion={APP_VERSION}
-      />
     </div>
   );
 }

@@ -191,13 +191,16 @@ function ProfilePageShell({
 }) {
   return (
     <div className="flex min-h-full min-w-0 flex-col">
-      <div
-        className="sticky top-0 z-20 flex h-[46px] shrink-0 items-center justify-between bg-popover/95 backdrop-blur-sm"
-        data-testid="profile-page-toolbar"
-      >
-        <h1 className="text-sm font-normal text-foreground">{title}</h1>
-        {actions ?? <span />}
-      </div>
+      {actions ? (
+        <div
+          className="flex shrink-0 items-center justify-end"
+          data-testid="profile-page-toolbar"
+          role="toolbar"
+          aria-label={title}
+        >
+          {actions}
+        </div>
+      ) : null}
       {/* The sections need room between them: without it the sign-in button sat on the stat
           tiles and the month labels ran into the next heading. */}
       <div className="flex min-w-0 flex-col gap-8 pt-2 pb-8">{children}</div>
@@ -307,6 +310,10 @@ export function ProfileContent({
 
   // Tokens/day when available, prompts/day otherwise — shared with ShareCard.
   const heatmap = selectProfileHeatmap(stats, tokenStats);
+  // A turn that never ran (a failed first send, no tokens) is not use: streaks and "most used"
+  // stay empty until something actually ran. Unknown token history keeps the stats as they are.
+  const hasRealUse =
+    tokensPending || tokenStats === null || (tokenStats.lifetimeTotalTokens ?? 0) > 0;
   const topProvider = selectProfileTopProvider(stats, tokenStats);
   const modelUsage = selectProfileModelUsage(stats, tokenStats);
   const peakHourLabel = formatPeakHourLabel(stats.activeHours.startHour, locale);
@@ -432,11 +439,11 @@ export function ProfileContent({
         />
         <StatTile
           label={copy.stats.longestStreak}
-          value={formatDays(stats.activity.longestStreakDays, locale)}
+          value={hasRealUse ? formatDays(stats.activity.longestStreakDays, locale) : "—"}
         />
         <StatTile
           label={copy.stats.currentStreak}
-          value={formatDays(stats.activity.currentStreakDays, locale)}
+          value={hasRealUse ? formatDays(stats.activity.currentStreakDays, locale) : "—"}
         />
       </div>
 
@@ -516,7 +523,7 @@ export function ProfileContent({
             <InsightRow
               label={copy.sections.mostUsedProvider}
               value={
-                topProvider.provider
+                hasRealUse && topProvider.provider
                   ? `${formatProviderLabel(topProvider.provider)}${
                       topProvider.percent !== null
                         ? topProvider.metric === "tokens"
@@ -530,7 +537,7 @@ export function ProfileContent({
             <InsightRow
               label={copy.sections.mostUsedReasoning}
               value={
-                stats.insights.topReasoning
+                hasRealUse && stats.insights.topReasoning
                   ? `${capitalize(stats.insights.topReasoning)}${
                       stats.insights.topReasoningPercent !== null
                         ? ` · ${stats.insights.topReasoningPercent}%`
@@ -539,7 +546,10 @@ export function ProfileContent({
                   : "—"
               }
             />
-            <InsightRow label={copy.sections.mostActiveHour} value={peakHourLabel} />
+            <InsightRow
+              label={copy.sections.mostActiveHour}
+              value={hasRealUse ? peakHourLabel : "—"}
+            />
             <InsightRow
               label={copy.sections.skillsExplored}
               value={formatNumber(stats.insights.skillsExplored)}
@@ -596,7 +606,7 @@ export function ProfileContent({
             ? copy.sections.shareOfTokens
             : copy.sections.shareOfTurns}
         </p>
-        {modelUsage.entries.length > 0 ? (
+        {hasRealUse && modelUsage.entries.length > 0 ? (
           <ul className="grid grid-cols-1 gap-x-12 gap-y-3 sm:grid-cols-2">
             {modelUsage.entries.slice(0, 8).map((entry) => (
               <ModelUsageRow
@@ -608,7 +618,7 @@ export function ProfileContent({
                     <CentralIcon name="chart-2" className="size-4 shrink-0 text-muted-foreground" />
                   )
                 }
-                model={entry.model}
+                model={capitalize(entry.model)}
                 percent={entry.percent}
               />
             ))}

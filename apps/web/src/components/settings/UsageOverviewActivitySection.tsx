@@ -168,10 +168,6 @@ export function UsageOverviewActivitySection({
         </div>
       }
     >
-      <p className="-mt-1 px-2 text-ui-sm text-muted-foreground">
-        {t("settings.usage.activity.subtitle")}
-      </p>
-
       {analyticsQuery.isPending && !view ? (
         <SettingsCard divided={false}>
           <div
@@ -214,9 +210,6 @@ export function UsageOverviewActivitySection({
           <div className="space-y-1 px-4 py-5" data-testid="usage-overview-activity-empty">
             <p className="text-ui font-medium text-foreground">
               {formatText("settings.usage.activity.emptyTitle", { days: rangeDays })}
-            </p>
-            <p className="text-ui-sm text-muted-foreground">
-              {t("settings.usage.activity.emptyDescription")}
             </p>
           </div>
         </SettingsCard>

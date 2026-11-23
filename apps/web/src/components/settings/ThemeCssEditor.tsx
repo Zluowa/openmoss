@@ -131,7 +131,8 @@ export function ThemeCssEditor({
       </div>
       <div className="flex items-start justify-between gap-2">
         <div id={hintId} className="space-y-1 text-ui-sm text-muted-foreground">
-          <p>
+          {/* Read by screen readers only: the keys are the same as any code box. */}
+          <p className="sr-only">
             {tabIndents
               ? "Tab indents. Shift+Tab unindents. Press Escape, then Tab to leave."
               : "Tab moves to the next control."}

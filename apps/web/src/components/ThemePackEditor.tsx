@@ -75,11 +75,7 @@ const EDITOR_TEXT_ACTION_CLASS_NAME = cn(
   ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
 );
 
-export function ThemePackEditor({
-  variant,
-  isActive: isActiveProp,
-  mode: modeProp,
-}: ThemePackEditorProps) {
+export function ThemePackEditor({ variant, isActive: isActiveProp }: ThemePackEditorProps) {
   const {
     darkTheme,
     lightTheme,
@@ -88,10 +84,8 @@ export function ThemePackEditor({
     isDefaultThemePack,
     resetThemeVariant,
     setCodeThemeId,
-    setTheme,
     setThemeCss,
     resolvedTheme,
-    theme: themeMode,
     systemUiFont,
     desktopBlurUnavailable,
     setWindowTranslucency,
@@ -100,7 +94,6 @@ export function ThemePackEditor({
     updateThemeFonts,
   } = useTheme();
   const isActive = isActiveProp ?? resolvedTheme === variant;
-  const mode = modeProp ?? themeMode;
 
   const pack = variant === "dark" ? darkTheme : lightTheme;
   const theme = pack.theme;
@@ -123,13 +116,6 @@ export function ThemePackEditor({
   const codeThemeLabel = resolveCodeThemeLabel(pack.codeThemeId, locale);
   const isPristine = isDefaultThemePack(variant);
   const titleLabel = variant === "dark" ? "Dark theme" : "Light theme";
-  const contextLabel = isActive
-    ? mode === "system"
-      ? `System is currently using this ${variant} slot.`
-      : "This is the active theme right now."
-    : mode === "system"
-      ? `Used when your system switches to ${variant}.`
-      : `Inactive while the app is locked to ${mode}.`;
 
   const handleCopy = async () => {
     try {
@@ -216,15 +202,6 @@ export function ThemePackEditor({
             </SettingsSelectPopup>
           </Select>
         </div>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 pb-3 text-ui-sm text-[var(--color-text-foreground-secondary)]">
-        <span>{contextLabel}</span>
-        {!isActive ? (
-          <Button variant="outline" size="xs" onClick={() => setTheme(variant)}>
-            {/* One string, so it translates as a whole (pieces read 使用 深色 主题). */}
-            {variant === "dark" ? "Use dark theme" : "Use light theme"}
-          </Button>
-        ) : null}
       </div>
       <div className="border-b border-[color:var(--color-border)] px-4 pb-3">
         <div
@@ -508,10 +485,6 @@ function ThemeCssSection({
       </ThemeRow>
       <DisclosureRegion open={open}>
         <div className="space-y-2 border-t border-[color:var(--color-border)] px-4 py-3">
-          <p className="text-ui-sm leading-snug text-muted-foreground">
-            Applies after Moss's own styles while this theme is in use. It cannot load files from
-            other sites or add text.
-          </p>
           <ThemeCssEditor
             value={value}
             ariaLabel={`${titleLabel} custom CSS editor`}
@@ -663,7 +636,6 @@ function ColorPill({
   const previewColor =
     normalizedDraftHex && HEX_COLOR_RE.test(normalizedDraftHex) ? normalizedDraftHex : color;
   const inputValue = draftHex ?? color;
-  const textColor = useReadableTextColor(previewColor);
   const ringColor = useReadableTextColor(previewColor, 0.32);
 
   useEffect(() => {
@@ -747,24 +719,15 @@ function ColorPill({
           render={
             <button
               type="button"
-              className={cn(
-                SETTINGS_CONTROL_RADIUS_CLASS_NAME,
-                "group relative flex h-8 min-w-44 items-center gap-2 overflow-hidden border px-2 pr-3 text-left transition-[transform,box-shadow] hover:scale-[1.005] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-              )}
+              className="block size-7 shrink-0 rounded-full border transition-transform duration-120 ease-snap hover:scale-105 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 motion-reduce:transition-none"
               // borderColor rides the readable color so a near-white fill still shows
               // a crisp edge against the (also near-white) settings card.
-              style={{ backgroundColor: previewColor, color: textColor, borderColor: ringColor }}
+              style={{ backgroundColor: previewColor, borderColor: ringColor }}
               aria-label={ariaLabel}
+              data-theme-color-swatch=""
             />
           }
-        >
-          <span
-            aria-hidden
-            className="block size-5 shrink-0 rounded-full border"
-            style={{ borderColor: ringColor }}
-          />
-          <span className="font-system-ui flex-1 text-ui uppercase">{previewColor}</span>
-        </PopoverTrigger>
+        />
         <PopoverPopup
           align="end"
           side="bottom"

@@ -351,7 +351,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
       data-testid="ssh-connections-settings"
     >
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-ui-lg font-semibold">{t("settings.ssh.fromThisComputer")}</h2>
+        <h2 className="text-ui-lg font-medium">{t("settings.ssh.fromThisComputer")}</h2>
         {connections.length > 0 ? (
           <Button className="rounded-full" size="sm" disabled={!api} onClick={openPicker}>
             {t("settings.ssh.addShort")}
