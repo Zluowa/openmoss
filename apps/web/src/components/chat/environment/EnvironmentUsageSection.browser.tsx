@@ -303,21 +303,21 @@ describe("EnvironmentUsageSection", () => {
     const queryClient = createQueryClient();
     queryClient.setQueryData(serverQueryKeys.allProviderUsage(), [
       snapshot(
-        "droid",
+        "cursor",
         [],
-        [{ label: "Limits", value: "Remaining limits stay in the Droid CLI." }],
+        [{ label: "Limits", value: "Remaining limits stay in the Cursor CLI." }],
       ),
     ]);
     queryClient.setQueryData(serverQueryKeys.settings(), DEFAULT_SERVER_SETTINGS_VIEW);
 
     await render(
       <QueryClientProvider client={queryClient}>
-        <EnvironmentUsageSection provider="droid" />
+        <EnvironmentUsageSection provider="cursor" />
       </QueryClientProvider>,
     );
 
     await expect
-      .element(page.getByRole("button", { name: "Droid usage: Connected" }))
+      .element(page.getByRole("button", { name: "Cursor usage: Connected" }))
       .toBeVisible();
   });
 

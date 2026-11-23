@@ -487,6 +487,53 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
     await expect.poll(() => collapsedSpy.mock.calls.length).toBe(1);
   });
 
+  it("closes the floating 问 Moss panel with × and with Esc, and leaves no pill behind", async () => {
+    function CloseHarness() {
+      const containerRef = useRef<HTMLDivElement | null>(null);
+      return (
+        <div ref={containerRef} style={{ width: 1200, height: 800, position: "relative" }}>
+          <SpaceCanvasChatDockHost
+            artifact={{
+              kind: "sheet",
+              itemId: "sheet-1",
+              title: "预算表",
+              scopeSpaceId: null,
+              account: "acct-1",
+            }}
+            containerRef={containerRef}
+            keepItemOpen
+          >
+            {(dock) => (
+              <div className="flex flex-1 flex-col items-start gap-2 p-4">
+                <span data-testid="dock-mode">{dock.state}</span>
+                <Button size="xs" data-space-dock-toggle onClick={() => dock.setState("pip")}>
+                  问 Moss
+                </Button>
+              </div>
+            )}
+          </SpaceCanvasChatDockHost>
+        </div>
+      );
+    }
+    await mountWithProviders(() => <CloseHarness />);
+    const panel = () => document.querySelector<HTMLElement>("[data-space-canvas-dock='pip']");
+    const pill = () => document.querySelector<HTMLElement>("[data-space-canvas-dock='collapsed']");
+    // Opened and closed with ×.
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
+    await expect.poll(() => panel()?.getBoundingClientRect().width ?? 0).toBeGreaterThan(200);
+    await userEvent.click(page.getByRole("button", { name: "关闭", exact: true }));
+    await expect.element(page.getByTestId("dock-mode")).toHaveTextContent("collapsed");
+    expect(panel()).toBeNull();
+    expect(pill(), "nothing is left floating over the item").toBeNull();
+    // Opened again and closed with Esc while focus stays on the toggle.
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
+    await expect.poll(() => panel()?.getBoundingClientRect().width ?? 0).toBeGreaterThan(200);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByTestId("dock-mode")).toHaveTextContent("collapsed");
+    expect(panel()).toBeNull();
+    expect(pill()).toBeNull();
+  });
+
   it("keeps dock.setSelection and registerHostInsets idempotent across child useEffect([dock]) re-renders", async () => {
     let effectRuns = 0;
 

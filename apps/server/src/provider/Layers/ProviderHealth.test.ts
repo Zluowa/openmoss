@@ -117,7 +117,7 @@ import { buildMossManagedAcpAgentProviderInstance } from "../mossManagedAcpAgent
 import { resolvePackageManagedProviderMaintenance } from "../providerMaintenance";
 import { DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND } from "../devinWindowsUpdate";
 import { providerIsolatedHomePath } from "../providerProcessEnv.ts";
-import { PROVIDER_NOT_INSTALLED_READINESS } from "../providerReadiness.ts";
+import { deriveProviderReadiness, PROVIDER_NOT_INSTALLED_READINESS } from "../providerReadiness.ts";
 import * as AgentCliPathFloor from "../agentCliPathFloor.ts";
 
 // ── Test helpers ────────────────────────────────────────────────────
@@ -5695,7 +5695,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       );
     });
 
-    it.effect("returns ready with auth guidance when no Devin API key is set", () => {
+    it.effect("asks for sign-in, not 'connected', when no Devin API key is set", () => {
       const previousWindsurfKey = process.env.WINDSURF_API_KEY;
       const previousDevinKey = process.env.DEVIN_API_KEY;
       delete process.env.WINDSURF_API_KEY;
@@ -5706,7 +5706,11 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const status = yield* makeCheckDevinProviderStatus(undefined, async () => undefined);
         assert.strictEqual(status.status, "ready");
         assert.strictEqual(status.available, true);
-        assert.strictEqual(status.authStatus, "unknown");
+        assert.strictEqual(status.authStatus, "unauthenticated");
+        assert.deepStrictEqual(deriveProviderReadiness(status), {
+          state: "needsLogin",
+          reason: "agent-sign-in",
+        });
         assert.match(status.message ?? "", /devin auth login|WINDSURF_API_KEY/u);
       }).pipe(
         Effect.provide(
@@ -6323,6 +6327,113 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           );
           assert.strictEqual(updatedStatus?.version, "3000.14.30821");
           assert.strictEqual(updatedStatus?.updateState?.status, "succeeded");
+        }).pipe(Effect.scoped),
+    );
+
+    it.effect(
+      "says a failed Devin Windows update in one sentence and keeps the updater output out of it",
+      () =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "devin-win-update-failed-" });
+          const cacheDir = join(tempDir, "devin", "cli");
+          const binDir = join(cacheDir, "bin");
+          mkdirSync(binDir, { recursive: true });
+          const exePath = join(binDir, "devin.exe");
+          writeFileSync(exePath, "old-devin-binary");
+          writeFileSync(join(cacheDir, "cached_version.json"), '{"latest":"3000.14.30821"}\n');
+
+          const pathKey =
+            Object.keys(process.env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+          const prevPath = process.env[pathKey];
+          const prevLocalAppData = process.env.LOCALAPPDATA;
+          const prevXdgDataHome = process.env.XDG_DATA_HOME;
+          delete process.env.PATH;
+          process.env[pathKey] = binDir;
+          process.env.LOCALAPPDATA = tempDir;
+          process.env.XDG_DATA_HOME = tempDir;
+          resetLocalAgentPathLookupCache();
+
+          const realFetch = globalThis.fetch;
+          globalThis.fetch = (async () => {
+            throw new TypeError("offline");
+          }) as unknown as typeof fetch;
+
+          yield* Effect.addFinalizer(() =>
+            Effect.sync(() => {
+              globalThis.fetch = realFetch;
+              delete process.env[pathKey];
+              if (prevPath !== undefined) process.env.PATH = prevPath;
+              if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+              else process.env.LOCALAPPDATA = prevLocalAppData;
+              if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+              else process.env.XDG_DATA_HOME = prevXdgDataHome;
+              resetLocalAgentPathLookupCache();
+            }),
+          );
+
+          const settings = {
+            ...allProvidersDisabledServerSettings,
+            providers: {
+              ...allProvidersDisabledServerSettings.providers,
+              devin: {
+                ...DEFAULT_SERVER_SETTINGS.providers.devin,
+                enabled: true,
+                binaryPath: exePath,
+              },
+            },
+          } satisfies typeof DEFAULT_SERVER_SETTINGS;
+
+          let installedVersion = "3000.11.3";
+          const spawnedCommands: Array<string> = [];
+          const nativeCalls: Array<{ readonly binaryPath: string }> = [];
+
+          const spawnerLayer = Layer.succeed(
+            ChildProcessSpawner.ChildProcessSpawner,
+            ChildProcessSpawner.make((command) => {
+              const cmd = command as unknown as { command: string; args: ReadonlyArray<string> };
+              spawnedCommands.push([cmd.command, ...cmd.args].join(" "));
+              if (cmd.args.includes("--version")) {
+                return Effect.succeed(
+                  mockHandle({ stdout: `devin ${installedVersion}\n`, stderr: "", code: 0 }),
+                );
+              }
+              return Effect.succeed(mockHandle({ stdout: "", stderr: "", code: 0 }));
+            }),
+          );
+
+          const layer = makeProviderHealthLive({
+            platform: "win32",
+            updateDevinWindowsNative: async (input) => {
+              nativeCalls.push({ binaryPath: input.binaryPath });
+              // The owner's 11-23 dialog showed text like this in red.
+              throw new Error(
+                "Devin download failed with HTTP 503 from https://static.devin.ai/cli/x86_64-pc-windows/devin.zip after 3 attempts",
+              );
+            },
+          }).pipe(
+            Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+            Layer.provideMerge(ServerConfig.layerTest(process.cwd(), tempDir)),
+            Layer.provideMerge(spawnerLayer),
+          );
+
+          const { initialStatus, updatedStatus } = yield* Effect.gen(function* () {
+            const health = yield* ProviderHealth;
+            const before = yield* health.refresh;
+            const after = yield* health.updateProvider({ provider: "devin" });
+            return {
+              initialStatus: before.find((status) => status.provider === "devin"),
+              updatedStatus: after.providers.find((status) => status.provider === "devin"),
+            };
+          }).pipe(Effect.provide(layer));
+
+          assert.strictEqual(nativeCalls.length, 1);
+          assert.strictEqual(updatedStatus?.updateState?.status, "failed");
+          assert.strictEqual(
+            updatedStatus?.updateState?.message,
+            "Moss could not download the update. Check your network, then try again.",
+          );
+          assert.strictEqual(initialStatus?.provider, "devin");
         }).pipe(Effect.scoped),
     );
 

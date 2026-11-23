@@ -20,6 +20,11 @@ export default mergeConfig(
       // PC still pass an explicit --maxWorkers.
       maxWorkers: availableParallelism(),
       env: {
+        // One time zone everywhere, as on mirror CI: package-channel defaults follow the host's zone
+        // (mainland China picks the domestic mirrors), so a run on a machine set to Asia/Shanghai
+        // took different registries and reached real mirror URLs. Zone-specific behaviour is
+        // tested with an explicit timeZone (providerPackageChannel.test.ts).
+        TZ: "UTC",
         // Tests that fake a user profile without AppData\Local make Windows PowerShell
         // write its module cache relative to the working directory, i.e. into the repo.
         PSModuleAnalysisCachePath: path.join(

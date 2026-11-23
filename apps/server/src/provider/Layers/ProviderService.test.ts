@@ -629,7 +629,7 @@ function makeProviderServiceLayer(
   options?: Parameters<typeof makeProviderServiceLive>[0],
   providers?: {
     readonly freshRuntimeEventDelivery?: boolean;
-    readonly includeRestartRollbackDroid?: boolean;
+    readonly includeRestartRollbackGrok?: boolean;
     readonly includePi?: boolean;
     readonly includeOpenCode?: boolean;
     readonly getByInstance?: NonNullable<typeof ProviderAdapterRegistry.Service.getByInstance>;
@@ -655,7 +655,7 @@ function makeProviderServiceLayer(
   });
   const claude = makeFakeCodexAdapter("claudeAgent");
   const antigravity = makeFakeCodexAdapter("antigravity");
-  const droid = makeFakeCodexAdapter("droid", { conversationRollback: "restart-session" });
+  const grok = makeFakeCodexAdapter("grok", { conversationRollback: "restart-session" });
   const pi = makeFakeCodexAdapter("pi");
   const openCode = makeFakeCodexAdapter("opencode");
   const registry: typeof ProviderAdapterRegistry.Service = {
@@ -666,8 +666,8 @@ function makeProviderServiceLayer(
           ? Effect.succeed(claude.adapter)
           : provider === "antigravity"
             ? Effect.succeed(antigravity.adapter)
-            : provider === "droid" && providers?.includeRestartRollbackDroid === true
-              ? Effect.succeed(droid.adapter)
+            : provider === "grok" && providers?.includeRestartRollbackGrok === true
+              ? Effect.succeed(grok.adapter)
               : provider === "pi" && providers?.includePi === true
                 ? Effect.succeed(pi.adapter)
                 : provider === "opencode" && providers?.includeOpenCode === true
@@ -678,7 +678,7 @@ function makeProviderServiceLayer(
         "codex",
         "claudeAgent",
         "antigravity",
-        ...(providers?.includeRestartRollbackDroid === true ? (["droid"] as const) : []),
+        ...(providers?.includeRestartRollbackGrok === true ? (["grok"] as const) : []),
         ...(providers?.includePi === true ? (["pi"] as const) : []),
         ...(providers?.includeOpenCode === true ? (["opencode"] as const) : []),
       ] as const),
@@ -692,11 +692,11 @@ function makeProviderServiceLayer(
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
   const serverSettingsLayer = ServerSettingsService.layerTest({
     ...(providers?.providerInstances ? { providerInstances: providers.providerInstances } : {}),
-    ...(providers?.includeRestartRollbackDroid === true
+    ...(providers?.includeRestartRollbackGrok === true
       ? {
           providers: {
             ...DEFAULT_SERVER_SETTINGS.providers,
-            droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: true },
+            grok: { ...DEFAULT_SERVER_SETTINGS.providers.grok, enabled: true },
           },
         }
       : {}),
@@ -719,7 +719,7 @@ function makeProviderServiceLayer(
     codex,
     claude,
     antigravity,
-    droid,
+    grok,
     pi,
     openCode,
     layer,
@@ -866,7 +866,7 @@ const rotationRetry = makeProviderServiceLayer({
   runtimeEventRetryMaxDelayMs: 1,
 });
 const restartRollbackRouting = makeProviderServiceLayer(undefined, {
-  includeRestartRollbackDroid: true,
+  includeRestartRollbackGrok: true,
 });
 const piInteractionRouting = makeProviderServiceLayer(undefined, { includePi: true });
 const adapterConfirmedFreshRouting = makeProviderServiceLayer(undefined, {
@@ -8399,10 +8399,10 @@ restartRollbackRouting.layer("ProviderServiceLive restart-based rollback", (it) 
     Effect.gen(function* () {
       const provider = yield* ProviderService;
       const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-droid-interaction-generation");
+      const threadId = asThreadId("thread-grok-interaction-generation");
 
       yield* provider.startSession(threadId, {
-        provider: "droid",
+        provider: "grok",
         threadId,
         cwd: "/tmp/project",
         runtimeMode: "approval-required",
@@ -8411,11 +8411,11 @@ restartRollbackRouting.layer("ProviderServiceLive restart-based rollback", (it) 
       const lifecycleGeneration = binding?.lifecycleGeneration;
       assert.equal(typeof lifecycleGeneration, "string");
 
-      const responseCallCount = restartRollbackRouting.droid.respondToRequest.mock.calls.length;
+      const responseCallCount = restartRollbackRouting.grok.respondToRequest.mock.calls.length;
       const missingGeneration = yield* Effect.result(
         provider.respondToRequest({
           threadId,
-          requestId: asRequestId("droid-approval-without-generation"),
+          requestId: asRequestId("grok-approval-without-generation"),
           decision: "accept",
         }),
       );
@@ -8424,55 +8424,57 @@ restartRollbackRouting.layer("ProviderServiceLive restart-based rollback", (it) 
         new ProviderValidationError({
           operation: "ProviderService.respondToRequest",
           issue:
-            "Cannot respond to request 'droid-approval-without-generation' without its provider lifecycle generation.",
+            "Cannot respond to request 'grok-approval-without-generation' without its provider lifecycle generation.",
         }),
       );
       assert.equal(
-        restartRollbackRouting.droid.respondToRequest.mock.calls.length,
+        restartRollbackRouting.grok.respondToRequest.mock.calls.length,
         responseCallCount,
       );
 
       yield* provider.respondToRequest({
         threadId,
-        requestId: asRequestId("droid-approval-current-generation"),
+        requestId: asRequestId("grok-approval-current-generation"),
         lifecycleGeneration,
         decision: "accept",
       });
       assert.equal(
-        restartRollbackRouting.droid.respondToRequest.mock.calls.length,
+        restartRollbackRouting.grok.respondToRequest.mock.calls.length,
         responseCallCount + 1,
       );
 
       yield* provider.stopSession({ threadId });
-      restartRollbackRouting.droid.startSession.mockClear();
-      restartRollbackRouting.droid.respondToRequest.mockClear();
-      restartRollbackRouting.droid.stopSession.mockClear();
+      restartRollbackRouting.grok.startSession.mockClear();
+      restartRollbackRouting.grok.respondToRequest.mockClear();
+      restartRollbackRouting.grok.stopSession.mockClear();
     }),
   );
 
-  it.effect("clears Droid's native cursor instead of reporting a fake rewind", () =>
-    Effect.gen(function* () {
-      const provider = yield* ProviderService;
-      const directory = yield* ProviderSessionDirectory;
-      const threadId = asThreadId("thread-droid-restart-rollback");
-      const session = yield* provider.startSession(threadId, {
-        provider: "droid",
-        threadId,
-        cwd: "/tmp/project",
-        runtimeMode: "full-access",
-      });
+  it.effect(
+    "clears a restart-session provider's native cursor instead of reporting a fake rewind",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const directory = yield* ProviderSessionDirectory;
+        const threadId = asThreadId("thread-grok-restart-rollback");
+        const session = yield* provider.startSession(threadId, {
+          provider: "grok",
+          threadId,
+          cwd: "/tmp/project",
+          runtimeMode: "full-access",
+        });
 
-      yield* provider.rollbackConversation({ threadId, numTurns: 1 });
+        yield* provider.rollbackConversation({ threadId, numTurns: 1 });
 
-      assert.equal(restartRollbackRouting.droid.rollbackThread.mock.calls.length, 0);
-      assert.deepEqual(restartRollbackRouting.droid.stopSession.mock.calls, [[session.threadId]]);
-      const binding = yield* directory.getBinding(threadId);
-      assert.equal(Option.isSome(binding), true);
-      if (Option.isSome(binding)) {
-        assert.equal(binding.value.status, "stopped");
-        assert.equal(binding.value.resumeCursor, null);
-      }
-    }),
+        assert.equal(restartRollbackRouting.grok.rollbackThread.mock.calls.length, 0);
+        assert.deepEqual(restartRollbackRouting.grok.stopSession.mock.calls, [[session.threadId]]);
+        const binding = yield* directory.getBinding(threadId);
+        assert.equal(Option.isSome(binding), true);
+        if (Option.isSome(binding)) {
+          assert.equal(binding.value.status, "stopped");
+          assert.equal(binding.value.resumeCursor, null);
+        }
+      }),
   );
 });
 
