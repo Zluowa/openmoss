@@ -486,7 +486,7 @@ function PluginPageSection({
   return (
     <section className="flex flex-col gap-4" data-plugin-detail-section={kind}>
       <div className="flex items-center justify-between gap-3 border-b border-border/50 pb-2 pr-0.5 pl-2 text-foreground">
-        <h2 className="flex min-h-7 items-center gap-1.5 text-[16px] font-semibold leading-6">
+        <h2 className="flex min-h-7 items-center gap-1.5 text-[16px] font-medium leading-6">
           {title}
           {count === undefined ? null : (
             <span className="font-normal text-muted-foreground" data-plugin-detail-count={kind}>
@@ -715,9 +715,7 @@ function PluginSkillPreviewDialog({
               </p>
             ) : null}
           </div>
-          <h3 className="pt-1 text-[16px] font-semibold leading-6">
-            {t("plugins.section.skills")}
-          </h3>
+          <h3 className="pt-1 text-[16px] font-medium leading-6">{t("plugins.section.skills")}</h3>
         </div>
         <div className="px-6 pt-3">
           <ScrollArea className="max-h-[min(52vh,460px)] rounded-card border border-border/70 bg-muted/20">

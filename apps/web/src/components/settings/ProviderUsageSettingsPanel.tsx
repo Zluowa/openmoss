@@ -353,7 +353,8 @@ function ProviderUsageCard({
   const hasUsage = meterRows.length > 0 || usageLines.length > 0 || hasResetCredits;
   const pill = status === "ok" ? null : statusPill(snapshot.status, t);
   const hasVisibleStatus = Boolean((status === "ok" && snapshot.planName) || pill);
-  const showsStatusDescription = status !== "ok" || !hasUsage;
+  // An account that cannot report usage says so in its badge; no sentence about runtimes under it.
+  const showsStatusDescription = status !== "unsupported" && (status !== "ok" || !hasUsage);
   const describedBy = [
     hasVisibleStatus ? statusId : null,
     showsStatusDescription ? descriptionId : null,
@@ -427,13 +428,13 @@ function ProviderUsageCard({
               />
             ) : null}
           </>
-        ) : (
+        ) : showsStatusDescription ? (
           <p id={descriptionId} className="text-ui-sm leading-relaxed text-muted-foreground">
             {status === "ok"
               ? t("settings.usage.noData")
               : (snapshot.detail ?? providerUsageNeedsAuthDetail(provider))}
           </p>
-        )}
+        ) : null}
       </div>
     </SettingsCard>
   );
@@ -570,9 +571,6 @@ export function ProviderUsageSettingsPanel({
             </Button>
           }
         >
-          <p className="-mt-1 px-2 text-ui-sm leading-relaxed text-muted-foreground">
-            {t("settings.usage.personal.subtitle")}
-          </p>
           {showInitialLoading ? (
             <SettingsCard>
               <div className="px-4 py-3.5 text-ui leading-snug text-muted-foreground">
