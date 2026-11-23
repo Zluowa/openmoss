@@ -63,6 +63,56 @@ describe("feature menu", () => {
       .not.toBeInTheDocument();
   });
 
+  it("draws a pinned row's pin in the same outline weight as an unpinned one (walk R-8)", async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <AppRailMoreMenu
+          open={open}
+          onOpenChange={setOpen}
+          onCustomize={() => {}}
+          destinations={[
+            {
+              key: "images",
+              label: "Images",
+              icon: PluginIcon,
+              onSelect: () => {},
+              pinned: true,
+              onTogglePin: () => {},
+            },
+            {
+              key: "tasks",
+              label: "Tasks",
+              icon: PluginIcon,
+              onSelect: () => {},
+              pinned: false,
+              onTogglePin: () => {},
+            },
+          ]}
+          plugins={[]}
+          utilities={[]}
+        />
+      );
+    }
+    const screen = await render(<Harness />);
+    try {
+      await page.getByRole("button", { name: "More", exact: true }).click();
+      const glyph = (name: string) =>
+        page
+          .getByRole("menuitem", { name, exact: true })
+          .element()
+          .querySelector("[data-slot=central-icon]")
+          ?.getAttribute("style") ?? "";
+      expect(glyph("Unpin from sidebar: Images")).toContain("central-icons-reversed");
+      expect(glyph("Unpin from sidebar: Images")).toBe(glyph("Pin to sidebar: Tasks"));
+      // No plugins: no group label and no placeholder sentence under it.
+      expect(page.getByText("Common plugins").elements()).toHaveLength(0);
+      expect(page.getByText("Installed plugins appear here.").elements()).toHaveLength(0);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("adds and removes projects as rail shortcuts from a submenu", async () => {
     function Harness() {
       const [open, setOpen] = useState(false);

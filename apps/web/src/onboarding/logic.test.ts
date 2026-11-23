@@ -14,7 +14,6 @@ import {
   toggleSelection,
   exampleProjectPath,
 } from "./logic";
-import { tourCardsForPlatform } from "./tourContent";
 
 const COMPLETED_AT = "2026-09-07T00:00:00.000Z";
 const NOW = "2026-09-08T00:00:00.000Z";
@@ -39,15 +38,15 @@ const RECONCILE_BASE = {
 
 describe("onboarding steps", () => {
   it("clamps navigation at both ends", () => {
-    expect(nextOnboardingStep("welcome")).toBe("tour");
+    // One short welcome, then setup: no tour page in between (walk 2026-11-24, D-7).
+    expect(nextOnboardingStep("welcome")).toBe("providers");
     expect(nextOnboardingStep("done")).toBe("done");
-    expect(previousOnboardingStep("tour")).toBe("welcome");
+    expect(previousOnboardingStep("providers")).toBe("welcome");
     expect(previousOnboardingStep("welcome")).toBe("welcome");
   });
 
   it("treats everything after the tour as a setup step", () => {
     expect(isOnboardingSetupStep("welcome")).toBe(false);
-    expect(isOnboardingSetupStep("tour")).toBe(false);
     expect(isOnboardingSetupStep("providers")).toBe(true);
     expect(isOnboardingSetupStep("done")).toBe(true);
   });
@@ -340,16 +339,5 @@ describe("exampleProjectPath", () => {
     expect(exampleProjectPath("/Users/me/", "MacIntel")).toBe("/Users/me/code/my-repo");
     expect(exampleProjectPath(null, "Win32")).toBe("C:\\path\\to\\repository");
     expect(exampleProjectPath(undefined, "MacIntel")).toBe("/path/to/repository");
-  });
-});
-
-describe("tourCardsForPlatform", () => {
-  it("mentions the iOS Simulator only on macOS", () => {
-    const text = (cards: ReturnType<typeof tourCardsForPlatform>) => JSON.stringify(cards);
-    expect(text(tourCardsForPlatform(true))).toContain("iOS Simulator");
-    expect(text(tourCardsForPlatform(false))).not.toMatch(/iOS|Simulator|macOS/);
-    expect(tourCardsForPlatform(false).map((card) => card.id)).toEqual(
-      tourCardsForPlatform(true).map((card) => card.id),
-    );
   });
 });

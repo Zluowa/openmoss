@@ -21,6 +21,24 @@ import { executableCandidates, hasPathSeparator } from "../executableLookup.ts";
 import { extractAgentZip } from "./agentInstallZip.ts";
 
 export const DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND = "irm https://cli.devin.ai/install.ps1 | iex";
+
+/**
+ * The update dialog's one sentence for a failed Devin update, from the reasons Moss already
+ * words for every agent; the updater's own text goes to the server log only.
+ */
+export function devinWindowsUpdateFailureReason(
+  failure: unknown,
+): "timed-out" | "verify-failed" | "download-failed" | "disk-full" {
+  if (failure === "timed-out") return "timed-out";
+  const detail = failure instanceof Error ? failure.message : String(failure);
+  if (/\bENOSPC\b|no space left|not enough space|disk (?:is )?full/iu.test(detail)) {
+    return "disk-full";
+  }
+  if (/did not contain bin\/devin\.exe|could not locate the installed devin/iu.test(detail)) {
+    return "verify-failed";
+  }
+  return "download-failed";
+}
 export const DEVIN_STATIC_ORIGIN = "https://static.devin.ai";
 const DEVIN_MANIFEST_BASE_URL = `${DEVIN_STATIC_ORIGIN}/cli/current`;
 const DEVIN_MANIFEST_MAX_BYTES = 2 * 1024 * 1024;

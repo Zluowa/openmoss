@@ -527,7 +527,7 @@ describe("prefetchModelsForNewThread — new-thread options key parity", () => {
 });
 
 describe("prefetchModelsForNewThread — availability parity (#652)", () => {
-  it("swaps an unavailable preferred provider only when reconciled, and mirrors ChatView's preference", async () => {
+  it("warms the provider the composer shows, which stays the default when it is unavailable", async () => {
     const queryClient = new QueryClient();
     const prefetchQuery = vi.spyOn(queryClient, "prefetchQuery").mockResolvedValue(undefined);
 
@@ -543,7 +543,7 @@ describe("prefetchModelsForNewThread — availability parity (#652)", () => {
       providerDiscoveryQueryKeys.models("cursor", null, null, null, null),
     ]);
 
-    // Preferred provider unavailable → warm only ChatView's swap target (codex).
+    // Preferred provider unavailable → the composer still shows it, so it is the one warmed.
     prefetchQuery.mockClear();
     prefetchModelsForNewThread(queryClient, {
       settings: makeSettings({ defaultProvider: "cursor" }),
@@ -552,7 +552,9 @@ describe("prefetchModelsForNewThread — availability parity (#652)", () => {
       projectCwd: "/tmp/project",
     });
     modelKeys = modelKeysFromCalls(prefetchQuery);
-    expect(modelKeys).toEqual([providerDiscoveryQueryKeys.models("codex", null, null, null, null)]);
+    expect(modelKeys).toEqual([
+      providerDiscoveryQueryKeys.models("cursor", null, null, null, null),
+    ]);
 
     // Disabled beats selected (useProviderModelCatalog short-circuit parity).
     prefetchQuery.mockClear();

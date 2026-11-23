@@ -31,7 +31,6 @@ import {
   ExternalLinkIcon,
   LayoutRightIcon,
   Maximize2,
-  Minimize2,
   MoreHorizontalIcon,
   PlusIcon,
   PopOutIcon,
@@ -60,6 +59,7 @@ function readStartupBearerHeaders(): Record<string, string> {
 import { createDefaultRightDockState, type RightDockPane } from "~/rightDockStore.logic";
 import { useStore } from "~/store";
 import { useTerminalStateStore } from "~/terminalStateStore";
+import { retainThreadDetailSubscription } from "~/threadDetailSubscriptionRetention";
 import {
   CHAT_SURFACE_HEADER_DIVIDER_CLASS_NAME,
   CHAT_SURFACE_HEADER_HEIGHT_CLASS,
@@ -105,7 +105,6 @@ import {
   formatSpaceDockSelectionSummary,
   formatSpaceDockTimerBadge,
   isNearSpaceDockRightSnapZone,
-  readPersistedSpaceDockMode,
   readPersistedSpaceDockPipSize,
   readSkipSidechatCloseConfirmation,
   readSpaceDockRecentThreads,
@@ -311,9 +310,8 @@ export function SpaceCanvasChatDockHost(props: {
   const inFlightPrepareRef = useRef(new Map<string, Promise<ThreadId | null>>());
   const openChatThreadPage = useTerminalStateStore((store) => store.openChatThreadPage);
 
-  const [dockState, setDockStateRaw] = useState<SpaceCanvasDockState>(() =>
-    readPersistedSpaceDockMode(),
-  );
+  // Closed until asked (as in Claude): an opened item never brings the panel up by itself.
+  const [dockState, setDockStateRaw] = useState<SpaceCanvasDockState>("collapsed");
   const [selection, setSelectionRaw] = useState<SpaceCanvasSelectionContext | null>(null);
   const selectionRef = useRef<SpaceCanvasSelectionContext | null>(null);
   selectionRef.current = selection;
@@ -333,9 +331,6 @@ export function SpaceCanvasChatDockHost(props: {
     Readonly<Record<string, readonly ExtraSidechatTab[]>>
   >({});
   const [activeTabIdByKey, setActiveTabIdByKey] = useState<Readonly<Record<string, string>>>({});
-  const [minimizedNoticeByKey, setMinimizedNoticeByKey] = useState<
-    Readonly<Record<string, boolean>>
-  >({});
   const [lastPromptSnippet, setLastPromptSnippet] = useState<string | null>(null);
   const [prefillPrompt, setPrefillPrompt] = useState("");
   const [askSubmitting, setAskSubmitting] = useState(false);
@@ -407,6 +402,8 @@ export function SpaceCanvasChatDockHost(props: {
     setFailureRecovery(null);
     setPrefillPrompt("");
     setHasUnreadDot(false);
+    // Another item opens with the panel closed; a template launch asks for it right after.
+    setDockStateRaw("collapsed");
     runStartMsRef.current = null;
     wasBusyRef.current = false;
     setElapsedSeconds(0);
@@ -536,6 +533,23 @@ export function SpaceCanvasChatDockHost(props: {
       artifactKey ? (extraSidechatTabsByKey[artifactKey] ?? EMPTY_EXTRA_TABS) : EMPTY_EXTRA_TABS,
     [artifactKey, extraSidechatTabsByKey],
   );
+  // The panel's conversations render a full ChatView, which shows a conversation only once its
+  // detail has synced; that needs a detail lease, as split-view and right-dock panes hold.
+  // Without one the panel sat on 「正在加载对话」 for good.
+  const leasedThreadIds = useMemo(
+    () =>
+      [primaryThreadId, ...(dockState === "docked" ? extraTabs.map((tab) => tab.threadId) : [])]
+        .filter((id): id is ThreadId => id !== null)
+        .join(","),
+    [dockState, extraTabs, primaryThreadId],
+  );
+  useEffect(() => {
+    if (!leasedThreadIds) return;
+    const releases = leasedThreadIds
+      .split(",")
+      .map((id) => retainThreadDetailSubscription(id as ThreadId));
+    return () => releases.forEach((release) => release());
+  }, [leasedThreadIds]);
   const activeTabId =
     artifactKey && activeTabIdByKey[artifactKey] ? activeTabIdByKey[artifactKey]! : PRIMARY_PANE_ID;
   const activeTabThreadId: ThreadId | null =
@@ -598,15 +612,29 @@ export function SpaceCanvasChatDockHost(props: {
     writePersistedSpaceDockMode(next);
     if (next !== "collapsed") {
       setHasUnreadDot(false);
-      if (artifactKeyRef.current) {
-        const key = artifactKeyRef.current;
-        setMinimizedNoticeByKey((prev) => ({ ...prev, [key]: false }));
-      }
-    } else if (artifactKeyRef.current) {
-      const key = artifactKeyRef.current;
-      setMinimizedNoticeByKey((prev) => ({ ...prev, [key]: true }));
     }
   }, []);
+
+  // Esc closes the floating panel, as it closes any popover, when the key is not someone else's:
+  // focus is in the panel, on the 问 Moss toggle, or nowhere in particular.
+  useEffect(() => {
+    if (dockState !== "pip") return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || isImeComposingKeyEvent(event)) return;
+      const active = document.activeElement as HTMLElement | null;
+      const pip = pipSlotEl?.closest("[data-space-canvas-dock='pip']");
+      const ours =
+        !active ||
+        active === document.body ||
+        Boolean(pip?.contains(active)) ||
+        active.closest("[data-space-dock-toggle], [data-page-dock-toggle]") !== null;
+      if (!ours) return;
+      event.preventDefault();
+      setState("collapsed");
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [dockState, pipSlotEl, setState]);
 
   // Measure workspace container bounds for clamping PiP cleanly inside workspace.
   useEffect(() => {
@@ -682,24 +710,12 @@ export function SpaceCanvasChatDockHost(props: {
     }
   }, [activeTabId, dockState, dockedSlotEl, parkedSlotEl, pipSlotEl, portalHostEl]);
 
+  // A closed panel leaves nothing behind unless there is something to report: Moss is working,
+  // a request failed, or an answer came while the panel was closed.
   const showCollapsedPill = useMemo(() => {
     if (!artifact || dockState !== "collapsed") return false;
-    if (busy || failureRecovery !== null || elapsedSeconds > 0 || hasUnreadDot) return true;
-    if (artifactKey && minimizedNoticeByKey[artifactKey]) return true;
-    if (artifact.kind !== "page") return true;
-    return primaryThreadId !== null && Boolean(lastPromptSnippet);
-  }, [
-    artifact,
-    artifactKey,
-    busy,
-    dockState,
-    elapsedSeconds,
-    failureRecovery,
-    hasUnreadDot,
-    lastPromptSnippet,
-    minimizedNoticeByKey,
-    primaryThreadId,
-  ]);
+    return busy || failureRecovery !== null || hasUnreadDot;
+  }, [artifact, busy, dockState, failureRecovery, hasUnreadDot]);
 
   // Host insets listeners (Canvas/Docs/Sheets/Design bottom pills stay clear of the Dock).
   const insetListenersRef = useRef(new Set<(insets: SpaceCanvasHostInsets) => void>());
@@ -1521,15 +1537,6 @@ export function SpaceCanvasChatDockHost(props: {
                   <IconButton
                     size="icon-xs"
                     variant="ghost"
-                    label="收起为状态条"
-                    tooltip="收起为状态条"
-                    onClick={() => setState("collapsed")}
-                  >
-                    <Minimize2 className="size-3.5" />
-                  </IconButton>
-                  <IconButton
-                    size="icon-xs"
-                    variant="ghost"
                     label="停靠到右侧分栏"
                     tooltip="停靠到右侧分栏"
                     onClick={() => setState("docked")}
@@ -1553,6 +1560,16 @@ export function SpaceCanvasChatDockHost(props: {
                       </MenuItem>
                     </ComposerPickerMenuPopup>
                   </Menu>
+                  <IconButton
+                    size="icon-xs"
+                    variant="ghost"
+                    label="关闭"
+                    tooltip="关闭"
+                    data-space-dock-close
+                    onClick={() => setState("collapsed")}
+                  >
+                    <XIcon className="size-3.5" />
+                  </IconButton>
                 </div>
               </div>
 

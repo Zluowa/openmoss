@@ -351,7 +351,7 @@ describe("SpaceGallery V2", () => {
     const nav = page.getByRole("navigation", { name: "条目", exact: true });
     for (const label of [
       "全部",
-      "页面",
+      "文档",
       "幻灯片",
       "电子表格",
       "设计",
@@ -363,7 +363,8 @@ describe("SpaceGallery V2", () => {
     ]) {
       await expect.element(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
-    await expect.element(page.getByText("已删除条目保留 30 天")).toBeVisible();
+    // No standing explanation under 回收站.
+    await expect.element(page.getByText("已删除条目保留 30 天")).not.toBeInTheDocument();
 
     await userEvent.click(nav.getByRole("button", { name: "电子表格", exact: true }));
     await vi.waitFor(() => {

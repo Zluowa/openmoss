@@ -84,7 +84,7 @@ type SidebarKindRow =
     };
 
 const KIND_ROWS: ReadonlyArray<SidebarKindRow> = [
-  { target: "section", kind: "page", label: "页面", icon: PageTextIcon },
+  { target: "section", kind: "page", label: "文档", icon: PageTextIcon },
   { target: "section", kind: "slides", label: "幻灯片", icon: SlidesIcon },
   { target: "filter", kind: "sheet", label: "电子表格", icon: TableIcon },
   { target: "filter", kind: "design", label: "设计", icon: PaletteIcon },
@@ -200,7 +200,7 @@ export function SpaceSidebar(props: {
 
   return (
     <aside
-      className="flex w-70 shrink-0 flex-col border-r border-[color:var(--app-rail-inset-border,var(--border))] bg-[var(--app-rail-panel-background,var(--sidebar))] max-md:w-56"
+      className="flex w-70 shrink-0 flex-col border-r border-[color:var(--app-rail-inset-border,var(--border))] bg-[var(--app-rail-panel-background,var(--sidebar))] select-none max-md:w-56"
       aria-label="资料空间导航"
       data-space-sidebar
     >
@@ -404,7 +404,6 @@ export function SpaceSidebar(props: {
             }}
           />
         </SidebarMenu>
-        <p className="px-2.5 pt-0.5 text-ui-xs text-muted-foreground">已删除条目保留 30 天</p>
       </div>
     </aside>
   );

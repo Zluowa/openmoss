@@ -15,6 +15,7 @@ import "./sheetEditor.css";
 
 import { Workbook } from "@fortune-sheet/react";
 import {
+  locale as engineLocale,
   update as formatWithEngine,
   type Op,
   type Sheet as EngineSheet,
@@ -268,6 +269,36 @@ function actionWords(name: keyof SheetToolActions, args: readonly unknown[]): st
   }
 }
 
+/**
+ * Cells with no font of their own are drawn in the app's UI font. The engine otherwise puts
+ * the first font of its locale list (Times New Roman) in front, so numbers came out serif.
+ */
+function applyEngineUiFont(): void {
+  if (typeof document === "undefined") return;
+  const family = getComputedStyle(document.body).fontFamily;
+  if (!family) return;
+  const fonts = engineLocale({ lang: "zh" } as Parameters<typeof engineLocale>[0])
+    .fontarray as string[];
+  if (fonts[0] !== family) fonts[0] = family;
+}
+
+/**
+ * Whether an opened sheet should move focus into its grid. It does unless the person is already
+ * typing somewhere else (a field or editable text outside this sheet, such as 问 Moss's composer).
+ */
+function shouldTakeFocusOnOpen(root: HTMLElement): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active === document.body || root.contains(active)) return true;
+  const typing =
+    active.isContentEditable ||
+    active instanceof HTMLTextAreaElement ||
+    (active instanceof HTMLInputElement &&
+      !["button", "checkbox", "radio", "submit", "reset", "file", "range", "color"].includes(
+        active.type,
+      ));
+  return !typing;
+}
+
 function safeName(title: string, extension: string) {
   return `${title.replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "-").trim() || "电子表格"}.${extension}`;
 }
@@ -400,6 +431,7 @@ export function SheetEditor(props: {
   mossWorkingLabel?: string | null;
 }) {
   const readOnly = props.readOnly ?? false;
+  applyEngineUiFont();
   const engine = useRef<EngineApi | null>(null);
   const shell = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -658,6 +690,26 @@ export function SheetEditor(props: {
   useEffect(() => {
     repaint();
   }, [flashKeys, showFormulas, commentCells, repaint]);
+
+  // An opened sheet takes typing at its selected cell at once, as a click on the cell would:
+  // keys must not go to whatever was clicked before (the 资料空间 sidebar button that opened it).
+  useEffect(() => {
+    if (readOnly) return;
+    let frame = 0;
+    let tries = 0;
+    const focusGrid = () => {
+      const root = shell.current;
+      const input = root?.querySelector<HTMLElement>(".luckysheet-cell-input");
+      if (!root || !input) {
+        if (tries++ < 30) frame = requestAnimationFrame(focusGrid);
+        return;
+      }
+      if (!shouldTakeFocusOnOpen(root)) return;
+      input.focus({ preventScroll: true });
+    };
+    frame = requestAnimationFrame(focusGrid);
+    return () => cancelAnimationFrame(frame);
+  }, [engineEpoch, readOnly]);
 
   const current = useCallback((): SheetWorkbook => {
     const sheets = readEngine((e) => e.getAllSheets());
@@ -2518,31 +2570,8 @@ export function SheetEditor(props: {
     );
   }
 
-  const above =
-    props.notice ??
-    (isBlank && !readOnly ? (
-      <div
-        className="pointer-events-auto flex items-center gap-2 rounded-card border border-border bg-popover px-3 py-2 text-ui-sm shadow-xl"
-        data-sheet-empty
-      >
-        <span className="text-muted-foreground">
-          {props.moss ? "让 Moss 填写这张表，或导入一个文件。" : "导入一个文件开始。"}
-        </span>
-        {props.moss ? (
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={props.moss.busy}
-            onClick={() => ask("fill", "")}
-          >
-            <SparklesIcon /> 让 Moss 填写
-          </Button>
-        ) : null}
-        <Button size="xs" variant="ghost" onClick={() => fileInput.current?.click()}>
-          <FileAddIcon /> 导入文件
-        </Button>
-      </div>
-    ) : null);
+  // Nothing floats over a blank sheet's cells: 问 Moss and 导入 have their own places.
+  const above = props.notice ?? null;
 
   cellClicked.current = (row: number, column: number) => {
     const notes = commentState.current;

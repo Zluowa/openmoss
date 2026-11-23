@@ -158,7 +158,7 @@ describe("publish-mobile-release", () => {
       `${common}\nMOSS_UPDATE_MIRROR_FEED_URL=https://update.mossbotai.com/desktop/\n`,
     );
 
-    const stored = new Map<string, Map<string, Buffer>>([
+    const stored = new Map<string, Map<string, Buffer<ArrayBuffer>>>([
       [
         "https://moss-update-1259646312.cos.ap-guangzhou.myqcloud.com/mobile/",
         new Map([["mobile/Moss-Android-1.0.9.bin", Buffer.from("old")]]),

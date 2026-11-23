@@ -55,7 +55,6 @@ export function ProjectStep(props: {
   const [path, setPath] = useState("");
   // Start on import so everything already on this computer is offered first.
   const [showImport, setShowImport] = useState(true);
-  const [nothingFound, setNothingFound] = useState(false);
   const [firstScanDone, setFirstScanDone] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -144,7 +143,6 @@ export function ProjectStep(props: {
             if (firstScanDone) return;
             setFirstScanDone(true);
             if (!found) {
-              setNothingFound(true);
               setShowImport(false);
             }
           }}
@@ -154,12 +152,6 @@ export function ProjectStep(props: {
         />
       ) : (
         <>
-          {nothingFound ? (
-            <p className="text-ui-sm text-muted-foreground">
-              No conversations from other agents were found on this computer. Add a project folder
-              to start.
-            </p>
-          ) : null}
           {isElectron ? (
             <button
               type="button"

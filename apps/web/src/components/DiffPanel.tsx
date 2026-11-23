@@ -23,6 +23,8 @@ import {
 import { stripDiffSearchParams } from "../diffRouteSearch";
 import { useTheme } from "../hooks/useTheme";
 import { useDiffRouteSearch } from "../hooks/useDiffRouteSearch";
+import { isGitNotInstalledErrorMessage } from "@moss/shared/git";
+import { useTranslation } from "~/localization";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import {
   DEFAULT_DIFF_RENDER_MODE,
@@ -398,6 +400,13 @@ export default function DiffPanel({
   onRenderableFilesChange,
   onEditorDiffOptionsChange,
 }: DiffPanelProps) {
+  const { t } = useTranslation();
+  // A missing git program is said in one sentence; other git failures keep their detail.
+  const gitErrorText = (error: unknown, fallback: string): string | null => {
+    if (!error) return null;
+    const message = error instanceof Error ? error.message : fallback;
+    return isGitNotInstalledErrorMessage(message) ? t("diff.gitNotInstalled") : message;
+  };
   const queryClient = useQueryClient();
   const mode = modeProp ?? "inline";
   const liveRefreshEnabled = liveRefreshEnabledProp ?? true;
@@ -554,12 +563,10 @@ export default function DiffPanel({
     enabled: gitStatusQueriesEnabled,
   });
   const gitRepoStatus = gitBranchesQuery.isSuccess ? gitBranchesQuery.data.isRepo : undefined;
-  const gitRepoStatusError =
-    gitBranchesQuery.error instanceof Error
-      ? gitBranchesQuery.error.message
-      : gitBranchesQuery.error
-        ? "Failed to check git repository."
-        : null;
+  const gitRepoStatusError = gitErrorText(
+    gitBranchesQuery.error,
+    "Failed to check git repository.",
+  );
   const isGitRepo = gitRepoStatus === true;
   const turnDiffSummaries = activeThreadContext?.turnDiffSummaries ?? [];
   const inferredCheckpointTurnCountByTurnId = useMemo(
@@ -735,12 +742,7 @@ export default function DiffPanel({
   const repoPatch = repoDiffQuery.data?.patch;
   const hasResolvedRepoPatch = typeof repoPatch === "string";
   const hasNoRepoChanges = hasResolvedRepoPatch && repoPatch.trim().length === 0;
-  const repoDiffError =
-    repoDiffQuery.error instanceof Error
-      ? repoDiffQuery.error.message
-      : repoDiffQuery.error
-        ? "Failed to load repo diff."
-        : null;
+  const repoDiffError = gitErrorText(repoDiffQuery.error, "Failed to load repo diff.");
   const branchHasCommittedChanges = (gitStatusQuery.data?.aheadCount ?? 0) > 0;
 
   useEffect(() => {

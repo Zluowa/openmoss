@@ -7,34 +7,12 @@
 import { useEffect, useState } from "react";
 import { SPACE_TRASH_RETENTION_DAYS } from "@moss/contracts";
 
-import { cn } from "~/lib/utils";
-import {
-  PAGE_TITLE_CLASS_NAME,
-  TAB_IDLE_SURFACE_CLASS_NAME,
-  TAB_SELECTED_SURFACE_CLASS_NAME,
-} from "~/surfaceStyles";
+import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { itemsForSection, trashDaysLeft, type SpaceItem } from "./spaceItems";
 import { spaceItemMeta } from "./spaceKinds";
-
-type TrashTab = "pages" | "spaces" | "files";
-
-const TABS: ReadonlyArray<{ id: TrashTab; label: string }> = [
-  { id: "pages", label: "页面" },
-  { id: "spaces", label: "资料空间" },
-  { id: "files", label: "文件" },
-];
-
-export function trashTabOf(item: SpaceItem): TrashTab {
-  if (item.source.type === "output" || item.source.type === "library") return "files";
-  if (item.source.type === "page") {
-    const { page } = item.source;
-    if (page.spaceId !== null && page.id === page.rootPageId) return "spaces";
-  }
-  return "pages";
-}
 
 export function SpaceTrash(props: {
   items: readonly SpaceItem[];
@@ -45,7 +23,6 @@ export function SpaceTrash(props: {
   canPurge: (item: SpaceItem) => boolean;
   onPurge: (items: readonly SpaceItem[]) => Promise<void>;
 }) {
-  const [tab, setTab] = useState<TrashTab>("pages");
   const [confirm, setConfirm] = useState<readonly SpaceItem[] | null>(null);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -57,7 +34,8 @@ export function SpaceTrash(props: {
     { type: "trash" },
     { tab: "mine", kind: "any", query: "" },
   );
-  const visible = trashed.filter((item) => trashTabOf(item) === tab);
+  // One list, newest first; each row's icon says what kind it is.
+  const visible = trashed;
   const purgeable = trashed.filter(props.canPurge);
 
   return (
@@ -66,10 +44,6 @@ export function SpaceTrash(props: {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className={PAGE_TITLE_CLASS_NAME}>回收站</h1>
-            <p className="mt-1 text-ui-sm text-muted-foreground">
-              删除的条目会在这里保留 {SPACE_TRASH_RETENTION_DAYS}{" "}
-              天，之后永久删除。恢复后会回到原来的位置。
-            </p>
           </div>
           <Button
             size="sm"
@@ -80,27 +54,6 @@ export function SpaceTrash(props: {
             清空回收站
           </Button>
         </div>
-        <div role="tablist" aria-label="回收站分区" className="flex items-center gap-1">
-          {TABS.map((entry) => {
-            const count = trashed.filter((item) => trashTabOf(item) === entry.id).length;
-            return (
-              <button
-                key={entry.id}
-                type="button"
-                role="tab"
-                aria-selected={tab === entry.id}
-                className={cn(
-                  "h-7 rounded-control px-2.5 text-ui",
-                  tab === entry.id ? TAB_SELECTED_SURFACE_CLASS_NAME : TAB_IDLE_SURFACE_CLASS_NAME,
-                )}
-                onClick={() => setTab(entry.id)}
-              >
-                {entry.label}
-                {count ? <span className="ms-1 text-muted-foreground">{count}</span> : null}
-              </button>
-            );
-          })}
-        </div>
       </header>
       {props.error ? (
         <p role="alert" className="px-6 pb-2 text-ui text-destructive md:px-10">
@@ -109,13 +62,7 @@ export function SpaceTrash(props: {
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 md:px-10">
         {visible.length === 0 ? (
-          <p className="py-24 text-center text-ui text-muted-foreground">
-            {tab === "spaces"
-              ? "回收站中没有资料空间"
-              : tab === "files"
-                ? "回收站中没有文件"
-                : "回收站中没有页面"}
-          </p>
+          <p className="py-24 text-center text-ui text-muted-foreground">这里还没有内容</p>
         ) : (
           <ul className="flex flex-col gap-0.5" aria-label="回收站中的条目">
             {visible.map((item) => {

@@ -793,34 +793,32 @@ export function PageNavigationPanel(props: {
       ) : null}
       <section className="flex flex-col gap-0.5">
         <h3 className="px-2 text-ui-sm text-muted-foreground">大纲</h3>
-        {outline.length ? (
-          outline.map((entry, index) => {
-            const isActive = activeHeadingLine === entry.line;
-            return (
-              <Button
-                key={entry.line}
-                type="button"
-                size="xs"
-                variant="ghost"
-                data-outline-line={entry.line}
-                data-active={isActive ? "true" : undefined}
-                aria-current={isActive ? "location" : undefined}
-                className={cn(
-                  "h-7 w-full justify-start rounded-row px-2 text-left text-ui font-normal",
-                  isActive
-                    ? "bg-accent text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                style={{ paddingInlineStart: `${8 + (entry.level - 1) * 12}px` }}
-                onClick={() => handleSelectHeading(entry, index)}
-              >
-                <span className="min-w-0 truncate">{entry.text}</span>
-              </Button>
-            );
-          })
-        ) : (
-          <p className="px-2 text-ui-sm text-muted-foreground">添加标题后，这里会显示大纲。</p>
-        )}
+        {outline.length
+          ? outline.map((entry, index) => {
+              const isActive = activeHeadingLine === entry.line;
+              return (
+                <Button
+                  key={entry.line}
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  data-outline-line={entry.line}
+                  data-active={isActive ? "true" : undefined}
+                  aria-current={isActive ? "location" : undefined}
+                  className={cn(
+                    "h-7 w-full justify-start rounded-row px-2 text-left text-ui font-normal",
+                    isActive
+                      ? "bg-accent text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  style={{ paddingInlineStart: `${8 + (entry.level - 1) * 12}px` }}
+                  onClick={() => handleSelectHeading(entry, index)}
+                >
+                  <span className="min-w-0 truncate">{entry.text}</span>
+                </Button>
+              );
+            })
+          : null}
       </section>
       <section className="flex flex-col gap-0.5">
         <h3 className="px-2 text-ui-sm text-muted-foreground">子页面</h3>

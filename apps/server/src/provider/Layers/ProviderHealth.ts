@@ -243,6 +243,7 @@ import {
 } from "../managedProviderInstallation.ts";
 import {
   DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND,
+  devinWindowsUpdateFailureReason,
   type DevinWindowsUpdateInput,
   type DevinWindowsUpdateResult,
   updateDevinWindowsNative,
@@ -3052,9 +3053,9 @@ export const checkCursorProviderStatus = makeCheckCursorProviderStatus();
 
 // ── Devin health check ───────────────────────────────────────────────
 
-async function readDevinCachedLatestVersion(): Promise<string | null> {
+async function readDevinCachedLatestVersion(platform: NodeJS.Platform): Promise<string | null> {
   const candidates =
-    process.platform === "win32"
+    platform === "win32"
       ? [
           nodePath.join(
             process.env.LOCALAPPDATA?.trim() || nodePath.join(OS.homedir(), "AppData", "Local"),
@@ -3092,8 +3093,9 @@ async function readDevinCachedLatestVersion(): Promise<string | null> {
 const applyDevinCachedLatestVersionFallback = (
   status: ServerProviderStatus,
   capabilities: ProviderMaintenanceCapabilities,
+  platform: NodeJS.Platform,
 ): Effect.Effect<ServerProviderStatus> =>
-  Effect.promise(() => readDevinCachedLatestVersion()).pipe(
+  Effect.promise(() => readDevinCachedLatestVersion(platform)).pipe(
     Effect.map((cachedLatest) => {
       if (!cachedLatest || !status.version) {
         return status;
@@ -3190,7 +3192,9 @@ export const makeCheckDevinProviderStatus = (
       driver: DEVIN_PROVIDER,
       status: "ready" as const,
       available: true,
-      authStatus: hasApiKey ? ("authenticated" as const) : ("unknown" as const),
+      // Devin starts only with WINDSURF_API_KEY or the key `devin auth login` saves; with
+      // neither its first message fails sign-in, so it is not shown as connected.
+      authStatus: hasApiKey ? ("authenticated" as const) : ("unauthenticated" as const),
       version: parsedVersion,
       checkedAt,
       ...(hasApiKey
@@ -4037,7 +4041,11 @@ export function makeProviderHealthLive(options?: {
                     enrichedStatus.available &&
                     enrichedStatus.version &&
                     !enrichedStatus.versionAdvisory?.latestVersion
-                      ? applyDevinCachedLatestVersionFallback(enrichedStatus, capabilities)
+                      ? applyDevinCachedLatestVersionFallback(
+                          enrichedStatus,
+                          capabilities,
+                          runtimePlatform,
+                        )
                       : Effect.succeed(enrichedStatus),
                   ),
                 ),
@@ -5357,26 +5365,30 @@ export function makeProviderHealthLive(options?: {
               return { providers };
             }
             const devinResult = devinOutcome.result;
-            if (Result.isFailure(devinResult)) {
+            if (Result.isFailure(devinResult) || Option.isNone(devinResult.success)) {
+              const failure = Result.isFailure(devinResult)
+                ? devinResult.failure
+                : ("timed-out" as const);
+              const reason = devinWindowsUpdateFailureReason(failure);
+              yield* Effect.logWarning("provider update failed", {
+                provider: "devin",
+                reason,
+                detail:
+                  failure === "timed-out"
+                    ? `timed out after ${formatProviderUpdateTimeout(devinNativeTimeoutMs)}`
+                    : describeUpdateCommandError(failure),
+              });
               const providers = yield* setProviderUpdateState(
                 target,
                 makeUpdateState({
                   status: "failed",
                   startedAt,
                   finishedAt,
-                  message: describeUpdateCommandError(devinResult.failure),
-                }),
-              );
-              return { providers };
-            }
-            if (Option.isNone(devinResult.success)) {
-              const providers = yield* setProviderUpdateState(
-                target,
-                makeUpdateState({
-                  status: "failed",
-                  startedAt,
-                  finishedAt,
-                  message: `Update timed out after ${formatProviderUpdateTimeout(devinNativeTimeoutMs)}.`,
+                  message: sideBySideUpdateFailureMessage({
+                    ok: false,
+                    reason: reason === "disk-full" ? "download-failed" : reason,
+                    detail: reason === "disk-full" ? "ENOSPC" : "",
+                  }),
                 }),
               );
               return { providers };

@@ -133,18 +133,8 @@ describe("DesignEditor dock & floating pill", () => {
     await expect.element(page.getByTestId("design-tool-frame")).toBeVisible();
     expect(document.querySelector("[data-design-bottom-pill]")).not.toBeNull();
 
-    await page.getByTestId("design-ask").click();
-    expect(dock.ask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        origin: "bottom-pill",
-        prefillOnly: true,
-        keepItemOpen: true,
-        selection: expect.objectContaining({
-          kind: "design",
-          itemId: "design-page-1",
-        }),
-      }),
-    );
+    // With a dock, 问 Moss is the one entry in the header; no second one floats over the work.
+    await expect.element(page.getByTestId("design-ask")).not.toBeInTheDocument();
     expect(document.querySelector("[data-design-ask]")).toBeNull();
 
     await mounted.unmount();

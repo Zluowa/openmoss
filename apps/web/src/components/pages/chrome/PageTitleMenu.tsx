@@ -4,6 +4,8 @@
 //          files, move, schedule, keyboard shortcuts, delete.
 // Layer: Space page chrome (owned by space-ui)
 
+import { useState } from "react";
+
 import type { LucideIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { ChevronDownIcon } from "~/lib/icons";
@@ -15,6 +17,7 @@ import {
 } from "~/lib/pageRichEditorChannel";
 
 import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
+import { SpaceInlineRename } from "../../space/SpaceInlineRename";
 import {
   Menu,
   MenuGroup,
@@ -35,7 +38,8 @@ export interface PageTitleMenuActions {
   onNavigation: () => void;
   onShare: () => void;
   onTogglePin: () => void;
-  onRename: () => void;
+  /** 重命名: the title pill turns into a field in place; called with the new name. */
+  onRename: (title: string) => void;
   onDuplicate: () => void;
   onDownload: (format: PageExportFormat) => void;
   /** 查找 / 查找和替换 in the page editor; absent where the editor is not the rich one. */
@@ -72,6 +76,24 @@ export function PageTitleMenu(
   },
 ) {
   const Icon = props.icon;
+  const [renaming, setRenaming] = useState(false);
+  if (renaming) {
+    return (
+      <span
+        className={cn(PAGE_CHROME_PILL_CLASS_NAME, "max-w-[min(22rem,100%)] min-w-0 shrink pe-1")}
+        data-page-title-pill
+      >
+        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <SpaceInlineRename
+          value={props.title}
+          label="文档名称"
+          onCommit={props.onRename}
+          onDone={() => setRenaming(false)}
+          className="w-56"
+        />
+      </span>
+    );
+  }
   return (
     <Menu>
       <MenuTrigger
@@ -85,7 +107,7 @@ export function PageTitleMenu(
         }
       >
         <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate">{props.title || "未命名页面"}</span>
+        <span className="min-w-0 truncate">{props.title || "未命名文档"}</span>
         <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       </MenuTrigger>
       <ComposerPickerMenuPopup align="start" className="w-60 min-w-60">
@@ -97,7 +119,7 @@ export function PageTitleMenu(
           <>
             <MenuItem onClick={props.onShare}>分享</MenuItem>
             <MenuItem onClick={props.onTogglePin}>{props.pinned ? "取消置顶" : "置顶"}</MenuItem>
-            <MenuItem onClick={props.onRename}>重命名</MenuItem>
+            <MenuItem onClick={() => setRenaming(true)}>重命名</MenuItem>
             <MenuItem onClick={props.onDuplicate}>复制</MenuItem>
           </>
         )}

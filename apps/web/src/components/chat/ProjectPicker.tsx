@@ -308,13 +308,16 @@ export const ProjectPicker = memo(function ProjectPicker({
   );
   const localFolderOptions = useMemo(() => {
     if (isProjectSelectionMode) return [];
-    return directoryEntries
-      .filter((entry) => !entry.name.startsWith("."))
-      .map((entry) => ({
-        absolutePath: homeDir ? joinDirectoryPath(homeDir, entry.path) : entry.path,
-        entry,
-      }))
-      .filter((entry) => !activeFolderPathSet.has(entry.absolutePath));
+    return (
+      directoryEntries
+        // Hidden and system folders are not project folders (walk R-7: 「AppData」 was offered).
+        .filter((entry) => !entry.name.startsWith(".") && entry.name !== "AppData")
+        .map((entry) => ({
+          absolutePath: homeDir ? joinDirectoryPath(homeDir, entry.path) : entry.path,
+          entry,
+        }))
+        .filter((entry) => !activeFolderPathSet.has(entry.absolutePath))
+    );
   }, [activeFolderPathSet, directoryEntries, homeDir, isProjectSelectionMode]);
   const localFoldersGroupLabel = useMemo(
     () => getLocalFoldersGroupLabel(homeDir, getNavigatorPlatform()),
@@ -338,12 +341,16 @@ export const ProjectPicker = memo(function ProjectPicker({
         items: matchingActiveFolderOptions,
         spaces,
         activeSpaceId,
-        activeLabel: "Active",
+        activeLabel: t("sidebar.space.active"),
         spaceIdOf: (option) => option.spaceId,
         voidSpace,
       }),
-    [activeSpaceId, matchingActiveFolderOptions, spaces, voidSpace],
+    [activeSpaceId, matchingActiveFolderOptions, spaces, t, voidSpace],
   );
+  // With only the default space there is nothing to tell apart: the group is just the
+  // projects, named as the sidebar names them (walk R-7: 「Void · Active」).
+  const onlyDefaultSpace =
+    filteredActiveFolderGroups.length === 1 && filteredActiveFolderGroups[0]?.spaceId === null;
   const filteredActiveFolderOptions = useMemo(
     () => filteredActiveFolderGroups.flatMap((group) => group.items),
     [filteredActiveFolderGroups],
@@ -783,8 +790,12 @@ export const ProjectPicker = memo(function ProjectPicker({
                         "flex items-center gap-1.5",
                       )}
                     >
-                      <SpaceIcon icon={group.icon} className="size-3 shrink-0" />
-                      <span className="min-w-0 truncate">{group.label}</span>
+                      {onlyDefaultSpace ? null : (
+                        <SpaceIcon icon={group.icon} className="size-3 shrink-0" />
+                      )}
+                      <span className="min-w-0 truncate">
+                        {onlyDefaultSpace ? t("sidebar.projects") : group.label}
+                      </span>
                     </ComboboxGroupLabel>
                     {group.items.map((folder, index) =>
                       renderActiveFolderOption(folder, precedingOptionCount + index),

@@ -22,7 +22,6 @@ import {
 } from "../appSettings";
 import { isProviderKind } from "../providerOrdering";
 import type { DraftThreadEnvMode } from "../composerDraftDomain";
-import { resolveAvailableProviderPreference } from "./providerAvailability";
 import { resolveProviderDiscoveryCwd } from "./providerDiscovery";
 import {
   hasForegroundProviderModelDiscovery,
@@ -93,8 +92,6 @@ export const NEW_THREAD_MODEL_PREFETCH_STALE_TIME_MS = 30 * 60_000;
 
 /** Retain warmed catalogs as long as the server's stale-while-revalidate window. */
 export const NEW_THREAD_MODEL_PREFETCH_GC_TIME_MS = 24 * 60 * 60_000;
-
-const EMPTY_PROVIDER_STATUSES: readonly ServerProviderStatus[] = [];
 
 // Track which in-flight queries were started only by a passive warm. A query
 // joined by an explicit create or protected by a picker refresh stays live.
@@ -533,20 +530,10 @@ export function prefetchModelsForNewThread(
     }
     return resolvedProvider;
   })();
-  // ChatView resolves the new thread's provider with the same availability
-  // preference (resolveAvailableProviderPreference) once statuses are reconciled,
-  // so the warm-first provider is the one the composer will actually show.
-  const selectedProvider =
-    input.statusesReconciled === true
-      ? resolveAvailableProviderPreference({
-          preferredProvider: resolvedProvider,
-          statuses: input.providerStatuses ?? EMPTY_PROVIDER_STATUSES,
-          providerOrder: input.providerOrder ?? [],
-          hiddenProviders: input.hiddenProviders ?? [],
-        })
-      : resolvedProvider;
-  const selectedProviderInstanceId =
-    selectedProvider === resolvedProvider ? preferredInstanceId : selectedProvider;
+  // The composer shows exactly this provider (resolveUnsentComposerProvider), so it is the
+  // one warmed first.
+  const selectedProvider = resolvedProvider;
+  const selectedProviderInstanceId = preferredInstanceId;
   const cwd = resolveNewThreadModelPrefetchCwd({
     worktreePath: input.worktreePath ?? null,
     hasExplicitWorktreePath: input.hasExplicitWorktreePath === true,

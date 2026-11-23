@@ -126,7 +126,6 @@ it
     ["devin", ["auth", "login"]],
     ["antigravity", []],
     ["grok", ["login"]],
-    ["droid", []],
     ["opencode", ["auth", "login", "--standalone"]],
     ["pi", []],
     ["omp", []],
@@ -138,7 +137,7 @@ it
     const settings = patch ? applyServerSettingsPatch(input.settings, patch) : input.settings;
     const launch = await resolveProviderAuthenticationLaunch({ ...input, settings });
     // Native providers must persist exactly the roots later managed sessions receive.
-    if (["devin", "antigravity", "droid"].includes(provider)) {
+    if (["devin", "antigravity"].includes(provider)) {
       const instance = deriveProviderInstances(settings).find(
         (entry) => entry.instanceId === input.instanceId,
       )!;
@@ -148,7 +147,6 @@ it
       >;
       expect(options[provider]?.environment.HOME).toBe(launch.env.HOME);
       expect(options[provider]?.environment.XDG_DATA_HOME).toBe(launch.env.XDG_DATA_HOME);
-      if (provider === "droid") expect(options[provider]?.environment.FACTORY_API_KEY).toBe("");
       if (provider === "devin")
         expect(
           getDevinApiKeyEnv({ ...input.baseEnv, ...options[provider]?.environment }),

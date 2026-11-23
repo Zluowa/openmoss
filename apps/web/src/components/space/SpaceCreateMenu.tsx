@@ -52,7 +52,7 @@ interface SpaceCreateMenuEntry {
 
 const GROUPS: ReadonlyArray<ReadonlyArray<SpaceCreateMenuEntry>> = [
   [
-    { id: "page", label: "页面", icon: PageTextIcon },
+    { id: "page", label: "文档", icon: PageTextIcon },
     { id: "slides", label: "幻灯片", icon: SlidesIcon },
     { id: "sheet", label: "电子表格", icon: TableIcon, badge: "Beta" },
     { id: "board", label: "白板", icon: WhiteboardIcon, badge: "Beta" },

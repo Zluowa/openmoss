@@ -79,7 +79,8 @@ const RAIL_ITEM_GLYPH_NAMES: Record<RailItemId, string> = {
   inbox: "at",
   pullRequests: "code-analyze",
   automations: "clock",
-  library: "folders",
+  // Its own glyph: 项目 keeps the folders (walk R-8: three rows shared one folder icon).
+  library: "library",
   tasks: "square-checklist",
   // A project pinned to the rail opens this panel; its own glyph is the project icon.
   project: "folders",

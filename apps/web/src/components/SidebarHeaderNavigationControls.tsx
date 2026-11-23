@@ -23,7 +23,6 @@ import {
   useSidebar,
 } from "./ui/sidebar";
 import { cn } from "~/lib/utils";
-import { useMossbotOnboardingPresence } from "~/components/mossbot/mossbotOnboardingPresence";
 
 const LEADING_CONTROLS_CLASS = "flex shrink-0 items-center gap-0.5";
 
@@ -35,19 +34,11 @@ const LEADING_CONTROLS_CLASS = "flex shrink-0 items-center gap-0.5";
  * varies per host, so it is passed in via `className`; the inner controls stay constant.
  */
 export function SidebarLeadingControls({ className }: { className?: string }) {
-  // The Mossbot onboarding hides the panel; its toggle steps aside too (its box stays, so the arrows keep place).
-  const panelHeld = useMossbotOnboardingPresence((state) => state.active);
   return (
     <div className={cn(LEADING_CONTROLS_CLASS, className)}>
       <SidebarTrigger
-        className={cn(
-          "size-7 shrink-0 text-muted-foreground/75 hover:text-foreground",
-          panelHeld && "invisible",
-        )}
+        className="size-7 shrink-0 text-muted-foreground/75 hover:text-foreground"
         aria-label="Toggle thread sidebar"
-        aria-hidden={panelHeld || undefined}
-        disabled={panelHeld}
-        tabIndex={panelHeld ? -1 : undefined}
       />
       <AppNavigationButtons className="ms-0" />
     </div>

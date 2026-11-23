@@ -196,8 +196,11 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
     await page.getByRole("menuitem", { name: "加宽页面", exact: true }).click();
     expect(docStyleCalls).toEqual([{ width: "wide" }]);
 
-    // Clicking 问 Moss opens dock in place without navigating away to /$threadId
-    await bottomToolbar.getByRole("button", { name: "问 Moss", exact: true }).click();
+    // One 问 Moss per screen: the top bar's. It opens the dock in place, without navigating.
+    await expect
+      .element(bottomToolbar.getByRole("button", { name: "问 Moss", exact: true }))
+      .not.toBeInTheDocument();
+    await topBar.getByRole("button", { name: "问 Moss", exact: true }).click();
     expect(askSpy).toHaveBeenCalledTimes(1);
     expect(router.state.location.pathname).toBe("/");
   });
@@ -485,6 +488,96 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
       }),
     );
     await expect.poll(() => collapsedSpy.mock.calls.length).toBe(1);
+  });
+
+  it("closes the floating 问 Moss panel with × and with Esc, and leaves no pill behind", async () => {
+    function CloseHarness() {
+      const containerRef = useRef<HTMLDivElement | null>(null);
+      return (
+        <div ref={containerRef} style={{ width: 1200, height: 800, position: "relative" }}>
+          <SpaceCanvasChatDockHost
+            artifact={{
+              kind: "sheet",
+              itemId: "sheet-1",
+              title: "预算表",
+              scopeSpaceId: null,
+              account: "acct-1",
+            }}
+            containerRef={containerRef}
+            keepItemOpen
+          >
+            {(dock) => (
+              <div className="flex flex-1 flex-col items-start gap-2 p-4">
+                <span data-testid="dock-mode">{dock.state}</span>
+                <Button size="xs" data-space-dock-toggle onClick={() => dock.setState("pip")}>
+                  问 Moss
+                </Button>
+              </div>
+            )}
+          </SpaceCanvasChatDockHost>
+        </div>
+      );
+    }
+    await mountWithProviders(() => <CloseHarness />);
+    const panel = () => document.querySelector<HTMLElement>("[data-space-canvas-dock='pip']");
+    const pill = () => document.querySelector<HTMLElement>("[data-space-canvas-dock='collapsed']");
+    // Opened and closed with ×.
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
+    await expect.poll(() => panel()?.getBoundingClientRect().width ?? 0).toBeGreaterThan(200);
+    await userEvent.click(page.getByRole("button", { name: "关闭", exact: true }));
+    await expect.element(page.getByTestId("dock-mode")).toHaveTextContent("collapsed");
+    expect(panel()).toBeNull();
+    expect(pill(), "nothing is left floating over the item").toBeNull();
+    // Opened again and closed with Esc while focus stays on the toggle.
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
+    await expect.poll(() => panel()?.getBoundingClientRect().width ?? 0).toBeGreaterThan(200);
+    await userEvent.keyboard("{Escape}");
+    await expect.element(page.getByTestId("dock-mode")).toHaveTextContent("collapsed");
+    expect(panel()).toBeNull();
+    expect(pill()).toBeNull();
+  });
+
+  it("opens every item with the 问 Moss panel closed, even after it was open on the last one", async () => {
+    localStorage.setItem(SPACE_DOCK_PERSIST_KEYS.mode, "pip");
+    function SwitchHarness() {
+      const containerRef = useRef<HTMLDivElement | null>(null);
+      const [itemId, setItemId] = useState("deck-1");
+      return (
+        <div ref={containerRef} style={{ width: 1200, height: 800, position: "relative" }}>
+          <SpaceCanvasChatDockHost
+            artifact={{
+              kind: "slides",
+              itemId,
+              title: itemId,
+              scopeSpaceId: null,
+              account: "acct-1",
+            }}
+            containerRef={containerRef}
+            keepItemOpen
+          >
+            {(dock) => (
+              <div className="flex flex-1 flex-col items-start gap-2 p-4">
+                <Button size="xs" data-space-dock-toggle onClick={() => dock.setState("pip")}>
+                  问 Moss
+                </Button>
+                <Button size="xs" onClick={() => setItemId("deck-2")}>
+                  下一个
+                </Button>
+              </div>
+            )}
+          </SpaceCanvasChatDockHost>
+        </div>
+      );
+    }
+    await mountWithProviders(() => <SwitchHarness />);
+    const panel = () => document.querySelector<HTMLElement>("[data-space-canvas-dock='pip']");
+    // Not opened by the mode used last time.
+    expect(panel()).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
+    await expect.poll(() => panel()?.getBoundingClientRect().width ?? 0).toBeGreaterThan(200);
+    await userEvent.click(page.getByRole("button", { name: "下一个", exact: true }));
+    await expect.poll(() => panel()).toBeNull();
+    expect(document.querySelector("[data-space-canvas-dock='collapsed']")).toBeNull();
   });
 
   it("keeps dock.setSelection and registerHostInsets idempotent across child useEffect([dock]) re-renders", async () => {
