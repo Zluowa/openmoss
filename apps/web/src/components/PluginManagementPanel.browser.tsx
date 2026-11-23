@@ -640,4 +640,32 @@ describe("PluginManagementPanel authoritative tabs", () => {
       await screen.unmount();
     }
   });
+
+  it("puts the title where every other settings page does when shown in Settings", async () => {
+    const screen = await renderZh(
+      <PluginManagementPanel
+        {...commonProps()}
+        settingsPage
+        plugins={[]}
+        apps={[]}
+        marketplaces={[]}
+      />,
+    );
+    try {
+      const column = page.getByTestId("plugin-manage-content").element();
+      const style = getComputedStyle(column);
+      // The shared settings column: 46rem wide, 2rem side padding, 1.75rem above the title.
+      const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+      expect(Number.parseFloat(style.maxWidth)).toBe(46 * rem);
+      expect(Number.parseFloat(style.paddingLeft)).toBe(2 * rem);
+      expect(Number.parseFloat(style.paddingTop)).toBe(1.75 * rem);
+      const title = column.querySelector("h1")!;
+      expect(title.getBoundingClientRect().height).toBeGreaterThan(0);
+      expect(title.getBoundingClientRect().left - column.getBoundingClientRect().left).toBe(
+        2 * rem,
+      );
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

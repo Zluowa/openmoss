@@ -987,4 +987,151 @@ describe("Canvas compose context", () => {
       origin: "selection",
     });
   });
+
+  it("allows immediate leave on a standalone board before Canvas JS finishes bootstrapping", async () => {
+    const host = await mount(
+      {
+        boardScope: {
+          pageId: "board-page-1",
+          canvasProjectKey: "board-proj-1",
+          scopeSpaceId: "space-1",
+        },
+        canvasProjectKey: "board-proj-1",
+      },
+      true,
+    );
+    fireEvent.load(host.iframe);
+    const guard = vi.mocked(host.props.onLeaveGuardChange).mock.calls.at(-1)![0]!;
+    await expect(guard()).resolves.toBe(true);
+    expect(host.requests("moss-canvas-flush")).toHaveLength(0);
+  });
+
+  it("times out standalone board flush after 5s once bootstrapped instead of blocking for 100s", async () => {
+    const host = await mount(
+      {
+        boardScope: {
+          pageId: "board-page-1",
+          canvasProjectKey: "board-proj-1",
+          scopeSpaceId: "space-1",
+        },
+        canvasProjectKey: "board-proj-1",
+      },
+      true,
+    );
+    await host.emit({ type: "moss-canvas-bootstrap-ready" });
+    const guard = vi.mocked(host.props.onLeaveGuardChange).mock.calls.at(-1)![0]!;
+    let settled = false;
+    let saved!: Promise<boolean>;
+    await act(async () => {
+      saved = guard().then((ok: boolean) => {
+        settled = true;
+        return ok;
+      });
+    });
+    expect(host.requests("moss-canvas-flush")).toHaveLength(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_900);
+    });
+    expect(settled).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(settled).toBe(true);
+    expect(await saved).toBe(false);
+  });
+
+  it("re-delivers hostChrome on standalone board moss-canvas-bootstrap-ready after iframe load", async () => {
+    const host = await mount(
+      {
+        boardScope: {
+          pageId: "board-page-1",
+          canvasProjectKey: "board-proj-1",
+          scopeSpaceId: "space-1",
+        },
+        canvasProjectKey: "board-proj-1",
+        hostChrome: { hideTopBar: true, bottomInsetPx: 48, rightInsetPx: 300 },
+      },
+      true,
+    );
+    fireEvent.load(host.iframe);
+    await tick();
+    expect(host.requests("moss-canvas-host-chrome")).toHaveLength(1);
+    await host.emit({ type: "moss-canvas-bootstrap-ready" });
+    expect(host.requests("moss-canvas-host-chrome")).toHaveLength(2);
+  });
+
+  it("keeps message listener active when onClose or boardScope object identities change", async () => {
+    const initialOnAskDock = vi.fn();
+    const initialOnClose = vi.fn();
+    const updatedOnClose = vi.fn();
+    const host = await mount(
+      {
+        boardScope: {
+          pageId: "board-page-1",
+          canvasProjectKey: "board-proj-1",
+          scopeSpaceId: "space-1",
+        },
+        canvasProjectKey: "board-proj-1",
+        onAskDock: initialOnAskDock,
+        onClose: initialOnClose,
+      },
+      true,
+    );
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const callsBefore = addSpy.mock.calls.filter(([name]) => name === "message").length;
+    await act(async () => {
+      host.view.rerender(
+        <MossCanvasWebSurface
+          {...host.props}
+          threadId={null}
+          canvasProjectKey="board-proj-1"
+          boardScope={{
+            pageId: "board-page-1",
+            canvasProjectKey: "board-proj-1",
+            scopeSpaceId: "space-1",
+          }}
+          onClose={updatedOnClose}
+          onAskDock={initialOnAskDock}
+          onSelectionChange={vi.fn()}
+        />,
+      );
+    });
+    const callsAfter = addSpy.mock.calls.filter(([name]) => name === "message").length;
+    expect(callsAfter).toBe(callsBefore);
+    await host.emit({
+      type: "moss-canvas-ask-dock",
+      version: 1,
+      boardScope: { pageId: "board-page-1", canvasProjectKey: "board-proj-1" },
+      prompt: "稳定触发",
+      origin: "toolbar",
+    });
+    expect(initialOnAskDock).toHaveBeenCalledOnce();
+    addSpy.mockRestore();
+  });
+
+  it("remounts the conversation Canvas iframe when MOSS_CANVAS_RELOAD_EVENT targets its thread", async () => {
+    const host = await mount({}, false);
+    await host.ready();
+    expect(screen.queryByRole("status")).toBeNull();
+
+    // Events for another thread are ignored.
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("moss-canvas-bridge:reload", {
+          detail: { threadId: "thread-other", revision: "rev-other" },
+        }),
+      );
+    });
+    expect(screen.queryByRole("status")).toBeNull();
+
+    // Events targeting this thread increment reloadNonce, remounting the iframe cleanly.
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("moss-canvas-bridge:reload", {
+          detail: { threadId: "thread-a", revision: "rev-2" },
+        }),
+      );
+    });
+    expect(screen.getByRole("status").textContent).toBe("正在加载画布…");
+  });
 });

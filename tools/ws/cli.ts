@@ -23,12 +23,12 @@ const USAGE = `usage: bun run ws <command>
   list [--json] [--no-size] [--all-sizes] [--fresh] [--size-budget <seconds, default 30>]
   release <name> [--dry-run] [--force]
   reap [--apply] [--no-size] [--fresh]          (dry run unless --apply)
-  lane <name> [--owner <session>] [--shell] -- <command...>
+  lane <name> [--owner <session>] [--shell] [--quick] [--class build|window|test|typecheck] -- <command...>
   doctor [--no-fail]
 
 The machine profile is read from $MOSS_WS_PROFILE, default ~/.moss-ws/profile.json.`;
 
-const VALUE_FLAGS = ["base", "branch", "owner", "size-budget"];
+const VALUE_FLAGS = ["base", "branch", "owner", "size-budget", "class"];
 
 export async function main(
   argv: readonly string[],

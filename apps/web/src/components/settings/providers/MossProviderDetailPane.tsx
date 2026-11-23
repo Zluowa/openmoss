@@ -3,23 +3,31 @@ import {
   type ProviderKind,
   type UnifiedModelProviderConfig,
 } from "@moss/contracts";
+import { MOSS_SERVER_AUTHORIZED_CLI_DRIVERS } from "@moss/shared/providerInstances";
 import { useState } from "react";
 import { appHistory } from "~/appNavigation";
 import { useMossAccountGatewayState } from "~/components/auth/useMossGatewayUnreachable";
 import { MossLogoMark } from "~/components/MossLogoMark";
 import { ProviderBrandTile } from "~/components/ProviderBrandIcons";
 import { Button } from "~/components/ui/button";
-import { ChevronRightIcon, PlusIcon } from "~/lib/icons";
+import { Switch } from "~/components/ui/switch";
+import { CheckIcon, PlusIcon } from "~/lib/icons";
+import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import { closeSettings } from "~/settingsDialogStore";
 import { SettingsCard, SettingsSectionShell } from "../SettingsPanelPrimitives";
-import { cliBrandIconId, resolveEffectiveCliSourceUi } from "./providerWorkbenchTypes";
+import { cliBrandIconId } from "./providerWorkbenchTypes";
 
 export function MossProviderDetailPane(props: {
   readonly activeCliProviders: ReadonlyArray<ProviderKind>;
   readonly unifiedProviders: ReadonlyArray<UnifiedModelProviderConfig>;
   readonly defaultUnifiedProviderId: string | null | undefined;
   readonly unifiedProviderByCli: Readonly<Record<string, string>> | undefined;
+  readonly mossCliModelAuthEnabled: boolean;
+  readonly mossCliModelAuthDisabledProviders: ReadonlyArray<ProviderKind>;
+  readonly onToggleMossCliModelAuth: (enabled: boolean) => void;
+  readonly onToggleMossCliProviderAuth: (provider: ProviderKind, allowed: boolean) => void;
+  readonly onSetAllMossCliProvidersAuth: (allowAll: boolean) => void;
   readonly onSelectCli: (provider: ProviderKind) => void;
   readonly onAddUnifiedProvider?: () => void;
 }) {
@@ -28,14 +36,17 @@ export function MossProviderDetailPane(props: {
   const accountState = useMossAccountGatewayState();
   const [pinwheelHovered, setPinwheelHovered] = useState(false);
 
-  const mossRoutedClis = props.activeCliProviders.filter(
-    (driver) =>
-      resolveEffectiveCliSourceUi({
-        defaultUnifiedProviderId: props.defaultUnifiedProviderId,
-        unifiedProviderByCli: props.unifiedProviderByCli,
-        provider: driver,
-      }) === "moss",
+  const activeSet = new Set(props.activeCliProviders);
+  const authorizedDrivers = MOSS_SERVER_AUTHORIZED_CLI_DRIVERS.filter((driver) =>
+    activeSet.has(driver),
   );
+  const disabledSet = new Set(props.mossCliModelAuthDisabledProviders);
+  const allowedCount = authorizedDrivers.filter((driver) => !disabledSet.has(driver)).length;
+  // Signed out (or the account unreachable), no CLI can use Moss models whatever the switches say,
+  // so the grid shows no ticks and no count rather than a promise that is not true right now.
+  const mossModelsUsable = accountState === "connected";
+  const allAllowed = authorizedDrivers.length > 0 && allowedCount === authorizedDrivers.length;
+  const noneAllowed = allowedCount === 0;
 
   const accountDescription =
     accountState === "connected"
@@ -115,45 +126,113 @@ export function MossProviderDetailPane(props: {
       </div>
 
       <SettingsSectionShell
-        title={isZh ? "默认使用 Moss" : "Routed via Moss"}
+        title={isZh ? "服务端授权 CLI" : "CLI Model Access"}
         action={
-          <span className="text-ui-xs text-muted-foreground tabular-nums">
-            {mossRoutedClis.length} / {props.activeCliProviders.length}
-          </span>
+          <div className="flex items-center gap-1.5">
+            {props.mossCliModelAuthEnabled ? (
+              <>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  disabled={allAllowed}
+                  className="h-6 px-2 text-ui-xs text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => props.onSetAllMossCliProvidersAuth(true)}
+                >
+                  {isZh ? "全开" : "All on"}
+                </Button>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  disabled={noneAllowed}
+                  className="h-6 px-2 text-ui-xs text-muted-foreground transition-colors hover:text-foreground"
+                  onClick={() => props.onSetAllMossCliProvidersAuth(false)}
+                >
+                  {isZh ? "全关" : "All off"}
+                </Button>
+              </>
+            ) : null}
+            {mossModelsUsable ? (
+              <span className="text-ui-xs text-muted-foreground tabular-nums">
+                {props.mossCliModelAuthEnabled
+                  ? `${allowedCount} / ${authorizedDrivers.length}`
+                  : isZh
+                    ? "已关闭"
+                    : "Off"}
+              </span>
+            ) : null}
+          </div>
         }
       >
-        <SettingsCard divided={false} className="p-2">
-          {mossRoutedClis.length > 0 ? (
-            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-              {mossRoutedClis.map((driver) => (
-                <Button
-                  key={driver}
-                  type="button"
-                  variant="ghost"
-                  className="group h-9 w-full justify-between gap-2 rounded-row px-2.5 text-left font-normal text-foreground transition-[background-color,transform] duration-150 ease-snap hover:bg-foreground/[0.045] active:scale-[0.98] motion-reduce:transition-none"
-                  onClick={() => props.onSelectCli(driver)}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <ProviderBrandTile
-                      variant="bare"
-                      iconId={cliBrandIconId(driver)}
-                      cliProvider={driver}
-                      size="sm"
-                      className="transition-transform duration-150 group-hover:scale-105 motion-reduce:transition-none"
-                    />
-                    <span className="truncate text-ui">{PROVIDER_DISPLAY_NAMES[driver]}</span>
-                  </span>
-                  <ChevronRightIcon className="size-3.5 shrink-0 -translate-x-0.5 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-150 group-hover:translate-x-0 group-hover:opacity-100 motion-reduce:transition-none" />
-                </Button>
-              ))}
+        <SettingsCard divided={false} className="overflow-hidden">
+          <div className="flex items-center justify-between gap-3 px-3.5 py-3">
+            <div className="min-w-0">
+              <div className="text-ui font-medium text-foreground">
+                {isZh ? "允许 CLI 使用 Moss 模型" : "Allow CLIs to use Moss models"}
+              </div>
             </div>
-          ) : (
-            <p className="px-2.5 py-2 text-ui-sm text-muted-foreground">
-              {isZh
-                ? "当前智能体均已切换为自定义服务商或本机账号"
-                : "All agents currently use custom providers or local accounts"}
-            </p>
-          )}
+            <Switch
+              checked={props.mossCliModelAuthEnabled}
+              onCheckedChange={(checked) => props.onToggleMossCliModelAuth(Boolean(checked))}
+              aria-label={isZh ? "允许 CLI 使用 Moss 模型" : "Allow CLIs to use Moss models"}
+            />
+          </div>
+
+          <div
+            className={cn(
+              "border-t border-border/50 p-2 transition-opacity duration-150 motion-reduce:transition-none",
+              (!props.mossCliModelAuthEnabled || !mossModelsUsable) && "opacity-50",
+            )}
+          >
+            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+              {authorizedDrivers.map((driver) => {
+                const allowed = !disabledSet.has(driver);
+                const effectiveAllowed = props.mossCliModelAuthEnabled && allowed;
+                const shownAllowed = effectiveAllowed && mossModelsUsable;
+                return (
+                  <Button
+                    key={driver}
+                    type="button"
+                    role="switch"
+                    aria-checked={effectiveAllowed}
+                    aria-label={
+                      isZh
+                        ? `允许 ${PROVIDER_DISPLAY_NAMES[driver]} 使用 Moss 模型`
+                        : `Allow ${PROVIDER_DISPLAY_NAMES[driver]} to use Moss models`
+                    }
+                    data-moss-cli-auth-toggle={driver}
+                    disabled={!props.mossCliModelAuthEnabled}
+                    variant="ghost"
+                    onClick={() => props.onToggleMossCliProviderAuth(driver, !allowed)}
+                    className={cn(
+                      "h-9 w-full justify-between gap-2 rounded-row px-2.5 text-left font-normal transition-[background-color,color,transform] duration-150 ease-snap active:scale-[0.98] motion-reduce:transition-none",
+                      effectiveAllowed
+                        ? "bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.09]"
+                        : "text-muted-foreground hover:bg-foreground/[0.04] hover:text-foreground",
+                    )}
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <ProviderBrandTile
+                        variant="bare"
+                        iconId={cliBrandIconId(driver)}
+                        cliProvider={driver}
+                        size="sm"
+                      />
+                      <span className="truncate text-ui">{PROVIDER_DISPLAY_NAMES[driver]}</span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      data-moss-cli-auth-mark={shownAllowed ? "on" : "off"}
+                      className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                    >
+                      {shownAllowed ? <CheckIcon className="size-3.5" /> : null}
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
         </SettingsCard>
       </SettingsSectionShell>
 

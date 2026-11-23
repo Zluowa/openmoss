@@ -3,6 +3,7 @@
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import type * as React from "react";
 import { XIcon } from "~/lib/icons";
+import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { ScrollArea } from "~/components/ui/scroll-area";
@@ -87,6 +88,7 @@ function SheetPopup({
   side?: "right" | "left" | "top" | "bottom";
   variant?: "default" | "inset";
 }) {
+  const { t } = useTranslation();
   const showCloseButton = showCloseButtonProp ?? true;
   const showBackdrop = showBackdropProp ?? true;
   const keepMounted = keepMountedProp ?? false;
@@ -117,9 +119,9 @@ function SheetPopup({
           {children}
           {showCloseButton && (
             <SheetPrimitive.Close
-              aria-label="Close"
+              aria-label={t("dialog.close")}
               className="absolute end-2 top-2"
-              render={<Button size="icon" variant="ghost" />}
+              render={<Button size="icon-sm" variant="ghost" />}
             >
               <XIcon />
             </SheetPrimitive.Close>
@@ -134,7 +136,7 @@ function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-2 p-6 in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pb-3 max-sm:pb-4",
+        "flex shrink-0 flex-col gap-1.5 px-ui-pad-lg pt-ui-pad-lg pb-ui-pad-sm in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pb-1",
         className,
       )}
       data-slot="sheet-header"
@@ -154,10 +156,9 @@ function SheetFooter({
   return (
     <div
       className={cn(
-        "flex flex-col-reverse gap-2 px-6 sm:flex-row sm:justify-end",
-        variant === "default" && "border-t bg-muted/72 py-4",
-        variant === "bare" &&
-          "in-[[data-slot=sheet-popup]:has([data-slot=sheet-panel])]:pt-3 pt-4 pb-6",
+        "flex shrink-0 flex-col-reverse gap-ui-gap-xs px-ui-pad-lg sm:flex-row sm:justify-end",
+        variant === "default" && "py-ui-pad-md",
+        variant === "bare" && "pt-ui-pad-md pb-ui-pad-lg",
         className,
       )}
       data-slot="sheet-footer"
@@ -169,7 +170,7 @@ function SheetFooter({
 function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
   return (
     <SheetPrimitive.Title
-      className={cn("font-heading font-semibold text-xl leading-none", className)}
+      className={cn("min-w-0 break-words font-heading font-semibold text-ui-lg", className)}
       data-slot="sheet-title"
       {...props}
     />
@@ -196,7 +197,7 @@ function SheetPanel({
     <ScrollArea scrollFade={scrollFade}>
       <div
         className={cn(
-          "p-6 in-[[data-slot=sheet-popup]:has([data-slot=sheet-header])]:pt-1 in-[[data-slot=sheet-popup]:has([data-slot=sheet-footer]:not(.border-t))]:pb-1",
+          "px-ui-pad-lg pb-ui-pad-lg pt-1 in-[[data-slot=sheet-popup]:has([data-slot=sheet-header])]:pt-0 in-[[data-slot=sheet-popup]:has([data-slot=sheet-footer])]:pb-ui-pad-md",
           className,
         )}
         data-slot="sheet-panel"

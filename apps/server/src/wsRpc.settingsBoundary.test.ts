@@ -197,4 +197,36 @@ describe("WebSocket settings reservation boundary", () => {
       homeOwnershipNonce: nonce,
     });
   });
+
+  it("lets clients update mossCliModelAuthEnabled and mossCliModelAuthDisabledProviders while keeping reserved credentials locked", async () => {
+    const result = await runWithSettings(
+      Effect.gen(function* () {
+        const service = yield* ServerSettingsService;
+        const config = yield* ServerConfig;
+        yield* service.start;
+        const original = yield* service.updateSettings(
+          reservation(join(config.stateDir, "moss-codex-home"), true),
+        );
+        const view = yield* serverUpdateSettingsRpcEffect(service, {
+          mossCliModelAuthEnabled: false,
+          mossCliModelAuthDisabledProviders: ["codex", "opencode"],
+          providerInstances: {
+            codex_moss: {
+              ...original.providerInstances.codex_moss!,
+              displayName: "Forged",
+            },
+          },
+        });
+        return { original, view, stored: yield* service.getSettings };
+      }),
+    );
+
+    expect(result.stored.mossCliModelAuthEnabled).toBe(false);
+    expect(result.stored.mossCliModelAuthDisabledProviders).toEqual(["codex", "opencode"]);
+    expect(result.view.mossCliModelAuthEnabled).toBe(false);
+    expect(result.view.mossCliModelAuthDisabledProviders).toEqual(["codex", "opencode"]);
+    expect(result.stored.providerInstances.codex_moss).toEqual(
+      result.original.providerInstances.codex_moss,
+    );
+  });
 });

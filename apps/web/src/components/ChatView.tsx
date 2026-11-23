@@ -6049,6 +6049,8 @@ export default function ChatView({
       onRefreshModels={refreshModels}
       discoveryErrorsByProvider={discoveryErrorsByProvider}
       mossGatewayUnreachable={mossGatewayUnreachable}
+      mossCliModelAuthEnabled={settings.mossCliModelAuthEnabled}
+      mossCliModelAuthDisabledProviders={settings.mossCliModelAuthDisabledProviders}
       defaultModelByProviderInstance={defaultModelByProviderInstance}
       modelDiscoveryPendingByProviderInstance={modelDiscoveryPendingByProviderInstance}
       hiddenProviders={settings.hiddenProviders}

@@ -49,7 +49,11 @@ import {
   DEFAULT_WINDOWS_APP_SNAP_SHORTCUT,
 } from "@moss/shared/appSnapShortcut";
 import type { MossDesktopFlavor } from "@moss/shared/desktopIdentity";
-import { codexAccountInstanceId } from "@moss/shared/providerInstances";
+import {
+  codexAccountInstanceId,
+  isMossManagedCliAuthorized,
+  isMossManagedCliInstance,
+} from "@moss/shared/providerInstances";
 import { useLocalStorage } from "./hooks/useLocalStorage";
 import { EnvMode } from "./components/BranchToolbar.logic";
 import { normalizeCursorModelVariantBaseId } from "./cursorModelVariants";
@@ -681,6 +685,10 @@ export const AppSettingsSchema = Schema.Struct({
   disabledProviders: PersistedProviderKindList.pipe(
     withDefaults(() => [...MOSS_OPTIONAL_PROVIDER_KINDS]),
   ),
+  // Server-backed master and per-CLI switches controlling whether `*_moss`
+  // managed lanes may serve models for coding CLIs.
+  mossCliModelAuthEnabled: Schema.Boolean.pipe(withDefaults(() => true)),
+  mossCliModelAuthDisabledProviders: PersistedProviderKindList.pipe(withDefaults(() => [])),
   // Local-only UI preference: top-level provider order in Settings and the composer picker.
   providerOrder: PersistedProviderKindList.pipe(withDefaults(() => [...DEFAULT_PROVIDER_ORDER])),
   // Deprecated local-only preference kept for backward-compatible decoding.
@@ -1183,7 +1191,15 @@ type ProviderInstanceSelectionSettings = Pick<
   AppSettings,
   "codexAccounts" | "codexHomePath" | "providerInstances" | "selectedCodexAccountId"
 > &
-  Partial<Pick<AppSettings, "disabledProviders" | "newChatModelSource">>;
+  Partial<
+    Pick<
+      AppSettings,
+      | "disabledProviders"
+      | "newChatModelSource"
+      | "mossCliModelAuthEnabled"
+      | "mossCliModelAuthDisabledProviders"
+    >
+  >;
 
 function listProviderInstanceOptions(
   settings: ProviderInstanceSelectionSettings,
@@ -1245,10 +1261,19 @@ function listProviderInstanceOptions(
   }
 
   return Array.from(optionsById.values())
-    .map((option) => ({
-      ...option,
-      enabled: option.enabled && !settings.disabledProviders?.includes(option.provider),
-    }))
+    .map((option) => {
+      const raw = settings.providerInstances[option.instanceId];
+      const mossAuthorized =
+        !isMossManagedCliInstance(option.instanceId, raw) ||
+        isMossManagedCliAuthorized(settings, option.provider);
+      return {
+        ...option,
+        enabled:
+          option.enabled &&
+          !settings.disabledProviders?.includes(option.provider) &&
+          mossAuthorized,
+      };
+    })
     .toSorted((left, right) => {
       const providerDelta =
         PROVIDER_INSTANCE_PROVIDER_ORDER.indexOf(left.provider) -
@@ -1500,7 +1525,15 @@ export function removeManageableProviderInstance(
  */
 export function resolveDefaultProviderInstanceId(
   settings: Pick<AppSettings, "codexAccounts" | "codexHomePath" | "selectedCodexAccountId"> &
-    Partial<Pick<AppSettings, "providerInstances" | "newChatModelSource">>,
+    Partial<
+      Pick<
+        AppSettings,
+        | "providerInstances"
+        | "newChatModelSource"
+        | "mossCliModelAuthEnabled"
+        | "mossCliModelAuthDisabledProviders"
+      >
+    >,
   provider: ProviderKind,
 ): ProviderInstanceId {
   const mossInstanceId = signedInMossInstanceId(settings, provider);
@@ -1516,7 +1549,15 @@ export function resolveDefaultProviderInstanceId(
 // The agent's Moss instance, when the person is signed in to Moss (the server provisions
 // it, managed and enabled) and has not chosen their own login for new chats.
 function signedInMossInstanceId(
-  settings: Partial<Pick<AppSettings, "providerInstances" | "newChatModelSource">>,
+  settings: Partial<
+    Pick<
+      AppSettings,
+      | "providerInstances"
+      | "newChatModelSource"
+      | "mossCliModelAuthEnabled"
+      | "mossCliModelAuthDisabledProviders"
+    >
+  >,
   provider: ProviderKind,
 ): ProviderInstanceId | undefined {
   if (settings.newChatModelSource === "own" || !settings.providerInstances) {
@@ -1525,7 +1566,15 @@ function signedInMossInstanceId(
   const instanceId = mossDefaultManagedInstanceIdForProvider(provider);
   return instanceId &&
     isServerConfiguredMossDefaultManagedProvider(
-      { providerInstances: settings.providerInstances },
+      {
+        providerInstances: settings.providerInstances,
+        ...(settings.mossCliModelAuthEnabled !== undefined
+          ? { mossCliModelAuthEnabled: settings.mossCliModelAuthEnabled }
+          : {}),
+        ...(settings.mossCliModelAuthDisabledProviders !== undefined
+          ? { mossCliModelAuthDisabledProviders: settings.mossCliModelAuthDisabledProviders }
+          : {}),
+      },
       instanceId,
     )
     ? instanceId
@@ -1540,7 +1589,13 @@ export function resolveNewConversationDefaultModelSelection(
     | "defaultProvider"
     | "providerInstances"
     | "selectedCodexAccountId"
-  >,
+  > &
+    Partial<
+      Pick<
+        AppSettings,
+        "newChatModelSource" | "mossCliModelAuthEnabled" | "mossCliModelAuthDisabledProviders"
+      >
+    >,
   requestedProvider: ProviderKind = settings.defaultProvider,
 ): ModelSelection {
   const selectionFor = (provider: SupportedProviderKind): ModelSelection | null => {
@@ -1876,6 +1931,8 @@ export function serverSettingsToAppSettings(settings: ServerSettingsView): Parti
     customMinimaxModels: settings.providers.minimax.customModels,
     customZcodeModels: settings.providers.zcode.customModels,
     disabledProviders: getServerDisabledProviders(settings),
+    mossCliModelAuthEnabled: settings.mossCliModelAuthEnabled,
+    mossCliModelAuthDisabledProviders: settings.mossCliModelAuthDisabledProviders,
     providerInstances: settings.providerInstances,
     textGenerationProvider: settings.textGenerationModelSelection.provider,
     textGenerationProviderInstanceId: settings.textGenerationModelSelection.instanceId,
@@ -1924,7 +1981,9 @@ function touchesProviderDiscoverySettings(patch: Partial<AppSettings>): boolean 
     hasOwn(patch, "kimiBinaryPath") ||
     hasOwn(patch, "minimaxBinaryPath") ||
     hasOwn(patch, "zcodeBinaryPath") ||
-    hasOwn(patch, "disabledProviders")
+    hasOwn(patch, "disabledProviders") ||
+    hasOwn(patch, "mossCliModelAuthEnabled") ||
+    hasOwn(patch, "mossCliModelAuthDisabledProviders")
   );
 }
 
@@ -2251,6 +2310,15 @@ export function appSettingsPatchToServerSettingsPatch(
 
   if (Object.keys(providers).length > 0) {
     serverPatch.providers = providers;
+  }
+  if (hasOwn(patch, "mossCliModelAuthEnabled") && patch.mossCliModelAuthEnabled !== undefined) {
+    serverPatch.mossCliModelAuthEnabled = Boolean(patch.mossCliModelAuthEnabled);
+  }
+  if (
+    hasOwn(patch, "mossCliModelAuthDisabledProviders") &&
+    patch.mossCliModelAuthDisabledProviders !== undefined
+  ) {
+    serverPatch.mossCliModelAuthDisabledProviders = [...patch.mossCliModelAuthDisabledProviders];
   }
   if (hasOwn(patch, "providerInstances") && patch.providerInstances !== undefined) {
     serverPatch.providerInstances = patch.providerInstances;
@@ -3423,7 +3491,11 @@ export function useAppSettings() {
             .invalidateQueries({ queryKey: githubInboxQueryKeys.all })
             .catch(() => undefined);
         }
-        if (hasOwn(patch, "disabledProviders")) {
+        if (
+          hasOwn(patch, "disabledProviders") ||
+          hasOwn(patch, "mossCliModelAuthEnabled") ||
+          hasOwn(patch, "mossCliModelAuthDisabledProviders")
+        ) {
           await refreshProvidersAfterEnablementChange();
         } else if (touchesProviderDiscoverySettings(patch)) {
           await queryClient

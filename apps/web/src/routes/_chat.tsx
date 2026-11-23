@@ -61,6 +61,7 @@ import { useRailShellStore } from "../railShellStore";
 import {
   MOSS_CANVAS_CLOSE_EVENT,
   registerMossCanvasHost,
+  reloadMossCanvas,
   sanitizeMossCanvasImageFocus,
   type MossCanvasImageFocus,
 } from "../lib/mossCanvasBridge";
@@ -668,16 +669,28 @@ function ChatRouteLayout() {
       ensureNativeApi().orchestration.onDomainEvent((event) => {
         if (
           event.type !== "thread.activity-appended" ||
-          event.payload.threadId !== activeCanvasThread.current ||
-          event.payload.activity.kind !== "canvas.open.requested"
+          event.payload.threadId !== activeCanvasThread.current
         )
           return;
+        const kind = event.payload.activity.kind;
+        if (kind !== "canvas.open.requested" && kind !== "canvas.updated") return;
         const value: unknown = event.payload.activity.payload;
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         const payload = value as Record<string, unknown>;
         if (payload.source !== "moss-mcp-canvas") return;
+        const targetThreadId = String(event.payload.threadId);
+        if (kind === "canvas.updated") {
+          if (payload.open !== false) {
+            clearDestinationSurface();
+            useRightDockStore.getState().openPane(ThreadId.makeUnsafe(targetThreadId), {
+              kind: "canvas",
+            });
+          }
+          reloadMossCanvas(targetThreadId, String(payload.revision ?? event.payload.activity.id));
+          return;
+        }
         void openThreadCanvas(
-          String(event.payload.threadId),
+          targetThreadId,
           sanitizeMossCanvasImageFocus({
             jobId: payload.jobId,
             imageIndex: payload.imageIndex,
@@ -685,7 +698,7 @@ function ChatRouteLayout() {
           }),
         );
       }),
-    [openThreadCanvas],
+    [clearDestinationSurface, openThreadCanvas],
   );
   useEffect(() => {
     const onClose = () => {

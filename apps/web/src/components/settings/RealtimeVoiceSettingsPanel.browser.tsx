@@ -324,4 +324,16 @@ describe("RealtimeVoiceSettingsPanel", () => {
       await mounted.unmount();
     }
   });
+
+  it("names the voices in Chinese for a Chinese reader", async () => {
+    localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
+    const mounted = await render(<RealtimeVoiceSettingsPanel />);
+    try {
+      await expect.element(page.getByRole("button", { exact: true, name: "枫叶" })).toBeVisible();
+      expect(page.getByRole("button", { exact: true, name: "Maple" }).elements()).toHaveLength(0);
+    } finally {
+      await mounted.unmount();
+      localStorage.removeItem("moss:app-settings:v1");
+    }
+  });
 });

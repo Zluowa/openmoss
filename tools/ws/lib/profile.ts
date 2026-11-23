@@ -44,6 +44,9 @@ export interface Profile {
     readonly freeGB: number;
     readonly commitHeadroomGB: number;
     readonly waitMinutes: number;
+    /** A heavy-lane job starts beside running ones only above these (laneSlots.ts). */
+    readonly admitFreeGB: number;
+    readonly admitCommitHeadroomGB: number;
   };
   readonly ports: {
     readonly offsetFirst: number;
@@ -59,6 +62,10 @@ export interface Profile {
     readonly warnMinutes: number;
     /** A `ws lane --quick` run is stopped after this long (it promised to be short). */
     readonly quickCapMinutes: number;
+    /** How many heavy-lane jobs may run at once (default 1; laneSlots.ts). */
+    readonly heavySlots: number;
+    /** A job joins running ones only this long after the newest of them started (it takes its memory first). */
+    readonly admitSettleSeconds: number;
   };
   readonly limits: {
     readonly leaseMaxAgeDays: number;
@@ -165,6 +172,8 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
       freeGB: num(memory, "freeGB", 4),
       commitHeadroomGB: num(memory, "commitHeadroomGB", 8),
       waitMinutes: Math.max(0, num(memory, "waitMinutes", 30)),
+      admitFreeGB: num(memory, "admitFreeGB", 8),
+      admitCommitHeadroomGB: num(memory, "admitCommitHeadroomGB", 12),
     },
     ports: {
       offsetFirst: num(ports, "offsetFirst", 100),
@@ -179,6 +188,8 @@ export function parseProfile(raw: unknown, profilePath: string): Profile {
         : ["lead"],
       warnMinutes: num(lock, "warnMinutes", 20),
       quickCapMinutes: Math.max(0.05, num(lock, "quickCapMinutes", 10)),
+      heavySlots: Math.max(1, Math.floor(num(lock, "heavySlots", 1))),
+      admitSettleSeconds: num(lock, "admitSettleSeconds", 60),
     },
     limits: {
       leaseMaxAgeDays: num(limits, "leaseMaxAgeDays", 7),
@@ -226,4 +237,16 @@ export function loadProfile(env: NodeJS.ProcessEnv = process.env): Profile {
 /** Every root ws may act in, newest first. */
 export function managedRoots(profile: Profile): string[] {
   return [profile.worktreeRoot, ...profile.legacyRoots];
+}
+
+/** The profile as its file says now (the lane reads it at every admission); `profile` when the file cannot be read. */
+export function rereadProfile(profile: Profile): Profile {
+  try {
+    return parseProfile(
+      JSON.parse(fs.readFileSync(profile.profilePath, "utf8")),
+      profile.profilePath,
+    );
+  } catch {
+    return profile;
+  }
 }

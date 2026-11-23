@@ -1,5 +1,5 @@
 // FILE: MossAccountSettingsSection.browser.tsx
-// Purpose: Settings → 模型账号 has a Moss row that says, in Chinese, whether Moss is
+// Purpose: Settings → 模型与智能体 has a Moss row that says, in Chinese, whether Moss is
 //          connected, can't be reached right now, or isn't signed in.
 // Layer: Settings browser test
 

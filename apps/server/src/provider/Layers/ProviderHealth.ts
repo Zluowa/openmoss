@@ -241,12 +241,34 @@ import {
   ProviderInstallationError,
   removeManagedProviderInstallation,
 } from "../managedProviderInstallation.ts";
+import {
+  DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND,
+  type DevinWindowsUpdateInput,
+  type DevinWindowsUpdateResult,
+  updateDevinWindowsNative,
+} from "../devinWindowsUpdate.ts";
 
 /** Set to "1" in tests and rehearsals: one-click agent updates are refused. */
 export const PROVIDER_UPDATES_DISABLED_ENV = "MOSS_DISABLE_PROVIDER_UPDATES";
 
 export { parseClaudeAuthStatusFromOutput } from "../claudeAuthStatus";
 export type { CommandResult } from "../providerCliOutput";
+
+export function extractUpdaterCommandHint(output: string | null | undefined): string | null {
+  if (!output) return null;
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/\bto update,\s*run:\s*(.+)$/i);
+    if (!match?.[1]) continue;
+    const cleaned = match[1]
+      .trim()
+      .replace(/^`([^`]+)`$/, "$1")
+      .trim();
+    if (cleaned.length > 0 && cleaned.length <= 240) {
+      return cleaned;
+    }
+  }
+  return null;
+}
 
 const DEFAULT_TIMEOUT_MS = 4_000;
 const ANTIGRAVITY_HEALTH_TIMEOUT_MS = 15_000;
@@ -392,6 +414,8 @@ const REFRESH_REVISION_RESCHEDULE_DELAY_MS = 100;
 const PROVIDER_UPDATE_ENABLEMENT_POLL_MS = 100;
 // Native CLI packages run to a few hundred MB, which takes minutes on a slow domestic line.
 export const PROVIDER_UPDATE_TIMEOUT_MS = 5 * 60_000;
+// Windows Devin ZIP downloads can run ~100 MB over slow CDN paths (~75-160 KB/s).
+export const DEVIN_WINDOWS_UPDATE_TIMEOUT_MS = 15 * 60_000;
 // Updates that run through a package manager follow the mirror; a vendor's own updater cannot.
 const MIRRORED_UPDATE_LOCK_KEYS: ReadonlySet<string> = new Set([
   "npm-global",
@@ -524,9 +548,15 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
     nativeUpdate: {
       executable: "devin",
       args: () => ["update"],
+      command: (_installSource, platform) =>
+        platform === "win32" ? DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND : null,
       lockKey: "devin-native",
       strategy: "always",
       excludedInstallSources: ["homebrew"],
+      isCommandPath: (commandPath) => {
+        const normalized = normalizeCommandPath(commandPath);
+        return normalized.includes("/devin/cli/bin/") || normalized.includes("/devin/bin/");
+      },
     },
   },
   opencode: {
@@ -3568,8 +3598,14 @@ export function makeProviderHealthLive(options?: {
    * instance does this; it changes `process.env.PATH`.
    */
   readonly maintainAgentCliPath?: boolean;
+  readonly platform?: NodeJS.Platform;
+  readonly updateDevinWindowsNative?: (
+    input: DevinWindowsUpdateInput,
+  ) => Promise<DevinWindowsUpdateResult>;
 }) {
   const providerUpdateTimeoutMs = options?.providerUpdateTimeoutMs ?? PROVIDER_UPDATE_TIMEOUT_MS;
+  const runtimePlatform = options?.platform ?? process.platform;
+  const runDevinWindowsNative = options?.updateDevinWindowsNative ?? updateDevinWindowsNative;
   return Layer.effect(
     ProviderHealth,
     Effect.gen(function* () {
@@ -3847,7 +3883,7 @@ export function makeProviderHealthLive(options?: {
             {
               binaryPath: effectiveBinaryPath ?? null,
               env: updateEnv,
-              platform: process.platform,
+              platform: runtimePlatform,
               packageChannel: resolveProviderPackageChannel({
                 providerInstances: settings.providerInstances,
               }),
@@ -5183,6 +5219,7 @@ export function makeProviderHealthLive(options?: {
               refreshedAdvisory?.currentVersion && refreshedAdvisory.latestVersion
                 ? ` (installed ${refreshedAdvisory.currentVersion}, latest ${refreshedAdvisory.latestVersion})`
                 : "";
+            const updaterHint = stillOutdated ? extractUpdaterCommandHint(updateOutput) : null;
             return setProviderUpdateState(
               target,
               makeUpdateState({
@@ -5192,7 +5229,7 @@ export function makeProviderHealthLive(options?: {
                 message: targetVersionUnknown
                   ? "Update command completed, but Moss could not verify the requested provider version."
                   : stillOutdated
-                    ? `Update command completed, but Moss still detects an outdated provider version${stillOutdatedVersions}.`
+                    ? `Update command completed, but Moss still detects an outdated provider version${stillOutdatedVersions}.${updaterHint ? ` Suggested command: ${updaterHint}` : ""}`
                     : versionedAgent
                       ? AGENT_UPDATED_LIVE_MESSAGE
                       : "Provider updated.",
@@ -5268,6 +5305,91 @@ export function makeProviderHealthLive(options?: {
             resetLocalAgentPathLookupCache();
             const refreshedProviders = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
             return { providers: yield* reportUpdated(refreshedProviders, null, finishedAt) };
+          }
+          if (
+            provider === DEVIN_PROVIDER &&
+            runtimePlatform === "win32" &&
+            verifiedUpdate.lockKey === "devin-native"
+          ) {
+            const devinUpdateEnv = yield* Effect.try({
+              try: () => {
+                const baseEnv = makeProviderUpdateEnv(currentInstance, {
+                  homeDir: serverConfig.homeDir,
+                  isolationRootDir: serverConfig.stateDir,
+                });
+                return verifiedUpdate.pathPrepend
+                  ? prependPathEntry(baseEnv, verifiedUpdate.pathPrepend, runtimePlatform)
+                  : baseEnv;
+              },
+              catch: toUpdateError,
+            });
+            const devinNativeTimeoutMs =
+              options?.providerUpdateTimeoutMs ??
+              Math.max(providerUpdateTimeoutMs, DEVIN_WINDOWS_UPDATE_TIMEOUT_MS);
+            const devinOutcome = yield* Effect.raceFirst(
+              Effect.tryPromise({
+                try: () =>
+                  runDevinWindowsNative({
+                    binaryPath: verifiedUpdate.executable,
+                    env: devinUpdateEnv,
+                  }),
+                catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+              }).pipe(
+                Effect.timeoutOption(Duration.millis(devinNativeTimeoutMs)),
+                Effect.result,
+                Effect.map((result) => ({ _tag: "completed" as const, result })),
+              ),
+              waitForProviderDisablement.pipe(Effect.as({ _tag: "disabled" as const })),
+            );
+            const finishedAt = yield* nowIso;
+            if (devinOutcome._tag === "disabled") {
+              const providers = yield* setProviderUpdateState(
+                target,
+                makeUpdateState({
+                  status: "failed",
+                  startedAt,
+                  finishedAt,
+                  message: instanceId
+                    ? "Update stopped because the provider instance was disabled or removed."
+                    : "Update stopped because the provider was disabled.",
+                }),
+              );
+              return { providers };
+            }
+            const devinResult = devinOutcome.result;
+            if (Result.isFailure(devinResult)) {
+              const providers = yield* setProviderUpdateState(
+                target,
+                makeUpdateState({
+                  status: "failed",
+                  startedAt,
+                  finishedAt,
+                  message: describeUpdateCommandError(devinResult.failure),
+                }),
+              );
+              return { providers };
+            }
+            if (Option.isNone(devinResult.success)) {
+              const providers = yield* setProviderUpdateState(
+                target,
+                makeUpdateState({
+                  status: "failed",
+                  startedAt,
+                  finishedAt,
+                  message: `Update timed out after ${formatProviderUpdateTimeout(devinNativeTimeoutMs)}.`,
+                }),
+              );
+              return { providers };
+            }
+            resetLocalAgentPathLookupCache();
+            const providers = yield* refreshNow.pipe(Effect.mapError(toUpdateError));
+            return {
+              providers: yield* reportUpdated(
+                providers,
+                devinResult.success.value.output,
+                finishedAt,
+              ),
+            };
           }
           const commandOutcome = yield* Effect.suspend(() => {
             const runAttempt = (attempt: {

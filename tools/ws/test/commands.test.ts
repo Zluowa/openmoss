@@ -274,7 +274,8 @@ describe("ws list and doctor", () => {
 
     const doc = captureIo();
     expect(await cmdDoctor(m.profile, args(), doc)).toBe(1);
-    expect(doc.text()).toMatch(/lock {3}heavy is free/);
+    expect(doc.text()).toMatch(/lane {3}heavy: 0 of 1 slot busy/);
+    expect(doc.text()).toMatch(/slot 1 {2}free/);
     expect(doc.text()).toMatch(/1 unregistered/);
     expect(doc.text()).toMatch(/2 worktrees, over the limit of 1/);
   });

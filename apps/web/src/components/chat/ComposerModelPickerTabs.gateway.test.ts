@@ -96,7 +96,7 @@ describe("Moss gateway unreachable", () => {
   });
 });
 
-describe("Moss row in Settings → 模型账号", () => {
+describe("Moss row in Settings → 模型与智能体", () => {
   const signedIn = (modelGatewayStatus?: string) => ({ authenticated: true, modelGatewayStatus });
   const signedOut = { authenticated: false };
 
@@ -236,5 +236,56 @@ describe("Claude over Moss", () => {
     expect(tabs.map((tab) => tab.instanceId).toSorted()).toEqual(["claudeAgent", "claude_moss"]);
     // Two accounts, so each names itself: the Moss one as Moss, never "Moss Claude".
     expect(tabs.find((tab) => tab.instanceId === "claude_moss")?.name).toBe("Moss");
+  });
+
+  it("hides Moss tabs without offering 登录 Moss when server CLI authorization is turned off", () => {
+    const disabledGlobalTabs = resolveComposerModelPickerProviderTabs({
+      options: claudeOptions,
+      providers: [status("claudeAgent", true), { ...status("claude_moss", true), enabled: false }],
+      providerInstances: instances.map((instance) =>
+        instance.instanceId === "claude_moss" ? { ...instance, enabled: false } : instance,
+      ),
+      mossCliModelAuthEnabled: false,
+      mossCliModelAuthDisabledProviders: [],
+    });
+    expect(disabledGlobalTabs.map((tab) => tab.instanceId)).toEqual(["claudeAgent"]);
+    expect(disabledGlobalTabs.some((tab) => tab.mossSignIn)).toBe(false);
+
+    const revokedPerCliTabs = resolveComposerModelPickerProviderTabs({
+      options: [
+        { value: "codex" as const, label: "Codex" },
+        { value: "claudeAgent" as const, label: "Claude" },
+      ],
+      providers: [status("claudeAgent", false), status("claude_moss", true)],
+      providerInstances: [
+        {
+          instanceId: id("codex"),
+          provider: "codex",
+          label: "Codex",
+          enabled: true,
+          isDefault: true,
+        },
+        {
+          instanceId: id("codex_moss"),
+          provider: "codex",
+          label: "Moss",
+          enabled: true,
+          isDefault: false,
+        },
+        ...instances,
+      ],
+      mossCliModelAuthEnabled: true,
+      mossCliModelAuthDisabledProviders: ["codex"],
+    });
+    expect(
+      revokedPerCliTabs
+        .filter((tab) => tab.provider === "codex")
+        .map((tab) => [tab.instanceId, tab.mossSignIn]),
+    ).toEqual([["codex", false]]);
+    expect(
+      revokedPerCliTabs
+        .filter((tab) => tab.provider === "claudeAgent")
+        .map((tab) => tab.instanceId),
+    ).toEqual(["claude_moss"]);
   });
 });

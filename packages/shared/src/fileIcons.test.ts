@@ -5,7 +5,7 @@ import {
   getFileIconName,
   inferEntryKindFromPath,
   pathLooksLikeKnownFile,
-} from "./file-icons";
+} from "./fileIcons";
 
 // Object.prototype member names, which lookup keys can collide with because they are
 // derived from untrusted text. Only `constructor` and `__proto__` survive the lowercased
