@@ -6,6 +6,7 @@
 
 export const MOSS_CANVAS_OPEN_EVENT = "moss-canvas-bridge:open" as const;
 export const MOSS_CANVAS_CLOSE_EVENT = "moss-canvas-bridge:close" as const;
+export const MOSS_CANVAS_RELOAD_EVENT = "moss-canvas-bridge:reload" as const;
 export const LEGACY_HOOLA_CANVAS_OPEN_EVENT = "open-hoola-canvas" as const;
 
 export type MossCanvasCloseReason = "surface" | "destination-switch";
@@ -238,5 +239,25 @@ export function closeMossCanvas(reason: MossCanvasCloseReason = "surface"): void
     window.dispatchEvent(new CustomEvent(MOSS_CANVAS_CLOSE_EVENT, { detail: { reason } }));
   } catch {
     // Best-effort close seam for rail destination switches.
+  }
+}
+
+export interface MossCanvasReloadDetail {
+  readonly threadId: string;
+  readonly revision: string;
+}
+
+/** Notify an active thread Canvas iframe to reload after an MCP server mutation. */
+export function reloadMossCanvas(threadId: string, revision: string): void {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") return;
+  if (typeof CustomEvent !== "function") return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent<MossCanvasReloadDetail>(MOSS_CANVAS_RELOAD_EVENT, {
+        detail: { threadId, revision },
+      }),
+    );
+  } catch {
+    // Best-effort live refresh for already-open Canvas frames.
   }
 }

@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { belowFloor, floorMessage } from "../../ws/lib/disk.ts";
-import { acquireLock } from "../../ws/lib/lock.ts";
+import { acquireLaneSlot } from "../../ws/lib/laneSlots.ts";
 import type { QueueConfig } from "./config.ts";
 import type { Git } from "./git.ts";
 import { LANE_ENV, laneCommand, type LaneSpec, type Selection } from "./lanes.ts";
@@ -155,12 +155,19 @@ export function wsHeavyLock(
   return {
     async hold(label, sha, fn) {
       floor("before queueing for the heavy lock");
-      const lock = await acquireLock({
+      // Without a class: it runs alone, also when the lane has several slots (laneSlots.ts).
+      const lock = await acquireLaneSlot({
         dir: path.join(cfg.profile.stateDir, "locks"),
         name: "heavy",
         staleMs: cfg.profile.lock.staleHours * 3600_000,
         pollMs: cfg.profile.lock.pollSeconds * 1000,
         owner: { owner, lane: `queue ${label}`, sha },
+        laneClass: undefined,
+        tree: undefined,
+        jobClass: "long",
+        priorityOwners: cfg.profile.lock.priorityOwners,
+        slots: () => cfg.profile.lock.heavySlots,
+        admissionShortfall: () => [],
         log,
       });
       const release = () => lock.release();

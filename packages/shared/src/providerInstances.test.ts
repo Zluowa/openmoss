@@ -13,9 +13,12 @@ import {
 import { Schema } from "effect";
 
 import {
+  MOSS_SERVER_AUTHORIZED_CLI_DRIVERS,
   codexAccountInstanceId,
   deriveProviderInstances,
   deriveUnsupportedProviderInstances,
+  isMossManagedCliAuthorized,
+  isMossManagedCliInstance,
   isUnresolvedAutomationInstanceId,
   providerImportedDirectoryConfig,
   providerStartOptionsFromInstance,
@@ -664,5 +667,83 @@ describe("providerImportedDirectoryConfig", () => {
     expect(providerImportedDirectoryConfig(provider, "/profiles/imported")).toEqual({
       [configKey]: "/profiles/imported",
     });
+  });
+});
+
+describe("Moss server CLI model authorization", () => {
+  function settingsWithAllMossManagedLanes(): ServerSettings {
+    const providerInstances: Record<string, ProviderInstanceConfig> = {
+      codex_byok: {
+        driver: "codex",
+        displayName: "Codex BYOK",
+        enabled: true,
+        config: { byok: true, mossByok: true, accountId: "byok" },
+      },
+      custom_relay: {
+        driver: "codex",
+        displayName: "Custom Relay",
+        enabled: true,
+        config: { baseUrl: "https://relay.example/v1" },
+      },
+    };
+    for (const driver of MOSS_SERVER_AUTHORIZED_CLI_DRIVERS) {
+      const instanceId = driver === "claudeAgent" ? "claude_moss" : `${driver}_moss`;
+      providerInstances[instanceId] = {
+        driver,
+        displayName: "Moss",
+        enabled: true,
+        config: { managed: true, realm: "cn" },
+      };
+    }
+    return {
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances,
+    };
+  }
+
+  it("identifies managed Moss CLI lanes while excluding codex_byok", () => {
+    expect(isMossManagedCliInstance("codex_moss")).toBe(true);
+    expect(isMossManagedCliInstance("claude_moss")).toBe(true);
+    expect(isMossManagedCliInstance("zcode_moss")).toBe(true);
+    expect(isMossManagedCliInstance("codex_byok", { config: { managed: true } })).toBe(false);
+    expect(isMossManagedCliInstance("codex")).toBe(false);
+  });
+
+  it("disables all 9 *_moss lanes when master switch is off while keeping local/custom/byok intact", () => {
+    const base = settingsWithAllMossManagedLanes();
+    const settings: ServerSettings = {
+      ...base,
+      mossCliModelAuthEnabled: false,
+    };
+    const derived = deriveProviderInstances(settings);
+    for (const driver of MOSS_SERVER_AUTHORIZED_CLI_DRIVERS) {
+      const managedId = driver === "claudeAgent" ? "claude_moss" : `${driver}_moss`;
+      expect(derived.find((row) => row.instanceId === managedId)?.enabled).toBe(false);
+      // Raw config stays enabled so managed tokens/realms remain intact.
+      expect(settings.providerInstances[managedId]?.enabled).toBe(true);
+    }
+    expect(derived.find((row) => row.instanceId === "codex")?.enabled).toBe(true);
+    expect(derived.find((row) => row.instanceId === "codex_byok")?.enabled).toBe(true);
+    expect(derived.find((row) => row.instanceId === "custom_relay")?.enabled).toBe(true);
+  });
+
+  it("disables only revoked CLIs when mossCliModelAuthDisabledProviders names specific drivers", () => {
+    const base = settingsWithAllMossManagedLanes();
+    const settings: ServerSettings = {
+      ...base,
+      mossCliModelAuthEnabled: true,
+      mossCliModelAuthDisabledProviders: ["codex", "kimi"],
+    };
+    const derived = deriveProviderInstances(settings);
+    expect(isMossManagedCliAuthorized(settings, "codex")).toBe(false);
+    expect(isMossManagedCliAuthorized(settings, "kimi")).toBe(false);
+    expect(isMossManagedCliAuthorized(settings, "claudeAgent")).toBe(true);
+
+    expect(derived.find((row) => row.instanceId === "codex_moss")?.enabled).toBe(false);
+    expect(derived.find((row) => row.instanceId === "kimi_moss")?.enabled).toBe(false);
+    expect(derived.find((row) => row.instanceId === "claude_moss")?.enabled).toBe(true);
+    expect(derived.find((row) => row.instanceId === "opencode_moss")?.enabled).toBe(true);
+    expect(derived.find((row) => row.instanceId === "codex")?.enabled).toBe(true);
+    expect(settings.providerInstances.codex_moss?.enabled).toBe(true);
   });
 });

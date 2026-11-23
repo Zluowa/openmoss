@@ -52,6 +52,7 @@ import {
   patchCustomModelsForProviderInstance,
   removeManageableProviderInstance,
   resolveAppModelSelection,
+  resolveDefaultProviderInstanceId,
   resolveFollowUpDispatchMode,
   resolveNewConversationDefaultModelSelection,
   resolveSelectableProviderInstanceId,
@@ -2723,5 +2724,69 @@ describe("getManagedModelsForProviderInstance", () => {
         getManagedModelsForProviderInstance(settings, { instanceId, provider: "claudeAgent" }),
       ).toBeNull();
     }
+  });
+});
+
+describe("mossCliModelAuth mapping and instance selection", () => {
+  it("maps mossCliModelAuthEnabled and mossCliModelAuthDisabledProviders both ways", () => {
+    const mapped = serverSettingsToAppSettings({
+      ...DEFAULT_SERVER_SETTINGS_VIEW,
+      mossCliModelAuthEnabled: false,
+      mossCliModelAuthDisabledProviders: ["codex", "kimi"],
+    });
+    expect(mapped.mossCliModelAuthEnabled).toBe(false);
+    expect(mapped.mossCliModelAuthDisabledProviders).toEqual(["codex", "kimi"]);
+
+    expect(
+      appSettingsPatchToServerSettingsPatch({
+        mossCliModelAuthEnabled: false,
+        mossCliModelAuthDisabledProviders: ["opencode"],
+      }),
+    ).toEqual({
+      mossCliModelAuthEnabled: false,
+      mossCliModelAuthDisabledProviders: ["opencode"],
+    });
+  });
+
+  it("disables unauthorized *_moss options and falls back default instance selection to local accounts", () => {
+    const base = {
+      ...Schema.decodeSync(AppSettingsSchema)({}),
+      codexAccounts: [],
+      codexHomePath: "",
+      selectedCodexAccountId: "default",
+      providerInstances: {
+        codex_moss: {
+          driver: "codex" as const,
+          displayName: "Moss",
+          enabled: true,
+          config: { managed: true },
+        },
+        claude_moss: {
+          driver: "claudeAgent" as const,
+          displayName: "Moss",
+          enabled: true,
+          config: { managed: true },
+        },
+      },
+      mossCliModelAuthEnabled: true,
+      mossCliModelAuthDisabledProviders: ["codex" as const],
+    };
+
+    const options = getProviderInstanceOptions(base);
+    expect(options.find((item) => item.instanceId === "codex_moss")?.enabled).toBe(false);
+    expect(options.find((item) => item.instanceId === "claude_moss")?.enabled).toBe(true);
+    expect(resolveDefaultProviderInstanceId(base, "codex")).toBe("codex");
+    expect(resolveDefaultProviderInstanceId(base, "claudeAgent")).toBe("claude_moss");
+
+    const masterOff = {
+      ...base,
+      mossCliModelAuthEnabled: false,
+      mossCliModelAuthDisabledProviders: [],
+    };
+    expect(resolveDefaultProviderInstanceId(masterOff, "claudeAgent")).toBe("claudeAgent");
+    expect(
+      getProviderInstanceOptions(masterOff).find((item) => item.instanceId === "claude_moss")
+        ?.enabled,
+    ).toBe(false);
   });
 });

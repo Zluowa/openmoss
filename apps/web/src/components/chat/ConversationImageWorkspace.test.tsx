@@ -556,4 +556,21 @@ describe("original canvas and ordinary conversation composer", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]!.prompt).toBe("keep this");
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]!.images).toHaveLength(1);
   });
+
+  it("allows ordinary chat sends when the side-by-side Whiteboard has no selected images", async () => {
+    render(<ConversationImageWorkspace {...props} fullWidth={false} />);
+    expect(state.props?.embedded).toBe(true);
+    expect(getConversationImageComposer(threadId)?.target).toBeNull();
+    let accepted = false;
+    await act(async () => {
+      accepted = await getConversationImageComposer(threadId)!.beforeSend();
+    });
+    expect(accepted).toBe(true);
+    // Even if flush fails with nothing selected, ordinary chat messages are never blocked.
+    state.save.mockResolvedValue(false);
+    await act(async () => {
+      accepted = await getConversationImageComposer(threadId)!.beforeSend();
+    });
+    expect(accepted).toBe(true);
+  });
 });
