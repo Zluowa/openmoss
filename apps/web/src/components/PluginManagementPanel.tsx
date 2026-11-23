@@ -922,9 +922,10 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
       );
   }
 
+  // In Settings the column and title sit exactly where every other settings page puts them.
   const contentColumnClassName = cn(
-    "mx-auto flex w-full max-w-3xl flex-col px-5 pb-8",
-    props.settingsPage ? "pt-8" : "pt-5",
+    "mx-auto flex w-full flex-col pb-8",
+    props.settingsPage ? "max-w-[46rem] px-8 pt-7" : "max-w-3xl px-5 pt-5",
   );
   const openBuiltInApp =
     openBuiltInAppId === null
@@ -1029,10 +1030,20 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
     <div className="min-h-full w-full">
       {/* Codex: a 768px column with 20px gutters inside it, so the page is 728px wide. */}
       <div data-testid="plugin-manage-content" className={contentColumnClassName}>
-        <header className="flex flex-wrap items-start justify-between gap-4 pb-8">
-          <div className="flex min-w-0 flex-col gap-1.5">
+        <header
+          className={cn(
+            "flex flex-wrap items-start justify-between gap-4",
+            props.settingsPage ? "pb-7" : "pb-8",
+          )}
+        >
+          <div className={cn("flex min-w-0 flex-col", props.settingsPage ? "gap-1" : "gap-1.5")}>
             <h1 className={PAGE_TITLE_CLASS_NAME}>{t("plugins.hero.plugins")}</h1>
-            <p className="text-ui-lg leading-5 text-muted-foreground">
+            <p
+              className={cn(
+                "text-muted-foreground",
+                props.settingsPage ? "text-ui" : "text-ui-lg leading-5",
+              )}
+            >
               {t("plugins.manage.subtitle")}
             </p>
           </div>

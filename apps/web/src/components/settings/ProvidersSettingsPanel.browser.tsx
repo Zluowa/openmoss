@@ -1505,7 +1505,7 @@ it("shows Desktop-managed update hint for bundled OpenCode and zh-CN Option 3 wo
   const restore = installZhCnUiLocalization();
   try {
     await rerender(<ProvidersSettingsPanel {...props} providerTarget="opencode" />);
-    await expect.element(page.getByRole("heading", { name: "服务与智能体" })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "模型与智能体" })).toBeVisible();
     await expect.element(page.getByText("模型服务商", { exact: true })).toBeVisible();
     await expect.element(page.getByText("编码 CLI 智能体", { exact: true })).toBeVisible();
     await expect
@@ -1574,13 +1574,21 @@ it("manages Moss server CLI model authorization master switch, per-CLI grid, and
   expect(updateCalls.at(-1)).toEqual({
     mossCliModelAuthDisabledProviders: ["codex"],
   });
-  await expect.element(page.getByText("8 / 9", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }))
+    .toBeChecked();
+  // Signed out (this harness), no CLI can use Moss models yet: no "n / 9" count is shown.
+  expect(document.body.textContent).not.toMatch(/\d+ \/ 9/);
 
   // Click All off, then All on.
   await page.getByRole("button", { name: "All off", exact: true }).click();
-  await expect.element(page.getByText("0 / 9", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }))
+    .not.toBeChecked();
   await page.getByRole("button", { name: "All on", exact: true }).click();
-  await expect.element(page.getByText("9 / 9", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }))
+    .toBeChecked();
 
   // Revoke Claude specifically, then inspect Claude CLI detail pane.
   await page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }).click();
@@ -1635,7 +1643,8 @@ it("renders zh-CN Moss CLI model authorization controls cleanly in Light and Dar
     await expect
       .element(page.getByRole("switch", { name: "允许 CLI 使用 Moss 模型", exact: true }))
       .toBeChecked();
-    await expect.element(page.getByText("9 / 9", { exact: true })).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/\d+ \/ 9/);
+    expect(document.body.textContent).not.toContain("已开启");
     await captureShot("moss-auth-on-light");
 
     await view.rerender(<StatefulZhPanel mode="dark" />);
@@ -1648,7 +1657,9 @@ it("renders zh-CN Moss CLI model authorization controls cleanly in Light and Dar
 
     // Revoke Codex only and verify Codex CLI detail pill disabled in zh-CN.
     await page.getByRole("switch", { name: "允许 Codex 使用 Moss 模型", exact: true }).click();
-    await expect.element(page.getByText("8 / 9", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("switch", { name: "允许 Codex 使用 Moss 模型", exact: true }))
+      .not.toBeChecked();
     await selectRailItem(/Codex/u);
     await expect.element(page.getByRole("button", { name: /^Moss$/u })).toBeDisabled();
     await captureShot("codex-revoked-pill-light");

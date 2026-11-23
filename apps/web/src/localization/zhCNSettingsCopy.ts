@@ -12,8 +12,8 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Manage this computer, other devices, and SSH connections.": "管理此电脑、其他设备和 SSH 连接。",
   // Preview channel (code updates)
   "Preview channel: get updates sooner": "预览通道：更快收到更新",
-  "Moss downloads new versions in the background and uses them the next time it starts. If one doesn't start, Moss goes back to the version it had.":
-    "Moss 会在后台下载新版本，下次启动时使用。如果新版本无法启动，Moss 会自动退回原来的版本。",
+  "Downloads new versions in the background; rolls back if one doesn't start.":
+    "后台下载新版本，下次启动时使用；启动失败会自动退回。",
   "Starts the next time Moss opens.": "下次打开 Moss 时开始。",
   "Stops the next time Moss opens.": "下次打开 Moss 时停止。",
   "Couldn't change the preview channel. Try again.": "无法更改预览通道，请重试。",
@@ -904,8 +904,8 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Your own instructions, in every project.": "在所有项目中使用你自己的说明。",
   "Writes commit messages, PR titles and branch names.": "用来写提交说明、PR 标题和分支名。",
   "Let Moss look at the app in front when you ask.": "你提到屏幕内容时，允许 Moss 查看最前面的应用",
-  "Send a report when Moss hits an error, so it can be fixed.":
-    "Moss 出错时发送报告，帮助修复问题。",
+  "Send a report when Moss hits an error. Chats, code and keys are never included.":
+    "Moss 出错时发送报告，不含对话、代码和密钥。",
   Desktop: "桌面",
   "Close to system tray": "关闭时收入托盘",
   "Keep running in the background when you close the window.": "点击关闭后留在后台继续运行",

@@ -95,7 +95,7 @@ it.each(["zh-CN", "en"] as const)(
       await expect
         .element(
           page.getByRole("dialog").getByRole("heading", {
-            name: locale === "zh-CN" ? "发布历史" : "Release history",
+            name: locale === "zh-CN" ? "更新记录" : "Release history",
             exact: true,
           }),
         )

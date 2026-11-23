@@ -451,7 +451,8 @@ export function WorkspaceImportFlow({
         </div>
       ) : null}
 
-      {state.step === "empty" ? (
+      {/* In Settings the conversation importer above already says nothing was found. */}
+      {state.step === "empty" && variant === "dialog" ? (
         <div className="rounded-card border border-dashed border-border px-5 py-10 text-center text-ui-lg text-muted-foreground">
           <FoldersIcon className="mx-auto mb-3 size-7 opacity-60" />
           <p>{t("import.empty")}</p>

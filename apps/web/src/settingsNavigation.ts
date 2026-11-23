@@ -241,15 +241,15 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     id: "providers",
     group: "coding",
-    label: "Providers & Agents",
+    label: "Models & agents",
     description: "Sign in, install and order your coding agents.",
-    icon: "puzzle",
+    icon: "agents",
     eyebrow: "Coding agents",
   },
   {
     id: "models",
     group: "coding",
-    label: "Models & writing",
+    label: "Git & models",
     description: "Commit message style and the model that writes it.",
     icon: "brain",
     eyebrow: "Model configuration",

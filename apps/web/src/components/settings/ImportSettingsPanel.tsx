@@ -24,9 +24,6 @@ export function ImportSettingsPanel() {
   return (
     <div className="space-y-8">
       <SettingsSectionShell title={t("import.conversations.title")}>
-        <p className="px-2 pb-2 text-ui-sm text-muted-foreground">
-          {t("import.conversations.description")}
-        </p>
         <ProjectImportPanel
           onBusyChange={setConversationImportBusy}
           providerStatuses={providerStatuses}
