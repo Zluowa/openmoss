@@ -1425,8 +1425,9 @@ const PLUMBING_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
   "provider.runtime.reconciled",
   // A silent running turn is told in the working row; its records are not log rows.
   PROVIDER_TURN_SILENT_ACTIVITY_KIND,
-  // The window opens Canvas from it; the moss_canvas_open tool row already says so.
+  // The window opens or refreshes Canvas from these; moss_canvas_* tool rows already say so.
   "canvas.open.requested",
+  "canvas.updated",
 ]);
 
 function shouldKeepActivityForWorkLog(

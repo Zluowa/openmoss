@@ -83,7 +83,7 @@ const RIGHT_DOCK_LABEL_KEY_BY_KIND = {
   file: "rightDock.pane.file",
   htmlRender: "rightDock.pane.file",
   imagePreview: "rightDock.pane.imagePreview",
-  canvas: "chat.generatedImage.preview.canvasView",
+  canvas: "rightDock.pane.whiteboard",
   deck: "rightDock.pane.deck",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.launcher.sideChats",

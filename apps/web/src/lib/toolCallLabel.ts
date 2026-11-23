@@ -675,6 +675,7 @@ const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_pages_mutate: presentMossTool("updating a page", "updated a page"),
   moss_canvas_open: presentMossTool("opening Canvas", "opened Canvas"),
   moss_canvas_read: presentMossTool("reading Canvas", "read Canvas"),
+  moss_canvas_mutate: presentMossTool("updating Whiteboard", "updated Whiteboard"),
   moss_media_list: presentMossTool(
     "checking image and video models",
     "checked image and video models",
@@ -775,6 +776,7 @@ const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_pages_mutate: ["正在更新页面", "已更新页面", "无法更新页面"],
   moss_canvas_open: ["正在打开画布", "已打开画布", "无法打开画布"],
   moss_canvas_read: ["正在查看画布", "已查看画布", "无法查看画布"],
+  moss_canvas_mutate: ["正在更新白板", "已更新白板", "无法更新白板"],
   moss_media_list: ["正在查看图像和视频模型", "已查看图像和视频模型", "无法查看图像和视频模型"],
   moss_media_generate: ["正在提交生成", "已提交生成", "无法提交生成"],
   moss_media_get: ["正在查询生成进度", "已查询生成进度", "无法查询生成进度"],

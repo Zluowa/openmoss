@@ -17,7 +17,11 @@ import {
   providerCliCommandName,
 } from "@moss/shared/providerCliProfiles";
 import { MOSS_CN_NPM_MIRROR_REGISTRY } from "@moss/shared/mossRealmCatalog";
-import { providerImportedDirectoryConfig } from "@moss/shared/providerInstances";
+import {
+  MOSS_SERVER_AUTHORIZED_CLI_DRIVERS,
+  isMossManagedCliAuthorized,
+  providerImportedDirectoryConfig,
+} from "@moss/shared/providerInstances";
 import {
   closestCenter,
   DndContext,
@@ -2011,10 +2015,23 @@ export function ProvidersSettingsPanel({
     [localProviderStatuses],
   );
   // Agents a working Moss lane serves: their row says so instead of asking for a sign-in.
-  const servedByMossProviders = useMemo(
-    () => providersServedByMoss(localProviderStatuses),
-    [localProviderStatuses],
+  const mossSupportedCliDriverSet = useMemo<ReadonlySet<ProviderKind>>(
+    () => new Set(MOSS_SERVER_AUTHORIZED_CLI_DRIVERS),
+    [],
   );
+  const servedByMossProviders = useMemo(() => {
+    const served = new Set<ProviderKind>();
+    for (const driver of providersServedByMoss(localProviderStatuses)) {
+      if (isMossManagedCliAuthorized(settings, driver)) {
+        served.add(driver);
+      }
+    }
+    return served;
+  }, [
+    localProviderStatuses,
+    settings.mossCliModelAuthDisabledProviders,
+    settings.mossCliModelAuthEnabled,
+  ]);
   const providerStatusByInstance = useMemo(
     () =>
       new Map<string, ServerProviderStatus>(
@@ -2310,6 +2327,8 @@ export function ProvidersSettingsPanel({
         statusReconciled={providerStatusesReconciled}
         providerStatus={cliStatus}
         servedByMoss={servedByMossProviders.has(selectedCli)}
+        supportsMossAuth={mossSupportedCliDriverSet.has(selectedCli)}
+        mossAuthorized={isMossManagedCliAuthorized(settings, selectedCli)}
         isInstalled={installedProviderRef.current.has(selectedCli)}
         updating={updatingProviders.has(instanceKey)}
         checksEnabled={settings.enableProviderUpdateChecks}
@@ -2457,6 +2476,25 @@ export function ProvidersSettingsPanel({
         unifiedProviders={unifiedProviders}
         defaultUnifiedProviderId={defaultUnifiedProviderId}
         unifiedProviderByCli={unifiedProviderByCli}
+        mossCliModelAuthEnabled={settings.mossCliModelAuthEnabled}
+        mossCliModelAuthDisabledProviders={settings.mossCliModelAuthDisabledProviders}
+        onToggleMossCliModelAuth={(enabled) => updateSettings({ mossCliModelAuthEnabled: enabled })}
+        onToggleMossCliProviderAuth={(provider, allowed) =>
+          updateSettings({
+            mossCliModelAuthDisabledProviders: setProviderListMembership(
+              settings.mossCliModelAuthDisabledProviders,
+              provider,
+              !allowed,
+            ),
+          })
+        }
+        onSetAllMossCliProvidersAuth={(allowAll) =>
+          updateSettings({
+            mossCliModelAuthDisabledProviders: allowAll
+              ? []
+              : [...MOSS_SERVER_AUTHORIZED_CLI_DRIVERS],
+          })
+        }
         onSelectCli={(provider) => setSelection({ kind: "cli", provider })}
         onAddUnifiedProvider={() => setAddUnifiedDialogOpen(true)}
       />
@@ -2500,6 +2538,7 @@ export function ProvidersSettingsPanel({
         unifiedProviders={unifiedProviders}
         defaultUnifiedProviderId={defaultUnifiedProviderId}
         unifiedProviderByCli={unifiedProviderByCli}
+        mossCliModelAuthEnabled={settings.mossCliModelAuthEnabled}
         enabledCliOptions={enabledProviderOptions}
         disabledCliOptions={disabledProviderOptions}
         disabledOpen={disabledProvidersOpen}

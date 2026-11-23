@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   LEGACY_HOOLA_CANVAS_OPEN_EVENT,
+  MOSS_CANVAS_RELOAD_EVENT,
   closeMossCanvas,
   openMossCanvas,
   openMossLibraryDestination,
   registerMossCanvasHost,
+  reloadMossCanvas,
 } from "./mossCanvasBridge";
 
 let disposeEmbeddedHost: (() => void) | null = null;
@@ -137,6 +139,20 @@ describe("openMossCanvas", () => {
       expect.objectContaining({
         type: "moss-canvas-bridge:close",
         detail: { reason: "destination-switch" },
+      }),
+    );
+  });
+
+  it("broadcasts a reload event for an active thread Canvas after MCP mutation", () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    reloadMossCanvas("thread-1", "rev-2");
+
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MOSS_CANVAS_RELOAD_EVENT,
+        detail: { threadId: "thread-1", revision: "rev-2" },
       }),
     );
   });

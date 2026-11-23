@@ -74,6 +74,9 @@ export function applyServerSettingsPatch(
     ...(patch.unifiedProviderByCli !== undefined
       ? { unifiedProviderByCli: patch.unifiedProviderByCli }
       : {}),
+    ...(patch.mossCliModelAuthDisabledProviders !== undefined
+      ? { mossCliModelAuthDisabledProviders: patch.mossCliModelAuthDisabledProviders }
+      : {}),
     ...(patch.agentTheme !== undefined ? { agentTheme: patch.agentTheme } : {}),
   };
   if (!selectionPatch) {
