@@ -279,13 +279,13 @@ describe("HEL-20 primary zh-CN localization contract", () => {
         provider: "Claude Work",
       }),
     ).toBe(
-      "Claude Work is not signed in. Sign in under Settings → Model accounts, or choose another model.",
+      "Claude Work is not signed in. Sign in under Settings → Models & agents, or choose another model.",
     );
     expect(
       formatMossTranslation("zh-CN", "provider.send.blocked.unauthenticated", {
         provider: "Claude Work",
       }),
-    ).toBe("Claude Work 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。");
+    ).toBe("Claude Work 尚未登录。请在「设置 → 模型与智能体」中登录，或换用其他模型。");
     expect(
       formatMossTranslation("zh-CN", "provider.send.blocked.unavailable", {
         provider: "Gemini",
@@ -808,8 +808,8 @@ describe("HEL-21 zh-CN product glossary", () => {
     expect(translateMoss("zh-CN", "chat.environment.worktree")).toBe("工作树");
     expect(translateMoss("zh-CN", "chat.agent.trigger")).toBe("切换智能体，当前：{agent}");
     expect(translateMoss("zh-CN", "chat.provider.missingAccount")).toBe("缺少账号");
-    expect(translateMoss("zh-CN", "settings.nav.providers.label")).toBe("模型账号");
+    expect(translateMoss("zh-CN", "settings.nav.providers.label")).toBe("模型与智能体");
     expect(translateMoss("zh-CN", "settings.changed.defaultProvider")).toBe("默认服务商");
-    expect(translateMoss("zh-CN", "settings.nav.models.label")).toBe("模型");
+    expect(translateMoss("zh-CN", "settings.nav.models.label")).toBe("Git 与模型");
   });
 });

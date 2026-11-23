@@ -88,8 +88,6 @@ it.each([
         .toBeVisible();
       await vi.waitFor(assertFrameFits);
       await page.getByRole("button", { name: "Get started", exact: true }).click();
-      assertFrameFits();
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await expect.element(page.getByRole("heading", { name: "Choose your agents" })).toBeVisible();
       assertFrameFits();
       const firstCard = document.querySelector<HTMLElement>("[data-onboarding-agent]")!;

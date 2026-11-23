@@ -426,7 +426,6 @@ const EN_TRANSLATIONS = {
   "sidebar.nav.newChat": "New chat",
   "sidebar.more.features": "More",
   "sidebar.more.commonPlugins": "Common plugins",
-  "sidebar.more.noPlugins": "Installed plugins appear here.",
   "sidebar.more.codeReview": "Code review",
   "sidebar.more.pin": "Pin to sidebar",
   "sidebar.more.unpin": "Unpin from sidebar",
@@ -2548,9 +2547,9 @@ const EN_TRANSLATIONS = {
   "provider.install.failed.disabled": "{provider} is turned off in Settings.",
   "provider.send.blocked.disabled": "This provider is disabled in Moss settings.",
   "provider.send.blocked.unauthenticated":
-    "{provider} is not signed in. Sign in under Settings → Model accounts, or choose another model.",
+    "{provider} is not signed in. Sign in under Settings → Models & agents, or choose another model.",
   "provider.send.blocked.unauthenticatedWithMoss":
-    "{provider} is not signed in. Sign in under Settings → Model accounts, or pick Moss as its provider in the model menu.",
+    "{provider} is not signed in. Sign in under Settings → Models & agents, or pick Moss as its provider in the model menu.",
   "provider.send.blocked.unavailable": "{provider} is unavailable right now.",
   "provider.send.blocked.statusLoading": "Provider status is still loading.",
   "provider.send.blocked.statusTimeout":
@@ -3236,8 +3235,7 @@ const EN_TRANSLATIONS = {
     "Pair with another Moss workspace, then open it in a separate window. Computer control requires that device’s existing control and system permissions.",
   "settings.connections.remote.desktopOnly":
     "Add and connect to other devices in the Moss desktop app.",
-  "settings.connections.remote.empty":
-    "No devices paired yet. Use a one-time code from the other device’s Moss connection settings.",
+  "settings.connections.remote.empty": "No devices paired yet.",
   "settings.connections.remote.origin": "Moss address on the other device",
   "settings.connections.remote.credential": "One-time pairing code",
   "settings.connections.remote.addressHint":
@@ -3771,9 +3769,9 @@ const EN_TRANSLATIONS = {
   "settings.nav.worktrees.description": "Workspaces Moss created for tasks.",
   "settings.nav.archived.label": "Archived threads",
   "settings.nav.archived.description": "Find and restore archived chats.",
-  "settings.nav.models.label": "Models",
+  "settings.nav.models.label": "Git & models",
   "settings.nav.models.description": "Commit message style and the model that writes it.",
-  "settings.nav.providers.label": "Model accounts",
+  "settings.nav.providers.label": "Models & agents",
   "settings.nav.providers.description": "Sign in, install and order your coding agents.",
   "settings.nav.skills.label": "Skills",
   "settings.nav.skills.description":
@@ -3863,7 +3861,7 @@ const EN_TRANSLATIONS = {
     "Limits read locally from your own Codex, Claude, and other CLI logins, separate from Moss cloud quota.",
   "settings.usage.personal.emptyTitle": "No personal CLI accounts connected",
   "settings.usage.personal.emptyDescription":
-    "Sign in to Codex, Claude, or another CLI in Settings → Model accounts to track its own limits here.",
+    "Sign in to Codex, Claude, or another CLI in Settings → Models & agents to track its own limits here.",
   "settings.usage.personal.defaultAccount": "Default account",
   "settings.usage.rings.title": "Sidebar usage rings",
   "settings.usage.rings.toggleAria": "Show {name} usage at the bottom of the sidebar",
@@ -4249,7 +4247,7 @@ const EN_TRANSLATIONS = {
   "settings.general.newThreads.aria": "Default thread mode",
   "settings.general.composerPrediction.title": "Show predictions",
   "settings.general.composerPrediction.description":
-    "After a reply finishes, show a predicted next message in the empty composer. Tab or Right Arrow puts it in as a draft; nothing is sent. If a chat runs on your own account and that account cannot make the prediction on this computer, and you are signed in to Moss, the last few messages are sent to a small Moss model to make it. Turn this off to stop that.",
+    "After a reply, suggest your next message in gray. Tab puts it in; nothing is sent.",
   "settings.general.composerPrediction.resetLabel": "show predictions",
   "settings.general.composerPrediction.aria": "Show predictions",
   "settings.general.threadEnv.local": "Local",
@@ -5526,7 +5524,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "sidebar.nav.newChat": "新对话",
   "sidebar.more.features": "更多",
   "sidebar.more.commonPlugins": "常用插件",
-  "sidebar.more.noPlugins": "安装的插件会显示在这里。",
   "sidebar.more.codeReview": "代码审查",
   "sidebar.more.pin": "固定到侧边栏",
   "sidebar.more.unpin": "从侧边栏取消固定",
@@ -7527,9 +7524,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "provider.install.failed.disabled": "{provider} 已在设置中关闭。",
   "provider.send.blocked.disabled": "此服务商已在 Moss 设置中禁用。",
   "provider.send.blocked.unauthenticated":
-    "{provider} 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。",
+    "{provider} 尚未登录。请在「设置 → 模型与智能体」中登录，或换用其他模型。",
   "provider.send.blocked.unauthenticatedWithMoss":
-    "{provider} 尚未登录。请在「设置 → 模型账号」中登录，或在模型菜单里把服务商换成 Moss。",
+    "{provider} 尚未登录。请在「设置 → 模型与智能体」中登录，或在模型菜单里把服务商换成 Moss。",
   "provider.send.blocked.unavailable": "{provider} 当前不可用。",
   "provider.send.blocked.statusLoading": "服务商状态仍在加载中。",
   "provider.send.blocked.statusTimeout": "服务商状态检查超时。请选择其他可用服务商或重试。",
@@ -8173,8 +8170,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.connections.remote.description":
     "与另一台设备上的 Moss 工作区配对后，在独立窗口中打开。电脑控制仍需对方启用控制并授予系统权限。",
   "settings.connections.remote.desktopOnly": "请在 Moss 桌面版中添加并连接其他设备。",
-  "settings.connections.remote.empty":
-    "还没有配对的设备。请使用对方 Moss「连接」设置中生成的一次性配对码。",
+  "settings.connections.remote.empty": "还没有配对的设备。",
   "settings.connections.remote.origin": "对方设备的 Moss 地址",
   "settings.connections.remote.credential": "一次性配对码",
   "settings.connections.remote.addressHint":
@@ -8656,9 +8652,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.nav.worktrees.description": "Moss 为任务创建的工作区。",
   "settings.nav.archived.label": "已归档对话",
   "settings.nav.archived.description": "查找并恢复已归档的对话。",
-  "settings.nav.models.label": "模型",
+  "settings.nav.models.label": "Git 与模型",
   "settings.nav.models.description": "提交说明的写法和用哪个模型来写。",
-  "settings.nav.providers.label": "模型账号",
+  "settings.nav.providers.label": "模型与智能体",
   "settings.nav.providers.description": "登录、安装和排序你的编码智能体。",
   "settings.nav.skills.label": "技能",
   "settings.nav.skills.description": "跨服务商发现的全部技能，可控制可用性。",
@@ -8836,7 +8832,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
     "直接读取本机 Codex、Claude 等个人 CLI 登录的额度，与 Moss 云端额度相互独立。",
   "settings.usage.personal.emptyTitle": "尚未连接个人模型账号",
   "settings.usage.personal.emptyDescription":
-    "在「设置 → 模型账号」登录个人 Codex、Claude 等账号后，这里会独立显示它们的剩余限额。",
+    "在「设置 → 模型与智能体」登录个人 Codex、Claude 等账号后，这里会独立显示它们的剩余限额。",
   "settings.usage.personal.defaultAccount": "默认账号",
   "settings.usage.rings.title": "侧边栏用量圆环",
   "settings.usage.rings.toggleAria": "在侧边栏底部显示 {name} 用量",
@@ -9107,7 +9103,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.general.newThreads.aria": "默认对话模式",
   "settings.general.composerPrediction.title": "显示预测消息",
   "settings.general.composerPrediction.description":
-    "回复结束后，在空的输入框里用灰字显示你可能要发的下一条消息。按 Tab 或右方向键放进输入框，不会自动发送。如果对话用的是你自己的账号，而这个账号在本机无法生成预测，在你已登录 Moss 时，会把最近几条消息发给 Moss 的小模型来生成。不想这样，关闭此项即可。",
+    "回复后用灰字预测下一条消息，按 Tab 填入，不会自动发送。",
   "settings.general.composerPrediction.resetLabel": "显示预测消息",
   "settings.general.composerPrediction.aria": "显示预测消息",
   "settings.general.threadEnv.local": "本地",
@@ -9399,7 +9395,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.advanced.version.title": "版本",
   "settings.advanced.version.description": "当前应用版本。",
   "settings.advanced.releaseHistory.title": "发布历史",
-  "releaseHistory.dialog.title": "发布历史",
+  "releaseHistory.dialog.title": "更新记录",
   "releaseHistory.dialog.description": "所有精选版本，按时间从新到旧排列。",
   "settings.advanced.releaseHistory.description":
     "按时间倒序记录每次更新。内容与更新后弹窗一致，方便之后回看。",

@@ -158,8 +158,9 @@ it("greets in whole Chinese sentences at night and shows the task hint uncut", a
       return heading!;
     });
     const headline = title.nextElementSibling as HTMLElement;
-    // Not "晚上好." at 03:28: a night greeting, Chinese punctuation all through.
-    await vi.waitFor(() => expect(headline.textContent).toMatch(/^夜深了。/));
+    // At 03:28 the working day is still in its evening slot: the headline says so in the
+    // same word as the slot card (walk R-9), Chinese punctuation all through.
+    await vi.waitFor(() => expect(headline.textContent).toMatch(/^晚上好。/));
     expect(headline.textContent).not.toMatch(/[.]/);
 
     const input = await vi.waitFor(() => {

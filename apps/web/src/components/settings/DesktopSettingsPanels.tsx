@@ -53,6 +53,7 @@ import {
   AlertDialogPopup,
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
+import { MossLogo } from "~/components/MossLogo";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { StatusDot } from "~/components/ui/status-chip";
@@ -620,13 +621,7 @@ function LeaveBetaDialog({
 }
 
 function BetaChannelMark() {
-  return (
-    <img
-      src="/app-icons/beta.png"
-      alt="Moss Beta"
-      className="mt-0.5 size-9 shrink-0 rounded-control"
-    />
-  );
+  return <MossLogo alt="Moss Beta" className="mt-0.5 size-9 shrink-0" />;
 }
 
 /**
@@ -755,7 +750,9 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
     );
   }
 
-  if (state.flavor !== "production") return null;
+  // The stable build does not advertise Beta at the top of General (owner walk 2026-11-24, P-1):
+  // updates arrive through the preview channel row instead.
+  if (state.flavor !== "production" || !state.installed) return null;
 
   return (
     <SettingsCard divided={false} className="px-4 py-3.5">
@@ -937,7 +934,7 @@ export function PreviewChannelSettingsPanel({ active }: { readonly active: boole
     <SettingsSection title="Updates">
       <SettingsRow
         title="Preview channel: get updates sooner"
-        description="Moss downloads new versions in the background and uses them the next time it starts. If one doesn't start, Moss goes back to the version it had."
+        description="Downloads new versions in the background; rolls back if one doesn't start."
         status={status}
         control={
           <Switch

@@ -10,7 +10,9 @@ import {
 } from "react";
 
 import { RealtimeVoiceOrb } from "~/components/chat/RealtimeVoiceOrb";
+import { realtimeVoiceDisplayName } from "~/lib/realtimeVoicePreferences";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
 import type { RealtimeVoicePreviewUrls } from "./realtimeVoicePreviewManifest";
 
@@ -39,6 +41,7 @@ export function RealtimeVoicePreviewPicker({
   readonly voices: readonly RealtimeVoiceDescriptor[];
   readonly onVoiceChange: (voice: RealtimeVoiceDescriptor) => void;
 }) {
+  const { locale } = useTranslation();
   const pickerLabelId = useId();
   const optionIdPrefix = useId();
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -203,7 +206,7 @@ export function RealtimeVoicePreviewPicker({
           <ChevronLeftIcon aria-hidden="true" className="size-4" />
         </button>
         <div className="flex w-56 flex-col gap-1">
-          <p className="text-xl font-semibold">{selectedVoice.displayName}</p>
+          <p className="text-xl font-medium">{realtimeVoiceDisplayName(selectedVoice, locale)}</p>
           <p className="text-ui-lg text-muted-foreground">{selectedVoice.description}</p>
         </div>
         <button
@@ -251,7 +254,7 @@ export function RealtimeVoicePreviewPicker({
               aria-posinset={index + 1}
               aria-setsize={voices.length}
               className={cn(
-                "size-2.5 shrink-0 cursor-pointer rounded-full bg-blue-500 ring-offset-2 ring-offset-popover outline-none focus-visible:ring-1 focus-visible:ring-ring/70",
+                "size-2.5 shrink-0 cursor-pointer rounded-full bg-foreground ring-offset-2 ring-offset-popover outline-none focus-visible:ring-1 focus-visible:ring-ring/70",
                 !selected && "opacity-30",
               )}
               tabIndex={selected ? 0 : -1}

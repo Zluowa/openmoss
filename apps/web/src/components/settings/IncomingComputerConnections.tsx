@@ -185,7 +185,7 @@ export function IncomingComputerConnections({ active }: { readonly active: boole
   return (
     <section className="space-y-4" data-testid="incoming-computer-connections">
       <div className="flex items-center justify-between gap-4">
-        <h2 className="text-ui-lg font-semibold">{t("settings.connections.incoming.title")}</h2>
+        <h2 className="text-ui-lg font-medium">{t("settings.connections.incoming.title")}</h2>
         <Button
           size="icon-sm"
           variant="ghost"
@@ -195,9 +195,6 @@ export function IncomingComputerConnections({ active }: { readonly active: boole
           <RefreshCwIcon className="size-ui-icon-sm" />
         </Button>
       </div>
-      <p className="text-ui text-muted-foreground">
-        {t("settings.connections.incoming.description")}
-      </p>
       {loading ? (
         <p role="status" className="text-ui text-muted-foreground">
           {t("settings.ssh.loading")}
@@ -327,7 +324,7 @@ export function IncomingComputerConnections({ active }: { readonly active: boole
               ))}
             </SettingsCard>
           ) : null}
-          <h3 className="text-ui-lg font-semibold">{t("settings.connections.incoming.clients")}</h3>
+          <h3 className="text-ui-lg font-medium">{t("settings.connections.incoming.clients")}</h3>
           {clients.length ? (
             <SettingsCard>
               {clients.map((client) => {

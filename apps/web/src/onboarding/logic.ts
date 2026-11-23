@@ -7,14 +7,7 @@
 
 import type { ProviderKind, ServerProviderReadiness } from "@moss/contracts";
 
-export const ONBOARDING_STEPS = [
-  "welcome",
-  "tour",
-  "providers",
-  "theme",
-  "project",
-  "done",
-] as const;
+export const ONBOARDING_STEPS = ["welcome", "providers", "theme", "project", "done"] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 
 export function nextOnboardingStep(step: OnboardingStep): OnboardingStep {
@@ -29,7 +22,7 @@ export function previousOnboardingStep(step: OnboardingStep): OnboardingStep {
 
 /** Steps where the user has started making setup choices; the tour must not auto-close past here. */
 export function isOnboardingSetupStep(step: OnboardingStep): boolean {
-  return step !== "welcome" && step !== "tour";
+  return step !== "welcome";
 }
 
 export interface LocalOnboardingCompletion {

@@ -4510,6 +4510,15 @@ export default function Sidebar() {
     return collapseSameTitleSidebarThreads(
       recentSidebarThreads.filter((thread) => {
         if (listed.has(thread.id)) return false;
+        // A chat nobody has written in yet (a 资料空间 item's own 问 Moss chat, made before
+        // anything is asked) is not a recent chat (walk 2026-11-24, R-5).
+        if (
+          thread.latestUserMessageAt === null &&
+          (thread.latestHumanMessageAt ?? null) === null &&
+          thread.latestTurn === null
+        ) {
+          return false;
+        }
         const title = thread.title.trim();
         return !(title && !thread.parentThreadId && listedTitles.has(title));
       }),
@@ -7378,7 +7387,12 @@ export default function Sidebar() {
                 </SidebarMenu>
               </SidebarGroup>
             ) : null}
-            {!isOnMossbot && !isOnSettings && !activityViewEnabled ? (
+            {/* Only under the chats: not repeated on the scheduled-tasks or project panels (R-5). */}
+            {!isOnMossbot &&
+            !isOnSettings &&
+            !activityViewEnabled &&
+            !showRailProjectPanel &&
+            !showRailAutomationsPanel ? (
               <SidebarGettingStarted
                 onOpenAutomations={() => void navigate({ to: "/automations" })}
                 onOpenConnectors={() =>

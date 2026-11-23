@@ -24,6 +24,26 @@ export const REALTIME_VOICE_CATALOG = [
   { id: "vale", displayName: "Vale", description: "Bright and inquisitive" },
 ] as const satisfies readonly RealtimeVoiceDescriptor[];
 
+/** What a Chinese reader sees for each voice; the English names stay the ids people share. */
+const REALTIME_VOICE_ZH_NAMES: Readonly<Record<string, string>> = {
+  arbor: "乔木",
+  breeze: "微风",
+  cove: "海湾",
+  ember: "余烬",
+  juniper: "杜松",
+  maple: "枫叶",
+  sol: "暖阳",
+  spruce: "云杉",
+  vale: "山谷",
+};
+
+export function realtimeVoiceDisplayName(
+  voice: { readonly id: string; readonly displayName: string },
+  locale: string,
+): string {
+  return (locale === "zh-CN" ? REALTIME_VOICE_ZH_NAMES[voice.id] : undefined) ?? voice.displayName;
+}
+
 export function isRealtimeVoiceId(value: string | null): value is RealtimeVoiceId {
   return (
     value === "arbor" ||

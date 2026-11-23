@@ -43,17 +43,14 @@ import {
 } from "./logic";
 import { useOnboardingDialogStore } from "./onboardingDialogStore";
 import { OnboardingStepFooter } from "./OnboardingStepFooter";
-import { FeatureTourStep } from "./steps/FeatureTourStep";
 import type { ProjectImportPrimaryAction } from "~/projectImport/ProjectImportPanel";
 import { ProjectStep, type OnboardingProjectResult } from "./steps/ProjectStep";
 import { ProvidersStep } from "./steps/ProvidersStep";
 import { ThemeStep } from "./steps/ThemeStep";
-import { WelcomeStep } from "./steps/WelcomeStep";
 import { useProviderDetection } from "./useProviderDetection";
 
 const STEP_TITLES: Record<OnboardingStep, string> = {
   welcome: `Welcome to ${APP_BASE_NAME}`,
-  tour: `What ${APP_BASE_NAME} can do`,
   providers: "Choose your agents",
   theme: "Pick an appearance",
   project: "Add your first project",
@@ -61,11 +58,10 @@ const STEP_TITLES: Record<OnboardingStep, string> = {
 };
 
 const STEP_DESCRIPTIONS: Record<Exclude<OnboardingStep, "done">, string> = {
-  welcome: "A local-first workspace for coding agents. Setup takes about a minute.",
-  tour: "",
+  welcome: "",
   providers: `Agents on this computer are found automatically. Uncheck any you don't want ${APP_BASE_NAME} to use.`,
   theme: "Applies live behind this window. Change it anytime in Settings → Appearance.",
-  project: "Bring in conversations from the agents on this computer.",
+  project: "",
 };
 
 /** Welcome and Done are hero steps: centered header, no step counter, centered body. */
@@ -138,8 +134,6 @@ function OnboardingFlow(props: {
     switch (step) {
       case "welcome":
         return { label: "Get started", onPrimary: goNext };
-      case "tour":
-        return { label: "Continue", onPrimary: goNext };
       case "providers":
       case "theme":
         return { label: "Continue", onPrimary: goNext };
@@ -194,18 +188,16 @@ function OnboardingFlow(props: {
           </DialogDescription>
         ) : null}
       </DialogHeader>
-      {/* The last step has no body: the summary sits right above its button. */}
-      {step === "done" ? null : (
+      {/* The welcome is the logo, one line and its button; the last step's summary sits right
+          above its button. Neither has a body (walk 2026-11-24, D-7). */}
+      {hero ? null : (
         <div
           className={cn(
             "onboarding-scroll-fade flex min-h-0 flex-1 flex-col overflow-y-auto pt-6",
             step === "providers" && "overflow-hidden pt-4 [mask-image:none]",
             ONBOARDING_INSET_CLASS_NAME,
-            hero && "[justify-content:safe_center] pb-6",
           )}
         >
-          {step === "welcome" ? <WelcomeStep /> : null}
-          {step === "tour" ? <FeatureTourStep /> : null}
           {step === "providers" ? <ProvidersStep detection={providerDetection} /> : null}
           {step === "theme" ? <ThemeStep /> : null}
           {step === "project" ? (
@@ -263,7 +255,7 @@ export function OnboardingDialog(props: {
       <DialogPopup
         showCloseButton
         initialFocus={primaryRef}
-        className="h-[min(calc(600px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px] has-[[data-onboarding-step=done]]:h-auto"
+        className="h-[min(calc(600px*var(--app-ui-scale,1)),100%)] max-h-full max-w-[800px] has-[[data-onboarding-step=welcome]]:h-auto has-[[data-onboarding-step=done]]:h-auto"
       >
         {/* Remount per open so a replay from Settings starts at the first step. */}
         {open ? (

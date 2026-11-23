@@ -611,10 +611,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
             onTogglePin={() =>
               void perform((saved) => mutate(saved, { op: "pin", pinned: !saved.page.pinned }))
             }
-            onRename={() => {
-              titleInput.current?.focus();
-              titleInput.current?.select();
-            }}
+            onRename={(title) => session.change({ title })}
             onDuplicate={() => void duplicate()}
             onDownload={(format) => void download(format)}
             onFind={

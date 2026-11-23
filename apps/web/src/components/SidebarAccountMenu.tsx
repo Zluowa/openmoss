@@ -31,7 +31,7 @@ import {
   SettingsIcon,
   SparklesIcon,
 } from "~/lib/icons";
-import { GaugeIcon, LogOutIcon } from "./auth/mossIcons";
+import { GaugeIcon, LogInIcon, LogOutIcon } from "./auth/mossIcons";
 import { resolveMossPayQuotaAccountIdentity } from "~/lib/mossPayQuotaIdentity";
 import {
   type MossAccessLaneStates,
@@ -353,28 +353,36 @@ function SidebarAccountMenuPopupSections({
         : identity.label;
   const accountMenuLabel = identity.menuLabel ?? accountRowLabel;
 
+  // Signed out there is no account to name: no greyed 「Moss」 row, 登录 sits at the end (walk R-8).
+  const showAccountRow = identity.kind !== "anonymous";
   return (
     <div className="p-1">
-      <MenuGroup>
-        <MenuItem
-          className={ACCOUNT_MENU_ITEM_CLASS_NAME}
-          disabled={accountRowDisabled}
-          onClick={onOpenAccount}
-        >
-          <AccountAvatar identity={identity} avatarSrc={avatarSrc} />
-          <span
-            className="flex min-w-0 flex-1 flex-col"
-            title={identity.menuTitle ?? identity.title}
-          >
-            <span className="min-w-0 truncate">{accountMenuLabel}</span>
-            {planName ? (
-              <span className="min-w-0 truncate text-ui-xs text-muted-foreground">{planName}</span>
-            ) : null}
-          </span>
-        </MenuItem>
-      </MenuGroup>
+      {showAccountRow ? (
+        <>
+          <MenuGroup>
+            <MenuItem
+              className={ACCOUNT_MENU_ITEM_CLASS_NAME}
+              disabled={accountRowDisabled}
+              onClick={onOpenAccount}
+            >
+              <AccountAvatar identity={identity} avatarSrc={avatarSrc} />
+              <span
+                className="flex min-w-0 flex-1 flex-col"
+                title={identity.menuTitle ?? identity.title}
+              >
+                <span className="min-w-0 truncate">{accountMenuLabel}</span>
+                {planName ? (
+                  <span className="min-w-0 truncate text-ui-xs text-muted-foreground">
+                    {planName}
+                  </span>
+                ) : null}
+              </span>
+            </MenuItem>
+          </MenuGroup>
 
-      <MenuSeparator className="mx-2 my-1" />
+          <MenuSeparator className="mx-2 my-1" />
+        </>
+      ) : null}
 
       <MenuGroup>
         <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenProfile ?? onOpenAccount}>
@@ -425,7 +433,7 @@ function SidebarAccountMenuPopupSections({
           </MenuItem>
         ) : identity.kind === "saved" || identity.kind === "anonymous" ? (
           <MenuItem className={ACCOUNT_MENU_ITEM_CLASS_NAME} onClick={onOpenAccount}>
-            <CirclePersonIcon aria-hidden="true" className="size-4" />
+            <LogInIcon aria-hidden="true" className="size-4" />
             <span>{identity.kind === "saved" ? labels.chooseAccount : labels.signIn}</span>
           </MenuItem>
         ) : null}

@@ -1,8 +1,8 @@
 // FILE: OnboardingWelcomeFlow.browser.tsx
 // Purpose: The welcome tour as a person meets it on a fresh start: keyboard focus on each step's
 //          primary action (Enter moves forward, it never skips the tour), the agent and theme
-//          grids shown whole in a desktop window and visibly scrollable in a small one, only
-//          this platform's features, and no repeated shortcut list at the end.
+//          grids shown whole in a desktop window and visibly scrollable in a small one, a short
+//          welcome without explanatory cards, and no repeated shortcut list at the end.
 // Layer: Web browser test (real Chromium layout)
 
 import "../index.css";
@@ -88,7 +88,6 @@ describe("welcome tour", () => {
     try {
       const steps = [
         "Welcome to Moss",
-        "What Moss can do",
         "Choose your agents",
         "Pick an appearance",
         "Add your first project",
@@ -119,7 +118,6 @@ describe("welcome tour", () => {
       const { screen } = await mountTour();
       try {
         await page.getByRole("button", { name: "Get started", exact: true }).click();
-        await page.getByRole("button", { name: "Continue", exact: true }).click();
         await expect.poll(heading).toBe("Choose your agents");
         const grid = document.querySelector<HTMLElement>("[data-onboarding-agent]")!.parentElement!;
         expect(grid.children.length).toBeGreaterThanOrEqual(12);
@@ -156,7 +154,6 @@ describe("welcome tour", () => {
     const { screen } = await mountTour();
     try {
       await page.getByRole("button", { name: "Get started", exact: true }).click();
-      await page.getByRole("button", { name: "Continue", exact: true }).click();
       await expect.poll(heading).toBe("Choose your agents");
       const grid = document.querySelector<HTMLElement>("[data-onboarding-agent]")!.parentElement!;
       expect(grid.scrollHeight).toBeGreaterThan(grid.clientHeight);
@@ -177,23 +174,30 @@ describe("welcome tour", () => {
     }
   });
 
-  it("names only this platform's features and ends without repeating the shortcuts", async () => {
-    await page.viewport(1280, 800);
+  it("welcomes in one short screen: logo, one line, one button, no cards or paragraphs (walk D-7)", async () => {
+    await page.viewport(1101, 782);
     const { screen } = await mountTour();
     try {
-      await page.getByRole("button", { name: "Get started", exact: true }).click();
-      await page.getByRole("tab", { name: /Browser & devices/ }).click();
+      await expect.poll(heading).toBe("Welcome to Moss");
       const dialog = document.querySelector<HTMLElement>('[data-slot="dialog-popup"]')!;
-      // The test browser runs on Linux or Windows: no iOS Simulator, no macOS.
-      expect(dialog.textContent).not.toMatch(/iOS|Simulator|macOS/);
-      expect(dialog.textContent).toContain("Verify in a real browser");
+      // Nothing but the title and the footer's controls: no explanatory tiles, no subtitle.
+      expect(dialog.querySelectorAll("li")).toHaveLength(0);
+      expect(dialog.getAttribute("aria-describedby")).toBeNull();
+      expect(dialog.textContent).not.toMatch(/Local-first|Your own agents|Verify before done/);
+      // Short: the dialog hugs its content instead of a fixed 600px frame.
+      expect(dialog.getBoundingClientRect().height).toBeLessThan(400);
 
-      for (const label of ["Continue", "Continue", "Continue", "Skip for now"]) {
+      await page.getByRole("button", { name: "Get started", exact: true }).click();
+      // Straight into setup: no tour page listing every agent by name.
+      await expect.poll(heading).toBe("Choose your agents");
+      for (const label of ["Continue", "Continue"]) {
         await page.getByRole("button", { name: label, exact: true }).click();
       }
-      await expect.poll(heading).toBe("You're all set");
-      expect(dialog.querySelector("dl")).toBeNull();
-      expect(dialog.textContent).not.toContain("Shortcuts worth learning today");
+      await expect.poll(heading).toBe("Add your first project");
+      // Title alone, no subtitle about importing conversations from other agents.
+      const projectDialog = document.querySelector<HTMLElement>('[data-slot="dialog-popup"]')!;
+      expect(projectDialog.textContent).not.toContain("Bring in conversations");
+      expect(projectDialog.textContent).not.toContain("No conversations from other agents");
     } finally {
       await screen.unmount();
     }
@@ -204,7 +208,7 @@ describe("welcome tour", () => {
     const { screen } = await mountTour();
     try {
       // Through each step by its primary button, whatever it is called.
-      for (const step of ["Welcome", "tour", "agents", "theme", "project"]) {
+      for (const step of ["Welcome", "agents", "theme", "project"]) {
         const before = heading();
         document.querySelector<HTMLElement>("[data-onboarding-primary]")!.click();
         await expect.poll(heading, { message: step }).not.toBe(before);

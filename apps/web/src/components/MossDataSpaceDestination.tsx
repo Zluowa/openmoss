@@ -62,6 +62,7 @@ import {
   createAppPageFromTemplate,
   createSpaceItem,
   isTypedSpaceKind,
+  pageTypesQueryKeys,
 } from "./spaceTypes/spaceItemTypes";
 import { SpaceTypedItemView } from "./spaceTypes/SpaceTypedItemView";
 import { TemplatePickerDialog } from "./spaceTypes/templates/TemplatePickerDialog";
@@ -502,6 +503,27 @@ function DataSpaceWorkspace({
           favorite: !item.pinned,
         });
     });
+  const renameItem = (item: SpaceItem, title: string) =>
+    run("重命名", async () => {
+      if (item.source.type === "page") {
+        const pageId = item.source.page.id;
+        await pageMutation(item.source.page, { op: "update", title });
+        // An editor opened later reads the new name, not a cached one.
+        await Promise.all([
+          client.invalidateQueries({
+            queryKey: pagesQueryKeys.read(account, scopeSpaceId, pageId),
+          }),
+          client.invalidateQueries({
+            queryKey: pageTypesQueryKeys.item(account, scopeSpaceId, pageId),
+          }),
+        ]);
+      } else if (item.source.type === "library") {
+        await ensureNativeApi().library.rename({ id: item.source.item.id, title });
+        await client.invalidateQueries({
+          queryKey: [...pagesQueryKeys.scope(account, scopeSpaceId), "library"],
+        });
+      }
+    });
   const continueInChat = async (item: SpaceItem) => {
     if (item.source.type === "page") {
       const document = await ensureNativeApi().pages.read({
@@ -903,6 +925,7 @@ function DataSpaceWorkspace({
                     onContinueInChat={(item) => void continueInChat(item)}
                     onSaveAsApp={(item) => void saveAsApp(item)}
                     onTogglePin={(item) => void togglePin(item)}
+                    onRename={(item, title) => void renameItem(item, title)}
                     onTrash={(item) => void trashItem(item)}
                   />
                 )}
