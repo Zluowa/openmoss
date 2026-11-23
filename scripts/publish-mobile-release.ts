@@ -25,7 +25,7 @@ import {
   signMossUpdateManifest,
   verifyMossUpdateManifest,
   type MossMobileUpdateManifest,
-} from "../packages/shared/src/mossUpdateMirror";
+} from "@moss/shared/mossUpdateMirror";
 import {
   LOCAL_SETTINGS_FILES,
   resolveUpdateMirrorStores,
@@ -161,7 +161,7 @@ export interface BuildMobileReleaseManifestInput {
   readonly apkBuffer: Buffer;
   readonly notesZh: string;
   readonly notesEn: string;
-  readonly releaseDate?: string;
+  readonly releaseDate?: string | undefined;
 }
 
 export interface BuiltMobileRelease {
@@ -308,8 +308,8 @@ async function verifyPublicMirrorReadBack(input: {
   readonly expectedManifest: MossMobileUpdateManifest;
   readonly expectedPublicKey: string;
   readonly fetchImpl: typeof fetch;
-  readonly allowLoopback?: boolean;
-  readonly retryDelayMs?: number;
+  readonly allowLoopback?: boolean | undefined;
+  readonly retryDelayMs?: number | undefined;
 }): Promise<string> {
   const apkUrl = resolveMobileArtifactUrl(input.feedUrl, input.expectedManifest, {
     allowLoopback: input.allowLoopback,

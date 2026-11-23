@@ -1,8 +1,9 @@
 // FILE: check-design-tokens.ts
 // Purpose: Holds the web app to docs/design/moss-design-standard.md. Counts, per UI file, the
 //          patterns the standard forbids (hard-coded colours, size-named or arbitrary radii,
-//          arbitrary font sizes and shadows, extra font weights, hand-drawn buttons) and fails
-//          when any file has more than the recorded baseline. Existing drift may only go down.
+//          arbitrary font sizes and shadows, extra font weights, hand-drawn buttons; native
+//          tooltips and gradients; outside components/ui also hand-made tab strips, spinners and
+//          status dots) and fails when any file has more than the recorded baseline. Existing drift may only go down.
 // Layer: Repository check (`bun run design:check`, part of `bun lint`)
 // Exports: none (CLI). `--update` rewrites the baseline to the current counts; use it after
 //          cleaning a file up, never to accept new drift.
@@ -44,10 +45,47 @@ const rules = {
     pattern: /<button\b/g,
     fix: "use Button (or buttonVariants on the element that must stay native)",
   },
+  // The five below hold screens to the shared parts in components/ui (which may use them).
+  "native-title": {
+    // An HTML element (lower-case tag) carrying title=; `=>`, `<=` and `>=` may sit in between.
+    pattern: /<([a-z][a-z0-9]*)\b(?:[^<>]|=>|<=|>=)*?\stitle=/g,
+    fix: "give an icon-only control the Moss Tooltip; title= stays only on truncated text",
+  },
+  "hand-tablist": {
+    pattern: /role=["']tablist["']/g,
+    fix: "use Tabs from components/ui/tabs (variant segmented for a segmented control)",
+    outsideUiOnly: true,
+  },
+  "hand-spinner": {
+    pattern: /\banimate-spin\b/g,
+    fix: "use Spinner from components/ui/spinner",
+    outsideUiOnly: true,
+  },
+  "hand-status-dot": {
+    pattern:
+      /\b(?:size-(?:1\.5|2)|h-(?:1\.5|2) w-(?:1\.5|2))\b[^"'`\n]*\brounded-full\b|\brounded-full\b[^"'`\n]*\b(?:size-(?:1\.5|2)|h-(?:1\.5|2) w-(?:1\.5|2))(?![\w.-])/g,
+    fix: "use StatusDot or StatusChip from components/ui/status-chip",
+    outsideUiOnly: true,
+  },
+  gradient: {
+    pattern:
+      /\bbg-(?:gradient-to-[a-z]+|linear-[\w[\]-]+|radial\b(?:-[\w[\]-]+)?|conic\b(?:-[\w[\]-]+)?)|\bbg-\[(?:linear|radial|conic)-gradient\(/g,
+    fix: "one paper: no decorative gradients; colour only for meaning",
+  },
 } as const;
 
 type RuleId = keyof typeof rules;
 type Counts = Partial<Record<RuleId, number>>;
+
+const uiPartsDir = /[\\/]src[\\/]components[\\/]ui[\\/]/;
+
+function matchCount(id: RuleId, text: string): number {
+  const found = [...text.matchAll(rules[id].pattern)];
+  // An iframe needs its title (it names the frame for screen readers); it is not a tooltip.
+  return id === "native-title"
+    ? found.filter((match) => match[1] !== "iframe").length
+    : found.length;
+}
 
 function isScanned(path: string): boolean {
   if (!/\.(tsx|ts)$/.test(path)) return false;
@@ -72,7 +110,8 @@ function count(): Record<string, Counts> {
     const text = readFileSync(path, "utf8");
     const counts: Counts = {};
     for (const [id, rule] of Object.entries(rules) as [RuleId, (typeof rules)[RuleId]][]) {
-      const n = text.match(rule.pattern)?.length ?? 0;
+      if ("outsideUiOnly" in rule && uiPartsDir.test(path)) continue;
+      const n = matchCount(id, text);
       if (n > 0) counts[id] = n;
     }
     if (Object.keys(counts).length > 0) {

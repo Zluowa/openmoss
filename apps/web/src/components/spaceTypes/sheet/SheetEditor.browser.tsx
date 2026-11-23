@@ -83,6 +83,54 @@ function mount(
 }
 
 describe("电子表格 editor", () => {
+  it("takes typing in A1 as soon as a new sheet opens, not on the button that opened it", async () => {
+    await page.viewport(1200, 760);
+    const opener = vi.fn();
+    const onChange = vi.fn<(next: SheetWorkbook) => void>();
+    const blank = parseSheetWorkbook({
+      version: 1,
+      sheets: [{ id: "s1", name: "工作表1", cells: [] }],
+    });
+    const screen = await render(
+      <div style={{ width: 1100, height: 680, display: "flex" }}>
+        <button type="button" onClick={opener}>
+          电子表格
+        </button>
+      </div>,
+    );
+    const sidebarButton = screen.getByRole("button", { name: "电子表格" });
+    (sidebarButton.element() as HTMLButtonElement).focus();
+    await screen.rerender(
+      <div style={{ width: 1100, height: 680, display: "flex" }}>
+        <button type="button" onClick={opener}>
+          电子表格
+        </button>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          <SheetEditor
+            workbook={blank}
+            title="未命名电子表格"
+            onChange={onChange}
+            onReplace={vi.fn()}
+          />
+        </div>
+      </div>,
+    );
+    await vi.waitFor(() =>
+      expect(
+        document.activeElement?.closest("[data-sheet-grid]"),
+        "focus is in the grid",
+      ).not.toBeNull(),
+    );
+    await userEvent.keyboard("1200{Enter}");
+    expect(opener).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      const cell = onChange.mock.lastCall?.[0]?.sheets[0]!.cells.find(
+        (entry) => entry.r === 0 && entry.c === 0,
+      );
+      expect(cell?.v).toBe(1200);
+    });
+  });
+
   it("lays out the formula row, the grid, the tool card and the sheet bar", async () => {
     await page.viewport(1200, 760);
     await mount();

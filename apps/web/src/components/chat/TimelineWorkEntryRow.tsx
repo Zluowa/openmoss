@@ -8,6 +8,14 @@ import { ConversationShimmer } from "./ConversationShimmer";
 import { ThreadId, type ModelSelection, type TurnId } from "@moss/contracts";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import { PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND } from "@moss/shared/providerDeliveryBlock";
+import {
+  isFileReadToolWord,
+  isSearchToolWord,
+  toolRowBrandIcon,
+  toolRowIcon,
+  type ToolRowBrandIcon,
+  type ToolRowIcon,
+} from "@moss/shared/toolRowIcon";
 import { motion } from "motion/react";
 import {
   createElement,
@@ -340,84 +348,29 @@ function workEntryPreview(
   return null;
 }
 
-// Exact-match candidate for icon selection: the normalized tool name wins; the
-// title's first word is the fallback for ACP calls that arrive with only a
-// `kind` and no native name (e.g. Grok's "Read /home/x" / "Find in src").
-// From upstream #2178.
-function toolIdentityWord(workEntry: TimelineWorkEntry): string {
-  if (workEntry.toolName) {
-    return workEntry.toolName.toLowerCase().replace(/[^a-z]/g, "");
-  }
-  // A derived "Searched the web" label still describes a real web search.
-  if (workEntry.itemType === "web_search") return "";
-  const firstWord = workEntry.toolTitle?.trim().split(/\s+/, 1)[0] ?? "";
-  return firstWord.toLowerCase().replace(/[^a-z]/g, "");
-}
+// Which icon a tool row wears is decided in @moss/shared/toolRowIcon, so the phone
+// draws the same one; this table only picks the desktop's drawing of each.
+const TOOL_ROW_ICONS: Record<ToolRowIcon, LucideIcon> = {
+  file: FileIcon,
+  search: SearchIcon,
+  github: GitHubIcon,
+  terminal: TerminalIcon,
+  pencil: PencilIcon,
+  mcp: McpIcon,
+  zap: ZapIcon,
+  eye: EyeIcon,
+  "web-search": WebSearchIcon,
+  "skill-cube": SkillCubeIcon,
+  hammer: HammerIcon,
+  agent: AgentTaskIcon,
+};
 
-// Provider read tools (Claude's `Read`, Grok/ACP `read_file`/`view`) arrive as
-// generic dynamic tool calls without a `file-read` requestKind, so match their
-// tool name to surface the file icon instead of the generic tool/wrench
-// fallback. The collapsed group summary shares the same read-name set in
-// toolCallGroup.logic.ts (READ_TOOL_NAMES).
 function isFileReadToolEntry(workEntry: TimelineWorkEntry): boolean {
-  const name = toolIdentityWord(workEntry);
-  return (
-    name === "read" ||
-    name === "reading" ||
-    name === "readfile" ||
-    name === "readfiles" ||
-    name === "readtextfile" ||
-    name === "view" ||
-    name === "viewfile" ||
-    name === "viewtextfile" ||
-    name === "hashlineread"
-  );
+  return isFileReadToolWord(workEntry);
 }
 
-// Provider search tools (Claude's `Grep`/`Glob`, Grok/ACP `search`/`find`) wear
-// the magnifier like search commands do. Keep in sync with SEARCH_TOOL_NAMES
-// in toolCallGroup.logic.ts.
 function isSearchToolEntry(workEntry: TimelineWorkEntry): boolean {
-  const name = toolIdentityWord(workEntry);
-  return (
-    name === "grep" ||
-    name === "glob" ||
-    name === "search" ||
-    name === "searching" ||
-    name === "searched" ||
-    name === "find" ||
-    name === "finding" ||
-    name === "found" ||
-    name === "findfiles" ||
-    name === "searchfiles" ||
-    name === "searchtool" ||
-    name === "hashlinegrep"
-  );
-}
-
-// Command rows reuse toolCallLabel's wrapper-aware classifier so reads wear the
-// file glyph, searches the magnifier, wrapped git/gh commands the GitHub mark,
-// and ordinary commands keep the terminal icon. Structured read/search actions
-// (Codex commandActions, ACP `read` kinds) carry no command string; their
-// derived title ("Read"/"Searched") picks the icon instead.
-function commandWorkEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
-  const command = workEntry.command ?? workEntry.rawCommand;
-  if (!command) {
-    if (isFileReadToolEntry(workEntry)) return FileIcon;
-    if (isSearchToolEntry(workEntry)) return SearchIcon;
-    return TerminalIcon;
-  }
-  switch (resolveCommandVisualKind(command)) {
-    case "read":
-      return FileIcon;
-    case "search":
-      return SearchIcon;
-    case "git":
-    case "github":
-      return GitHubIcon;
-    case "terminal":
-      return TerminalIcon;
-  }
+  return isSearchToolWord(workEntry);
 }
 
 function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
@@ -451,34 +404,8 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
       : HistoryIcon;
   }
 
-  if (workEntry.requestKind === "command") return commandWorkEntryIcon(workEntry);
-  if (workEntry.requestKind === "file-read") return FileIcon;
-  if (workEntry.requestKind === "file-change") return PencilIcon;
-  if (workEntry.requestKind === "tool") return McpIcon;
-
-  if (workEntry.itemType === "command_execution" || workEntry.command) {
-    return commandWorkEntryIcon(workEntry);
-  }
-  if (workEntry.itemType === "file_change") {
-    return PencilIcon;
-  }
-  if (workEntry.itemType === "image_generation") return ZapIcon;
-  if (workEntry.itemType === "image_view") return EyeIcon;
-  // Read/search names outrank the generic buckets: Pi maps its native
-  // `grep`/`find` to web_search, and ACP read/execute kinds land on
-  // dynamic_tool_call — the icon should follow what the tool actually is.
-  if (isFileReadToolEntry(workEntry)) return FileIcon;
-  if (isSearchToolEntry(workEntry)) return SearchIcon;
-  if (workEntry.itemType === "web_search") return WebSearchIcon;
-
-  switch (workEntry.itemType) {
-    case "mcp_tool_call":
-      return SkillCubeIcon;
-    case "dynamic_tool_call":
-      return HammerIcon;
-    case "collab_agent_tool_call":
-      return AgentTaskIcon;
-  }
+  const toolIcon = toolRowIcon(workEntry);
+  if (toolIcon) return TOOL_ROW_ICONS[toolIcon];
 
   return workToneIcon(workEntry.tone).icon;
 }
@@ -507,13 +434,17 @@ function renderWorkEntryLeadingIcon(
 // over the kind-derived entry icon. Shared with the collapsed tool-group summary
 // row, which borrows its first entry's icon.
 export function workEntryLeftIcon(workEntry: TimelineWorkEntry): LucideIcon {
-  if (isComputerWorkEntry(workEntry)) return ComputerUseIcon;
-  if (isGitHubMcpToolCall(workEntry)) return GitHubIcon;
-  if (isMossBrowserWorkEntry(workEntry)) return GlobeIcon;
-  if (isMossToolCall(workEntry)) return MossToolIcon;
-  if (workEntry.itemType === "mcp_tool_call") return McpIcon;
-  return workEntryIcon(workEntry);
+  const brand = toolRowBrandIcon(workEntry);
+  return brand ? TOOL_ROW_BRAND_ICONS[brand] : workEntryIcon(workEntry);
 }
+
+const TOOL_ROW_BRAND_ICONS: Record<ToolRowBrandIcon, LucideIcon> = {
+  "computer-use": ComputerUseIcon,
+  github: GitHubIcon,
+  globe: GlobeIcon,
+  moss: MossToolIcon,
+  mcp: McpIcon,
+};
 
 function isComputerWorkEntry(workEntry: TimelineWorkEntry): boolean {
   return (

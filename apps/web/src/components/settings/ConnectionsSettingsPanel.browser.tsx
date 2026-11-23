@@ -88,7 +88,7 @@ it("holds connections only: no computer-use controls on any tab", async () => {
   await expect
     .element(page.getByRole("tab", { name: "Control this computer" }))
     .not.toBeInTheDocument();
-  for (const name of ["Other devices", "Pair a device", "SSH"]) {
+  for (const name of ["Other devices", "SSH"]) {
     await page.getByRole("tab", { name, exact: true }).click();
     await expect
       .element(page.getByRole("switch", { name: /desktop|apps on your computer/ }))
@@ -110,10 +110,8 @@ it("uses keyboard tabs and identifies desktop-only pairing in a browser", async 
   await expect
     .element(page.getByRole("tab", { name: "Phone", exact: true }))
     .toHaveAttribute("aria-selected", "true");
-  await userEvent.keyboard("{ArrowRight}");
-  await expect
-    .element(page.getByRole("tab", { name: "Pair a device" }))
-    .toHaveAttribute("aria-selected", "true");
+  // Pairing both ways lives under Other devices; there is no separate Pair a device tab.
+  expect(page.getByRole("tab", { name: "Pair a device" }).elements()).toHaveLength(0);
   await userEvent.keyboard("{Home}");
   await expect
     .element(page.getByTestId("remote-computers-settings"))

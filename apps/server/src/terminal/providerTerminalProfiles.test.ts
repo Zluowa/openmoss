@@ -152,10 +152,7 @@ describe("deriveManagedTerminalProfiles", () => {
     ).toMatchObject({ PI_CODING_AGENT_DIR: imported });
   });
 
-  it.each([
-    ["antigravity", "agy"],
-    ["droid", "droid"],
-  ] as const)(
+  it.each([["antigravity", "agy"]] as const)(
     "does not isolate the default %s profile through its internal driver alias",
     async (provider, executable) => {
       const { binDir, homeDir, stateDir } = fixture();
@@ -175,6 +172,27 @@ describe("deriveManagedTerminalProfiles", () => {
       expect(profile?.environment.HOME).toBe(homeDir);
     },
   );
+
+  it("offers no terminal profile for the retired Droid CLI, even if old settings enabled it", async () => {
+    const { binDir, homeDir, stateDir } = fixture();
+    installCli(binDir, "droid");
+    const settings: ServerSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      providers: {
+        ...DEFAULT_SERVER_SETTINGS.providers,
+        droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: true },
+      },
+    };
+
+    const profiles = await deriveManagedTerminalProfiles({
+      settings,
+      baseEnv: { PATH: binDir, HOME: homeDir },
+      homeDir,
+      stateDir,
+    });
+
+    expect(profiles.find((candidate) => candidate.commandName === "droid-default")).toBeUndefined();
+  });
 
   it("preserves an imported Devin profile directory", async () => {
     const { binDir, homeDir, stateDir, root } = fixture();

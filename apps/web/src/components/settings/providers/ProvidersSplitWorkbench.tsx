@@ -103,7 +103,7 @@ export function ProvidersSplitWorkbench(props: {
   readonly onOpenAddProvider: () => void;
   readonly children: ReactNode;
 }) {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   const isZh = locale === "zh-CN";
 
   const unifiedNameById = new Map(
@@ -147,8 +147,8 @@ export function ProvidersSplitWorkbench(props: {
       )}
       data-testid="providers-split-workbench"
     >
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 px-7 pt-5 pb-3.5">
-        <h1 className={PAGE_TITLE_CLASS_NAME}>{isZh ? "服务与智能体" : "Providers & Agents"}</h1>
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 px-8 pt-7 pb-4">
+        <h1 className={PAGE_TITLE_CLASS_NAME}>{t("settings.nav.providers.label")}</h1>
 
         <div className="flex shrink-0 items-center gap-1.5">
           <Tooltip>

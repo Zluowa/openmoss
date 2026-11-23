@@ -28,6 +28,7 @@ vi.mock("~/nativeApi", async (importOriginal) => ({
 
 import { REALTIME_VOICE_CATALOG } from "~/lib/realtimeVoicePreferences";
 
+import { MossLocaleScope } from "~/localization";
 import { RealtimeVoiceSettingsPanel } from "./RealtimeVoiceSettingsPanel";
 
 const originalMediaDevicesDescriptor = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
@@ -320,6 +321,20 @@ describe("RealtimeVoiceSettingsPanel", () => {
         .toBeVisible();
       await expect.element(page.getByRole("button", { name: "Refresh microphones" })).toBeVisible();
       await expect.element(page.getByText(/Privacy & Security/u)).not.toBeInTheDocument();
+    } finally {
+      await mounted.unmount();
+    }
+  });
+
+  it("names the voices in Chinese for a Chinese reader", async () => {
+    const mounted = await render(
+      <MossLocaleScope locale="zh-CN">
+        <RealtimeVoiceSettingsPanel />
+      </MossLocaleScope>,
+    );
+    try {
+      await expect.element(page.getByRole("button", { exact: true, name: "枫叶" })).toBeVisible();
+      expect(page.getByRole("button", { exact: true, name: "Maple" }).elements()).toHaveLength(0);
     } finally {
       await mounted.unmount();
     }

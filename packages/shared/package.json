@@ -992,6 +992,26 @@
     "./mossbotRoom": {
       "types": "./src/mossbotRoom.ts",
       "import": "./src/mossbotRoom.ts"
+    },
+    "./shellCommandShape": {
+      "types": "./src/shellCommandShape.ts",
+      "import": "./src/shellCommandShape.ts"
+    },
+    "./mossToolPresentation": {
+      "types": "./src/mossToolPresentation.ts",
+      "import": "./src/mossToolPresentation.ts"
+    },
+    "./toolRowIcon": {
+      "types": "./src/toolRowIcon.ts",
+      "import": "./src/toolRowIcon.ts"
+    },
+    "./fileIcons": {
+      "types": "./src/fileIcons.ts",
+      "import": "./src/fileIcons.ts"
+    },
+    "./mossWords": {
+      "types": "./src/mossWords.ts",
+      "import": "./src/mossWords.ts"
     }
   },
   "scripts": {

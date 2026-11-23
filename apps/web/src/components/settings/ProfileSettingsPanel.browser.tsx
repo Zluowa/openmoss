@@ -187,11 +187,9 @@ describe("ProfileSettingsPanel", () => {
     // Nothing to share or edit while signed out in Settings.
     expect(page.getByRole("button", { name: "Share" }).elements()).toHaveLength(0);
     expect(page.getByRole("button", { name: "Change avatar" }).elements()).toHaveLength(0);
-    // Toolbar matches the Settings dialog surface (not a window drag-region or mismatched bg).
-    const toolbar = page.getByTestId("profile-page-toolbar").element();
-    expect(toolbar.className).not.toContain("drag-region");
-    expect(toolbar.className).not.toContain("bg-background");
-    expect(toolbar.className).toContain("bg-popover");
+    // The Settings page header draws the title; signed out there is no second, smaller one.
+    expect(page.getByTestId("profile-page-toolbar").elements()).toHaveLength(0);
+    expect(document.querySelector("h1")).toBeNull();
 
     await screen.unmount();
   });
@@ -249,7 +247,8 @@ describe("ProfileSettingsPanel", () => {
       />,
     );
 
-    await expect.element(page.getByRole("heading", { name: "Profile" })).toBeVisible();
+    // The Settings frame draws the page title; the profile adds no second heading of its own.
+    await expect.element(page.getByRole("toolbar", { name: "Profile" })).toBeVisible();
     await expect.element(page.getByRole("heading", { name: "Token activity" })).toBeVisible();
     await expect
       .element(page.getByRole("button", { name: "Daily" }))
@@ -289,5 +288,28 @@ describe("ProfileSettingsPanel", () => {
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth);
 
     await screen.unmount();
+  });
+
+  it("shows no streak or favourite agent from a turn that never ran", async () => {
+    const screen = await render(
+      <ProfileContent
+        account="signedOut"
+        onSignIn={() => {}}
+        stats={stats}
+        tokenStats={{ ...tokenStats, lifetimeTotalTokens: 0 }}
+        tokensPending={false}
+      />,
+    );
+    try {
+      const row = page.getByTestId("profile-stats-row");
+      await expect.element(row).toBeVisible();
+      const text = row.element().textContent ?? "";
+      // A failed first send used no tokens: no "3 days" / "16 days" streaks on screen.
+      expect(text).not.toMatch(/(3|16) (days?|天)/);
+      expect((text.match(/—/g) ?? []).length).toBeGreaterThanOrEqual(2);
+      expect(document.body.textContent).not.toMatch(/share of turns|占对话轮次/i);
+    } finally {
+      await screen.unmount();
+    }
   });
 });

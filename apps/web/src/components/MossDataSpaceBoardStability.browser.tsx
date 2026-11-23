@@ -354,12 +354,14 @@ describe("Data Space Whiteboard + Dock stability in real Chromium", () => {
       .poll(() => document.querySelector("[data-space-canvas-dock='docked']") !== null)
       .toBe(true);
 
+    // Closed: nothing is left floating over the board.
     await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
     await expect
-      .element(page.getByRole("button", { name: "展开悬浮窗", exact: true }))
-      .toBeVisible();
+      .poll(() => document.querySelector("[data-space-canvas-dock='docked']") === null)
+      .toBe(true);
+    expect(document.querySelector("[data-space-canvas-dock='collapsed']")).toBeNull();
 
-    await userEvent.click(page.getByRole("button", { name: "展开悬浮窗", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
     await expect
       .element(page.getByRole("complementary", { name: "Moss 画布助手浮窗", exact: true }))
       .toBeVisible();

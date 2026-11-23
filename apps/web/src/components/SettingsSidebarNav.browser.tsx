@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { composeChineseWithEnter } from "../test/imeComposition";
+import { MossLocaleScope } from "../localization";
 import { SettingsSidebarNav } from "./SettingsSidebarNav";
 
 describe("SettingsSidebarNav search", () => {
@@ -95,4 +96,28 @@ describe("SettingsSidebarNav search", () => {
       }
     },
   );
+
+  it("names the coding pages for what they are, in Chinese, each with its own icon", async () => {
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        <SettingsSidebarNav activeSection="general" onSelectSection={() => {}} />
+      </MossLocaleScope>,
+    );
+    try {
+      await expect.element(page.getByText("模型与智能体", { exact: true })).toBeVisible();
+      await expect.element(page.getByText("Git 与模型", { exact: true })).toBeVisible();
+      const navText = document.querySelector("nav")?.textContent ?? "";
+      expect(navText).not.toContain("模型账号");
+      expect(navText).not.toContain("服务与智能体");
+      const row = (label: string) =>
+        [...document.querySelectorAll("nav button, nav a")].find((el) =>
+          el.textContent?.includes(label),
+        );
+      const icon = (label: string) => row(label)?.querySelector("svg, img, [data-slot]")?.outerHTML;
+      expect(icon("模型与智能体")).toBeTruthy();
+      expect(icon("模型与智能体")).not.toBe(icon("插件"));
+    } finally {
+      await screen.unmount();
+    }
+  });
 });
