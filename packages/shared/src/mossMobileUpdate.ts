@@ -310,7 +310,7 @@ export function isNewerMobileRelease(input: {
 export function resolveMobileArtifactUrl(
   feedBaseUrl: string,
   manifest: MossMobileUpdateManifest,
-  options: { readonly allowLoopback?: boolean } = {},
+  options: { readonly allowLoopback?: boolean | undefined } = {},
 ): string {
   const parsedBase = new URL(feedBaseUrl);
   const loopback = isLoopbackHostname(parsedBase.hostname);

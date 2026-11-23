@@ -3052,9 +3052,9 @@ export const checkCursorProviderStatus = makeCheckCursorProviderStatus();
 
 // ── Devin health check ───────────────────────────────────────────────
 
-async function readDevinCachedLatestVersion(): Promise<string | null> {
+async function readDevinCachedLatestVersion(platform: NodeJS.Platform): Promise<string | null> {
   const candidates =
-    process.platform === "win32"
+    platform === "win32"
       ? [
           nodePath.join(
             process.env.LOCALAPPDATA?.trim() || nodePath.join(OS.homedir(), "AppData", "Local"),
@@ -3092,8 +3092,9 @@ async function readDevinCachedLatestVersion(): Promise<string | null> {
 const applyDevinCachedLatestVersionFallback = (
   status: ServerProviderStatus,
   capabilities: ProviderMaintenanceCapabilities,
+  platform: NodeJS.Platform,
 ): Effect.Effect<ServerProviderStatus> =>
-  Effect.promise(() => readDevinCachedLatestVersion()).pipe(
+  Effect.promise(() => readDevinCachedLatestVersion(platform)).pipe(
     Effect.map((cachedLatest) => {
       if (!cachedLatest || !status.version) {
         return status;
@@ -4037,7 +4038,11 @@ export function makeProviderHealthLive(options?: {
                     enrichedStatus.available &&
                     enrichedStatus.version &&
                     !enrichedStatus.versionAdvisory?.latestVersion
-                      ? applyDevinCachedLatestVersionFallback(enrichedStatus, capabilities)
+                      ? applyDevinCachedLatestVersionFallback(
+                          enrichedStatus,
+                          capabilities,
+                          runtimePlatform,
+                        )
                       : Effect.succeed(enrichedStatus),
                   ),
                 ),

@@ -540,71 +540,59 @@ describe("ProviderTextGenerationLive", () => {
     expect(cursor.generateThreadTitle).not.toHaveBeenCalled();
   });
 
-  it("routes explicit Droid selections and preserves provider options", async () => {
-    const { layer, codex, cursor, droid, opencode } = makeProviderTextGenerationTestLayer();
-    const providerOptions = { droid: { binaryPath: "/custom/bin/droid" } };
+  // Droid is retired: old settings that still enable it must not send any generation to it.
+  it("refuses explicit Droid selections even if old settings enabled Droid", async () => {
+    const { layer, codex, cursor, droid, opencode } = makeProviderTextGenerationTestLayer({
+      providers: { droid: { enabled: true } },
+    });
 
-    const result = await Effect.runPromise(
-      Effect.gen(function* () {
-        const textGeneration = yield* TextGeneration;
-        return yield* textGeneration.generateThreadTitle({
-          cwd: "/repo",
-          message: "Plan the Droid integration work",
-          modelSelection: {
-            provider: "droid",
-            model: "deepseek-v4-flash-0731",
-            options: { reasoningEffort: "high" },
-          },
-          providerOptions,
-        });
-      }).pipe(Effect.provide(layer)),
-    );
-
-    expect(result.title).toBe("droid title");
-    expect(droid.generateThreadTitle).toHaveBeenCalledWith(
-      expect.objectContaining({
-        modelSelection: {
-          provider: "droid",
-          instanceId: "droid",
-          model: "deepseek-v4-flash-0731",
-          options: { reasoningEffort: "high" },
-        },
-        providerOptions,
-      }),
-    );
+    await expect(
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const textGeneration = yield* TextGeneration;
+          return yield* textGeneration.generateThreadTitle({
+            cwd: "/repo",
+            message: "Plan the Droid integration work",
+            modelSelection: {
+              provider: "droid",
+              model: "deepseek-v4-flash-0731",
+              options: { reasoningEffort: "high" },
+            },
+          });
+        }).pipe(Effect.provide(layer)),
+      ),
+    ).rejects.toMatchObject({
+      _tag: "TextGenerationError",
+      detail: "Provider instance 'droid' is disabled.",
+    });
+    expect(droid.generateThreadTitle).not.toHaveBeenCalled();
     expect(codex.generateThreadTitle).not.toHaveBeenCalled();
     expect(cursor.generateThreadTitle).not.toHaveBeenCalled();
     expect(opencode.generateThreadTitle).not.toHaveBeenCalled();
   });
 
   it.each(["droid:deepseek-v4-flash-0731", "droid/deepseek-v4-flash-0731"] as const)(
-    "routes raw %s slugs to Droid",
+    "never sends raw %s slugs to Droid",
     async (model) => {
-      const { layer, droid } = makeProviderTextGenerationTestLayer();
+      const { layer, droid } = makeProviderTextGenerationTestLayer({
+        providers: { droid: { enabled: true } },
+      });
 
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          const textGeneration = yield* TextGeneration;
-          return yield* textGeneration.generateCommitMessage({
-            cwd: "/repo",
-            branch: null,
-            stagedSummary: "",
-            stagedPatch: "",
-            model,
-          });
-        }).pipe(Effect.provide(layer)),
-      );
-
-      expect(droid.generateCommitMessage).toHaveBeenCalledWith(
-        expect.objectContaining({
-          model: "deepseek-v4-flash-0731",
-          modelSelection: {
-            provider: "droid",
-            instanceId: "droid",
-            model: "deepseek-v4-flash-0731",
-          },
-        }),
-      );
+      await expect(
+        Effect.runPromise(
+          Effect.gen(function* () {
+            const textGeneration = yield* TextGeneration;
+            return yield* textGeneration.generateCommitMessage({
+              cwd: "/repo",
+              branch: null,
+              stagedSummary: "",
+              stagedPatch: "",
+              model,
+            });
+          }).pipe(Effect.provide(layer)),
+        ),
+      ).rejects.toMatchObject({ _tag: "TextGenerationError" });
+      expect(droid.generateCommitMessage).not.toHaveBeenCalled();
     },
   );
 

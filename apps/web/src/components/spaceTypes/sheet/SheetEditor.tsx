@@ -268,6 +268,23 @@ function actionWords(name: keyof SheetToolActions, args: readonly unknown[]): st
   }
 }
 
+/**
+ * Whether an opened sheet should move focus into its grid. It does unless the person is already
+ * typing somewhere else (a field or editable text outside this sheet, such as 问 Moss's composer).
+ */
+function shouldTakeFocusOnOpen(root: HTMLElement): boolean {
+  const active = document.activeElement as HTMLElement | null;
+  if (!active || active === document.body || root.contains(active)) return true;
+  const typing =
+    active.isContentEditable ||
+    active instanceof HTMLTextAreaElement ||
+    (active instanceof HTMLInputElement &&
+      !["button", "checkbox", "radio", "submit", "reset", "file", "range", "color"].includes(
+        active.type,
+      ));
+  return !typing;
+}
+
 function safeName(title: string, extension: string) {
   return `${title.replace(/[<>:"/\\|?*\u0000-\u001f]/gu, "-").trim() || "电子表格"}.${extension}`;
 }
@@ -658,6 +675,26 @@ export function SheetEditor(props: {
   useEffect(() => {
     repaint();
   }, [flashKeys, showFormulas, commentCells, repaint]);
+
+  // An opened sheet takes typing at its selected cell at once, as a click on the cell would:
+  // keys must not go to whatever was clicked before (the 资料空间 sidebar button that opened it).
+  useEffect(() => {
+    if (readOnly) return;
+    let frame = 0;
+    let tries = 0;
+    const focusGrid = () => {
+      const root = shell.current;
+      const input = root?.querySelector<HTMLElement>(".luckysheet-cell-input");
+      if (!root || !input) {
+        if (tries++ < 30) frame = requestAnimationFrame(focusGrid);
+        return;
+      }
+      if (!shouldTakeFocusOnOpen(root)) return;
+      input.focus({ preventScroll: true });
+    };
+    frame = requestAnimationFrame(focusGrid);
+    return () => cancelAnimationFrame(frame);
+  }, [engineEpoch, readOnly]);
 
   const current = useCallback((): SheetWorkbook => {
     const sheets = readEngine((e) => e.getAllSheets());

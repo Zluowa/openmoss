@@ -15,6 +15,7 @@ import type {
 } from "@moss/contracts";
 import {
   hasConfiguredLegacyProviderSettings,
+  isSupportedProviderKind,
   ProviderKind as ProviderKindSchema,
 } from "@moss/contracts";
 import { Schema } from "effect";
@@ -687,7 +688,12 @@ export function deriveProviderInstances(
       instanceId,
       driver: raw.driver,
       displayName: displayNameForInstance(instanceId, raw.driver, raw),
-      enabled: raw.enabled !== false && config.enabled !== false && mossAuthorized,
+      // Retired drivers (Gemini, Droid, Kilo) still decode from old settings but never run.
+      enabled:
+        raw.enabled !== false &&
+        config.enabled !== false &&
+        mossAuthorized &&
+        isSupportedProviderKind(raw.driver),
       isDefault: instanceId === raw.driver,
       config,
       environment: materializeProviderInstanceEnvironment(raw),

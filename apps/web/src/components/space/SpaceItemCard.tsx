@@ -28,6 +28,7 @@ import {
   spaceMossMediaPath,
   type SpaceItem,
 } from "./spaceItems";
+import { SpaceInlineRename } from "./SpaceInlineRename";
 import { isHtmlOutput, type SpaceKindMeta } from "./spaceKinds";
 
 export interface SpaceItemActions {
@@ -35,7 +36,14 @@ export interface SpaceItemActions {
   onContinueInChat?: ((item: SpaceItem) => void) | undefined;
   onSaveAsApp?: ((item: SpaceItem) => void) | undefined;
   onTogglePin?: ((item: SpaceItem) => void) | undefined;
+  /** 重命名: the card's title turns into a field in place; called with the new name. */
+  onRename?: ((item: SpaceItem, title: string) => void) | undefined;
   onTrash?: ((item: SpaceItem) => void) | undefined;
+}
+
+/** Items whose name can be changed here: pages of every kind and uploaded files. */
+export function canRenameSpaceItem(item: SpaceItem): boolean {
+  return item.source.type === "page" || item.source.type === "library";
 }
 
 export function SpaceItemCard(
@@ -52,7 +60,17 @@ export function SpaceItemCard(
   const Icon = meta.icon;
   const isDashboard = item.kind === "dashboard" || meta.label === "数据看板";
   const time = formatRelativeTime(item.updatedAt, props.now);
-  const actions = <SpaceItemMenu {...props} />;
+  const [renaming, setRenaming] = useState(false);
+  const actions = <SpaceItemMenu {...props} onStartRename={() => setRenaming(true)} />;
+  const renameField = renaming ? (
+    <SpaceInlineRename
+      value={spaceItemDisplayTitle(item)}
+      label="名称"
+      onCommit={(title) => props.onRename?.(item, title)}
+      onDone={() => setRenaming(false)}
+      className="flex-1"
+    />
+  ) : null;
 
   useEffect(() => {
     if (item.kind === "app") {
@@ -67,18 +85,28 @@ export function SpaceItemCard(
         className="group/space-item flex h-10 items-center gap-3 rounded-row px-2 hover:bg-accent"
         data-space-item={item.key}
       >
-        <button
-          type="button"
-          role="gridcell"
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => props.onOpen(item)}
-        >
-          <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-ui">{spaceItemDisplayTitle(item)}</span>
-          {item.pinned ? (
-            <PinFilledIcon aria-label="已收藏" className="size-3 shrink-0 text-muted-foreground" />
-          ) : null}
-        </button>
+        {renameField ? (
+          <span role="gridcell" className="flex min-w-0 flex-1 items-center gap-2.5">
+            <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            {renameField}
+          </span>
+        ) : (
+          <button
+            type="button"
+            role="gridcell"
+            className="flex min-w-0 flex-1 items-center gap-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={() => props.onOpen(item)}
+          >
+            <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-ui">{spaceItemDisplayTitle(item)}</span>
+            {item.pinned ? (
+              <PinFilledIcon
+                aria-label="已收藏"
+                className="size-3 shrink-0 text-muted-foreground"
+              />
+            ) : null}
+          </button>
+        )}
         <span
           role="gridcell"
           className="w-24 shrink-0 truncate text-ui-sm text-muted-foreground max-sm:hidden"
@@ -106,31 +134,41 @@ export function SpaceItemCard(
       className="group/space-item relative flex flex-col overflow-hidden rounded-panel border border-border/80 bg-card shadow-xs transition-[box-shadow,border-color] hover:border-border hover:shadow-md"
       data-space-item={item.key}
     >
-      <button
-        type="button"
-        className="flex w-full flex-col overflow-hidden rounded-panel text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => props.onOpen(item)}
-      >
-        <SpaceItemPreview item={item} meta={meta} isDashboard={isDashboard} />
-        <span className="flex min-h-15 min-w-0 flex-col justify-center gap-1 px-3 py-2.5">
-          <span className="flex min-w-0 items-center gap-1.5 pr-6">
+      {renameField ? (
+        <div className="flex w-full flex-col overflow-hidden rounded-panel">
+          <SpaceItemPreview item={item} meta={meta} isDashboard={isDashboard} />
+          <span className="flex min-h-15 min-w-0 items-center gap-1.5 px-3 py-2.5">
             <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate text-ui font-medium">
-              {spaceItemDisplayTitle(item)}
+            {renameField}
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="flex w-full flex-col overflow-hidden rounded-panel text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => props.onOpen(item)}
+        >
+          <SpaceItemPreview item={item} meta={meta} isDashboard={isDashboard} />
+          <span className="flex min-h-15 min-w-0 flex-col justify-center gap-1 px-3 py-2.5">
+            <span className="flex min-w-0 items-center gap-1.5 pr-6">
+              <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate text-ui font-medium">
+                {spaceItemDisplayTitle(item)}
+              </span>
+              {item.pinned ? (
+                <PinFilledIcon
+                  aria-label="已收藏"
+                  className="size-3 shrink-0 text-muted-foreground"
+                />
+              ) : null}
             </span>
-            {item.pinned ? (
-              <PinFilledIcon
-                aria-label="已收藏"
-                className="size-3 shrink-0 text-muted-foreground"
-              />
-            ) : null}
+            <span className="truncate text-ui-sm text-muted-foreground">
+              {meta.label} · {time}
+              {props.place && props.place !== "个人" ? ` · ${props.place}` : ""}
+            </span>
           </span>
-          <span className="truncate text-ui-sm text-muted-foreground">
-            {meta.label} · {time}
-            {props.place && props.place !== "个人" ? ` · ${props.place}` : ""}
-          </span>
-        </span>
-      </button>
+        </button>
+      )}
       <span className="absolute top-2 right-2 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
         {actions}
       </span>
@@ -467,7 +505,7 @@ function BoardCardPreview() {
   );
 }
 
-function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem }) {
+function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem; onStartRename: () => void }) {
   const { item } = props;
   const canPin =
     props.onTogglePin && (item.source.type === "page" || item.source.type === "library");
@@ -486,6 +524,9 @@ function SpaceItemMenu(props: SpaceItemActions & { item: SpaceItem }) {
         ) : null}
         {isHtmlOutput(item) && props.onSaveAsApp ? (
           <MenuItem onClick={() => props.onSaveAsApp?.(item)}>保存为应用页</MenuItem>
+        ) : null}
+        {props.onRename && canRenameSpaceItem(item) ? (
+          <MenuItem onClick={props.onStartRename}>重命名</MenuItem>
         ) : null}
         {canPin ? (
           <MenuItem onClick={() => props.onTogglePin?.(item)}>
