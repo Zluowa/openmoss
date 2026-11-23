@@ -120,7 +120,7 @@ describe("ProviderHealthBanner", () => {
       ),
     );
 
-    expect(text).toContain("Moss 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。");
+    expect(text).toContain("Moss 尚未登录。请在「设置 → 模型与智能体」中登录，或换用其他模型。");
     expect(text).not.toContain("codex login");
     expect(text).not.toContain("Moss 正在准备");
   });
@@ -239,7 +239,7 @@ describe("ProviderHealthBanner", () => {
         }),
       }),
     );
-    const safeMessage = `${fixture.displayName} 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。`;
+    const safeMessage = `${fixture.displayName} 尚未登录。请在「设置 → 模型与智能体」中登录，或换用其他模型。`;
 
     expect(textContent(markup)).toContain(safeMessage);
     expect(markup).toContain(`title="${safeMessage}"`);

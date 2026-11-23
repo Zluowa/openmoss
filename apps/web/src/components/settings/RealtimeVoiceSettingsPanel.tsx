@@ -34,6 +34,7 @@ import {
   readRealtimeVoiceScreenContextPreference,
   readRealtimeVoiceShortcutPreference,
   REALTIME_VOICE_CATALOG,
+  realtimeVoiceDisplayName,
   realtimeVoiceShortcutFromKeyboardEvent,
   writeRealtimeVoiceInputDevicePreference,
   writeRealtimeVoicePreference,
@@ -41,6 +42,7 @@ import {
   writeRealtimeVoiceShortcutPreference,
 } from "~/lib/realtimeVoicePreferences";
 import { resolveRealtimeVoiceMicrophoneHealth } from "~/lib/realtimeVoiceMicrophoneHealth";
+import { useTranslation } from "~/localization";
 import { readNativeApi } from "~/nativeApi";
 
 import { RealtimeVoicePreviewPicker } from "./RealtimeVoicePreviewPicker";
@@ -91,6 +93,7 @@ function exactAvailableVoices(
 }
 
 export function RealtimeVoiceSettingsPanel() {
+  const { locale } = useTranslation();
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalogState>({ status: "loading" });
   const [voiceId, setVoiceId] = useState<RealtimeVoiceId>(readRealtimeVoicePreference);
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false);
@@ -364,8 +367,7 @@ export function RealtimeVoiceSettingsPanel() {
     }
     return (
       <Button type="button" size="sm" variant="secondary" onClick={openVoiceDialog}>
-        <span aria-hidden="true" className="size-3 rounded-full bg-blue-500" />
-        {selectedVoice?.displayName}
+        {selectedVoice ? realtimeVoiceDisplayName(selectedVoice, locale) : null}
       </Button>
     );
   })();

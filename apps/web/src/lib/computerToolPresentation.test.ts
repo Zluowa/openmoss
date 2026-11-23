@@ -6,7 +6,10 @@
 import type { ComputerWindow } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
+import { COMPUTER_TOOL_NAMES } from "@moss/shared/toolRowIcon";
+
 import {
+  COMPUTER_TOOL_TITLES,
   computerToolName,
   describeComputerToolCall,
   isComputerToolName,
@@ -375,4 +378,10 @@ describe("describeComputerToolCall", () => {
       ).toBe("Check a desktop Space operation");
     },
   );
+});
+
+describe("Computer tools in the shared tool words", () => {
+  it("has words for exactly the Computer tools the gateway has", () => {
+    expect([...COMPUTER_TOOL_NAMES].sort()).toEqual(Object.keys(COMPUTER_TOOL_TITLES).sort());
+  });
 });

@@ -112,7 +112,7 @@ describe("AgentFeedbackSettingsSection", () => {
     // Expand the row: shows friendly Chinese tool label, NOT raw snake_case identifier.
     await page.getByRole("button", { name: /更新页面时未说明支持的标题层级/ }).click();
     await expect.element(page.getByText("调用页面编辑工具后返回泛化错误。")).toBeVisible();
-    await expect.element(page.getByText(/更新页面 · /)).toBeVisible();
+    await expect.element(page.getByText(/更新文档 · /)).toBeVisible();
     expect(document.body.textContent).not.toContain("moss_pages_mutate");
 
     // Clicking Send opens the confirmation dialog with mainland-China notice and never bypasses it.

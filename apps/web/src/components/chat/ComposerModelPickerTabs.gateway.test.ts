@@ -96,7 +96,7 @@ describe("Moss gateway unreachable", () => {
   });
 });
 
-describe("Moss row in Settings → 模型账号", () => {
+describe("Moss row in Settings → 模型与智能体", () => {
   const signedIn = (modelGatewayStatus?: string) => ({ authenticated: true, modelGatewayStatus });
   const signedOut = { authenticated: false };
 

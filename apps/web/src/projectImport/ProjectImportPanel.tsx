@@ -412,7 +412,7 @@ export function ProjectImportPanel(props: {
           {quietNote}
         </p>
       ) : null}
-      {noConversationsNote ? (
+      {noConversationsNote && !(catalog && catalog.projects.length === 0) ? (
         <p className="text-ui-sm text-muted-foreground/80">{noConversationsNote}</p>
       ) : null}
       {turnedOffNote ? (

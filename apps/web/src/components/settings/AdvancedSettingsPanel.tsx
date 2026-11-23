@@ -19,13 +19,16 @@ import { ensureNativeApi, readNativeApi } from "~/nativeApi";
 import { serverAuthSessionQueryOptions, serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { useStore } from "~/store";
 import { createAllThreadsMessagelessSelector, createThreadShellsSelector } from "~/storeSelectors";
+import { DisclosureRegion } from "~/components/ui/DisclosureRegion";
+import { MossReleaseHistory } from "./MossReleaseHistory";
 import { SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
 
 /**
  * General › About. The repair row only exists when projects are present and no chat
  * history loaded — the one situation it fixes — so nobody else has to read about it.
  */
-export function AboutSettingsSection(props: { onOpenReleaseHistory: () => void }) {
+export function AboutSettingsSection() {
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
   const authSessionQuery = useQuery(serverAuthSessionQueryOptions());
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const threadShells = useStore(useMemo(() => createThreadShellsSelector(), []));
@@ -96,11 +99,21 @@ export function AboutSettingsSection(props: { onOpenReleaseHistory: () => void }
         title="Release notes"
         description="What changed in each update."
         control={
-          <Button size="xs" variant="outline" onClick={props.onOpenReleaseHistory}>
-            View
+          <Button
+            size="xs"
+            variant="outline"
+            aria-expanded={releaseNotesOpen}
+            onClick={() => setReleaseNotesOpen((open) => !open)}
+          >
+            {releaseNotesOpen ? "Hide" : "View"}
           </Button>
         }
-      />
+      >
+        {/* In place, not a dialog over the settings dialog. */}
+        <DisclosureRegion open={releaseNotesOpen}>
+          <MossReleaseHistory className="pt-2" />
+        </DisclosureRegion>
+      </SettingsRow>
       <SettingsRow
         title="Feature tour"
         description="A short look at what Moss can do."

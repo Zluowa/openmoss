@@ -177,4 +177,31 @@ describe("Mossbot onboarding", () => {
     expect(useMossbotPreferencesStore.getState().onboardingSkipped).toBe(true);
     expect(mocks.createProject).not.toHaveBeenCalled();
   });
+
+  it.each(["light", "dark"] as const)(
+    "sits on the plain paper background, no glow picture (%s)",
+    async (mode) => {
+      document.documentElement.classList.toggle("dark", mode === "dark");
+      try {
+        await setup();
+        await expect.element(heading("Meet your Moss assistant")).toBeVisible();
+        const wall = document.querySelector<HTMLElement>(".mbo-wall")!;
+        const box = wall.getBoundingClientRect();
+        expect(box.width).toBeGreaterThan(600);
+        expect(box.height).toBeGreaterThan(400);
+        const style = getComputedStyle(wall);
+        expect(style.backgroundImage).toBe("none");
+        // The same paper token as every other screen, painted (not transparent).
+        const probe = document.createElement("div");
+        probe.style.background = "var(--background)";
+        wall.parentElement!.append(probe);
+        expect(style.backgroundColor).toBe(getComputedStyle(probe).backgroundColor);
+        expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+        probe.remove();
+        await page.screenshot({ path: `__screenshots__/one-look/mossbot-onboarding-${mode}.png` });
+      } finally {
+        document.documentElement.classList.remove("dark");
+      }
+    },
+  );
 });

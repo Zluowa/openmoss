@@ -1,6 +1,6 @@
 /* Mossbot first-run onboarding: one fixed stage (680×520 wide, 360×620 narrow) scaled to fit; the companion
-   springs between spots while the steps cross-fade around it. Colours come from the app tokens; the soft stage
-   picture is the one brand painting the onboarding is allowed. */
+   springs between spots while the steps cross-fade around it. Colours come from the app tokens; the stage is
+   the same plain paper as every other screen. */
 .mbo {
   --mbo-card: color-mix(in srgb, var(--card) 80%, transparent);
   --mbo-line: color-mix(in srgb, var(--foreground) 10%, transparent);
@@ -30,10 +30,8 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: var(--background) url("./onboarding/stage-light.jpg") center / cover no-repeat;
-}
-.mbo:is(.dark *) .mbo-wall {
-  background-image: url("./onboarding/stage-dark.jpg");
+  /* One sheet of paper, like every other Moss screen: no glow or picture behind the steps. */
+  background: var(--background);
 }
 
 .mbo-top {
