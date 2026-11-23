@@ -5,19 +5,25 @@ import {
   ThreadId,
   type ServerProviderStatus,
   type ServerProviderUsageSnapshot,
+  type ServerSettings,
   type TerminalEvent,
   type TerminalOpenInput,
+  type UnifiedModelProviderConfig,
 } from "@moss/contracts";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import { page, userEvent } from "vitest/browser";
 import { beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { StrictMode, useState } from "react";
+import { PROVIDER_BRAND_ICON_CATALOG } from "~/components/ProviderBrandIcons";
 
 const harness = vi.hoisted(() => ({
   statuses: [] as ServerProviderStatus[],
   usage: [] as ServerProviderUsageSnapshot[],
+  serverSettings: null as ServerSettings | null,
   reconciled: true,
+  revision: 0,
+  listeners: new Set<() => void>(),
   refresh: vi.fn(),
   invalidate: vi.fn(async () => {}),
   terminalListener: null as ((event: TerminalEvent) => void) | null,
@@ -43,24 +49,43 @@ const harness = vi.hoisted(() => ({
       cancelProviderLogin: vi.fn(async (_input: { provider: string; instanceId: string }) => ({
         providers: [] as ServerProviderStatus[],
       })),
+      updateSettings: vi.fn(async (patch: Partial<ServerSettings>) => ({
+        ...(harness.serverSettings ?? DEFAULT_SERVER_SETTINGS),
+        ...patch,
+      })),
+      saveUnifiedProvider: vi.fn(),
+      deleteUnifiedProvider: vi.fn(),
+      testUnifiedProvider: vi.fn(),
     },
   },
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
+  const { useSyncExternalStore } = await import("react");
   const queryClient = { invalidateQueries: harness.invalidate };
   return {
     ...(await importOriginal<typeof import("@tanstack/react-query")>()),
     useQueryClient: () => queryClient,
-    useQuery: (options: { queryKey?: readonly string[] }) => ({
-      data:
-        options.queryKey?.[1] === "allProviderUsage"
-          ? harness.usage
-          : options.queryKey?.[1] === "settings"
-            ? DEFAULT_SERVER_SETTINGS
-            : { providers: harness.statuses, cwd: "/tmp" },
-      isPending: false,
-    }),
+    useQuery: (options: { queryKey?: readonly string[] }) => {
+      useSyncExternalStore(
+        (listener) => {
+          harness.listeners.add(listener);
+          return () => {
+            harness.listeners.delete(listener);
+          };
+        },
+        () => harness.revision,
+      );
+      return {
+        data:
+          options.queryKey?.[1] === "allProviderUsage"
+            ? harness.usage
+            : options.queryKey?.[1] === "settings"
+              ? (harness.serverSettings ?? DEFAULT_SERVER_SETTINGS)
+              : { providers: harness.statuses, cwd: "/tmp" },
+        isPending: false,
+      };
+    },
   };
 });
 vi.mock("~/lib/serverReactQuery", async (importOriginal) => ({
@@ -131,8 +156,28 @@ const props = {
 };
 
 beforeEach(() => {
+  localizationTestState.locale = "en";
   harness.api.shell.openExternal.mockClear();
   harness.api.dialogs.pickFolder.mockReset();
+  harness.serverSettings = DEFAULT_SERVER_SETTINGS;
+  harness.revision = 0;
+  harness.listeners.clear();
+  harness.invalidate.mockReset().mockImplementation(async () => {
+    harness.revision += 1;
+    for (const listener of harness.listeners) {
+      listener();
+    }
+  });
+  harness.api.server.updateSettings.mockReset().mockImplementation(async (patch) => {
+    harness.serverSettings = {
+      ...(harness.serverSettings ?? DEFAULT_SERVER_SETTINGS),
+      ...patch,
+    };
+    return harness.serverSettings;
+  });
+  harness.api.server.saveUnifiedProvider.mockReset();
+  harness.api.server.deleteUnifiedProvider.mockReset();
+  harness.api.server.testUnifiedProvider.mockReset();
   harness.usage = [];
   harness.reconciled = true;
   harness.refresh.mockReset();
@@ -167,6 +212,16 @@ beforeEach(() => {
   }));
 });
 
+function railNav() {
+  return page.getByRole("complementary", {
+    name: /Providers and agents navigation|服务商与智能体导航/u,
+  });
+}
+
+async function selectRailItem(name: string | RegExp) {
+  await railNav().getByRole("button", { name }).first().click();
+}
+
 function activityRow(provider: string) {
   return page
     .getByRole("switch", { name: `Disable ${provider}`, exact: true })
@@ -178,7 +233,15 @@ it("keeps technical settings folded until the person asks for them", async () =>
   await page.viewport(1000, 780);
   await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
   expect(page.getByRole("switch", { name: "Keep Moss responsive" }).elements()).toHaveLength(0);
-  await page.getByRole("button", { name: "Advanced settings", exact: true }).click();
+  await selectRailItem(/Codex/u);
+  const advancedTrigger = page.getByRole("button", {
+    name: "Advanced settings & accounts",
+    exact: true,
+  });
+  await expect.element(advancedTrigger).toHaveAttribute("aria-expanded", "false");
+  await advancedTrigger.click();
+  await expect.element(advancedTrigger).toHaveAttribute("aria-expanded", "true");
+  await selectRailItem(/Preferences & defaults/u);
   await expect.element(page.getByRole("switch", { name: "Keep Moss responsive" })).toBeVisible();
 });
 
@@ -194,6 +257,7 @@ it("opens setup guides through the native browser action", async () => {
       : status,
   );
   await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
+  await selectRailItem(/Cursor/u);
   await page.getByRole("button", { name: "Cursor setup guide", exact: true }).click();
   expect(harness.api.shell.openExternal).toHaveBeenCalledWith(
     "https://cursor.com/docs/cli/overview",
@@ -222,6 +286,7 @@ it("saves provider CPU priority opt-out and exposes reset to the default", async
   const result = await render(
     <ProvidersSettingsPanel {...props} updateSettings={updateSettings} />,
   );
+  await selectRailItem(/Preferences & defaults/u);
   const control = page.getByRole("switch", { name: "Keep Moss responsive" });
   await expect.element(control).toBeChecked();
   await control.click();
@@ -258,6 +323,7 @@ it("installs a missing agent in one click and says plainly how it went", async (
       }),
   );
   await render(<ProvidersSettingsPanel {...props} />);
+  await selectRailItem(/OpenCode/u);
   const install = page
     .elementLocator(activityRow("OpenCode"))
     .getByRole("button", { name: "Install", exact: true });
@@ -292,6 +358,7 @@ it("reads how a finished install ended from the agent's install state", async ()
     ],
   });
   await render(<ProvidersSettingsPanel {...props} />);
+  await selectRailItem(/OpenCode/u);
   await page
     .elementLocator(activityRow("OpenCode"))
     .getByRole("button", { name: "Install", exact: true })
@@ -318,6 +385,7 @@ it("opens the official page for an agent Moss cannot install in one click", asyn
   harness.api.server.installProvider.mockReset();
   harness.api.shell.openExternal.mockClear();
   await render(<ProvidersSettingsPanel {...props} />);
+  await selectRailItem(/OpenCode/u);
   await page
     .elementLocator(activityRow("OpenCode"))
     .getByRole("button", { name: "Install", exact: true })
@@ -340,6 +408,7 @@ it("says a failed install plainly and lets the person try again", async () => {
     .mockReset()
     .mockRejectedValueOnce(new Error("npm ERR! code E404 /usr/lib/node_modules"));
   await render(<ProvidersSettingsPanel {...props} />);
+  await selectRailItem(/OpenCode/u);
   await page
     .elementLocator(activityRow("OpenCode"))
     .getByRole("button", { name: "Install", exact: true })
@@ -353,6 +422,9 @@ it("says a failed install plainly and lets the person try again", async () => {
 
 it("shows each agent's state with one plain line and one action, no setup guides", async () => {
   await render(<ProvidersSettingsPanel {...props} />);
+  expect(activityRow("Codex").textContent).toContain("Connected");
+
+  await selectRailItem(/OpenCode/u);
   // A missing agent says so plainly and offers one install button, not the CLI's diagnostic.
   expect(activityRow("OpenCode").textContent).toContain("OpenCode isn't on this computer yet.");
   expect(activityRow("OpenCode").textContent).not.toContain("not on PATH");
@@ -363,14 +435,17 @@ it("shows each agent's state with one plain line and one action, no setup guides
         .getByRole("button", { name: "Install", exact: true }),
     )
     .toBeVisible();
+
+  await selectRailItem(/Claude/u);
   // A signed-out agent asks for a sign-in Moss runs itself, never a command.
   expect(activityRow("Claude").textContent).toContain("Sign in to your Claude account to use it.");
   expect(activityRow("Claude").textContent).not.toMatch(/auth login|codex login/u);
   await expect
     .element(page.getByRole("button", { name: "Sign in for Claude", exact: true }))
     .toBeVisible();
-  expect(activityRow("Codex").textContent).toContain("Connected");
+
   await page.getByRole("button", { name: /Disabled providers/u }).click();
+  await selectRailItem(/Grok/u);
   expect(
     page
       .getByRole("switch", { name: "Enable Grok", exact: true })
@@ -378,6 +453,7 @@ it("shows each agent's state with one plain line and one action, no setup guides
       .closest('[data-slot="settings-row"]')?.textContent,
   ).toContain("Disabled · enable to check setup");
   // Permission to run remains enabled even if the CLI is missing.
+  await selectRailItem(/OpenCode/u);
   await expect
     .element(page.getByRole("switch", { name: "Disable OpenCode", exact: true }))
     .toBeChecked();
@@ -402,6 +478,7 @@ it("says an agent works through Moss and still offers its own account's sign-in"
     },
   ];
   await render(<ProvidersSettingsPanel {...props} />);
+  await selectRailItem(/Claude/u);
   await vi.waitFor(() =>
     expect(activityRow("Claude").textContent).toContain(
       "Connected through Moss · Local account · Not signed in",
@@ -443,6 +520,7 @@ it("says 已通过 Moss 连接 · 本机账号 · 未登录 in Chinese", async (
       },
     ];
     await render(<ProvidersSettingsPanel {...props} />);
+    await selectRailItem(/Claude/u);
     const row = () =>
       page
         .getByRole("switch", { name: "Disable Claude", exact: true })
@@ -527,20 +605,23 @@ it("signs an agent in through the browser and lets the person cancel", async () 
 it("keeps disabled providers only in a collapsed recovery list", async () => {
   await render(<ProvidersSettingsPanel {...props} />);
   expect(page.getByRole("switch", { name: "Enable Grok", exact: true }).elements()).toHaveLength(0);
-  expect(page.getByRole("button", { name: "Reorder Grok", exact: true }).elements()).toHaveLength(
-    0,
-  );
-  expect(page.getByRole("button", { name: "Grok", exact: true }).elements()).toHaveLength(0);
+  expect(railNav().getByRole("button", { name: /^Grok/u }).elements()).toHaveLength(0);
   const recovery = page.getByRole("button", { name: /Disabled providers/u });
   await expect.element(recovery).toHaveAttribute("aria-expanded", "false");
   await recovery.click();
+  await selectRailItem(/Grok/u);
   await expect
     .element(page.getByRole("switch", { name: "Enable Grok", exact: true }))
     .toBeVisible();
+  await selectRailItem(/Preferences & defaults/u);
   expect(page.getByRole("button", { name: "Reorder Grok", exact: true }).elements()).toHaveLength(
     0,
   );
-  expect(page.getByRole("button", { name: "Grok", exact: true }).elements()).toHaveLength(0);
+  await recovery.click();
+  await expect.element(recovery).toHaveAttribute("aria-expanded", "false");
+  await expect
+    .poll(() => railNav().getByRole("button", { name: /^Grok/u }).elements().length)
+    .toBe(0);
 });
 
 it("restores provider options and saved configuration after re-enabling", async () => {
@@ -555,6 +636,7 @@ it("restores provider options and saved configuration after re-enabling", async 
     return (
       <ProvidersSettingsPanel
         {...props}
+        providerTarget={null}
         settings={settings}
         updateSettings={updateSettings}
         updateSettingsAndWait={async (patch) => updateSettings(patch)}
@@ -562,21 +644,31 @@ it("restores provider options and saved configuration after re-enabling", async 
     );
   }
   await render(<Harness />);
+  await selectRailItem(/Codex/u);
+  await page.getByRole("button", { name: "Advanced settings & accounts", exact: true }).click();
   await page.getByRole("switch", { name: "Disable Codex", exact: true }).click();
+  expect(
+    railNav()
+      .getByRole("button", { name: /^Codex/u })
+      .elements(),
+  ).toHaveLength(0);
+  await selectRailItem(/Preferences & defaults/u);
   expect(page.getByRole("button", { name: "Reorder Codex", exact: true }).elements()).toHaveLength(
     0,
   );
-  expect(page.getByRole("button", { name: /Codex Custom/u }).elements()).toHaveLength(0);
   await page.getByRole("button", { name: /Disabled providers/u }).click();
-  await page.getByRole("switch", { name: "Enable Codex", exact: true }).click();
+  await selectRailItem(/Codex/u);
+  await page.getByRole("switch", { name: "Enable Codex", exact: true }).first().click();
+  await selectRailItem(/Preferences & defaults/u);
   await expect
     .element(page.getByRole("button", { name: "Reorder Codex", exact: true }))
     .toBeVisible();
+  await selectRailItem(/Codex/u);
   await expect
     .element(page.getByRole("switch", { name: "Show Codex in the provider picker", exact: true }))
     .not.toBeChecked();
   await expect
-    .element(page.getByRole("button", { name: /Codex Custom/u }))
+    .element(page.getByRole("button", { name: "Advanced settings & accounts", exact: true }))
     .toHaveAttribute("aria-expanded", "true");
   const binaryPath = page
     .getByRole("group", { name: "Codex account", exact: true })
@@ -591,11 +683,13 @@ it("allows recovering after every provider is disabled", async () => {
       settings={{ ...defaults, disabledProviders: [...defaults.providerOrder] }}
     />,
   );
-  expect(page.getByRole("button", { name: /^Reorder /u }).elements()).toHaveLength(0);
   expect(page.getByRole("switch", { name: /^Disable /u }).elements()).toHaveLength(0);
+  await selectRailItem(/Preferences & defaults/u);
+  expect(page.getByRole("button", { name: /^Reorder /u }).elements()).toHaveLength(0);
   await page.getByRole("button", { name: /Disabled providers/u }).click();
+  await selectRailItem(/Codex/u);
   await expect
-    .element(page.getByRole("switch", { name: "Enable Codex", exact: true }))
+    .element(page.getByRole("switch", { name: "Enable Codex", exact: true }).first())
     .toBeVisible();
 });
 
@@ -824,9 +918,11 @@ it("shows an unavailable version lookup for the installed Codex account in the r
   await expect
     .element(page.getByText("Installed v0.166.0 · Latest version unavailable", { exact: true }))
     .toBeVisible();
+  await selectRailItem(/Preferences & defaults/u);
   await expect
     .element(page.getByText("Latest version unavailable for some tools", { exact: true }).first())
     .toBeVisible();
+  await selectRailItem(/Codex/u);
   const root = document.documentElement;
   const previous = { lang: root.lang, locale: root.getAttribute("data-moss-locale") };
   root.lang = "zh-CN";
@@ -836,6 +932,7 @@ it("shows an unavailable version lookup for the installed Codex account in the r
     await expect
       .element(page.getByText("已安装 v0.166.0；暂时无法查询最新版本", { exact: true }))
       .toBeVisible();
+    await selectRailItem(/Preferences & defaults|偏好与默认设置/u);
     await expect
       .element(page.getByText("部分工具暂时无法查询最新版本", { exact: true }).first())
       .toBeVisible();
@@ -1207,7 +1304,8 @@ it("shows desktop-app-only guidance and direct one-click install for Antigravity
 
   await render(<ProvidersSettingsPanel {...props} />);
 
-  // 1) Enabled providers row explains the desktop app is installed and runs one-click install directly.
+  // 1) Selected CLI row explains the desktop app is installed and runs one-click install directly.
+  await selectRailItem(/Antigravity/u);
   const enabledRow = activityRow("Antigravity");
   expect(enabledRow.textContent).toContain(
     "The Antigravity app is installed. Moss also needs its command-line part.",
@@ -1219,7 +1317,8 @@ it("shows desktop-app-only guidance and direct one-click install for Antigravity
   expect(harness.api.server.installProvider).toHaveBeenCalledWith({ provider: "antigravity" });
   expect(harness.api.shell.openExternal).not.toHaveBeenCalled();
 
-  // 2) Advanced -> Available CLIs row shows the same guidance and direct Install action instead of "Unavailable".
+  // 2) Preferences -> Available CLIs row shows the same guidance and direct Install action instead of "Unavailable".
+  await selectRailItem(/Preferences & defaults/u);
   const availableSwitch = page
     .getByRole("switch", { name: "Antigravity is unavailable in the provider picker", exact: true })
     .element();
@@ -1238,10 +1337,178 @@ it("shows desktop-app-only guidance and direct one-click install for Antigravity
   expect(harness.api.shell.openExternal).not.toHaveBeenCalled();
 });
 
-it("never lists retired Gemini CLI anywhere in provider settings", async () => {
+it("never lists retired Gemini or Droid CLIs anywhere in provider settings", async () => {
   await render(<ProvidersSettingsPanel {...props} />);
-  expect(page.getByRole("switch", { name: /Enable Gemini/u }).elements()).toHaveLength(0);
+  expect(
+    railNav()
+      .getByRole("button", { name: /Gemini|Droid/iu })
+      .elements(),
+  ).toHaveLength(0);
+  expect(page.getByRole("switch", { name: /Enable (Gemini|Droid)/iu }).elements()).toHaveLength(0);
   await page.getByRole("button", { name: /Disabled providers/u }).click();
-  expect(page.getByRole("switch", { name: /Enable Gemini/u }).elements()).toHaveLength(0);
-  expect(page.getByRole("switch", { name: /Gemini.*provider picker/u }).elements()).toHaveLength(0);
+  expect(
+    railNav()
+      .getByRole("button", { name: /Gemini|Droid/iu })
+      .elements(),
+  ).toHaveLength(0);
+  await selectRailItem(/Preferences & defaults/u);
+  expect(
+    page.getByRole("switch", { name: /(Gemini|Droid).*provider picker/iu }).elements(),
+  ).toHaveLength(0);
+  expect(page.getByRole("button", { name: /Reorder (Gemini|Droid)/iu }).elements()).toHaveLength(0);
+});
+
+it("renders Option 3 split workbench with rich brand icons and zero Droid surfaces", async () => {
+  await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
+  await expect.element(page.getByTestId("providers-split-workbench")).toBeVisible();
+  await expect.element(railNav().getByRole("button", { name: /Moss Service/u })).toBeVisible();
+  await expect
+    .element(railNav().getByRole("button", { name: /Preferences & defaults/u }))
+    .toBeVisible();
+
+  const brandTiles = Array.from(document.querySelectorAll("[data-brand-icon-id]")).map((el) =>
+    el.getAttribute("data-brand-icon-id"),
+  );
+  expect(brandTiles).toContain("moss");
+  expect(brandTiles).toContain("openai");
+  expect(brandTiles).toContain("claude");
+  expect(brandTiles).toContain("opencode");
+  expect(brandTiles).toContain("devin");
+  expect(document.body.textContent).not.toMatch(/\bDroid\b/i);
+});
+
+it("creates, tests, saves without secret echo, routes, and deletes a unified model provider", async () => {
+  expect(PROVIDER_BRAND_ICON_CATALOG.length).toBeGreaterThanOrEqual(28);
+  harness.api.server.testUnifiedProvider.mockResolvedValue({
+    ok: true,
+    latencyMs: 42,
+    discoveredModels: ["deepseek-chat", "deepseek-v3"],
+  });
+  harness.api.server.saveUnifiedProvider.mockImplementation(async (input) => {
+    const saved: UnifiedModelProviderConfig = {
+      ...input.provider,
+      models: [...input.provider.models],
+      apiKeyConfigured: Boolean(input.apiKey),
+      updatedAt: "2026-11-23T00:00:00.000Z",
+    };
+    harness.serverSettings = {
+      ...(harness.serverSettings ?? DEFAULT_SERVER_SETTINGS),
+      unifiedProviders: [
+        ...(harness.serverSettings?.unifiedProviders ?? []).filter((item) => item.id !== saved.id),
+        saved,
+      ],
+    };
+    return saved;
+  });
+  harness.api.server.deleteUnifiedProvider.mockImplementation(async ({ id }) => {
+    const current = harness.serverSettings ?? DEFAULT_SERVER_SETTINGS;
+    harness.serverSettings = {
+      ...current,
+      unifiedProviders: current.unifiedProviders.filter((item) => item.id !== id),
+      defaultUnifiedProviderId:
+        current.defaultUnifiedProviderId === id ? null : current.defaultUnifiedProviderId,
+      unifiedProviderByCli: Object.fromEntries(
+        Object.entries(current.unifiedProviderByCli).filter(([, value]) => value !== id),
+      ),
+    };
+    return { deleted: true };
+  });
+
+  await render(<ProvidersSettingsPanel {...props} providerTarget={null} />);
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
+  await expect.element(page.getByRole("button", { name: "Gateways", exact: true })).toBeVisible();
+  await page
+    .getByRole("button", { name: /DeepSeek/u })
+    .first()
+    .click();
+
+  await page.getByRole("button", { name: "Change icon", exact: true }).click();
+  await expect.element(page.getByRole("button", { name: "OpenRouter", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "OpenRouter", exact: true }).click();
+
+  await page.getByLabelText("API Key").fill("sk-test-secret-123");
+  await page.getByRole("button", { name: "Test connection", exact: true }).click();
+  await expect.element(page.getByText("Connected · 42ms · 2 models")).toBeVisible();
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect.element(page.getByText("deepseek-v3", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Save provider", exact: true }).click();
+  expect(harness.api.server.saveUnifiedProvider).toHaveBeenCalledWith(
+    expect.objectContaining({
+      apiKey: "sk-test-secret-123",
+      provider: expect.objectContaining({
+        name: "DeepSeek",
+        iconId: "openrouter",
+        protocol: "openai-compatible",
+      }),
+    }),
+  );
+  await expect.element(railNav().getByRole("button", { name: /DeepSeek/u })).toBeVisible();
+  await expect.element(page.getByText("Key saved", { exact: true })).toBeVisible();
+  expect(document.body.textContent).not.toContain("sk-test-secret-123");
+
+  const savedId = harness.serverSettings!.unifiedProviders[0]!.id;
+  await page.getByRole("switch", { name: "Route Codex to DeepSeek", exact: true }).click();
+  expect(harness.api.server.updateSettings).toHaveBeenCalledWith({
+    unifiedProviderByCli: { codex: savedId },
+  });
+  await expect.element(railNav().getByText(`→ DeepSeek`, { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete DeepSeek", exact: true }).click();
+  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  expect(harness.api.server.deleteUnifiedProvider).toHaveBeenCalledWith({ id: savedId });
+  await expect.element(page.getByRole("heading", { name: /Moss Managed Service/u })).toBeVisible();
+});
+
+it("shows Desktop-managed update hint for bundled OpenCode and zh-CN Option 3 workbench labels", async () => {
+  harness.statuses = harness.statuses.map((status) =>
+    status.provider === "opencode"
+      ? {
+          ...status,
+          available: true,
+          status: "ready",
+          version: "2.2.5",
+          message: undefined,
+          versionAdvisory: {
+            currentVersion: "2.2.5",
+            latestVersion: "2.3.2",
+            latestVersionKnowable: true,
+            status: "behind_latest",
+            canUpdate: false,
+            updateCommand: null,
+            checkedAt: "2026-11-23T00:00:00.000Z",
+            message: null,
+          },
+        }
+      : status,
+  );
+  const { rerender } = await render(
+    <ProvidersSettingsPanel {...props} providerTarget="opencode" />,
+  );
+  await expect.element(page.getByText(/v2\.2\.5\s*(?:->|→)\s*v2\.3\.2/u)).toBeVisible();
+  await expect.element(page.getByText("Managed by Desktop app", { exact: true })).toBeVisible();
+
+  localizationTestState.locale = "zh-CN";
+  const root = document.documentElement;
+  const previous = { lang: root.lang, locale: root.getAttribute("data-moss-locale") };
+  root.lang = "zh-CN";
+  root.setAttribute("data-moss-locale", "zh-CN");
+  const restore = installZhCnUiLocalization();
+  try {
+    await rerender(<ProvidersSettingsPanel {...props} providerTarget="opencode" />);
+    await expect.element(page.getByRole("heading", { name: "服务与智能体" })).toBeVisible();
+    await expect.element(page.getByText("模型服务商", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("编码 CLI 智能体", { exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: "添加服务商", exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("button", { name: "刷新状态", exact: true })).toBeVisible();
+    await expect.element(page.getByText("偏好与默认设置", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("由桌面应用更新", { exact: true })).toBeVisible();
+  } finally {
+    restore();
+    root.lang = previous.lang;
+    if (previous.locale === null) root.removeAttribute("data-moss-locale");
+    else root.setAttribute("data-moss-locale", previous.locale);
+  }
 });

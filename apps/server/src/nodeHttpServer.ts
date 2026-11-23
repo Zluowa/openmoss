@@ -23,6 +23,8 @@ import type { HttpServerResponse } from "effect/unstable/http/HttpServerResponse
 import * as SocketEffect from "effect/unstable/socket/Socket";
 import { WebSocketServer, type WebSocket } from "ws";
 
+import { handleLocalPreviewWsUpgrade } from "./localPreviewProxy";
+
 type UpgradeWebSocket = {
   send: WebSocket["send"];
 };
@@ -459,6 +461,9 @@ export const makeBoundedNodeHttpServer = Effect.fnUntraced(function* (
         socket: Parameters<typeof featureUpgradeHandler>[1],
         head: Parameters<typeof featureUpgradeHandler>[2],
       ) => {
+        if (handleLocalPreviewWsUpgrade(nodeRequest, socket, head)) {
+          return;
+        }
         const dispatch = upgradePathAllowsCompression(nodeRequest.url)
           ? featureUpgradeHandler
           : bootstrapUpgradeHandler;

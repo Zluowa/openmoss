@@ -402,6 +402,7 @@ import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
   excludeHiddenProjectAgentCoordinatorThreads,
   buildProjectThreadTree,
+  collectSidebarThreadAncestorIds,
   derivePinnedProjectIdsForSidebar,
   deriveSidebarProjectData,
   createSidebarThreadHoverAnchorId,
@@ -1692,6 +1693,18 @@ export default function Sidebar() {
   const [activityScope, setActivityScope] = useState<ActivityScopeSelection>(
     () => readSidebarUiState().activityScope,
   );
+  const [collapsedParentThreadIds, setCollapsedParentThreadIds] = useState<string[]>(
+    () => readSidebarUiState().collapsedParentThreadIds,
+  );
+  const collapsedParentThreadIdSet = useMemo(
+    () => new Set(collapsedParentThreadIds.map((id) => ThreadId.makeUnsafe(id))),
+    [collapsedParentThreadIds],
+  );
+  const toggleParentThreadCollapse = useCallback((threadId: ThreadId) => {
+    setCollapsedParentThreadIds((current) =>
+      current.includes(threadId) ? current.filter((id) => id !== threadId) : [...current, threadId],
+    );
+  }, []);
   const [activityVisibleThreadIds, setActivityVisibleThreadIds] = useState<readonly ThreadId[]>([]);
   const [classicSnoozedVisibleThreadIds, setClassicSnoozedVisibleThreadIds] = useState<
     readonly ThreadId[]
@@ -1722,6 +1735,7 @@ export default function Sidebar() {
         setLastThreadRoute(state.lastThreadRoute);
         setActivityViewEnabled(state.activityViewEnabled);
         setActivityScope(state.activityScope);
+        setCollapsedParentThreadIds(state.collapsedParentThreadIds);
       }),
     [],
   );
@@ -1786,6 +1800,38 @@ export default function Sidebar() {
     () => excludeHiddenProjectAgentCoordinatorThreads(sidebarTreeThreads, coordinatorThreadIds),
     [coordinatorThreadIds, sidebarTreeThreads],
   );
+  const previousAutoExpandThreadIdRef = useRef<ThreadId | null>(null);
+  // Reveal collapsed ancestors once when navigating to a child thread, while keeping
+  // subsequent manual collapse clicks effective even while that child remains active.
+  useEffect(() => {
+    if (!routeActiveSidebarThreadId) {
+      previousAutoExpandThreadIdRef.current = null;
+      return;
+    }
+    if (previousAutoExpandThreadIdRef.current === routeActiveSidebarThreadId) {
+      return;
+    }
+    if (!displaySidebarTreeThreads.some((thread) => thread.id === routeActiveSidebarThreadId)) {
+      return;
+    }
+    previousAutoExpandThreadIdRef.current = routeActiveSidebarThreadId;
+    const ancestorIds = collectSidebarThreadAncestorIds(
+      displaySidebarTreeThreads,
+      routeActiveSidebarThreadId,
+    );
+    if (ancestorIds.length === 0) {
+      return;
+    }
+    const ancestorIdSet = new Set<string>(ancestorIds);
+    const settle = window.setTimeout(() => {
+      setCollapsedParentThreadIds((current) =>
+        current.some((id) => ancestorIdSet.has(id))
+          ? current.filter((id) => !ancestorIdSet.has(id))
+          : current,
+      );
+    }, 0);
+    return () => window.clearTimeout(settle);
+  }, [displaySidebarTreeThreads, routeActiveSidebarThreadId]);
   const { nonGroupThreads: nonGroupSidebarTreeThreads } = useMemo(
     () =>
       partitionSidebarThreadsByProjectIds(
@@ -3715,6 +3761,7 @@ export default function Sidebar() {
         dismissedThreadStatusKeyByThreadId,
         activityViewEnabled,
         activityScope,
+        collapsedParentThreadIds,
       });
     },
     [
@@ -3722,6 +3769,7 @@ export default function Sidebar() {
       activityViewEnabled,
       chatSectionExpanded,
       chatThreadListExtraPages,
+      collapsedParentThreadIds,
       dismissedThreadStatusKeyByThreadId,
       threadListExtraPagesByProjectCwd,
     ],
@@ -4354,11 +4402,13 @@ export default function Sidebar() {
         { attentionFirst: sidebarThreadAttentionFirst, heldKeys: heldSidebarThreadSortKeys },
       ),
       forceVisibleThreadId: routeActiveSidebarThreadId ?? undefined,
+      collapsedParentThreadIds: collapsedParentThreadIdSet,
     });
   }, [
     appSettings.sidebarThreadSortOrder,
     chatSectionExpanded,
     chatProjects,
+    collapsedParentThreadIdSet,
     routeActiveSidebarThreadId,
     heldSidebarThreadSortKeys,
     sidebarThreadAttentionFirst,
@@ -4488,11 +4538,13 @@ export default function Sidebar() {
         threadListExtraPagesByProjectCwd,
         normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
         activeSidebarThreadId: routeActiveSidebarThreadId ?? undefined,
+        collapsedParentThreadIds: collapsedParentThreadIdSet,
         previewLimit: THREAD_PREVIEW_LIMIT,
         previewPageSize: THREAD_PREVIEW_PAGE_SIZE,
         resolveThreadStatus: resolveThreadStatusForSidebar,
       }),
     [
+      collapsedParentThreadIdSet,
       routeActiveSidebarThreadId,
       threadListExtraPagesByProjectCwd,
       pinnedThreadIds,
@@ -4529,12 +4581,14 @@ export default function Sidebar() {
         threadListExtraPagesByProjectCwd,
         normalizeProjectCwd: normalizeSidebarProjectThreadListCwd,
         activeSidebarThreadId: routeActiveSidebarThreadId ?? undefined,
+        collapsedParentThreadIds: collapsedParentThreadIdSet,
         previewLimit: THREAD_PREVIEW_LIMIT,
         previewPageSize: THREAD_PREVIEW_PAGE_SIZE,
         resolveThreadStatus: resolveThreadStatusForSidebar,
       }).get(railProject.id) ?? null
     );
   }, [
+    collapsedParentThreadIdSet,
     pinnedThreadIds,
     railProject,
     routeActiveSidebarThreadId,
@@ -4600,12 +4654,14 @@ export default function Sidebar() {
       dismissedThreadStatusKeyByThreadId,
       activityViewEnabled,
       activityScope,
+      collapsedParentThreadIds,
     });
   }, [
     activityScope,
     activityViewEnabled,
     chatSectionExpanded,
     chatThreadListExtraPages,
+    collapsedParentThreadIds,
     dismissedThreadStatusKeyByThreadId,
     threadListExtraPagesByProjectCwd,
     lastThreadRoute,
@@ -5198,6 +5254,10 @@ export default function Sidebar() {
     // namespace so the card anchors to the row under the pointer, not the same
     // thread's other instance elsewhere in the sidebar.
     hoverScope?: SidebarThreadHoverAnchorScope,
+    hierarchy?: {
+      childCount: number;
+      isParentCollapsed: boolean;
+    },
   ) {
     const threadTerminalState = selectThreadTerminalState(terminalStateByThreadId, thread.id);
     const threadEntryPoint = threadTerminalState.entryPoint;
@@ -5324,6 +5384,13 @@ export default function Sidebar() {
               isActive={isActive}
               variant="standard"
               subagentIndentPx={subagentIndentPx}
+              childCount={hierarchy?.childCount ?? 0}
+              isParentCollapsed={hierarchy?.isParentCollapsed ?? false}
+              onToggleParentCollapse={
+                hierarchy && hierarchy.childCount > 0
+                  ? () => toggleParentThreadCollapse(thread.id)
+                  : undefined
+              }
               pendingStatusColorClass={
                 threadStatus?.label === "Pending Approval"
                   ? "text-emerald-700 dark:text-emerald-400"
@@ -5453,7 +5520,20 @@ export default function Sidebar() {
     return (
       <>
         {visibleEntries.map((entry) =>
-          renderThreadRow(entry.thread, orderedProjectThreadIds, entry.depth),
+          renderThreadRow(
+            entry.thread,
+            orderedProjectThreadIds,
+            entry.depth,
+            false,
+            undefined,
+            undefined,
+            entry.hasChildren
+              ? {
+                  childCount: entry.childCount,
+                  isParentCollapsed: entry.isParentCollapsed,
+                }
+              : undefined,
+          ),
         )}
 
         {(canShowMoreThreads || canShowLessThreads) && (
@@ -7211,6 +7291,14 @@ export default function Sidebar() {
                               visibleChatThreadIds,
                               entry.row.depth,
                               true,
+                              undefined,
+                              undefined,
+                              entry.row.hasChildren
+                                ? {
+                                    childCount: entry.row.childCount,
+                                    isParentCollapsed: entry.row.isParentCollapsed,
+                                  }
+                                : undefined,
                             ),
                           )
                         ) : (

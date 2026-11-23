@@ -23,7 +23,7 @@ import { SidebarLeadingControlsDock } from "../components/SidebarHeaderNavigatio
 import { resolveSelectableProviderInstanceId, useAppSettings } from "../appSettings";
 import ShortcutsDialog from "../components/ShortcutsDialog";
 import { SettingsDialogHost } from "../components/settings/SettingsDialog";
-import { openSettings } from "../settingsDialogStore";
+import { closeSettings, openSettings } from "../settingsDialogStore";
 import { RecentViewSwitcher } from "../components/RecentViewSwitcher";
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import ThreadSidebar from "../components/Sidebar";
@@ -431,6 +431,16 @@ function ChatRouteGlobalShortcuts() {
         toggleSidebar();
         return;
       }
+      if (action === "new-thread") {
+        closeSettings();
+        const target = resolveNewThreadTarget({ currentProjectId, latestUsableProjectId });
+        if (target) {
+          void handleNewThread(target.projectId);
+        } else {
+          void handleNewChatForActiveSurface();
+        }
+        return;
+      }
       if (action !== "open-settings") return;
       openSettings();
     });
@@ -438,7 +448,14 @@ function ChatRouteGlobalShortcuts() {
     return () => {
       unsubscribe?.();
     };
-  }, [navigate, toggleSidebar]);
+  }, [
+    currentProjectId,
+    handleNewChatForActiveSurface,
+    handleNewThread,
+    latestUsableProjectId,
+    navigate,
+    toggleSidebar,
+  ]);
 
   return (
     <>

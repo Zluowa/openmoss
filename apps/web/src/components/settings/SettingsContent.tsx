@@ -66,6 +66,7 @@ import {
   PreviewChannelSettingsPanel,
   NotificationsSettingsPanel,
 } from "./DesktopSettingsPanels";
+import { DesktopTraySettingsSection } from "./DesktopTraySettingsSection";
 import { ImportSettingsPanel } from "./ImportSettingsPanel";
 import { ModelsSettingsPanel } from "./ModelsSettingsPanel";
 import { isProviderInstallSettingsDirty, ProvidersSettingsPanel } from "./ProvidersSettingsPanel";
@@ -602,7 +603,6 @@ export function SettingsContent({
     settings.customCursorModels.length > 0 ||
     settings.customAntigravityModels.length > 0 ||
     settings.customGrokModels.length > 0 ||
-    settings.customDroidModels.length > 0 ||
     settings.customOpenCodeModels.length > 0 ||
     settings.customPiModels.length > 0
       ? ["Custom models"]
@@ -806,6 +806,8 @@ export function SettingsContent({
           }
         />
       </SettingsSection>
+
+      <DesktopTraySettingsSection />
 
       <SettingsSection title="Sidebar organization">
         <SettingsRow
@@ -1750,7 +1752,8 @@ export function SettingsContent({
   const pageTitle = t(settingsSectionTranslationKeys(activeSection).label);
   const pageDescription = t(settingsSectionTranslationKeys(activeSection).description);
   // Pages that draw their own header (Profile's hero, Plugins' title with its actions).
-  const pageOwnsHeader = activeSection === "profile" || activeSection === "plugins";
+  const pageOwnsHeader =
+    activeSection === "profile" || activeSection === "plugins" || activeSection === "providers";
   const pageHasNoDefaults =
     activeSection === "account" ||
     activeSection === "connections" ||
@@ -1765,14 +1768,22 @@ export function SettingsContent({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         ref={pageScrollRef}
-        className="min-h-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]"
+        className={cn(
+          "min-h-0 flex-1",
+          activeSection === "providers"
+            ? "flex flex-col overflow-hidden"
+            : "overflow-y-auto [scrollbar-gutter:stable]",
+        )}
         data-testid="settings-page-scroll"
       >
         <div
           className={cn(
             "mx-auto w-full",
-            // Plugins brings its own 768px column with 20px gutters and top margin.
-            activeSection === "plugins" ? "max-w-3xl px-3 pb-12" : "max-w-[46rem] px-8 pt-7 pb-12",
+            activeSection === "providers"
+              ? "flex min-h-0 flex-1 flex-col overflow-hidden"
+              : activeSection === "plugins"
+                ? "max-w-3xl px-3 pb-12"
+                : "max-w-[46rem] px-8 pt-7 pb-12",
           )}
           data-settings-section={activeSection}
         >

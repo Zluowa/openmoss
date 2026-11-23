@@ -159,7 +159,7 @@ describe("discoverCodexProjects", () => {
     });
   });
 
-  it("excludes spawned and guardian internals while retaining user-created and automation chats", async () => {
+  it("excludes guardian and parentless internals while preserving spawned child hierarchy alongside user and automation chats", async () => {
     const home = await temporaryHome();
     const database = createDatabase(home);
     addThread(database, { id: "root", threadSource: "user" });
@@ -171,7 +171,15 @@ describe("discoverCodexProjects", () => {
     });
     addThread(database, {
       id: "child",
-      source: JSON.stringify({ subagent: { thread_spawn: { parent_thread_id: "root" } } }),
+      source: JSON.stringify({
+        subagent: {
+          thread_spawn: {
+            parent_thread_id: "root",
+            agent_nickname: "Scout",
+            agent_role: "researcher",
+          },
+        },
+      }),
     });
     addThread(database, { id: "classified", threadSource: "subagent" });
     addThread(database, { id: "guardian-classified", threadSource: "guardian_review" });
@@ -179,11 +187,96 @@ describe("discoverCodexProjects", () => {
     addThread(database, { id: "enum-source", source: "subAgentThreadSpawn" });
     database.exec("INSERT INTO thread_spawn_edges VALUES ('edge-only')");
     database.close();
-    expect(
-      (await discoverCodexProjects({ homePath: home, env: {} })).sessions.map(
-        (session) => session.id,
-      ),
-    ).toEqual(["root", "created", "automation"]);
+    const catalog = await discoverCodexProjects({ homePath: home, env: {} });
+    expect(catalog.sessions.map((session) => session.id)).toEqual([
+      "root",
+      "created",
+      "automation",
+      "child",
+    ]);
+    expect(catalog.sessions.find((session) => session.id === "child")).toMatchObject({
+      id: "child",
+      parentSessionId: "root",
+      parentSourceSessionId: "root",
+      hierarchyKind: "subagent",
+      subagentNickname: "Scout",
+      subagentRole: "researcher",
+    });
+  });
+
+  it("preserves Codex parent_thread_id, thread_spawn_edges, attached_thread_parent_id, and rollout spawn hierarchy", async () => {
+    const home = await temporaryHome();
+    const database = createDatabase(home);
+    database.exec(`
+      ALTER TABLE threads ADD COLUMN parent_thread_id TEXT;
+      ALTER TABLE threads ADD COLUMN attached_thread_parent_id TEXT;
+      ALTER TABLE threads ADD COLUMN agent_nickname TEXT;
+      ALTER TABLE threads ADD COLUMN agent_role TEXT;
+      ALTER TABLE thread_spawn_edges ADD COLUMN parent_thread_id TEXT;
+    `);
+    addThread(database, { id: "root" });
+    addThread(database, { id: "direct-child" });
+    addThread(database, { id: "edge-child" });
+    addThread(database, { id: "attached-child" });
+    database
+      .prepare(
+        "UPDATE threads SET parent_thread_id = ?, agent_nickname = ?, agent_role = ? WHERE id = ?",
+      )
+      .run("root", "Builder", "worker", "direct-child");
+    database
+      .prepare("INSERT INTO thread_spawn_edges (child_thread_id, parent_thread_id) VALUES (?, ?)")
+      .run("edge-child", "root");
+    database
+      .prepare("UPDATE threads SET attached_thread_parent_id = ? WHERE id = ?")
+      .run("root", "attached-child");
+    database.close();
+
+    const catalog = await discoverCodexProjects({ homePath: home, env: {} });
+    const byId = new Map(catalog.sessions.map((session) => [session.id, session]));
+    expect(byId.get("direct-child")).toMatchObject({
+      parentSessionId: "root",
+      parentSourceSessionId: "root",
+      hierarchyKind: "subagent",
+      subagentNickname: "Builder",
+      subagentRole: "worker",
+    });
+    expect(byId.get("edge-child")).toMatchObject({
+      parentSessionId: "root",
+      parentSourceSessionId: "root",
+      hierarchyKind: "subagent",
+    });
+    expect(byId.get("attached-child")).toMatchObject({
+      parentSessionId: "root",
+      parentSourceSessionId: "root",
+      hierarchyKind: "subagent",
+    });
+
+    const rolloutHome = await temporaryHome();
+    const rolloutProject = path.join(rolloutHome, "repository");
+    const rolloutDir = path.join(rolloutHome, "sessions", "2026", "09", "01");
+    await fs.mkdir(rolloutDir, { recursive: true });
+    for (const [id, source] of [
+      ["rollout-parent", "cli"],
+      ["rollout-child", { subagent: { thread_spawn: { parent_thread_id: "rollout-parent" } } }],
+    ] as const) {
+      await fs.writeFile(
+        path.join(rolloutDir, `rollout-2026-09-01T10-00-00-${id}.jsonl`),
+        JSON.stringify({
+          timestamp: "2026-09-01T10:00:00.000Z",
+          type: "session_meta",
+          payload: { id, timestamp: "2026-09-01T10:00:00.000Z", cwd: rolloutProject, source },
+        }),
+      );
+    }
+    const rolloutCatalog = await discoverCodexProjects({ homePath: rolloutHome, env: {} });
+    expect(rolloutCatalog.sessions.find((session) => session.id === "rollout-child")).toMatchObject(
+      {
+        id: "rollout-child",
+        parentSessionId: "rollout-parent",
+        parentSourceSessionId: "rollout-parent",
+        hierarchyKind: "subagent",
+      },
+    );
   });
 
   async function assertSharedDesktopStateOverlay(kind: "file" | "directory") {

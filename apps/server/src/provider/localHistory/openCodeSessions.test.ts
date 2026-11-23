@@ -24,7 +24,7 @@ async function openCodeDatabase(): Promise<{ home: string; database: DatabaseSyn
 }
 
 describe("OpenCode local history", () => {
-  it("reads the current session_v2 store, skipping subagent sessions and non-text parts", async () => {
+  it("reads the current session_v2 store, preserving subagent parent links and skipping non-text parts", async () => {
     const { home, database } = await openCodeDatabase();
     database.exec(`
       CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, slug TEXT,
@@ -122,14 +122,30 @@ describe("OpenCode local history", () => {
     const input = { homeDir: home, env: {} };
     const catalog = await LOCAL_HISTORY_READERS.opencode.discover(input);
     expect(catalog.sessions.map((s) => [s.id, s.title, s.archived]).toSorted()).toEqual([
+      ["ses_child", "Subagent", false],
       ["ses_main", "Main task", false],
       ["ses_old", "Archived task", true],
     ]);
+    expect(catalog.sessions.find((s) => s.id === "ses_child")).toMatchObject({
+      parentSessionId: "ses_main",
+      parentSourceSessionId: "ses_main",
+      hierarchyKind: "subagent",
+    });
     expect(catalog.sessions.find((s) => s.id === "ses_main")).toMatchObject({
       cwd: project,
       createdAt: new Date(1_790_000_000_000).toISOString(),
       updatedAt: new Date(1_790_000_100_000).toISOString(),
     });
+    expect(
+      catalog.sessions.find((s) => s.id === "ses_main")?.parentSourceSessionId,
+    ).toBeUndefined();
+    const childMessages = await LOCAL_HISTORY_READERS.opencode.readMessages({
+      ...input,
+      sessionId: "ses_child",
+    });
+    expect(childMessages.map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: "user", text: "child" },
+    ]);
     const messages = await LOCAL_HISTORY_READERS.opencode.readMessages({
       ...input,
       sessionId: "ses_main",
@@ -165,35 +181,77 @@ describe("OpenCode local history", () => {
         "INSERT INTO session VALUES ('ses_1', 'p', NULL, 's', ?, 'Legacy task', '1', 10, 20)",
       )
       .run(project);
-    const insertMessage = database.prepare("INSERT INTO message VALUES (?, 'ses_1', ?, ?, ?)");
+    database
+      .prepare(
+        "INSERT INTO session VALUES ('ses_1_child', 'p', 'ses_1', 'c', ?, 'Legacy child', '1', 12, 22)",
+      )
+      .run(project);
+    const insertMessage = database.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?)");
     insertMessage.run(
       "msg_1",
+      "ses_1",
       1_700_000_000_000,
       1_700_000_000_000,
       JSON.stringify({ role: "user" }),
     );
     insertMessage.run(
       "msg_2",
+      "ses_1",
       1_700_000_001_000,
       1_700_000_001_000,
       JSON.stringify({ role: "assistant" }),
     );
-    const insertPart = database.prepare("INSERT INTO part VALUES (?, ?, 'ses_1', 0, 0, ?)");
-    insertPart.run("prt_1", "msg_1", JSON.stringify({ type: "text", text: "Explain this" }));
+    insertMessage.run(
+      "msg_c1",
+      "ses_1_child",
+      1_700_000_002_000,
+      1_700_000_002_000,
+      JSON.stringify({ role: "user" }),
+    );
+    const insertPart = database.prepare("INSERT INTO part VALUES (?, ?, ?, 0, 0, ?)");
+    insertPart.run(
+      "prt_1",
+      "msg_1",
+      "ses_1",
+      JSON.stringify({ type: "text", text: "Explain this" }),
+    );
     insertPart.run(
       "prt_2",
       "msg_1",
+      "ses_1",
       JSON.stringify({ type: "text", text: "injected", synthetic: true }),
     );
-    insertPart.run("prt_3", "msg_2", JSON.stringify({ type: "reasoning", text: "thinking" }));
-    insertPart.run("prt_4", "msg_2", JSON.stringify({ type: "text", text: "It works like this." }));
+    insertPart.run(
+      "prt_3",
+      "msg_2",
+      "ses_1",
+      JSON.stringify({ type: "reasoning", text: "thinking" }),
+    );
+    insertPart.run(
+      "prt_4",
+      "msg_2",
+      "ses_1",
+      JSON.stringify({ type: "text", text: "It works like this." }),
+    );
+    insertPart.run(
+      "prt_c1",
+      "msg_c1",
+      "ses_1_child",
+      JSON.stringify({ type: "text", text: "Legacy child question" }),
+    );
     database.close();
 
     const input = { homeDir: home, env: {} };
     const catalog = await LOCAL_HISTORY_READERS.opencode.discover(input);
-    expect(catalog.sessions.map((s) => [s.id, s.title, s.archived])).toEqual([
+    expect(catalog.sessions.map((s) => [s.id, s.title, s.archived]).toSorted()).toEqual([
       ["ses_1", "Legacy task", false],
+      ["ses_1_child", "Legacy child", false],
     ]);
+    expect(catalog.sessions.find((s) => s.id === "ses_1_child")).toMatchObject({
+      parentSessionId: "ses_1",
+      parentSourceSessionId: "ses_1",
+      hierarchyKind: "subagent",
+    });
     const messages = await LOCAL_HISTORY_READERS.opencode.readMessages({
       ...input,
       sessionId: "ses_1",

@@ -79,6 +79,8 @@ export const translateZhCnSidebarInboxCopyText = phraseTranslator(SIDEBAR_INBOX_
   [/^(\S+) automation runs? to check$/, "$1 次自动化运行待查看"],
 
   // Thread menus
+  [/^Collapse (\d+) child chats?$/, "收起 $1 个子会话"],
+  [/^Expand (\d+) child chats?$/, "展开 $1 个子会话"],
   [/^(.+) in this thread$/, "在当前对话中交接给 $1"],
   [/^(.+) in a new thread$/, "在新对话中交接给 $1"],
   [/^More actions for (.+)$/, "$1 的更多操作"],

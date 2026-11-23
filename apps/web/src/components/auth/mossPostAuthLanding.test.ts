@@ -33,6 +33,7 @@ describe("Moss post-auth chat landing", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: true,
       activityScope: null,
+      collapsedParentThreadIds: ["parent-1"],
     });
 
     prepareMossPostAuthChatLanding();
@@ -46,6 +47,7 @@ describe("Moss post-auth chat landing", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: true,
       activityScope: null,
+      collapsedParentThreadIds: ["parent-1"],
     });
   });
 

@@ -241,7 +241,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   {
     id: "providers",
     group: "coding",
-    label: "Agent providers",
+    label: "Providers & Agents",
     description: "Sign in, install and order your coding agents.",
     icon: "puzzle",
     eyebrow: "Coding agents",

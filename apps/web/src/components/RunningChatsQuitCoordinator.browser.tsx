@@ -29,18 +29,35 @@ afterEach(() => {
   useRunningImportsStore.setState({ importsById: {} });
 });
 
-async function mountCoordinator() {
+async function mountCoordinator(options?: {
+  readonly updateTrayStatus?: (input: { runningTaskCount: number }) => Promise<void>;
+}) {
   let request: ((payload: DesktopQuitConfirmationRequest) => void) | undefined;
   const reply = vi.fn();
   window.desktopBridge = {
-    onQuitConfirmationRequest: (listener) => {
+    onQuitConfirmationRequest: (listener: (payload: DesktopQuitConfirmationRequest) => void) => {
       request = listener;
       return () => {
         request = undefined;
       };
     },
     replyQuitConfirmation: reply,
-  } as Pick<DesktopBridge, "onQuitConfirmationRequest" | "replyQuitConfirmation"> as DesktopBridge;
+    ...(options?.updateTrayStatus
+      ? {
+          desktopBehavior: {
+            getState: vi.fn(async () => ({
+              closeToTray: true,
+              closeToTraySupported: true,
+              openAtLogin: false,
+              openAtLoginSupported: false,
+            })),
+            setCloseToTray: vi.fn(),
+            setOpenAtLogin: vi.fn(),
+            updateTrayStatus: options.updateTrayStatus,
+          },
+        }
+      : {}),
+  } as unknown as DesktopBridge;
   useStore.setState({ sidebarThreadSummaryById: {}, threadSessionById: {}, threadShellById: {} });
   useTerminalStateStore.setState({ terminalStateByThreadId: {} });
 
@@ -100,6 +117,29 @@ it("says what is still running, supports Escape, and asks again after cancel", a
     await expect.element(page.getByRole("alertdialog")).toBeVisible();
     await page.getByRole("button", { name: "Quit", exact: true }).click();
     expect(reply).toHaveBeenCalledWith({ requestId: "q2", phase: "decision", allow: true });
+  } finally {
+    await screen.unmount();
+  }
+});
+
+it("syncs tray running task count only when the total changes", async () => {
+  const updateTrayStatus = vi.fn(async () => undefined);
+  const { screen } = await mountCoordinator({ updateTrayStatus });
+  try {
+    expect(updateTrayStatus).toHaveBeenCalledTimes(1);
+    expect(updateTrayStatus).toHaveBeenLastCalledWith({ runningTaskCount: 0 });
+
+    // Unchanged count (empty store write) should not emit a duplicate IPC call.
+    useRunningImportsStore.setState({ importsById: {} });
+    expect(updateTrayStatus).toHaveBeenCalledTimes(1);
+
+    useRunningImportsStore.getState().setRunning("panel", "");
+    expect(updateTrayStatus).toHaveBeenCalledTimes(2);
+    expect(updateTrayStatus).toHaveBeenLastCalledWith({ runningTaskCount: 1 });
+
+    useRunningImportsStore.setState({ importsById: {} });
+    expect(updateTrayStatus).toHaveBeenCalledTimes(3);
+    expect(updateTrayStatus).toHaveBeenLastCalledWith({ runningTaskCount: 0 });
   } finally {
     await screen.unmount();
   }

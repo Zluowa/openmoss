@@ -185,16 +185,20 @@ describe("providerMaintenance", () => {
         appBundled: true,
         ...(channel ? { packageChannel: channel } : {}),
       });
-      // Not `opencode upgrade`: the desktop app owns this copy, and no "update available".
+      // Not `opencode upgrade`: the desktop app owns this copy, so `update` is null while
+      // latestVersionSource remains knowable (`由桌面应用更新`).
       assert.strictEqual(capabilities.update, null);
-      assert.strictEqual(capabilities.latestVersionSource, null);
+      assert.deepStrictEqual(capabilities.latestVersionSource, {
+        kind: "npm",
+        name: "opencode-ai",
+      });
       const advisory = createProviderVersionAdvisory({
         provider: "opencode",
         currentVersion: "2.0.13",
         maintenanceCapabilities: capabilities,
       });
       assert.strictEqual(advisory.canUpdate, false);
-      assert.strictEqual(advisory.latestVersionKnowable, false);
+      assert.strictEqual(advisory.latestVersionKnowable, true);
     }
     // Other OpenCode installs keep their update.
     assert.ok(
@@ -391,7 +395,10 @@ describe("providerMaintenance", () => {
       );
       assert.deepStrictEqual(asked, ["opencode.CMD"]);
       assert.strictEqual(capabilities.update, null);
-      assert.strictEqual(capabilities.latestVersionSource, null);
+      assert.deepStrictEqual(capabilities.latestVersionSource, {
+        kind: "npm",
+        name: "opencode-ai",
+      });
     });
 
     it("walks PATH in order and reports the first directory that holds the binary", async () => {
@@ -1410,6 +1417,55 @@ describe("providerUpdateFailureReason", () => {
     assert.ok(
       (providerUpdateFailureReason({ stderr: `error: ${"x".repeat(1_000)}`, stdout: "" })?.length ??
         0) <= 300,
+    );
+  });
+
+  it("preserves latestVersionSource for app-bundled OpenCode v2 and Windows Devin installs", () => {
+    const openCodeV2 = withOpenCodeMaintenanceVersion(OPENCODE_DEFINITION, "2.2.5");
+    const bundledCaps = resolvePackageManagedProviderMaintenance(openCodeV2, {
+      binaryPath:
+        "C:\\Users\\Test\\AppData\\Local\\Programs\\@opencodedesktop\\resources\\opencode-cli.exe",
+      appBundled: true,
+    });
+    assert.strictEqual(bundledCaps.update, null);
+    assert.deepStrictEqual(bundledCaps.latestVersionSource, {
+      kind: "npm",
+      name: "@opencode/cli",
+    });
+
+    const devinDefinition = {
+      provider: "devin" as const,
+      binaryName: "devin",
+      npmPackageName: null,
+      homebrew: { name: "devin-cli", kind: "cask" as const },
+      latestVersionSource: {
+        kind: "homebrew" as const,
+        name: "devin-cli",
+        homebrewKind: "cask" as const,
+      },
+      nativeUpdate: {
+        executable: "devin",
+        args: () => ["update"],
+        lockKey: "devin-native",
+        strategy: "always" as const,
+        excludedInstallSources: ["homebrew" as const],
+      },
+    };
+    const devinWinCaps = resolvePackageManagedProviderMaintenance(devinDefinition, {
+      binaryPath: "C:\\Users\\Test\\AppData\\Local\\devin\\cli\\bin\\devin.exe",
+    });
+    assert.deepStrictEqual(devinWinCaps.latestVersionSource, {
+      kind: "homebrew",
+      name: "devin-cli",
+      homebrewKind: "cask",
+    });
+    assert.strictEqual(
+      createProviderVersionAdvisory({
+        provider: "devin",
+        currentVersion: "3000.11.230",
+        maintenanceCapabilities: devinWinCaps,
+      }).latestVersionKnowable,
+      true,
     );
   });
 });

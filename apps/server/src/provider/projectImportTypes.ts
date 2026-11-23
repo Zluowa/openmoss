@@ -16,6 +16,12 @@ export interface NativeImportSession {
   /** An explicit origin project, separate from the conversation's runtime cwd. */
   readonly projectRoot?: string;
   readonly parentSessionId?: string;
+  /** Source CLI session/thread ID of the parent conversation when imported hierarchically. */
+  readonly parentSourceSessionId?: string | null;
+  /** Relationship kind for imported child conversations. */
+  readonly hierarchyKind?: "subagent" | "sideSession" | "child" | null;
+  readonly subagentNickname?: string;
+  readonly subagentRole?: string;
   /** Earlier native IDs for the same conversation. */
   readonly priorSessionIds?: ReadonlyArray<string>;
   /** Model the conversation used, for agents whose model catalogs exist only at runtime. */

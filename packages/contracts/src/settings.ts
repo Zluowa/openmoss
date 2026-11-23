@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { IsoDateTime, TrimmedString } from "./baseSchemas";
+import { IsoDateTime, TrimmedNonEmptyString, TrimmedString } from "./baseSchemas";
 import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "./model";
 import { ModelSelection, ProviderKind, ThreadEnvironmentMode } from "./orchestration";
 import { ProviderInstanceConfigMap, ProviderInstanceId } from "./providerInstance";
@@ -87,8 +87,32 @@ export const GrokServerProviderSettings = Schema.Struct({
 });
 export type GrokServerProviderSettings = typeof GrokServerProviderSettings.Type;
 
+export const UnifiedModelProviderProtocol = Schema.Literals([
+  "openai-compatible",
+  "anthropic-compatible",
+  "gemini-compatible",
+]);
+export type UnifiedModelProviderProtocol = typeof UnifiedModelProviderProtocol.Type;
+
+export const UnifiedModelProviderConfig = Schema.Struct({
+  id: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  presetId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  iconId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+  protocol: UnifiedModelProviderProtocol,
+  baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
+  models: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(256)))
+    .check(Schema.isMaxLength(500))
+    .pipe(Schema.withDecodingDefault(() => [])),
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  apiKeyConfigured: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
+  updatedAt: Schema.optionalKey(IsoDateTime),
+});
+export type UnifiedModelProviderConfig = typeof UnifiedModelProviderConfig.Type;
+
 export const DroidServerProviderSettings = Schema.Struct({
   ...ProviderSettingsBase,
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "droid")),
 });
 export type DroidServerProviderSettings = typeof DroidServerProviderSettings.Type;
@@ -294,6 +318,15 @@ export const ServerSettings = Schema.Struct({
     zcode: ZcodeServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   providerInstances: ProviderInstanceConfigMap.pipe(Schema.withDecodingDefault(() => ({}))),
+  unifiedProviders: Schema.Array(UnifiedModelProviderConfig).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  defaultUnifiedProviderId: Schema.NullOr(Schema.String).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  unifiedProviderByCli: Schema.Record(Schema.String, Schema.String).pipe(
+    Schema.withDecodingDefault(() => ({})),
+  ),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   apps: AppsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   computer: ComputerServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
@@ -457,6 +490,18 @@ export const ServerSettingsPatch = Schema.Struct({
     }),
   ),
   providerInstances: Schema.optionalKey(ProviderInstanceConfigMap),
+  unifiedProviders: Schema.optionalKey(
+    Schema.Array(UnifiedModelProviderConfig).check(Schema.isMaxLength(128)),
+  ),
+  defaultUnifiedProviderId: Schema.optionalKey(
+    Schema.NullOr(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
+  ),
+  unifiedProviderByCli: Schema.optionalKey(
+    Schema.Record(
+      TrimmedNonEmptyString.check(Schema.isMaxLength(64)),
+      TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    ).check(Schema.isMaxProperties(64)),
+  ),
   skills: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(256)))),

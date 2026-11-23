@@ -342,6 +342,12 @@ const desktopBridge = {
     setPreference: (enabled) => ipcRenderer.invoke(IPC.customTitleBarSetPreference, enabled),
     relaunch: () => ipcRenderer.invoke(IPC.customTitleBarRelaunch),
   },
+  desktopBehavior: {
+    getState: () => ipcRenderer.invoke(IPC.desktopBehavior.getState),
+    setCloseToTray: (enabled) => ipcRenderer.invoke(IPC.desktopBehavior.setCloseToTray, enabled),
+    setOpenAtLogin: (enabled) => ipcRenderer.invoke(IPC.desktopBehavior.setOpenAtLogin, enabled),
+    updateTrayStatus: (input) => ipcRenderer.invoke(IPC.desktopBehavior.updateTrayStatus, input),
+  },
   phoneAccess: {
     getState: () => ipcRenderer.invoke(IPC.phoneAccess.getState),
     set: (input) => ipcRenderer.invoke(IPC.phoneAccess.set, input),

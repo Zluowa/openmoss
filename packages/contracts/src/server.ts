@@ -18,7 +18,13 @@ import {
 } from "./orchestration";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance";
 import { ProviderDiscoveryKind, ProviderModelDescriptor } from "./providerDiscovery";
-import { KeepAwakeMode, ServerSettingsPatch, ServerSettingsView } from "./settings";
+import {
+  KeepAwakeMode,
+  ServerSettingsPatch,
+  ServerSettingsView,
+  UnifiedModelProviderConfig,
+  UnifiedModelProviderProtocol,
+} from "./settings";
 import { ExecutionEnvironmentDescriptor } from "./environment";
 import { AutomationCompletionPolicy, AutomationMode, AutomationSchedule } from "./automation";
 
@@ -979,6 +985,52 @@ export type ServerUpdateSettingsInput = typeof ServerUpdateSettingsInput.Type;
 
 export const ServerUpdateSettingsResult = ServerSettingsView;
 export type ServerUpdateSettingsResult = typeof ServerUpdateSettingsResult.Type;
+
+export const ServerSaveUnifiedProviderInput = Schema.Struct({
+  provider: Schema.Struct({
+    id: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    presetId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    name: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    iconId: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+    protocol: UnifiedModelProviderProtocol,
+    baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
+    models: Schema.Array(TrimmedNonEmptyString.check(Schema.isMaxLength(256))).check(
+      Schema.isMaxLength(500),
+    ),
+    enabled: Schema.Boolean,
+  }),
+  apiKey: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4096))),
+});
+export type ServerSaveUnifiedProviderInput = typeof ServerSaveUnifiedProviderInput.Type;
+
+export const ServerSaveUnifiedProviderResult = UnifiedModelProviderConfig;
+export type ServerSaveUnifiedProviderResult = typeof ServerSaveUnifiedProviderResult.Type;
+
+export const ServerDeleteUnifiedProviderInput = Schema.Struct({
+  id: TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
+});
+export type ServerDeleteUnifiedProviderInput = typeof ServerDeleteUnifiedProviderInput.Type;
+
+export const ServerDeleteUnifiedProviderResult = Schema.Struct({
+  deleted: Schema.Boolean,
+});
+export type ServerDeleteUnifiedProviderResult = typeof ServerDeleteUnifiedProviderResult.Type;
+
+export const ServerTestUnifiedProviderInput = Schema.Struct({
+  id: Schema.optionalKey(TrimmedNonEmptyString.check(Schema.isMaxLength(128))),
+  protocol: UnifiedModelProviderProtocol,
+  baseUrl: TrimmedNonEmptyString.check(Schema.isMaxLength(2048)),
+  apiKey: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4096))),
+});
+export type ServerTestUnifiedProviderInput = typeof ServerTestUnifiedProviderInput.Type;
+
+export const ServerTestUnifiedProviderResult = Schema.Struct({
+  ok: Schema.Boolean,
+  latencyMs: Schema.optionalKey(NonNegativeInt),
+  discoveredModels: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  error: Schema.optionalKey(Schema.String),
+});
+export type ServerTestUnifiedProviderResult = typeof ServerTestUnifiedProviderResult.Type;
 
 /** Aggregate runtime counters only: safe for the unauthenticated health route. */
 const RuntimeMilliseconds = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));

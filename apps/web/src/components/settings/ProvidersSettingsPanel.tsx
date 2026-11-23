@@ -3,16 +3,15 @@
 // Layer: Settings panel
 
 import {
-  DEFAULT_CODEX_ACCOUNT_ID,
   PROVIDER_DISPLAY_NAMES,
   type ProviderInstanceConfig,
   type ProviderInstanceConfigMap,
   type ProviderInstanceId,
   type ProviderKind,
   type ServerProviderStatus,
-  type ServerSettings,
 } from "@moss/contracts";
 import { isBetaFeatureOn, VISIBLE_PROVIDER_DESCRIPTORS } from "../../betaFeatures";
+import { isMossActiveProvider } from "~/providerProductCatalog";
 import {
   normalizeProviderCliAlias,
   providerCliCommandName,
@@ -58,7 +57,6 @@ import {
   type AppSettings,
   type AppSettingsBinding,
   type ManageableProviderInstance,
-  type NewChatModelSource,
   type ProviderInstanceOption,
   type ProviderInstancePatch,
 } from "~/appSettings";
@@ -68,7 +66,6 @@ import { CentralIcon } from "~/lib/central-icons";
 import {
   CopyIcon,
   DownloadIcon,
-  ExternalLinkIcon,
   FolderOpenIcon,
   Loader2Icon,
   PlusIcon,
@@ -101,25 +98,13 @@ import {
 } from "~/providerOrdering";
 import {
   getVisibleProviderUpdateStatuses,
-  installedProgramStatus,
   installedVersionLabel,
-  isProviderLatestVersionKnowable,
-  isProviderUpdateActive,
   providerVersionCheckSummary,
-  shouldOfferProviderUpdateAction,
-  shouldPromptProviderUpdate,
   shouldShowProviderUpdateStatus,
   withProviderUpdateTimeout,
 } from "~/providerUpdates";
-import { agentSettingsAnchorId } from "~/lib/agentInstall";
-import { supportsAgentSignIn } from "~/lib/agentSignIn";
 import { providerStatusInstanceKey, resolveAgentReadiness } from "~/lib/providerAvailability";
 import { providersServedByMoss } from "~/components/chat/providerAccountSources";
-import {
-  PROVIDER_READINESS_LABEL_KEY,
-  providerReadinessDescriptionKey,
-} from "~/lib/providerReadinessCopy";
-import { SETTINGS_TARGETS } from "~/settingsNavigation";
 import {
   SETTINGS_INSET_LIST_CLASS_NAME,
   SETTINGS_INSET_RADIUS_CLASS_NAME,
@@ -143,20 +128,25 @@ import {
   type AddProviderAccountInput,
 } from "./AddProviderAccountDialog";
 import { AgentInstallButton } from "./AgentInstallButton";
-import { AgentSignInButton } from "./AgentSignInButton";
 import { ProviderInstallationDialog } from "./ProviderInstallationDialog";
 import { DebouncedSettingTextInput } from "./DebouncedSettingTextInput";
 import { ProviderAccentColorControl } from "./ProviderAccentColorControl";
 import { ProviderInstanceEnvironmentEditor } from "./ProviderInstanceEnvironmentEditor";
 import {
   SettingResetButton,
-  SettingsSegmentedControl,
-  type SettingsSegmentedOption,
   SettingsSelectControl,
   useSettingsRestoreSignal,
 } from "./SettingControls";
-import { MossAccountSettingsSection } from "./MossAccountSettingsSection";
-import { SettingsListRow, SettingsRow, SettingsSection } from "./SettingsPanelPrimitives";
+import { AddUnifiedProviderDialog } from "./providers/AddUnifiedProviderDialog";
+import { CliAgentDetailPane } from "./providers/CliAgentDetailPane";
+import { MossProviderDetailPane } from "./providers/MossProviderDetailPane";
+import { ProvidersPreferencesPane } from "./providers/ProvidersPreferencesPane";
+import { ProvidersSplitWorkbench } from "./providers/ProvidersSplitWorkbench";
+import { UnifiedProviderDetailPane } from "./providers/UnifiedProviderDetailPane";
+import {
+  resolveEffectiveCliSourceUi,
+  type ProviderWorkbenchSelection,
+} from "./providers/providerWorkbenchTypes";
 
 type ProviderInstallTextKey =
   | "claudeBinaryPath"
@@ -169,7 +159,6 @@ type ProviderInstallTextKey =
   | "devinBinaryPath"
   | "antigravityBinaryPath"
   | "grokBinaryPath"
-  | "droidBinaryPath"
   | "openCodeBinaryPath"
   | "openCodeServerUrl"
   | "piBinaryPath"
@@ -225,7 +214,9 @@ type ProviderInstallSettings = {
   readonly fields: readonly ProviderInstallField[];
 };
 
-const PROVIDER_VISIBILITY_OPTIONS = VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => ({
+const PROVIDER_VISIBILITY_OPTIONS = VISIBLE_PROVIDER_DESCRIPTORS.filter((descriptor) =>
+  isMossActiveProvider(descriptor.kind),
+).map((descriptor) => ({
   provider: descriptor.kind,
   title: descriptor.displayName,
   setupDocsHref: descriptor.setupDocsHref,
@@ -369,22 +360,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         description: (
           <>
             Leave blank to use <code>grok</code> from your PATH.
-          </>
-        ),
-      },
-    ],
-  },
-  {
-    provider: "droid",
-    fields: [
-      {
-        kind: "text",
-        settingsKey: "droidBinaryPath",
-        label: "Droid binary path",
-        placeholder: "droid",
-        description: (
-          <>
-            Leave blank to use <code>droid</code> from your PATH.
           </>
         ),
       },
@@ -571,10 +546,10 @@ export function providerInstallCommandFor(provider: ProviderKind): string | null
   );
 }
 
-// Beta-only providers keep their stored install fields but
-// their install row is hidden.
-const VISIBLE_PROVIDER_INSTALL_SETTINGS = PROVIDER_INSTALL_SETTINGS.filter((config) =>
-  isBetaFeatureOn(config.provider),
+// Retired and beta-only providers keep their stored install fields for decode
+// compatibility, but never surface in product UI.
+const VISIBLE_PROVIDER_INSTALL_SETTINGS = PROVIDER_INSTALL_SETTINGS.filter(
+  (config) => isMossActiveProvider(config.provider) && isBetaFeatureOn(config.provider),
 );
 
 function isProviderInstallFieldDirty(
@@ -623,27 +598,6 @@ export function isProviderInstallSettingsDirty(
   );
 }
 
-function createProviderInstallDisclosureState(
-  settings: AppSettings,
-): Record<ProviderKind, boolean> {
-  return Object.fromEntries(
-    PROVIDER_INSTALL_SETTINGS.map((config) => [
-      config.provider,
-      config.fields.some((field) =>
-        field.kind === "password"
-          ? settings[field.configuredKey]
-          : Boolean(settings[field.settingsKey]),
-      ) ||
-        Object.values(settings.providerInstances).some(
-          (instance) => instance.driver === config.provider,
-        ) ||
-        (config.provider === "codex" &&
-          (settings.codexAccounts.length > 0 ||
-            settings.selectedCodexAccountId !== DEFAULT_CODEX_ACCOUNT_ID)),
-    ]),
-  ) as Record<ProviderKind, boolean>;
-}
-
 function createClosedProviderInstallDisclosureState(): Record<ProviderKind, boolean> {
   return Object.fromEntries(
     PROVIDER_INSTALL_SETTINGS.map((config) => [config.provider, false]),
@@ -663,11 +617,6 @@ export function createProviderInstallResetPatch(defaults: AppSettings): Partial<
     providerInstances: defaults.providerInstances,
   };
 }
-
-const NEW_CHAT_MODEL_SOURCE_OPTIONS: ReadonlyArray<SettingsSegmentedOption<NewChatModelSource>> = [
-  { value: "moss", label: "Moss" },
-  { value: "own", label: "Local account" },
-];
 
 function setProviderListMembership(
   current: ReadonlyArray<ProviderKind>,
@@ -724,6 +673,7 @@ function SortableProviderVisibilityRow(props: {
   return (
     <div
       ref={setNodeRef}
+      data-testid="provider-visibility-row"
       style={{ transform: CSS.Translate.toString(transform), transition }}
       className={cn(
         SETTINGS_OUTLINED_SURFACE_CLASS_NAME,
@@ -1949,157 +1899,6 @@ function ProviderInstanceAdvancedSection(props: { children: ReactNode }) {
   );
 }
 
-function ProviderToolRow(props: {
-  config: ProviderInstallSettings;
-  open: boolean;
-  settings: AppSettings;
-  defaults: AppSettings;
-  hiddenProviderSet: ReadonlySet<ProviderKind>;
-  serverSettings: Pick<
-    ServerSettings,
-    "providers" | "providerInstances" | "enableProviderUpdateChecks"
-  > | null;
-  providerStatus: ServerProviderStatus | undefined;
-  providerStatusByInstance: ReadonlyMap<string, ServerProviderStatus>;
-  updatingProviders: ReadonlySet<ProviderInstanceId>;
-  onOpenChange: (open: boolean) => void;
-  onUpdate: (provider: ProviderKind, instanceId?: ProviderInstanceId) => void;
-  updateSettings: (patch: Partial<AppSettings>) => void;
-  updateSettingsAndWait: (patch: Partial<AppSettings>) => Promise<void>;
-}) {
-  const title = PROVIDER_DISPLAY_NAMES[props.config.provider];
-  const isDirty = isProviderInstallConfigDirty(props.config, props.settings, props.defaults);
-  const showProviderUpdateStatus = props.providerStatus
-    ? shouldShowProviderUpdateStatus({
-        provider: props.providerStatus,
-        hiddenProviderSet: props.hiddenProviderSet,
-        serverSettings: props.serverSettings,
-      })
-    : false;
-  const updateAdvisory = props.providerStatus?.versionAdvisory;
-  const providerUpdateSuppressed =
-    updateAdvisory?.status === "behind_latest" && !showProviderUpdateStatus;
-  const providerUpdateLabel = props.providerStatus
-    ? !props.settings.enableProviderUpdateChecks
-      ? installedVersionLabel(props.providerStatus, false)
-      : providerUpdateSuppressed
-        ? null
-        : providerUpdateStatusLabel(props.providerStatus)
-    : null;
-  const updateActive = Boolean(
-    (props.providerStatus && isProviderUpdateActive(props.providerStatus)) ||
-    props.updatingProviders.has(
-      props.providerStatus
-        ? providerStatusInstanceKey(props.providerStatus)
-        : props.config.provider,
-    ),
-  );
-  const showUpdateButton = props.providerStatus
-    ? shouldPromptProviderUpdate(props.providerStatus) &&
-      (showProviderUpdateStatus || updateAdvisory?.status === "unknown")
-    : false;
-  // Self-updating CLIs never report a latest version, so the update stays available
-  // inside the panel rather than as a header badge that can never be satisfied.
-  const showSelfManagedUpdate = props.providerStatus
-    ? shouldOfferProviderUpdateAction(props.providerStatus) &&
-      !isProviderLatestVersionKnowable(props.providerStatus)
-    : false;
-
-  return (
-    <Collapsible open={props.open} onOpenChange={props.onOpenChange}>
-      <div className="border-t border-border/70 first:border-t-0">
-        <div className="flex min-h-11 items-center gap-2 px-3 py-2">
-          <CollapsibleTrigger
-            type="button"
-            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          >
-            <span className="min-w-0 flex-1 text-ui-lg font-medium text-foreground">{title}</span>
-            {isDirty ? (
-              <span className="shrink-0 text-ui-sm text-muted-foreground">Custom</span>
-            ) : null}
-            {providerUpdateLabel ? (
-              <span
-                className={cn(
-                  "shrink-0 text-ui-sm",
-                  updateAdvisory?.status === "behind_latest"
-                    ? "text-foreground"
-                    : "text-muted-foreground",
-                )}
-              >
-                {providerUpdateLabel}
-              </span>
-            ) : null}
-            <DisclosureChevron
-              open={props.open}
-              className="size-4 shrink-0 text-muted-foreground"
-            />
-          </CollapsibleTrigger>
-          {showUpdateButton && props.providerStatus ? (
-            <ProviderUpdateAction
-              providerStatus={props.providerStatus}
-              active={updateActive}
-              disabled={updateActive}
-              onUpdate={props.onUpdate}
-            />
-          ) : null}
-        </div>
-
-        <CollapsiblePanel>
-          <div className="border-t border-border/70 bg-muted/20 px-3 py-3">
-            <div className="space-y-3">
-              {props.config.install ? (
-                <ProviderInstallCommandCard
-                  install={
-                    props.providerStatus?.versionAdvisory?.packageChannel === "cn-mirror"
-                      ? {
-                          ...props.config.install,
-                          command: withCnMirrorRegistry(props.config.install.command),
-                        }
-                      : props.config.install
-                  }
-                />
-              ) : null}
-              {showProviderUpdateStatus && updateAdvisory?.status === "behind_latest" ? (
-                <div className="text-ui leading-snug text-muted-foreground">
-                  {updateAdvisory.canUpdate && updateAdvisory.updateCommand ? (
-                    <>
-                      <span>Command: </span>
-                      <code className="font-mono">{updateAdvisory.updateCommand}</code>
-                    </>
-                  ) : (
-                    "A newer version is available, but Moss could not identify a safe one-click update command for this installation."
-                  )}
-                </div>
-              ) : null}
-              {showSelfManagedUpdate && props.providerStatus ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0 text-ui leading-snug text-muted-foreground">
-                    {title} manages its own releases, so Moss cannot tell whether a newer version
-                    exists. Run the update to be sure.
-                  </div>
-                  <ProviderUpdateAction
-                    providerStatus={props.providerStatus}
-                    active={updateActive}
-                    disabled={updateActive}
-                    onUpdate={props.onUpdate}
-                  />
-                </div>
-              ) : null}
-              <ProviderAccountsControl
-                config={props.config}
-                providerStatusByInstance={props.providerStatusByInstance}
-                settings={props.settings}
-                updateSettings={props.updateSettings}
-                updateSettingsAndWait={props.updateSettingsAndWait}
-              />
-            </div>
-          </div>
-        </CollapsiblePanel>
-      </div>
-    </Collapsible>
-  );
-}
-
 export type ProvidersSettingsPanelProps = AppSettingsBinding & {
   readonly active: boolean;
   readonly providerTarget?: ProviderKind | null;
@@ -2116,7 +1915,7 @@ export function ProvidersSettingsPanel({
   providerTarget = null,
   resetEpoch,
 }: ProvidersSettingsPanelProps) {
-  const { format, t } = useTranslation();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const localProviderStatuses = useProviderStatusesForLocalConfig();
@@ -2125,10 +1924,16 @@ export function ProvidersSettingsPanel({
   const refreshProvidersInFlightRef = useRef(false);
   const providerStatusesReconciled = hasReconciledServerProviderStatuses(queryClient);
   const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
+  const [selection, setSelection] = useState<ProviderWorkbenchSelection>(() =>
+    providerTarget && isMossActiveProvider(providerTarget)
+      ? { kind: "cli", provider: providerTarget }
+      : { kind: "moss" },
+  );
+  const [addUnifiedDialogOpen, setAddUnifiedDialogOpen] = useState(false);
   const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>(
     () => ({
-      ...createProviderInstallDisclosureState(settings),
-      ...(providerTarget ? { [providerTarget]: true } : {}),
+      ...createClosedProviderInstallDisclosureState(),
+      ...(providerTarget && isMossActiveProvider(providerTarget) ? { [providerTarget]: true } : {}),
     }),
   );
   const [updatingProviders, setUpdatingProviders] = useState<ReadonlySet<ProviderInstanceId>>(
@@ -2137,12 +1942,15 @@ export function ProvidersSettingsPanel({
   const providerEnablementMutationInFlightRef = useRef(false);
   const [providerEnablementMutationPending, setProviderEnablementMutationPending] = useState(false);
   const [disabledProvidersOpen, setDisabledProvidersOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(Boolean(providerTarget));
   const [installationProvider, setInstallationProvider] = useState<ProviderKind | null>(null);
   const installedProviderRef = useRef(new Set<ProviderKind>());
   for (const status of serverConfigQuery.data?.providers ?? []) {
     const provider = status.driver ?? status.provider;
-    if (isProviderKind(provider) && isLocalProviderInstalled(status))
+    if (
+      isProviderKind(provider) &&
+      isMossActiveProvider(provider) &&
+      isLocalProviderInstalled(status)
+    )
       installedProviderRef.current.add(provider);
   }
   const hiddenProviderSet = useMemo(
@@ -2193,7 +2001,9 @@ export function ProvidersSettingsPanel({
       new Map<ProviderKind, ServerProviderStatus>(
         localProviderStatuses.flatMap((status) => {
           const driver = status.driver ?? status.provider;
-          return isProviderKind(driver) && providerStatusInstanceKey(status) === driver
+          return isProviderKind(driver) &&
+            isMossActiveProvider(driver) &&
+            providerStatusInstanceKey(status) === driver
             ? [[driver, status] as const]
             : [];
         }),
@@ -2239,9 +2049,10 @@ export function ProvidersSettingsPanel({
         providers: serverConfigQuery.data?.providers ?? [],
         hiddenProviders: settings.hiddenProviders,
         serverSettings: providerUpdateServerSettings,
-      }).filter(
-        (status) => !disabledProviderSet.has((status.driver ?? status.provider) as ProviderKind),
-      ),
+      }).filter((status) => {
+        const driver = (status.driver ?? status.provider) as ProviderKind;
+        return isMossActiveProvider(driver) && !disabledProviderSet.has(driver);
+      }),
     [
       disabledProviderSet,
       providerUpdateServerSettings,
@@ -2252,14 +2063,49 @@ export function ProvidersSettingsPanel({
   const versionCheckSummary = !settings.enableProviderUpdateChecks
     ? "Automatic checks off"
     : providerVersionCheckSummary({
-        providers: (serverConfigQuery.data?.providers ?? []).filter(
-          (s) => !disabledProviderSet.has((s.driver ?? s.provider) as ProviderKind),
-        ),
+        providers: (serverConfigQuery.data?.providers ?? []).filter((status) => {
+          const driver = (status.driver ?? status.provider) as ProviderKind;
+          return isMossActiveProvider(driver) && !disabledProviderSet.has(driver);
+        }),
         hiddenProviders: settings.hiddenProviders,
         serverSettings: providerUpdateServerSettings,
         outdatedCount: outdatedProviderStatuses.length,
       });
-  const installSettingsDirty = isProviderInstallSettingsDirty(settings, defaults);
+
+  const unifiedProviders = serverSettingsQuery.data?.unifiedProviders ?? [];
+  const defaultUnifiedProviderId = serverSettingsQuery.data?.defaultUnifiedProviderId ?? null;
+  const unifiedProviderByCli = useMemo(
+    () => serverSettingsQuery.data?.unifiedProviderByCli ?? {},
+    [serverSettingsQuery.data?.unifiedProviderByCli],
+  );
+
+  const invalidateServerSettingsAndConfig = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() }),
+      queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() }),
+    ]);
+  }, [queryClient]);
+
+  const routeCliSource = useCallback(
+    async (driver: ProviderKind, source: string) => {
+      await ensureNativeApi().server.updateSettings({
+        unifiedProviderByCli: {
+          ...unifiedProviderByCli,
+          [driver]: source,
+        },
+      });
+      await invalidateServerSettingsAndConfig();
+    },
+    [invalidateServerSettingsAndConfig, unifiedProviderByCli],
+  );
+
+  const setDefaultUnifiedProvider = useCallback(
+    async (id: string | null) => {
+      await ensureNativeApi().server.updateSettings({ defaultUnifiedProviderId: id });
+      await invalidateServerSettingsAndConfig();
+    },
+    [invalidateServerSettingsAndConfig],
+  );
 
   const updateProviderEnablement = useCallback(
     async (disabledProviders: ProviderKind[]) => {
@@ -2281,24 +2127,22 @@ export function ProvidersSettingsPanel({
   useSettingsRestoreSignal(resetEpoch, () => {
     setOpenInstallProviders(createClosedProviderInstallDisclosureState());
     setDisabledProvidersOpen(false);
-    setAdvancedOpen(false);
   });
 
   useEffect(() => {
-    if (!active || !providerTarget) return;
-    setAdvancedOpen(true);
+    if (!active || !providerTarget || !isMossActiveProvider(providerTarget)) return;
+    setSelection({ kind: "cli", provider: providerTarget });
     if (disabledProviderSet.has(providerTarget)) {
       setDisabledProvidersOpen(true);
-    } else {
-      setOpenInstallProviders((current) => ({ ...current, [providerTarget]: true }));
     }
+    setOpenInstallProviders((current) => ({ ...current, [providerTarget]: true }));
   }, [active, disabledProviderSet, providerTarget]);
 
   const handleProviderOrderDragEnd = useCallback(
     (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const fromIndex = settings.providerOrder.indexOf(active.id as ProviderKind);
+      const { active: dragActive, over } = event;
+      if (!over || dragActive.id === over.id) return;
+      const fromIndex = settings.providerOrder.indexOf(dragActive.id as ProviderKind);
       const toIndex = settings.providerOrder.indexOf(over.id as ProviderKind);
       if (fromIndex < 0 || toIndex < 0) return;
       updateSettings({ providerOrder: arrayMove([...settings.providerOrder], fromIndex, toIndex) });
@@ -2372,131 +2216,255 @@ export function ProvidersSettingsPanel({
     }
   };
 
-  const renderProviderActivityRow = (option: (typeof PROVIDER_VISIBILITY_OPTIONS)[number]) => {
-    const enabled = !disabledProviderSet.has(option.provider);
-    const providerStatus = providerStatusByProvider.get(option.provider);
-    const readiness =
-      enabled && providerStatusesReconciled && providerStatus
-        ? resolveAgentReadiness(providerStatus)
-        : null;
-    // One plain line from the server's readiness, never the CLI's own diagnostic, and one
-    // action: 登录 runs the agent's sign-in in the browser, 安装 installs it in place.
-    // The agent's own login is signed out, but its Moss lane runs it: the row says it works
-    // through Moss and still offers the own account's sign-in, calmly. The model picker
-    // lists only what can run, so this is where a person reaches their own account.
-    const servedByMoss =
-      readiness?.state === "needsLogin" && servedByMossProviders.has(option.provider);
-    const descriptionKey = readiness ? providerReadinessDescriptionKey(readiness) : null;
-    const canSignIn =
-      readiness?.state === "needsLogin" && supportsAgentSignIn(option.provider, providerStatus);
-    // Only what Moss cannot fix by itself keeps the agent's own help page.
-    const showGuide =
-      readiness?.state === "error" || (readiness?.state === "needsLogin" && !canSignIn);
-    return (
-      <SettingsListRow
-        key={option.provider}
-        id={agentSettingsAnchorId(option.provider)}
-        title={
-          <span className="flex items-center gap-2">
-            <ProviderIcon provider={option.provider} className="size-4 shrink-0" />
-            <span>{option.title}</span>
-          </span>
-        }
-        description={
-          <span
-            className="block"
-            data-agent-readiness={servedByMoss ? "moss" : (readiness?.state ?? "unknown")}
-          >
-            {servedByMoss
-              ? [
-                  t("settings.providers.accounts.connectedViaMoss"),
-                  t("chat.modelPicker.source.local"),
-                  t("settings.usage.status.notSignedIn"),
-                ].join(" · ")
-              : readiness
-                ? descriptionKey
-                  ? format(descriptionKey, { provider: option.title })
-                  : t(PROVIDER_READINESS_LABEL_KEY[readiness.state])
-                : providerSetupStatusLabel({
-                    status: providerStatus,
-                    reconciled: providerStatusesReconciled,
-                    disabled: !enabled,
-                  })}
-          </span>
-        }
-        actions={
-          <>
-            {installedProviderRef.current.has(option.provider) ? (
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={() => setInstallationProvider(option.provider)}
-                aria-label={format("settings.providers.installation.title", {
-                  provider: option.title,
-                })}
-              >
-                {t("settings.providers.installation.manage")}
-              </Button>
-            ) : null}
-            {readiness?.state === "notInstalled" ? (
-              <AgentInstallButton
-                provider={option.provider}
-                providerLabel={option.title}
-                readiness={readiness}
-                status={providerStatus}
-                fallbackUrl={option.setupDocsHref}
-              />
-            ) : null}
-            {canSignIn ? (
-              <AgentSignInButton
-                provider={option.provider}
-                providerLabel={option.title}
-                status={providerStatus}
-                {...(servedByMoss ? { variant: "outline" as const } : {})}
-              />
-            ) : null}
-            {showGuide ? (
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() =>
-                  void openProviderGuide(
-                    option.setupDocsHref,
-                    t("settings.providers.setupGuideFailed"),
-                  )
-                }
-                aria-label={format("settings.providers.setupGuideAria", { provider: option.title })}
-              >
-                {t("settings.providers.setupGuide")}
-                <ExternalLinkIcon className="size-3" />
-              </Button>
-            ) : null}
-            <Switch
-              checked={enabled}
-              className={
-                providerEnablementMutationPending ? "data-disabled:cursor-progress" : undefined
-              }
-              aria-busy={providerEnablementMutationPending}
-              disabled={!serverSettingsQuery.data || providerEnablementMutationPending}
-              onCheckedChange={(checked) =>
-                void updateProviderEnablement(
-                  setProviderListMembership(
-                    settings.disabledProviders,
-                    option.provider,
-                    !Boolean(checked),
-                  ),
-                )
-              }
-              aria-label={`${enabled ? "Disable" : "Enable"} ${option.title}`}
-            />
-          </>
-        }
-      />
-    );
+  const activeCliProviders = orderedProviderVisibilityOptions.map((option) => option.provider);
+  const selectedUnifiedProvider =
+    selection.kind === "unified"
+      ? unifiedProviders.find((item) => item.id === selection.id)
+      : undefined;
+  const selectedCli = selection.kind === "cli" ? selection.provider : null;
+  const selectedCliOption = selectedCli
+    ? providerVisibilityOptionsByProvider.get(selectedCli)
+    : null;
+  const selectedCliConfig = selectedCli
+    ? VISIBLE_PROVIDER_INSTALL_SETTINGS.find((entry) => entry.provider === selectedCli)
+    : null;
+  const selectedCliStatus = selectedCli ? providerStatusByProvider.get(selectedCli) : undefined;
+  const selectedCliEffectiveStatus =
+    selectedCli && selectedCliOption
+      ? (localProviderStatuses.find(
+          (status) =>
+            (status.driver ?? status.provider) === selectedCli &&
+            status.enabled !== false &&
+            status.available &&
+            status.version,
+        ) ?? selectedCliStatus)
+      : undefined;
+  const selectedCliShowUpdateStatus = selectedCliEffectiveStatus
+    ? shouldShowProviderUpdateStatus({
+        provider: selectedCliEffectiveStatus,
+        hiddenProviderSet,
+        serverSettings: providerUpdateServerSettings,
+      })
+    : false;
+  const selectedCliAdvisory = selectedCliEffectiveStatus?.versionAdvisory;
+  const selectedCliUpdateLabel = selectedCliEffectiveStatus
+    ? !settings.enableProviderUpdateChecks
+      ? installedVersionLabel(selectedCliEffectiveStatus, false)
+      : selectedCliAdvisory?.status === "behind_latest" && !selectedCliShowUpdateStatus
+        ? null
+        : providerUpdateStatusLabel(selectedCliEffectiveStatus)
+    : null;
+
+  const resetSingleProviderConfig = (config: ProviderInstallSettings) => {
+    const fieldPatch = Object.fromEntries(
+      config.fields.map((field) => [field.settingsKey, defaults[field.settingsKey]]),
+    ) as Partial<AppSettings>;
+    const remainingInstances = Object.fromEntries(
+      Object.entries(settings.providerInstances).filter(
+        ([, instance]) => instance.driver !== config.provider,
+      ),
+    ) as ProviderInstanceConfigMap;
+    updateSettings({
+      ...fieldPatch,
+      providerInstances: remainingInstances,
+      ...(config.provider === "codex"
+        ? {
+            codexAccounts: defaults.codexAccounts,
+            selectedCodexAccountId: defaults.selectedCodexAccountId,
+          }
+        : {}),
+    });
   };
 
+  let detailPaneContent;
+  if (selection.kind === "unified" && selectedUnifiedProvider) {
+    detailPaneContent = (
+      <UnifiedProviderDetailPane
+        provider={selectedUnifiedProvider}
+        activeCliProviders={activeCliProviders}
+        defaultUnifiedProviderId={defaultUnifiedProviderId}
+        unifiedProviderByCli={unifiedProviderByCli}
+        onUpdated={invalidateServerSettingsAndConfig}
+        onDeleted={async () => {
+          setSelection({ kind: "moss" });
+          await invalidateServerSettingsAndConfig();
+        }}
+        onRouteCli={routeCliSource}
+        onSetGlobalDefault={setDefaultUnifiedProvider}
+      />
+    );
+  } else if (selection.kind === "cli" && selectedCliOption && selectedCli) {
+    const enabled = !disabledProviderSet.has(selectedCli);
+    const cliStatus = selectedCliStatus;
+    const versionStatus = selectedCliEffectiveStatus;
+    const instanceKey = versionStatus ? providerStatusInstanceKey(versionStatus) : selectedCli;
+    const installConfig = selectedCliConfig ?? { provider: selectedCli, fields: [] };
+    const installFieldsDirty = isProviderInstallConfigDirty(installConfig, settings, defaults);
+    detailPaneContent = (
+      <CliAgentDetailPane
+        provider={selectedCli}
+        title={selectedCliOption.title}
+        setupDocsHref={selectedCliOption.setupDocsHref}
+        enabled={enabled}
+        isHidden={hiddenProviderSet.has(selectedCli)}
+        statusReconciled={providerStatusesReconciled}
+        providerStatus={cliStatus}
+        servedByMoss={servedByMossProviders.has(selectedCli)}
+        isInstalled={installedProviderRef.current.has(selectedCli)}
+        updating={updatingProviders.has(instanceKey)}
+        checksEnabled={settings.enableProviderUpdateChecks}
+        showProviderUpdateStatus={selectedCliShowUpdateStatus}
+        updateStatusLabel={selectedCliUpdateLabel}
+        routingSource={resolveEffectiveCliSourceUi({
+          defaultUnifiedProviderId,
+          unifiedProviderByCli,
+          provider: selectedCli,
+        })}
+        unifiedProviders={unifiedProviders}
+        advancedOpen={openInstallProviders[selectedCli] ?? false}
+        installFieldsDirty={installFieldsDirty}
+        enablementPending={providerEnablementMutationPending}
+        enablementDisabled={!serverSettingsQuery.data || providerEnablementMutationPending}
+        onAdvancedOpenChange={(open) =>
+          setOpenInstallProviders((current) => ({ ...current, [selectedCli]: open }))
+        }
+        onRouteChange={(source) => void routeCliSource(selectedCli, source)}
+        onToggleEnabled={(checked) =>
+          void updateProviderEnablement(
+            setProviderListMembership(settings.disabledProviders, selectedCli, !checked),
+          )
+        }
+        onToggleHidden={(hidden) =>
+          updateSettings({
+            hiddenProviders: setProviderListMembership(
+              settings.hiddenProviders,
+              selectedCli,
+              hidden,
+            ),
+          })
+        }
+        onOpenInstallation={() => setInstallationProvider(selectedCli)}
+        onOpenGuide={() =>
+          void openProviderGuide(
+            selectedCliOption.setupDocsHref,
+            t("settings.providers.setupGuideFailed"),
+          )
+        }
+        onResetProvider={() => resetSingleProviderConfig(installConfig)}
+        renderUpdateAction={(status, updateActive) => (
+          <ProviderUpdateAction
+            providerStatus={status}
+            active={updateActive}
+            disabled={updateActive}
+            onUpdate={(provider, id) => void runProviderUpdate(provider, id)}
+          />
+        )}
+        renderInstallCommandCard={() =>
+          installConfig.install ? (
+            <ProviderInstallCommandCard
+              install={
+                versionStatus?.versionAdvisory?.packageChannel === "cn-mirror"
+                  ? {
+                      ...installConfig.install,
+                      command: withCnMirrorRegistry(installConfig.install.command),
+                    }
+                  : installConfig.install
+              }
+            />
+          ) : null
+        }
+        renderAccountsControl={() => (
+          <ProviderAccountsControl
+            key={selectedCli}
+            config={installConfig}
+            providerStatusByInstance={providerStatusByInstance}
+            settings={settings}
+            updateSettings={updateSettings}
+            updateSettingsAndWait={updateSettingsAndWait}
+          />
+        )}
+      />
+    );
+  } else if (selection.kind === "preferences") {
+    detailPaneContent = (
+      <ProvidersPreferencesPane
+        settings={settings}
+        defaults={defaults}
+        serverSettings={serverSettingsQuery.data}
+        unifiedProviders={unifiedProviders}
+        enabledProviderCount={enabledProviderCount}
+        availableProviderCount={availableProviderCount}
+        visibleAvailableProviderCount={visibleAvailableProviderCount}
+        hasPendingProviderStatuses={hasPendingProviderStatuses}
+        isProviderOrderDirty={isProviderOrderDirty}
+        hiddenProviderCount={hiddenProviderCount}
+        versionCheckSummary={versionCheckSummary}
+        outdatedProviderStatuses={outdatedProviderStatuses}
+        updatingProviders={updatingProviders}
+        updateSettings={updateSettings}
+        onSetDefaultUnifiedProvider={setDefaultUnifiedProvider}
+        getStatusDisplayName={providerStatusDisplayName}
+        getUpdateStatusLabel={providerUpdateStatusLabel}
+        renderUpdateAction={(status, updateActive) => (
+          <ProviderUpdateAction
+            providerStatus={status}
+            active={updateActive}
+            disabled={updateActive}
+            onUpdate={(provider) => void runProviderUpdate(provider)}
+          />
+        )}
+        renderVisibilityDragList={() => (
+          <DndContext
+            sensors={providerVisibilitySensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={handleProviderOrderDragEnd}
+          >
+            <SortableContext
+              items={enabledProviderOptions.map((option) => option.provider)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="space-y-2">
+                {enabledProviderOptions.map((option) => (
+                  <SortableProviderVisibilityRow
+                    key={option.provider}
+                    option={option}
+                    providerStatus={providerStatusByProvider.get(option.provider)}
+                    statusReconciled={providerStatusesReconciled}
+                    isDisabled={disabledProviderSet.has(option.provider)}
+                    isHidden={hiddenProviderSet.has(option.provider)}
+                    onHiddenChange={(hidden) =>
+                      updateSettings({
+                        hiddenProviders: setProviderListMembership(
+                          settings.hiddenProviders,
+                          option.provider,
+                          hidden,
+                        ),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
+      />
+    );
+  } else {
+    detailPaneContent = (
+      <MossProviderDetailPane
+        activeCliProviders={activeCliProviders}
+        unifiedProviders={unifiedProviders}
+        defaultUnifiedProviderId={defaultUnifiedProviderId}
+        unifiedProviderByCli={unifiedProviderByCli}
+        onSelectCli={(provider) => setSelection({ kind: "cli", provider })}
+        onAddUnifiedProvider={() => setAddUnifiedDialogOpen(true)}
+      />
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <>
       {installationProvider ? (
         <ProviderInstallationDialog
           provider={installationProvider}
@@ -2515,332 +2483,35 @@ export function ProvidersSettingsPanel({
           }}
         />
       ) : null}
-      <MossAccountSettingsSection />
-      <SettingsSection title="Provider activity">
-        <SettingsRow
-          title="Enabled providers"
-          description="Turn agents on or off across Moss. Agents you turn off are hidden from pickers; their settings and conversations are kept, and running turns continue."
-          control={
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={refreshingProviders}
-              onClick={() => void refreshProviders()}
-            >
-              {refreshingProviders ? <Loader2Icon className="size-4 animate-spin" /> : null}
-              {refreshingProviders ? "Checking setup" : "Refresh status"}
-            </Button>
-          }
-          status={
-            providerEnablementMutationPending
-              ? "Saving provider activity"
-              : `${enabledProviderCount} of ${PROVIDER_VISIBILITY_OPTIONS.length} enabled`
-          }
-          resetAction={
-            disabledProviderSet.size > 0 && !providerEnablementMutationPending ? (
-              <SettingResetButton
-                label="enabled providers"
-                onClick={() => void updateProviderEnablement([...defaults.disabledProviders])}
-              />
-            ) : null
-          }
-        >
-          {enabledProviderCount > 0 ? (
-            <div
-              className={cn(
-                "mt-4",
-                SETTINGS_INSET_LIST_CLASS_NAME,
-                SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
-              )}
-            >
-              {enabledProviderOptions.map(renderProviderActivityRow)}
-            </div>
-          ) : (
-            <p className="mt-4 text-ui text-muted-foreground">
-              No providers enabled. Open Disabled providers below to enable one.
-            </p>
-          )}
-          {disabledProviderOptions.length > 0 ? (
-            <Collapsible
-              open={disabledProvidersOpen}
-              onOpenChange={setDisabledProvidersOpen}
-              className="mt-3"
-            >
-              <CollapsibleTrigger className="flex w-full items-center gap-2 py-2 text-left text-ui text-muted-foreground">
-                <DisclosureChevron open={disabledProvidersOpen} className="size-4 shrink-0" />
-                <span>{`Disabled providers (${disabledProviderOptions.length})`}</span>
-              </CollapsibleTrigger>
-              <CollapsiblePanel>
-                <div
-                  className={cn(
-                    SETTINGS_INSET_LIST_CLASS_NAME,
-                    SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
-                  )}
-                >
-                  {disabledProviderOptions.map(renderProviderActivityRow)}
-                </div>
-              </CollapsiblePanel>
-            </Collapsible>
-          ) : null}
-        </SettingsRow>
-      </SettingsSection>
 
-      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-        <CollapsibleTrigger className="flex w-full items-center gap-2 py-2 text-left text-ui font-medium">
-          <DisclosureChevron open={advancedOpen} className="size-4 shrink-0" />
-          {t("settings.providers.advanced.section")}
-        </CollapsibleTrigger>
-        <CollapsiblePanel>
-          <div className="space-y-6 pt-4">
-            <SettingsSection title="Provider picker">
-              <SettingsRow
-                title="Default provider for new chats"
-                description="New chats, Canvas and other quick actions take an agent's models from this provider unless you pick another one in the model picker. Moss is used while you are signed in to Moss."
-                control={
-                  <SettingsSegmentedControl
-                    ariaLabel="Default provider for new chats"
-                    value={settings.newChatModelSource}
-                    onValueChange={(newChatModelSource) => updateSettings({ newChatModelSource })}
-                    options={NEW_CHAT_MODEL_SOURCE_OPTIONS}
-                  />
-                }
-                resetAction={
-                  settings.newChatModelSource !== defaults.newChatModelSource ? (
-                    <SettingResetButton
-                      label="default provider for new chats"
-                      onClick={() =>
-                        updateSettings({ newChatModelSource: defaults.newChatModelSource })
-                      }
-                    />
-                  ) : null
-                }
-              />
-              <SettingsRow
-                title="Available CLIs"
-                description="Show or hide installed providers in the picker and drag them into your preferred order. Hiding a provider here does not disable its server activity."
-                status={
-                  serverConfigQuery.isPending || hasPendingProviderStatuses
-                    ? "Checking installed CLIs"
-                    : availableProviderCount === 0
-                      ? "No CLIs detected"
-                      : visibleAvailableProviderCount < availableProviderCount
-                        ? `${visibleAvailableProviderCount} of ${availableProviderCount} installed shown`
-                        : isProviderOrderDirty
-                          ? `${availableProviderCount} installed · custom order`
-                          : `${availableProviderCount} installed`
-                }
-                resetAction={
-                  hiddenProviderCount > 0 || isProviderOrderDirty ? (
-                    <SettingResetButton
-                      label="provider picker"
-                      onClick={() =>
-                        updateSettings({
-                          hiddenProviders: defaults.hiddenProviders,
-                          providerOrder: defaults.providerOrder,
-                        })
-                      }
-                    />
-                  ) : null
-                }
-              >
-                <DndContext
-                  sensors={providerVisibilitySensors}
-                  collisionDetection={closestCenter}
-                  modifiers={[restrictToVerticalAxis]}
-                  onDragEnd={handleProviderOrderDragEnd}
-                >
-                  <SortableContext
-                    items={enabledProviderOptions.map((option) => option.provider)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="mt-4 space-y-2">
-                      {enabledProviderOptions.map((option) => (
-                        <SortableProviderVisibilityRow
-                          key={option.provider}
-                          option={option}
-                          providerStatus={providerStatusByProvider.get(option.provider)}
-                          statusReconciled={providerStatusesReconciled}
-                          isDisabled={disabledProviderSet.has(option.provider)}
-                          isHidden={hiddenProviderSet.has(option.provider)}
-                          onHiddenChange={(hidden) =>
-                            updateSettings({
-                              hiddenProviders: setProviderListMembership(
-                                settings.hiddenProviders,
-                                option.provider,
-                                hidden,
-                              ),
-                            })
-                          }
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </SettingsRow>
-            </SettingsSection>
+      <AddUnifiedProviderDialog
+        open={addUnifiedDialogOpen}
+        onOpenChange={setAddUnifiedDialogOpen}
+        existingProviders={unifiedProviders}
+        onSaved={async (saved) => {
+          await invalidateServerSettingsAndConfig();
+          setSelection({ kind: "unified", id: saved.id });
+        }}
+      />
 
-            <SettingsSection title="Performance">
-              <SettingsRow
-                title="Keep Moss responsive"
-                description="Give agent processes and their commands a moderately lower CPU priority when the machine is busy."
-                status="Applies to newly launched agent processes. Restart existing sessions to apply consistently."
-                resetAction={
-                  settings.lowerProviderProcessPriority !==
-                  defaults.lowerProviderProcessPriority ? (
-                    <SettingResetButton
-                      label="Keep Moss responsive"
-                      onClick={() =>
-                        updateSettings({
-                          lowerProviderProcessPriority: defaults.lowerProviderProcessPriority,
-                        })
-                      }
-                    />
-                  ) : null
-                }
-                control={
-                  <Switch
-                    checked={settings.lowerProviderProcessPriority}
-                    onCheckedChange={(checked) =>
-                      updateSettings({ lowerProviderProcessPriority: Boolean(checked) })
-                    }
-                    aria-label="Keep Moss responsive"
-                  />
-                }
-              />
-            </SettingsSection>
-
-            <div id={SETTINGS_TARGETS.providerUpdates}>
-              <SettingsSection title="Updates">
-                <SettingsRow
-                  title="Automatic CLI update checks"
-                  description="Check Codex, Claude, and other provider CLIs for newer versions in the background."
-                  resetAction={
-                    settings.enableProviderUpdateChecks !== defaults.enableProviderUpdateChecks ? (
-                      <SettingResetButton
-                        label="CLI update checks"
-                        onClick={() =>
-                          updateSettings({
-                            enableProviderUpdateChecks: defaults.enableProviderUpdateChecks,
-                          })
-                        }
-                      />
-                    ) : null
-                  }
-                  control={
-                    <Switch
-                      checked={settings.enableProviderUpdateChecks}
-                      onCheckedChange={(checked) =>
-                        updateSettings({ enableProviderUpdateChecks: Boolean(checked) })
-                      }
-                      aria-label="Automatic CLI update checks"
-                    />
-                  }
-                />
-
-                <SettingsRow
-                  title="Provider updates"
-                  description="Review installed provider tools that Moss can safely update."
-                  status={versionCheckSummary}
-                >
-                  {settings.enableProviderUpdateChecks && outdatedProviderStatuses.length > 0 ? (
-                    <div
-                      className={cn(
-                        "mt-4",
-                        SETTINGS_INSET_LIST_CLASS_NAME,
-                        SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
-                      )}
-                    >
-                      {outdatedProviderStatuses.map((providerStatus) => {
-                        const instanceId = providerStatusInstanceKey(providerStatus);
-                        const updateActive =
-                          isProviderUpdateActive(providerStatus) ||
-                          updatingProviders.has(instanceId);
-                        const updateLabel = providerUpdateStatusLabel(providerStatus);
-                        return (
-                          <SettingsListRow
-                            key={instanceId}
-                            title={providerStatusDisplayName(providerStatus)}
-                            description={updateLabel || undefined}
-                            actions={
-                              providerStatus.versionAdvisory?.canUpdate ? (
-                                <ProviderUpdateAction
-                                  providerStatus={providerStatus}
-                                  active={updateActive}
-                                  disabled={updateActive}
-                                  onUpdate={(provider) => void runProviderUpdate(provider)}
-                                />
-                              ) : (
-                                <span className="text-ui-sm text-muted-foreground">
-                                  Manual update
-                                </span>
-                              )
-                            }
-                          />
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </SettingsRow>
-              </SettingsSection>
-            </div>
-
-            <div id={SETTINGS_TARGETS.providerInstalls}>
-              <SettingsSection title="Provider tools">
-                <SettingsRow
-                  title="Installed CLIs"
-                  description="Review provider versions and update tools. Open a row only when you need binary overrides."
-                  status={versionCheckSummary}
-                  resetAction={
-                    installSettingsDirty ? (
-                      <SettingResetButton
-                        label="provider tools"
-                        onClick={() => {
-                          updateSettings(createProviderInstallResetPatch(defaults));
-                          setOpenInstallProviders(createClosedProviderInstallDisclosureState());
-                        }}
-                      />
-                    ) : null
-                  }
-                >
-                  <div className="mt-4">
-                    <div className={SETTINGS_INSET_LIST_CLASS_NAME}>
-                      {VISIBLE_PROVIDER_INSTALL_SETTINGS.filter(
-                        (config) => !disabledProviderSet.has(config.provider),
-                      ).map((config) => (
-                        <ProviderToolRow
-                          key={config.provider}
-                          config={config}
-                          open={openInstallProviders[config.provider]}
-                          settings={settings}
-                          defaults={defaults}
-                          hiddenProviderSet={hiddenProviderSet}
-                          serverSettings={providerUpdateServerSettings}
-                          providerStatus={installedProgramStatus(
-                            config.provider,
-                            providerStatusByProvider.get(config.provider),
-                            localProviderStatuses,
-                          )}
-                          providerStatusByInstance={providerStatusByInstance}
-                          updatingProviders={updatingProviders}
-                          onOpenChange={(open) =>
-                            setOpenInstallProviders((existing) => ({
-                              ...existing,
-                              [config.provider]: open,
-                            }))
-                          }
-                          onUpdate={(provider) => void runProviderUpdate(provider)}
-                          updateSettings={updateSettings}
-                          updateSettingsAndWait={updateSettingsAndWait}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </SettingsRow>
-              </SettingsSection>
-            </div>
-          </div>
-        </CollapsiblePanel>
-      </Collapsible>
-    </div>
+      <ProvidersSplitWorkbench
+        selection={selection}
+        onSelect={setSelection}
+        unifiedProviders={unifiedProviders}
+        defaultUnifiedProviderId={defaultUnifiedProviderId}
+        unifiedProviderByCli={unifiedProviderByCli}
+        enabledCliOptions={enabledProviderOptions}
+        disabledCliOptions={disabledProviderOptions}
+        disabledOpen={disabledProvidersOpen}
+        onDisabledOpenChange={setDisabledProvidersOpen}
+        providerStatusByProvider={providerStatusByProvider}
+        statusReconciled={providerStatusesReconciled}
+        refreshingProviders={refreshingProviders}
+        onRefreshProviders={() => void refreshProviders()}
+        onOpenAddProvider={() => setAddUnifiedDialogOpen(true)}
+      >
+        {detailPaneContent}
+      </ProvidersSplitWorkbench>
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createTransformCache,
+  normalizeTransformCachePath,
   transformCacheDirFromEnv,
   transformFingerprint,
 } from "./production-assets-transform-cache";
@@ -76,5 +77,38 @@ describe("production asset transform cache", () => {
     expect(transformCacheDirFromEnv({})).toBeUndefined();
     expect(transformCacheDirFromEnv({ MOSS_WEB_TRANSFORM_CACHE: " " })).toBeUndefined();
     expect(transformCacheDirFromEnv({ MOSS_WEB_TRANSFORM_CACHE: "x" })).toMatch(/x$/u);
+  });
+
+  it("normalizes worktree paths and bun store paths identically across checkouts", () => {
+    const winRootA = "D:\\DevTemp\\moss-release-1014\\repo";
+    const winRootB = "D:\\DevTemp\\moss-release-1015\\repo";
+    expect(
+      normalizeTransformCachePath(
+        "d:/DevTemp/moss-release-1014/repo/apps/web/src/App.tsx?v=1",
+        winRootA,
+      ),
+    ).toBe("<workspace>/apps/web/src/App.tsx?v=1");
+    expect(
+      normalizeTransformCachePath(
+        "D:\\DevTemp\\moss-release-1015\\repo\\apps\\web\\src\\App.tsx?v=1",
+        winRootB,
+      ),
+    ).toBe("<workspace>/apps/web/src/App.tsx?v=1");
+
+    const storePathA =
+      "D:\\ceshi\\main\\node_modules\\.bun\\@babel+core@7.29.0+abc123\\node_modules\\@babel\\core\\lib\\index.js";
+    const storePathB =
+      "D:\\DevTemp\\moss-release-1015\\repo\\node_modules\\.bun\\@babel+core@7.29.0+abc123\\node_modules\\@babel\\core\\lib\\index.js";
+    const storePathNewVersion =
+      "D:\\DevTemp\\moss-release-1015\\repo\\node_modules\\.bun\\@babel+core@7.30.0+def456\\node_modules\\@babel\\core\\lib\\index.js";
+    expect(normalizeTransformCachePath(storePathA, winRootA)).toBe(
+      normalizeTransformCachePath(storePathB, winRootB),
+    );
+    expect(normalizeTransformCachePath(storePathA, winRootA)).not.toBe(
+      normalizeTransformCachePath(storePathNewVersion, winRootB),
+    );
+
+    expect(normalizeTransformCachePath("\0virtual:module", "/repo")).toBe("\0virtual:module");
+    expect(normalizeTransformCachePath("/external/lib.ts", "/repo")).toBe("/external/lib.ts");
   });
 });

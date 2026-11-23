@@ -21,6 +21,7 @@ import { listFiles, pruneProductionIcons } from "./scripts/production-assets";
 import { compressCacheFromEnv } from "./scripts/production-assets-compress-cache";
 import {
   createTransformCache,
+  normalizeTransformCachePath,
   transformCacheDirFromEnv,
   transformFingerprint,
 } from "./scripts/production-assets-transform-cache";
@@ -150,12 +151,52 @@ const PRECOMPRESS_EXTENSIONS = new Set([".js", ".mjs", ".css", ".html", ".svg", 
 // Below this size, compression savings don't beat the extra header bytes and
 // the sidecar file overhead.
 const PRECOMPRESS_MIN_BYTES = 1024;
-// Brotli quality 11 can reserve substantial native memory per input. Running
-// every generated asset at once made the Windows packaging runner terminate
-// the Vite process after bundling, before it could emit a useful diagnostic.
-// A small fixed batch keeps memory bounded while still using all practical
-// compression parallelism on the hosted builders.
-const PRECOMPRESS_CONCURRENCY = 4;
+// Brotli quality 6 + gzip level 6 is ~500x faster than max-quality brotli
+// (sub-second vs ~2 minutes on large chunks) with <1 MB total delta across
+// all 1,100+ static assets. Both remain overridable for release experiments.
+const DEFAULT_PRECOMPRESS_CONCURRENCY = 4;
+const DEFAULT_PRECOMPRESS_BROTLI_QUALITY = 6;
+const DEFAULT_PRECOMPRESS_GZIP_LEVEL = 6;
+
+function resolvePrecompressInt(
+  envName: string,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const raw = process.env[envName]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.min(max, parsed);
+}
+
+function resolvePrecompressConcurrency(): number {
+  return resolvePrecompressInt(
+    "MOSS_WEB_PRECOMPRESS_CONCURRENCY",
+    DEFAULT_PRECOMPRESS_CONCURRENCY,
+    1,
+    16,
+  );
+}
+
+function resolvePrecompressBrotliQuality(): number {
+  return resolvePrecompressInt(
+    "MOSS_WEB_PRECOMPRESS_BROTLI_QUALITY",
+    DEFAULT_PRECOMPRESS_BROTLI_QUALITY,
+    zlib.constants.BROTLI_MIN_QUALITY,
+    zlib.constants.BROTLI_MAX_QUALITY,
+  );
+}
+
+function resolvePrecompressGzipLevel(): number {
+  return resolvePrecompressInt(
+    "MOSS_WEB_PRECOMPRESS_GZIP_LEVEL",
+    DEFAULT_PRECOMPRESS_GZIP_LEVEL,
+    zlib.constants.Z_BEST_SPEED,
+    zlib.constants.Z_BEST_COMPRESSION,
+  );
+}
 
 // Emits .gz and .br sidecars next to compressible build outputs so the server
 // can serve precompressed bytes by Accept-Encoding instead of compressing on
@@ -195,8 +236,11 @@ function precompressPlugin(): Plugin {
         await fs.rename(tempPath, sidecarPath);
       };
       let sidecarCount = 0;
-      for (let start = 0; start < files.length; start += PRECOMPRESS_CONCURRENCY) {
-        const batch = files.slice(start, start + PRECOMPRESS_CONCURRENCY);
+      const precompressConcurrency = resolvePrecompressConcurrency();
+      const configuredBrotliQuality = resolvePrecompressBrotliQuality();
+      const gzipLevel = resolvePrecompressGzipLevel();
+      for (let start = 0; start < files.length; start += precompressConcurrency) {
+        const batch = files.slice(start, start + precompressConcurrency);
         await Promise.all(
           batch.map(async (file) => {
             const source = await fs.readFile(file);
@@ -204,11 +248,11 @@ function precompressPlugin(): Plugin {
               await Promise.all([removeStale(`${file}.gz`), removeStale(`${file}.br`)]);
               return;
             }
-            // Max-quality brotli on thousands of small files dominates plugin
-            // wall-clock; below 16 KiB quality 9 is byte-for-byte competitive.
             const brotliQuality =
-              source.byteLength < 16 * 1024 ? 9 : zlib.constants.BROTLI_MAX_QUALITY;
-            const runGzip = () => gzip(source, { level: zlib.constants.Z_BEST_COMPRESSION });
+              source.byteLength < 16 * 1024
+                ? Math.min(configuredBrotliQuality, 9)
+                : configuredBrotliQuality;
+            const runGzip = () => gzip(source, { level: gzipLevel });
             const runBrotli = () =>
               brotliCompress(source, {
                 params: {
@@ -219,12 +263,7 @@ function precompressPlugin(): Plugin {
             const [gzipped, brotlied] = await Promise.all(
               cache
                 ? [
-                    cache.compress(
-                      "gz",
-                      source,
-                      `level=${zlib.constants.Z_BEST_COMPRESSION}`,
-                      runGzip,
-                    ),
+                    cache.compress("gz", source, `level=${gzipLevel}`, runGzip),
                     cache.compress(
                       "br",
                       source,
@@ -285,6 +324,14 @@ function cacheCompilerTransform<P extends Plugin>(plugin: P): P {
     }
   };
   const open = () => {
+    const rawWorkspaceRoot = path.resolve(root, "../..");
+    const workspaceRoots = [rawWorkspaceRoot];
+    try {
+      const realWorkspaceRoot = fsSync.realpathSync(rawWorkspaceRoot);
+      if (realWorkspaceRoot !== rawWorkspaceRoot) workspaceRoots.unshift(realWorkspaceRoot);
+    } catch {
+      // Keep resolved workspace root when realpath is unavailable.
+    }
     const app = path.join(root, "package.json");
     const pluginBabel = resolveFrom(app, "@rolldown/plugin-babel");
     const pluginReact = resolveFrom(app, "@vitejs/plugin-react");
@@ -300,26 +347,35 @@ function cacheCompilerTransform<P extends Plugin>(plugin: P): P {
       console.warn("[transform-cache] could not fingerprint the compiler; cache off");
       return undefined;
     }
-    return createTransformCache(
-      dir,
-      transformFingerprint([
-        ...(parts as string[]),
-        createHash("sha256").update(fsSync.readFileSync(configFile)).digest("hex"),
-        `NODE_ENV=${process.env.NODE_ENV ?? ""}`,
-        `BABEL_ENV=${process.env.BABEL_ENV ?? ""}`,
-      ]),
-    );
+    return {
+      workspaceRoots,
+      cache: createTransformCache(
+        dir,
+        transformFingerprint([
+          ...(parts as string[]).map((part) => normalizeTransformCachePath(part, workspaceRoots)),
+          createHash("sha256").update(fsSync.readFileSync(configFile)).digest("hex"),
+          `NODE_ENV=${process.env.NODE_ENV ?? ""}`,
+          `BABEL_ENV=${process.env.BABEL_ENV ?? ""}`,
+          `MOSS_WEB_SOURCEMAP=${process.env.MOSS_WEB_SOURCEMAP ?? ""}`,
+        ]),
+      ),
+    };
   };
   let opened = false;
+  let workspaceRoots: ReadonlyArray<string> = [workspaceRoot];
   transform.handler = async function (code, id, options) {
     if (!opened) {
       opened = true;
-      cache = open();
+      const openedCache = open();
+      if (openedCache) {
+        cache = openedCache.cache;
+        workspaceRoots = openedCache.workspaceRoots;
+      }
     }
     if (!cache) return inner.call(this, code, id, options);
     return cache.transform(
       {
-        id,
+        id: normalizeTransformCachePath(id, workspaceRoots),
         code,
         moduleType: options?.moduleType ?? "js",
         environment: this.environment?.name ?? "",
@@ -458,6 +514,9 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: buildSourcemap,
+    // precompressPlugin already emits .gz/.br sidecars in parallel; skipping
+    // Vite's single-threaded gzip size report avoids compressing 1,100+ chunks twice.
+    reportCompressedSize: false,
     // The largest chunks are intentionally lazy-loaded editor grammars,
     // terminal runtime code, and the chat route—not initial-load bundles.
     chunkSizeWarningLimit: 850,

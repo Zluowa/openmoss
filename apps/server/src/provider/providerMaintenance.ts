@@ -312,11 +312,15 @@ export function makeProviderMaintenanceCapabilities(input: {
 function makeManualOnlyProviderMaintenanceCapabilities(input: {
   readonly provider: ProviderKind;
   readonly packageName: string | null;
+  readonly latestVersionSource?: ProviderLatestVersionSource | null | undefined;
   readonly packageChannel?: ProviderPackageChannel | undefined;
 }): ProviderMaintenanceCapabilities {
   return makeProviderMaintenanceCapabilities({
     provider: input.provider,
     packageName: input.packageName,
+    ...(input.latestVersionSource !== undefined
+      ? { latestVersionSource: input.latestVersionSource }
+      : {}),
     updateExecutable: null,
     updateArgs: [],
     updateLockKey: null,
@@ -620,6 +624,7 @@ function makeProviderMaintenanceForInstallSource(input: {
   return makeManualOnlyProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
+    latestVersionSource: definition.latestVersionSource,
     packageChannel,
   });
 }
@@ -678,6 +683,7 @@ export function resolvePackageManagedProviderMaintenance(
     return makeManualOnlyProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: definition.npmPackageName,
+      latestVersionSource: definition.latestVersionSource,
       packageChannel,
     });
   }
@@ -690,7 +696,9 @@ export function resolvePackageManagedProviderMaintenance(
     return makeProviderMaintenanceCapabilities({
       provider: definition.provider,
       packageName: null,
-      latestVersionSource: null,
+      latestVersionSource:
+        definition.latestVersionSource ??
+        (definition.npmPackageName ? { kind: "npm", name: definition.npmPackageName } : null),
       updateExecutable: null,
       updateArgs: [],
       updateLockKey: null,
@@ -742,6 +750,7 @@ export function resolvePackageManagedProviderMaintenance(
   return makeManualOnlyProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: definition.npmPackageName,
+    latestVersionSource: definition.latestVersionSource,
     packageChannel,
   });
 }

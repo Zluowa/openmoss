@@ -644,6 +644,24 @@ describe("useProviderModelCatalog", () => {
       discoveryEnabled: true,
       prefetchProviders: ["codex", "droid", "opencode"],
     });
+    expect(readModelQueryEnabled("droid")).toBe(false);
+
+    mocks.useAppSettings.mockReturnValue({
+      settings: SETTINGS,
+      serverSettings: {
+        ...DEFAULT_SERVER_SETTINGS,
+        providers: {
+          ...DEFAULT_SERVER_SETTINGS.providers,
+          droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: true },
+        },
+      },
+    });
+    mocks.useQuery.mockClear();
+    readCatalogRenders({
+      selectedProvider: "codex",
+      discoveryEnabled: true,
+      prefetchProviders: ["codex", "droid", "opencode"],
+    });
     expect(readModelQueryEnabled("droid")).toBe(true);
 
     mocks.useQuery.mockClear();

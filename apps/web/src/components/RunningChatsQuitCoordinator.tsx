@@ -27,6 +27,27 @@ import { useTerminalStateStore } from "~/terminalStateStore";
 
 import { RunningChatsQuitDialog, type RunningChatsQuitDecision } from "./RunningChatsQuitDialog";
 
+function collectRunningSnapshot(updateDownloading: boolean) {
+  const state = useStore.getState();
+  const running = listRunningChatsFromDesktopStore(state);
+  const work = listRunningWorkForQuit({
+    terminalStateByThreadId: useTerminalStateStore.getState().terminalStateByThreadId,
+    threadTitleById: (threadId) =>
+      state.sidebarThreadSummaryById[threadId as ThreadId]?.title ??
+      state.threadShellById?.[threadId as ThreadId]?.title,
+    devServers: Object.values(useProjectRunStore.getState().runsByProjectId),
+    projectNameById: (projectId) =>
+      state.projects.find((project) => project.id === projectId)?.name,
+    imports: listRunningImports(useRunningImportsStore.getState().importsById),
+    updateDownloading,
+  });
+  return {
+    running,
+    work,
+    runningCount: running.length + work.length,
+  };
+}
+
 export function RunningChatsQuitCoordinator() {
   const [prompt, setPrompt] = useState<{
     readonly chats: ReadonlyArray<RunningChatQuitSummary>;
@@ -122,20 +143,9 @@ export function RunningChatsQuitCoordinator() {
     }
 
     return subscribe((request) => {
-      const state = useStore.getState();
-      const running = listRunningChatsFromDesktopStore(state);
-      const work = listRunningWorkForQuit({
-        terminalStateByThreadId: useTerminalStateStore.getState().terminalStateByThreadId,
-        threadTitleById: (threadId) =>
-          state.sidebarThreadSummaryById[threadId as ThreadId]?.title ??
-          state.threadShellById?.[threadId as ThreadId]?.title,
-        devServers: Object.values(useProjectRunStore.getState().runsByProjectId),
-        projectNameById: (projectId) =>
-          state.projects.find((project) => project.id === projectId)?.name,
-        imports: listRunningImports(useRunningImportsStore.getState().importsById),
-        updateDownloading: request.updateDownloading === true,
-      });
-      const runningCount = running.length + work.length;
+      const { running, work, runningCount } = collectRunningSnapshot(
+        request.updateDownloading === true,
+      );
       reply({
         requestId: request.requestId,
         phase: "ready",
@@ -147,6 +157,36 @@ export function RunningChatsQuitCoordinator() {
       pendingRequestIdRef.current = request.requestId;
       setPrompt({ chats: running, work });
     });
+  }, []);
+
+  useEffect(() => {
+    const updateTrayStatus = window.desktopBridge?.desktopBehavior?.updateTrayStatus;
+    if (typeof updateTrayStatus !== "function") {
+      return;
+    }
+
+    let lastSentCount: number | null = null;
+    const syncTrayTaskCount = () => {
+      const { runningCount } = collectRunningSnapshot(false);
+      if (runningCount === lastSentCount) {
+        return;
+      }
+      lastSentCount = runningCount;
+      void updateTrayStatus({ runningTaskCount: runningCount }).catch(() => {});
+    };
+
+    syncTrayTaskCount();
+    const unsubscribeStore = useStore.subscribe(syncTrayTaskCount);
+    const unsubscribeTerminal = useTerminalStateStore.subscribe(syncTrayTaskCount);
+    const unsubscribeProjectRun = useProjectRunStore.subscribe(syncTrayTaskCount);
+    const unsubscribeImports = useRunningImportsStore.subscribe(syncTrayTaskCount);
+
+    return () => {
+      unsubscribeStore();
+      unsubscribeTerminal();
+      unsubscribeProjectRun();
+      unsubscribeImports();
+    };
   }, []);
 
   return (
