@@ -405,4 +405,74 @@ describe("loopback HTTP transport", () => {
       await closeHttpServer(server);
     }
   });
+
+  it("stops streaming early via stopReadingAfter when onChunk is active", async () => {
+    const { server, origin } = await listenHttpServer((_request, response) => {
+      response.writeHead(200, { "content-type": "application/octet-stream" });
+      response.write("first-chunk-");
+      setTimeout(() => {
+        response.write("second-chunk");
+      }, 10);
+    });
+    try {
+      const seen: string[] = [];
+      const response = await outboundHttp.request({
+        policy: { ...loopbackPolicyFor([origin]), timeoutMs: 2_000 },
+        url: origin,
+        onChunk: async (chunk) => {
+          seen.push(new TextDecoder().decode(chunk));
+        },
+        stopReadingAfter: (chunk) => new TextDecoder().decode(chunk).includes("first-chunk-"),
+      });
+      expect(response.status).toBe(200);
+      expect(seen).toEqual(["first-chunk-"]);
+    } finally {
+      server.closeAllConnections();
+      await closeHttpServer(server);
+    }
+  });
+
+  it("still rejects private IP literals even when an explicit proxyUrl is set", async () => {
+    await expect(
+      outboundHttp.request({
+        policy: {
+          ...benchmarkPolicyFor("https://127.0.0.1"),
+          proxyUrl: "http://127.0.0.1:7897/",
+        },
+        url: "https://127.0.0.1/",
+      }),
+    ).rejects.toMatchObject({ code: "private-address" });
+  });
+
+  it("ignores a post-response socket reset once the full streamed body has arrived", async () => {
+    const payload = "x".repeat(4096);
+    const { server, origin } = await listenHttpServer((_request, response) => {
+      response.writeHead(200, {
+        "content-type": "application/octet-stream",
+        "content-length": String(Buffer.byteLength(payload)),
+        connection: "close",
+      });
+      response.end(payload, () => {
+        setTimeout(() => {
+          response.socket?.resetAndDestroy();
+        }, 5);
+      });
+    });
+    try {
+      const received: Buffer[] = [];
+      const response = await outboundHttp.request({
+        policy: { ...loopbackPolicyFor([origin]), maxResponseBytes: 16 * 1024 },
+        url: origin,
+        onChunk: async (chunk) => {
+          await new Promise((resolve) => setTimeout(resolve, 25));
+          received.push(Buffer.from(chunk));
+        },
+      });
+      expect(response.status).toBe(200);
+      expect(Buffer.concat(received).toString("utf8")).toBe(payload);
+    } finally {
+      server.closeAllConnections();
+      await closeHttpServer(server);
+    }
+  });
 });

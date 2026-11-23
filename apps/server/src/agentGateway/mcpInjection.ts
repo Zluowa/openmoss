@@ -268,50 +268,6 @@ export function buildClaudeMcpServers(
 
 export type AcpStdioProxySpawn = AgentGatewayStdioProxySpawn;
 
-export interface AntigravityMcpPluginConfig {
-  readonly mcpServers: Record<
-    string,
-    {
-      readonly command: string;
-      readonly args: ReadonlyArray<string>;
-      readonly env: Record<string, string>;
-      readonly disabled: false;
-      readonly disabledTools: ReadonlyArray<string>;
-    }
-  >;
-}
-
-/**
- * Build the secret-free MCP fragment installed with Moss's Antigravity
- * plugin. Antigravity expands the endpoint plus a one-shot bootstrap value
- * from each `agy` process. The stdio proxy consumes that value during MCP
- * initialization and keeps the exchanged session bearer in its own memory,
- * so `run_command` descendants never inherit the bearer.
- *
- * `ELECTRON_RUN_AS_NODE` keeps the generated proxy runnable when a packaged
- * desktop uses its Electron executable as `process.execPath`; it is harmless
- * for regular Node and Bun executables.
- */
-export function buildAntigravityMcpPluginConfig(
-  stdioProxy: AcpStdioProxySpawn,
-): AntigravityMcpPluginConfig {
-  return {
-    mcpServers: {
-      [MOSS_MCP_SERVER_NAME]: {
-        command: stdioProxy.command,
-        args: [...stdioProxy.args],
-        env: {
-          [MOSS_AGENT_GATEWAY_URL_ENV]: `$${MOSS_AGENT_GATEWAY_URL_ENV}`,
-          [MOSS_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV]: `$${MOSS_AGENT_GATEWAY_BOOTSTRAP_TOKEN_ENV}`,
-          ELECTRON_RUN_AS_NODE: "1",
-        },
-        disabled: false,
-        disabledTools: [],
-      },
-    },
-  };
-}
-
 // Structural view of an ACP initialize response so callers with untyped
 // (raw JSON) responses can reuse the same transport negotiation.
 export interface AcpInitializeCapabilitiesView {

@@ -9,7 +9,6 @@ import {
   MOSS_MANAGED_CODEX_CONFIG_END,
 } from "../codexProcessEnv.ts";
 import {
-  buildAntigravityMcpPluginConfig,
   buildAcpMossMcpServers,
   buildClaudeMcpServers,
   buildCodexMcpConfigToml,
@@ -42,24 +41,6 @@ const stdioProxy = {
 };
 
 describe("agent gateway MCP injection", () => {
-  it("builds a secret-free Antigravity stdio plugin config", () => {
-    assert.deepEqual(buildAntigravityMcpPluginConfig(stdioProxy), {
-      mcpServers: {
-        moss: {
-          command: stdioProxy.command,
-          args: stdioProxy.args,
-          env: {
-            MOSS_AGENT_GATEWAY_URL: "$MOSS_AGENT_GATEWAY_URL",
-            MOSS_AGENT_GATEWAY_BOOTSTRAP_TOKEN: "$MOSS_AGENT_GATEWAY_BOOTSTRAP_TOKEN",
-            ELECTRON_RUN_AS_NODE: "1",
-          },
-          disabled: false,
-          disabledTools: [],
-        },
-      },
-    });
-  });
-
   it("builds a codex config block that references the token env var, not the token", () => {
     const block = buildCodexMcpConfigToml(connection.url);
     assert.include(block, "[mcp_servers.moss]");

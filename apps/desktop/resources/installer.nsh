@@ -1,10 +1,156 @@
-; Installed apps start this installer with --updated --force-run but without /S, and the
-; assisted installer's update run still shows its install-mode and finish pages. The user
-; already chose to install inside Moss, so an update runs silently and relaunches the app.
-; Deciding here also covers builds already in the field, whose call can no longer change.
+; Relaunch Moss cleanly after an update or assisted install.
+; StdUtils::ExecShellAsUser drops elevation back to the desktop user when a per-machine
+; installer ran elevated. If launching via the Start Menu shortcut fails (for example,
+; Explorer is busy or the shortcut could not be opened), fall back to the installed
+; executable via ExecShellAsUser and finally direct Exec so updates always reopen Moss.
+!macro mossLaunchApp ARGS
+  Push $0
+  ${StdUtils.ExecShellAsUser} $0 "$launchLink" "open" "${ARGS}"
+  ${if} $0 != "ok"
+  ${andIf} $0 != "fallback"
+    ${StdUtils.ExecShellAsUser} $0 "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "open" "${ARGS}"
+    ${if} $0 != "ok"
+    ${andIf} $0 != "fallback"
+      ${if} "${ARGS}" == ""
+        Exec '"$INSTDIR\${APP_EXECUTABLE_FILENAME}"'
+      ${else}
+        Exec '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" ${ARGS}'
+      ${endIf}
+    ${endIf}
+  ${endIf}
+  Pop $0
+!macroend
+
+; Included in installer.nsi after Var launchLink and allowOnlyOneInstallerInstance.nsh.
+; Defining customCheckAppRunning skips app-builder-lib's default getProcessInfo.nsh / Var pid
+; inclusion, so restore them here for non-update installs that delegate to _CHECK_APP_RUNNING.
+; Also hook .onInstSuccess so visible --updated --force-run installs relaunch Moss reliably
+; (assisted installers only run doStartApp automatically when /S is passed).
+!macro customHeader
+  !ifndef BUILD_UNINSTALLER
+    !include "getProcessInfo.nsh"
+    Var pid
+
+    Function .onInstSuccess
+      ${if} ${isUpdated}
+      ${andIf} ${isForceRun}
+      ${andIfNot} ${Silent}
+        HideWindow
+        !insertmacro mossLaunchApp "--updated"
+      ${endIf}
+    FunctionEnd
+  !endif
+!macroend
+
+; Installed apps start this installer with --updated --force-run (without /S).
+; Keep the installation progress window visible instead of forcing SetSilent silent:
+; - users see real installation progress instead of a 1-2 minute silent blackout
+; - SetAutoClose true closes the progress window automatically on completion
+; - customInstallMode and customFinishPage skip wizard pages so zero clicks are needed
+; - explicit /S callers (such as autoInstallOnAppQuit) remain completely silent
 !macro customInit
   ${if} ${isUpdated}
-    SetSilent silent
+    SetAutoClose true
+  ${endIf}
+!macroend
+
+; Reinforce auto-close at the end of the install section for --updated runs.
+!macro customInstall
+  ${if} ${isUpdated}
+    SetAutoClose true
+  ${endIf}
+!macroend
+
+; Skip the install-mode wizard page on --updated while keeping per-machine vs per-user
+; installation scope (and elevating via UAC when updating a per-machine install).
+!macro customInstallMode
+  !ifndef BUILD_UNINSTALLER
+    ${if} ${isUpdated}
+      ${if} $hasPerMachineInstallation == "1"
+        StrCpy $isForceMachineInstall "1"
+      ${else}
+        StrCpy $isForceCurrentInstall "1"
+      ${endIf}
+    ${endIf}
+  !endif
+!macroend
+
+; Skip the finish page on --updated so the installer auto-closes and relaunches Moss via
+; .onInstSuccess. Fresh installs keep the finish page with "Run Moss" checked by default.
+!macro customFinishPage
+  !ifndef HIDE_RUN_AFTER_FINISH
+    Function StartApp
+      ${if} ${isUpdated}
+        !insertmacro mossLaunchApp "--updated"
+      ${else}
+        !insertmacro mossLaunchApp ""
+      ${endIf}
+    FunctionEnd
+
+    !define MUI_FINISHPAGE_RUN
+    !define MUI_FINISHPAGE_RUN_FUNCTION "StartApp"
+  !endif
+
+  Function mossSkipFinishPageIfUpdated
+    ${if} ${isUpdated}
+      Abort
+    ${endIf}
+  FunctionEnd
+
+  !define MUI_PAGE_CUSTOMFUNCTION_PRE mossSkipFinishPageIfUpdated
+  !insertmacro MUI_PAGE_FINISH
+!macroend
+
+; On --updated, Moss is already shutting down its main, GPU, renderer, and helper processes as
+; the installer launches. app-builder-lib's default _CHECK_APP_RUNNING only retries twice before
+; hitting MessageBox /SD IDCANCEL, which silently aborts when silent. Wait patiently for
+; processes under $INSTDIR to exit gracefully, then request close, then force-stop lingering
+; helpers before prompting.
+!macro customCheckAppRunning
+  !insertmacro IS_POWERSHELL_AVAILABLE
+  ${if} ${isUpdated}
+    ${GetProcessInfo} 0 $pid $1 $2 $3 $4
+    ${if} $3 != "${APP_EXECUTABLE_FILENAME}"
+      StrCpy $R1 0
+      mossWaitGraceful:
+        !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+        ${if} $R0 != 0
+          Goto mossAppStopped
+        ${endIf}
+        IntOp $R1 $R1 + 1
+        ${if} $R1 <= 24
+          DetailPrint "$(appClosing)"
+          Sleep 500
+          Goto mossWaitGraceful
+        ${endIf}
+
+      DetailPrint "$(appClosing)"
+      !insertmacro KILL_PROCESS "${APP_EXECUTABLE_FILENAME}" 0
+      Sleep 1000
+
+      StrCpy $R1 0
+      mossWaitForce:
+        !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+        ${if} $R0 != 0
+          Goto mossAppStopped
+        ${endIf}
+        IntOp $R1 $R1 + 1
+        !insertmacro KILL_PROCESS "${APP_EXECUTABLE_FILENAME}" 1
+        Sleep 1000
+        !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
+        ${if} $R0 != 0
+          Goto mossAppStopped
+        ${endIf}
+        ${if} $R1 < 15
+          DetailPrint `Waiting for "${PRODUCT_NAME}" to close.`
+          Goto mossWaitForce
+        ${endIf}
+        MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(appCannotBeClosed)" /SD IDCANCEL IDRETRY mossWaitForce
+        Quit
+      mossAppStopped:
+    ${endIf}
+  ${else}
+    !insertmacro _CHECK_APP_RUNNING
   ${endIf}
 !macroend
 
