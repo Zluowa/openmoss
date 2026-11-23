@@ -61,6 +61,7 @@ import {
   shell,
   safeStorage,
   systemPreferences,
+  Tray,
 } from "electron";
 import { configureElectronNetwork } from "betterwright/electron";
 import type {
@@ -75,6 +76,7 @@ import * as Effect from "effect/Effect";
 import type {
   DesktopAppIcon,
   DesktopBackendStartupFailure,
+  DesktopBehaviorState,
   DesktopDockIconPreference,
   DesktopPhoneAccessState,
   DesktopPluginDeepLinkAudit,
@@ -230,6 +232,22 @@ import {
   quitConfirmationPresentationForPlatform,
   shouldPromptForRunningChatsBeforeQuit,
 } from "./runningChatsQuitGuard";
+import {
+  isCloseToTraySupported,
+  readDesktopPreferences,
+  readLoginItemState,
+  resolveDesktopPreferencesPath,
+  updateDesktopPreferences,
+  writeLoginItemEnabled,
+  type DesktopPreferences,
+} from "./desktopPreferences";
+import {
+  createDesktopTrayController,
+  normalizeTrayRunningTaskCount,
+  resolveDesktopTrayIcon,
+  shouldHideWindowToTrayOnClose,
+  type DesktopTrayController,
+} from "./desktopTray";
 import { registerDesktopTerminationSignalHandlers } from "./processTerminationSignals";
 import {
   hasVerifiedDesktopMigrationRestore,
@@ -664,6 +682,7 @@ const DESKTOP_ERROR_REPORTS_PATH = Path.join(STATE_DIR, "desktop-error-reports")
 setDesktopErrorReportsEnabled(readDesktopErrorReportsPreference(DESKTOP_ERROR_REPORTS_PATH));
 const DESKTOP_APP_ICON_PATH = Path.join(STATE_DIR, "desktop-app-icon");
 const DESKTOP_CUSTOM_TITLE_BAR_PATH = Path.join(STATE_DIR, "desktop-custom-title-bar.json");
+const DESKTOP_PREFERENCES_PATH = resolveDesktopPreferencesPath(STATE_DIR);
 // Written by the renderer-mirrored agent cursor colors; read at each driver
 // session open so a persisted custom cursor survives app restarts.
 const AGENT_CURSOR_PREFERENCE_PATH = Path.join(STATE_DIR, "agent-cursor-colors.json");
@@ -890,6 +909,7 @@ let backendStartupFailure: DesktopBackendStartupFailure | null = null;
 const backendStartupFailureRenderers = new Set<number>();
 let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
+let explicitQuitRequested = false;
 let isUpdaterInstallPreparing = false;
 let isUpdaterQuitAndInstallInFlight = false;
 const updateInstallPreparation = makeUpdateInstallPreparationCoordinator();
@@ -911,11 +931,18 @@ let unreadBackgroundNotificationCount = 0;
 const desktopNotificationRetainer = createDesktopNotificationRetainer<Notification>();
 let browserPerfInterval: ReturnType<typeof setInterval> | null = null;
 let desktopUiLocale: NativeMenuLocale = readPersistedDesktopUiLocale();
+let desktopPreferences: DesktopPreferences = readDesktopPreferences(
+  DESKTOP_PREFERENCES_PATH,
+  process.platform,
+);
+let latestTrayRunningTaskCount = 0;
+let desktopTray: DesktopTrayController | null = null;
 const desktopUiLocalePersistence = new DesktopUiLocalePersistenceCoordinator({
   initialLocale: desktopUiLocale,
   onDisplayLocaleChange: (locale) => {
     desktopUiLocale = locale;
     configureApplicationMenu();
+    desktopTray?.setLocale(locale);
   },
   persistLocale: persistDesktopUiLocale,
 });
@@ -2612,6 +2639,9 @@ function dispatchMenuAction(action: string): void {
   const send = () => {
     if (targetWindow.isDestroyed()) return;
     targetWindow.webContents.send(IPC.menuAction, action);
+    if (targetWindow.isMinimized()) {
+      targetWindow.restore();
+    }
     if (!targetWindow.isVisible()) {
       targetWindow.show();
     }
@@ -4250,6 +4280,96 @@ function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
     app.focus({ steal: true });
   }
   mainWindow.focus();
+}
+
+function getDesktopBehaviorState(): DesktopBehaviorState {
+  const closeToTraySupported = isCloseToTraySupported(process.platform);
+  const loginItem = readLoginItemState({
+    app,
+    platform: process.platform,
+    execPath: process.execPath,
+  });
+  return {
+    closeToTray: closeToTraySupported ? desktopPreferences.closeToTray : false,
+    closeToTraySupported,
+    openAtLogin: loginItem.openAtLogin,
+    openAtLoginSupported: loginItem.supported,
+  };
+}
+
+function openOrFocusMainWindowFromTray(): void {
+  const existing = resolveDesktopContentWindow();
+  if (!existing) {
+    if (!canOpenRendererWindow()) {
+      focusMainWindow({ stealAppFocus: true });
+      return;
+    }
+    mainWindow = createWindow();
+  }
+  focusMainWindow({ stealAppFocus: true });
+}
+
+function showTrayFirstHideNotification(): void {
+  try {
+    if (!Notification.isSupported()) {
+      return;
+    }
+    const isZhCn = desktopUiLocale === "zh-CN";
+    const iconPath = resolveNotificationIconPath();
+    const notification = new Notification({
+      title: isZhCn ? "Moss 已最小化到托盘" : "Moss minimized to tray",
+      body: isZhCn
+        ? "点击托盘图标可重新打开，后台任务将继续运行"
+        : "Click the tray icon to reopen. Background tasks will keep running.",
+      ...(iconPath ? { icon: iconPath } : {}),
+    });
+    notification.on("click", () => {
+      openOrFocusMainWindowFromTray();
+    });
+    desktopNotificationRetainer.retain(notification);
+    notification.show();
+  } catch (error: unknown) {
+    console.warn(`[desktop] Failed to show tray hide notification: ${formatErrorMessage(error)}`);
+  }
+}
+
+function initializeDesktopTray(): void {
+  if (desktopTray) {
+    return;
+  }
+  const icon = resolveDesktopTrayIcon({
+    resolveResourcePath,
+    nativeImageApi: nativeImage,
+    platform: process.platform,
+  });
+  desktopTray = createDesktopTrayController({
+    icon,
+    createTray: (trayIcon) => new Tray(trayIcon),
+    buildMenu: (template) => Menu.buildFromTemplate(template),
+    initialLocale: desktopUiLocale,
+    initialRunningTaskCount: latestTrayRunningTaskCount,
+    appName: APP_DISPLAY_NAME,
+    onOpen: () => {
+      openOrFocusMainWindowFromTray();
+    },
+    onNewChat: () => {
+      dispatchMenuAction("new-thread");
+    },
+    onOpenSettings: () => {
+      dispatchMenuAction("open-settings");
+    },
+    onCheckUpdates: () => {
+      openOrFocusMainWindowFromTray();
+      handleCheckForUpdatesMenuClick();
+    },
+    onQuit: () => {
+      explicitQuitRequested = true;
+      app.quit();
+    },
+    onError: (error) => {
+      console.warn(`[desktop] Desktop tray warning: ${formatErrorMessage(error)}`);
+    },
+  });
 }
 
 function flushConnectorOAuthCallbacks(): number {
@@ -7833,7 +7953,11 @@ async function confirmRunningChatsThenQuit(reason: string): Promise<void> {
       .finally(() => {
         nativeQuitConfirmationPromise = null;
       });
-    if (await nativeQuitConfirmationPromise) requestGracefulAppQuit(reason);
+    if (await nativeQuitConfirmationPromise) {
+      requestGracefulAppQuit(reason);
+    } else {
+      explicitQuitRequested = false;
+    }
     return;
   }
   const presentation = quitConfirmationPresentationForPlatform();
@@ -7857,6 +7981,7 @@ async function confirmRunningChatsThenQuit(reason: string): Promise<void> {
     presentation,
   });
   if (!allowed) {
+    explicitQuitRequested = false;
     writeDesktopLogHeader(`${reason} stayed because chats are still running`);
     return;
   }
@@ -7910,6 +8035,8 @@ function requestGracefulAppQuit(reason: string): void {
     deferDesktopQuitUntilUpdaterSettles(reason);
     return;
   }
+
+  explicitQuitRequested = true;
 
   void runAfterDesktopShutdown(shutdownDesktopRuntime(reason), () => app.quit()).catch(
     (error: unknown) => {
@@ -8626,6 +8753,46 @@ function registerIpcHandlers(): void {
   registerIpcHandle(IPC.customTitleBarRelaunch, async () => {
     app.relaunch();
     requestGracefulAppQuit("custom-title-bar-relaunch");
+  });
+
+  ipcMain.removeHandler(IPC.desktopBehavior.getState);
+  registerIpcHandle(IPC.desktopBehavior.getState, async () => getDesktopBehaviorState());
+
+  ipcMain.removeHandler(IPC.desktopBehavior.setCloseToTray);
+  registerIpcHandle(IPC.desktopBehavior.setCloseToTray, async (_event, rawEnabled: unknown) => {
+    if (typeof rawEnabled !== "boolean" || !isCloseToTraySupported(process.platform)) {
+      return getDesktopBehaviorState();
+    }
+    desktopPreferences = updateDesktopPreferences(
+      DESKTOP_PREFERENCES_PATH,
+      { closeToTray: rawEnabled },
+      process.platform,
+    );
+    return getDesktopBehaviorState();
+  });
+
+  ipcMain.removeHandler(IPC.desktopBehavior.setOpenAtLogin);
+  registerIpcHandle(IPC.desktopBehavior.setOpenAtLogin, async (_event, rawEnabled: unknown) => {
+    if (typeof rawEnabled !== "boolean") {
+      return getDesktopBehaviorState();
+    }
+    writeLoginItemEnabled({
+      app,
+      enabled: rawEnabled,
+      platform: process.platform,
+      execPath: process.execPath,
+    });
+    return getDesktopBehaviorState();
+  });
+
+  ipcMain.removeHandler(IPC.desktopBehavior.updateTrayStatus);
+  registerIpcHandle(IPC.desktopBehavior.updateTrayStatus, async (_event, rawInput: unknown) => {
+    const runningTaskCount =
+      rawInput && typeof rawInput === "object"
+        ? (rawInput as { readonly runningTaskCount?: unknown }).runningTaskCount
+        : 0;
+    latestTrayRunningTaskCount = normalizeTrayRunningTaskCount(runningTaskCount);
+    desktopTray?.setRunningTaskCount(latestTrayRunningTaskCount);
   });
 
   ipcMain.removeHandler(IPC.phoneAccess.getState);
@@ -9559,6 +9726,29 @@ function createWindow(
     }
 
     if (
+      desktopTray?.isActive() &&
+      shouldHideWindowToTrayOnClose({
+        platform: process.platform,
+        closeToTray: desktopPreferences.closeToTray,
+        explicitQuitRequested,
+        shutdownComplete: desktopShutdownComplete,
+        updaterHandoffActive: isUpdaterQuitAndInstallInFlight,
+      })
+    ) {
+      event.preventDefault();
+      window.hide();
+      if (!desktopPreferences.hasShownTrayHint) {
+        showTrayFirstHideNotification();
+        desktopPreferences = updateDesktopPreferences(
+          DESKTOP_PREFERENCES_PATH,
+          { hasShownTrayHint: true },
+          process.platform,
+        );
+      }
+      return;
+    }
+
+    if (
       shouldDeferDesktopWindowClose({
         platform: process.platform,
         shutdownComplete: desktopShutdownComplete,
@@ -10108,11 +10298,14 @@ app.on("before-quit", (event) => {
     return;
   }
 
+  explicitQuitRequested = true;
   event.preventDefault();
   void confirmRunningChatsThenQuit("before-quit");
 });
 
 app.on("will-quit", () => {
+  desktopTray?.destroy();
+  desktopTray = null;
   if (isUpdaterQuitAndInstallInFlight) {
     browserManager.dispose();
     backendLogSink?.close();
@@ -10175,6 +10368,9 @@ if (hasSingleInstanceLock) {
       screen.on("display-removed", repositionRealtimeVoiceOverlayAfterDisplayChange);
       screen.on("display-metrics-changed", repositionRealtimeVoiceOverlayAfterDisplayChange);
       configureApplicationMenu();
+      if (isCloseToTraySupported(process.platform)) {
+        initializeDesktopTray();
+      }
       if (
         registerConnectorOAuthProtocolClient(app as unknown as ConnectorOAuthProtocolClient) ===
         "failed"
@@ -10282,7 +10478,11 @@ app.on("child-process-gone", (_event, details) => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  const trayKeepsAppAlive = Boolean(desktopTray?.isActive() && desktopPreferences.closeToTray);
+  if (
+    process.platform !== "darwin" &&
+    (explicitQuitRequested || desktopShutdownComplete || !trayKeepsAppAlive)
+  ) {
     app.quit();
   }
 });

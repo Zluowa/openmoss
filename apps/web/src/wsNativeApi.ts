@@ -884,6 +884,12 @@ export function createWsNativeApi(): WsNativeApi {
       syncWorkspaceImport: (input) =>
         transport.request(WS_METHODS.serverWorkspaceImportSync, input),
       updateSettings: (input) => transport.request(WS_METHODS.serverUpdateSettings, input),
+      saveUnifiedProvider: (input) =>
+        transport.request(WS_METHODS.serverSaveUnifiedProvider, input),
+      deleteUnifiedProvider: (input) =>
+        transport.request(WS_METHODS.serverDeleteUnifiedProvider, input),
+      testUnifiedProvider: (input) =>
+        transport.request(WS_METHODS.serverTestUnifiedProvider, input),
       getAuthSession: () => transport.request(WS_METHODS.serverGetAuthSession),
       bootstrapAuth: (input: AuthBootstrapInput) =>
         requestAuthJson<AuthBootstrapResult>("/api/auth/bootstrap", {

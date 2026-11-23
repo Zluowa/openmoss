@@ -29,8 +29,13 @@ import {
   ServerConfig,
   type ServerConfigShape,
 } from "./config";
-import { attachmentsEffectRouteLayer, localImageEffectRouteLayer } from "./http";
+import {
+  attachmentsEffectRouteLayer,
+  localHtmlPreviewEffectRouteLayer,
+  localImageEffectRouteLayer,
+} from "./http";
 import { createLocalPreviewGrant } from "./localImageFiles";
+import { resolveScratchWorkspacesRoot } from "./scratchWorkspaces.ts";
 import type { CodexGeneratedImageHomeCandidate } from "./codexGeneratedImages.ts";
 import { ManagedAttachmentRepositoryLive } from "./persistence/Layers/ManagedAttachments";
 import { SqlitePersistenceMemory } from "./persistence/Layers/Sqlite";
@@ -229,7 +234,10 @@ function makeServerSettings(getSettings: ServerSettingsShape["getSettings"]): Se
 
 async function withEffectServer(
   config: ServerConfigShape,
-  routeLayer: typeof localImageEffectRouteLayer | typeof attachmentsEffectRouteLayer,
+  routeLayer:
+    | typeof localImageEffectRouteLayer
+    | typeof attachmentsEffectRouteLayer
+    | typeof localHtmlPreviewEffectRouteLayer,
   run: (origin: string) => Promise<void>,
   options: {
     readonly providerRegistry?: typeof ProviderAdapterRegistry.Service;
@@ -262,9 +270,7 @@ async function withEffectServer(
             },
             { port: 0, host: "127.0.0.1" },
           );
-          const httpApp = yield* routeLayer === localImageEffectRouteLayer
-            ? HttpRouter.toHttpEffect(localImageEffectRouteLayer)
-            : HttpRouter.toHttpEffect(attachmentsEffectRouteLayer);
+          const httpApp = yield* HttpRouter.toHttpEffect(routeLayer);
           yield* httpServer.serve(httpApp);
         }).pipe(Effect.provide(servicesLayer)),
         scope,
@@ -772,6 +778,199 @@ describe("attachmentsEffectRouteLayer", () => {
         expect(response.status).toBe(200);
         expect(response.headers.get("content-security-policy")).toMatch(/^sandbox /u);
       });
+    });
+  });
+
+  describe("byte-range and HEAD streaming across preview routes", () => {
+    it("supports HEAD, 206 Range, and 416 responses on /api/local-image for video files", async () => {
+      const workspaceDir = makeTempDir("moss-range-video-");
+      const videoPath = path.join(workspaceDir, "clip.mp4");
+      const bytes = Buffer.from("0123456789abcdef");
+      writeFileSync(videoPath, bytes);
+      const config = makeServerConfig({ cwd: workspaceDir });
+
+      await withEffectServer(config, localImageEffectRouteLayer, async (origin) => {
+        const url = `${origin}/api/local-image?path=${encodeURIComponent(videoPath)}&cwd=${encodeURIComponent(workspaceDir)}`;
+        const headResponse = await fetch(url, { method: "HEAD" });
+        expect(headResponse.status).toBe(200);
+        expect(headResponse.headers.get("accept-ranges")).toBe("bytes");
+        expect(headResponse.headers.get("content-length")).toBe(String(bytes.byteLength));
+        expect(headResponse.headers.get("content-type")).toBe("video/mp4");
+        await expect(headResponse.text()).resolves.toBe("");
+
+        const partialResponse = await fetch(url, {
+          headers: { Range: "bytes=2-5" },
+        });
+        expect(partialResponse.status).toBe(206);
+        expect(partialResponse.headers.get("accept-ranges")).toBe("bytes");
+        expect(partialResponse.headers.get("content-range")).toBe(`bytes 2-5/${bytes.byteLength}`);
+        expect(partialResponse.headers.get("content-length")).toBe("4");
+        await expect(partialResponse.text()).resolves.toBe("2345");
+
+        const invalidResponse = await fetch(url, {
+          headers: { Range: "bytes=999-1000" },
+        });
+        expect(invalidResponse.status).toBe(416);
+        expect(invalidResponse.headers.get("content-range")).toBe(`bytes */${bytes.byteLength}`);
+      });
+    });
+
+    it("supports HEAD and Range requests on /attachments/* and /api/local-html/*", async () => {
+      const workspaceDir = makeTempDir("moss-range-html-");
+      const htmlPath = path.join(workspaceDir, "index.html");
+      const htmlBody = "<html><body>hello range world</body></html>";
+      writeFileSync(htmlPath, htmlBody);
+      const config = makeServerConfig({ cwd: workspaceDir });
+
+      mkdirSync(config.attachmentsDir, { recursive: true });
+      const attachmentName = "thread-range-sample.txt";
+      const attachmentBody = "attachment-payload-0123456789";
+      writeFileSync(path.join(config.attachmentsDir, attachmentName), attachmentBody);
+
+      await withEffectServer(config, attachmentsEffectRouteLayer, async (origin) => {
+        const headResponse = await fetch(`${origin}/attachments/${attachmentName}`, {
+          method: "HEAD",
+        });
+        expect(headResponse.status).toBe(200);
+        expect(headResponse.headers.get("accept-ranges")).toBe("bytes");
+        expect(headResponse.headers.get("content-length")).toBe(String(attachmentBody.length));
+        await expect(headResponse.text()).resolves.toBe("");
+
+        const rangeResponse = await fetch(`${origin}/attachments/${attachmentName}`, {
+          headers: { Range: "bytes=11-17" },
+        });
+        expect(rangeResponse.status).toBe(206);
+        expect(rangeResponse.headers.get("content-range")).toBe(
+          `bytes 11-17/${attachmentBody.length}`,
+        );
+        await expect(rangeResponse.text()).resolves.toBe("payload");
+      });
+
+      const grant = await createLocalPreviewGrant({ requestedPath: htmlPath });
+      await withEffectServer(config, localHtmlPreviewEffectRouteLayer, async (origin) => {
+        const url = `${origin}/api/local-html/${encodeURIComponent(grant.grant)}/index.html`;
+        const headResponse = await fetch(url, { method: "HEAD" });
+        expect(headResponse.status).toBe(200);
+        expect(headResponse.headers.get("accept-ranges")).toBe("bytes");
+        expect(headResponse.headers.get("content-length")).toBe(String(htmlBody.length));
+        await expect(headResponse.text()).resolves.toBe("");
+
+        const rangeResponse = await fetch(url, {
+          headers: { Range: "bytes=-7" },
+        });
+        expect(rangeResponse.status).toBe(206);
+        expect(rangeResponse.headers.get("content-range")).toBe(
+          `bytes ${htmlBody.length - 7}-${htmlBody.length - 1}/${htmlBody.length}`,
+        );
+        await expect(rangeResponse.text()).resolves.toBe("</html>");
+      });
+    });
+  });
+
+  describe("download=1 extension policy and threadId scratch resolution", () => {
+    it("allows arbitrary workspace extensions when download=1 is set and maps .ts to text/plain", async () => {
+      const workspaceDir = makeTempDir("moss-download-ext-");
+      const ps1Path = path.join(workspaceDir, "deploy.ps1");
+      const tsPath = path.join(workspaceDir, "script.ts");
+      writeFileSync(ps1Path, "Write-Output 'ok'\n");
+      writeFileSync(tsPath, "export const answer = 42;\n");
+      const config = makeServerConfig({ cwd: workspaceDir });
+
+      await withEffectServer(config, localImageEffectRouteLayer, async (origin) => {
+        const blocked = await fetch(
+          `${origin}/api/local-image?path=${encodeURIComponent(ps1Path)}&cwd=${encodeURIComponent(workspaceDir)}`,
+        );
+        expect(blocked.status).toBe(404);
+
+        const ps1Download = await fetch(
+          `${origin}/api/local-image?path=${encodeURIComponent(ps1Path)}&cwd=${encodeURIComponent(workspaceDir)}&download=1`,
+        );
+        expect(ps1Download.status).toBe(200);
+        expect(ps1Download.headers.get("content-disposition")).toContain("attachment");
+        await expect(ps1Download.text()).resolves.toBe("Write-Output 'ok'\n");
+
+        const tsDownload = await fetch(
+          `${origin}/api/local-image?path=${encodeURIComponent(tsPath)}&cwd=${encodeURIComponent(workspaceDir)}&download=1`,
+        );
+        expect(tsDownload.status).toBe(200);
+        expect(tsDownload.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+        await expect(tsDownload.text()).resolves.toBe("export const answer = 42;\n");
+      });
+    });
+
+    it("resolves relative files inside threadId scratch workspace when cwd is omitted and rejects traversal", async () => {
+      const scratchRoot = resolveScratchWorkspacesRoot();
+      const safeThreadId = `route-scratch-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const threadDir = path.join(scratchRoot, safeThreadId);
+      tempDirs.push(threadDir);
+      mkdirSync(threadDir, { recursive: true });
+      writeFileSync(path.join(threadDir, "notes.ps1"), "# scratch script");
+
+      const workspaceDir = makeTempDir("moss-outside-thread-");
+      const outsidePath = path.join(workspaceDir, "secret.ps1");
+      writeFileSync(outsidePath, "secret");
+      const config = makeServerConfig({ cwd: workspaceDir });
+
+      await withEffectServer(config, localImageEffectRouteLayer, async (origin) => {
+        const okResponse = await fetch(
+          `${origin}/api/local-image?path=notes.ps1&threadId=${encodeURIComponent(safeThreadId)}&download=1`,
+        );
+        expect(okResponse.status).toBe(200);
+        await expect(okResponse.text()).resolves.toBe("# scratch script");
+
+        const traversalResponse = await fetch(
+          `${origin}/api/local-image?path=notes.ps1&threadId=${encodeURIComponent("../escape")}&download=1`,
+        );
+        expect(traversalResponse.status).toBe(404);
+
+        const outsideRelativeTraversal = await fetch(
+          `${origin}/api/local-image?path=${encodeURIComponent(`../${path.basename(outsidePath)}`)}&threadId=${encodeURIComponent(safeThreadId)}&download=1`,
+        );
+        expect(outsideRelativeTraversal.status).toBe(404);
+      });
+    });
+
+    it("supports previewGrant for arbitrary download extensions while never relaxing Codex/temp extensions", async () => {
+      const outsideDir = makeTempDir("moss-grant-ext-");
+      const grantedPs1 = path.join(outsideDir, "tool.ps1");
+      writeFileSync(grantedPs1, "Get-Date");
+      const grant = await createLocalPreviewGrant({ requestedPath: grantedPs1 });
+
+      const codexHome = makeTempDir("moss-codex-no-relax-");
+      const codexPng = path.join(codexHome, "generated_images", "thread-1", "ok.png");
+      const codexScript = path.join(codexHome, "generated_images", "thread-1", "evil.ps1");
+      mkdirSync(path.dirname(codexScript), { recursive: true });
+      writeFileSync(codexPng, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+      writeFileSync(codexScript, "Write-Host 'nope'");
+
+      const liveHomes = makeGeneratedImageHomeRegistry([
+        { instanceId: "codex" as ProviderInstanceId, homePath: codexHome },
+      ]);
+      const workspaceDir = makeTempDir("moss-ws-unused-");
+      const config = makeServerConfig({ cwd: workspaceDir });
+
+      await withEffectServer(
+        config,
+        localImageEffectRouteLayer,
+        async (origin) => {
+          const grantedResponse = await fetch(
+            `${origin}/api/local-image?path=${encodeURIComponent(grantedPs1)}&grant=${encodeURIComponent(grant.grant)}&download=1`,
+          );
+          expect(grantedResponse.status).toBe(200);
+          await expect(grantedResponse.text()).resolves.toBe("Get-Date");
+
+          const codexImageAllowed = await fetch(
+            `${origin}/api/local-image?path=${encodeURIComponent(codexPng)}&cwd=${encodeURIComponent(workspaceDir)}`,
+          );
+          expect(codexImageAllowed.status).toBe(200);
+
+          const codexBlocked = await fetch(
+            `${origin}/api/local-image?path=${encodeURIComponent(codexScript)}&cwd=${encodeURIComponent(workspaceDir)}&download=1`,
+          );
+          expect(codexBlocked.status).toBe(404);
+        },
+        { providerRegistry: liveHomes.service },
+      );
     });
   });
 });

@@ -8,6 +8,7 @@
  *
  * @module ProviderHealthLive
  */
+import { readFile } from "node:fs/promises";
 import * as OS from "node:os";
 import nodePath from "node:path";
 import type {
@@ -185,6 +186,7 @@ import {
   type ProviderPackageChannel,
 } from "../providerPackageChannel";
 import {
+  createProviderVersionAdvisory,
   enrichProviderStatusWithVersionAdvisory,
   compareSemverVersions,
   makeProviderMaintenanceCapabilities,
@@ -199,6 +201,7 @@ import {
   resolveProviderMaintenanceCapabilitiesEffect,
   withOpenCodeMaintenanceVersion,
   type PackageManagedProviderMaintenanceDefinition,
+  type ProviderMaintenanceCapabilities,
 } from "../providerMaintenance";
 import { isClaudeAutoModeCliVersionSupported } from "../claudeCliVersion.ts";
 import { collectUint8StreamText } from "../../stream/collectUint8StreamText";
@@ -277,7 +280,6 @@ const PROVIDERS = [
   CURSOR_PROVIDER,
   ANTIGRAVITY_PROVIDER,
   GROK_PROVIDER,
-  DROID_PROVIDER,
   DEVIN_PROVIDER,
   OPENCODE_PROVIDER,
   PI_PROVIDER,
@@ -513,16 +515,18 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
       strategy: "always",
     },
   },
-  droid: {
-    provider: DROID_PROVIDER,
-    binaryName: "droid",
-    npmPackageName: "@factory/cli",
-    homebrew: null,
+  devin: {
+    provider: DEVIN_PROVIDER,
+    binaryName: "devin",
+    npmPackageName: null,
+    homebrew: { name: "devin-cli", kind: "cask" },
+    latestVersionSource: { kind: "homebrew", name: "devin-cli", homebrewKind: "cask" },
     nativeUpdate: {
-      executable: "droid",
+      executable: "devin",
       args: () => ["update"],
-      lockKey: "droid-native",
+      lockKey: "devin-native",
       strategy: "always",
+      excludedInstallSources: ["homebrew"],
     },
   },
   opencode: {
@@ -577,8 +581,9 @@ export const PACKAGE_MANAGED_PROVIDER_UPDATES: Partial<
   omp: {
     provider: OMP_PROVIDER,
     binaryName: "omp",
-    npmPackageName: null,
+    npmPackageName: "@oh-my-pi/pi-coding-agent",
     homebrew: null,
+    latestVersionSource: { kind: "npm", name: "@oh-my-pi/pi-coding-agent" },
     nativeUpdate: null,
   },
   kimi: acpAgentPackageMaintenance(KIMI_ACP_AGENT_SPEC),
@@ -3017,6 +3022,66 @@ export const checkCursorProviderStatus = makeCheckCursorProviderStatus();
 
 // ── Devin health check ───────────────────────────────────────────────
 
+async function readDevinCachedLatestVersion(): Promise<string | null> {
+  const candidates =
+    process.platform === "win32"
+      ? [
+          nodePath.join(
+            process.env.LOCALAPPDATA?.trim() || nodePath.join(OS.homedir(), "AppData", "Local"),
+            "devin",
+            "cli",
+            "cached_version.json",
+          ),
+        ]
+      : [
+          nodePath.join(
+            process.env.XDG_DATA_HOME?.trim() || nodePath.join(OS.homedir(), ".local", "share"),
+            "devin",
+            "cli",
+            "cached_version.json",
+          ),
+        ];
+
+  for (const candidate of candidates) {
+    try {
+      const raw = await readFile(candidate, "utf8");
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      for (const key of ["latest", "latestVersion", "latest_version", "version"] as const) {
+        const value = parsed[key];
+        if (typeof value === "string" && value.trim().length > 0) {
+          return parseGenericCliVersion(value) ?? value.trim();
+        }
+      }
+    } catch {
+      // Missing or unreadable Devin version cache is non-fatal.
+    }
+  }
+  return null;
+}
+
+const applyDevinCachedLatestVersionFallback = (
+  status: ServerProviderStatus,
+  capabilities: ProviderMaintenanceCapabilities,
+): Effect.Effect<ServerProviderStatus> =>
+  Effect.promise(() => readDevinCachedLatestVersion()).pipe(
+    Effect.map((cachedLatest) => {
+      if (!cachedLatest || !status.version) {
+        return status;
+      }
+      return {
+        ...status,
+        versionAdvisory: createProviderVersionAdvisory({
+          provider: DEVIN_PROVIDER,
+          currentVersion: status.version,
+          latestVersion: cachedLatest,
+          latestVersionIsAuthoritative: false,
+          checkedAt: status.versionAdvisory?.checkedAt ?? status.checkedAt,
+          maintenanceCapabilities: capabilities,
+        }),
+      };
+    }),
+  );
+
 export const makeCheckDevinProviderStatus = (
   binaryPath?: string,
   readStoredCredentials: typeof readDevinStoredCredentials = readDevinStoredCredentials,
@@ -3756,25 +3821,31 @@ export function makeProviderHealthLive(options?: {
                 { cause },
               ),
           });
+          let effectiveBinaryPath = binaryPath;
           let installedVersion = target.installedVersion;
-          if (target.provider === "opencode" && installedVersion === undefined) {
+          if (target.provider === "opencode") {
             const openCodeBinary = yield* Effect.promise(() =>
               resolveOpenCodeBinaryPath(binaryPath),
             );
-            const probe = yield* probeProviderCliVersion(
-              runOpenCodeCommand(["--version"], openCodeBinary, updateEnv),
-              OPENCODE_HEALTH_TIMEOUT_MS,
-            ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
-            if (probe.outcome !== "success")
-              return makeManualProviderMaintenanceCapabilities(target.provider);
-            installedVersion = parseGenericCliVersion(
-              `${probe.result.stdout}\n${probe.result.stderr}`,
-            );
+            effectiveBinaryPath = openCodeBinary;
+            if (installedVersion === undefined) {
+              const probe = yield* probeProviderCliVersion(
+                runOpenCodeCommand(["--version"], openCodeBinary, updateEnv),
+                OPENCODE_HEALTH_TIMEOUT_MS,
+              ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+              if (probe.outcome !== "success")
+                return makeManualProviderMaintenanceCapabilities(target.provider);
+              installedVersion = parseGenericCliVersion(
+                `${probe.result.stdout}\n${probe.result.stderr}`,
+              );
+            }
+          } else if (target.provider === "devin") {
+            effectiveBinaryPath = resolveDevinBinaryPath(binaryPath, { env: updateEnv });
           }
           return yield* resolveProviderMaintenanceCapabilitiesEffect(
             withOpenCodeMaintenanceVersion(definition, installedVersion),
             {
-              binaryPath: binaryPath ?? null,
+              binaryPath: effectiveBinaryPath ?? null,
               env: updateEnv,
               platform: process.platform,
               packageChannel: resolveProviderPackageChannel({
@@ -3924,7 +3995,16 @@ export function makeProviderHealthLive(options?: {
               installedVersion: status.version ?? null,
             }).pipe(
               Effect.flatMap((capabilities) =>
-                enrichProviderStatusWithVersionAdvisory(status, capabilities),
+                enrichProviderStatusWithVersionAdvisory(status, capabilities).pipe(
+                  Effect.flatMap((enrichedStatus) =>
+                    provider === DEVIN_PROVIDER &&
+                    enrichedStatus.available &&
+                    enrichedStatus.version &&
+                    !enrichedStatus.versionAdvisory?.latestVersion
+                      ? applyDevinCachedLatestVersionFallback(enrichedStatus, capabilities)
+                      : Effect.succeed(enrichedStatus),
+                  ),
+                ),
               ),
               Effect.catch(() =>
                 Effect.succeed({
@@ -4201,10 +4281,7 @@ export function makeProviderHealthLive(options?: {
             );
           }
           case "droid":
-            return checkProviderInstanceWhenEnabled(
-              instance,
-              makeCheckDroidProviderStatus(binaryPath, instance.environment),
-            );
+            return Effect.succeed(Option.none());
           case "opencode": {
             const openCodeOptions = providerStartOptionsFromInstance(instance)?.opencode;
             return checkProviderInstanceWhenEnabled(

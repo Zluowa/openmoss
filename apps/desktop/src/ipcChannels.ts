@@ -59,6 +59,12 @@ export const DESKTOP_IPC_CHANNELS = {
   customTitleBarGetState: "desktop:custom-title-bar-get-state",
   customTitleBarSetPreference: "desktop:custom-title-bar-set-preference",
   customTitleBarRelaunch: "desktop:custom-title-bar-relaunch",
+  desktopBehavior: {
+    getState: "desktop:behavior-get-state",
+    setCloseToTray: "desktop:behavior-set-close-to-tray",
+    setOpenAtLogin: "desktop:behavior-set-open-at-login",
+    updateTrayStatus: "desktop:behavior-update-tray-status",
+  },
   menuAction: "desktop:menu-action",
   setMenuShortcuts: "desktop:set-menu-shortcuts",
   quitConfirmationRequest: "desktop:quit-confirmation-request",

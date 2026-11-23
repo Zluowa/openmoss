@@ -636,6 +636,12 @@ import {
   ServerStopLocalServerResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
+  ServerSaveUnifiedProviderInput,
+  ServerSaveUnifiedProviderResult,
+  ServerDeleteUnifiedProviderInput,
+  ServerDeleteUnifiedProviderResult,
+  ServerTestUnifiedProviderInput,
+  ServerTestUnifiedProviderResult,
   ServerEditKeybindingsInput,
   ServerEditKeybindingsResult,
   ServerUpsertKeybindingInput,
@@ -1867,6 +1873,24 @@ export const WsServerWorkspaceImportSyncRpc = Rpc.make(WS_METHODS.serverWorkspac
 export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
   payload: ServerUpdateSettingsInput,
   success: ServerUpdateSettingsResult,
+  error: WsRpcError,
+});
+
+export const WsServerSaveUnifiedProviderRpc = Rpc.make(WS_METHODS.serverSaveUnifiedProvider, {
+  payload: ServerSaveUnifiedProviderInput,
+  success: ServerSaveUnifiedProviderResult,
+  error: WsRpcError,
+});
+
+export const WsServerDeleteUnifiedProviderRpc = Rpc.make(WS_METHODS.serverDeleteUnifiedProvider, {
+  payload: ServerDeleteUnifiedProviderInput,
+  success: ServerDeleteUnifiedProviderResult,
+  error: WsRpcError,
+});
+
+export const WsServerTestUnifiedProviderRpc = Rpc.make(WS_METHODS.serverTestUnifiedProvider, {
+  payload: ServerTestUnifiedProviderInput,
+  success: ServerTestUnifiedProviderResult,
   error: WsRpcError,
 });
 
@@ -3539,6 +3563,9 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsServerWorkspaceImportApplyRpc,
   WsServerWorkspaceImportSyncRpc,
   WsServerUpdateSettingsRpc,
+  WsServerSaveUnifiedProviderRpc,
+  WsServerDeleteUnifiedProviderRpc,
+  WsServerTestUnifiedProviderRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerInstallProviderRpc,

@@ -71,6 +71,7 @@ describe("Sidebar.uiState", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: false,
       activityScope: null,
+      collapsedParentThreadIds: [],
     });
   });
 
@@ -93,6 +94,7 @@ describe("Sidebar.uiState", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: true,
       activityScope: "project-123" as ActivityScopeSelection,
+      collapsedParentThreadIds: ["parent-1", "parent-2", "parent-1"],
     });
 
     expect(readSidebarUiState()).toEqual({
@@ -113,6 +115,7 @@ describe("Sidebar.uiState", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: true,
       activityScope: "project-123",
+      collapsedParentThreadIds: ["parent-1", "parent-2"],
     });
   });
 
@@ -139,6 +142,7 @@ describe("Sidebar.uiState", () => {
           splitViewId: 42,
         },
         activityScope: 42,
+        collapsedParentThreadIds: ["parent-a", "", 42, "  ", "parent-a", " parent-b "],
       }),
     );
 
@@ -157,6 +161,7 @@ describe("Sidebar.uiState", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: false,
       activityScope: null,
+      collapsedParentThreadIds: ["parent-a", "parent-b"],
     });
   });
 
@@ -199,6 +204,7 @@ describe("Sidebar.uiState", () => {
       safeMainNavigationTarget: null,
       activityViewEnabled: false,
       activityScope: null,
+      collapsedParentThreadIds: [],
     });
   });
 });

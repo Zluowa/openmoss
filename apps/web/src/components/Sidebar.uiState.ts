@@ -24,6 +24,8 @@ export type SidebarUiState = {
   activityViewEnabled: boolean;
   /** Project (or merged chats) the Activity feed is scoped to; null shows every project. */
   activityScope: ActivityScopeSelection;
+  /** Parent thread IDs explicitly collapsed by the user so their children stay hidden. */
+  collapsedParentThreadIds: string[];
 };
 
 const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
@@ -35,6 +37,7 @@ const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
   safeMainNavigationTarget: null,
   activityViewEnabled: false,
   activityScope: null,
+  collapsedParentThreadIds: [],
 };
 
 // Persisted paging is a request, not a promise: render-time clamping trims it to the real
@@ -54,6 +57,22 @@ function sanitizeThreadListExtraPages(value: unknown): number {
 
 function sanitizeActivityScope(value: unknown): ActivityScopeSelection {
   return typeof value === "string" && value.length > 0 ? (value as ActivityScopeSelection) : null;
+}
+
+function sanitizeCollapsedParentThreadIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const sanitized: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const trimmed = item.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    sanitized.push(trimmed);
+  }
+  return sanitized;
 }
 
 function sanitizeProjectThreadListExtraPagesByCwd(
@@ -127,6 +146,7 @@ export function readSidebarUiState(): SidebarUiState {
       safeMainNavigationTarget?: unknown;
       activityViewEnabled?: boolean;
       activityScope?: unknown;
+      collapsedParentThreadIds?: unknown;
     };
 
     const lastThreadRoute =
@@ -177,6 +197,7 @@ export function readSidebarUiState(): SidebarUiState {
       safeMainNavigationTarget: sanitizeSafeMainNavigationTarget(parsed.safeMainNavigationTarget),
       activityViewEnabled: parsed.activityViewEnabled === true,
       activityScope: sanitizeActivityScope(parsed.activityScope),
+      collapsedParentThreadIds: sanitizeCollapsedParentThreadIds(parsed.collapsedParentThreadIds),
     };
   } catch {
     return DEFAULT_SIDEBAR_UI_STATE;
@@ -278,6 +299,7 @@ export function persistSidebarUiState(input: SidebarUiState): void {
           : null,
         activityViewEnabled: input.activityViewEnabled,
         activityScope: sanitizeActivityScope(input.activityScope),
+        collapsedParentThreadIds: sanitizeCollapsedParentThreadIds(input.collapsedParentThreadIds),
       }),
     );
   } catch {

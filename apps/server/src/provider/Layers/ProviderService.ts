@@ -190,6 +190,10 @@ import { MOSS_MANAGED_OPENCODE_PROVIDER_INSTANCE_ID } from "../mossManagedOpenCo
 import { MOSS_MANAGED_PI_PROVIDER_INSTANCE_ID } from "../mossManagedPiEnvironment.ts";
 import { isMossManagedRelayInstanceId } from "../../account/managedRelayProviders.ts";
 import { agentProgramsForServer, type AgentProgramOwnership } from "../agentProgramOwnership.ts";
+import {
+  isMossManagedProviderInstance,
+  resolveUnifiedProviderEnvOverlayEffect,
+} from "../unifiedProviderRouting.ts";
 
 // Devin and Grok report a cursor they cannot reload faithfully (missing native
 // state, or created for other process-start model flags) as resume-state-unavailable.
@@ -2026,6 +2030,32 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
                 cause,
               ),
           });
+        }
+        if (input.allowDisabled !== true && !isMossManagedProviderInstance(instance)) {
+          const unifiedOverlay = yield* resolveUnifiedProviderEnvOverlayEffect(
+            settings,
+            secretStore,
+            instance.driver,
+          );
+          if (unifiedOverlay) {
+            const driverKey = instance.driver;
+            const currentDriverOptions =
+              (
+                providerOptions as
+                  | Record<string, { readonly environment?: Record<string, string> | undefined }>
+                  | undefined
+              )?.[driverKey] ?? {};
+            providerOptions = {
+              ...providerOptions,
+              [driverKey]: {
+                ...currentDriverOptions,
+                environment: {
+                  ...currentDriverOptions.environment,
+                  ...unifiedOverlay,
+                },
+              },
+            };
+          }
         }
         return {
           instance,

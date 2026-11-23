@@ -16,6 +16,35 @@ import {
 } from "node:crypto";
 
 import { mossDownloadSourceUrls } from "./mossDownloadSources";
+import {
+  buildMossUpdateSignaturePayload,
+  MOSS_UPDATE_MANIFEST_PUBLIC_KEY,
+} from "./mossMobileUpdate";
+
+export {
+  buildMossUpdateSignaturePayload,
+  compareSemver,
+  isCosDefaultDomainFeed,
+  isNewerMobileRelease,
+  MOSS_MOBILE_ANDROID_APK_PREFIX,
+  MOSS_MOBILE_ANDROID_MANIFEST_FILE,
+  MOSS_MOBILE_IOS_MANIFEST_FILE,
+  MOSS_MOBILE_UPDATE_FEED_PATH,
+  MOSS_MOBILE_UPDATE_MIRRORS,
+  MOSS_UPDATE_MANIFEST_PUBLIC_KEY,
+  MOSS_UPDATE_MANIFEST_SIGNATURE_SUFFIX,
+  MOSS_UPDATE_SIGNATURE_DOMAIN,
+  mossMobileUpdateMirrorBases,
+  mossMobileUpdateMirrorConfigs,
+  parseMossMobileUpdateManifest,
+  parseSemver,
+  resolveMobileArtifactUrl,
+  resolveMobileArtifactUrls,
+  type MossMobilePlatform,
+  type MossMobileUpdateManifest,
+  type MossMobileUpdateMirrorConfig,
+  type MossMobileUpdateNotes,
+} from "./mossMobileUpdate";
 
 export interface MossUpdateMirrorConfig {
   /** Directory holding the channel manifests and installers, always ending in a slash. */
@@ -23,10 +52,6 @@ export interface MossUpdateMirrorConfig {
   /** Base64 DER (SPKI) Ed25519 public key. Not a secret. */
   readonly manifestPublicKey: string;
 }
-
-/** The Moss release key's public half (base64 DER SPKI, Ed25519). Every mirror is checked against it. */
-export const MOSS_UPDATE_MANIFEST_PUBLIC_KEY =
-  "MCowBQYDK2VwAyEAsF4Nc7+iI39nphKy9Sot+jfpQSMcVLQyjeTkLHZJHwE=";
 
 /** The stable feed's directory on every download source. */
 export const MOSS_DESKTOP_UPDATE_FEED_PATH = "desktop/";
@@ -40,10 +65,6 @@ export const MOSS_DESKTOP_UPDATE_MIRRORS: ReadonlyArray<MossUpdateMirrorConfig> 
     Object.freeze({ feedUrl, manifestPublicKey: MOSS_UPDATE_MANIFEST_PUBLIC_KEY }),
   ),
 );
-
-export const MOSS_UPDATE_MANIFEST_SIGNATURE_SUFFIX = ".sig";
-
-const SIGNATURE_DOMAIN = "moss-update-manifest-v1";
 
 function isLoopbackHostname(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
@@ -87,7 +108,7 @@ export function parseMossUpdateMirrorConfig(
 // Binding the file name stops a valid signature for one channel or platform from being replayed
 // onto another.
 function signaturePayload(channelFile: string, manifest: string): Buffer {
-  return Buffer.from(`${SIGNATURE_DOMAIN}\n${channelFile}\n${manifest}`, "utf8");
+  return Buffer.from(buildMossUpdateSignaturePayload(channelFile, manifest), "utf8");
 }
 
 export function signMossUpdateManifest(input: {

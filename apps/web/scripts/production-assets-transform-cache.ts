@@ -101,6 +101,53 @@ export function transformFingerprint(parts: ReadonlyArray<string>): string {
   return createHash("sha256").update(parts.join("\0")).digest("hex");
 }
 
+const WINDOWS_DRIVE_PREFIX = /^[A-Za-z]:\//u;
+
+/**
+ * Strips the checkout directory prefix from module IDs and resolved tool store paths so builds
+ * from fresh worktrees (such as release checkouts) reuse the same cache entries while still
+ * distinguishing every relative module path and exact package store version/hash.
+ */
+export function normalizeTransformCachePath(
+  value: string,
+  workspaceRoots: string | ReadonlyArray<string>,
+): string {
+  if (value.startsWith("\0")) return value;
+  const queryIndex = value.indexOf("?");
+  const hashIndex = value.indexOf("#");
+  const suffixIndex =
+    queryIndex === -1 ? hashIndex : hashIndex === -1 ? queryIndex : Math.min(queryIndex, hashIndex);
+  const rawPath = suffixIndex === -1 ? value : value.slice(0, suffixIndex);
+  const suffix = suffixIndex === -1 ? "" : value.slice(suffixIndex);
+  const slashPath = rawPath.replaceAll("\\", "/");
+
+  if (slashPath.startsWith("node_modules/")) {
+    return `${slashPath}${suffix}`;
+  }
+  const nodeModulesIndex = slashPath.indexOf("/node_modules/");
+  if (nodeModulesIndex !== -1) {
+    return `${slashPath.slice(nodeModulesIndex + 1)}${suffix}`;
+  }
+
+  const roots = Array.isArray(workspaceRoots) ? workspaceRoots : [workspaceRoots];
+  const isWinPath = WINDOWS_DRIVE_PREFIX.test(slashPath);
+  for (const root of roots) {
+    const normalizedRoot = root.replaceAll("\\", "/").replace(/\/+$/u, "");
+    if (!normalizedRoot) continue;
+    const compareCaseInsensitive = isWinPath && WINDOWS_DRIVE_PREFIX.test(normalizedRoot);
+    const candidate = compareCaseInsensitive ? slashPath.toLowerCase() : slashPath;
+    const prefix = compareCaseInsensitive ? normalizedRoot.toLowerCase() : normalizedRoot;
+    if (candidate === prefix) {
+      return `<workspace>${suffix}`;
+    }
+    if (candidate.startsWith(`${prefix}/`)) {
+      return `<workspace>/${slashPath.slice(normalizedRoot.length + 1)}${suffix}`;
+    }
+  }
+
+  return `${slashPath}${suffix}`;
+}
+
 export function transformCacheDirFromEnv(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): string | undefined {

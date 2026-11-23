@@ -337,6 +337,9 @@ export type SidebarProjectEntry = {
   rootRowId: ThreadId;
   thread: SidebarThreadSummary;
   depth: number;
+  childCount: number;
+  hasChildren: boolean;
+  isParentCollapsed: boolean;
 };
 
 export type SidebarThreadHoverAnchorScope = "pinned" | "chat" | "project" | "activity" | "recent";
@@ -921,7 +924,9 @@ export interface SidebarThreadTreeRow<
   depth: number;
   rootThreadId: T["id"];
   childCount: number;
+  hasChildren: boolean;
   isExpanded: boolean;
+  isParentCollapsed: boolean;
 }
 
 export type SidebarSectionThreadTreeRow<
@@ -953,14 +958,49 @@ function collectActiveThreadAncestorIds<
   return ancestorIds;
 }
 
+export function collectSidebarThreadAncestorIds<T extends SidebarTreeThread>(
+  threads: readonly T[],
+  targetThreadId: T["id"] | null | undefined,
+): T["id"][] {
+  if (!targetThreadId) return [];
+  const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
+  return [
+    ...collectActiveThreadAncestorIds(threadById, targetThreadId, (thread) =>
+      treeParentThreadId(thread, threadById),
+    ),
+  ];
+}
+
+function resolveParentRowExpanded<TId>(input: {
+  threadId: TId;
+  childCount: number;
+  opensSubtree: boolean;
+  revealsActiveDescendant: boolean;
+  expandedParentThreadIds?: ReadonlySet<TId> | undefined;
+  collapsedParentThreadIds?: ReadonlySet<TId> | undefined;
+}): boolean {
+  if (input.childCount === 0) return false;
+  if (input.collapsedParentThreadIds?.has(input.threadId)) return false;
+  if (input.collapsedParentThreadIds !== undefined && input.expandedParentThreadIds === undefined) {
+    return true;
+  }
+  return (
+    input.opensSubtree ||
+    input.revealsActiveDescendant ||
+    input.expandedParentThreadIds?.has(input.threadId) === true
+  );
+}
+
 // Build the project-local parent/child thread tree while preserving sort order from the input list.
 // Subagent rows show under the open thread and its ancestors, finished or not.
 export function buildProjectThreadTree<T extends SidebarTreeThread>(input: {
   threads: readonly T[];
   forceVisibleThreadId?: T["id"] | undefined;
   expandedParentThreadIds?: ReadonlySet<T["id"]> | undefined;
+  collapsedParentThreadIds?: ReadonlySet<T["id"]> | undefined;
 }): SidebarThreadTreeRow<T>[] {
-  const { expandedParentThreadIds, forceVisibleThreadId, threads } = input;
+  const { collapsedParentThreadIds, expandedParentThreadIds, forceVisibleThreadId, threads } =
+    input;
   const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
   const childrenByParentId = new Map<T["id"], T[]>();
   const roots: T[] = [];
@@ -990,22 +1030,31 @@ export function buildProjectThreadTree<T extends SidebarTreeThread>(input: {
   const orderedRows: SidebarThreadTreeRow<T>[] = [];
 
   // The open thread's ancestors reveal the path down to it; the open thread
-  // reveals its whole subtree (its subagents and the ones they launched).
+  // reveals its whole subtree (its subagents and the ones they launched),
+  // unless the user explicitly collapsed the parent row.
   const visit = (thread: T, depth: number, rootThreadId: T["id"], inOpenSubtree: boolean) => {
     const opensSubtree = inOpenSubtree || thread.id === forceVisibleThreadId;
     const childThreads = childrenByParentId.get(thread.id) ?? [];
-    const revealsActiveDescendant =
-      childThreads.length > 0 && activeThreadAncestorIds.has(thread.id);
-    const isExpanded =
-      childThreads.length > 0 &&
-      (opensSubtree || revealsActiveDescendant || expandedParentThreadIds?.has(thread.id) === true);
+    const childCount = childThreads.length;
+    const hasChildren = childCount > 0;
+    const revealsActiveDescendant = hasChildren && activeThreadAncestorIds.has(thread.id);
+    const isExpanded = resolveParentRowExpanded({
+      threadId: thread.id,
+      childCount,
+      opensSubtree,
+      revealsActiveDescendant,
+      expandedParentThreadIds,
+      collapsedParentThreadIds,
+    });
 
     orderedRows.push({
       thread,
       depth,
       rootThreadId,
-      childCount: childThreads.length,
+      childCount,
+      hasChildren,
       isExpanded,
+      isParentCollapsed: hasChildren && !isExpanded,
     });
 
     if (!isExpanded) {
@@ -1161,6 +1210,7 @@ export function buildSidebarSectionThreadTrees<
   threads: readonly T[];
   forceVisibleThreadId?: T["id"] | undefined;
   expandedParentThreadIds?: ReadonlySet<T["id"]> | undefined;
+  collapsedParentThreadIds?: ReadonlySet<T["id"]> | undefined;
   pinnedThreadIds?: ReadonlySet<T["id"]> | readonly T["id"][];
 }): ReadonlyMap<OrchestrationSidebarSectionShell["id"], SidebarSectionThreadTreeRow<T>[]> {
   const owners = resolveSidebarSectionThreadOwners(input);
@@ -1253,16 +1303,24 @@ export function buildSidebarSectionThreadTrees<
       const childThreads = (childrenByParentId.get(thread.id) ?? []).filter(
         (child) => !visitedThreadIds.has(child.id) && !nextPath.has(child.id),
       );
-      const isExpanded =
-        childThreads.length > 0 &&
-        (activeThreadAncestorIds.has(thread.id) ||
-          input.expandedParentThreadIds?.has(thread.id) === true);
+      const childCount = childThreads.length;
+      const hasChildren = childCount > 0;
+      const isExpanded = resolveParentRowExpanded({
+        threadId: thread.id,
+        childCount,
+        opensSubtree: false,
+        revealsActiveDescendant: hasChildren && activeThreadAncestorIds.has(thread.id),
+        expandedParentThreadIds: input.expandedParentThreadIds,
+        collapsedParentThreadIds: input.collapsedParentThreadIds,
+      });
       rows.push({
         thread,
         depth,
         rootThreadId,
-        childCount: childThreads.length,
+        childCount,
+        hasChildren,
         isExpanded,
+        isParentCollapsed: hasChildren && !isExpanded,
       });
       if (!isExpanded) return;
       for (const child of childThreads) {
@@ -1937,6 +1995,8 @@ export function deriveSidebarProjectData(input: {
   threadListExtraPagesByProjectCwd: ReadonlyMap<string, number>;
   normalizeProjectCwd: (cwd: string) => string;
   activeSidebarThreadId: ThreadId | undefined;
+  expandedParentThreadIds?: ReadonlySet<ThreadId> | undefined;
+  collapsedParentThreadIds?: ReadonlySet<ThreadId> | undefined;
   previewLimit: number;
   previewPageSize: number;
   resolveThreadStatus?: (
@@ -1980,6 +2040,9 @@ export function deriveSidebarProjectData(input: {
                 rootRowId: activeThread.id,
                 thread: activeThread,
                 depth: 0,
+                childCount: 0,
+                hasChildren: false,
+                isParentCollapsed: false,
               },
             ];
 
@@ -2001,14 +2064,19 @@ export function deriveSidebarProjectData(input: {
     const projectThreadTree = buildProjectThreadTree({
       threads: projectThreads,
       forceVisibleThreadId: input.activeSidebarThreadId,
+      expandedParentThreadIds: input.expandedParentThreadIds,
+      collapsedParentThreadIds: input.collapsedParentThreadIds,
     });
     const orderedEntries: SidebarProjectEntry[] = projectThreadTree.map(
-      ({ thread, depth, rootThreadId }) => ({
+      ({ thread, depth, rootThreadId, childCount, hasChildren, isParentCollapsed }) => ({
         kind: "thread",
         rowId: thread.id,
         rootRowId: rootThreadId,
         thread,
         depth,
+        childCount,
+        hasChildren,
+        isParentCollapsed,
       }),
     );
 

@@ -93,6 +93,79 @@ describe("Devin CLI local history", () => {
       { role: "user", text: "Thanks" },
     ]);
   });
+
+  it("reads subagent_heads when present and links child subagents to the parent session", async () => {
+    const home = await fakeHome();
+    const appData = path.join(home, "AppData", "Roaming");
+    const dir =
+      process.platform === "win32"
+        ? path.join(appData, "Devin", "cli")
+        : path.join(home, ".local", "share", "devin", "cli");
+    await fs.mkdir(dir, { recursive: true });
+    const database = new DatabaseSync(path.join(dir, "sessions.db"));
+    database.exec(`
+      CREATE TABLE sessions (id TEXT PRIMARY KEY, working_directory TEXT NOT NULL, backend_type TEXT,
+        model TEXT, agent_mode TEXT, created_at INTEGER NOT NULL, last_activity_at INTEGER NOT NULL,
+        title TEXT, main_chain_id INTEGER, hidden INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE message_nodes (row_id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+        node_id INTEGER NOT NULL, parent_node_id INTEGER, chat_message TEXT NOT NULL,
+        created_at INTEGER NOT NULL);
+      CREATE TABLE subagent_heads (session_id TEXT NOT NULL, agent_id TEXT NOT NULL,
+        chain_node_id INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, agent_id));
+    `);
+    database
+      .prepare("INSERT INTO sessions VALUES (?, ?, 'b', 'm', 'a', ?, ?, ?, ?, 0)")
+      .run("dev-parent", project, 1_790_000_000_000, 1_790_000_200_000, "Parent session", 2);
+    const node = database.prepare(
+      "INSERT INTO message_nodes (session_id, node_id, parent_node_id, chat_message, created_at) VALUES (?, ?, ?, ?, ?)",
+    );
+    node.run("dev-parent", 1, null, JSON.stringify({ role: "user", content: "Main task" }), 100);
+    node.run("dev-parent", 2, 1, JSON.stringify({ role: "assistant", content: "Delegated" }), 200);
+    node.run(
+      "dev-parent",
+      10,
+      null,
+      JSON.stringify({ role: "system", content: "subagent sys" }),
+      110,
+    );
+    node.run(
+      "dev-parent",
+      11,
+      10,
+      JSON.stringify({ role: "user", content: "Inspect subagent branch" }),
+      120,
+    );
+    node.run(
+      "dev-parent",
+      12,
+      11,
+      JSON.stringify({ role: "assistant", content: "Subagent findings" }),
+      130,
+    );
+    database
+      .prepare("INSERT INTO subagent_heads VALUES (?, ?, ?, ?)")
+      .run("dev-parent", "agent-scout", 12, 1_790_000_250_000);
+    database.close();
+
+    const input = { homeDir: home, env: { APPDATA: appData } };
+    const reader = LOCAL_HISTORY_READERS.devin;
+    const catalog = await reader.discover(input);
+    const subagent = catalog.sessions.find((session) => session.parentSessionId === "dev-parent");
+    expect(subagent).toMatchObject({
+      title: "Inspect subagent branch",
+      cwd: project,
+      parentSessionId: "dev-parent",
+      parentSourceSessionId: "dev-parent",
+      hierarchyKind: "subagent",
+      subagentNickname: "agent-scout",
+    });
+    const subMessages = await reader.readMessages({ ...input, sessionId: subagent!.id });
+    expect(subMessages.map(({ role, text }) => ({ role, text }))).toEqual([
+      { role: "user", text: "Inspect subagent branch" },
+      { role: "assistant", text: "Subagent findings" },
+    ]);
+  });
 });
 
 describe("Hermes local history", () => {
@@ -202,16 +275,18 @@ describe("ZCode local history", () => {
         time_updated INTEGER, data TEXT, sequence INTEGER);
     `);
     const session = database.prepare(
-      "INSERT INTO session VALUES (?, 'p', NULL, 's', ?, ?, '1', 10, 20, NULL, ?, ?)",
+      "INSERT INTO session VALUES (?, 'p', ?, 's', ?, ?, '1', 10, 20, NULL, ?, ?)",
     );
-    session.run("z1", project, "Main", "interactive", null);
-    session.run("z-side", project, "Side chat", "selection_side_chat", null);
-    session.run("z-deleted", project, "Deleted", "interactive", 30);
+    session.run("z1", null, project, "Main", "interactive", null);
+    session.run("z-child", "z1", project, "Subagent child", "subagent_child", null);
+    session.run("z-child-side", "z1", project, "Attached side chat", "selection_side_chat", null);
+    session.run("z-side", null, project, "Side chat", "selection_side_chat", null);
+    session.run("z-deleted", null, project, "Deleted", "interactive", 30);
     const message = database.prepare("INSERT INTO message VALUES (?, ?, ?, ?, ?, ?)");
     const part = database.prepare("INSERT INTO part VALUES (?, ?, ?, 0, 0, ?, ?)");
-    for (const id of ["z-side", "z-deleted"]) {
+    for (const id of ["z-child", "z-child-side", "z-side", "z-deleted"]) {
       message.run(`${id}-m`, id, 1, 1, JSON.stringify({ role: "user" }), 1);
-      part.run(`${id}-p`, `${id}-m`, id, JSON.stringify({ type: "text", text: "x" }), 1);
+      part.run(`${id}-p`, `${id}-m`, id, JSON.stringify({ type: "text", text: `Prompt ${id}` }), 1);
     }
     message.run("m2", "z1", 2, 2, JSON.stringify({ role: "assistant" }), 3);
     message.run("m1", "z1", 1, 1, JSON.stringify({ role: "user" }), 1);
@@ -237,9 +312,21 @@ describe("ZCode local history", () => {
     const input = { homeDir: home, env: {} };
     const reader = LOCAL_HISTORY_READERS.zcode;
     const catalog = await reader.discover(input);
-    expect(catalog.sessions.map((s) => [s.id, s.title, s.projectId])).toEqual([
+    expect(catalog.sessions.map((s) => [s.id, s.title, s.projectId]).toSorted()).toEqual([
+      ["z-child", "Subagent child", null],
+      ["z-child-side", "Attached side chat", null],
       ["z1", "Main", null],
     ]);
+    expect(catalog.sessions.find((s) => s.id === "z-child")).toMatchObject({
+      parentSessionId: "z1",
+      parentSourceSessionId: "z1",
+      hierarchyKind: "subagent",
+    });
+    expect(catalog.sessions.find((s) => s.id === "z-child-side")).toMatchObject({
+      parentSessionId: "z1",
+      parentSourceSessionId: "z1",
+      hierarchyKind: "sideSession",
+    });
     const messages = await reader.readMessages({ ...input, sessionId: "z1" });
     expect(messages.map(({ role, text }) => ({ role, text }))).toEqual([
       { role: "user", text: "Question" },

@@ -11,6 +11,7 @@ import {
   isSupportedProviderKind,
 } from "@moss/contracts";
 import { isProviderKind } from "./providerOrdering";
+import { isMossActiveProvider } from "./providerProductCatalog";
 
 export const PROVIDER_UPDATE_INITIAL_REFRESH_DELAY_MS = 10_000;
 export const PROVIDER_UPDATE_REFRESH_INTERVAL_MS = 60 * 60 * 1_000;
@@ -162,6 +163,10 @@ export function providerVersionCheckSummary(
 }
 
 export function shouldOfferProviderUpdateAction(provider: ServerProviderStatus): boolean {
+  const driver = provider.driver ?? provider.provider;
+  if (!isProviderKind(driver) || !isMossActiveProvider(driver)) {
+    return false;
+  }
   const advisory = provider.versionAdvisory;
   return (
     advisory?.canUpdate === true &&
@@ -214,6 +219,7 @@ export function shouldShowProviderUpdateStatus(input: ProviderUpdateVisibilityIn
     advisory.status !== "behind_latest" ||
     advisory.latestVersion === null ||
     !isProviderKind(driver) ||
+    !isMossActiveProvider(driver) ||
     hiddenProviderSet.has(driver) ||
     !isProviderEnabled(input.provider, input.serverSettings)
   ) {

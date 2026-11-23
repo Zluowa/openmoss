@@ -696,4 +696,51 @@ describe("buildProjectImportCatalog", () => {
       threads.filter((thread) => thread.providerInstanceId === "codex_moss").map((t) => t.id),
     ).toEqual(["019a-lane-only"]);
   });
+
+  it("sorts candidate sessions parent-first even when child and grandchild sessions precede or outdate the parent", async () => {
+    const home = await fixtureDirectory();
+    const root = path.join(home, "repo");
+    const worktree = path.join(home, "worktree");
+    await fs.mkdir(root, { recursive: true });
+    await fs.mkdir(worktree, { recursive: true });
+
+    const projects = await buildProjectImportCatalog(
+      [
+        source("codex", home, [
+          {
+            ...session("grandchild", worktree),
+            updatedAt: "2026-01-04T00:00:00.000Z",
+            parentSourceSessionId: "child",
+            hierarchyKind: "subagent",
+          },
+          {
+            ...session("child", worktree),
+            updatedAt: "2026-01-03T00:00:00.000Z",
+            parentSourceSessionId: "parent",
+            hierarchyKind: "subagent",
+          },
+          {
+            ...session("parent", root),
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            ...session("peer-root", root),
+            updatedAt: "2026-01-05T00:00:00.000Z",
+          },
+        ]),
+      ],
+      [],
+    );
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0]?.threads.map((thread) => thread.id)).toEqual([
+      "peer-root",
+      "parent",
+      "child",
+      "grandchild",
+    ]);
+    const byId = new Map(projects[0]!.threads.map((thread) => [thread.id, thread]));
+    expect(byId.get("child")?.parentKey).toBe(byId.get("parent")?.key);
+    expect(byId.get("grandchild")?.parentKey).toBe(byId.get("child")?.key);
+  });
 });

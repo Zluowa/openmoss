@@ -75,5 +75,5 @@ export function createPackageTarball(directory: string): Buffer {
     if (padding) chunks.push(Buffer.alloc(padding, 0));
   }
   chunks.push(Buffer.alloc(1024, 0));
-  return Zlib.gzipSync(Buffer.concat(chunks), { level: 9 });
+  return Zlib.gzipSync(Buffer.concat(chunks), { level: 6 });
 }

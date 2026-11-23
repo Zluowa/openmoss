@@ -701,6 +701,10 @@
       "types": "./src/mossProductionPublicConfig.ts",
       "import": "./src/mossProductionPublicConfig.ts"
     },
+    "./mossMobileUpdate": {
+      "types": "./src/mossMobileUpdate.ts",
+      "import": "./src/mossMobileUpdate.ts"
+    },
     "./mossUpdateMirror": {
       "types": "./src/mossUpdateMirror.ts",
       "import": "./src/mossUpdateMirror.ts"
