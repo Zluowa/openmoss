@@ -489,9 +489,19 @@ export function SingleChatSurface(props: {
   // A deck the agent has just created opens beside the chat, like the Canvas.
   useAgentDeckAutoOpen(props.threadId);
   useEffect(() => {
-    if (dockState.open && (activePane?.kind === "imagePreview" || activePane?.kind === "canvas"))
+    if (
+      dockState.open &&
+      (activePane?.kind === "imagePreview" ||
+        (activePane?.kind === "canvas" && Boolean(activePane.canvasImage)))
+    )
       handleRightDockFullWidthChange(true);
-  }, [dockState.open, activePane?.id, activePane?.kind, handleRightDockFullWidthChange]);
+  }, [
+    dockState.open,
+    activePane?.id,
+    activePane?.kind,
+    activePane?.canvasImage,
+    handleRightDockFullWidthChange,
+  ]);
   const floatingBrowserVisible = shouldRenderFloatingBrowserPanel({
     hostThreadId: props.threadId,
     floatingThreadId: floatingBrowserRequested ? props.threadId : null,

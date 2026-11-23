@@ -91,6 +91,7 @@ export function ProvidersSplitWorkbench(props: {
   readonly unifiedProviders: ReadonlyArray<UnifiedModelProviderConfig>;
   readonly defaultUnifiedProviderId: string | null | undefined;
   readonly unifiedProviderByCli: Readonly<Record<string, string>> | undefined;
+  readonly mossCliModelAuthEnabled: boolean;
   readonly enabledCliOptions: ReadonlyArray<SplitWorkbenchCliOption>;
   readonly disabledCliOptions: ReadonlyArray<SplitWorkbenchCliOption>;
   readonly disabledOpen: boolean;
@@ -102,7 +103,7 @@ export function ProvidersSplitWorkbench(props: {
   readonly onOpenAddProvider: () => void;
   readonly children: ReactNode;
 }) {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   const isZh = locale === "zh-CN";
 
   const unifiedNameById = new Map(
@@ -146,8 +147,8 @@ export function ProvidersSplitWorkbench(props: {
       )}
       data-testid="providers-split-workbench"
     >
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 px-7 pt-5 pb-3.5">
-        <h1 className={PAGE_TITLE_CLASS_NAME}>{isZh ? "服务与智能体" : "Providers & Agents"}</h1>
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-border/50 px-8 pt-7 pb-4">
+        <h1 className={PAGE_TITLE_CLASS_NAME}>{t("settings.nav.providers.label")}</h1>
 
         <div className="flex shrink-0 items-center gap-1.5">
           <Tooltip>
@@ -200,12 +201,18 @@ export function ProvidersSplitWorkbench(props: {
             <div className={cn("flex flex-col", SETTINGS_SIDEBAR_LIST_GAP_CLASS_NAME)}>
               <RailNavButton
                 selected={props.selection.kind === "moss"}
+                className={!props.mossCliModelAuthEnabled ? "opacity-75" : undefined}
                 onClick={() => props.onSelect({ kind: "moss" })}
               >
                 <ProviderBrandTile variant="bare" iconId="moss" size="sm" />
                 <span className={SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME}>
                   {isZh ? "Moss 官方服务" : "Moss Service"}
                 </span>
+                {!props.mossCliModelAuthEnabled ? (
+                  <span className="shrink-0 text-ui-xs text-muted-foreground">
+                    {isZh ? "已关闭" : "Off"}
+                  </span>
+                ) : null}
               </RailNavButton>
 
               {props.unifiedProviders.map((provider) => {

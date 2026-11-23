@@ -21,6 +21,7 @@ export function ConnectionsSettingsPanel({
   readonly onTabChange: (tab: ConnectionTab) => void;
 }) {
   const { t } = useTranslation();
+  const devicesTab = tab === "devices" || tab === "pairing";
   return (
     <div
       className={active ? "flex flex-col gap-8" : "contents"}
@@ -29,19 +30,20 @@ export function ConnectionsSettingsPanel({
       {active ? (
         <PillTabs
           ariaLabel={t("settings.connections.tabs.label")}
-          selected={tab}
+          selected={devicesTab ? "devices" : tab}
           onSelect={onTabChange}
           tabs={[
             { id: "devices", label: t("settings.connections.tabs.devices") },
             { id: "phone", label: t("settings.connections.tabs.phone") },
-            { id: "pairing", label: t("settings.connections.tabs.pairing") },
             { id: "ssh", label: t("settings.connections.tabs.ssh") },
           ]}
         />
       ) : null}
-      <RemoteComputersSettingsPanel active={active && tab === "devices"} />
+      {/* Pairing both ways is one subject: devices this one opens, and letting another device in.
+          Old `tab=pairing` links land here too. */}
+      <RemoteComputersSettingsPanel active={active && devicesTab} />
       <PhoneSettingsPanel active={active && tab === "phone"} />
-      <IncomingComputerConnections active={active && tab === "pairing"} />
+      <IncomingComputerConnections active={active && devicesTab} />
       <SshConnectionsSettingsPanel active={active && tab === "ssh"} />
     </div>
   );

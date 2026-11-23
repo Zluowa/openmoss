@@ -14,8 +14,17 @@ import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import { page, userEvent } from "vitest/browser";
 import { beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
-import { StrictMode, useState } from "react";
+import { StrictMode, useEffect, useState } from "react";
+import { useTheme, type ThemeMode } from "~/hooks/useTheme";
 import { PROVIDER_BRAND_ICON_CATALOG } from "~/components/ProviderBrandIcons";
+
+const SHOTS = import.meta.env.VITE_MOSS_PROVIDERS_SHOTS as string | undefined;
+async function captureShot(name: string) {
+  if (SHOTS) {
+    const dir = SHOTS.replace(/\/+$/u, "");
+    await page.screenshot({ path: `${dir}/${name}.png` });
+  }
+}
 
 const harness = vi.hoisted(() => ({
   statuses: [] as ServerProviderStatus[],
@@ -1496,7 +1505,7 @@ it("shows Desktop-managed update hint for bundled OpenCode and zh-CN Option 3 wo
   const restore = installZhCnUiLocalization();
   try {
     await rerender(<ProvidersSettingsPanel {...props} providerTarget="opencode" />);
-    await expect.element(page.getByRole("heading", { name: "服务与智能体" })).toBeVisible();
+    await expect.element(page.getByRole("heading", { name: "模型与智能体" })).toBeVisible();
     await expect.element(page.getByText("模型服务商", { exact: true })).toBeVisible();
     await expect.element(page.getByText("编码 CLI 智能体", { exact: true })).toBeVisible();
     await expect
@@ -1506,6 +1515,165 @@ it("shows Desktop-managed update hint for bundled OpenCode and zh-CN Option 3 wo
     await expect.element(page.getByText("偏好与默认设置", { exact: true })).toBeVisible();
     await expect.element(page.getByText("由桌面应用更新", { exact: true })).toBeVisible();
   } finally {
+    restore();
+    root.lang = previous.lang;
+    if (previous.locale === null) root.removeAttribute("data-moss-locale");
+    else root.setAttribute("data-moss-locale", previous.locale);
+  }
+});
+
+it("manages Moss server CLI model authorization master switch, per-CLI grid, and CLI detail state", async () => {
+  await page.viewport(1100, 800);
+  harness.statuses = [
+    ...harness.statuses,
+    {
+      provider: "claudeAgent",
+      instanceId: "claude_moss",
+      driver: "claudeAgent",
+      status: "ready",
+      available: true,
+      authStatus: "authenticated",
+      checkedAt: "2026-11-23T00:00:00.000Z",
+    },
+  ];
+  const updateCalls: Array<Partial<AppSettings>> = [];
+  function StatefulProvidersPanel() {
+    const [currentSettings, setCurrentSettings] = useState<AppSettings>({
+      ...props.settings,
+      mossCliModelAuthEnabled: true,
+      mossCliModelAuthDisabledProviders: [],
+    });
+    return (
+      <ProvidersSettingsPanel
+        {...props}
+        providerTarget={null}
+        settings={currentSettings}
+        updateSettings={(patch) => {
+          updateCalls.push(patch);
+          setCurrentSettings((prev) => ({ ...prev, ...patch }));
+        }}
+      />
+    );
+  }
+
+  await render(<StatefulProvidersPanel />);
+  const masterSwitch = page.getByRole("switch", {
+    name: "Allow CLIs to use Moss models",
+    exact: true,
+  });
+  await expect.element(masterSwitch).toBeChecked();
+
+  // Revoke Codex via per-CLI toggle, verify counter updates to 8 / 9 and Codex badge unchecks.
+  const codexToggle = page.getByRole("switch", {
+    name: "Allow Codex to use Moss models",
+    exact: true,
+  });
+  await expect.element(codexToggle).toBeChecked();
+  await codexToggle.click();
+  await expect.element(codexToggle).not.toBeChecked();
+  expect(updateCalls.at(-1)).toEqual({
+    mossCliModelAuthDisabledProviders: ["codex"],
+  });
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }))
+    .toBeChecked();
+  // Signed out (this harness), no CLI can use Moss models yet: no "n / 9" count is shown.
+  expect(document.body.textContent).not.toMatch(/\d+ \/ 9/);
+
+  // Click All off, then All on.
+  await page.getByRole("button", { name: "All off", exact: true }).click();
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }))
+    .not.toBeChecked();
+  await page.getByRole("button", { name: "All on", exact: true }).click();
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }))
+    .toBeChecked();
+
+  // Revoke Claude specifically, then inspect Claude CLI detail pane.
+  await page.getByRole("switch", { name: "Allow Claude to use Moss models", exact: true }).click();
+  await selectRailItem(/Claude/u);
+  const mossPill = page.getByRole("button", { name: /^Moss$/u });
+  await expect.element(mossPill).toBeDisabled();
+  expect(document.body.textContent).not.toContain("Connected through Moss");
+
+  // Re-select Moss Service and flip master switch OFF.
+  await selectRailItem(/Moss Service/u);
+  await masterSwitch.click();
+  await expect.element(masterSwitch).not.toBeChecked();
+  await expect.element(railNav().getByText("Off", { exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("switch", { name: "Allow Codex to use Moss models", exact: true }))
+    .toBeDisabled();
+  expect(updateCalls.at(-1)).toEqual({ mossCliModelAuthEnabled: false });
+});
+
+it("renders zh-CN Moss CLI model authorization controls cleanly in Light and Dark themes", async () => {
+  await page.viewport(1100, 800);
+  localizationTestState.locale = "zh-CN";
+  const root = document.documentElement;
+  const previous = { lang: root.lang, locale: root.getAttribute("data-moss-locale") };
+  root.lang = "zh-CN";
+  root.setAttribute("data-moss-locale", "zh-CN");
+  const restore = installZhCnUiLocalization();
+
+  function StatefulZhPanel({ mode }: { readonly mode: ThemeMode }) {
+    const { setTheme } = useTheme();
+    useEffect(() => {
+      setTheme(mode);
+    }, [mode, setTheme]);
+    const [currentSettings, setCurrentSettings] = useState<AppSettings>({
+      ...props.settings,
+      mossCliModelAuthEnabled: true,
+      mossCliModelAuthDisabledProviders: [],
+    });
+    return (
+      <ProvidersSettingsPanel
+        {...props}
+        providerTarget={null}
+        settings={currentSettings}
+        updateSettings={(patch) => setCurrentSettings((prev) => ({ ...prev, ...patch }))}
+      />
+    );
+  }
+
+  try {
+    const view = await render(<StatefulZhPanel mode="light" />);
+    await expect.element(page.getByRole("heading", { name: "Moss 官方服务" })).toBeVisible();
+    await expect
+      .element(page.getByRole("switch", { name: "允许 CLI 使用 Moss 模型", exact: true }))
+      .toBeChecked();
+    expect(document.body.textContent).not.toMatch(/\d+ \/ 9/);
+    expect(document.body.textContent).not.toContain("已开启");
+    await captureShot("moss-auth-on-light");
+
+    await view.rerender(<StatefulZhPanel mode="dark" />);
+    await expect.poll(() => document.documentElement.classList.contains("dark")).toBe(true);
+    await expect.element(page.getByRole("heading", { name: "Moss 官方服务" })).toBeVisible();
+    await captureShot("moss-auth-on-dark");
+
+    await view.rerender(<StatefulZhPanel mode="light" />);
+    await expect.poll(() => document.documentElement.classList.contains("dark")).toBe(false);
+
+    // Revoke Codex only and verify Codex CLI detail pill disabled in zh-CN.
+    await page.getByRole("switch", { name: "允许 Codex 使用 Moss 模型", exact: true }).click();
+    await expect
+      .element(page.getByRole("switch", { name: "允许 Codex 使用 Moss 模型", exact: true }))
+      .not.toBeChecked();
+    await selectRailItem(/Codex/u);
+    await expect.element(page.getByRole("button", { name: /^Moss$/u })).toBeDisabled();
+    await captureShot("codex-revoked-pill-light");
+
+    // Re-select Moss Service and switch master toggle OFF.
+    await selectRailItem(/Moss 官方服务/u);
+    const master = page.getByRole("switch", { name: "允许 CLI 使用 Moss 模型", exact: true });
+    await master.click();
+    await expect.element(master).not.toBeChecked();
+    await expect.element(page.getByText("已关闭", { exact: true }).first()).toBeVisible();
+    await captureShot("moss-auth-off-light");
+  } finally {
+    localStorage.removeItem("moss:theme");
+    document.documentElement.classList.remove("dark");
     restore();
     root.lang = previous.lang;
     if (previous.locale === null) root.removeAttribute("data-moss-locale");

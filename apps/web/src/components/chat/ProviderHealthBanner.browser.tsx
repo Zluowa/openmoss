@@ -121,7 +121,7 @@ describe("ProviderHealthBanner mounted safety", () => {
     );
 
     try {
-      const safeMessage = `${fixture.displayName} 尚未登录。请在「设置 → 模型账号」中登录，或换用其他模型。`;
+      const safeMessage = `${fixture.displayName} 尚未登录。请在「设置 → 模型与智能体」中登录，或换用其他模型。`;
       const alert = page.getByRole("alert");
       await expect.element(page.getByText(safeMessage)).toBeVisible();
       const description = alert.element().querySelector('[data-slot="alert-description"]');

@@ -115,7 +115,7 @@ export function staleReason(
   return undefined;
 }
 
-function removeLockDir(dir: string): void {
+export function removeLockDir(dir: string): void {
   try {
     for (const name of fs.readdirSync(dir)) fs.unlinkSync(path.join(dir, name));
     fs.rmdirSync(dir);
@@ -146,7 +146,7 @@ export function breakStale(lockDir: string, judged: LockOwner | undefined): bool
   return true;
 }
 
-function tryCreate(lockDir: string, owner: LockOwner): boolean {
+export function tryCreate(lockDir: string, owner: LockOwner): boolean {
   try {
     fs.mkdirSync(lockDir);
   } catch (error) {
@@ -166,6 +166,11 @@ export interface Ticket {
   jobClass: JobClass;
   /** When the ticket was taken (from its name). */
   sinceMs: number;
+  /** Heavy lane (laneSlots.ts): the lane name, its class and work tree, when the ticket says. */
+  lane?: string;
+  laneClass?: string;
+  tree?: string;
+  laneVersion?: number;
 }
 
 /** How many quick runs have taken the lock in a row (reset by a long one). */
@@ -177,7 +182,7 @@ export function readQuickStreak(queueDir: string): number {
   }
 }
 
-function writeQuickStreak(queueDir: string, jobClass: JobClass): void {
+export function writeQuickStreak(queueDir: string, jobClass: JobClass): void {
   const next = jobClass === "quick" ? readQuickStreak(queueDir) + 1 : 0;
   try {
     fs.writeFileSync(`${queueDir}.streak`, String(next));
@@ -235,11 +240,16 @@ export function liveTickets(
     }
     let owner = "";
     let jobClass: JobClass = "long";
+    let raw: {
+      owner?: unknown;
+      jobClass?: unknown;
+      lane?: unknown;
+      laneClass?: unknown;
+      tree?: unknown;
+      laneVersion?: unknown;
+    } = {};
     try {
-      const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
-        owner?: unknown;
-        jobClass?: unknown;
-      };
+      raw = JSON.parse(fs.readFileSync(file, "utf8")) as typeof raw;
       owner = String(raw.owner ?? "");
       if (raw.jobClass === "quick") jobClass = "quick";
     } catch {
@@ -253,6 +263,10 @@ export function liveTickets(
       priority: priorityOwners.includes(owner),
       jobClass,
       sinceMs: Number(name.split("-")[0]) || 0,
+      ...(typeof raw.lane === "string" ? { lane: raw.lane } : {}),
+      ...(typeof raw.laneClass === "string" ? { laneClass: raw.laneClass } : {}),
+      ...(typeof raw.tree === "string" ? { tree: raw.tree } : {}),
+      ...(typeof raw.laneVersion === "number" ? { laneVersion: raw.laneVersion } : {}),
     });
   }
   return orderTickets(out, readQuickStreak(queueDir), nowMs);

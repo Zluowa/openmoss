@@ -18,6 +18,8 @@ export const PROVIDER_UPDATE_REFRESH_INTERVAL_MS = 60 * 60 * 1_000;
 // The server stops provider commands after five minutes. This slightly longer
 // client watchdog also covers a stalled transport so loading UI always settles.
 export const PROVIDER_UPDATE_REQUEST_TIMEOUT_MS = 5 * 60_000 + 15_000;
+// Windows Devin downloads get up to 15 minutes server-side before timing out.
+export const DEVIN_PROVIDER_UPDATE_REQUEST_TIMEOUT_MS = 15 * 60_000 + 15_000;
 
 function formatUpdateTimeout(timeoutMs: number): string {
   if (timeoutMs % 60_000 === 0) {
@@ -33,7 +35,11 @@ export async function withProviderUpdateTimeout<T>(input: {
   readonly request: Promise<T>;
   readonly timeoutMs?: number;
 }): Promise<T> {
-  const timeoutMs = input.timeoutMs ?? PROVIDER_UPDATE_REQUEST_TIMEOUT_MS;
+  const timeoutMs =
+    input.timeoutMs ??
+    (input.provider === "devin"
+      ? DEVIN_PROVIDER_UPDATE_REQUEST_TIMEOUT_MS
+      : PROVIDER_UPDATE_REQUEST_TIMEOUT_MS);
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
     timeoutId = setTimeout(() => {

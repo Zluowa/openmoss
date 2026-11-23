@@ -9,7 +9,8 @@ import { lookupPhrase } from "./zhCNPhraseTable";
 
 const CHROME_LABELS: Readonly<Record<string, string>> = {
   // Panels and tabs
-  "Providers & Agents": "服务与智能体",
+  "Providers & Agents": "模型与智能体",
+  "Models & agents": "模型与智能体",
   "Add provider": "添加服务商",
   "Refresh status": "刷新状态",
   "Advanced settings & accounts": "高级设置与账号配置",

@@ -12,6 +12,14 @@ import {
   MOSS_DEFAULT_VIDEO_MODEL_ID,
 } from "@moss/shared/mossMediaPlugins";
 import type { MossCanvasSummary } from "../mossCanvasSummary";
+import {
+  MOSS_CANVAS_MUTATE_LIMITS,
+  MOSS_CANVAS_TEXT_SIZES,
+  parseMossCanvasMutateOps,
+  type MossCanvasMutateOp,
+  type MossCanvasMutateResult,
+} from "../mossCanvasMutate";
+import { BOARD_COLORS, BOARD_GEOS } from "@moss/shared/spaceItems/boardCanvas";
 import { readMossCanvasLiveSelection } from "../mossCanvasLiveSelection";
 import { readWorkspaceMediaEditFiles, readWorkspaceMediaReferences } from "./mediaReferenceFiles";
 import { mediaImageEditInputError } from "../mediaImageEditInput";
@@ -27,6 +35,7 @@ import { GatewayToolError, type ToolContext, type ToolEntry } from "./toolRuntim
 export const MOSS_MEDIA_TOOL_NAMES = [
   "moss_canvas_open",
   "moss_canvas_read",
+  "moss_canvas_mutate",
   "moss_media_list",
   "moss_media_generate",
   "moss_media_get",
@@ -292,6 +301,16 @@ export interface AgentGatewayMediaToolsInput {
     credential: MossMediaCredential,
     context: ToolContext,
   ) => Effect.Effect<MossCanvasSummary, unknown>;
+  readonly mutateCanvas?: (
+    request: {
+      threadId: string;
+      ops: readonly MossCanvasMutateOp[];
+      title?: string;
+      open: boolean;
+    },
+    credential: MossMediaCredential,
+    context: ToolContext,
+  ) => Effect.Effect<MossCanvasMutateResult, unknown>;
   readonly resolveWorkspaceRoot?: (context: ToolContext) => Effect.Effect<string | null>;
   readonly focusCanvasJob?: (
     jobId: string,
@@ -393,7 +412,7 @@ export function makeAgentGatewayMediaTools(
       definition: {
         name: "moss_canvas_open",
         description:
-          "Open Moss Canvas (画布) for this conversation in the person's Moss window. Use this separate board to arrange or edit images only when requested. It is not a document space: never use moss_pages_* for Canvas. Call this whenever the person asks to open, show or use Canvas/画布, or to lay out or edit an image there; do not open it on your own after an ordinary generation. Optional jobId (an image job from this conversation, from moss_media_list or moss_media_generate) focuses that image; imageIndex picks one of its outputs. Opening generates nothing and costs nothing.",
+          "Open Moss Canvas / Whiteboard (画布/白板) in the right panel for this conversation. It is not a document space: never use moss_pages_* for Canvas. Use moss_canvas_read to inspect shapes or the person's selection, and moss_canvas_mutate to draw frames, notes, text, shapes, or connectors directly on the board. Call this whenever the person asks to open, show or use Canvas/Whiteboard/白板/画布, or to lay out or edit an image there; do not open it on your own after an ordinary generation. Optional jobId (an image job from this conversation, from moss_media_list or moss_media_generate) focuses that image; imageIndex picks one of its outputs. Opening generates nothing and costs nothing.",
         inputSchema: {
           type: "object",
           properties: {
@@ -499,6 +518,114 @@ export function makeAgentGatewayMediaTools(
             // selected element: null when nothing is selected.
             const selection = readMossCanvasLiveSelection(context.callerThreadId);
             return mcpToolResultJson({ threadId: context.callerThreadId, ...summary, selection });
+          }),
+        ),
+    },
+    {
+      definition: {
+        name: "moss_canvas_mutate",
+        description:
+          "Draw, organize, update, connect, or clear items directly on this conversation's Moss Whiteboard/Canvas (白板/画布) and optionally open/refresh it in the right panel. Supports addFrame, addNote, addText, addShape, connect (assign key strings to shapes in the same ops batch to connect or place notes inside a frame), update, delete (by shape id from moss_canvas_read), and clear. Never use moss_pages_* for conversation Whiteboard/Canvas.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            ops: {
+              type: "array",
+              minItems: 1,
+              maxItems: MOSS_CANVAS_MUTATE_LIMITS.maxOpsPerCall,
+              description: "Ordered list of board operations to apply atomically.",
+              items: {
+                type: "object",
+                properties: {
+                  op: {
+                    type: "string",
+                    enum: [
+                      "addFrame",
+                      "addNote",
+                      "addText",
+                      "addShape",
+                      "connect",
+                      "update",
+                      "delete",
+                      "clear",
+                    ],
+                  },
+                  key: { type: "string", pattern: "^[A-Za-z0-9_-]{1,64}$" },
+                  id: { type: "string" },
+                  ids: { type: "array", items: { type: "string" } },
+                  name: { type: "string", maxLength: MOSS_CANVAS_MUTATE_LIMITS.maxFrameNameLength },
+                  text: { type: "string", maxLength: MOSS_CANVAS_MUTATE_LIMITS.maxTextLength },
+                  color: { type: "string", enum: [...BOARD_COLORS] },
+                  geo: { type: "string", enum: [...BOARD_GEOS] },
+                  size: { type: "string", enum: [...MOSS_CANVAS_TEXT_SIZES] },
+                  frame: { type: "string" },
+                  from: { type: "string" },
+                  to: { type: "string" },
+                  x: { type: "number" },
+                  y: { type: "number" },
+                  w: { type: "number" },
+                  h: { type: "number" },
+                },
+                required: ["op"],
+              },
+            },
+            title: { type: "string", minLength: 1, maxLength: 120 },
+            open: {
+              type: "boolean",
+              description:
+                "Whether to open/focus the Whiteboard panel beside the chat (default true).",
+            },
+          },
+          required: ["ops"],
+          additionalProperties: false,
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      },
+      requiredCapability: "thread:write",
+      requiresActiveTurn: true,
+      handler: (args, context) =>
+        guarded(
+          Effect.gen(function* () {
+            if (
+              Object.keys(args).some((key) => !["ops", "title", "open"].includes(key)) ||
+              (args.title !== undefined &&
+                (typeof args.title !== "string" ||
+                  !args.title.trim() ||
+                  args.title.length > 120)) ||
+              (args.open !== undefined && typeof args.open !== "boolean")
+            ) {
+              return yield* Effect.fail(new MossMediaJobsError("invalid_request"));
+            }
+            const ops = parseMossCanvasMutateOps(args.ops);
+            const open = args.open !== false;
+            const credential = yield* canvasCredentialFor(context);
+            if (!input.mutateCanvas) {
+              return yield* Effect.fail(new MossMediaJobsError("canvas_host_unavailable", 503));
+            }
+            const result = yield* input.mutateCanvas(
+              {
+                threadId: context.callerThreadId,
+                ops,
+                ...(typeof args.title === "string" && args.title.trim()
+                  ? { title: args.title.trim() }
+                  : {}),
+                open,
+              },
+              credential,
+              context,
+            );
+            yield* canvasCredentialFor(context);
+            return mcpToolResultJson({
+              updated: true,
+              threadId: context.callerThreadId,
+              opened: open,
+              ...result,
+            });
           }),
         ),
     },

@@ -1451,19 +1451,45 @@ describe("providerUpdateFailureReason", () => {
         excludedInstallSources: ["homebrew" as const],
       },
     };
-    const devinWinCaps = resolvePackageManagedProviderMaintenance(devinDefinition, {
-      binaryPath: "C:\\Users\\Test\\AppData\\Local\\devin\\cli\\bin\\devin.exe",
-    });
+    const devinWinCaps = resolvePackageManagedProviderMaintenance(
+      {
+        ...devinDefinition,
+        nativeUpdate: {
+          ...devinDefinition.nativeUpdate,
+          command: (_installSource, platform) =>
+            platform === "win32" ? "irm https://cli.devin.ai/install.ps1 | iex" : null,
+        },
+      },
+      {
+        binaryPath: "devin",
+        platform: "win32",
+      },
+    );
     assert.deepStrictEqual(devinWinCaps.latestVersionSource, {
       kind: "homebrew",
       name: "devin-cli",
       homebrewKind: "cask",
     });
+    assert.strictEqual(devinWinCaps.update?.command, "irm https://cli.devin.ai/install.ps1 | iex");
+    assert.deepStrictEqual(devinWinCaps.update?.args, ["update"]);
     assert.strictEqual(
       createProviderVersionAdvisory({
         provider: "devin",
         currentVersion: "3000.11.230",
         maintenanceCapabilities: devinWinCaps,
+      }).latestVersionKnowable,
+      true,
+    );
+
+    const devinCustomPathCaps = resolvePackageManagedProviderMaintenance(devinDefinition, {
+      binaryPath: "C:\\Users\\Test\\AppData\\Local\\devin\\cli\\bin\\devin.exe",
+      platform: "win32",
+    });
+    assert.strictEqual(
+      createProviderVersionAdvisory({
+        provider: "devin",
+        currentVersion: "3000.11.230",
+        maintenanceCapabilities: devinCustomPathCaps,
       }).latestVersionKnowable,
       true,
     );

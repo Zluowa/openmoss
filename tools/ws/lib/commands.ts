@@ -14,7 +14,6 @@ import { fetchPullRequests, matchPullRequest, type PullRequest } from "./gh.ts";
 import { branchExists, branchTip, listWorktrees, readTreeState, type GitWorktree } from "./git.ts";
 import { linkDependencies, relinkDependencies } from "./linkDeps.ts";
 import {
-  acquireLock,
   formatMinutes,
   HEAVY_LOCK,
   LANE_ENV,
@@ -32,7 +31,8 @@ import {
   stopPid,
   type ProcessInfo,
 } from "./proc.ts";
-import { managedRoots, type Profile } from "./profile.ts";
+import { managedRoots, rereadProfile, type Profile } from "./profile.ts";
+import { acquireLaneSlot, LANE_CLASSES, laneReport, parseLaneClass } from "./laneSlots.ts";
 import {
   BASE_SERVER_PORT,
   BASE_WEB_PORT,
@@ -831,10 +831,21 @@ export async function cmdLane(
   const lane = args.positionals[0];
   const command = args.rest;
   if (!lane || command.length === 0) {
-    io.err("usage: ws lane <name> [--owner <session>] [--shell] [--quick] -- <command...>");
+    io.err(
+      `usage: ws lane <name> [--owner <session>] [--shell] [--quick] [--class ${LANE_CLASSES.join("|")}] -- <command...>`,
+    );
     io.err(
       "--quick: a short job (one test file, one typecheck, a code-update build); it goes ahead of long jobs in the queue and is stopped after lock.quickCapMinutes (10).",
     );
+    io.err(
+      "--class: what the job is, so it may run beside others when lock.heavySlots > 1 (build: installer or full build; window: opens a Moss window; test; typecheck). Without it the job runs alone.",
+    );
+    return 2;
+  }
+  const classFlag = args.flags.get("class");
+  const laneClass = parseLaneClass(classFlag);
+  if (classFlag !== undefined && !laneClass) {
+    io.err(`ws lane: --class must be one of ${LANE_CLASSES.join(", ")}`);
     return 2;
   }
   const drives = [
@@ -877,15 +888,34 @@ export async function cmdLane(
   };
   const shaRun = runSync(profile.tools.git, ["rev-parse", "HEAD"], process.cwd(), 10_000);
   const sha = shaRun.code === 0 ? shaRun.stdout.trim() : "";
-  const lock = await acquireLock({
+  const treeRun = runSync(
+    profile.tools.git,
+    ["rev-parse", "--show-toplevel"],
+    process.cwd(),
+    10_000,
+  );
+  const tree = treeRun.code === 0 ? normalize(treeRun.stdout.trim()) : normalize(process.cwd());
+  const lock = await acquireLaneSlot({
     dir: path.join(profile.stateDir, "locks"),
     name: HEAVY_LOCK,
     staleMs: profile.lock.staleHours * 3600_000,
     pollMs: profile.lock.pollSeconds * 1000,
     owner: { owner: ownerFrom(args), lane, sha, command: command.join(" ").slice(0, 300) },
+    laneClass,
+    tree,
     jobClass: args.flags.has("quick") ? "quick" : "long",
     log: io.err,
     priorityOwners: profile.lock.priorityOwners,
+    // The profile is read again at each admission, so the lead's change counts for the next job.
+    slots: () => rereadProfile(profile).lock.heavySlots,
+    settleMs: () => rereadProfile(profile).lock.admitSettleSeconds * 1000,
+    admissionShortfall: () => {
+      const now = rereadProfile(profile).memory;
+      return memoryShortfall((deps.memory ?? memoryState)(), {
+        freeGB: now.admitFreeGB,
+        commitHeadroomGB: now.admitCommitHeadroomGB,
+      }).map((r) => r.replace("(floor", "(admission floor"));
+    },
   });
   let released = false;
   const release = () => {
@@ -898,7 +928,15 @@ export async function cmdLane(
   try {
     if (!(await checkFloor("after getting the lock"))) return EXIT_DISK_FLOOR;
     if (!(await checkMemory())) return EXIT_MEMORY_FLOOR;
-    io.err(`ws lane ${lane}: lock held; running ${command.join(" ")}`);
+    io.err(
+      `ws lane ${lane}: lock held` +
+        (lock.beside.length
+          ? ` (slot ${lock.slot}, beside ${lock.beside.map((h) => `${h.lane}${h.laneClass ? ` [${h.laneClass}]` : ""}`).join(", ")})`
+          : lock.slot > 1
+            ? ` (slot ${lock.slot})`
+            : "") +
+        `; running ${command.join(" ")}`,
+    );
     let runTemp: ReturnType<typeof createRunTemp> | undefined;
     if (profile.tempRoot) {
       const swept = sweepRunTemps(profile.tempRoot);
@@ -1027,33 +1065,24 @@ export async function cmdDoctor(profile: Profile, args: ParsedArgs, io: Io): Pro
     );
   }
   const mem = memoryState();
-  const short = memoryShortfall(mem, profile.memory);
-  io.out(
-    `memory ${mem.freeGB.toFixed(1)} GB free of ${(os.totalmem() / 1024 ** 3).toFixed(1)} GB` +
-      (mem.commitHeadroomGB === undefined
-        ? ""
-        : `; commit headroom ${mem.commitHeadroomGB.toFixed(1)} GB of a ${mem.commitLimitGB?.toFixed(1) ?? "?"} GB limit`) +
-      (short.length ? `  BELOW FLOOR (lane runs wait): ${short.join("; ")}` : ""),
-  );
-  if (short.length) problems.push("memory below the floor");
-
-  const lockDir = lockPath(path.join(profile.stateDir, "locks"), HEAVY_LOCK);
-  if (fs.existsSync(lockDir)) {
-    const owner = readOwner(lockDir);
-    const stale = staleReason(lockDir, profile.lock.staleHours * 3600_000);
-    io.out(
-      `lock   heavy held by ${owner?.owner ?? "?"} (${owner?.lane ?? "?"}, pid ${owner?.pid ?? "?"}, since ${owner?.started ?? "?"})` +
-        (stale ? `  STALE: ${stale}` : ""),
-    );
-    if (stale) problems.push("heavy lock is stale");
-  } else io.out("lock   heavy is free");
-  let waiting = 0;
-  try {
-    waiting = fs.readdirSync(`${lockDir}.queue`).filter((n) => n.endsWith(".json")).length;
-  } catch {
-    // no queue
-  }
-  if (waiting) io.out(`queue  ${waiting} waiting`);
+  const lane = laneReport({
+    dir: path.join(profile.stateDir, "locks"),
+    name: HEAVY_LOCK,
+    staleMs: profile.lock.staleHours * 3600_000,
+    slots: profile.lock.heavySlots,
+    settleMs: profile.lock.admitSettleSeconds * 1000,
+    priorityOwners: profile.lock.priorityOwners,
+    memory: mem,
+    totalGB: os.totalmem() / 1024 ** 3,
+    runFloor: profile.memory,
+    admitFloor: {
+      freeGB: profile.memory.admitFreeGB,
+      commitHeadroomGB: profile.memory.admitCommitHeadroomGB,
+    },
+    nowMs: Date.now(),
+  });
+  for (const line of lane.lines) io.out(line);
+  problems.push(...lane.problems);
 
   const { rows, processes } = await gather(profile, { sizes: false, gitState: false });
   const orphans = orphanedDevProcesses(processes);
