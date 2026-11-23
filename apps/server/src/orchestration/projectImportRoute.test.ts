@@ -119,7 +119,12 @@ function harness(input: {
 }) {
   const providers = input.providers ?? ["codex"];
   const projects = [...(input.projects ?? [])];
-  const threads: { id: ThreadId; projectId: ProjectId; deletedAt: string | null }[] = [];
+  const threads: {
+    id: ThreadId;
+    projectId: ProjectId;
+    deletedAt: string | null;
+    parentThreadId?: ThreadId | null;
+  }[] = [];
   const commands: OrchestrationCommand[] = [];
   const appliedCommandIds = new Set<string>();
   const importedMessages = new Map<ThreadId, ReadonlyArray<ThreadHandoffImportedMessage>>();
@@ -228,7 +233,18 @@ function harness(input: {
             spaceId: command.spaceId ?? null,
           });
         if (command.type === "thread.create")
-          threads.push({ id: command.threadId, projectId: command.projectId, deletedAt: null });
+          threads.push({
+            id: command.threadId,
+            projectId: command.projectId,
+            deletedAt: null,
+            parentThreadId: command.parentThreadId ?? null,
+          });
+        if (command.type === "thread.meta.update") {
+          const target = threads.find((thread) => thread.id === command.threadId);
+          if (target && command.parentThreadId !== undefined) {
+            target.parentThreadId = command.parentThreadId;
+          }
+        }
         if (command.type === "thread.messages.import") {
           importedMessages.set(command.threadId, [
             ...(importedMessages.get(command.threadId) ?? []),
@@ -980,5 +996,147 @@ describe("project import routes", () => {
     expect(result.status).toBe("imported");
     expect(test.threads).toHaveLength(1);
     expect(test.importExternalThread).not.toHaveBeenCalled();
+  });
+
+  it("imports parent-first and resolves parentThreadId even when child precedes parent in raw scan", async () => {
+    const { root } = await workspace();
+    const test = harness({ root, providers: ["codex"] });
+    const base = nativeCatalog(root, "codex");
+    test.catalogs.set("codex", {
+      ...base,
+      sessions: [
+        {
+          id: "codex-child",
+          title: "Spawned child",
+          cwd: root,
+          projectId: "native-codex",
+          createdAt: UPDATED_AT,
+          updatedAt: "2026-09-03T10:00:00.000Z",
+          archived: false,
+          parentSourceSessionId: "codex-parent",
+          hierarchyKind: "subagent",
+          subagentNickname: "Scout",
+          subagentRole: "researcher",
+        },
+        {
+          id: "codex-parent",
+          title: "Parent conversation",
+          cwd: root,
+          projectId: "native-codex",
+          createdAt: CREATED_AT,
+          updatedAt: UPDATED_AT,
+          archived: false,
+        },
+      ],
+    });
+
+    const preview = await test.preview();
+    const project = preview.projects[0]!;
+    expect(project.threads.map((thread) => thread.title)).toEqual([
+      "Parent conversation",
+      "Spawned child",
+    ]);
+
+    const parentResult = await Effect.runPromise(
+      test.importProject({
+        projectKey: project.key,
+        workspaceRoot: project.workspaceRoot,
+        threadKey: project.threads[0]!.key,
+      }),
+    );
+    const childResult = await Effect.runPromise(
+      test.importProject({
+        projectKey: project.key,
+        workspaceRoot: project.workspaceRoot,
+        threadKey: project.threads[1]!.key,
+      }),
+    );
+
+    const createdCommands = test.commands.filter((command) => command.type === "thread.create");
+    expect(createdCommands).toHaveLength(2);
+    expect(createdCommands[1]).toMatchObject({
+      threadId: childResult.threadId,
+      parentThreadId: parentResult.threadId,
+      subagentNickname: "Scout",
+      subagentRole: "researcher",
+    });
+  });
+
+  it("repairs missing parentThreadId on an already-imported child thread when parent exists", async () => {
+    const { root } = await workspace();
+    const existing = existingProject(root);
+    const parentThreadId = ThreadId.makeUnsafe("existing-parent-thread");
+    const childThreadId = ThreadId.makeUnsafe("existing-child-thread");
+    const test = harness({ root, projects: [existing], providers: ["codex"] });
+    const base = nativeCatalog(root, "codex");
+    test.catalogs.set("codex", {
+      ...base,
+      sessions: [
+        {
+          id: "codex-parent",
+          title: "Parent conversation",
+          cwd: root,
+          projectId: "native-codex",
+          createdAt: CREATED_AT,
+          updatedAt: UPDATED_AT,
+          archived: false,
+        },
+        {
+          id: "codex-child",
+          title: "Child conversation",
+          cwd: root,
+          projectId: "native-codex",
+          createdAt: UPDATED_AT,
+          updatedAt: "2026-09-03T10:00:00.000Z",
+          archived: false,
+          parentSessionId: "codex-parent",
+          parentSourceSessionId: "codex-parent",
+          hierarchyKind: "subagent",
+        },
+      ],
+    });
+    test.threads.push(
+      { id: parentThreadId, projectId: existing.id, deletedAt: null, parentThreadId: null },
+      { id: childThreadId, projectId: existing.id, deletedAt: null, parentThreadId: null },
+    );
+    test.bindings.push(
+      {
+        threadId: parentThreadId,
+        projectId: existing.id,
+        provider: "codex",
+        cursor: JSON.stringify({ threadId: "codex-parent" }),
+      },
+      {
+        threadId: childThreadId,
+        projectId: existing.id,
+        provider: "codex",
+        cursor: JSON.stringify({ threadId: "codex-child" }),
+      },
+    );
+
+    const preview = await test.preview();
+    const childCandidate = preview.projects[0]!.threads.find(
+      (thread) => thread.title === "Child conversation",
+    )!;
+    const result = await Effect.runPromise(
+      test.importProject({
+        projectKey: preview.projects[0]!.key,
+        workspaceRoot: preview.projects[0]!.workspaceRoot,
+        threadKey: childCandidate.key,
+      }),
+    );
+
+    expect(result).toEqual({
+      projectId: existing.id,
+      threadId: childThreadId,
+      status: "already-present",
+    });
+    expect(test.commands).toContainEqual(
+      expect.objectContaining({
+        type: "thread.meta.update",
+        threadId: childThreadId,
+        parentThreadId,
+      }),
+    );
   });
 });

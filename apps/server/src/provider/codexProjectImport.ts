@@ -176,17 +176,88 @@ function mergeLegacyProjects(
   return { projects: [...projects.values()], legacyIds };
 }
 
-function isInternalThread(row: Row, children: Set<unknown>): boolean {
-  if (children.has(row.id) || text(row.parent_thread_id)) return true;
+interface CodexThreadHierarchy {
+  readonly internal: boolean;
+  readonly parentId?: string;
+  readonly hierarchyKind?: "subagent";
+  readonly subagentNickname?: string;
+  readonly subagentRole?: string;
+}
+
+function resolveCodexThreadHierarchy(
+  row: Row,
+  childParentByChildId: ReadonlyMap<string, string>,
+  orphanChildren: ReadonlySet<unknown>,
+): CodexThreadHierarchy {
+  const id = text(row.id) ?? "";
   const source = text(row.source) ?? "";
   const threadSource = text(row.thread_source) ?? "";
-  if (/^sub_?agent/i.test(source) || /^(sub_?agent|guardian)/i.test(threadSource)) return true;
-  if (!source.startsWith("{")) return false;
-  try {
-    return object(JSON.parse(source)).subagent !== undefined;
-  } catch {
-    return false;
+  if (/^guardian/i.test(threadSource)) {
+    return { internal: true };
   }
+
+  const rowParentId =
+    text(row.parent_thread_id) ??
+    text(row.attached_thread_parent_id) ??
+    (id ? childParentByChildId.get(id) : undefined);
+
+  if (source.startsWith("{")) {
+    try {
+      const parsed = object(JSON.parse(source));
+      if (parsed.subagent !== undefined) {
+        const subagent = object(parsed.subagent);
+        const spawn = object(subagent.thread_spawn);
+        const guardianKind = text(subagent.other);
+        if (guardianKind && /^guardian/i.test(guardianKind)) {
+          return { internal: true };
+        }
+        const parentId = rowParentId ?? text(spawn.parent_thread_id);
+        if (parentId && parentId !== id) {
+          const subagentNickname = text(row.agent_nickname) ?? text(spawn.agent_nickname);
+          const subagentRole = text(row.agent_role) ?? text(spawn.agent_role);
+          return {
+            internal: false,
+            parentId,
+            hierarchyKind: "subagent",
+            ...(subagentNickname ? { subagentNickname } : {}),
+            ...(subagentRole ? { subagentRole } : {}),
+          };
+        }
+        return { internal: true };
+      }
+    } catch {
+      return { internal: false };
+    }
+  }
+
+  if (rowParentId && rowParentId !== id) {
+    const subagentNickname = text(row.agent_nickname);
+    const subagentRole = text(row.agent_role);
+    return {
+      internal: false,
+      parentId: rowParentId,
+      hierarchyKind: "subagent",
+      ...(subagentNickname ? { subagentNickname } : {}),
+      ...(subagentRole ? { subagentRole } : {}),
+    };
+  }
+
+  if (orphanChildren.has(row.id)) return { internal: true };
+  if (/^sub_?agent/i.test(source) || /^sub_?agent/i.test(threadSource)) {
+    return { internal: true };
+  }
+  return { internal: false };
+}
+
+function codexHierarchyFields(hierarchy: CodexThreadHierarchy): Partial<NativeImportSession> {
+  if (!hierarchy.parentId) return {};
+  return {
+    parentSessionId: hierarchy.parentId,
+    parentSourceSessionId: hierarchy.parentId,
+    ...(hierarchy.hierarchyKind ? { hierarchyKind: hierarchy.hierarchyKind } : {}),
+    ...(hierarchy.subagentNickname ? { subagentNickname: hierarchy.subagentNickname } : {}),
+    ...(hierarchy.subagentRole ? { subagentRole: hierarchy.subagentRole } : {}),
+  };
 }
 
 function timestamp(milliseconds: unknown, seconds: unknown): string {
@@ -234,17 +305,33 @@ function readDatabaseSessions(
     "archived",
     "thread_source",
     "parent_thread_id",
+    "attached_thread_parent_id",
+    "agent_nickname",
+    "agent_role",
     "rollout_path",
     "first_user_message",
     "preview",
   ].filter((column) => columns.has(column));
-  const children = new Set(
-    tables.has("thread_spawn_edges")
-      ? rows(database, "SELECT child_thread_id FROM thread_spawn_edges").map(
-          (row) => row.child_thread_id,
-        )
-      : [],
-  );
+  const childParentByChildId = new Map<string, string>();
+  const orphanChildren = new Set<unknown>();
+  if (tables.has("thread_spawn_edges")) {
+    const edgeColumns = sqliteTableColumns(database, "thread_spawn_edges");
+    if (edgeColumns.has("child_thread_id")) {
+      const hasParent = edgeColumns.has("parent_thread_id");
+      const sql = hasParent
+        ? "SELECT child_thread_id, parent_thread_id FROM thread_spawn_edges"
+        : "SELECT child_thread_id FROM thread_spawn_edges";
+      for (const edge of rows(database, sql)) {
+        const childId = text(edge.child_thread_id);
+        const parentId = hasParent ? text(edge.parent_thread_id) : undefined;
+        if (childId && parentId && parentId !== childId) {
+          childParentByChildId.set(childId, parentId);
+        } else if (edge.child_thread_id !== undefined) {
+          orphanChildren.add(edge.child_thread_id);
+        }
+      }
+    }
+  }
   const projectIds = new Set(projects.map((project) => project.id));
   const assignments = object(state["thread-project-assignments"]);
   const projectless = new Set(
@@ -253,7 +340,8 @@ function readDatabaseSessions(
   return rows(database, `SELECT ${selected.join(", ")} FROM threads`).flatMap((row) => {
     const id = text(row.id);
     const cwd = text(row.cwd);
-    if (!id || !cwd || isInternalThread(row, children)) return [];
+    const hierarchy = resolveCodexThreadHierarchy(row, childParentByChildId, orphanChildren);
+    if (!id || !cwd || hierarchy.internal) return [];
     const assignment = object(assignments[id]);
     const legacyId =
       !projectless.has(id) && assignment.projectKind === "local"
@@ -276,6 +364,7 @@ function readDatabaseSessions(
         createdAt: timestamp(row.created_at_ms, row.created_at),
         updatedAt: timestamp(row.updated_at_ms, row.updated_at),
         archived: row.archived === 1 || row.archived === true,
+        ...codexHierarchyFields(hierarchy),
         ...(rolloutPath ? { rolloutPath } : {}),
       },
     ];
@@ -343,7 +432,19 @@ async function readRolloutSession(
     const cwd = text(meta.cwd);
     const source =
       typeof meta.source === "string" ? meta.source : JSON.stringify(meta.source ?? "");
-    if (!id || !cwd || isInternalThread({ id, source }, new Set())) return undefined;
+    const hierarchy = resolveCodexThreadHierarchy(
+      {
+        id,
+        source,
+        parent_thread_id: meta.parent_thread_id,
+        attached_thread_parent_id: meta.attached_thread_parent_id,
+        agent_nickname: meta.agent_nickname,
+        agent_role: meta.agent_role,
+      },
+      new Map(),
+      new Set(),
+    );
+    if (!id || !cwd || hierarchy.internal) return undefined;
     const createdAt = isoTimestamp(meta.timestamp) ?? isoTimestamp(record.timestamp);
     const updatedAt = (await modifiedAt(file)) ?? createdAt;
     if (!updatedAt) return undefined;
@@ -355,6 +456,7 @@ async function readRolloutSession(
       createdAt: createdAt ?? updatedAt,
       updatedAt,
       archived,
+      ...codexHierarchyFields(hierarchy),
     };
   }
   return undefined;

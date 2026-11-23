@@ -156,3 +156,15 @@ describe("Windows AppSnap settings and shortcut copy in zh-CN", () => {
     expect(translateZhCnPresentationText(english)).toBe(chinese);
   });
 });
+
+describe("desktop tray and autostart settings copy in zh-CN", () => {
+  it.each([
+    ["Desktop", "桌面"],
+    ["Close to system tray", "关闭时收入托盘"],
+    ["Keep running in the background when you close the window.", "点击关闭后留在后台继续运行"],
+    ["Launch at login", "开机自动启动"],
+    ["Open Moss automatically when you sign in.", "登录系统时自动打开 Moss"],
+  ])("translates %s", (english, chinese) => {
+    expect(translateZhCnPresentationText(english)).toBe(chinese);
+  });
+});

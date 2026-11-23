@@ -507,23 +507,120 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
         const source = selected?.session;
         let model = yield* options.orchestrationEngine.getReadModel();
         const destinations = makeProjectImportDestinations(model);
+        const findRelative = (relative: ResolvedImportSession) =>
+          Effect.gen(function* () {
+            const previous = destinations.findOrigin(yield* options.repository.find(relative.key));
+            if (previous?.status === "completed") {
+              const existing = destinations.findThread(previous.threadId);
+              if (existing) return existing;
+            }
+            return findKnownThread(relative, destinations);
+          });
+        const resolveParentThreadId = (
+          candidate: ResolvedImportSession,
+          candidateThreadId: ThreadId,
+          targetProjectId: ProjectId,
+        ) =>
+          Effect.gen(function* () {
+            const parent = candidate.parentKey
+              ? sessions.get(candidate.parentKey)?.session
+              : undefined;
+            const byRelative = parent ? yield* findRelative(parent) : undefined;
+            const rawParentId = candidate.parentSourceSessionId ?? candidate.parentSessionId;
+            const byKnownId =
+              !byRelative && rawParentId
+                ? (() => {
+                    const knownId = knownThreads.get(
+                      `${candidate.provider}:${rawParentId.trim().toLowerCase()}`,
+                    );
+                    return knownId ? destinations.findThread(knownId) : undefined;
+                  })()
+                : undefined;
+            const resolved = byRelative ?? byKnownId;
+            return resolved?.projectId === targetProjectId &&
+              resolved.threadId !== candidateThreadId
+              ? resolved.threadId
+              : undefined;
+          });
+        const dispatchAttachParent = (
+          childThreadId: ThreadId,
+          parentId: ThreadId,
+          metaSource: ResolvedImportSession,
+        ) =>
+          options.orchestrationEngine.dispatch({
+            type: "thread.meta.update",
+            commandId: CommandId.makeUnsafe(`project-import:${childThreadId}:parent:${parentId}`),
+            threadId: childThreadId,
+            parentThreadId: parentId,
+            ...(metaSource.subagentNickname
+              ? { subagentNickname: metaSource.subagentNickname }
+              : {}),
+            ...(metaSource.subagentRole ? { subagentRole: metaSource.subagentRole } : {}),
+          });
+        const attachChildThreads = (
+          parentSession: ResolvedImportSession,
+          parentId: ThreadId,
+          targetProjectId: ProjectId,
+        ) =>
+          Effect.gen(function* () {
+            for (const candidate of cached.project.threads) {
+              if (candidate.parentKey !== parentSession.key) continue;
+              const child = yield* findRelative(candidate);
+              if (!child || child.projectId !== targetProjectId || child.threadId === parentId) {
+                continue;
+              }
+              const childThread = model.threads.find((thread) => thread.id === child.threadId);
+              if (childThread?.parentThreadId) continue;
+              yield* dispatchAttachParent(child.threadId, parentId, candidate);
+            }
+          });
         const storedOrigin = source ? yield* options.repository.find(source.key) : undefined;
         let origin = destinations.findOrigin(storedOrigin);
-        if (origin?.status === "completed")
-          return {
-            projectId: origin.projectId,
-            threadId: origin.threadId,
-            status: "already-present",
-          } satisfies ImportProjectResult;
+        let alreadyPresent: { projectId: ProjectId; threadId: ThreadId } | undefined =
+          origin?.status === "completed"
+            ? { projectId: origin.projectId, threadId: origin.threadId }
+            : undefined;
         if (source && !origin) {
           const cachedThread = findKnownThread(source, destinations);
-          if (cachedThread)
-            return { ...cachedThread, status: "already-present" } satisfies ImportProjectResult;
-          const bindings = yield* readKnownBindings(destinations);
-          const known = importSessionIdentities(source)
-            .map((id) => bindings.get(id))
-            .find(Boolean);
-          if (known) return { ...known, status: "already-present" } satisfies ImportProjectResult;
+          if (cachedThread) {
+            alreadyPresent = cachedThread;
+          } else {
+            const bindings = yield* readKnownBindings(destinations);
+            const known = importSessionIdentities(source)
+              .map((id) => bindings.get(id))
+              .find(Boolean);
+            if (known) alreadyPresent = known;
+          }
+        }
+        if (alreadyPresent) {
+          if (source) {
+            for (const identity of importSessionIdentities(source)) {
+              knownThreads.set(identity, alreadyPresent.threadId);
+            }
+            const existingPresentThread = model.threads.find(
+              (entry) => entry.id === alreadyPresent.threadId,
+            );
+            if (existingPresentThread && existingPresentThread.parentThreadId == null) {
+              const repairedParentThreadId = yield* resolveParentThreadId(
+                source,
+                alreadyPresent.threadId,
+                alreadyPresent.projectId,
+              );
+              if (repairedParentThreadId) {
+                yield* dispatchAttachParent(
+                  alreadyPresent.threadId,
+                  repairedParentThreadId,
+                  source,
+                );
+              }
+            }
+            yield* attachChildThreads(source, alreadyPresent.threadId, alreadyPresent.projectId);
+          }
+          return {
+            projectId: alreadyPresent.projectId,
+            threadId: alreadyPresent.threadId,
+            status: "already-present",
+          } satisfies ImportProjectResult;
         }
         let importSource: ProjectImportSource | undefined;
         if (source) {
@@ -661,19 +758,7 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
             message: "The import destination was removed. Retry to create a new conversation copy.",
           });
         const sourceAccount = importSource!;
-        const findRelative = (relative: ResolvedImportSession) =>
-          Effect.gen(function* () {
-            const previous = destinations.findOrigin(yield* options.repository.find(relative.key));
-            return previous?.status === "completed"
-              ? destinations.findThread(previous.threadId)
-              : findKnownThread(relative, destinations);
-          });
-        const parent = source.parentKey ? sessions.get(source.parentKey)?.session : undefined;
-        const parentThread = parent ? yield* findRelative(parent) : undefined;
-        const parentThreadId =
-          parentThread?.projectId === project.id && parentThread.threadId !== threadId
-            ? parentThread.threadId
-            : undefined;
+        const parentThreadId = yield* resolveParentThreadId(source, threadId, project.id);
         const accountInstance = sourceAccount.isDefault
           ? {}
           : { instanceId: sourceAccount.instanceId };
@@ -749,8 +834,14 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
             worktreePath,
             ...(workingDirectory ? { workingDirectory } : {}),
             ...(parentThreadId ? { parentThreadId } : {}),
+            ...(parentThreadId && source.subagentNickname
+              ? { subagentNickname: source.subagentNickname }
+              : {}),
+            ...(parentThreadId && source.subagentRole ? { subagentRole: source.subagentRole } : {}),
             createdAt: source.createdAt,
           });
+        } else if (existingThread.parentThreadId == null && parentThreadId) {
+          yield* dispatchAttachParent(threadId, parentThreadId, source);
         }
         // Where a native copy would run if the person continues the conversation.
         const runtimeCwd = workingDirectory ?? (directoryExists ? workspaceRoot : undefined);
@@ -782,19 +873,7 @@ export function makeProjectImportHandlers(options: ProjectImportRouteOptions) {
           });
         // The user can import a child on its own. If the parent is imported later, attach
         // the existing child without copying it again or changing its project.
-        for (const candidate of cached.project.threads) {
-          if (candidate.parentKey !== source.key) continue;
-          const child = yield* findRelative(candidate);
-          if (!child || child.projectId !== project.id || child.threadId === threadId) continue;
-          const childThread = model.threads.find((thread) => thread.id === child.threadId);
-          if (childThread?.parentThreadId) continue;
-          yield* options.orchestrationEngine.dispatch({
-            type: "thread.meta.update",
-            commandId: CommandId.makeUnsafe(`project-import:${child.threadId}:parent:${threadId}`),
-            threadId: child.threadId,
-            parentThreadId: threadId,
-          });
-        }
+        yield* attachChildThreads(source, threadId, project.id);
         yield* options.repository.complete(source.key);
         for (const identity of importSessionIdentities(source))
           knownThreads.set(identity, threadId);

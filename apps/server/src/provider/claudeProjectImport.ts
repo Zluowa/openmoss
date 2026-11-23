@@ -11,7 +11,7 @@ import {
   titleFromText,
   visibleMessageText,
 } from "./localHistory/shared.ts";
-import type { NativeProjectImportCatalog } from "./projectImportTypes.ts";
+import type { NativeImportSession, NativeProjectImportCatalog } from "./projectImportTypes.ts";
 
 const SESSION_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const MAX_METADATA_BYTES = 32 * 1024 * 1024;
@@ -160,7 +160,12 @@ async function desktopSessions(directory: string, onSkipped: () => void) {
       onSkipped();
       return [];
     });
-  const rows: { localId: string; data: Record<string, unknown>; ids: string[] }[] = [];
+  const rows: {
+    localId: string;
+    data: Record<string, unknown>;
+    ids: string[];
+    sessionAlias?: string;
+  }[] = [];
   for (const account of await entries(directory)) {
     if (!account.isDirectory()) continue;
     const accountDir = path.join(directory, account.name);
@@ -187,7 +192,15 @@ async function desktopSessions(directory: string, onSkipped: () => void) {
             ? [id.toLowerCase()]
             : [],
         );
-        return { data, localId: file.name.slice(6, -5), ids: [...new Set(ids)] };
+        const sessionAlias = nonEmptyString(data.sessionId)
+          ?.replace(/^local_/u, "")
+          .toLowerCase();
+        return {
+          data,
+          localId: file.name.slice(6, -5),
+          ids: [...new Set(ids)],
+          ...(sessionAlias ? { sessionAlias } : {}),
+        };
       });
       for (const row of parsed) if (row) rows.push(row);
     }
@@ -201,13 +214,22 @@ async function desktopSessions(directory: string, onSkipped: () => void) {
 
 function spawnParent(value: unknown): string | undefined {
   const record = asRecord(value);
+  const nested = asRecord(record?.sideSession) ?? asRecord(record?.parent);
   return nonEmptyString(
     record?.sessionId ??
       record?.parentSessionId ??
       record?.localSessionId ??
       record?.parentCliSessionId ??
       record?.cliSessionId ??
+      record?.sideSessionId ??
+      record?.parentThreadId ??
+      record?.sourceSessionId ??
       record?.id ??
+      nested?.sessionId ??
+      nested?.parentSessionId ??
+      nested?.localSessionId ??
+      nested?.cliSessionId ??
+      nested?.id ??
       value,
   )
     ?.replace(/^local_/u, "")
@@ -258,11 +280,17 @@ export async function discoverClaudeProjects(
   const transcriptIds = new Map<string, string>();
   const priorIds = new Map<string, string[]>();
   if (files.size && input.desktopSessionsDir) {
-    for (const { data, localId, ids } of await desktopSessions(input.desktopSessionsDir, skipped)) {
+    for (const { data, localId, ids, sessionAlias } of await desktopSessions(
+      input.desktopSessionsDir,
+      skipped,
+    )) {
       const id = ids.find((candidate) => transcriptIds.has(candidate) || files.has(candidate));
       if (!id) continue;
       const selected = transcriptIds.get(id) ?? id;
       transcriptIds.set(localId.toLowerCase(), selected);
+      if (sessionAlias && !transcriptIds.has(sessionAlias)) {
+        transcriptIds.set(sessionAlias, selected);
+      }
       for (const alias of ids) {
         if (!transcriptIds.has(alias)) transcriptIds.set(alias, selected);
       }
@@ -305,8 +333,21 @@ export async function discoverClaudeProjects(
       const projectRoot = origin ?? (worktree && !insideWorktree ? metadataCwd : undefined);
       const root = projectRoot ?? cwd;
       const updatedAt = isoTimestamp(desktop?.lastActivityAt) ?? info.mtime.toISOString();
-      const parent = spawnParent(desktop?.spawnedFrom);
+      const spawnedFrom = asRecord(desktop?.spawnedFrom);
+      const parent =
+        spawnParent(desktop?.spawnedFrom) ??
+        spawnParent(desktop?.parentSessionId ?? desktop?.parentCliSessionId);
       const parentSessionId = parent ? (transcriptIds.get(parent) ?? parent) : undefined;
+      const isSideSession =
+        spawnedFrom?.sideSession === true ||
+        asRecord(spawnedFrom?.sideSession) !== null ||
+        nonEmptyString(spawnedFrom?.sideSessionId) !== undefined;
+      const hierarchyKind: NativeImportSession["hierarchyKind"] = parentSessionId
+        ? isSideSession
+          ? "sideSession"
+          : "subagent"
+        : undefined;
+      const subagentNickname = nonEmptyString(spawnedFrom?.name);
       const aliases = priorIds.get(id)?.filter((alias) => alias !== id);
       projects.set(root, { id: root, title: path.basename(root) || root, roots: [root] });
       return {
@@ -315,7 +356,14 @@ export async function discoverClaudeProjects(
         cwd,
         projectId: root,
         ...(projectRoot ? { projectRoot } : {}),
-        ...(parentSessionId && parentSessionId !== id ? { parentSessionId } : {}),
+        ...(parentSessionId && parentSessionId !== id
+          ? {
+              parentSessionId,
+              parentSourceSessionId: parentSessionId,
+              ...(hierarchyKind ? { hierarchyKind } : {}),
+              ...(subagentNickname ? { subagentNickname } : {}),
+            }
+          : {}),
         ...(aliases?.length ? { priorSessionIds: aliases } : {}),
         createdAt: metadataCreatedAt ?? fallback?.createdAt ?? updatedAt,
         updatedAt,

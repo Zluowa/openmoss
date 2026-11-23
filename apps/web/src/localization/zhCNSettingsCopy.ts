@@ -906,6 +906,11 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Let Moss look at the app in front when you ask.": "你提到屏幕内容时，允许 Moss 查看最前面的应用",
   "Send a report when Moss hits an error, so it can be fixed.":
     "Moss 出错时发送报告，帮助修复问题。",
+  Desktop: "桌面",
+  "Close to system tray": "关闭时收入托盘",
+  "Keep running in the background when you close the window.": "点击关闭后留在后台继续运行",
+  "Launch at login": "开机自动启动",
+  "Open Moss automatically when you sign in.": "登录系统时自动打开 Moss",
 };
 
 const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExecArray) => string]> =

@@ -235,7 +235,8 @@ describe("desktop signing subprocess environments", () => {
     // 15 with the Windows job launcher build (stageWindowsJobLauncher), also sanitized.
     assert.equal(buildSource.match(/ChildProcess\.make/g)?.length, 15);
     assert.equal(spawnSyncCalls.length, sanitizedSpawnSyncCalls.length);
-    assert.equal(nonSigningEnvironmentCalls.length, 15);
+    // 16 with the bun --version probe for MOSS_DESKTOP_STAGE_DEPS_CACHE, also sanitized.
+    assert.equal(nonSigningEnvironmentCalls.length, 16);
     assert.equal(desktopBuildEnvironmentCalls.length, 2);
     assert.match(
       buildSource,
@@ -243,7 +244,7 @@ describe("desktop signing subprocess environments", () => {
     );
     assert.match(
       buildSource,
-      /ChildProcess\.make\(\{[\s\S]*?env: createDesktopBuildSubprocessEnvironment\(process\.env\)[\s\S]*?\}\)`bun run build:desktop --force`/,
+      /ChildProcess\.make\(\{[\s\S]*?env: createDesktopBuildSubprocessEnvironment\(process\.env\)[\s\S]*?\}\)`bun run build:desktop --cache=local:,remote:`/,
     );
     // The SSH runtime pack runs the server CLI; it must never inherit signing keys or
     // injection variables straight from process.env.

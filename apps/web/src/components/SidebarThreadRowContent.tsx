@@ -22,11 +22,14 @@ import { resolveThreadHandoffBadgeLabel } from "../lib/threadHandoff";
 import { SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME } from "../sidebarRowStyles";
 import type { SidebarThreadSummary } from "../types";
 import { TerminalIcon } from "../lib/icons";
+import { isImeComposingKeyEvent } from "../lib/imeKeyEvent";
 import { cn } from "../lib/utils";
 import { ProviderIcon } from "./ProviderIcon";
 import { SubagentMark } from "./chat/SubagentMark";
 import { SidebarGlyph } from "./sidebarGlyphs";
 import { SidebarDraftGlyph } from "./SidebarStatusTrailingGlyph";
+import { Button } from "./ui/button";
+import { DisclosureChevron } from "./ui/DisclosureChevron";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export interface SidebarThreadTerminalStatus {
@@ -224,6 +227,9 @@ export function SidebarThreadRowContent({
   variant,
   subagentIndentPx: subagentIndentPxProp,
   pendingStatusColorClass,
+  childCount = 0,
+  isParentCollapsed = false,
+  onToggleParentCollapse,
   suffix,
 }: {
   thread: SidebarThreadSummary;
@@ -234,6 +240,9 @@ export function SidebarThreadRowContent({
   variant: "pinned" | "standard";
   subagentIndentPx?: number;
   pendingStatusColorClass?: string | null | undefined;
+  childCount?: number | undefined;
+  isParentCollapsed?: boolean | undefined;
+  onToggleParentCollapse?: (() => void) | undefined;
   suffix?: ReactNode;
 }) {
   const subagentIndentPx = subagentIndentPxProp ?? 0;
@@ -249,7 +258,21 @@ export function SidebarThreadRowContent({
   // glyph, and a terminal badge still draws on this avatar.
   const showThreadProviderAvatar = !isGenericChatThreadTitle(thread.title);
   const hasPendingDraft = useThreadHasPendingDraft(thread.id);
-  const { t } = useTranslation();
+  const { format, t } = useTranslation();
+  const hasCollapsibleChildren =
+    variant === "standard" && childCount > 0 && onToggleParentCollapse !== undefined;
+  const parentCollapseActionLabel = hasCollapsibleChildren
+    ? format(
+        isParentCollapsed
+          ? childCount === 1
+            ? "sidebar.thread.expandChildrenOne"
+            : "sidebar.thread.expandChildrenOther"
+          : childCount === 1
+            ? "sidebar.thread.collapseChildrenOne"
+            : "sidebar.thread.collapseChildrenOther",
+        { count: childCount },
+      )
+    : undefined;
 
   const clusterGap = variant === "standard" && isSubagentThread ? "gap-[5px]" : "gap-1.5";
   const leading =
@@ -285,6 +308,33 @@ export function SidebarThreadRowContent({
       />
     ) : null;
 
+  const titleNode = (
+    <span
+      className={cn(
+        // Pinned rows size the title from its text so the suffix yields width first.
+        // Parent rows with a child disclosure chevron size to the title so the toggle
+        // sits directly next to the title text.
+        "min-w-0 truncate-fade text-ui",
+        variant === "pinned" || hasCollapsibleChildren ? "flex-initial" : "flex-1",
+        isActive ? "text-foreground" : SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
+        variant === "standard" && isSubagentThread
+          ? "leading-[18px] text-foreground/80"
+          : "leading-5",
+      )}
+      data-sidebar-thread-title=""
+      data-testid={variant === "pinned" ? `thread-title-${thread.id}` : undefined}
+    >
+      {isSubagentThread ? (
+        <SidebarSubagentLabel
+          thread={thread}
+          roleClassName={variant === "standard" ? "text-muted-foreground/42" : undefined}
+        />
+      ) : (
+        thread.title
+      )}
+    </span>
+  );
+
   return (
     <div
       className={cn(
@@ -295,28 +345,51 @@ export function SidebarThreadRowContent({
     >
       {leading}
       <div className={cn("flex min-w-0 flex-1 flex-nowrap items-center", clusterGap)}>
-        <span
-          className={cn(
-            // Pinned rows size the title from its text so the suffix yields width first.
-            "min-w-0 truncate-fade text-ui",
-            variant === "pinned" ? "flex-auto" : "flex-1",
-            isActive ? "text-foreground" : SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
-            variant === "standard" && isSubagentThread
-              ? "leading-[18px] text-foreground/80"
-              : "leading-5",
-          )}
-          data-sidebar-thread-title=""
-          data-testid={variant === "pinned" ? `thread-title-${thread.id}` : undefined}
-        >
-          {isSubagentThread ? (
-            <SidebarSubagentLabel
-              thread={thread}
-              roleClassName={variant === "standard" ? "text-muted-foreground/42" : undefined}
-            />
-          ) : (
-            thread.title
-          )}
-        </span>
+        {hasCollapsibleChildren && parentCollapseActionLabel ? (
+          <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1">
+            {titleNode}
+            <Button
+              type="button"
+              variant="chrome"
+              size="icon-xs"
+              data-thread-selection-safe=""
+              data-testid={`thread-parent-collapse-${thread.id}`}
+              aria-expanded={!isParentCollapsed}
+              aria-label={parentCollapseActionLabel}
+              title={parentCollapseActionLabel}
+              className="shrink-0 text-muted-foreground/65 hover:text-foreground"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+              }}
+              onPointerUp={(event) => {
+                event.stopPropagation();
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onKeyDown={(event) => {
+                if (isImeComposingKeyEvent(event)) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.stopPropagation();
+                }
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleParentCollapse();
+              }}
+            >
+              <DisclosureChevron open={!isParentCollapsed} className="size-3.5" />
+            </Button>
+          </div>
+        ) : (
+          titleNode
+        )}
         {hasPendingDraft ? <SidebarDraftGlyph /> : null}
         {!isSubagentThread && pendingStatusColorClass ? (
           <AwaitingApprovalChip label={t("chat.timeline.awaitingApproval")} />

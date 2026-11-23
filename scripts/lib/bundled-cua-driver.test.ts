@@ -120,7 +120,7 @@ describe("bundled Cua Driver packaging", () => {
   it("stages the driver first, without signing keys, and validates after signing", () => {
     const source = readRepoFile("scripts/build-desktop-artifact.ts");
     const stage = source.indexOf("yield* stageBundledCuaDriver(stageAppDir");
-    const build = source.indexOf("bun run build:desktop --force");
+    const build = source.indexOf("bun run build:desktop --cache=local:,remote:");
     const resourcesCopy = source.indexOf("yield* fs.copy(distDirs.desktopResources");
     const sourceCopyRemoval = source.indexOf(
       "yield* fs.remove(path.join(stageResourcesDir, BUNDLED_CUA_DRIVER_RESOURCE_DIR)",

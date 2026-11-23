@@ -107,6 +107,40 @@ async function availableImportEntry<T>(lookup: () => Promise<T>): Promise<T | un
   }
 }
 
+function sortThreadsParentFirst(
+  threads: ReadonlyArray<ResolvedImportSession>,
+): ResolvedImportSession[] {
+  const byRecency = threads.toSorted(
+    (left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt) || left.key.localeCompare(right.key),
+  );
+  const byKey = new Map(byRecency.map((thread) => [thread.key, thread] as const));
+  const childrenByParentKey = new Map<string, ResolvedImportSession[]>();
+  const roots: ResolvedImportSession[] = [];
+  for (const thread of byRecency) {
+    if (thread.parentKey && thread.parentKey !== thread.key && byKey.has(thread.parentKey)) {
+      const siblings = childrenByParentKey.get(thread.parentKey);
+      if (siblings) siblings.push(thread);
+      else childrenByParentKey.set(thread.parentKey, [thread]);
+    } else {
+      roots.push(thread);
+    }
+  }
+  const ordered: ResolvedImportSession[] = [];
+  const visited = new Set<string>();
+  const visit = (thread: ResolvedImportSession) => {
+    if (visited.has(thread.key)) return;
+    visited.add(thread.key);
+    ordered.push(thread);
+    for (const child of childrenByParentKey.get(thread.key) ?? []) {
+      visit(child);
+    }
+  };
+  for (const root of roots) visit(root);
+  for (const thread of byRecency) visit(thread);
+  return ordered;
+}
+
 export async function buildProjectImportCatalog(
   sources: ReadonlyArray<{
     provider: ProjectImportProvider;
@@ -306,10 +340,12 @@ export async function buildProjectImportCatalog(
 
   // Desktop children may run elsewhere (for example in a detached worktree), but their
   // sidebar row belongs to the project of the source thread, including for deeper nesting.
-  const parentOf = (session: ResolvedImportSession) =>
-    session.parentSessionId
-      ? offeredSessions.get(`${session.provider}:${session.parentSessionId.toLowerCase()}`)
+  const parentOf = (session: ResolvedImportSession) => {
+    const rawParentId = session.parentSourceSessionId ?? session.parentSessionId;
+    return rawParentId
+      ? offeredSessions.get(`${session.provider}:${rawParentId.trim().toLowerCase()}`)
       : undefined;
+  };
   const movedFrom = new Set<ResolvedImportProject>();
   for (const [session, project] of placement) {
     const parent = parentOf(session);
@@ -331,20 +367,15 @@ export async function buildProjectImportCatalog(
     parentProject.threads.push(session);
   }
   for (const [identity, project] of projects) {
-    if (
-      movedFrom.has(project) &&
-      !project.threads.some((thread) => thread.provider === "claudeAgent")
-    )
-      project.providers = project.providers.filter((provider) => provider !== "claudeAgent");
+    if (movedFrom.has(project)) {
+      project.providers = [...new Set(project.threads.map((thread) => thread.provider))];
+    }
     if (!project.providers.length) {
       projects.delete(identity);
       continue;
     }
     project.providers = project.providers.toSorted();
-    project.threads = project.threads.toSorted(
-      (left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt) || left.key.localeCompare(right.key),
-    );
+    project.threads = sortThreadsParentFirst(project.threads);
   }
   return [...projects.values()].toSorted(
     (left, right) => left.title.localeCompare(right.title) || left.key.localeCompare(right.key),

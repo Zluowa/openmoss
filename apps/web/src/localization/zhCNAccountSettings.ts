@@ -163,7 +163,14 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Create key": "创建 key",
 
   // Provider-account setup and isolated provider profiles.
+  "Providers & Agents": "服务与智能体",
   "Model accounts": "模型账号",
+  "Model providers": "模型服务商",
+  "Coding CLIs": "编码 CLI 智能体",
+  "Preferences & defaults": "偏好与默认设置",
+  "Add model provider": "添加模型服务商",
+  "Test connection": "测试连接",
+  "Managed by Desktop app": "由桌面应用更新",
   "Connect the model accounts you want to use in Moss.": "连接你想在 Moss 中使用的模型账号。",
   "Sign in to Moss and start chatting right away. No setup or API key needed.":
     "登录 Moss 后即可直接对话，不需要配置，也不需要 API key。",

@@ -51,6 +51,7 @@ import {
   shouldRejectAuthMutationOrigin,
   shouldRejectUntrustedRequestOrigin,
 } from "./trustedOrigins";
+import { rangedBufferResponse } from "./localPreviewRange";
 
 const PREFIX = "/api/moss/media/jobs";
 const canvasLog = createLogger("canvas-local");
@@ -173,12 +174,21 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
             status: 204,
             headers: {
               ...headers,
-              "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-              "Access-Control-Allow-Headers": "authorization, content-type",
+              "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
+              "Access-Control-Allow-Headers": "authorization, content-type, range",
             },
           })
         : json(403, { error: { code: "trusted_origin_required" } });
+    const isMediaJobAssetPath =
+      /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/[0-9]{1,2}$/u.test(url.pathname);
+    const isCanvasAssetPath =
+      /^\/api\/moss\/media\/canvas\/assets\/[a-f0-9]{64}\.(?:png|jpg|webp|gif|avif|mp4|webm|mp3|wav|ogg)$/u.test(
+        url.pathname,
+      );
+    const isHeadAssetRequest =
+      request.method === "HEAD" && (isMediaJobAssetPath || isCanvasAssetPath);
     const localCanvasRequest =
+      isHeadAssetRequest ||
       (request.method === "GET" &&
         (url.pathname === PREFIX ||
           url.pathname === "/api/moss/media/history" ||
@@ -189,9 +199,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           /^\/api\/moss\/media\/jobs\/moss_[A-Za-z0-9_-]{1,128}\/canvas-origin$/u.test(
             url.pathname,
           ) ||
-          /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/[0-9]{1,2}$/u.test(
-            url.pathname,
-          ) ||
+          isMediaJobAssetPath ||
           url.pathname === "/api/moss/media/canvas/account" ||
           /^\/api\/moss\/media\/canvas\/(?:assets\/[a-f0-9]{64}\.(?:png|jpg|webp|gif|avif|mp4|webm|mp3|wav|ogg)|knowledge\/.+)$/u.test(
             url.pathname,
@@ -201,6 +209,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           url.pathname,
         ));
     const localCanvasHostRequest =
+      (request.method === "HEAD" && isCanvasAssetPath) ||
       (request.method === "GET" &&
         (url.pathname === "/api/moss/media/canvas/account" ||
           /^\/api\/moss\/media\/canvas\/(?:assets\/[a-f0-9]{64}\.(?:png|jpg|webp|gif|avif|mp4|webm|mp3|wav|ogg)|knowledge\/.+)$/u.test(
@@ -264,6 +273,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
     }
     if (
       request.method !== "GET" &&
+      request.method !== "HEAD" &&
       shouldRejectAuthMutationOrigin({
         rawOrigin: request.headers.origin,
         requestOrigin: url.origin,
@@ -296,8 +306,9 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       saved: { asset: { assetId: string; contentType: string }; bytes: Uint8Array },
       inline: boolean,
     ) =>
-      HttpServerResponse.uint8Array(saved.bytes, {
-        status: 200,
+      rangedBufferResponse({
+        request,
+        bytes: saved.bytes,
         contentType: saved.asset.contentType,
         headers: {
           ...headers,
@@ -310,7 +321,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       result.failure instanceof MossMediaJobsError &&
       result.failure.code === "authentication_required" &&
       assetMatch &&
-      request.method === "GET" &&
+      (request.method === "GET" || request.method === "HEAD") &&
       savedScope !== null &&
       url.searchParams.getAll("accountScope").length === 1
     ) {
@@ -545,7 +556,11 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
       );
       const canvasRpc =
         url.pathname === "/api/moss/media/canvas/storage" && request.method === "POST";
-      if (canvasRpc || ((canvasAssetMatch || canvasKnowledgeMatch) && request.method === "GET")) {
+      if (
+        canvasRpc ||
+        ((canvasAssetMatch || canvasKnowledgeMatch) &&
+          (request.method === "GET" || (request.method === "HEAD" && Boolean(canvasAssetMatch))))
+      ) {
         if (canvasAssetMatch || canvasKnowledgeMatch) {
           if (
             canvasWorkspace &&
@@ -570,11 +585,18 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
             catch: () => new MossMediaJobsError("canvas_asset_not_found", 404),
           });
           yield* currentAccount();
-          return HttpServerResponse.uint8Array(asset.bytes, {
-            status: 200,
-            contentType: asset.contentType,
-            headers,
-          });
+          return canvasAssetMatch
+            ? rangedBufferResponse({
+                request,
+                bytes: asset.bytes,
+                contentType: asset.contentType,
+                headers,
+              })
+            : HttpServerResponse.uint8Array(asset.bytes, {
+                status: 200,
+                contentType: asset.contentType,
+                headers,
+              });
         }
         const body: unknown = yield* request.json.pipe(
           Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(192 * 1024 * 1024)),
@@ -977,7 +999,7 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
           return json(409, { error: { code: "account_changed" } });
         return json(200, job);
       }
-      if (assetMatch && request.method === "GET") {
+      if (assetMatch && (request.method === "GET" || request.method === "HEAD")) {
         if (savedScope !== null && !mediaScopeBelongsTo(credential, savedScope))
           return json(404, { error: { code: "asset_not_found" } });
         const result = yield* Effect.tryPromise({

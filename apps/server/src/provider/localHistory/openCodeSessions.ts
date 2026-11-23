@@ -91,11 +91,24 @@ function isHiddenMessage(data: Record<string, unknown>): boolean {
   return data.synthetic === true || data.visibility === "model-only";
 }
 
-function sessionFromRow(row: SqliteRow, hasArchive: boolean): NativeImportSession | undefined {
+function sessionFromRow(
+  row: SqliteRow,
+  hasArchive: boolean,
+  hasParentId: boolean,
+  hasTaskType: boolean,
+): NativeImportSession | undefined {
   const id = nonEmptyString(row.id);
   const cwd = absolutePath(row.directory);
   const updatedAt = isoTimestamp(row.time_updated);
   if (!id || !cwd || !updatedAt) return undefined;
+  const rawParentId = hasParentId ? nonEmptyString(row.parent_id) : undefined;
+  const parentId = rawParentId && rawParentId !== id ? rawParentId : undefined;
+  const taskType = hasTaskType ? nonEmptyString(row.task_type) : undefined;
+  const hierarchyKind: NativeImportSession["hierarchyKind"] = !parentId
+    ? undefined
+    : taskType === "selection_side_chat"
+      ? "sideSession"
+      : "subagent";
   return {
     id,
     title: nonEmptyString(row.title) ?? (nodePath.basename(cwd) || cwd),
@@ -104,28 +117,41 @@ function sessionFromRow(row: SqliteRow, hasArchive: boolean): NativeImportSessio
     createdAt: isoTimestamp(row.time_created) ?? updatedAt,
     updatedAt,
     archived: hasArchive && row.time_archived !== null && row.time_archived !== undefined,
+    ...(parentId
+      ? {
+          parentSessionId: parentId,
+          parentSourceSessionId: parentId,
+          ...(hierarchyKind ? { hierarchyKind } : {}),
+        }
+      : {}),
   };
 }
 
 function discoverSessions({ database, layout, sessionColumns }: Store): NativeImportSession[] {
   const sessionTable = layout === "v2" ? "session_v2" : "session";
   const hasArchive = sessionColumns.has("time_archived");
+  const hasParentId = sessionColumns.has("parent_id");
+  const hasTaskType = sessionColumns.has("task_type");
   const filters = [
-    // Child sessions are subagent runs inside a parent conversation, not conversations.
-    "s.parent_id IS NULL",
     layout === "v2"
       ? "EXISTS (SELECT 1 FROM session_message m WHERE m.session_id = s.id AND m.type = 'user')"
       : "EXISTS (SELECT 1 FROM message m WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user')",
     ...(sessionColumns.has("time_deleted") ? ["s.time_deleted IS NULL"] : []),
-    // ZCode also keeps side chats and subagent children as sessions.
-    ...(sessionColumns.has("task_type") ? ["s.task_type = 'interactive'"] : []),
+    // ZCode also keeps side chats and subagent children as sessions; retain those attached to a parent.
+    ...(hasTaskType
+      ? [
+          hasParentId
+            ? "(s.task_type = 'interactive' OR s.parent_id IS NOT NULL)"
+            : "s.task_type = 'interactive'",
+        ]
+      : []),
   ];
   const rows = database.all(
     `SELECT s.id, s.directory, s.title, s.time_created, s.time_updated${
       hasArchive ? ", s.time_archived" : ""
-    } FROM ${sessionTable} s WHERE ${filters.join(" AND ")}`,
+    }${hasParentId ? ", s.parent_id" : ""}${hasTaskType ? ", s.task_type" : ""} FROM ${sessionTable} s WHERE ${filters.join(" AND ")}`,
   );
-  return rows.flatMap((row) => sessionFromRow(row, hasArchive) ?? []);
+  return rows.flatMap((row) => sessionFromRow(row, hasArchive, hasParentId, hasTaskType) ?? []);
 }
 
 function readV2Messages({ database }: Store, sessionId: string): LocalHistoryMessage[] {

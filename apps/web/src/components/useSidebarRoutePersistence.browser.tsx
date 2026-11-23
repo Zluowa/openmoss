@@ -87,6 +87,7 @@ beforeEach(() => {
     safeMainNavigationTarget: null,
     activityViewEnabled: false,
     activityScope: null,
+    collapsedParentThreadIds: [],
   });
 });
 

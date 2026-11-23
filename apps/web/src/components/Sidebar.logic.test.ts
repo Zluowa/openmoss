@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildProjectThreadTree,
+  collectSidebarThreadAncestorIds,
   derivePinnedProjectIdsForSidebar,
   derivePinnedThreadIdsForSidebar,
   deriveSidebarProjectData,
@@ -1329,6 +1330,78 @@ describe("buildProjectThreadTree", () => {
       [ThreadId.makeUnsafe("thread-grandchild"), 2],
     ]);
   });
+
+  it("reports childCount/hasChildren/isParentCollapsed and honors collapsedParentThreadIds even when parent or child is active", () => {
+    const parentId = ThreadId.makeUnsafe("thread-parent");
+    const childOneId = ThreadId.makeUnsafe("thread-child-1");
+    const childTwoId = ThreadId.makeUnsafe("thread-child-2");
+    const grandchildId = ThreadId.makeUnsafe("thread-grandchild");
+    const leafId = ThreadId.makeUnsafe("thread-leaf");
+    const threads = [
+      makeThread({ id: parentId, createdAt: "2026-03-09T10:05:00.000Z" }),
+      makeThread({
+        id: childOneId,
+        parentThreadId: parentId,
+        createdAt: "2026-03-09T10:04:00.000Z",
+      }),
+      makeThread({
+        id: grandchildId,
+        parentThreadId: childOneId,
+        createdAt: "2026-03-09T10:03:00.000Z",
+      }),
+      makeThread({
+        id: childTwoId,
+        parentThreadId: parentId,
+        createdAt: "2026-03-09T10:02:00.000Z",
+      }),
+      makeThread({ id: leafId, createdAt: "2026-03-09T10:01:00.000Z" }),
+    ];
+
+    // With collapsedParentThreadIds supplied (denylist mode), uncollapsed parents start open.
+    const openRows = buildProjectThreadTree({
+      threads,
+      collapsedParentThreadIds: new Set<ThreadId>(),
+    });
+    expect(
+      openRows.map((row) => ({
+        id: row.thread.id,
+        depth: row.depth,
+        childCount: row.childCount,
+        hasChildren: row.hasChildren,
+        isParentCollapsed: row.isParentCollapsed,
+      })),
+    ).toEqual([
+      { id: parentId, depth: 0, childCount: 2, hasChildren: true, isParentCollapsed: false },
+      { id: childOneId, depth: 1, childCount: 1, hasChildren: true, isParentCollapsed: false },
+      { id: grandchildId, depth: 2, childCount: 0, hasChildren: false, isParentCollapsed: false },
+      { id: childTwoId, depth: 1, childCount: 0, hasChildren: false, isParentCollapsed: false },
+      { id: leafId, depth: 0, childCount: 0, hasChildren: false, isParentCollapsed: false },
+    ]);
+
+    // Explicitly collapsing the parent hides all children even when parent or child is active.
+    for (const activeId of [parentId, childOneId, grandchildId, undefined]) {
+      const collapsedRows = buildProjectThreadTree({
+        threads,
+        forceVisibleThreadId: activeId,
+        collapsedParentThreadIds: new Set([parentId]),
+      });
+      expect(
+        collapsedRows.map((row) => ({
+          id: row.thread.id,
+          depth: row.depth,
+          childCount: row.childCount,
+          hasChildren: row.hasChildren,
+          isParentCollapsed: row.isParentCollapsed,
+        })),
+      ).toEqual([
+        { id: parentId, depth: 0, childCount: 2, hasChildren: true, isParentCollapsed: true },
+        { id: leafId, depth: 0, childCount: 0, hasChildren: false, isParentCollapsed: false },
+      ]);
+    }
+
+    expect(collectSidebarThreadAncestorIds(threads, grandchildId)).toEqual([childOneId, parentId]);
+    expect(collectSidebarThreadAncestorIds(threads, parentId)).toEqual([]);
+  });
 });
 
 describe("getVisibleSidebarEntriesForPreview", () => {
@@ -1919,6 +1992,65 @@ describe("deriveSidebarProjectData", () => {
       canShowLessThreads: true,
     });
     expect(derive(7)?.visibleEntries).toHaveLength(12);
+  });
+
+  it("propagates childCount/isParentCollapsed and toggles collapsed CLI parent hierarchies", () => {
+    const project = makeProject();
+    const parent = makeSidebarThreadSummary({ id: ThreadId.makeUnsafe("cli-parent") });
+    const child = makeSidebarThreadSummary({
+      id: ThreadId.makeUnsafe("cli-child"),
+      parentThreadId: parent.id,
+    });
+    const threadsByProject = groupSidebarThreadsByProjectId([parent, child]);
+
+    const expandedData = deriveSidebarProjectData({
+      projects: [project],
+      sortedSidebarThreadsByProjectId: threadsByProject,
+      pinnedThreadIds: [],
+      threadListExtraPagesByProjectCwd: new Map(),
+      normalizeProjectCwd: (cwd) => cwd,
+      activeSidebarThreadId: parent.id,
+      collapsedParentThreadIds: new Set(),
+      previewLimit: 5,
+      previewPageSize: 5,
+    });
+    expect(expandedData.get(project.id)?.visibleEntries).toEqual([
+      expect.objectContaining({
+        rowId: parent.id,
+        depth: 0,
+        childCount: 1,
+        hasChildren: true,
+        isParentCollapsed: false,
+      }),
+      expect.objectContaining({
+        rowId: child.id,
+        depth: 1,
+        childCount: 0,
+        hasChildren: false,
+        isParentCollapsed: false,
+      }),
+    ]);
+
+    const collapsedData = deriveSidebarProjectData({
+      projects: [project],
+      sortedSidebarThreadsByProjectId: threadsByProject,
+      pinnedThreadIds: [],
+      threadListExtraPagesByProjectCwd: new Map(),
+      normalizeProjectCwd: (cwd) => cwd,
+      activeSidebarThreadId: parent.id,
+      collapsedParentThreadIds: new Set([parent.id]),
+      previewLimit: 5,
+      previewPageSize: 5,
+    });
+    expect(collapsedData.get(project.id)?.visibleEntries).toEqual([
+      expect.objectContaining({
+        rowId: parent.id,
+        depth: 0,
+        childCount: 1,
+        hasChildren: true,
+        isParentCollapsed: true,
+      }),
+    ]);
   });
 });
 

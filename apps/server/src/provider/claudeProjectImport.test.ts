@@ -99,10 +99,53 @@ describe("discoverClaudeProjects", () => {
           projectRoot: root,
           archived: true,
           parentSessionId: SESSION_A,
+          parentSourceSessionId: SESSION_A,
+          hierarchyKind: "subagent",
           updatedAt: UPDATED_AT,
         }),
       ]),
     );
+  });
+
+  it("preserves spawnedFrom sideSession hierarchyKind and desktop sessionId aliases", async () => {
+    const configDir = await fixtureHome();
+    const desktopSessionsDir = path.join(configDir, "desktop");
+    const org = path.join(desktopSessionsDir, "account", "organization");
+    await mkdir(org, { recursive: true });
+    const root = path.join(configDir, "workspace");
+    await transcript(configDir, "workspace", SESSION_A, [{ cwd: root, timestamp: CREATED_AT }]);
+    await transcript(configDir, "workspace", SESSION_B, [{ cwd: root, timestamp: UPDATED_AT }]);
+    await writeFile(
+      path.join(org, "local_file-parent.json"),
+      JSON.stringify({
+        sessionId: "local_desktop-alias",
+        cliSessionId: SESSION_A,
+        cwd: root,
+        title: "Main chat",
+      }),
+    );
+    await writeFile(
+      path.join(org, "local_file-side.json"),
+      JSON.stringify({
+        cliSessionId: SESSION_B,
+        cwd: root,
+        title: "Side probe",
+        spawnedFrom: {
+          sessionId: "local_desktop-alias",
+          sideSession: true,
+          name: "ic-probe",
+        },
+      }),
+    );
+
+    const catalog = await discoverClaudeProjects({ configDir, desktopSessionsDir });
+    expect(catalog.sessions.find(({ id }) => id === SESSION_B)).toMatchObject({
+      id: SESSION_B,
+      parentSessionId: SESSION_A,
+      parentSourceSessionId: SESSION_A,
+      hierarchyKind: "sideSession",
+      subagentNickname: "ic-probe",
+    });
   });
 
   it("finds a large transcript the SDK omitted using bounded scans and continues past a bad file", async () => {

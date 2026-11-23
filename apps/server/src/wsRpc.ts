@@ -1,5 +1,11 @@
 import { MossbotRooms } from "./mossbotRooms/service";
 import { toMossbotRoomRpcError } from "./mossbotRooms/errors";
+import { ServerSecretStore } from "./auth/Services/ServerSecretStore";
+import {
+  deleteUnifiedProviderEffect,
+  saveUnifiedProviderEffect,
+  testUnifiedProviderEffect,
+} from "./provider/unifiedProviderRouting";
 import { DevsReports } from "./devsReports";
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { listMossMediaLibrary } from "./mossMediaLibrary";
@@ -1410,6 +1416,7 @@ const makeWsRpcHandlersLayer = () =>
       // with the same unsupported-platform answer the backend would give.
       const deviceService = Option.getOrUndefined(yield* Effect.serviceOption(DeviceService));
       const computerService = Option.getOrUndefined(yield* Effect.serviceOption(ComputerService));
+      const secretStore = Option.getOrUndefined(yield* Effect.serviceOption(ServerSecretStore));
       const connectionSessions = yield* WsConnectionSessions;
       const computerInterests = new ComputerEventInterests(connectionSessions.onClose);
       const computerHandlers = makeWsComputerHandlers(
@@ -3840,6 +3847,30 @@ const makeWsRpcHandlersLayer = () =>
           rpcEffect(serverSettings.getSettingsView, "Failed to load server settings"),
         [WS_METHODS.serverUpdateSettings]: (input) =>
           serverUpdateSettingsRpcEffect(serverSettings, input),
+        [WS_METHODS.serverSaveUnifiedProvider]: (input) =>
+          rpcEffect(
+            secretStore
+              ? saveUnifiedProviderEffect({ serverSettings, secretStore, payload: input })
+              : Effect.fail(new Error("Secret store is unavailable on this server.")),
+            "Failed to save unified model provider",
+          ),
+        [WS_METHODS.serverDeleteUnifiedProvider]: (input) =>
+          rpcEffect(
+            deleteUnifiedProviderEffect({
+              serverSettings,
+              secretStore: secretStore ?? { remove: () => Effect.void },
+              id: input.id,
+            }),
+            "Failed to delete unified model provider",
+          ),
+        [WS_METHODS.serverTestUnifiedProvider]: (input) =>
+          rpcEffect(
+            testUnifiedProviderEffect({
+              secretStore: secretStore ?? { get: () => Effect.succeed(null) },
+              payload: input,
+            }),
+            "Failed to test unified model provider",
+          ),
         [WS_METHODS.serverRefreshProviders]: () =>
           rpcEffect(
             providerHealth.refresh.pipe(Effect.map((providers) => ({ providers }))),
@@ -5774,6 +5805,9 @@ const makeWsRpcHandlersLayer = () =>
         WS_METHODS.serverMossPayCreateOrder,
         WS_METHODS.serverMossPayGetOrder,
         WS_METHODS.serverUpdateSettings,
+        WS_METHODS.serverSaveUnifiedProvider,
+        WS_METHODS.serverDeleteUnifiedProvider,
+        WS_METHODS.serverTestUnifiedProvider,
         WS_METHODS.serverStartProviderLogin,
         WS_METHODS.serverCancelProviderLogin,
         WS_METHODS.serverRefreshProviders,

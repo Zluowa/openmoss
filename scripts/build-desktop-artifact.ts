@@ -29,9 +29,29 @@ import {
 } from "node:fs";
 import { constants as fsConstants } from "node:fs";
 import { createRequire } from "node:module";
-import { retireWindowsDesktopStageInBackground } from "./lib/desktop-artifact-stage.ts";
-import { TEST_COMPRESSION_ENV, testCompressionFor } from "./lib/desktop-test-compression.ts";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import { retireWindowsDesktopStageInBackground } from "./lib/desktop-artifact-stage.ts";
+import {
+  computeDesktopAsarBaseCacheKey,
+  DESKTOP_ASAR_CACHE_ENV,
+  preparePrepackedAsarFromCache,
+  resolveDesktopAsarCacheDir,
+  saveDesktopAsarToCache,
+} from "./lib/desktop-asar-cache.ts";
+import {
+  computeDesktopStageDepsCacheKey,
+  DESKTOP_STAGE_DEPS_CACHE_ENV,
+  resolveDesktopStageDepsCacheDir,
+  restoreDesktopStageDepsFromCache,
+  saveDesktopStageDepsToCache,
+} from "./lib/desktop-stage-deps-cache.ts";
+import { TEST_COMPRESSION_ENV, testCompressionFor } from "./lib/desktop-test-compression.ts";
+import { copyTreeFast, linkOrCopyFile } from "./lib/fast-stage-copy.ts";
+import {
+  resolveWindowsNsisArchiveCacheDir,
+  WINDOWS_NSIS_ARCHIVE_CACHE_ENV,
+} from "./lib/windows-nsis-archive-cache.mjs";
 
 import rootPackageJson from "../package.json" with { type: "json" };
 import desktopPackageJson from "../apps/desktop/package.json" with { type: "json" };
@@ -208,6 +228,9 @@ const BuildArch = Schema.Literals(["arm64", "x64", "universal"]);
 const ProductionConfigMode = Schema.Literals(MOSS_PRODUCTION_CONFIG_MODES);
 const ReleaseMode = Schema.Literals(DESKTOP_RELEASE_MODES);
 const requireFromScriptsWorkspace = createRequire(new URL("./package.json", import.meta.url));
+const WINDOWS_NSIS_ARCHIVE_CACHE_AFTER_SIGN_MODULE_PATH = fileURLToPath(
+  new URL("./windows-nsis-archive-cache-after-sign.mjs", import.meta.url),
+);
 
 const RepoRoot = Effect.service(Path.Path).pipe(
   Effect.flatMap((path) => path.fromFileUrl(new URL("..", import.meta.url))),
@@ -4324,7 +4347,15 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* stageBundledCuaDriver(stageAppDir, options.platform, options.arch, options.verbose);
   }
 
-  if (!options.skipBuild) {
+  const stageDepsCacheDir = !buildScopedBunCacheDir
+    ? resolveDesktopStageDepsCacheDir(process.env)
+    : undefined;
+  const desktopAsarCacheDir =
+    options.platform === "win" && !options.signed
+      ? resolveDesktopAsarCacheDir(process.env)
+      : undefined;
+
+  const buildDesktopArtifacts = Effect.gen(function* () {
     yield* Effect.log("[desktop-artifact] Building desktop/server/web artifacts...");
     yield* runCommand(
       ChildProcess.make({
@@ -4336,10 +4367,718 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
         // Release artifacts must be rebuilt from the requested source commit.
         // A normal Turbo cache hit can otherwise restore a server bundle that
         // does not include root-level build inputs (for example scripts/lib
-        // helpers).
-      })`bun run build:desktop --force`,
+        // helpers), and `--force` alone still spends minutes archiving unused
+        // local cache tarballs. Disabling both reads and writes skips that overhead.
+      })`bun run build:desktop --cache=local:,remote:`,
     );
-  }
+  });
+
+  // Everything below depends only on repository static inputs, pinned runtime bundles,
+  // and the frozen stage lockfile — never on `build:desktop` outputs — so warm builds
+  // with MOSS_DESKTOP_STAGE_DEPS_CACHE can overlap it with `build:desktop`.
+  const stageIndependentResourcesAndDeps = Effect.gen(function* () {
+    if (!(yield* fs.exists(distDirs.desktopResources))) {
+      return yield* new BuildScriptError({
+        message: `Missing desktopResources at ${distDirs.desktopResources}. Run 'bun run build:desktop' first.`,
+      });
+    }
+
+    yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
+    yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
+
+    yield* Effect.log("[desktop-artifact] Staging release app...");
+    const thirdPartyNoticesSource = path.join(repoRoot, "THIRD_PARTY_NOTICES.md");
+    if (!(yield* fs.exists(thirdPartyNoticesSource))) {
+      return yield* new BuildScriptError({
+        message: "Missing THIRD_PARTY_NOTICES.md required by the Moss provider-channel build.",
+      });
+    }
+    yield* fs.copyFile(thirdPartyNoticesSource, path.join(stageAppDir, "THIRD_PARTY_NOTICES.md"));
+    yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
+    // Source runs provision into resources/. That copy must not reach app.asar: the
+    // packaged driver comes only from the verified staging above.
+    yield* fs.remove(path.join(stageResourcesDir, BUNDLED_CUA_DRIVER_RESOURCE_DIR), {
+      recursive: true,
+      force: true,
+    });
+
+    // The complete Canvas workspace ships as a prepared, self-contained bundle.
+    // The source pin and receipt bind the renderer and durable backend modules
+    // to one reviewed Canvas commit. Missing or stale bundles fail the build.
+    const mossCanvasBundleSource = path.join(repoRoot, MOSS_CANVAS_BUNDLE_DIR);
+    const stagedMossCanvasBundle = yield* Effect.try({
+      try: () =>
+        validatePinnedMossCanvasBundle(mossCanvasBundleSource, readMossCanvasSourcePin(repoRoot)),
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Prepared Moss Canvas bundle is incomplete: ${cause.message}`
+              : "Prepared Moss Canvas bundle is incomplete.",
+          cause,
+        }),
+    });
+    if (stagedMossCanvasBundle) {
+      yield* Effect.tryPromise({
+        try: () =>
+          copyTreeFast(mossCanvasBundleSource, path.join(stageAppDir, MOSS_CANVAS_BUNDLE_DIR), {
+            mode: "hardlink",
+          }),
+        catch: (cause) =>
+          new BuildScriptError({
+            message: `Failed to stage Moss Canvas workspace bundle: ${String(cause)}`,
+            cause,
+          }),
+      });
+      yield* Effect.log(
+        `[desktop-artifact] Staged Moss Canvas workspace bundle (${stagedMossCanvasBundle.fileCount} files, sha256 ${stagedMossCanvasBundle.sha256}).`,
+      );
+    }
+
+    const stagedCodexComplianceBundle = yield* Effect.try({
+      try: () => {
+        const bundle = stageBundledCodexComplianceBundle({
+          repoRoot,
+          stageAppDir,
+          expectedVersion: MOSS_BUNDLED_CODEX_VERSION,
+        });
+        assertBundledCodexReleaseApproved({ directory: bundle.directory });
+        return bundle;
+      },
+      catch: (cause) =>
+        new BuildScriptError({
+          message: "Repository-owned bundled Codex compliance staging failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Staged approved Codex ${MOSS_BUNDLED_CODEX_VERSION} source and license closure (${stagedCodexComplianceBundle.componentCount} components, ${stagedCodexComplianceBundle.licenseTextCount} license texts).`,
+    );
+
+    yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
+
+    yield* stageMossProductionPublicConfigResource(
+      stageResourcesDir,
+      productionPublicConfigResource,
+    );
+    if (productionPublicConfigResource) {
+      yield* Effect.log(
+        "[desktop-artifact] Staged validated Moss production public configuration.",
+      );
+    }
+
+    if (options.platform === "mac") {
+      yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
+      yield* stageMacCanonicalFilesystemHelper(stageAppDir, options.arch, options.verbose);
+    }
+    if (options.platform === "win") {
+      yield* stageWindowsJobLauncher(stageAppDir, options.arch, options.verbose);
+    }
+
+    // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
+    yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
+    if (!productionPublicConfigResource) {
+      // Copy can merge an existing mirror. Neither runtime lookup location may
+      // retain a checked-in production config when this build explicitly opts out.
+      yield* stageMossProductionPublicConfigResource(
+        path.join(stageAppDir, "apps/desktop/prod-resources"),
+        null,
+      );
+    }
+
+    const resolvedBuildConfig = yield* createBuildConfig(
+      options.platform,
+      options.target,
+      desktopPackageJson.productName ?? "Moss",
+      options.signed,
+      options.releaseMode,
+      options.mockUpdates,
+      options.mockUpdateServerPort,
+      productionPublicConfigResource !== null,
+      electronDistProvenance,
+      stagedMossCanvasBundle !== null,
+      options.agentRuntimes,
+    );
+    const testCompression = yield* Effect.try({
+      try: () => testCompressionFor(options.releaseMode, process.env),
+      catch: (cause) =>
+        new BuildScriptError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    });
+    if (testCompression) {
+      resolvedBuildConfig.buildConfig.compression = testCompression;
+      yield* Effect.log(
+        `[desktop-artifact] Test build: installer compression "${testCompression}" (${TEST_COMPRESSION_ENV}); published builds keep the default.`,
+      );
+    }
+    const windowsNsisArchiveCacheDir =
+      options.platform === "win" && options.target === "nsis" && !options.signed && !testCompression
+        ? resolveWindowsNsisArchiveCacheDir(process.env)
+        : undefined;
+    if (windowsNsisArchiveCacheDir) {
+      resolvedBuildConfig.buildConfig.afterSign = WINDOWS_NSIS_ARCHIVE_CACHE_AFTER_SIGN_MODULE_PATH;
+      yield* Effect.log(
+        `[desktop-artifact] Incremental Windows NSIS 7z archive cache enabled (${WINDOWS_NSIS_ARCHIVE_CACHE_ENV}=${windowsNsisArchiveCacheDir}).`,
+      );
+    }
+
+    const stagePackageJson: StagePackageJson = {
+      name: "moss-desktop",
+      version: appVersion,
+      buildVersion: appVersion,
+      mossCommitHash: commitHash,
+      mossLockfileSha256: resolvedLockfileSha256,
+      mossSourceTag: options.sourceTag ?? null,
+      mossWindowsPublisherSubject: resolvedBuildConfig.windowsPublisherSubject,
+      private: true,
+      description: "Moss desktop build",
+      author: "Moss",
+      // The boot entry picks the installed code or a verified code update (codeUpdateBoot.ts).
+      main: "apps/desktop/dist-electron/boot.js",
+      build: resolvedBuildConfig.buildConfig,
+      dependencies: {
+        ...desktopStageInstallPackage.dependencies,
+      },
+      optionalDependencies: resolveBundledCodexStageOptionalDependencies({
+        platform: options.platform,
+        arch: options.arch,
+      }),
+      devDependencies: {
+        ...desktopStageInstallPackage.devDependencies,
+      },
+      overrides: {
+        ...desktopStageInstallPackage.overrides,
+      },
+      patchedDependencies: {
+        ...desktopStageInstallPackage.patchedDependencies,
+      },
+    };
+
+    const stageInstallPackageJsonString = yield* encodeJsonString(desktopStageInstallPackage);
+    yield* fs.writeFileString(
+      path.join(stageAppDir, "package.json"),
+      `${stageInstallPackageJsonString}\n`,
+    );
+    const stageLockSource = path.join(repoRoot, DESKTOP_STAGE_LOCK_DIRECTORY, "bun.lock");
+    if (!(yield* fs.exists(stageLockSource))) {
+      return yield* new BuildScriptError({
+        message: `Frozen desktop stage lockfile does not exist at ${stageLockSource}.`,
+      });
+    }
+    yield* fs.copy(stageLockSource, path.join(stageAppDir, "bun.lock"));
+    const stagedPatchInputs: Array<{ readonly path: string; readonly contents: Buffer }> = [];
+    for (const patchPath of Object.values(desktopStageInstallPackage.patchedDependencies)) {
+      if (
+        path.isAbsolute(patchPath) ||
+        patchPath.split(/[\\/]/).includes("..") ||
+        !patchPath.startsWith("patches/")
+      ) {
+        return yield* new BuildScriptError({
+          message: `Frozen desktop stage patch path is unsafe: ${patchPath}.`,
+        });
+      }
+      const patchSource = path.join(repoRoot, DESKTOP_STAGE_LOCK_DIRECTORY, patchPath);
+      if (!(yield* fs.exists(patchSource))) {
+        return yield* new BuildScriptError({
+          message: `Frozen desktop stage patch does not exist at ${patchSource}.`,
+        });
+      }
+      yield* fs.makeDirectory(path.dirname(path.join(stageAppDir, patchPath)), {
+        recursive: true,
+      });
+      yield* fs.copyFile(patchSource, path.join(stageAppDir, patchPath));
+      stagedPatchInputs.push({ path: patchPath, contents: readFileSync(patchSource) });
+    }
+
+    const codexInstallTarget = resolveBundledCodexInstallTarget({
+      platform: options.platform,
+      arch: options.arch,
+    });
+    let stageDepsCacheKey: string | undefined;
+    if (stageDepsCacheDir || desktopAsarCacheDir) {
+      const bunVersionCheck = spawnSync("bun", ["--version"], {
+        encoding: "utf8",
+        shell: process.platform === "win32",
+        env: createNonSigningSubprocessEnvironment(process.env),
+      });
+      const bunVersion = bunVersionCheck.status === 0 ? bunVersionCheck.stdout.trim() : "";
+      if (bunVersion) {
+        stageDepsCacheKey = computeDesktopStageDepsCacheKey({
+          platform: options.platform,
+          arch: options.arch,
+          os: codexInstallTarget.os,
+          cpu: codexInstallTarget.cpu,
+          bunVersion,
+          stagePackageJsonText: stageInstallPackageJsonString,
+          stageBunLockBytes: readFileSync(stageLockSource),
+          patches: stagedPatchInputs,
+        });
+      }
+    }
+    const stageNodeModulesDir = path.join(stageAppDir, "node_modules");
+    let restoredStageDepsFromCache = false;
+    if (stageDepsCacheDir && stageDepsCacheKey) {
+      const restored = yield* Effect.tryPromise({
+        try: () =>
+          restoreDesktopStageDepsFromCache({
+            cacheDir: stageDepsCacheDir,
+            cacheKey: stageDepsCacheKey,
+            targetNodeModulesDir: stageNodeModulesDir,
+          }),
+        catch: () => ({ hit: false, files: 0, hardlinked: 0, copied: 0 }),
+      });
+      if (restored.hit) {
+        restoredStageDepsFromCache = true;
+        yield* Effect.log(
+          `[desktop-artifact] Restored staged production dependencies from cache (${DESKTOP_STAGE_DEPS_CACHE_ENV}, ${restored.files} files, ${restored.hardlinked} hardlinked, ${restored.copied} copied).`,
+        );
+      }
+    }
+    if (!restoredStageDepsFromCache) {
+      yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
+      yield* runCommand(
+        ChildProcess.make(
+          "bun",
+          [
+            "install",
+            "--production",
+            "--linker=hoisted",
+            "--frozen-lockfile",
+            "--ignore-scripts",
+            `--os=${codexInstallTarget.os}`,
+            `--cpu=${codexInstallTarget.cpu}`,
+            ...(buildScopedBunCacheDir ? [`--cache-dir=${buildScopedBunCacheDir}`] : []),
+          ],
+          {
+            cwd: stageAppDir,
+            env: createNonSigningSubprocessEnvironment(process.env),
+            ...commandOutputOptions(options.verbose),
+            // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
+            shell: process.platform === "win32",
+          },
+        ),
+      );
+    }
+
+    yield* verifyStagedPatchedDependencies(
+      repoRoot,
+      stageAppDir,
+      desktopStageInstallPackage.patchedDependencies,
+    );
+
+    const stagedDiffResolutions = yield* Effect.try({
+      try: () => assertStagedDiffDependencies(stageAppDir),
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Staged dependency consistency check failed: ${cause.message}`
+              : "Staged dependency consistency check failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Verified exact staged diff resolutions: ${stagedDiffResolutions
+        .map(({ consumer, diffVersion }) => `${consumer}=${diffVersion}`)
+        .join(", ")}.`,
+    );
+
+    if (stageDepsCacheDir && stageDepsCacheKey && !restoredStageDepsFromCache) {
+      const cached = yield* Effect.tryPromise({
+        try: () =>
+          saveDesktopStageDepsToCache({
+            cacheDir: stageDepsCacheDir,
+            cacheKey: stageDepsCacheKey,
+            sourceNodeModulesDir: stageNodeModulesDir,
+          }),
+        catch: (cause) =>
+          new BuildScriptError({
+            message: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          }),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning(
+            `[desktop-artifact] Could not save staged production dependency cache: ${error.message}`,
+          ).pipe(Effect.as(null)),
+        ),
+      );
+      if (cached?.saved) {
+        yield* Effect.log(
+          `[desktop-artifact] Saved staged production dependencies to cache (${DESKTOP_STAGE_DEPS_CACHE_ENV}, pruned ${cached.pruned} stale entries).`,
+        );
+      }
+    }
+
+    // The fixed dependency-only package.json is what the reviewed lock protects.
+    // After installation, replace it with the release metadata/build config;
+    // dependency fields remain byte-for-byte equivalent to the locked manifest.
+    const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
+    yield* fs.writeFileString(
+      path.join(stageAppDir, "package.json"),
+      `${stagePackageJsonString}\n`,
+    );
+
+    const stagedBundledCodexRuntime = yield* Effect.try({
+      try: () => {
+        const runtime = validateStagedBundledCodexRuntime({
+          nodeModulesDir: path.join(stageAppDir, "node_modules"),
+          platform: options.platform,
+          arch: options.arch,
+        });
+        validateStagedBundledCodexPayloadIntegrity({
+          nodeModulesDir: path.join(stageAppDir, "node_modules"),
+          complianceDirectory: stagedCodexComplianceBundle.directory,
+          targetTriples: runtime.targets.map((target) => target.targetTriple),
+        });
+        return runtime;
+      },
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Installed bundled Codex validation failed: ${cause.message}`
+              : "Installed bundled Codex validation failed.",
+          cause,
+        }),
+    });
+
+    yield* Effect.log("[desktop-artifact] Validating and staging bundled Codex runtime...");
+    for (const target of resolveBundledCodexTargets({
+      platform: options.platform,
+      arch: options.arch,
+    })) {
+      const runtime = yield* Effect.try({
+        try: () => resolveBundledCodexRuntime({ stageAppDir, target }),
+        catch: (cause) =>
+          new BuildScriptError({
+            message:
+              cause instanceof Error
+                ? `Bundled Codex validation failed: ${cause.message}`
+                : "Bundled Codex validation failed.",
+            cause,
+          }),
+      });
+      const destination = path.join(stageAppDir, BUNDLED_CODEX_RUNTIME_DIR, target.targetTriple);
+      if (options.platform === "win") {
+        yield* Effect.tryPromise({
+          try: () => copyTreeFast(runtime.sourceDir, destination, { mode: "hardlink" }),
+          catch: (cause) =>
+            new BuildScriptError({
+              message: `Failed to stage bundled Codex runtime: ${String(cause)}`,
+              cause,
+            }),
+        });
+      } else {
+        yield* fs.copy(runtime.sourceDir, destination);
+        yield* fs.chmod(path.join(destination, "bin", target.executable), 0o755);
+        yield* fs.chmod(path.join(destination, "bin", target.codeModeHost), 0o755);
+        yield* fs.chmod(path.join(destination, "codex-path", target.ripgrep), 0o755);
+      }
+    }
+
+    const stagedLinuxRuntimeReceipt = yield* Effect.try({
+      try: () => {
+        validateStagedBundledCodexPayloadIntegrity({
+          packagedResourcesDir: path.join(stageAppDir, "apps/desktop"),
+          complianceDirectory: stagedCodexComplianceBundle.directory,
+          targetTriples: stagedBundledCodexRuntime.targets.map((target) => target.targetTriple),
+        });
+        return requiresLinuxPublicRuntimeProbes
+          ? validateBundledCodexLinuxX64PublicRuntime({
+              resourcesDir: path.join(stageAppDir, "apps/desktop"),
+            })
+          : null;
+      },
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Copied bundled Codex payload validation failed: ${cause.message}`
+              : "Copied bundled Codex payload validation failed.",
+          cause,
+        }),
+    });
+    if (stagedLinuxRuntimeReceipt) {
+      yield* Effect.log(
+        `[desktop-artifact] Staged public Linux Codex runtime probes passed (${stagedLinuxRuntimeReceipt.commands.length} commands, GLIBC<=${stagedLinuxRuntimeReceipt.maximumGlibcVersion}).`,
+      );
+    }
+
+    const prunedCodexBuildPackages = yield* Effect.try({
+      try: () => pruneBundledCodexBuildPackages({ stageAppDir }),
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Bundled Codex staging cleanup failed: ${cause.message}`
+              : "Bundled Codex staging cleanup failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Removed ${prunedCodexBuildPackages.removedPaths.length} build-only Codex package paths; copied runtime remains in extraResources.`,
+    );
+
+    yield* Effect.log("[desktop-artifact] Validating and staging bundled Claude runtime...");
+    for (const target of resolveBundledClaudeTargets({
+      platform: options.platform,
+      arch: options.arch,
+    })) {
+      const runtime = yield* Effect.try({
+        try: () => resolveBundledClaudeRuntime({ stageAppDir, target }),
+        catch: (cause) =>
+          new BuildScriptError({
+            message:
+              cause instanceof Error
+                ? `Bundled Claude validation failed: ${cause.message}`
+                : "Bundled Claude validation failed.",
+            cause,
+          }),
+      });
+      bundledClaudeRuntimes.push(runtime);
+      const destination = path.join(
+        stageAppDir,
+        BUNDLED_CLAUDE_RUNTIME_DIR,
+        target.resourceFolder,
+        target.executable,
+      );
+      yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
+      if (options.platform === "win") {
+        yield* Effect.tryPromise({
+          try: () => linkOrCopyFile(runtime.sourcePath, destination, true),
+          catch: (cause) =>
+            new BuildScriptError({
+              message: `Failed to stage bundled Claude runtime: ${String(cause)}`,
+              cause,
+            }),
+        });
+      } else {
+        yield* fs.copy(runtime.sourcePath, destination);
+        yield* fs.chmod(destination, 0o755);
+      }
+    }
+
+    const bundledClaudeReleaseVerification = yield* Effect.try({
+      try: () => createBundledClaudeReleaseVerificationReceipt(bundledClaudeRuntimes),
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Bundled Claude release verification receipt failed: ${cause.message}`
+              : "Bundled Claude release verification receipt failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Bundled Claude ${BUNDLED_CLAUDE_AGENT_SDK_VERSION}/${BUNDLED_CLAUDE_CODE_VERSION} target execution probes passed.`,
+    );
+
+    const prunedClaudeNativePackages = yield* Effect.try({
+      try: () => pruneBundledClaudeNativePackages({ stageAppDir }),
+      catch: (cause) =>
+        new BuildScriptError({
+          message:
+            cause instanceof Error
+              ? `Bundled Claude staging cleanup failed: ${cause.message}`
+              : "Bundled Claude staging cleanup failed.",
+          cause,
+        }),
+    });
+    yield* Effect.log(
+      `[desktop-artifact] Removed ${prunedClaudeNativePackages.removedPaths.length} build-only Claude native package paths; copied runtime remains in extraResources.`,
+    );
+
+    // A download build: the runtimes verified above become the archives Moss fetches after
+    // install. Each archive is unpacked again with the app's own store code (every file checked
+    // against its pin) into the layout it has in resources/, so the reviewed native manifest and
+    // the packaged Codex checks below run on exactly what a person gets.
+    let packedAgentRuntimes: ReadonlyArray<PackedAgentRuntime & { readonly fromCache: boolean }> =
+      [];
+    const agentRuntimeVerifyRoot = path.join(stageRoot, "agent-runtime-verify");
+    if (options.agentRuntimes === "download") {
+      const codexTargets = resolveBundledCodexTargets({
+        platform: options.platform,
+        arch: options.arch,
+      });
+      const claudeTargets = resolveBundledClaudeTargets({
+        platform: options.platform,
+        arch: options.arch,
+      });
+      const codexTarget = codexTargets.length === 1 ? codexTargets[0] : undefined;
+      const claudeTarget = claudeTargets.length === 1 ? claudeTargets[0] : undefined;
+      if (!codexTarget || !claudeTarget || options.arch === "universal") {
+        return yield* new BuildScriptError({
+          message: "A download build packs exactly one Codex and one Claude runtime target.",
+        });
+      }
+      const nodeArch = options.arch;
+      const archiveRoot = path.join(stageRoot, "agent-runtime-archives");
+      const verifyResources = path.join(agentRuntimeVerifyRoot, "resources");
+      yield* Effect.log(
+        "[desktop-artifact] Packing the verified agent runtimes as download archives...",
+      );
+      packedAgentRuntimes = yield* Effect.tryPromise({
+        try: async () => {
+          const packed = [
+            await packAgentRuntimeArchive({
+              outputRoot: archiveRoot,
+              cacheDir: process.env[AGENT_RUNTIME_ARCHIVE_CACHE_ENV]?.trim() || undefined,
+              runtime: {
+                name: "codex",
+                version: MOSS_BUNDLED_CODEX_VERSION,
+                platform: "win32",
+                arch: nodeArch,
+                root: path.join(stageAppDir, BUNDLED_CODEX_RUNTIME_DIR),
+                executable: `${codexTarget.targetTriple}/bin/${codexTarget.executable}`,
+              },
+            }),
+            await packAgentRuntimeArchive({
+              outputRoot: archiveRoot,
+              cacheDir: process.env[AGENT_RUNTIME_ARCHIVE_CACHE_ENV]?.trim() || undefined,
+              runtime: {
+                name: "claude",
+                version: BUNDLED_CLAUDE_CODE_VERSION,
+                platform: "win32",
+                arch: nodeArch,
+                root: path.join(stageAppDir, BUNDLED_CLAUDE_RUNTIME_DIR),
+                executable: `${claudeTarget.resourceFolder}/${claudeTarget.executable}`,
+              },
+            }),
+          ];
+          await unpackAgentRuntimeForVerification({
+            packed: packed[0]!,
+            verifyRoot: verifyResources,
+            layoutName: "codex-runtime",
+          });
+          await unpackAgentRuntimeForVerification({
+            packed: packed[1]!,
+            verifyRoot: verifyResources,
+            layoutName: "claude-runtime",
+          });
+          return packed;
+        },
+        catch: (cause) =>
+          new BuildScriptError({
+            message:
+              cause instanceof Error
+                ? `Packing the agent runtime archives failed: ${cause.message}`
+                : "Packing the agent runtime archives failed.",
+            cause,
+          }),
+      });
+      const audit = yield* Effect.try({
+        try: () =>
+          auditWindowsAgentRuntimePayloads({
+            root: agentRuntimeVerifyRoot,
+            arch: options.arch,
+            manifest: windowsNativePayloadManifest,
+          }),
+        catch: (cause) =>
+          new BuildScriptError({
+            message:
+              cause instanceof Error
+                ? `Agent runtime archive native audit failed: ${cause.message}`
+                : "Agent runtime archive native audit failed.",
+            cause,
+          }),
+      });
+      const pinsDocument = agentRuntimePinsDocument({
+        appVersion,
+        pins: packedAgentRuntimes.map((entry) => entry.pin),
+      });
+      yield* fs.writeFileString(
+        path.join(stageAppDir, AGENT_RUNTIME_PINS_FILE),
+        `${JSON.stringify(pinsDocument, null, 2)}\n`,
+      );
+      for (const entry of packedAgentRuntimes) {
+        yield* Effect.log(
+          `[desktop-artifact] Agent runtime archive ${entry.objectPath}: ${entry.pin.archive.size} bytes, sha256 ${entry.pin.archive.sha256}, ${entry.pin.files.length} files${entry.fromCache ? " (reused from the archive cache)" : ""}.`,
+        );
+      }
+      yield* Effect.log(
+        `[desktop-artifact] Agent runtime archives unpack to the staged bytes; ${audit.nativeFiles.length} native payloads match the reviewed manifest.`,
+      );
+    }
+
+    if (options.platform === "win") {
+      const windowsArch = options.arch;
+      if (windowsArch === "universal") {
+        return yield* new BuildScriptError({
+          message: "Windows node-pty staging does not support universal architecture.",
+        });
+      }
+      const prunedNativeDependencies = yield* Effect.try({
+        try: () =>
+          pruneStagedWindowsNativeDependencies({
+            stageAppDir,
+            arch: windowsArch,
+          }),
+        catch: (cause) =>
+          new BuildScriptError({
+            message:
+              cause instanceof Error
+                ? `Windows native dependency staging cleanup failed: ${cause.message}`
+                : "Windows native dependency staging cleanup failed.",
+            cause,
+          }),
+      });
+      yield* Effect.log(
+        `[desktop-artifact] Removed ${prunedNativeDependencies.removedPaths.length} non-target Windows native paths and retained ${prunedNativeDependencies.retainedNativeFiles.length} reviewed dependency payloads.`,
+      );
+    }
+
+    if (options.platform === "linux") {
+      if (options.arch === "universal") {
+        return yield* new BuildScriptError({
+          message: "Linux node-pty rebuild does not support universal architecture.",
+        });
+      }
+      yield* rebuildStagedLinuxNodePty(
+        stageAppDir,
+        options.arch,
+        desktopStageInstallPackage.devDependencies.electron,
+        options.verbose,
+      );
+      yield* verifyStagedNodePty(stageAppDir, options.verbose);
+    } else if (options.platform === "win" && process.platform === "win32") {
+      yield* verifyStagedNodePty(stageAppDir, options.verbose);
+    } else if (options.platform === "win") {
+      yield* Effect.log(
+        "[desktop-artifact] Skipping host execution of target Windows node-pty; static payload inventory and hashes remain enforced.",
+      );
+    }
+
+    return {
+      resolvedBuildConfig,
+      stagePackageJson,
+      stageDepsCacheKey,
+      bundledClaudeReleaseVerification,
+      packedAgentRuntimes,
+      agentRuntimeVerifyRoot,
+    };
+  });
+
+  const {
+    resolvedBuildConfig,
+    stagePackageJson,
+    stageDepsCacheKey,
+    bundledClaudeReleaseVerification,
+    packedAgentRuntimes,
+    agentRuntimeVerifyRoot,
+  } =
+    !options.skipBuild && stageDepsCacheDir
+      ? (yield* Effect.all([buildDesktopArtifacts, stageIndependentResourcesAndDeps], {
+          concurrency: 2,
+        }))[1]
+      : yield* Effect.gen(function* () {
+          if (!options.skipBuild) {
+            yield* buildDesktopArtifacts;
+          }
+          return yield* stageIndependentResourcesAndDeps;
+        });
 
   for (const [label, dir] of Object.entries(distDirs)) {
     if (!(yield* fs.exists(dir))) {
@@ -4357,582 +5096,127 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
 
   yield* validateBundledClientAssets(path.dirname(bundledClientEntry));
 
-  yield* fs.makeDirectory(path.join(stageAppDir, "apps/desktop"), { recursive: true });
-  yield* fs.makeDirectory(path.join(stageAppDir, "apps/server"), { recursive: true });
   // Reuse the CLI's private distribution pack: this exact backend/client and
   // resolved production manifest travel over SSH without publishing a package.
+  // Run it concurrently with staging the freshly compiled desktop/server outputs.
   const sshRuntimePackDir = path.join(stageRoot, "ssh-runtime-pack");
-  yield* runCommand(
-    ChildProcess.make(
-      "bun",
-      [
-        "apps/server/scripts/cli.ts",
-        "pack",
-        "--out",
-        sshRuntimePackDir,
-        "--app-version",
-        appVersion,
-      ],
-      {
-        cwd: repoRoot,
-        env: createDesktopBuildSubprocessEnvironment(process.env),
-        ...commandOutputOptions(options.verbose),
-        shell: process.platform === "win32",
-      },
-    ),
-  );
-  yield* fs.copyFile(
-    path.join(sshRuntimePackDir, `moss-server-${appVersion}.tar.gz`),
-    path.join(stageAppDir, SSH_RUNTIME_STAGE_PATH),
-  );
-
-  yield* Effect.log("[desktop-artifact] Staging release app...");
-  const thirdPartyNoticesSource = path.join(repoRoot, "THIRD_PARTY_NOTICES.md");
-  if (!(yield* fs.exists(thirdPartyNoticesSource))) {
-    return yield* new BuildScriptError({
-      message: "Missing THIRD_PARTY_NOTICES.md required by the Moss provider-channel build.",
-    });
-  }
-  yield* fs.copyFile(thirdPartyNoticesSource, path.join(stageAppDir, "THIRD_PARTY_NOTICES.md"));
-  yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
-  yield* fs.copy(distDirs.desktopResources, stageResourcesDir);
-  // Source runs provision into resources/. That copy must not reach app.asar: the
-  // packaged driver comes only from the verified staging above.
-  yield* fs.remove(path.join(stageResourcesDir, BUNDLED_CUA_DRIVER_RESOURCE_DIR), {
-    recursive: true,
-    force: true,
-  });
-  yield* fs.copy(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"));
-
-  // The complete Canvas workspace ships as a prepared, self-contained bundle.
-  // The source pin and receipt bind the renderer and durable backend modules
-  // to one reviewed Canvas commit. Missing or stale bundles fail the build.
-  const mossCanvasBundleSource = path.join(repoRoot, MOSS_CANVAS_BUNDLE_DIR);
-  const stagedMossCanvasBundle = yield* Effect.try({
-    try: () =>
-      validatePinnedMossCanvasBundle(mossCanvasBundleSource, readMossCanvasSourcePin(repoRoot)),
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Prepared Moss Canvas bundle is incomplete: ${cause.message}`
-            : "Prepared Moss Canvas bundle is incomplete.",
-        cause,
-      }),
-  });
-  if (stagedMossCanvasBundle) {
-    yield* fs.copy(mossCanvasBundleSource, path.join(stageAppDir, MOSS_CANVAS_BUNDLE_DIR));
-    yield* Effect.log(
-      `[desktop-artifact] Staged Moss Canvas workspace bundle (${stagedMossCanvasBundle.fileCount} files, sha256 ${stagedMossCanvasBundle.sha256}).`,
-    );
-  }
-
-  const stagedCodexComplianceBundle = yield* Effect.try({
-    try: () => {
-      const bundle = stageBundledCodexComplianceBundle({
-        repoRoot,
-        stageAppDir,
-        expectedVersion: MOSS_BUNDLED_CODEX_VERSION,
-      });
-      assertBundledCodexReleaseApproved({ directory: bundle.directory });
-      return bundle;
-    },
-    catch: (cause) =>
-      new BuildScriptError({
-        message: "Repository-owned bundled Codex compliance staging failed.",
-        cause,
-      }),
-  });
-  yield* Effect.log(
-    `[desktop-artifact] Staged approved Codex ${MOSS_BUNDLED_CODEX_VERSION} source and license closure (${stagedCodexComplianceBundle.componentCount} components, ${stagedCodexComplianceBundle.licenseTextCount} license texts).`,
-  );
-
-  yield* assertPlatformBuildResources(options.platform, stageResourcesDir, options.verbose);
-
-  yield* stageMossProductionPublicConfigResource(stageResourcesDir, productionPublicConfigResource);
-  if (productionPublicConfigResource) {
-    yield* Effect.log("[desktop-artifact] Staged validated Moss production public configuration.");
-  }
-
-  if (options.platform === "mac") {
-    yield* stageMacAppSnapHelper(stageAppDir, options.arch, options.verbose);
-    yield* stageMacCanonicalFilesystemHelper(stageAppDir, options.arch, options.verbose);
-  }
-  if (options.platform === "win") {
-    yield* stageWindowsJobLauncher(stageAppDir, options.arch, options.verbose);
-  }
-
-  // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
-  yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
-  if (!productionPublicConfigResource) {
-    // Copy can merge an existing mirror. Neither runtime lookup location may
-    // retain a checked-in production config when this build explicitly opts out.
-    yield* stageMossProductionPublicConfigResource(
-      path.join(stageAppDir, "apps/desktop/prod-resources"),
-      null,
-    );
-  }
-
-  const resolvedBuildConfig = yield* createBuildConfig(
-    options.platform,
-    options.target,
-    desktopPackageJson.productName ?? "Moss",
-    options.signed,
-    options.releaseMode,
-    options.mockUpdates,
-    options.mockUpdateServerPort,
-    productionPublicConfigResource !== null,
-    electronDistProvenance,
-    stagedMossCanvasBundle !== null,
-    options.agentRuntimes,
-  );
-  const testCompression = yield* Effect.try({
-    try: () => testCompressionFor(options.releaseMode, process.env),
-    catch: (cause) =>
-      new BuildScriptError({
-        message: cause instanceof Error ? cause.message : String(cause),
-        cause,
-      }),
-  });
-  if (testCompression) {
-    resolvedBuildConfig.buildConfig.compression = testCompression;
-    yield* Effect.log(
-      `[desktop-artifact] Test build: installer compression "${testCompression}" (${TEST_COMPRESSION_ENV}); published builds keep the default.`,
-    );
-  }
-
-  const stagePackageJson: StagePackageJson = {
-    name: "moss-desktop",
-    version: appVersion,
-    buildVersion: appVersion,
-    mossCommitHash: commitHash,
-    mossLockfileSha256: resolvedLockfileSha256,
-    mossSourceTag: options.sourceTag ?? null,
-    mossWindowsPublisherSubject: resolvedBuildConfig.windowsPublisherSubject,
-    private: true,
-    description: "Moss desktop build",
-    author: "Moss",
-    // The boot entry picks the installed code or a verified code update (codeUpdateBoot.ts).
-    main: "apps/desktop/dist-electron/boot.js",
-    build: resolvedBuildConfig.buildConfig,
-    dependencies: {
-      ...desktopStageInstallPackage.dependencies,
-    },
-    optionalDependencies: resolveBundledCodexStageOptionalDependencies({
-      platform: options.platform,
-      arch: options.arch,
-    }),
-    devDependencies: {
-      ...desktopStageInstallPackage.devDependencies,
-    },
-    overrides: {
-      ...desktopStageInstallPackage.overrides,
-    },
-    patchedDependencies: {
-      ...desktopStageInstallPackage.patchedDependencies,
-    },
-  };
-
-  const stageInstallPackageJsonString = yield* encodeJsonString(desktopStageInstallPackage);
-  yield* fs.writeFileString(
-    path.join(stageAppDir, "package.json"),
-    `${stageInstallPackageJsonString}\n`,
-  );
-  const stageLockSource = path.join(repoRoot, DESKTOP_STAGE_LOCK_DIRECTORY, "bun.lock");
-  if (!(yield* fs.exists(stageLockSource))) {
-    return yield* new BuildScriptError({
-      message: `Frozen desktop stage lockfile does not exist at ${stageLockSource}.`,
-    });
-  }
-  yield* fs.copy(stageLockSource, path.join(stageAppDir, "bun.lock"));
-  for (const patchPath of Object.values(desktopStageInstallPackage.patchedDependencies)) {
-    if (
-      path.isAbsolute(patchPath) ||
-      patchPath.split(/[\\/]/).includes("..") ||
-      !patchPath.startsWith("patches/")
-    ) {
-      return yield* new BuildScriptError({
-        message: `Frozen desktop stage patch path is unsafe: ${patchPath}.`,
-      });
-    }
-    const patchSource = path.join(repoRoot, DESKTOP_STAGE_LOCK_DIRECTORY, patchPath);
-    if (!(yield* fs.exists(patchSource))) {
-      return yield* new BuildScriptError({
-        message: `Frozen desktop stage patch does not exist at ${patchSource}.`,
-      });
-    }
-    yield* fs.makeDirectory(path.dirname(path.join(stageAppDir, patchPath)), {
-      recursive: true,
-    });
-    yield* fs.copyFile(patchSource, path.join(stageAppDir, patchPath));
-  }
-
-  const codexInstallTarget = resolveBundledCodexInstallTarget({
-    platform: options.platform,
-    arch: options.arch,
-  });
-  yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
-  yield* runCommand(
-    ChildProcess.make(
-      "bun",
-      [
-        "install",
-        "--production",
-        "--linker=hoisted",
-        "--frozen-lockfile",
-        "--ignore-scripts",
-        `--os=${codexInstallTarget.os}`,
-        `--cpu=${codexInstallTarget.cpu}`,
-        ...(buildScopedBunCacheDir ? [`--cache-dir=${buildScopedBunCacheDir}`] : []),
-      ],
-      {
-        cwd: stageAppDir,
-        env: createNonSigningSubprocessEnvironment(process.env),
-        ...commandOutputOptions(options.verbose),
-        // Windows needs shell mode to resolve .cmd shims (e.g. bun.cmd).
-        shell: process.platform === "win32",
-      },
-    ),
-  );
-
-  yield* verifyStagedPatchedDependencies(
-    repoRoot,
-    stageAppDir,
-    desktopStageInstallPackage.patchedDependencies,
-  );
-
-  const stagedDiffResolutions = yield* Effect.try({
-    try: () => assertStagedDiffDependencies(stageAppDir),
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Staged dependency consistency check failed: ${cause.message}`
-            : "Staged dependency consistency check failed.",
-        cause,
-      }),
-  });
-  yield* Effect.log(
-    `[desktop-artifact] Verified exact staged diff resolutions: ${stagedDiffResolutions
-      .map(({ consumer, diffVersion }) => `${consumer}=${diffVersion}`)
-      .join(", ")}.`,
-  );
-
-  // The fixed dependency-only package.json is what the reviewed lock protects.
-  // After installation, replace it with the release metadata/build config;
-  // dependency fields remain byte-for-byte equivalent to the locked manifest.
-  const stagePackageJsonString = yield* encodeJsonString(stagePackageJson);
-  yield* fs.writeFileString(path.join(stageAppDir, "package.json"), `${stagePackageJsonString}\n`);
-
-  const stagedBundledCodexRuntime = yield* Effect.try({
-    try: () => {
-      const runtime = validateStagedBundledCodexRuntime({
-        nodeModulesDir: path.join(stageAppDir, "node_modules"),
-        platform: options.platform,
-        arch: options.arch,
-      });
-      validateStagedBundledCodexPayloadIntegrity({
-        nodeModulesDir: path.join(stageAppDir, "node_modules"),
-        complianceDirectory: stagedCodexComplianceBundle.directory,
-        targetTriples: runtime.targets.map((target) => target.targetTriple),
-      });
-      return runtime;
-    },
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Installed bundled Codex validation failed: ${cause.message}`
-            : "Installed bundled Codex validation failed.",
-        cause,
-      }),
-  });
-
-  yield* Effect.log("[desktop-artifact] Validating and staging bundled Codex runtime...");
-  for (const target of resolveBundledCodexTargets({
-    platform: options.platform,
-    arch: options.arch,
-  })) {
-    const runtime = yield* Effect.try({
-      try: () => resolveBundledCodexRuntime({ stageAppDir, target }),
-      catch: (cause) =>
-        new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Bundled Codex validation failed: ${cause.message}`
-              : "Bundled Codex validation failed.",
-          cause,
-        }),
-    });
-    const destination = path.join(stageAppDir, BUNDLED_CODEX_RUNTIME_DIR, target.targetTriple);
-    yield* fs.copy(runtime.sourceDir, destination);
-    if (options.platform !== "win") {
-      yield* fs.chmod(path.join(destination, "bin", target.executable), 0o755);
-      yield* fs.chmod(path.join(destination, "bin", target.codeModeHost), 0o755);
-      yield* fs.chmod(path.join(destination, "codex-path", target.ripgrep), 0o755);
-    }
-  }
-
-  const stagedLinuxRuntimeReceipt = yield* Effect.try({
-    try: () => {
-      validateStagedBundledCodexPayloadIntegrity({
-        packagedResourcesDir: path.join(stageAppDir, "apps/desktop"),
-        complianceDirectory: stagedCodexComplianceBundle.directory,
-        targetTriples: stagedBundledCodexRuntime.targets.map((target) => target.targetTriple),
-      });
-      return requiresLinuxPublicRuntimeProbes
-        ? validateBundledCodexLinuxX64PublicRuntime({
-            resourcesDir: path.join(stageAppDir, "apps/desktop"),
-          })
-        : null;
-    },
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Copied bundled Codex payload validation failed: ${cause.message}`
-            : "Copied bundled Codex payload validation failed.",
-        cause,
-      }),
-  });
-  if (stagedLinuxRuntimeReceipt) {
-    yield* Effect.log(
-      `[desktop-artifact] Staged public Linux Codex runtime probes passed (${stagedLinuxRuntimeReceipt.commands.length} commands, GLIBC<=${stagedLinuxRuntimeReceipt.maximumGlibcVersion}).`,
-    );
-  }
-
-  const prunedCodexBuildPackages = yield* Effect.try({
-    try: () => pruneBundledCodexBuildPackages({ stageAppDir }),
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Bundled Codex staging cleanup failed: ${cause.message}`
-            : "Bundled Codex staging cleanup failed.",
-        cause,
-      }),
-  });
-  yield* Effect.log(
-    `[desktop-artifact] Removed ${prunedCodexBuildPackages.removedPaths.length} build-only Codex package paths; copied runtime remains in extraResources.`,
-  );
-
-  yield* Effect.log("[desktop-artifact] Validating and staging bundled Claude runtime...");
-  for (const target of resolveBundledClaudeTargets({
-    platform: options.platform,
-    arch: options.arch,
-  })) {
-    const runtime = yield* Effect.try({
-      try: () => resolveBundledClaudeRuntime({ stageAppDir, target }),
-      catch: (cause) =>
-        new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Bundled Claude validation failed: ${cause.message}`
-              : "Bundled Claude validation failed.",
-          cause,
-        }),
-    });
-    bundledClaudeRuntimes.push(runtime);
-    const destination = path.join(
-      stageAppDir,
-      BUNDLED_CLAUDE_RUNTIME_DIR,
-      target.resourceFolder,
-      target.executable,
-    );
-    yield* fs.makeDirectory(path.dirname(destination), { recursive: true });
-    yield* fs.copy(runtime.sourcePath, destination);
-    if (options.platform !== "win") {
-      yield* fs.chmod(destination, 0o755);
-    }
-  }
-
-  const bundledClaudeReleaseVerification = yield* Effect.try({
-    try: () => createBundledClaudeReleaseVerificationReceipt(bundledClaudeRuntimes),
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Bundled Claude release verification receipt failed: ${cause.message}`
-            : "Bundled Claude release verification receipt failed.",
-        cause,
-      }),
-  });
-  yield* Effect.log(
-    `[desktop-artifact] Bundled Claude ${BUNDLED_CLAUDE_AGENT_SDK_VERSION}/${BUNDLED_CLAUDE_CODE_VERSION} target execution probes passed.`,
-  );
-
-  const prunedClaudeNativePackages = yield* Effect.try({
-    try: () => pruneBundledClaudeNativePackages({ stageAppDir }),
-    catch: (cause) =>
-      new BuildScriptError({
-        message:
-          cause instanceof Error
-            ? `Bundled Claude staging cleanup failed: ${cause.message}`
-            : "Bundled Claude staging cleanup failed.",
-        cause,
-      }),
-  });
-  yield* Effect.log(
-    `[desktop-artifact] Removed ${prunedClaudeNativePackages.removedPaths.length} build-only Claude native package paths; copied runtime remains in extraResources.`,
-  );
-
-  // A download build: the runtimes verified above become the archives Moss fetches after
-  // install. Each archive is unpacked again with the app's own store code (every file checked
-  // against its pin) into the layout it has in resources/, so the reviewed native manifest and
-  // the packaged Codex checks below run on exactly what a person gets.
-  let packedAgentRuntimes: ReadonlyArray<PackedAgentRuntime & { readonly fromCache: boolean }> = [];
-  const agentRuntimeVerifyRoot = path.join(stageRoot, "agent-runtime-verify");
-  if (options.agentRuntimes === "download") {
-    const codexTargets = resolveBundledCodexTargets({
-      platform: options.platform,
-      arch: options.arch,
-    });
-    const claudeTargets = resolveBundledClaudeTargets({
-      platform: options.platform,
-      arch: options.arch,
-    });
-    const codexTarget = codexTargets.length === 1 ? codexTargets[0] : undefined;
-    const claudeTarget = claudeTargets.length === 1 ? claudeTargets[0] : undefined;
-    if (!codexTarget || !claudeTarget || options.arch === "universal") {
-      return yield* new BuildScriptError({
-        message: "A download build packs exactly one Codex and one Claude runtime target.",
-      });
-    }
-    const nodeArch = options.arch;
-    const archiveRoot = path.join(stageRoot, "agent-runtime-archives");
-    const verifyResources = path.join(agentRuntimeVerifyRoot, "resources");
-    yield* Effect.log(
-      "[desktop-artifact] Packing the verified agent runtimes as download archives...",
-    );
-    packedAgentRuntimes = yield* Effect.tryPromise({
-      try: async () => {
-        const packed = [
-          await packAgentRuntimeArchive({
-            outputRoot: archiveRoot,
-            cacheDir: process.env[AGENT_RUNTIME_ARCHIVE_CACHE_ENV]?.trim() || undefined,
-            runtime: {
-              name: "codex",
-              version: MOSS_BUNDLED_CODEX_VERSION,
-              platform: "win32",
-              arch: nodeArch,
-              root: path.join(stageAppDir, BUNDLED_CODEX_RUNTIME_DIR),
-              executable: `${codexTarget.targetTriple}/bin/${codexTarget.executable}`,
+  yield* Effect.all(
+    [
+      Effect.gen(function* () {
+        yield* runCommand(
+          ChildProcess.make(
+            "bun",
+            [
+              "apps/server/scripts/cli.ts",
+              "pack",
+              "--out",
+              sshRuntimePackDir,
+              "--app-version",
+              appVersion,
+            ],
+            {
+              cwd: repoRoot,
+              env: createDesktopBuildSubprocessEnvironment(process.env),
+              ...commandOutputOptions(options.verbose),
+              shell: process.platform === "win32",
             },
-          }),
-          await packAgentRuntimeArchive({
-            outputRoot: archiveRoot,
-            cacheDir: process.env[AGENT_RUNTIME_ARCHIVE_CACHE_ENV]?.trim() || undefined,
-            runtime: {
-              name: "claude",
-              version: BUNDLED_CLAUDE_CODE_VERSION,
-              platform: "win32",
-              arch: nodeArch,
-              root: path.join(stageAppDir, BUNDLED_CLAUDE_RUNTIME_DIR),
-              executable: `${claudeTarget.resourceFolder}/${claudeTarget.executable}`,
-            },
-          }),
-        ];
-        await unpackAgentRuntimeForVerification({
-          packed: packed[0]!,
-          verifyRoot: verifyResources,
-          layoutName: "codex-runtime",
+          ),
+        );
+        yield* fs.copyFile(
+          path.join(sshRuntimePackDir, `moss-server-${appVersion}.tar.gz`),
+          path.join(stageAppDir, SSH_RUNTIME_STAGE_PATH),
+        );
+      }),
+      Effect.gen(function* () {
+        yield* fs.copy(distDirs.desktopDist, path.join(stageAppDir, "apps/desktop/dist-electron"));
+        yield* Effect.tryPromise({
+          try: () =>
+            copyTreeFast(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"), {
+              mode: "hardlink",
+            }),
+          catch: (cause) =>
+            new BuildScriptError({
+              message: `Failed to stage apps/server/dist: ${String(cause)}`,
+              cause,
+            }),
         });
-        await unpackAgentRuntimeForVerification({
-          packed: packed[1]!,
-          verifyRoot: verifyResources,
-          layoutName: "claude-runtime",
-        });
-        return packed;
-      },
-      catch: (cause) =>
-        new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Packing the agent runtime archives failed: ${cause.message}`
-              : "Packing the agent runtime archives failed.",
-          cause,
-        }),
-    });
-    const audit = yield* Effect.try({
-      try: () =>
-        auditWindowsAgentRuntimePayloads({
-          root: agentRuntimeVerifyRoot,
-          arch: options.arch,
-          manifest: windowsNativePayloadManifest,
-        }),
-      catch: (cause) =>
-        new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Agent runtime archive native audit failed: ${cause.message}`
-              : "Agent runtime archive native audit failed.",
-          cause,
-        }),
-    });
-    const pinsDocument = agentRuntimePinsDocument({
-      appVersion,
-      pins: packedAgentRuntimes.map((entry) => entry.pin),
-    });
-    yield* fs.writeFileString(
-      path.join(stageAppDir, AGENT_RUNTIME_PINS_FILE),
-      `${JSON.stringify(pinsDocument, null, 2)}\n`,
-    );
-    for (const entry of packedAgentRuntimes) {
-      yield* Effect.log(
-        `[desktop-artifact] Agent runtime archive ${entry.objectPath}: ${entry.pin.archive.size} bytes, sha256 ${entry.pin.archive.sha256}, ${entry.pin.files.length} files${entry.fromCache ? " (reused from the archive cache)" : ""}.`,
-      );
-    }
-    yield* Effect.log(
-      `[desktop-artifact] Agent runtime archives unpack to the staged bytes; ${audit.nativeFiles.length} native payloads match the reviewed manifest.`,
-    );
-  }
+      }),
+    ],
+    { concurrency: 2 },
+  );
 
-  if (options.platform === "win") {
-    const windowsArch = options.arch;
-    if (windowsArch === "universal") {
-      return yield* new BuildScriptError({
-        message: "Windows node-pty staging does not support universal architecture.",
-      });
-    }
-    const prunedNativeDependencies = yield* Effect.try({
+  let desktopAsarCacheKey: string | undefined;
+  let usedPrepackedAsarCache = false;
+  if (desktopAsarCacheDir && stageDepsCacheKey) {
+    const buildFiles = Array.isArray(resolvedBuildConfig.buildConfig.files)
+      ? resolvedBuildConfig.buildConfig.files.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [];
+    const buildAsarUnpack = Array.isArray(resolvedBuildConfig.buildConfig.asarUnpack)
+      ? resolvedBuildConfig.buildConfig.asarUnpack.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [];
+    desktopAsarCacheKey = yield* Effect.tryPromise({
       try: () =>
-        pruneStagedWindowsNativeDependencies({
+        computeDesktopAsarBaseCacheKey({
           stageAppDir,
-          arch: windowsArch,
+          platform: options.platform,
+          arch: options.arch,
+          electronVersion,
+          agentRuntimes: options.agentRuntimes,
+          stageDepsCacheKey,
+          filesPatterns: buildFiles,
+          asarUnpackPatterns: buildAsarUnpack,
         }),
       catch: (cause) =>
         new BuildScriptError({
-          message:
-            cause instanceof Error
-              ? `Windows native dependency staging cleanup failed: ${cause.message}`
-              : "Windows native dependency staging cleanup failed.",
+          message: cause instanceof Error ? cause.message : String(cause),
           cause,
         }),
-    });
-    yield* Effect.log(
-      `[desktop-artifact] Removed ${prunedNativeDependencies.removedPaths.length} non-target Windows native paths and retained ${prunedNativeDependencies.retainedNativeFiles.length} reviewed dependency payloads.`,
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning(
+          `[desktop-artifact] Could not compute app.asar cache key: ${error.message}`,
+        ).pipe(Effect.as(undefined)),
+      ),
     );
-  }
 
-  if (options.platform === "linux") {
-    if (options.arch === "universal") {
-      return yield* new BuildScriptError({
-        message: "Linux node-pty rebuild does not support universal architecture.",
+    if (desktopAsarCacheKey) {
+      const cacheKey = desktopAsarCacheKey;
+      const prepared = yield* Effect.tryPromise({
+        try: () =>
+          preparePrepackedAsarFromCache({
+            cacheDir: desktopAsarCacheDir,
+            cacheKey,
+            stageAppDir,
+            stagePackageJson: stagePackageJson as unknown as Record<string, unknown>,
+          }),
+        catch: () => ({ hit: false, keptFiles: 0, newFiles: 0, outputBytes: 0, durationMs: 0 }),
       });
+      if (prepared.hit) {
+        usedPrepackedAsarCache = true;
+        const existingDirs =
+          typeof resolvedBuildConfig.buildConfig.directories === "object" &&
+          resolvedBuildConfig.buildConfig.directories !== null
+            ? (resolvedBuildConfig.buildConfig.directories as Record<string, unknown>)
+            : {};
+        resolvedBuildConfig.buildConfig.directories = {
+          ...existingDirs,
+          app: "prepacked-app",
+        };
+        resolvedBuildConfig.buildConfig.electronVersion = electronVersion;
+        const updatedStagePackageJsonString = yield* encodeJsonString(stagePackageJson);
+        yield* fs.writeFileString(
+          path.join(stageAppDir, "package.json"),
+          `${updatedStagePackageJsonString}\n`,
+        );
+        yield* Effect.log(
+          `[desktop-artifact] Spliced prepacked app.asar from cache in ${(prepared.durationMs / 1000).toFixed(1)}s (${DESKTOP_ASAR_CACHE_ENV}: kept ${prepared.keptFiles} files, spliced ${prepared.newFiles} files, ${(prepared.outputBytes / (1024 * 1024)).toFixed(1)} MB).`,
+        );
+      }
     }
-    yield* rebuildStagedLinuxNodePty(
-      stageAppDir,
-      options.arch,
-      desktopStageInstallPackage.devDependencies.electron,
-      options.verbose,
-    );
-    yield* verifyStagedNodePty(stageAppDir, options.verbose);
-  } else if (options.platform === "win" && process.platform === "win32") {
-    yield* verifyStagedNodePty(stageAppDir, options.verbose);
-  } else if (options.platform === "win") {
-    yield* Effect.log(
-      "[desktop-artifact] Skipping host execution of target Windows node-pty; static payload inventory and hashes remain enforced.",
-    );
   }
 
   const buildEnv = createElectronBuilderEnvironment({
@@ -5207,6 +5491,36 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* Effect.log(
       `[desktop-artifact] Verified packaged Cua Driver ${packagedCuaDriver.version} (native revision ${packagedCuaDriver.nativeRevision}${packagedCuaDriver.signingIdentifier ? `, identifier ${packagedCuaDriver.signingIdentifier}` : ""}).`,
     );
+  }
+
+  if (desktopAsarCacheDir && desktopAsarCacheKey && !usedPrepackedAsarCache) {
+    const cacheKey = desktopAsarCacheKey;
+    const packagedResourcesDir =
+      installerResourcesDir ?? packagedBundledCodexValidation.runtime.resourcesDir;
+    const savedAsar = yield* Effect.tryPromise({
+      try: () =>
+        saveDesktopAsarToCache({
+          cacheDir: desktopAsarCacheDir,
+          cacheKey,
+          packagedResourcesDir,
+        }),
+      catch: (cause) =>
+        new BuildScriptError({
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning(
+          `[desktop-artifact] Could not save prepacked app.asar cache: ${error.message}`,
+        ).pipe(Effect.as(null)),
+      ),
+    );
+    if (savedAsar?.saved) {
+      yield* Effect.log(
+        `[desktop-artifact] Saved prepacked app.asar base to cache (${DESKTOP_ASAR_CACHE_ENV}, pruned ${savedAsar.pruned} stale entries).`,
+      );
+    }
   }
 
   if (buildScopedBunCacheDir) {

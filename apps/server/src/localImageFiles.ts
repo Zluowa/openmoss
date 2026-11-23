@@ -253,6 +253,23 @@ async function resolveWorkspaceRoot(cwd: string | null): Promise<string | null> 
   return (gitRoot ? await realpathOrNull(gitRoot) : realCwd) ?? null;
 }
 
+function isSafeThreadIdSegment(value: string | null | undefined): value is string {
+  if (!value) return false;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "." || trimmed === "..") return false;
+  if (trimmed.includes("..") || /[\\/\0]/u.test(trimmed)) return false;
+  return true;
+}
+
+function scratchWorkspaceSegment(threadId: string): string {
+  const safePrefix = threadId
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^\.+/g, "")
+    .slice(0, 64);
+  const digest = crypto.createHash("sha256").update(threadId).digest("hex").slice(0, 12);
+  return `${safePrefix || "thread"}-${digest}`;
+}
+
 export async function resolveAllowedLocalPreviewFile(input: {
   readonly requestedPath: string | null;
   readonly cwd: string | null;
@@ -262,13 +279,23 @@ export async function resolveAllowedLocalPreviewFile(input: {
   readonly scratchWorkspacesRoot?: string;
   readonly allowAbsoluteLocalPreviewFile?: boolean;
   readonly previewGrant?: string | null;
+  readonly allowAnyExtension?: boolean;
+  readonly threadId?: string | null;
 }): Promise<ResolvedLocalPreviewFile | null> {
+  const candidates = localPreviewPathCandidates(input.requestedPath ?? "");
   let selectedPath: {
     requestedPath: string;
     resolvedRequestedPath: string;
     realFilePath: string;
   } | null = null;
-  for (const candidate of localPreviewPathCandidates(input.requestedPath ?? "")) {
+  for (const candidate of candidates) {
+    if (
+      !path.isAbsolute(candidate) &&
+      input.cwd === null &&
+      isSafeThreadIdSegment(input.threadId)
+    ) {
+      continue;
+    }
     const resolvedRequestedPath = path.resolve(input.cwd ?? process.cwd(), candidate);
     const realFilePath = await realpathOrNull(resolvedRequestedPath);
     if (realFilePath !== null) {
@@ -276,12 +303,56 @@ export async function resolveAllowedLocalPreviewFile(input: {
       break;
     }
   }
+
+  let cachedScratchLookup: Promise<{
+    readonly tempRoots: string[];
+    readonly scratchWorkspaceRoots: string[];
+  }> | null = null;
+  const loadScratchRoots = () => {
+    cachedScratchLookup ??= (async () => {
+      const tempRoots = await temporaryDirectoryRoots();
+      const configuredScratchRoot = await realpathOrNull(input.scratchWorkspacesRoot);
+      const scratchWorkspaceRoots = [
+        ...(configuredScratchRoot ? [configuredScratchRoot] : []),
+        ...tempRoots.map((root) => path.join(root, SCRATCH_WORKSPACES_DIRNAME)),
+      ];
+      return { tempRoots, scratchWorkspaceRoots };
+    })();
+    return cachedScratchLookup;
+  };
+
+  if (!selectedPath && isSafeThreadIdSegment(input.threadId)) {
+    const safeThreadId = input.threadId.trim();
+    const { scratchWorkspaceRoots } = await loadScratchRoots();
+    const threadSegments = [safeThreadId, scratchWorkspaceSegment(safeThreadId)];
+    outer: for (const candidate of candidates) {
+      if (path.isAbsolute(candidate)) continue;
+      for (const root of scratchWorkspaceRoots) {
+        const realRoot = await realpathOrNull(root);
+        if (!realRoot) continue;
+        for (const segment of threadSegments) {
+          const threadDirReal = await realpathOrNull(path.join(realRoot, segment));
+          if (!threadDirReal || !isPathInside(threadDirReal, realRoot)) continue;
+          const resolvedRequestedPath = path.resolve(threadDirReal, candidate);
+          const realFilePath = await realpathOrNull(resolvedRequestedPath);
+          if (
+            realFilePath !== null &&
+            isPathInside(realFilePath, threadDirReal) &&
+            isPathInside(realFilePath, realRoot)
+          ) {
+            selectedPath = { requestedPath: candidate, resolvedRequestedPath, realFilePath };
+            break outer;
+          }
+        }
+      }
+    }
+  }
+
   if (!selectedPath) return null;
   const { requestedPath, resolvedRequestedPath, realFilePath } = selectedPath;
-  if (
-    !isSupportedLocalPreviewFilePath(requestedPath) ||
-    !isSupportedLocalPreviewFilePath(realFilePath)
-  ) {
+  const hasSupportedPreviewExtension =
+    isSupportedLocalPreviewFilePath(requestedPath) && isSupportedLocalPreviewFilePath(realFilePath);
+  if (!hasSupportedPreviewExtension && input.allowAnyExtension !== true) {
     return null;
   }
 
@@ -306,12 +377,7 @@ export async function resolveAllowedLocalPreviewFile(input: {
   // scratch directories. Files agents create there are workspace-equivalent,
   // so every preview type is servable from the configured private root. Keep
   // the former temp roots readable for threads created before this migration.
-  const tempRoots = await temporaryDirectoryRoots();
-  const configuredScratchRoot = await realpathOrNull(input.scratchWorkspacesRoot);
-  const scratchWorkspaceRoots = [
-    ...(configuredScratchRoot ? [configuredScratchRoot] : []),
-    ...tempRoots.map((root) => path.join(root, SCRATCH_WORKSPACES_DIRNAME)),
-  ];
+  const { tempRoots, scratchWorkspaceRoots } = await loadScratchRoots();
   if (scratchWorkspaceRoots.some((root) => isPathInside(realFilePath, root))) {
     return resolved;
   }
@@ -331,8 +397,12 @@ export async function resolveAllowedLocalPreviewFile(input: {
   // chat markdown; keep them image-only so they never serve documents or
   // unsupported binary downloads. Workspace/scratch files and explicitly
   // granted absolute paths returned above remain eligible for every allowlisted
-  // preview/download extension.
-  if (!isSupportedLocalImagePath(realFilePath)) {
+  // preview/download extension — never relax extension rules here.
+  if (
+    !hasSupportedPreviewExtension ||
+    !isSupportedLocalImagePath(requestedPath) ||
+    !isSupportedLocalImagePath(realFilePath)
+  ) {
     return null;
   }
   // A provided empty array means settings/live sessions intentionally allow no Codex homes.

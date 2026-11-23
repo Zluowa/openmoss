@@ -415,6 +415,7 @@ export function buildProviderProcessEnv(input: {
   readonly homeDir?: string | undefined;
   readonly isolationRootDir?: string | undefined;
   readonly overlay?: Readonly<Record<string, string>> | undefined;
+  readonly unifiedProviderOverlay?: Readonly<Record<string, string>> | undefined;
   readonly platform?: NodeJS.Platform | undefined;
   readonly readSystemProxy?: () => NodeJS.ProcessEnv;
   /** Metadata-only probes can derive the child environment before launch. */
@@ -433,7 +434,9 @@ export function buildProviderProcessEnv(input: {
 
   // Preserve the historical/default path exactly when no instance account
   // boundary or mandatory child-process overlay is present.
-  if (!isolatesAccount && input.overlay === undefined) {
+  const applyUnifiedOverlay =
+    input.unifiedProviderOverlay !== undefined && !(instanceId?.endsWith("_moss") ?? false);
+  if (!isolatesAccount && input.overlay === undefined && !applyUnifiedOverlay) {
     return withOutboundProxyEnv(baseEnv as NodeJS.ProcessEnv, proxyOptions);
   }
 
@@ -493,6 +496,9 @@ export function buildProviderProcessEnv(input: {
       env.GROK_HOME ??= pathApi.join(effectiveHome, ".grok");
       env.GROK_AUTH_PATH ??= pathApi.join(env.GROK_HOME, "auth.json");
     }
+  }
+  if (applyUnifiedOverlay && input.unifiedProviderOverlay !== undefined) {
+    Object.assign(env, normalizedEnvironment(input.unifiedProviderOverlay, platform));
   }
   if (input.overlay !== undefined) {
     Object.assign(env, normalizedEnvironment(input.overlay, platform));

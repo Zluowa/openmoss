@@ -10,13 +10,14 @@ import {
   DEVELOPMENT_ICON_OVERRIDES,
   PUBLISH_ICON_OVERRIDES,
 } from "../../../scripts/lib/brand-assets.ts";
+import { copyFileReplacingTarget, copyTreeFast } from "../../../scripts/lib/fast-stage-copy.ts";
 import { resolveCatalogDependencies } from "../../../scripts/lib/resolve-catalog.ts";
 import {
   createRuntimeShrinkwrap,
   parseBunLockPackages,
   PATCHED_RUNTIME_DIRECTORY,
 } from "../../../scripts/lib/runtime-shrinkwrap.ts";
-import { createPackTarCommandPlan } from "./pack-tar.ts";
+import { writePackTarGz } from "./pack-tar.ts";
 import rootPackageJson from "../../../package.json" with { type: "json" };
 import serverPackageJson from "../package.json" with { type: "json" };
 
@@ -87,7 +88,14 @@ const applyPublishIconOverrides = Effect.fn("applyPublishIconOverrides")(functio
       });
     }
 
-    yield* fs.copyFile(sourcePath, targetPath);
+    yield* Effect.tryPromise({
+      try: () => copyFileReplacingTarget(sourcePath, targetPath),
+      catch: (cause) =>
+        new CliError({
+          message: `Failed to apply publish icon override ${override.targetRelativePath}: ${String(cause)}`,
+          cause,
+        }),
+    });
   }
 
   yield* Effect.log("[cli] Applied publish icon overrides inside the isolated package stage");
@@ -115,7 +123,14 @@ const applyDevelopmentIconOverrides = Effect.fn("applyDevelopmentIconOverrides")
       });
     }
 
-    yield* fs.copyFile(sourcePath, targetPath);
+    yield* Effect.tryPromise({
+      try: () => copyFileReplacingTarget(sourcePath, targetPath),
+      catch: (cause) =>
+        new CliError({
+          message: `Failed to apply development icon override ${override.targetRelativePath}: ${String(cause)}`,
+          cause,
+        }),
+    });
   }
 
   yield* Effect.log("[cli] Applied development icon overrides to dist/client");
@@ -162,7 +177,14 @@ const buildCmd = Command.make(
       const clientTarget = path.join(serverDir, "dist/client");
 
       if (yield* fs.exists(webDist)) {
-        yield* fs.copy(webDist, clientTarget);
+        yield* Effect.tryPromise({
+          try: () => copyTreeFast(webDist, clientTarget, { mode: "hardlink" }),
+          catch: (cause) =>
+            new CliError({
+              message: `Failed to bundle web app into dist/client: ${String(cause)}`,
+              cause,
+            }),
+        });
         yield* applyDevelopmentIconOverrides(repoRoot, serverDir);
         yield* Effect.log("[cli] Bundled web app into dist/client");
       } else {
@@ -217,7 +239,17 @@ const stageDistributionPackage = Effect.fn("stageDistributionPackage")(function*
   const stagedPackageDir = yield* fs.makeTempDirectoryScoped({
     prefix: "moss-cli-publish-",
   });
-  yield* fs.copy(path.join(serverDir, "dist"), path.join(stagedPackageDir, "dist"));
+  yield* Effect.tryPromise({
+    try: () =>
+      copyTreeFast(path.join(serverDir, "dist"), path.join(stagedPackageDir, "dist"), {
+        mode: "hardlink",
+      }),
+    catch: (cause) =>
+      new CliError({
+        message: `Failed to stage server dist: ${String(cause)}`,
+        cause,
+      }),
+  });
   for (const binTarget of Object.values(pkg.bin)) {
     if (typeof binTarget !== "string" || !binTarget.startsWith("dist/")) {
       return yield* new CliError({
@@ -234,6 +266,15 @@ const stageDistributionPackage = Effect.fn("stageDistributionPackage")(function*
         message: `Staged CLI bin target is missing its Node shebang: ${binTarget}`,
       });
     }
+    // Detach bin targets from hardlinks before chmod so staging never mutates serverDir/dist modes.
+    yield* Effect.tryPromise({
+      try: () => copyFileReplacingTarget(path.join(serverDir, binTarget), stagedBinPath),
+      catch: (cause) =>
+        new CliError({
+          message: `Failed to materialize staged CLI bin target ${binTarget}: ${String(cause)}`,
+          cause,
+        }),
+    });
     yield* fs.chmod(stagedBinPath, 0o755);
   }
   yield* applyPublishIconOverrides(repoRoot, stagedPackageDir);
@@ -352,24 +393,22 @@ const packCmd = Command.make(
       yield* fs.makeDirectory(outDir, { recursive: true });
 
       const tarballName = `moss-server-${version}.tar.gz`;
-      const tarballPath = path.join(outDir, tarballName);
-      const tarCommand = createPackTarCommandPlan({
-        stagedPackageDir,
-        outDir,
-        tarballName,
-        ...(runtimeLock.files.length > 0
-          ? { patchedRuntimeDirectory: PATCHED_RUNTIME_DIRECTORY }
-          : {}),
+      const tarballPath = yield* Effect.tryPromise({
+        try: () =>
+          writePackTarGz({
+            stagedPackageDir,
+            outDir,
+            tarballName,
+            ...(runtimeLock.files.length > 0
+              ? { patchedRuntimeDirectory: PATCHED_RUNTIME_DIRECTORY }
+              : {}),
+          }),
+        catch: (cause) =>
+          new CliError({
+            message: `Failed to pack server tarball: ${String(cause)}`,
+            cause,
+          }),
       });
-      yield* runCommand(
-        ChildProcess.make("tar", tarCommand.args, {
-          cwd: tarCommand.cwd,
-          stdout: "inherit",
-          stderr: "inherit",
-          // Windows needs shell mode to resolve .cmd shims.
-          shell: process.platform === "win32",
-        }),
-      );
 
       yield* Effect.log(`[cli] Wrote server tarball: ${tarballPath}`);
     }),

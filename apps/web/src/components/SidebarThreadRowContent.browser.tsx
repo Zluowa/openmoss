@@ -5,6 +5,7 @@
 import "../index.css";
 
 import { ProjectId, ThreadId, TurnId } from "@moss/contracts";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
@@ -541,5 +542,94 @@ describe("sidebar subagent marks", () => {
     expect(look(marks[0]!)).not.toBe(look(marks[1]!));
     // No grey status dot anywhere.
     expect(document.querySelector("[data-testid='sidebar-subagent-status-dot']")).toBeNull();
+  });
+
+  it("toggles parent thread collapse via inline chevron without activating the row", async () => {
+    const parentId = ThreadId.makeUnsafe("collapse-parent");
+    const childAId = ThreadId.makeUnsafe("collapse-child-a");
+    const childBId = ThreadId.makeUnsafe("collapse-child-b");
+    const parent = makeThread({ id: parentId, title: "Imported session" });
+    const childA = makeThread({ id: childAId, parentThreadId: parentId, title: "Child one" });
+    const childB = makeThread({ id: childBId, parentThreadId: parentId, title: "Child two" });
+    const threads = [parent, childA, childB];
+
+    for (const [locale, expectedCollapseLabel, expectedExpandLabel] of [
+      ["zh-CN", "收起 2 个子会话", "展开 2 个子会话"],
+      ["en", "Collapse 2 child chats", "Expand 2 child chats"],
+    ] as const) {
+      const onRowClick = vi.fn();
+      const onRowPointerDown = vi.fn();
+      const Harness = () => {
+        const [collapsed, setCollapsed] = useState<Set<ThreadId>>(() => new Set());
+        const rows = buildProjectThreadTree({
+          threads,
+          forceVisibleThreadId: parentId,
+          collapsedParentThreadIds: collapsed,
+        });
+        return (
+          <MossLocaleScope locale={locale}>
+            <div>
+              {rows.map((row) => (
+                <div
+                  key={row.thread.id}
+                  role="button"
+                  tabIndex={0}
+                  data-testid={`row-${row.thread.id}`}
+                  onPointerDown={() => onRowPointerDown(row.thread.id)}
+                  onClick={() => onRowClick(row.thread.id)}
+                >
+                  <SidebarThreadRowContent
+                    thread={row.thread}
+                    terminalEntryPoint={false}
+                    terminalStatus={null}
+                    terminalCount={0}
+                    isActive={row.thread.id === parentId}
+                    variant="standard"
+                    childCount={row.childCount}
+                    isParentCollapsed={row.isParentCollapsed}
+                    onToggleParentCollapse={
+                      row.hasChildren
+                        ? () =>
+                            setCollapsed((current) => {
+                              const next = new Set(current);
+                              if (next.has(row.thread.id)) next.delete(row.thread.id);
+                              else next.add(row.thread.id);
+                              return next;
+                            })
+                        : undefined
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          </MossLocaleScope>
+        );
+      };
+
+      const screen = await render(<Harness />);
+      await expect.element(screen.getByText("Child one")).toBeVisible();
+      await expect.element(screen.getByText("Child two")).toBeVisible();
+
+      const toggleButton = screen.getByTestId(`thread-parent-collapse-${parentId}`);
+      await expect.element(toggleButton).toHaveAttribute("aria-expanded", "true");
+      await expect.element(toggleButton).toHaveAttribute("aria-label", expectedCollapseLabel);
+
+      await toggleButton.click();
+      await expect.element(toggleButton).toHaveAttribute("aria-expanded", "false");
+      await expect.element(toggleButton).toHaveAttribute("aria-label", expectedExpandLabel);
+      expect(screen.container.querySelector(`[data-testid='row-${childAId}']`)).toBeNull();
+      expect(screen.container.querySelector(`[data-testid='row-${childBId}']`)).toBeNull();
+      expect(onRowClick).not.toHaveBeenCalled();
+      expect(onRowPointerDown).not.toHaveBeenCalled();
+
+      await toggleButton.click();
+      await expect.element(toggleButton).toHaveAttribute("aria-expanded", "true");
+      await expect.element(screen.getByText("Child one")).toBeVisible();
+      expect(onRowClick).not.toHaveBeenCalled();
+
+      await screen.getByText("Imported session").click();
+      expect(onRowClick).toHaveBeenCalledWith(parentId);
+      await screen.unmount();
+    }
   });
 });

@@ -452,6 +452,12 @@ import type {
   ServerStopLocalServerResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
+  ServerSaveUnifiedProviderInput,
+  ServerSaveUnifiedProviderResult,
+  ServerDeleteUnifiedProviderInput,
+  ServerDeleteUnifiedProviderResult,
+  ServerTestUnifiedProviderInput,
+  ServerTestUnifiedProviderResult,
   ServerEditKeybindingsInput,
   ServerEditKeybindingsResult,
   ServerUpsertKeybindingInput,
@@ -1227,6 +1233,19 @@ export interface DesktopCustomTitleBarState {
   restartRequired: boolean;
 }
 
+/** System tray close behavior and launch-at-login state reported by Electron. */
+export interface DesktopBehaviorState {
+  closeToTray: boolean;
+  closeToTraySupported: boolean;
+  openAtLogin: boolean;
+  openAtLoginSupported: boolean;
+}
+
+/** Renderer summary synced to the desktop system tray menu and tooltip. */
+export interface DesktopTrayStatusInput {
+  runningTaskCount: number;
+}
+
 export const DesktopAppIcon = Schema.Literals(["default", "icon", "dark", "beta"]);
 export type DesktopAppIcon = typeof DesktopAppIcon.Type;
 
@@ -1724,6 +1743,16 @@ export interface DesktopBridge {
     relaunch: () => Promise<void>;
   };
   /**
+   * Desktop system tray close-to-tray preference, launch-at-login setting,
+   * and live running-task badge/menu synchronization.
+   */
+  desktopBehavior?: {
+    getState: () => Promise<DesktopBehaviorState>;
+    setCloseToTray: (enabled: boolean) => Promise<DesktopBehaviorState>;
+    setOpenAtLogin: (enabled: boolean) => Promise<DesktopBehaviorState>;
+    updateTrayStatus: (input: DesktopTrayStatusInput) => Promise<void>;
+  };
+  /**
    * "Allow phone connections", desktop app only. Changing it restarts Moss's
    * background service; the promise settles once the service answers again.
    */
@@ -2111,6 +2140,15 @@ export interface NativeApi {
     applyWorkspaceImport: (input: WorkspaceImportApplyInput) => Promise<WorkspaceImportApplyResult>;
     syncWorkspaceImport: (input: WorkspaceImportSyncInput) => Promise<WorkspaceImportSyncResult>;
     updateSettings: (input: ServerUpdateSettingsInput) => Promise<ServerUpdateSettingsResult>;
+    saveUnifiedProvider?: (
+      input: ServerSaveUnifiedProviderInput,
+    ) => Promise<ServerSaveUnifiedProviderResult>;
+    deleteUnifiedProvider?: (
+      input: ServerDeleteUnifiedProviderInput,
+    ) => Promise<ServerDeleteUnifiedProviderResult>;
+    testUnifiedProvider?: (
+      input: ServerTestUnifiedProviderInput,
+    ) => Promise<ServerTestUnifiedProviderResult>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;

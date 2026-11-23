@@ -114,7 +114,14 @@ import {
 } from "./projectAgent/libraryStore";
 import { ProjectAgentRepository } from "./persistence/Services/ProjectAgentRepository";
 import { resolveCachedEditorIcon } from "./editorAppIcons";
+import { isSupportedLocalPreviewFilePath } from "@moss/shared/localPreviewFiles";
+import { localDocumentPreviewEffectRouteLayer } from "./localDocumentPreview";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalPreviewFile } from "./localImageFiles.ts";
+import {
+  localPreviewProxyEffectRouteLayer,
+  proxyFallbackPreviewRequest,
+} from "./localPreviewProxy";
+import { streamedFileResponseWithRange } from "./localPreviewRange";
 import { libraryImageEffectRouteLayer } from "./library/libraryImageRoute.ts";
 import { LibraryService } from "./library/Services/LibraryService.ts";
 import { mcpAppsRouteLayer } from "./mcpApps/routes";
@@ -343,6 +350,8 @@ export function makeEffectHttpRouteLayer(
     siteFaviconEffectRouteLayer,
     editorIconEffectRouteLayer,
     localImageEffectRouteLayer,
+    localDocumentPreviewEffectRouteLayer,
+    localPreviewProxyEffectRouteLayer,
     themeImageEffectRouteLayer,
     libraryImageEffectRouteLayer,
     localHtmlPreviewEffectRouteLayer,
@@ -1517,7 +1526,8 @@ export const localHtmlPreviewEffectRouteLayer = HttpRouter.add(
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
     const asset = yield* Effect.promise(() => resolveLocalHtmlPreviewAsset(url.pathname));
     if (!asset) return HttpServerResponse.text("Not Found", { status: 404 });
-    return streamedFileResponse({
+    return streamedFileResponseWithRange({
+      request,
       fileSystem: yield* FileSystem.FileSystem,
       path: asset.path,
       sizeBytes: asset.sizeBytes,
@@ -1575,6 +1585,7 @@ export const localImageEffectRouteLayer = HttpRouter.add(
       ...liveCodexHomePaths,
     ];
 
+    const isDownload = url.searchParams.get("download") === "1";
     const previewFile = yield* Effect.promise(() =>
       resolveAllowedLocalPreviewFile({
         requestedPath: url.searchParams.get("path"),
@@ -1583,6 +1594,8 @@ export const localImageEffectRouteLayer = HttpRouter.add(
         scratchWorkspacesRoot: resolveScratchWorkspacesRoot(),
         allowAbsoluteLocalPreviewFile: true,
         previewGrant: url.searchParams.get("grant"),
+        allowAnyExtension: isDownload,
+        threadId: url.searchParams.get("threadId"),
       }).catch(() => null),
     );
     if (!previewFile) {
@@ -1595,12 +1608,20 @@ export const localImageEffectRouteLayer = HttpRouter.add(
     // Stream (don't use HttpServerResponse.file, which depends on
     // Etag.Generator/Path services and was failing with a 500 here).
     const fileSystem = yield* FileSystem.FileSystem;
-    const isDownload = url.searchParams.get("download") === "1";
-    const isSvg = nodePath.extname(previewFile.path).toLowerCase() === ".svg";
-    return streamedFileResponse({
+    const ext = nodePath.extname(previewFile.path).toLowerCase();
+    const isSvg = ext === ".svg";
+    // Avoid `video/mp2t` collision from the `mime` database when downloading TypeScript sources.
+    const contentType =
+      !isSupportedLocalPreviewFilePath(previewFile.path) &&
+      (ext === ".ts" || ext === ".mts" || ext === ".cts")
+        ? "text/plain; charset=utf-8"
+        : undefined;
+    return streamedFileResponseWithRange({
+      request,
       fileSystem,
       path: previewFile.path,
       sizeBytes: previewFile.sizeBytes,
+      contentType,
       headers: {
         "Cache-Control": "private, max-age=60",
         // The PDF viewer fetches bytes from either the desktop app origin or
@@ -2365,7 +2386,8 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
 
     // Mirror local-image serving instead of using HttpServerResponse.file; the Effect
     // route stack used by the desktop server can miss that helper's file services.
-    return streamedFileResponse({
+    return streamedFileResponseWithRange({
+      request,
       fileSystem,
       path: filePath,
       sizeBytes: Number(fileInfo.size),
@@ -2594,6 +2616,8 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
     const url = HttpServerRequest.toURL(request);
     if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
     const config = yield* ServerConfig;
+    const fallbackProxy = yield* proxyFallbackPreviewRequest({ request, url, config });
+    if (fallbackProxy) return fallbackProxy;
     if (config.devUrl) {
       // The page editor (served from this origin) draws its glyphs as CSS masks from
       // /central-icons-*/. A mask is a CORS fetch, and after a cross-origin redirect the

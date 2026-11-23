@@ -48,7 +48,6 @@ describe("createProviderInstallResetPatch", () => {
         "cursorApiEndpoint",
         "cursorBinaryPath",
         "devinBinaryPath",
-        "droidBinaryPath",
         "grokBinaryPath",
         "kimiBinaryPath",
         "minimaxBinaryPath",

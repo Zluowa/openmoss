@@ -27,10 +27,10 @@
 ; Also hook .onInstSuccess so visible --updated --force-run installs relaunch Moss reliably
 ; (assisted installers only run doStartApp automatically when /S is passed).
 !macro customHeader
-  !ifndef BUILD_UNINSTALLER
-    !include "getProcessInfo.nsh"
-    Var pid
+  !include "getProcessInfo.nsh"
+  Var pid
 
+  !ifndef BUILD_UNINSTALLER
     Function .onInstSuccess
       ${if} ${isUpdated}
       ${andIf} ${isForceRun}

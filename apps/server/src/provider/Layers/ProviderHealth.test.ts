@@ -2553,8 +2553,8 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       );
       const codex = statuses.find((status) => status.provider === "codex");
 
-      // Every built-in driver (13 supported plus legacy Droid settings; retired Gemini CLI excluded) gets an inert status.
-      assert.strictEqual(statuses.length, 14);
+      // Every built-in driver (13 active supported providers; retired Gemini/Droid/Kilo excluded) gets an inert status.
+      assert.strictEqual(statuses.length, 13);
       assert.strictEqual(codex?.available, false);
       assert.strictEqual(codex?.message, "Provider is disabled in Moss settings.");
     });
@@ -2858,7 +2858,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
         const providerHealth = yield* ProviderHealth;
         const statuses = yield* providerHealth.refresh;
 
-        assert.strictEqual(statuses.length, 14);
+        assert.strictEqual(statuses.length, 13);
         for (const status of statuses) {
           assert.strictEqual(status.available, false);
           assert.strictEqual(status.message, "Provider is disabled in Moss settings.");
@@ -2954,7 +2954,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           yield* serverSettings.updateSettings({ providers: { grok: { enabled: true } } });
           probeGates[2]!.release();
           yield* Effect.promise(() => probeGates[3]!.started);
-          yield* serverSettings.updateSettings({ providers: { droid: { enabled: true } } });
+          yield* serverSettings.updateSettings({ providers: { devin: { enabled: true } } });
           probeGates[3]!.release();
           yield* Fiber.join(joinedRefresh);
           yield* Fiber.join(firstRefresh);
@@ -2966,7 +2966,15 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
           assert.ok(commands.some((command) => command.includes("opencode")));
           assert.ok(commands.some((command) => command.includes("pi")));
           assert.ok(commands.some((command) => command.includes("grok")));
-          assert.ok(commands.some((command) => command.includes("droid")));
+          assert.ok(commands.some((command) => command.includes("devin")));
+          assert.strictEqual(
+            commands.some((command) => command.includes("droid")),
+            false,
+          );
+          assert.strictEqual(
+            statuses.some((status) => status.provider === "droid"),
+            false,
+          );
           assert.notStrictEqual(
             statuses.find((status) => status.provider === "opencode")?.message,
             "Provider is disabled in Moss settings.",
@@ -2976,7 +2984,7 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
             "Provider is disabled in Moss settings.",
           );
           assert.notStrictEqual(
-            statuses.find((status) => status.provider === "droid")?.message,
+            statuses.find((status) => status.provider === "devin")?.message,
             "Provider is disabled in Moss settings.",
           );
         }).pipe(Effect.provide(layer));
@@ -6000,5 +6008,111 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       assert.strictEqual(parsed.status, "warning");
       assert.strictEqual(parsed.authStatus, "unknown");
     });
+  });
+
+  describe("retiring droid and enriching devin/omp version metadata", () => {
+    it("omits droid from PACKAGE_MANAGED_PROVIDER_UPDATES and projected statuses, and registers devin & omp", () => {
+      assert.strictEqual(PACKAGE_MANAGED_PROVIDER_UPDATES.droid, undefined);
+      assert.deepStrictEqual(PACKAGE_MANAGED_PROVIDER_UPDATES.omp?.latestVersionSource, {
+        kind: "npm",
+        name: "@oh-my-pi/pi-coding-agent",
+      });
+      assert.deepStrictEqual(PACKAGE_MANAGED_PROVIDER_UPDATES.devin?.latestVersionSource, {
+        kind: "homebrew",
+        name: "devin-cli",
+        homebrewKind: "cask",
+      });
+
+      const legacyStatus: ServerProviderStatus = {
+        provider: "droid",
+        instanceId: "droid",
+        driver: "droid",
+        status: "ready",
+        available: true,
+        authStatus: "authenticated",
+        checkedAt: "2026-11-23T00:00:00.000Z",
+      };
+      const projected = projectProviderStatusesForSettings([legacyStatus], {
+        ...DEFAULT_SERVER_SETTINGS,
+        providers: {
+          ...DEFAULT_SERVER_SETTINGS.providers,
+          droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: true },
+        },
+      });
+      assert.strictEqual(
+        projected.some((status) => status.provider === "droid" || status.driver === "droid"),
+        false,
+      );
+    });
+
+    it.effect("falls back to Devin cached_version.json when remote lookup returns null", () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "devin-cached-ver-" });
+        const cacheDir = join(tempDir, "devin", "cli");
+        mkdirSync(cacheDir, { recursive: true });
+        writeFileSync(join(cacheDir, "cached_version.json"), '{"latest":"3000.11.234"}\n');
+        const prevLocalAppData = process.env.LOCALAPPDATA;
+        const prevXdgDataHome = process.env.XDG_DATA_HOME;
+        process.env.LOCALAPPDATA = tempDir;
+        process.env.XDG_DATA_HOME = tempDir;
+
+        const realFetch = globalThis.fetch;
+        globalThis.fetch = (async () => {
+          throw new TypeError("offline");
+        }) as unknown as typeof fetch;
+
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            globalThis.fetch = realFetch;
+            if (prevLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+            else process.env.LOCALAPPDATA = prevLocalAppData;
+            if (prevXdgDataHome === undefined) delete process.env.XDG_DATA_HOME;
+            else process.env.XDG_DATA_HOME = prevXdgDataHome;
+          }),
+        );
+
+        const settings = {
+          ...allProvidersDisabledServerSettings,
+          providers: {
+            ...allProvidersDisabledServerSettings.providers,
+            devin: {
+              ...DEFAULT_SERVER_SETTINGS.providers.devin,
+              enabled: true,
+            },
+          },
+        } satisfies typeof DEFAULT_SERVER_SETTINGS;
+
+        const spawnerLayer = Layer.succeed(
+          ChildProcessSpawner.ChildProcessSpawner,
+          ChildProcessSpawner.make((command) => {
+            const cmd = command as unknown as { command: string; args: ReadonlyArray<string> };
+            if (cmd.args.includes("--version")) {
+              return Effect.succeed(
+                mockHandle({ stdout: "devin 3000.11.230\n", stderr: "", code: 0 }),
+              );
+            }
+            return Effect.succeed(mockHandle({ stdout: "", stderr: "", code: 0 }));
+          }),
+        );
+
+        const layer = ProviderHealthLive.pipe(
+          Layer.provideMerge(ServerSettingsService.layerTest(settings)),
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), tempDir)),
+          Layer.provideMerge(spawnerLayer),
+        );
+
+        const statuses = yield* Effect.gen(function* () {
+          const health = yield* ProviderHealth;
+          return yield* health.refresh;
+        }).pipe(Effect.provide(layer));
+
+        const devinStatus = statuses.find((status) => status.provider === "devin");
+        assert.strictEqual(devinStatus?.available, true);
+        assert.strictEqual(devinStatus?.version, "3000.11.230");
+        assert.strictEqual(devinStatus?.versionAdvisory?.latestVersion, "3000.11.234");
+        assert.strictEqual(devinStatus?.versionAdvisory?.status, "behind_latest");
+      }).pipe(Effect.scoped),
+    );
   });
 });
