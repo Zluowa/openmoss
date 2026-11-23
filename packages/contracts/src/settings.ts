@@ -327,6 +327,10 @@ export const ServerSettings = Schema.Struct({
   unifiedProviderByCli: Schema.Record(Schema.String, Schema.String).pipe(
     Schema.withDecodingDefault(() => ({})),
   ),
+  mossCliModelAuthEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  mossCliModelAuthDisabledProviders: Schema.Array(ProviderKind).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   apps: AppsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   computer: ComputerServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
@@ -502,6 +506,8 @@ export const ServerSettingsPatch = Schema.Struct({
       TrimmedNonEmptyString.check(Schema.isMaxLength(128)),
     ).check(Schema.isMaxProperties(64)),
   ),
+  mossCliModelAuthEnabled: Schema.optionalKey(Schema.Boolean),
+  mossCliModelAuthDisabledProviders: Schema.optionalKey(Schema.Array(ProviderKind)),
   skills: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(256)))),

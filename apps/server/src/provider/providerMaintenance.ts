@@ -120,6 +120,10 @@ export interface PackageManagedProviderMaintenanceDefinition {
   readonly nativeUpdate: {
     readonly executable: string;
     readonly args: (installSource: ProviderInstallSource) => ReadonlyArray<string>;
+    readonly command?: (
+      installSource: ProviderInstallSource,
+      platform?: NodeJS.Platform,
+    ) => string | null;
     readonly lockKey: string;
     readonly strategy: "always" | "matching-path";
     /** Explicit source for native installs. Null delegates update truth to the provider CLI. */
@@ -279,6 +283,7 @@ export function makeProviderMaintenanceCapabilities(input: {
   readonly latestVersionSource?: ProviderLatestVersionSource | null;
   readonly updateExecutable: string | null;
   readonly updateArgs: ReadonlyArray<string>;
+  readonly updateCommandOverride?: string | null;
   readonly updateLockKey: string | null;
   readonly updatePathPrepend?: string | null;
   readonly packageChannel?: ProviderPackageChannel | undefined;
@@ -287,7 +292,9 @@ export function makeProviderMaintenanceCapabilities(input: {
     input.updateExecutable === null || input.updateLockKey === null
       ? null
       : {
-          command: providerMaintenanceCommand(input.updateExecutable, input.updateArgs),
+          command:
+            nonEmptyString(input.updateCommandOverride) ??
+            providerMaintenanceCommand(input.updateExecutable, input.updateArgs),
           executable: input.updateExecutable,
           args: input.updateArgs,
           lockKey: input.updateLockKey,
@@ -483,11 +490,13 @@ function makeNativeProviderMaintenanceCapabilities(
   executable?: string | null,
   pathPrepend?: string | null,
   packageChannel?: ProviderPackageChannel,
+  platform?: NodeJS.Platform,
 ): ProviderMaintenanceCapabilities | null {
   if (!definition.nativeUpdate) {
     return null;
   }
 
+  const updateCommandOverride = definition.nativeUpdate.command?.(installSource, platform);
   return makeProviderMaintenanceCapabilities({
     provider: definition.provider,
     packageName: installSource === "homebrew" ? null : definition.npmPackageName,
@@ -496,6 +505,7 @@ function makeNativeProviderMaintenanceCapabilities(
     latestVersionSource: resolveLatestVersionSourceForInstallSource(definition, installSource),
     updateExecutable: executable ?? definition.nativeUpdate.executable,
     updateArgs: definition.nativeUpdate.args(installSource),
+    ...(updateCommandOverride === undefined ? {} : { updateCommandOverride }),
     updateLockKey: definition.nativeUpdate.lockKey,
     packageChannel,
     ...(pathPrepend === undefined ? {} : { updatePathPrepend: pathPrepend }),
@@ -537,6 +547,7 @@ function makeProviderMaintenanceForInstallSource(input: {
   readonly commandPath?: string | null;
   readonly npmGlobalPrefix?: string | null;
   readonly packageChannel?: ProviderPackageChannel | undefined;
+  readonly platform?: NodeJS.Platform | undefined;
 }): ProviderMaintenanceCapabilities {
   const {
     definition,
@@ -547,6 +558,7 @@ function makeProviderMaintenanceForInstallSource(input: {
     commandPath,
     npmGlobalPrefix,
     packageChannel,
+    platform,
   } = input;
   // A global install or the CLI's own updater would not touch the project's copy, and an
   // unpinned `npm install -g` would write to whatever global prefix npm resolves instead.
@@ -575,6 +587,7 @@ function makeProviderMaintenanceForInstallSource(input: {
         executable,
         pathPrepend,
         packageChannel,
+        platform,
       ) ??
       makeManualOnlyProviderMaintenanceCapabilities({
         provider: definition.provider,
@@ -591,6 +604,7 @@ function makeProviderMaintenanceForInstallSource(input: {
         executable,
         pathPrepend,
         packageChannel,
+        platform,
       ) ??
       makeManualOnlyProviderMaintenanceCapabilities({
         provider: definition.provider,
@@ -718,6 +732,7 @@ export function resolvePackageManagedProviderMaintenance(
         executable: binaryPath,
         commandPath,
         packageChannel,
+        ...(options?.platform === undefined ? {} : { platform: options.platform }),
         ...(options?.commandDirectory === undefined
           ? {}
           : { pathPrepend: options.commandDirectory }),
@@ -733,6 +748,7 @@ export function resolvePackageManagedProviderMaintenance(
       executable: binaryPath,
       npmGlobalPrefix,
       packageChannel,
+      ...(options?.platform === undefined ? {} : { platform: options.platform }),
       ...(options?.commandDirectory === undefined ? {} : { pathPrepend: options.commandDirectory }),
     });
   }
@@ -743,6 +759,7 @@ export function resolvePackageManagedProviderMaintenance(
       installSource: "unknown",
       executable: binaryPath,
       packageChannel,
+      ...(options?.platform === undefined ? {} : { platform: options.platform }),
       ...(options?.commandDirectory === undefined ? {} : { pathPrepend: options.commandDirectory }),
     });
   }

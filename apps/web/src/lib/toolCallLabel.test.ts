@@ -641,6 +641,9 @@ describe("deriveMossMcpToolTitle", () => {
     expect(zh("moss_canvas_open", "running")).toBe("正在打开画布");
     expect(zh("moss_canvas_open", "completed")).toBe("已打开画布");
     expect(zh("moss_canvas_read", "failed")).toBe("无法查看画布");
+    expect(zh("moss_canvas_mutate", "running")).toBe("正在更新白板");
+    expect(zh("moss_canvas_mutate", "completed")).toBe("已更新白板");
+    expect(zh("moss_canvas_mutate", "failed")).toBe("无法更新白板");
     expect(zh("moss_media_generate", "completed")).toBe("已提交生成");
     expect(zh("moss_media_get", "cancelled")).toBe("已停止查询生成进度");
     expect(zh("moss_context", "completed")).toBe("已检查上下文");

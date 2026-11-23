@@ -15,13 +15,14 @@ const badgeVariants = cva(
     },
     variants: {
       size: {
-        default:
-          "h-5.5 min-w-5.5 px-[calc(--spacing(1)-1px)] text-ui-sm sm:h-4.5 sm:min-w-4.5 sm:text-ui-xs",
+        // The standard's badge: 18 high, 12 px, at every window width.
+        default: "h-4.5 min-w-4.5 px-[calc(--spacing(1)-1px)] text-ui-xs",
         lg: "h-6.5 min-w-6.5 px-[calc(--spacing(1.5)-1px)] text-ui sm:h-5.5 sm:min-w-5.5 sm:text-ui-sm",
         sm: "h-5 min-w-5 rounded-inline px-[calc(--spacing(1)-1px)] text-ui-xs sm:h-4 sm:min-w-4 sm:text-ui-2xs",
       },
       variant: {
-        default: "bg-primary text-primary-foreground [button&,a&]:hover:bg-primary/90",
+        // Quiet by default: ink at 8% under ink text (16% in dark), like every coloured variant.
+        default: "bg-foreground/8 text-foreground dark:bg-foreground/16",
         destructive: "bg-destructive text-white [button&,a&]:hover:bg-destructive/90",
         error: "bg-destructive/8 text-destructive dark:bg-destructive/16",
         info: "bg-info/8 text-info-foreground dark:bg-info/16",

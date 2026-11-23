@@ -35,6 +35,7 @@ import type {
 } from "@moss/contracts";
 import {
   ApprovalRequestId,
+  DEFAULT_SERVER_SETTINGS,
   EventId,
   type ProviderInstanceId,
   type ServerSettings,
@@ -689,9 +690,17 @@ function makeProviderServiceLayer(
     Layer.provide(SqlitePersistenceMemory),
   );
   const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
-  const serverSettingsLayer = ServerSettingsService.layerTest(
-    providers?.providerInstances ? { providerInstances: providers.providerInstances } : {},
-  );
+  const serverSettingsLayer = ServerSettingsService.layerTest({
+    ...(providers?.providerInstances ? { providerInstances: providers.providerInstances } : {}),
+    ...(providers?.includeRestartRollbackDroid === true
+      ? {
+          providers: {
+            ...DEFAULT_SERVER_SETTINGS.providers,
+            droid: { ...DEFAULT_SERVER_SETTINGS.providers.droid, enabled: true },
+          },
+        }
+      : {}),
+  });
 
   const rawLayer = Layer.mergeAll(
     makeProviderServiceLive(options).pipe(
@@ -12094,3 +12103,99 @@ programUpdate.layer("ProviderServiceLive in-app agent update", (it) => {
       }),
   );
 });
+
+const mossCliAuthEnforcement = makeProviderServiceLayer();
+mossCliAuthEnforcement.layer(
+  "ProviderServiceLive Moss CLI model authorization enforcement",
+  (it) => {
+    it.effect(
+      "blocks revoked *_moss lanes on startSession and sendTurn while leaving other Moss CLIs and local defaults active",
+      () =>
+        Effect.gen(function* () {
+          const provider = yield* ProviderService;
+          const settingsService = yield* ServerSettingsService;
+
+          // Per-CLI revocation disables codex_moss while keeping claude_moss and local codex working.
+          yield* settingsService.updateSettings({
+            providerInstances: {
+              codex_moss: {
+                driver: "codex",
+                displayName: "Moss",
+                enabled: true,
+                config: {
+                  managed: true,
+                  accountId: "moss",
+                  ...(defaultCodexFixtureRoot ? { homePath: defaultCodexFixtureRoot } : {}),
+                },
+              },
+              claude_moss: {
+                driver: "claudeAgent",
+                displayName: "Moss",
+                enabled: true,
+                config: { managed: true, accountId: "moss" },
+              },
+            },
+            mossCliModelAuthEnabled: true,
+            mossCliModelAuthDisabledProviders: ["codex"],
+          });
+
+          const revokedCodexError = yield* Effect.flip(
+            provider.startSession(asThreadId("thread-moss-auth-codex-revoked"), {
+              provider: "codex",
+              providerInstanceId: asProviderInstanceId("codex_moss"),
+              threadId: asThreadId("thread-moss-auth-codex-revoked"),
+              runtimeMode: "full-access",
+            }),
+          );
+          assert.include(
+            revokedCodexError.message,
+            "Moss managed model authorization is disabled for 'codex'",
+          );
+
+          const claudeSession = yield* provider.startSession(
+            asThreadId("thread-moss-auth-claude-ok"),
+            {
+              provider: "claudeAgent",
+              providerInstanceId: asProviderInstanceId("claude_moss"),
+              threadId: asThreadId("thread-moss-auth-claude-ok"),
+              runtimeMode: "full-access",
+            },
+          );
+          assert.equal(claudeSession.providerInstanceId, "claude_moss");
+          yield* provider.sendTurn({
+            threadId: asThreadId("thread-moss-auth-claude-ok"),
+            input: "hello",
+            attachments: [],
+          });
+
+          // Turning master switch off also blocks active claude_moss on subsequent turns.
+          yield* settingsService.updateSettings({
+            mossCliModelAuthEnabled: false,
+            mossCliModelAuthDisabledProviders: [],
+          });
+          const masterOffError = yield* Effect.flip(
+            provider.sendTurn({
+              threadId: asThreadId("thread-moss-auth-claude-ok"),
+              input: "blocked now",
+              attachments: [],
+            }),
+          );
+          assert.include(
+            masterOffError.message,
+            "Moss managed model authorization is disabled for 'claudeAgent'",
+          );
+
+          // Local default codex stays usable even when server CLI authorization is off.
+          const localCodexSession = yield* provider.startSession(
+            asThreadId("thread-moss-auth-codex-local"),
+            {
+              provider: "codex",
+              threadId: asThreadId("thread-moss-auth-codex-local"),
+              runtimeMode: "full-access",
+            },
+          );
+          assert.equal(localCodexSession.providerInstanceId, "codex");
+        }),
+    );
+  },
+);

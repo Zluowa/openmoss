@@ -7,6 +7,8 @@ import type { ProviderKind, ServerProviderStatus, ServerSettings } from "@moss/c
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEVIN_PROVIDER_UPDATE_REQUEST_TIMEOUT_MS,
+  PROVIDER_UPDATE_REQUEST_TIMEOUT_MS,
   getNotifiableProviderUpdateStatuses,
   getVisibleProviderUpdateStatuses,
   installedProgramStatus,
@@ -183,6 +185,8 @@ function serverSettings(overrides: Partial<ServerSettings["providers"]> = {}): S
     unifiedProviders: [],
     defaultUnifiedProviderId: null,
     unifiedProviderByCli: {},
+    mossCliModelAuthEnabled: true,
+    mossCliModelAuthDisabledProviders: [],
     skills: { disabled: [] },
     apps: { disabled: [] },
     computer: { blockedApps: [], alwaysAllowedApps: [] },
@@ -541,5 +545,40 @@ describe("shouldPromptProviderUpdate", () => {
 
   it("keeps prompting for providers Moss can prove are behind", () => {
     expect(shouldPromptProviderUpdate(providerStatus("codex"))).toBe(true);
+  });
+});
+
+describe("withProviderUpdateTimeout", () => {
+  it("gives devin a 15m15s client watchdog while keeping 5m15s for other providers", async () => {
+    vi.useFakeTimers();
+
+    const codexPromise = withProviderUpdateTimeout({
+      provider: "codex",
+      request: new Promise<never>(() => {}),
+    });
+    const codexRejection = expect(codexPromise).rejects.toThrow(
+      "Codex update timed out after 315 seconds.",
+    );
+
+    const devinPromise = withProviderUpdateTimeout({
+      provider: "devin",
+      request: new Promise<never>(() => {}),
+    });
+    let devinSettled = false;
+    void devinPromise.catch(() => {
+      devinSettled = true;
+    });
+
+    await vi.advanceTimersByTimeAsync(PROVIDER_UPDATE_REQUEST_TIMEOUT_MS);
+    await codexRejection;
+    expect(devinSettled).toBe(false);
+
+    const devinRejection = expect(devinPromise).rejects.toThrow(
+      "Devin update timed out after 915 seconds.",
+    );
+    await vi.advanceTimersByTimeAsync(
+      DEVIN_PROVIDER_UPDATE_REQUEST_TIMEOUT_MS - PROVIDER_UPDATE_REQUEST_TIMEOUT_MS,
+    );
+    await devinRejection;
   });
 });

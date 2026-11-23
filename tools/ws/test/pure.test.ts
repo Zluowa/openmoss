@@ -61,6 +61,8 @@ describe("profile", () => {
       priorityOwners: ["lead"],
       warnMinutes: 20,
       quickCapMinutes: 10,
+      heavySlots: 1,
+      admitSettleSeconds: 60,
     });
   });
 

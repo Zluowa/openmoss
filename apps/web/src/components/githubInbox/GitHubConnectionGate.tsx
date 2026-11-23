@@ -5,14 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { RouteSurfaceHeader } from "../RouteSurface";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "../ui/empty";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { GitHubIcon } from "~/lib/icons";
 import { isMacPlatform } from "~/lib/utils";
 import {
@@ -431,9 +424,6 @@ function HostConnection({
       />
       <Empty className="mx-auto max-w-md px-5 py-12">
         <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <GitHubIcon />
-          </EmptyMedia>
           <EmptyTitle>{title}</EmptyTitle>
           <EmptyDescription>{description}</EmptyDescription>
         </EmptyHeader>

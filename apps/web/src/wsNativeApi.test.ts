@@ -513,6 +513,8 @@ describe("wsNativeApi", () => {
         unifiedProviders: [],
         defaultUnifiedProviderId: null,
         unifiedProviderByCli: {},
+        mossCliModelAuthEnabled: true,
+        mossCliModelAuthDisabledProviders: [],
         skills: { disabled: [] },
         apps: { disabled: [] },
         computer: { blockedApps: [], alwaysAllowedApps: [] },

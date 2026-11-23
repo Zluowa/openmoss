@@ -21,7 +21,7 @@ export function QrCode({
     let cancelled = false;
     setFailed(false);
     setDataUrl(null);
-    QRCode.toDataURL(value, { errorCorrectionLevel: "M", margin: 2, width: size * 2 })
+    QRCode.toDataURL(value, { errorCorrectionLevel: "M", margin: 4, width: size * 2 })
       .then((url) => {
         if (!cancelled) setDataUrl(url);
       })

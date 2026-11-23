@@ -14,6 +14,15 @@ export const AGENT_ZIP_LIMITS = {
   ratio: 1_000,
 } as const;
 
+export type AgentZipLimits = {
+  readonly [Key in keyof typeof AGENT_ZIP_LIMITS]: number;
+};
+
+export interface AgentZipExtractOptions {
+  readonly packageRoot?: string | null;
+  readonly limits?: Partial<AgentZipLimits>;
+}
+
 interface Entry {
   path: string;
   directory: boolean;
@@ -28,9 +37,16 @@ function reject(message: string): never {
   throw new Error(`Unsupported agent ZIP: ${message}`);
 }
 
-function safePath(name: string, root: string): string {
-  if (!name.startsWith(`${root}/`)) reject("unexpected package root");
-  const path = name.slice(root.length + 1).replace(/\/$/u, "");
+function safePath(name: string, root: string | null): string {
+  let rawPath: string;
+  if (root === null) {
+    if (!name || name.startsWith("/")) reject("unsafe root path");
+    rawPath = name.replace(/\/$/u, "");
+  } else {
+    if (!name.startsWith(`${root}/`)) reject("unexpected package root");
+    rawPath = name.slice(root.length + 1).replace(/\/$/u, "");
+  }
+  const path = rawPath;
   if (!path || path.length > 1_024) reject("empty or oversized path");
   for (const segment of path.split("/")) {
     if (
@@ -58,8 +74,8 @@ function checkExtras(bytes: Buffer, start: number, length: number) {
   }
 }
 
-function planArchive(bytes: Buffer, root: string): Entry[] {
-  if (bytes.length < 22 || bytes.length > AGENT_ZIP_LIMITS.archive) reject("archive size");
+function planArchive(bytes: Buffer, root: string | null, limits: AgentZipLimits): Entry[] {
+  if (bytes.length < 22 || bytes.length > limits.archive) reject("archive size");
   let end = bytes.length - 22;
   const first = Math.max(0, end - 65_535);
   while (end >= first) {
@@ -79,7 +95,7 @@ function planArchive(bytes: Buffer, root: string): Entry[] {
     bytes.readUInt16LE(end + 6) !== 0 ||
     bytes.readUInt16LE(end + 8) !== count ||
     !count ||
-    count > AGENT_ZIP_LIMITS.entries ||
+    count > limits.entries ||
     centralStart + centralSize !== end
   )
     reject("split, oversized or inconsistent central directory");
@@ -119,9 +135,9 @@ function planArchive(bytes: Buffer, root: string): Entry[] {
     paths.set(canonical, directory);
     expanded += size;
     if (
-      size > AGENT_ZIP_LIMITS.file ||
-      expanded > AGENT_ZIP_LIMITS.expanded ||
-      size > Math.max(compressed, 1) * AGENT_ZIP_LIMITS.ratio ||
+      size > limits.file ||
+      expanded > limits.expanded ||
+      size > Math.max(compressed, 1) * limits.ratio ||
       (directory && (size !== 0 || compressed !== 0 || crc !== 0)) ||
       (method === 0 && size !== compressed)
     )
@@ -169,10 +185,22 @@ function planArchive(bytes: Buffer, root: string): Entry[] {
 export async function extractAgentZip(
   archive: Uint8Array,
   destination: string,
-  packageRoot = "dist-package",
+  optionsOrPackageRoot: string | null | AgentZipExtractOptions = "dist-package",
 ): Promise<number> {
+  const packageRoot =
+    typeof optionsOrPackageRoot === "object" && optionsOrPackageRoot !== null
+      ? optionsOrPackageRoot.packageRoot === undefined
+        ? "dist-package"
+        : optionsOrPackageRoot.packageRoot
+      : optionsOrPackageRoot;
+  const resolvedLimits: AgentZipLimits =
+    typeof optionsOrPackageRoot === "object" &&
+    optionsOrPackageRoot !== null &&
+    optionsOrPackageRoot.limits
+      ? { ...AGENT_ZIP_LIMITS, ...optionsOrPackageRoot.limits }
+      : AGENT_ZIP_LIMITS;
   const bytes = Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength);
-  const entries = planArchive(bytes, packageRoot);
+  const entries = planArchive(bytes, packageRoot, resolvedLimits);
   const root = Path.resolve(destination);
   const stat = await FS.lstat(root);
   if (!stat.isDirectory() || stat.isSymbolicLink() || (await FS.readdir(root)).length !== 0)

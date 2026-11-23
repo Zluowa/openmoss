@@ -57,6 +57,8 @@ export function ScratchModelPickers({
         onRefreshModels={catalog.refreshModels}
         hiddenProviders={settings.hiddenProviders}
         providerOrder={settings.providerOrder}
+        mossCliModelAuthEnabled={settings.mossCliModelAuthEnabled}
+        mossCliModelAuthDisabledProviders={settings.mossCliModelAuthDisabledProviders}
         effortControl={settings.composerEffortSlider ? "slider" : "menu"}
         threadId={draft.scratchThreadId}
         runtimeModel={catalog.selectedRuntimeModel}
