@@ -259,17 +259,19 @@ export function BottomComposer({
           <span>评论</span>
         </Button>
 
-        {/* Ask Moss pill opening SpaceCanvasChatDock in place */}
-        <Button
-          size="xs"
-          variant={dock?.busy ? "secondary" : "default"}
-          data-page-ask-moss
-          className="h-7 shrink-0 gap-1.5 rounded-full px-3 text-ui-sm font-medium tabular-nums"
-          onClick={handleAskMoss}
-        >
-          <SparklesIcon className="size-3.5 shrink-0" aria-hidden />
-          <span>{dock?.busy && dock.statusLabel ? dock.statusLabel : "问 Moss"}</span>
-        </Button>
+        {/* 问 Moss lives once per screen, in the top bar (with a dock); without one it stays here. */}
+        {dock ? null : (
+          <Button
+            size="xs"
+            variant="ghost"
+            data-page-ask-moss
+            className="h-7 shrink-0 gap-1.5 rounded-full px-2.5 text-ui-sm"
+            onClick={handleAskMoss}
+          >
+            <SparklesIcon className="size-3.5 shrink-0" aria-hidden />
+            <span>问 Moss</span>
+          </Button>
+        )}
       </div>
     </div>
   );

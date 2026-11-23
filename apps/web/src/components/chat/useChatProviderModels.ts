@@ -3,18 +3,13 @@ import {
   type ModelSelection,
   type ProviderInstanceId,
   type ProviderKind,
-  type ServerProviderStatus,
 } from "@moss/contracts";
 import { normalizeModelSlug } from "@moss/shared/model";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { resolveUnsentComposerProvider } from "~/lib/providerAvailability";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
-import {
-  hasReconciledServerProviderStatuses,
-  serverConfigQueryOptions,
-} from "~/lib/serverReactQuery";
+import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import type { AppSettings } from "../../appSettings";
 import {
   getProviderInstanceOptions,
@@ -38,7 +33,6 @@ import {
 } from "../ChatView.logic";
 import { getComposerProviderState } from "./composerProviderRegistry";
 import { resolveRuntimeModelDescriptor } from "./runtimeModelCapabilities";
-const EMPTY_PROVIDER_STATUSES: ServerProviderStatus[] = [];
 interface ChatProviderModelsInput {
   threadId: ThreadId;
   activeThread: Thread | undefined;
@@ -64,7 +58,6 @@ export function useChatProviderModels({
   allowProviderHandoff,
   threadModelSelectionIsPlaceholder,
 }: ChatProviderModelsInput) {
-  const queryClient = useQueryClient();
   const prompt = composerDraft.prompt;
   const sessionProvider = activeThread?.session?.provider ?? null;
   const providerInstances = useMemo(() => getProviderInstanceOptions(settings), [settings]);
@@ -113,8 +106,6 @@ export function useChatProviderModels({
       : null;
   const lockedProvider: ProviderKind | null = allowProviderHandoff === true ? null : boundProvider;
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
-  const localProviderStatuses = useProviderStatusesForLocalConfig();
-  const providerStatusesReconciled = hasReconciledServerProviderStatuses(queryClient);
   const selectedProvider = useMemo<ProviderKind>(
     () =>
       handoffProvider ??
@@ -123,19 +114,12 @@ export function useChatProviderModels({
         explicitProvider: selectedProviderByThreadId,
         threadProvider,
         defaultProvider: settings.defaultProvider,
-        statuses: providerStatusesReconciled ? localProviderStatuses : EMPTY_PROVIDER_STATUSES,
-        providerOrder: settings.providerOrder,
-        hiddenProviders: settings.hiddenProviders,
       }),
     [
       boundProvider,
       handoffProvider,
-      localProviderStatuses,
-      providerStatusesReconciled,
       selectedProviderByThreadId,
       settings.defaultProvider,
-      settings.hiddenProviders,
-      settings.providerOrder,
       threadProvider,
     ],
   );

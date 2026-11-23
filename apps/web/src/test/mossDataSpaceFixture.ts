@@ -156,6 +156,10 @@ export function createDataSpaceFixture() {
         };
       } else if (input.op === "pin")
         document = { ...document, page: { ...document.page, pinned: input.pinned } };
+      else if (input.op === "trash" || input.op === "trash-space")
+        document = { ...document, page: { ...document.page, trashedAt: NOW } };
+      else if (input.op === "restore" || input.op === "restore-space")
+        document = { ...document, page: { ...document.page, trashedAt: null } };
       else if (input.op === "page-appearance")
         document = {
           ...document,

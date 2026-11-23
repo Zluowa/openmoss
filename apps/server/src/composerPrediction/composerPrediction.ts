@@ -314,7 +314,6 @@ const EFFORT_OPTION_KEY: Readonly<Record<GitTextGenerationProvider, string>> = {
   claudeAgent: "effort",
   codex: "reasoningEffort",
   cursor: "reasoningEffort",
-  droid: "reasoningEffort",
   opencode: "variant",
 };
 

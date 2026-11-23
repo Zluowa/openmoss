@@ -12,7 +12,6 @@ import { useTranslation } from "~/localization";
 import { Button } from "../ui/button";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -64,7 +63,6 @@ export function BrowserAllowedSitesDialog(props: {
       <DialogPopup className="max-w-md" data-browser-allowed-sites="">
         <DialogHeader>
           <DialogTitle>{t("browser.allowedSites.title")}</DialogTitle>
-          <DialogDescription>{t("browser.allowedSites.description")}</DialogDescription>
         </DialogHeader>
         <DialogPanel className="flex flex-col gap-3">
           <form

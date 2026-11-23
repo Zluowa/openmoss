@@ -15,7 +15,6 @@ import { makeCursorAdapterLive } from "./Layers/CursorAdapter";
 import { makeDevinAdapterLive } from "./Layers/DevinAdapter";
 import { makeEventNdjsonLogger } from "./Layers/EventNdjsonLogger";
 import { makeAntigravityAdapterLive } from "./Layers/AntigravityAdapter";
-import { makeDroidAdapterLive } from "./Layers/DroidAdapter";
 import { makeGrokAdapterLive } from "./Layers/GrokAdapter";
 import { makeOpenCodeAdapterLive } from "./Layers/OpenCodeAdapter";
 import { makePiAdapterLive } from "./Layers/PiAdapter";
@@ -82,10 +81,6 @@ export function makeServerProviderLayer(
       {},
       nativeEventLogger ? { nativeEventLogger } : undefined,
     ).pipe(Layer.provide(agentGatewayCredentialsLayer));
-    const droidAdapterLayer = makeDroidAdapterLive(
-      {},
-      nativeEventLogger ? { nativeEventLogger } : undefined,
-    ).pipe(Layer.provide(agentGatewayCredentialsLayer));
     const cursorAdapterLayer = makeCursorAdapterLive(
       {},
       nativeEventLogger ? { nativeEventLogger } : undefined,
@@ -122,7 +117,6 @@ export function makeServerProviderLayer(
       Layer.provide(devinAdapterLayer),
       Layer.provide(antigravityAdapterLayer),
       Layer.provide(grokAdapterLayer),
-      Layer.provide(droidAdapterLayer),
       Layer.provide(openCodeAdapterLayer),
       Layer.provide(piAdapterLayer),
       Layer.provide(ompAdapterLayer),

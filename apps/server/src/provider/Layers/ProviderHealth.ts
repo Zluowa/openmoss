@@ -126,7 +126,6 @@ import {
   DEFAULT_CURSOR_AGENT_BINARY,
   resolveCursorAgentBinaryPath,
 } from "../acp/CursorAcpCommand";
-import { hasDroidApiKeyEnv, resolveDroidCliBinaryPath } from "../acp/DroidAcpSupport";
 import { hasGrokApiKeyEnv } from "../acp/GrokAcpSupport";
 import { MOSS_MANAGED_GROK_CONFIG_ENV_KEY } from "../mossManagedGrokEnvironment";
 import {
@@ -243,6 +242,7 @@ import {
 } from "../managedProviderInstallation.ts";
 import {
   DEVIN_WINDOWS_MANUAL_UPDATE_COMMAND,
+  devinWindowsUpdateFailureReason,
   type DevinWindowsUpdateInput,
   type DevinWindowsUpdateResult,
   updateDevinWindowsNative,
@@ -283,7 +283,6 @@ const CLAUDE_AGENT_PROVIDER = "claudeAgent" as const;
 const CURSOR_PROVIDER = "cursor" as const;
 const ANTIGRAVITY_PROVIDER = "antigravity" as const;
 const GROK_PROVIDER = "grok" as const;
-const DROID_PROVIDER = "droid" as const;
 const DEVIN_PROVIDER = "devin" as const;
 const OPENCODE_PROVIDER = "opencode" as const;
 const PI_PROVIDER = "pi" as const;
@@ -1246,6 +1245,7 @@ export const makeProviderUpdateEnv = (
     case "hermes":
       return makeProviderProbeEnv(instance.driver, environment, instance.instanceId, paths);
     case "gemini":
+    case "droid":
     case "kilo":
       throw new Error(`Provider '${instance.driver}' is no longer supported by Moss.`);
     case "codex":
@@ -1253,7 +1253,6 @@ export const makeProviderUpdateEnv = (
     case "devin":
     case "antigravity":
     case "grok":
-    case "droid":
     case "opencode":
     case "pi":
     case "omp":
@@ -2123,99 +2122,6 @@ export const makeCheckGrokProviderStatus = (
   });
 
 export const checkGrokProviderStatus = makeCheckGrokProviderStatus();
-
-// ── Droid health check ─────────────────────────────────────────────
-
-const runDroidCommand = (
-  args: ReadonlyArray<string>,
-  executable = "droid",
-  env: NodeJS.ProcessEnv = providerCommandEnv(DROID_PROVIDER),
-) => runProviderCommand(executable, args, { env });
-
-export const makeCheckDroidProviderStatus = (
-  binaryPath?: string,
-  environment?: Readonly<Record<string, string>>,
-): Effect.Effect<ServerProviderStatus, never, ChildProcessSpawner.ChildProcessSpawner> =>
-  Effect.gen(function* () {
-    const checkedAt = new Date().toISOString();
-    const executable = resolveDroidCliBinaryPath(nonEmptyTrimmed(binaryPath) ?? undefined);
-    const probeEnv = makeProviderProbeEnv(DROID_PROVIDER, environment);
-
-    const versionProbe = yield* probeProviderCliVersion(
-      runDroidCommand(["--version"], executable, probeEnv),
-      DEFAULT_TIMEOUT_MS,
-    );
-
-    if (versionProbe.outcome === "missing" || versionProbe.outcome === "failure") {
-      const error = versionProbe.cause;
-      return {
-        provider: DROID_PROVIDER,
-        instanceId: DROID_PROVIDER,
-        driver: DROID_PROVIDER,
-        status: "error" as const,
-        available: false,
-        authStatus: "unknown" as const,
-        checkedAt,
-        ...(versionProbe.outcome === "missing"
-          ? { readiness: PROVIDER_NOT_INSTALLED_READINESS }
-          : {}),
-        message:
-          versionProbe.outcome === "missing"
-            ? "Droid CLI (`droid`) is not installed or not on PATH."
-            : `Failed to execute Droid CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
-      } satisfies ServerProviderStatus;
-    }
-
-    if (versionProbe.outcome === "timeout") {
-      return {
-        provider: DROID_PROVIDER,
-        instanceId: DROID_PROVIDER,
-        driver: DROID_PROVIDER,
-        status: "error" as const,
-        available: false,
-        authStatus: "unknown" as const,
-        checkedAt,
-        message: "Droid CLI is installed but failed to run. Timed out while running command.",
-      } satisfies ServerProviderStatus;
-    }
-
-    if (versionProbe.outcome === "nonzero") {
-      const version = versionProbe.result;
-      const detail = detailFromResult(version);
-      return {
-        provider: DROID_PROVIDER,
-        instanceId: DROID_PROVIDER,
-        driver: DROID_PROVIDER,
-        status: "error" as const,
-        available: false,
-        authStatus: "unknown" as const,
-        checkedAt,
-        message: detail
-          ? `Droid CLI is installed but failed to run. ${detail}`
-          : "Droid CLI is installed but failed to run.",
-      } satisfies ServerProviderStatus;
-    }
-    const version = versionProbe.result;
-    const parsedVersion = parseGenericCliVersion(`${version.stdout}\n${version.stderr}`);
-    const hasApiKey = hasDroidApiKeyEnv(probeEnv);
-
-    return {
-      provider: DROID_PROVIDER,
-      instanceId: DROID_PROVIDER,
-      driver: DROID_PROVIDER,
-      status: "ready" as const,
-      available: true,
-      authStatus: hasApiKey ? ("authenticated" as const) : ("unknown" as const),
-      version: parsedVersion,
-      checkedAt,
-      ...(hasApiKey
-        ? { authType: "apiKey", authLabel: "Factory API Key" }
-        : {
-            message:
-              "Droid CLI is installed. Moss can use the CLI's cached device-pairing login; run `droid` to authenticate locally if needed, or set FACTORY_API_KEY.",
-          }),
-    } satisfies ServerProviderStatus;
-  });
 
 // ── OpenCode health check ───────────────────────────────────────────
 
@@ -3191,7 +3097,9 @@ export const makeCheckDevinProviderStatus = (
       driver: DEVIN_PROVIDER,
       status: "ready" as const,
       available: true,
-      authStatus: hasApiKey ? ("authenticated" as const) : ("unknown" as const),
+      // Devin starts only with WINDSURF_API_KEY or the key `devin auth login` saves; with
+      // neither its first message fails sign-in, so it is not shown as connected.
+      authStatus: hasApiKey ? ("authenticated" as const) : ("unauthenticated" as const),
       version: parsedVersion,
       checkedAt,
       ...(hasApiKey
@@ -5362,26 +5270,30 @@ export function makeProviderHealthLive(options?: {
               return { providers };
             }
             const devinResult = devinOutcome.result;
-            if (Result.isFailure(devinResult)) {
+            if (Result.isFailure(devinResult) || Option.isNone(devinResult.success)) {
+              const failure = Result.isFailure(devinResult)
+                ? devinResult.failure
+                : ("timed-out" as const);
+              const reason = devinWindowsUpdateFailureReason(failure);
+              yield* Effect.logWarning("provider update failed", {
+                provider: "devin",
+                reason,
+                detail:
+                  failure === "timed-out"
+                    ? `timed out after ${formatProviderUpdateTimeout(devinNativeTimeoutMs)}`
+                    : describeUpdateCommandError(failure),
+              });
               const providers = yield* setProviderUpdateState(
                 target,
                 makeUpdateState({
                   status: "failed",
                   startedAt,
                   finishedAt,
-                  message: describeUpdateCommandError(devinResult.failure),
-                }),
-              );
-              return { providers };
-            }
-            if (Option.isNone(devinResult.success)) {
-              const providers = yield* setProviderUpdateState(
-                target,
-                makeUpdateState({
-                  status: "failed",
-                  startedAt,
-                  finishedAt,
-                  message: `Update timed out after ${formatProviderUpdateTimeout(devinNativeTimeoutMs)}.`,
+                  message: sideBySideUpdateFailureMessage({
+                    ok: false,
+                    reason: reason === "disk-full" ? "download-failed" : reason,
+                    detail: reason === "disk-full" ? "ENOSPC" : "",
+                  }),
                 }),
               );
               return { providers };

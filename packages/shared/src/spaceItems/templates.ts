@@ -147,7 +147,7 @@ export const BUILT_IN_TEMPLATES: readonly SpaceTemplateDefinition[] = [
     id: "builtin:sales-dashboard",
     kind: "app",
     title: "销售看板",
-    description: "数据看板：指标、趋势图、区域筛选和明细，数字都能查到来源",
+    description: "指标、趋势图、区域筛选和明细，数字都能查到来源",
     category: "仪表盘",
     data: SALES_DASHBOARD,
   },

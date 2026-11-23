@@ -486,74 +486,19 @@ export function hasUsableProviderAccount(
   );
 }
 
-export function resolveAvailableProviderPreference(input: {
-  readonly preferredProvider: ProviderKind;
-  readonly statuses: readonly ServerProviderStatus[];
-  readonly providerOrder?: readonly ProviderKind[];
-  readonly hiddenProviders?: readonly ProviderKind[];
-}): ProviderKind {
-  if (input.statuses.length === 0) {
-    return input.preferredProvider;
-  }
-
-  if (hasUsableProviderAccount(input.statuses, input.preferredProvider)) {
-    return input.preferredProvider;
-  }
-
-  const hiddenProviders = new Set(input.hiddenProviders ?? []);
-  const providerOrder = input.providerOrder ?? [];
-  const providerForStatus = (status: ServerProviderStatus): ProviderKind | null => {
-    const driver = status.driver ?? status.provider;
-    return isProviderKind(driver) ? driver : null;
-  };
-  const orderedStatuses = input.statuses.toSorted((left, right) => {
-    const leftProvider = providerForStatus(left);
-    const rightProvider = providerForStatus(right);
-    const leftIndex = leftProvider ? providerOrder.indexOf(leftProvider) : -1;
-    const rightIndex = rightProvider ? providerOrder.indexOf(rightProvider) : -1;
-    const normalizedLeft = leftIndex >= 0 ? leftIndex : Number.MAX_SAFE_INTEGER;
-    const normalizedRight = rightIndex >= 0 ? rightIndex : Number.MAX_SAFE_INTEGER;
-    return normalizedLeft - normalizedRight;
-  });
-  const visibleInstalled = orderedStatuses.filter((status) => {
-    const provider = providerForStatus(status);
-    return status.available && provider !== null && !hiddenProviders.has(provider);
-  });
-  const installed =
-    visibleInstalled.length > 0
-      ? visibleInstalled
-      : orderedStatuses.filter((status) => status.available && providerForStatus(status) !== null);
-
-  const preferredInstalled =
-    installed.find((status) => status.authStatus !== "unauthenticated") ?? installed[0];
-  return (
-    (preferredInstalled ? providerForStatus(preferredInstalled) : null) ?? input.preferredProvider
-  );
-}
-
 /**
- * Provider an unsent composer sends with: the thread's explicit pick wins (availability
- * is validated at send time); otherwise the thread/project default, else the app default,
- * swapped for the first usable provider when that one is unavailable. Shared by the
- * composer and every surface that labels a draft by provider (e.g. its open-thread tab).
+ * The agent an unsent composer shows and sends with: the person's pick (availability is
+ * checked at send time), else the chat's own agent, else the one default from settings. It
+ * never swaps in another agent because statuses changed: an agent that cannot run says so in
+ * the picker and on send, and the choice stays the person's. Shared by the composer and every
+ * surface that labels a draft by provider (e.g. its open-thread tab).
  */
 export function resolveUnsentComposerProvider(input: {
   readonly explicitProvider: ProviderKind | null;
   readonly threadProvider: ProviderKind | null;
   readonly defaultProvider: ProviderKind;
-  readonly statuses: readonly ServerProviderStatus[];
-  readonly providerOrder?: readonly ProviderKind[];
-  readonly hiddenProviders?: readonly ProviderKind[];
 }): ProviderKind {
-  return (
-    input.explicitProvider ??
-    resolveAvailableProviderPreference({
-      preferredProvider: input.threadProvider ?? input.defaultProvider,
-      statuses: input.statuses,
-      ...(input.providerOrder ? { providerOrder: input.providerOrder } : {}),
-      ...(input.hiddenProviders ? { hiddenProviders: input.hiddenProviders } : {}),
-    })
-  );
+  return input.explicitProvider ?? input.threadProvider ?? input.defaultProvider;
 }
 
 export interface VoiceTranscriptionTarget {

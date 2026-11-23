@@ -88,6 +88,45 @@ describe("formula references", () => {
   });
 });
 
+describe("vertical alignment an agent writes", () => {
+  it("keeps top and middle, and treats bottom as the cell's default", () => {
+    const wb = build([
+      { kind: "writeCells", sheet: S, topLeft: "A1", rows: [["a"], ["b"], ["c"]] },
+      { kind: "formatCells", sheet: S, ranges: ["A1"], format: { alignment: { vertical: "top" } } },
+      {
+        kind: "formatCells",
+        sheet: S,
+        ranges: ["A2"],
+        format: { alignment: { vertical: "center" } },
+      },
+      {
+        kind: "formatCells",
+        sheet: S,
+        ranges: ["A3"],
+        format: { alignment: { vertical: "bottom" } },
+      },
+    ]);
+    const valign = (r: number) => wb.sheets[0]!.cells.find((cell) => cell.r === r)?.s?.valign;
+    expect(valign(0)).toBe("top");
+    expect(valign(1)).toBe("middle");
+    expect(valign(2)).toBeUndefined();
+    // "To take something away send what a cell starts with": bottom clears a top.
+    const cleared = build(
+      [
+        {
+          kind: "formatCells",
+          sheet: S,
+          ranges: ["A1"],
+          format: { alignment: { vertical: "bottom" } },
+        },
+      ],
+      wb,
+    );
+    expect(cleared.sheets[0]!.cells.find((cell) => cell.r === 0)?.s?.valign).toBeUndefined();
+    expect(sheetGuide(["formats"])).toContain('"general", "bottom"');
+  });
+});
+
 describe("applySheetEdits", () => {
   it("builds a table and reads it back with worked-out formulas", () => {
     const wb = build([

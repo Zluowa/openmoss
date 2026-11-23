@@ -123,6 +123,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * How many copies of a message a person sees. A closed dropdown whose trigger the pointer has
+ * crossed keeps its prepared content hidden in the page (the microphone list repeats the row's
+ * message there), so a text query alone found one or two copies depending on the pointer's path.
+ */
+function visibleCopies(text: string): number {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let copies = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.textContent?.trim() === text && node.parentElement?.checkVisibility()) copies += 1;
+  }
+  return copies;
+}
+
 describe("RealtimeVoiceSettingsPanel", () => {
   it("uses the backend-owned default when this device has no saved voice", async () => {
     harness.listVoices.mockResolvedValueOnce({
@@ -293,12 +307,12 @@ describe("RealtimeVoiceSettingsPanel", () => {
         .toBeVisible();
       await page.getByRole("button", { name: "Check microphone access" }).click();
       await expect
-        .element(
-          page.getByText(
+        .poll(() =>
+          visibleCopies(
             "Microphone access is blocked. Enable Moss in macOS Privacy & Security > Microphone, then retry.",
           ),
         )
-        .toBeVisible();
+        .toBe(1);
       await expect
         .element(page.getByRole("button", { name: "Retry microphone access" }))
         .toBeVisible();
@@ -317,8 +331,8 @@ describe("RealtimeVoiceSettingsPanel", () => {
     try {
       await page.getByRole("button", { name: "Check microphone access" }).click();
       await expect
-        .element(page.getByText("No microphone is connected. Connect one, then retry."))
-        .toBeVisible();
+        .poll(() => visibleCopies("No microphone is connected. Connect one, then retry."))
+        .toBe(1);
       await expect.element(page.getByRole("button", { name: "Refresh microphones" })).toBeVisible();
       await expect.element(page.getByText(/Privacy & Security/u)).not.toBeInTheDocument();
     } finally {

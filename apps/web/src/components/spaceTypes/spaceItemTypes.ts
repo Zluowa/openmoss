@@ -47,7 +47,7 @@ export const SPACE_TYPED_KINDS: Record<TypedItemKind, SpaceTypedKindDefinition> 
   app: {
     kind: "app",
     defaultTitle: "未命名应用页",
-    description: "仪表盘、跟踪表、投票等可运行页面",
+    description: "跟踪表、投票等可运行的页面",
     templates: true,
   },
   design: {
@@ -63,10 +63,10 @@ export const isTypedSpaceKind = (kind: string | undefined): kind is TypedItemKin
   isTypedItemKind(kind);
 
 export const TEMPLATE_KIND_LABELS: Record<SpaceTemplateKind, string> = {
-  page: "页面",
+  page: "文档",
   slides: "幻灯片",
   sheet: "电子表格",
-  app: "仪表盘与应用页",
+  app: "应用页",
   design: "设计",
 };
 
@@ -98,7 +98,7 @@ export function createSpaceItem(
 ): Promise<PageTypedItem> {
   const title =
     input.title?.trim() ||
-    (input.kind === "page" ? "未命名页面" : SPACE_TYPED_KINDS[input.kind].defaultTitle);
+    (input.kind === "page" ? "未命名文档" : SPACE_TYPED_KINDS[input.kind].defaultTitle);
   return api.pageTypes.create({
     requestId: requestId(`space-create-${input.kind}`),
     scopeSpaceId: input.scopeSpaceId,

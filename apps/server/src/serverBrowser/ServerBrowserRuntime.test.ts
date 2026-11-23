@@ -287,10 +287,12 @@ describe.skipIf(!hasChromium)("ServerBrowserRuntime with headless Chromium", () 
 
       // A watching viewer sizes the page to its panel, until the agent pins it.
       handle.receive(JSON.stringify({ type: "resize", width: 700, height: 500 }));
-      await waitFor(() => tab.page.viewportSize()?.width === 700);
-      expect(texts.some((m) => m.type === "viewport" && m.width === 700 && m.height === 500)).toBe(
-        true,
+      // Playwright reports the requested size at once; the hub tells viewers after the resize
+      // has finished, so wait for that message rather than for the page size.
+      await waitFor(() =>
+        texts.some((m) => m.type === "viewport" && m.width === 700 && m.height === 500),
       );
+      expect(tab.page.viewportSize()).toMatchObject({ width: 700, height: 500 });
       await tab.control.release(tab.control.controller!);
       await call("browser_resize", { width: 900, height: 600 }, "thread-d");
       handle.receive(JSON.stringify({ type: "resize", width: 640, height: 480 }));

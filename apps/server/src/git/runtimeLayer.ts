@@ -7,7 +7,6 @@ import { GitStatusBroadcasterLive } from "./Layers/GitStatusBroadcaster";
 import { ClaudeTextGenerationServiceLive } from "./Layers/ClaudeTextGeneration";
 import { CodexTextGenerationServiceLive } from "./Layers/CodexTextGeneration";
 import { CursorTextGenerationServiceLive } from "./Layers/CursorTextGeneration";
-import { DroidTextGenerationServiceLive } from "./Layers/DroidTextGeneration";
 import { makeOpenCodeTextGenerationServiceLive } from "./Layers/OpenCodeTextGeneration";
 import { ProviderTextGenerationLive } from "./Layers/ProviderTextGeneration";
 import { OpenCodeRuntimeLive } from "../provider/opencodeRuntime";
@@ -31,7 +30,6 @@ export const TextGenerationLayerLive = ProviderTextGenerationLive.pipe(
   Layer.provide(ClaudeTextGenerationServiceLive),
   Layer.provide(CodexTextGenerationServiceLive),
   Layer.provide(CursorTextGenerationServiceLive),
-  Layer.provide(DroidTextGenerationServiceLive),
   Layer.provide(textGenerationProviderLayers),
   Layer.provide(ServerSettingsLive),
   Layer.provide(ServerSecretStoreLive),

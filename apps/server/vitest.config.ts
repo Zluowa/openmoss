@@ -20,6 +20,11 @@ export default mergeConfig(
       // PC still pass an explicit --maxWorkers.
       maxWorkers: availableParallelism(),
       env: {
+        // One time zone everywhere, as on mirror CI: package-channel defaults follow the host's zone
+        // (mainland China picks the domestic mirrors), so a run on a machine set to Asia/Shanghai
+        // took different registries and reached real mirror URLs. Zone-specific behaviour is
+        // tested with an explicit timeZone (providerPackageChannel.test.ts).
+        TZ: "UTC",
         // Tests that fake a user profile without AppData\Local make Windows PowerShell
         // write its module cache relative to the working directory, i.e. into the repo.
         PSModuleAnalysisCachePath: path.join(
@@ -27,6 +32,10 @@ export default mergeConfig(
           "moss-server-vitest-powershell",
           "ModuleAnalysisCache",
         ),
+        // Project-folder walks (skills, MCP config) stop below the temp root, so a test's project
+        // never reaches the real home's folders where the temp folder lives inside the profile
+        // (Windows %TEMP%, a lane's temp under the home).
+        MOSS_ANCESTOR_SEARCH_CEILING: os.tmpdir(),
       },
     },
   }),

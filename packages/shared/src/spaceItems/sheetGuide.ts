@@ -154,7 +154,7 @@ formatCells {sheet, ranges: [..up to 1000, none sharing a cell], format}. Send o
   font: {"bold":bool,"italic":bool,"underline":"none|single|double","strikethrough":bool,"size":6..96,"color":COLOR}
   border: {"top"|"right"|"bottom"|"left": {"kind":"line","style":STYLE,"color":COLOR} | {"kind":"none"}}
   cellControl: {"kind":"checkbox"} (writes false into blank cells) | {"kind":"dropdown","dropdownId":".."} | {"kind":"none"}
-To take something away send what a cell starts with: false, "none", size 10, "general", "top",
+To take something away send what a cell starts with: false, "none", size 10, "general", "bottom",
 pattern "General", {"kind":"none"}.
 
 COLOR is {"kind":"standard","hue":"gray|red|orange|yellow|green|teal|blue|purple|magenta","shade":100|200|300|400|600|800},

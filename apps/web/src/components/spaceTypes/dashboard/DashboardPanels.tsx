@@ -580,9 +580,6 @@ export function DashboardEmptyState(props: {
       <div className="flex w-full max-w-[680px] flex-col items-center gap-4 text-center">
         <div className="flex flex-col gap-1">
           <p className="text-ui-lg font-medium text-foreground">{copy.emptyTitle}</p>
-          {props.readOnly ? null : (
-            <p className="text-ui text-muted-foreground">{copy.emptyBody}</p>
-          )}
         </div>
         {props.readOnly ? null : (
           <>

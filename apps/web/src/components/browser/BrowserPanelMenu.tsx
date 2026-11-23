@@ -267,7 +267,6 @@ export function BrowserPanelMenu(props: {
           <MenuCheckboxItem
             className={cn(MENU_ROW_CLASS_NAME, ACCENT_CHECK_CLASS_NAME)}
             checked={settings.browserAutoVerifyChanges}
-            title={t("browser.menu.autoVerifyHint")}
             onCheckedChange={(checked) => updateSettings({ browserAutoVerifyChanges: checked })}
           >
             {t("browser.menu.autoVerify")}
@@ -305,25 +304,15 @@ export function BrowserPanelMenu(props: {
                 >
                   <MenuRadioItem
                     value="untilQuit"
-                    className={cn("h-auto py-1", ACCENT_CHECK_CLASS_NAME)}
+                    className={cn(MENU_ROW_CLASS_NAME, ACCENT_CHECK_CLASS_NAME)}
                   >
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span>{t("browser.menu.cookies.untilQuit")}</span>
-                      <span className="text-ui-sm text-muted-foreground">
-                        {t("browser.menu.cookies.untilQuitHint")}
-                      </span>
-                    </span>
+                    {t("browser.menu.cookies.untilQuit")}
                   </MenuRadioItem>
                   <MenuRadioItem
                     value="keep"
-                    className={cn("h-auto py-1", ACCENT_CHECK_CLASS_NAME)}
+                    className={cn(MENU_ROW_CLASS_NAME, ACCENT_CHECK_CLASS_NAME)}
                   >
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span>{t("browser.menu.cookies.keep")}</span>
-                      <span className="text-ui-sm text-muted-foreground">
-                        {t("browser.menu.cookies.keepHint")}
-                      </span>
-                    </span>
+                    {t("browser.menu.cookies.keep")}
                   </MenuRadioItem>
                 </MenuRadioGroup>
               </MenuSubPopup>
