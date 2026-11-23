@@ -81,7 +81,7 @@ it("keeps Import and Copy on one line when the code theme select takes the row",
   }
 });
 
-it("previews an inactive light preset and applies it only when the user chooses Use light theme", async () => {
+it("previews an inactive light preset without switching the app to it", async () => {
   localStorage.setItem("moss:theme", JSON.stringify({ ...DEFAULT_THEME_STATE, mode: "dark" }));
   await render(<ThemePackEditor variant="light" />);
   await selectLightPreset("Monochrome");
@@ -92,13 +92,12 @@ it("previews an inactive light preset and applies it only when the user chooses 
   expect(getComputedStyle(preview.element()).backgroundColor).toBe("rgb(255, 255, 255)");
   expect(getComputedStyle(preview.element()).color).toBe("rgb(23, 23, 23)");
 
-  await page.getByRole("button", { name: "Use light theme" }).click();
-  await expect.poll(() => root.getAttribute("data-theme-variant")).toBe("light");
-  expect(root.getAttribute("data-code-theme-id")).toBe("vercel");
+  // Settings shows only the theme in use; switching is the 浅色 / 深色 picker's job, so the
+  // editor carries no second "use this theme" button or sentence about which slot it is.
+  expect(page.getByRole("button", { name: "Use light theme" }).elements()).toHaveLength(0);
   const saved = parseStoredThemeState(localStorage.getItem("moss:theme"));
-  expect(saved.mode).toBe("light");
+  expect(saved.mode).toBe("dark");
   expect(saved.codeThemeIds.dark).toBe("moss");
-  expect(saved.systemUiFont).toBe(true);
 });
 
 it.each(["dark", "light"] as const)(
@@ -149,3 +148,21 @@ it.each(["dark", "light"] as const)(
     expect(fontFamily).toContain('"PingFang SC"');
   },
 );
+
+it("shows each colour as a round swatch, not a hex string", async () => {
+  await render(
+    <div style={{ width: 640 }}>
+      <ThemePackEditor variant="light" />
+    </div>,
+  );
+  const swatch = page.getByRole("button", { name: "Light theme accent color", exact: true });
+  await expect.element(swatch).toBeVisible();
+  const box = swatch.element().getBoundingClientRect();
+  expect(box.width).toBeGreaterThan(20);
+  expect(Math.abs(box.width - box.height)).toBeLessThan(1);
+  // The swatch paints the colour; no hex text on the control itself.
+  expect(swatch.element().textContent).toBe("");
+  expect(getComputedStyle(swatch.element()).backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+  const card = swatch.element().closest("[data-slot], div")!.parentElement!;
+  expect(card.textContent ?? "").not.toMatch(/#[0-9a-f]{6}/i);
+});

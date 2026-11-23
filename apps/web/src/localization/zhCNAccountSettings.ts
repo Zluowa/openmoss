@@ -163,7 +163,8 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Create key": "创建 key",
 
   // Provider-account setup and isolated provider profiles.
-  "Providers & Agents": "服务与智能体",
+  "Providers & Agents": "模型与智能体",
+  "Models & agents": "模型与智能体",
   "Model accounts": "模型账号",
   "Model providers": "模型服务商",
   "Coding CLIs": "编码 CLI 智能体",

@@ -80,7 +80,7 @@ describe("AboutSettingsSection (System tools folded into General)", () => {
   it("does not offer HTTP browser sign-out for a sessionless startup owner", async () => {
     harness.auth.sessionMethod = undefined;
     harness.auth.role = "owner";
-    await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
+    await render(<AboutSettingsSection />);
     await expect
       .element(page.getByRole("button", { name: "Sign out", exact: true }))
       .not.toBeInTheDocument();
@@ -91,38 +91,60 @@ describe("AboutSettingsSection (System tools folded into General)", () => {
     "keeps sign-out available for a real %s session",
     async (method) => {
       harness.auth.sessionMethod = method;
-      await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
+      await render(<AboutSettingsSection />);
       await expect
         .element(page.getByRole("button", { name: "Sign out", exact: true }))
         .toBeVisible();
     },
   );
 
-  it("shows the repair row only when chats are missing, and hands off release notes", async () => {
-    const onOpenReleaseHistory = vi.fn();
-    const screen = await render(
-      <AboutSettingsSection onOpenReleaseHistory={onOpenReleaseHistory} />,
-    );
+  it("shows the repair row only when chats are missing", async () => {
+    const screen = await render(<AboutSettingsSection />);
     const repairButton = page.getByRole("button", { name: "Repair", exact: true });
     expect((repairButton.element() as HTMLButtonElement).disabled).toBe(false);
     // No developer text: no file paths, no "visible because…" explanations.
     expect(document.body.textContent).not.toContain("Visible because");
     expect(document.body.textContent).not.toContain("Authenticated as");
-    await page.getByRole("button", { name: "View", exact: true }).click();
-    expect(onOpenReleaseHistory).toHaveBeenCalledOnce();
     await screen.unmount();
 
     harness.threadShells = [{ id: "thread-1" }];
-    await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
+    await render(<AboutSettingsSection />);
     await expect
       .element(page.getByRole("button", { name: "Repair", exact: true }))
       .not.toBeInTheDocument();
   });
 
+  it("opens Moss's own release notes in place, newest installed version first", async () => {
+    await render(<AboutSettingsSection />);
+    await page.getByRole("button", { name: "View", exact: true }).click();
+    const list = page.getByTestId("moss-release-history");
+    await expect.element(list).toBeVisible();
+    // No dialog stacked on Settings: the list sits inside the About section.
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    const versions = [...document.querySelectorAll("[data-moss-release]")].map((row) =>
+      row.getAttribute("data-moss-release"),
+    );
+    expect(versions[0]).toBe("1.0.14");
+    expect(versions).toContain("1.0.2");
+    // Not the upstream history this app grew from.
+    expect(versions).not.toContain("1.0.2-beta.1");
+    expect(versions).not.toContain("0.8.0");
+    // Older versions start folded.
+    expect(page.getByText("Each canvas keeps its own drawing").elements()).toHaveLength(0);
+    // The newest row starts open with its changes visible.
+    const newest = document.querySelector('[data-moss-release="1.0.14"]') as HTMLElement;
+    expect(newest.getBoundingClientRect().height).toBeGreaterThan(60);
+    await page.getByRole("button", { name: "Hide", exact: true }).click();
+    // Folded away: the region collapses to no height and is hidden from assistive tech.
+    const region = list.element().closest("[inert]") as HTMLElement | null;
+    expect(region?.getAttribute("aria-hidden")).toBe("true");
+    await expect.poll(() => Math.round(region!.getBoundingClientRect().height)).toBe(0);
+  });
+
   it("replays the feature tour from About and closes Settings so it isn't left underneath", async () => {
     openSettings({ section: "general" });
     useFeatureTourStore.getState().close();
-    await render(<AboutSettingsSection onOpenReleaseHistory={() => {}} />);
+    await render(<AboutSettingsSection />);
     await page.getByRole("button", { name: "Replay feature tour" }).click();
     expect(useFeatureTourStore.getState().replay).toBe(true);
     expect(settingsDialogStore.getState().isOpen).toBe(false);

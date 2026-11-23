@@ -16805,7 +16805,7 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.element(notice).toBeVisible();
       const noticeElement = notice.element() as HTMLElement;
       const sentence =
-        "Codex is not signed in. Sign in under Settings → Model accounts, or pick Moss as its provider in the model menu.";
+        "Codex is not signed in. Sign in under Settings → Models & agents, or pick Moss as its provider in the model menu.";
       expect(noticeElement.textContent).toContain(sentence);
       // The whole sentence is painted: nothing clipped or cut off with an ellipsis.
       const description = noticeElement.querySelector<HTMLElement>(

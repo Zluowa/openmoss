@@ -42,6 +42,9 @@ export function MossProviderDetailPane(props: {
   );
   const disabledSet = new Set(props.mossCliModelAuthDisabledProviders);
   const allowedCount = authorizedDrivers.filter((driver) => !disabledSet.has(driver)).length;
+  // Signed out (or the account unreachable), no CLI can use Moss models whatever the switches say,
+  // so the grid shows no ticks and no count rather than a promise that is not true right now.
+  const mossModelsUsable = accountState === "connected";
   const allAllowed = authorizedDrivers.length > 0 && allowedCount === authorizedDrivers.length;
   const noneAllowed = allowedCount === 0;
 
@@ -150,13 +153,15 @@ export function MossProviderDetailPane(props: {
                 </Button>
               </>
             ) : null}
-            <span className="text-ui-xs text-muted-foreground tabular-nums">
-              {props.mossCliModelAuthEnabled
-                ? `${allowedCount} / ${authorizedDrivers.length}`
-                : isZh
-                  ? "已关闭"
-                  : "Off"}
-            </span>
+            {mossModelsUsable ? (
+              <span className="text-ui-xs text-muted-foreground tabular-nums">
+                {props.mossCliModelAuthEnabled
+                  ? `${allowedCount} / ${authorizedDrivers.length}`
+                  : isZh
+                    ? "已关闭"
+                    : "Off"}
+              </span>
+            ) : null}
           </div>
         }
       >
@@ -165,24 +170,6 @@ export function MossProviderDetailPane(props: {
             <div className="min-w-0">
               <div className="text-ui font-medium text-foreground">
                 {isZh ? "允许 CLI 使用 Moss 模型" : "Allow CLIs to use Moss models"}
-              </div>
-              <div className="mt-0.5 flex items-center gap-1.5 text-ui-xs text-muted-foreground">
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "size-1.5 rounded-full transition-colors duration-150 motion-reduce:transition-none",
-                    props.mossCliModelAuthEnabled ? "bg-success" : "bg-muted-foreground/45",
-                  )}
-                />
-                <span>
-                  {props.mossCliModelAuthEnabled
-                    ? isZh
-                      ? "已开启"
-                      : "Enabled"
-                    : isZh
-                      ? "已关闭"
-                      : "Disabled"}
-                </span>
               </div>
             </div>
             <Switch
@@ -195,13 +182,14 @@ export function MossProviderDetailPane(props: {
           <div
             className={cn(
               "border-t border-border/50 p-2 transition-opacity duration-150 motion-reduce:transition-none",
-              !props.mossCliModelAuthEnabled && "opacity-50",
+              (!props.mossCliModelAuthEnabled || !mossModelsUsable) && "opacity-50",
             )}
           >
             <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
               {authorizedDrivers.map((driver) => {
                 const allowed = !disabledSet.has(driver);
                 const effectiveAllowed = props.mossCliModelAuthEnabled && allowed;
+                const shownAllowed = effectiveAllowed && mossModelsUsable;
                 return (
                   <Button
                     key={driver}
@@ -235,14 +223,10 @@ export function MossProviderDetailPane(props: {
                     </span>
                     <span
                       aria-hidden="true"
-                      className={cn(
-                        "inline-flex size-4 shrink-0 items-center justify-center rounded-full border transition-[background-color,border-color,transform] duration-150 motion-reduce:transition-none",
-                        effectiveAllowed
-                          ? "scale-100 border-transparent bg-success text-background"
-                          : "scale-90 border-border/80 bg-transparent",
-                      )}
+                      data-moss-cli-auth-mark={shownAllowed ? "on" : "off"}
+                      className="inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground"
                     >
-                      {effectiveAllowed ? <CheckIcon className="size-2.5" /> : null}
+                      {shownAllowed ? <CheckIcon className="size-3.5" /> : null}
                     </span>
                   </Button>
                 );
