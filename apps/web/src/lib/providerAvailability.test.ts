@@ -772,6 +772,43 @@ describe("Moss-managed provider instances", () => {
       ),
     ).toBe(false);
   });
+
+  it("rejects managed Moss lanes disabled by mossCliModelAuthEnabled or per-CLI revocation", () => {
+    const providerInstances = {
+      codex_moss: { driver: "codex" as const, enabled: true, config: { managed: true } },
+      kimi_moss: { driver: "kimi" as const, enabled: true, config: { managed: true } },
+    };
+    expect(
+      isServerConfiguredMossDefaultManagedProvider(
+        {
+          providerInstances,
+          mossCliModelAuthEnabled: false,
+          mossCliModelAuthDisabledProviders: [],
+        },
+        "codex_moss",
+      ),
+    ).toBe(false);
+    expect(
+      isServerConfiguredMossDefaultManagedProvider(
+        {
+          providerInstances,
+          mossCliModelAuthEnabled: true,
+          mossCliModelAuthDisabledProviders: ["codex"],
+        },
+        "codex_moss",
+      ),
+    ).toBe(false);
+    expect(
+      isServerConfiguredMossDefaultManagedProvider(
+        {
+          providerInstances,
+          mossCliModelAuthEnabled: true,
+          mossCliModelAuthDisabledProviders: ["codex"],
+        },
+        "kimi_moss",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("resolveAgentReadiness", () => {

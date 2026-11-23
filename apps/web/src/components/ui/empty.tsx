@@ -1,4 +1,10 @@
-import { cva, type VariantProps } from "class-variance-authority";
+// FILE: empty.tsx
+// Purpose: The empty state: one quiet line where content will appear, and at most one action.
+//          No illustration. Spacing of the settings status empty state
+//          (`SettingsEmptyState layout="status"`: 14 px, 24 px above and below); the line reads
+//          like a settings row title and an optional second line like its description.
+// Layer: UI primitive
+// Exports: Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent
 
 import { cn } from "~/lib/utils";
 
@@ -6,7 +12,7 @@ function Empty({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       className={cn(
-        "flex min-w-0 flex-1 flex-col items-center justify-center gap-6 text-balance p-6 text-center md:p-12",
+        "flex min-w-0 flex-1 flex-col items-center justify-center gap-ui-gap-sm px-4 py-6 text-center text-ui text-muted-foreground",
         className,
       )}
       data-slot="empty"
@@ -25,61 +31,10 @@ function EmptyHeader({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-const emptyMediaVariants = cva(
-  "flex shrink-0 items-center justify-center [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0",
-  {
-    defaultVariants: {
-      variant: "default",
-    },
-    variants: {
-      variant: {
-        default: "bg-transparent",
-        icon: "relative flex size-9 shrink-0 items-center justify-center rounded-control border bg-card not-dark:bg-clip-padding text-foreground shadow-sm/5 before:pointer-events-none before:absolute before:inset-0 before:rounded-[calc(var(--radius-control)-1px)] before:shadow-[0_1px_--theme(--color-black/4%)] dark:before:shadow-[0_-1px_--theme(--color-white/6%)] [&_svg:not([class*='size-'])]:size-4.5",
-      },
-    },
-  },
-);
-
-function EmptyMedia({
-  className,
-  variant: variantProp,
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof emptyMediaVariants>) {
-  const variant = variantProp === undefined ? "default" : variantProp;
-  return (
-    <div
-      className={cn("relative mb-6", className)}
-      data-slot="empty-media"
-      data-variant={variant}
-      {...props}
-    >
-      {variant === "icon" && (
-        <>
-          <div
-            aria-hidden="true"
-            className={cn(
-              emptyMediaVariants({ className, variant }),
-              "-translate-x-0.5 -rotate-10 pointer-events-none absolute bottom-px origin-bottom-left scale-84 shadow-none",
-            )}
-          />
-          <div
-            aria-hidden="true"
-            className={cn(
-              emptyMediaVariants({ className, variant }),
-              "pointer-events-none absolute bottom-px origin-bottom-right translate-x-0.5 rotate-10 scale-84 shadow-none",
-            )}
-          />
-        </>
-      )}
-      <div className={cn(emptyMediaVariants({ className, variant }))} {...props} />
-    </div>
-  );
-}
-
 function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("font-heading font-semibold text-xl", className)}
+      className={cn("text-ui font-medium text-foreground", className)}
       data-slot="empty-title"
       {...props}
     />
@@ -90,7 +45,7 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
   return (
     <div
       className={cn(
-        "text-muted-foreground text-ui leading-snug [&>a:hover]:text-primary [&>a]:underline [&>a]:underline-offset-4 [[data-slot=empty-title]+&]:mt-1",
+        "text-ui text-muted-foreground [&>a:hover]:text-foreground [&>a]:underline [&>a]:underline-offset-4",
         className,
       )}
       data-slot="empty-description"
@@ -102,14 +57,11 @@ function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
 function EmptyContent({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn(
-        "flex w-full min-w-0 max-w-sm flex-col items-center gap-4 text-balance text-ui leading-snug",
-        className,
-      )}
+      className={cn("flex min-w-0 max-w-sm flex-col items-center gap-ui-gap-xs", className)}
       data-slot="empty-content"
       {...props}
     />
   );
 }
 
-export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia };
+export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent };

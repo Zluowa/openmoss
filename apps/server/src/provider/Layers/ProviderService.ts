@@ -44,6 +44,8 @@ import {
   type ProviderSession,
 } from "@moss/contracts";
 import {
+  isMossManagedCliAuthorized,
+  isMossManagedCliInstance,
   mergeProviderStartOptions,
   providerStartOptionsFromInstance,
   withServerSelectedAgentProgram,
@@ -1906,6 +1908,15 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           );
         }
         if (!instance.enabled && input.allowDisabled !== true) {
+          if (
+            isMossManagedCliInstance(instance.instanceId, instance.raw) &&
+            !isMossManagedCliAuthorized(settings, instance.driver)
+          ) {
+            return yield* toValidationError(
+              input.operation,
+              `Moss managed model authorization is disabled for '${instance.driver}'. Enable it in Settings > Providers > Moss Managed Service.`,
+            );
+          }
           return yield* toValidationError(
             input.operation,
             `Provider instance '${instance.displayName}' is disabled in Settings > Providers.`,

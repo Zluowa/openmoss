@@ -166,4 +166,24 @@ describe("Moss Canvas summary for agents", () => {
       rmSync(cwd, { recursive: true, force: true });
     }
   });
+
+  it("preserves explicit shape ids when present on tldraw records", () => {
+    const summary = summarizeMossCanvasSnapshot({
+      document: {
+        store: {
+          "shape:note-1": {
+            id: "shape:note-1",
+            typeName: "shape",
+            type: "note",
+            x: 12,
+            y: 24,
+            props: { text: "测试便签" },
+          },
+        },
+      },
+    });
+    expect(summary.shapes).toEqual([
+      { id: "shape:note-1", type: "note", text: "测试便签", x: 12, y: 24 },
+    ]);
+  });
 });

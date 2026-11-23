@@ -476,19 +476,19 @@ export function findLegacyIdentityViolations(
 const approvedMossAssetDigests = new Map<string, string>([
   [
     "apps/desktop/resources/icon.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "11a23085024823b608c4243af75f899f4b39a19baec2db25d6daae74ce621da7",
   ],
   [
     "apps/desktop/resources/icon.ico",
-    "3d38c12ff9c33883782de02217e25c7a533e194b741162450778765efcda9a89",
+    "8f9b3e0779af8cd6f72e413c89dee136e23aed946849a4ea9051e5325afe69e3",
   ],
   [
     "apps/web/public/apple-touch-icon.png",
-    "084f08c1213b07908b56b3899f552b2c5a95b860836bdf0dfb3da766ac24092f",
+    "c33229a758bf625c12275791d086c204d9fd3ba6149d51b2861d39397709e3c7",
   ],
   [
     "apps/web/public/favicon.ico",
-    "6d1a7729984f339b17536d6b6dbea83a4755d86e0eae04ed0a31f1cf24904df0",
+    "8f9b3e0779af8cd6f72e413c89dee136e23aed946849a4ea9051e5325afe69e3",
   ],
   // Raster screenshots cannot be searched for embedded text. The marketing
   // captures use sample conversation data and were visually reviewed on 2026-09-06.
@@ -500,58 +500,43 @@ const approvedMossAssetDigests = new Map<string, string>([
     "apps/marketing/public/moss-workspace-dark.png",
     "5256c855e7bf872f02b802b2c14f9ee2294f518ac999e07526d8a01d25a7db6e",
   ],
-  // Looked at on 2026-10-31: every image here draws the Moss mark or is unrelated to the brand.
+  // Looked at on 2026-10-31, app icons again on 2026-11-23: every image here draws the Moss mark or
+  // is unrelated to the brand.
   [
     "apps/desktop/resources/app-icon-linux.png",
-    "3dae8ce3fcfd2661d24670e6dcca7c6051a57e0369b1fbdbc600d5af3b8293e6",
+    "2ea409a35a0e6e1cb64df5ada32e4837808da75d4e68878c4d2bbc2c373e5df2",
   ],
   [
     "apps/desktop/resources/app-icon-macos.png",
-    "3dae8ce3fcfd2661d24670e6dcca7c6051a57e0369b1fbdbc600d5af3b8293e6",
+    "2ea409a35a0e6e1cb64df5ada32e4837808da75d4e68878c4d2bbc2c373e5df2",
   ],
   [
     "apps/desktop/resources/app-icon-windows.ico",
-    "1a7e72ee34aa3060d6cfa19100bdc8a47b0558d87db511672deb20b2cc7bce77",
+    "3c67d5f562cd6453ac3062959478599cdd0e4142ba368000e0d2392793bf46b5",
   ],
   [
     "apps/desktop/resources/dock-icon-dark.png",
-    "8680cc3806c07b2068d495b0722ab38f9db71aa0a89d81c511610b2adbebf34e",
-  ],
-  [
-    "apps/desktop/resources/dock-icon-moss-black.png",
-    "3dae8ce3fcfd2661d24670e6dcca7c6051a57e0369b1fbdbc600d5af3b8293e6",
-  ],
-  [
-    "apps/desktop/resources/dock-icon-moss-coral.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "f24ff53074b3d60886a96dbd5486e99e6d239bbd05d8bb7e527540adb6887614",
   ],
   [
     "apps/desktop/resources/dock-icon.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "11a23085024823b608c4243af75f899f4b39a19baec2db25d6daae74ce621da7",
   ],
   [
     "apps/desktop/resources/icon.icns",
-    "4b9d680b7c0b498f357de901cf079525c10833a742b171875bd1b5c474838623",
+    "bf8f83989fa345000bcb0705f24afdf03a754e6cc8b8ebc38fa0f1ddd18f460d",
   ],
   [
     "apps/desktop/resources/moss.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "11a23085024823b608c4243af75f899f4b39a19baec2db25d6daae74ce621da7",
   ],
   [
     "apps/marketing/public/apple-touch-icon.png",
-    "084f08c1213b07908b56b3899f552b2c5a95b860836bdf0dfb3da766ac24092f",
-  ],
-  [
-    "apps/marketing/public/favicon-16x16.png",
-    "8d9e9120168dd0cecdae7aedca469d18bd75137784aa483aeebee5117dd61c40",
-  ],
-  [
-    "apps/marketing/public/favicon-32x32.png",
-    "339fc11c2de7a9ac7a9809d60d64d373722ebf7a74e0ac6f4d11fdbcba050b40",
+    "c33229a758bf625c12275791d086c204d9fd3ba6149d51b2861d39397709e3c7",
   ],
   [
     "apps/marketing/public/favicon.ico",
-    "6d1a7729984f339b17536d6b6dbea83a4755d86e0eae04ed0a31f1cf24904df0",
+    "8f9b3e0779af8cd6f72e413c89dee136e23aed946849a4ea9051e5325afe69e3",
   ],
   [
     "apps/marketing/public/hero-bg.jpg",
@@ -559,67 +544,39 @@ const approvedMossAssetDigests = new Map<string, string>([
   ],
   [
     "apps/marketing/public/icon.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
-  ],
-  [
-    "apps/marketing/public/moss-app-icon-black.png",
-    "3dae8ce3fcfd2661d24670e6dcca7c6051a57e0369b1fbdbc600d5af3b8293e6",
-  ],
-  [
-    "apps/marketing/public/moss-app-icon-coral.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "11a23085024823b608c4243af75f899f4b39a19baec2db25d6daae74ce621da7",
   ],
   [
     "apps/marketing/public/moss-icon.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "ad717ba0d08a8f58f0294b78bce11cde5ccf4f860132bd065e9915de6f47c166",
   ],
   [
     "apps/web/public/favicon-16x16.png",
-    "8d9e9120168dd0cecdae7aedca469d18bd75137784aa483aeebee5117dd61c40",
+    "a75bcf508478f23dfc1b5dc4204ebcd3519550f68643e74b96aee4a8934bfa08",
   ],
   [
     "apps/web/public/favicon-32x32.png",
-    "339fc11c2de7a9ac7a9809d60d64d373722ebf7a74e0ac6f4d11fdbcba050b40",
-  ],
-  [
-    "apps/web/public/moss-app-icon-black.png",
-    "3dae8ce3fcfd2661d24670e6dcca7c6051a57e0369b1fbdbc600d5af3b8293e6",
-  ],
-  [
-    "apps/web/public/moss-app-icon-coral.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
-  ],
-  [
-    "apps/web/public/moss-icon.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
-  ],
-  [
-    "apps/web/public/moss-logo-black.png",
-    "9777ab2f8d3cc6840e7265dd91c1498a9f65f914530f9afe1d0d706aa786fc7a",
+    "307041dcca6e21a1c301f833df83217d6b45f4c607ce8bc4f21f71688a067c80",
   ],
   [
     "apps/web/public/moss-logo-coral.png",
-    "731cb64be5c7d8b888805deb1e749e6c51f3d0022fdbb07c43082276baf72b6b",
-  ],
-  [
-    "apps/web/public/moss-logo-mask.png",
-    "bc06ad927f4e1727cd09709633a504314aae8329a4b4eaf2a125ba2ad5a8cd79",
+    "3f9680f290d28633fbb0e2bba30f955408fe9ec67316261d63a8d96b66cd90f7",
   ],
   [
     "apps/web/public/app-icons/beta.png",
-    "7b682348bd50ebfeff0441305c1f5fbf27d8a42e5134d84d24b872096da33f98",
+    "9b0148342b8463b89d0464fcd51e33b36c9bece5e0f6ae5ed08825b2298d5a4e",
   ],
   [
     "apps/web/public/app-icons/dark.png",
-    "b296ec0783e74cb53702f9d9ef64ba8ddda7a3c247a1e2801b429687e6decd43",
+    "2cfd34bd69b37709fa7b1c66f74e63269893dc4851e876544b5337f3e38c9e61",
   ],
   [
     "apps/web/public/app-icons/default.png",
-    "d88a5cee2808e7cb23dffc7bb2b0f614b858f44d4ec93b76b9ed99ef88f21323",
+    "11a23085024823b608c4243af75f899f4b39a19baec2db25d6daae74ce621da7",
   ],
   [
     "apps/web/public/app-icons/icon-group-600-macos.png",
-    "73d0ad6f93b619a77ffbb17d7c8b3fc1ea071329f36fb09b4f34f696a6d896e4",
+    "169ee67159af94e141067a9e898bc620c75908f5ad41be716471dbafc5e1e3c0",
   ],
   [
     "apps/web/public/app-icons/safari.png",
@@ -627,67 +584,67 @@ const approvedMossAssetDigests = new Map<string, string>([
   ],
   [
     "assets/beta/beta-macos-1024.png",
-    "99ab58e943b6b89971447ecf13de2f72f92609c0b7bfa34eb0adf1a573821236",
+    "63b90fb3285cebb8a65ad0fbf3a886136d4568fed01bbcfa49f5ccfdc80a3c8d",
   ],
   [
     "assets/beta/beta-macos-legacy-1024.png",
-    "99ab58e943b6b89971447ecf13de2f72f92609c0b7bfa34eb0adf1a573821236",
+    "63b90fb3285cebb8a65ad0fbf3a886136d4568fed01bbcfa49f5ccfdc80a3c8d",
   ],
   [
     "assets/beta/beta-universal-1024.png",
-    "8d8008a097ae13354a160128e9b04a1b88549f5da6697e7f5fbedea94da1442b",
+    "63b90fb3285cebb8a65ad0fbf3a886136d4568fed01bbcfa49f5ccfdc80a3c8d",
   ],
   [
     "assets/beta/beta-web-apple-touch-180.png",
-    "5859a11c8e9a48afc20938496ad68cd6388cd18fe82004aef60d5fed5a0edef4",
+    "b12da3ace9e9c0251c5a958b1fb1ad8ff3d760d106b99353632e24c8aabab942",
   ],
   [
     "assets/beta/beta-web-favicon-16x16.png",
-    "843f2ee75090aed6c56bc93b6394aca8f6e989dcaa42caa7c0f69403e480b018",
+    "304f0679f525cdbfeffc10fa6b2df806af75246583999c43ca8b7f1cf051b2ba",
   ],
   [
     "assets/beta/beta-web-favicon-32x32.png",
-    "06e31c902c637c2a556e4bb770c29811377f31da1fcc923f2a643b02d549b8b9",
+    "be95f2f68d46648e4922c8d2a7c1d777bd5e8b9726ca5328a7f547a4bbfea6f7",
   ],
   [
     "assets/beta/beta-web-favicon.ico",
-    "b37eed99358d4fee87c9fe2b04726cca1ad32105269b343c62116bd19ff4be09",
+    "b6a5f4e32f7dedfe3f40f19aa95ed55fa685c35136e4cc92cf9a4523821a0b59",
   ],
   [
     "assets/beta/beta-windows.ico",
-    "23a607c8a0950177d12af186f1b44ddfa3f99f9c4d311f2b268f43b9dbebfbc2",
+    "ecad24d9a47e35a16418b4494266583eb26ce984bc64be3fd3a4bd1a1f8559fe",
   ],
   [
     "assets/dev/blueprint-ios-1024.png",
-    "2a04d775ec5f864e291332721c37094b4ce2f5b016590ab74fba3c8e1280d051",
+    "ed97eedbff697703241d2c112045823c885f928fccfff4a746cee1d4c44c60d7",
   ],
   [
     "assets/dev/blueprint-macos-1024.png",
-    "2a04d775ec5f864e291332721c37094b4ce2f5b016590ab74fba3c8e1280d051",
+    "ed97eedbff697703241d2c112045823c885f928fccfff4a746cee1d4c44c60d7",
   ],
   [
     "assets/dev/blueprint-universal-1024.png",
-    "2a04d775ec5f864e291332721c37094b4ce2f5b016590ab74fba3c8e1280d051",
+    "ed97eedbff697703241d2c112045823c885f928fccfff4a746cee1d4c44c60d7",
   ],
   [
     "assets/dev/blueprint-web-apple-touch-180.png",
-    "6256f048e7fa1998f2fc8c7eba8157283e7a9e9aff8bdc057af6b2edaa62926a",
+    "7520225e7052255bb602bd6395b467c2812fe6b3e25fdb63181a9bd15dd39a6c",
   ],
   [
     "assets/dev/blueprint-web-favicon-16x16.png",
-    "bde941d7d5a6d6b60e4a5bdbaf147da985b67e7ca2a50f66195d01f3030482de",
+    "710619b203d4ce3b03dd951819ee6edbfa57ab47223042eabff4a84992f9d4b6",
   ],
   [
     "assets/dev/blueprint-web-favicon-32x32.png",
-    "0f0a24cd26decddd1074d13e4a6a2dc6be0d6245873ee906f385f174dc3c5cf0",
+    "93c3ad9d0842ad3f766908607d50301754b8c10579b20d9ed81e8bb578ab6f86",
   ],
   [
     "assets/dev/blueprint-web-favicon.ico",
-    "d74ee51f9d0ef8ea8ad07792ed431b16494ef8a7ec57a3d489b4212c9f929e69",
+    "4c9053adc1b2cb1463208dc2d02c85360ff585a91588d69c7b17644211be752b",
   ],
   [
     "assets/dev/blueprint-windows.ico",
-    "7254a77c100c679cde6cc5cd44c235d0fa7f261ed873bd6280dc35f55571cc7f",
+    "10166ab9bed11df02cbd4e224c93e3a2aed055801c4624c2b13912d001e01f00",
   ],
 ]);
 

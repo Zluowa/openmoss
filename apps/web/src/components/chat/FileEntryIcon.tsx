@@ -3,43 +3,10 @@
 // Layer: Chat/shared UI
 // Exports: FileEntryIcon
 
-import { getAttachmentIconName, getFileIconName } from "../../file-icons";
+import { fileIconColor, getAttachmentIconName, getFileIconName } from "../../file-icons";
 import { CentralIcon } from "~/lib/central-icons";
 import { cn } from "~/lib/utils";
 import { FolderIcon, FolderOpenIcon } from "~/lib/icons";
-
-const FILE_ICON_COLOR_CLASS_BY_ICON_NAME: Record<string, string> = {
-  audio: "text-[#38bdf8]",
-  bun: "text-[#f4d7a1]",
-  "calendar-days": "text-[#f59e0b]",
-  c: "text-[#659ad2]",
-  console: "text-[#4ade80]",
-  "code-brackets": "text-[#9ca3af]",
-  "file-jpg": "text-[#22c55e]",
-  "file-pdf": "text-[#ef4444]",
-  "file-png": "text-[#22c55e]",
-  "file-text": "text-[#94a3b8]",
-  "file-zip": "text-[#f97316]",
-  "page-text": "text-[#94a3b8]",
-  git: "text-[#f05032]",
-  "image-alt-text": "text-[#22c55e]",
-  java: "text-[#f89820]",
-  javascript: "text-[#f7df1e]",
-  json: "text-[#f5c542]",
-  lock: "text-[#f59e0b]",
-  markdown: "text-[#6cb6ff]",
-  npm: "text-[#cb3837]",
-  php: "text-[#777bb4]",
-  phyton: "text-[#3776ab]",
-  react: "text-[#61dafb]",
-  rust: "text-[#dea584]",
-  "settings-gear-1": "text-[#a78bfa]",
-  svelte: "text-[#ff3e00]",
-  typescript: "text-[#3178c6]",
-  vercel: "text-foreground",
-  video: "text-[#c084fc]",
-  vue: "text-[#42b883]",
-};
 
 const FOLDER_ICON_COLOR_CLASS_NAME = "text-muted-foreground";
 
@@ -77,16 +44,18 @@ export const FileEntryIcon = function FileEntryIcon(props: {
     props.mimeType === undefined
       ? getFileIconName(props.pathValue)
       : getAttachmentIconName({ name: props.pathValue, mimeType: props.mimeType });
-  const colorClassName =
-    props.colorMode === "inherit"
-      ? undefined
-      : (FILE_ICON_COLOR_CLASS_BY_ICON_NAME[iconName] ??
-        FILE_ICON_COLOR_CLASS_BY_ICON_NAME["code-brackets"]);
+  // Each glyph's colour comes from the shared table the phone draws from too.
+  const color = props.colorMode === "inherit" ? undefined : fileIconColor(iconName);
 
   return (
     <CentralIcon
       name={iconName}
-      className={cn("size-4 shrink-0", props.className, colorClassName)}
+      className={cn(
+        "size-4 shrink-0",
+        props.className,
+        color === null ? "text-foreground" : undefined,
+      )}
+      {...(color ? { style: { color } } : {})}
     />
   );
 };

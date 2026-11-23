@@ -96,6 +96,8 @@ import { setPendingSidebarPlacement } from "../pendingSidebarPlacement";
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
 
+const inFlightArtifactPrepare = new Map<string, Promise<ThreadId | null>>();
+
 export interface NewThreadNavigationOptions {
   /**
    * Search params applied when the hook navigates to the created thread.
@@ -669,44 +671,58 @@ export function useHandleNewThread() {
       artifactAssistantThreadKey("default", target.scopeSpaceId, target.kind, target.itemId);
     const existing = resolveExistingArtifactThread(target, key);
     if (existing) return existing;
-    try {
-      const { project, creation, selection } = await resolveArtifactCompanionContext(
-        target,
-        isCurrent,
-      );
-      const existingAfterResolve = reusablePageAssistantThread(key, project.id);
-      if (existingAfterResolve) return existingAfterResolve.id;
-      const remembered = pageAssistantThreads.get(key);
-      if (remembered) {
-        const alive = artifactThreadMatchesProject(remembered, target.scopeSpaceId, key);
-        if (alive) return alive;
+    const inFlight = inFlightArtifactPrepare.get(key);
+    if (inFlight) return inFlight;
+
+    const flight = (async (): Promise<ThreadId | null> => {
+      try {
+        const { project, creation, selection } = await resolveArtifactCompanionContext(
+          target,
+          isCurrent,
+        );
+        const existingAfterResolve = reusablePageAssistantThread(key, project.id);
+        if (existingAfterResolve) return existingAfterResolve.id;
+        const remembered = pageAssistantThreads.get(key);
+        if (remembered) {
+          const alive = artifactThreadMatchesProject(remembered, target.scopeSpaceId, key);
+          if (alive) return alive;
+        }
+        const threadId = createDraftThread({
+          projectId: project.id,
+          prompt: "",
+          modelSelection: selection,
+          runtimeMode: creation.runtimeMode,
+          interactionMode: creation.interactionMode,
+          envMode: creation.envMode,
+          workingDirectory: creation.workingDirectory,
+        });
+        pageAssistantThreads.set(key, threadId);
+        useComposerDraftStore.getState().setDraftThreadContext(threadId, {
+          branch: creation.branch,
+          worktreePath: creation.worktreePath,
+        });
+        const created = await createDraftThreadWithoutTurn({
+          threadId,
+          projectId: project.id,
+          title: options?.title ?? target.title,
+          defaultProvider: selection.provider,
+          providerInstances,
+        });
+        if (!created) return threadId;
+        return threadId;
+      } catch {
+        pageAssistantThreads.forget(key);
+        return null;
       }
-      const threadId = createDraftThread({
-        projectId: project.id,
-        prompt: "",
-        modelSelection: selection,
-        runtimeMode: creation.runtimeMode,
-        interactionMode: creation.interactionMode,
-        envMode: creation.envMode,
-        workingDirectory: creation.workingDirectory,
-      });
-      useComposerDraftStore.getState().setDraftThreadContext(threadId, {
-        branch: creation.branch,
-        worktreePath: creation.worktreePath,
-      });
-      const created = await createDraftThreadWithoutTurn({
-        threadId,
-        projectId: project.id,
-        title: options?.title ?? target.title,
-        defaultProvider: selection.provider,
-        providerInstances,
-      });
-      if (!created) return threadId;
-      pageAssistantThreads.set(key, threadId);
-      return threadId;
-    } catch {
-      return null;
-    }
+    })();
+
+    inFlightArtifactPrepare.set(key, flight);
+    void flight.finally(() => {
+      if (inFlightArtifactPrepare.get(key) === flight) {
+        inFlightArtifactPrepare.delete(key);
+      }
+    });
+    return flight;
   };
 
   /**

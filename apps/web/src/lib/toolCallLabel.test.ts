@@ -636,11 +636,14 @@ describe("deriveMossMcpToolTitle", () => {
     const zh = (toolName: string, status: "running" | "completed" | "failed" | "cancelled") =>
       localizeToolHeading(deriveMossMcpToolTitle({ toolName, status })!, "zh-CN");
     expect(deriveMossMcpToolTitle({ toolName: "moss_pages_mutate" })).toBe("Moss updated a page");
-    expect(zh("moss_pages_mutate", "completed")).toBe("已更新页面");
+    expect(zh("moss_pages_mutate", "completed")).toBe("已更新文档");
     expect(zh("moss_pages_spaces", "completed")).toBe("已列出资料空间");
     expect(zh("moss_canvas_open", "running")).toBe("正在打开画布");
     expect(zh("moss_canvas_open", "completed")).toBe("已打开画布");
     expect(zh("moss_canvas_read", "failed")).toBe("无法查看画布");
+    expect(zh("moss_canvas_mutate", "running")).toBe("正在更新画布");
+    expect(zh("moss_canvas_mutate", "completed")).toBe("已更新画布");
+    expect(zh("moss_canvas_mutate", "failed")).toBe("无法更新画布");
     expect(zh("moss_media_generate", "completed")).toBe("已提交生成");
     expect(zh("moss_media_get", "cancelled")).toBe("已停止查询生成进度");
     expect(zh("moss_context", "completed")).toBe("已检查上下文");
@@ -1012,7 +1015,7 @@ describe("agent feedback tool presentation and localization", () => {
   });
 
   it("turns raw snake_case Moss tool names into friendly zh-CN and en labels", () => {
-    expect(localizeMossToolName("moss_pages_mutate", "zh-CN")).toBe("更新页面");
+    expect(localizeMossToolName("moss_pages_mutate", "zh-CN")).toBe("更新文档");
     expect(localizeMossToolName("mcp__moss__moss_create_task", "zh-CN")).toBe("创建任务");
     expect(localizeMossToolName("moss_pages_mutate", "en")).toBe("Updating a page");
     expect(localizeMossToolName("moss_pages_custom_unknown", "zh-CN")).toBe("资料页面");

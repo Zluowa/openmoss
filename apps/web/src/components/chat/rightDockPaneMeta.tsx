@@ -21,6 +21,7 @@ import {
   MessageCircleIcon,
   SlideDeckIcon,
   TerminalIcon,
+  WhiteboardIcon,
 } from "~/lib/icons";
 import { type RightDockPane, type RightDockPaneKind } from "~/rightDockStore.logic";
 import { CHAT_SURFACE_CHIP_ICON_CLASS_NAME, SurfaceChipIcon } from "./chatHeaderControls";
@@ -55,7 +56,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMetaDe
   file: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   htmlRender: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   imagePreview: { labelKey: "rightDock.pane.imagePreview", Icon: GeneratedImagePreviewIcon },
-  canvas: { labelKey: "chat.generatedImage.preview.canvasView", Icon: GeneratedImagePreviewIcon },
+  canvas: { labelKey: "rightDock.pane.whiteboard", Icon: WhiteboardIcon },
   deck: { labelKey: "rightDock.pane.deck", Icon: SlideDeckIcon },
   terminal: { labelKey: "rightDock.pane.terminal", Icon: TerminalIcon },
   sidechat: { labelKey: "rightDock.launcher.sideChats", Icon: MessageCircleIcon },
@@ -92,6 +93,7 @@ export const RIGHT_DOCK_ADD_MENU_KINDS: readonly RightDockPaneKind[] = [
   "explorer",
   "browser",
   "terminal",
+  "canvas",
 ];
 
 /**
@@ -120,6 +122,7 @@ const RIGHT_DOCK_LAUNCHER_ORDER: readonly RightDockPaneKind[] = [
   "diff",
   "terminal",
   "browser",
+  "canvas",
   "explorer",
   "sidechat",
   "device",
@@ -141,7 +144,7 @@ const RIGHT_DOCK_PANE_LABEL_KEYS: Record<RightDockPaneKind, TranslationKey> = {
   file: "rightDock.pane.file",
   htmlRender: "rightDock.pane.file",
   imagePreview: "rightDock.pane.imagePreview",
-  canvas: "chat.generatedImage.preview.canvasView",
+  canvas: "rightDock.pane.whiteboard",
   deck: "rightDock.pane.deck",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.pane.sideTask",
@@ -167,7 +170,7 @@ export function resolveRightDockLauncherItems(
     if (kind === "git" && !input.hasGitRepository) {
       return [];
     }
-    if (kind === "explorer" && !input.hasWorkspace) {
+    if ((kind === "explorer" || kind === "canvas") && !input.hasWorkspace) {
       return [];
     }
     const meta = getRightDockPaneMeta(kind, t);

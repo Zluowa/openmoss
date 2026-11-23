@@ -17,6 +17,7 @@ import {
   type ServerProviderStatus,
   type ThreadId,
 } from "@moss/contracts";
+import { isMossManagedCliAuthorized } from "@moss/shared/providerInstances";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import {
   useDeferredValue,
@@ -158,6 +159,8 @@ type ComposerModelPickerProps = {
   contextWindowLabel?: string | null;
   /** Signed in, but Moss's gateway can't be reached: Moss rows say so instead of 登录. */
   mossGatewayUnreachable?: boolean | undefined;
+  mossCliModelAuthEnabled?: boolean | undefined;
+  mossCliModelAuthDisabledProviders?: ReadonlyArray<ProviderKind> | undefined;
   // Set when the thread's provider reported that the requested fast mode is not serving.
   fastModeNotice?: FastModeNotice | null;
   disabled?: boolean;
@@ -256,6 +259,22 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     if (status?.enabled === false) return false;
     if (knownInstances?.some((instance) => instance.instanceId === instanceId && !instance.enabled))
       return false;
+    if (
+      isMossManagedSourceInstanceId(instanceId) &&
+      !isMossManagedCliAuthorized(
+        {
+          ...(props.mossCliModelAuthEnabled !== undefined
+            ? { mossCliModelAuthEnabled: props.mossCliModelAuthEnabled }
+            : {}),
+          ...(props.mossCliModelAuthDisabledProviders !== undefined
+            ? { mossCliModelAuthDisabledProviders: props.mossCliModelAuthDisabledProviders }
+            : {}),
+        },
+        entry.provider,
+      )
+    ) {
+      return false;
+    }
     if (lockedProvider !== null && instanceId !== activeInstanceId) return false;
     const bound = props.boundProviderInstance;
     if (bound && entry.provider === bound.provider && instanceId !== bound.instanceId) {
@@ -392,6 +411,8 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
     lockedInstanceProvider:
       lockedProvider === null ? (props.boundProviderInstance?.provider ?? null) : null,
     mossGatewayUnreachable: props.mossGatewayUnreachable === true,
+    mossCliModelAuthEnabled: props.mossCliModelAuthEnabled,
+    mossCliModelAuthDisabledProviders: props.mossCliModelAuthDisabledProviders,
     activeInstanceId,
   });
   const activeProviderTab = providerTabs.find(

@@ -308,15 +308,23 @@ export function ConversationImageWorkspace(props: {
         work = selectionWork.current;
         await work;
       } while (work !== selectionWork.current);
+      const hasSelectedCanvasImages = (latestSelection.current?.items.length ?? 0) > 0;
+      const hasPendingLocalImages = Boolean(preview?.images.length);
       if (
         !visibleRef.current ||
         !boundary.isCurrent() ||
         selectionError.current ||
-        (canvas && importState !== "ready")
+        (canvas && (hasSelectedCanvasImages || hasPendingLocalImages) && importState !== "ready")
       )
         return false;
       const version = selectionVersion.current;
       if (canvas) {
+        if (!hasSelectedCanvasImages && !hasPendingLocalImages) {
+          if (importState === "ready") {
+            await beforeLeave().catch(() => true);
+          }
+          return true;
+        }
         const result = await composeContextRef.current?.();
         if (!result) {
           setError("画布上下文尚未保存，请保留草稿并稍后再发送。");
@@ -444,6 +452,7 @@ export function ConversationImageWorkspace(props: {
     active,
     selectedCanvasImage,
     preview?.cwd,
+    preview?.images.length,
   ]);
   const setComposeContext = useCallback((reader: MossCanvasComposeContextReader | null) => {
     composeContextRef.current = reader;
@@ -530,7 +539,7 @@ export function ConversationImageWorkspace(props: {
         canvasContent={
           canvas && canvasRuntime.loaded ? (
             <MossCanvasWebSurface
-              embedded={!props.canvasOnly}
+              embedded
               threadId={props.threadId}
               {...(localImages ? { localImages } : {})}
               {...(props.imageFocus ? { image: props.imageFocus } : {})}
@@ -556,7 +565,9 @@ export function ConversationImageWorkspace(props: {
                 // bottom-right corner instead of sitting on a separate strip.
                 "pointer-events-none absolute inset-x-0 bottom-0 z-40 flex flex-col items-end gap-2 px-4 pb-3"
               : "pointer-events-none absolute inset-x-0 bottom-3 z-40 flex flex-col items-center px-4"
-            : "z-40 flex shrink-0 flex-col items-center gap-2 p-2"
+            : !canvas || error
+              ? "z-40 flex shrink-0 flex-col items-center gap-2 p-2"
+              : "hidden"
         }
       >
         {!canvas && (

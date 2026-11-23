@@ -8,6 +8,7 @@ import {
   type ServerSettings,
   type SupportedProviderKind,
 } from "@moss/contracts";
+import { isMossManagedCliAuthorized } from "@moss/shared/providerInstances";
 import { isProviderKind } from "../providerOrdering";
 
 const CUSTOM_BINARY_CONFIRMATION_SUFFIX =
@@ -239,13 +240,22 @@ export function isMossDefaultManagedProviderInstanceId(
 
 export function isServerConfiguredMossDefaultManagedProvider(
   settings:
-    | (Pick<ServerSettings, "providerInstances"> & Partial<Pick<ServerSettings, "providers">>)
+    | (Pick<ServerSettings, "providerInstances"> &
+        Partial<
+          Pick<
+            ServerSettings,
+            "providers" | "mossCliModelAuthEnabled" | "mossCliModelAuthDisabledProviders"
+          >
+        >)
     | null
     | undefined,
   instanceId: ProviderInstanceId | string | null | undefined,
 ): boolean {
   const expectedDriver = mossDefaultManagedProviderDriver(instanceId);
   if (!settings || expectedDriver === undefined) {
+    return false;
+  }
+  if (!isMossManagedCliAuthorized(settings, expectedDriver)) {
     return false;
   }
   const providerInstance = settings.providerInstances[instanceId as ProviderInstanceId];

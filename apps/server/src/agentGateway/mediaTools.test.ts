@@ -353,11 +353,92 @@ describe("native official media tools", () => {
     expect(tools.map((tool) => tool.requiredCapability)).toEqual([
       "thread:write",
       "thread:read",
+      "thread:write",
       "thread:read",
       "thread:write",
       "thread:read",
     ]);
     expect(tools.every((tool) => tool.requiresActiveTurn)).toBe(true);
+  });
+
+  it("mutates Whiteboard shapes via moss_canvas_mutate with strict validation and turn/account guards", async () => {
+    const mutatedSummary = {
+      revision: "2026-11-23T15:00:00.000Z",
+      created: { n1: "shape:n1" },
+      deletedCount: 0,
+      shapeCounts: { note: 1 },
+      shapes: [{ id: "shape:n1", type: "note", text: "任务拆解" }],
+      truncated: false,
+    };
+    const mutateCanvas = vi.fn(() => Effect.succeed(mutatedSummary));
+    const { context, service } = harness();
+    let activeCred = credential;
+    let turnOpen = true;
+    const tools = makeAgentGatewayMediaTools({
+      service,
+      resolveCredential: Effect.fail(new Error("unused")),
+      resolveCanvasCredential: Effect.sync(() => activeCred),
+      mutateCanvas,
+    });
+    const call = async (args: Record<string, unknown>) => {
+      const result = await Effect.runPromise(
+        tools
+          .find((tool) => tool.definition.name === "moss_canvas_mutate")!
+          .handler(args, {
+            ...context,
+            assertCallerTurnActive: () =>
+              turnOpen
+                ? Effect.void
+                : Effect.fail(new GatewayToolError("caller_turn_inactive", "Turn ended")),
+          }),
+      );
+      return {
+        result,
+        body: JSON.parse(result.content[0]!.type === "text" ? result.content[0]!.text : "{}"),
+      };
+    };
+
+    const ok = await call({
+      ops: [{ op: "addNote", key: "n1", text: "任务拆解" }],
+      title: "规划白板",
+    });
+    expect(ok.result.isError).not.toBe(true);
+    expect(ok.body).toMatchObject({
+      updated: true,
+      threadId: "thread-1",
+      opened: true,
+      revision: "2026-11-23T15:00:00.000Z",
+      created: { n1: "shape:n1" },
+    });
+    expect(mutateCanvas).toHaveBeenCalledWith(
+      {
+        threadId: "thread-1",
+        ops: [{ op: "addNote", key: "n1", text: "任务拆解" }],
+        title: "规划白板",
+        open: true,
+      },
+      credential,
+      expect.objectContaining({ callerThreadId: "thread-1" }),
+    );
+
+    // Rejects unknown arguments and invalid ops before invoking mutateCanvas.
+    expect((await call({ ops: [{ op: "addNote", text: "hi" }], extra: true })).result.isError).toBe(
+      true,
+    );
+    expect((await call({ ops: [] })).result.isError).toBe(true);
+    expect(mutateCanvas).toHaveBeenCalledTimes(1);
+
+    // Rejects inactive caller turns.
+    turnOpen = false;
+    expect((await call({ ops: [{ op: "addNote", text: "hi" }] })).result.isError).toBe(true);
+    expect(mutateCanvas).toHaveBeenCalledTimes(1);
+
+    // Rejects account switch inside the same turn.
+    turnOpen = true;
+    activeCred = { ...credential, account: { ...credential.account, id: "user-other" } };
+    const switched = await call({ ops: [{ op: "addNote", text: "hi" }] });
+    expect(switched.result.isError).toBe(true);
+    expect(switched.body.error.code).toBe("media_account_changed");
   });
 
   it("exposes models and only this thread's jobs without the global account or wallet", async () => {

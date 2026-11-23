@@ -121,4 +121,34 @@ describe("bounded native agent ZIP", () => {
     ).rejects.toThrow(/fresh/u);
     expect(await FS.readdir(outside)).toEqual([]);
   });
+
+  it("supports packageRoot: null and custom size limits for native archives while still blocking unsafe paths", async () => {
+    const root = await destination();
+    const payload = "x".repeat(256);
+    const archive = syntheticAgentZip([
+      { name: "bin/", content: "" },
+      { name: "bin/devin.exe", content: payload },
+    ]);
+    await expect(
+      extractAgentZip(archive, root, { packageRoot: null, limits: { file: 64 } }),
+    ).rejects.toThrow(/expanded size/u);
+    expect(await FS.readdir(root)).toEqual([]);
+
+    expect(
+      await extractAgentZip(archive, root, {
+        packageRoot: null,
+        limits: { file: 512, expanded: 1024 },
+      }),
+    ).toBe(1);
+    expect(await FS.readFile(Path.join(root, "bin/devin.exe"), "utf8")).toBe(payload);
+
+    const traversalRoot = await destination();
+    await expect(
+      extractAgentZip(
+        syntheticAgentZip([{ name: "../escape.exe", content: "bad" }]),
+        traversalRoot,
+        { packageRoot: null },
+      ),
+    ).rejects.toThrow(/unsafe Windows path/u);
+  });
 });

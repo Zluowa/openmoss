@@ -48,6 +48,8 @@ export function CliAgentDetailPane(props: {
   readonly statusReconciled: boolean;
   readonly providerStatus: ServerProviderStatus | undefined;
   readonly servedByMoss: boolean;
+  readonly supportsMossAuth: boolean;
+  readonly mossAuthorized: boolean;
   readonly isInstalled: boolean;
   readonly updating: boolean;
   readonly checksEnabled: boolean;
@@ -78,7 +80,11 @@ export function CliAgentDetailPane(props: {
     props.enabled && props.statusReconciled && providerStatus
       ? resolveAgentReadiness(providerStatus)
       : null;
-  const servedByMoss = readiness?.state === "needsLogin" && props.servedByMoss;
+  const servedByMoss =
+    props.supportsMossAuth &&
+    props.mossAuthorized &&
+    readiness?.state === "needsLogin" &&
+    props.servedByMoss;
   const descriptionKey = readiness ? providerReadinessDescriptionKey(readiness) : null;
   const canSignIn =
     readiness?.state === "needsLogin" && supportsAgentSignIn(props.provider, providerStatus);
@@ -123,7 +129,7 @@ export function CliAgentDetailPane(props: {
   const selectedUnified = enabledUnifiedProviders.find((item) => item.id === props.routingSource);
   const effectiveSourceId = selectedUnified
     ? selectedUnified.id
-    : props.routingSource === "personal"
+    : props.routingSource === "personal" || !props.supportsMossAuth
       ? "personal"
       : "moss";
 
@@ -144,17 +150,35 @@ export function CliAgentDetailPane(props: {
     ) : (
       <span className="flex min-w-0 items-center gap-2">
         <ProviderBrandTile variant="bare" iconId="moss" size="sm" />
-        <span className="truncate">{isZh ? "Moss 托管" : "Moss"}</span>
+        <span className="truncate">
+          {!props.mossAuthorized
+            ? isZh
+              ? "Moss · 已关闭"
+              : "Moss · Off"
+            : isZh
+              ? "Moss 托管"
+              : "Moss"}
+        </span>
       </span>
     );
 
   const segmentedOptions = [
-    { id: "moss", label: isZh ? "Moss" : "Moss", iconId: "moss" as string | null },
-    { id: "personal", label: isZh ? "本机" : "Local", iconId: null },
+    ...(props.supportsMossAuth
+      ? [
+          {
+            id: "moss",
+            label: isZh ? "Moss" : "Moss",
+            iconId: "moss" as string | null,
+            disabled: !props.mossAuthorized,
+          },
+        ]
+      : []),
+    { id: "personal", label: isZh ? "本机" : "Local", iconId: null, disabled: false },
     ...enabledUnifiedProviders.map((item) => ({
       id: item.id,
       label: item.name,
       iconId: item.iconId as string | null,
+      disabled: false,
     })),
   ];
 
@@ -272,19 +296,22 @@ export function CliAgentDetailPane(props: {
               >
                 {segmentedOptions.map((option) => {
                   const active = effectiveSourceId === option.id;
-                  return (
+                  const button = (
                     <Button
                       key={option.id}
                       type="button"
                       size="xs"
                       variant="ghost"
-                      aria-pressed={active}
+                      disabled={option.disabled}
+                      aria-pressed={active && !option.disabled}
                       onClick={() => props.onRouteChange(option.id)}
                       className={cn(
                         "relative h-7 rounded-control px-2.5 font-normal transition-colors duration-150",
-                        active
-                          ? "text-foreground hover:bg-transparent"
-                          : "text-muted-foreground hover:text-foreground",
+                        option.disabled
+                          ? "cursor-not-allowed opacity-50 text-muted-foreground"
+                          : active
+                            ? "text-foreground hover:bg-transparent"
+                            : "text-muted-foreground hover:text-foreground",
                       )}
                     >
                       {active ? (
@@ -296,7 +323,12 @@ export function CliAgentDetailPane(props: {
                               ? { duration: 0 }
                               : { duration: 0.16, ease: SOURCE_PILL_EASE }
                           }
-                          className="pointer-events-none absolute inset-0 rounded-control border border-border/65 bg-background shadow-xs"
+                          className={cn(
+                            "pointer-events-none absolute inset-0 rounded-control border shadow-xs",
+                            option.disabled
+                              ? "border-border/40 bg-background/50"
+                              : "border-border/65 bg-background",
+                          )}
                         />
                       ) : null}
                       <span className="relative z-10 flex items-center gap-1.5">
@@ -306,6 +338,15 @@ export function CliAgentDetailPane(props: {
                         <span className="max-w-24 truncate">{option.label}</span>
                       </span>
                     </Button>
+                  );
+                  if (!option.disabled) return button;
+                  return (
+                    <Tooltip key={option.id}>
+                      <TooltipTrigger render={<span className="inline-flex">{button}</span>} />
+                      <TooltipPopup side="top">
+                        {isZh ? "已在 Moss 官方服务中关闭授权" : "Disabled in Moss Managed Service"}
+                      </TooltipPopup>
+                    </Tooltip>
                   );
                 })}
               </div>
@@ -319,12 +360,22 @@ export function CliAgentDetailPane(props: {
                 triggerClassName="min-w-44"
                 valueContent={selectedSourceContent}
               >
-                <SelectItem hideIndicator value="moss">
-                  <span className="flex items-center gap-2">
-                    <ProviderBrandTile variant="bare" iconId="moss" size="sm" />
-                    <span>{isZh ? "Moss 托管" : "Moss"}</span>
-                  </span>
-                </SelectItem>
+                {props.supportsMossAuth ? (
+                  <SelectItem hideIndicator value="moss" disabled={!props.mossAuthorized}>
+                    <span className="flex items-center gap-2">
+                      <ProviderBrandTile variant="bare" iconId="moss" size="sm" />
+                      <span>
+                        {props.mossAuthorized
+                          ? isZh
+                            ? "Moss 托管"
+                            : "Moss"
+                          : isZh
+                            ? "Moss · 已关闭"
+                            : "Moss · Disabled"}
+                      </span>
+                    </span>
+                  </SelectItem>
+                ) : null}
                 <SelectItem hideIndicator value="personal">
                   <span>{isZh ? "本机" : "Local account"}</span>
                 </SelectItem>
