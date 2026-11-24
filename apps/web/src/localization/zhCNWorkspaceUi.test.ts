@@ -30,16 +30,6 @@ describe("translateZhCnWorkspaceUiText", () => {
     expect(translateZhCnWorkspaceUiText("Awaiting you is derived automatically")).toBe(
       "“待你处理”列会自动得出",
     );
-    expect(
-      translateZhCnWorkspaceUiText(
-        "Cards move here when they need your approval, input, or a retry.",
-      ),
-    ).toBe("当卡片需要你的批准、输入或重试时，会自动移到此处。");
-    expect(
-      translateZhCnWorkspaceUiText(
-        "Pick an automation in the panel to see its runs, or schedule a new one.",
-      ),
-    ).toBe("在面板中选择一个自动化工作流即可查看其运行记录，也可以新建定时任务。");
     expect(translateZhCnWorkspaceUiText("Installed")).toBe("已安装");
     expect(translateZhCnWorkspaceUiText("No installed plugins yet.")).toBe("还没有已安装的插件。");
     expect(translateZhCnWorkspaceUiText("No installed skills yet.")).toBe("还没有已安装的技能。");

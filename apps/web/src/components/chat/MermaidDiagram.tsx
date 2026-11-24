@@ -9,7 +9,8 @@
 
 import DOMPurify from "dompurify";
 import type { DiagramType, MathResolver } from "pele/lazy";
-import { use, useCallback, useState } from "react";
+import { use, useCallback, useState, type CSSProperties } from "react";
+import { PELE_COLOR_ROLES, type PeleColorRole } from "@moss/shared/markdownRendering";
 
 import { attributeMayFetch } from "~/lib/svgRemoteReferences";
 import { useTranslation } from "~/localization";
@@ -206,17 +207,25 @@ function sanitizeMathDiagramSvg(svg: string): Node {
 
 // Pele colors diagrams through these, which a standalone image cannot inherit.
 const PELE_COLOR_VARIABLES = [
-  "--pele-bg",
-  "--pele-fg",
-  "--pele-muted",
-  "--pele-line",
-  "--pele-surface",
-  "--pele-surface-alt",
-  "--pele-border",
-  "--pele-accent",
-  "--pele-critical",
+  ...Object.keys(PELE_COLOR_ROLES),
   ...Array.from({ length: 8 }, (_, index) => `--pele-series-${index + 1}`),
 ];
+
+// pele's palette roles (packages/shared/src/markdownRendering.ts, which the phone maps to its
+// own theme) in this theme's colours; a theme change recolours a diagram without redrawing it.
+const PELE_ROLE_COLORS: Record<PeleColorRole, string> = {
+  background: "var(--background)",
+  foreground: "var(--foreground)",
+  muted: "var(--muted-foreground)",
+  surface: "var(--secondary)",
+  surfaceAlt: "var(--accent)",
+  border: "color-mix(in srgb, var(--foreground) 28%, transparent)",
+  accent: "var(--primary)",
+  critical: "var(--destructive)",
+};
+const PELE_PALETTE_STYLE = Object.fromEntries(
+  Object.entries(PELE_COLOR_ROLES).map(([name, role]) => [name, PELE_ROLE_COLORS[role]]),
+) as CSSProperties;
 
 let expandedImageUrl: string | null = null;
 
@@ -303,7 +312,11 @@ export function MermaidDiagram({
   }
 
   return (
-    <div className="chat-markdown-mermaid overflow-x-auto" data-markdown-mermaid="">
+    <div
+      className="chat-markdown-mermaid overflow-x-auto"
+      data-markdown-mermaid=""
+      style={PELE_PALETTE_STYLE}
+    >
       {renderError ? (
         <DiagramError
           message={format("chat.markdown.mermaid.error", { message: renderError })}

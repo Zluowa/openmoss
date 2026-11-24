@@ -7,6 +7,7 @@ import type { PageApp } from "@moss/contracts";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
+import { RouteSurfaceHeader } from "~/components/RouteSurface";
 import { Button } from "~/components/ui/button";
 import { PencilIcon, RotateCcwIcon, StarFilledIcon, StarIcon, TrashCanIcon } from "~/lib/icons";
 
@@ -59,14 +60,16 @@ export function PageAppList() {
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto">
-      <header className="flex h-12 shrink-0 items-center gap-2 px-5">
-        <h1 className="flex-1 text-ui-lg font-medium">
+      {/* The shared route header: it keeps clear of the title-bar controls, drags the window
+          and leaves room for the window's buttons, as every rail page's header does (R-9). */}
+      <RouteSurfaceHeader divider={false}>
+        <h1 className="min-w-0 flex-1 truncate text-ui-lg font-medium">
           {showTrash ? "回收站中的应用页" : "应用页"}
         </h1>
         <Button variant="ghost" size="sm" onClick={() => setShowTrash((value) => !value)}>
           {showTrash ? "返回" : "回收站"}
         </Button>
-      </header>
+      </RouteSurfaceHeader>
       {error ? <p className="px-5 text-ui text-destructive">{error}</p> : null}
       {apps && apps.length === 0 ? (
         <p className="px-5 text-ui text-[var(--color-text-foreground-secondary)]">

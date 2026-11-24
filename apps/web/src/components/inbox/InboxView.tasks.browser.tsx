@@ -163,9 +163,7 @@ it("greets in whole Chinese sentences at night and shows the task hint uncut", a
     expect(headline.textContent).not.toMatch(/[.]/);
 
     const input = await vi.waitFor(() => {
-      const field = document.querySelector<HTMLInputElement>(
-        'input[placeholder="添加任务，或按 Tab 键交给智能体"]',
-      );
+      const field = document.querySelector<HTMLInputElement>('input[placeholder="添加任务"]');
       expect(field).not.toBeNull();
       return field!;
     });

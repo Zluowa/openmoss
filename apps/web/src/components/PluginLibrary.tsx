@@ -879,12 +879,12 @@ function McpGlyph({ server }: { server: ProviderMcpServerDescriptor }) {
 
 // ── UI controls ────────────────────────────────────────────────────────────
 
-function EmptyPanel({ title, description }: { title: string; description: string }) {
+function EmptyPanel({ title, description }: { title: string; description?: string }) {
   return (
     <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed border-border/60 bg-background/40 px-5 py-6 text-center">
       <div className="max-w-sm space-y-1">
         <p className="text-ui-lg font-medium text-foreground">{title}</p>
-        <p className="text-ui-sm text-muted-foreground">{description}</p>
+        {description ? <p className="text-ui-sm text-muted-foreground">{description}</p> : null}
       </div>
     </div>
   );
@@ -3175,7 +3175,7 @@ export function PluginLibrary({
       toastManager.add({
         type: "error",
         title: t("plugins.toast.noWorkspaceTitle"),
-        description: t("plugins.toast.noWorkspaceInstallDescription"),
+        description: t("plugins.toast.noWorkspaceDescription"),
       });
       return;
     }
@@ -3188,14 +3188,14 @@ export function PluginLibrary({
       reRead: reReadPlugins,
       isSettled: (snapshot, result) =>
         result !== null && isPluginInstallSettled(snapshot, resource.plugin.id),
-      failureMessage: t("plugins.toast.installNotSettled"),
+      failureMessage: t("plugins.toast.notSettled"),
     })
       .then(async (result) => {
         if (!result) {
           toastManager.add({
             type: "error",
             title: t("plugins.toast.noWorkspaceTitle"),
-            description: t("plugins.toast.noWorkspaceInstallDescription"),
+            description: t("plugins.toast.noWorkspaceDescription"),
           });
           return;
         }
@@ -3205,11 +3205,7 @@ export function PluginLibrary({
           try {
             authoritativeApps = await reReadApps();
           } catch {
-            toastManager.add({
-              type: "warning",
-              title: t("plugins.toast.appRefreshAfterInstallFailedTitle"),
-              description: t("plugins.toast.appRefreshAfterInstallFailedDescription"),
-            });
+            // The required-apps step below still opens with what the install returned.
           }
           const requiredApps = enrichRequiredPluginApps(result.appsNeedingAuth, authoritativeApps);
           const resolution = resolvePluginAuthOnboarding(result.authPolicy, requiredApps);
@@ -3271,7 +3267,7 @@ export function PluginLibrary({
       reRead: reReadPlugins,
       isSettled: (snapshot, result) =>
         result?.updated === true && isPluginEnabledSettled(snapshot, entry.plugin.id, enabled),
-      failureMessage: t("plugins.toast.pluginUpdateNotSettled"),
+      failureMessage: t("plugins.toast.notSettled"),
     })
       .then((result) => {
         if (!result?.updated) {
@@ -3357,7 +3353,7 @@ export function PluginLibrary({
               reRead: reReadPlugins,
               isSettled: (snapshot, result) =>
                 result?.removed === true && isPluginUninstallSettled(snapshot, resource.plugin.id),
-              failureMessage: t("plugins.toast.uninstallNotSettled"),
+              failureMessage: t("plugins.toast.notSettled"),
             })
           : resourceActions.uninstall(resource);
     void mutation
@@ -3523,7 +3519,7 @@ export function PluginLibrary({
       reRead: reReadPlugins,
       isSettled: (snapshot, nativeResult) =>
         isMarketplaceAddSettled(snapshot, nativeResult.marketplaceName, nativeResult.installedRoot),
-      failureMessage: t("plugins.marketplace.notSettled"),
+      failureMessage: t("plugins.toast.notSettled"),
     });
     toastManager.add({
       type: "success",
@@ -3553,7 +3549,7 @@ export function PluginLibrary({
           (candidate) =>
             candidate.id === app.id && candidate.isAccessible && candidate.isEnabled === enabled,
         ),
-      failureMessage: `${app.name} app state did not settle.`,
+      failureMessage: t("plugins.toast.notSettled"),
     })
       .then(() => {
         toastManager.add({
@@ -3588,7 +3584,7 @@ export function PluginLibrary({
         result.marketplaceName === marketplace.name &&
         snapshot.successfulReads > 0 &&
         snapshot.marketplaces.every((candidate) => candidate.name !== marketplace.name),
-      failureMessage: `${marketplace.displayName} marketplace removal did not settle.`,
+      failureMessage: t("plugins.toast.notSettled"),
     })
       .then(() => {
         toastManager.add({
@@ -3624,7 +3620,7 @@ export function PluginLibrary({
         result.selectedMarketplaces.includes(marketplace.name) &&
         !result.errors.some((error) => error.marketplaceName === marketplace.name) &&
         snapshot.marketplaces.some((candidate) => candidate.name === marketplace.name),
-      failureMessage: `${marketplace.displayName} marketplace upgrade did not settle.`,
+      failureMessage: t("plugins.toast.notSettled"),
     })
       .then(() => {
         toastManager.add({ type: "success", title: `Upgraded ${marketplace.displayName}` });
@@ -3658,7 +3654,7 @@ export function PluginLibrary({
         result.selectedMarketplaces.every((name) =>
           snapshot.marketplaces.some((candidate) => candidate.name === name),
         ),
-      failureMessage: "Marketplace upgrades did not settle.",
+      failureMessage: t("plugins.toast.notSettled"),
     })
       .then(() => toastManager.add({ type: "success", title: "Marketplaces upgraded" }))
       .catch((error: unknown) => {
@@ -3952,10 +3948,7 @@ export function PluginLibrary({
                     />
                   ) : (
                     <div data-testid="plugin-library-route-not-found">
-                      <EmptyPanel
-                        title={t("plugins.empty.pluginNotFoundTitle")}
-                        description={t("plugins.empty.pluginNotFoundDescription")}
-                      />
+                      <EmptyPanel title={t("plugins.empty.pluginNotFoundTitle")} />
                     </div>
                   )}
                 </div>
@@ -4136,11 +4129,7 @@ export function PluginLibrary({
                                     : "plugins.category.count",
                                   { count: selectedPluginSection.entries.length },
                                 )
-                              : selectedTab === "plugins"
-                                ? t("plugins.subtitle.plugins")
-                                : selectedTab === "mcp"
-                                  ? t("plugins.subtitle.mcpServers")
-                                  : t("plugins.subtitle.skills")
+                              : undefined
                           }
                           actions={
                             <PluginLibraryHeaderActions
@@ -4638,7 +4627,6 @@ export function PluginsGrid({
     return (
       <EmptyPanel
         title={format("plugins.empty.pluginsUnavailableTitle", { provider: providerLabel })}
-        description={t("plugins.empty.pluginsUnavailableDescription")}
       />
     );
   }
@@ -4871,12 +4859,7 @@ function McpGrid({
     );
   }
   if (servers.length === 0) {
-    return (
-      <EmptyPanel
-        title={t("plugins.empty.noMcpServersTitle")}
-        description={t("plugins.empty.noMcpServersDescription")}
-      />
-    );
+    return <EmptyPanel title={t("plugins.empty.noMcpServersTitle")} />;
   }
   return (
     <Section title={t("plugins.section.mcpServers")}>
@@ -4938,7 +4921,6 @@ function SkillsGrid({
     return (
       <EmptyPanel
         title={format("plugins.empty.skillsUnavailableTitle", { provider: providerLabel })}
-        description={t("plugins.empty.skillsUnavailableDescription")}
       />
     );
   }

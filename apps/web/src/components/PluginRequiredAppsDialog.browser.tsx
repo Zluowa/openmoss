@@ -81,9 +81,6 @@ describe("PluginRequiredAppsDialog", () => {
       expect(document.querySelectorAll('[role="alertdialog"]')).toHaveLength(0);
       await expect.element(page.getByText("将应用连接到 GitHub")).toBeInTheDocument();
       await expect
-        .element(page.getByText("从你已在使用的应用中获得相关性更强的帮助。你也可以稍后再设置。"))
-        .toBeInTheDocument();
-      await expect
         .element(page.getByRole("button", { name: "连接", exact: true }))
         .toBeInTheDocument();
       await expect.element(page.getByText("已连接", { exact: true })).toBeInTheDocument();

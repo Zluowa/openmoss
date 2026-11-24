@@ -10,7 +10,6 @@ import { Button } from "./ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -115,9 +114,6 @@ export function PluginRequiredAppsDialog({
             <DialogTitle>
               {format("plugins.installModal.needsApps.title", { pluginName })}
             </DialogTitle>
-            <DialogDescription className="max-w-[390px] leading-5">
-              {t("plugins.installModal.needsApps.subtitle")}
-            </DialogDescription>
           </div>
         </DialogHeader>
 

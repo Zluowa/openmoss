@@ -213,7 +213,7 @@ describe("PluginResourceDetailPage", () => {
       expect(markup).not.toContain(internal);
     }
     expect(markup).toContain('data-testid="plugin-detail-legal-notice"');
-    expect(markup).toContain("使用 Forge Suite 时，Moss 会把完成请求所需的对话内容发送给");
+    expect(markup).toContain("使用 Forge Suite 时，所需的对话内容会发送给它的应用和 MCP 服务器。");
   });
 
   it("resolves local composer and dark artwork fallbacks through the authenticated image route", () => {

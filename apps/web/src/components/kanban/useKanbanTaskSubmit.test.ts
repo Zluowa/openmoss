@@ -76,8 +76,6 @@ const translations = vi.hoisted(
         "kanban.newTask.toast.addedToDrafts": "Task added to Drafts",
         "kanban.newTask.toast.started": "Task started",
         "kanban.newTask.toast.finishInChat": "Finish this task in the chat",
-        "kanban.newTask.toast.worktreePending":
-          "Worktree setup stays on the normal composer send path.",
         "kanban.newTask.toast.savedAsDraft": "The task was saved as a draft.",
         "kanban.newTask.toast.savedToDraftsFallback":
           "The task was saved to Drafts instead. Open it to send manually.",
@@ -97,7 +95,6 @@ const translations = vi.hoisted(
         "kanban.newTask.toast.addedToDrafts": "任务已添加到草稿",
         "kanban.newTask.toast.started": "任务已启动",
         "kanban.newTask.toast.finishInChat": "请在对话中完成此任务",
-        "kanban.newTask.toast.worktreePending": "请继续通过常规消息输入框发送，以完成工作树设置。",
         "kanban.newTask.toast.savedAsDraft": "任务已存为草稿。",
         "kanban.newTask.toast.savedToDraftsFallback": "任务已改存到草稿。请打开后手动发送。",
         "kanban.newTask.toast.unexpectedError": "发生意外错误。",
@@ -373,7 +370,6 @@ describe("useKanbanTaskSubmit", () => {
     expect(mocks.toastAdd).toHaveBeenLastCalledWith({
       type: "info",
       title: "请在对话中完成此任务",
-      description: "请继续通过常规消息输入框发送，以完成工作树设置。",
     });
   });
 

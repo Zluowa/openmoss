@@ -940,8 +940,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Awaiting approval": "等待批准",
   "Awaiting your input": "等待你的输入",
   "Awaiting you is derived automatically": "“待你处理”列会自动得出",
-  "Cards move here when they need your approval, input, or a retry.":
-    "当卡片需要你的批准、输入或重试时，会自动移到此处。",
   "Starting…": "正在启动…",
   "Worked for": "已工作",
   "Drop to send": "拖放以发送",
@@ -952,15 +950,12 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Draft sent": "草稿已发送",
   "Nothing to send yet — write the prompt in the composer.":
     "还没有可发送的内容；请在编辑器中编写提示词。",
-  "Open the chat to create the worktree with the normal send flow.":
-    "打开对话，通过常规发送流程创建工作树。",
   "Open the chat to continue this task.": "打开对话以继续此任务。",
   "Finish this draft in the chat": "在对话中完成此草稿",
   "Not connected": "未连接",
   "Reconnect to the server before sending drafts.": "请重新连接服务器后再发送草稿。",
   "Could not send draft": "无法发送草稿",
   "Done is derived automatically": "“已完成”状态会自动得出",
-  "Cards move here when their runs complete.": "卡片会在运行完成后自动移到此处。",
   "Cannot archive": "无法归档",
   "Stop the running session before archiving this thread.": "请先停止正在运行的会话再归档此对话。",
   "Unable to pin thread": "无法固定对话",

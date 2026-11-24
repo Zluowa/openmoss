@@ -5,7 +5,7 @@
 
 import { ArrowLeftIcon, ArrowRightIcon } from "~/lib/icons";
 import { goBackInAppHistory, goForwardInAppHistory, useAppNavigationState } from "~/appNavigation";
-import { isElectron } from "~/env";
+import { desktopTitleBarControlsShown } from "~/lib/desktopTitleBar";
 import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -16,7 +16,7 @@ export function AppNavigationButtons({ className }: { className?: string }) {
   const backShortcutLabel = isMac ? "⌘[" : "Alt+Left";
   const forwardShortcutLabel = isMac ? "⌘]" : "Alt+Right";
 
-  if (!isElectron) {
+  if (!desktopTitleBarControlsShown()) {
     return null;
   }
 

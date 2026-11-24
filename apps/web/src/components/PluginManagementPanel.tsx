@@ -855,18 +855,6 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
         : tab === "skills"
           ? Boolean(props.skillsLoading)
           : Boolean(props.marketplacesLoading);
-    // MCP servers from another CLI's own config (Codex's config.toml, ...) are that CLI's
-    // to switch; say so once instead of leaving dimmed switches unexplained.
-    const externalMcpOrigins =
-      tab === "mcps"
-        ? [
-            ...new Set(
-              props.mcpServers
-                .filter((server) => !isMossCanonicalMcp(server))
-                .map((server) => originLabel(server.origin)),
-            ),
-          ]
-        : [];
     // A list that failed or timed out says so and offers Retry; an empty tab must never
     // stay on 「正在加载…」 once nothing is on its way (acceptance 2026-11-11).
     const tabFailed =
@@ -908,16 +896,6 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
               <Row key={row.key} row={row} />
             ))}
           </ManageList>
-          {externalMcpOrigins.length > 0 ? (
-            <p
-              data-testid="plugin-manage-mcp-external-hint"
-              className="px-1 text-ui-sm text-muted-foreground"
-            >
-              {format("plugins.manage.mcpExternalHint", {
-                sources: externalMcpOrigins.join(" / "),
-              })}
-            </p>
-          ) : null}
         </div>
       );
   }
@@ -1038,14 +1016,6 @@ export function PluginManagementPanel(props: PluginManagementPanelProps) {
         >
           <div className={cn("flex min-w-0 flex-col", props.settingsPage ? "gap-1" : "gap-1.5")}>
             <h1 className={PAGE_TITLE_CLASS_NAME}>{t("plugins.hero.plugins")}</h1>
-            <p
-              className={cn(
-                "text-muted-foreground",
-                props.settingsPage ? "text-ui" : "text-ui-lg leading-5",
-              )}
-            >
-              {t("plugins.manage.subtitle")}
-            </p>
           </div>
           {props.headerActions ? (
             // The settings drag strip overlaps this row; keep its buttons clickable.

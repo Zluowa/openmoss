@@ -1012,6 +1012,14 @@
     "./mossWords": {
       "types": "./src/mossWords.ts",
       "import": "./src/mossWords.ts"
+    },
+    "./markdownAlerts": {
+      "types": "./src/markdownAlerts.ts",
+      "import": "./src/markdownAlerts.ts"
+    },
+    "./markdownRendering": {
+      "types": "./src/markdownRendering.ts",
+      "import": "./src/markdownRendering.ts"
     }
   },
   "scripts": {

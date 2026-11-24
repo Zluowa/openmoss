@@ -1,7 +1,10 @@
 import type { Blockquote, Parent, Root } from "mdast";
 
-export const GITHUB_ALERT_KINDS = ["note", "tip", "important", "warning", "caution"] as const;
-export type GithubAlertKind = (typeof GITHUB_ALERT_KINDS)[number];
+import { MARKDOWN_ALERT_KINDS, type MarkdownAlertKind } from "@moss/shared/markdownAlerts";
+
+// The kinds, their glyphs and colours are shared with the phone (packages/shared).
+export const GITHUB_ALERT_KINDS = MARKDOWN_ALERT_KINDS;
+export type GithubAlertKind = MarkdownAlertKind;
 
 // GitHub only recognizes the marker alone on the first line of a blockquote.
 const ALERT_MARKER_PATTERN = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*(?:\r?\n|$)/i;

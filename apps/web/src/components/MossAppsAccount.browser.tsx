@@ -83,9 +83,6 @@ describe("Moss Apps account UI", () => {
         await vi.waitFor(() =>
           expect(document.documentElement.getAttribute("data-theme-variant")).toBe(theme),
         );
-        await expect
-          .element(page.getByText("连接属于当前 Moss 账号，旧版连接请重新连接。"))
-          .toBeVisible();
         await expect.element(page.getByText("请切换到手机或 Google 账号使用应用。")).toBeVisible();
         await expect.element(page.getByText("暂时无法连接应用，请稍后重试。")).toBeVisible();
         // Not offered yet (also a gateway without the Apps module): a calm line, no button.
@@ -171,6 +168,10 @@ describe("Moss Apps account UI", () => {
       </QueryClientProvider>,
     );
     try {
+      // Connecting lets agents act in the person's name: one line says so, before Continue.
+      await expect
+        .element(page.getByText("连接后，Moss 中的智能体可以代表你使用 GitHub。", { exact: true }))
+        .toBeVisible();
       await userEvent.click(page.getByTestId("moss-app-connect-continue"));
       await vi.waitFor(() => expect(connect).toHaveBeenCalledOnce());
       setAccount(client, mode === "logout" ? null : "b");

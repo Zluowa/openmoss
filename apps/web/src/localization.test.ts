@@ -227,17 +227,21 @@ describe("translateMoss", () => {
     expect(translateMoss("zh-CN", "chat.markdown.generatedImage.download")).toBe("下载");
   });
 
-  it("keeps the frozen Codex plugin surfaces' exact zh-CN copy", () => {
-    expect(translateMoss("zh-CN", "plugins.subtitle.plugins")).toBe(
-      "连接插件，让 Moss 在你的各类工具中协同工作",
+  it("says what to do in one sentence when a plugin action did not take", () => {
+    expect(translateMoss("zh-CN", "plugins.toast.notSettled")).toBe("没有生效，请刷新后重试。");
+    expect(translateMoss("en", "plugins.toast.notSettled")).toBe(
+      "That didn't take effect. Refresh and try again.",
     );
+    expect(translateMoss("zh-CN", "plugins.toast.noWorkspaceDescription")).toBe(
+      "请先打开一个项目。",
+    );
+    expect(translateMoss("zh-CN", "plugins.error.description")).toBe("请连接当前服务商后重试。");
+  });
+
+  it("keeps the frozen Codex plugin surfaces' exact zh-CN copy", () => {
     expect(translateMoss("zh-CN", "plugins.source.moss")).toBe("公开");
     expect(translateMoss("zh-CN", "plugins.manage.title")).toBe("插件");
-    expect(translateMoss("zh-CN", "plugins.manage.subtitle")).toBe("管理插件、技能和 MCP");
     expect(translateMoss("zh-CN", "plugins.search.plugins")).toBe("搜索插件");
-    expect(translateMoss("zh-CN", "plugins.warning.openAiRemoteAuth")).toContain(
-      "Moss 内置插件仍可正常使用",
-    );
     expect(translateMoss("en", "plugins.manage.tab.mcps")).toBe("MCPs");
     expect(translateMoss("zh-CN", "plugins.manage.tab.mcps")).toBe("MCP");
     expect(formatMossTranslation("en", "plugins.manage.openAppTools", { name: "Gmail" })).toBe(
@@ -246,10 +250,6 @@ describe("translateMoss", () => {
     expect(formatMossTranslation("zh-CN", "plugins.manage.openAppTools", { name: "Gmail" })).toBe(
       "打开 Gmail 工具",
     );
-    expect(translateMoss("en", "plugins.import.canonicalNotice")).toContain(
-      "server-issued import receipt",
-    );
-    expect(translateMoss("zh-CN", "plugins.import.canonicalNotice")).toContain("服务器签发");
     expect(translateMoss("en", "dialog.close")).toBe("Close");
     expect(translateMoss("zh-CN", "dialog.close")).toBe("关闭");
     expect(translateMoss("en", "plugins.action.importPluginsAndSkills")).toBe(
@@ -264,8 +264,6 @@ describe("translateMoss", () => {
       "unsupported characters",
     );
     expect(translateMoss("zh-CN", "plugins.import.error.invalidMcpName")).toContain("不支持");
-    expect(translateMoss("en", "plugins.import.mcpPreview")).toContain("revalidates");
-    expect(translateMoss("zh-CN", "plugins.import.mcpPreview")).toContain("重新验证");
     expect(
       formatMossTranslation("en", "plugins.import.preview.mcp", {
         table: "mcpServers",
@@ -277,7 +275,7 @@ describe("translateMoss", () => {
         table: "mcpServers",
         name: "github",
       }),
-    ).toContain("操作：合并");
+    ).toBe("mcpServers.github");
   });
 
   it("localizes subagent, workflow, and timeline presentation keys", () => {

@@ -15,6 +15,7 @@ import { useRef, useState, type ReactNode } from "react";
 
 import {
   PLUGIN_IMPORT_MAX_BYTES,
+  PLUGIN_IMPORT_RECEIPT_REQUIRED_ERROR,
   type PluginImportFileAdapter,
   type PluginImportWriteReceipt,
 } from "~/lib/pluginImportAdapter";
@@ -211,7 +212,7 @@ describe("PluginLibraryImportDialog", () => {
         JSON.stringify({ name: "Local tools", description: "A local fixture" }),
         "application/json",
       );
-      await expect.element(page.getByTestId("plugin-import-conflict-missing")).toBeInTheDocument();
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
       await page.getByTestId("plugin-import-review-preview").click();
       await expect.element(page.getByTestId("plugin-import-preview-panel")).toBeInTheDocument();
       await page.getByTestId("plugin-import-confirm").click();
@@ -369,7 +370,7 @@ describe("PluginLibraryImportDialog", () => {
         JSON.stringify({ name: "Local tools", description: "A local fixture" }),
         "application/json",
       );
-      await expect.element(page.getByTestId("plugin-import-conflict-missing")).toBeInTheDocument();
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
       await page.getByTestId("plugin-import-review-preview").click();
       await page.getByTestId("plugin-import-confirm").click();
       await expect
@@ -423,7 +424,7 @@ describe("PluginLibraryImportDialog", () => {
         JSON.stringify({ mcpServers: { github: { command: "npx", args: ["-y", "github-mcp"] } } }),
         "application/json",
       );
-      await expect.element(page.getByTestId("plugin-import-conflict-merge")).toBeInTheDocument();
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
       await page.getByTestId("plugin-import-review-preview").click();
       await expect
         .element(page.getByTestId("plugin-import-preview-panel"))
@@ -472,7 +473,7 @@ describe("PluginLibraryImportDialog", () => {
         JSON.stringify({ name: "Local tools", description: "A local fixture" }),
         "application/json",
       );
-      await expect.element(page.getByTestId("plugin-import-conflict-missing")).toBeInTheDocument();
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
       await page.getByTestId("plugin-import-review-preview").click();
       await page.getByTestId("plugin-import-confirm").click();
       await expect
@@ -483,6 +484,158 @@ describe("PluginLibraryImportDialog", () => {
       expect(fixture.importDeleteMossResourceCalls).toHaveLength(0);
       expect(fixture.importFiles.get(siblingKey)).toBe("keep this sibling");
       expect(fixture.importApplyCalls).toHaveLength(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it.each([
+    {
+      name: "invalid plugin JSON",
+      kind: "plugin",
+      file: ["broken.json", "{not json}"],
+      existing: null,
+      says: "这个文件不是有效的 JSON，请换一个文件。",
+    },
+    {
+      name: "a plugin manifest that is not an object",
+      kind: "plugin",
+      file: ["plugin.json", "[]"],
+      existing: null,
+      says: "这个 plugin.json 格式不对，请换一个文件。",
+    },
+    {
+      name: "invalid MCP JSON",
+      kind: "mcp",
+      file: ["mcp.json", "{not json}"],
+      existing: null,
+      says: "这个文件不是有效的 JSON，请换一个文件。",
+    },
+    {
+      name: "an MCP config without a named server",
+      kind: "mcp",
+      file: ["mcp.json", JSON.stringify({ mcpServers: {} })],
+      existing: null,
+      says: "这个配置里没有命名的服务器，请换一个文件。",
+    },
+    {
+      name: "an unreadable existing MCP config",
+      kind: "mcp",
+      file: ["mcp.json", JSON.stringify({ mcpServers: { github: { command: "npx" } } })],
+      existing: { contents: "{not json}", truncated: false },
+      says: "现有 MCP 配置不是有效的 JSON，请修好后重试。",
+    },
+    {
+      name: "an MCP server name with a slash",
+      kind: "mcp",
+      file: ["mcp.json", JSON.stringify({ mcpServers: { "a/b": { command: "npx" } } })],
+      existing: null,
+      says: "服务器名称含有不支持的字符，请改名后重试。",
+    },
+    {
+      name: "an existing destination too large to replace",
+      kind: "plugin",
+      file: ["plugin.json", JSON.stringify({ name: "Local tools" })],
+      existing: { contents: "x", truncated: true },
+      says: "现有配置文件太大，无法替换，请手动修改。",
+    },
+  ] as const)("says what to do in Chinese for $name", async ({ kind, file, existing, says }) => {
+    localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
+    const adapter = {
+      readFile: async () => {
+        if (existing) return existing;
+        throw new Error("ENOENT: destination missing");
+      },
+      apply: async () => FIXTURE_WRITE_RECEIPT,
+    } satisfies PluginImportFileAdapter;
+    const screen = await render(<Harness adapter={adapter} />);
+
+    try {
+      if (kind === "mcp") await page.getByTestId("plugin-import-kind-mcp").click();
+      setFile(file[0], file[1], "application/json");
+      await expect.element(page.getByRole("alert")).toHaveTextContent(says);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it.each([
+    { kind: "plugin", file: ["plugin.json", JSON.stringify({ name: "Local tools" })] },
+    {
+      kind: "mcp",
+      file: ["mcp.json", JSON.stringify({ mcpServers: { github: { command: "npx" } } })],
+    },
+  ] as const)(
+    "says in Chinese to update Moss when $kind import has no receipt",
+    async ({ kind, file }) => {
+      localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
+      const adapter = {
+        readFile: async () => {
+          throw new Error("ENOENT: destination missing");
+        },
+        apply: async () => {
+          throw Object.assign(new Error("receipt required"), {
+            code: PLUGIN_IMPORT_RECEIPT_REQUIRED_ERROR,
+          });
+        },
+      } satisfies PluginImportFileAdapter;
+      const screen = await render(<Harness adapter={adapter} />);
+
+      try {
+        if (kind === "mcp") await page.getByTestId("plugin-import-kind-mcp").click();
+        setFile(file[0], file[1], "application/json");
+        await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
+        await page.getByTestId("plugin-import-review-preview").click();
+        await page.getByTestId("plugin-import-confirm").click();
+        await expect
+          .element(page.getByText("暂时无法导入，请更新 Moss 后重试。").first())
+          .toBeVisible();
+      } finally {
+        await screen.unmount();
+      }
+    },
+  );
+
+  it("says in Chinese that an imported MCP server loses its secrets and starts off", async () => {
+    localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
+    const adapter = {
+      readFile: async () => {
+        throw new Error("ENOENT: destination missing");
+      },
+      apply: async () => FIXTURE_WRITE_RECEIPT,
+    } satisfies PluginImportFileAdapter;
+    const screen = await render(<Harness adapter={adapter} />);
+    try {
+      await page.getByTestId("plugin-import-kind-mcp").click();
+      setFile(
+        "mcp.json",
+        JSON.stringify({ mcpServers: { github: { command: "npx", env: { TOKEN: "x" } } } }),
+        "application/json",
+      );
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
+      await page.getByTestId("plugin-import-review-preview").click();
+      await expect
+        .element(page.getByText("导入的服务器会去掉密钥字段，并保持关闭。", { exact: true }))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("says in Chinese that a file over 1 MB needs another file", async () => {
+    localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
+    const adapter = {
+      readFile: async () => {
+        throw new Error("unexpected read");
+      },
+      apply: async () => FIXTURE_WRITE_RECEIPT,
+    } satisfies PluginImportFileAdapter;
+    const screen = await render(<Harness adapter={adapter} />);
+    try {
+      setFile("plugin.json", "x".repeat(PLUGIN_IMPORT_MAX_BYTES + 1), "application/json");
+      await expect
+        .element(page.getByRole("alert"))
+        .toHaveTextContent("文件超过 1 MB，请换一个文件。");
     } finally {
       await screen.unmount();
     }
@@ -575,7 +728,7 @@ describe("PluginLibraryImportDialog", () => {
       const trigger = page.getByTestId("plugin-import-trigger").element();
       await userEvent.click(trigger);
       setFile("plugin.json", JSON.stringify({ name: "Pending" }), "application/json");
-      await expect.element(page.getByTestId("plugin-import-conflict-missing")).toBeInTheDocument();
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
       await page.getByTestId("plugin-import-review-preview").click();
       await page.getByTestId("plugin-import-confirm").click();
       await expect.element(page.getByTestId("plugin-import-progress-panel")).toBeInTheDocument();
@@ -726,9 +879,7 @@ describe("PluginLibraryImportDialog", () => {
           }),
           "application/json",
         );
-        await expect
-          .element(page.getByTestId("plugin-import-conflict-missing"))
-          .toBeInTheDocument();
+        await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
         const dialog = page.getByRole("dialog").element();
         expect(dialog.scrollWidth).toBeLessThanOrEqual(dialog.clientWidth);
         const reviewImport = page.getByTestId("plugin-import-review-preview").element();

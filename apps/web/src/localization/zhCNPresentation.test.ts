@@ -104,9 +104,7 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       "早上好。11月19日星期四。",
     );
     expect(translateZhCnPresentationText("prompts")).toBe("条提示词");
-    expect(translateZhCnPresentationText("Add a task, or press Tab to hand it to an agent")).toBe(
-      "添加任务，或按 Tab 键交给智能体",
-    );
+    expect(translateZhCnPresentationText("Add a task")).toBe("添加任务");
     expect(
       translateZhCnPresentationText("Nothing ran yet today. This fills in as your agents work."),
     ).toBe("今天还没有任何运行记录。随着智能体工作，这里会自动填充。");

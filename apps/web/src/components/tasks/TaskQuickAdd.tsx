@@ -17,7 +17,7 @@ import {
 
 export function TaskQuickAdd({
   inputRef,
-  placeholder = "Add a task, or press Tab to hand it to an agent",
+  placeholder = "Add a task",
   onCreate,
 }: {
   inputRef: RefObject<HTMLInputElement | null>;

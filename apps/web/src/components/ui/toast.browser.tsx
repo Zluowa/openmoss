@@ -92,19 +92,18 @@ it.each(["light", "dark"])("keeps %s error toasts tinted on whole-window glass",
   }
 });
 
-it("starts a centered toast below the 44px title bar, clear of the window controls", () => {
-  // From Synara #2179: in a narrow window the centered toast sat inside the title bar,
-  // under the minimize/maximize/close buttons.
+it("rests top-right like Claude desktop: 16px from the edge, 12px below the 44px top bar", () => {
+  // Claude desktop: `fixed top-[var(--toast-top-offset,56px)] end-4`.
   flushSync(() => toastManager.add({ title: "Title bar notice", timeout: 0 }));
   const viewport = document.querySelector<HTMLElement>('[data-slot="toast-viewport"]')!;
-  expect(viewport.dataset.position ?? "top-center").toBe("top-center");
+  expect(viewport.dataset.position).toBe("top-right");
   const popup = viewport.querySelector<HTMLElement>("[data-position]")!;
   expect(popup.getBoundingClientRect().height).toBeGreaterThan(0);
   // Where the card rests once its entry slide ends: the fixed viewport's top plus the card's
   // layout offset in it (offsetTop ignores the slide's transform).
   const restingTop = viewport.getBoundingClientRect().top + popup.offsetTop;
-  expect(restingTop).toBeGreaterThanOrEqual(CHAT_SURFACE_HEADER_HEIGHT_PX);
-  expect(restingTop).toBeLessThan(CHAT_SURFACE_HEADER_HEIGHT_PX + 24);
+  expect(restingTop).toBe(CHAT_SURFACE_HEADER_HEIGHT_PX + 12);
+  expect(Math.round(window.innerWidth - viewport.getBoundingClientRect().right)).toBe(16);
 });
 
 beforeEach(() => {
@@ -270,7 +269,7 @@ describe("toast focus and visible lifetime", () => {
   });
 });
 
-describe("collapsed top-center stack", () => {
+describe("collapsed top stack", () => {
   it("hides toasts behind the front one so wider ones do not peek out", () => {
     flushSync(() =>
       toastManager.add({ title: "A much longer older notification title", timeout: 0 }),

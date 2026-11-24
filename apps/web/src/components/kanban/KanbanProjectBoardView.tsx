@@ -189,7 +189,6 @@ export function KanbanProjectBoardView({
         toastManager.add({
           type: "info",
           title: "Chat send in progress",
-          description: "The board stood down; the running chat send owns this turn.",
         });
         return;
       }
@@ -326,7 +325,6 @@ export function KanbanProjectBoardView({
       toastManager.add({
         type: "info",
         title: "Awaiting you is derived automatically",
-        description: "Cards move here when they need your approval, input, or a retry.",
       });
     }
   };

@@ -4,24 +4,14 @@
 // Exports: submission presentation, transcript merge, and task preview helpers.
 
 export interface KanbanNewTaskSubmissionPresentation {
-  readonly dialogDescriptionKey:
-    | "kanban.newTask.dialogDescription.startNow"
-    | "kanban.newTask.dialogDescription.saveDraft";
-  readonly visibleOutcomeDescriptionKey:
-    | "kanban.newTask.startImmediatelyHint"
-    | "kanban.newTask.saveDraftHint";
   readonly primaryActionLabelKey: "kanban.newTask.startTask" | "kanban.newTask.saveDraft";
 }
 
 const START_TASK_PRESENTATION: KanbanNewTaskSubmissionPresentation = {
-  dialogDescriptionKey: "kanban.newTask.dialogDescription.startNow",
-  visibleOutcomeDescriptionKey: "kanban.newTask.startImmediatelyHint",
   primaryActionLabelKey: "kanban.newTask.startTask",
 };
 
 const SAVE_DRAFT_PRESENTATION: KanbanNewTaskSubmissionPresentation = {
-  dialogDescriptionKey: "kanban.newTask.dialogDescription.saveDraft",
-  visibleOutcomeDescriptionKey: "kanban.newTask.saveDraftHint",
   primaryActionLabelKey: "kanban.newTask.saveDraft",
 };
 
@@ -30,7 +20,7 @@ export function resolveKanbanNewTaskInitialSendAsDraft(initialSendAsDraft?: bool
   return initialSendAsDraft === true;
 }
 
-/** Keeps visible, dialog-a11y, and primary-action copy on one semantic branch. */
+/** Keeps the primary action on the same branch as the draft switch. */
 export function resolveKanbanNewTaskSubmissionPresentation(
   sendAsDraft: boolean,
 ): KanbanNewTaskSubmissionPresentation {

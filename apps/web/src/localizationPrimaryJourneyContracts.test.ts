@@ -81,11 +81,7 @@ const primaryCopy = [
     "Start new chat in last used project",
     "在上次使用的项目中新建对话",
   ],
-  [
-    "kanban.newTask.promptPlaceholder",
-    "Describe the task, @tag files/folders, paste images, or use / for skills",
-    "描述任务，使用 @ 标记文件/文件夹、粘贴图片，或输入 / 使用技能",
-  ],
+  ["kanban.newTask.promptPlaceholder", "Describe the task", "描述任务"],
   [
     "sidebar.collapseAllProjectsExceptActive",
     "Collapse all projects except the active project",
@@ -165,11 +161,6 @@ describe("HEL-20 primary zh-CN localization contract", () => {
       ["kanban.newTask.toast.addedToDrafts", "Task added to Drafts", "任务已添加到草稿"],
       ["kanban.newTask.toast.started", "Task started", "任务已启动"],
       ["kanban.newTask.toast.finishInChat", "Finish this task in the chat", "请在对话中完成此任务"],
-      [
-        "kanban.newTask.toast.worktreePending",
-        "Worktree setup stays on the normal composer send path.",
-        "请继续通过常规消息输入框发送，以完成工作树设置。",
-      ],
       ["kanban.newTask.toast.savedAsDraft", "The task was saved as a draft.", "任务已存为草稿。"],
       [
         "kanban.newTask.toast.savedToDraftsFallback",
@@ -217,11 +208,6 @@ describe("HEL-20 primary zh-CN localization contract", () => {
         "还没有可发送的内容；请在消息输入框中编写提示词。",
       ],
       [
-        "kanban.draft.toast.worktreePending",
-        "Open the chat to create the worktree with the normal send flow.",
-        "打开对话，通过常规发送流程创建工作树。",
-      ],
-      [
         "kanban.draft.toast.continueInChat",
         "Open the chat to continue this task.",
         "打开对话以继续此任务。",
@@ -242,11 +228,6 @@ describe("HEL-20 primary zh-CN localization contract", () => {
         "kanban.doneDrop.toast.derivedTitle",
         "Done is derived automatically",
         "已完成状态会自动确定",
-      ],
-      [
-        "kanban.doneDrop.toast.derivedDescription",
-        "Cards move here when their runs complete.",
-        "任务运行完成后，卡片会自动移到这里。",
       ],
     ] as const satisfies ReadonlyArray<readonly [TranslationKey, string, string]>;
 

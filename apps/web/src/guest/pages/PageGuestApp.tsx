@@ -8,6 +8,7 @@ import type {
   PageGuestAppReference,
   PageGuestComment,
   PageGuestCommentsResult,
+  PageGuestErrorReason,
   PageGuestTextThread,
   PageGuestView,
   PageId,
@@ -143,14 +144,15 @@ export function PageGuestApp(props: {
         />
       );
     }
+    const errorDetails: Partial<Record<PageGuestErrorReason, string>> = copy.errorDetails;
     const [title, detail] =
       failure.kind === "network"
         ? [copy.network, copy.networkDetail]
         : failure.kind === "relay"
           ? failure.status === 503
-            ? [copy.offline, copy.offlineDetail]
-            : [copy.errors.unavailable, copy.errorDetails.unavailable]
-          : [copy.errors[failure.reason], copy.errorDetails[failure.reason]];
+            ? [copy.offline, undefined]
+            : [copy.errors.unavailable, undefined]
+          : [copy.errors[failure.reason], errorDetails[failure.reason]];
     return (
       <GuestNotice title={title} detail={detail}>
         {failure.kind === "refused" ? null : (
@@ -903,7 +905,7 @@ function AccessRequest(props: {
     return <GuestNotice title={copy.request.pending} detail={copy.request.pendingDetail} busy />;
   }
   if (state.kind === "rejected") {
-    return <GuestNotice title={copy.request.rejected} detail={copy.request.rejectedDetail} />;
+    return <GuestNotice title={copy.request.rejected} />;
   }
   const submit = async () => {
     if (name.trim() === "" || entry.link === null) return;
@@ -937,7 +939,7 @@ function AccessRequest(props: {
     setState({ kind: "pending", ...pending });
   };
   return (
-    <GuestNotice title={copy.errors["invite-only"]} detail={copy.errorDetails["invite-only"]}>
+    <GuestNotice title={copy.errors["invite-only"]}>
       <form
         className="flex w-full flex-col gap-2 text-left"
         onSubmit={(event) => {

@@ -52,3 +52,17 @@ export function phoneWord(word: MossWord, language: "zh" | "en"): string {
   const chosen = word.phone ?? word;
   return language === "zh" ? chosen.zh : chosen.en;
 }
+
+/** The titles of GitHub-style alerts (`> [!NOTE]`) in a reply. */
+export const ALERT_WORDS = {
+  note: { en: "Note", zh: "说明" },
+  tip: { en: "Tip", zh: "提示" },
+  important: { en: "Important", zh: "重要" },
+  warning: { en: "Warning", zh: "警告" },
+  caution: { en: "Caution", zh: "注意" },
+} as const satisfies Record<string, MossWord>;
+
+/** The label of a reply's Mermaid diagram, which opens it full size. */
+export const DIAGRAM_WORDS = {
+  expand: { en: "Expand diagram", zh: "放大图表" },
+} as const satisfies Record<string, MossWord>;

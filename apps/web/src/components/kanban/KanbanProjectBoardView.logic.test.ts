@@ -100,7 +100,7 @@ describe("presentKanbanDraftDispatchResult", () => {
 
   it.each([
     ["empty", "还没有可发送的内容；请在消息输入框中编写提示词。"],
-    ["worktree-pending", "打开对话，通过常规发送流程创建工作树。"],
+    ["worktree-pending", null],
     ["not-draft", "打开对话以继续此任务。"],
   ] as const)(
     "localizes the %s open-thread reason and opens exactly once",
@@ -116,7 +116,7 @@ describe("presentKanbanDraftDispatchResult", () => {
       expect(addToast).toHaveBeenCalledWith({
         type: "info",
         title: "在对话中完成此草稿",
-        description,
+        ...(description === null ? {} : { description }),
       });
       expect(onOpenCard).toHaveBeenCalledTimes(1);
       expect(onOpenCard).toHaveBeenCalledWith(CARD);
@@ -167,9 +167,9 @@ describe("presentKanbanDraftDispatchResult", () => {
 
 describe("routeKanbanDraftColumnDrop", () => {
   it.each([
-    ["en", "Done is derived automatically", "Cards move here when their runs complete."],
-    ["zh-CN", "已完成状态会自动确定", "任务运行完成后，卡片会自动移到这里。"],
-  ] as const)("presents the derived Done outcome in %s", (locale, title, description) => {
+    ["en", "Done is derived automatically"],
+    ["zh-CN", "已完成状态会自动确定"],
+  ] as const)("presents the derived Done outcome in %s", (locale, title) => {
     const dispatchWithPreflight = vi.fn();
 
     routeKanbanDraftColumnDrop({
@@ -180,11 +180,7 @@ describe("routeKanbanDraftColumnDrop", () => {
     });
 
     expect(addToast).toHaveBeenCalledOnce();
-    expect(addToast).toHaveBeenCalledWith({
-      type: "info",
-      title,
-      description,
-    });
+    expect(addToast).toHaveBeenCalledWith({ type: "info", title });
     expect(dispatchWithPreflight).not.toHaveBeenCalled();
   });
 

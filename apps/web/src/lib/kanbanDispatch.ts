@@ -35,17 +35,16 @@ export type { DraftThreadDispatchTarget as KanbanDraftDispatchTarget } from "./d
 export function kanbanDispatchFailureToast(
   result: Exclude<KanbanDraftDispatchResult, { kind: "dispatched" }>,
   errorTitle: string,
-): { type: "info" | "error"; title: string; description: string } {
+): { type: "info" | "error"; title: string; description?: string } {
   if (result.kind === "open-thread") {
     return {
       type: "info",
       title: "Finish this draft in the chat",
-      description:
-        result.reason === "empty"
-          ? "Nothing to send yet. Write the prompt in the composer."
-          : result.reason === "worktree-pending"
-            ? "Open the chat to create the worktree with the normal send flow."
-            : "Open the chat to continue this task.",
+      ...(result.reason === "empty"
+        ? { description: "Nothing to send yet. Write the prompt in the composer." }
+        : result.reason === "worktree-pending"
+          ? {}
+          : { description: "Open the chat to continue this task." }),
     };
   }
   if (result.kind === "unavailable") {

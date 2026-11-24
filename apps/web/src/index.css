@@ -1582,18 +1582,7 @@ body [class*="openui-theme-portal-"] {
   border-left-color: var(--github-alert-color);
   color: var(--foreground);
 }
-.chat-markdown blockquote[data-github-alert="tip"] {
-  --github-alert-color: var(--success);
-}
-.chat-markdown blockquote[data-github-alert="important"] {
-  --github-alert-color: var(--status-merged);
-}
-.chat-markdown blockquote[data-github-alert="warning"] {
-  --github-alert-color: var(--warning);
-}
-.chat-markdown blockquote[data-github-alert="caution"] {
-  --github-alert-color: var(--destructive);
-}
+/* Each kind's colour is set on the element from packages/shared/src/markdownAlerts.ts. */
 .chat-markdown .markdown-alert-title {
   display: flex;
   align-items: center;
@@ -1683,19 +1672,8 @@ body [class*="openui-theme-portal-"] {
   font-family: inherit;
 }
 
-/* Mermaid diagrams (pele) read their colors through these, so a theme change
-   recolors them without re-rendering. */
-.pele {
-  --pele-bg: var(--background);
-  --pele-fg: var(--foreground);
-  --pele-muted: var(--muted-foreground);
-  --pele-line: var(--muted-foreground);
-  --pele-surface: var(--secondary);
-  --pele-surface-alt: var(--accent);
-  --pele-border: color-mix(in srgb, var(--foreground) 28%, transparent);
-  --pele-accent: var(--primary);
-  --pele-critical: var(--destructive);
-}
+/* Mermaid diagrams (pele) take their palette from the diagram's element: MermaidDiagram.tsx
+   sets it from the roles in packages/shared/src/markdownRendering.ts. */
 
 .chat-markdown .chat-markdown-mermaid {
   padding: 0.75rem;

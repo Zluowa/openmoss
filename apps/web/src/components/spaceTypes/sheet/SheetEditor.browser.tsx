@@ -233,6 +233,55 @@ describe("电子表格 editor", () => {
     }
   });
 
+  it("WALK-5 N3-1: 1200 Tab 34 Tab 56 Enter 78 Enter sit right in their cells and sum to 1,368", async () => {
+    await page.viewport(1200, 760);
+    const blank = parseSheetWorkbook({
+      version: 1,
+      sheets: [{ id: "s1", name: "工作表1", cells: [] }],
+    });
+    // Where each text is painted: its left x and its right edge (x + measured width).
+    const painted = new Map<string, { left: number; right: number }>();
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, ...rest) {
+      painted.set(String(text), { left: x, right: x + this.measureText(String(text)).width });
+      return fillText.call(this, text, x, y, ...rest);
+    };
+    try {
+      await render(
+        <div style={{ width: 1100, height: 680, display: "flex", flexDirection: "column" }}>
+          <SheetEditor workbook={blank} title="表" onChange={vi.fn()} onReplace={vi.fn()} />
+        </div>,
+      );
+      await vi.waitFor(() =>
+        expect(document.activeElement?.closest("[data-sheet-grid]")).not.toBeNull(),
+      );
+      // The walker's steps, through the real editor: A1, B1, C1, then A2.
+      await userEvent.keyboard("1200{Tab}34{Tab}56{Enter}78{Enter}");
+      await vi.waitFor(() => {
+        for (const text of ["1200", "34", "56", "78"]) expect(painted.has(text), text).toBe(true);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const at = (text: string) => painted.get(text)!;
+      // Right-aligned: 1200 (A1) and 78 (A2) end at the same right edge, though they start
+      // at different x; left-aligned they would start at the same x instead.
+      expect(Math.abs(at("1200").right - at("78").right)).toBeLessThan(2);
+      expect(Math.abs(at("1200").left - at("78").left)).toBeGreaterThan(5);
+      // A1, B1, C1 end one column apart: each at its own cell's right edge.
+      const step = at("34").right - at("1200").right;
+      expect(step).toBeGreaterThan(50);
+      expect(Math.abs(at("56").right - at("34").right - step)).toBeLessThan(2);
+      // And they are numbers: the bar sums A1:C2 to 1,368.
+      await userEvent.keyboard("{ArrowUp}{Shift>}{ArrowUp}{ArrowRight}{ArrowRight}{/Shift}");
+      await vi.waitFor(() =>
+        expect(document.querySelector<HTMLElement>("[data-sheet-figures]")?.innerText).toContain(
+          "求和：1,368",
+        ),
+      );
+    } finally {
+      CanvasRenderingContext2D.prototype.fillText = fillText;
+    }
+  });
+
   it("lays out the formula row, the grid, the tool card and the sheet bar", async () => {
     await page.viewport(1200, 760);
     await mount();

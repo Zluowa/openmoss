@@ -12,7 +12,7 @@ import type { KanbanCard, KanbanColumnKey } from "./kanban.logic";
 interface KanbanDraftDispatchToast {
   readonly type: "error" | "info" | "success";
   readonly title: string;
-  readonly description: string;
+  readonly description?: string;
 }
 
 export interface KanbanDraftDispatchSingleFlight {
@@ -53,7 +53,6 @@ export function presentKanbanDoneDrop(input: {
   input.addToast({
     type: "info",
     title: input.t("kanban.doneDrop.toast.derivedTitle"),
-    description: input.t("kanban.doneDrop.toast.derivedDescription"),
   });
 }
 
@@ -92,16 +91,14 @@ export function presentKanbanDraftDispatchResult(input: {
     return;
   }
   if (result.kind === "open-thread") {
-    const descriptionKey =
-      result.reason === "empty"
-        ? "kanban.draft.toast.empty"
-        : result.reason === "worktree-pending"
-          ? "kanban.draft.toast.worktreePending"
-          : "kanban.draft.toast.continueInChat";
     addToast({
       type: "info",
       title: t("kanban.draft.toast.finishInChat"),
-      description: t(descriptionKey),
+      ...(result.reason === "empty"
+        ? { description: t("kanban.draft.toast.empty") }
+        : result.reason === "worktree-pending"
+          ? {}
+          : { description: t("kanban.draft.toast.continueInChat") }),
     });
     onOpenCard(card);
     return;

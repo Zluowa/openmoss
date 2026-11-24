@@ -25,10 +25,15 @@ import {
 
 const mountedPages: Array<Awaited<ReturnType<typeof mountPluginLibrary>>> = [];
 
-async function mount(fixture: PluginLibraryNativeFixture, initialEntries?: readonly string[]) {
+async function mount(
+  fixture: PluginLibraryNativeFixture,
+  initialEntries?: readonly string[],
+  locale?: "zh-CN",
+) {
   const mounted = await mountPluginLibrary({
     fixture,
     ...(initialEntries ? { initialEntries } : {}),
+    ...(locale ? { locale } : {}),
   });
   mountedPages.push(mounted);
   return mounted;
@@ -40,7 +45,7 @@ async function waitForPlugin(name: string) {
 
 // Codex directory rows expose install as a quiet trailing "+" icon button
 // (aria-label only), so match by aria-label rather than visible text.
-const INSTALL_ACTION_LABEL = /^(Install|Installing(?:\.{3}|…))$/u;
+const INSTALL_ACTION_LABEL = /^(Install|Installing(?:\.{3}|…)|安装|安装插件|正在安装…)$/u;
 
 function isInstallActionButton(button: HTMLButtonElement): boolean {
   return (
@@ -207,7 +212,7 @@ describe("PluginLibrary complete-page states", () => {
       JSON.stringify({ name: "Main page import", description: "Native path" }),
       "application/json",
     );
-    await expect.element(page.getByTestId("plugin-import-conflict-missing")).toBeInTheDocument();
+    await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
     await page.getByTestId("plugin-import-review-preview").click();
     await expect.element(page.getByTestId("plugin-import-preview-panel")).toBeInTheDocument();
     await page.getByTestId("plugin-import-confirm").click();
@@ -268,7 +273,7 @@ describe("PluginLibrary complete-page states", () => {
         JSON.stringify({ name: "Generated route import", description: "Native path" }),
         "application/json",
       );
-      await expect.element(page.getByTestId("plugin-import-conflict-missing")).toBeInTheDocument();
+      await expect.element(page.getByTestId("plugin-import-review-preview")).toBeEnabled();
       await page.getByTestId("plugin-import-review-preview").click();
       await page.getByTestId("plugin-import-confirm").click();
       await expect
@@ -907,6 +912,33 @@ describe("PluginLibrary native lifecycle", () => {
     expect(page.getByRole("dialog").element().textContent).toContain("Slack");
   });
 
+  it("says in Chinese, on screen, when an install did not take effect", async () => {
+    const fixture = new PluginLibraryNativeFixture();
+    await mount(fixture, undefined, "zh-CN");
+    await waitForPlugin("GitHub");
+    await userEvent.click(pluginInstallButton("GitHub"));
+    await vi.waitFor(() => expect(fixture.installCalls).toHaveLength(1));
+    // The provider accepts the install, but the catalog never shows it installed.
+    fixture.installRequests.get("github")!.resolve({ authPolicy: "ON_USE", appsNeedingAuth: [] });
+
+    await expect
+      .poll(() => document.body.textContent, { timeout: 5_000 })
+      .toContain("没有生效，请刷新后重试。");
+  });
+
+  it("says in Chinese, on screen, to open a project when there is no workspace", async () => {
+    const fixture = new PluginLibraryNativeFixture();
+    fixture.serverCwd = "";
+    await mount(fixture, undefined, "zh-CN");
+    await waitForPlugin("GitHub");
+    await userEvent.click(pluginInstallButton("GitHub"));
+
+    await expect
+      .poll(() => document.body.textContent, { timeout: 5_000 })
+      .toContain("请先打开一个项目。");
+    expect(fixture.installCalls).toHaveLength(0);
+  });
+
   it("keeps a settled install successful when the optional app reread is unavailable", async () => {
     const fixture = new PluginLibraryNativeFixture();
     fixture.appListError = new Error("provider app catalog unavailable");
@@ -930,12 +962,7 @@ describe("PluginLibrary native lifecycle", () => {
     await expect
       .poll(() => document.querySelector('[role="dialog"]')?.textContent, { timeout: 3_000 })
       .toContain("Connect your apps to GitHub");
-    expect(addToast).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "warning",
-        title: "Plugin installed, but app connections could not refresh",
-      }),
-    );
+    expect(addToast).not.toHaveBeenCalledWith(expect.objectContaining({ type: "warning" }));
     expect(addToast).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "error", title: "Install failed" }),
     );

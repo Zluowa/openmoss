@@ -51,6 +51,7 @@ import { render } from "vitest-browser-react";
 
 import { PluginLibrary } from "~/components/PluginLibrary";
 import { SidebarProvider } from "~/components/ui/sidebar";
+import { ToastProvider } from "~/components/ui/toast";
 import { MossLocalizationProvider } from "~/localization";
 import { StoreProvider } from "~/store";
 import { resetWsNativeApiForTest } from "~/wsNativeApi";
@@ -242,6 +243,8 @@ export class PluginLibraryNativeFixture {
   readonly setPluginEnabledRequests = new Map<string, Deferred<ProviderSetPluginEnabledResult>>();
   readonly uninstallPluginRequests = new Map<string, Deferred<ProviderUninstallPluginResult>>();
   readPluginInstalledOverride: boolean | null = null;
+  /** The server's working folder; an empty string means no workspace is open. */
+  serverCwd = "/repo/project";
   serverSettings: ServerSettings = structuredClone(DEFAULT_SERVER_SETTINGS);
   readonly apps = [appInfo("github", "GitHub"), appInfo("slack", "Slack")];
   readonly skillsCatalog: ProviderSkillDescriptor[] = [];
@@ -624,7 +627,7 @@ export class PluginLibraryNativeFixture {
 
   nativeApi(): NativeApi {
     const serverConfig: ServerConfig = {
-      cwd: "/repo/project",
+      cwd: this.serverCwd,
       worktreesDir: "/repo/.worktrees",
       keybindingsConfigPath: "/repo/project/.moss-keybindings.json",
       keybindings: [],
@@ -832,11 +835,15 @@ function TestProviders({
 export async function mountPluginLibrary(input: {
   readonly fixture: PluginLibraryNativeFixture;
   readonly initialEntries?: readonly string[];
+  readonly locale?: "en" | "zh-CN";
 }) {
   const previousNativeApi = window.nativeApi;
   const previousAppSettings = localStorage.getItem("moss:app-settings:v1");
   const previousDocumentLocale = snapshotBrowserDocumentLocale();
-  localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "en" }));
+  localStorage.setItem(
+    "moss:app-settings:v1",
+    JSON.stringify({ localeOverride: input.locale ?? "en" }),
+  );
   window.nativeApi = input.fixture.nativeApi();
 
   const queryClient = new QueryClient({
@@ -845,7 +852,14 @@ export async function mountPluginLibrary(input: {
       mutations: { retry: false },
     },
   });
-  const rootRoute = createRootRoute({ component: Outlet });
+  // Toasts read the active route, so they render inside the router, as in the app.
+  const rootRoute = createRootRoute({
+    component: () => (
+      <ToastProvider position="top-center">
+        <Outlet />
+      </ToastProvider>
+    ),
+  });
   const routeComponent = () => <PluginLibrary />;
   const skillsRoute = createRoute({
     getParentRoute: () => rootRoute,

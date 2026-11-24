@@ -36,7 +36,7 @@ export function GuestNotice({
   busy = false,
 }: {
   readonly title: string;
-  readonly detail?: string;
+  readonly detail?: string | undefined;
   readonly children?: ReactNode;
   readonly busy?: boolean;
 }) {

@@ -441,12 +441,16 @@ function GuestTranscript({
                         </span>
                       ) : (
                         <>
-                          <span className="min-w-0 truncate text-muted-foreground">
-                            {notice?.text}
-                          </span>
-                          <span aria-hidden className="text-muted-foreground/60">
-                            ·
-                          </span>
+                          {notice?.text ? (
+                            <>
+                              <span className="min-w-0 truncate text-muted-foreground">
+                                {notice.text}
+                              </span>
+                              <span aria-hidden className="text-muted-foreground/60">
+                                ·
+                              </span>
+                            </>
+                          ) : null}
                           <WhatIsMossLink className="shrink-0" />
                         </>
                       )}

@@ -23,7 +23,6 @@ import {
   PluginIcon,
   TerminalIcon,
   TriangleAlertIcon,
-  Undo2Icon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import {
@@ -47,7 +46,6 @@ import {
 import { Button } from "./ui/button";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -473,7 +471,6 @@ export function PluginLibraryImportDialog({
       >
         <DialogHeader>
           <DialogTitle data-testid="plugin-import-title">{t("plugins.import.title")}</DialogTitle>
-          <DialogDescription>{t("plugins.import.subtitle")}</DialogDescription>
         </DialogHeader>
 
         <Stepper stage={stage} t={t} />
@@ -516,16 +513,7 @@ export function PluginLibraryImportDialog({
                       ) : (
                         <FileIcon aria-hidden="true" className="size-4 shrink-0" />
                       )}
-                      <span className="min-w-0">
-                        <span className="block font-medium">{importKindLabel(option, t)}</span>
-                        <span className="block text-ui-sm text-muted-foreground">
-                          {option === "plugin"
-                            ? t("plugins.import.source.pluginHint")
-                            : option === "skill"
-                              ? t("plugins.import.source.skillHint")
-                              : t("plugins.import.source.mcpHint")}
-                        </span>
-                      </span>
+                      <span className="min-w-0 font-medium">{importKindLabel(option, t)}</span>
                     </label>
                   ))}
                 </div>
@@ -555,15 +543,11 @@ export function PluginLibraryImportDialog({
                       <p className="text-ui-lg font-medium text-foreground">
                         {source?.sourceName ?? t("plugins.import.source.noFile")}
                       </p>
-                      <p className="text-ui-sm text-muted-foreground">
-                        {source
-                          ? t("plugins.import.source.ready")
-                          : kind === "plugin"
-                            ? t("plugins.import.source.pluginHint")
-                            : kind === "skill"
-                              ? t("plugins.import.source.skillHint")
-                              : t("plugins.import.source.mcpHint")}
-                      </p>
+                      {source ? (
+                        <p className="text-ui-sm text-muted-foreground">
+                          {t("plugins.import.source.ready")}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <Button
@@ -621,16 +605,6 @@ export function PluginLibraryImportDialog({
                   <TriangleAlertIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
                   <span>{error}</span>
                 </StatusNotice>
-              ) : conflict?.status === "missing" ? (
-                <StatusNotice tone="success" testId="plugin-import-conflict-missing">
-                  <CircleCheckIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                  <span>{t("plugins.import.conflict.none")}</span>
-                </StatusNotice>
-              ) : conflict?.status === "merge" ? (
-                <StatusNotice tone="success" testId="plugin-import-conflict-merge">
-                  <CircleCheckIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                  <span>{t("plugins.import.conflict.merge")}</span>
-                </StatusNotice>
               ) : conflict?.status === "existing" ? (
                 <div className="space-y-3">
                   <StatusNotice tone="warning" testId="plugin-import-conflict-existing">
@@ -661,14 +635,7 @@ export function PluginLibraryImportDialog({
                         checked={conflictChoice === "skip"}
                         onChange={() => setConflictChoice("skip")}
                       />
-                      <span>
-                        <span className="block font-medium">
-                          {t("plugins.import.conflict.skip")}
-                        </span>
-                        <span className="block text-ui-sm text-muted-foreground">
-                          {t("plugins.import.conflict.skipHint")}
-                        </span>
-                      </span>
+                      <span className="font-medium">{t("plugins.import.conflict.skip")}</span>
                     </label>
                     <label
                       className="flex cursor-pointer items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
@@ -757,13 +724,8 @@ export function PluginLibraryImportDialog({
                     : candidate.previewText}
                 </pre>
               </div>
-              <StatusNotice tone="muted">
-                <span>{t("plugins.import.canonicalNotice")}</span>
-              </StatusNotice>
               {candidate.kind === "mcp" ? (
-                <StatusNotice tone="muted">
-                  <span>{t("plugins.import.mcpPreview")}</span>
-                </StatusNotice>
+                <p className="text-ui-sm text-muted-foreground">{t("plugins.import.mcpPreview")}</p>
               ) : null}
             </div>
           ) : null}
@@ -824,11 +786,6 @@ export function PluginLibraryImportDialog({
                       : t("plugins.import.result.failed")}
                 </span>
               </StatusNotice>
-              {result.status === "imported" ? (
-                <StatusNotice tone="muted">
-                  <span>{t("plugins.import.canonicalNotice")}</span>
-                </StatusNotice>
-              ) : null}
               <div className="rounded-card border border-border bg-muted/20 p-3 text-ui-lg">
                 <p className="font-medium text-foreground">{result.candidate.name}</p>
                 <code className="mt-1 block break-all text-ui-sm text-muted-foreground">
@@ -836,9 +793,10 @@ export function PluginLibraryImportDialog({
                 </code>
               </div>
               {result.canRollback && !result.rolledBack ? (
-                <StatusNotice tone="warning">
-                  <Undo2Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                  <span className="min-w-0 flex-1">{t("plugins.import.rollback.prompt")}</span>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-ui-sm text-muted-foreground">
+                    {t("plugins.import.rollback.prompt")}
+                  </span>
                   <Button
                     type="button"
                     variant="outline"
@@ -851,7 +809,7 @@ export function PluginLibraryImportDialog({
                       ? t("plugins.import.rollback.working")
                       : t("plugins.import.rollback.action")}
                   </Button>
-                </StatusNotice>
+                </div>
               ) : null}
               {result.rolledBack ? (
                 <StatusNotice tone="success" testId="plugin-import-rollback-done">

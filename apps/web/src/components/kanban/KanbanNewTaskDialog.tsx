@@ -88,10 +88,7 @@ import {
   buildKanbanTaskPreview,
   resolveKanbanNewTaskInitialSendAsDraft,
 } from "./KanbanNewTaskDialog.logic";
-import {
-  KanbanNewTaskSubmissionControls,
-  KanbanNewTaskSubmissionDescription,
-} from "./KanbanNewTaskSubmissionControls";
+import { KanbanNewTaskSubmissionControls } from "./KanbanNewTaskSubmissionControls";
 import { KanbanTaskExtrasMenu } from "./KanbanTaskExtrasMenu";
 import { KanbanTaskProjectPicker } from "./KanbanTaskProjectPicker";
 import { useKanbanTaskComposerMenu } from "./useKanbanTaskComposerMenu";
@@ -504,7 +501,6 @@ export function KanbanNewTaskDialog({
               {t("kanban.newTask")}
             </DialogTitle>
           </div>
-          <KanbanNewTaskSubmissionDescription sendAsDraft={sendAsDraft} />
         </DialogHeader>
         {/* Flush, borderless composer body: same Lexical prompt editor and attachment row as chat. */}
         <DialogPanel
@@ -698,10 +694,7 @@ export function KanbanNewTaskDialog({
                 />
               ) : null}
             </div>
-            <label
-              className="flex shrink-0 cursor-pointer items-center gap-2 text-ui-xs text-muted-foreground"
-              title={sendAsDraft ? "Turn off Send as draft to send as goal." : undefined}
-            >
+            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-ui-xs text-muted-foreground">
               <Switch
                 checked={sendAsGoal && !sendAsDraft}
                 disabled={sendAsDraft}

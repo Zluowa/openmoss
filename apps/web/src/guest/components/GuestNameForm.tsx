@@ -67,7 +67,6 @@ export function GuestNameForm({
         </div>
         <div className="flex flex-col gap-2">
           <h1 className={PAGE_TITLE_CLASS_NAME}>{t("guest.join.title")}</h1>
-          <p className="text-ui-sm text-muted-foreground">{t("guest.join.lede")}</p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="guest-name" className="text-ui-sm font-medium">

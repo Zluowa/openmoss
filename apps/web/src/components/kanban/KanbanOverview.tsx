@@ -134,9 +134,6 @@ export function KanbanOverview({
       <div className="flex h-full items-center justify-center px-6">
         <div className="max-w-sm text-center">
           <div className="text-ui-lg font-medium text-foreground">Nothing on the board yet</div>
-          <div className="mt-1 text-ui text-muted-foreground">
-            Drafted prompts, running turns, and completed chats will show up here automatically.
-          </div>
         </div>
       </div>
     );

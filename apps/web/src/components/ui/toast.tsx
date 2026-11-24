@@ -606,7 +606,7 @@ function ToastProvider({
   timeout = DEFAULT_TOAST_TIMEOUT_MS,
   ...props
 }: ToastProviderProps) {
-  const position = positionProp ?? "top-center";
+  const position = positionProp ?? "top-right";
   return (
     <Toast.Provider timeout={timeout} toastManager={toastManager} {...props}>
       {children}
@@ -616,7 +616,7 @@ function ToastProvider({
 }
 
 function Toasts({ position: positionProp }: { position: ToastPosition }) {
-  const position = positionProp ?? "top-center";
+  const position = positionProp ?? "top-right";
   const { toasts } = Toast.useToastManager<ThreadToastData>();
   const visibleThreadIds = useVisibleThreadIdsFromRoute();
   const isTop = position.startsWith("top");
@@ -647,14 +647,15 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
     <Toast.Portal data-slot="toast-portal">
       <Toast.Viewport
         className={cn(
-          "fixed z-[200] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-sm [--toast-inset:--spacing(4)] sm:[--toast-inset:--spacing(8)]",
-          // Vertical positioning; every top toast clears the top bar and the window
-          // controls in it (upstream PR #2179). 44px is CHAT_SURFACE_HEADER_HEIGHT_PX, literal
-          // so Tailwind can scan it. The controls keep their z-order above toasts
-          // (routes/__root.tsx).
-          "data-[position=top-center]:top-[calc(--spacing(2)+44px)]",
-          "data-[position=top-left]:top-[calc(var(--toast-inset)+44px)]",
-          "data-[position=top-right]:top-[calc(var(--toast-inset)+44px)]",
+          "fixed z-[200] mx-auto flex w-[calc(100%-var(--toast-inset)*2)] max-w-sm [--toast-inset:--spacing(4)]",
+          // Placement follows Claude desktop (design standard, 提示): top right, 16px from the
+          // edge, 12px below the 44px top bar (Claude: `top: 56px; inset-inline-end: 16px`), so a
+          // toast never covers the page heading (left), the composer (bottom) or the dock tabs
+          // (in the top bar). 44px is CHAT_SURFACE_HEADER_HEIGHT_PX, literal so Tailwind can
+          // scan it; the window controls keep their z-order above toasts (routes/__root.tsx).
+          "data-[position=top-center]:top-[calc(--spacing(3)+44px)]",
+          "data-[position=top-left]:top-[calc(--spacing(3)+44px)]",
+          "data-[position=top-right]:top-[calc(--spacing(3)+44px)]",
           "data-[position*=bottom]:bottom-(--toast-inset)",
           // Horizontal positioning
           "data-[position*=left]:left-(--toast-inset)",
@@ -707,14 +708,14 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
                 // If that shared measurement is briefly stale, long content can render
                 // outside the card until hover expands the toast and swaps to its own height.
                 "[--toast-calc-height:max(var(--toast-frontmost-height,var(--toast-height)),var(--toast-height))] [--toast-gap:--spacing(3)] [--toast-peek:--spacing(3)] [--toast-scale:calc(max(0,1-(var(--toast-index)*.1)))] [--toast-shrink:calc(1-var(--toast-scale))]",
-                // Top-center uses a flat banner stack without peek/shrink offsets.
-                "data-[position=top-center]:[--toast-peek:0px] data-[position=top-center]:[--toast-scale:1] data-[position=top-center]:[--toast-shrink:0]",
-                "data-[position=top-center]:transform-[translateX(var(--toast-swipe-movement-x))_translateY(var(--toast-swipe-movement-y))]",
-                "data-[position=top-center]:data-expanded:transform-[translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-offset-y)+var(--toast-swipe-movement-y)))]",
+                // Top toasts use a flat banner stack without peek/shrink offsets.
+                "data-[position*=top]:[--toast-peek:0px] data-[position*=top]:[--toast-scale:1] data-[position*=top]:[--toast-shrink:0]",
+                "data-[position*=top]:transform-[translateX(var(--toast-swipe-movement-x))_translateY(var(--toast-swipe-movement-y))]",
+                "data-[position*=top]:data-expanded:transform-[translateX(var(--toast-swipe-movement-x))_translateY(calc(var(--toast-offset-y)+var(--toast-swipe-movement-y)))]",
                 // With no peek, toasts behind the front one would sit exactly under it and
                 // show their edges when wider; hide them until hover expands the stack.
                 hideCollapsedContent &&
-                  "data-[position=top-center]:not-data-expanded:pointer-events-none data-[position=top-center]:not-data-expanded:opacity-0",
+                  "data-[position*=top]:not-data-expanded:pointer-events-none data-[position*=top]:not-data-expanded:opacity-0",
                 // Define offset-y variable
                 "data-[position*=top]:[--toast-calc-offset-y:calc(var(--toast-offset-y)+var(--toast-index)*var(--toast-gap)+var(--toast-swipe-movement-y))]",
                 "data-[position*=bottom]:[--toast-calc-offset-y:calc(var(--toast-offset-y)*-1+var(--toast-index)*var(--toast-gap)*-1+var(--toast-swipe-movement-y))]",
@@ -728,7 +729,7 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
                 "data-position:data-expanded:transform-[translateX(var(--toast-swipe-movement-x))_translateY(var(--toast-calc-offset-y))]",
                 // Starting and ending animations
                 "data-[position*=top]:data-starting-style:transform-[translateY(calc(-100%-var(--toast-inset)))]",
-                "data-[position=top-center]:data-ending-style:not-data-limited:not-data-swipe-direction:transform-[translateY(calc(var(--toast-swipe-movement-y)-100%-var(--toast-inset)))]",
+                "data-[position*=top]:data-ending-style:not-data-limited:not-data-swipe-direction:transform-[translateY(calc(var(--toast-swipe-movement-y)-100%-var(--toast-inset)))]",
                 "data-[position*=bottom]:data-starting-style:transform-[translateY(calc(100%+var(--toast-inset)))]",
                 "data-[position*=top]:data-[position*=right]:data-starting-style:transform-[translateX(calc(100%+var(--toast-inset)))_translateY(var(--toast-calc-offset-y))]",
                 "data-ending-style:opacity-0",

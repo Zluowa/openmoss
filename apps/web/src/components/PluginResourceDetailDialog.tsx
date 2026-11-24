@@ -50,6 +50,7 @@ import { PluginLibraryDetailIconBox } from "./PluginLibraryPrimitives";
 import { localizeAntigravityRuntimeMessage } from "~/lib/antigravityRuntimeMessages";
 import { toastManager } from "./ui/toast";
 import { Skeleton } from "./ui/skeleton";
+import { Spinner } from "./ui/spinner";
 import { ensureNativeApi } from "~/nativeApi";
 import { skillFilePath, skillMarkdownBody } from "~/lib/skillContent";
 
@@ -413,9 +414,7 @@ function IncludesBody({
     const skills = pluginDetail?.skills ?? [];
     const mcpServers = pluginDetail?.mcpServers ?? [];
     if (loading && !pluginDetail) {
-      return (
-        <p className="text-ui-lg text-muted-foreground">{t("plugins.detail.loadingIncludes")}</p>
-      );
+      return <Spinner className="size-4 text-muted-foreground" />;
     }
     if (apps.length === 0 && skills.length === 0 && mcpServers.length === 0) {
       return <p className="text-ui-lg text-muted-foreground">{t("plugins.detail.noIncludes")}</p>;
@@ -464,10 +463,7 @@ function IncludesBody({
       </div>
     );
   }
-  if (detail.kind === "skill") {
-    return <p className="text-ui-lg text-muted-foreground">{t("plugins.detail.skillHarness")}</p>;
-  }
-  return <p className="text-ui-lg text-muted-foreground">{t("plugins.detail.mcpHarness")}</p>;
+  return null;
 }
 
 type PluginPageSectionKind = "apps" | "skills" | "mcps" | "information";
@@ -530,12 +526,8 @@ function PluginPagePromptShowcase({
 
   return (
     <div
-      className="relative mx-2 flex min-h-[122px] justify-center overflow-hidden rounded-panel bg-[#dfe3fb] px-4 py-8 sm:px-8"
+      className="relative mx-2 flex min-h-[122px] justify-center overflow-hidden rounded-panel bg-muted px-4 py-8 sm:px-8"
       data-testid="plugin-detail-prompt"
-      style={{
-        backgroundImage:
-          "radial-gradient(100% 150% at 4% 50%, rgba(185, 205, 250, 0.96) 0%, rgba(219, 226, 255, 0.28) 62%, transparent 82%), radial-gradient(90% 170% at 62% -28%, rgba(184, 180, 235, 0.72) 0%, transparent 66%), radial-gradient(85% 180% at 100% 72%, rgba(218, 198, 249, 0.88) 0%, transparent 74%), linear-gradient(104deg, #cdd9fa 0%, #d7d7f4 58%, #eee6fb 100%)",
-      }}
     >
       <div className="relative flex w-full max-w-[640px] flex-col items-center justify-center gap-2">
         {prompts.map((prompt) => (
@@ -1071,13 +1063,15 @@ export function PluginResourceDetailDialog({
               detail={effectiveDetail}
               onActivate={onTryInChat ? () => onTryInChat() : undefined}
             />
-            <DetailSection title={t("plugins.detail.includes")}>
-              <IncludesBody
-                detail={effectiveDetail}
-                pluginDetail={pluginDetail}
-                loading={pluginDetailLoading}
-              />
-            </DetailSection>
+            {effectiveDetail.kind === "plugin" ? (
+              <DetailSection title={t("plugins.detail.includes")}>
+                <IncludesBody
+                  detail={effectiveDetail}
+                  pluginDetail={pluginDetail}
+                  loading={pluginDetailLoading}
+                />
+              </DetailSection>
+            ) : null}
             <DetailSection title={t("plugins.detail.information")}>
               <MetaBody detail={effectiveDetail} />
             </DetailSection>
@@ -1421,9 +1415,6 @@ export function PluginResourceDetailPage({
                 detail={effectiveDetail}
                 onActivate={onTryInChat ? (prompt) => onTryInChat(prompt) : undefined}
               />
-              <DetailSection title={t("plugins.detail.includes")}>
-                <IncludesBody detail={effectiveDetail} />
-              </DetailSection>
               <DetailSection title={t("plugins.detail.information")}>
                 <MetaBody detail={effectiveDetail} />
               </DetailSection>

@@ -11,6 +11,7 @@ export function MossAppsAccountNotice({
   readonly onAction: () => void;
 }) {
   const { t } = useTranslation();
+  if (availability === "ready") return null;
   return (
     <div
       className="flex items-center justify-between gap-3 text-ui-xs text-muted-foreground"
@@ -18,20 +19,18 @@ export function MossAppsAccountNotice({
     >
       <p>
         {t(
-          availability === "ready"
-            ? "apps.accountInfo"
-            : availability === "authentication-required"
-              ? "apps.error.login"
-              : availability === "login-account-required"
-                ? "apps.error.loginAccount"
-                : availability === "unconfigured"
-                  ? "apps.error.unconfigured"
-                  : "apps.error.unavailable",
+          availability === "authentication-required"
+            ? "apps.error.login"
+            : availability === "login-account-required"
+              ? "apps.error.loginAccount"
+              : availability === "unconfigured"
+                ? "apps.error.unconfigured"
+                : "apps.error.unavailable",
         )}
       </p>
       {/* Nothing to retry or sign in to while Moss Apps is not offered (a gateway without the
           Apps module answers that way too): one calm line, no button. */}
-      {availability !== "ready" && availability !== "unconfigured" ? (
+      {availability !== "unconfigured" ? (
         <Button variant="ghost" size="xs" onClick={onAction}>
           {t(
             availability === "authentication-required"

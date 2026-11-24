@@ -355,7 +355,7 @@ function RootRouteView() {
 
   return (
     <RealtimeVoiceControllerProvider>
-      <ToastProvider position="top-center">
+      <ToastProvider position="top-right">
         <AnchoredToastProvider>
           <GitProgressToastPreviewDev />
           <EventRouter />

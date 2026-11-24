@@ -22,14 +22,9 @@ import {
   CheckIcon,
   CodeIcon,
   CopyIcon,
-  InfoIcon,
-  LightbulbIcon,
-  OctagonAlertIcon,
   TerminalIcon,
   TextWrapIcon,
-  TriangleAlertIcon,
   WorkflowIcon,
-  type LucideIcon,
 } from "~/lib/icons";
 import {
   INLINE_VISUAL_EMBED_FENCE,
@@ -43,6 +38,8 @@ import { isLocalAbsolutePath } from "@moss/shared/path";
 import "katex/dist/katex.min.css";
 import { matchWikiLinkAt, remarkWikiLinks } from "../lib/remarkWikiLinks";
 import { remarkGithubAlerts, type GithubAlertKind } from "../lib/remarkGithubAlerts";
+import { MARKDOWN_ALERTS, type MarkdownAlertTone } from "@moss/shared/markdownAlerts";
+import { MARKDOWN_MATH, MERMAID_FENCE_LANGUAGE } from "@moss/shared/markdownRendering";
 import { remarkHtmlBreaks } from "../lib/remarkHtmlBreaks";
 import { MARKDOWN_IMAGE_ROW_CLASS_NAME, remarkImageRows } from "../lib/remarkImageRows";
 import { isFenceClosedInSource } from "../lib/markdownFence";
@@ -477,7 +474,7 @@ const ParsedMarkdown = memo(function ParsedMarkdown({
 
 const MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [
   remarkGfm,
-  [remarkMath, { singleDollarTextMath: true }],
+  [remarkMath, { singleDollarTextMath: MARKDOWN_MATH.singleDollarText }],
   remarkGithubAlerts,
   remarkHtmlBreaks,
   remarkImageRows,
@@ -2075,12 +2072,22 @@ const MarkdownSourceTextContext = createContext("");
 const MarkdownSourceTextReaderContext = createContext<() => string>(() => "");
 
 // Stable component types preserve code highlighting timers, copy state and image state.
-const GITHUB_ALERTS: Record<GithubAlertKind, { title: TranslationKey; icon: LucideIcon }> = {
-  note: { title: "chat.markdown.alert.note", icon: InfoIcon },
-  tip: { title: "chat.markdown.alert.tip", icon: LightbulbIcon },
-  important: { title: "chat.markdown.alert.important", icon: InfoIcon },
-  warning: { title: "chat.markdown.alert.warning", icon: TriangleAlertIcon },
-  caution: { title: "chat.markdown.alert.caution", icon: OctagonAlertIcon },
+const GITHUB_ALERT_TITLES: Record<GithubAlertKind, TranslationKey> = {
+  note: "chat.markdown.alert.note",
+  tip: "chat.markdown.alert.tip",
+  important: "chat.markdown.alert.important",
+  warning: "chat.markdown.alert.warning",
+  caution: "chat.markdown.alert.caution",
+};
+
+// Each kind's glyph and colour role come from packages/shared/src/markdownAlerts.ts, which the
+// phone reads too; the roles map to this theme's colours here.
+const GITHUB_ALERT_TONE_COLORS: Record<MarkdownAlertTone, string> = {
+  info: "var(--info)",
+  success: "var(--success)",
+  merged: "var(--status-merged)",
+  warning: "var(--warning)",
+  critical: "var(--destructive)",
 };
 
 function TechnicalBidiIsolate(props: { active: boolean; children: ReactNode }) {
@@ -2156,14 +2163,18 @@ const MARKDOWN_COMPONENTS: Components = {
     // the label is translated here and the quoted text around it stays as written.
     const { t } = useTranslation();
     const kind = (props as { "data-github-alert"?: GithubAlertKind })["data-github-alert"];
-    const alert = kind ? GITHUB_ALERTS[kind] : undefined;
-    if (!alert) return <blockquote {...props}>{children}</blockquote>;
-    const Icon = alert.icon;
+    const alert = kind ? MARKDOWN_ALERTS[kind] : undefined;
+    if (!kind || !alert) return <blockquote {...props}>{children}</blockquote>;
     return (
-      <blockquote {...props}>
+      <blockquote
+        {...props}
+        style={
+          { "--github-alert-color": GITHUB_ALERT_TONE_COLORS[alert.tone] } as React.CSSProperties
+        }
+      >
         <p className="markdown-alert-title">
-          <Icon aria-hidden className="size-[1.1em] shrink-0" />
-          {t(alert.title)}
+          <CentralIcon name={alert.glyph} aria-hidden className="size-[1.1em] shrink-0" />
+          {t(GITHUB_ALERT_TITLES[kind])}
         </p>
         {children}
       </blockquote>
@@ -2451,7 +2462,11 @@ const MARKDOWN_COMPONENTS: Components = {
           </Suspense>
         </CodeHighlightErrorBoundary>
       );
-    if (fence.language === "mermaid" && !isUserVariant && code.length <= MAX_MERMAID_SOURCE_CHARS) {
+    if (
+      fence.language === MERMAID_FENCE_LANGUAGE &&
+      !isUserVariant &&
+      code.length <= MAX_MERMAID_SOURCE_CHARS
+    ) {
       // While the reply streams, only a fence that has closed is drawn.
       const fenceOpen = isStreaming && !isFenceClosedInSource(sourceText, code, codeOffsetInSource);
       return (

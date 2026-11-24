@@ -3,7 +3,6 @@
 // Layer: Web component
 // Exports: PluginMarketplaceDialog and its exact mutation result shape
 
-import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import { useEffect, useState } from "react";
 import type { ProviderAddMarketplaceResult } from "@moss/contracts";
 
@@ -16,7 +15,6 @@ import { useTranslation } from "~/localization";
 import { Button } from "./ui/button";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -86,19 +84,6 @@ export function PluginMarketplaceDialog({
           <DialogTitle data-testid="plugin-marketplace-title">
             {t("plugins.marketplace.title")}
           </DialogTitle>
-          <DialogDescription>
-            {t("plugins.marketplace.subtitle")}{" "}
-            {MOSS_HELP_SITE_URL ? (
-              <a
-                href={MOSS_HELP_SITE_URL}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-foreground underline underline-offset-2"
-              >
-                {t("plugins.marketplace.learnMore")}
-              </a>
-            ) : null}
-          </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-3">
           <label className="flex flex-col gap-1.5 text-ui-lg text-muted-foreground">

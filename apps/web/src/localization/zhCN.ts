@@ -1230,7 +1230,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
     "检查过时的依赖，升级安全的次版本和补丁版本，然后运行测试。",
   "Local folders unavailable": "本地文件夹不可用",
   "Stopped after a failed run": "因运行失败而停止",
-  "Turn off Send as draft to send as goal.": "关闭“以草稿发送”即可作为目标发送。",
   Share: "分享",
   Activity: "活动",
   "Activity insights": "活动洞察",

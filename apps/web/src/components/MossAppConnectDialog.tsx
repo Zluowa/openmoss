@@ -214,15 +214,13 @@ export function MossAppConnectDialog({
       ? format("apps.connect.waiting", { name: target.name })
       : format("apps.connect.title", { name: target.name });
   const body =
-    stage === "waiting"
-      ? t("apps.connect.waitingHint")
-      : stage === "failed" && !usesCredentials
-        ? (failure ?? format("apps.toast.failed", { name: target.name }))
-        : needsSetup
-          ? format("apps.connect.setupBody", { name: target.name })
-          : usesCredentials
-            ? format("apps.connect.credentialsBody", { name: target.name })
-            : format("apps.connect.body", { name: target.name });
+    stage === "failed" && !usesCredentials
+      ? (failure ?? format("apps.toast.failed", { name: target.name }))
+      : needsSetup && stage !== "waiting"
+        ? format("apps.connect.setupBody", { name: target.name })
+        : stage === "waiting"
+          ? null
+          : format("apps.connect.body", { name: target.name });
 
   return (
     <Dialog
@@ -264,16 +262,18 @@ export function MossAppConnectDialog({
               <DialogTitle className="text-[20px] font-semibold leading-7 text-balance">
                 {title}
               </DialogTitle>
-              <p
-                className={
-                  stage === "failed" && !usesCredentials
-                    ? "text-ui-lg leading-6 text-destructive"
-                    : "text-ui-lg leading-6 text-muted-foreground"
-                }
-                role={stage === "failed" && !usesCredentials ? "alert" : undefined}
-              >
-                {body}
-              </p>
+              {body ? (
+                <p
+                  className={
+                    stage === "failed" && !usesCredentials
+                      ? "text-ui-lg leading-6 text-destructive"
+                      : "text-ui-lg leading-6 text-muted-foreground"
+                  }
+                  role={stage === "failed" && !usesCredentials ? "alert" : undefined}
+                >
+                  {body}
+                </p>
+              ) : null}
               {stage === "intro" && !needsSetup ? (
                 <p className="text-ui leading-5 text-muted-foreground/80">
                   {t("apps.connect.manageHint")}

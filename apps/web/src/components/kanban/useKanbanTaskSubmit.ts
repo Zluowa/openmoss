@@ -184,7 +184,6 @@ export function useKanbanTaskSubmit(input: UseKanbanTaskSubmitInput) {
           toastManager.add({
             type: "info",
             title: "Chat send in progress",
-            description: "The board stood down; the running chat send owns this turn.",
           });
           closeDialog = true;
           return;
@@ -201,10 +200,9 @@ export function useKanbanTaskSubmit(input: UseKanbanTaskSubmitInput) {
         toastManager.add({
           type: "info",
           title: t("kanban.newTask.toast.finishInChat"),
-          description:
-            result.reason === "worktree-pending"
-              ? t("kanban.newTask.toast.worktreePending")
-              : t("kanban.newTask.toast.savedAsDraft"),
+          ...(result.reason === "worktree-pending"
+            ? {}
+            : { description: t("kanban.newTask.toast.savedAsDraft") }),
         });
         closeDialog = true;
         threadIdToOpen = threadId;

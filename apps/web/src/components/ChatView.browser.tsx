@@ -131,7 +131,7 @@ import {
 import { getRouter } from "../router";
 import { showContextMenuFallback } from "../contextMenuFallback";
 import { useRightDockStore } from "../rightDockStore";
-import { closeSettings, settingsDialogStore } from "../settingsDialogStore";
+import { closeSettings, openSettings, settingsDialogStore } from "../settingsDialogStore";
 import { dockTerminalThreadId } from "../lib/dockTerminalScope";
 import { collectLeaves } from "../splitView.logic";
 import { GITHUB_INBOX_DOCK_HOST_ID } from "../rightDockStore.logic";
@@ -187,6 +187,19 @@ import { hasUnseenSnoozeReturn } from "./Sidebar.logic";
 // Pre-transform the compiler-heavy component outside the first case's timeout.
 // The router's auto-split route otherwise requests this module on first mount.
 import "./ChatView";
+
+// Off for every test but the title-bar one, which needs the desktop app's own title-bar
+// chrome: the back/forward arrows, the cluster's reserved box and, on Windows, the band over
+// 图像 and 资料空间. All three ask `~/lib/desktopTitleBar`, switched on for that test only;
+// everything else stays the web build.
+const desktopTitleBar = vi.hoisted(() => ({ on: false }));
+vi.mock("~/lib/desktopTitleBar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/lib/desktopTitleBar")>();
+  return {
+    desktopTitleBarControlsShown: () => desktopTitleBar.on || actual.desktopTitleBarControlsShown(),
+    desktopTitleBarBandShown: () => desktopTitleBar.on || actual.desktopTitleBarBandShown(),
+  };
+});
 
 const realtimeVoiceChatHarness = vi.hoisted(() => ({
   webRtcConstructed: vi.fn(),
@@ -6179,6 +6192,206 @@ describe("ChatView transcript geometry (full app)", () => {
         useMossbotPreferencesStore.getState().setOnboardingSkipped(false);
       }
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the sidebar toggle in one place on every page, panel open or collapsed (walk R-9)", async () => {
+    desktopTitleBar.on = true;
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("titlebar-toggle-place"),
+        targetText: "Title bar toggle place",
+      }),
+    });
+    const sidebarState = () =>
+      document.querySelector('[data-slot="sidebar"][data-side="left"]')?.getAttribute("data-state");
+    const toggle = () =>
+      document.querySelector<HTMLButtonElement>('button[aria-label="Toggle thread sidebar"]')!;
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 450)); // the panel's slide
+    const place = () => {
+      const rect = toggle().getBoundingClientRect();
+      return { left: Math.round(rect.left), top: Math.round(rect.top) };
+    };
+    const setPanel = async (open: boolean, at = "") => {
+      if ((sidebarState() === "expanded") !== open) {
+        toggle().click();
+        await expect
+          .poll(sidebarState, { message: `${at} panel ${open ? "opens" : "closes"}` })
+          .toBe(open ? "expanded" : "collapsed");
+      }
+      await settle();
+    };
+    // The cluster (toggle, and the arrows in the desktop app) is drawn over the title bar:
+    // a click reaches it, and no text or control of the page lies under it.
+    // Electron folds the drag and no-drag boxes of the page in document order: the last one
+    // over a point decides whether a click there drags the window.
+    const nativeRegionsOver = (box: DOMRect) =>
+      Array.from(document.querySelectorAll<HTMLElement>("body *")).flatMap((element) => {
+        const rect = element.getBoundingClientRect();
+        if (
+          rect.width === 0 ||
+          rect.height === 0 ||
+          rect.right <= box.left ||
+          box.right <= rect.left ||
+          rect.bottom <= box.top ||
+          box.bottom <= rect.top
+        ) {
+          return [];
+        }
+        const region = getComputedStyle(element).getPropertyValue("-webkit-app-region");
+        return region === "drag" || region === "no-drag" ? [{ rect, region }] : [];
+      });
+    const nativeRegionAt = (regions: ReturnType<typeof nativeRegionsOver>, x: number, y: number) =>
+      regions.reduce(
+        (last, { rect, region }) =>
+          x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom ? region : last,
+        "",
+      );
+    const expectClearOfPage = (at: string) => {
+      const cluster = toggle().parentElement!;
+      const box = cluster.getBoundingClientRect();
+      // One cluster: one Back and one Forward on screen.
+      for (const name of ["Back", "Forward"]) {
+        expect(
+          document.querySelectorAll(`button[aria-label="${name}"]`),
+          `${at}: one ${name}`,
+        ).toHaveLength(1);
+      }
+      const regions = nativeRegionsOver(box);
+      // Every control of the cluster takes a click at its centre, and nothing of the page
+      // lies over its edges (a rounded corner may hand the edge to the cluster itself).
+      for (const control of cluster.querySelectorAll<HTMLButtonElement>("button")) {
+        const rect = control.getBoundingClientRect();
+        const y = rect.top + rect.height / 2;
+        const centre = document.elementFromPoint(rect.left + rect.width / 2, y);
+        // A disabled arrow (nowhere to go) takes no pointer: then nothing else may be on top.
+        expect(
+          (control.disabled ? cluster : control).contains(centre),
+          `${at}: ${control.ariaLabel} takes the click`,
+        ).toBe(true);
+        expect(
+          nativeRegionAt(regions, rect.left + rect.width / 2, y),
+          `${at}: ${control.ariaLabel} does not drag the window`,
+        ).toBe("no-drag");
+        for (const x of [rect.left + 1, rect.right - 1]) {
+          const edge = document.elementFromPoint(x, y);
+          expect(cluster.contains(edge), `${at}: ${control.ariaLabel} edge is clear`).toBe(true);
+        }
+      }
+      const underneath = Array.from(
+        document.querySelectorAll<HTMLElement>("h1, h2, h3, button, a, input, [role='tab']"),
+      ).filter((element) => {
+        if (cluster.contains(element) || element.closest("[aria-hidden='true']")) return false;
+        // The panel's resize edge runs the full height beside the rail, under the cluster
+        // (the click checks above show the cluster is on top); it is not page content.
+        if (element.dataset.slot === "sidebar-rail") return false;
+        if (!element.checkVisibility({ opacityProperty: true, visibilityProperty: true })) {
+          return false;
+        }
+        const other = element.getBoundingClientRect();
+        if (other.width === 0 || other.height === 0) return false;
+        return (
+          other.left < box.right &&
+          box.left < other.right &&
+          other.top < box.bottom &&
+          box.top < other.bottom
+        );
+      });
+      expect(
+        underneath.map((element) => element.textContent?.trim() || element.tagName),
+        `${at}: nothing of the page under the title-bar controls`,
+      ).toEqual([]);
+    };
+    try {
+      await waitForLayout();
+      await setPanel(true);
+      expect(
+        toggle().parentElement!.querySelectorAll("button").length,
+        "toggle, Back and Forward render",
+      ).toBe(3);
+      const home = place();
+      // Every page the rail opens, by clicking its button, then settings. Mossbot is left out
+      // only because main still runs its own onboarding there, which holds the panel and
+      // disables the toggle; #820 removes that onboarding and puts Mossbot back in this list.
+      const rail = document.querySelector<HTMLElement>('nav[aria-label="Primary"]')!;
+      const railLabels = Array.from(rail.querySelectorAll<HTMLButtonElement>("button"))
+        .filter((button) => !button.hasAttribute("aria-haspopup")) // menus (More), not pages
+        .map((button) => button.getAttribute("aria-label") ?? "")
+        .filter((label) => label !== "" && label !== "Mossbot");
+      expect(railLabels.length, "rail items").toBeGreaterThanOrEqual(5);
+      const panelHeldOn: string[] = [];
+      const bandOn: string[] = [];
+      const visited: string[] = [];
+      // Pages opened from elsewhere than a rail button (应用页 from the built-in apps, the board
+      // when hidden from the rail) go by route.
+      const routes = ["/apps", "/kanban"] as const;
+      for (const to of [...railLabels, ...routes, "settings"]) {
+        if ((routes as readonly string[]).includes(to)) {
+          await mounted.router.navigate({ to: to as (typeof routes)[number] });
+          await expect.poll(() => mounted.router.state.location.pathname).toBe(to);
+          await expect.poll(() => mounted.router.state.status).toBe("idle");
+          await settle();
+          visited.push(to);
+        } else if (to === "settings") {
+          // Settings opens over the shell as a modal: the cluster keeps its place under the
+          // modal's overlay (back/forward must not act behind an open dialog), and takes clicks
+          // again once it closes.
+          openSettings({ section: "general" });
+          await expect.poll(() => document.querySelector('[role="dialog"]')).not.toBeNull();
+          await settle();
+          expect(place(), "settings").toEqual(home);
+          closeSettings();
+          await expect.poll(() => document.querySelector('[role="dialog"]')).toBeNull();
+        } else {
+          const item = () =>
+            rail.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(to)}"]`)!;
+          item().click();
+          await expect
+            .poll(() => item().getAttribute("aria-current"), { message: `${to} is current` })
+            .toBe("page");
+          // The rail re-syncs its item once the route has loaded; act after that.
+          await expect
+            .poll(() => mounted.router.state.status, { message: `${to} loads` })
+            .toBe("idle");
+          await settle();
+          visited.push(to);
+        }
+        // A full-width page (收信箱, 代码审查…) brings the panel back when the toggle opens it.
+        // 资料空间 replaces the chat shell and keeps the panel hidden, so the toggle has nothing
+        // to open there: its cluster is checked with the panel collapsed only.
+        if (sidebarState() === "collapsed") {
+          toggle().click();
+          for (let waited = 0; waited < 2000 && sidebarState() === "collapsed"; waited += 100) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+          await settle();
+        }
+        const held = sidebarState() === "collapsed";
+        if (to === "资料空间" || to === "Images") {
+          // Full-window pages: the Windows title band is there to drag the window by.
+          expect(
+            document.querySelector("[data-moss-destination-menubar]"),
+            `${to}: title band`,
+          ).not.toBeNull();
+          bandOn.push(to);
+        }
+        if (held) panelHeldOn.push(to);
+        for (const open of held ? [false] : [true, false]) {
+          await setPanel(open, `${to} (${mounted.router.state.location.pathname}):`);
+          const at = `${to} (${mounted.router.state.location.pathname}), panel ${open ? "open" : "collapsed"}`;
+          expect(place(), at).toEqual(home);
+          expectClearOfPage(at);
+        }
+        if (!held) await setPanel(true, `${to}, back:`);
+      }
+      expect(panelHeldOn, "pages that keep the panel hidden").toEqual(["资料空间"]);
+      expect([...bandOn].sort(), "full-window pages visited").toEqual(["Images", "资料空间"]);
+      expect(visited, "every rail page was visited").toEqual([...railLabels, ...routes]);
+    } finally {
+      desktopTitleBar.on = false;
+      closeSettings();
       await mounted.cleanup();
     }
   });

@@ -321,7 +321,6 @@ export function useKanbanCardContextMenu(): KanbanCardContextMenuController {
             toastManager.add({
               type: "info",
               title: "Chat send in progress",
-              description: "The board stood down; the running chat send owns this turn.",
             });
           } else if (result.warning) {
             toastManager.add({

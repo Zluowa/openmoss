@@ -110,10 +110,6 @@ const AUTOMATIONS_COPY: Readonly<Record<string, string>> = {
   "Move to…": "移到…",
   "Unknown error.": "未知错误。",
   "Board view": "看板视图",
-  "Drafted prompts, running turns, and completed chats will show up here automatically.":
-    "起草的提示词、运行中的回合和已完成的对话都会自动显示在这里。",
-  "The board stood down; the running chat send owns this turn.":
-    "看板已退出；这一轮由正在运行的对话发送负责。",
   "Nothing to send yet. Write the prompt in the composer.":
     "还没有可发送的内容。请在输入框中写下提示词。",
 };

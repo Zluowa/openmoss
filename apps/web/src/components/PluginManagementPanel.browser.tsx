@@ -203,7 +203,7 @@ describe("PluginManagementPanel authoritative tabs", () => {
       const heading = page.getByRole("heading", { level: 1, name: "插件" });
       await expect.element(content).toBeInTheDocument();
       await expect.element(heading).toHaveTextContent("插件");
-      await expect.element(page.getByText("管理插件、技能和 MCP")).toBeInTheDocument();
+      expect(page.getByText("管理插件、技能和 MCP").all()).toHaveLength(0);
       await expect.element(page.getByPlaceholder("搜索插件")).toBeInTheDocument();
 
       const tabs = [
@@ -613,7 +613,7 @@ describe("PluginManagementPanel authoritative tabs", () => {
     }
   });
 
-  it("says once why another CLI's MCP switches can't be used here", async () => {
+  it("lists another CLI's MCP servers without an explanatory line", async () => {
     const server = (name: string, origin: string) => ({
       name,
       transport: "stdio" as const,
@@ -632,10 +632,7 @@ describe("PluginManagementPanel authoritative tabs", () => {
     );
     try {
       await expect.element(page.getByText("ghidra", { exact: true })).toBeVisible();
-      await expect
-        .element(page.getByTestId("plugin-manage-mcp-external-hint"))
-        .toHaveTextContent("这些服务来自 Codex 自己的设置，要在 Codex 里开关。");
-      expect(page.getByTestId("plugin-manage-mcp-external-hint").all()).toHaveLength(1);
+      expect(page.getByTestId("plugin-manage-mcp-external-hint").all()).toHaveLength(0);
     } finally {
       await screen.unmount();
     }

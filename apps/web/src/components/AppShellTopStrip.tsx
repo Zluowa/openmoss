@@ -10,13 +10,13 @@ import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS } from "~/hooks/useDesktopTo
 import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { SidebarLeadingControlsSlot } from "./SidebarHeaderNavigationControls";
-import { useSidebar } from "./ui/sidebar";
 
 export function AppShellTopStrip() {
-  // The cluster's box leaves with the panel, and the route header's box
-  // (SidebarHeaderNavigationControls) takes over while it is collapsed. The cluster itself
-  // is painted once over either box by SidebarLeadingControlsDock.
-  const { open } = useSidebar();
+  // The cluster keeps one place at the left of the title bar on every page, panel open or
+  // collapsed (walk 2026-11-24, R-9): this box is always there, and the dock paints the
+  // cluster over it. Collapsed, the strip is narrower than the cluster; the box overflows
+  // its clip and the page header starts to the cluster's right
+  // (SidebarHeaderNavigationControls).
   return (
     // Zero intrinsic width: the column's width comes from the rail and panel only. The
     // padding (including the traffic-light gutter) lives on the inner row, because a box's
@@ -34,7 +34,7 @@ export function AppShellTopStrip() {
           isElectron && isMacNavigatorPlatform() && DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS,
         )}
       >
-        {open ? <SidebarLeadingControlsSlot /> : null}
+        <SidebarLeadingControlsSlot />
       </div>
     </header>
   );

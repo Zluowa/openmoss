@@ -11,7 +11,7 @@ const TASKS_COPY: Readonly<Record<string, string>> = {
   List: "列表",
   "Task title": "任务标题",
   "Double-click or press F2 to rename": "双击或按 F2 重命名",
-  "Add a task, or press Tab to hand it to an agent": "添加任务，或按 Tab 键交给智能体",
+  "Add a task": "添加任务",
   "Couldn't load your tasks.": "无法加载你的任务。",
   "All done": "全部完成",
   "Add anything you need to do": "添加你要做的事",
@@ -61,8 +61,6 @@ const TASKS_COPY: Readonly<Record<string, string>> = {
   "Wait for the current send to finish, then delegate this task again.":
     "请等当前发送结束，再重新委派这个任务。",
   "Finish delegating in the chat": "请在对话中完成委派",
-  "Worktree setup runs from the chat composer.": "工作树设置要在对话输入框中运行。",
-  "The chat has nothing to send yet.": "这个对话还没有可发送的内容。",
   "Couldn't start the agent": "无法启动智能体",
   "The server is not reachable.": "无法连接到服务器。",
   "Couldn't confirm the task's chat link": "无法确认任务与对话的关联",

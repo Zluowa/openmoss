@@ -119,10 +119,6 @@ export function useTaskDelegation(options: {
       toastManager.add({
         type: "info",
         title: "Finish delegating in the chat",
-        description:
-          result.reason === "worktree-pending"
-            ? "Worktree setup runs from the chat composer."
-            : "The chat has nothing to send yet.",
       });
       void navigate({ to: "/$threadId", params: { threadId } });
       return true;
