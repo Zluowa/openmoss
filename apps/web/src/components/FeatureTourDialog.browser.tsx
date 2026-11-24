@@ -2,7 +2,7 @@ import "../index.css";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { isBetaFeatureEnabled } from "@moss/shared/betaFeatures";
-import { act, useState } from "react";
+import { act } from "react";
 import { page, userEvent } from "vitest/browser";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -10,13 +10,9 @@ import { render } from "vitest-browser-react";
 import { useFeatureTourStore } from "~/featureTour/store";
 import { useOnboardingDialogStore } from "~/onboarding/onboardingDialogStore";
 import { useProjectImportDialogStore } from "~/projectImport/projectImportDialogStore";
-import { ProjectImportAnnouncementDialog } from "~/projectImport/ProjectImportAnnouncementDialog";
 import { useAnnouncementSheetSlotStore } from "./announcementSheetSlot";
 import { FeatureTourDialog } from "./FeatureTourDialog";
-import { AppSnapWelcomeDialog } from "./AppSnapWelcomeDialog";
 import { Button } from "./ui/button";
-import { Dialog, DialogPopup, DialogTitle } from "./ui/dialog";
-import { ToastProvider, toastManager } from "./ui/toast";
 
 const tourState = vi.hoisted(() => ({
   installation: "/first/worktrees",
@@ -82,213 +78,17 @@ async function show(children = <FeatureTourDialog />) {
   return screen;
 }
 
-it("navigates Stable highlights, remembers dismissal per installation, and replays after a handoff", async () => {
-  const screen = await show();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  await page
-    .getByRole("dialog")
-    .screenshot({ path: "node_modules/.cache/feature-tour-desktop.png" });
-  await page.getByRole("button", { name: "Next", exact: true }).click();
-  await expect.element(page.getByRole("dialog", { name: "Your agents, together" })).toBeVisible();
-  await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  await page.getByRole("button", { name: "Show From review to the next change" }).click();
-  await expect.element(page.getByRole("button", { name: "Start exploring" })).toBeVisible();
-  await expect
-    .element(page.getByRole("button", { name: "Show Give bigger work a team" }))
-    .not.toBeInTheDocument();
-  await page.getByRole("button", { name: "Start exploring" }).click();
-  await screen.unmount();
-  screens.splice(screens.indexOf(screen), 1);
+it("WALK-6 H-1: opens nothing by itself on a fresh profile; only Replay shows the tour", async () => {
+  // Fresh profile: this installation was never seen, no replay asked.
+  localStorage.removeItem(tourKey);
   await show();
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  useAnnouncementSheetSlotStore.setState({ handedOff: true });
-  useFeatureTourStore.getState().open();
+  // Longer than the startup announcements took to appear in the walk.
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  expect(page.getByRole("dialog").elements()).toHaveLength(0);
+  act(() => useFeatureTourStore.getState().open());
   await expect
     .element(page.getByRole("dialog", { name: "A new home for your work" }))
     .toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-});
-
-it("announces again when the browser connects to a different installation", async () => {
-  localStorage.setItem(tourKey, JSON.stringify([installation]));
-  installation = "/second/worktrees";
-  tourState.installation = installation;
-  localStorage.setItem(importKey, JSON.stringify([installation]));
-  await show();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  expect(JSON.parse(localStorage.getItem(tourKey) ?? "[]")).toEqual([
-    "/first/worktrees",
-    "/second/worktrees",
-  ]);
-});
-
-it("shows the same highlights on Beta (no Hubs slide) and waits for other modal flows to close", async () => {
-  tourState.flavor = "beta";
-  useOnboardingDialogStore.setState({ startupGateSettled: false });
-  function Flow() {
-    const [open, setOpen] = useState(true);
-    return (
-      <>
-        <Dialog open={open}>
-          <DialogPopup>
-            <DialogTitle>Existing setup</DialogTitle>
-            <Button onClick={() => setOpen(false)}>Finish setup</Button>
-          </DialogPopup>
-        </Dialog>
-        <FeatureTourDialog />
-      </>
-    );
-  }
-  await show(<Flow />);
-  useOnboardingDialogStore.getState().markStartupGateSettled();
-  await expect.element(page.getByRole("dialog", { name: "Existing setup" })).toBeVisible();
-  expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
-  await page.getByRole("button", { name: "Finish setup" }).click();
-  // Hubs were removed (2026-11-10), so Beta ends on the review slide like Stable.
-  await page.getByRole("button", { name: "Show From review to the next change" }).click();
-  await expect
-    .element(page.getByRole("dialog", { name: "From review to the next change" }))
-    .toBeVisible();
-  expect(
-    page.getByRole("button", { name: "Show Give bigger work a team" }).elements(),
-  ).toHaveLength(0);
-  await page.getByRole("button", { name: "Start exploring" }).click();
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-});
-
-it("waits for project import announcements instead of racing their shared slot", async () => {
-  localStorage.removeItem(importKey);
-  await show(
-    <>
-      <ProjectImportAnnouncementDialog />
-      <FeatureTourDialog />
-    </>,
-  );
-  await expect.element(page.getByRole("dialog", { name: "Import projects" })).toBeVisible();
-  expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
-  await page.getByRole("button", { name: "Not now" }).click();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-});
-
-it.each(["low", "high"] as const)(
-  "hands off from import to the tour within one second while a %s priority toast remains",
-  async (priority) => {
-    localStorage.removeItem(importKey);
-    await show(
-      <ToastProvider>
-        <ProjectImportAnnouncementDialog />
-        <FeatureTourDialog />
-      </ToastProvider>,
-    );
-    await expect.element(page.getByRole("dialog", { name: "Import projects" })).toBeVisible();
-    vi.useFakeTimers({
-      toFake: [
-        "setTimeout",
-        "clearTimeout",
-        "requestAnimationFrame",
-        "cancelAnimationFrame",
-        "Date",
-      ],
-    });
-    // CSS animations use the browser clock; isolate the scheduler's latency here.
-    // The real-animation tests above cover waiting for exiting dialogs.
-    const animations = vi.spyOn(Element.prototype, "getAnimations").mockReturnValue([]);
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    let toastId: ReturnType<typeof toastManager.add> | undefined;
-    try {
-      await act(async () => {
-        toastId = toastManager.add({ title: "Startup notice", priority, timeout: 10_000 });
-      });
-      expect(document.querySelector('[data-slot="toast-title"]')?.textContent).toBe(
-        "Startup notice",
-      );
-      expect(document.querySelector("[data-feature-tour]")).toBeNull();
-      await act(async () => {
-        (page.getByRole("button", { name: "Not now" }).element() as HTMLButtonElement).click();
-      });
-      // Flush React between clock ticks so a restarted quiet timer counts against the budget.
-      for (let elapsed = 0; elapsed < 1_000; elapsed += 50) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(50);
-        });
-        expect(document.querySelectorAll('[data-slot="dialog-popup"]').length).toBeLessThanOrEqual(
-          1,
-        );
-      }
-      expect(document.querySelector("[data-feature-tour][data-open]")).not.toBeNull();
-      expect(useAnnouncementSheetSlotStore.getState().owner).not.toBeNull();
-      expect(document.querySelector('[data-slot="toast-title"]')?.textContent).toBe(
-        "Startup notice",
-      );
-      expect(JSON.parse(localStorage.getItem(importKey) ?? "[]")).toEqual([installation]);
-      expect(localStorage.getItem(tourKey)).toBeNull();
-    } finally {
-      await act(async () => {
-        if (toastId !== undefined) toastManager.close(toastId);
-      });
-      animations.mockRestore();
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-    }
-  },
-);
-
-it("does not jump ahead of a slow AppSnap probe and then waits for its dismissal", async () => {
-  let resolveProbe!: (value: { supported: true }) => void;
-  window.desktopBridge = {
-    ...originalBridge,
-    appSnap: {
-      getState: () =>
-        new Promise((resolve) => {
-          resolveProbe = resolve;
-        }),
-    },
-  } as unknown as NonNullable<typeof window.desktopBridge>;
-  await show(
-    <AppSnapWelcomeDialog>
-      <FeatureTourDialog />
-    </AppSnapWelcomeDialog>,
-  );
-  // A full quiet interval passes while the real owner is still probing.
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
-  resolveProbe({ supported: true });
-  await expect.element(page.getByRole("dialog", { name: "Moss AppSnaps are live!" })).toBeVisible();
-  await page.getByRole("button", { name: "Not now" }).click();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-});
-
-it.each([
-  ["windows", "Press Alt + Shift + S"],
-  ["macos", "Press both Option keys"],
-] as const)("describes the AppSnap shortcut that works on %s", async (platform, text) => {
-  // Windows has no Option keys; AppSnap there runs on a key combination the person picks.
-  window.desktopBridge = {
-    ...originalBridge,
-    appSnap: { getState: async () => ({ supported: true, platform }) },
-  } as unknown as NonNullable<typeof window.desktopBridge>;
-  await show(<AppSnapWelcomeDialog />);
-  const dialog = page.getByRole("dialog", { name: "Moss AppSnaps are live!" });
-  await expect.element(dialog).toBeVisible();
-  const description = dialog.element().textContent ?? "";
-  expect(description).toContain(text);
-  if (platform === "windows") expect(description).not.toContain("Option");
 });
 
 it("keeps the tour usable on a narrow screen and with large UI text", async () => {
@@ -302,6 +102,7 @@ it("keeps the tour usable on a narrow screen and with large UI text", async () =
   for (const [key, value] of Object.entries(sizes))
     document.documentElement.style.setProperty(key, `${value}px`);
   try {
+    act(() => useFeatureTourStore.getState().open());
     await show();
     await expect
       .element(page.getByRole("dialog", { name: "A new home for your work" }))
@@ -343,87 +144,4 @@ it("restores manual replay focus after keyboard navigation and Escape", async ()
       page.getByRole("button", { name: "Replay highlights" }).element(),
     ),
   );
-});
-
-it("closes an automatic tour when another window acknowledges this installation", async () => {
-  await show();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  const value = JSON.stringify([installation]);
-  localStorage.setItem(tourKey, value);
-  window.dispatchEvent(
-    new StorageEvent("storage", { key: tourKey, newValue: value, storageArea: localStorage }),
-  );
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-});
-
-it("keeps the highlights away from a fresh profile whose first run recorded this installation", async () => {
-  // First-run completion (useOnboarding) records the installation before announcements mount.
-  localStorage.setItem(tourKey, JSON.stringify([installation]));
-  await show();
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-});
-
-it("writes the tour dismissal to disk at once so an upgraded profile sees it only once", async () => {
-  const flushStorage = vi.fn();
-  window.desktopBridge = { ...originalBridge, flushStorage } as unknown as NonNullable<
-    typeof window.desktopBridge
-  >;
-  const screen = await show();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  expect(flushStorage).toHaveBeenCalled();
-  await screen.unmount();
-  screens.splice(screens.indexOf(screen), 1);
-  await show();
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-});
-
-it("remembers AppSnap's Not now across launches and writes it to disk at once", async () => {
-  const flushStorage = vi.fn();
-  window.desktopBridge = {
-    ...originalBridge,
-    flushStorage,
-    appSnap: { getState: async () => ({ supported: true, platform: "windows" }) },
-  } as unknown as NonNullable<typeof window.desktopBridge>;
-  localStorage.setItem(tourKey, JSON.stringify([installation]));
-  const screen = await show(<AppSnapWelcomeDialog />);
-  await expect.element(page.getByRole("dialog", { name: "Moss AppSnaps are live!" })).toBeVisible();
-  await page.getByRole("button", { name: "Not now" }).click();
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  expect(flushStorage).toHaveBeenCalled();
-  expect(JSON.parse(localStorage.getItem("moss:appsnap-welcome:v1") ?? "{}")).toEqual({
-    acknowledged: true,
-  });
-  await screen.unmount();
-  screens.splice(screens.indexOf(screen), 1);
-  await show(<AppSnapWelcomeDialog />);
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-});
-
-it("holds the AppSnap introduction while signed out without holding back the startup surfaces", async () => {
-  window.desktopBridge = {
-    ...originalBridge,
-    appSnap: { getState: async () => ({ supported: true, platform: "windows" }) },
-  } as unknown as NonNullable<typeof window.desktopBridge>;
-  await show(
-    <AppSnapWelcomeDialog deferred>
-      <FeatureTourDialog />
-    </AppSnapWelcomeDialog>,
-  );
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  expect(page.getByRole("dialog", { name: "Moss AppSnaps are live!" }).length).toBe(0);
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  await new Promise((resolve) => setTimeout(resolve, 500));
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  // Not acknowledged: it still introduces itself once the person signs in.
-  expect(localStorage.getItem("moss:appsnap-welcome:v1")).toBeNull();
 });

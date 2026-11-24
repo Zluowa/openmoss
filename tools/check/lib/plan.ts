@@ -1,5 +1,10 @@
 // Turns a list of changed files into the steps of `bun run check`. Pure: no I/O.
-import { typeOwners } from "./typeScope.ts";
+import {
+  BROWSER_TEST_INCLUDE,
+  CHAT_VIEW_BROWSER_SPEC,
+  PAGE_EDITOR_BROWSER_SPECS,
+} from "../../../apps/web/src/test/browserTestLanes.ts";
+import { entryMatcher, typeOwners } from "./typeScope.ts";
 import { packageOf, type WorkspacePackage } from "./workspace.ts";
 
 export interface ChangedFile {
@@ -159,9 +164,30 @@ export interface TestGroups {
   readonly browser: string[];
   /** Browser files the gate never runs (ChatView alone takes over ten minutes). */
   readonly browserLeft: string[];
+  /**
+   * Browser files no lane this check can start includes, with the reason: never handed to the
+   * components project, whose config leaves them out ("No test files found").
+   */
+  readonly browserNotRun: { readonly file: string; readonly reason: string }[];
 }
 
-export const GATE_SKIPS_BROWSER = ["apps/web/src/components/ChatView.browser.tsx"];
+export const GATE_SKIPS_BROWSER = [`apps/web/${CHAT_VIEW_BROWSER_SPEC}`];
+
+const BROWSER_INCLUDED = BROWSER_TEST_INCLUDE.map((glob) => entryMatcher("", glob)!);
+
+/**
+ * Why the components browser project would not run a web browser test file (relative to
+ * apps/web), or null when it does.
+ */
+export function browserNotRunReason(file: string): string | null {
+  if ((PAGE_EDITOR_BROWSER_SPECS as readonly string[]).includes(file)) {
+    return "needs the built Canvas bundle: only test:browser:page-editor runs it (the private CI's Desktop Build, or the PC lane)";
+  }
+  if (!BROWSER_INCLUDED.some((matcher) => matcher.test(file))) {
+    return "no browser test configuration includes it (apps/web/src/test/browserTestLanes.ts)";
+  }
+  return null;
+}
 
 export function groupTests(
   tests: readonly string[],
@@ -170,18 +196,25 @@ export function groupTests(
   const unit = new Map<string, string[]>();
   const browser: string[] = [];
   const browserLeft: string[] = [];
+  const browserNotRun: { file: string; reason: string }[] = [];
   for (const test of tests) {
     const pkg = packageOf(test, packages);
     if (!pkg) continue;
     const relative = test.slice(pkg.dir.length + 1);
     if (isBrowserTest(test)) {
       if (pkg.dir !== "apps/web") continue;
-      (GATE_SKIPS_BROWSER.includes(test) ? browserLeft : browser).push(relative);
+      if (GATE_SKIPS_BROWSER.includes(test)) {
+        browserLeft.push(relative);
+        continue;
+      }
+      const reason = browserNotRunReason(relative);
+      if (reason) browserNotRun.push({ file: relative, reason });
+      else browser.push(relative);
       continue;
     }
     unit.set(pkg.name, [...(unit.get(pkg.name) ?? []), relative]);
   }
-  return { unit, browser, browserLeft };
+  return { unit, browser, browserLeft, browserNotRun };
 }
 
 /** How a package runs its unit tests, or null when it has none or they are not Vitest. */

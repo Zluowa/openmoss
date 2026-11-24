@@ -9,7 +9,14 @@ import {
   resolveSpecifier,
   specifiersOf,
 } from "../lib/graph.ts";
-import { groupTests, isRootConfig, select, touchesMobile, unitTestCommand } from "../lib/plan.ts";
+import {
+  browserNotRunReason,
+  groupTests,
+  isRootConfig,
+  select,
+  touchesMobile,
+  unitTestCommand,
+} from "../lib/plan.ts";
 import { packageOf, type WorkspacePackage } from "../lib/workspace.ts";
 
 const pkg = (
@@ -256,6 +263,27 @@ describe("test selection", () => {
     });
     expect(groups.browser).toEqual(["src/components/Panel.browser.tsx"]);
     expect(groups.browserLeft).toEqual(["src/components/ChatView.browser.tsx"]);
+  });
+
+  it("never hands the components project a browser file its config leaves out", () => {
+    // RightDockCanvas.browser.tsx is a Page editor spec: the stable configs exclude it and only
+    // the Canvas-bundle lane runs it; a browser file outside every include glob runs nowhere.
+    const groups = groupTests(
+      [
+        "apps/web/src/components/chat/RightDockCanvas.browser.tsx",
+        "apps/web/src/components/Panel.browser.tsx",
+        "apps/web/src/routes/settings.browser.tsx",
+      ],
+      packages,
+    );
+    expect(groups.browser).toEqual(["src/components/Panel.browser.tsx"]);
+    expect(groups.browserNotRun.map(({ file }) => file)).toEqual([
+      "src/components/chat/RightDockCanvas.browser.tsx",
+      "src/routes/settings.browser.tsx",
+    ]);
+    expect(groups.browserNotRun[0]!.reason).toMatch(/needs the built Canvas bundle/);
+    expect(groups.browserNotRun[1]!.reason).toMatch(/no browser test configuration includes it/);
+    expect(browserNotRunReason("src/hooks/useThing.browser.ts")).toBe(null);
   });
 
   it("adds tests that name a changed non-code file by path", () => {

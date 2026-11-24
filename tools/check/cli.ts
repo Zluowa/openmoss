@@ -539,6 +539,16 @@ async function main(argv: readonly string[]): Promise<number> {
       detail: `${list(groups.browserLeft)} is left to the coordinator's lane`,
     });
   }
+  // A changed browser test no lane here includes is not an error: it is named, with the reason,
+  // so the reviewer asks for the author's own run.
+  for (const { file, reason } of groups.browserNotRun) {
+    emit({
+      name: "browser (not run in CI)",
+      status: "skipped",
+      seconds: 0,
+      detail: `${file}: ${reason}; ask the author for their own run`,
+    });
+  }
   if (groups.browser.length > options.browserLimit) {
     emit({
       name: "browser",
@@ -874,6 +884,7 @@ function finish(
             unitTests: Object.fromEntries(groups.unit),
             browser: groups.browser,
             browserLeft: groups.browserLeft,
+            browserNotRun: groups.browserNotRun,
           },
           steps: results.map(({ output, ...rest }) =>
             rest.status === "fail" ? { ...rest, output: output?.slice(-8000) } : rest,

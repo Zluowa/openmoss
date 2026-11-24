@@ -79,7 +79,7 @@ describe("dynamic translation boundaries", () => {
     expect(markup).toContain('title="Settings" data-translation-skip="true">Settings</span>');
     expect(markup).toContain('data-translation-skip="true">localhost</span>');
     expect(markup).toContain('title="/tmp/Archive" data-translation-skip="true">Archive</span>');
-    expect(markup).toContain('title="Read" data-translation-skip="true">Read</span>');
+    expect(markup).toContain('data-translation-skip="true">Read</span>');
   });
 
   it("localizes known Antigravity thread errors without exposing raw diagnostics", () => {

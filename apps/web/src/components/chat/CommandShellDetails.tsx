@@ -1,10 +1,12 @@
 // FILE: CommandShellDetails.tsx
-// Purpose: Render command tool details as the Codex-style inline Shell surface.
+// Purpose: Render command tool details as the inline Shell result: the shared card, the command
+//          and its output in the code type role, copy controls as shared icon buttons.
 // Layer: Chat presentation component
 // Exports: CommandShellDetails
 // Depends on: normalized tool output, live activity, shared clipboard/localization primitives
 
-import { Button } from "~/components/ui/button";
+import { Card } from "~/components/ui/card";
+import { IconButton } from "~/components/ui/icon-button";
 import {
   useCallback,
   useId,
@@ -34,8 +36,11 @@ import {
   type TerminalTextSegment,
 } from "./CommandShellDetails.logic";
 
-const COMMAND_SHELL_BORDER_COLOR =
-  "var(--color-border-heavy, var(--color-token-border-heavy, var(--color-border)))";
+/** The code type role (13/19) in muted ink, for the command and its output. */
+const SHELL_CODE_CLASS_NAME = "font-chat-code text-chat-code text-muted-foreground";
+/** Hover- and focus-revealed copy control in the top-right corner of its block. */
+const SHELL_COPY_CLASS_NAME =
+  "absolute top-0 opacity-0 transition-opacity duration-200 group-hover/command:opacity-100 group-hover/output:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none";
 const COMMAND_SHELL_EDGE_FADE_DISTANCE = "2rem";
 
 type ShellOutputFadeState = {
@@ -120,8 +125,8 @@ export function CommandShellDetails(props: {
 
   const commandBlock =
     isEmbedded && normalizedCommand ? (
-      <div className="px-2 pt-2">
-        <div className="group/command relative min-w-0 pe-6">
+      <div className="px-3 pt-1">
+        <div className="group/command relative min-w-0 pe-7">
           <div
             id={commandId}
             role="button"
@@ -129,16 +134,16 @@ export function CommandShellDetails(props: {
             aria-expanded={commandExpanded}
             aria-label={format("chat.shell.commandLine", { command: normalizedCommand })}
             className={cx(
-              "cursor-interaction rounded-control bg-transparent text-size-chat-sm text-codex-description whitespace-pre-wrap break-words font-vscode-editor focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
+              "cursor-interaction rounded-control bg-transparent whitespace-pre-wrap break-words focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
+              SHELL_CODE_CLASS_NAME,
               !commandExpanded && "line-clamp-2",
             )}
             data-shell-command="true"
             data-command-expanded={commandExpanded ? "true" : "false"}
-            title={showsLauncher ? launcherLine : undefined}
             onClick={expandCommand}
             onKeyDown={onCommandKeyDown}
           >
-            <span className="me-[1ch] text-tertiary">$</span>
+            <span className="me-[1ch]">$</span>
             <code className="contents" data-translation-skip="true">
               <RenderedShellOutput
                 segments={parseTerminalTextSegments(commandDisplay.slice(2))}
@@ -148,24 +153,26 @@ export function CommandShellDetails(props: {
           </div>
           {showsLauncher && commandExpanded ? (
             <p
-              className="mt-1 text-size-chat-sm text-tertiary whitespace-pre-wrap break-words font-vscode-editor select-text"
+              className={cx(
+                "mt-1 whitespace-pre-wrap break-words select-text",
+                SHELL_CODE_CLASS_NAME,
+              )}
               data-shell-launcher="true"
               data-translation-skip="true"
             >
               {format("chat.shell.launcher", { command: launcherLine })}
             </p>
           ) : null}
-          <button
-            type="button"
-            className="absolute top-0 right-0 inline-flex size-5 items-center justify-center rounded-control-xs text-tertiary opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-default group-hover/command:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-            aria-label={commandCopied ? t("chat.shell.copied") : t("chat.shell.copyCommand")}
-            title={commandCopied ? t("chat.shell.copied") : t("chat.shell.copyCommand")}
+          <IconButton
+            className={cx(SHELL_COPY_CLASS_NAME, "right-0")}
+            label={commandCopied ? t("chat.shell.copied") : t("chat.shell.copyCommand")}
+            tooltip={commandCopied ? t("chat.shell.copied") : t("chat.shell.copyCommand")}
             data-shell-copy="command"
             data-shell-copy-state={commandCopied ? "copied" : "idle"}
             onClick={() => copyCommand(normalizedCommand)}
           >
-            {commandCopied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-          </button>
+            {commandCopied ? <CheckIcon /> : <CopyIcon />}
+          </IconButton>
         </div>
       </div>
     ) : null;
@@ -177,10 +184,8 @@ export function CommandShellDetails(props: {
         <div
           ref={outputScrollRef}
           className={cx(
-            "vertical-scroll-fade-mask scroll-fade-y box-border flex max-h-36 flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre font-medium [--edge-fade-distance:2rem] [--scroll-fade-size:2rem] [animation-direction:reverse]",
-            isEmbedded
-              ? "font-vscode-editor text-codex-description text-size-chat-sm"
-              : "font-chat-code text-ui-sm leading-relaxed text-muted-foreground opacity-80",
+            "vertical-scroll-fade-mask scroll-fade-y box-border flex max-h-36 flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre [--edge-fade-distance:2rem] [--scroll-fade-size:2rem] [animation-direction:reverse]",
+            SHELL_CODE_CLASS_NAME,
           )}
           data-shell-output-scroll="true"
           data-shell-output-fade-top={outputFade.top ? "true" : "false"}
@@ -193,91 +198,68 @@ export function CommandShellDetails(props: {
             } as CSSProperties
           }
         >
-          <div className="w-max min-w-full p-2" data-translation-skip="true">
+          <div className="w-max min-w-full px-3 py-2" data-translation-skip="true">
             <RenderedShellOutput
               segments={renderedOutputSegments}
               fallbackText={renderedOutputText}
             />
           </div>
         </div>
-        <button
-          type="button"
-          className="absolute top-0 right-2.5 inline-flex size-5 items-center justify-center rounded-control-xs text-muted-foreground/75 opacity-0 outline-none transition-opacity duration-200 hover:bg-muted hover:text-foreground group-hover/output:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
-          aria-label={outputCopied ? t("chat.shell.copied") : t("chat.shell.copyOutput")}
-          title={outputCopied ? t("chat.shell.copied") : t("chat.shell.copyOutput")}
+        <IconButton
+          className={cx(SHELL_COPY_CLASS_NAME, "right-1")}
+          label={outputCopied ? t("chat.shell.copied") : t("chat.shell.copyOutput")}
+          tooltip={outputCopied ? t("chat.shell.copied") : t("chat.shell.copyOutput")}
           data-shell-copy="output"
           data-shell-copy-state={outputCopied ? "copied" : "idle"}
           onClick={() => copyOutput(copyPayloads.output)}
         >
-          {outputCopied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-        </button>
+          {outputCopied ? <CheckIcon /> : <CopyIcon />}
+        </IconButton>
       </div>
       {isEmbedded ? <CommandShellFooter status={status} /> : null}
     </>
   );
 
   return (
-    <div
-      className={cx(
-        "group flex min-w-0 flex-col overflow-hidden rounded-card border",
-        isEmbedded
-          ? "border-strong bg-secondary-soft-alpha"
-          : "bg-[var(--color-background-elevated-secondary)]",
-      )}
-      style={isEmbedded ? undefined : { borderColor: COMMAND_SHELL_BORDER_COLOR }}
+    <Card
+      className="group flex min-w-0 flex-col"
       data-command-shell="true"
       data-command-shell-variant={variant}
       data-command-shell-status={status.kind}
     >
       {isEmbedded ? (
         <div
-          className="flex items-center justify-between gap-2 px-2 py-1 font-sans text-ui-lg text-codex-description select-none"
+          className="flex items-center px-3 pt-2 text-ui-sm text-muted-foreground select-none"
           data-shell-label="true"
         >
           <span>{t("chat.shell.label")}</span>
         </div>
       ) : (
         <div
-          className="flex min-h-[30px] items-center justify-between gap-2 bg-[var(--color-background-elevated-secondary)] ps-2 text-ui-lg font-medium text-foreground/80 hover:bg-[var(--color-background-elevated-tertiary)]"
+          className="flex min-h-8 items-center justify-between gap-2 ps-3 pe-1 text-ui-sm text-muted-foreground"
           data-shell-header="true"
         >
           <span data-shell-label="true">{t("chat.shell.label")}</span>
           <span className="flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              type="button"
-              className="transition-colors motion-reduce:transition-none"
-              aria-label={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
-              title={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
+            <IconButton
+              label={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
+              tooltip={contentsCopied ? t("chat.shell.copied") : t("chat.shell.copyContents")}
               data-shell-copy="contents"
               data-shell-copy-state={contentsCopied ? "copied" : "idle"}
               onClick={() => copyContents(shellCopyPayload)}
             >
-              {contentsCopied ? (
-                <CheckIcon className="icon-2xs" />
-              ) : (
-                <CopyIcon className="icon-2xs" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              type="button"
-              className="transition-colors motion-reduce:transition-none"
-              aria-label={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
-              title={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
+              {contentsCopied ? <CheckIcon /> : <CopyIcon />}
+            </IconButton>
+            <IconButton
+              label={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
+              tooltip={shellExpanded ? t("chat.shell.collapse") : t("chat.shell.expand")}
               data-shell-toggle="true"
               aria-expanded={shellExpanded}
               aria-controls={shellBodyId}
               onClick={() => setShellExpanded((current) => !current)}
             >
-              {shellExpanded ? (
-                <ChevronUpIcon className="icon-2xs" />
-              ) : (
-                <ChevronDownIcon className="icon-2xs" />
-              )}
-            </Button>
+              {shellExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
+            </IconButton>
           </span>
         </div>
       )}
@@ -290,7 +272,7 @@ export function CommandShellDetails(props: {
           </DisclosureRegion>
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -353,19 +335,13 @@ function CommandShellFooter({ status }: { status: ReturnType<typeof resolveComma
   const { t, format } = useTranslation();
 
   if (status.kind === "running") {
-    return (
-      <div
-        className="px-2.5 pt-0.5 pb-1 text-size-chat"
-        aria-hidden="true"
-        data-shell-footer="running"
-      />
-    );
+    return <div className="pb-2" aria-hidden="true" data-shell-footer="running" />;
   }
 
   if (status.kind === "stopped") {
     return (
       <div
-        className="flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-size-chat text-tertiary"
+        className="flex items-center gap-2 px-3 pt-0.5 pb-2 text-ui-sm text-muted-foreground"
         data-shell-footer="stopped"
       >
         <span className="ms-auto">{t("chat.shell.stopped")}</span>
@@ -376,11 +352,11 @@ function CommandShellFooter({ status }: { status: ReturnType<typeof resolveComma
   if (status.kind === "success") {
     return (
       <div
-        className="flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-size-chat text-tertiary"
+        className="flex items-center gap-2 px-3 pt-0.5 pb-2 text-ui-sm text-muted-foreground"
         data-shell-footer="success"
       >
         <span className="ms-auto flex items-center gap-1">
-          <CheckIcon className="size-3" />
+          <CheckIcon className="size-ui-icon-sm" />
           <span>{t("chat.shell.success")}</span>
         </span>
       </div>
@@ -389,7 +365,7 @@ function CommandShellFooter({ status }: { status: ReturnType<typeof resolveComma
 
   return (
     <div
-      className="flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-size-chat text-tertiary"
+      className="flex items-center gap-2 px-3 pt-0.5 pb-2 text-ui-sm text-muted-foreground"
       data-shell-footer="exit-code"
     >
       <span className="ms-auto">

@@ -1,17 +1,10 @@
 import { configDefaults, defineConfig, mergeConfig } from "vitest/config";
 
+import { PAGE_EDITOR_BROWSER_SPECS } from "./src/test/browserTestLanes";
 import browserConfig from "./vitest.browser.config";
 
-/**
- * Drives the real Canvas Plate editor, which exists only after the pinned Canvas bundle is
- * built; `test:browser:page-editor` serves that bundle and runs it in CI's Desktop Build job.
- */
-export const PAGE_EDITOR_BROWSER_SPEC = "src/components/MossDataSpaceDestination.browser.tsx";
-export const PAGE_EDITOR_BROWSER_SPECS = [
-  PAGE_EDITOR_BROWSER_SPEC,
-  "src/components/MossDataSpaceBoardStability.browser.tsx",
-  "src/components/chat/RightDockCanvas.browser.tsx",
-] as const;
+// The Page editor specs need the built Canvas bundle: only test:browser:page-editor runs them.
+export { PAGE_EDITOR_BROWSER_SPEC, PAGE_EDITOR_BROWSER_SPECS } from "./src/test/browserTestLanes";
 
 export default mergeConfig(
   browserConfig,

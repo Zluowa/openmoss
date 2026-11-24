@@ -1,43 +1,46 @@
 // FILE: ToolCallDetailsDialog.tsx
-// Purpose: Inline details content for command and file-change transcript rows.
+// Purpose: Inline details content for command and file-change transcript rows: what the tool
+//          touched and returned, quietly, on the shared card, list row and badge parts. No section
+//          labels: a file list, a diff, an edit and an output read as what they are.
 // Layer: Chat presentation component
 // Exports: ToolCallDetailsContent
 // Depends on: WorkLogEntry.toolDetails
 
-import type { ReactNode } from "react";
 import { createMarkdownCodeFence } from "~/lib/toolCallDetailsFormatting";
+import { FileIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import type { TimestampFormat } from "../../appSettings";
 import type { WorkLogToolDetails, WorkLogToolOutputDetails } from "../../lib/toolCallDetails";
 import type { WorkLogLiveActivity, WorkLogMcpToolResult } from "../../workLog";
-import {
-  formatLiveActivityElapsed,
-  formatLiveActivityProgress,
-  formatLiveActivityStateLabel,
-  useLiveActivityNow,
-} from "../../lib/liveActivityPresentation";
-import { formatTimestamp } from "../../timestampFormat";
 import ChatMarkdown from "../ChatMarkdown";
+import { Badge } from "../ui/badge";
+import { Card } from "../ui/card";
+import { ListRow } from "../ui/list-row";
 import { CommandShellDetails } from "./CommandShellDetails";
 import { McpToolResultDetails } from "./McpToolResultDetails";
 import type { ExpandedImagePreview } from "./ExpandedImagePreview";
 
-const DETAIL_HEADER_CLASS_NAME = "border-b border-border/45 px-3 py-2 text-ui-xs font-medium";
-const DETAIL_CODE_BLOCK_CLASS_NAME =
-  "max-h-[min(46vh,30rem)] overflow-auto whitespace-pre-wrap break-words font-chat-code text-chat-code leading-relaxed text-foreground/88";
-const TOOL_DETAILS_MARKDOWN_CLASS_NAME = "text-ui leading-relaxed";
+/** The code type role (13/19), scrolling inside its card when long. */
+const DETAIL_CODE_CLASS_NAME =
+  "max-h-[min(46vh,30rem)] overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-chat-code text-chat-code";
+/** Diff line tints from the theme's own added and removed colours (8% under same-colour text). */
+const ADDED_LINE_CLASS_NAME =
+  "bg-[color-mix(in_srgb,var(--color-decoration-added,var(--success))_8%,transparent)] text-[var(--color-decoration-added,var(--success))]";
+const REMOVED_LINE_CLASS_NAME =
+  "bg-[color-mix(in_srgb,var(--color-decoration-deleted,var(--destructive))_8%,transparent)] text-[var(--color-decoration-deleted,var(--destructive))]";
 
 export function ToolCallDetailsContent({
   details,
   mcpToolResult,
   activity,
-  timestampFormat = "locale",
   variant = "default",
   onImageExpand,
 }: {
   details: WorkLogToolDetails | undefined;
   mcpToolResult?: WorkLogMcpToolResult | undefined;
   activity?: WorkLogLiveActivity | undefined;
+  /** Kept for callers; the row above already shows when the call ran. */
   timestampFormat?: TimestampFormat;
   variant?: "default" | "embedded";
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
@@ -47,18 +50,16 @@ export function ToolCallDetailsContent({
       <McpToolResultDetails result={mcpToolResult} {...(onImageExpand ? { onImageExpand } : {})} />
     );
   }
-  if (!details && !activity) {
-    return (
-      <div className="rounded-card border border-border/45 bg-background/60 px-3 py-2 text-ui leading-snug text-muted-foreground">
-        No detailed payload was available for this tool call.
-      </div>
-    );
-  }
+  // Nothing came back but the row itself: the disclosure shows nothing more.
+  if (!details && !activity?.detail) return null;
 
   return (
-    <>
-      {activity && !details?.command ? (
-        <LiveActivityMetadata activity={activity} timestampFormat={timestampFormat} />
+    <div className="flex min-w-0 flex-col gap-ui-gap-xs" data-tool-call-details="true">
+      {activity?.detail && !details?.command ? (
+        // State, start and elapsed time are on the row; only what it is doing is added here.
+        <p className="text-ui-sm break-words text-muted-foreground" data-tool-activity-detail="">
+          {activity.detail}
+        </p>
       ) : null}
 
       {details?.command ? (
@@ -72,132 +73,52 @@ export function ToolCallDetailsContent({
       ) : null}
 
       {details?.files?.length ? (
-        <ToolDetailSection title="Files">
-          <div className="flex flex-wrap gap-1.5">
-            {details.files.map((file) => (
-              <span
-                key={file}
-                className="max-w-full rounded-control border border-border/45 bg-background/70 px-2 py-1 font-chat-code text-chat-code text-foreground/82"
-                title={file}
-                data-translation-skip="true"
-              >
-                {file}
-              </span>
-            ))}
-          </div>
-        </ToolDetailSection>
+        <Card className="divide-y divide-[color:var(--color-border)]" data-tool-files="">
+          {details.files.map((file) => (
+            <ListRow
+              key={file}
+              className="rounded-none"
+              leading={<FileIcon aria-hidden className="size-ui-icon-sm text-muted-foreground" />}
+              // A path is read in full: it wraps instead of losing its end (the file name).
+              title={
+                <span className="whitespace-normal break-all" data-translation-skip="true">
+                  {file}
+                </span>
+              }
+            />
+          ))}
+        </Card>
       ) : null}
 
-      {details?.diff ? (
-        <ToolDetailSection title="Diff">
-          <DiffCodeBlock>{details.diff}</DiffCodeBlock>
-        </ToolDetailSection>
-      ) : null}
+      {details?.diff ? <DiffCodeBlock>{details.diff}</DiffCodeBlock> : null}
 
-      {details?.edits?.length ? (
-        <ToolDetailSection title="Edits">
-          <div className="space-y-3">
-            {details.edits.map((edit, index) => (
-              <div
-                key={`${edit.path ?? "edit"}:${index}`}
-                className="overflow-hidden rounded-card border border-border/45 bg-background/58"
-              >
-                {edit.path ? (
-                  <div className="border-b border-border/45 px-3 py-2 font-chat-code text-chat-code text-muted-foreground/72">
-                    {edit.path}
-                  </div>
-                ) : null}
-                <div className="grid gap-0 md:grid-cols-2">
-                  {edit.oldText !== undefined ? (
-                    <TextChangeBlock title="Before" tone="remove">
-                      {edit.oldText}
-                    </TextChangeBlock>
-                  ) : null}
-                  {edit.newText !== undefined ? (
-                    <TextChangeBlock title="After" tone="add">
-                      {edit.newText}
-                    </TextChangeBlock>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </ToolDetailSection>
-      ) : null}
+      {details?.edits?.map((edit, index) => (
+        <Card key={`${edit.path ?? "edit"}:${index}`} data-tool-edit="">
+          {edit.path ? (
+            <div
+              className="border-b border-[color:var(--color-border)] px-3 py-2 text-ui-sm break-all text-muted-foreground"
+              data-translation-skip="true"
+            >
+              {edit.path}
+            </div>
+          ) : null}
+          {edit.oldText !== undefined ? (
+            <pre className={cn(DETAIL_CODE_CLASS_NAME, REMOVED_LINE_CLASS_NAME)}>
+              {edit.oldText}
+            </pre>
+          ) : null}
+          {edit.newText !== undefined ? (
+            <pre className={cn(DETAIL_CODE_CLASS_NAME, ADDED_LINE_CLASS_NAME)}>{edit.newText}</pre>
+          ) : null}
+        </Card>
+      ))}
 
       {details?.content ? (
-        <ToolDetailSection title="Written Content">
-          <MarkdownToolCodeBlock language="text">{details.content}</MarkdownToolCodeBlock>
-        </ToolDetailSection>
+        <MarkdownToolCodeBlock language="text">{details.content}</MarkdownToolCodeBlock>
       ) : null}
 
-      {details?.output && !details.command ? <ToolOutputSection output={details.output} /> : null}
-    </>
-  );
-}
-
-function formatActivityTimestamp(value: string, timestampFormat: TimestampFormat): string {
-  const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) {
-    return value;
-  }
-  return formatTimestamp(value, timestampFormat);
-}
-
-function LiveActivityMetadata({
-  activity,
-  timestampFormat,
-}: {
-  activity: WorkLogLiveActivity;
-  timestampFormat: TimestampFormat;
-}) {
-  const stateLabel = formatLiveActivityStateLabel(activity.state);
-  const nowMs = useLiveActivityNow(activity);
-  const elapsed = formatLiveActivityElapsed(activity, nowMs);
-  const progress =
-    activity.progress !== undefined ? formatLiveActivityProgress(activity.progress) : null;
-
-  return (
-    <ToolDetailSection title="Activity">
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-card border border-border/45 bg-background/60 px-3 py-2.5 text-ui-sm">
-        <dt className="text-muted-foreground/56">Status</dt>
-        <dd className="text-foreground/84">{stateLabel}</dd>
-        {activity.startedAt ? (
-          <>
-            <dt className="text-muted-foreground/56">Started</dt>
-            <dd className="text-foreground/84">
-              <time dateTime={activity.startedAt} title={activity.startedAt}>
-                {formatActivityTimestamp(activity.startedAt, timestampFormat)}
-              </time>
-            </dd>
-          </>
-        ) : null}
-        <dt className="text-muted-foreground/56">Last activity</dt>
-        <dd className="text-foreground/84">
-          <time dateTime={activity.lastActivityAt} title={activity.lastActivityAt}>
-            {formatActivityTimestamp(activity.lastActivityAt, timestampFormat)}
-          </time>
-        </dd>
-        {elapsed ? (
-          <>
-            <dt className="text-muted-foreground/56">Elapsed</dt>
-            <dd className="tabular-nums text-foreground/84">{elapsed}</dd>
-          </>
-        ) : null}
-        {progress ? (
-          <>
-            <dt className="text-muted-foreground/56">Progress</dt>
-            <dd className="tabular-nums text-foreground/84">{progress}</dd>
-          </>
-        ) : null}
-        {activity.detail ? (
-          <>
-            <dt className="text-muted-foreground/56">Detail</dt>
-            <dd className="break-words text-foreground/84">{activity.detail}</dd>
-          </>
-        ) : null}
-      </dl>
-    </ToolDetailSection>
+      {details?.output && !details.command ? <ToolOutput output={details.output} /> : null}
+    </div>
   );
 }
 
@@ -206,138 +127,70 @@ function MarkdownToolCodeBlock(props: { language: string; children: string }) {
     <ChatMarkdown
       text={createMarkdownCodeFence(props.language, props.children)}
       cwd={undefined}
-      className={TOOL_DETAILS_MARKDOWN_CLASS_NAME}
+      className="text-ui"
     />
   );
 }
 
-function ToolDetailSection(props: { title: string; children: ReactNode }) {
+function ToolOutput({ output }: { output: WorkLogToolOutputDetails }) {
+  const { t, format } = useTranslation();
+  const failed = output.exitCode !== undefined && output.exitCode !== 0;
   return (
-    <section className="space-y-2">
-      <h3 className="text-ui-sm font-medium text-muted-foreground/56">{props.title}</h3>
-      {props.children}
-    </section>
-  );
-}
-
-function ToolOutputMetadata({ output }: { output: WorkLogToolOutputDetails }) {
-  if (output.exitCode === undefined && !output.truncated) {
-    return null;
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2 text-ui-sm text-muted-foreground/68">
-      {output.exitCode !== undefined ? (
-        <span className="rounded-full border border-border/45 px-2 py-0.5">
-          Exit code {output.exitCode}
-        </span>
+    <>
+      {output.output ? (
+        <MarkdownToolCodeBlock language="text">{output.output}</MarkdownToolCodeBlock>
       ) : null}
-      {output.truncated ? (
-        <span className="rounded-full border border-amber-500/30 bg-amber-500/8 px-2 py-0.5 text-amber-200/90">
-          Truncated
-        </span>
+      {output.stdout || output.stderr ? (
+        <Card data-tool-output="">
+          {output.stdout ? (
+            <pre className={cn(DETAIL_CODE_CLASS_NAME, "text-foreground")}>{output.stdout}</pre>
+          ) : null}
+          {output.stderr ? (
+            <pre className={cn(DETAIL_CODE_CLASS_NAME, "text-destructive")} data-tool-stderr="">
+              {output.stderr}
+            </pre>
+          ) : null}
+        </Card>
       ) : null}
-    </div>
-  );
-}
-
-function ToolOutputSection({ output }: { output: WorkLogToolOutputDetails }) {
-  return (
-    <ToolDetailSection title="Output">
-      <div className="space-y-3">
-        {output.output ? (
-          <MarkdownToolCodeBlock language="text">{output.output}</MarkdownToolCodeBlock>
-        ) : null}
-        {output.stdout ? (
-          <LabeledCodeBlock title="Stdout" tone="output">
-            {output.stdout}
-          </LabeledCodeBlock>
-        ) : null}
-        {output.stderr ? (
-          <LabeledCodeBlock title="Stderr" tone="error">
-            {output.stderr}
-          </LabeledCodeBlock>
-        ) : null}
-        <ToolOutputMetadata output={output} />
-      </div>
-    </ToolDetailSection>
-  );
-}
-
-function LabeledCodeBlock(props: { title: string; tone: "output" | "error"; children: string }) {
-  return (
-    <div className="overflow-hidden rounded-card border border-border/45 bg-background/58">
-      <div
-        className={cn(
-          DETAIL_HEADER_CLASS_NAME,
-          props.tone === "error" ? "text-rose-200/88" : "text-muted-foreground/60",
-        )}
-      >
-        {props.title}
-      </div>
-      <ToolCodeBlock bare>{props.children}</ToolCodeBlock>
-    </div>
-  );
-}
-
-function TextChangeBlock(props: { title: string; tone: "add" | "remove"; children: string }) {
-  return (
-    <div
-      className={cn(
-        "min-w-0 border-border/45 md:[&:not(:first-child)]:border-l",
-        props.tone === "add" ? "bg-emerald-500/5" : "bg-rose-500/5",
-      )}
-    >
-      <div
-        className={cn(
-          DETAIL_HEADER_CLASS_NAME,
-          props.tone === "add" ? "text-emerald-200/82" : "text-rose-200/82",
-        )}
-      >
-        {props.title}
-      </div>
-      <ToolCodeBlock bare>{props.children}</ToolCodeBlock>
-    </div>
-  );
-}
-
-function ToolCodeBlock(props: { children: string; tone?: "default" | "command"; bare?: boolean }) {
-  return (
-    <pre
-      className={cn(
-        DETAIL_CODE_BLOCK_CLASS_NAME,
-        props.tone === "command" && "text-sky-100/92",
-        props.bare
-          ? "px-3 py-2.5"
-          : "rounded-card border border-border/45 bg-background/70 px-3 py-2.5",
-      )}
-    >
-      {props.children}
-    </pre>
+      {failed || output.truncated ? (
+        <div className="flex flex-wrap items-center gap-ui-gap-xs">
+          {failed ? (
+            <Badge variant="error" data-tool-exit-code="">
+              {format("chat.shell.exitCode", { code: output.exitCode! })}
+            </Badge>
+          ) : null}
+          {output.truncated ? (
+            <span className="text-ui-sm text-muted-foreground">
+              {t("chat.mcpResult.truncatedShort")}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+    </>
   );
 }
 
 function DiffCodeBlock({ children }: { children: string }) {
   const lines = children.split(/\r?\n/);
   return (
-    <pre className="max-h-[min(52vh,34rem)] overflow-auto rounded-card border border-border/45 bg-background/70 px-0 py-2 font-chat-code text-chat-code leading-relaxed">
-      {lines.map((line, index) => (
-        <span
-          key={`${index}:${line.slice(0, 24)}`}
-          className={cn(
-            "block min-w-max whitespace-pre-wrap break-words px-3",
-            line.startsWith("+") && !line.startsWith("+++")
-              ? "bg-emerald-500/8 text-emerald-100/92"
-              : null,
-            line.startsWith("-") && !line.startsWith("---")
-              ? "bg-rose-500/8 text-rose-100/92"
-              : null,
-            line.startsWith("@@") ? "text-sky-200/90" : null,
-            /^(diff --git|index |--- |\+\+\+ )/.test(line) ? "text-muted-foreground/62" : null,
-          )}
-        >
-          {line.length > 0 ? line : " "}
-        </span>
-      ))}
-    </pre>
+    <Card data-tool-diff="">
+      <pre className="max-h-[min(52vh,34rem)] overflow-auto py-2 font-chat-code text-chat-code">
+        {lines.map((line, index) => (
+          <span
+            key={`${index}:${line.slice(0, 24)}`}
+            className={cn(
+              "block min-w-max whitespace-pre-wrap break-words px-3",
+              line.startsWith("+") && !line.startsWith("+++") ? ADDED_LINE_CLASS_NAME : null,
+              line.startsWith("-") && !line.startsWith("---") ? REMOVED_LINE_CLASS_NAME : null,
+              line.startsWith("@@") || /^(diff --git|index |--- |\+\+\+ )/.test(line)
+                ? "text-muted-foreground"
+                : null,
+            )}
+          >
+            {line.length > 0 ? line : " "}
+          </span>
+        ))}
+      </pre>
+    </Card>
   );
 }

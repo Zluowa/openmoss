@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
-import { GitHubSignInIntroduction } from "~/onboarding/GitHubSignInIntroduction";
+import { StartupSurfaces } from "../StartupSurfaces";
 import { useOnboardingDialogStore } from "~/onboarding/onboardingDialogStore";
 import {
   mossServerMutationKeys,
@@ -63,7 +63,8 @@ async function mount(intro = false) {
           <SidebarProvider>
             <div style={{ display: "flex", minHeight: "100vh", width: "100%" }}>
               {intro ? (
-                <GitHubSignInIntroduction />
+                // What the app root mounts beside every screen (routes/__root.tsx).
+                <StartupSurfaces />
               ) : (
                 <GitHubConnectionGate>
                   <h1>Verified GitHub inbox</h1>
@@ -282,19 +283,15 @@ describe("GitHub connection entry", () => {
       .element(page.getByText("https://github.com/login/device", { exact: true }))
       .toBeVisible();
   });
-  it("offers GitHub on an actual first Moss sign-in, permits skip and remembers it across a remount", async () => {
+  // WALK-6 H-1, the walker's steps: a fresh profile signs in and nothing pops up afterwards
+  // (no 应用截图 announcement, no 连接 GitHub 到 Moss), for longer than those took to appear.
+  it("WALK-6 H-1: a fresh profile signs in by phone and no dialog appears", async () => {
     connection.mockResolvedValue({ state: "disconnected" });
     await mount(true);
-    expect(connection).not.toHaveBeenCalled();
     await authenticate();
-    await expect
-      .element(page.getByRole("heading", { name: "Connect GitHub to Moss" }))
-      .toBeVisible();
-    await page.getByRole("button", { name: "Skip for now" }).click();
-    await cleanup();
-    await mount(true);
-    expect(page.getByRole("dialog").query()).toBeNull();
-    expect(connection.mock.calls.every(([i]) => i.op === "status")).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    expect(page.getByRole("dialog").elements()).toHaveLength(0);
+    expect(document.body.textContent).not.toMatch(/Connect GitHub to Moss|连接 GitHub 到 Moss/u);
   });
   it("keeps an existing signed-in profile quiet on upgrade", async () => {
     client.setQueryData(mossServerQueryKeys.mossAccountSession(), member);
@@ -302,7 +299,7 @@ describe("GitHub connection entry", () => {
     expect(connection).not.toHaveBeenCalled();
     expect(page.getByRole("dialog").query()).toBeNull();
   });
-  it("observes the real enterprise login mutation after rendering the signed-out home", async () => {
+  it("WALK-6 H-1: a fresh profile signs in with an enterprise key and no dialog appears", async () => {
     const signedOut = {
       configured: true,
       authenticated: false,
@@ -336,12 +333,11 @@ describe("GitHub connection entry", () => {
       .build(client, serverMossEnterpriseKeySignInMutationOptions({ queryClient: client }));
     await mutation.execute({ apiKey: "isolated-fixture-only" });
     expect(signIn).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(connection).toHaveBeenCalledWith({ op: "status" }), {
-      timeout: 2000,
-    });
-    await expect
-      .element(page.getByRole("heading", { name: "Connect GitHub to Moss" }))
-      .toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    // Nothing asks about GitHub on its own; 代码审查 shows its one line when there is no link.
+    expect(connection).not.toHaveBeenCalled();
+    expect(page.getByRole("dialog").elements()).toHaveLength(0);
+    expect(document.body.textContent).not.toMatch(/Connect GitHub to Moss|连接 GitHub 到 Moss/u);
   });
 
   it("unblocks children with a calm inline GitHub notice when another issue source is connected", async () => {

@@ -7,6 +7,7 @@ import { defineConfig, mergeConfig } from "vitest/config";
 import viteConfig, { reactCompilerPlugin } from "./vite.config";
 import { withoutVitePlugin } from "./vitePluginConfig";
 import { preparePageAppLibraries } from "../server/src/pages/apps/localLibraries";
+import { BROWSER_TEST_INCLUDE } from "./src/test/browserTestLanes";
 
 const srcPath = fileURLToPath(new URL("./src", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
@@ -71,14 +72,7 @@ export default mergeConfig(
     },
     test: {
       setupFiles: ["src/test/browserLocaleSetup.ts", "src/test/browserSettingsDialogReset.ts"],
-      include: [
-        "src/components/**/*.browser.tsx",
-        "src/hooks/**/*.browser.ts",
-        "src/hooks/**/*.browser.tsx",
-        "src/lib/**/*.browser.ts",
-        "src/lib/**/*.browser.tsx",
-        "src/whatsNew/**/*.browser.tsx",
-      ],
+      include: [...BROWSER_TEST_INCLUDE],
       // Browser component tests share page-level mock infrastructure; run files serially
       // so one spec cannot steal another spec's WebSocket/native-API events.
       fileParallelism: false,

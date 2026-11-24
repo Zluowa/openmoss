@@ -45,22 +45,14 @@ import {
   publishUnreadableThreads,
 } from "../components/UnreadableThreadsNotice";
 import { AppSnapCoordinator } from "../components/AppSnapCoordinator";
-import { AuthenticatedAppSnapWelcomeDialog } from "../components/AuthenticatedAppSnapWelcomeDialog";
-import { GitHubSignInIntroduction } from "../onboarding/GitHubSignInIntroduction";
-import { BetaWelcomeDialog } from "../components/BetaWelcomeDialog";
 import { ErrorReportsPreferenceSync } from "../components/ErrorReportsPreferenceSync";
 import { AgentThemeSync } from "../components/AgentThemeSync";
 import { useOnboarding } from "../onboarding/useOnboarding";
-import { ProjectImportAnnouncementDialog } from "../projectImport/ProjectImportAnnouncementDialog";
 import { useProjectImportDialogStore } from "../projectImport/projectImportDialogStore";
-import { FeatureTourDialog } from "../components/FeatureTourDialog";
-import { SafariAccessOnboarding } from "../components/SafariAccessOnboarding";
+import { StartupSurfaces } from "../components/StartupSurfaces";
 import { QueuedComposerDrainCoordinator } from "../components/QueuedComposerDrainCoordinator";
 import { FeedbackDialog } from "../components/FeedbackDialog";
 import ShortcutsDialog from "../components/ShortcutsDialog";
-import WhatsNewDialog from "../components/WhatsNewDialog";
-import { useWhatsNew } from "../whatsNew/useWhatsNew";
-import { WhatsNewPopoutCard } from "../whatsNew/WhatsNewPopoutCard";
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import { RealtimeVoiceControllerProvider } from "../components/chat/RealtimeVoiceControllerProvider";
 import { DesktopPluginDeepLinkRouter } from "../components/DesktopPluginDeepLinkRouter";
@@ -371,22 +363,16 @@ function RootRouteView() {
           <GuestShareDialogHost />
           <AccountSignInRequestHost />
           <LaunchRunExitLogDialogHost />
-          <GlobalWhatsNewSurface />
           <ErrorReportsPreferenceSync />
           <AgentThemeSync />
           <UnreadableThreadsNotice />
           <TaskCompletionNotifications />
           <QueuedComposerDrainCoordinator />
-          {/* Beta welcome must resolve the first-run gate even while Safari is queued. */}
-          <BetaWelcomeDialog />
-          <GitHubSignInIntroduction />
-          <SafariAccessOnboarding startup>
-            <AuthenticatedAppSnapWelcomeDialog>
-              <FeatureTourDialog />
-            </AuthenticatedAppSnapWelcomeDialog>
-          </SafariAccessOnboarding>
+          {/* Nothing pops up by itself on sign-in, first launch or an update (WALK-6 H-1): the
+              AppSnap, GitHub, project-import, Beta and What's-new announcements are gone, and the
+              feature tour and Safari access open only when a person asks for them. */}
+          <StartupSurfaces />
           <GlobalOnboardingDialog />
-          <ProjectImportAnnouncementDialog />
           <GlobalProjectImportDialog />
           <AppSnapCoordinator />
           <DesktopProjectBootstrap />
@@ -665,47 +651,6 @@ function GlobalProjectImportDialog() {
     <Suspense fallback={null}>
       <ProjectImportDialog />
     </Suspense>
-  );
-}
-
-function GlobalWhatsNewSurface() {
-  // Single mount point per app session. The hook owns the "popout visible" and
-  // "dialog open" booleans and the seen-marker persistence; this component is
-  // just the plumbing that renders them together so they share one entry.
-  const {
-    currentEntry,
-    allEntries,
-    currentVersion,
-    isPopoutVisible,
-    isDialogOpen,
-    openDialog,
-    dismissPopout,
-    onDialogOpenChange,
-  } = useWhatsNew();
-
-  if (!currentEntry) {
-    // Silent-bootstrap or noop — nothing to render on either surface.
-    return null;
-  }
-
-  return (
-    <>
-      {isPopoutVisible && (
-        <WhatsNewPopoutCard
-          entry={currentEntry}
-          currentVersion={currentVersion}
-          onOpen={openDialog}
-          onDismiss={dismissPopout}
-        />
-      )}
-      <WhatsNewDialog
-        open={isDialogOpen}
-        onOpenChange={onDialogOpenChange}
-        currentEntry={currentEntry}
-        allEntries={allEntries}
-        currentVersion={currentVersion}
-      />
-    </>
   );
 }
 

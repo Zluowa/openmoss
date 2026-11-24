@@ -15,7 +15,6 @@ import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { ChevronLeftIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useOnboardingDialogStore } from "~/onboarding/onboardingDialogStore";
-import { useProjectImportAnnouncement } from "~/projectImport/useProjectImportAnnouncement";
 import { useProjectImportDialogStore } from "~/projectImport/projectImportDialogStore";
 import { AnnouncementSheet } from "./AnnouncementSheet";
 import { useAnnouncementSheetSlotStore } from "./announcementSheetSlot";
@@ -57,7 +56,7 @@ export function FeatureTourDialog() {
     ...serverConfigQueryOptions(),
     select: (config) => config.worktreesDir,
   }).data;
-  const [seen, setSeen] = useLocalStorage(
+  const [, setSeen] = useLocalStorage(
     FEATURE_TOUR_STORAGE_KEY,
     EMPTY_FEATURE_TOUR_SEEN,
     FeatureTourSeenSchema,
@@ -66,18 +65,15 @@ export function FeatureTourDialog() {
     (state) => !state.startupGateSettled || state.isOpen || state.betaWelcomePending,
   );
   const importing = useProjectImportDialogStore((state) => state.isOpen);
-  const importAnnouncement = useProjectImportAnnouncement();
   const owner = useAnnouncementSheetSlotStore((state) => state.owner);
   const handedOff = useAnnouncementSheetSlotStore((state) => state.handedOff);
   const settleStartup = useAnnouncementSheetSlotStore((state) => state.settleStartup);
   const replay = useFeatureTourStore((state) => state.replay);
-  const needsTour = Boolean(
-    installation && (replay || (!handedOff && !seen.includes(installation))),
-  );
+  // Only when a person asks for it (设置 → 关于 → 重播): nothing opens by itself on first launch.
+  const needsTour = Boolean(installation && replay);
   const otherDialog = useOtherDialogOpen(needsTour);
   const [ready, setReady] = useState(false);
-  const blocked =
-    startupBlocking || importing || (importAnnouncement.visible && !handedOff) || otherDialog;
+  const blocked = startupBlocking || importing || otherDialog;
   // This is the last startup surface, mounted after Safari/AppSnap probes settle.
   // Passive coachmarks wait for the tour to be seen or dismissed before claiming.
   useEffect(() => {
@@ -101,9 +97,7 @@ export function FeatureTourDialog() {
   const slides = FEATURE_TOUR_SLIDES.filter(
     (slide) => !slide.feature || isBetaFeatureOn(slide.feature),
   );
-  const open = Boolean(
-    installation && ready && !blocked && (replay || (!handedOff && !seen.includes(installation))),
-  );
+  const open = Boolean(installation && ready && !blocked && replay);
   // Replays are deliberate user actions and can run after a startup handoff.
   // They still wait for every currently open dialog.
   return (

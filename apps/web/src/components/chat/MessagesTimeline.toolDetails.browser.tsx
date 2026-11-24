@@ -419,12 +419,16 @@ describe("MessagesTimeline tool details", () => {
       trigger?.click();
 
       await expect.poll(() => document.body.textContent ?? "").toContain("Resolving packages");
-      expect(document.body.textContent ?? "").toContain("Activity");
-      expect(document.body.textContent ?? "").toContain("Running tool");
-      expect(document.body.textContent ?? "").toContain("42%");
-      for (const time of document.querySelectorAll<HTMLTimeElement>("time[datetime]")) {
-        expect(time.textContent).toBe(formatTimestamp(time.dateTime, "24-hour"));
+      // The opened row adds only what the tool is doing; state, start and elapsed time stay on
+      // the row, with no English label table under it (L-013).
+      expect(document.querySelector("[data-tool-activity-detail]")?.textContent).toBe(
+        "Resolving packages",
+      );
+      for (const label of ["Last activity", "Elapsed", "Running tool"]) {
+        expect(document.body.textContent ?? "").not.toContain(label);
       }
+      expect(document.querySelector("[data-tool-call-details] dl")).toBeNull();
+      expect(document.body.textContent ?? "").toContain("42%");
     } finally {
       await screen.unmount();
       host.remove();

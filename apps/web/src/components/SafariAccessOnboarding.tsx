@@ -67,13 +67,14 @@ export function SafariAccessOnboarding({
   startup?: boolean;
 }) {
   const info = useSafariAccessInfo();
-  const [decision, setDecision] = useLocalStorage(SAFARI_ACCESS_STORAGE_KEY, "unseen", Decision);
+  const [, setDecision] = useLocalStorage(SAFARI_ACCESS_STORAGE_KEY, "unseen", Decision);
   const [revisit, setRevisit] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const generation = useRef(0);
-  const wantsOpen = info?.supported === true && (decision === "unseen" || revisit);
+  // Opens only when a person asks from Settings, never by itself at launch (WALK-6 H-1).
+  const wantsOpen = info?.supported === true && revisit;
   const { open: startupOpen } = useAnnouncementSheetSlot(startup && wantsOpen && !revisit);
   // Local setup and deliberate Settings revisits must not depend on the root's
   // first-run gate or wait behind an automatic announcement.

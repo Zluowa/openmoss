@@ -124,10 +124,6 @@
   "apps/web/src/components/chat/chatTypography.ts": {
     "arbitrary-radius": 1
   },
-  "apps/web/src/components/chat/CommandShellDetails.tsx": {
-    "raw-button": 2,
-    "native-title": 3
-  },
   "apps/web/src/components/chat/ComposerAttachmentPreview.tsx": {
     "arbitrary-radius": 2,
     "arbitrary-shadow": 2
@@ -490,9 +486,6 @@
   },
   "apps/web/src/components/chat/ToolActivityDisclosure.tsx": {
     "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/chat/ToolCallDetailsDialog.tsx": {
-    "native-title": 3
   },
   "apps/web/src/components/chat/ToolCallGroupSummaryRow.tsx": {
     "ui-sdk-outside-ui": 1

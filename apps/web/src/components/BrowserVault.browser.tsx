@@ -12,7 +12,11 @@ vi.mock("~/nativeApi", async (importOriginal) => ({
 }));
 import { BrowserVaultButton, BrowserVaultDialog } from "./BrowserVault";
 import { BrowserCookieImport } from "./BrowserCookieImport";
-import { SafariAccessOnboarding, SAFARI_ACCESS_STORAGE_KEY } from "./SafariAccessOnboarding";
+import {
+  SafariAccessOnboarding,
+  SafariAccessSetupButton,
+  SAFARI_ACCESS_STORAGE_KEY,
+} from "./SafariAccessOnboarding";
 
 let state: BrowserVaultSnapshot;
 let changed: () => void;
@@ -98,8 +102,11 @@ describe("browser saved logins", () => {
               origin: "https://example.test",
             }}
           />
+          <SafariAccessSetupButton />
         </SafariAccessOnboarding>,
       );
+      // The guidance opens when a person asks for it, never by itself (WALK-6 H-1).
+      await page.getByRole("button", { name: "Safari import setup" }).click();
       await page.getByRole("button", { name: "Open System Settings" }).click();
       await expect
         .element(page.getByRole("status"))

@@ -1,10 +1,11 @@
 import { defineConfig } from "vitest/config";
 
 import { parseBrowserCasePartition } from "./src/test/browserCasePartition";
+import { CHAT_VIEW_BROWSER_SPEC } from "./src/test/browserTestLanes";
 import { DurationShardSequencer } from "./src/test/durationShardSequencer";
 import stableConfig from "./vitest.browser.stable.config";
 
-const chatViewFile = "src/components/ChatView.browser.tsx";
+const chatViewFile = CHAT_VIEW_BROWSER_SPEC;
 const stableTestConfig = stableConfig.test!;
 const casePartition = parseBrowserCasePartition(process.env.MOSS_BROWSER_CASE_PARTITION);
 // Every project starts a browser API server, including when files are sharded.

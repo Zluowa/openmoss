@@ -5208,26 +5208,14 @@ describe("ChatView transcript geometry (full app)", () => {
     },
   );
 
-  it("offers unseen startup highlights once on a configured installation and keeps chat usable after dismissal", async () => {
+  it("WALK-6 H-1: never opens startup highlights by itself, and Replay feature tour still opens them", async () => {
     localStorage.removeItem(FEATURE_TOUR_STORAGE_KEY);
     const snapshot = createSnapshotWithLongAssistantResponse();
-    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    try {
-      await expect
-        .element(page.getByRole("dialog", { name: "A new home for your work" }))
-        .toBeVisible();
-      expect(document.querySelectorAll('[role="dialog"]').length).toBe(1);
-      await page.getByRole("button", { name: "Skip tour" }).click();
-      expect(JSON.parse(localStorage.getItem(FEATURE_TOUR_STORAGE_KEY) ?? "[]")).toEqual([
-        createBaseServerConfig().worktreesDir,
-      ]);
-    } finally {
-      await mounted.cleanup();
-    }
     const remounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
       expect(document.querySelector("[data-feature-tour]")).toBeNull();
+      expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
       await page.getByTestId("composer-editor").click();
       await remounted.router.navigate({ to: "/settings", search: { section: "advanced" } });
       await page.getByRole("button", { name: "Replay feature tour" }).click();
