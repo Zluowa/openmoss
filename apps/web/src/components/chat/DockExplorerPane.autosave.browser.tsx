@@ -73,6 +73,23 @@ it("autosaves without a keyboard shortcut", async () => {
     }),
   );
   await expect.element(page.getByText("Saved", { exact: true })).toBeVisible();
+  // One save state (WALK-1 R-6): saved reads "Saved" alone, without a second Save control.
+  await expect
+    .element(page.getByRole("button", { name: "Save", exact: true }))
+    .not.toBeInTheDocument();
+});
+
+it("keeps the file tree to about a third of a narrow dock", async () => {
+  // A dock about 420px wide, as beside a chat in a small window.
+  await page.viewport(420, 700);
+  const { editor } = await mount();
+  await expect.element(editor).toBeVisible();
+  const search = page.getByPlaceholder("Search files...").element();
+  const column = search.closest<HTMLElement>(".border-r")!;
+  const row = column.parentElement!;
+  const share = column.getBoundingClientRect().width / row.getBoundingClientRect().width;
+  expect(share).toBeLessThanOrEqual(0.36);
+  expect(column.getBoundingClientRect().width).toBeGreaterThanOrEqual(143);
 });
 
 it("waits for the last edits before switching files", async () => {

@@ -359,7 +359,8 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
     return null;
   }
   const imagePreview =
-    candidate.kind === "imagePreview"
+    candidate.kind === "imagePreview" ||
+    (candidate.kind === "canvas" && candidate.imagePreview !== undefined)
       ? sanitizeRightDockImagePreviewState(candidate.imagePreview)
       : undefined;
   if (candidate.kind === "imagePreview" && imagePreview === null) {
@@ -373,7 +374,10 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
   const deck = candidate.kind === "deck" ? sanitizeRightDockDeckReference(candidate.deck) : null;
   if (candidate.kind === "deck" && deck === null) return null;
   const imagePreviewField: { imagePreview?: RightDockImagePreviewState | null } =
-    candidate.kind === "imagePreview" && imagePreview !== undefined ? { imagePreview } : {};
+    (candidate.kind === "imagePreview" && imagePreview !== undefined) ||
+    (candidate.kind === "canvas" && imagePreview)
+      ? { imagePreview }
+      : {};
   const htmlDocumentField: { htmlDocument?: RightDockHtmlDocument } =
     candidate.kind === "htmlRender" && htmlDocument !== undefined && htmlDocument !== null
       ? { htmlDocument }
@@ -518,6 +522,14 @@ function createPane(input: OpenPaneInput): RightDockPane | null {
     pullRequestNumber: input.pullRequestNumber ?? null,
     pullRequestInitialTab: input.pullRequestInitialTab ?? null,
   };
+  if (input.kind === "canvas") {
+    // The 画布 chip on a chat image opens the conversation's Canvas with those images.
+    const imagePreview =
+      input.imagePreview === undefined
+        ? null
+        : sanitizeRightDockImagePreviewState(input.imagePreview);
+    return imagePreview ? { ...basePane, imagePreview } : basePane;
+  }
   if (input.kind !== "imagePreview") {
     return basePane;
   }
@@ -533,9 +545,19 @@ function singletonPaneReopenPatch(input: OpenPaneInput): Partial<RightDockPane> 
     const deck = sanitizeRightDockDeckReference(input.deck);
     return deck ? { deck } : null;
   }
-  if (input.kind === "canvas" && input.canvasImage !== undefined) {
-    const canvasImage = sanitizeMossCanvasImageFocus(input.canvasImage);
-    return canvasImage ? { canvasImage } : null;
+  if (
+    input.kind === "canvas" &&
+    (input.canvasImage !== undefined || input.imagePreview !== undefined)
+  ) {
+    const canvasImage =
+      input.canvasImage === undefined ? null : sanitizeMossCanvasImageFocus(input.canvasImage);
+    const imagePreview =
+      input.imagePreview === undefined
+        ? null
+        : sanitizeRightDockImagePreviewState(input.imagePreview);
+    return canvasImage || imagePreview
+      ? { ...(canvasImage ? { canvasImage } : {}), ...(imagePreview ? { imagePreview } : {}) }
+      : null;
   }
   if (input.kind === "sidechat" && input.threadId !== undefined) {
     return { threadId: input.threadId ?? null };

@@ -552,3 +552,51 @@ it("keeps the dock's top bar a window drag region except over its tabs and butto
     await screen.unmount();
   }
 });
+
+it("keeps every tab readable and the dock's own controls in view with many tabs open", async () => {
+  await page.viewport(1280, 800);
+  const panes = ["one", "two", "three", "four", "five"].map(makeFilePane);
+  const labels = Object.fromEntries(panes.map((pane) => [pane.id, `${pane.id}-document.md`]));
+  const screen = await renderDock(
+    <div style={{ display: "flex", width: 1000, height: 600 }}>
+      <div style={{ flex: 1 }}>Chat</div>
+      <RightDock
+        state={{ open: true, activePaneId: "one", panes }}
+        paneLabelOverrides={labels}
+        minWidth={300}
+        defaultWidth="420px"
+        shouldAcceptWidth={() => true}
+        addMenuKinds={["explorer", "browser", "terminal"]}
+        onClosePane={() => {}}
+        onCollapse={() => {}}
+        onOpenChange={() => {}}
+        onAddPane={() => {}}
+        renderPane={(currentPane) => <div>Document {currentPane.id}</div>}
+      />
+    </div>,
+  );
+  await expect.element(screen.getByText("Document one", { exact: true })).toBeVisible();
+  const header = document.querySelector<HTMLElement>("[data-right-dock-content]")!
+    .firstElementChild as HTMLElement;
+  const headerRect = header.getBoundingClientRect();
+  // The "+" and the layout controls stay inside the visible bar (WALK-1 R-3).
+  const add = screen.getByRole("button", { name: "Add panel", exact: true }).element();
+  const controls = document.querySelector<HTMLElement>("[data-right-dock-layout-controls]")!;
+  for (const element of [add, controls]) {
+    const rect = element.getBoundingClientRect();
+    expect(rect.width).toBeGreaterThan(0);
+    expect(rect.left).toBeGreaterThanOrEqual(headerRect.left - 1);
+    expect(rect.right).toBeLessThanOrEqual(headerRect.right + 1);
+  }
+  // No tab collapses to a character: each keeps at least 5.5rem, and tabs share the room evenly.
+  const widths = dockTabs().map((tab) => tab.getBoundingClientRect().width);
+  expect(widths).toHaveLength(5);
+  for (const width of widths) expect(width).toBeGreaterThanOrEqual(87);
+  expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(2);
+  // One tab style with the chat's tabs: the close control sits right of the label (WALK-1 R-6).
+  const activeTab = dockTabs()[0]!;
+  const close = activeTab.querySelector<HTMLElement>('[aria-label^="Close "]')!;
+  const label = activeTab.querySelector<HTMLElement>("button:not([aria-label])")!;
+  expect(close.getBoundingClientRect().left).toBeGreaterThan(label.getBoundingClientRect().left);
+  await screen.unmount();
+});

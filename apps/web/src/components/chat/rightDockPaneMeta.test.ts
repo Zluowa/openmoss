@@ -4,6 +4,8 @@ import type { ThreadId } from "@moss/contracts";
 import { type RightDockPane } from "~/rightDockStore.logic";
 import {
   buildRightDockPaneLabelOverrides,
+  RIGHT_DOCK_CHAT_ADD_MENU_KINDS,
+  resolveRightDockAddMenuKinds,
   resolveRightDockPaneLabel,
   resolveRightDockLauncherItems,
 } from "./rightDockPaneMeta";
@@ -32,7 +34,7 @@ describe("resolveRightDockLauncherItems", () => {
         hasGitRepository: true,
         hasReview: true,
       }).map(({ kind }) => kind),
-    ).toEqual(["diff", "terminal", "browser", "canvas", "explorer", "sidechat", "git"]);
+    ).toEqual(["diff", "terminal", "browser", "explorer", "sidechat", "canvas", "git"]);
   });
 
   it("hides workspace-backed tools while no workspace is ready", () => {
@@ -52,7 +54,7 @@ describe("resolveRightDockLauncherItems", () => {
         hasGitRepository: true,
         hasReview: false,
       }).map(({ kind }) => kind),
-    ).toEqual(["terminal", "browser", "canvas", "explorer", "sidechat", "git"]);
+    ).toEqual(["terminal", "browser", "explorer", "sidechat", "canvas", "git"]);
   });
 
   it("offers the simulator only when the server can host one", () => {
@@ -65,7 +67,7 @@ describe("resolveRightDockLauncherItems", () => {
         hasReview: false,
         hasDeviceSupport: true,
       }).map(({ kind }) => kind),
-    ).toEqual(["terminal", "browser", "canvas", "explorer", "sidechat", "device"]);
+    ).toEqual(["terminal", "browser", "explorer", "sidechat", "canvas", "device"]);
 
     expect(
       resolveRightDockLauncherItems({
@@ -105,5 +107,34 @@ describe("buildRightDockPaneLabelOverrides", () => {
 
     expect(overrides).toBeUndefined();
     expect(resolveRightDockPaneLabel(pane, overrides)).toBe("Side chats");
+  });
+});
+
+describe("one list of panes (WALK-1 C-4, R-2)", () => {
+  const items = resolveRightDockLauncherItems({
+    hasWorkspace: true,
+    hasGitRepository: true,
+    hasReview: false,
+  });
+
+  it("gives the chat dock's + menu exactly the launcher's panes, in the launcher's order", () => {
+    expect(resolveRightDockAddMenuKinds(RIGHT_DOCK_CHAT_ADD_MENU_KINDS, items)).toEqual(
+      items.map(({ kind }) => kind),
+    );
+  });
+
+  it("leaves a host that adds no panes to its own + action", () => {
+    expect(resolveRightDockAddMenuKinds([], items)).toEqual([]);
+  });
+
+  it("does not offer 侧边聊天 while the chat cannot start one", () => {
+    expect(
+      resolveRightDockLauncherItems({
+        hasWorkspace: true,
+        hasGitRepository: false,
+        hasReview: false,
+        hasSideChat: false,
+      }).map(({ kind }) => kind),
+    ).toEqual(["terminal", "browser", "explorer", "canvas"]);
   });
 });

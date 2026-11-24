@@ -41,7 +41,7 @@ import { gitBranchesQueryOptions } from "../../lib/gitReactQuery";
 import { canComposerHandlePanelWidth } from "../../lib/panelResize";
 import { projectListDirectoriesQueryOptions } from "../../lib/projectReactQuery";
 import { serverConfigQueryOptions } from "../../lib/serverReactQuery";
-import { waitForSidechatCreator } from "../../lib/sidechatCreatorRegistry";
+import { useCanStartSidechat, waitForSidechatCreator } from "../../lib/sidechatCreatorRegistry";
 import {
   clearSidechatPaneRetention,
   getSidechatPaneRetentionVersion,
@@ -108,6 +108,7 @@ import {
 } from "~/lib/mcpAppDockRegistry";
 import { ConversationImageWorkspace } from "./ConversationImageWorkspace";
 import { DeckDockPane, useAgentDeckAutoOpen } from "./DeckDockPane";
+import { useAgentCanvasOpenCatchUp } from "./agentCanvasOpen";
 import { flushConversationImageEditors } from "~/lib/conversationImageComposer";
 import { HtmlRenderPreviewPane } from "./HtmlRenderPreviewPane";
 import { SubagentsDockPane } from "./SubagentsDockPane";
@@ -118,7 +119,7 @@ import {
   resolveRightDockSurfaceControlShortcutLabels,
 } from "./rightDockFullWidth.logic";
 import {
-  RIGHT_DOCK_ADD_MENU_KINDS,
+  RIGHT_DOCK_CHAT_ADD_MENU_KINDS,
   buildRightDockPaneLabelOverrides,
   getRightDockPaneMeta,
   resolveRightDockLauncherItems,
@@ -399,12 +400,14 @@ export function SingleChatSurface(props: {
     isGitRepo: hasGitRepository,
   });
   const hasDeviceSupport = useDeviceSupport();
+  const canStartSidechat = useCanStartSidechat(props.threadId);
   const dockLauncherItems = resolveRightDockLauncherItems(
     {
       hasWorkspace: workspaceRoot !== null,
       hasGitRepository,
       hasReview: dockDiffTotals.fileCount > 0,
       hasDeviceSupport,
+      hasSideChat: canStartSidechat,
     },
     t,
   );
@@ -488,20 +491,15 @@ export function SingleChatSurface(props: {
   const activePane = resolveActivePane(dockState);
   // A deck the agent has just created opens beside the chat, like the Canvas.
   useAgentDeckAutoOpen(props.threadId);
+  // The agent's open-canvas request reaches the chat on screen even when the live event was lost.
+  useAgentCanvasOpenCatchUp(props.threadId);
+  // A single-image preview fills the window. The 画布 never does on its own (owner,
+  // 2026-11-24): it opens beside the chat, and only the expand control widens it.
+  const activeImagePreviewView =
+    activePane?.kind === "imagePreview" ? (activePane.imagePreview?.view ?? "single") : null;
   useEffect(() => {
-    if (
-      dockState.open &&
-      (activePane?.kind === "imagePreview" ||
-        (activePane?.kind === "canvas" && Boolean(activePane.canvasImage)))
-    )
-      handleRightDockFullWidthChange(true);
-  }, [
-    dockState.open,
-    activePane?.id,
-    activePane?.kind,
-    activePane?.canvasImage,
-    handleRightDockFullWidthChange,
-  ]);
+    if (dockState.open && activeImagePreviewView === "single") handleRightDockFullWidthChange(true);
+  }, [dockState.open, activePane?.id, activeImagePreviewView, handleRightDockFullWidthChange]);
   const floatingBrowserVisible = shouldRenderFloatingBrowserPanel({
     hostThreadId: props.threadId,
     floatingThreadId: floatingBrowserRequested ? props.threadId : null,
@@ -1580,7 +1578,7 @@ export function SingleChatSurface(props: {
           defaultWidth={DIFF_INLINE_DEFAULT_WIDTH}
           widthStorageKey={rightDockThreadWidthStorageKey(props.threadId)}
           shouldAcceptWidth={shouldAcceptDockWidth}
-          addMenuKinds={RIGHT_DOCK_ADD_MENU_KINDS}
+          addMenuKinds={RIGHT_DOCK_CHAT_ADD_MENU_KINDS}
           launcherItems={dockLauncherItems}
           motionKey={props.threadId}
           activePaneRuntimeMode={
@@ -1601,9 +1599,8 @@ export function SingleChatSurface(props: {
           }}
           onCloseMcpApp={(entryId) => void closeMcpAppDockEntry(entryId)}
           onSelectPane={handleSelectDockPane}
-          activePaneOwnsWidthToggle={
-            !mcpAppDockEntries.some((entry) => entry.selected) && activePane?.kind === "browser"
-          }
+          // The dock's own expand serves every pane, the browser included (WALK-1 R-4).
+          activePaneOwnsWidthToggle={false}
           onClosePane={(paneId) => {
             if (
               ["imagePreview", "canvas"].includes(

@@ -230,7 +230,7 @@ export function createBoardCanvasDocument(): BoardCanvasDocument {
         [BOARD_PAGE_ID]: {
           id: BOARD_PAGE_ID,
           typeName: "page",
-          name: "白板",
+          name: "画布",
           index: "a1",
           meta: {},
         },
@@ -397,5 +397,5 @@ export function projectBoardCanvas(board: BoardCanvasDocument, title = ""): stri
       lines.push(`- ${shape.text!.replace(/\s+/gu, " ")}`);
     }
   }
-  return lines.length > 0 ? lines.join("\n") : `白板 ${title}`.trim();
+  return lines.length > 0 ? lines.join("\n") : `画布 ${title}`.trim();
 }

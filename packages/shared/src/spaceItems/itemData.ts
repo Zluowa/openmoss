@@ -109,7 +109,7 @@ export function parseItemData(kind: TypedItemKind, input: string, title = ""): P
     }
     case "board": {
       const board = parseBoardItem(input);
-      return { data: JSON.stringify(board), content: board.note ?? `白板 ${title}`.trim() };
+      return { data: JSON.stringify(board), content: board.note ?? `画布 ${title}`.trim() };
     }
     case "app": {
       // A 数据看板 is an `app` item with a version-2 payload; v1 应用页 keep their HTML body.

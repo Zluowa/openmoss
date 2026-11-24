@@ -51,7 +51,7 @@ const GROUPS: ReadonlyArray<ReadonlyArray<SpaceCreateMenuEntry>> = [
     { id: "page", label: "文档", icon: PageTextIcon },
     { id: "slides", label: "幻灯片", icon: SlidesIcon },
     { id: "sheet", label: "电子表格", icon: TableIcon, badge: "Beta" },
-    { id: "board", label: "白板", icon: WhiteboardIcon, badge: "Beta" },
+    { id: "board", label: "画布", icon: WhiteboardIcon, badge: "Beta" },
     { id: "design", label: "设计", icon: PaletteIcon },
     { id: "dashboard", label: "数据看板", icon: DataDashboardIcon },
     { id: "app", label: "应用页", icon: WindowAppIcon },

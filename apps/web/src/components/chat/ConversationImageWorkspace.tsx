@@ -113,7 +113,9 @@ export function ConversationImageWorkspace(props: {
   const active =
     displayedPreview?.images.find((image) => image.id === displayedPreview.activeImageId) ??
     displayedPreview?.images[0];
-  const canvas = props.canvasOnly || preview?.view === "playground";
+  // The dock's 画布 opened from the launcher or an agent is the board alone. Opened from
+  // a chat image it carries those images and keeps the focused-view switch.
+  const canvas = preview ? preview.view === "playground" : Boolean(props.canvasOnly);
   const visibleRef = useRef(props.visible);
   visibleRef.current = props.visible;
   const previousBoundary = useRef(boundary.key);
@@ -515,7 +517,6 @@ export function ConversationImageWorkspace(props: {
     setAction(next);
     setImportState("loading");
     props.onViewChange("playground");
-    props.onRequestFullWidth(true);
   };
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col" data-conversation-image-workspace>
@@ -535,7 +536,8 @@ export function ConversationImageWorkspace(props: {
           setSelectedCanvasImage(null);
           props.onActiveImageChange(id);
         }}
-        onRequestFullWidth={props.onRequestFullWidth}
+        // The dock's 画布 widens only by the expand control (owner, 2026-11-24).
+        {...(props.canvasOnly ? {} : { onRequestFullWidth: props.onRequestFullWidth })}
         canvasContent={
           canvas && canvasRuntime.loaded ? (
             <MossCanvasWebSurface

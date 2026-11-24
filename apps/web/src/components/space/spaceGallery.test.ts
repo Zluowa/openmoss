@@ -154,7 +154,7 @@ describe("spaceGallery domain", () => {
 
   it("provides kind metadata for 数据看板 & 白板 and keepItemOpen launch metadata for templates", () => {
     expect(spaceKindMeta("dashboard").label).toBe("数据看板");
-    expect(spaceKindMeta("board").label).toBe("白板");
+    expect(spaceKindMeta("board").label).toBe("画布");
     expect(spaceKindMeta("sheet").label).toBe("电子表格");
 
     const launch = getTemplateLaunchMetadata({

@@ -469,7 +469,7 @@ export function nextTldrawIndexAbove(maxExisting: string | null): string {
 }
 
 export function createEmptyMossCanvasSnapshot(
-  title = "白板",
+  title = "画布",
   extras?: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   return {
@@ -486,7 +486,7 @@ export function createEmptyMossCanvasSnapshot(
         [BOARD_PAGE_ID]: {
           id: BOARD_PAGE_ID,
           typeName: "page",
-          name: title || "白板",
+          name: title || "画布",
           index: "a1",
           meta: {},
         },
@@ -558,7 +558,7 @@ function normalizeSnapshotForMutation(
     store[pageId] = {
       id: pageId,
       typeName: "page",
-      name: title || "白板",
+      name: title || "画布",
       index: "a1",
       meta: {},
     };
@@ -654,7 +654,7 @@ export function applyMossCanvasOpsToSnapshot(input: {
   readonly title?: string;
 }): MossCanvasMutateSnapshotResult {
   const validatedOps = parseMossCanvasMutateOps(input.ops);
-  const title = input.title?.trim() || "白板";
+  const title = input.title?.trim() || "画布";
   const { snapshot, store, pageId } = normalizeSnapshotForMutation(input.existingSnapshot, title);
   const keyToShapeId = new Map<string, string>();
   const created: Record<string, string> = {};
@@ -1120,7 +1120,7 @@ export async function mutateMossCanvas(input: {
     input.title?.trim() ||
     (typeof recordOf(existingProject?.entry)?.title === "string"
       ? (recordOf(existingProject?.entry)!.title as string)
-      : input.workspace.title || "白板");
+      : input.workspace.title || "画布");
 
   const mutated = applyMossCanvasOpsToSnapshot({
     existingSnapshot: existingProject?.snapshot,

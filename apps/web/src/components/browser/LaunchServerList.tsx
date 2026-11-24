@@ -29,18 +29,15 @@ export function useLaunchServerFooter(servers: ProjectLaunchServers): {
   readonly lead: string;
   readonly fileLine: string;
 } {
-  const { t, format } = useTranslation();
-  const file = servers.editFile;
+  const { t } = useTranslation();
   return {
     lead: t("browser.servers.footerLead"),
-    // Until the file is read the source is unknown; say nothing rather than guess.
+    // The action on the list, never a file path (WALK-1 R-4). Until the list is read, nothing.
     fileLine: !servers.loaded
       ? ""
-      : servers.source === "packageScripts"
-        ? format("browser.servers.footerScripts", { file })
-        : servers.source === "none"
-          ? format("browser.servers.footerNone", { file })
-          : format("browser.servers.footerEdit", { file }),
+      : servers.source === "none"
+        ? t("browser.servers.footerNone")
+        : t("browser.servers.footerEdit"),
   };
 }
 
@@ -209,18 +206,19 @@ export function LaunchServersPage(props: {
         data-browser-servers-footer=""
       >
         {footer.lead}
-        <br />
-        {editFilePath && props.onEditFile ? (
-          <button
-            type="button"
-            className="underline-offset-2 hover:text-foreground hover:underline"
-            onClick={() => props.onEditFile?.(editFilePath)}
-          >
-            {footer.fileLine}
-          </button>
-        ) : (
-          footer.fileLine
-        )}
+        {/* The list's action, only where it can be clicked (WALK-1 R-4). */}
+        {editFilePath && props.onEditFile && footer.fileLine ? (
+          <>
+            <br />
+            <button
+              type="button"
+              className="underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => props.onEditFile?.(editFilePath)}
+            >
+              {footer.fileLine}
+            </button>
+          </>
+        ) : null}
         {servers.problems.length > 0 ? (
           <span className="block pt-1 text-warning" title={servers.problems.join("\n")}>
             {t("browser.servers.problems")}
@@ -319,13 +317,10 @@ export function LaunchServerMenuRows(props: {
   /** Stops a server found elsewhere (when it can be stopped). */
   readonly onStopElsewhere?: ((server: ServerLocalServerProcess) => void) | undefined;
   readonly showElsewhere?: boolean;
-  /** The line saying where the list is kept (left out where the menu links the file). */
-  readonly showFooter?: boolean;
 }) {
   const { t, format } = useTranslation();
   const { servers } = props;
   const [expanded, setExpanded] = useState(false);
-  const footer = useLaunchServerFooter(servers);
   const visibleRows = expanded
     ? servers.rows
     : servers.rows.slice(0, LAUNCH_SERVER_LIST_COLLAPSED_COUNT);
@@ -408,14 +403,6 @@ export function LaunchServerMenuRows(props: {
             })}
           </div>
         </MenuGroup>
-      ) : null}
-      {props.showFooter !== false && footer.fileLine ? (
-        <p
-          className="px-2 pt-1.5 pb-1 text-ui-xs leading-snug text-[var(--color-text-foreground-secondary)]"
-          data-launch-server-footer=""
-        >
-          {footer.fileLine}
-        </p>
       ) : null}
     </>
   );

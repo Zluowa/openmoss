@@ -89,7 +89,7 @@ const KIND_ROWS: ReadonlyArray<SidebarKindRow> = [
   { target: "filter", kind: "sheet", label: "电子表格", icon: TableIcon },
   { target: "filter", kind: "design", label: "设计", icon: PaletteIcon },
   { target: "filter", kind: "dashboard", label: "数据看板", icon: DataDashboardIcon },
-  { target: "filter", kind: "board", label: "白板", icon: WhiteboardIcon },
+  { target: "filter", kind: "board", label: "画布", icon: WhiteboardIcon },
   { target: "section", kind: "app", label: "应用页", icon: WindowAppIcon },
   { target: "section", kind: "image", label: "图像", icon: ImagesIcon },
   { target: "section", kind: "site", label: "站点", icon: GlobeIcon },

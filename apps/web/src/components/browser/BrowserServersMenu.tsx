@@ -73,12 +73,7 @@ export function BrowserServersMenu(props: {
           }
         />
         <ComposerPickerMenuPopup align="end" side="bottom" className="w-80 min-w-80">
-          <LaunchServerMenuRows
-            servers={servers}
-            onOpenUrl={props.onOpen}
-            showElsewhere={false}
-            showFooter={!(editFilePath && props.onEditFile)}
-          />
+          <LaunchServerMenuRows servers={servers} onOpenUrl={props.onOpen} showElsewhere={false} />
           {runs.length > 0 || (editFilePath && props.onEditFile) ? <MenuSeparator /> : null}
           {runs.length === 1 ? (
             <MenuItem onClick={() => setLogsRunKey(devServerRunKey(runs[0]!))}>
@@ -103,7 +98,7 @@ export function BrowserServersMenu(props: {
           ) : null}
           {editFilePath && props.onEditFile ? (
             <MenuItem onClick={() => props.onEditFile?.(editFilePath)}>
-              {format("browser.servers.editFile", { file: servers.editFile })}
+              {t("browser.servers.footerEdit")}
             </MenuItem>
           ) : null}
         </ComposerPickerMenuPopup>

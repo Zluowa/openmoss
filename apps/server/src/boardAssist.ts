@@ -20,7 +20,7 @@ export type BoardAssistEvent =
 const MAX_RUNNING = 4;
 
 export const BOARD_ASSIST_MESSAGES: Record<string, string> = {
-  authentication_required: "登录 Moss 账号后，板上 Moss 才能直接修改白板。",
+  authentication_required: "登录 Moss 账号后，板上 Moss 才能直接修改画布。",
   quota_exceeded: "Moss 额度用完了，充值后再试。",
   resource_exhausted: "模型正忙，请稍后再试。",
   unavailable: "板上 Moss 暂时连不上模型，请稍后再试。",

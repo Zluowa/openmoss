@@ -2137,7 +2137,8 @@ function DesktopBrowserPanel({
           onEditFile={onViewSource}
         />
         <BrowserPanelMenu threadId={threadId} onViewSource={onViewSource} />
-        {layout ? (
+        {/* In the right dock its header's expand serves the browser; one control, not two. */}
+        {layout && chrome !== "dock" ? (
           <IconButton
             variant="chrome"
             size="icon-xs"
@@ -2152,18 +2153,21 @@ function DesktopBrowserPanel({
             {layout.expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </IconButton>
         ) : null}
-        <IconButton
-          variant="chrome"
-          size="icon-xs"
-          label={t("browser.panel.close")}
-          tooltip={t("browser.panel.close")}
-          tooltipSide="bottom"
-          className={DOCK_HEADER_ICON_BUTTON_CLASS}
-          data-browser-close=""
-          onClick={onClosePanel}
-        >
-          <XIcon className="size-4" />
-        </IconButton>
+        {/* In the right dock its tab's × closes the browser; a second close is noise (WALK-1 R-4). */}
+        {chrome === "dock" ? null : (
+          <IconButton
+            variant="chrome"
+            size="icon-xs"
+            label={t("browser.panel.close")}
+            tooltip={t("browser.panel.close")}
+            tooltipSide="bottom"
+            className={DOCK_HEADER_ICON_BUTTON_CLASS}
+            data-browser-close=""
+            onClick={onClosePanel}
+          >
+            <XIcon className="size-4" />
+          </IconButton>
+        )}
       </div>
     </div>
   ) : null;

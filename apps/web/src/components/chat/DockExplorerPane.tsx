@@ -26,11 +26,11 @@ import { PanelStateMessage } from "./PanelStateMessage";
 import { WorkspaceExplorerSidebar } from "./workspaceExplorer";
 
 // The dock lays out as a fixed horizontal row, so the shared sidebar takes a
-// full-height fixed-width column (the editor's responsive default would collapse
-// to a stacked block here). With the activity rail gone, the search box sits at
-// the top of this column and the freed width goes to the file viewer.
+// full-height column (the editor's responsive default would collapse to a stacked
+// block here). It never takes more than about a third of the dock, so the file
+// viewer keeps the room (WALK-1 R-6); in a wide dock it stays 15rem.
 const DOCK_EXPLORER_SIDEBAR_CLASS =
-  "flex h-full min-h-0 w-60 shrink-0 flex-col border-r border-border/65 app-content-surface";
+  "flex h-full min-h-0 w-[min(15rem,34%)] min-w-36 shrink-0 flex-col border-r border-border/65 app-content-surface";
 
 export const DockExplorerPane = function DockExplorerPane(props: {
   threadId: ThreadId;
