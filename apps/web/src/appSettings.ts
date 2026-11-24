@@ -629,9 +629,6 @@ export const AppSettingsSchema = Schema.Struct({
   agentCursorRimColor: Schema.String.check(Schema.isMaxLength(7)).pipe(withDefaults(() => "")),
   // Deprecated rename bridge. Normalization migrates this value and then omits the key.
   allowComputerControlInNewChats: Schema.optionalKey(Schema.Boolean),
-  // One-shot composer hint that suggests Medium effort for faster desktop actions.
-  // Set when the user applies or dismisses it, so the hint never asks twice.
-  dismissedComputerControlEffortHint: Schema.Boolean.pipe(withDefaults(() => false)),
   // One-shot composer hint offering Auto-fix CI on a chat's open PR. Set when the
   // user dismisses it or turns Auto-fix CI on anywhere, so it never asks twice.
   dismissedPullRequestAutoFixHint: Schema.Boolean.pipe(withDefaults(() => false)),

@@ -32,7 +32,7 @@ const COMPOSER_CAPSULE_CLASS_NAME = [
 const COMPOSER_CAPSULE_INTERACTIVE_CLASS_NAME =
   "cursor-interaction outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:transition-colors hover:text-foreground hover:after:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-ring/60 data-popup-open:text-foreground data-popup-open:after:bg-[var(--color-background-button-secondary-hover)]";
 
-/** Text action inside a capsule (tip "Turn on", "Use Medium"). */
+/** Text action inside a capsule (a tip's "Turn on"). */
 export const COMPOSER_CAPSULE_ACTION_CLASS_NAME = cn(
   COMPOSER_INLINE_ACTION_PILL_CLASS_NAME,
   "rounded-full px-2 py-0 text-ui-sm leading-5",

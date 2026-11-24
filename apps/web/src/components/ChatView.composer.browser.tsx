@@ -13,6 +13,7 @@ import {
   type OrchestrationReadModel,
   ProviderInstanceId,
   type ServerConfig,
+  type ThreadComputerState,
   TurnId,
   WS_METHODS,
 } from "@moss/contracts";
@@ -20,6 +21,7 @@ import { INTERRUPTED_TASK_CONTINUATION_PROMPT } from "@moss/shared/turnResume";
 import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useComputerStateStore } from "../computerStateStore";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   removeInlineTerminalContextPlaceholder,
@@ -1434,6 +1436,79 @@ describe("ChatView transcript geometry (full app)", () => {
         false,
       );
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("N6-3: a chat on a Moss Claude model at 高 shows no effort notice above the composer", async () => {
+    // WALK-6 N6-3: a chat on Moss Sonnet 4.6 (Moss's own Claude lane) at its default effort,
+    // desktop control on and the desktop available. Above the composer sat 「Desktop actions
+    // are faster at Medium effort · Use Medium ×」, in English. The composer's own effort
+    // control is how a person changes effort; nothing is shown above it.
+    localStorage.setItem(
+      APP_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ localeOverride: "zh-CN", computerControlEnabled: true }),
+    );
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-user-n6-3"),
+      targetText: "打开计算器，算一下 12 加 30",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...base,
+        threads: base.threads.map((thread) =>
+          thread.id === THREAD_ID
+            ? {
+                ...thread,
+                modelSelection: {
+                  provider: "claudeAgent" as const,
+                  instanceId: ProviderInstanceId.makeUnsafe("claude_moss"),
+                  model: "claude-sonnet-4-6",
+                },
+                session: thread.session
+                  ? {
+                      ...thread.session,
+                      providerName: "claudeAgent",
+                      providerInstanceId: ProviderInstanceId.makeUnsafe("claude_moss"),
+                    }
+                  : null,
+              }
+            : thread,
+        ),
+      },
+      configureFixture: configureMossManagedDefaults,
+    });
+    try {
+      await waitForComposerEditor();
+      const composerForm = document.querySelector<HTMLElement>('[data-chat-composer-form="true"]');
+      expect(composerForm).not.toBeNull();
+      // The walker's state: the composer's model control names Sonnet 4.6 at its default effort.
+      await vi.waitFor(() =>
+        expect(composerForm!.textContent).toMatch(/Claude Sonnet 4\.6\s*(?:高|High)/u),
+      );
+      useComputerStateStore.getState().upsertThreadState({
+        controlGeneration: 0,
+        threadId: THREAD_ID,
+        version: 1,
+        computerId: "computer-n6-3",
+        windows: [],
+        screenSize: { width: 1, height: 1 },
+        agentActive: false,
+        availability: { kind: "available", backend: "cua" },
+      } as unknown as ThreadComputerState);
+      await vi.waitFor(() =>
+        expect(
+          useComputerStateStore.getState().threadStatesByThreadId[THREAD_ID]?.availability,
+        ).toMatchObject({ kind: "available" }),
+      );
+      await waitForLayout();
+      await waitForLayout();
+      expect(composerForm!.textContent).not.toContain("Desktop actions are faster");
+      expect(composerForm!.textContent).not.toContain("Use Medium");
+      expect(composerForm!.querySelector('button[aria-label="Dismiss tip"]')).toBeNull();
+    } finally {
+      useComputerStateStore.getState().clear();
       await mounted.cleanup();
     }
   });

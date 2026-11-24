@@ -219,10 +219,7 @@ import { useThreadWorkspaceHandoff } from "../hooks/useThreadWorkspaceHandoff";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useComputerControlModeChange } from "~/hooks/useComputerControlModeChange";
 import { useThreadComputerStateSeed } from "../hooks/useThreadComputerStateSeed";
-import {
-  useThreadComputerAvailability,
-  useThreadComputerControlGeneration,
-} from "../computerStateStore";
+import { useThreadComputerControlGeneration } from "../computerStateStore";
 import { formatShortcutLabel, shortcutLabelForCommand } from "../keybindings";
 import { useTranslation } from "../localization";
 import { dispatchThreadNotes, displayLabelFor } from "~/pinnedMessages";
@@ -452,11 +449,6 @@ import {
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerQueuedHeader } from "./chat/ComposerQueuedHeader";
 import { AgentRuntimePreparingPanel } from "./chat/AgentRuntimePreparingPanel";
-import {
-  COMPUTER_CONTROL_HINT_EFFORT,
-  shouldShowComputerControlEffortHint,
-} from "./chat/composerComputerControlHint";
-import { ComposerComputerControlEffortHint } from "./chat/ComposerComputerControlEffortHint";
 import { ComposerTipRow } from "./chat/ComposerTipRow";
 import { COMPOSER_STACKED_PANEL_ICON_CLASS_NAME } from "./chat/composerStackedPanelStyles";
 import { ComposerPullRequestAutoFixHint } from "./chat/ComposerPullRequestAutoFixHint";
@@ -1127,10 +1119,8 @@ export default function ChatView({
   }, [activeThread?.messages.length, composerSendState.hasDraftContent, onConversationActivity]);
   // Invocation needs the current revocation generation before the preview appears.
   useThreadComputerStateSeed(threadId);
-  const computerAvailability = useThreadComputerAvailability(threadId);
   const computerControlGeneration =
     useThreadComputerControlGeneration(threadId) ?? composerDraft.computerControlGeneration ?? 0;
-  const computerControlAvailable = computerAvailability?.kind === "available";
   // Local threads reconcile their stored branch to the shared checkout as soon as the
   // branch query resolves. Keep the branch seen when a thread becomes active so a settled
   // thread can explain that change before the user's first resumed message.
@@ -6761,33 +6751,6 @@ export default function ChatView({
     environmentInsetPx,
     size: settings.computerPreviewSize === "large" ? "large" : "compact",
   });
-  const composerEffortOptionId = composerTraitSelection.primarySelectDescriptor?.id ?? "effort";
-  const applyComputerControlEffortHint = useCallback(() => {
-    setComposerDraftProviderModelOptions(
-      threadId,
-      selectedProvider,
-      buildNextProviderOptions(selectedProvider, selectedProviderModelOptions, {
-        [composerEffortOptionId]: COMPUTER_CONTROL_HINT_EFFORT,
-      }),
-      { model: selectedModelForPickerWithCustomFallback, persistSticky: true },
-    );
-    updateSettings({ dismissedComputerControlEffortHint: true });
-    scheduleComposerFocus();
-  }, [
-    composerEffortOptionId,
-    scheduleComposerFocus,
-    selectedModelForPickerWithCustomFallback,
-    selectedProvider,
-    selectedProviderModelOptions,
-    setComposerDraftProviderModelOptions,
-    threadId,
-    updateSettings,
-  ]);
-  const dismissComputerControlEffortHint = useCallback(() => {
-    updateSettings({ dismissedComputerControlEffortHint: true });
-    scheduleComposerFocus();
-  }, [scheduleComposerFocus, updateSettings]);
-
   // "Use default" in group settings means the app default (Settings → General), never the
   // active thread's model.
   const groupPanelDefaultModelSelection = useMemo<ModelSelection>(
@@ -7479,13 +7442,6 @@ export default function ChatView({
   const showComposerLiveChangesHeader = latestTurnLive && activeTurnLiveDiffState.hasChanges;
   const showComposerActiveTaskListCard = Boolean(activeTaskList && !planSidebarOpen);
   const activeThreadGoalText = activeThread?.goal?.trim() ?? "";
-  const showComposerComputerControlEffortHint = shouldShowComputerControlEffortHint({
-    enableComputerControl,
-    computerControlAvailable,
-    dismissed: settings.dismissedComputerControlEffortHint,
-    provider: selectedProvider,
-    traits: composerTraitSelection,
-  });
   const startReplacementSidechat = () => {
     if (!activeThread) return;
     // A forked sidechat is replaced by its source thread's creator. A standalone one has no
@@ -7657,12 +7613,6 @@ export default function ChatView({
                 ) : null}
                 {pendingBackgroundWorkCount > 0 ? (
                   <ComposerPendingBackgroundWorkRow count={pendingBackgroundWorkCount} />
-                ) : null}
-                {showComposerComputerControlEffortHint ? (
-                  <ComposerComputerControlEffortHint
-                    onApply={applyComputerControlEffortHint}
-                    onDismiss={dismissComputerControlEffortHint}
-                  />
                 ) : null}
                 {showClaudeModelSwitchNote ? (
                   <ComposerTipRow
