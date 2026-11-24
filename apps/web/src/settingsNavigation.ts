@@ -131,7 +131,7 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     group: "personal",
     label: "Account",
     description: "Sign-in methods, plan, credits, and sign out.",
-    icon: "circle-person",
+    icon: "key-1",
     eyebrow: "Moss account",
   },
   {

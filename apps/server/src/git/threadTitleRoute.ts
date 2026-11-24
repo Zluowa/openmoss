@@ -22,7 +22,6 @@ const TITLE_EFFORT_OPTION_KEY: Partial<Record<ProviderKind, string>> = {
   claudeAgent: "effort",
   codex: "reasoningEffort",
   cursor: "reasoningEffort",
-  droid: "reasoningEffort",
 };
 
 /** Ladder order across providers; a level outside it ranks after every known one. */

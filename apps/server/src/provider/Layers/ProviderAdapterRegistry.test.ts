@@ -17,7 +17,6 @@ import { ClaudeAdapter, ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts"
 import { CodexAdapter, CodexAdapterShape } from "../Services/CodexAdapter.ts";
 import { CursorAdapter, CursorAdapterShape } from "../Services/CursorAdapter.ts";
 import { DevinAdapter, DevinAdapterShape } from "../Services/DevinAdapter.ts";
-import { DroidAdapter, DroidAdapterShape } from "../Services/DroidAdapter.ts";
 import { GrokAdapter, GrokAdapterShape } from "../Services/GrokAdapter.ts";
 import { OpenCodeAdapter, OpenCodeAdapterShape } from "../Services/OpenCodeAdapter.ts";
 import { PiAdapter, PiAdapterShape } from "../Services/PiAdapter.ts";
@@ -103,24 +102,6 @@ const fakeGrokAdapter: GrokAdapterShape = {
   hasSession: vi.fn(),
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
-  stopAll: vi.fn(),
-  streamEvents: Stream.empty,
-};
-
-const fakeDroidAdapter: DroidAdapterShape = {
-  provider: "droid",
-  capabilities: { sessionModelSwitch: "restart-session" },
-  startSession: vi.fn(),
-  sendTurn: vi.fn(),
-  interruptTurn: vi.fn(),
-  respondToRequest: vi.fn(),
-  respondToUserInput: vi.fn(),
-  stopSession: vi.fn(),
-  listSessions: vi.fn(),
-  hasSession: vi.fn(),
-  readThread: vi.fn(),
-  rollbackThread: vi.fn(),
-  forkThread: vi.fn(),
   stopAll: vi.fn(),
   streamEvents: Stream.empty,
 };
@@ -221,7 +202,6 @@ const registryLayer = (codexAdapter = fakeCodexAdapter) =>
         Layer.succeed(DevinAdapter, fakeDevinAdapter),
         Layer.succeed(AntigravityAdapter, fakeAntigravityAdapter),
         Layer.succeed(GrokAdapter, fakeGrokAdapter),
-        Layer.succeed(DroidAdapter, fakeDroidAdapter),
         Layer.succeed(OpenCodeAdapter, fakeOpenCodeAdapter),
         Layer.succeed(PiAdapter, fakePiAdapter),
         Layer.succeed(OmpAdapter, fakeOmpAdapter),
@@ -267,7 +247,6 @@ layer("ProviderAdapterRegistryLive", (it) => {
       const devin = yield* registry.getByProvider("devin");
       const antigravity = yield* registry.getByProvider("antigravity");
       const grok = yield* registry.getByProvider("grok");
-      const droid = yield* registry.getByProvider("droid");
       const opencode = yield* registry.getByProvider("opencode");
       const pi = yield* registry.getByProvider("pi");
       const omp = yield* registry.getByProvider("omp");
@@ -276,6 +255,8 @@ layer("ProviderAdapterRegistryLive", (it) => {
       assert.equal(cursor, fakeCursorAdapter);
       const geminiFailure = yield* Effect.flip(registry.getByProvider("gemini"));
       assert.equal(geminiFailure._tag, "ProviderUnsupportedError");
+      const droidFailure = yield* Effect.flip(registry.getByProvider("droid"));
+      assert.equal(droidFailure._tag, "ProviderUnsupportedError");
       assert.equal(hermes.provider, "hermes");
       assert.equal(kimi.provider, "kimi");
       assert.equal(minimax.provider, "minimax");
@@ -283,7 +264,6 @@ layer("ProviderAdapterRegistryLive", (it) => {
       assert.equal(devin, fakeDevinAdapter);
       assert.equal(antigravity, fakeAntigravityAdapter);
       assert.equal(grok, fakeGrokAdapter);
-      assert.equal(droid, fakeDroidAdapter);
       assert.equal(opencode, fakeOpenCodeAdapter);
       assert.equal(pi, fakePiAdapter);
       assert.equal(omp, fakeOmpAdapter);
@@ -296,7 +276,6 @@ layer("ProviderAdapterRegistryLive", (it) => {
         "devin",
         "antigravity",
         "grok",
-        "droid",
         "opencode",
         "omp",
         "pi",

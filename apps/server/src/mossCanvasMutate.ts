@@ -108,44 +108,31 @@ export type MossCanvasMutateOp =
       readonly op: "clear";
     };
 
-/** Exact `tldraw@5.3.2` + `hoola-card` schema captured from the pinned built Canvas bundle. */
-export const MOSS_CANVAS_TLDRAW_SCHEMA = {
-  schemaVersion: 2,
-  sequences: {
-    "com.tldraw.store": 5,
-    "com.tldraw.asset": 1,
-    "com.tldraw.camera": 1,
-    "com.tldraw.document": 2,
-    "com.tldraw.instance": 26,
-    "com.tldraw.instance_page_state": 5,
-    "com.tldraw.page": 1,
-    "com.tldraw.instance_presence": 6,
-    "com.tldraw.pointer": 1,
-    "com.tldraw.shape": 4,
-    "com.tldraw.user": 1,
-    "com.tldraw.asset.image": 6,
-    "com.tldraw.asset.video": 5,
-    "com.tldraw.asset.bookmark": 2,
-    "com.tldraw.shape.group": 0,
-    "com.tldraw.shape.text": 4,
-    "com.tldraw.shape.bookmark": 2,
-    "com.tldraw.shape.draw": 5,
-    "com.tldraw.shape.geo": 12,
-    "com.tldraw.shape.note": 13,
-    "com.tldraw.shape.line": 5,
-    "com.tldraw.shape.frame": 1,
-    "com.tldraw.shape.arrow": 8,
-    "com.tldraw.shape.highlight": 4,
-    "com.tldraw.shape.embed": 4,
-    "com.tldraw.shape.image": 5,
-    "com.tldraw.shape.video": 4,
-    "com.tldraw.shape.hoola-card": 0,
-    "com.tldraw.binding.arrow": 1,
-    "com.tldraw.comment-thread": 3,
-    "com.tldraw.comment": 1,
-    "com.tldraw.comment-reaction": 1,
-  },
+/**
+ * The record versions this server-side writer builds (tldraw 5.3.2). It never invents a schema: it
+ * edits only a board the Canvas editor already saved, keeps that board's own schema, and refuses
+ * when the stored versions of what it writes differ (a moved Canvas pin), instead of writing
+ * records the editor cannot load. The open editor path (moss-canvas-apply-ops) has no such limit.
+ */
+export const MOSS_CANVAS_MUTATE_RECORD_VERSIONS = {
+  "com.tldraw.shape.text": 4,
+  "com.tldraw.shape.geo": 12,
+  "com.tldraw.shape.note": 13,
+  "com.tldraw.shape.frame": 1,
+  "com.tldraw.shape.arrow": 8,
+  "com.tldraw.binding.arrow": 1,
 } as const;
+
+/** Whether a stored board's schema matches the records this writer builds. */
+export function mossCanvasMutateCanWrite(snapshot: unknown): boolean {
+  if (!isRecord(snapshot) || !isRecord(snapshot.document)) return false;
+  const schema = snapshot.document.schema;
+  if (!isRecord(schema) || !isRecord(schema.sequences)) return false;
+  const sequences = schema.sequences;
+  return Object.entries(MOSS_CANVAS_MUTATE_RECORD_VERSIONS).every(
+    ([sequence, version]) => sequences[sequence] === version,
+  );
+}
 
 export interface MossCanvasMutateSnapshotResult {
   readonly snapshot: Record<string, unknown>;
@@ -163,6 +150,8 @@ export interface MossCanvasMutateResult {
   readonly shapeCounts: Readonly<Record<string, number>>;
   readonly shapes: readonly MossCanvasShapeSummary[];
   readonly truncated: boolean;
+  /** False when the edit is on the open board but the editor has not saved it yet; it will. */
+  readonly saved?: boolean;
 }
 
 const NOTE_SIZE = 200;
@@ -468,51 +457,6 @@ export function nextTldrawIndexAbove(maxExisting: string | null): string {
   return "z00000000000000000000000000";
 }
 
-export function createEmptyMossCanvasSnapshot(
-  title = "画布",
-  extras?: Readonly<Record<string, unknown>>,
-): Record<string, unknown> {
-  return {
-    ...(extras ?? {}),
-    document: {
-      store: {
-        "document:document": {
-          id: "document:document",
-          typeName: "document",
-          gridSize: 10,
-          name: "",
-          meta: {},
-        },
-        [BOARD_PAGE_ID]: {
-          id: BOARD_PAGE_ID,
-          typeName: "page",
-          name: title || "画布",
-          index: "a1",
-          meta: {},
-        },
-      },
-      schema: structuredClone(MOSS_CANVAS_TLDRAW_SCHEMA),
-    },
-    session: {
-      version: 0,
-      currentPageId: BOARD_PAGE_ID,
-      exportBackground: true,
-      isFocusMode: false,
-      isDebugMode: false,
-      isToolLocked: false,
-      isGridMode: true,
-      pageStates: [
-        {
-          pageId: BOARD_PAGE_ID,
-          camera: { x: 0, y: 0, z: 0.5 },
-          selectedShapeIds: [],
-          focusedGroupId: null,
-        },
-      ],
-    },
-  };
-}
-
 function isTldrawProjectSnapshot(value: unknown): value is Record<string, unknown> {
   if (!isRecord(value)) return false;
   const doc = value.document;
@@ -527,19 +471,11 @@ function normalizeSnapshotForMutation(
   store: Record<string, Record<string, unknown>>;
   pageId: string;
 } {
-  const extras: Record<string, unknown> = {};
-  if (isRecord(existing) && existing.mossConversationMedia !== undefined) {
-    extras.mossConversationMedia = structuredClone(existing.mossConversationMedia);
-  }
-  const base = isTldrawProjectSnapshot(existing)
-    ? (structuredClone(existing) as Record<string, unknown>)
-    : createEmptyMossCanvasSnapshot(title, extras);
-  if (extras.mossConversationMedia !== undefined && base.mossConversationMedia === undefined) {
-    base.mossConversationMedia = extras.mossConversationMedia;
-  }
-  if (!isRecord(base.session)) {
-    base.session = createEmptyMossCanvasSnapshot(title).session;
-  }
+  // Only a board the Canvas editor saved: its own schema stays, nothing is invented here.
+  if (!isTldrawProjectSnapshot(existing)) throw new MossMediaJobsError("canvas_not_open", 409);
+  if (!mossCanvasMutateCanWrite(existing))
+    throw new MossMediaJobsError("canvas_open_required", 409);
+  const base = structuredClone(existing) as Record<string, unknown>;
   const doc = base.document as Record<string, unknown>;
   const store = doc.store as Record<string, Record<string, unknown>>;
   if (!store["document:document"]) {
@@ -1087,7 +1023,24 @@ function recordOf(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;
 }
 
-/** Mutates this conversation's Canvas and persists it in hosted storage for the editor to load. */
+const MUTATE_WRITE_ATTEMPTS = 3;
+
+function isRevisionMismatch(error: unknown): boolean {
+  return (
+    isRecord(error) &&
+    (error.code === "HOOLA_PROJECT_REVISION_MISMATCH" ||
+      (typeof error.message === "string" &&
+        error.message.includes("HOOLA_PROJECT_REVISION_MISMATCH")))
+  );
+}
+
+/**
+ * Applies an agent's edit to this conversation's saved Canvas when no editor has it open. The
+ * write names the revision it read and is refused when the board changed since (the editor's
+ * save, another edit); it then reads again and retries. A board that was never saved, or one
+ * whose schema differs from what this writer builds, is refused: the agent opens the 画布 and the
+ * edit goes through the editor instead.
+ */
 export async function mutateMossCanvas(input: {
   readonly stateDirectory: string;
   readonly identity: MossMediaIdentity;
@@ -1096,76 +1049,52 @@ export async function mutateMossCanvas(input: {
   readonly title?: string;
 }): Promise<MossCanvasMutateResult> {
   const validatedOps = parseMossCanvasMutateOps(input.ops);
-  const existsBefore = await mossCanvasStorageExists(
-    input.stateDirectory,
-    input.identity,
-    input.workspace,
-  );
+  if (!(await mossCanvasStorageExists(input.stateDirectory, input.identity, input.workspace)))
+    throw new MossMediaJobsError("canvas_not_open", 409);
   const store = await mossCanvasStorageFor(input.stateDirectory, input.identity, input.workspace);
-  const conversation = existsBefore
-    ? recordOf(await store.request("workspace.conversationJobs"))
-    : null;
-  const active = recordOf(await store.request("projects.active"));
-  const activeRelativePath =
-    typeof active?.relativePath === "string"
-      ? active.relativePath
-      : typeof conversation?.relativePath === "string"
-        ? conversation.relativePath
-        : null;
-
-  const existingProject = activeRelativePath
-    ? recordOf(await store.request("projects.read", { relativePath: activeRelativePath }))
-    : null;
-  const boardTitle =
-    input.title?.trim() ||
-    (typeof recordOf(existingProject?.entry)?.title === "string"
-      ? (recordOf(existingProject?.entry)!.title as string)
-      : input.workspace.title || "画布");
-
-  const mutated = applyMossCanvasOpsToSnapshot({
-    existingSnapshot: existingProject?.snapshot,
-    ops: validatedOps,
-    title: boardTitle,
-  });
-
-  let updatedEntry: Record<string, unknown> | null = null;
-  if (activeRelativePath && existingProject) {
-    updatedEntry = recordOf(
-      await store.request("projects.write", {
-        relativePath: activeRelativePath,
-        snapshot: mutated.snapshot,
-      }),
-    );
-    if (!active?.relativePath) {
-      await store.request("projects.setActive", { relativePath: activeRelativePath });
-    }
-  } else {
-    const createdEntry = recordOf(
-      await store.request("projects.create", {
-        title: boardTitle,
-        snapshot: mutated.snapshot,
-      }),
-    );
-    const newRel =
-      typeof createdEntry?.relativePath === "string" ? createdEntry.relativePath : null;
-    if (newRel) {
-      updatedEntry = recordOf(await store.request("projects.setActive", { relativePath: newRel }));
-    } else {
-      updatedEntry = createdEntry;
+  for (let attempt = 1; ; attempt += 1) {
+    const conversation = recordOf(await store.request("workspace.conversationJobs"));
+    const active = recordOf(await store.request("projects.active"));
+    const relativePath =
+      typeof active?.relativePath === "string"
+        ? active.relativePath
+        : typeof conversation?.relativePath === "string"
+          ? conversation.relativePath
+          : null;
+    if (!relativePath) throw new MossMediaJobsError("canvas_not_open", 409);
+    const project = recordOf(await store.request("projects.read", { relativePath }));
+    const entry = recordOf(project?.entry);
+    const readRevision = typeof entry?.updatedAt === "string" ? entry.updatedAt : null;
+    const title =
+      input.title?.trim() ||
+      (typeof entry?.title === "string" ? entry.title : input.workspace.title || "画布");
+    const mutated = applyMossCanvasOpsToSnapshot({
+      existingSnapshot: project?.snapshot,
+      ops: validatedOps,
+      title,
+    });
+    try {
+      const written = recordOf(
+        await store.request("projects.write", {
+          relativePath,
+          snapshot: mutated.snapshot,
+          ...(readRevision ? { expectedUpdatedAt: readRevision } : {}),
+        }),
+      );
+      return {
+        revision:
+          typeof written?.updatedAt === "string" && written.updatedAt
+            ? written.updatedAt
+            : new Date().toISOString(),
+        created: mutated.created,
+        deletedCount: mutated.deletedCount,
+        shapeCounts: mutated.shapeCounts,
+        shapes: mutated.shapes,
+        truncated: mutated.truncated,
+      };
+    } catch (error) {
+      if (!isRevisionMismatch(error)) throw error;
+      if (attempt >= MUTATE_WRITE_ATTEMPTS) throw new MossMediaJobsError("canvas_busy", 409);
     }
   }
-
-  const revision =
-    typeof updatedEntry?.updatedAt === "string" && updatedEntry.updatedAt
-      ? updatedEntry.updatedAt
-      : new Date().toISOString();
-
-  return {
-    revision,
-    created: mutated.created,
-    deletedCount: mutated.deletedCount,
-    shapeCounts: mutated.shapeCounts,
-    shapes: mutated.shapes,
-    truncated: mutated.truncated,
-  };
 }

@@ -114,4 +114,50 @@ describe("WorkspaceImportFlow probe errors", () => {
     expect(nativeApi.probeWorkspaceImport).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).not.toContain("没来得及读完");
   });
+
+  it("offers nothing to import, sync or look back on when the detected app has nothing", async () => {
+    nativeApi.probeWorkspaceImport.mockResolvedValue({
+      sources: [source({ skillCount: 0, honorAbleSettingCount: 0, chatCount: 0, projectCount: 0 })],
+      requiresSourceChoice: false,
+    });
+    await renderFlow();
+    await expect.poll(() => nativeApi.probeWorkspaceImport.mock.calls.length).toBeGreaterThan(0);
+    await expect.poll(() => document.body.textContent?.includes("正在查找") ?? false).toBe(false);
+    // No 导入 button for "0 个技能 · 0 项设置", no sync switch, no empty history box.
+    expect(page.getByRole("button", { name: "导入", exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("switch").elements()).toHaveLength(0);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("0 个技能");
+    expect(text).not.toContain("导入历史");
+    expect(text).not.toContain("同步已暂停");
+  });
+
+  it("still offers a source whose only importable things are MCP servers", async () => {
+    nativeApi.probeWorkspaceImport.mockResolvedValue({
+      sources: [
+        source({
+          skillCount: 0,
+          honorAbleSettingCount: 0,
+          chatCount: 0,
+          projectCount: 0,
+          categoryCounts: {
+            settings: 0,
+            skills: 0,
+            agents: 0,
+            commands: 0,
+            hooks: 0,
+            mcp: 2,
+            plugins: 0,
+            memory: 0,
+            projects: 0,
+            chats: 0,
+          },
+        }),
+      ],
+      requiresSourceChoice: false,
+    });
+    await renderFlow();
+    await expect.element(page.getByRole("button", { name: "导入", exact: true })).toBeVisible();
+    await expect.element(page.getByText("Claude Code", { exact: true })).toBeVisible();
+  });
 });

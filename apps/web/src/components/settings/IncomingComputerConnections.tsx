@@ -237,10 +237,8 @@ export function IncomingComputerConnections({ active }: { readonly active: boole
                   {t("settings.connections.incoming.localOnly")}
                 </p>
               )}
-              <p className="text-ui-sm text-muted-foreground">
-                {t("settings.connections.incoming.codeWarning")}
-              </p>
-              <Button size="sm" disabled={creating} onClick={() => void create()}>
+              {/* One solid button per screen (添加设备 above); this one is secondary. */}
+              <Button size="sm" variant="outline" disabled={creating} onClick={() => void create()}>
                 {t(
                   creating
                     ? "settings.connections.incoming.creating"
@@ -251,6 +249,10 @@ export function IncomingComputerConnections({ active }: { readonly active: boole
           </SettingsCard>
           {links.length ? (
             <SettingsCard>
+              {/* The warning sits with the codes it is about, not above an empty form. */}
+              <p className="px-5 pt-4 text-ui-sm text-muted-foreground">
+                {t("settings.connections.incoming.codeWarning")}
+              </p>
               {links.map((link) => (
                 <div className="space-y-2 px-5 py-4" key={link.id} data-pairing-link={link.id}>
                   <div className="flex items-center justify-between gap-3">

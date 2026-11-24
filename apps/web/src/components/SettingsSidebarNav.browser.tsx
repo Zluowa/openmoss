@@ -115,6 +115,9 @@ describe("SettingsSidebarNav search", () => {
         );
       const icon = (label: string) => row(label)?.querySelector("svg, img, [data-slot]")?.outerHTML;
       expect(icon("模型与智能体")).toBeTruthy();
+      // 账号 is a key, not the accessibility figure (WALK-1 R-8).
+      expect(icon("账号")).toContain("key-1");
+      expect(icon("账号")).not.toContain("circle-person");
       expect(icon("模型与智能体")).not.toBe(icon("插件"));
     } finally {
       await screen.unmount();

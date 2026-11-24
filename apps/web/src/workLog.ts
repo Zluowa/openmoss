@@ -1430,6 +1430,9 @@ const PLUMBING_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
   // The window opens or refreshes Canvas from these; moss_canvas_* tool rows already say so.
   "canvas.open.requested",
   "canvas.updated",
+  "canvas.ops.requested",
+  "canvas.ops.reply",
+  "canvas.ops.done",
 ]);
 
 function shouldKeepActivityForWorkLog(

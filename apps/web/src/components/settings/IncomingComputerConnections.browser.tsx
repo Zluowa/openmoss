@@ -180,3 +180,18 @@ it("leaves a recovery notice when revoking an unseen late code fails after leavi
   expect(JSON.stringify(calls.toast.mock.calls)).not.toContain(code.credential);
   await screen.unmount();
 });
+
+it("keeps the code button secondary and the warning with the codes it is about", async () => {
+  calls.config.mockResolvedValue({ shareableOrigin: "https://moss.example.test" });
+  const screen = await render(content());
+  const create = page.getByRole("button", { name: "生成一次性配对码", exact: true });
+  await expect.element(create).toBeVisible();
+  // Not a second solid dark button on the screen: an outline control with no filled background.
+  const fill = getComputedStyle(create.element()).backgroundColor;
+  expect(fill === "rgba(0, 0, 0, 0)" || fill === "transparent").toBe(true);
+  expect(document.body.textContent).not.toContain("只把配对码给信任的人");
+  await create.click();
+  await expect.element(page.getByLabelText("一次性配对码")).toBeVisible();
+  await expect.element(page.getByText(/只把配对码给信任的人/u)).toBeVisible();
+  await screen.unmount();
+});

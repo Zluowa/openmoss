@@ -250,9 +250,19 @@ export function WorkspaceImportFlow({
     [state.probe],
   );
 
+  // Only sources with something to bring over: a detected app with nothing importable is
+  // not offered (no sync switch or 导入 button for nothing; WALK-3 P-4).
   const present = useMemo(
-    () => (state.probe ? presentWorkspaceImportSources(state.probe) : []),
-    [state.probe],
+    () =>
+      (state.probe ? presentWorkspaceImportSources(state.probe) : []).filter((source) => {
+        // Every importable kind counts (agents, MCP servers, plugins, hooks, commands, memory,
+        // projects…); chats only where this flow imports chats.
+        const counts = workspaceImportCategoryCounts(source);
+        return (Object.keys(counts) as (keyof typeof counts)[]).some(
+          (kind) => (kind !== "chats" || includeConversations) && counts[kind] > 0,
+        );
+      }),
+    [state.probe, includeConversations],
   );
 
   const persistSyncPreferences = async (
@@ -469,7 +479,7 @@ export function WorkspaceImportFlow({
                     {t("import.autosync.label")}
                   </div>
                   <div className="mt-1 text-ui-sm text-muted-foreground">
-                    {syncEnabled ? t("import.autosync.description") : t("import.autosync.paused")}
+                    {syncEnabled ? t("import.autosync.description") : null}
                   </div>
                 </div>
                 <Switch
@@ -501,9 +511,6 @@ export function WorkspaceImportFlow({
           </SettingsSectionShell>
 
           <SettingsSectionShell title={t("import.sources.title")}>
-            <p className="px-2 pb-2 text-ui-sm text-muted-foreground">
-              {t("import.sources.description")}
-            </p>
             <SettingsCard>
               {present.map((source) => (
                 <SourceRow
@@ -545,14 +552,11 @@ export function WorkspaceImportFlow({
             </SettingsSectionShell>
           ) : null}
 
-          <SettingsSectionShell title={t("import.history.title")}>
-            <SettingsCard>
-              {history.length === 0 ? (
-                <div className="px-4 py-5 text-ui-sm text-muted-foreground">
-                  {t("import.history.empty")}
-                </div>
-              ) : (
-                history.map((entry) => (
+          {/* No empty history box before the first import. */}
+          {history.length > 0 ? (
+            <SettingsSectionShell title={t("import.history.title")}>
+              <SettingsCard>
+                {history.map((entry) => (
                   <HistoryRow
                     key={entry.id}
                     entry={entry}
@@ -566,10 +570,10 @@ export function WorkspaceImportFlow({
                       })
                     }
                   />
-                ))
-              )}
-            </SettingsCard>
-          </SettingsSectionShell>
+                ))}
+              </SettingsCard>
+            </SettingsSectionShell>
+          ) : null}
         </>
       ) : null}
 

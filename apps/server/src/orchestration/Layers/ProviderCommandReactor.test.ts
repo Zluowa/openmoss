@@ -95,7 +95,6 @@ import { ClaudeAdapter } from "../../provider/Services/ClaudeAdapter.ts";
 import { CodexAdapter } from "../../provider/Services/CodexAdapter.ts";
 import { CursorAdapter } from "../../provider/Services/CursorAdapter.ts";
 import { DevinAdapter } from "../../provider/Services/DevinAdapter.ts";
-import { DroidAdapter } from "../../provider/Services/DroidAdapter.ts";
 import { GrokAdapter } from "../../provider/Services/GrokAdapter.ts";
 import { OmpAdapter } from "../../provider/Services/OmpAdapter.ts";
 import { OpenCodeAdapter } from "../../provider/Services/OpenCodeAdapter.ts";
@@ -465,7 +464,6 @@ function createRetainingRestartProviderServiceLayer(options?: {
         }),
         Layer.succeed(AntigravityAdapter, adapterFor("antigravity")),
         Layer.succeed(GrokAdapter, adapterFor("grok")),
-        Layer.succeed(DroidAdapter, adapterFor("droid")),
         Layer.succeed(OpenCodeAdapter, adapterFor("opencode")),
         Layer.succeed(OmpAdapter, adapterFor("omp")),
         Layer.succeed(PiAdapter, adapterFor("pi")),

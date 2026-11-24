@@ -121,7 +121,13 @@ import { makeAgentGatewayMediaTools } from "../mediaTools.ts";
 import { conversationImageActivityCommands } from "../mediaImageActivities.ts";
 import { resolveMossCanvasWorkspace } from "../../mossCanvasWorkspace.ts";
 import { readMossCanvasSummary } from "../../mossCanvasSummary.ts";
-import { mutateMossCanvas } from "../../mossCanvasMutate.ts";
+import { mutateMossCanvas, type MossCanvasMutateResult } from "../../mossCanvasMutate.ts";
+import {
+  CANVAS_OPS_DONE_KIND,
+  CANVAS_OPS_REQUESTED_KIND,
+  requestCanvasEditorOps,
+} from "../canvasEditorOps.ts";
+import { MossMediaJobsError } from "../../mossMediaJobsService.ts";
 import {
   installedMossMediaModels,
   mossMediaJobsServiceFor,
@@ -390,6 +396,57 @@ export const makeAgentGateway = Effect.gen(function* () {
                 Effect.provideService(ServerConfig, serverConfig),
               );
               yield* context.assertCallerTurnActive();
+              const turnId = context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null;
+              const activity = (
+                kind: string,
+                summary: string,
+                payload: Record<string, unknown>,
+              ) => {
+                const id = `agent:${randomUUID()}:${kind}`;
+                return orchestrationEngine.dispatch({
+                  type: "thread.activity.append",
+                  commandId: CommandId.makeUnsafe(id),
+                  threadId: ThreadId.makeUnsafe(request.threadId),
+                  createdAt: isoNow(),
+                  activity: {
+                    id: EventId.makeUnsafe(id),
+                    tone: "info",
+                    kind,
+                    summary,
+                    payload: { source: "moss-mcp-canvas", threadId: request.threadId, ...payload },
+                    turnId,
+                    createdAt: isoNow(),
+                  },
+                });
+              };
+              // First the open editor in the window: the edit lands in the person's live board.
+              const requestId = `canvas-ops:${randomUUID()}`;
+              const reply = yield* requestCanvasEditorOps({
+                events: orchestrationEngine.streamDomainEvents,
+                threadId: request.threadId,
+                requestId,
+                dispatch: activity(CANVAS_OPS_REQUESTED_KIND, "Edit conversation Canvas", {
+                  requestId,
+                  ops: request.ops,
+                  open: request.open,
+                }),
+              });
+              yield* context.assertCallerTurnActive();
+              if (reply.status === "applied")
+                return {
+                  revision: isoNow(),
+                  created: reply.result.created,
+                  deletedCount: reply.result.deletedCount,
+                  shapeCounts: {},
+                  shapes: reply.result.shapes as MossCanvasMutateResult["shapes"],
+                  truncated: reply.result.truncated,
+                  saved: reply.result.saved,
+                } satisfies MossCanvasMutateResult;
+              if (reply.status === "failed")
+                return yield* Effect.fail(new MossMediaJobsError(reply.errorCode, 409));
+              // No editor has the board (or no window is open): a revision-checked write. The
+              // window holds any 画布 that opens meanwhile until it hears this write ended, so the
+              // editor loads the edit rather than saving an older board over it.
               const result = yield* Effect.tryPromise({
                 try: () =>
                   mutateMossCanvas({
@@ -400,31 +457,20 @@ export const makeAgentGateway = Effect.gen(function* () {
                     ...(request.title ? { title: request.title } : {}),
                   }),
                 catch: (error) => error,
-              });
+              }).pipe(
+                Effect.ensuring(
+                  activity(CANVAS_OPS_DONE_KIND, "Canvas edit stored", { requestId }).pipe(
+                    Effect.ignore,
+                  ),
+                ),
+              );
               yield* context.assertCallerTurnActive();
-              const id = `agent:${randomUUID()}:canvas-update`;
-              yield* orchestrationEngine.dispatch({
-                type: "thread.activity.append",
-                commandId: CommandId.makeUnsafe(id),
-                threadId: ThreadId.makeUnsafe(request.threadId),
-                createdAt: isoNow(),
-                activity: {
-                  id: EventId.makeUnsafe(id),
-                  tone: "info",
-                  kind: "canvas.updated",
-                  summary: "Update conversation Whiteboard",
-                  payload: {
-                    source: "moss-mcp-canvas",
-                    threadId: request.threadId,
-                    revision: result.revision,
-                    open: request.open,
-                  },
-                  turnId: context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null,
-                  createdAt: isoNow(),
-                },
+              yield* activity("canvas.updated", "Update conversation Canvas", {
+                revision: result.revision,
               });
               return result;
             }),
+          enableCanvasMutate: true,
         })
       : [];
   const loadProviderInstances: Effect.Effect<AgentGatewayProviderInstances, unknown, never> =

@@ -279,7 +279,13 @@ function failure(error: unknown): McpToolCallResult {
               ? "Sign in to a Moss account to use official media skills."
               : code === "media_skill_not_installed"
                 ? "Install and enable this official model skill in the Moss plugin marketplace."
-                : "The media request did not complete. Check moss_media_list and the job state before retrying. Reuse the same idempotencyKey for the same request.",
+                : code === "canvas_not_open" || code === "canvas_open_required"
+                  ? "The 画布 has to be open for this edit. Call moss_canvas_open, then call moss_canvas_mutate again with the same ops."
+                  : code === "canvas_busy"
+                    ? "The 画布 kept changing while Moss saved this edit. Call moss_canvas_read, then call moss_canvas_mutate again."
+                    : code === "canvas_ops_invalid"
+                      ? "One of the ops is invalid (an unknown key, id or shape). Nothing was changed. Check the ops with moss_canvas_read and call again."
+                      : "The media request did not complete. Check moss_media_list and the job state before retrying. Reuse the same idempotencyKey for the same request.",
       },
     }),
     isError: true,

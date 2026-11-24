@@ -4,7 +4,7 @@
 //          features and components in the workspace area.
 // Layer: Web destination surface
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
 import { useRailShellStore } from "../railShellStore";
 import { useDesktopTopBarWindowControlsGutterClassName } from "~/hooks/useDesktopTopBarGutter";
@@ -18,6 +18,13 @@ import {
   type MossCanvasReloadDetail,
 } from "../lib/mossCanvasBridge";
 import { mossCanvasOcclusionRect } from "../lib/mossCanvasOcclusion";
+import {
+  isMossCanvasLoadHeld,
+  noteMossCanvasMounted,
+  registerMossCanvasLiveEditor,
+  subscribeMossCanvasLoadHolds,
+  type MossCanvasLiveEditResult,
+} from "../lib/mossCanvasLiveEditors";
 import { isEmbeddedBundleVerified, verifyEmbeddedBundle } from "../lib/embeddedBundleCheck";
 import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
 import {
@@ -403,6 +410,7 @@ export function MossCanvasWebSurface({
   const importStateCallback = useRef(onImportStateChange);
   importStateCallback.current = onImportStateChange;
   const pendingFlush = useRef<{ id: string; resolve: (ok: boolean) => void } | null>(null);
+  const pendingOps = useRef(new Map<string, (result: MossCanvasLiveEditResult) => void>());
   const pendingContext = useRef<{
     id: string;
     epoch: number;
@@ -825,6 +833,28 @@ export function MossCanvasWebSurface({
         return;
       }
       if (
+        event.data?.type === "moss-canvas-ops-applied" &&
+        event.data.version === 1 &&
+        event.data.threadId === resolvedThread &&
+        typeof event.data.requestId === "string"
+      ) {
+        const settle = pendingOps.current.get(event.data.requestId);
+        pendingOps.current.delete(event.data.requestId);
+        const data = event.data as Record<string, unknown>;
+        settle?.({
+          ok: data.ok === true,
+          ...(typeof data.errorCode === "string" ? { errorCode: data.errorCode } : {}),
+          ...(data.created && typeof data.created === "object"
+            ? { created: data.created as Record<string, string> }
+            : {}),
+          ...(typeof data.deletedCount === "number" ? { deletedCount: data.deletedCount } : {}),
+          ...(Array.isArray(data.shapes) ? { shapes: data.shapes } : {}),
+          truncated: data.truncated === true,
+          ...(typeof data.saved === "boolean" ? { saved: data.saved } : {}),
+        });
+        return;
+      }
+      if (
         event.data?.type === "moss-canvas-flushed" &&
         event.data.requestId === pendingFlush.current?.id
       ) {
@@ -872,6 +902,52 @@ export function MossCanvasWebSurface({
     window.addEventListener("message", receive);
     return () => window.removeEventListener("message", receive);
   }, [src, frameKey, connection, navigate, boundary.isCurrent, resolvedThread]);
+
+  // A frame mounted for this conversation counts as an editor for agent edits; while an agent's
+  // edit is being written to storage, a new frame waits so it loads the board with that edit.
+  useEffect(
+    () => (resolvedThread ? noteMossCanvasMounted(resolvedThread) : undefined),
+    [resolvedThread],
+  );
+  const loadHeld = useSyncExternalStore(
+    subscribeMossCanvasLoadHolds,
+    () => (resolvedThread ? isMossCanvasLoadHeld(resolvedThread) : false),
+    () => false,
+  );
+  // While this conversation's editor is ready, an agent's edit (moss_canvas_mutate) is applied in
+  // it, so it appears without a reload and nothing the person drew is overwritten.
+  useEffect(() => {
+    if (readyFrameKey !== frameKey || !resolvedThread || !src) return;
+    const origin = new URL(src).origin;
+    const pending = pendingOps.current;
+    const unregister = registerMossCanvasLiveEditor(resolvedThread, {
+      apply: (requestId, ops) =>
+        new Promise<MossCanvasLiveEditResult>((resolve) => {
+          const target = frame.current?.contentWindow;
+          if (!target || currentFrameKey.current !== frameKey || !boundary.isCurrent()) {
+            resolve({ ok: false, errorCode: "canvas_open_required" });
+            return;
+          }
+          const timer = setTimeout(() => {
+            pending.delete(requestId);
+            resolve({ ok: false, errorCode: "canvas_busy" });
+          }, 25_000);
+          pending.set(requestId, (result) => {
+            clearTimeout(timer);
+            resolve(result);
+          });
+          target.postMessage(
+            { type: "moss-canvas-apply-ops", version: 1, threadId: resolvedThread, requestId, ops },
+            origin,
+          );
+        }),
+    });
+    return () => {
+      unregister();
+      for (const settle of pending.values()) settle({ ok: false, errorCode: "canvas_busy" });
+      pending.clear();
+    };
+  }, [readyFrameKey, frameKey, resolvedThread, src, boundary.isCurrent]);
 
   const requestFlush = useCallback((): Promise<boolean> => {
     if (leaving.current) return leaving.current;
@@ -1130,7 +1206,7 @@ export function MossCanvasWebSurface({
                 : "重新打开画布"}
             </Button>
           </div>
-        ) : state === "ready" && src ? (
+        ) : state === "ready" && src && !loadHeld ? (
           <>
             <iframe
               key={frameKey}

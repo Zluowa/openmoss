@@ -3,9 +3,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { closeMossCanvasStores } from "./mossCanvasStorage";
+import { closeMossCanvasStores, mossCanvasStorageFor } from "./mossCanvasStorage";
 import {
   applyMossCanvasOpsToSnapshot,
+  MOSS_CANVAS_MUTATE_RECORD_VERSIONS,
   mutateMossCanvas,
   nextTldrawIndexAbove,
   parseMossCanvasMutateOps,
@@ -18,6 +19,26 @@ const BUNDLE_DIR =
   process.env.MOSS_CANVAS_BUNDLE_DIR?.trim() ||
   resolve(fileURLToPath(new URL("../../..", import.meta.url)), "apps/desktop/canvas-bundle");
 const HAS_BUNDLE = existsSync(join(BUNDLE_DIR, "apps/codex-canvas"));
+
+/** A board as the Canvas editor saves it: its own schema travels with it. */
+function savedBoard(versions: Record<string, number> = MOSS_CANVAS_MUTATE_RECORD_VERSIONS) {
+  return {
+    document: {
+      store: {
+        "document:document": {
+          id: "document:document",
+          typeName: "document",
+          gridSize: 10,
+          name: "",
+          meta: {},
+        },
+        "page:page": { id: "page:page", typeName: "page", name: "画布", index: "a1", meta: {} },
+      },
+      schema: { schemaVersion: 2, sequences: { "com.tldraw.store": 5, ...versions } },
+    },
+    session: { version: 0, currentPageId: "page:page" },
+  };
+}
 
 const identity = {
   account: { id: "user-a", realm: "memfire-phone" as const },
@@ -55,6 +76,7 @@ describe("mossCanvasMutate", () => {
 
   it("creates frames, notes, text, geo shapes, connectors, updates, deletes, and clears cleanly", () => {
     const first = applyMossCanvasOpsToSnapshot({
+      existingSnapshot: savedBoard(),
       title: "架构设计",
       ops: [
         { op: "addFrame", key: "f1", name: "核心模块", x: 0, y: 0, w: 600, h: 400 },
@@ -95,6 +117,31 @@ describe("mossCanvasMutate", () => {
     expect(cleared.shapeCounts).toEqual({ note: 1 });
   });
 
+  it("edits only a board the editor saved, with the record versions it builds", () => {
+    expect(() =>
+      applyMossCanvasOpsToSnapshot({ ops: [{ op: "addNote", text: "无处可写" }] }),
+    ).toThrow("canvas_not_open");
+    // A moved Canvas pin: the stored note version differs, so the server refuses instead of
+    // writing a record the editor cannot load; the edit then goes through the open editor.
+    expect(() =>
+      applyMossCanvasOpsToSnapshot({
+        existingSnapshot: savedBoard({
+          ...MOSS_CANVAS_MUTATE_RECORD_VERSIONS,
+          "com.tldraw.shape.note": 14,
+        }),
+        ops: [{ op: "addNote", text: "新版本" }],
+      }),
+    ).toThrow("canvas_open_required");
+    const ok = applyMossCanvasOpsToSnapshot({
+      existingSnapshot: savedBoard(),
+      ops: [{ op: "addNote", text: "能写" }],
+    });
+    // The stored schema is kept as it was.
+    expect((ok.snapshot.document as { schema: unknown }).schema).toEqual(
+      savedBoard().document.schema,
+    );
+  });
+
   it.skipIf(!HAS_BUNDLE)(
     "persists to hosted Canvas storage and round-trips through readMossCanvasSummary",
     async () => {
@@ -102,6 +149,21 @@ describe("mossCanvasMutate", () => {
       const stateDirectory = mkdtempSync(join(tmpdir(), "moss-canvas-mutate-"));
       try {
         const workspace = { threadId: "thread-mutate-1", cwd: stateDirectory, title: "协作白板" };
+        await expect(
+          mutateMossCanvas({
+            stateDirectory,
+            identity,
+            workspace,
+            ops: [{ op: "addNote", text: "x" }],
+          }),
+        ).rejects.toThrow("canvas_not_open");
+        // The editor saved the conversation's board once.
+        const store = await mossCanvasStorageFor(stateDirectory, identity, workspace);
+        const created = (await store.request("projects.create", {
+          title: "协作白板",
+          snapshot: savedBoard(),
+        })) as { relativePath: string };
+        await store.request("projects.setActive", { relativePath: created.relativePath });
         const write1 = await mutateMossCanvas({
           stateDirectory,
           identity,

@@ -23,6 +23,7 @@ import {
   getConversationImageComposer,
 } from "~/lib/conversationImageComposer";
 import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
+import { getMossCanvasLiveEditor } from "~/lib/mossCanvasLiveEditors";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { MossLocalizationProvider, useTranslation } from "~/localization";
 import {
@@ -288,4 +289,45 @@ describe("右栏 画布: one click, usable, and kept", () => {
       await shot(`right-dock-canvas-reopened-${theme}`);
     });
   }
+
+  it("shows an agent's edit on the open 画布 without a reload, and keeps what the person wrote meanwhile", async () => {
+    await mountDock("light");
+    await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
+    await waitForCanvasReady();
+    const board = () =>
+      page.frameLocator(page.getByTitle("Moss Canvas", { exact: true })).getByTestId("canvas");
+    const iframeBefore = document.querySelector('iframe[title="Moss Canvas"]');
+    const editor = await vi.waitFor(() => {
+      const ready = getMossCanvasLiveEditor(THREAD_ID);
+      expect(ready).not.toBeNull();
+      return ready!;
+    });
+
+    // The agent's edit starts; the person keeps writing while it is applied and saved.
+    const agentEdit = editor.apply("canvas-ops:browser-1", [
+      { op: "addFrame", key: "f", name: "代理画的框", x: 40, y: 360, w: 420, h: 220 },
+      { op: "addNote", key: "n", text: "代理写的便签", frame: "f" },
+    ]);
+    await placeText(120);
+    await userEvent.keyboard("人在同时写字");
+    await userEvent.keyboard("{Escape}");
+    const result = await agentEdit;
+    expect(result.ok).toBe(true);
+
+    // On the open board, without a reload: the same frame element, both writings visible.
+    expect(document.querySelector('iframe[title="Moss Canvas"]')).toBe(iframeBefore);
+    await expect.element(board().getByText("代理写的便签", { exact: true })).toBeVisible();
+    await expect.element(board().getByText("人在同时写字", { exact: true })).toBeVisible();
+    await shot("right-dock-canvas-agent-edit-light");
+
+    // Saved together: close the 画布 and open it again.
+    await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
+    await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
+    await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
+    await waitForCanvasReady();
+    await expect
+      .element(board().getByText("代理写的便签", { exact: true }), { timeout: 15_000 })
+      .toBeVisible();
+    await expect.element(board().getByText("人在同时写字", { exact: true })).toBeVisible();
+  });
 });

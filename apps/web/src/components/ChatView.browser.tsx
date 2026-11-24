@@ -172,6 +172,7 @@ import { trackWsTurnSettlement } from "../wsTransportEvents";
 import { hasActiveComposerSend } from "../lib/composerSendOwnership";
 import { useProjectAgentSummariesStore } from "./chat/project/useProjectAgentSummaries";
 import { useThreadDispatchStore } from "./chat/useChatLocalDispatch";
+import { resetCanvasAgentOpsForTests } from "./chat/canvasAgentOps";
 import { MOSS_MOSS_LOOP_LEDGER_DASHBOARD_SNAPSHOT } from "./chat/mossLoopLedgerDashboard";
 import {
   resolveGeneratedImagePreviewZoomForWheel,
@@ -22368,6 +22369,102 @@ describe("ChatView transcript geometry (full app)", () => {
             .getState()
             .dockStateByThreadId[THREAD_ID]?.panes.filter((pane) => pane.kind === "canvas"),
         ).toHaveLength(1);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("opens 画布 for an agent's first edit of a turn, keeps it closed once the person closes it, and opens it next turn", async () => {
+    useRightDockStore.setState({ dockStateByThreadId: {} });
+    localStorage.setItem("moss:activity-onboarding:v1", "seen");
+    domainEventStream = null;
+    resetCanvasAgentOpsForTests();
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1_200, height: 760 },
+      snapshot: createSnapshotWithGeneratedImagePreview(),
+    });
+    let sequence = 20_000;
+    const agentEdit = (requestId: string, turnId: string) =>
+      sendEffectRpcChunk(
+        domainEventStream!.client,
+        domainEventStream!.requestId,
+        makeDomainEvent(
+          "thread.activity-appended",
+          {
+            threadId: THREAD_ID,
+            activity: {
+              id: EventId.makeUnsafe(`agent:${requestId}:canvas.ops.requested`),
+              createdAt: isoAt(sequence),
+              kind: "canvas.ops.requested",
+              summary: "Edit conversation Canvas",
+              tone: "info",
+              turnId: TurnId.makeUnsafe(turnId),
+              payload: {
+                source: "moss-mcp-canvas",
+                threadId: THREAD_ID,
+                requestId,
+                ops: [{ op: "addNote", text: "代理写入" }],
+              },
+            },
+          },
+          { sequence: sequence++ },
+        ),
+      );
+    const canvasShown = () => {
+      const workspace = document.querySelector<HTMLElement>(
+        '[data-testid="right-dock-panel"] [data-conversation-image-workspace]',
+      );
+      return Boolean(
+        workspace && !workspace.closest("[inert]") && workspace.getBoundingClientRect().width > 300,
+      );
+    };
+    try {
+      await withMissingCanvasBundle(async () => {
+        await vi.waitFor(() => expect(domainEventStream).not.toBeNull());
+        // The agent's first edit of the turn opens the 画布 beside the chat.
+        agentEdit("canvas-ops:turn-a-1", "turn-agent-a");
+        await vi.waitFor(() => expect(canvasShown()).toBe(true), { timeout: 3_000 });
+        // The person closes it.
+        await page.getByRole("button", { name: "Close Canvas", exact: true }).click();
+        await vi.waitFor(() => expect(canvasShown()).toBe(false));
+        // A later edit of the same turn does not open it again.
+        agentEdit("canvas-ops:turn-a-2", "turn-agent-a");
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(canvasShown()).toBe(false);
+        expect(
+          useRightDockStore
+            .getState()
+            .dockStateByThreadId[THREAD_ID]?.panes.filter((pane) => pane.kind === "canvas") ?? [],
+        ).toHaveLength(0);
+        // The next turn's first edit may open it again.
+        agentEdit("canvas-ops:turn-b-1", "turn-agent-b");
+        await vi.waitFor(() => expect(canvasShown()).toBe(true), { timeout: 3_000 });
+        // Already open when a turn starts (left open from turn B): its first edit goes there; once
+        // the person closes it, a later edit of that turn does not reopen it.
+        agentEdit("canvas-ops:turn-c-1", "turn-agent-c");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(canvasShown()).toBe(true);
+        await page.getByRole("button", { name: "Close Canvas", exact: true }).click();
+        await vi.waitFor(() => expect(canvasShown()).toBe(false));
+        agentEdit("canvas-ops:turn-c-2", "turn-agent-c");
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(canvasShown()).toBe(false);
+        // Opened by the person (the launcher's action) before a turn: the same.
+        useRightDockStore.getState().openPane(THREAD_ID, { kind: "canvas" });
+        await vi.waitFor(() => expect(canvasShown()).toBe(true), { timeout: 3_000 });
+        agentEdit("canvas-ops:turn-d-1", "turn-agent-d");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        await page.getByRole("button", { name: "Close Canvas", exact: true }).click();
+        await vi.waitFor(() => expect(canvasShown()).toBe(false));
+        agentEdit("canvas-ops:turn-d-2", "turn-agent-d");
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        expect(canvasShown()).toBe(false);
+        expect(
+          useRightDockStore
+            .getState()
+            .dockStateByThreadId[THREAD_ID]?.panes.filter((pane) => pane.kind === "canvas") ?? [],
+        ).toHaveLength(0);
       });
     } finally {
       await mounted.cleanup();

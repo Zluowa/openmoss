@@ -60,6 +60,12 @@ import { railItemShowsPanel } from "../appRail.logic";
 import { useRailShellStore } from "../railShellStore";
 import { agentCanvasOpenRequest, claimAgentCanvasOpen } from "../components/chat/agentCanvasOpen";
 import {
+  answerCanvasOpsRequest,
+  canvasOpsDone,
+  canvasOpsRequest,
+  releaseCanvasAfterStorageWrite,
+} from "../components/chat/canvasAgentOps";
+import {
   MOSS_CANVAS_CLOSE_EVENT,
   registerMossCanvasHost,
   reloadMossCanvas,
@@ -669,6 +675,22 @@ function ChatRouteLayout() {
     () =>
       ensureNativeApi().orchestration.onDomainEvent((event) => {
         if (event.type !== "thread.activity-appended") return;
+        const doneRequest = canvasOpsDone(event.payload.activity);
+        if (doneRequest) {
+          releaseCanvasAfterStorageWrite(String(event.payload.threadId), doneRequest);
+          return;
+        }
+        const opsRequest = canvasOpsRequest(event.payload.activity);
+        if (opsRequest) {
+          // An agent's 画布 edit: applied in the open editor (or after opening it beside the chat).
+          const threadId = String(event.payload.threadId);
+          void answerCanvasOpsRequest({
+            threadId,
+            request: opsRequest,
+            onScreen: threadId === activeCanvasThread.current,
+          }).catch(() => undefined);
+          return;
+        }
         if (event.payload.activity.kind === "canvas.updated") {
           // An agent changed the board: an open 画布 shows it. The dock is not opened for
           // every write; moss_canvas_open (or the person) opens it.
