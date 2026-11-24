@@ -5,6 +5,8 @@
 
 import {
   ApprovalRequestId,
+  EventId,
+  TurnId,
   type ProviderApprovalDecision,
   type ProviderRequestKind,
 } from "@moss/contracts";
@@ -15,7 +17,7 @@ import { render } from "vitest-browser-react";
 import "../../index.css";
 
 import { MossLocaleScope } from "../../localization";
-import { type PendingApproval } from "../../session-logic";
+import { derivePendingApprovals, type PendingApproval } from "../../session-logic";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 
 const APPROVAL_REQUEST_ID = ApprovalRequestId.makeUnsafe("approval-test-1");
@@ -878,6 +880,116 @@ describe("ComposerPendingApprovalPanel", () => {
       expect(onRespond).toHaveBeenCalledTimes(2);
     } finally {
       await mounted.cleanup();
+    }
+  });
+});
+
+describe("WALK-12 N12-1: the file-edit approval card names every file", () => {
+  // The activity as the server projects Codex 0.166's `item/fileChange/requestApproval` in the
+  // walk's FULL turn (third approval, apply_patch on index.js): the request names only its item;
+  // the files come from the item Codex announced before it.
+  const walkPath = "/tmp/moss-walk-12/run/projects/code/index.js";
+  const walkDiff =
+    "@@ -1,3 +1,7 @@\n export const add = (a, b) => a + b;\n+export const sub = (a, b) => a - b;\n+export const mul = (a, b) => a * b;\n";
+  const approvalFrom = (payload: Record<string, unknown>) => {
+    const [approval] = derivePendingApprovals([
+      {
+        id: EventId.makeUnsafe("walk12-n12-1"),
+        tone: "approval",
+        kind: "approval.requested",
+        summary: "File-change approval requested",
+        payload: {
+          requestId: "walk12-n12-1-request",
+          lifecycleGeneration: LIFECYCLE_GENERATION,
+          requestKind: "file-change",
+          requestType: "file_change_approval",
+          ...payload,
+        },
+        turnId: TurnId.makeUnsafe("walk12-turn"),
+        createdAt: "2026-11-24T11:10:00.000Z",
+      },
+    ]);
+    return approval!;
+  };
+  const card = () => document.querySelector<HTMLElement>("[data-codex-approval-surface]")!;
+
+  async function mountZh(approval: PendingApproval) {
+    return render(
+      <MossLocaleScope locale="zh-CN">
+        <ComposerPendingApprovalPanel
+          approval={approval}
+          pendingCount={1}
+          isResponding={false}
+          onRespond={vi.fn(async () => undefined)}
+        />
+      </MossLocaleScope>,
+    );
+  }
+
+  it("WALK-12 N12-1: Codex apply_patch on index.js shows the file whole and its change one step away", async () => {
+    await page.viewport(1100, 780);
+    const screen = await mountZh(
+      approvalFrom({ filePaths: [walkPath], fileChanges: [{ path: walkPath, diff: walkDiff }] }),
+    );
+    try {
+      await expect
+        .element(page.getByText("允许 Moss 编辑以下文件？", { exact: true }))
+        .toBeVisible();
+      const file = page.getByText(walkPath, { exact: true });
+      await expect.element(file).toBeVisible();
+      expect(card().textContent).not.toContain("请审阅请求后继续");
+      expect(card().textContent).not.toContain("Review the request");
+      // The change itself is one step away.
+      expect(card().textContent).not.toContain("export const sub");
+      await page.getByRole("button", { name: "显示详情" }).click();
+      const shown = [...card().querySelectorAll<HTMLElement>("[data-approval-command]")].map(
+        (node) => node.textContent,
+      );
+      expect(shown).toEqual([walkDiff]);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("WALK-12 N12-1: several files are all named, none shortened", async () => {
+    const paths = [
+      walkPath,
+      "/tmp/moss-walk-12/run/projects/code/lib/a-rather-long-folder-name/arithmetic/operations.js",
+      "/tmp/moss-walk-12/run/projects/code/README.md",
+    ];
+    await page.viewport(760, 780);
+    const screen = await mountZh(approvalFrom({ filePaths: paths }));
+    try {
+      const rows = [...card().querySelectorAll<HTMLElement>("[data-approval-files] li")];
+      expect(rows.map((row) => row.textContent)).toEqual(paths);
+      for (const row of rows) {
+        expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+        expect(row.getBoundingClientRect().height).toBeGreaterThan(0);
+      }
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("WALK-12 N12-1: Claude, ACP and OpenCode edits name their file and keep the request as on main", async () => {
+    const cases = [
+      {
+        detail: 'Edit: {"file_path":"/Users/me/app/src/main.ts","old_string":"a","new_string":"b"}',
+        filePaths: ["/Users/me/app/src/main.ts"],
+      },
+      { detail: "Edit index.js", filePaths: ["/w/code/index.js"] },
+      { detail: "src/index.ts", filePaths: ["/w/src/index.ts"] },
+    ];
+    for (const { detail, filePaths } of cases) {
+      const screen = await mountZh(approvalFrom({ detail, filePaths }));
+      try {
+        await expect.element(page.getByText(filePaths[0]!, { exact: true })).toBeVisible();
+        expect(card().querySelector<HTMLElement>("[data-approval-command]")?.textContent).toBe(
+          detail,
+        );
+      } finally {
+        await screen.unmount();
+      }
     }
   });
 });

@@ -628,6 +628,57 @@ function safeStringifyToolParamValue(value: unknown): string | undefined {
   }
 }
 
+// What a file-change request will touch, read from where each provider puts it: Codex's
+// item `changes` (the manager attaches them; the request itself names only the item) and its
+// `grantRoot`, Claude's tool input, an ACP tool call's locations and diffs, OpenCode's
+// metadata. Paths are kept whole and all of them; each diff is clamped like a detail.
+const MAX_REQUESTED_FILE_DIFFS = 24;
+
+function requestedFileChanges(event: Extract<ProviderRuntimeEvent, { type: "request.opened" }>): {
+  filePaths?: string[];
+  fileChanges?: Array<{ path: string; diff: string }>;
+} {
+  if (requestKindFromCanonicalRequestType(event.payload.requestType) !== "file-change") return {};
+  const args = asObject(event.payload.args);
+  const paths: string[] = [];
+  const diffs: Array<{ path: string; diff: string }> = [];
+  const addPath = (value: unknown) => {
+    const path = asString(value);
+    if (path && path.length > 0 && !paths.includes(path)) paths.push(path);
+  };
+  const addDiff = (path: unknown, diff: unknown) => {
+    const name = asString(path);
+    const text = asString(diff);
+    if (name && text && diffs.length < MAX_REQUESTED_FILE_DIFFS) {
+      diffs.push({ path: name, diff: truncateDetail(text, MAX_ACTIVITY_DATA_STRING_CHARS) });
+    }
+  };
+  for (const entry of Array.isArray(args?.changes) ? args.changes : []) {
+    const change = asObject(entry);
+    addPath(change?.path);
+    addPath(asObject(change?.kind)?.move_path);
+    addDiff(change?.path, change?.diff);
+  }
+  addPath(args?.grantRoot);
+  const input = asObject(args?.input);
+  addPath(input?.file_path);
+  addPath(input?.notebook_path);
+  const toolCall = asObject(args?.toolCall);
+  for (const location of Array.isArray(toolCall?.locations) ? toolCall.locations : []) {
+    addPath(asObject(location)?.path);
+  }
+  for (const entry of Array.isArray(toolCall?.content) ? toolCall.content : []) {
+    const content = asObject(entry);
+    if (content?.type === "diff") addPath(content.path);
+  }
+  addPath(args?.filepath);
+  addDiff(args?.filepath, args?.diff);
+  return {
+    ...(paths.length > 0 ? { filePaths: paths } : {}),
+    ...(diffs.length > 0 ? { fileChanges: diffs } : {}),
+  };
+}
+
 function requestedExecpolicyAmendment(
   event: Extract<ProviderRuntimeEvent, { type: "request.opened" }>,
 ): { execpolicyAmendment?: readonly string[] } {
@@ -830,6 +881,7 @@ export function projectProviderRuntimeActivities(
             // command in its body. The reason rides on request args; the command stays `detail`.
             ...(event.type === "request.opened" ? requestedApprovalReason(event) : {}),
             ...(event.type === "request.opened" ? requestedExecpolicyAmendment(event) : {}),
+            ...(event.type === "request.opened" ? requestedFileChanges(event) : {}),
             ...(permissionProfile ? { permissionProfile } : {}),
             ...toolCallPresentation,
             ...(canApproveForSession !== undefined

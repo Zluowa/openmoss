@@ -7607,6 +7607,59 @@ describe("respondToRequest", () => {
     ).toBe(false);
   });
 
+  it("WALK-12 N12-1: an edit approval carries the changes of the item Codex announced", async () => {
+    const { manager, context, emitEvent } = createPendingApprovalHarness();
+    const changes = [
+      {
+        path: "/tmp/walk/run/code/index.js",
+        kind: { type: "update", move_path: null },
+        diff: "@@ -1,3 +1,7 @@\n+export const sub = (a, b) => a - b;\n",
+      },
+    ];
+    const notify = (method: string, status: string) =>
+      (
+        manager as unknown as {
+          handleServerNotification: (context: unknown, notification: unknown) => void;
+        }
+      ).handleServerNotification(context, {
+        method,
+        params: {
+          threadId: "thread_1",
+          turnId: "turn_2",
+          item: { type: "fileChange", id: "call_patch", changes, status },
+        },
+      });
+    notify("item/started", "inProgress");
+    emitEvent.mockClear();
+
+    // Codex 0.166 sends no path on the request itself.
+    await handleServerRequestForTest(manager, context, {
+      id: 102,
+      method: "item/fileChange/requestApproval",
+      params: { threadId: "thread_1", turnId: "turn_2", itemId: "call_patch", startedAtMs: 1 },
+    });
+
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "request",
+        method: "item/fileChange/requestApproval",
+        payload: expect.objectContaining({ itemId: "call_patch", changes }),
+      }),
+    );
+
+    notify("item/completed", "completed");
+    emitEvent.mockClear();
+    await handleServerRequestForTest(manager, context, {
+      id: 103,
+      method: "item/fileChange/requestApproval",
+      params: { threadId: "thread_1", turnId: "turn_2", itemId: "call_patch", startedAtMs: 2 },
+    });
+    const later = emitEvent.mock.calls.find(
+      ([event]) => (event as { kind?: string }).kind === "request",
+    )?.[0] as { payload: Record<string, unknown> };
+    expect(later.payload.changes).toBeUndefined();
+  });
+
   it("keeps later permission-profile requests interactive during an always-allowed session", async () => {
     const { manager, context, writeMessage, emitEvent } = createPendingApprovalHarness();
     const permissions = {

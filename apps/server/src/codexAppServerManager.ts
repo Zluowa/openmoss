@@ -428,6 +428,12 @@ interface CodexSessionContext {
   readonly additionalDirectories?: ReadonlyArray<string>;
   collabReceiverTurns: Map<string, TurnId>;
   collabReceiverParents: Map<string, string>;
+  /**
+   * The `changes` of each file-change item still open, by item id. Codex's
+   * `item/fileChange/requestApproval` names only the item, so the approval card
+   * gets the files it would touch from here (WALK-12 N12-1).
+   */
+  openFileChanges?: Map<string, unknown[]>;
   reviewTurnIds: Set<TurnId>;
   /** The turn Moss is abandoning and why; Codex alone only reports "interrupted". */
   abandonedTurn?: { readonly turnId: TurnId; readonly detail: string } | undefined;
@@ -8127,6 +8133,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   ): void {
     const notification = this.withAbandonedTurnReason(context, incomingNotification);
     if (this.claimPredictionThreadNotification(context, notification)) return;
+    this.rememberOpenFileChanges(context, notification);
     const rawRoute = this.readRouteFields(notification.params);
     this.rememberCollabReceiverTurns(context, notification.params, rawRoute.turnId);
     const resolvedCollaborationRoute = this.resolveCollaborationRoute(context, notification.params);
@@ -8438,6 +8445,27 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
   }
 
+  private rememberOpenFileChanges(
+    context: CodexSessionContext,
+    notification: JsonRpcNotification,
+  ): void {
+    const method = notification.method;
+    if (method !== "item/started" && method !== "item/updated" && method !== "item/completed") {
+      return;
+    }
+    const item = this.readObject(notification.params, "item");
+    const itemId = this.readString(item, "id");
+    if (!item || !itemId || this.readString(item, "type") !== "fileChange") return;
+    if (method === "item/completed") {
+      context.openFileChanges?.delete(itemId);
+      return;
+    }
+    const changes = this.readArray(item, "changes");
+    if (!changes) return;
+    context.openFileChanges ??= new Map();
+    context.openFileChanges.set(itemId, changes);
+  }
+
   private async handleServerRequest(
     context: CodexSessionContext,
     request: JsonRpcRequest,
@@ -8607,7 +8635,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       payload:
         isMcpToolCallApproval && mcpSessionPersistenceAdvertised !== true
           ? { ...asObject(request.params), sessionApprovalAvailable: false }
-          : request.params,
+          : request.method === "item/fileChange/requestApproval"
+            ? this.withOpenFileChanges(context, request.params, rawRoute.itemId)
+            : request.params,
     });
 
     if (requestKind) {
@@ -8639,6 +8669,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         message: `Unsupported server request: ${request.method}`,
       },
     });
+  }
+
+  /** The request with the item's `changes` beside it, when Codex already announced the item. */
+  private withOpenFileChanges(
+    context: CodexSessionContext,
+    params: unknown,
+    itemId: string | undefined,
+  ): unknown {
+    const changes = itemId ? context.openFileChanges?.get(itemId) : undefined;
+    const record = asObject(params);
+    return changes && record ? { ...record, changes } : params;
   }
 
   private handleResponse(context: CodexSessionContext, response: JsonRpcResponse): void {

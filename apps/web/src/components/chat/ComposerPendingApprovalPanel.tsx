@@ -120,6 +120,10 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   // What the provider sent is shown exactly as it arrived (REVIEW-RULES rule 9).
   const detail = approval.detail && approval.detail.length > 0 ? approval.detail : null;
   const filePath = requestedFilePath(detail);
+  // Every file an edit will touch, whole (WALK-12 N12-1: Codex names only its item, so the
+  // card said 「允许 Moss 编辑以下文件？」 over no file).
+  const editedFiles = approval.requestKind === "file-change" ? (approval.filePaths ?? []) : [];
+  const fileChanges = approval.requestKind === "file-change" ? (approval.fileChanges ?? []) : [];
   const requestId = approval.requestId;
   const requestKey = pendingRequestInstanceKey(requestId, approval.lifecycleGeneration);
   const submissionKey = JSON.stringify([requestKey, approval.responseAttemptKey ?? null]);
@@ -261,9 +265,11 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
         : variant === "terminal"
           ? t("execApprovalRequest.prompt")
           : variant === "edit"
-            ? // The card cannot count a patch's files (a clamped `Edit:` input no longer
-              // parses), so it never claims more than one.
-              t("patchApprovalRequest.prompt.one")
+            ? // Without the request's file list (a clamped `Edit:` input no longer parses) the
+              // card never claims more than one.
+              editedFiles.length > 1
+              ? t("patchApprovalRequest.prompt.many")
+              : t("patchApprovalRequest.prompt.one")
             : variant === "mcp"
               ? mcpApprovalTitle()
               : approval.requestKind === "file-read" && filePath
@@ -281,6 +287,7 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   // other text a provider sends (a path, a URL, a command, raw input) is the request itself.
   const providerQuestionOnly = CODEX_MCP_APPROVAL_QUESTION.test(approval.detail?.trim() ?? "");
   const hasParams = (approval.toolParamsDisplay?.length ?? 0) > 0;
+  const hasDetails = hasParams || fileChanges.length > 0;
 
   return (
     <div
@@ -312,7 +319,19 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
               <p className="text-size-chat-sm leading-5 text-codex-description">{subtitle}</p>
             ) : null}
           </div>
-          {hasParams ? (
+          {editedFiles.length > 0 ? (
+            <ul className="flex min-w-0 flex-col gap-0.5" data-approval-files="true">
+              {editedFiles.map((path) => (
+                <li
+                  key={path}
+                  className="min-w-0 font-mono text-size-code leading-5 wrap-anywhere text-foreground"
+                >
+                  {path}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {hasDetails ? (
             <button
               type="button"
               className="self-start text-size-chat-sm text-codex-secondary underline-offset-2 hover:underline"
@@ -326,6 +345,7 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
           ) : null}
         </div>
       </div>
+      {paramsOpen && fileChanges.length > 0 ? <FileChangeDetails changes={fileChanges} /> : null}
       {paramsOpen || !hasParams ? (
         <ApprovalDetail
           detail={detail}
@@ -334,6 +354,8 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
           // Hidden only where it repeats what the card shows: Codex's generated question, or the
           // provider's sentence over a tool's argument rows (WALK-7 N7-2, REVIEW-RULES rule 9).
           hideFallback={providerQuestionOnly || (variant === "mcp" && hasParams)}
+          // The files named above are the request; no line asks to review nothing.
+          namesRequest={editedFiles.length > 0}
           {...(approval.permissionProfile ? { permissionProfile: approval.permissionProfile } : {})}
           {...(approval.toolName && !hasParams ? { toolName: approval.toolName } : {})}
           {...(hasParams && paramsOpen && approval.toolParamsDisplay
@@ -459,6 +481,7 @@ function ApprovalDetail({
   toolParamsDisplay,
   suppressText,
   hideFallback = false,
+  namesRequest = false,
 }: {
   detail: string | null;
   permissionProfile?: Record<string, unknown>;
@@ -466,6 +489,7 @@ function ApprovalDetail({
   toolParamsDisplay?: PendingApproval["toolParamsDisplay"];
   suppressText?: string | null;
   hideFallback?: boolean;
+  namesRequest?: boolean;
 }) {
   const { locale } = useTranslation();
   const shownDetail = detail && !hideFallback && detail !== suppressText ? detail : null;
@@ -507,9 +531,25 @@ function ApprovalDetail({
 
   if (shownDetail) return <VerbatimDetail detail={shownDetail} />;
 
-  if (suppressText || hideFallback) return null;
+  if (suppressText || hideFallback || namesRequest) return null;
   return (
     <p className="px-4 pb-2 text-ui text-muted-foreground/65">Review the request to continue.</p>
+  );
+}
+
+/** Each file's change as the provider sent it, under its path. */
+function FileChangeDetails({ changes }: { changes: NonNullable<PendingApproval["fileChanges"]> }) {
+  return (
+    <div className="flex max-h-80 min-h-0 flex-col gap-1 overflow-y-auto pb-1">
+      {changes.map((change) => (
+        <div key={change.path} className="flex min-w-0 flex-col gap-1">
+          <p className="px-4 font-mono text-size-code leading-5 wrap-anywhere text-codex-secondary">
+            {change.path}
+          </p>
+          <VerbatimDetail detail={change.diff} />
+        </div>
+      ))}
+    </div>
   );
 }
 

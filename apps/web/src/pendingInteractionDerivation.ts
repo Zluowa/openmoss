@@ -44,6 +44,10 @@ export interface PendingApproval {
   /** The MCP server asking, when the provider names it apart from the tool. */
   toolServerName?: string;
   toolParamsDisplay?: ReadonlyArray<PendingToolParamDisplay>;
+  /** Every file a file-change request will touch, each path whole as the provider sent it. */
+  filePaths?: ReadonlyArray<string>;
+  /** The change to each file, where the request carries it (Codex, OpenCode). */
+  fileChanges?: ReadonlyArray<{ readonly path: string; readonly diff: string }>;
 }
 
 export interface PendingToolParamDisplay {
@@ -310,6 +314,12 @@ export function derivePendingApprovals(
         const toolServerName =
           typeof payload?.toolServerName === "string" ? payload.toolServerName : undefined;
         const toolParamsDisplay = parseToolParamsDisplay(payload?.toolParamsDisplay);
+        const filePaths = Array.isArray(payload?.filePaths)
+          ? payload.filePaths.filter(
+              (path): path is string => typeof path === "string" && path.length > 0,
+            )
+          : [];
+        const fileChanges = parseFileChanges(payload?.fileChanges);
         return {
           requestId,
           ...(lifecycleGeneration !== undefined ? { lifecycleGeneration } : {}),
@@ -328,6 +338,8 @@ export function derivePendingApprovals(
           ...(toolName ? { toolName } : {}),
           ...(toolServerName ? { toolServerName } : {}),
           ...(toolParamsDisplay ? { toolParamsDisplay } : {}),
+          ...(filePaths.length > 0 ? { filePaths } : {}),
+          ...(fileChanges.length > 0 ? { fileChanges } : {}),
         };
       },
     },
@@ -353,6 +365,16 @@ export function derivePendingApprovals(
       pendingRequestInstanceKey(approval.requestId, approval.lifecycleGeneration),
     );
     return responseAttemptKey === undefined ? approval : { ...approval, responseAttemptKey };
+  });
+}
+
+function parseFileChanges(value: unknown): Array<{ path: string; diff: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const record = entry && typeof entry === "object" ? (entry as Record<string, unknown>) : null;
+    return typeof record?.path === "string" && typeof record.diff === "string"
+      ? [{ path: record.path, diff: record.diff }]
+      : [];
   });
 }
 

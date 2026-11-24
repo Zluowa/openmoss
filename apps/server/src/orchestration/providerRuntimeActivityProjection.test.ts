@@ -1654,3 +1654,88 @@ describe("provider runtime activity projection", () => {
     expect(() => decodeActivityAppendCommand(blocked!)).not.toThrow();
   });
 });
+
+describe("WALK-12 N12-1: a file-change approval names every file it touches", () => {
+  const project = (eventId: string, payload: Record<string, unknown>) =>
+    projectProviderRuntimeActivities(
+      runtimeEvent({
+        type: "request.opened",
+        eventId,
+        turnId: TURN_ID,
+        requestId: ApprovalRequestId.makeUnsafe(`request-${eventId}`),
+        payload: payload as never,
+      }),
+    )[0]?.payload as Record<string, unknown>;
+
+  it("Codex: the item's changes the manager attached, whole, with each diff", () => {
+    const path = "/tmp/walk/run/code/index.js";
+    const moved = "/tmp/walk/run/code/lib/math/a-very-long-folder-name/operations/index.js";
+    const payload = project("codex-patch", {
+      requestType: "file_change_approval",
+      args: {
+        threadId: "thr",
+        turnId: "turn",
+        itemId: "call_patch",
+        startedAtMs: 1,
+        reason: null,
+        grantRoot: null,
+        changes: [
+          { path, kind: { type: "update", move_path: moved }, diff: "@@ -1 +1,2 @@\n+add\n" },
+          { path: "/tmp/walk/run/code/new.js", kind: { type: "add" }, diff: "x" },
+        ],
+      },
+    });
+    expect(payload.filePaths).toEqual([path, moved, "/tmp/walk/run/code/new.js"]);
+    expect(payload.fileChanges).toEqual([
+      { path, diff: "@@ -1 +1,2 @@\n+add\n" },
+      { path: "/tmp/walk/run/code/new.js", diff: "x" },
+    ]);
+  });
+
+  it("Codex: a write-root request names the root", () => {
+    const payload = project("codex-root", {
+      requestType: "file_change_approval",
+      args: { itemId: "i", grantRoot: "/home/me/elsewhere" },
+    });
+    expect(payload.filePaths).toEqual(["/home/me/elsewhere"]);
+  });
+
+  it("Claude, ACP and OpenCode name the file from their own request", () => {
+    expect(
+      project("claude-edit", {
+        requestType: "file_change_approval",
+        detail: 'Edit: {"file_path":"/Users/me/app/src/main.ts"}',
+        args: { toolName: "Edit", input: { file_path: "/Users/me/app/src/main.ts" } },
+      }).filePaths,
+    ).toEqual(["/Users/me/app/src/main.ts"]);
+    expect(
+      project("acp-edit", {
+        requestType: "file_change_approval",
+        detail: "Edit file",
+        args: {
+          toolCall: {
+            toolCallId: "t",
+            locations: [{ path: "/w/a.ts", line: 3 }],
+            content: [{ type: "diff", path: "/w/b.ts", oldText: "a", newText: "b" }],
+          },
+        },
+      }).filePaths,
+    ).toEqual(["/w/a.ts", "/w/b.ts"]);
+    const openCode = project("opencode-edit", {
+      requestType: "file_change_approval",
+      detail: "src/index.ts",
+      args: { filepath: "/w/src/index.ts", diff: "--- a\n+++ b\n" },
+    });
+    expect(openCode.filePaths).toEqual(["/w/src/index.ts"]);
+    expect(openCode.fileChanges).toEqual([{ path: "/w/src/index.ts", diff: "--- a\n+++ b\n" }]);
+  });
+
+  it("adds nothing to other requests", () => {
+    const payload = project("command", {
+      requestType: "command_execution_approval",
+      detail: "ls",
+      args: { input: { file_path: "/x" } },
+    });
+    expect(payload.filePaths).toBeUndefined();
+  });
+});
