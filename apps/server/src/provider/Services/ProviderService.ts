@@ -346,6 +346,14 @@ export interface ProviderServiceShape {
   readonly hasLiveRuntimeTasks?: (input: { readonly threadId: ThreadId }) => Effect.Effect<boolean>;
 
   /**
+   * Bring a Codex chat's runtime back in the background when the person opens the chat, so
+   * the slow part (starting Codex, reading its history) is done before they press Send. Does
+   * nothing for a chat whose runtime is live, that has no saved Codex conversation, or that is
+   * mid-turn. Never fails.
+   */
+  readonly prewarmSession?: (input: { readonly threadId: ThreadId }) => Effect.Effect<void>;
+
+  /**
    * Forget a stale provider-native resume cursor while preserving local routing
    * metadata such as provider options and runtime mode.
    */

@@ -68,6 +68,15 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** The native turn Codex names on an MCP request (`_meta["x-codex-turn-metadata"].turn_id`). */
+export function readCodexDeclaredTurnId(message: unknown): string | undefined {
+  const metadata = asRecord(
+    asRecord(asRecord(asRecord(message)?.params)?._meta)?.["x-codex-turn-metadata"],
+  );
+  const turnId = metadata?.turn_id;
+  return typeof turnId === "string" && turnId.length > 0 ? turnId : undefined;
+}
+
 function invalidRequestResponse(
   status: number,
   message: string,
@@ -529,6 +538,18 @@ export function makeAgentGatewayMcpTransport(input: {
           (!projected || turnAtIngress === nativeAtIngress)
             ? nativeAtIngress
             : null;
+      }
+      // Codex names the turn of every MCP request (a subagent's request names its own turn).
+      // A request from a turn this bearer already retired never acts in a later turn, and a
+      // turn-scoped bearer gives no write authority to a tool call that names no turn.
+      const declaredTurnId = readCodexDeclaredTurnId(firstMessage);
+      if (
+        turnAtIngress !== null &&
+        (declaredTurnId !== undefined
+          ? input.credentials.isSessionTurnRetired?.(token, declaredTurnId) === true
+          : callerSession.turnScoped === true && requestMethodClass === "tools-call")
+      ) {
+        turnAtIngress = null;
       }
       const callerWriteAuthority = turnAtIngress
         ? input.credentials.bindWriteAuthority(token, turnAtIngress)

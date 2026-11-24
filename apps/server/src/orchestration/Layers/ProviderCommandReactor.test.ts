@@ -42,7 +42,6 @@ import {
   formatProviderDeliveryBlockDetail,
   isProviderDeliveryBlockDetail,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
-  PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
   PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
   UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
@@ -15902,10 +15901,10 @@ describe("ProviderCommandReactor", () => {
       expect(sentInputs(harness)).toEqual(["adopt me"]);
     });
 
-    it("says a slow start is still starting and lets a late answer continue normally", async () => {
+    it("adds nothing to the chat while a start is slow and lets a late answer continue normally", async () => {
       const harness = await createHarness({
         commandEventTimeout: Duration.millis(3_000),
-        turnStartBounds: { noticeAfterMs: 60, tickMs: 10, uncertainSettleAfterMs: 150 },
+        turnStartBounds: { tickMs: 10, uncertainSettleAfterMs: 150 },
       });
       const answer = Deferred.makeUnsafe<void>();
       harness.sendTurn.mockImplementationOnce(() =>
@@ -15919,23 +15918,15 @@ describe("ProviderCommandReactor", () => {
         text: "slow but fine",
         createdAt: new Date().toISOString(),
       });
-      await waitFor(async () =>
-        Boolean(
-          (await readHarnessThread(harness))?.activities.some(
-            (activity) => activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
-          ),
-        ),
-      );
+      await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+      // Well past the old 20 s notice in watchdog ticks: the chat gains no row while it waits.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect((await readHarnessThread(harness))?.activities ?? []).toEqual([]);
       await Effect.runPromise(Deferred.succeed(answer, undefined));
       const sequence = await readTurnStartSequence(harness, "slow-start");
       await waitFor(async () => (await readDeliveryState(harness, sequence)) === "succeeded");
       const thread = await readHarnessThread(harness);
-      expect(thread?.activities.filter((activity) => activity.tone === "error")).toEqual([]);
-      expect(
-        thread?.activities.filter(
-          (activity) => activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
-        ),
-      ).toHaveLength(1);
+      expect(thread?.activities ?? []).toEqual([]);
       expect(await readBlockers(harness)).toEqual([]);
       expect(sentInputs(harness)).toEqual(["slow but fine"]);
     });
@@ -15970,7 +15961,7 @@ describe("ProviderCommandReactor", () => {
     it("fails a message the reactor never began to deliver at its bound and never sends it later", async () => {
       const harness = await createHarness({
         commandEventTimeout: Duration.millis(5_000),
-        turnStartBounds: { failAfterMs: 150, noticeAfterMs: 4_000, tickMs: 10 },
+        turnStartBounds: { failAfterMs: 150, tickMs: 10 },
       });
       const release = Deferred.makeUnsafe<void>();
       await holdFirstStart(harness, release);
@@ -15990,7 +15981,7 @@ describe("ProviderCommandReactor", () => {
       let clock = 0;
       const harness = await createHarness({
         commandEventTimeout: Duration.millis(5_000),
-        turnStartBounds: { failAfterMs: 150, noticeAfterMs: 4_000, tickMs: 10, now: () => clock },
+        turnStartBounds: { failAfterMs: 150, tickMs: 10, now: () => clock },
       });
       const release = Deferred.makeUnsafe<void>();
       await holdFirstStart(harness, release);

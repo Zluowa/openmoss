@@ -8532,6 +8532,92 @@ piInteractionRouting.layer("ProviderServiceLive Pi interaction generation", (it)
   );
 });
 
+const warmIdle = makeProviderServiceLayer({ maxWarmIdleRuntimes: 1 });
+warmIdle.layer("ProviderServiceLive warm idle runtimes", (it) => {
+  it.effect(
+    "keeps an idle runtime warm and stops only the least recently used past the limit",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const first = asThreadId("thread-warm-first");
+        const second = asThreadId("thread-warm-second");
+        warmIdle.codex.stopSession.mockClear();
+        const finishTurn = (threadId: ThreadId, id: string) =>
+          warmIdle.codex.emit({
+            type: "turn.completed",
+            eventId: asEventId(id),
+            provider: "codex",
+            threadId,
+            createdAt: new Date().toISOString(),
+            payload: { state: "completed" },
+          });
+        yield* provider.startSession(first, {
+          provider: "codex",
+          threadId: first,
+          runtimeMode: "full-access",
+        });
+        yield* warmIdle.codex.waitForRuntimeSubscribers();
+        finishTurn(first, "warm-first-done");
+        // Long past any short idle timer: the only idle runtime stays warm.
+        yield* sleep(400);
+        assert.strictEqual(warmIdle.codex.stopSession.mock.calls.length, 0);
+        assert.isTrue(yield* warmIdle.codex.adapter.hasSession(first));
+
+        yield* provider.startSession(second, {
+          provider: "codex",
+          threadId: second,
+          runtimeMode: "full-access",
+        });
+        finishTurn(second, "warm-second-done");
+        yield* waitUntil(() => warmIdle.codex.stopSession.mock.calls.length === 1);
+        assert.strictEqual(warmIdle.codex.stopSession.mock.calls[0]?.[0], first);
+        assert.isTrue(yield* warmIdle.codex.adapter.hasSession(second));
+        yield* provider.stopSession({ threadId: second });
+      }),
+  );
+
+  it.effect("brings an opened chat's stopped Codex back before Send, and only once", () =>
+    Effect.gen(function* () {
+      const provider = yield* ProviderService;
+      const directory = yield* ProviderSessionDirectory;
+      const threadId = asThreadId("thread-prewarm");
+      yield* provider.startSession(threadId, {
+        provider: "codex",
+        threadId,
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+      if (!provider.stopRuntimeSession || !provider.prewarmSession) {
+        assert.fail("Expected stopRuntimeSession and prewarmSession");
+      }
+      yield* provider.stopRuntimeSession({ threadId });
+      yield* directory.upsert({
+        threadId,
+        provider: "codex",
+        resumeCursor: { opaque: `resume-${String(threadId)}` },
+        runtimePayload: { activeTurnId: null },
+      });
+      assert.isFalse(yield* warmIdle.codex.adapter.hasSession(threadId));
+      const starts = warmIdle.codex.startSession.mock.calls.length;
+
+      yield* provider.prewarmSession({ threadId });
+      assert.isTrue(yield* warmIdle.codex.adapter.hasSession(threadId));
+      assert.strictEqual(warmIdle.codex.startSession.mock.calls.length, starts + 1);
+      assert.deepEqual(warmIdle.codex.startSession.mock.calls.at(-1)?.[0]?.resumeCursor, {
+        opaque: `resume-${String(threadId)}`,
+      });
+
+      // Already live: opening the chat again starts nothing.
+      yield* provider.prewarmSession({ threadId });
+      assert.strictEqual(warmIdle.codex.startSession.mock.calls.length, starts + 1);
+      // The message itself finds the runtime ready.
+      yield* provider.sendTurn({ threadId, input: "hello", attachments: [] });
+      assert.strictEqual(warmIdle.codex.startSession.mock.calls.length, starts + 1);
+      yield* provider.stopSession({ threadId });
+    }),
+  );
+});
+
 const idleCleanup = makeProviderServiceLayer({ runtimeIdleStopMs: 100 });
 idleCleanup.layer("ProviderServiceLive idle cleanup", (it) => {
   it.effect("retries failed idle teardown after a delayed session exit notification", () =>

@@ -3,7 +3,6 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MessagesTimelineRow } from "../../MessagesTimeline.logic";
-import { SLOW_PROVIDER_START_NOTICE_MS } from "../workingStatus";
 import {
   TRANSCRIPT_CARDS,
   TranscriptCardBoundary,
@@ -75,7 +74,7 @@ describe("TranscriptCardBoundary", () => {
 });
 
 describe("working line while a provider starts", () => {
-  it("says the start is slow, and that Moss keeps waiting, after a few seconds", () => {
+  it("keeps the same short line however long the start takes", () => {
     vi.useFakeTimers();
     try {
       const Working = TRANSCRIPT_CARDS.working.Body;
@@ -89,11 +88,9 @@ describe("working line while a provider starts", () => {
       const view = render(<Working row={row} env={env} />);
       expect(view.container.textContent).toBe("Starting Codex…");
       act(() => {
-        vi.advanceTimersByTime(SLOW_PROVIDER_START_NOTICE_MS);
+        vi.advanceTimersByTime(60_000);
       });
-      expect(view.container.textContent).toBe(
-        "Codex is taking longer than usual to start. Moss keeps waiting (up to about two minutes) and sends your message as soon as it's ready.",
-      );
+      expect(view.container.textContent).toBe("Starting Codex…");
     } finally {
       vi.useRealTimers();
     }

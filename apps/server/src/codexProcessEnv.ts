@@ -3362,11 +3362,17 @@ export async function buildCodexProcessLaunchContext(
 ): Promise<CodexProcessLaunchContext> {
   const baseEnv = { ...(input.env ?? process.env) };
   const sourceHomePath = resolveBaseCodexHomePath(baseEnv, input.homePath);
-  const initialAuthTracking = prepareCodexAuthTracking(input);
-  const initialAuthFingerprint = readCodexPreparedAuthTrackingFingerprint(initialAuthTracking);
+  // Same checks as the synchronous readers, run off the main thread: a Codex home on a slow
+  // disk must not freeze the whole server while one chat's Codex starts.
+  const initialAuthTracking = await runCodexAuthIoAsync(prepareCodexAuthTrackingIo(input));
+  const initialAuthFingerprint = await runCodexAuthIoAsync(
+    readCodexPreparedAuthTrackingFingerprintIo(initialAuthTracking),
+  );
   const env = await buildCodexProcessEnv(input);
-  const authTracking = prepareCodexAuthTracking(input);
-  const authFingerprint = readCodexPreparedAuthTrackingFingerprint(authTracking);
+  const authTracking = await runCodexAuthIoAsync(prepareCodexAuthTrackingIo(input));
+  const authFingerprint = await runCodexAuthIoAsync(
+    readCodexPreparedAuthTrackingFingerprintIo(authTracking),
+  );
   const effectiveHomePath = resolveBaseCodexHomePath(env);
   const authIsMirroredFromAnotherHome = !codexPathsReferenceSameLocation(
     path.dirname(initialAuthTracking.authoritativeAuthFilePath),

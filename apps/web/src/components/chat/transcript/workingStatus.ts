@@ -3,8 +3,7 @@
 //          at fixed points (15/30/45/60 s) so a quiet wait still reads as progress;
 //          a send in flight reads "Sending…".
 // Layer: Chat transcript presentation logic (pure)
-//          A provider start that runs past a few seconds says so, and that Moss keeps waiting.
-// Exports: THINKING_TIER_SECONDS, SLOW_PROVIDER_START_NOTICE_MS, startingProviderName,
+// Exports: THINKING_TIER_SECONDS, startingProviderName,
 //          thinkingStatusKey, workingStatusKey, workingMarkSignal
 
 import type { MossMarkActivity } from "~/lib/mossMarkMotion";
@@ -97,9 +96,6 @@ export function workingMarkSignal(input: {
   })();
   return { activity, progress };
 }
-
-/** A provider start still running after this long reads as slow on the working line. */
-export const SLOW_PROVIDER_START_NOTICE_MS = 8_000;
 
 const STARTING_PROVIDER_LABEL = /^Starting (.+)…$/u;
 

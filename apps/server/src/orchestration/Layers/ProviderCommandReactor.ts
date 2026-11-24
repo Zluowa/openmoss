@@ -88,7 +88,6 @@ import {
   formatProviderDeliveryBlockDetail,
   PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
-  PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
   UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import { buildStalePendingRequestFailureDetail } from "@moss/shared/threadSummary";
@@ -815,7 +814,6 @@ const PROVIDER_COMMAND_STOP_TIMEOUT = Duration.seconds(15);
 export const PROVIDER_COMMAND_EVENT_TIMEOUT = Duration.seconds(120);
 /**
  * Bounds for a sent message the provider has not taken up (see TurnStartBounds).
- * - Notice after 20 s: past an ordinary cold start, well before the start timeout.
  * - Not-sent after the start timeout: a message still waiting to be delivered has waited
  *   as long as any start may take; it has sent nothing, so it fails as a plain retry.
  * - An uncertain start is resolved one claim lease (30 s) after it was settled, so at most
@@ -824,7 +822,6 @@ export const PROVIDER_COMMAND_EVENT_TIMEOUT = Duration.seconds(120);
  *   already treats a silent owner as gone.
  */
 const DEFAULT_TURN_START_BOUNDS: Omit<TurnStartBounds, "failAfterMs"> = {
-  noticeAfterMs: 20_000,
   uncertainSettleAfterMs: PROVIDER_COMMAND_CLAIM_LEASE_MS,
   tickMs: 1_000,
   now: () => Date.now(),
@@ -1142,12 +1139,10 @@ export interface ProviderCommandReactorLiveOptions {
 }
 
 /**
- * How long a sent message may go without the provider taking it up before Moss says so.
+ * How long a sent message may go without the provider taking it up before Moss settles it.
  * Every bound counts active time (`activeTimeStepMs`), read from `now` once per `tickMs`.
  */
 export interface TurnStartBounds {
-  /** A message not yet taken up by its provider gets a "still starting" notice. */
-  readonly noticeAfterMs: number;
   /** A message the reactor has not even begun to deliver is settled as not sent. */
   readonly failAfterMs: number;
   /** An uncertain start is resolved this long after it was settled uncertain. */
@@ -8612,29 +8607,6 @@ const make = Effect.gen(function* () {
     });
   });
 
-  // A sent message its provider has not taken up yet. The chat says so instead of only
-  // "Thinking"; the row stays as the record that this start was slow.
-  const surfaceDelayedTurnStart = (
-    event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>,
-  ) => {
-    const createdAt = new Date().toISOString();
-    return orchestrationEngine.dispatch({
-      type: "thread.activity.append",
-      commandId: serverCommandId("provider-turn-start-delayed"),
-      threadId: event.payload.threadId,
-      activity: {
-        id: EventId.makeUnsafe(`provider-turn-start-delayed:${event.sequence}`),
-        tone: "info",
-        kind: PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
-        summary: "The provider has not taken up this message yet",
-        payload: { messageId: event.payload.messageId },
-        turnId: null,
-        createdAt,
-      },
-      createdAt,
-    });
-  };
-
   // An uncertain start Moss stopped waiting for. It may have reached the provider, so the
   // words never say "not sent", only that Moss did not send it again.
   const surfaceUnconfirmedTurnStart = Effect.fnUntraced(function* (
@@ -9115,7 +9087,6 @@ const make = Effect.gen(function* () {
     type TurnStartWatch = {
       readonly event: Extract<ProviderIntentEvent, { type: "thread.turn-start-requested" }>;
       activeMs: number;
-      noticed: boolean;
       state: "waiting" | "taken" | "expiring" | "expired";
       readonly decided: Deferred.Deferred<void>;
     };
@@ -10504,18 +10475,6 @@ const make = Effect.gen(function* () {
           if (watch.state !== "waiting" && watch.state !== "taken") continue;
           const wasBelowFail = watch.activeMs < turnStartBounds.failAfterMs;
           watch.activeMs += step;
-          if (!watch.noticed && watch.activeMs >= turnStartBounds.noticeAfterMs) {
-            watch.noticed = true;
-            yield* surfaceDelayedTurnStart(watch.event).pipe(
-              Effect.catchCause((cause) =>
-                Effect.logWarning("could not show a slow turn start", {
-                  eventSequence: watch.event.sequence,
-                  cause: Cause.pretty(cause),
-                }),
-              ),
-              Effect.forkIn(providerIntentScope),
-            );
-          }
           // One expiry attempt per watch, at the moment it crosses the bound.
           if (
             watch.state === "waiting" &&
@@ -11058,7 +11017,6 @@ const make = Effect.gen(function* () {
           turnStartWatches.set(event.sequence, {
             event,
             activeMs: 0,
-            noticed: false,
             state: "waiting",
             decided: Deferred.makeUnsafe<void>(),
           });

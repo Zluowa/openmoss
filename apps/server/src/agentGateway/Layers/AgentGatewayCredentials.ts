@@ -327,6 +327,15 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
     return inFlightRequests.cancelTurn(session.sessionKey, turnId).settled;
   };
 
+  const retireSessionTurnKeepingCredential: NonNullable<
+    AgentGatewayCredentialsShape["retireSessionTurnKeepingCredential"]
+  > = (token, turnId) => {
+    const session = sessionRegistry.verify(token);
+    if (!session) return { kept: false, settled: Promise.resolve() };
+    const kept = sessionRegistry.retireTurnKeepingSession(token, turnId);
+    return { kept, settled: inFlightRequests.cancelTurn(session.sessionKey, turnId).settled };
+  };
+
   return {
     get mcpEndpointUrl() {
       return endpoint.url;
@@ -344,6 +353,8 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
     cancelInFlightRequests: inFlightRequests.cancel,
     cancelSessionTurnRequests,
     retireSessionTurn,
+    retireSessionTurnKeepingCredential,
+    isSessionTurnRetired: sessionRegistry.isTurnRetired,
     revokeSessionToken,
     noteNativeMcpStartup,
     awaitNativeMcpStartup,

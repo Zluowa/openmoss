@@ -76,6 +76,8 @@ export interface AgentGatewayCredentialsShape {
   readonly issueStdioBootstrapToken: (sessionToken: string) => string | null;
   /** Consume one stdio bootstrap credential exactly once. */
   readonly exchangeStdioBootstrapToken: (bootstrapToken: string) => string | null;
+  /** True when this bearer retired the named turn (late requests from it are refused). */
+  readonly isSessionTurnRetired?: (token: string, turnId: string) => boolean;
   /** Pin one request/batch to the exact running turn observed at ingress. */
   readonly bindWriteAuthority: (token: string, turnId: string) => AgentGatewayWriteAuthority | null;
   /** Only a trusted adapter can report its own lease's native parent-turn start. */
@@ -98,6 +100,14 @@ export interface AgentGatewayCredentialsShape {
    * happen synchronously; the promise represents only in-flight drainage.
    */
   readonly retireSessionTurn: (token: string, turnId: string) => Promise<void>;
+  /**
+   * Tombstone one terminal turn but keep the bearer for the same runtime's next turn (see
+   * `retireTurnKeepingSession`). False when the bearer is unknown or already retired.
+   */
+  readonly retireSessionTurnKeepingCredential?: (
+    token: string,
+    turnId: string,
+  ) => { readonly kept: boolean; readonly settled: Promise<void> };
   /** Revoke exactly one provider session credential. */
   readonly revokeSessionToken: (token: string) => void;
   /**

@@ -28,6 +28,11 @@ export type AgentGatewayHistoryCapability = (typeof AGENT_GATEWAY_HISTORY_CAPABI
 export interface AgentGatewaySessionIdentity {
   /** Undefined for projection-backed adapters; null until this native lease starts its parent turn. */
   readonly nativeTurnId?: string | null;
+  /**
+   * The bearer outlives its turns: each MCP request names its own turn (Codex's
+   * `x-codex-turn-metadata`), and a request naming a retired turn never gets write authority.
+   */
+  readonly turnScoped?: boolean;
   readonly sessionKey: string;
   readonly threadId: ThreadId;
   readonly provider: ProviderKind;
@@ -72,6 +77,14 @@ export interface AgentGatewaySessionRegistryShape {
    * turn after this transition.
    */
   readonly retireWriteAuthority: (token: string, turnId: string) => boolean;
+  /**
+   * Retire one terminal turn but keep the credential for the provider's next turn. From then
+   * on the bearer is turn-scoped: a write needs a request that names the active turn, and a
+   * request naming a retired turn is refused, so a late request cannot borrow a later turn.
+   */
+  readonly retireTurnKeepingSession: (token: string, turnId: string) => boolean;
+  /** True when this bearer already retired the named turn. */
+  readonly isTurnRetired: (token: string, turnId: string) => boolean;
   readonly revoke: (token: string) => void;
   readonly setComputerControlEnabled?: (threadId: string, enabled: boolean) => void;
   readonly computerControlProvisioned?: (threadId: string, provider: ProviderKind) => boolean;

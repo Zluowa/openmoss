@@ -2914,6 +2914,18 @@ const make = Effect.gen(function* () {
         event.type === "turn.completed" ||
         event.type === "turn.aborted"
       ) {
+        // A runtime brought back in the background (a chat opened, nothing sent) is not a
+        // start the person waits on: the chat keeps its state, Send stays available.
+        const startsWithoutRequestedTurn =
+          event.type === "session.state.changed" &&
+          event.payload.state === "starting" &&
+          thread.session?.status !== "starting" &&
+          activeTurnId === null &&
+          Option.isNone(
+            yield* projectionTurnRepository
+              .getPendingTurnStartByThreadId({ threadId: thread.id })
+              .pipe(Effect.orElseSucceed(() => Option.none())),
+          );
         let nextActiveTurnId = activeTurnId;
         if (event.type === "turn.started") {
           nextActiveTurnId = eventTurnId ?? null;
@@ -2930,6 +2942,7 @@ const make = Effect.gen(function* () {
         const status = (() => {
           switch (event.type) {
             case "session.state.changed":
+              if (startsWithoutRequestedTurn) return thread.session?.status ?? "stopped";
               if (event.payload.state === "waiting") return "running";
               // Preserve an in-flight turn start so startup readiness does not
               // dip back to idle `ready` before `turn.started` lands.

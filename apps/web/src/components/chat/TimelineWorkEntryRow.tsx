@@ -7,7 +7,6 @@ import { conversationDisclosureStyle } from "~/lib/disclosureMotion";
 import { ConversationShimmer } from "./ConversationShimmer";
 import { ThreadId, type ModelSelection, type TurnId } from "@moss/contracts";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
-import { PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND } from "@moss/shared/providerDeliveryBlock";
 import {
   isFileReadToolWord,
   isSearchToolWord,
@@ -874,15 +873,11 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
               ? "mcp"
               : undefined;
   const isQuotaExhaustedActivity = workEntry.activityKind === "account.quota-exhausted";
-  const isTurnStartDelayedActivity =
-    workEntry.activityKind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND;
   // Rows whose whole text is Moss's own sentence, in the reader's language.
-  const isFixedTextActivity = isQuotaExhaustedActivity || isTurnStartDelayedActivity;
+  const isFixedTextActivity = isQuotaExhaustedActivity;
   const heading = isQuotaExhaustedActivity
     ? t("mossQuota.exhausted.activity")
-    : isTurnStartDelayedActivity
-      ? t("chat.turnStart.delayed")
-      : toolWorkEntryHeading(workEntry, locale);
+    : toolWorkEntryHeading(workEntry, locale);
   const rawPreview = workEntry.monitorNotification
     ? null
     : workEntry.mcpToolResult &&

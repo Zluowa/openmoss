@@ -146,8 +146,6 @@ const EN_TRANSLATIONS = {
   "transcript.working.starting": "Starting {provider}…",
   "transcript.working.accountServiceUnavailable":
     "The Moss account service is temporarily unavailable. Moss continues automatically once it is back.",
-  "transcript.working.startingSlowly":
-    "{provider} is taking longer than usual to start. Moss keeps waiting (up to about two minutes) and sends your message as soon as it's ready.",
   "transcript.readAloud.start": "Read aloud",
   "transcript.readAloud.pause": "Pause",
   "transcript.readAloud.resume": "Resume",
@@ -944,8 +942,6 @@ const EN_TRANSLATIONS = {
   "chat.systemError.generic": "Something went wrong. Please try again.",
   "chat.systemError.capacityRetry.retry": "Retry",
   "chat.error.retry": "Retry",
-  "chat.turnStart.delayed":
-    "The provider is taking longer than usual to take up this message. Moss keeps waiting and says so here if it can't start.",
   "chat.error.showDetails": "Show details",
   "chat.error.hideDetails": "Hide details",
   "diff.gitNotInstalled": "Git isn't installed on this computer. Install Git to see changes here.",
@@ -5259,8 +5255,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "transcript.silent.stopAndRetry": "停止并重试",
   "transcript.working.starting": "正在启动 {provider}…",
   "transcript.working.accountServiceUnavailable": "Moss 账号服务暂时不可用，恢复后会自动继续。",
-  "transcript.working.startingSlowly":
-    "{provider} 启动得比平常慢。Moss 会继续等待（最多约两分钟），准备好后马上发出你的消息。",
   "transcript.readAloud.start": "朗读",
   "transcript.readAloud.pause": "暂停",
   "transcript.readAloud.resume": "继续",
@@ -6001,8 +5995,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.systemError.generic": "出了点问题，请稍后重试。",
   "chat.systemError.capacityRetry.retry": "重试",
   "chat.error.retry": "重试",
-  "chat.turnStart.delayed":
-    "服务商接收这条消息比平时慢。Moss 会继续等待；如果没能开始，会在这里告诉你。",
   "chat.error.showDetails": "显示详情",
   "chat.error.hideDetails": "收起详情",
   "diff.gitNotInstalled": "这台电脑没有安装 Git，安装后即可在这里查看更改。",

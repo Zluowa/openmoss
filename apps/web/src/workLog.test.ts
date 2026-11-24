@@ -846,6 +846,21 @@ describe("deriveWorkLogEntries", () => {
     }
   });
 
+  it("shows no slow-start row that an older build saved, before or after its turn", () => {
+    const turnId = TurnId.makeUnsafe("turn-after-slow-start");
+    const saved = makeActivity({
+      id: "provider-turn-start-delayed:42",
+      kind: "provider.turn.start.delayed",
+      tone: "info",
+      summary: "The provider has not taken up this message yet",
+      payload: { messageId: "message-1" },
+    });
+    expect(deriveWorkLogEntries([saved], undefined)).toEqual([]);
+    expect(deriveWorkLogEntries([saved], turnId, { visibleTurnIds: new Set([turnId]) })).toEqual(
+      [],
+    );
+  });
+
   it("omits task start and completion lifecycle entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({

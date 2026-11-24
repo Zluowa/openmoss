@@ -15,6 +15,7 @@ import { resolveCodexNativeLaunch } from "@moss/shared/codexNativeLaunch";
 import { settleAgentStartupPriority } from "@moss/shared/agentStartupPriority";
 import { guardChildStdio } from "@moss/shared/jsonrpc-stdio";
 import { createHash } from "node:crypto";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ChildProcess, ChildProcessWithoutNullStreams } from "node:child_process";
@@ -131,7 +132,12 @@ import {
   prepareMossManagedPluginStore,
 } from "./account/mossManagedPluginConfig.ts";
 import {
+  hasCuratedPluginSnapshot,
+  seedCuratedPluginSnapshot,
+} from "./codexCuratedPluginSnapshot.ts";
+import {
   resolveActiveCodexHomeWritePath,
+  resolveBaseCodexHomePath,
   usesCanonicalMossManagedCodexHome,
 } from "./codexHomePaths.ts";
 import {
@@ -398,6 +404,8 @@ interface CodexSessionContext {
   gatewayCredentialRetired?: boolean;
   gatewayCredentialRenewable?: boolean;
   gatewayRenewalInProgress?: boolean;
+  /** Settles when an in-place credential renewal ends; forks wait for it. */
+  gatewayRenewal?: Promise<void>;
   serviceTier?: string | null;
   activeInteractionMode?: ProviderInteractionMode | undefined;
   session: ProviderSession;
@@ -451,6 +459,12 @@ interface CodexSessionContext {
   codexOptions?: CodexDiscoveryOptions;
   /** App-server build from the `initialize` userAgent; gates experimental requests. */
   appServerVersion?: string;
+  /**
+   * Whether the Codex home held a curated-plugin snapshot when this process started. Without
+   * one, Codex's startup sync with GitHub holds new turns on a loaded thread (12-40 s where
+   * GitHub is unreachable); such a process keeps the per-turn reopen, as before.
+   */
+  curatedPluginSnapshotAtLaunch?: boolean;
   /**
    * Ephemeral `composer_predictions` forks hosted by this app-server, keyed by provider thread
    * id. A fork maps to its collector while its prediction turn runs and to null once retired,
@@ -843,6 +857,10 @@ export const CODEX_THREAD_OPEN_TIMEOUT_MS = 90_000;
 export const CODEX_STARTUP_OPTIONAL_REQUEST_TIMEOUT_MS = 8_000;
 /** A start step at least this slow is written to the server log with its duration. */
 const CODEX_STARTUP_SLOW_STEP_LOG_MS = 5_000;
+/** First Codex verified to name its turn (`x-codex-turn-metadata.turn_id`) on every MCP request. */
+const MINIMUM_CODEX_TURN_SCOPED_GATEWAY_VERSION = "0.166.0";
+/** How long an in-place credential renewal lets a running suggestion or title fork finish. */
+const CODEX_RENEWAL_FORK_WAIT_MS = 3_000;
 const CODEX_VERSION_CHECK_MAX_OUTPUT_BYTES = 1024 * 1024;
 /**
  * How long a successful `codex --version` verdict stays valid. Session start and
@@ -2460,6 +2478,39 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
 
   // Only the endpoint lives in shared config. Credentials travel over the owned
   // pipe in thread config, so renewing them does not require a new process env.
+  /** Codex homes this server has launched on: where an existing curated snapshot may be. */
+  private readonly knownCodexHomes = new Set<string>();
+  private readonly curatedSnapshotSeeds = new Map<string, Promise<void>>();
+
+  /**
+   * Gives a Codex home without a curated-plugin snapshot a copy of the newest one on this
+   * computer, in the background (see codexCuratedPluginSnapshot.ts). A home that already has
+   * one costs a single stat; nothing waits on the copy.
+   */
+  private seedCuratedPluginSnapshotInBackground(
+    runtimeHome: string,
+    sourceHome: string | undefined,
+  ): void {
+    // Tests run in throwaway homes and must never read or copy the machine's real Codex homes.
+    if (process.env.VITEST) return;
+    for (const home of [runtimeHome, sourceHome, resolveBaseCodexHomePath(process.env)]) {
+      if (home) this.knownCodexHomes.add(path.resolve(home));
+    }
+    const target = path.resolve(runtimeHome);
+    if (this.curatedSnapshotSeeds.has(target)) return;
+    const seed = seedCuratedPluginSnapshot(target, [
+      ...this.knownCodexHomes,
+      path.join(os.homedir(), ".codex"),
+    ]).then((outcome) => {
+      if (outcome !== "present") {
+        log.info("codex curated plugin snapshot", { codexHome: target, outcome });
+      }
+      // A failed or source-less seed may succeed later, once another home has a snapshot.
+      if (outcome === "no-source" || outcome === "failed") this.curatedSnapshotSeeds.delete(target);
+    });
+    this.curatedSnapshotSeeds.set(target, seed);
+  }
+
   private async buildSessionProcessEnv(
     codexOptions: CodexDiscoveryOptions | undefined,
     expectedCodexContinuationGeneration?: string,
@@ -2489,6 +2540,10 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const processLaunch = await buildCodexProcessLaunchContext(processEnvInput);
     const env = processLaunch.env;
     delete env[MOSS_AGENT_GATEWAY_TOKEN_ENV];
+    this.seedCuratedPluginSnapshotInBackground(
+      env.CODEX_HOME ?? resolveBaseCodexHomePath(process.env),
+      codexOptions?.homePath,
+    );
     return {
       env,
       authTracking: processLaunch.authTracking,
@@ -4151,6 +4206,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       );
       const launchAuthFingerprint = processLaunch.authFingerprint;
       startup.homePath = processLaunch.env.CODEX_HOME ?? codexHomePath;
+      const curatedPluginSnapshotAtLaunch = await hasCuratedPluginSnapshot(
+        processLaunch.env.CODEX_HOME ?? resolveBaseCodexHomePath(process.env),
+      );
       const mossMcpArgs = await this.deriveMossMcpAppServerArgs(resolvedCwd);
       this.assertAccountRuntimeGenerationActive(normalizedCodexOptions);
       const lowerPriority = (await this.runPromise(providerProcessPriorityEnabled)) as boolean;
@@ -4212,6 +4270,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
             sessionAttemptId: randomUUID(),
             authTracking: processLaunch.authTracking,
             authFingerprint: launchAuthFingerprint,
+            curatedPluginSnapshotAtLaunch,
             ...(processLaunch.env.CODEX_HOME
               ? { codexRuntimeHomePath: processLaunch.env.CODEX_HOME }
               : {}),
@@ -4742,6 +4801,34 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return this.runGatewayTurnCleanup(context, turnId, "cancellation", () =>
       lease.cancelTurn(turnId),
     );
+  }
+
+  /**
+   * Retires one finished parent turn and keeps the gateway credential for the next turn, when
+   * the gateway can tell this turn's late requests apart: Codex names the turn on every MCP
+   * request from {@link MINIMUM_CODEX_TURN_SCOPED_GATEWAY_VERSION}, and no subagent of the turn
+   * can outlive it with the same credential. False sends the turn down the rotation path.
+   */
+  private retireGatewayTurnKeepingCredential(
+    context: CodexSessionContext,
+    turnId: TurnId,
+  ): boolean {
+    const lease = context.gatewaySessionLease;
+    if (
+      !lease?.retireTurnKeepingCredential ||
+      context.gatewayCredentialRetired === true ||
+      !context.appServerVersion ||
+      compareCodexCliVersions(context.appServerVersion, MINIMUM_CODEX_TURN_SCOPED_GATEWAY_VERSION) <
+        0 ||
+      context.curatedPluginSnapshotAtLaunch !== true ||
+      [...context.collabReceiverTurns.values()].includes(turnId)
+    ) {
+      return false;
+    }
+    const retirement = lease.retireTurnKeepingCredential(turnId);
+    if (!retirement.kept) return false;
+    void this.runGatewayTurnCleanup(context, turnId, "retirement", () => retirement.settled);
+    return true;
   }
 
   private retireGatewayTurn(context: CodexSessionContext, turnId: TurnId): Promise<void> {
@@ -5730,6 +5817,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     input: ProviderPredictNextUserMessageInput & { readonly effort: string | null },
     signal: AbortSignal | undefined,
   ): Promise<ProviderNextUserMessagePrediction> {
+    // A fork of a thread being renewed in place would race its unload; it starts after.
+    if (context.gatewayRenewal) {
+      await context.gatewayRenewal;
+      signal?.throwIfAborted();
+      if (context.forkInFlight || context.session.activeTurnId !== undefined) {
+        return { kind: "skipped", reason: "parent_turn_active" };
+      }
+    }
     const controller = new AbortController();
     const forwardAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", forwardAbort, { once: true });
@@ -6398,42 +6493,85 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   async renewAgentGatewayCredential(threadId: ThreadId): Promise<boolean> {
     const context = this.sessions.get(threadId);
     const providerThreadId = context && readResumeCursorThreadId(context.session.resumeCursor);
+    const refusal = !context
+      ? "no-session"
+      : !providerThreadId
+        ? "no-provider-thread"
+        : !this.agentGatewayMcp || !context.gatewaySessionLease
+          ? "no-gateway"
+          : context.gatewayCredentialRetired !== true
+            ? "not-retired"
+            : context.gatewayCredentialRenewable !== true
+              ? "turn-not-renewable"
+              : context.gatewayRenewalInProgress
+                ? "renewal-in-progress"
+                : context.session.activeTurnId !== undefined
+                  ? "turn-active"
+                  : context.sessionApprovalOverride
+                    ? "approval-override"
+                    : this.hasPendingHumanRequests(context)
+                      ? "pending-request"
+                      : // A failed turn leaves the session in "error" with a working process.
+                        !this.isContextRoutable(context) ||
+                          !this.isContextAuthCurrent(context) ||
+                          !["ready", "running", "error"].includes(context.session.status)
+                        ? "not-routable"
+                        : undefined;
+    const gatewayMcp = this.agentGatewayMcp;
     if (
+      refusal !== undefined ||
       !context ||
       !providerThreadId ||
-      !this.agentGatewayMcp ||
-      !context.gatewaySessionLease ||
-      context.gatewayCredentialRetired !== true ||
-      context.gatewayCredentialRenewable !== true ||
-      context.gatewayRenewalInProgress ||
-      context.session.activeTurnId !== undefined ||
-      context.sessionApprovalOverride ||
-      this.hasPendingHumanRequests(context) ||
-      !this.isContextInitializedAndRoutable(context)
-    )
+      !gatewayMcp ||
+      !context.gatewaySessionLease
+    ) {
+      this.logGatewayRenewalOutcome(threadId, refusal ?? "no-session");
       return false;
+    }
 
     let replacement: AgentGatewaySessionLease | undefined;
     context.gatewayRenewalInProgress = true;
     context.gatewayCredentialRenewable = false;
+    let settleRenewal!: () => void;
+    context.gatewayRenewal = new Promise<void>((resolve) => {
+      settleRenewal = resolve;
+    });
+    let outcome = "failed";
     try {
       this.assertContextAuthCurrent(context);
       // Retirement already fenced writes. Revoke reads and drain the old MCP
       // client too; neither a delayed request nor a descendant gets the new key.
       context.gatewaySessionLease.release();
+      // A suggestion or title fork of this thread is Moss's own and never calls a tool,
+      // and its MCP client now holds a revoked key. Give a running one a moment to finish
+      // with its parent loaded; it never holds the next message back for long.
+      if (context.forkInFlight) {
+        await Promise.race([
+          context.forkInFlight.settled,
+          new Promise<void>((resolve) => setTimeout(resolve, CODEX_RENEWAL_FORK_WAIT_MS).unref()),
+        ]);
+      }
       // A settled native child can still retain its own MCP client. Until all
       // native clients can be rotated together, preserve full process recovery
-      // whenever this process contains anything besides the parent thread.
+      // whenever this process contains anything besides the parent thread and
+      // Moss's own forks.
+      const isOwnFork = (id: unknown) =>
+        typeof id === "string" && context.predictionThreads?.has(id) === true;
       const loaded = this.readObject(
         await this.sendRequest(context, "thread/loaded/list", { limit: 100 }, 1_000),
       );
+      const loadedOthers = Array.isArray(loaded?.data)
+        ? loaded.data.filter((id) => !isOwnFork(id))
+        : undefined;
       if (
-        !Array.isArray(loaded?.data) ||
-        loaded.data.length !== 1 ||
-        loaded.data[0] !== providerThreadId ||
-        loaded.nextCursor !== null
-      )
+        loadedOthers === undefined ||
+        loadedOthers.length !== 1 ||
+        loadedOthers[0] !== providerThreadId ||
+        loaded?.nextCursor !== null
+      ) {
+        outcome = "other-threads-loaded";
         return false;
+      }
       await this.sendRequest(context, "thread/unsubscribe", { threadId: providerThreadId }, 1_000);
       // Unsubscribe acknowledges detachment, not shutdown. Never resume until
       // Codex confirms that the old native thread is gone. Older CLIs which
@@ -6446,7 +6584,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         );
         if (
           Array.isArray(response?.data) &&
-          response.data.length === 0 &&
+          !response.data.includes(providerThreadId) &&
+          response.data.every(isOwnFork) &&
           response.nextCursor === null
         ) {
           unloaded = true;
@@ -6454,8 +6593,11 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         }
         await new Promise<void>((resolve) => setTimeout(resolve, 25));
       }
-      if (!unloaded || !this.isContextRoutable(context)) return false;
-      replacement = this.agentGatewayMcp.acquireSessionLease(threadId, {
+      if (!unloaded || !this.isContextRoutable(context)) {
+        outcome = "unload-not-confirmed";
+        return false;
+      }
+      replacement = gatewayMcp.acquireSessionLease(threadId, {
         enableComputerControl: context.enableComputerControl === true,
       });
       const resumed = this.readObject(
@@ -6482,15 +6624,29 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         providerThreadId,
       });
       context.serverAuthoritativePermissions = true;
+      outcome = "renewed";
       return true;
     } catch {
       // Do not log protocol errors here: a config error can quote a credential.
-      log.info("Codex gateway renewal requires a full process restart", { threadId });
+      outcome = "request-failed";
       return false;
     } finally {
       replacement?.release();
       context.gatewayRenewalInProgress = false;
+      delete context.gatewayRenewal;
+      settleRenewal();
+      this.logGatewayRenewalOutcome(threadId, outcome);
     }
+  }
+
+  /** One line per renewal: kept warm, or which condition sends the thread to a full restart. */
+  private logGatewayRenewalOutcome(threadId: ThreadId, outcome: string): void {
+    log.info(
+      outcome === "renewed"
+        ? "Codex gateway credential renewed in place"
+        : "Codex gateway renewal requires a full process restart",
+      { threadId, outcome },
+    );
   }
 
   private async stopSessionContext(
@@ -8027,16 +8183,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const terminalGatewayTurnId = isTerminalParentTurn
       ? (rawRoute.turnId ?? context.session.activeTurnId)
       : undefined;
+    // A finished turn of a Codex that names its turn on every MCP request keeps the
+    // credential: only that turn is retired, so the next message needs no thread reopen.
+    const gatewayTurnRetiredInPlace =
+      terminalGatewayTurnId !== undefined &&
+      notification.method === "turn/completed" &&
+      this.retireGatewayTurnKeepingCredential(context, terminalGatewayTurnId);
     const gatewayTurnAuthorityRetired =
-      terminalGatewayTurnId !== undefined && context.gatewaySessionLease !== undefined;
+      !gatewayTurnRetiredInPlace &&
+      terminalGatewayTurnId !== undefined &&
+      context.gatewaySessionLease !== undefined;
     if (gatewayTurnAuthorityRetired) {
       // Fence synchronously before publishing the terminal event. ProviderService
       // may admit B as soon as it consumes that event, so A's bearer must already
       // be permanently unable to bind to another latestTurn.
       void this.retireGatewayTurn(context, terminalGatewayTurnId);
-      context.gatewayCredentialRenewable =
-        notification.method === "turn/completed" &&
-        this.readString(this.readObject(notification.params, "turn"), "status") === "completed";
+      // Codex ends every turn it ran, stopped or failed with turn/completed. Renewal revokes
+      // the old bearer and proves the native thread unloaded before resuming, so a stopped or
+      // failed turn is renewed in place too; only an abort Moss synthesized or a bare error
+      // (Codex may still hold the turn) restarts the process.
+      context.gatewayCredentialRenewable = notification.method === "turn/completed";
     }
     const isManualCompactionItem =
       !isChildConversation &&

@@ -91,6 +91,7 @@ import {
   MOSS_GATEWAY_HARNESS_POLICY,
   MOSS_HARNESS_POLICY_MARKER,
 } from "./agentGateway/harnessPolicy.ts";
+import { makeAgentGatewaySessionRegistry } from "./agentGateway/Layers/AgentGatewaySessionRegistry.ts";
 import { MOSS_MCP_SERVER_NAME } from "./agentGateway/mcpInjection.ts";
 import {
   AGENT_GATEWAY_NO_CAPABILITIES,
@@ -126,12 +127,15 @@ function createSyntheticCodexAppServer(options?: {
   };
   /** Methods this app-server receives but never answers, like a Codex stuck on a busy disk. */
   readonly unanswered?: ReadonlySet<string>;
+  /** The `userAgent` app-server reports from `initialize` (carries its version). */
+  readonly userAgent?: string;
   readonly gatewayRenewal?:
     | "supported"
     | "unsupported"
     | "stays-loaded"
     | "wrong-thread"
-    | "loaded-child";
+    | "loaded-child"
+    | "own-fork-loaded";
 }) {
   const historySentinel = "SYNTHETIC_PRIVATE_HISTORY_SENTINEL";
   const persistedTranscript = Object.freeze([
@@ -201,7 +205,7 @@ function createSyntheticCodexAppServer(options?: {
           queueMicrotask(() => stdout.write(`${JSON.stringify({ id: request.id, result })}\n`));
         };
         if (request.method === "initialize") {
-          respond({});
+          respond(options?.userAgent ? { userAgent: options.userAgent } : {});
         } else if (request.method === "account/read") {
           respond({ account: { type: "apiKey" } });
         } else if (request.method === "thread/unsubscribe") {
@@ -223,9 +227,13 @@ function createSyntheticCodexAppServer(options?: {
             data:
               options?.gatewayRenewal === "loaded-child"
                 ? ["fresh-provider-thread", "native-child"]
-                : nativeThreadLoaded || options?.gatewayRenewal === "stays-loaded"
-                  ? ["fresh-provider-thread"]
-                  : [],
+                : options?.gatewayRenewal === "own-fork-loaded"
+                  ? nativeThreadLoaded
+                    ? ["fresh-provider-thread", "moss-prediction-fork"]
+                    : ["moss-prediction-fork"]
+                  : nativeThreadLoaded || options?.gatewayRenewal === "stays-loaded"
+                    ? ["fresh-provider-thread"]
+                    : [],
             nextCursor: null,
           });
         } else if (request.method === "thread/turns/list") {
@@ -740,11 +748,27 @@ it.each([
   "wrong-thread",
   "loaded-child",
   "interrupt",
+  "own-fork-loaded",
+  "stopped-turn",
+  "failed-turn",
 ] as const)(
   "renews a completed turn's tool credential only after verified native unloading (%s)",
   async (scenario) => {
-    const gatewayRenewal = scenario === "interrupt" ? "supported" : scenario;
-    const canReuse = scenario === "supported";
+    const gatewayRenewal =
+      scenario === "interrupt" || scenario === "stopped-turn" || scenario === "failed-turn"
+        ? "supported"
+        : scenario;
+    const canReuse =
+      scenario === "supported" ||
+      scenario === "own-fork-loaded" ||
+      scenario === "stopped-turn" ||
+      scenario === "failed-turn";
+    const turnStatus =
+      scenario === "stopped-turn"
+        ? "interrupted"
+        : scenario === "failed-turn"
+          ? "failed"
+          : "completed";
     const fake = createSyntheticCodexAppServer({ gatewayRenewal });
     const endpoint = "http://127.0.0.1:48123/mcp";
     let tokenSequence = 0;
@@ -781,6 +805,14 @@ it.each([
       });
       const first = await manager.sendTurn({ threadId, input: "first turn", model: "gpt-5.5" });
       expect(await manager.renewAgentGatewayCredential(threadId)).toBe(false);
+      if (scenario === "own-fork-loaded") {
+        // A suggestion fork Moss ran on this thread is still loaded in the process.
+        (
+          manager as unknown as {
+            sessions: Map<string, { predictionThreads?: Map<string, null> }>;
+          }
+        ).sessions.get(threadId)!.predictionThreads = new Map([["moss-prediction-fork", null]]);
+      }
       fake.children[0]!.stdout.emit(
         "data",
         Buffer.from(
@@ -788,7 +820,7 @@ it.each([
             method: "turn/completed",
             params: {
               threadId: "fresh-provider-thread",
-              turn: { id: first.turnId, status: "completed" },
+              turn: { id: first.turnId, status: turnStatus },
             },
           })}\n`,
         ),
@@ -834,6 +866,154 @@ it.each([
       rmSync(cwd, { recursive: true, force: true });
     }
     if (canReuse) expect(revokeSessionToken).toHaveBeenCalledWith("lease-2");
+  },
+);
+/**
+ * Moss's share of a warm Send (Send to `turn/start` on a live Codex app-server). Codex itself
+ * starts a warm turn in 0.06-0.1 s and the whole warm path measured 0.23-0.68 s through Moss
+ * (START-TIMES.md); Moss's part, with no optional call on it, stays far below this.
+ */
+const WARM_SEND_BUDGET_MS = 150;
+it.each([
+  [
+    "a Codex that names turns on MCP requests, home with a plugin snapshot",
+    "codex_cli_rs/0.166.0 (Windows 10.0; x86_64)",
+    true,
+    true,
+  ],
+  [
+    // Codex's startup plugin sync holds new turns on a loaded thread in a home without a
+    // snapshot; such a process keeps main's per-turn reopen.
+    "a Codex that names turns on MCP requests, home without a plugin snapshot",
+    "codex_cli_rs/0.166.0 (Windows 10.0; x86_64)",
+    false,
+    false,
+  ],
+  ["an older Codex", "codex_cli_rs/0.165.0 (Windows 10.0; x86_64)", true, false],
+  [
+    // The background seed lands after this process started: it still behaves as it began.
+    "a Codex whose home is seeded only after launch",
+    "codex_cli_rs/0.166.0 (Windows 10.0; x86_64)",
+    "after-launch",
+    false,
+  ],
+] as const)(
+  "goes straight to the next turn after a finished one on %s",
+  async (_label, userAgent, homeHasSnapshot, keepsCredential) => {
+    const fake = createSyntheticCodexAppServer({ gatewayRenewal: "supported", userAgent });
+    const endpoint = "http://127.0.0.1:48123/mcp";
+    const registry = makeAgentGatewaySessionRegistry();
+    const credentials = {
+      connectionForThread: (threadId: ThreadId) => ({
+        url: endpoint,
+        bearerToken: registry.issue(threadId, "codex").token,
+      }),
+      revokeSessionToken: vi.fn((token: string) => registry.revoke(token)),
+      observeNativeTurn: registry.observeNativeTurn,
+      retireSessionTurn: (token: string, turnId: string) => {
+        registry.retireWriteAuthority(token, turnId);
+        return Promise.resolve();
+      },
+      retireSessionTurnKeepingCredential: (token: string, turnId: string) => ({
+        kept: registry.retireTurnKeepingSession(token, turnId),
+        settled: Promise.resolve(),
+      }),
+    };
+    const events: Array<{ method?: string; payload?: unknown }> = [];
+    const { manager, teardownProcessTree, syntheticAuthInput } = createSyntheticCodexManager(
+      fake,
+      undefined,
+      {
+        endpointUrl: () => endpoint,
+        acquireSessionLease: (threadId, input) =>
+          acquireAgentGatewaySessionLease(
+            credentials,
+            threadId,
+            "codex",
+            input ?? AGENT_GATEWAY_NO_CAPABILITIES,
+          )!,
+      },
+    );
+    manager.on("event", (event: { method?: string; payload?: unknown }) => events.push(event));
+    const codexHome = mkdtempSync(path.join(os.tmpdir(), "moss-codex-turn-scoped-home-"));
+    const writeSnapshot = () => {
+      const marketplace = path.join(codexHome, ".tmp", "plugins", ".agents", "plugins");
+      mkdirSync(marketplace, { recursive: true });
+      writeFileSync(path.join(marketplace, "marketplace.json"), "{}");
+    };
+    if (homeHasSnapshot === true) writeSnapshot();
+    vi.spyOn(
+      manager as unknown as {
+        buildSessionProcessEnv: () => Promise<{
+          env: NodeJS.ProcessEnv;
+          authTracking: unknown;
+          authFingerprint: string;
+        }>;
+      },
+      "buildSessionProcessEnv",
+    ).mockResolvedValue({
+      env: { CODEX_HOME: codexHome },
+      authTracking: prepareCodexAuthTracking(syntheticAuthInput),
+      authFingerprint: readCodexPreparedAuthTrackingFingerprint(
+        prepareCodexAuthTracking(syntheticAuthInput),
+      ),
+    });
+    const threadId = asThreadId("turn-scoped-thread");
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "moss-codex-turn-scoped-"));
+    try {
+      await manager.startSession({
+        threadId,
+        provider: "codex",
+        cwd,
+        runtimeMode: "full-access",
+        agentGatewayCapabilityInput: AGENT_GATEWAY_NO_CAPABILITIES,
+      });
+      if (homeHasSnapshot === "after-launch") writeSnapshot();
+      const first = await manager.sendTurn({ threadId, input: "first turn" });
+      fake.children[0]!.stdout.emit(
+        "data",
+        Buffer.from(
+          `${JSON.stringify({
+            method: "turn/completed",
+            params: {
+              threadId: "fresh-provider-thread",
+              turn: { id: first.turnId, status: "completed" },
+            },
+          })}\n`,
+        ),
+      );
+      const completed = events.find((event) => event.method === "turn/completed");
+      const retiredFlag =
+        (completed?.payload as Record<string, unknown> | undefined)?.[
+          AGENT_GATEWAY_TURN_AUTHORITY_RETIRED
+        ] === true;
+      if (keepsCredential) {
+        // No rotation is requested, and the next message goes straight to turn/start:
+        // Moss's own part of a warm Send is one request, within a fixed budget.
+        expect(retiredFlag).toBe(false);
+        const requestsBefore = fake.requests.length;
+        const sentAt = performance.now();
+        await manager.sendTurn({ threadId, input: "second turn" });
+        const elapsedMs = performance.now() - sentAt;
+        expect(fake.requests.slice(requestsBefore).map((r) => r.method)).toEqual(["turn/start"]);
+        expect(elapsedMs).toBeLessThan(WARM_SEND_BUDGET_MS);
+        expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(2);
+        expect(fake.requests.some((r) => r.method === "thread/unsubscribe")).toBe(false);
+        expect(fake.requests.some((r) => r.method === "thread/resume")).toBe(false);
+        expect(fake.requests.filter((r) => r.method === "initialize")).toHaveLength(1);
+        expect(credentials.revokeSessionToken).not.toHaveBeenCalled();
+      } else {
+        expect(retiredFlag).toBe(true);
+        await expect(manager.sendTurn({ threadId, input: "too early" })).rejects.toThrow(
+          "authority is retired",
+        );
+      }
+      expect(fake.children).toHaveLength(1);
+      expect(teardownProcessTree).not.toHaveBeenCalled();
+    } finally {
+      await manager.stopAll();
+      rmSync(cwd, { recursive: true, force: true });
+    }
   },
 );
 const approvalRequiredTurnOverrides = {

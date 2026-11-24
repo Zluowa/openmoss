@@ -828,6 +828,8 @@ const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
 // that truly does not exist still fails, just this much later.
 const THREAD_DETAIL_SNAPSHOT_BOOTSTRAP_TIMEOUT_MS = 5_000;
 const THREAD_DETAIL_SNAPSHOT_BOOTSTRAP_POLL_MS = 100;
+/** How long a chat stays open before its provider runtime is brought back in the background. */
+const PREWARM_PROVIDER_AFTER_OPEN = "1500 millis";
 
 class WsRequestAdmissionMiddleware extends RpcMiddleware.Service<WsRequestAdmissionMiddleware>()(
   "moss/WsRequestAdmissionMiddleware",
@@ -1485,6 +1487,21 @@ const makeWsRpcHandlersLayer = () =>
               sidechatExpiryReactor.viewEnded(threadId),
             ).pipe(Effect.as(stream)),
           );
+      // A chat that stays open for a moment gets its Codex back in the background, so Send
+      // does not wait for the start and the history read. Leaving sooner starts nothing.
+      const prewarmProviderWhileOpen =
+        (threadId: ThreadId) =>
+        <A, E, R>(stream: Stream.Stream<A, E, R>): Stream.Stream<A, E, R> => {
+          const prewarm = providerService.prewarmSession;
+          if (prewarm === undefined) return stream;
+          return Stream.unwrap(
+            Effect.sleep(PREWARM_PROVIDER_AFTER_OPEN).pipe(
+              Effect.andThen(Effect.forkDetach(prewarm({ threadId }))),
+              Effect.forkScoped,
+              Effect.as(stream),
+            ),
+          );
+        };
       const recordThreadStreamOverflow = (threadId: string, report: LiveUiStreamDropReport) =>
         threadDiagnostics
           .recordOperationalDiagnostic({
@@ -3191,6 +3208,7 @@ const makeWsRpcHandlersLayer = () =>
                       );
                 }),
                 trackSidechatVisibility(input.threadId),
+                prewarmProviderWhileOpen(input.threadId),
               ),
             ),
           ),

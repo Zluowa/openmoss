@@ -60,6 +60,35 @@ describe("AgentGatewaySessionRegistry", () => {
     assert.isNull(registry.bindWriteAuthority(issued.token, "turn-b"));
   });
 
+  it("keeps a turn-scoped credential for the next turn but never for the retired one", () => {
+    const registry = makeAgentGatewaySessionRegistry({ randomId: () => "scoped" });
+    const issued = registry.issue(ThreadId.makeUnsafe("thread-1"), "codex");
+    registry.observeNativeTurn(issued.token, null);
+    registry.observeNativeTurn(issued.token, "turn-a");
+    const duringA = registry.bindWriteAuthority(issued.token, "turn-a");
+    assert.isNotNull(duringA);
+
+    assert.isTrue(registry.retireTurnKeepingSession(issued.token, "turn-a"));
+    assert.isTrue(registry.isTurnRetired(issued.token, "turn-a"));
+    assert.isTrue(registry.verify(issued.token)?.turnScoped);
+    // A's authority dies with A, and nothing can bind A again.
+    assert.isFalse(registry.verifyWriteAuthority(duringA!));
+    assert.isNull(registry.bindWriteAuthority(issued.token, "turn-a"));
+
+    // The same bearer serves B once the adapter observes B start.
+    registry.observeNativeTurn(issued.token, "turn-b");
+    assert.equal(registry.verify(issued.token)?.nativeTurnId, "turn-b");
+    const duringB = registry.bindWriteAuthority(issued.token, "turn-b");
+    assert.isNotNull(duringB);
+    assert.isTrue(registry.verifyWriteAuthority(duringB!));
+    assert.isNull(registry.bindWriteAuthority(issued.token, "turn-a"));
+
+    // A bearer that was retired outright cannot be kept.
+    const legacy = registry.issue(ThreadId.makeUnsafe("thread-2"), "codex");
+    registry.retireWriteAuthority(legacy.token, "turn-x");
+    assert.isFalse(registry.retireTurnKeepingSession(legacy.token, "turn-y"));
+  });
+
   it("permanently fences a terminal turn credential even when A never used it", () => {
     let nextId = 0;
     const registry = makeAgentGatewaySessionRegistry({ randomId: () => String(++nextId) });

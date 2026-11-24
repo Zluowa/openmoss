@@ -212,6 +212,11 @@ export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogger?: EventNdjsonLogger;
   readonly runtimeIdleStopMs?: number;
   /**
+   * Without a configured idle time, idle runtimes stay warm and only the least recently used
+   * beyond this many are stopped (default {@link DEFAULT_MAX_WARM_IDLE_RUNTIMES}).
+   */
+  readonly maxWarmIdleRuntimes?: number;
+  /**
    * Program ownership of Codex and Claude, whose in-app updates move running sessions to the
    * new program once their turn ends. Defaults to this server's shared records.
    */
@@ -252,8 +257,11 @@ export interface ProviderServiceLiveOptions {
   ) => (() => void) | undefined;
 }
 
-// Keep warm provider CLI sessions alive across 30 minutes of tab/window
-// switching (aligned with ProviderSessionReaper and T3 Code's 30m idle budget).
+// An idle provider runtime stays warm for as long as Moss runs, so coming back to a chat
+// after a meeting never waits for its CLI to start again. Memory stays bounded by count: an
+// idle Codex app-server is about 60 MB, and only the least recently used idle runtimes past
+// this many are stopped. MOSS_PROVIDER_RUNTIME_IDLE_STOP_MS restores a time-based stop.
+const DEFAULT_MAX_WARM_IDLE_RUNTIMES = 4;
 const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 30 * 60 * 1000;
 export const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 2_048;
 export const PROVIDER_RUNTIME_QUARANTINE_CAUSE_MAX_BYTES = 16 * 1024;
@@ -1668,6 +1676,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       0,
       options?.runtimeIdleStopMs ?? PROVIDER_RUNTIME_IDLE_STOP_MS,
     );
+    // Least-recently-idle first; each entry carries the idle generation that may stop it.
+    const warmIdleLimit =
+      options?.runtimeIdleStopMs === undefined && configuredProviderRuntimeIdleStopMs === undefined
+        ? Math.max(0, options?.maxWarmIdleRuntimes ?? DEFAULT_MAX_WARM_IDLE_RUNTIMES)
+        : undefined;
+    const warmIdleRuntimes = new Map<ThreadId, symbol>();
     let stopIdleRuntimeSession:
       | ((threadId: ThreadId, generation: symbol, cleanupStarted?: boolean) => void)
       | null = null;
@@ -1697,6 +1711,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     };
 
     const clearRuntimeIdleTimer = (threadId: ThreadId) => {
+      warmIdleRuntimes.delete(threadId);
       invalidateRuntimeIdleGeneration(threadId);
       const timer = runtimeIdleTimers.get(threadId);
       if (!timer) {
@@ -1715,6 +1730,21 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         return;
       }
       const recycle = programRecycleThreads.has(threadId);
+      if (warmIdleLimit !== undefined && !recycle) {
+        warmIdleRuntimes.set(threadId, invalidateRuntimeIdleGeneration(threadId));
+        for (const [candidate, generation] of warmIdleRuntimes) {
+          if (!isRuntimeIdleGenerationCurrent(candidate, generation)) {
+            warmIdleRuntimes.delete(candidate);
+          }
+        }
+        while (warmIdleRuntimes.size > warmIdleLimit) {
+          const oldest = warmIdleRuntimes.entries().next().value;
+          if (oldest === undefined) break;
+          warmIdleRuntimes.delete(oldest[0]);
+          stopIdleRuntimeSession?.(oldest[0], oldest[1]);
+        }
+        return;
+      }
       if (runtimeIdleStopMs <= 0 && !recycle) {
         retireRuntimeIdleGeneration(threadId);
         return;
@@ -7106,6 +7136,40 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       yield* Effect.addFinalizer(() => Effect.sync(unregisterMossPluginApprovalChange));
     }
 
+    const prewarmSession: NonNullable<ProviderServiceShape["prewarmSession"]> = (input) =>
+      Effect.gen(function* () {
+        const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+        if (
+          !binding ||
+          binding.provider !== "codex" ||
+          !hasResumeCursor(binding.resumeCursor) ||
+          (turnDispatchesInFlight.get(input.threadId) ?? 0) > 0 ||
+          (yield* findLiveSession(input.threadId)) !== null
+        ) {
+          return;
+        }
+        const payload = runtimePayloadRecord(binding.runtimePayload);
+        if (payload.activeTurnId !== null && payload.activeTurnId !== undefined) return;
+        yield* resolveRoutableSession({
+          threadId: input.threadId,
+          operation: "ProviderService.prewarmSession",
+          allowRecovery: true,
+        });
+        // Counted with the other idle runtimes; the least recently used past the limit stop.
+        scheduleRuntimeIdleStop(input.threadId);
+        yield* Effect.logInfo("provider.session.prewarmed", {
+          threadId: input.threadId,
+          provider: binding.provider,
+        });
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logInfo("provider.session.prewarm_skipped", {
+            threadId: input.threadId,
+            reason: error._tag,
+          }),
+        ),
+      );
+
     const hasLiveRuntimeTasks: NonNullable<ProviderServiceShape["hasLiveRuntimeTasks"]> = (input) =>
       Effect.sync(() => (liveRuntimeTaskIds.get(input.threadId)?.size ?? 0) > 0);
 
@@ -7605,6 +7669,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       stopRuntimeSession,
       getRuntimeSessionStopTarget,
       hasLiveRuntimeTasks,
+      prewarmSession,
       clearSessionResumeCursor,
       listSessions,
       getCapabilities,

@@ -160,6 +160,13 @@ function makeTransport(input: {
       sessionRegistry.retireWriteAuthority(token, turnId);
       return inFlightRequests.cancelTurn(session.sessionKey, turnId).settled;
     },
+    retireSessionTurnKeepingCredential: (token: string, turnId: string) => {
+      const session = sessionRegistry.verify(token);
+      if (!session) return { kept: false, settled: Promise.resolve() };
+      const kept = sessionRegistry.retireTurnKeepingSession(token, turnId);
+      return { kept, settled: inFlightRequests.cancelTurn(session.sessionKey, turnId).settled };
+    },
+    isSessionTurnRetired: sessionRegistry.isTurnRetired,
     revokeSessionToken: (token: string) => {
       const session = sessionRegistry.verify(token);
       sessionRegistry.revoke(token);
@@ -233,6 +240,8 @@ function makeTransport(input: {
     noteNativeTurn: (thread: string, turn: string) =>
       leases.get(thread)?.noteParentTurnStarted?.(turn),
     retireNativeTurn: (thread: string, turn: string) => leases.get(thread)?.retireTurn(turn),
+    retireNativeTurnKeepingCredential: (thread: string, turn: string) =>
+      leases.get(thread)?.retireTurnKeepingCredential?.(turn),
     setThreadTurnState: (
       threadId: string,
       state: "running" | "completed" | "error" | "interrupted",
@@ -367,6 +376,62 @@ describe("makeAgentGatewayMcpTransport cancellation", () => {
         differentSessionTurn.noteNativeTurn(id, "native-A");
         yield* post(differentSessionTurn, "token-1", request);
         assert.equal(calls, 1);
+      }),
+  );
+  it.effect(
+    "keeps one Codex credential across turns and refuses a late call that names the retired turn",
+    () =>
+      Effect.gen(function* () {
+        const thread = makeThread("turn-scoped");
+        const id = String(thread.id);
+        const calledIn: Array<string | null> = [];
+        const tool: ToolEntry = {
+          definition: { name: "moss_write", description: "test", inputSchema: { type: "object" } },
+          requiredCapability: "thread:write",
+          requiresActiveTurn: true,
+          handler: (_args, context) =>
+            Effect.gen(function* () {
+              yield* context.assertCallerTurnActive();
+              calledIn.push(context.callerTurnId);
+              return { content: [{ type: "text" as const, text: "ok" }] };
+            }).pipe(Effect.catch((error) => Effect.succeed(gatewayToolErrorResult(error)))),
+        };
+        const transport = makeTransport({
+          threads: [{ ...thread, latestTurn: null }],
+          tools: [tool],
+          nativeTurnTracking: true,
+        });
+        // What Codex 0.166 sends on every MCP tool call (captured from a real app-server).
+        const callNaming = (turnId: string | undefined, rpcId: number) => ({
+          jsonrpc: "2.0",
+          id: rpcId,
+          method: "tools/call",
+          params: {
+            name: "moss_write",
+            arguments: {},
+            ...(turnId
+              ? { _meta: { "x-codex-turn-metadata": { turn_id: turnId, thread_id: "native" } } }
+              : {}),
+          },
+        });
+        transport.noteNativeTurn(id, "native-A");
+        yield* post(transport, "token-1", callNaming("native-A", 1));
+        assert.deepEqual(calledIn, ["native-A"]);
+
+        const retirement = transport.retireNativeTurnKeepingCredential(id, "native-A");
+        assert.isTrue(retirement?.kept);
+        yield* Effect.promise(() => retirement?.settled ?? Promise.resolve());
+        transport.noteNativeTurn(id, "native-B");
+
+        // A's late request arrives during B on the same credential: refused.
+        yield* post(transport, "token-1", callNaming("native-A", 2));
+        assert.deepEqual(calledIn, ["native-A"]);
+        // A call naming no turn on a turn-scoped credential: refused.
+        yield* post(transport, "token-1", callNaming(undefined, 3));
+        assert.deepEqual(calledIn, ["native-A"]);
+        // B's own request on the same credential: served, no new runtime needed.
+        yield* post(transport, "token-1", callNaming("native-B", 4));
+        assert.deepEqual(calledIn, ["native-A", "native-B"]);
       }),
   );
   it.effect(

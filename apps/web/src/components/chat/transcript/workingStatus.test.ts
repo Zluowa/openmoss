@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { TimelineEntry } from "~/workLog";
 
 import {
-  SLOW_PROVIDER_START_NOTICE_MS,
   startingProviderName,
   thinkingStatusKey,
   workingMarkSignal,
@@ -103,9 +102,5 @@ describe("startingProviderName", () => {
     expect(startingProviderName("Thinking")).toBeNull();
     expect(startingProviderName("Retrying: connection lost (1/5)")).toBeNull();
     expect(workingStatusKey("Starting Codex…", 30)).toBeNull();
-  });
-
-  it("calls a start slow within seconds, well before the start deadline", () => {
-    expect(SLOW_PROVIDER_START_NOTICE_MS).toBeLessThanOrEqual(10_000);
   });
 });

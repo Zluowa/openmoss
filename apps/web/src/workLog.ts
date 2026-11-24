@@ -1425,6 +1425,8 @@ const PLUMBING_ACTIVITY_KINDS: ReadonlySet<string> = new Set([
   "provider.runtime.reconciled",
   // A silent running turn is told in the working row; its records are not log rows.
   PROVIDER_TURN_SILENT_ACTIVITY_KIND,
+  // "Slower than usual" rows that older builds saved; a slow start is not a log row.
+  PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
   // The window opens or refreshes Canvas from these; moss_canvas_* tool rows already say so.
   "canvas.open.requested",
   "canvas.updated",
@@ -1549,10 +1551,6 @@ function shouldKeepActivityForWorkLog(
   }
   // A drafted report waits on the person, whichever turn wrote it.
   if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
-    return true;
-  }
-  // A slow start comes before its turn has an id; it says why "Thinking" is taking long.
-  if (activity.kind === PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND) {
     return true;
   }
 

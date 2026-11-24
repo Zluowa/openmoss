@@ -28,7 +28,10 @@ export function makeAgentGatewaySessionRegistry(options?: {
   interface RegisteredSession {
     identity: AgentGatewaySessionIdentity;
     retiredWriteTurnId: string | undefined;
+    /** Turns retired while the bearer stayed live (turn-scoped bearers only). */
+    readonly retiredTurnIds: Set<string>;
   }
+  const MAX_RETIRED_TURN_IDS = 512;
   const sessions = new Map<string, RegisteredSession>();
   const sessionsByKey = new Map<string, RegisteredSession>();
 
@@ -90,6 +93,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
       const registered: RegisteredSession = {
         identity,
         retiredWriteTurnId: undefined,
+        retiredTurnIds: new Set(),
       };
       sessions.set(token, registered);
       sessionsByKey.set(sessionKey, registered);
@@ -102,6 +106,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
     bindWriteAuthority: (token, turnId) => {
       const registered = sessions.get(token);
       if (!registered || registered.retiredWriteTurnId !== undefined) return null;
+      if (registered.retiredTurnIds.has(turnId)) return null;
       const { identity } = registered;
       if (identity.nativeTurnId !== undefined && identity.nativeTurnId !== turnId) return null;
       return {
@@ -117,6 +122,7 @@ export function makeAgentGatewaySessionRegistry(options?: {
       return (
         identity !== undefined &&
         registered?.retiredWriteTurnId === undefined &&
+        !registered?.retiredTurnIds.has(authority.turnId) &&
         (identity.nativeTurnId === undefined || identity.nativeTurnId === authority.turnId) &&
         identity.threadId === authority.threadId &&
         identity.provider === authority.provider
@@ -146,6 +152,30 @@ export function makeAgentGatewaySessionRegistry(options?: {
       // become the first request to bind this credential.
       registered.retiredWriteTurnId = turnId;
       return true;
+    },
+    retireTurnKeepingSession: (token, turnId) => {
+      const registered = sessions.get(token);
+      if (!registered || registered.retiredWriteTurnId !== undefined) return false;
+      registered.retiredTurnIds.add(turnId);
+      if (registered.retiredTurnIds.size > MAX_RETIRED_TURN_IDS) {
+        const oldest = registered.retiredTurnIds.values().next().value;
+        if (oldest !== undefined) registered.retiredTurnIds.delete(oldest);
+      }
+      // Requests already admitted keep the identity they captured; new ones see no active
+      // turn until the adapter observes the next native turn start.
+      registered.identity = {
+        ...registered.identity,
+        turnScoped: true,
+        ...(registered.identity.nativeTurnId === turnId ? { nativeTurnId: null } : {}),
+      };
+      return true;
+    },
+    isTurnRetired: (token, turnId) => {
+      const registered = sessions.get(token);
+      return (
+        registered !== undefined &&
+        (registered.retiredWriteTurnId === turnId || registered.retiredTurnIds.has(turnId))
+      );
     },
     revoke: (token) => {
       const registered = sessions.get(token);

@@ -3077,6 +3077,67 @@ describe("ProviderRuntimeIngestion", () => {
     );
   });
 
+  // #805 review: opening an old chat brings its Codex back in the background; the chat must
+  // not read 「正在启动 Codex…」 with Send disabled when nothing was sent.
+  it("leaves an opened chat sendable while its runtime starts in the background", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-old-chat-stopped"),
+        threadId: asThreadId("thread-1"),
+        session: {
+          threadId: asThreadId("thread-1"),
+          status: "stopped",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    const statuses: Array<string | undefined> = [];
+    const readStatus = async () =>
+      (await Effect.runPromise(harness.engine.getReadModel())).threads.find(
+        (entry) => entry.id === asThreadId("thread-1"),
+      )?.session?.status;
+
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-background-start-connecting"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: { state: "starting", reason: "Starting codex app-server" },
+    });
+    await harness.drain();
+    statuses.push(await readStatus());
+    harness.emit({
+      type: "session.started",
+      eventId: asEventId("evt-background-start-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+    });
+    harness.emit({
+      type: "session.state.changed",
+      eventId: asEventId("evt-background-start-ready"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: { state: "ready" },
+    });
+    await harness.drain();
+    statuses.push(await readStatus());
+
+    // Never "starting" (which shows the starting line and disables Send); ready at the end.
+    expect(statuses).not.toContain("starting");
+    expect(statuses.at(-1)).toBe("ready");
+  });
+
   it("preserves starting status across session/thread startup events until turn.started lands", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

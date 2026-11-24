@@ -67,6 +67,7 @@ type AgentGatewaySessionLeaseCredentials = Pick<
       | "cancelSessionTurnRequests"
       | "issueStdioBootstrapToken"
       | "retireSessionTurn"
+      | "retireSessionTurnKeepingCredential"
       | "awaitNativeMcpStartup"
       | "observeNativeTurn"
     >
@@ -101,6 +102,14 @@ export interface AgentGatewaySessionLease {
    * is synchronous; the promise represents only request drainage.
    */
   readonly retireTurn: (turnId: string) => Promise<void>;
+  /**
+   * Retire one terminal turn and keep the credential for this runtime's next turn. `kept`
+   * is false when the credential is gone or already retired; the caller then rotates it.
+   */
+  readonly retireTurnKeepingCredential?: (turnId: string) => {
+    readonly kept: boolean;
+    readonly settled: Promise<void>;
+  };
   readonly release: () => void;
 }
 
@@ -260,6 +269,14 @@ export function acquireAgentGatewaySessionLease(
         Promise.resolve()
       );
     },
+    ...(credentials.retireSessionTurnKeepingCredential
+      ? {
+          retireTurnKeepingCredential: (turnId: string) =>
+            released
+              ? { kept: false, settled: Promise.resolve() }
+              : credentials.retireSessionTurnKeepingCredential!(connection.bearerToken, turnId),
+        }
+      : {}),
     release: () => {
       if (released) return;
       released = true;
