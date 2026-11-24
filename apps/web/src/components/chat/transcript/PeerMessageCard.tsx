@@ -8,6 +8,7 @@
 
 import type { MessageId, ThreadId } from "@moss/contracts";
 import { useState, type ReactNode } from "react";
+import { Button } from "~/components/ui/button";
 
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -62,14 +63,15 @@ export function PeerMessageCard(props: {
         {props.children}
       </div>
       {clampable ? (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="xs"
           aria-expanded={showAll}
           onClick={() => setShowAll((value) => !value)}
-          className="self-start rounded-inline px-1 text-ui-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          className="self-start font-normal text-muted-foreground"
         >
           {showAll ? t("transcript.showLess") : t("transcript.showMore")}
-        </button>
+        </Button>
       ) : null}
     </TranscriptDisclosureRow>
   );

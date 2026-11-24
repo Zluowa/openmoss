@@ -25,7 +25,7 @@ export function AutomationRiskConfirmPopover({
   readonly onOpenChange: (open: boolean) => void;
   readonly anchor: React.RefObject<HTMLElement | null>;
   readonly title: string;
-  readonly detail: string;
+  readonly detail?: string | undefined;
   readonly confirmLabel: string;
   readonly confirmDisabled?: boolean;
   readonly onConfirm: () => void;
@@ -38,7 +38,9 @@ export function AutomationRiskConfirmPopover({
         <div className="flex flex-col gap-3">
           <div className="space-y-1">
             <PopoverTitle className="text-ui-lg font-medium">{title}</PopoverTitle>
-            <PopoverDescription className="text-ui leading-snug">{detail}</PopoverDescription>
+            {detail ? (
+              <PopoverDescription className="text-ui leading-snug">{detail}</PopoverDescription>
+            ) : null}
           </div>
           {children}
           <div className="flex justify-end gap-2">

@@ -66,7 +66,7 @@ const CHROME_LABELS: Readonly<Record<string, string>> = {
   "Unable to open compare page": "无法打开比较页面",
   "Unable to open the local server.": "无法打开本地服务器。",
   "From Claude Code and Codex": "来自 Claude Code 和 Codex",
-  "Could not update automation proposal": "无法更新自动化提议",
+  "Could not update automation proposal": "无法更新定时任务提议",
   "Could not update access mode": "无法更新访问模式",
   "Could not update interaction mode": "无法更新交互模式",
   "Could not update the subagent": "无法更新子智能体",

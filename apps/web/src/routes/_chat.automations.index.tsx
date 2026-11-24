@@ -56,9 +56,6 @@ function AutomationsRouteView() {
         <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 pb-16 text-center">
           <ClockIcon className="mb-3 size-8 text-muted-foreground" />
           <p className="text-ui-lg font-medium text-foreground">Automations</p>
-          <p className="max-w-xs text-ui leading-snug text-muted-foreground">
-            Pick an automation in the panel to see its runs, or schedule a new one.
-          </p>
           <Button
             type="button"
             size="sm"

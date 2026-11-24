@@ -6,6 +6,7 @@
 // Exports: ToolCallGroupSummaryRow
 // Depends on: DisclosureRegion/DisclosureChevron (shared disclosure motion)
 
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useTranslation } from "../../localization";
@@ -177,11 +178,14 @@ export function ToolCallGroupSummaryRow(
         className={cn("inline-flex max-w-full items-center gap-1", MUTED_LABEL_TEXT_CLASS_NAME)}
         style={{ fontSize: `${fontSizePx}px` }}
       >
-        <button
+        {/* UI SDK's button with the row's own look: a whole-line hit area, not a Button. */}
+        <ButtonPrimitive
           type="button"
           aria-expanded={open}
-          className="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1 py-0.5 text-left transition-colors duration-200 hover:text-foreground"
-          onClick={() => onToggle(!open)}
+          className="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1 rounded-control py-0.5 text-left transition-colors duration-200 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => {
+            onToggle(!open);
+          }}
         >
           {/* One glyph per kind, matching the rows it folds; a live line wears its
             call's own mark (upstream). */}
@@ -240,29 +244,33 @@ export function ToolCallGroupSummaryRow(
             </span>
           ) : null}
           {showViewChanges ? null : caret}
-        </button>
+        </ButtonPrimitive>
         {showViewChanges ? (
           <>
             <span aria-hidden className="shrink-0">
               ·
             </span>
-            <button
+            <ButtonPrimitive
               type="button"
               data-tool-group-view-changes=""
-              className="shrink-0 cursor-interaction underline underline-offset-2 transition-colors duration-200 hover:text-foreground"
-              onClick={onViewChanges}
+              className="shrink-0 cursor-interaction rounded-control underline underline-offset-2 transition-colors duration-200 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                onViewChanges?.();
+              }}
             >
               {t("chat.toolGroup.viewChanges")}
-            </button>
-            <button
+            </ButtonPrimitive>
+            <ButtonPrimitive
               type="button"
               aria-hidden
               tabIndex={-1}
               className="flex shrink-0 cursor-interaction"
-              onClick={() => onToggle(!open)}
+              onClick={() => {
+                onToggle(!open);
+              }}
             >
               {caret}
-            </button>
+            </ButtonPrimitive>
           </>
         ) : null}
       </div>

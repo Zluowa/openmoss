@@ -96,7 +96,7 @@ describe("the chat screen in zh-CN", () => {
       ['Delete side chat "Notes"?', "删除侧边对话“Notes”？"],
       ["3 more tabs", "还有 3 个标签页"],
       ["1 more tab", "还有 1 个标签页"],
-      ["Open automation Nightly", "打开自动化工作流 Nightly"],
+      ["Open automation Nightly", "打开定时任务 Nightly"],
     ]);
   });
 

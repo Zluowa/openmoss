@@ -9,6 +9,7 @@ import type { TodoDueDate } from "@moss/contracts";
 import { useRef } from "react";
 
 import { TaskListItem } from "../tasks/TaskListItem";
+import { Button } from "../ui/button";
 import { TaskQuickAdd } from "../tasks/TaskQuickAdd";
 import type { TaskSelection } from "../tasks/TaskCardSurface";
 import type { TaskRowModel } from "../tasks/tasks.logic";
@@ -50,13 +51,14 @@ export function InboxTasks({
       label="Today’s tasks"
       count={tasks.open.length}
       action={
-        <button
-          type="button"
+        <Button
+          variant="link"
+          size="xs"
           onClick={onOpenTasks}
-          className="text-ui-sm text-muted-foreground outline-none hover:text-foreground focus-visible:underline"
+          className="px-0 font-normal text-muted-foreground hover:text-foreground"
         >
           All tasks
-        </button>
+        </Button>
       }
     >
       {tasks.open.length + tasks.doneToday.length > 0 ? (

@@ -45,7 +45,7 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Turn fast mode on or off for this thread": "开启或关闭此对话的快速模式",
   "Download this thread as a ZIP archive (thread.json + transcript.md)":
     "将此对话下载为 ZIP 归档（thread.json + transcript.md）",
-  "Create a scheduled automation from this prompt": "根据此提示词创建定时自动化工作流",
+  "Create a scheduled automation from this prompt": "根据此提示词创建定时任务",
   "Compact is unavailable": "无法压缩上下文",
   "Open an active supported server thread before compacting context.":
     "请先打开一个由服务器支持且处于活动状态的对话，再压缩上下文。",
@@ -210,7 +210,7 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Runs may edit files in the active project checkout.": "运行可能会编辑当前项目检出中的文件。",
   "Review generated fields": "检查生成的字段",
   "Moss was not fully confident about the parsed automation fields.":
-    "Moss 对解析出的自动化工作流字段没有充分把握。",
+    "Moss 对解析出的定时任务字段没有充分把握。",
   "Skill reference kept in prompt": "技能引用已保留在提示词中",
   "Skill tokens stay as prompt text unless the selected provider can resolve them at run time.":
     "技能标记会保留为提示词文本，除非所选服务商能在运行时解析它们。",
@@ -222,15 +222,11 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   Thu: "周四",
   Fri: "周五",
   Sat: "周六",
-  "Chat automation": "聊天自动化工作流",
-  'Sure, what should this automation do, and how often should it run? For example: "every weekday at 9am, summarize my open PRs."':
-    "好的，这个自动化工作流应该做什么，以及多久运行一次？例如：“每个工作日上午 9 点，总结我未关闭的 PR。”",
-  "What should this automation do? For example: summarize my open PRs, or check the build.":
-    "这个自动化工作流应该做什么？例如：总结我未关闭的 PR，或检查构建。",
-  "How often should this automation run? For example: every 6 hours, weekdays at 9am, or daily at 18:00.":
-    "这个自动化工作流应该多久运行一次？例如：每 6 小时、工作日上午 9 点或每天 18:00。",
-  "A couple more details: what should this automation do, and how often should it run?":
-    "还需要几个信息：这个自动化工作流应该做什么，以及多久运行一次？",
+  "Chat automation": "聊天定时任务",
+  "What should this automation do, and how often should it run?":
+    "这个定时任务应该做什么，以及多久运行一次？",
+  "What should this automation do?": "这个定时任务应该做什么？",
+  "How often should this automation run?": "这个定时任务应该多久运行一次？",
 
   // Toasts, status pills, and task notifications.
   "Path copied": "已复制路径",

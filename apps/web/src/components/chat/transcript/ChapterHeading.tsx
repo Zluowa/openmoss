@@ -43,7 +43,7 @@ export function ChapterHeading(props: {
       <h3
         id={chapterAnchorId(props.messageId)}
         data-chapter-heading="editing"
-        className="scroll-mt-14 text-size-chat font-semibold text-foreground"
+        className="scroll-mt-14 text-size-chat font-medium text-foreground"
       >
         <input
           ref={inputRef}
@@ -62,7 +62,7 @@ export function ChapterHeading(props: {
               setEditing(false);
             }
           }}
-          className="min-w-0 max-w-full rounded-[3px] border-0 bg-transparent p-0 font-semibold outline outline-[1.5px] outline-offset-1 outline-[var(--color-text-accent)] [field-sizing:content]"
+          className="min-w-0 max-w-full rounded-inline border-0 bg-transparent p-0 font-medium outline outline-[1.5px] outline-offset-1 outline-[var(--color-text-accent)] [field-sizing:content]"
         />
       </h3>
     );
@@ -73,7 +73,7 @@ export function ChapterHeading(props: {
       data-chapter-heading=""
       title={props.title}
       onDoubleClick={props.onRename ? () => setEditing(true) : undefined}
-      className="line-clamp-2 scroll-mt-14 text-size-chat font-semibold text-foreground select-text"
+      className="line-clamp-2 scroll-mt-14 text-size-chat font-medium text-foreground select-text"
     >
       {props.title}
     </h3>

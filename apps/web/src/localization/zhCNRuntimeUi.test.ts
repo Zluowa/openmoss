@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { automationClarificationPrompt } from "~/lib/composerAutomation";
 import { translateZhCnPresentationText } from "./zhCN";
 import { translateZhCnRuntimeUiText } from "./zhCNRuntimeUi";
 
@@ -42,7 +43,7 @@ describe("translateZhCnRuntimeUiText", () => {
     ["Paste an OpenCode session id", "粘贴 OpenCode 会话 ID"],
     ["Composer context is not persisted", "输入框上下文不会持久保存"],
     ["Not scheduled", "未安排"],
-    ["Chat automation", "聊天自动化工作流"],
+    ["Chat automation", "聊天定时任务"],
     ["Fast recurring loop", "高频循环"],
     ["Local checkout", "本地检出"],
     ["Favourites", "收藏"],
@@ -340,6 +341,34 @@ describe("translateZhCnRuntimeUiText", () => {
     expect(
       translateZhCnPresentationText('MCP server "linear" failed to start: handshake timed out'),
     ).toBe("MCP 服务器「linear」启动失败：handshake timed out");
+  });
+
+  it("asks the automation follow-up questions in Chinese, naming 定时任务", () => {
+    // The chat shows the helper's English through the shared presentation translator.
+    expect(translateZhCnPresentationText(automationClarificationPrompt([]))).toBe(
+      "这个定时任务应该做什么，以及多久运行一次？",
+    );
+    expect(translateZhCnPresentationText(automationClarificationPrompt(["taskPrompt"]))).toBe(
+      "这个定时任务应该做什么？",
+    );
+    expect(translateZhCnPresentationText(automationClarificationPrompt(["schedule"]))).toBe(
+      "这个定时任务应该多久运行一次？",
+    );
+  });
+
+  it("keeps the 定时任务 lines a person relies on, one short sentence each", () => {
+    expect(translateZhCnPresentationText("It runs only after you accept it.")).toBe(
+      "接受后才会运行。",
+    );
+    expect(translateZhCnPresentationText("Each run appends a turn to the thread you pick.")).toBe(
+      "每次运行都会在你选择的对话中追加一轮。",
+    );
+    expect(translateZhCnPresentationText("It stays paused until setup succeeds.")).toBe(
+      "设置成功前会保持暂停。",
+    );
+    expect(translateZhCnPresentationText("Moss saves your changes only after you approve.")).toBe(
+      "你批准后，Moss 才会保存更改。",
+    );
   });
 
   it("does not partially match dynamic sentences", () => {

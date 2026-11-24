@@ -6,6 +6,7 @@
 // Layer: Chat transcript primitive
 // Exports: TranscriptDisclosureRow, TranscriptEventLine, useTranscriptDisclosureState
 
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import {
   useCallback,
   useId,
@@ -119,7 +120,7 @@ export function TranscriptDisclosureRow(props: {
           <span className="shrink-0 whitespace-nowrap text-muted-foreground/80">{after}</span>
         ) : null}
         {hasBody ? (
-          <button
+          <ButtonPrimitive
             type="button"
             aria-label={toggleLabel}
             aria-expanded={open}
@@ -129,7 +130,7 @@ export function TranscriptDisclosureRow(props: {
             className="-m-0.75 flex shrink-0 cursor-interaction rounded-inline p-0.75 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <CaretRightFillIcon aria-hidden className={disclosureChevronClassName(open)} />
-          </button>
+          </ButtonPrimitive>
         ) : null}
       </div>
       {hasBody ? (

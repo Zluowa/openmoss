@@ -449,12 +449,12 @@ export function AutomationCreateDialog({
             <AlertTitle>
               {completion.error ? "Finish automation setup" : "Finishing setup"}
             </AlertTitle>
-            <AlertDescription>
-              {saved.enabled
-                ? "The automation has been saved."
-                : "The automation has been saved and remains paused until setup succeeds."}
-              {completion.error ? ` ${completion.error}` : " Saving its connection to this page…"}
-            </AlertDescription>
+            {completion.error || !saved.enabled ? (
+              <AlertDescription>
+                {saved.enabled ? "" : "It stays paused until setup succeeds."}
+                {completion.error ? ` ${completion.error}` : ""}
+              </AlertDescription>
+            ) : null}
           </Alert>
           <div className="mt-4 flex justify-end gap-2">
             {onManage ? (

@@ -481,7 +481,7 @@ function AutomationDetailView() {
                   <div className="min-w-0">
                     <p className="text-ui-lg font-medium text-foreground">Suggested automation</p>
                     <p className="text-ui leading-snug text-muted-foreground">
-                      Accept it before it can run, or dismiss it to archive the suggestion.
+                      It runs only after you accept it.
                     </p>
                   </div>
                   <AutomationProposalActions
@@ -647,18 +647,7 @@ function AutomationDetailView() {
                     {worktreeModeLabel(definition.worktreeMode)}
                   </DetailRow>
                 ) : (
-                  <EditRow
-                    label={
-                      <>
-                        Runs in
-                        <CentralIcon
-                          name="info-simple"
-                          className="size-3 text-muted-foreground/60"
-                          aria-label="Where the automation runs: a worktree, a local checkout, or auto"
-                        />
-                      </>
-                    }
-                  >
+                  <EditRow label="Runs in">
                     <span ref={worktreeAnchorRef} className="flex min-w-0 items-center">
                       <InlineSelect
                         value={definition.worktreeMode}
@@ -1060,7 +1049,7 @@ function AutomationDetailView() {
         }
         detail={
           pendingModeChange?.mode === "heartbeat"
-            ? "Each run appends a turn to the thread you pick and waits for it to go idle."
+            ? "Each run appends a turn to the thread you pick."
             : `The automation stops writing to ${
                 continuedThreadTitle ? `“${continuedThreadTitle}”` : "its thread"
               }; the thread itself is kept.`

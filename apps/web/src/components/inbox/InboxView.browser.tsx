@@ -1,3 +1,5 @@
+import "../../index.css";
+
 import { isBetaFeatureEnabled } from "@moss/shared/betaFeatures";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -104,6 +106,13 @@ it("offers Tasks in the Stable Inbox", async () => {
     expect(fixture.listTodos).toHaveBeenCalled();
     await expect.element(view.getByRole("heading", { name: "Today’s tasks" })).toBeVisible();
     await expect.element(view.getByRole("button", { name: "All tasks" })).toBeVisible();
+    // The shared Button (link variant, at most 24 high, 13 px), not a hand-made one; it opens Tasks.
+    const allTasks = view.getByRole("button", { name: "All tasks" }).element();
+    expect(allTasks.getAttribute("data-slot")).toBe("button");
+    expect(allTasks.getBoundingClientRect().height).toBeLessThanOrEqual(24);
+    expect(getComputedStyle(allTasks).fontSize).toBe("13px");
+    await view.getByRole("button", { name: "All tasks" }).click();
+    expect(fixture.navigate).toHaveBeenCalled();
   } finally {
     await view.unmount();
     client.clear();

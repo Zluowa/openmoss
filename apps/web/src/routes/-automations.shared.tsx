@@ -827,10 +827,7 @@ export function AutomationApprovalBanner({
     <Alert variant="warning">
       <AlertTitle>Approval needed</AlertTitle>
       <AlertDescription>
-        <span>
-          This automation needs your approval once before Moss can save changes. When a warning
-          blocks manual runs, Run now stays disabled until you approve it.
-        </span>
+        <span>Moss saves your changes only after you approve.</span>
         <ul className="flex flex-col gap-1.5">
           {warnings.map((warning) => (
             <li key={warning.id} className="text-ui leading-snug">
@@ -1087,15 +1084,6 @@ export function AutomationDialog({
             className="min-w-0 flex-1 bg-transparent py-1 font-system-ui text-lg font-medium text-foreground outline-none placeholder:text-muted-foreground/50"
           />
           <div className="flex shrink-0 items-center gap-1.5">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              aria-label="About automations"
-              title="Automations run this prompt on a schedule and open the result as a thread."
-            >
-              <CentralIcon name="info-simple" className="size-4" />
-            </Button>
             <Menu>
               <MenuTrigger render={<Button variant="outline" size="sm" />}>
                 Use template
@@ -1136,7 +1124,7 @@ export function AutomationDialog({
                 submit();
               }
             }}
-            placeholder="Add prompt e.g. look for crashes in $sentry"
+            placeholder="Add prompt"
             aria-label="Automation prompt"
             className="min-h-[15rem] w-full flex-1 resize-none overflow-y-auto bg-transparent font-system-ui text-ui leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/50"
           />

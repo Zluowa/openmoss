@@ -13,7 +13,14 @@ export const EDITOR_CHAT_PANE_SCOPE_ID = "editor-chat";
 
 /** A sidechat thread hosted as a right-dock pane. */
 export function dockSidechatPaneScopeId(paneId: string): string {
-  return `dock-sidechat:${paneId}`;
+  return `${DOCK_SIDECHAT_PANE_SCOPE_PREFIX}${paneId}`;
+}
+
+const DOCK_SIDECHAT_PANE_SCOPE_PREFIX = "dock-sidechat:";
+
+/** Whether a chat pane is docked beside something else: a side chat or an item's 问 Moss chat. */
+export function isDockSidechatPaneScopeId(paneScopeId: string): boolean {
+  return paneScopeId.startsWith(DOCK_SIDECHAT_PANE_SCOPE_PREFIX);
 }
 
 /** A chat pane inside a split view. */

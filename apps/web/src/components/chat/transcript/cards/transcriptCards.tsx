@@ -47,6 +47,7 @@ import {
   ContextCompactionLine,
   ModelChangedTimelineRow,
   ModelReroutedTimelineRow,
+  modelReroutedReviewLinkShown,
   TurnErrorTimelineRow,
   UserStoppedTimelineRow,
 } from "./noticeCards";
@@ -264,11 +265,18 @@ function ModelChangedBody(props: { row: RowOf<"model-changed">; env: TranscriptC
 
 function ModelReroutedBody(props: { row: RowOf<"model-rerouted">; env: TranscriptCardEnv }) {
   const { t } = useTranslation();
+  const threadId = props.env.threadId;
+  const instanceId = useStore((state) =>
+    threadId
+      ? state.threadShellById?.[ThreadId.makeUnsafe(threadId)]?.modelSelection.instanceId
+      : undefined,
+  );
   return (
     <ModelReroutedTimelineRow
       toModel={props.row.toModel}
       customModelLabel={t("localConversation.modelChanged.custom")}
       fontSizePx={props.env.typography.uiSmPx}
+      reviewLink={modelReroutedReviewLinkShown(instanceId)}
     />
   );
 }

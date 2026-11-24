@@ -5,6 +5,7 @@
 // Layer: Chat transcript UI
 // Exports: ExternalImage
 
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -17,7 +18,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { useTranslation } from "../../../localization";
-import { externalImageName, parseExternalImageSrc } from "./externalImageHosts";
+import { parseExternalImageSrc } from "./externalImageHosts";
 
 export function ExternalImage(props: { src: string; alt: string }) {
   const { t } = useTranslation();
@@ -25,22 +26,20 @@ export function ExternalImage(props: { src: string; alt: string }) {
   const parsed = parseExternalImageSrc(props.src);
   if (!parsed) return <span>{props.alt}</span>;
   const href = parsed.url.href;
-  const name = externalImageName(props.alt);
   return (
     <>
-      <button
+      <ButtonPrimitive
         type="button"
         data-external-image=""
-        title={name || href}
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
           setAsking(true);
         }}
-        className="inline-grid h-32 w-40 cursor-interaction items-center justify-items-center rounded-card border border-border bg-black/[0.03] p-4 align-top font-sans text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-black/25"
+        className="inline-grid h-32 w-40 cursor-interaction items-center justify-items-center rounded-card border border-border bg-foreground/[0.035] p-4 align-top font-sans text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {t("transcript.image.show")}
-      </button>
+      </ButtonPrimitive>
       <AlertDialog open={asking} onOpenChange={setAsking}>
         <AlertDialogPopup className="max-w-md">
           <AlertDialogHeader>

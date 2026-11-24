@@ -1289,12 +1289,9 @@ const EN_TRANSLATIONS = {
   "localConversation.modelChanged.warning.line1":
     "Changing models mid-conversation will degrade performance.",
   "localConversation.modelChanged.warning.line2": "Context may automatically compact.",
-  "localConversation.modelRerouted": "Your request was routed to {toModel}.",
-  "localConversation.modelRerouted.warning.line1":
-    "Heads up, your request was re-routed to reduce cyber-abuse risk.",
-  "localConversation.modelRerouted.warning.line2.prefix":
-    "Think this is a mistake? Request a review at ",
-  "localConversation.modelRerouted.warning.line2.suffix": " or report via /feedback",
+  "localConversation.modelRerouted":
+    "To reduce cyber-abuse risk, this request was routed to {toModel}.",
+  "localConversation.modelRerouted.requestReview": "Request a review",
   "localConversation.userStoppedAfter": "You stopped after {time}",
   "localConversation.reasoning.thinking": "Thinking",
   "localConversation.reasoning.thought": "Thought",
@@ -6229,11 +6226,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "localConversation.modelChanged.custom": "自定义",
   "localConversation.modelChanged.warning.line1": "在对话中途切换模型会降低性能表现。",
   "localConversation.modelChanged.warning.line2": "背景信息可能会自动压缩。",
-  "localConversation.modelRerouted": "你的请求已路由到 {toModel}。",
-  "localConversation.modelRerouted.warning.line1":
-    "请注意：为减少网络滥用风险，你的请求已被重新路由。",
-  "localConversation.modelRerouted.warning.line2.prefix": "认为这是误判？请在 ",
-  "localConversation.modelRerouted.warning.line2.suffix": " 申请复核，或通过 /feedback 举报",
+  "localConversation.modelRerouted": "为降低网络滥用风险，这次请求已改用 {toModel}。",
+  "localConversation.modelRerouted.requestReview": "申请复核",
   "localConversation.userStoppedAfter": "你在 {time} 后停止了",
   "localConversation.reasoning.thinking": "正在思考",
   "localConversation.reasoning.thought": "已完成思考",
@@ -6607,11 +6601,11 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "projectHover.chatCount.many": "{count} 个对话",
   "projectHover.edit": "编辑项目",
 
-  "automations.title": "自动化",
-  "automations.new": "新建自动化",
+  "automations.title": "定时任务",
+  "automations.new": "新建定时任务",
   "automations.refresh": "刷新",
-  "automations.loading": "正在加载自动化...",
-  "automations.emptyTitle": "暂无自动化",
+  "automations.loading": "正在加载定时任务...",
+  "automations.emptyTitle": "暂无定时任务",
   "automations.emptyDescription": "定时独立运行提示词，或按周期唤醒已有对话。",
   "automations.template.crashes.label": "排查新的崩溃",
   "automations.template.crashes.name": "排查崩溃",

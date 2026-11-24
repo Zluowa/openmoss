@@ -338,15 +338,9 @@ describe("translateMoss", () => {
     expect(translateMoss("en", "localConversation.working")).toBe("Working");
     expect(
       formatMossTranslation("en", "localConversation.modelRerouted", { toModel: "GPT-5.4" }),
-    ).toBe("Your request was routed to GPT-5.4.");
-    expect(translateMoss("en", "localConversation.modelRerouted.warning.line1")).toBe(
-      "Heads up, your request was re-routed to reduce cyber-abuse risk.",
-    );
-    expect(translateMoss("en", "localConversation.modelRerouted.warning.line2.prefix")).toBe(
-      "Think this is a mistake? Request a review at ",
-    );
-    expect(translateMoss("en", "localConversation.modelRerouted.warning.line2.suffix")).toBe(
-      " or report via /feedback",
+    ).toBe("To reduce cyber-abuse risk, this request was routed to GPT-5.4.");
+    expect(translateMoss("en", "localConversation.modelRerouted.requestReview")).toBe(
+      "Request a review",
     );
     expect(formatMossTranslation("en", "localConversation.userStoppedAfter", { time: "3s" })).toBe(
       "You stopped after 3s",
@@ -372,15 +366,9 @@ describe("translateMoss", () => {
     expect(translateMoss("zh-CN", "localConversation.working")).toBe("工作中");
     expect(
       formatMossTranslation("zh-CN", "localConversation.modelRerouted", { toModel: "GPT-5.4" }),
-    ).toBe("你的请求已路由到 GPT-5.4。");
-    expect(translateMoss("zh-CN", "localConversation.modelRerouted.warning.line1")).toBe(
-      "请注意：为减少网络滥用风险，你的请求已被重新路由。",
-    );
-    expect(translateMoss("zh-CN", "localConversation.modelRerouted.warning.line2.prefix")).toBe(
-      "认为这是误判？请在 ",
-    );
-    expect(translateMoss("zh-CN", "localConversation.modelRerouted.warning.line2.suffix")).toBe(
-      " 申请复核，或通过 /feedback 举报",
+    ).toBe("为降低网络滥用风险，这次请求已改用 GPT-5.4。");
+    expect(translateMoss("zh-CN", "localConversation.modelRerouted.requestReview")).toBe(
+      "申请复核",
     );
     expect(
       formatMossTranslation("zh-CN", "localConversation.userStoppedAfter", { time: "3秒" }),

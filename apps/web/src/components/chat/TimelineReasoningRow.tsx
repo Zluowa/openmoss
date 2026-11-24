@@ -3,6 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: TimelineReasoningRow
 
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import type { WorkLogEntry } from "../../workLog";
@@ -207,7 +208,7 @@ export function TimelineReasoningRow(props: {
   );
   const headerContent =
     hasBody && !active ? (
-      <button
+      <ButtonPrimitive
         type="button"
         className={cn(
           reasoningHeaderClassName,
@@ -223,7 +224,7 @@ export function TimelineReasoningRow(props: {
       >
         <span>{headerLabel}</span>
         <DisclosureChevron open={expanded} className={reasoningDisclosureChevronClassName} />
-      </button>
+      </ButtonPrimitive>
     ) : (
       <ConversationShimmer
         active={active}

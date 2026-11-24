@@ -6038,14 +6038,10 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/automations");
       // location changes before the route commits. Home reads the committed
       // section, so finish opening Scheduled before asking it to return.
+      // The panel has its own New automation; the page's empty state adds the second one.
       await expect
-        .element(
-          page.getByText(
-            "Pick an automation in the panel to see its runs, or schedule a new one.",
-            { exact: true },
-          ),
-        )
-        .toBeVisible();
+        .poll(() => page.getByRole("button", { name: "New automation", exact: true }).all().length)
+        .toBeGreaterThanOrEqual(2);
       await expect.poll(() => mounted.router.state.isLoading).toBe(false);
       await rail.getByRole("button", { name: "Home", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
@@ -16252,6 +16248,56 @@ describe("ChatView transcript geometry (full app)", () => {
       }
     },
   );
+
+  it("opens an item's docked 问 Moss chat on an empty transcript, not the new-chat landing (walk N3-3)", async () => {
+    // The chat an item binds for its 问 Moss panel is an ordinary thread docked beside the
+    // item (the same dock pane as a side chat). Empty, it showed the home chat's question.
+    const itemThreadId = ThreadId.makeUnsafe("thread-item-ask-moss");
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: addThreadToSnapshot(
+        createSnapshotForTargetUser({
+          targetMessageId: MessageId.makeUnsafe("item-ask-moss-host"),
+          targetText: "Item ask moss host",
+        }),
+        itemThreadId,
+      ),
+    });
+    const headings = () => document.querySelectorAll('[data-testid="empty-landing-heading"]');
+    try {
+      await waitForComposerEditor();
+      useRightDockStore
+        .getState()
+        .openPane(THREAD_ID, { kind: "sidechat", threadId: itemThreadId });
+      const dockedEditor = await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            '[data-chat-pane-scope^="dock-sidechat:"] [contenteditable="true"]',
+          ),
+        "Docked item chat composer missing",
+      );
+      expect(dockedEditor.isConnected).toBe(true);
+      await waitForLayout();
+      expect(headings(), "no landing question beside the item").toHaveLength(0);
+      expect(document.body.textContent).not.toContain("What should we build");
+
+      // The same empty thread opened as the main chat is a new chat: its landing shows.
+      useRightDockStore
+        .getState()
+        .closePane(
+          THREAD_ID,
+          useRightDockStore
+            .getState()
+            .dockStateByThreadId[THREAD_ID]!.panes.find((pane) => pane.threadId === itemThreadId)!
+            .id,
+        );
+      await mounted.router.navigate({ to: "/$threadId", params: { threadId: itemThreadId } });
+      await expect.element(page.getByTestId("empty-landing-heading")).toBeVisible();
+    } finally {
+      useRightDockStore.setState({ dockStateByThreadId: {} });
+      await mounted.cleanup();
+    }
+  });
 
   it("renders the empty landing on the plain surface without a background decoration", async () => {
     const snapshot = addThreadToSnapshot(createDraftOnlySnapshot(), THREAD_ID);

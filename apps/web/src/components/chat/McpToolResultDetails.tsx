@@ -1,5 +1,7 @@
 // FILE: McpToolResultDetails.tsx
-// Purpose: Render the bounded, non-app MCP result projection.
+// Purpose: Render the bounded, non-app MCP result projection on the shared parts: each block a
+//          card (code in the 13 px code role), notes as one muted line, an error as one line in
+//          the error colour, images at the card radius.
 // Layer: Chat presentation component
 // Exports: McpToolResultDetails
 
@@ -7,7 +9,9 @@ import { type ReactNode, useState } from "react";
 
 import type { McpProjectionAnnotations, McpToolResultContentBlock } from "@moss/contracts";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { Button } from "../ui/button";
+import { Card } from "../ui/card";
 import { CircleAlertIcon, CodeIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -25,8 +29,11 @@ import { AutomaticApprovalReviewDetails } from "./AutomaticApprovalReviewDetails
 import { resolveAttachmentPreviewUrl } from "~/lib/wsHttpUrl";
 import { McpCodePane } from "./McpCodePane";
 
+/** A code block inside a card: the 13 px code role, scrolling when long. */
 const MCP_CODE_CLASS_NAME =
-  "max-h-[min(46vh,30rem)] overflow-auto whitespace-pre-wrap break-words rounded-card border border-border/45 bg-background/70 px-3 py-2.5 font-chat-code text-ui-xs leading-relaxed text-foreground";
+  "m-0 max-h-[min(46vh,30rem)] overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-chat-code text-chat-code text-foreground";
+/** A note under a block (annotation, truncation, no content): one muted footnote line. */
+const MCP_NOTE_CLASS_NAME = "break-words text-ui-sm text-muted-foreground";
 
 export function formatMcpJson(value: unknown): string {
   try {
@@ -76,26 +83,17 @@ function isDuplicateStructuredText(
   }
 }
 
-function Section(props: { title: string; children: ReactNode; tone?: "default" | "danger" }) {
+function Section(props: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-2" data-mcp-section={props.title}>
-      <h3
-        className={cn(
-          "text-ui-xs font-medium text-foreground",
-          props.tone === "danger" && "text-rose-700 dark:text-rose-300",
-        )}
-      >
-        {props.title}
-      </h3>
+    <section className="flex flex-col gap-ui-gap-xs" data-mcp-section={props.title}>
+      <h3 className="text-ui-sm text-muted-foreground">{props.title}</h3>
       {props.children}
     </section>
   );
 }
 
 function AnnotationLine({ value }: { value: string | null }) {
-  return value ? (
-    <p className="break-words text-size-chat text-codex-description/80">{value}</p>
-  ) : null;
+  return value ? <p className={MCP_NOTE_CLASS_NAME}>{value}</p> : null;
 }
 
 function mediaAnnotation(
@@ -142,7 +140,7 @@ function LocalArtifactContentBlock({
   if (failed) {
     return (
       <div
-        className="rounded-card border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
+        className={MCP_NOTE_CLASS_NAME}
         data-mcp-content-type="local_artifact"
         data-mcp-state="media-unavailable"
         data-mcp-attachment-id={block.attachmentId}
@@ -159,7 +157,7 @@ function LocalArtifactContentBlock({
   };
   const image = (
     <img
-      className="max-h-48 w-max max-w-full gap-0.5 rounded-control object-contain"
+      className="max-h-48 w-max max-w-full rounded-card border border-[color:var(--color-border)] object-contain"
       alt={imageAlt}
       src={src}
       onError={() => setFailed(true)}
@@ -168,20 +166,20 @@ function LocalArtifactContentBlock({
   const content =
     block.mediaKind === "image" ? (
       onImageExpand ? (
-        <button
+        <ButtonPrimitive
           type="button"
-          className="block w-fit max-w-full cursor-zoom-in rounded-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="block w-fit max-w-full cursor-zoom-in rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={imageAlt}
           onClick={activateImage}
         >
           {image}
-        </button>
+        </ButtonPrimitive>
       ) : (
         image
       )
     ) : (
       <audio
-        className="w-full gap-0.5"
+        className="w-full"
         controls
         src={src}
         preload="metadata"
@@ -190,7 +188,7 @@ function LocalArtifactContentBlock({
     );
   return (
     <div
-      className="flex flex-col gap-0.5"
+      className="flex flex-col gap-ui-gap-xs"
       data-mcp-content-type="local_artifact"
       data-mcp-state="available"
       data-mcp-attachment-id={block.attachmentId}
@@ -200,7 +198,7 @@ function LocalArtifactContentBlock({
     >
       {content}
       {annotation ? (
-        <p className="text-size-chat whitespace-pre-wrap text-codex-description/80">{annotation}</p>
+        <p className={cn(MCP_NOTE_CLASS_NAME, "whitespace-pre-wrap")}>{annotation}</p>
       ) : null}
     </div>
   );
@@ -234,25 +232,24 @@ function ContentBlockView({
   const annotations = "annotations" in block ? annotationSummary(block.annotations, labels) : null;
   if (block.type === "text") {
     return (
-      <div>
-        <div className="relative overflow-clip rounded-card border border-strong bg-secondary-soft-alpha contain-inline-size">
-          <div className="sticky top-0 z-10 flex items-center justify-between py-1 ps-2 pe-2 font-sans text-ui-lg text-codex-description select-none">
-            <span className="min-w-0 truncate">{labels.plaintext}</span>
-            <div className="flex items-center" />
+      <div className="flex flex-col gap-ui-gap-xs">
+        <Card className="contain-inline-size">
+          <div className="truncate px-3 pt-2 text-ui-sm text-muted-foreground select-none">
+            {labels.plaintext}
           </div>
-          <div className="max-h-48 overflow-y-auto p-2">
+          <div className="max-h-48 overflow-y-auto px-3 pt-1 pb-2">
             <pre
               tabIndex={0}
-              className="m-0 whitespace-pre-wrap break-words font-sans text-size-chat leading-relaxed text-foreground/70 [&_*]:text-foreground/70"
+              className="m-0 whitespace-pre-wrap break-words font-sans text-ui text-muted-foreground"
               data-mcp-content-type="text"
             >
               {block.text}
             </pre>
           </div>
-        </div>
+        </Card>
         <AnnotationLine value={annotations} />
         {block.truncated ? (
-          <p className="text-ui-xs text-foreground" data-mcp-state="truncated">
+          <p className={MCP_NOTE_CLASS_NAME} data-mcp-state="truncated">
             {format("chat.mcpResult.truncatedAfter", {
               count: block.originalChars ?? block.text.length,
             })}
@@ -264,17 +261,15 @@ function ContentBlockView({
   if (block.type === "resource_link") {
     const target = block.title ?? block.name ?? block.uri;
     return (
-      <div className="flex flex-col gap-0.5 text-size-chat" data-mcp-content-type="resource_link">
-        <div className="break-words text-codex-description/80">
+      <div className="flex flex-col gap-ui-gap-xs" data-mcp-content-type="resource_link">
+        <div className={MCP_NOTE_CLASS_NAME}>
           {format("chat.mcpResult.resource.read", { target })}
         </div>
         {annotations ? (
-          <div className="break-words whitespace-pre-wrap text-codex-description/80">
-            {annotations}
-          </div>
+          <div className={cn(MCP_NOTE_CLASS_NAME, "whitespace-pre-wrap")}>{annotations}</div>
         ) : null}
         {block.truncated ? (
-          <p className="text-ui-xs text-foreground" data-mcp-state="truncated">
+          <p className={MCP_NOTE_CLASS_NAME} data-mcp-state="truncated">
             {t("chat.mcpResult.truncatedShort")}
           </p>
         ) : null}
@@ -286,40 +281,39 @@ function ContentBlockView({
     const hasBody = body !== "";
     return (
       <div
-        className="flex flex-col gap-0.5 text-size-chat text-codex-description/80"
+        className="flex flex-col gap-ui-gap-xs text-ui-sm text-muted-foreground"
         data-mcp-content-type="embedded_resource"
       >
         {block.uri ? (
           <div className="flex gap-1">
-            <span className="font-medium text-default">{labels.uri}</span>
+            <span className="font-medium text-foreground">{labels.uri}</span>
             <span className="break-all">{block.uri}</span>
           </div>
         ) : null}
         {block.mimeType ? (
           <div className="flex gap-1">
-            <span className="font-medium text-default">{labels.mimeType}</span>
+            <span className="font-medium text-foreground">{labels.mimeType}</span>
             <span className="break-all">{block.mimeType}</span>
           </div>
         ) : null}
         {annotations ? (
           <div className="flex gap-1">
-            <span className="font-medium text-default">{labels.annotations}</span>
+            <span className="font-medium text-foreground">{labels.annotations}</span>
             <span className="break-all">{annotations}</span>
           </div>
         ) : null}
         {hasBody ? (
           <div className="flex flex-col gap-0.5">
-            <span className="font-medium text-default">{labels.content}</span>
-            <pre
-              tabIndex={0}
-              className="max-h-48 overflow-auto rounded-control bg-primary-soft px-3 py-2 whitespace-pre-wrap text-foreground dark:text-foreground/80"
-            >
-              {body}
-            </pre>
+            <span className="font-medium text-foreground">{labels.content}</span>
+            <Card>
+              <pre tabIndex={0} className={cn(MCP_CODE_CLASS_NAME, "max-h-48")}>
+                {body}
+              </pre>
+            </Card>
           </div>
         ) : null}
         {block.truncated ? (
-          <p className="text-ui-xs text-foreground" data-mcp-state="truncated">
+          <p className={MCP_NOTE_CLASS_NAME} data-mcp-state="truncated">
             {t("chat.mcpResult.truncatedShort")}
           </p>
         ) : null}
@@ -340,29 +334,29 @@ function ContentBlockView({
   if (block.type === "binary_deferred") {
     return (
       <div
-        className="rounded-card border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
+        className="flex flex-col gap-0.5 text-ui-sm text-muted-foreground"
         data-mcp-content-type="binary_deferred"
         data-mcp-state="binary-deferred"
       >
-        <p className="font-medium">{labels.binaryDeferred}</p>
-        {block.mimeType ? <p className="mt-1 break-words">{block.mimeType}</p> : null}
-        {block.uri ? <p className="mt-1 break-all">{block.uri}</p> : null}
+        <p>{labels.binaryDeferred}</p>
+        {block.mimeType ? <p className="break-words">{block.mimeType}</p> : null}
+        {block.uri ? <p className="break-all">{block.uri}</p> : null}
         <AnnotationLine value={annotations} />
         {block.truncated ? (
-          <p className="mt-1" data-mcp-state="truncated">
-            {t("chat.mcpResult.truncatedShort")}
-          </p>
+          <p data-mcp-state="truncated">{t("chat.mcpResult.truncatedShort")}</p>
         ) : null}
       </div>
     );
   }
   return (
     <Section title={labels.unknown}>
-      <pre tabIndex={0} className={MCP_CODE_CLASS_NAME} data-mcp-content-type="unknown">
-        {formatJsonRepresentation(block.json)}
-      </pre>
+      <Card>
+        <pre tabIndex={0} className={MCP_CODE_CLASS_NAME} data-mcp-content-type="unknown">
+          {formatJsonRepresentation(block.json)}
+        </pre>
+      </Card>
       {block.truncated ? (
-        <p className="text-ui-xs text-foreground" data-mcp-state="truncated">
+        <p className={MCP_NOTE_CLASS_NAME} data-mcp-state="truncated">
           {t("chat.mcpResult.truncatedShort")}
         </p>
       ) : null}
@@ -392,7 +386,7 @@ export function McpRawDiagnosticAction() {
             />
           }
         >
-          <CodeIcon className="size-3" />
+          <CodeIcon />
         </TooltipTrigger>
         <TooltipPopup side="top">{rawActionLabel}</TooltipPopup>
       </Tooltip>
@@ -463,7 +457,7 @@ export function McpAutomaticApprovalReviewContent({ result }: { result: WorkLogM
       ))}
       {requiresExplicitAuthorization ? (
         <p
-          className="max-w-[80ch] pt-1 text-size-chat leading-relaxed text-text/60 !text-foreground/70"
+          className="max-w-[80ch] pt-1 text-ui-sm text-muted-foreground"
           data-mcp-explicit-authorization="true"
         >
           {hasHighRiskDeniedReview
@@ -511,16 +505,18 @@ export function McpToolResultDetails({
   const hasError = result.error !== undefined;
   return (
     <div
-      className="group/mcp-tool-result-details flex min-w-0 max-w-full flex-col gap-0.5"
+      className="group/mcp-tool-result-details flex min-w-0 max-w-full flex-col gap-ui-gap-xs"
       data-mcp-tool-result-details="true"
     >
       <McpAutomaticApprovalReviewContent result={result} />
 
       {result.app ? (
         <Section title={t("chat.mcpResult.invocation")}>
-          <pre tabIndex={0} className={MCP_CODE_CLASS_NAME} data-mcp-invocation="true">
-            {formatMcpJson(result.arguments)}
-          </pre>
+          <Card>
+            <pre tabIndex={0} className={MCP_CODE_CLASS_NAME} data-mcp-invocation="true">
+              {formatMcpJson(result.arguments)}
+            </pre>
+          </Card>
         </Section>
       ) : null}
 
@@ -545,28 +541,26 @@ export function McpToolResultDetails({
       ) : null}
 
       {hasError ? (
-        <Section title={t("chat.mcpResult.error")} tone="danger">
-          <div
-            className="flex min-w-0 items-start gap-2 rounded-card border border-rose-500/35 bg-rose-500/8 px-3 py-2.5 text-ui-xs text-rose-800 dark:text-rose-100"
-            data-mcp-error="true"
-          >
-            <CircleAlertIcon className="mt-0.5 size-4 shrink-0" />
-            <p className="min-w-0 break-words">{result.error.message}</p>
-          </div>
-        </Section>
+        <div
+          className="flex min-w-0 items-start gap-ui-gap-xs text-ui-sm text-destructive"
+          data-mcp-error="true"
+        >
+          <CircleAlertIcon aria-hidden className="mt-0.5 size-ui-icon-sm shrink-0" />
+          <p className="min-w-0 break-words">
+            <span className="sr-only">{t("chat.mcpResult.error")}: </span>
+            {result.error.message}
+          </p>
+        </div>
       ) : null}
 
       {!hasResultContent && !hasError ? (
-        <p className="text-codex-description/80" data-mcp-state="no-content">
+        <p className={MCP_NOTE_CLASS_NAME} data-mcp-state="no-content">
           {t("chat.mcpResult.noContent")}
         </p>
       ) : null}
 
       {result.truncation.truncated ? (
-        <p
-          className="rounded-card border border-amber-500/35 bg-amber-500/8 px-3 py-2.5 text-ui-xs text-foreground"
-          data-mcp-state="truncated"
-        >
+        <p className={MCP_NOTE_CLASS_NAME} data-mcp-state="truncated">
           {t("chat.mcpResult.truncated")}
           {result.truncation.omittedBlocks
             ? ` (${format("chat.mcpResult.omittedBlocks", { count: result.truncation.omittedBlocks })})`

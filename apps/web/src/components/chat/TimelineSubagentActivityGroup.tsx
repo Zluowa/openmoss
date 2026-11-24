@@ -4,6 +4,7 @@
 // Exports: TimelineSubagentActivityGroup, resolveTimelineSubagentStatus,
 //          resolveTimelineSubagentGroupStatus
 
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { ThreadId } from "@moss/contracts";
 import { memo, useState, type ReactNode } from "react";
 
@@ -238,14 +239,14 @@ export const TimelineSubagentActivityGroup = memo(function TimelineSubagentActiv
                     : ", "
                 : null}
               {props.onOpenThread && row.resolvedThreadId ? (
-                <button
+                <ButtonPrimitive
                   type="button"
                   className="inline cursor-interaction rounded-inline bg-transparent p-0 text-start hover:text-default focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring"
                   data-subagent-thread-id={row.resolvedThreadId}
                   onClick={() => props.onOpenThread?.(ThreadId.makeUnsafe(row.resolvedThreadId!))}
                 >
                   {row.presentation.primaryLabel}
-                </button>
+                </ButtonPrimitive>
               ) : (
                 row.presentation.primaryLabel
               )}
@@ -292,7 +293,7 @@ export const TimelineSubagentActivityGroup = memo(function TimelineSubagentActiv
           : {};
 
         return props.onOpenThread && resolvedThreadId ? (
-          <button
+          <ButtonPrimitive
             key={sourceId}
             type="button"
             className={interactiveClassName}
@@ -304,7 +305,7 @@ export const TimelineSubagentActivityGroup = memo(function TimelineSubagentActiv
             {...motionProps}
           >
             {content}
-          </button>
+          </ButtonPrimitive>
         ) : (
           <span key={sourceId} className={staticClassName} {...motionProps}>
             {content}

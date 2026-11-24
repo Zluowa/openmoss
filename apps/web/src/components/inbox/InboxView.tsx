@@ -219,7 +219,7 @@ function SlotColumns({ slots }: { slots: readonly InboxSlotSummary[] }) {
               <span
                 key={hour.fromMs}
                 className={cn(
-                  "min-h-[3px] w-full max-w-2 rounded-[2px]",
+                  "min-h-[3px] w-full max-w-2 rounded-inline",
                   hour.future || hour.tokens === 0
                     ? "bg-foreground/8"
                     : slot.status === "now"

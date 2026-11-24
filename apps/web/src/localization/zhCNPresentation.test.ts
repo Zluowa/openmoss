@@ -113,11 +113,6 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
   });
 
   it("translates automation, plugin, and Kanban chrome through the shared chain", () => {
-    expect(
-      translateZhCnPresentationText(
-        "Pick an automation in the panel to see its runs, or schedule a new one.",
-      ),
-    ).toBe("在面板中选择一个自动化工作流即可查看其运行记录，也可以新建定时任务。");
     expect(translateZhCnPresentationText("No installed plugins yet.")).toBe("还没有已安装的插件。");
     expect(translateZhCnPresentationText("Installed")).toBe("已安装");
     expect(translateZhCnPresentationText("Attention")).toBe("关注");

@@ -8,14 +8,14 @@ import { phraseTranslator } from "./zhCNPhraseTable";
 
 const AUTOMATIONS_COPY: Readonly<Record<string, string>> = {
   // Creating an automation
-  "Creating automation": "正在创建自动化",
-  "Confirm automation creation": "确认创建自动化",
+  "Creating automation": "正在创建定时任务",
+  "Confirm automation creation": "确认创建定时任务",
   "The result of this creation is awaiting confirmation. Retrying uses the same request and original settings.":
     "这次创建的结果正在等待确认。重试会使用相同的请求和原始设置。",
   "Creating…": "正在创建…",
   "Retry creation": "重试创建",
-  "Could not finish automation setup.": "无法完成自动化设置。",
-  "Could not confirm automation creation.": "无法确认自动化已创建。",
+  "Could not finish automation setup.": "无法完成定时任务设置。",
+  "Could not confirm automation creation.": "无法确认定时任务已创建。",
   "The account or creation context changed. Reopen the original creation to confirm its result.":
     "账号或创建上下文已变更。请重新打开原来的创建流程以确认结果。",
   "The account changed. Reopen this creation in its original account.":
@@ -24,8 +24,8 @@ const AUTOMATIONS_COPY: Readonly<Record<string, string>> = {
     "无法读取已保存的创建内容。请保留这个窗口并重试。",
   "Saved creation is missing its request identity.": "已保存的创建内容缺少请求标识。",
   "A previous creation is still awaiting confirmation. Confirm it before creating another automation.":
-    "上一次创建仍在等待确认。请先确认，再创建其他自动化。",
-  "An automation creation requires a request identity.": "创建自动化需要请求标识。",
+    "上一次创建仍在等待确认。请先确认，再创建其他定时任务。",
+  "An automation creation requires a request identity.": "创建定时任务需要请求标识。",
   "· Accepted": "· 已接受",
   "· Dismissed": "· 已忽略",
 
@@ -52,10 +52,11 @@ const AUTOMATIONS_COPY: Readonly<Record<string, string>> = {
   "Keep running": "继续运行",
   "Stop after 1 failure": "失败 1 次后停止",
 
-  "Automation name": "自动化名称",
-  "What should this automation do on each run?": "这个自动化每次运行时要做什么？",
+  "Automation name": "定时任务名称",
+  "What should this automation do on each run?": "这个定时任务每次运行时要做什么？",
   "Manual runs only": "仅手动运行",
-  "This automation only runs when you press Run now.": "这个自动化只有在你按“立即运行”时才会运行。",
+  "This automation only runs when you press Run now.":
+    "这个定时任务只有在你按“立即运行”时才会运行。",
   "Triage crashes": "分诊崩溃",
   "Look for new crashes in $sentry and open a fix PR for the most impactful one.":
     "在 $sentry 中查找新崩溃，并为影响最大的一个打开修复 PR。",
@@ -68,34 +69,30 @@ const AUTOMATIONS_COPY: Readonly<Record<string, string>> = {
     "把主分支过去 24 小时的变化总结成一条简短的站会更新。",
 
   // List and detail
-  "Loading automations...": "正在加载自动化…",
-  "Could not load automations.": "无法加载自动化。",
-  "Finish automation setup": "完成自动化设置",
+  "Loading automations...": "正在加载定时任务…",
+  "Could not load automations.": "无法加载定时任务。",
+  "Finish automation setup": "完成定时任务设置",
   "Finishing setup": "正在完成设置",
   "Finishing…": "正在完成…",
-  "The automation has been saved.": "自动化已保存。",
-  "The automation has been saved and remains paused until setup succeeds.":
-    "自动化已保存，在设置成功前会保持暂停。",
-  "Saving its connection to this page…": "正在把它的连接保存到此页面…",
-  "Manage automation": "管理自动化",
+  "Manage automation": "管理定时任务",
   "Retry setup": "重试设置",
   "On failure": "失败时",
   Notify: "通知",
   "All runs": "所有运行",
-  "Loading automation…": "正在加载自动化…",
-  "Could not load this automation.": "无法加载这个自动化。",
-  "Suggested automation": "建议的自动化",
-  "Accept it before it can run, or dismiss it to archive the suggestion.":
-    "接受后才能运行，也可以忽略以归档这条建议。",
-  "Accept the automation proposal first": "请先接受自动化提议",
-  "Re-enable the automation first": "请先重新启用自动化",
+  "Loading automation…": "正在加载定时任务…",
+  "Could not load this automation.": "无法加载这个定时任务。",
+  "Suggested automation": "建议的定时任务",
+  "It runs only after you accept it.": "接受后才会运行。",
+  "Each run appends a turn to the thread you pick.": "每次运行都会在你选择的对话中追加一轮。",
+  "It stays paused until setup succeeds.": "设置成功前会保持暂停。",
+  "Moss saves your changes only after you approve.": "你批准后，Moss 才会保存更改。",
+  "Accept the automation proposal first": "请先接受定时任务提议",
+  "Re-enable the automation first": "请先重新启用定时任务",
   "Re-enable": "重新启用",
   "No persistent memory yet.": "还没有持久记忆。",
   Switch: "切换",
   "Continue an existing thread": "继续现有对话",
   "Release the current thread?": "释放当前对话？",
-  "Each run appends a turn to the thread you pick and waits for it to go idle.":
-    "每次运行都会在你选择的对话中追加一轮，并等待它进入空闲。",
   "Pick a thread…": "选择对话…",
   Accept: "接受",
 
@@ -124,11 +121,11 @@ export const translateZhCnAutomationsCopyText = phraseTranslator(AUTOMATIONS_COP
   [/^Stop after (\d+) failures$/, "失败 $1 次后停止"],
   [
     /^The automation stops writing to “(.+)”; the thread itself is kept\.$/,
-    "自动化将不再写入“$1”；对话本身会保留。",
+    "定时任务将不再写入“$1”；对话本身会保留。",
   ],
   [
     /^The automation stops writing to its thread; the thread itself is kept\.$/,
-    "自动化将不再写入它的对话；对话本身会保留。",
+    "定时任务将不再写入它的对话；对话本身会保留。",
   ],
   [/^(.+) was moved back to Draft\.$/, "“$1”已移回草稿。"],
   [/^New task in (?!Chats$)(.+)$/, "在 $1 中新建任务"],

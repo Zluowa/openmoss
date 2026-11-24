@@ -286,11 +286,11 @@ describe("slash commands, kanban and automations in zh-CN", () => {
       ["Stop after 3 failures", "失败 3 次后停止"],
       [
         "The automation stops writing to “Daily summary”; the thread itself is kept.",
-        "自动化将不再写入“Daily summary”；对话本身会保留。",
+        "定时任务将不再写入“Daily summary”；对话本身会保留。",
       ],
       [
         "The automation stops writing to its thread; the thread itself is kept.",
-        "自动化将不再写入它的对话；对话本身会保留。",
+        "定时任务将不再写入它的对话；对话本身会保留。",
       ],
     ]);
   });

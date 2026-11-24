@@ -723,7 +723,9 @@ describe("composerAutomation", () => {
     it("asks for task and cadence when nothing was reported, so setup can recover", () => {
       // Empty missingFields (generation timed out/failed) must not loop on cadence for a
       // bare request that has no task yet.
-      expect(automationClarificationPrompt([])).toContain("what should this automation do");
+      expect(automationClarificationPrompt([])).toBe(
+        "What should this automation do, and how often should it run?",
+      );
     });
   });
 

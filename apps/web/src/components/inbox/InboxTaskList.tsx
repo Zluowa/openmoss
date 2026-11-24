@@ -6,6 +6,7 @@
 // Exports: InboxTaskList, Group
 
 import type { ThreadId } from "@moss/contracts";
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { pluralize } from "@moss/shared/text";
 import { useId, type DragEvent, type ReactNode } from "react";
 
@@ -78,13 +79,16 @@ function TaskRow({
   threadId?: ThreadId | undefined;
 }) {
   return (
-    <button
+    // A whole-row hit area (the standard allows it): UI SDK's button with the row's look.
+    <ButtonPrimitive
       type="button"
-      onClick={onOpen}
+      onClick={() => {
+        onOpen();
+      }}
       {...(threadId
         ? {
             draggable: true,
-            onDragStart: (event: DragEvent<HTMLButtonElement>) => beginThreadDrag(event, threadId),
+            onDragStart: (event: DragEvent<HTMLElement>) => beginThreadDrag(event, threadId),
             onDragEnd: endThreadDrag,
           }
         : {})}
@@ -108,7 +112,7 @@ function TaskRow({
           {time}
         </span>
       ) : null}
-    </button>
+    </ButtonPrimitive>
   );
 }
 

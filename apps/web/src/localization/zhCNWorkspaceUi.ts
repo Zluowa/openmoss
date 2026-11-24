@@ -444,8 +444,8 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "More composer controls": "更多编辑器控件",
   Default: "默认",
   "Loading…": "加载中…",
-  "Setting up automation": "正在设置自动化工作流",
-  "Cancel automation setup": "取消自动化工作流设置",
+  "Setting up automation": "正在设置定时任务",
+  "Cancel automation setup": "取消定时任务设置",
   "Type to search for files": "输入以搜索文件",
   Fast: "快速",
   "Go up one directory": "返回上一级目录",
@@ -609,13 +609,13 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Attach images after answering plan questions.": "回答计划问题后再附加图片。",
   "Attach files after answering plan questions.": "回答计划问题后再附加文件。",
   "The automation was created, but Moss could not add the activity note.":
-    "自动化工作流已创建，但 Moss 无法添加活动备注。",
-  "Could not create automation": "无法创建自动化工作流",
+    "定时任务已创建，但 Moss 无法添加活动备注。",
+  "Could not create automation": "无法创建定时任务",
   "Open a chat before creating a chat-bound automation.":
-    "创建绑定对话的自动化工作流前，请先打开对话。",
+    "创建绑定对话的定时任务前，请先打开对话。",
   "Could not create chat": "无法创建对话",
   "Moss could not promote this draft before saving the automation.":
-    "保存自动化工作流前，Moss 无法将此草稿提升为对话。",
+    "保存定时任务前，Moss 无法将此草稿提升为对话。",
   "The current browser screenshot was skipped because this message is already at the attachment limit.":
     "此消息已达到附件数量上限，已跳过当前浏览器截图。",
   "Couldn’t attach the in-app browser context": "无法附加应用内浏览器上下文",
@@ -644,7 +644,7 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
     "启动 Side 前，请先打开由服务器支持的主对话。",
   "Could not start Side": "无法启动 Side",
   "Side task": "Side 任务",
-  "Sent via Automation": "通过自动化工作流发送",
+  "Sent via Automation": "通过定时任务发送",
   "Steering conversation": "正在引导对话",
   "Hand off to worktree": "交接到工作树",
   "Create a detached worktree from the current branch to continue working in parallel.":
@@ -889,8 +889,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   worktree: "工作树",
   local: "本地",
   "Approval needed": "需要批准",
-  "This automation needs your approval once before Moss can save changes. When a warning blocks manual runs, Run now stays disabled until you approve it.":
-    "此自动化工作流需要你批准一次，Moss 才能保存更改。警告阻止手动运行时，“立即运行”会保持禁用，直到你批准。",
   "Approve & run now": "批准并立即运行",
   "Approve &amp; run now": "批准并立即运行",
   "Target thread": "目标对话",
@@ -911,18 +909,14 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Every 6 hours": "每 6 小时",
   "Every 12 hours": "每 12 小时",
   "Every 24 hours": "每 24 小时",
-  "Edit automation": "编辑自动化工作流",
-  "Automation not found.": "未找到自动化工作流。",
-  "Back to automations": "返回自动化工作流",
+  "Edit automation": "编辑定时任务",
+  "Automation not found.": "未找到定时任务。",
+  "Back to automations": "返回定时任务",
   "Run now": "立即运行",
-  "Where the automation runs: a worktree, a local checkout, or auto":
-    "自动化工作流运行位置：工作树、本地检出或自动选择",
   "Thread unavailable": "对话不可用",
   "Archiving does not remove generated worktrees or branches.":
     "归档不会移除已生成的工作树或分支。",
   "Saved run": "已保存的运行",
-  "Pick an automation in the panel to see its runs, or schedule a new one.":
-    "在面板中选择一个自动化工作流即可查看其运行记录，也可以新建定时任务。",
 
   // Plugins and Skills customize sidebar.
   Installed: "已安装",
@@ -1111,12 +1105,9 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
     (match) => `选择下一个纹理。当前纹理：${match[1]}`,
   ],
   [/^Handoff to (.+)$/, (match) => `交接给 ${match[1]}`],
-  [/^(\d+) automations$/, (match) => `${match[1]} 个自动化工作流`],
+  [/^(\d+) automations$/, (match) => `${match[1]} 个定时任务`],
   [/^(\d+) terminals? open$/, (match) => `${match[1]} 个终端已打开`],
-  [
-    /^(\d+) automations? (?:needs|need) attention$/,
-    (match) => `${match[1]} 个自动化工作流需要注意`,
-  ],
+  [/^(\d+) automations? (?:needs|need) attention$/, (match) => `${match[1]} 个定时任务需要注意`],
   [/^You can pin up to (\d+) projects\.$/, (match) => `最多可以固定 ${match[1]} 个项目。`],
   [/^Delete thread "(.+)"\?$/, (match) => `删除对话“${match[1]}”？`],
   [/^Archive thread "(.+)"\?$/, (match) => `归档对话“${match[1]}”？`],

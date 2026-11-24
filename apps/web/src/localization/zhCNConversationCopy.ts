@@ -163,7 +163,7 @@ export const translateZhCnConversationCopyText = phraseTranslator(CONVERSATION_C
   [/^Delete side chat "(.+)"\?$/, "删除侧边对话“$1”？"],
   [/^Delete side chat (.+)$/, "删除侧边对话 $1"],
   [/^(\d+) more tabs?$/, "还有 $1 个标签页"],
-  [/^Open automation (.+)$/, "打开自动化工作流 $1"],
+  [/^Open automation (.+)$/, "打开定时任务 $1"],
 
   // Pull request repairs
   [

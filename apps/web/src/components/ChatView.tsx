@@ -80,7 +80,7 @@ import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh"
 import { useRepoDiffTotals } from "~/hooks/useRepoDiffTotals";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { useThreadRecap } from "~/hooks/useThreadRecap";
-import { SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
+import { isDockSidechatPaneScopeId, SINGLE_CHAT_PANE_SCOPE_ID } from "~/lib/chatPaneScope";
 import { htmlRenderSurfacePaneUpdates, type RightDockHtmlDocument } from "~/rightDockStore.logic";
 import { latestHtmlRenderBySurface } from "~/lib/htmlRenderSurfaces";
 import { formatComposerMentionToken } from "~/lib/composerMentions";
@@ -2483,6 +2483,9 @@ export default function ChatView({
     void retryThreadDetailSync(threadId).catch(() => undefined);
   }, [threadId]);
   const activeThreadIsSidechat = Boolean(activeThread && isSidechatThread(activeThread));
+  // A side chat, and any chat docked beside an item (its 问 Moss panel), opens on an empty
+  // transcript: the new-chat landing and its question belong to the home chat (walk N3-3).
+  const opensOnEmptyTranscript = activeThreadIsSidechat || isDockSidechatPaneScopeId(paneScopeId);
   // Stable identity: this element is forwarded to the memoized MessagesTimeline, so
   // building it inline in JSX would defeat its `memo()` on every keystroke.
   const transcriptEmptyStateContent = useMemo((): ReactNode => {
@@ -2498,9 +2501,9 @@ export default function ChatView({
         />
       );
     }
-    return hasPendingThreadWork || activeThreadIsSidechat ? <span aria-hidden="true" /> : undefined;
+    return hasPendingThreadWork || opensOnEmptyTranscript ? <span aria-hidden="true" /> : undefined;
   }, [
-    activeThreadIsSidechat,
+    opensOnEmptyTranscript,
     handleRetryThreadDetailSync,
     hasPendingThreadWork,
     isEditorRail,
@@ -2514,7 +2517,7 @@ export default function ChatView({
     timelineEntries.length === 0 &&
     !hasPendingThreadWork &&
     !activeThread?.parentThreadId &&
-    !activeThreadIsSidechat &&
+    !opensOnEmptyTranscript &&
     !isEditorRail &&
     threadDetailHydration === "ready";
   const isEmptyChatLanding =

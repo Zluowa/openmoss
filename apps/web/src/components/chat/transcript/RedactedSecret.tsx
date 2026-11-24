@@ -7,6 +7,7 @@
 // Layer: Chat transcript primitive
 // Exports: RedactedSecret, maskSecretValue, secretKindTranslationKey
 
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { useState } from "react";
 
 import { EyeIcon, EyeSlashIcon } from "~/lib/icons";
@@ -85,7 +86,7 @@ export function RedactedSecret(props: { kind: string; value: string }) {
           </>
         )}
       </span>
-      <button
+      <ButtonPrimitive
         type="button"
         aria-pressed={revealed}
         aria-label={format(revealed ? "transcript.secret.hide" : "transcript.secret.reveal", {
@@ -95,14 +96,14 @@ export function RedactedSecret(props: { kind: string; value: string }) {
           event.stopPropagation();
           setRevealed((value) => !value);
         }}
-        className="inline-flex shrink-0 translate-y-[1px] cursor-interaction items-center justify-center rounded-[3px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex shrink-0 translate-y-[1px] cursor-interaction items-center justify-center rounded-inline text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {revealed ? (
           <EyeSlashIcon aria-hidden className="size-3" />
         ) : (
           <EyeIcon aria-hidden className="size-3" />
         )}
-      </button>
+      </ButtonPrimitive>
     </span>
   );
 }

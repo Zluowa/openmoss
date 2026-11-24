@@ -359,9 +359,6 @@
   "apps/web/src/components/chat/InlineVisualTable.tsx": {
     "raw-button": 2
   },
-  "apps/web/src/components/chat/McpToolResultDetails.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/chat/MermaidDiagram.tsx": {
     "raw-button": 1
   },
@@ -480,30 +477,17 @@
     "native-title": 1,
     "hand-status-dot": 1
   },
-  "apps/web/src/components/chat/TimelineReasoningRow.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/chat/TimelineStreamErrorRow.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/chat/TimelineSubagentActivityGroup.tsx": {
-    "raw-button": 2
-  },
   "apps/web/src/components/chat/TimelineTodoPlanRow.tsx": {
-    "raw-button": 1,
     "hand-spinner": 1
   },
   "apps/web/src/components/chat/TimelineWorkEntryRow.tsx": {
     "raw-button": 3
   },
-  "apps/web/src/components/chat/ToolActivityDisclosure.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/chat/ToolCallDetailsDialog.tsx": {
     "native-title": 3
-  },
-  "apps/web/src/components/chat/ToolCallGroupSummaryRow.tsx": {
-    "raw-button": 3
   },
   "apps/web/src/components/chat/TraitsPicker.tsx": {
     "raw-button": 1
@@ -512,12 +496,6 @@
     "raw-button": 2
   },
   "apps/web/src/components/chat/transcript/ChapterHeading.tsx": {
-    "arbitrary-radius": 1,
-    "heavy-weight": 3,
-    "native-title": 1
-  },
-  "apps/web/src/components/chat/transcript/ExternalImage.tsx": {
-    "raw-button": 1,
     "native-title": 1
   },
   "apps/web/src/components/chat/transcript/ForgeRefChip.tsx": {
@@ -525,19 +503,6 @@
   },
   "apps/web/src/components/chat/transcript/HoverMountGate.tsx": {
     "raw-button": 1
-  },
-  "apps/web/src/components/chat/transcript/PeerMessageCard.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/chat/transcript/RedactedSecret.tsx": {
-    "arbitrary-radius": 1,
-    "raw-button": 1
-  },
-  "apps/web/src/components/chat/transcript/TranscriptDisclosureRow.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/chat/transcript/TranscriptThreadChip.tsx": {
-    "raw-button": 2
   },
   "apps/web/src/components/chat/TranscriptSelectionAction.tsx": {
     "raw-button": 1,
@@ -685,15 +650,6 @@
     "raw-button": 4,
     "hand-tablist": 1,
     "gradient": 2
-  },
-  "apps/web/src/components/inbox/InboxTaskList.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/inbox/InboxTasks.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/inbox/InboxView.tsx": {
-    "arbitrary-radius": 1
   },
   "apps/web/src/components/InlineLinkChip.tsx": {
     "raw-button": 1,

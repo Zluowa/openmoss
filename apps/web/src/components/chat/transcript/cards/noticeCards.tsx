@@ -3,11 +3,12 @@
 //          and notices: a compaction and a user stop are one quiet event line; a turn
 //          error is the warning line (icon in the danger tone, label in the secondary
 //          tone, at most 480px wide). The model-changed and model-rerouted dividers keep
-//          Moss's own design.
+//          Moss's own design; the rerouted one is a single line with its one link.
 // Layer: Chat transcript UI
 // Exports: ModelChangedTimelineRow, ModelReroutedTimelineRow, UserStoppedTimelineRow,
 //          TurnErrorTimelineRow, ContextCompactionLine
 
+import type { ProviderInstanceId } from "@moss/contracts";
 import { memo, useEffect, useRef, useState } from "react";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -15,12 +16,17 @@ import { InfoIcon, ModelCubeIcon, TriangleAlertIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../../../localization";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../ui/tooltip";
+import { TextLink } from "../../../ui/text-link";
+import { openExternalLink } from "~/lib/linkChips";
+import {
+  isMossLegacySourceInstanceId,
+  isMossManagedSourceInstanceId,
+} from "../../providerAccountSources";
 import type { WorkLogEntry } from "../../../../session-logic";
 import {
   contextCompactionPresentationState,
   resolveTranscriptModelDisplayName,
 } from "../../MessagesTimeline.logic";
-import { ModelReroutedInfoIcon } from "../../ModelReroutedInfoIcon";
 import { TRANSCRIPT_DIVIDER_CLASS_NAME } from "../../TranscriptDivider";
 import { computeWorkedDurationMs, formatWorkedDuration } from "../../workedForPresentation";
 import { TranscriptEventLine } from "../TranscriptDisclosureRow";
@@ -119,81 +125,67 @@ export const ModelChangedTimelineRow = memo(function ModelChangedTimelineRow(pro
   );
 });
 
+/**
+ * 申请复核 is offered only where the person can ask: a chat on their own Codex sign-in. A
+ * Moss-managed lane (or the retired key lane), or a chat whose lane is unknown, has none.
+ */
+export function modelReroutedReviewLinkShown(instanceId: ProviderInstanceId | undefined): boolean {
+  return (
+    instanceId !== undefined &&
+    !isMossManagedSourceInstanceId(instanceId) &&
+    !isMossLegacySourceInstanceId(instanceId)
+  );
+}
+
+/** Where a person asks for a rerouted request to be reviewed (opened outside the app). */
+export const MODEL_REROUTED_REVIEW_URL = "https://chatgpt.com/cyber";
+
+/**
+ * A request routed to another model to reduce cyber-abuse risk: one line with the reason, and
+ * the one way forward (申请复核) when the chat runs on the person's own Codex sign-in.
+ */
 export const ModelReroutedTimelineRow = memo(function ModelReroutedTimelineRow(props: {
   toModel: string;
   customModelLabel: string;
   fontSizePx: number;
+  /** Only on the person's own Codex sign-in; a Moss-managed lane has no review to ask for. */
+  reviewLink: boolean;
 }) {
   const { format, t } = useTranslation();
-  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const toModel = resolveTranscriptModelDisplayName({
     model: props.toModel,
     customLabel: props.customModelLabel,
   });
-  const message = format("localConversation.modelRerouted", { toModel });
-  const warningLine1 = t("localConversation.modelRerouted.warning.line1");
-  const warningLine2Prefix = t("localConversation.modelRerouted.warning.line2.prefix");
-  const warningLine2Suffix = t("localConversation.modelRerouted.warning.line2.suffix");
-  const tooltipLabel = [warningLine1, warningLine2Prefix + "chatgpt.com/cyber" + warningLine2Suffix]
-    .join(" ")
-    .replace(/\s+/gu, " ")
-    .trim();
   return (
     <div
       className="flex min-w-0 items-center gap-2 text-[var(--color-text-foreground-secondary)]"
       data-model-rerouted-reason="highRiskCyberActivity"
-      role="status"
-      aria-label={message}
+      style={{ fontSize: String(props.fontSizePx) + "px" }}
     >
       <span
         aria-hidden="true"
         className={TRANSCRIPT_DIVIDER_CLASS_NAME}
         data-model-rerouted-divider="leading"
       />
-      <div className="flex min-w-0 shrink items-center gap-1.5" data-model-rerouted-center="true">
-        <span className="min-w-0 truncate" style={{ fontSize: String(props.fontSizePx) + "px" }}>
-          {message}
+      <p className="flex min-w-0 shrink items-baseline gap-1.5" data-model-rerouted-center="true">
+        <span className="min-w-0 truncate">
+          {format("localConversation.modelRerouted", { toModel })}
         </span>
-        <Tooltip disableHoverablePopup={false}>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                className="inline-flex size-5 shrink-0 cursor-help items-center justify-center rounded-full text-muted-foreground/55 transition-colors duration-150 hover:bg-muted/50 hover:text-foreground active:scale-[0.96] active:bg-muted focus-visible:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transform-none motion-reduce:transition-none"
-                aria-label={tooltipLabel}
-                data-model-rerouted-tooltip-trigger="true"
-              />
-            }
+        {props.reviewLink ? (
+          <TextLink
+            className="shrink-0"
+            href={MODEL_REROUTED_REVIEW_URL}
+            rel="noreferrer"
+            target="_blank"
+            onClick={(event) => {
+              event.preventDefault();
+              openExternalLink(MODEL_REROUTED_REVIEW_URL);
+            }}
           >
-            <ModelReroutedInfoIcon aria-hidden="true" className="icon-2xs" />
-          </TooltipTrigger>
-          <TooltipPopup
-            side="top"
-            align="start"
-            className={cn(
-              "max-w-3xs text-center motion-reduce:transition-none",
-              reducedMotion ? "transition-none" : null,
-            )}
-            {...(reducedMotion
-              ? { positionerClassName: "transition-none", style: { transition: "none" } }
-              : {})}
-          >
-            <div data-model-rerouted-tooltip-line="1">{warningLine1}</div>
-            <div className="mt-2" data-model-rerouted-tooltip-line="2">
-              {warningLine2Prefix}
-              <a
-                className="text-info underline-offset-2 hover:underline"
-                href="https://chatgpt.com/cyber"
-                target="_blank"
-                rel="noreferrer"
-              >
-                chatgpt.com/cyber
-              </a>
-              {warningLine2Suffix}
-            </div>
-          </TooltipPopup>
-        </Tooltip>
-      </div>
+            {t("localConversation.modelRerouted.requestReview")}
+          </TextLink>
+        ) : null}
+      </p>
       <span
         aria-hidden="true"
         className={TRANSCRIPT_DIVIDER_CLASS_NAME}
