@@ -8,7 +8,12 @@
 // Exports: ComposerPendingApprovalPanel
 
 import { type ApprovalRequestId, type ProviderApprovalDecision } from "@moss/contracts";
+import {
+  CODEX_MCP_APPROVAL_QUESTION,
+  MOSS_CODEX_MCP_SERVER_NAME,
+} from "@moss/shared/codexDiagnostics";
 import { isMossAppsServer } from "@moss/shared/mossAppsPresentation";
+import { mossToolApprovalAction } from "@moss/shared/mossToolPresentation";
 import { pendingRequestInstanceKey } from "@moss/shared/threadSummary";
 import { type KeyboardEvent, useState, useRef } from "react";
 import { type PendingApproval } from "../../session-logic";
@@ -31,25 +36,15 @@ import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 // i18n: approvalRequestCard.* , execApprovalRequest.shellLabel / .prompt
 
 /**
- * `⏎` / `Esc` sit in a `bg-current/10` keycap.
- * Primary (Allow) uses the solid-button ink, so the cap reads dark gray on black.
- * Secondary (Deny) uses the default ink, so the cap is a gray chip on the outline.
+ * `Esc` on 拒绝 sits in a `bg-current/10` keycap: a gray chip on the outline button.
+ * 允许 has no key: approving is a click, or the person's own Tab to it and Enter or Space
+ * (walk H-4: a stray Enter must never approve a command).
  */
-function ShortcutKeycap({
-  variant,
-  children,
-}: {
-  variant: "primary" | "secondary";
-  children: string;
-}) {
+function ShortcutKeycap({ children }: { children: string }) {
   return (
     <kbd
       aria-hidden="true"
-      className={
-        variant === "primary"
-          ? "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-primary-solid)] shadow-none"
-          : "inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-foreground)] shadow-none"
-      }
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-foreground)] shadow-none"
     >
       {children}
     </kbd>
@@ -149,9 +144,18 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
     mcpTool.tool && isMossAppsServer(mcpTool.server)
       ? localizeMossAppsToolAction(mcpTool.tool, locale)
       : null;
+  // Moss's own tools say what they will do, in the person's language (WALK-7 N7-2: the card
+  // showed 「允许 moss 运行 moss_canvas_open 工具？」 and Codex's English question under it).
+  const mossOwnTool = mcpTool.server === MOSS_CODEX_MCP_SERVER_NAME && mcpTool.tool !== null;
+  const mossOwnAction =
+    mossOwnTool && mcpTool.tool
+      ? mossToolApprovalAction(mcpTool.tool, locale === "zh-CN" ? "zh-CN" : "en")
+      : null;
   const connectorName = mossAppsAction
     ? t("composer.mcpToolCallApproval.mossAppsName")
-    : (mcpTool.server ?? mcpTool.tool);
+    : mossOwnTool
+      ? "Moss"
+      : (mcpTool.server ?? mcpTool.tool);
   const variant =
     computerScope !== undefined
       ? "computer"
@@ -189,10 +193,6 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
       event.preventDefault();
       respondOnce("decline");
       return;
-    }
-    if (event.key === "Enter" && !(target instanceof HTMLButtonElement)) {
-      event.preventDefault();
-      respondOnce("accept");
     }
   };
 
@@ -238,6 +238,12 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
         action: `${mossAppsAction.charAt(0).toLowerCase()}${mossAppsAction.slice(1)}`,
       });
     }
+    if (mossOwnTool && mossOwnAction) {
+      return format("composer.mcpToolCallApproval.mossToolTitle", { action: mossOwnAction });
+    }
+    if (mossOwnTool && mcpTool.tool) {
+      return format("composer.mcpToolCallApproval.toolTitle", { toolName: mcpTool.tool });
+    }
     if (mcpTool.server && mcpTool.tool) {
       return format("composer.mcpToolCallApproval.title", {
         connectorName: mcpTool.server,
@@ -278,7 +284,12 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
     ? t("composer.webMcpApproval.subtitle")
     : computerScope
       ? `${computerScope.allowDetail} ${computerScope.denyDetail} ${computerScope.cancelDetail}`
-      : null;
+      : mossOwnTool && mossOwnAction
+        ? mcpTool.tool
+        : null;
+  // Codex's generated question only repeats the server and tool the card already names; every
+  // other text a provider sends (a path, a URL, a command, raw input) is the request itself.
+  const providerQuestionOnly = CODEX_MCP_APPROVAL_QUESTION.test(approval.detail?.trim() ?? "");
   const hasParams = (approval.toolParamsDisplay?.length ?? 0) > 0;
 
   return (
@@ -329,8 +340,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
         <ApprovalDetail
           parsed={parsed}
           suppressText={reasonTitle}
-          // The provider's own sentence repeats the title (Codex) or the rows (Claude's input).
-          hideFallback={variant === "mcp" && hasParams}
+          // Hidden only where it repeats what the card shows: Codex's generated question, or the
+          // provider's sentence over a tool's argument rows (WALK-7 N7-2, REVIEW-RULES rule 9).
+          hideFallback={providerQuestionOnly || (variant === "mcp" && hasParams)}
           {...(approval.permissionProfile ? { permissionProfile: approval.permissionProfile } : {})}
           {...(approval.toolName && !hasParams ? { toolName: approval.toolName } : {})}
           {...(hasParams && paramsOpen && approval.toolParamsDisplay
@@ -364,7 +376,7 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
             onClick={() => respondOnce("decline")}
           >
             {denyLabel}
-            <ShortcutKeycap variant="secondary">Esc</ShortcutKeycap>
+            <ShortcutKeycap>Esc</ShortcutKeycap>
           </Button>
           {sessionAvailable && !computerScope ? (
             <div className="inline-flex min-w-0">
@@ -377,7 +389,6 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
                 onClick={() => respondOnce("accept")}
               >
                 <span className="truncate">{allowLabel}</span>
-                <ShortcutKeycap variant="primary">⏎</ShortcutKeycap>
               </Button>
               <Menu>
                 <MenuTrigger
@@ -413,7 +424,6 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
               onClick={() => respondOnce("accept")}
             >
               {allowLabel}
-              <ShortcutKeycap variant="primary">⏎</ShortcutKeycap>
             </Button>
           )}
           {computerScope ? (
@@ -531,7 +541,7 @@ function ApprovalDetail({
     );
   }
 
-  const code = parsed.command ?? parsed.fallback;
+  const code = parsed.command ?? (hideFallback ? null : parsed.fallback);
   if (code && code !== suppressText) {
     return (
       <div className="px-3 pb-1">
@@ -559,7 +569,7 @@ function ApprovalDetail({
     );
   }
 
-  if (suppressText) return null;
+  if (suppressText || hideFallback) return null;
   return (
     <p className="px-4 pb-2 text-ui text-muted-foreground/65">Review the request to continue.</p>
   );

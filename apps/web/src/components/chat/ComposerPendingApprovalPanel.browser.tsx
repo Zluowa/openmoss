@@ -8,10 +8,11 @@ import {
   type ProviderApprovalDecision,
   type ProviderRequestKind,
 } from "@moss/contracts";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { MossLocaleScope } from "../../localization";
 import { type PendingApproval } from "../../session-logic";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 
@@ -75,6 +76,92 @@ async function mountApprovalPanel(input?: {
     },
   };
 }
+
+describe("walk H-4: approving is a click or the person's own Tab, never a stray Enter", () => {
+  const card = () => document.querySelector<HTMLElement>('[data-codex-approval-surface="true"]')!;
+  const allowOnce = () =>
+    card().querySelector<HTMLButtonElement>('[data-moss-visible-permission-action="accept"]')!;
+  const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+  /** Plain, held (auto-repeat) and IME-committing Enter, dispatched at `target`. */
+  async function pressEveryEnter(target: HTMLElement) {
+    target.focus();
+    await userEvent.keyboard("{Enter}");
+    for (const init of [
+      { repeat: true },
+      { repeat: true },
+      { isComposing: true, keyCode: 229 },
+    ] as const) {
+      target.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init }),
+      );
+    }
+    await nextFrame();
+  }
+
+  it("draws no ⏎ on 允许一次", async () => {
+    const mounted = await mountApprovalPanel();
+    try {
+      await expect.element(page.getByRole("button", { name: /Allow once/u })).toBeVisible();
+      const keys = Array.from(card().querySelectorAll("kbd")).map((kbd) => kbd.textContent);
+      expect(keys).not.toContain("⏎");
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("leaves the card pending on an Enter from the composer, a terminal, a rename field, the page or the card", async () => {
+    const composer = document.createElement("form");
+    composer.dataset.chatComposerForm = "true";
+    const editor = document.createElement("div");
+    editor.contentEditable = "true";
+    editor.textContent = "and then run the tests";
+    composer.append(editor);
+    const terminal = document.createElement("textarea");
+    terminal.className = "xterm-helper-textarea";
+    const rename = document.createElement("input");
+    rename.value = "Renamed chat";
+    document.body.append(composer, terminal, rename);
+    const mounted = await mountApprovalPanel();
+    try {
+      await expect.element(page.getByRole("button", { name: /Allow once/u })).toBeVisible();
+      // The card never takes focus by itself.
+      expect(card().contains(document.activeElement)).toBe(false);
+      const inCard = card().querySelector<HTMLElement>('[data-approval-command="true"]')!;
+      inCard.tabIndex = -1;
+      for (const target of [editor, terminal, rename, document.body, inCard]) {
+        await pressEveryEnter(target);
+      }
+      expect(mounted.onRespond).not.toHaveBeenCalled();
+      expect(card().isConnected).toBe(true);
+    } finally {
+      await mounted.cleanup();
+      composer.remove();
+      terminal.remove();
+      rename.remove();
+    }
+  });
+
+  it("approves when the person tabs to 允许一次 and presses Enter", async () => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+    const mounted = await mountApprovalPanel();
+    try {
+      await expect.element(page.getByRole("button", { name: /Allow once/u })).toBeVisible();
+      for (let step = 0; step < 12 && document.activeElement !== allowOnce(); step += 1) {
+        await userEvent.tab();
+      }
+      expect(document.activeElement).toBe(allowOnce());
+      await userEvent.keyboard("{Enter}");
+      await expect
+        .poll(() => vi.mocked(mounted.onRespond).mock.calls.map((call) => call[1]))
+        .toEqual(["accept"]);
+    } finally {
+      document.body.removeAttribute("tabindex");
+      await mounted.cleanup();
+    }
+  });
+});
 
 describe("ComposerPendingApprovalPanel", () => {
   it("explains task consent and keeps it separate from provider session approval", async () => {
@@ -195,6 +282,125 @@ describe("ComposerPendingApprovalPanel", () => {
       await expect.element(page.getByText(/Server|tool tool/)).not.toBeInTheDocument();
     } finally {
       await mounted.cleanup();
+    }
+  });
+
+  // WALK-7 N7-2: the card for Moss's own tool read 「允许 moss 运行 moss_canvas_open 工具？」 with
+  // Codex's English question under it. REVIEW-RULES rule 9: the card adds a sentence in the
+  // person's language on top of the facts; the tool's name and every argument stay, a tool
+  // without wording falls back to its name, and no card shows less than main.
+  async function mountInLocale(locale: "en" | "zh-CN", approval: PendingApproval) {
+    return render(
+      <MossLocaleScope locale={locale}>
+        <ComposerPendingApprovalPanel
+          approval={approval}
+          pendingCount={1}
+          isResponding={false}
+          onRespond={vi.fn(async () => undefined)}
+        />
+      </MossLocaleScope>,
+    );
+  }
+  const cardText = () =>
+    document.querySelector<HTMLElement>('[data-codex-approval-surface="true"]')?.textContent ?? "";
+
+  it.each([
+    // A Moss tool with wording: the sentence, and the tool's name under it.
+    { locale: "zh-CN", server: "moss", tool: "moss_canvas_open", title: "允许打开画布？" },
+    { locale: "en", server: "moss", tool: "moss_canvas_open", title: "Allow opening Canvas?" },
+    // A Moss tool without wording: its name, never "this tool".
+    {
+      locale: "zh-CN",
+      server: "moss",
+      tool: "moss_dashboard_write",
+      title: "允许运行 moss_dashboard_write？",
+    },
+    {
+      locale: "en",
+      server: "moss",
+      tool: "moss_dashboard_write",
+      title: "Allow moss_dashboard_write to run?",
+    },
+    // A third-party server: its name and its tool's name.
+    {
+      locale: "zh-CN",
+      server: "github",
+      tool: "list_issues",
+      title: "允许 github 运行 list_issues 工具？",
+    },
+    {
+      locale: "en",
+      server: "github",
+      tool: "list_issues",
+      title: "Allow github to run list_issues tool?",
+    },
+  ] as const)(
+    "writes the approval for $server's $tool in the person's language and keeps its name (WALK-7 N7-2, $locale)",
+    async ({ locale, server, tool, title }) => {
+      const question = `Allow the ${server} MCP server to run tool "${tool}"?`;
+      const screen = await mountInLocale(
+        locale,
+        makeApproval({
+          requestKind: "tool",
+          detail: question,
+          toolName: tool,
+          toolServerName: server,
+        }),
+      );
+      try {
+        await expect.element(page.getByText(title, { exact: true })).toBeVisible();
+        expect(cardText()).toContain(tool);
+        // Codex's generated question only repeated the names: it is the one thing that goes.
+        expect(cardText()).not.toContain(question);
+        expect(cardText()).not.toMatch(/MCP server|Review the request/u);
+      } finally {
+        await screen.unmount();
+      }
+    },
+  );
+
+  it("keeps a Moss tool's arguments on its card (WALK-7 N7-2)", async () => {
+    const screen = await mountInLocale(
+      "zh-CN",
+      makeApproval({
+        requestKind: "tool",
+        detail: 'Allow the moss MCP server to run tool "moss_app_publish"?',
+        toolName: "moss_app_publish",
+        toolServerName: "moss",
+        toolParamsDisplay: [{ name: "appId", value: "app-quarterly-report" }],
+      }),
+    );
+    try {
+      await expect.element(page.getByText("允许发布应用页？", { exact: true })).toBeVisible();
+      expect(cardText()).toContain("moss_app_publish");
+      await page.getByRole("button", { name: "显示详情" }).click();
+      await expect.element(page.getByText("app-quarterly-report")).toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  // An ACP or OpenCode approval carries what it touches in its own text, with no argument
+  // rows: the path or URL stays on the card, as on main (REVIEW-RULES rule 9).
+  it.each([
+    {
+      label: "an ACP read of a path",
+      detail: "Read /Users/me/project/notes.md",
+      fact: "/Users/me/project/notes.md",
+    },
+    {
+      label: "an OpenCode fetch of a URL",
+      detail: "webfetch: https://example.com/docs/setup",
+      fact: "https://example.com/docs/setup",
+    },
+  ] as const)("keeps what $label touches on the card (WALK-7 N7-2)", async ({ detail, fact }) => {
+    for (const locale of ["zh-CN", "en"] as const) {
+      const screen = await mountInLocale(locale, makeApproval({ requestKind: "tool", detail }));
+      try {
+        await vi.waitFor(() => expect(cardText()).toContain(fact));
+      } finally {
+        await screen.unmount();
+      }
     }
   });
 

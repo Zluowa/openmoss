@@ -1467,22 +1467,25 @@ function classifyRequestType(toolName: string): CanonicalRequestType {
       : "tool_approval";
 }
 
+/**
+ * "{tool}: {command or input}". A tool row's summary is capped at `maxChars` and a cut is
+ * always marked with "..."; an approval passes no cap, because the card must show what will
+ * run exactly as sent (REVIEW-RULES rule 9; the activity projection marks its own clamp).
+ */
 function summarizeToolRequest(
   toolName: string,
   input: Record<string, unknown>,
   serializedInput = JSON.stringify(input),
+  maxChars = 400,
 ): string {
   const commandValue = input.command ?? input.cmd;
-  const command = typeof commandValue === "string" ? commandValue : undefined;
-  if (command && command.trim().length > 0) {
-    // Truncation can land on a space or newline even after trimming the full
-    // command. Runtime-event display metadata must itself end trimmed.
-    return `${toolName}: ${command.trim().slice(0, 400).trimEnd()}`;
+  const command = typeof commandValue === "string" ? commandValue.trim() : undefined;
+  const value = command && command.length > 0 ? command : serializedInput;
+  if (value.length <= maxChars) {
+    return `${toolName}: ${value}`;
   }
-  if (serializedInput.length <= 400) {
-    return `${toolName}: ${serializedInput}`;
-  }
-  return `${toolName}: ${serializedInput.slice(0, 397)}...`;
+  // Runtime-event display metadata ends trimmed, even when the cut lands on a space.
+  return `${toolName}: ${value.slice(0, maxChars - 3).trimEnd()}...`;
 }
 
 // Tools whose result is surfaced through a dedicated runtime channel — AskUserQuestion
@@ -7093,11 +7096,13 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               // calls still reach the user instead of becoming unrestricted.
               const requestId = ApprovalRequestId.makeUnsafe(yield* Random.nextUUIDv4);
               const requestType = classifyRequestType(toolName);
-              // The approval detail is persisted with the card; keep credentials out.
+              // The approval detail is persisted with the card; keep credentials out. It is the
+              // whole command: the card shows what will run exactly as sent.
               const detail = summarizeToolRequest(
                 toolName,
                 toolInput,
                 JSON.stringify(toolInput, redactSensitiveJsonFields),
+                Number.POSITIVE_INFINITY,
               );
               const decisionDeferred = yield* Deferred.make<ProviderApprovalDecision>();
               const settledDeferred = yield* Deferred.make<ProviderApprovalDecision>();

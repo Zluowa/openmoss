@@ -2744,7 +2744,7 @@ describe("ClaudeAdapterLive", () => {
       assert.equal(toolStarted?.type, "item.started");
       if (toolStarted?.type === "item.started") {
         assert.equal(toolStarted.payload.itemType, "command_execution");
-        assert.equal(toolStarted.payload.detail, `Bash: ${"x".repeat(399)}`);
+        assert.equal(toolStarted.payload.detail, `Bash: ${"x".repeat(397)}...`);
       }
 
       const assistantCompletedIndex = runtimeEvents.findIndex(
@@ -8641,6 +8641,55 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
           providerThreadId: "sdk-thread-real",
         });
       }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  // chat-fix / REVIEW-RULES rule 9: the approval card must show what will run exactly as sent.
+  // The approval detail was cut at 400 characters with no mark, so a long command read as
+  // complete.
+  it.effect("puts the whole command on a Claude approval, however long", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "approval-required",
+      });
+      yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+      yield* adapter.sendTurn({ threadId: session.threadId, input: "run it", attachments: [] });
+      yield* Stream.take(adapter.streamEvents, 1).pipe(Stream.runDrain);
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-long-command",
+        uuid: "stream-long-command",
+        parent_tool_use_id: null,
+        event: { type: "message_start", message: { id: "msg-long-command" } },
+      } as unknown as SDKMessage);
+      const threadStarted = yield* Stream.runHead(adapter.streamEvents);
+      assert.equal(threadStarted._tag, "Some");
+
+      const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+      assert.equal(typeof canUseTool, "function");
+      if (!canUseTool) return;
+      const longCommand = `echo ${"a".repeat(450)} && rm -rf ./build`;
+      void canUseTool(
+        "Bash",
+        { command: longCommand },
+        {
+          signal: new AbortController().signal,
+          toolUseID: "tool-use-long",
+          requestId: "request-tool-use-long",
+        },
+      );
+      const requested = yield* Stream.runHead(adapter.streamEvents);
+      assert.equal(requested._tag, "Some");
+      if (requested._tag !== "Some" || requested.value.type !== "request.opened") return;
+      // The part past 400 characters (here, what it deletes) is on the card.
+      assert.equal(requested.value.payload.detail, `Bash: ${longCommand}`);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

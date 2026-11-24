@@ -9,6 +9,15 @@ import { MCP_CONNECTOR_SERVER_NAME_SUFFIX } from "./mcpConnectors";
 /** Moss's own MCP server in Codex's config (`MOSS_MCP_SERVER_NAME` in the server's mcpInjection). */
 export const MOSS_CODEX_MCP_SERVER_NAME = "moss";
 
+/**
+ * The question Codex generates for a native MCP tool approval: "Allow the {server} MCP server to
+ * run tool "{tool}"?". It carries nothing beyond the server and tool names, which the request
+ * already has, so a card writes its own sentence instead (WALK-7 N7-2). Any other approval text
+ * (a path, a URL, a command, raw input) is the request itself and always stays visible.
+ */
+export const CODEX_MCP_APPROVAL_QUESTION =
+  /^Allow the (\S+) MCP server to run tool "([^"\r\n]+)"\?$/u;
+
 // Codex's own background subsystems log every retry on stderr. Codex reports the
 // user-relevant outcome through the turn itself (a failed turn carries the auth error),
 // and neither the Codex CLI nor its desktop app shows these lines. A refused Responses

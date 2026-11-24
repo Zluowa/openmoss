@@ -4,6 +4,7 @@ import {
   BROWSER_HISTORY_TITLES,
   MOSS_MCP_TOOL_PRESENTATIONS,
   localizeMossToolHeading,
+  mossToolApprovalAction,
   mossToolLabel,
 } from "./mossToolPresentation";
 
@@ -66,5 +67,14 @@ describe("Moss tool words, one table for desktop and phone", () => {
     expect(mossToolLabel({ toolName: "mcp__github__create_issue", locale: "zh-CN" })).toBeNull();
     expect(mossToolLabel({ toolName: "Bash", locale: "en" })).toBeNull();
     expect(mossToolLabel({ toolName: "mcp__moss_apps__run_action", locale: "en" })).toBeNull();
+  });
+});
+
+// WALK-7 N7-2: an approval for one of Moss's own tools says what it will do.
+describe("mossToolApprovalAction", () => {
+  it("reads the action from the tool tables, in each language", () => {
+    expect(mossToolApprovalAction("moss_canvas_open", "zh-CN")).toBe("打开画布");
+    expect(mossToolApprovalAction("moss_canvas_open", "en")).toBe("opening Canvas");
+    expect(mossToolApprovalAction("moss_not_a_tool", "zh-CN")).toBeNull();
   });
 });

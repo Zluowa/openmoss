@@ -394,6 +394,22 @@ export const MOSS_MCP_TOOL_PRESENTATIONS = {
   moss_pages_comments: presentMossTool("reading page comments", "read page comments"),
   moss_pages_mutate: presentMossTool("updating a page", "updated a page"),
   moss_canvas_open: presentMossTool("opening Canvas", "opened Canvas"),
+  moss_app_publish: presentMossTool("publishing an app page", "published an app page"),
+  moss_delete_sidebar_section: presentMossTool(
+    "deleting a sidebar section",
+    "deleted a sidebar section",
+  ),
+  moss_project_forget: presentMossTool(
+    "removing a project memory note",
+    "removed a project memory note",
+  ),
+  moss_hub_cancel_work: presentMossTool("cancelling queued work", "cancelled queued work"),
+  moss_project_write_document: presentMossTool(
+    "writing a project document",
+    "wrote a project document",
+  ),
+  moss_sheet_write_range: presentMossTool("writing to a sheet", "wrote to a sheet"),
+  moss_slides_edit: presentMossTool("editing slides", "edited slides"),
   moss_canvas_read: presentMossTool("reading Canvas", "read Canvas"),
   moss_canvas_mutate: presentMossTool("updating Canvas", "updated Canvas"),
   moss_media_list: presentMossTool(
@@ -551,6 +567,13 @@ export const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
   moss_pages_comments: ["正在读取文档评论", "已读取文档评论", "无法读取文档评论"],
   moss_pages_mutate: ["正在更新文档", "已更新文档", "无法更新文档"],
   moss_canvas_open: ["正在打开画布", "已打开画布", "无法打开画布"],
+  moss_app_publish: ["正在发布应用页", "已发布应用页", "无法发布应用页"],
+  moss_delete_sidebar_section: ["正在删除侧边栏分区", "已删除侧边栏分区", "无法删除侧边栏分区"],
+  moss_project_forget: ["正在删除项目记忆", "已删除项目记忆", "无法删除项目记忆"],
+  moss_hub_cancel_work: ["正在取消排队的工作", "已取消排队的工作", "无法取消排队的工作"],
+  moss_project_write_document: ["正在写入项目文档", "已写入项目文档", "无法写入项目文档"],
+  moss_sheet_write_range: ["正在写入表格", "已写入表格", "无法写入表格"],
+  moss_slides_edit: ["正在编辑幻灯片", "已编辑幻灯片", "无法编辑幻灯片"],
   moss_canvas_read: ["正在查看画布", "已查看画布", "无法查看画布"],
   moss_canvas_mutate: ["正在更新画布", "已更新画布", "无法更新画布"],
   moss_media_list: ["正在查看图像和视频模型", "已查看图像和视频模型", "无法查看图像和视频模型"],
@@ -743,6 +766,25 @@ export function resolveMossBrowserToolName(
     }
   }
   return null;
+}
+
+/**
+ * What a Moss tool will do, for its approval question ("opening Canvas" / 「打开画布」), from the
+ * same tables as its tool row; null for a tool the tables do not know.
+ */
+export function mossToolApprovalAction(toolName: string, locale: "en" | "zh-CN"): string | null {
+  const name = aliasMossPrefix(normalizeMossMcpIdentifier(toolName));
+  if (locale === "zh-CN") {
+    const running =
+      ZH_CN_MOSS_TOOL_PRESENTATIONS[name as keyof typeof MOSS_MCP_TOOL_PRESENTATIONS]?.[0];
+    return running?.startsWith("正在") ? running.slice("正在".length) : null;
+  }
+  const running = (
+    MOSS_MCP_TOOL_PRESENTATIONS[name as keyof typeof MOSS_MCP_TOOL_PRESENTATIONS] as
+      | MossMcpToolPresentation
+      | undefined
+  )?.running;
+  return running?.startsWith("Moss is ") ? running.slice("Moss is ".length) : null;
 }
 
 export function fallbackMossMcpToolPresentation(toolName: string): MossMcpToolPresentation {

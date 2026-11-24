@@ -9,6 +9,7 @@ import {
   TurnId,
 } from "@moss/contracts";
 import { readProposedExecpolicyAmendment } from "@moss/shared/approvalSessionGrant";
+import { CODEX_MCP_APPROVAL_QUESTION } from "@moss/shared/codexDiagnostics";
 import { nonEmptyTrimmed } from "@moss/shared/text";
 import { sanitizeUserFacingErrorMessage } from "@moss/shared/errorMessages";
 import { providerRuntimeCommandProgressKey } from "./providerRuntimeProgressCoalescing.ts";
@@ -646,9 +647,8 @@ function requestedApprovalReason(
   return { approvalReason: truncateDetail(reason, 500) };
 }
 
-// The question Codex generates for a native MCP tool approval. Current builds
-// leave `tool_name` out of the elicitation `_meta`, so this names the tool.
-const CODEX_MCP_APPROVAL_MESSAGE = /^Allow the (\S+) MCP server to run tool "([^"\r\n]+)"\?$/u;
+// Current Codex builds leave `tool_name` out of the elicitation `_meta`, so the question Codex
+// generates (CODEX_MCP_APPROVAL_QUESTION) names the tool.
 
 function requestedMcpToolCallPresentation(
   event: Extract<ProviderRuntimeEvent, { type: "request.opened" }>,
@@ -665,7 +665,7 @@ function requestedMcpToolCallPresentation(
   // request carries the tool name and the raw tool input instead.
   const metadata = asObject(args?._meta);
   const title = asString(metadata?.tool_title);
-  const generated = CODEX_MCP_APPROVAL_MESSAGE.exec(asString(args?.message)?.trim() ?? "");
+  const generated = CODEX_MCP_APPROVAL_QUESTION.exec(asString(args?.message)?.trim() ?? "");
   const toolName = asString(metadata?.tool_name) ?? asString(args?.toolName) ?? generated?.[2];
   const toolServerName = asString(args?.serverName) ?? generated?.[1];
   const rawParams = Array.isArray(metadata?.tool_params_display)
