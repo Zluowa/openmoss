@@ -8,6 +8,8 @@ import { cleanup, render } from "vitest-browser-react";
 import { COMPOSER_PLACEHOLDER_TEXT_CLASS_NAME } from "./chat/composerPickerStyles";
 import { composeChineseWithEnter } from "../test/imeComposition";
 import { ComposerPromptEditor, type ComposerPromptEditorHandle } from "./ComposerPromptEditor";
+import { MossLocaleScope } from "../localization";
+import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
 
 afterEach(async () => {
   await cleanup();
@@ -291,6 +293,39 @@ function expectChipAttachedToText() {
   if (sameRow) expect(chipRect.left).toBeGreaterThanOrEqual(lastTextRow.right);
   else expect(chipRect.top).toBeGreaterThanOrEqual(lastTextRow.bottom - 0.5);
 }
+
+it("names the empty composer in Chinese to a screen reader, like its visible placeholder (walk N7-7)", async () => {
+  document.documentElement.lang = "zh-CN";
+  document.documentElement.dataset.mossLocale = "zh-CN";
+  installZhCnUiLocalization();
+  const screen = await render(
+    <MossLocaleScope locale="zh-CN">
+      <div style={{ width: 640 }}>
+        <ComposerPromptEditor
+          value=""
+          cursor={0}
+          terminalContexts={[]}
+          disabled={false}
+          placeholder="Do anything in Moss"
+          ariaLabel="Message"
+          onRemoveTerminalContext={vi.fn()}
+          onChange={vi.fn()}
+          onPaste={vi.fn()}
+        />
+      </div>
+    </MossLocaleScope>,
+  );
+  try {
+    const editor = document.querySelector<HTMLElement>('[data-testid="composer-editor"]')!;
+    await expect.poll(() => document.body.textContent).toContain("在 Moss 里做任何事");
+    expect(editor.getAttribute("aria-placeholder")).toBe("在 Moss 里做任何事");
+  } finally {
+    await screen.unmount();
+    uninstallZhCnUiLocalization();
+    document.documentElement.lang = "en";
+    delete document.documentElement.dataset.mossLocale;
+  }
+});
 
 describe("composer prediction ghost", () => {
   const prediction = "Fix the fixture and rerun that test.";

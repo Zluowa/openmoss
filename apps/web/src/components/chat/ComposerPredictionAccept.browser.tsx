@@ -27,16 +27,17 @@ import {
 import { useChatTranscriptScroll } from "./useChatTranscriptScroll";
 
 const nativeApi = vi.hoisted(() => ({ suggestion: "" }));
-vi.mock("~/nativeApi", () => ({
-  readNativeApi: () => ({
+vi.mock("~/nativeApi", () => {
+  const api = () => ({
     server: {
       generateComposerPrediction: async () => ({
         suggestion: nativeApi.suggestion,
         outcome: "suggested",
       }),
     },
-  }),
-}));
+  });
+  return { readNativeApi: api, ensureNativeApi: api };
+});
 
 const THREAD_ID = ThreadId.makeUnsafe("thread-accept");
 const TARGET: ComposerPredictionTarget = {

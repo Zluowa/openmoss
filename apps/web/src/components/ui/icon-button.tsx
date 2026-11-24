@@ -16,6 +16,8 @@ type IconButtonProps = Omit<ComponentProps<typeof Button>, "aria-label" | "child
   tooltip?: ReactNode;
   tooltipDelay?: ComponentProps<typeof TooltipTrigger>["delay"];
   tooltipSide?: ComponentProps<typeof TooltipPopup>["side"];
+  /** False keeps the tooltip open through a press, so it can confirm what the press did. */
+  tooltipCloseOnClick?: boolean;
   children: ReactNode;
 };
 
@@ -26,6 +28,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
     tooltip,
     tooltipDelay,
     tooltipSide: tooltipSideProp,
+    tooltipCloseOnClick,
     title,
     className,
     size: sizeProp,
@@ -58,6 +61,7 @@ const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconB
     <Tooltip>
       <TooltipTrigger
         delay={tooltipDelay}
+        {...(tooltipCloseOnClick === false ? { closeOnClick: false } : {})}
         render={
           <Button
             {...buttonProps}

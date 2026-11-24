@@ -72,6 +72,8 @@ import { useStore } from "~/store";
 import { createComposerThreadMentionSourcesSelector } from "~/storeSelectors";
 import { resolveThreadDisplayProvider } from "~/lib/threadDisplayProvider";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import {
   COMPOSER_EDITOR_CONTENT_RESET_CLASS_NAME,
   COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME,
@@ -961,6 +963,11 @@ function ComposerPromptEditorInner({
   onPaste,
   editorRef,
 }: ComposerPromptEditorInnerProps) {
+  const { locale } = useTranslation();
+  // The visible placeholder is translated with the page; the attribute a screen reader reads
+  // is not, so it is translated here (walk N7-7: 「Do anything in Moss」 beside 在 Moss 里做任何事).
+  const spokenPlaceholder =
+    locale === "zh-CN" ? translateZhCnPresentationText(placeholder) : placeholder;
   const mentionReferences = mentionReferencesProp ?? [];
   const [editor] = useLexicalComposerContext();
   const onChangeRef = useRef(onChange);
@@ -1256,7 +1263,7 @@ function ComposerPromptEditorInner({
               )}
               data-testid="composer-editor"
               data-composer-editor=""
-              aria-placeholder={prediction || placeholder}
+              aria-placeholder={prediction || spokenPlaceholder}
               aria-label={ariaLabel}
               placeholder={<span />}
               onPaste={onPaste}

@@ -30,11 +30,21 @@ type MessageActionButtonProps = Omit<
   label: string;
   tooltip: ReactNode;
   tooltipSide?: ComponentProps<typeof TooltipPopup>["side"];
+  tooltipCloseOnClick?: boolean;
 };
 
 export const MessageActionButton = forwardRef<HTMLButtonElement, MessageActionButtonProps>(
   function MessageActionButton(
-    { children, className, label, tooltip, tooltipSide: tooltipSideProp, type: typeProp, ...props },
+    {
+      children,
+      className,
+      label,
+      tooltip,
+      tooltipSide: tooltipSideProp,
+      tooltipCloseOnClick,
+      type: typeProp,
+      ...props
+    },
     ref,
   ) {
     const tooltipSide = tooltipSideProp ?? "top";
@@ -47,6 +57,7 @@ export const MessageActionButton = forwardRef<HTMLButtonElement, MessageActionBu
         label={label}
         tooltip={tooltip}
         tooltipSide={tooltipSide}
+        {...(tooltipCloseOnClick === undefined ? {} : { tooltipCloseOnClick })}
         className={cn(MESSAGE_ACTION_BUTTON_CLASS_NAME, className)}
         size="icon-xs"
         variant="ghost"
