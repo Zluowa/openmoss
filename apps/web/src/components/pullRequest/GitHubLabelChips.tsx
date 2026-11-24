@@ -6,6 +6,7 @@
 // Layer: Pull request presentation
 // Exports: GitHubLabelChips, GitHubLabelDot
 
+import { StatusDot } from "~/components/ui/status-chip";
 import type { PullRequestLabel } from "@moss/contracts";
 
 import { Badge } from "~/components/ui/badge";
@@ -21,9 +22,9 @@ export function GitHubLabelDot({
   className?: string;
 }) {
   return (
-    <span
+    <StatusDot
       aria-hidden
-      className={cn("size-1.5 shrink-0 rounded-full bg-muted-foreground/50", className)}
+      className={cn("bg-muted-foreground/50", className)}
       style={color ? { backgroundColor: color } : undefined}
     />
   );

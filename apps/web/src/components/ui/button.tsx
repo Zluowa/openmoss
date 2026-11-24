@@ -6,6 +6,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
 import { cn } from "~/lib/utils";
+import { Spinner } from "./spinner";
 import { definedProps } from "./uiSdkProps";
 
 /** Slightly softer outline border for header chrome buttons in dark mode. */
@@ -129,6 +130,11 @@ interface ButtonProps extends Omit<React.ComponentProps<"button">, "type"> {
   variant?: VariantProps<typeof buttonVariants>["variant"];
   size?: VariantProps<typeof buttonVariants>["size"];
   shape?: VariantProps<typeof buttonVariants>["shape"];
+  /**
+   * Work is running for this button: a decorative spinner leads its content and `aria-busy` is
+   * set. The spinner is hidden from the accessibility tree, so the button's name stays its label.
+   */
+  busy?: boolean;
 }
 
 /**
@@ -165,6 +171,8 @@ function Button({
   shape,
   render,
   onClick,
+  busy,
+  children,
   "data-slot": slot,
   ...props
 }: ButtonProps & { "data-slot"?: string }) {
@@ -172,6 +180,7 @@ function Button({
     <ButtonPrimitive
       {...definedProps<object, React.ComponentProps<typeof ButtonPrimitive>>(props)}
       className={cn(buttonVariants({ className, shape, size, variant }))}
+      {...(busy ? { "aria-busy": true } : {})}
       // UI SDK holds a button "pending" while a Promise its click handler returned runs, and
       // ignores presses meanwhile. Moss handlers guard their own double sends, and several start
       // long work on purpose (a send that streams), so the press never becomes a pending state.
@@ -183,7 +192,10 @@ function Button({
             }
           : undefined,
       })}
-    />
+    >
+      {busy ? <Spinner decorative /> : null}
+      {children}
+    </ButtonPrimitive>
   );
 }
 

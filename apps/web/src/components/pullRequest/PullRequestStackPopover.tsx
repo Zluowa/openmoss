@@ -5,6 +5,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestStackPopover
 
+import { HitArea } from "~/components/ui/hit-area";
 import type { PullRequestStack } from "@moss/contracts";
 import { useState } from "react";
 
@@ -86,7 +87,7 @@ export function PullRequestStackPopover({
                     className="absolute left-[1.6875rem] top-8 h-[calc(100%-1rem)] w-px bg-border"
                   />
                 ) : null}
-                <button
+                <HitArea
                   type="button"
                   aria-current={current ? "page" : undefined}
                   className={cn(
@@ -117,7 +118,7 @@ export function PullRequestStackPopover({
                   {!current ? (
                     <ArrowUpRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
                   ) : null}
-                </button>
+                </HitArea>
               </div>
             );
           })}

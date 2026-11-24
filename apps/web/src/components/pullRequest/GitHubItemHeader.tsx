@@ -7,6 +7,7 @@
 // Layer: Pull request presentation
 // Exports: GitHubItemHeader, GitHubItemHeaderItem, GitHubItemBackButton
 
+import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 import type {
   GitHubIssueDetail,
   GitPullRequestMergeability,
@@ -157,7 +158,7 @@ export function GitHubItemHeader({
         </span>
       </div>
       {/* The page title role (22 on 28), as on every Moss page. */}
-      <h1 className="mt-3 text-title font-semibold break-words" data-translation-skip="true">
+      <h1 className={cn("mt-3 break-words", PAGE_TITLE_CLASS_NAME)} data-translation-skip="true">
         {item.title}
       </h1>
       <PullRequestMetaLine

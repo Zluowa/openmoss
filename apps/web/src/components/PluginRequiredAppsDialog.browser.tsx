@@ -122,10 +122,57 @@ describe("PluginRequiredAppsDialog", () => {
       connect?.click();
       expect(onConnect).toHaveBeenCalledTimes(1);
 
+      // The three marks between the two logos are the shared 6 px status dot (the plugin's
+      // fallback logo is an icon span, marked data-slot, and is not one of them).
+      const dots = [
+        ...document.querySelectorAll<HTMLElement>(
+          "[aria-hidden='true'] > span > span:not([data-slot])",
+        ),
+      ];
+      expect(dots).toHaveLength(3);
+      for (const dot of dots) {
+        expect(dot.getBoundingClientRect().width).toBe(6);
+        expect(getComputedStyle(dot).borderTopLeftRadius).not.toBe("0px");
+      }
       await page.getByRole("button", { name: "View details" }).click();
       await page.getByRole("button", { name: "Try GitHub now" }).click();
       expect(onViewDetails).toHaveBeenCalledTimes(1);
       expect(onTryNow).toHaveBeenCalledTimes(1);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("turns the shared spinner in Connect, still named Connect, while the app is launching", async () => {
+    const screen = await render(
+      <PluginRequiredAppsDialog
+        open
+        pluginName="GitHub"
+        pluginLogoUrl={null}
+        apps={[{ ...APPS[0]!, status: "launching" }]}
+        onOpenChange={vi.fn()}
+        onConnect={vi.fn()}
+        onViewDetails={vi.fn()}
+        onTryNow={vi.fn()}
+      />,
+    );
+    try {
+      await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+      const connect = document.querySelector<HTMLButtonElement>(
+        'button[data-plugin-required-app-id="connector/github"]',
+      )!;
+      expect(connect).not.toBeNull();
+      expect(connect.disabled).toBe(true);
+      // The shared spinner glyph (the loader, not the refresh arrow) turns inside Connect, and it
+      // is decorative: the button is still found by exactly its label.
+      const glyph = connect.querySelector<HTMLElement>("[data-slot='central-icon'].animate-spin");
+      expect(glyph).not.toBeNull();
+      expect(getComputedStyle(glyph!).maskImage).toContain("loader");
+      expect(connect.getAttribute("aria-busy")).toBe("true");
+      expect(connect.querySelector('[role="status"]')).toBeNull();
+      await expect
+        .element(page.getByRole("button", { name: "Connect", exact: true }))
+        .toBeInTheDocument();
     } finally {
       await screen.unmount();
     }

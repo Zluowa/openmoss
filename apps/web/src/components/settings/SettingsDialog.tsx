@@ -3,7 +3,7 @@
 //          strip with a close button, the page list on the left and the page on the right.
 //          Closed with ×, Esc or a click outside; deep links open it at a page or row.
 // Layer: Settings UI shell
-// Exports: SettingsDialog, SettingsDialogHost
+// Exports: SettingsDialog, SettingsDialogHost, preloadSettingsPages
 
 import { useLocation } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
@@ -27,8 +27,18 @@ import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { XIcon } from "~/lib/icons";
 
 // The pages pull in most of the settings code; load them the first time Settings opens.
+let settingsContentModule: Promise<typeof import("./SettingsContent")> | null = null;
+/** Starts (once) and returns the load of the pages; opening Settings reuses the same load. */
+export function preloadSettingsPages(): Promise<unknown> {
+  settingsContentModule ??= import("./SettingsContent");
+  return settingsContentModule;
+}
 const SettingsContent = lazy(() =>
-  import("./SettingsContent").then((module) => ({ default: module.SettingsContent })),
+  preloadSettingsPages()
+    .then(() => settingsContentModule!)
+    .then((module) => ({
+      default: module.SettingsContent,
+    })),
 );
 
 /**
@@ -150,5 +160,10 @@ export function SettingsDialogHost() {
   useEffect(() => {
     rememberSettingsBackground(pathname, href);
   }, [href, pathname]);
+  // Load the pages while the shell is idle, so a person's first open does not wait for them.
+  useEffect(() => {
+    const handle = window.setTimeout(() => void preloadSettingsPages(), 1_000);
+    return () => window.clearTimeout(handle);
+  }, []);
   return <SettingsDialog />;
 }

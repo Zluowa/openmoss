@@ -11,7 +11,7 @@ import type {
   GitHubInboxPullRequestItem,
   PullRequestListEntry,
 } from "@moss/contracts";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { useState } from "react";
@@ -19,6 +19,7 @@ import { useState } from "react";
 import { PullRequestAvatar } from "./PullRequestAvatar";
 import { PullRequestList } from "./PullRequestList";
 import { PullRequestRow } from "./PullRequestRow";
+import { PullRequestStateGlyph } from "./PullRequestStateGlyph";
 import { groupPullRequestEntriesByInvolvement } from "./pullRequestList.logic";
 import { focusPullRequestRow, isFocusInsideRightDock } from "./pullRequestFocus";
 
@@ -301,5 +302,50 @@ describe("PullRequestAvatar", () => {
 
     expect(document.querySelector("img")).toBeNull();
     expect(document.body.textContent).toContain("P");
+  });
+});
+
+describe("code review parts on the shared set", () => {
+  it("draws the pin as the shared 28 px icon button named by the Moss tooltip", async () => {
+    await render(
+      <PullRequestRow
+        entry={makeEntry(false)}
+        selected={false}
+        onClick={vi.fn()}
+        onTogglePinned={vi.fn()}
+      />,
+    );
+    const pin = document.querySelector<HTMLElement>('button[aria-label="Pin pull request #42"]')!;
+    expect(pin.getAttribute("data-slot")).toBe("tooltip-trigger");
+    expect(pin.getBoundingClientRect().height).toBe(28);
+    expect(pin.hasAttribute("title")).toBe(false);
+    await userEvent.hover(page.elementLocator(pin));
+    await expect
+      .poll(() => document.querySelector("[data-slot='tooltip-popup']")?.textContent ?? "")
+      .toBe("Pin pull request #42");
+  });
+
+  it("names a pull request's state glyph with the Moss tooltip, not a native title", async () => {
+    await render(
+      <div className="p-10">
+        <PullRequestStateGlyph state="open" isDraft={false} mergeability={undefined} />
+      </div>,
+    );
+    const glyph = document.querySelector<HTMLElement>('[role="img"]')!;
+    expect(glyph.hasAttribute("title")).toBe(false);
+    await userEvent.hover(page.elementLocator(glyph));
+    await expect
+      .poll(() => (document.querySelector("[data-slot='tooltip-popup']")?.textContent ?? "").length)
+      .toBeGreaterThan(0);
+  });
+
+  it("sets the small avatar's letter in the 11 px type role", async () => {
+    await render(
+      <PullRequestAvatar actor={{ login: "octo", avatarUrl: null } as never} size="sm" />,
+    );
+    const avatar =
+      document.querySelector<HTMLElement>('span[aria-hidden="true"].rounded-full') ??
+      document.querySelector<HTMLElement>('span[aria-hidden="true"]')!;
+    expect(getComputedStyle(avatar).fontSize).toBe("11px");
   });
 });

@@ -102,7 +102,6 @@ export function PrStateCountChip({
           <span
             role="button"
             tabIndex={0}
-            title={label}
             aria-label={label}
             data-slot="pull-request-count-chip"
             onClick={stopRowGesture}

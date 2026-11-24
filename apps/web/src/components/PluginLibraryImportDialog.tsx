@@ -4,6 +4,7 @@
 //          and a receipt-gated rollback action when the adapter supports CAS.
 // Layer: Web UI
 
+import { Spinner } from "~/components/ui/spinner";
 import {
   useCallback,
   useEffect,
@@ -19,7 +20,6 @@ import {
   CircleCheckIcon,
   FileIcon,
   FolderOpenIcon,
-  Loader2Icon,
   PluginIcon,
   TerminalIcon,
   TriangleAlertIcon,
@@ -581,7 +581,7 @@ export function PluginLibraryImportDialog({
             <div className="space-y-4" data-testid="plugin-import-scan-panel">
               {busy ? (
                 <StatusNotice tone="muted">
-                  <Loader2Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin" />
+                  <Spinner decorative className="mt-0.5 size-4 shrink-0" />
                   <span>{t("plugins.import.scan.loading")}</span>
                 </StatusNotice>
               ) : error ? (
@@ -597,7 +597,7 @@ export function PluginLibraryImportDialog({
             <div className="space-y-4" data-testid="plugin-import-conflict-panel">
               {busy ? (
                 <StatusNotice tone="muted">
-                  <Loader2Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin" />
+                  <Spinner decorative className="mt-0.5 size-4 shrink-0" />
                   <span>{t("plugins.import.conflict.checking")}</span>
                 </StatusNotice>
               ) : error ? (
@@ -733,7 +733,7 @@ export function PluginLibraryImportDialog({
           {showProgress && candidate ? (
             <div className="space-y-4" data-testid="plugin-import-progress-panel">
               <div className="flex items-center gap-2 text-ui-lg text-foreground">
-                <Loader2Icon aria-hidden="true" className="size-4 animate-spin" />
+                <Spinner decorative className="size-4" />
                 <span>{t("plugins.import.progress.writing")}</span>
               </div>
               <div

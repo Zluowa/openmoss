@@ -7,6 +7,7 @@
 // Layer: Pull request presentation
 // Exports: GitHubItemFloatingComposer
 
+import { Spinner } from "~/components/ui/spinner";
 import type { ProjectId, ThreadId } from "@moss/contracts";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { useMemo, useRef, useState, type ReactNode } from "react";
@@ -26,13 +27,7 @@ import { Menu, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "~/components/u
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { CentralIcon } from "~/lib/central-icons";
-import {
-  ChevronDownIcon,
-  ComposerSendArrowIcon,
-  FolderIcon,
-  LoaderCircleIcon,
-  PlusIcon,
-} from "~/lib/icons";
+import { ChevronDownIcon, ComposerSendArrowIcon, FolderIcon, PlusIcon } from "~/lib/icons";
 import { resolveVoiceTranscriptionTarget } from "~/lib/providerAvailability";
 import { resolveThreadEnvironmentPresentation } from "~/lib/threadEnvironment";
 import { cn } from "~/lib/utils";
@@ -212,7 +207,7 @@ export function GitHubItemFloatingComposer({
             onClick={submit}
           >
             {pending ? (
-              <LoaderCircleIcon className="size-3 animate-spin" />
+              <Spinner className="size-3" />
             ) : (
               <ComposerSendArrowIcon
                 aria-hidden="true"

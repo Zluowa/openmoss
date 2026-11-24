@@ -1,10 +1,11 @@
 // FILE: PluginRequiredAppsDialog.tsx
 // Purpose: Multi-app post-install connector onboarding.
 
+import { StatusDot } from "~/components/ui/status-chip";
 import { useEffect, useRef } from "react";
 
 import { useTranslation } from "~/localization";
-import { AppsIcon, CheckIcon, MessageCircleIcon, PluginIcon, RefreshCwIcon } from "~/lib/icons";
+import { AppsIcon, CheckIcon, MessageCircleIcon, PluginIcon } from "~/lib/icons";
 import { OpenAI } from "./Icons";
 import { Button } from "./ui/button";
 import {
@@ -98,9 +99,9 @@ export function PluginRequiredAppsDialog({
               <OpenAI className="size-12" />
             </span>
             <span className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-border" />
-              <span className="size-1.5 rounded-full bg-border" />
-              <span className="size-1.5 rounded-full bg-border" />
+              <StatusDot className="bg-border" />
+              <StatusDot className="bg-border" />
+              <StatusDot className="bg-border" />
             </span>
             <span className="flex size-[60px] items-center justify-center overflow-hidden rounded-card border border-border bg-muted shadow-sm">
               {pluginLogoUrl ? (
@@ -153,6 +154,7 @@ export function PluginRequiredAppsDialog({
                     data-plugin-required-app-id={app.id}
                     variant={connected || opened ? "ghost" : "outline"}
                     size="sm"
+                    busy={launching}
                     disabled={connected || opened || launching}
                     onClick={() => connect(app)}
                   >
@@ -164,10 +166,7 @@ export function PluginRequiredAppsDialog({
                     ) : opened ? (
                       t("plugins.installModal.requiredApps.openedLink")
                     ) : (
-                      <>
-                        {launching ? <RefreshCwIcon className="size-4 animate-spin" /> : null}
-                        {t("plugins.installModal.requiredApps.connect")}
-                      </>
+                      <>{t("plugins.installModal.requiredApps.connect")}</>
                     )}
                   </Button>
                 </div>

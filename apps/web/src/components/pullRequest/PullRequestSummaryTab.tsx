@@ -7,6 +7,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestSummaryTab, PullRequestPageSummary, GitHubItemPageSummary, GitHubItemComments
 
+import { HitArea } from "~/components/ui/hit-area";
 import type { PullRequestComment, PullRequestDetail } from "@moss/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -220,7 +221,7 @@ export function PullRequestSummaryTab({
       <section className={cn("space-y-4 px-5", showHeading ? "py-5" : "py-3")}>
         {showHeading ? (
           <div className="min-w-0">
-            <h1 className="text-lg font-semibold leading-snug">{detail.title}</h1>
+            <h1 className="text-ui-lg font-medium">{detail.title}</h1>
             {/* Muted line, with the author the one thing lifted out of it. */}
             <PullRequestMetaLine
               className={cn(PR_META_TEXT_CLASS_NAME, "mt-1.5 flex-wrap text-muted-foreground")}
@@ -318,7 +319,7 @@ export function PullRequestSummaryTab({
             </p>
           ) : (
             withStableCheckKeys(detail.checks).map(({ key, check }) => (
-              <button
+              <HitArea
                 key={key}
                 type="button"
                 disabled={!check.url}
@@ -337,7 +338,7 @@ export function PullRequestSummaryTab({
                 <span className="text-muted-foreground">
                   {t(PULL_REQUEST_CHECK_STATUS_LABEL_KEYS[check.status])}
                 </span>
-              </button>
+              </HitArea>
             ))
           )}
         </div>

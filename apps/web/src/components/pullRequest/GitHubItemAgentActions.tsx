@@ -13,7 +13,7 @@ import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPop
 import { MENU_ICON_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuTrigger } from "~/components/ui/menu";
-import { BotIcon, ChevronDownIcon, LoaderIcon } from "~/lib/icons";
+import { BotIcon, ChevronDownIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 
 /**
@@ -73,7 +73,7 @@ export function GitHubItemAgentActions({
   const { t } = useTranslation();
   const sendLabel = sending ? t("codeReview.agent.preparing") : t("codeReview.agent.send");
   const label = <span className={TOP_BAR_NARROW_LABEL_CLASS_NAME}>{sendLabel}</span>;
-  const icon = sending ? <LoaderIcon className="animate-spin" /> : <BotIcon />;
+  const icon = sending ? null : <BotIcon />;
   const [onlyTarget] = sendTargets;
   if (sendTargets.length > 1) {
     return (
@@ -84,6 +84,7 @@ export function GitHubItemAgentActions({
               variant="outline"
               size="sm"
               disabled={sending}
+              busy={sending}
               aria-label={t("codeReview.agent.chooseProject")}
             />
           }
@@ -108,6 +109,7 @@ export function GitHubItemAgentActions({
       variant="outline"
       size="sm"
       disabled={sending}
+      busy={sending}
       onClick={() => onSendToAgent(onlyTarget.projectId)}
       title={sendLabel}
     >

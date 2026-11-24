@@ -4,15 +4,20 @@ import { useTimelineSynchronizedAnimations } from "~/lib/animationTimelineSync";
 import { Loader2Icon, LoaderIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
-function Spinner({ className, ...props }: React.ComponentProps<typeof Loader2Icon>) {
-  return (
-    <Loader2Icon
-      aria-label="Loading"
-      className={cn("animate-spin", className)}
-      role="status"
-      {...props}
-    />
-  );
+type SpinnerProps = React.ComponentProps<typeof Loader2Icon> & {
+  /**
+   * The spinner sits inside a control that already says what it is doing (a busy button's
+   * label). It is then hidden from the accessibility tree, so "Loading" never joins that name.
+   */
+  decorative?: boolean;
+};
+
+function Spinner({ className, decorative = false, ...props }: SpinnerProps) {
+  // The icon wrapper hides a glyph only when its label is empty, and drops `aria-hidden`.
+  const accessibility = decorative
+    ? { "aria-label": "" }
+    : { "aria-label": "Loading", role: "status" };
+  return <Loader2Icon className={cn("animate-spin", className)} {...accessibility} {...props} />;
 }
 
 // Status glyph for live work that can stay on screen for minutes (running tasks,

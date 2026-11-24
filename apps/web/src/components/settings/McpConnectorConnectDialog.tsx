@@ -4,6 +4,7 @@
 // Layer: Settings UI components
 // Exports: McpConnectorConnectDialog, McpConnectorTarget
 
+import { TextLink } from "~/components/ui/text-link";
 import { MCP_CONNECTOR_CLIENT_REQUIRED_ERROR_CODE, type McpConnector } from "@moss/contracts";
 import { type McpConnectorPreset, normalizeMcpConnectorUrl } from "@moss/shared/mcpConnectors";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -251,16 +252,16 @@ export function McpConnectorConnectDialog(props: {
                 {target.docsUrl ? (
                   <>
                     {" "}
-                    <button
-                      type="button"
-                      className="rounded-inline text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
-                      onClick={() => {
+                    <TextLink
+                      href={target.docsUrl}
+                      onClick={(event) => {
+                        event.preventDefault();
                         const url = target.docsUrl;
                         if (url) void ensureNativeApi().shell.openExternal(url);
                       }}
                     >
                       Learn more
-                    </button>
+                    </TextLink>
                   </>
                 ) : null}
               </ConsentSection>
@@ -276,16 +277,16 @@ export function McpConnectorConnectDialog(props: {
                     <p className="mt-1 text-ui leading-relaxed text-muted-foreground">
                       {`${name} only signs in apps registered with it. `}
                       {target.appSetupUrl ? (
-                        <button
-                          type="button"
-                          className="rounded-inline text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
-                          onClick={() => {
+                        <TextLink
+                          href={target.appSetupUrl}
+                          onClick={(event) => {
+                            event.preventDefault();
                             const url = target.appSetupUrl;
                             if (url) void ensureNativeApi().shell.openExternal(url);
                           }}
                         >
                           Create an app
-                        </button>
+                        </TextLink>
                       ) : (
                         "Create an app"
                       )}
@@ -336,16 +337,16 @@ export function McpConnectorConnectDialog(props: {
                     <p className="mt-1 text-ui leading-relaxed text-muted-foreground">
                       {`${name} signs in with a key from its developer console. `}
                       {target.apiKey.setupUrl ? (
-                        <button
-                          type="button"
-                          className="rounded-inline text-foreground underline decoration-muted-foreground/40 underline-offset-[3px] hover:decoration-current focus-visible:outline-2 focus-visible:outline-ring"
-                          onClick={() => {
+                        <TextLink
+                          href={target.apiKey.setupUrl}
+                          onClick={(event) => {
+                            event.preventDefault();
                             const url = target.apiKey?.setupUrl;
                             if (url) void ensureNativeApi().shell.openExternal(url);
                           }}
                         >
                           Get a key
-                        </button>
+                        </TextLink>
                       ) : (
                         "Get a key"
                       )}

@@ -6,6 +6,8 @@
 // Layer: Pull request presentation
 // Exports: PullRequestRow
 
+import { HitArea } from "~/components/ui/hit-area";
+import { IconButton } from "~/components/ui/icon-button";
 import type { GitHubInboxItem, GitHubInboxSort } from "@moss/contracts";
 import { pullRequestListProjectContexts } from "@moss/shared/githubRepository";
 import type { ReactNode } from "react";
@@ -22,7 +24,6 @@ import {
 } from "./pullRequestText";
 import { PullRequestActorLabel } from "./PullRequestActorLabel";
 import { GitHubItemStateGlyph } from "./PullRequestStateGlyph";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 
 /** How a row names its item in accessible labels: "pull request #42", "issue #7". */
 export const PullRequestRow = function PullRequestRow({
@@ -74,7 +75,7 @@ export const PullRequestRow = function PullRequestRow({
           : cn(SIDEBAR_ROW_HOVER_CLASS_NAME, "focus-within:bg-[var(--sidebar-accent)]"),
       )}
     >
-      <button
+      <HitArea
         type="button"
         data-pull-request-row
         data-item-kind={entry.kind}
@@ -125,28 +126,22 @@ export const PullRequestRow = function PullRequestRow({
           </time>
           <span className="ml-auto shrink-0 pl-1 tabular-nums opacity-80">#{entry.number}</span>
         </span>
-      </button>
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              aria-label={pinLabel}
-              aria-pressed={entry.isPinned}
-              onClick={() => onTogglePinned(entry)}
-              className={cn(
-                "mt-1 mr-1 inline-flex size-7 shrink-0 self-start items-center justify-center rounded-control text-muted-foreground transition-[color,opacity] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-                isPinned
-                  ? "text-foreground opacity-100"
-                  : "opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-              )}
-            >
-              <PinStatusIcon pinned={isPinned} className="size-4" aria-hidden />
-            </button>
-          }
-        />
-        <TooltipPopup side="top">{pinLabel}</TooltipPopup>
-      </Tooltip>
+      </HitArea>
+      <IconButton
+        size="icon-sm"
+        label={pinLabel}
+        tooltip={pinLabel}
+        aria-pressed={entry.isPinned}
+        onClick={() => onTogglePinned(entry)}
+        className={cn(
+          "mt-1 mr-1 self-start transition-[color,opacity]",
+          isPinned
+            ? "text-foreground opacity-100"
+            : "opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+        )}
+      >
+        <PinStatusIcon pinned={isPinned} className="size-4" aria-hidden />
+      </IconButton>
     </div>
   );
 };

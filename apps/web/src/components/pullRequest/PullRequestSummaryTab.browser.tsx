@@ -7,7 +7,7 @@ import "../../index.css";
 import type { PullRequestDetail } from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
@@ -73,6 +73,16 @@ const DETAIL: PullRequestDetail = {
   },
 };
 
+/** The weight a type role resolves to in Moss's CSS (font-normal is 380, font-medium 475). */
+function roleWeight(className: string): string {
+  const probe = document.createElement("span");
+  probe.className = className;
+  document.body.append(probe);
+  const weight = getComputedStyle(probe).fontWeight;
+  probe.remove();
+  return weight;
+}
+
 describe("PullRequestSummaryTab zh-CN labels", () => {
   beforeEach(() => {
     localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
@@ -112,6 +122,34 @@ describe("PullRequestSummaryTab zh-CN labels", () => {
     await expect
       .element(page.getByText("可能还有未解决的评论没有显示，请到 GitHub 查看。", { exact: true }))
       .toBeVisible();
+  });
+
+  it("titles the pull request at the panel heading size and names the send button with a Moss tooltip", async () => {
+    const queryClient = new QueryClient();
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <MossLocalizationProvider>
+          <PullRequestSummaryTab detail={DETAIL} />
+        </MossLocalizationProvider>
+      </QueryClientProvider>,
+    );
+
+    const title = page.getByRole("heading", { name: USER_TITLE }).element() as HTMLElement;
+    expect(getComputedStyle(title).fontSize).toBe("15px");
+    expect(getComputedStyle(title).fontWeight).toBe(roleWeight("font-medium"));
+
+    await userEvent.type(page.getByRole("textbox").last(), "Looks good");
+    const send = page.getByRole("button", { name: "发布评论", exact: true });
+    await expect.element(send).toBeEnabled();
+    expect(send.element().hasAttribute("title")).toBe(false);
+    await userEvent.hover(send);
+    await expect
+      .poll(() =>
+        [...document.querySelectorAll<HTMLElement>("[data-slot='tooltip-popup']")].map(
+          (popup) => popup.textContent,
+        ),
+      )
+      .toContain("发布评论");
   });
 
   it("localizes the product-owned empty-description fallback", async () => {

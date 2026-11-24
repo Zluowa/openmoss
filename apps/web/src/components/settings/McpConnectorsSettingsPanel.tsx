@@ -4,6 +4,7 @@
 // Layer: Settings UI components
 // Exports: McpConnectorsSettingsPanel
 
+import { HitArea } from "~/components/ui/hit-area";
 import type { McpConnector } from "@moss/contracts";
 import {
   defaultMcpConnectorName,
@@ -134,8 +135,7 @@ function ConnectorRowText(props: { title: string; description: ReactNode }) {
 
 function PresetRow(props: { preset: McpConnectorPreset; onSelect: () => void }) {
   return (
-    <button
-      type="button"
+    <HitArea
       onClick={props.onSelect}
       className={`${CONNECTOR_ROW_CLASS_NAME} group text-left transition-colors hover:bg-[var(--sidebar-accent)] focus-visible:outline-2 focus-visible:outline-ring`}
     >
@@ -145,7 +145,7 @@ function PresetRow(props: { preset: McpConnectorPreset; onSelect: () => void }) 
         className="size-5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground"
         aria-hidden="true"
       />
-    </button>
+    </HitArea>
   );
 }
 

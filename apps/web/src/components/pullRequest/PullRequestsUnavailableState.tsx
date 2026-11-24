@@ -5,6 +5,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestsUnavailableState, isPullRequestsUnavailableError, issueSourceErrorReason
 
+import { HitArea } from "~/components/ui/hit-area";
 import { useEffect, useRef, useState } from "react";
 
 import { useAppSettings } from "~/appSettings";
@@ -61,7 +62,7 @@ function CommandLine({ command }: { command: string }) {
   }, []);
 
   return (
-    <button
+    <HitArea
       type="button"
       onClick={() => {
         void copyTextToClipboard(command).then(
@@ -84,7 +85,6 @@ function CommandLine({ command }: { command: string }) {
           },
         );
       }}
-      title={t("codeReview.copy.title")}
       className="group flex w-full items-center gap-2 rounded-row border border-border/60 bg-[var(--color-background-elevated-secondary)] px-3 py-2 text-left transition-colors hover:border-border"
     >
       <code
@@ -96,7 +96,7 @@ function CommandLine({ command }: { command: string }) {
         className={cn(
           PR_FINE_TEXT_CLASS_NAME,
           "flex shrink-0 items-center gap-1 text-muted-foreground transition-colors group-hover:text-foreground",
-          copied && "text-emerald-600 dark:text-emerald-400",
+          copied && "text-success",
         )}
       >
         {copied ? (
@@ -109,7 +109,7 @@ function CommandLine({ command }: { command: string }) {
           </>
         )}
       </span>
-    </button>
+    </HitArea>
   );
 }
 

@@ -7,6 +7,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestInfo, IssueInfo, InfoSection, GitHubItemInfoThread, GitHubItemInfoVariant
 
+import { HitArea } from "~/components/ui/hit-area";
 import type { GitHubIssueDetail, PullRequestDetail, ThreadId } from "@moss/contracts";
 import { useState, type ReactNode } from "react";
 
@@ -118,14 +119,14 @@ function ThreadsSection({
       icon={<BotIcon className="size-4" />}
     >
       {threads.map((thread) => (
-        <button
+        <HitArea
           key={thread.id}
           type="button"
           onClick={() => onOpenThread?.(thread.id)}
           className="max-w-full truncate rounded-row text-left hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           {thread.title.replace(/^Sidechat:\s*/, "")}
-        </button>
+        </HitArea>
       ))}
     </InfoSection>
   );
@@ -212,7 +213,7 @@ function CheckRows({ checks }: { checks: PullRequestDetail["checks"] }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {visible.map(({ key, check }) => (
-        <button
+        <HitArea
           key={key}
           type="button"
           disabled={!check.url}
@@ -221,10 +222,10 @@ function CheckRows({ checks }: { checks: PullRequestDetail["checks"] }) {
         >
           <PullRequestCheckStatusIcon status={check.status} />
           <span className="min-w-0 truncate">{check.name}</span>
-        </button>
+        </HitArea>
       ))}
       {rows.length > CHECKS_VISIBLE_LIMIT ? (
-        <button
+        <HitArea
           type="button"
           onClick={() => setShowAll((current) => !current)}
           className={cn(
@@ -233,7 +234,7 @@ function CheckRows({ checks }: { checks: PullRequestDetail["checks"] }) {
           )}
         >
           {t(showAll ? "codeReview.checks.showFewer" : "codeReview.checks.viewMore")}
-        </button>
+        </HitArea>
       ) : null}
     </div>
   );
@@ -266,7 +267,7 @@ function ChecksSection({ variant, detail }: { variant: InfoVariant; detail: Pull
         <span className="text-muted-foreground">{t("codeReview.checks.none")}</span>
       ) : (
         <div className="flex w-full min-w-0 flex-col">
-          <button
+          <HitArea
             type="button"
             aria-expanded={open}
             onClick={() => setOpen((current) => !current)}
@@ -277,7 +278,7 @@ function ChecksSection({ variant, detail }: { variant: InfoVariant; detail: Pull
             ) : null}
             {brief.label}
             <DisclosureChevron open={open} />
-          </button>
+          </HitArea>
           <DisclosureRegion open={open}>
             <div className="pt-1.5">
               <CheckRows checks={detail.checks} />

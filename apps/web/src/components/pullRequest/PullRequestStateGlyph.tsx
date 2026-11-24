@@ -7,6 +7,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestStateGlyph, IssueStateGlyph, GitHubItemStateGlyph, pullRequestStateLabel
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import type {
   GitHubInboxItem,
   GitHubIssueState,
@@ -95,14 +96,26 @@ export function PullRequestStateGlyph({
   const presentation = resolvePrStatePresentation({ state, isDraft, mergeability });
   const Icon = PR_STATE_PRESENTATION_ICONS[presentation.iconKind];
   return (
-    <span
-      className={cn("flex shrink-0 items-center justify-center", SIZE_CLASS_NAME[size], className)}
-      title={translated(t, STATE_WORD_KEYS, pullRequestStateLabel(state, isDraft, mergeability))}
-      role="img"
-      aria-label={translated(t, GLYPH_LABEL_KEYS, presentation.label)}
-    >
-      <Icon className={cn("size-full", presentation.colorClass)} aria-hidden="true" />
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "flex shrink-0 items-center justify-center",
+              SIZE_CLASS_NAME[size],
+              className,
+            )}
+            role="img"
+            aria-label={translated(t, GLYPH_LABEL_KEYS, presentation.label)}
+          />
+        }
+      >
+        <Icon className={cn("size-full", presentation.colorClass)} aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {translated(t, STATE_WORD_KEYS, pullRequestStateLabel(state, isDraft, mergeability))}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -122,14 +135,26 @@ export function IssueStateGlyph({
   const presentation = resolveIssueStatePresentation({ state, stateReason });
   const Icon = ISSUE_STATE_PRESENTATION_ICONS[presentation.iconKind];
   return (
-    <span
-      className={cn("flex shrink-0 items-center justify-center", SIZE_CLASS_NAME[size], className)}
-      title={translated(t, STATE_WORD_KEYS, presentation.shortLabel)}
-      role="img"
-      aria-label={translated(t, GLYPH_LABEL_KEYS, presentation.label)}
-    >
-      <Icon className={cn("size-full", presentation.colorClass)} aria-hidden="true" />
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "flex shrink-0 items-center justify-center",
+              SIZE_CLASS_NAME[size],
+              className,
+            )}
+            role="img"
+            aria-label={translated(t, GLYPH_LABEL_KEYS, presentation.label)}
+          />
+        }
+      >
+        <Icon className={cn("size-full", presentation.colorClass)} aria-hidden="true" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {translated(t, STATE_WORD_KEYS, presentation.shortLabel)}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 

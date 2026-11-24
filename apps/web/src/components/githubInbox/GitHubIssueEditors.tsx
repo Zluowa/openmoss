@@ -53,7 +53,6 @@ import {
   IssueClosedIcon,
   IssueNotPlannedIcon,
   IssueOpenedIcon,
-  LoaderIcon,
 } from "~/lib/icons";
 import { githubIssueCandidatesQueryOptions } from "~/lib/githubInboxQueryOptions";
 import { cn } from "~/lib/utils";
@@ -82,17 +81,17 @@ export function GitHubIssueStateAction({
   onChange: (change: GitHubIssueStateChange) => void;
 }) {
   const { t } = useTranslation();
-  const busyIcon = <LoaderIcon className="animate-spin" />;
   if (state === "closed") {
     return (
       <Button
         variant="outline"
         size="sm"
         disabled={pending}
+        busy={pending}
         title={t("githubIssue.state.reopen")}
         onClick={() => onChange({ op: "reopen" })}
       >
-        {pending ? busyIcon : <IssueOpenedIcon />}
+        {pending ? null : <IssueOpenedIcon />}
         <span className={TOP_BAR_NARROW_LABEL_CLASS_NAME}>{t("githubIssue.state.reopen")}</span>
       </Button>
     );
@@ -104,11 +103,12 @@ export function GitHubIssueStateAction({
           variant="outline"
           size="sm"
           disabled={pending}
+          busy={pending}
           title={t("githubIssue.state.closeCompleted")}
           className={CHAT_HEADER_SPLIT_LEADING_CLASS_NAME}
           onClick={() => onChange({ op: "close", reason: "completed" })}
         >
-          {pending ? busyIcon : <IssueClosedIcon />}
+          {pending ? null : <IssueClosedIcon />}
           <span className={TOP_BAR_NARROW_LABEL_CLASS_NAME}>{t("githubIssue.state.close")}</span>
         </Button>
         <MenuTrigger

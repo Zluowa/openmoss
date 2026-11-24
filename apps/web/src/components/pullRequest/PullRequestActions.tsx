@@ -17,7 +17,7 @@ import { MENU_ICON_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { Button } from "~/components/ui/button";
 import { MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "~/components/ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { ChatBubbleIcon, HammerIcon, LinkIcon, LoaderIcon } from "~/lib/icons";
+import { ChatBubbleIcon, HammerIcon, LinkIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation, type TranslationKey } from "~/localization";
 import { SendToAgentMenuItems, type GitHubItemSendTarget } from "./GitHubItemAgentActions";
@@ -103,12 +103,9 @@ export function PullRequestPrimaryButton({
   }
   const stacked = action.stackCount !== null;
   const label = merging ? (
-    <>
-      <LoaderIcon className="size-4 animate-spin" />
-      <span className={labelClassName}>
-        {t(stacked ? "codeReview.pr.mergingStack" : "codeReview.pr.merging")}
-      </span>
-    </>
+    <span className={labelClassName}>
+      {t(stacked ? "codeReview.pr.mergingStack" : "codeReview.pr.merging")}
+    </span>
   ) : (
     <>
       <MergeIcon />
@@ -137,6 +134,7 @@ export function PullRequestPrimaryButton({
             <Button
               size={size}
               variant="subtle"
+              busy={merging}
               aria-disabled="true"
               className={cn(
                 "cursor-not-allowed text-[var(--color-text-foreground-secondary)]",
@@ -152,7 +150,7 @@ export function PullRequestPrimaryButton({
     );
   }
   return (
-    <Button size={size} className={className} disabled={disabled} onClick={onMerge}>
+    <Button size={size} className={className} disabled={disabled} busy={merging} onClick={onMerge}>
       {label}
     </Button>
   );

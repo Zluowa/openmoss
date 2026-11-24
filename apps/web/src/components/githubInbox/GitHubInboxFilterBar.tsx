@@ -6,6 +6,8 @@
 // Layer: GitHub inbox presentation
 // Exports: GitHubInboxFilterBar
 
+import { StatusDot } from "~/components/ui/status-chip";
+import { HitArea } from "~/components/ui/hit-area";
 import type { GitHubInboxSort, ProjectId } from "@moss/contracts";
 import type { ReactNode } from "react";
 
@@ -180,14 +182,14 @@ function ActiveFilterChip({
     <Badge variant="info" className="max-w-full min-w-0 rounded-full pr-0.5 pl-1.5 font-normal">
       {icon}
       <span className="min-w-0 truncate">{label}</span>
-      <button
+      <HitArea
         type="button"
         aria-label={format("codeReview.filter.remove", { label })}
         className="flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-info/16 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         onClick={onRemove}
       >
         <XIcon aria-hidden className="size-2.5" />
-      </button>
+      </HitArea>
     </Badge>
   );
 }
@@ -304,9 +306,9 @@ export function GitHubInboxFilterBar({
           >
             <FilterIcon className="size-4" />
             {menuFilterCount > 0 ? (
-              <span
+              <StatusDot
                 aria-hidden
-                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-[var(--color-text-accent)]"
+                className="absolute top-0.5 right-0.5 bg-[var(--color-text-accent)]"
               />
             ) : null}
           </MenuTrigger>
@@ -492,13 +494,14 @@ export function GitHubInboxFilterBar({
                 onRemove={() => onLabelsChange(toggleGitHubInboxLabel(filters.labels, label))}
               />
             ))}
-            <button
-              type="button"
-              className="h-5 rounded-full px-1.5 text-ui-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            <Button
+              variant="ghost"
+              size="xs"
+              className="font-normal text-muted-foreground"
               onClick={onClearFilters}
             >
               {t("codeReview.filter.clear")}
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>

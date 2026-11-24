@@ -5,6 +5,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestTimelineTab
 
+import { StatusDot } from "~/components/ui/status-chip";
 import { formatTimeAgo } from "~/lib/timeFormat";
 import { useTranslation } from "~/localization";
 import {
@@ -30,7 +31,7 @@ export function PullRequestTimelineTab({
       <div className="relative ml-2 border-l border-border/70 pl-5">
         {events.map((event) => (
           <article key={event.id} className={cn(PR_BODY_TEXT_CLASS_NAME, "relative pb-5")}>
-            <span className="absolute -left-[1.55rem] top-1 size-2 rounded-full border border-border bg-background" />
+            <StatusDot className="absolute -left-[1.55rem] top-1 size-2 border border-border bg-background" />
             <div className="font-medium">{event.title}</div>
             <div className={cn(PR_META_TEXT_CLASS_NAME, "text-muted-foreground")}>
               {formatTimeAgo(event.at, { locale })}

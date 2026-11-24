@@ -4,10 +4,10 @@
 // Layer: Pull request presentation
 // Exports: PullRequestCheckStatusIcon
 
+import { Spinner } from "~/components/ui/spinner";
 import type { PullRequestCheckStatus } from "@moss/contracts";
 
 import { CentralIcon } from "~/lib/central-icons";
-import { Loader2Icon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 
 // One footprint for every branch: the glyphs head a row of text and must share an optical
@@ -22,12 +22,7 @@ const CHECK_FAILURE_COLOR_CLASS = "text-status-failure";
 export function PullRequestCheckStatusIcon({ status }: { status: PullRequestCheckStatus }) {
   switch (status) {
     case "pending":
-      return (
-        <Loader2Icon
-          className={cn(CHECK_STATUS_ICON_CLASS, "animate-spin text-warning")}
-          aria-hidden
-        />
-      );
+      return <Spinner className={cn(CHECK_STATUS_ICON_CLASS, "text-warning")} decorative />;
     case "success":
       return (
         <CentralIcon

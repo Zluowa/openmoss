@@ -7,7 +7,7 @@
 // Layer: Pull request presentation
 // Exports: PullRequestCommentComposer, GitHubCommentTarget, GitHubCommentMutation
 
-import { Button } from "~/components/ui/button";
+import { IconButton } from "~/components/ui/icon-button";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { GLASS_RAISED_SURFACE_CLASS_NAME } from "~/surfaceStyles";
 import type { PullRequestDetailInput } from "@moss/contracts";
@@ -109,19 +109,18 @@ export function PullRequestCommentComposer({
           "font-system-ui min-w-0 flex-1 resize-none bg-transparent py-1.5 outline-none placeholder:text-muted-foreground disabled:opacity-60",
         )}
       />
-      <Button
+      <IconButton
         variant="default"
         size="icon-sm"
         shape="capsule"
-        type="button"
         disabled={!canSubmit}
-        aria-label={t("codeReview.comment.post")}
-        title={t("codeReview.comment.post")}
+        label={t("codeReview.comment.post")}
+        tooltip={t("codeReview.comment.post")}
         onClick={() => void submit()}
         className="shrink-0 self-end transition-opacity"
       >
         <ArrowUpIcon className="size-4" />
-      </Button>
+      </IconButton>
     </div>
   );
 }

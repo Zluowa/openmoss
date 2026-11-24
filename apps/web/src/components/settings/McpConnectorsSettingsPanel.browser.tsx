@@ -52,6 +52,20 @@ it.each(["slack", null])(
       await expect
         .element(screen.getByRole("textbox", { name: "Redirect URL" }), { timeout: 3_000 })
         .toHaveValue(redirectUrl);
+      if (presetId === "slack") {
+        // Links in the consent text are the shared TextLink and open in the system browser.
+        for (const [label, url] of [
+          ["Learn more", "https://docs.slack.dev/ai/slack-mcp-server/"],
+          ["Create an app", "https://api.slack.com/apps"],
+        ] as const) {
+          const link = screen.getByRole("link", { name: label, exact: true });
+          await expect.element(link).toBeVisible();
+          expect(link.element().getAttribute("data-slot")).toBe("text-link");
+          expect(getComputedStyle(link.element()).cursor).toBe("pointer");
+          await link.click();
+          expect(api.openExternal).toHaveBeenLastCalledWith(url);
+        }
+      }
       const connect = screen.getByRole("button", { name: `Continue to ${name}` });
       await expect.element(connect).toBeEnabled();
       await connect.click();
@@ -65,3 +79,33 @@ it.each(["slack", null])(
     }
   },
 );
+
+it("draws Get a key in the API-key connector dialog as the shared TextLink, opening the vendor's page", async () => {
+  const { McpConnectorConnectDialog, mcpConnectorPresetTarget } =
+    await import("./McpConnectorConnectDialog");
+  const { MCP_CONNECTOR_PRESETS } = await import("@moss/shared/mcpConnectors");
+  const amap = MCP_CONNECTOR_PRESETS.find((preset) => preset.id === "amap")!;
+  api.getMcpConnectorSetup.mockResolvedValue({ redirectUrl: "http://127.0.0.1:5999/cb" });
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const screen = await render(
+    <QueryClientProvider client={queryClient}>
+      <McpConnectorConnectDialog
+        target={mcpConnectorPresetTarget(amap)}
+        onOpenChange={() => {}}
+        onConnected={() => {}}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    const link = screen.getByRole("link", { name: "Get a key", exact: true });
+    await expect.element(link).toBeVisible();
+    expect(link.element().getAttribute("data-slot")).toBe("text-link");
+    expect(getComputedStyle(link.element()).cursor).toBe("pointer");
+    await link.click();
+    expect(api.openExternal).toHaveBeenLastCalledWith("https://console.amap.com/dev/key/app");
+  } finally {
+    await screen.unmount();
+    queryClient.clear();
+    vi.clearAllMocks();
+  }
+});

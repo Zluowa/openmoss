@@ -8,6 +8,7 @@ import { EventId, MessageId, ThreadId, TurnId, WS_METHODS } from "@moss/contract
 import { HttpResponse, http } from "msw";
 import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { preloadSettingsPages } from "./settings/SettingsDialog";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { setFeatureFlagEnabled } from "../featureFlags";
 import { useProjectEnvironmentStore } from "../projectEnvironmentStore";
@@ -930,6 +931,10 @@ describe("ChatView transcript geometry (full app)", () => {
     const snapshot = createSnapshotWithLongAssistantResponse();
     const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     try {
+      // The app loads the pages once its shell is idle. A cold dev-server page takes about two
+      // seconds for that load, and only the tests that ran earlier in the file used to pay it;
+      // settle the same load here so the wait below is for what a person sees.
+      await preloadSettingsPages();
       await mounted.router.navigate({ to: "/settings", search: { section: "general" } });
       await vi.waitFor(() =>
         expect(document.querySelector("[data-settings-section=general] header h1")).not.toBeNull(),

@@ -630,11 +630,7 @@
     "raw-button": 1
   },
   "apps/web/src/components/githubInbox/GitHubInboxFilterBar.tsx": {
-    "raw-button": 3,
-    "hand-spinner": 1,
-    "hand-status-dot": 1
-  },
-  "apps/web/src/components/githubInbox/GitHubIssueEditors.tsx": {
+    "raw-button": 1,
     "hand-spinner": 1
   },
   "apps/web/src/components/Icons.tsx": {
@@ -799,9 +795,6 @@
     "native-title": 2,
     "hand-spinner": 1
   },
-  "apps/web/src/components/PluginLibraryImportDialog.tsx": {
-    "hand-spinner": 3
-  },
   "apps/web/src/components/PluginLibraryPrimitives.tsx": {
     "arbitrary-font-size": 1,
     "raw-button": 4,
@@ -814,10 +807,6 @@
     "raw-button": 4,
     "native-title": 1,
     "hand-tablist": 1
-  },
-  "apps/web/src/components/PluginRequiredAppsDialog.tsx": {
-    "hand-spinner": 1,
-    "hand-status-dot": 3
   },
   "apps/web/src/components/PluginResourceDetailDialog.tsx": {
     "hex-color": 4,
@@ -895,65 +884,29 @@
   "apps/web/src/components/ProviderUsageResetCredits.tsx": {
     "native-title": 1
   },
-  "apps/web/src/components/pullRequest/GitHubItemAgentActions.tsx": {
-    "hand-spinner": 1
-  },
   "apps/web/src/components/pullRequest/GitHubItemFloatingComposer.tsx": {
-    "native-title": 2,
-    "hand-spinner": 1
+    "native-title": 2
   },
   "apps/web/src/components/pullRequest/GitHubItemHeader.tsx": {
-    "heavy-weight": 1,
     "native-title": 3
-  },
-  "apps/web/src/components/pullRequest/GitHubItemInfo.tsx": {
-    "raw-button": 4
   },
   "apps/web/src/components/pullRequest/GitHubItemPageLayout.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/pullRequest/GitHubLabelChips.tsx": {
-    "hand-status-dot": 1
-  },
   "apps/web/src/components/pullRequest/PrStateChip.tsx": {
-    "native-title": 2
-  },
-  "apps/web/src/components/pullRequest/PullRequestActions.tsx": {
-    "hand-spinner": 1
+    "native-title": 1
   },
   "apps/web/src/components/pullRequest/PullRequestActorLabel.tsx": {
     "native-title": 1
-  },
-  "apps/web/src/components/pullRequest/PullRequestAvatar.tsx": {
-    "arbitrary-font-size": 1
-  },
-  "apps/web/src/components/pullRequest/PullRequestCheckStatusIcon.tsx": {
-    "hand-spinner": 1
   },
   "apps/web/src/components/pullRequest/PullRequestCommentComposer.tsx": {
     "native-title": 1
   },
   "apps/web/src/components/pullRequest/PullRequestRow.tsx": {
-    "raw-button": 2,
-    "native-title": 3
-  },
-  "apps/web/src/components/pullRequest/PullRequestStackPopover.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/pullRequest/PullRequestStateGlyph.tsx": {
     "native-title": 2
   },
   "apps/web/src/components/pullRequest/PullRequestSummaryTab.tsx": {
-    "heavy-weight": 1,
-    "raw-button": 1,
     "native-title": 1
-  },
-  "apps/web/src/components/pullRequest/PullRequestsUnavailableState.tsx": {
-    "raw-button": 1,
-    "native-title": 1
-  },
-  "apps/web/src/components/pullRequest/PullRequestTimelineTab.tsx": {
-    "hand-status-dot": 1
   },
   "apps/web/src/components/ReviewFileTreePanel.tsx": {
     "raw-button": 1,
@@ -1011,12 +964,6 @@
   },
   "apps/web/src/components/settings/IncomingComputerConnections.tsx": {
     "heavy-weight": 2
-  },
-  "apps/web/src/components/settings/McpConnectorConnectDialog.tsx": {
-    "raw-button": 3
-  },
-  "apps/web/src/components/settings/McpConnectorsSettingsPanel.tsx": {
-    "raw-button": 1
   },
   "apps/web/src/components/settings/ModelsSettingsPanel.tsx": {
     "raw-button": 2
