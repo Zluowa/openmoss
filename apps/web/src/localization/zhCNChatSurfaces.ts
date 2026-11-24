@@ -80,8 +80,6 @@ const CHAT_SURFACE_COPY: Readonly<Record<string, string>> = {
   "Goal achieved": "目标已达成",
   "Switching to local...": "正在切换到本地…",
   "Work locally": "在本地工作",
-  "Checking for models…": "正在检查模型…",
-  "Couldn’t update models.": "无法更新模型。",
   "Couldn’t load OMP models. Check that omp is installed and authenticated.":
     "无法加载 OMP 模型。请确认 omp 已安装并已认证。",
   "Couldn’t load OMP models — check that omp is installed and authenticated":

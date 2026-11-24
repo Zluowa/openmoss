@@ -84,7 +84,9 @@ function ThreadErrorBannerContent({
           id={detailsId}
           className={cn(
             "whitespace-pre-wrap [overflow-wrap:anywhere]",
-            expanded ? "max-h-60 overflow-y-auto" : "line-clamp-3",
+            // Room for the full sentence in a narrow column beside the dock (N2-5); only a
+            // long raw error still folds behind 显示详情.
+            expanded ? "max-h-60 overflow-y-auto" : "line-clamp-6",
           )}
           tabIndex={expanded ? 0 : undefined}
           title={displayError}

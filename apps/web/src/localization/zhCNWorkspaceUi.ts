@@ -211,8 +211,6 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Create feature branch & continue": "创建功能分支并继续",
   "Checkout feature branch & continue": "检出功能分支并继续",
   "Create Branch": "创建分支",
-  "Create and switch to a branch from the current HEAD. Future commits, pushes, and PRs will use it.":
-    "从当前 HEAD 创建并切换到新分支；后续提交、推送和 PR 都将使用该分支。",
   "Branch name": "分支名称",
   "A branch with this name already exists.": "同名分支已存在。",
   "Create and switch": "创建并切换",

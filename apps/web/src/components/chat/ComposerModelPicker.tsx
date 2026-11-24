@@ -789,6 +789,8 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
         // The agent column sits left of the trigger, so the models stay where they open.
         alignOffset={() => -(agentColumnRef.current?.offsetWidth ?? 0)}
         side="top"
+        // Kept clear of the window's edge, its border whole (walk D-5: it ran past the edge).
+        collisionPadding={12}
         // Glassier than the stock picker shell: thinner fill over a deeper, more saturated blur.
         className="w-[min(28.5rem,92vw)] bg-popover/55 [--picker-option-min-h:1.75rem] before:backdrop-blur-3xl before:backdrop-saturate-200"
         {...{ [MODEL_PICKER_POPUP_ATTRIBUTE]: "" }}
@@ -960,9 +962,6 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                   key={tabAccount.instanceId}
                   provider={tabAccount.provider}
                   instanceId={tabAccount.instanceId}
-                  // With models listed, a failed discovery is one quiet footer line with a
-                  // retry (detail in its tooltip), never a second red notice above the list.
-                  failure={rows.length > 0 ? discoveryError : null}
                   onRefresh={props.onRefreshModels}
                 />
               ) : null}
@@ -973,7 +972,6 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
                       provider={account.provider}
                       instanceId={account.instanceId}
                       onRefresh={refreshStarredModels}
-                      silent
                     />
                   ))
                 : null}

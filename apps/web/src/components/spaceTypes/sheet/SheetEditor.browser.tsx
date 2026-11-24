@@ -282,6 +282,52 @@ describe("电子表格 editor", () => {
     }
   });
 
+  it("shows a selection's figures once, written as in Excel, clear of the format bar", async () => {
+    await page.viewport(1200, 760);
+    const book = parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "s1",
+          name: "工作表1",
+          cells: [
+            { r: 0, c: 0, v: 120034 },
+            { r: 1, c: 0, v: 1.25 },
+            { r: 2, c: 0, v: 2.125 },
+          ],
+        },
+      ],
+    });
+    await render(
+      <div style={{ width: 1100, height: 680, display: "flex", flexDirection: "column" }}>
+        <SheetEditor workbook={book} title="表" onChange={vi.fn()} onReplace={vi.fn()} />
+      </div>,
+    );
+    const shown = () => document.querySelector<HTMLElement>("[data-sheet-figures]")?.innerText;
+    // One whole number selected (A1): grouped with commas, no decimals, no 万.
+    await vi.waitFor(() => expect(shown()).toContain("求和：120,034"));
+    expect(shown()).not.toMatch(/万|120,034\.00/u);
+    // A fraction (A2:A3 = 3.375): at most two decimals.
+    await vi.waitFor(() =>
+      expect(document.activeElement?.closest("[data-sheet-grid]")).not.toBeNull(),
+    );
+    await userEvent.keyboard("{ArrowDown}{Shift>}{ArrowDown}{/Shift}");
+    await vi.waitFor(() => expect(shown()).toContain("求和：3.38"));
+    // Shown once: the engine's own strip (万 grouping, forced decimals) takes no room.
+    const strip = document.querySelector<HTMLElement>(".fortune-stat-area");
+    expect(strip === null || strip.getBoundingClientRect().height === 0).toBe(true);
+    expect(document.body.innerText).not.toMatch(/万/u);
+    // The floating format bar never covers the figures.
+    const tools = document.querySelector("[data-sheet-tools]")!.getBoundingClientRect();
+    const figures = document.querySelector("[data-sheet-figures]")!.getBoundingClientRect();
+    const overlap =
+      tools.left < figures.right &&
+      figures.left < tools.right &&
+      tools.top < figures.bottom &&
+      figures.top < tools.bottom;
+    expect(overlap).toBe(false);
+  });
+
   it("lays out the formula row, the grid, the tool card and the sheet bar", async () => {
     await page.viewport(1200, 760);
     await mount();

@@ -1383,7 +1383,11 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   ) : (
                     <p
                       className={cn(
-                        "truncate",
+                        // An error is read in full, wrapping in a narrow column; other rows
+                        // stay one line (walk 2026-11-24, N2-5).
+                        workEntry.tone === "error"
+                          ? "whitespace-normal [overflow-wrap:anywhere]"
+                          : "truncate",
                         compact ? "leading-5" : "leading-6",
                         isPlainRuntimeNoticeRow && "italic",
                         // Match the leading icon's tone so the row reads as one muted unit, and

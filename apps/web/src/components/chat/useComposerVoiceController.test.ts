@@ -243,6 +243,22 @@ describe("useComposerVoiceController", () => {
     expect(options.onTranscriptReady).toHaveBeenCalledWith("transcribed once");
   });
 
+  it("shows the mic for every model, even signed out with no dictation route (walk V-1)", async () => {
+    recorder.isRecording = false;
+    voiceAvailability.canStartVoiceNotes = false;
+    voiceAvailability.showVoiceNotesControl = false;
+    mossAccount.state = "signed-out";
+    for (const selectedProvider of ["codex", "claudeAgent", "devin"] as const) {
+      expect(render({ selectedProvider, activeProviderStatus: null }).showVoiceNotesControl).toBe(
+        true,
+      );
+    }
+    // Pressing it then says why it cannot record instead of doing nothing.
+    await render().startComposerVoiceRecording();
+    expect(recorder.startRecording).not.toHaveBeenCalled();
+    expect(toast.add).toHaveBeenCalled();
+  });
+
   it("does not start recording without either transcription route", async () => {
     recorder.isRecording = false;
     voiceAvailability.canStartVoiceNotes = false;

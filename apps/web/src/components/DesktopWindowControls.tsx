@@ -28,9 +28,11 @@ const GLYPH_CLOSE = "\uE8BB";
 // <button>s rather than the app's Button/Tooltip primitives — those inject a
 // rounded "chrome" variant, conflicting size overrides, and a base-ui trigger that
 // intercepts the click — so the chrome stays pixel-native and onClick routes
-// straight to the window-control IPC.
-const CAPTION_BUTTON_CLASS =
-  "flex h-full w-[46px] shrink-0 items-center justify-center text-foreground/90 outline-none transition-colors duration-75 select-none hover:bg-foreground/[0.09] active:bg-foreground/[0.05] [-webkit-app-region:no-drag]";
+// straight to the window-control IPC. Over a dark full-window overlay (the image viewer)
+// they take light ink, or they vanish into it (walk 2026-11-24, D-10).
+const CAPTION_BUTTON_ON_DARK_OVERLAY_CLASS =
+  "[body:has([data-dark-window-overlay])_&]:text-[var(--color-white)]";
+const CAPTION_BUTTON_CLASS = `flex h-full w-[46px] shrink-0 items-center justify-center text-foreground/90 outline-none transition-colors duration-75 select-none hover:bg-foreground/[0.09] active:bg-foreground/[0.05] [-webkit-app-region:no-drag] ${CAPTION_BUTTON_ON_DARK_OVERLAY_CLASS}`;
 
 // Windows close-button accent: red fill on hover with a white glyph.
 const CLOSE_BUTTON_CLASS = "hover:bg-[#c42b1c] hover:text-white active:bg-[#b9281b]";

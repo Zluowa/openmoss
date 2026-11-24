@@ -3,7 +3,7 @@
 //          leading glyph, label, and a trailing badge or hover shortcut.
 // Layer: Sidebar UI primitive (shared by the thread sidebar and the rail layout's panels)
 
-import type { ComponentProps, ComponentType } from "react";
+import type { ComponentType } from "react";
 
 import { cn } from "~/lib/utils";
 import {
@@ -12,7 +12,6 @@ import {
   SIDEBAR_ROW_HOVER_CLASS_NAME,
   SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
 } from "~/sidebarRowStyles";
-import { OneTimeCoachmark } from "./OneTimeCoachmark";
 import type { SidebarActionBadge } from "./Sidebar.logic";
 import { SidebarGlyph } from "./sidebarGlyphs";
 import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
@@ -31,14 +30,12 @@ export function SidebarPrimaryAction({
   shortcutLabel,
   badge,
   detail,
-  coachmark,
 }: {
   // Accepts both Lucide adapters and raw react-icons glyphs (rendered via SidebarGlyph).
   icon: ComponentType<{ className?: string }>;
   /** Optional optical correction for glyphs whose artwork fills more of its view box. */
   iconClassName?: string;
   label: string;
-  coachmark?: Pick<ComponentProps<typeof OneTimeCoachmark>, "storageKey" | "title" | "description">;
   onClick?: () => void;
   onMouseEnter?: () => void;
   onFocus?: () => void;
@@ -97,15 +94,5 @@ export function SidebarPrimaryAction({
       ) : null}
     </SidebarMenuButton>
   );
-  return (
-    <SidebarMenuItem>
-      {coachmark ? (
-        <OneTimeCoachmark {...coachmark} tooltip={label}>
-          {button}
-        </OneTimeCoachmark>
-      ) : (
-        button
-      )}
-    </SidebarMenuItem>
-  );
+  return <SidebarMenuItem>{button}</SidebarMenuItem>;
 }

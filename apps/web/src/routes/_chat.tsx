@@ -1,5 +1,4 @@
 import { ThreadId, type ResolvedKeybindingsConfig } from "@moss/contracts";
-import { useMossbotOnboardingPresence } from "~/components/mossbot/mossbotOnboardingPresence";
 import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@moss/shared/desktopChrome";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -538,11 +537,8 @@ function ChatRouteLayout() {
   // every other destination hides the chat panel outright.
   const [imagesSidebarVisible, setImagesSidebarVisible] = useState(false);
   const isDestinationSurface = destinationSurface !== null;
-  // The Mossbot onboarding takes the panel's room while it is on screen (presentation only: the stored
-  // preference in `sidebarOpen` is untouched, so the panel returns as the person left it).
-  const mossbotOnboarding = useMossbotOnboardingPresence((state) => state.active);
   const resolvedSidebarOpen =
-    isEditorView || railHidesPanel || mossbotOnboarding
+    isEditorView || railHidesPanel
       ? false
       : isDestinationSurface
         ? destinationSurface === "images" && imagesSidebarVisible
@@ -761,8 +757,6 @@ function ChatRouteLayout() {
   // Toggling the panel open on a full-width route brings back the current panel item.
   const handleSidebarOpenChange = useCallback(
     (open: boolean) => {
-      // The toggle is hidden during the onboarding; a shortcut or swipe changes nothing there.
-      if (mossbotOnboarding) return;
       if (open && railHidesPanel) {
         selectRailPanelItem(railPanelView);
       }
@@ -772,7 +766,7 @@ function ChatRouteLayout() {
       }
       setSidebarOpen(open);
     },
-    [mossbotOnboarding, railHidesPanel, railPanelView, selectRailPanelItem, destinationSurface],
+    [railHidesPanel, railPanelView, selectRailPanelItem, destinationSurface],
   );
   // ThreadSidebar owns the existing rail actions and portals them into the fixed
   // desktop slot. The project panel can collapse without taking the rail with it.

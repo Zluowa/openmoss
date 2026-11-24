@@ -14,6 +14,7 @@ import {
 } from "../components/chat/project/useProjectAgentSummaries";
 import {
   excludeHiddenProjectAgentCoordinatorThreads,
+  excludeItemChatThreads,
   partitionSidebarThreadsByProjectIds,
 } from "../components/Sidebar.logic";
 import { collectGroupProjectIds } from "../lib/groupProjects";
@@ -21,6 +22,7 @@ import { useStore, type AppState } from "../store";
 import { createSidebarThreadSummariesSelector, isSidebarThreadVisible } from "../storeSelectors";
 import type { SidebarThreadSummary } from "../types";
 import { useWorkspacePathsStore } from "../workspacePathsStore";
+import { usePageAssistantThreadIds } from "./usePageAssistantThreadIds";
 
 interface ActivityThreads {
   readonly sidebarThreads: readonly SidebarThreadSummary[];
@@ -45,6 +47,7 @@ type ActivityThreadInputs = readonly [
   studioWorkspaceRoot: string | null,
   groupsWorkspaceRoot: string | null,
   hideAutomationRunThreads: boolean,
+  itemChatThreadIds: ReadonlySet<string>,
 ];
 
 // Shared by every caller, so the sidebar and the Inbox (mounted together) read one set of
@@ -70,10 +73,12 @@ function deriveActivityThreads(inputs: ActivityThreadInputs): ActivityThreads {
     studioWorkspaceRoot,
     groupsWorkspaceRoot,
     hideAutomationRunThreads,
+    itemChatThreadIds,
   ] = inputs;
-  const displaySidebarThreads = excludeHiddenProjectAgentCoordinatorThreads(
-    sidebarThreads,
-    coordinatorThreadIds,
+  // A 资料空间 item's chat stays inside the item: not in Recent, Activity or the Inbox (S-6).
+  const displaySidebarThreads = excludeItemChatThreads(
+    excludeHiddenProjectAgentCoordinatorThreads(sidebarThreads, coordinatorThreadIds),
+    itemChatThreadIds,
   );
   const groupProjectIdSet = collectGroupProjectIds(projects, {
     homeDir,
@@ -116,6 +121,7 @@ export function useActivityThreads({
   const sidebarThreads = useStore(selectSidebarThreads);
   const coordinatorThreadIds = useCoordinatorThreadIds();
   const summariesByProjectId = useProjectAgentSummariesStore((state) => state.summariesByProjectId);
+  const itemChatThreadIds = usePageAssistantThreadIds();
   return useMemo(
     () =>
       deriveActivityThreads([
@@ -128,6 +134,7 @@ export function useActivityThreads({
         studioWorkspaceRoot,
         groupsWorkspaceRoot,
         hideAutomationRunThreads,
+        itemChatThreadIds,
       ]),
     [
       chatWorkspaceRoot,
@@ -135,6 +142,7 @@ export function useActivityThreads({
       groupsWorkspaceRoot,
       hideAutomationRunThreads,
       homeDir,
+      itemChatThreadIds,
       projects,
       sidebarThreads,
       summariesByProjectId,

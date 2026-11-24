@@ -227,6 +227,12 @@ describe("translateMoss", () => {
     expect(translateMoss("zh-CN", "chat.markdown.generatedImage.download")).toBe("下载");
   });
 
+  it("says a new side chat appears once the list refreshes, so nobody starts it twice", () => {
+    expect(translateMoss("zh-CN", "codeReview.sideChat.syncingDetail")).toBe(
+      "对话列表刷新后就会显示。",
+    );
+  });
+
   it("says what to do in one sentence when a plugin action did not take", () => {
     expect(translateMoss("zh-CN", "plugins.toast.notSettled")).toBe("没有生效，请刷新后重试。");
     expect(translateMoss("en", "plugins.toast.notSettled")).toBe(

@@ -1847,7 +1847,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Search starred…": "搜索已收藏…",
   "Search models": "搜索模型",
   "Select effort": "选择思考强度",
-  "Share current app": "分享当前应用",
   "Repository conventions": "仓库约定",
   "In each project, matches recent change descriptions and change request titles.":
     "在每个项目中，参照最近的变更说明和变更请求标题。",

@@ -23,9 +23,6 @@ interface ChatComposerFooterProps {
   /** Realtime voice slot: when `active`, the controls own the entire action row;
       otherwise the start/return button renders beside the send controls. */
   realtimeVoice?: { active: boolean; controls: ReactNode; button: ReactNode } | null;
-  /** `row`: the single-row composer. The footer box becomes `display: contents` so its
-   *  leading and trailing clusters sit beside the editor in the surface's grid. */
-  layout?: "row" | "block";
   isComposerFooterCompact: boolean;
   leadingControls: ReactNode;
   composerPickerControls: ReactNode;
@@ -76,7 +73,6 @@ interface ChatComposerFooterProps {
 
 export function ChatComposerFooter({
   realtimeVoice: realtimeVoiceProp,
-  layout: layoutProp,
   isComposerFooterCompact,
   leadingControls,
   composerPickerControls,
@@ -93,20 +89,15 @@ export function ChatComposerFooter({
   // Prop defaults resolve here: an AssignmentPattern in the destructuring makes
   // the React Compiler bail out on this hot component.
   const realtimeVoice = realtimeVoiceProp ?? null;
-  const row = (layoutProp ?? "block") === "row";
   const voiceActive = voice.recording || voice.transcribing;
   return (
     <div
-      data-chat-composer-footer={row ? undefined : "true"}
+      data-chat-composer-footer="true"
       data-moss-visible-composer-controls="true"
       className={cn(
-        row
-          ? "contents"
-          : [
-              "@container",
-              COMPOSER_FOOTER_ROW_CLASS_NAME,
-              isComposerFooterCompact ? "gap-1.5" : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
-            ],
+        "@container",
+        COMPOSER_FOOTER_ROW_CLASS_NAME,
+        isComposerFooterCompact ? "gap-1.5" : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
       )}
     >
       <div
@@ -114,13 +105,11 @@ export function ChatComposerFooter({
         data-moss-visible-composer-leading="true"
         className={cn(
           "flex items-center",
-          row
-            ? "col-start-1 row-start-[var(--composer-row-line,1)] shrink-0 gap-0.5"
-            : voiceActive
-              ? "min-w-0 shrink-0 gap-1"
-              : isComposerFooterCompact
-                ? "min-w-0 flex-1 gap-1 overflow-hidden"
-                : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+          voiceActive
+            ? "min-w-0 shrink-0 gap-1"
+            : isComposerFooterCompact
+              ? "min-w-0 flex-1 gap-1 overflow-hidden"
+              : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
         )}
       >
         {leadingControls}
@@ -141,7 +130,7 @@ export function ChatComposerFooter({
                 ) : (
                   <BugIcon className="size-4" />
                 )}
-                <span className={row ? "sr-only" : "sr-only sm:not-sr-only"}>
+                <span className="sr-only sm:not-sr-only">
                   {interactionMode === "plan" ? "Plan" : "Debug"}
                 </span>
               </Button>
@@ -150,10 +139,7 @@ export function ChatComposerFooter({
             {sidebarAction ? (
               <Button
                 variant="ghost"
-                className={cn(
-                  "shrink-0 whitespace-nowrap text-ui-sm sm:text-ui-sm font-normal",
-                  row ? COMPOSER_ACTION_CIRCLE_CLASS_NAME : "px-2 sm:px-3",
-                )}
+                className="shrink-0 whitespace-nowrap px-2 text-ui-sm sm:px-3 sm:text-ui-sm font-normal"
                 size="sm"
                 type="button"
                 onClick={sidebarAction.onClick}
@@ -161,9 +147,7 @@ export function ChatComposerFooter({
                 aria-label={sidebarAction.title}
               >
                 <LayoutSidebarIcon className="size-4" />
-                <span className={row ? "sr-only" : "sr-only sm:not-sr-only"}>
-                  {sidebarAction.label}
-                </span>
+                <span className="sr-only sm:not-sr-only">{sidebarAction.label}</span>
               </Button>
             ) : null}
           </>
@@ -173,17 +157,7 @@ export function ChatComposerFooter({
       <div
         data-chat-composer-actions="right"
         data-moss-visible-composer-actions="true"
-        data-chat-composer-footer={row ? "true" : undefined}
-        className={cn(
-          "flex items-center gap-2",
-          row
-            ? voiceActive
-              ? "col-start-2 col-end-4 row-start-[var(--composer-row-line,1)] min-w-0"
-              : "col-start-3 row-start-[var(--composer-row-line,1)] shrink-0"
-            : voiceActive
-              ? "min-w-0 flex-1"
-              : "shrink-0",
-        )}
+        className={cn("flex items-center gap-2", voiceActive ? "min-w-0 flex-1" : "shrink-0")}
       >
         {realtimeVoice?.active ? realtimeVoice.controls : null}
         {realtimeVoice?.active ? null : contextMeter}

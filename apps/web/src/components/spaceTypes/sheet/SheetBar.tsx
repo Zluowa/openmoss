@@ -58,7 +58,8 @@ export function figuresOf(
       max = max === null ? value : Math.max(max, value);
     }
   }
-  if (count < 2 && numbers < 2) return null;
+  // Figures for a range, or for one number cell (as Google Sheets shows its sum).
+  if (numbers === 0 && count < 2) return null;
   return { sum, average: numbers ? sum / numbers : null, count, numbers, min, max, format };
 }
 

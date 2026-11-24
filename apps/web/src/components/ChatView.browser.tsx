@@ -145,6 +145,7 @@ import { usePinnedThreadsStore } from "../pinnedThreadsStore";
 import { getAppTypographyScale } from "../lib/appTypography";
 import { threadJumpCommandForIndex } from "../keybindings";
 import { useStore } from "../store";
+import { pageAssistantThreads } from "../lib/pageAi/pageAssistantThread";
 import { getThreadFromState } from "../threadDerivation";
 import { clearThreadDetailCache, writeThreadDetailCache } from "../lib/threadDetailCache";
 import {
@@ -4514,6 +4515,120 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("keeps a 资料空间 item's own chat out of the main sidebar, even with messages (walk S-6)", async () => {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("item-chat-hidden"),
+      targetText: "A chat with a message",
+    });
+    const started = {
+      ...base.threads[0]!,
+      title: "Started chat",
+      latestUserMessageAt: "2026-01-02T00:00:00.000Z",
+    };
+    const itemChatId = OTHER_THREAD_ID;
+    // The 问 Moss chat of a slide deck, after the person asked it something.
+    const itemChat = {
+      ...base.threads[0]!,
+      id: itemChatId,
+      title: "Deck chat",
+      session: { ...base.threads[0]!.session!, threadId: itemChatId },
+      createdAt: "2026-01-03T00:00:00.000Z",
+      updatedAt: "2026-01-03T00:00:00.000Z",
+      latestUserMessageAt: "2026-01-03T00:00:00.000Z",
+    };
+    pageAssistantThreads.set("default:local:slides:deck-1", itemChatId);
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: { ...base, threads: [started, itemChat] },
+    });
+    try {
+      await waitForLayout();
+      const sidebar = () =>
+        document.querySelector<HTMLElement>('[data-slot="sidebar"][data-side="left"]')!;
+      await vi.waitFor(() => expect(sidebar().textContent).toContain("Started chat"));
+      // Open project or closed (Recent): the item's chat is in neither list.
+      expect(sidebar().textContent).not.toContain("Deck chat");
+      useStore.getState().setProjectExpanded(PROJECT_ID, false);
+      await vi.waitFor(() => expect(sidebar().textContent).toContain("Recent"));
+      expect(sidebar().textContent).not.toContain("Deck chat");
+    } finally {
+      pageAssistantThreads.forget("default:local:slides:deck-1");
+      // Later tests expect the fixture project open, as it starts.
+      useStore.getState().setProjectExpanded(PROJECT_ID, true);
+      await mounted.cleanup();
+    }
+  });
+
+  it("never lands 首页 on a 资料空间 item's chat, and lists Getting started under the chats (walk D-3, R-5)", async () => {
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("recent-unstarted"),
+      targetText: "A chat with a message",
+    });
+    const started = { ...base.threads[0]!, title: "Started chat" };
+    const itemChatId = OTHER_THREAD_ID;
+    // What a 资料空间 item makes for its 问 Moss panel, the newest chat of all.
+    const itemChat = {
+      ...base.threads[0]!,
+      id: itemChatId,
+      title: "Untitled slides",
+      session: { ...base.threads[0]!.session!, threadId: itemChatId },
+      createdAt: "2099-01-03T00:00:00.000Z",
+      updatedAt: "2099-01-03T00:00:00.000Z",
+      messages: [],
+    };
+    pageAssistantThreads.set("default:local:slides:untitled", itemChatId);
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: { ...base, threads: [started, itemChat] },
+      configureFixture: (nextFixture) => {
+        // A home folder, as on every real PC: with no chat left, 首页 opens a new chat there.
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          homeDir: "/Users/tester",
+          chatWorkspaceRoot: "/Users/tester",
+        };
+      },
+    });
+    try {
+      await waitForLayout();
+      // 首页 from another page, once the chat the person was in is gone (archived elsewhere):
+      // a new chat, never the item's chat, although it is the newest one.
+      await mounted.router.navigate({ to: "/mossbot" });
+      await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
+      useStore.getState().syncServerReadModel({
+        ...base,
+        snapshotSequence: base.snapshotSequence + 1,
+        threads: [itemChat],
+      });
+      const rail = page.getByRole("navigation", { name: "Primary", exact: true });
+      await rail.getByRole("button", { name: "Home", exact: true }).click();
+      await expect.poll(() => mounted.router.state.location.pathname).not.toBe("/mossbot");
+      expect(mounted.router.state.location.pathname).not.toBe(`/${itemChatId}`);
+      // Recent: the started chat comes back, the item's chat stays out.
+      useStore.getState().syncServerReadModel({
+        ...base,
+        snapshotSequence: base.snapshotSequence + 2,
+        threads: [started, itemChat],
+      });
+      useStore.getState().setProjectExpanded(PROJECT_ID, false);
+      await vi.waitFor(() => {
+        const recent = Array.from(document.querySelectorAll("span")).find(
+          (span) => span.textContent === "Recent",
+        );
+        expect(recent).toBeTruthy();
+        const group = recent!.closest<HTMLElement>('[data-sidebar="group"]')!;
+        expect(group.textContent).toContain("Started chat");
+        expect(group.textContent).not.toContain("Untitled slides");
+      });
+      expect(document.querySelector("[data-sidebar-getting-started]")).not.toBeNull();
+    } finally {
+      pageAssistantThreads.forget("default:local:slides:untitled");
+      // Later tests expect the fixture project open, as it starts.
+      useStore.getState().setProjectExpanded(PROJECT_ID, true);
+      await mounted.cleanup();
+    }
+  });
+
   it.each([
     { attentionFirst: false, reminderSeen: false, newerClientCompletion: false },
     { attentionFirst: true, reminderSeen: true, newerClientCompletion: false },
@@ -5975,7 +6090,7 @@ describe("ChatView transcript geometry (full app)", () => {
   // The self-report tool `layout_report` must catch the onboarding overflow the owner found on
   // 2026-11-18 (fixed by #674): the stage with no top bar above it, its controls under the
   // desktop window's own buttons. Recreated here by hiding that top bar.
-  it("layout_report finds the Mossbot onboarding as it was before #674, and nothing as shipped", async () => {
+  it("layout_report finds nothing wrong on the Mossbot page as shipped (no second onboarding)", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -5987,7 +6102,9 @@ describe("ChatView transcript geometry (full app)", () => {
       await waitForLayout();
       await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
-      await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
+      await expect.poll(() => document.querySelector("[data-mossbot-workspace]")).not.toBeNull();
+      // The Mossbot page itself, never an intro stage (walk 2026-11-24, D-7).
+      expect(document.querySelector("[data-mossbot-onboarding]")).toBeNull();
       // The acceptance window and the owner's window.
       for (const viewport of [
         { name: "acceptance", width: 1101, height: 782 },
@@ -5996,60 +6113,21 @@ describe("ChatView transcript geometry (full app)", () => {
         await setViewport(viewport);
         await waitForLayout();
         const at = `${viewport.width}x${viewport.height}`;
-        // As the tool measures: settled first (fonts, running transitions, two frames). Mirror
-        // run 44297606017 caught the top bar's back/forward column mid-opening without it.
-        const report = async () => {
-          await settleLayout();
-          return layoutReport({ root: "[data-mossbot-workspace]", windowControls: "windows" });
-        };
-
+        // As the tool measures: settled first (fonts, running transitions, two frames).
+        await settleLayout();
+        const report = await layoutReport({
+          root: "[data-mossbot-workspace]",
+          windowControls: "windows",
+        });
         // As shipped: nothing under the window's buttons, nothing cut, nothing spilling.
-        expect((await report()).findings, at).toEqual([]);
-
-        // As before #674: no top bar above the stage. The desktop window draws its buttons on top
-        // of the page there (DesktopWindowControls, not mounted in this browser harness): a
-        // stand-in band in the same place, so the report sees what it sees in the window.
-        const caption = document.createElement("div");
-        caption.setAttribute("data-desktop-window-controls", "");
-        caption.setAttribute("aria-hidden", "true");
-        caption.style.cssText =
-          "position:fixed;top:0;right:0;width:138px;height:44px;z-index:2147483647;display:flex";
-        caption.innerHTML =
-          '<button style="flex:1"></button><button style="flex:1"></button><button style="flex:1"></button>';
-        document.body.append(caption);
-        const topBar = document.querySelector<HTMLElement>("[data-mossbot-workspace] > header")!;
-        expect(topBar, at).not.toBeNull();
-        topBar.style.display = "none";
-        await waitForLayout();
-        try {
-          const broken = await report();
-          const caption = broken.windowControls!;
-          const under = broken.findings.filter(
-            (finding) => finding.kind === "under-window-controls",
-          );
-          expect(under.length, at).toBeGreaterThan(0);
-          for (const finding of under) {
-            // A control of the onboarding a person sees under the window's buttons.
-            const element = document.querySelector(finding.selector)!;
-            expect(element.closest("[data-mossbot-onboarding]"), at).not.toBeNull();
-            const box = element.getBoundingClientRect();
-            expect(box.top, at).toBeLessThan(caption.y + caption.height);
-            expect(box.right, at).toBeGreaterThan(caption.x);
-            expect(finding.against.selector, at).toBe("window-controls");
-          }
-        } finally {
-          topBar.style.display = "";
-          caption.remove();
-        }
-        await waitForLayout();
-        expect((await report()).findings, at).toEqual([]);
+        expect(report.findings, at).toEqual([]);
       }
     } finally {
       await mounted.cleanup();
     }
   });
 
-  it("keeps the Mossbot onboarding inside the content card, clear of the desktop window controls", async () => {
+  it("opens Mossbot on its own page with no second onboarding, the panel and toggle as left (walk D-7, R-9)", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -6057,139 +6135,40 @@ describe("ChatView transcript geometry (full app)", () => {
         targetText: "Mossbot onboarding shell",
       }),
     });
-    const intersects = (a: DOMRect, b: DOMRect) =>
-      a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    const inside = (inner: DOMRect, outer: DOMRect) =>
-      inner.top >= outer.top - 0.5 &&
-      inner.bottom <= outer.bottom + 0.5 &&
-      inner.left >= outer.left - 0.5 &&
-      inner.right <= outer.right + 0.5;
-    // On Windows and Linux the desktop window draws its own minimize/maximize/close in the title-bar band at the
-    // top right, as wide as the gutter every top bar keeps for them; on macOS the traffic lights sit at the top left.
-    const captionWidth = Number(
-      /pr-\[(\d+)px\]/.exec(DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS)?.[1],
-    );
-    expect(captionWidth).toBeGreaterThan(100);
     const sidebarState = () =>
       document.querySelector('[data-slot="sidebar"][data-side="left"]')?.getAttribute("data-state");
-    const panelWidth = () =>
-      document.querySelector(".app-rail-panel")?.getBoundingClientRect().width ?? 0;
     const toggle = () =>
       document.querySelector<HTMLButtonElement>('button[aria-label="Toggle thread sidebar"]');
-    const settle = () => new Promise((resolve) => setTimeout(resolve, 450)); // the panel's 300 ms slide
     try {
       await waitForLayout();
       for (const preferenceOpen of [true, false]) {
-        // the person's own panel preference, set before Mossbot opens
         if ((sidebarState() === "expanded") !== preferenceOpen) {
           await page.getByRole("button", { name: "Toggle thread sidebar", exact: true }).click();
           await expect.poll(sidebarState).toBe(preferenceOpen ? "expanded" : "collapsed");
         }
-        await settle();
-        const preferencePanelWidth = panelWidth();
-        if (preferenceOpen) expect(preferencePanelWidth).toBeGreaterThan(100);
-        // the panel's Mossbot entry while the panel is open; with it closed, the route itself
-        if (preferenceOpen)
-          await page.getByRole("button", { name: "Mossbot", exact: true }).last().click();
-        else await mounted.router.navigate({ to: "/mossbot" });
+        const toggleBefore = toggle()!.getBoundingClientRect();
+        await mounted.router.navigate({ to: "/mossbot" });
         await expect.poll(() => mounted.router.state.location.pathname).toBe("/mossbot");
-        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
-        // the stage takes the panel's room; the panel and its toggle are gone, the icon rail stays
-        await expect.poll(sidebarState).toBe("collapsed");
-        await settle();
-        expect(panelWidth()).toBeLessThan(1);
-        expect(toggle()?.disabled).toBe(true);
-        expect(getComputedStyle(toggle()!).visibility).toBe("hidden");
-        await expect
-          .element(page.getByRole("navigation", { name: "Primary", exact: true }))
-          .toBeVisible();
-        // no Moss mark or wordmark in the onboarding's top bar: only the skip pill
-        const top = document.querySelector("[data-mossbot-onboarding] .mbo-top")!;
-        expect(top.querySelector("svg, img")).toBeNull();
-        expect(top.textContent?.trim()).toBe("Skip intro");
-
-        for (const viewport of [
-          { name: "owner", width: 1386, height: 893 },
-          { name: "acceptance", width: 1100, height: 782 },
-          { name: "1101", width: 1101, height: 782 },
-          { name: "1372", width: 1372, height: 893 },
-          { name: "1692", width: 1692, height: 960 },
-          { name: "max-100", width: 2560, height: 1440 },
-          { name: "900", width: 900, height: 700 },
-          { name: "narrowest", width: 840, height: 620 },
-        ]) {
-          await setViewport(viewport);
-          await waitForLayout();
-          const at = `${viewport.name}, panel preference ${preferenceOpen ? "open" : "closed"}`;
-          const stage = document.querySelector<HTMLElement>("[data-mossbot-onboarding]")!;
-          const card = stage.closest(".chat-content-card")!;
-          expect(card, at).not.toBeNull();
-          const band = parseFloat(
-            getComputedStyle(card).getPropertyValue("--app-top-strip-height"),
-          );
-          expect(band, at).toBeGreaterThan(20);
-          const stageBox = stage.getBoundingClientRect();
-          const cardBox = card.getBoundingClientRect();
-          // under the title-bar band, inside the card on every side, nothing to scroll
-          expect(stageBox.top, at).toBeGreaterThanOrEqual(cardBox.top + band - 0.5);
-          expect(stageBox.left, at).toBeGreaterThanOrEqual(cardBox.left - 0.5);
-          expect(stageBox.right, at).toBeLessThanOrEqual(cardBox.right + 0.5);
-          expect(stageBox.bottom, at).toBeLessThanOrEqual(
-            Math.min(cardBox.bottom, window.innerHeight) + 0.5,
-          );
-          expect(stage.scrollHeight, at).toBeLessThanOrEqual(stage.clientHeight + 1);
-          expect(panelWidth(), at).toBeLessThan(1);
-          // the scaled 680x520 stage (360x620 under 600 px) fits its area whole, the title included
-          const wrap = stage.querySelector(".mbo-wrap")!.getBoundingClientRect();
-          const scaled = stage.querySelector(".mbo-stage")!;
-          expect(inside(scaled.getBoundingClientRect(), wrap), at).toBe(true);
-          expect(scaled.classList.contains("mbo-narrow"), at).toBe(wrap.width < 600);
-          const title = stage.querySelector(".mbo-scene[data-on] .mbo-title");
-          if (title) expect(inside(title.getBoundingClientRect(), wrap), `${at}: title`).toBe(true);
-          const caption = new DOMRect(window.innerWidth - captionWidth, 0, captionWidth, band);
-          const trafficLights = new DOMRect(0, 0, 80, band);
-          const controls = [...stage.querySelectorAll<HTMLElement>("button, nav")].filter(
-            (element) => {
-              const box = element.getBoundingClientRect();
-              return (
-                box.width > 0 && box.height > 0 && getComputedStyle(element).visibility !== "hidden"
-              );
-            },
-          );
-          // the skip pill, Next and the step dots at least
-          expect(controls.length, at).toBeGreaterThanOrEqual(3);
-          for (const control of controls) {
-            const box = control.getBoundingClientRect();
-            const name = `${at}: ${control.getAttribute("aria-label") ?? control.textContent?.trim()}`;
-            expect(inside(box, stageBox), name).toBe(true);
-            expect(intersects(box, caption), name).toBe(false);
-            expect(intersects(box, trafficLights), name).toBe(false);
-          }
+        await expect.poll(() => document.querySelector("[data-mossbot-workspace]")).not.toBeNull();
+        // The plain page: no full-window intro stage, no way back into one.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(document.querySelector("[data-mossbot-onboarding]")).toBeNull();
+        expect(page.getByRole("button", { name: "Skip intro" }).elements()).toHaveLength(0);
+        expect(page.getByRole("button", { name: "Show the intro" }).elements()).toHaveLength(0);
+        // The panel stays as the person left it and the title-bar toggle stays where it was.
+        expect(sidebarState()).toBe(preferenceOpen ? "expanded" : "collapsed");
+        const toggleOnMossbot = toggle()!;
+        expect(getComputedStyle(toggleOnMossbot).visibility).toBe("visible");
+        expect(toggleOnMossbot.disabled).toBe(false);
+        // With the panel open the toggle stays put. With it collapsed the toggle rides into
+        // each page's own header, which is not the same x everywhere (R-9, left to the lead).
+        if (preferenceOpen) {
+          expect(
+            Math.abs(toggleOnMossbot.getBoundingClientRect().left - toggleBefore.left),
+          ).toBeLessThan(1);
         }
-        await setViewport(DEFAULT_VIEWPORT);
-
-        // Skip: the panel comes back as the person left it, beside the plain invitation
-        await page.getByRole("button", { name: "Skip intro", exact: true }).click();
-        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).toBeNull();
-        await expect.poll(sidebarState).toBe(preferenceOpen ? "expanded" : "collapsed");
-        await settle();
-        expect(Math.abs(panelWidth() - preferencePanelWidth)).toBeLessThan(1);
-        expect(toggle()?.disabled).toBe(false);
-        // "Show the intro" takes the panel away again
-        await page.getByRole("button", { name: "Show the intro", exact: true }).click();
-        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).not.toBeNull();
-        await expect.poll(sidebarState).toBe("collapsed");
-        await settle();
-        expect(panelWidth()).toBeLessThan(1);
-        // Start chatting leaves for the new assistant's conversation (MossbotOnboarding.browser covers the
-        // creation itself): the panel returns there as the person left it
         await mounted.router.navigate({ to: "/$threadId", params: { threadId: THREAD_ID } });
-        await expect.poll(() => document.querySelector("[data-mossbot-onboarding]")).toBeNull();
-        await expect.poll(sidebarState).toBe(preferenceOpen ? "expanded" : "collapsed");
-        await settle();
-        expect(Math.abs(panelWidth() - preferencePanelWidth)).toBeLessThan(1);
-        // the next round starts with the onboarding offered again
-        useMossbotPreferencesStore.getState().setOnboardingSkipped(false);
+        await expect.poll(() => mounted.router.state.location.pathname).not.toBe("/mossbot");
       }
     } finally {
       await mounted.cleanup();
@@ -12240,7 +12219,41 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("keeps a started thread's composer on one row until the draft needs more", async () => {
+  it("shows the same voice buttons, mic included, for a thread on another agent's model (walk V-1)", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("msg-voice-other-model"),
+      targetText: "Voice on another model",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        threads: snapshot.threads.map((thread) => ({
+          ...thread,
+          modelSelection: {
+            provider: "claudeAgent",
+            model: "claude-sonnet-4-6",
+            options: { effort: "high" },
+          },
+          session: { ...thread.session!, providerName: "claudeAgent" },
+        })),
+      },
+    });
+    try {
+      await waitForComposerEditor();
+      const shell = queryComposerShell();
+      const mic = page.getByRole("button", { name: "Dictate", exact: true });
+      await expect.element(mic).toBeVisible();
+      expect(shell.contains(mic.element())).toBe(true);
+      const box = mic.element().getBoundingClientRect();
+      expect(box.width).toBeGreaterThan(16);
+      expect(box.height).toBeGreaterThan(16);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps one composer shape in a started thread, pickers inside it (walk D-4)", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -12251,24 +12264,33 @@ describe("ChatView transcript geometry (full app)", () => {
     try {
       const editor = await waitForComposerEditor();
       const shell = queryComposerShell;
-      await vi.waitFor(() => expect(shell().dataset.composerLayout).toBe("row"));
-      // Permission, model and context sit in the row under the composer, not in the pill.
-      const statusRow = document.querySelector<HTMLElement>("[data-chat-composer-status-row]");
-      expect(statusRow).not.toBeNull();
-      expect(shell().contains(statusRow)).toBe(false);
+      const expectBlockWithPickersInside = () => {
+        const model = page
+          .getByRole("button", { name: "Change model and reasoning", exact: true })
+          .element();
+        const footer = shell().querySelector<HTMLElement>("[data-chat-composer-footer]")!;
+        // As on the empty landing: the editor on top, the + / permission / model / send row
+        // under it, all inside the one box. Nothing moves to a row under the box.
+        expect(shell().contains(model)).toBe(true);
+        expect(footer.contains(model)).toBe(true);
+        expect(footer.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          editor.getBoundingClientRect().bottom - 1,
+        );
+        expect(document.querySelector("[data-chat-composer-status-row]")).toBeNull();
+      };
+      await vi.waitFor(expectBlockWithPickersInside);
+      const height = shell().getBoundingClientRect().height;
 
       await userEvent.click(editor);
-      // Short enough to fit the row's editor slot at any column width.
       await userEvent.keyboard("ok");
-      expect(shell().dataset.composerLayout).toBe("row");
+      expectBlockWithPickersInside();
+      expect(shell().getBoundingClientRect().height).toBeCloseTo(height, 0);
 
       await userEvent.keyboard("{Shift>}{Enter}{/Shift}Second line");
-      await vi.waitFor(() => expect(shell().dataset.composerLayout).toBeUndefined());
-      expect(document.activeElement).toBe(editor);
-
-      await userEvent.clear(editor);
-      await userEvent.keyboard("ok");
-      await vi.waitFor(() => expect(shell().dataset.composerLayout).toBe("row"));
+      await vi.waitFor(() =>
+        expect(shell().getBoundingClientRect().height).toBeGreaterThan(height),
+      );
+      expectBlockWithPickersInside();
       expect(document.activeElement).toBe(editor);
     } finally {
       await mounted.cleanup();
@@ -12304,27 +12326,33 @@ describe("ChatView transcript geometry (full app)", () => {
     });
     try {
       await waitForComposerEditor();
-      const row = document.querySelector<HTMLElement>("[data-chat-composer-status-row]")!;
-      const branch = row.querySelector<HTMLElement>('[data-slot="combobox-trigger"]')!;
+      const branch = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-slot="combobox-trigger"]'),
+        "Unable to find the branch control.",
+      );
       const model = page
         .getByRole("button", { name: "Change model and reasoning", exact: true })
         .element();
       await vi.waitFor(() => expect(branch.textContent).toContain(longBranch));
       const branchRect = branch.getBoundingClientRect();
       const modelRect = model.getBoundingClientRect();
-      const rowRect = row.getBoundingClientRect();
+      const shellRect = queryComposerShell().getBoundingClientRect();
       expect(branchRect.width).toBeGreaterThan(48);
       expect(branch.scrollWidth).toBeLessThanOrEqual(branch.clientWidth + 1);
-      expect(branchRect.left).toBeGreaterThanOrEqual(rowRect.left);
-      expect(branchRect.right).toBeLessThanOrEqual(rowRect.right);
-      expect(modelRect.right).toBeLessThanOrEqual(rowRect.right);
-      expect(branchRect.right <= modelRect.left || branchRect.bottom <= modelRect.top).toBe(true);
+      expect(branchRect.left).toBeGreaterThanOrEqual(shellRect.left - 1);
+      expect(branchRect.right).toBeLessThanOrEqual(shellRect.right + 1);
+      expect(modelRect.right).toBeLessThanOrEqual(shellRect.right);
+      expect(
+        branchRect.right <= modelRect.left ||
+          branchRect.bottom <= modelRect.top ||
+          modelRect.bottom <= branchRect.top,
+      ).toBe(true);
       await userEvent.fill(page.getByTestId("composer-editor"), "Bozza breve");
       await page.getByRole("button", { name: "Add files and more", exact: true }).click();
       await expect
         .element(page.getByRole("option", { name: "Files and folders", exact: true }))
         .toBeVisible();
-      await page.getByRole("option", { name: "Plan mode Turn plan mode on", exact: true }).click();
+      await page.getByRole("option", { name: "Plan mode", exact: true }).click();
       await expect.element(page.getByRole("button", { name: "Plan", exact: true })).toBeVisible();
     } finally {
       await mounted.cleanup();
@@ -12348,7 +12376,7 @@ describe("ChatView transcript geometry (full app)", () => {
       const shell = document.querySelector<HTMLElement>(
         'form[data-chat-composer-form="true"] .chat-composer-shell',
       )!;
-      const statusRow = document.querySelector<HTMLElement>("[data-chat-composer-status-row]")!;
+      const statusRow = shell.querySelector<HTMLElement>("[data-chat-composer-footer]")!;
       const environmentPanel = await waitForElement(
         () => document.querySelector<HTMLElement>("[data-environment-panel-variant]") ?? null,
         "Unable to find the actual Environment panel for the composer inset check.",
@@ -12356,8 +12384,9 @@ describe("ChatView transcript geometry (full app)", () => {
       const expectRowUnderComposer = () => {
         const shellRect = shell.getBoundingClientRect();
         const rowRect = statusRow.getBoundingClientRect();
-        expect(Math.abs(rowRect.left - shellRect.left)).toBeLessThanOrEqual(1);
-        expect(Math.abs(rowRect.right - shellRect.right)).toBeLessThanOrEqual(1);
+        expect(rowRect.left).toBeGreaterThanOrEqual(shellRect.left);
+        expect(rowRect.right).toBeLessThanOrEqual(shellRect.right);
+        expect(rowRect.width).toBeGreaterThan(shellRect.width - 32);
       };
       const expectDockedEnvironment = () => {
         expect(environmentPanel.dataset.environmentPanelVariant).toBe("docked");
@@ -14232,7 +14261,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("keeps the one-line composer under a strip of quotes, like desktop chat", async () => {
+  it("shows a quoted passage inside the one composer box, above the editor (walk D-4)", async () => {
     const snapshot = createSnapshotForTargetUser({
       targetMessageId: "msg-user-quote-strip" as MessageId,
       targetText: "Quote strip test",
@@ -14241,7 +14270,6 @@ describe("ChatView transcript geometry (full app)", () => {
     try {
       await waitForComposerEditor();
       const form = () => document.querySelector<HTMLElement>('[data-chat-composer-form="true"]')!;
-      await vi.waitFor(() => expect(queryComposerShell().dataset.composerLayout).toBe("row"));
       useComposerDraftStore.getState().addAssistantSelection(THREAD_ID, {
         type: "assistant-selection",
         id: "quote-strip-1",
@@ -14251,33 +14279,18 @@ describe("ChatView transcript geometry (full app)", () => {
       await vi.waitFor(() => {
         expect(document.querySelectorAll("[data-composer-quote-row]")).toHaveLength(1);
       });
-      // Still one line: the strip spans the composer and the line sits below it.
-      expect(queryComposerShell().dataset.composerLayout).toBe("row");
-      const strip = document.querySelector<HTMLElement>('[data-composer-quote-strip="true"]')!;
+      const quote = document.querySelector<HTMLElement>("[data-composer-quote-row]")!;
       const editor = form().querySelector<HTMLElement>('[data-testid="composer-editor"]')!;
-      const surface = form().querySelector<HTMLElement>("[data-chat-composer-surface]")!;
-      expect(strip.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      expect(queryComposerShell().contains(quote)).toBe(true);
+      expect(quote.getBoundingClientRect().bottom).toBeLessThanOrEqual(
         editor.getBoundingClientRect().top + 1,
       );
-      expect(strip.getBoundingClientRect().width).toBeGreaterThan(
-        surface.getBoundingClientRect().width - 20,
+      const footer = queryComposerShell().querySelector<HTMLElement>(
+        "[data-chat-composer-footer]",
+      )!;
+      expect(footer.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        editor.getBoundingClientRect().bottom - 1,
       );
-      const leading = form().querySelector<HTMLElement>('[data-chat-composer-leading="true"]')!;
-      expect(
-        Math.abs(leading.getBoundingClientRect().top - editor.getBoundingClientRect().top),
-      ).toBeLessThan(12);
-
-      // Any other attachment (here pasted text) still opens the full block, quotes included in it.
-      useComposerDraftStore.getState().addPastedTexts(THREAD_ID, [
-        createPastedTextDraft({
-          id: "pasted-1",
-          createdAt: new Date().toISOString(),
-          text: Array.from({ length: 12 }, (_, i) => "pasted line " + i).join("\n"),
-        }),
-      ]);
-      await vi.waitFor(() => expect(queryComposerShell().dataset.composerLayout).toBeUndefined());
-      expect(document.querySelector('[data-composer-quote-strip="true"]')).toBeNull();
-      expect(document.querySelectorAll("[data-composer-quote-row]")).toHaveLength(1);
     } finally {
       await mounted.cleanup();
     }
@@ -19274,7 +19287,7 @@ describe("ChatView transcript geometry (full app)", () => {
           const composerEditor = await waitForComposerEditor();
           await vi.waitFor(() => expect(composerEditor.textContent ?? "").toContain("clear"));
           await page.getByLabelText("Add files and more").click();
-          await page.getByText("Set a goal to keep pursuing").click();
+          await page.getByRole("option", { name: "Goal", exact: true }).click();
         }
         await vi.waitFor(() =>
           expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.prompt).toBe(
@@ -21120,6 +21133,16 @@ describe("ChatView transcript geometry (full app)", () => {
       const projectTrigger = page.getByTestId("empty-landing-heading-project-trigger");
       await expect.element(projectTrigger).toBeInTheDocument();
       await projectTrigger.click();
+      // With only the default space the group is just the projects, named as the sidebar
+      // names them: no raw 「Void · Active」 heading (walk R-7).
+      await vi.waitFor(() => {
+        const labels = Array.from(
+          document.querySelectorAll<HTMLElement>('[data-slot="combobox-group-label"]'),
+          (label) => label.textContent?.trim(),
+        );
+        expect(labels[0]).toBe("Projects");
+        expect(labels.join(" ")).not.toMatch(/Void|Active/u);
+      });
       const otherProjectOption = await waitForElement(
         () =>
           Array.from(document.querySelectorAll<HTMLElement>('[data-slot="combobox-item"]')).find(
@@ -21138,6 +21161,119 @@ describe("ChatView transcript geometry (full app)", () => {
           );
         },
         { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it.each([
+    { name: "beside a dock", width: 380 },
+    { name: "a wide pane", width: 960 },
+  ])("keeps the landing question to one or two even lines $name (walk D-8)", async ({ width }) => {
+    seedProjectDraftThreadForLandingTest();
+    const mounted = await mountChatView({
+      viewport: { name: `hero-${width}`, width, height: 900 },
+      snapshot: createDraftOnlySnapshot(),
+    });
+    try {
+      const heading = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-testid="empty-landing-heading"]'),
+        "Unable to find the empty-landing heading.",
+      );
+      await vi.waitFor(() => expect(heading.textContent).toBe("What should we build in Project?"));
+      const fontSizePx = Number.parseFloat(getComputedStyle(heading).fontSize);
+      expect(fontSizePx).toBeGreaterThanOrEqual(20);
+      expect(fontSizePx).toBeLessThanOrEqual(30);
+      // The lines as painted: one rectangle row per line of the question.
+      const range = document.createRange();
+      range.selectNodeContents(heading);
+      // Boxes on one line overlap vertically (the inline project button sits a few pixels
+      // off the text's own box), so a box joins the line its centre falls in.
+      const lines: { top: number; bottom: number; left: number; right: number }[] = [];
+      for (const rect of Array.from(range.getClientRects())) {
+        if (rect.width === 0) continue;
+        const centre = (rect.top + rect.bottom) / 2;
+        const line = lines.find((entry) => centre >= entry.top && centre <= entry.bottom);
+        if (line) {
+          line.left = Math.min(line.left, rect.left);
+          line.right = Math.max(line.right, rect.right);
+        } else {
+          lines.push({ top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right });
+        }
+      }
+      const widths = lines.map((line) => line.right - line.left);
+      expect(widths.length).toBeLessThanOrEqual(2);
+      // No word or character left alone on a line of its own.
+      expect(Math.min(...widths)).toBeGreaterThan(Math.max(...widths) * 0.35);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it.each([
+    { name: "beside a dock", width: 380 },
+    { name: "a wide pane", width: 960 },
+  ])("keeps the landing row's chips whole and apart $name (walk D-8, N2-4)", async ({ width }) => {
+    seedProjectDraftThreadForLandingTest();
+    const mounted = await mountChatView({
+      viewport: { name: `chips-${width}`, width, height: 900 },
+      snapshot: createDraftOnlySnapshot(),
+      configureFixture: (nextFixture) => {
+        nextFixture.gitBranchByCwd = { "/repo/project": "main" };
+      },
+    });
+    try {
+      const controls = await waitForElement(
+        () => document.querySelector<HTMLElement>('[data-empty-landing-controls="true"]'),
+        "Unable to find the empty-landing context controls.",
+      );
+      const branch = await waitForEmptyLandingBranchTrigger("main");
+      await waitForLayout();
+      // The project chip names the project (or, in a narrow row, its folder) only: no path.
+      const project = page.getByTestId("project-picker-trigger").element();
+      expect(project.textContent?.trim()).toMatch(/^project$/iu);
+      // No chip runs under another: the visible chips' boxes do not overlap.
+      const chips = Array.from(controls.querySelectorAll<HTMLElement>("button")).filter(
+        (chip) => chip.getBoundingClientRect().width > 0,
+      );
+      for (const [index, chip] of chips.entries()) {
+        for (const other of chips.slice(index + 1)) {
+          if (chip.contains(other) || other.contains(chip)) continue;
+          const a = chip.getBoundingClientRect();
+          const b = other.getBoundingClientRect();
+          // A control drawn inside a chip (the project chip's 不使用项目 button) is part of it.
+          const inside = (x: DOMRect, y: DOMRect) =>
+            x.left >= y.left - 0.5 &&
+            x.right <= y.right + 0.5 &&
+            x.top >= y.top - 0.5 &&
+            x.bottom <= y.bottom + 0.5;
+          if (inside(a, b) || inside(b, a)) continue;
+          const name = (el: HTMLElement, r: DOMRect) =>
+            `${el.getAttribute("aria-label") ?? el.textContent?.trim()} [${Math.round(r.left)}-${Math.round(r.right)}, ${Math.round(r.top)}-${Math.round(r.bottom)}]`;
+          expect(
+            a.right <= b.left + 0.5 ||
+              b.right <= a.left + 0.5 ||
+              a.bottom <= b.top + 0.5 ||
+              b.bottom <= a.top + 0.5,
+            `${width}px: ${name(chip, a)} overlaps ${name(other, b)}`,
+          ).toBe(true);
+        }
+      }
+      // The branch is named by at least four characters, or by its icon alone; never a sliver.
+      const label = Array.from(branch.querySelectorAll<HTMLElement>("span")).find(
+        (span) => span.textContent?.trim() === "main",
+      );
+      const shown = label && getComputedStyle(label).display !== "none";
+      if (shown) {
+        const fontSize = Number.parseFloat(getComputedStyle(label).fontSize);
+        expect(label.getBoundingClientRect().width).toBeGreaterThanOrEqual(
+          Math.min(label.scrollWidth, fontSize * 4) - 1,
+        );
+      }
+      expect(branch.getAttribute("aria-label")).toBe("main");
+      expect(branch.getBoundingClientRect().right).toBeLessThanOrEqual(
+        controls.getBoundingClientRect().right + 0.5,
       );
     } finally {
       await mounted.cleanup();

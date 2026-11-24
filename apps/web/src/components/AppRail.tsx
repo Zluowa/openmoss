@@ -15,7 +15,6 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { TasksCoachmark } from "./OneTimeCoachmark";
 import type { RailItemId } from "~/appRail.logic";
 import { createCentralIconComponent } from "~/lib/central-icons";
 import { MossbotIcon } from "~/lib/icons";
@@ -79,7 +78,8 @@ const RAIL_ITEM_GLYPH_NAMES: Record<RailItemId, string> = {
   inbox: "at",
   pullRequests: "code-analyze",
   automations: "clock",
-  library: "folders",
+  // Its own glyph: 项目 keeps the folders (walk R-8: three rows shared one folder icon).
+  library: "library",
   tasks: "square-checklist",
   // A project pinned to the rail opens this panel; its own glyph is the project icon.
   project: "folders",
@@ -149,7 +149,7 @@ function AppRailButton({ item }: { item: AppRailItem }) {
       iconClassName={APP_RAIL_GLYPH_CLASS_NAME}
       label={label}
       size="lg"
-      tooltip={item.id === "tasks" ? undefined : label}
+      tooltip={label}
       tooltipSide="right"
       aria-current={item.active ? "page" : undefined}
       className={appRailButtonClassName(item.active)}
@@ -160,7 +160,7 @@ function AppRailButton({ item }: { item: AppRailItem }) {
   );
   return (
     <div className="relative shrink-0">
-      {item.id === "tasks" ? <TasksCoachmark tooltip={label}>{button}</TasksCoachmark> : button}
+      {button}
       {/* Same corner dot as the Activity bell's unread marker; the count is in the tooltip. */}
       {item.badge ? (
         <span

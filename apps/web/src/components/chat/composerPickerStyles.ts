@@ -300,17 +300,6 @@ export const COMPOSER_EDITOR_PADDING_CLASS_NAME = [
  *  can never drift apart in size. */
 export const COMPOSER_ACTION_CIRCLE_CLASS_NAME = "size-7 shrink-0 rounded-full sm:size-7";
 
-/** Single-row composer surface: + | editor | mic, send on one grid row (the footer's
- *  clusters join it through `display: contents`). */
-export const COMPOSER_SINGLE_ROW_SURFACE_CLASS_NAME =
-  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-1 p-1.5";
-/**
- * Editor cell of the single-row composer. Not `relative`, so the command menu anchors to
- * the full-width surface instead of this cell. The line sits in grid row `--composer-row-line` (default 1): row 2 when quoted passages
- * fill a full-width strip above it, as desktop chat keeps its one-line composer under quotes.
- */
-export const COMPOSER_SINGLE_ROW_EDITOR_CLASS_NAME =
-  "col-start-2 row-start-[var(--composer-row-line,1)] min-w-0 px-1.5 py-1";
 /** Bottom bar row — flush to the composer shell edges. */
 export const COMPOSER_FOOTER_ROW_CLASS_NAME = [
   "flex items-center justify-between",

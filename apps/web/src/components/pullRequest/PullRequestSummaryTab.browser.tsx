@@ -99,6 +99,21 @@ describe("PullRequestSummaryTab zh-CN labels", () => {
     expect(document.body.textContent).not.toContain("描述：Keep Codex");
   });
 
+  it("says in one line when GitHub has more unresolved comments than shown", async () => {
+    const queryClient = new QueryClient();
+    await render(
+      <QueryClientProvider client={queryClient}>
+        <MossLocalizationProvider>
+          <PullRequestSummaryTab detail={{ ...DETAIL, commentsTruncated: true }} />
+        </MossLocalizationProvider>
+      </QueryClientProvider>,
+    );
+
+    await expect
+      .element(page.getByText("可能还有未解决的评论没有显示，请到 GitHub 查看。", { exact: true }))
+      .toBeVisible();
+  });
+
   it("localizes the product-owned empty-description fallback", async () => {
     const queryClient = new QueryClient();
     await render(

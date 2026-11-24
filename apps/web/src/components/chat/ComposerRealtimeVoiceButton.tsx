@@ -3,6 +3,7 @@
 // Layer: Chat composer presentation
 
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 function RealtimeVoiceBarsIcon({ busy }: { readonly busy: boolean }) {
   return (
@@ -36,20 +37,28 @@ export function ComposerRealtimeVoiceButton(props: {
     : mode === "return"
       ? "Open voice chat"
       : "Start voice chat";
+  // The tooltip hangs on a wrapper so it also names the button while it is disabled
+  // (walk 2026-11-24, V-1: hovering it showed nothing).
   return (
-    <Button
-      type="button"
-      size={mode === "return" ? "icon-xs" : "icon-sm"}
-      variant={mode === "return" ? "prominent" : "ghost"}
-      className={mode === "return" ? "size-7 shrink-0 rounded-full" : "shrink-0 rounded-control"}
-      disabled={props.disabled || props.busy}
-      aria-label={label}
-      title={label}
-      data-moss-realtime-voice-launch="true"
-      data-moss-realtime-voice-action={mode}
-      onClick={props.onClick}
-    >
-      <RealtimeVoiceBarsIcon busy={props.busy} />
-    </Button>
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+        <Button
+          type="button"
+          size={mode === "return" ? "icon-xs" : "icon-sm"}
+          variant={mode === "return" ? "prominent" : "ghost"}
+          className={
+            mode === "return" ? "size-7 shrink-0 rounded-full" : "shrink-0 rounded-control"
+          }
+          disabled={props.disabled || props.busy}
+          aria-label={label}
+          data-moss-realtime-voice-launch="true"
+          data-moss-realtime-voice-action={mode}
+          onClick={props.onClick}
+        >
+          <RealtimeVoiceBarsIcon busy={props.busy} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
   );
 }

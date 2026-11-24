@@ -7,6 +7,7 @@ import { Loader2Icon, MicIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { COMPOSER_ACTION_CIRCLE_CLASS_NAME } from "./composerPickerStyles";
 
 export const ComposerVoiceButton = function ComposerVoiceButton(props: {
@@ -30,24 +31,33 @@ export const ComposerVoiceButton = function ComposerVoiceButton(props: {
         ? `Stop voice note (${props.durationLabel})`
         : t("composer.dictation.aria");
 
+  // The tooltip hangs on a wrapper so it also names the button while it is disabled
+  // (walk 2026-11-24, V-1: hovering a voice button showed nothing).
   return (
-    <Button
-      size="icon-sm"
-      variant={circle ? "circle" : "ghost"}
-      className={circle ? COMPOSER_ACTION_CIRCLE_CLASS_NAME : "shrink-0 rounded-control"}
-      disabled={props.disabled || isBusy}
-      aria-label={label}
-      title={label}
-      onClick={props.onClick}
-    >
-      {isBusy ? (
-        <Loader2Icon
-          aria-hidden="true"
-          className={cn("animate-spin text-primary", circle ? "size-4" : "size-4")}
-        />
-      ) : (
-        <MicIcon aria-hidden="true" className={cn("text-primary", circle ? "size-4" : "size-4")} />
-      )}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex shrink-0" />}>
+        <Button
+          size="icon-sm"
+          variant={circle ? "circle" : "ghost"}
+          className={circle ? COMPOSER_ACTION_CIRCLE_CLASS_NAME : "shrink-0 rounded-control"}
+          disabled={props.disabled || isBusy}
+          aria-label={label}
+          onClick={props.onClick}
+        >
+          {isBusy ? (
+            <Loader2Icon
+              aria-hidden="true"
+              className={cn("animate-spin text-primary", circle ? "size-4" : "size-4")}
+            />
+          ) : (
+            <MicIcon
+              aria-hidden="true"
+              className={cn("text-primary", circle ? "size-4" : "size-4")}
+            />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
   );
 };

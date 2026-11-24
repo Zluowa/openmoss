@@ -9,13 +9,7 @@ import { useProjectAgentSummaries } from "~/components/chat/project/useProjectAg
 import { SidebarPanelTitle } from "~/components/SidebarPanelTitle";
 import { SidebarPrimaryAction } from "~/components/SidebarPrimaryAction";
 import { SidebarIconButton } from "~/components/SidebarIconButton";
-import {
-  SidebarGroup,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  useSidebar,
-} from "~/components/ui/sidebar";
+import { SidebarGroup, SidebarMenu, useSidebar } from "~/components/ui/sidebar";
 import { Input } from "~/components/ui/input";
 import { Button } from "~/components/ui/button";
 import { LinkIcon, PlusIcon, SearchIcon } from "~/lib/icons";
@@ -99,18 +93,15 @@ export function MossbotSidebar(props: { activeProjectId: ProjectId | null }) {
       </div>
       <SidebarGroup className="mt-auto px-1.5 pb-2">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              className="text-muted-foreground"
-              onClick={() => {
-                void navigate({ to: "/settings", search: { section: "integrations" } });
-                if (isMobile) setOpenMobile(false);
-              }}
-            >
-              <LinkIcon />
-              <span>{t("Connect another agent")}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {/* The same row as 新建助手: one size, one weight (walk R-5). */}
+          <SidebarPrimaryAction
+            icon={LinkIcon}
+            label={t("Connect another agent")}
+            onClick={() => {
+              void navigate({ to: "/settings", search: { section: "integrations" } });
+              if (isMobile) setOpenMobile(false);
+            }}
+          />
         </SidebarMenu>
       </SidebarGroup>
       {creatingRoom && (

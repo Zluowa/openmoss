@@ -79,9 +79,17 @@ const read = (): Map<string, string> => {
   return memory;
 };
 
+// Every change to the bindings, so lists that hide item chats can follow them.
+let bindingVersion = 0;
+let boundThreadIds: ReadonlySet<string> | null = null;
+const bindingListeners = new Set<() => void>();
+
 const write = (next: Map<string, string>) => {
   trimToLruLimit(next);
   memory = next;
+  bindingVersion += 1;
+  boundThreadIds = null;
+  for (const listener of bindingListeners) listener();
   try {
     window.localStorage.setItem(
       STORAGE_KEY,
@@ -126,9 +134,22 @@ export const pageAssistantThreads = {
   },
   /** Snapshot of all remembered bindings in LRU -> MRU order (primarily for diagnostics/tests). */
   size: (): number => read().size,
+  /** Every thread that is some page's or artifact's own chat. */
+  threadIds: (): ReadonlySet<string> => {
+    boundThreadIds ??= new Set(read().values());
+    return boundThreadIds;
+  },
+  /** For useSyncExternalStore: changes whenever a binding is added or dropped. */
+  version: (): number => bindingVersion,
+  subscribe: (listener: () => void): (() => void) => {
+    bindingListeners.add(listener);
+    return () => bindingListeners.delete(listener);
+  },
   /** Test seam: drops the in-memory copy so the next read comes from storage. */
   resetForTests: () => {
     memory = null;
+    boundThreadIds = null;
+    bindingVersion += 1;
   },
 };
 

@@ -169,6 +169,35 @@ describe("MessagesTimeline tool details", () => {
     document.body.innerHTML = "";
   });
 
+  it("wraps an error row so it reads in full in a narrow column (walk N2-5)", async () => {
+    const sentence = "The provider could not complete this request. Try again shortly.";
+    const screen = await render(
+      <div style={{ width: 260 }}>
+        <TimelineWorkEntryRow
+          workEntry={{
+            id: "provider-error",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            label: sentence,
+            tone: "error",
+          }}
+          chatMetaFontSizePx={14}
+          textFontSizePx={16}
+          markdownCwd={undefined}
+          onImageExpand={() => {}}
+          timestampFormat="locale"
+        />
+      </div>,
+    );
+    await expect.element(screen.getByText(sentence)).toBeVisible();
+    const line = screen.getByText(sentence).element().closest("p")!;
+    // Every word painted: nothing cut at the edge, and it takes the lines it needs.
+    expect(line.scrollWidth).toBeLessThanOrEqual(line.clientWidth + 1);
+    expect(getComputedStyle(line).textOverflow).not.toBe("ellipsis");
+    expect(line.getBoundingClientRect().height).toBeGreaterThan(
+      Number.parseFloat(getComputedStyle(line).lineHeight) * 1.5,
+    );
+  });
+
   it("keeps Monitor notices compact and exposes multiline output only on disclosure", async () => {
     const screen = await render(
       <TimelineWorkEntryRow

@@ -217,7 +217,6 @@
     "src/components/mossbot/MossbotCompanion.browser.tsx": 2.5,
     "src/components/mossbot/MossbotConversationRoster.browser.tsx": 0.4,
     "src/components/mossbot/MossbotCreateDialog.browser.tsx": 0.5,
-    "src/components/mossbot/MossbotOnboarding.browser.tsx": 4.4,
     "src/components/mossbot/OpenmausRoom.browser.tsx": 0.8,
     "src/components/MossDataSpaceFallback.browser.tsx": 16.3,
     "src/components/MossDetectedResourcesSection.browser.tsx": 0.6,

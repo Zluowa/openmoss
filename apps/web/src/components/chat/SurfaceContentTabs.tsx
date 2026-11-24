@@ -45,12 +45,13 @@ import { findHiddenSurfaceTabIndexes, isSurfaceTabDraggedOut } from "./surfaceCo
 
 // Tab width in `em` of the chip's own UI font, so it scales with the font size chosen in
 // Settings: every tab starts at a comfortable basis and shrinks evenly with the rest down
-// to a floor that still fits the icon, a readable title (two short words), and the close
-// button. Past the floor the strip scrolls instead of crushing the tabs further, and the
-// overflow menu lists what scrolled away. The floor never exceeds the strip itself, so a
-// strip squeezed by a narrow window still shows one whole tab.
+// to a floor that still fits the icon, a few characters of title with an ellipsis, and the
+// close button. Past the floor the strip scrolls instead of crushing the tabs further, and the
+// overflow menu lists what scrolled away. The floor is low enough that two or three tabs fit a
+// narrow window whole, rather than one scrolled to a slice of its middle (walk D-11), and it
+// never exceeds the strip itself, so a squeezed strip still shows one whole tab.
 // Width also supplies the strip's intrinsic size; the basis still drives tab shrinking.
-const CONTENT_TAB_SIZE_CLASS_NAME = "w-[18em] min-w-[min(12em,100%)] grow-0 shrink basis-[18em]";
+const CONTENT_TAB_SIZE_CLASS_NAME = "w-[18em] min-w-[min(6em,100%)] grow-0 shrink basis-[18em]";
 const CONTENT_TAB_FROZEN_SIZE_CLASS_NAME =
   "w-[var(--surface-tab-frozen-width)] min-w-0 grow-0 shrink-0 basis-[var(--surface-tab-frozen-width)]";
 // The strip sits on the rail's shell band, above the card it belongs to (the chat, or the

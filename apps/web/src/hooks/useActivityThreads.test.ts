@@ -33,6 +33,11 @@ vi.mock("../components/chat/project/useProjectAgentSummaries", () => ({
     selector({ summariesByProjectId: harness.summaries }),
 }));
 
+const noItemChats: ReadonlySet<string> = new Set();
+vi.mock("./usePageAssistantThreadIds", () => ({
+  usePageAssistantThreadIds: () => noItemChats,
+}));
+
 import { useActivityThreads } from "./useActivityThreads";
 
 function makeThread(

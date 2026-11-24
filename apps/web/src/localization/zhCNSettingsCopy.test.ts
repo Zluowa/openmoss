@@ -121,11 +121,9 @@ describe("external agent connection copy in zh-CN", () => {
 
 describe("composer extras copy in zh-CN", () => {
   it.each([
-    ["Capture an open app window", "截取一个打开的应用窗口"],
-    ["Set a goal to keep pursuing", "设定一个持续推进的目标"],
-    ["Turn plan mode on", "开启计划模式"],
-    ["Turn debug mode on", "开启调试模式"],
-    ["Turn fast mode off", "关闭快速模式"],
+    ["Attach window", "附加窗口"],
+    ["Files and folders", "文件和文件夹"],
+    ["Goal", "目标"],
   ])("translates %s", (english, chinese) => {
     expect(translateZhCnPresentationText(english)).toBe(chinese);
   });

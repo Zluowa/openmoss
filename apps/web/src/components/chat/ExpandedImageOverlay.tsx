@@ -72,6 +72,7 @@ export function ExpandedImageOverlay({
           showCloseButton={false}
           initialFocus={closeButtonRef}
           aria-label={t("chat.imageLightbox.title")}
+          data-dark-window-overlay=""
           className="bg-[#181818] text-white [--color-text-foreground-secondary:#d4d4d4] [--color-text-foreground:#fff] [--color-background-button-secondary-hover:#ffffff14] [-webkit-app-region:no-drag]"
         >
           <DialogTitle className="sr-only">{t("chat.imageLightbox.title")}</DialogTitle>

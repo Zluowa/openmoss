@@ -23,11 +23,8 @@ import { composerTranscriptBottomInsetPx, useComposerOverlayHeight } from "./com
 import {
   COMPOSER_EDITOR_PADDING_CLASS_NAME,
   COMPOSER_INPUT_SURFACE_CLASS_NAME,
-  COMPOSER_SINGLE_ROW_EDITOR_CLASS_NAME,
-  COMPOSER_SINGLE_ROW_SURFACE_CLASS_NAME,
 } from "./composerPickerStyles";
 import { useChatTranscriptScroll } from "./useChatTranscriptScroll";
-import { useComposerSingleRow } from "./useComposerSingleRow";
 
 const nativeApi = vi.hoisted(() => ({ suggestion: "" }));
 vi.mock("~/nativeApi", () => ({
@@ -60,7 +57,6 @@ const waitForFrames = (count = 3) =>
   });
 
 function AcceptHarness() {
-  const formRef = useRef<HTMLFormElement>(null);
   const editorRef = useRef<ComposerPromptEditorHandle>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const listRef = useRef({
@@ -76,12 +72,6 @@ function AcceptHarness() {
     target: TARGET,
     canShow: prompt.length === 0,
     prompt,
-  });
-  const singleRow = useComposerSingleRow({
-    formRef,
-    eligible: true,
-    prompt,
-    prediction: prediction.ghost,
   });
   const { overlayRef, overlayHeightPx } = useComposerOverlayHeight();
   const insetPx = composerTranscriptBottomInsetPx(overlayHeightPx);
@@ -129,18 +119,9 @@ function AcceptHarness() {
         <div style={{ height: 2000, paddingBottom: insetPx }} />
       </div>
       <div ref={overlayRef} style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}>
-        <form ref={formRef} data-testid="accept-form" data-layout={singleRow ? "row" : "block"}>
-          <div
-            data-chat-composer-surface=""
-            className={`${COMPOSER_INPUT_SURFACE_CLASS_NAME} ${singleRow ? COMPOSER_SINGLE_ROW_SURFACE_CLASS_NAME : ""}`}
-          >
-            <div
-              className={
-                singleRow
-                  ? COMPOSER_SINGLE_ROW_EDITOR_CLASS_NAME
-                  : COMPOSER_EDITOR_PADDING_CLASS_NAME
-              }
-            >
+        <form data-testid="accept-form">
+          <div data-chat-composer-surface="" className={COMPOSER_INPUT_SURFACE_CLASS_NAME}>
+            <div className={COMPOSER_EDITOR_PADDING_CLASS_NAME}>
               <ComposerPromptEditor
                 ref={editorRef}
                 value={prompt}
@@ -149,7 +130,6 @@ function AcceptHarness() {
                 disabled={false}
                 placeholder="Ask for follow-up changes"
                 prediction={prediction.ghost}
-                singleLine={singleRow}
                 onRemoveTerminalContext={() => {}}
                 onPaste={() => {}}
                 onChange={(nextValue, nextCursor) => {
@@ -159,16 +139,10 @@ function AcceptHarness() {
                 onCommandKeyDown={onCommandKeyDown}
               />
             </div>
-            {/* The row keeps its controls beside the editor; the block adds a footer row. */}
-            {singleRow ? (
-              <button type="button" className="col-start-3 row-start-1">
-                Send
-              </button>
-            ) : (
-              <div style={{ height: 40 }}>
-                <button type="button">Send</button>
-              </div>
-            )}
+            {/* The composer keeps one shape: the editor, then its footer row. */}
+            <div style={{ height: 40 }}>
+              <button type="button">Send</button>
+            </div>
           </div>
         </form>
       </div>
@@ -189,22 +163,6 @@ const ghostRows = () => {
   );
 };
 
-/** The composer layout of every frame painted until `stop`. */
-function recordPaintedLayouts() {
-  const form = document.querySelector<HTMLElement>('[data-testid="accept-form"]')!;
-  const layouts: string[] = [];
-  let frame = requestAnimationFrame(function sample() {
-    layouts.push(form.getAttribute("data-layout") ?? "");
-    frame = requestAnimationFrame(sample);
-  });
-  return {
-    stop: () => {
-      cancelAnimationFrame(frame);
-      return layouts;
-    },
-  };
-}
-
 async function mountWithSuggestion(suggestion: string) {
   nativeApi.suggestion = suggestion;
   await render(<AcceptHarness />);
@@ -222,23 +180,17 @@ describe("accepting a composer prediction with Tab", () => {
   it("keeps a reader at the end exactly at the end when a multi-row suggestion is accepted", async () => {
     await mountWithSuggestion(LONG_SUGGESTION);
     expect(ghostRows()).toBe(3);
-    expect(document.querySelector('[data-testid="accept-form"]')!.getAttribute("data-layout")).toBe(
-      "block",
-    );
     transcript().scrollTop = transcript().scrollHeight;
     await waitForFrames();
     expect(gapFromEnd()).toBeLessThan(1);
 
     document.querySelector<HTMLElement>('[data-testid="composer-editor"]')!.focus();
-    const paintedLayouts = recordPaintedLayouts();
     await userEvent.keyboard("{Tab}");
     await expect
       .poll(() => document.querySelector('[data-testid="composer-editor"]')!.textContent)
       .toBe(LONG_SUGGESTION);
     await waitForFrames(6);
 
-    // Never painted as the collapsed single row on the way from ghost to draft.
-    expect(paintedLayouts.stop()).not.toContain("row");
     expect(gapFromEnd()).toBeLessThan(1);
     expect(document.querySelector('[data-testid="composer-prediction"]')).toBeNull();
     expect(composerPredictionStore.getState().entries.get(TARGET.key)?.status).toBe("done");
@@ -272,7 +224,6 @@ describe("accepting a composer prediction with Tab", () => {
   it("accepts a one-row suggestion without moving the composer", async () => {
     await mountWithSuggestion("Rerun that test.");
     const form = document.querySelector<HTMLElement>('[data-testid="accept-form"]')!;
-    expect(form.getAttribute("data-layout")).toBe("row");
     transcript().scrollTop = transcript().scrollHeight;
     await waitForFrames();
     const height = form.getBoundingClientRect().height;
@@ -284,7 +235,6 @@ describe("accepting a composer prediction with Tab", () => {
       .toBe("Rerun that test.");
     await waitForFrames(6);
 
-    expect(form.getAttribute("data-layout")).toBe("row");
     expect(form.getBoundingClientRect().height).toBeCloseTo(height, 1);
     expect(gapFromEnd()).toBeLessThan(1);
   });

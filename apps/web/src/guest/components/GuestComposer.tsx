@@ -304,7 +304,6 @@ export function GuestComposer({
               />
             </div>
             <ChatComposerFooter
-              layout="block"
               isComposerFooterCompact={coarsePointer}
               leadingControls={
                 <>

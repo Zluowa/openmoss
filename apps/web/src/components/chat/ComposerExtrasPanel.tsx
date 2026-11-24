@@ -47,10 +47,6 @@ const WINDOW_ROW_PREFIX = "extras:window:";
 
 const CHECK = <CheckIcon className="size-4 text-foreground/70" />;
 
-function toggleSecondary(label: string, enabled: boolean): string {
-  return `Turn ${label} ${enabled ? "off" : "on"}`;
-}
-
 function windowGlyph(entry: DesktopAppSnapWindowEntry): ReactNode {
   const iconSrc = entry.appIconDataUrl ?? entry.iconDataUrl ?? null;
   return iconSrc ? (
@@ -174,7 +170,6 @@ export function ComposerExtrasPanel(props: {
                           id: ROW_WINDOW,
                           icon: <WindowIcon className={GLYPH} />,
                           title: "Attach window",
-                          secondary: "Capture an open app window",
                           trailing: <ChevronRightIcon className="size-4" />,
                         },
                   ]
@@ -183,20 +178,17 @@ export function ComposerExtrasPanel(props: {
                 id: ROW_GOAL,
                 icon: <GoalIcon className={GLYPH} />,
                 title: "Goal",
-                secondary: "Set a goal to keep pursuing",
               },
               {
                 id: ROW_PLAN,
                 icon: <ListTodoIcon className={GLYPH} />,
                 title: "Plan mode",
-                secondary: toggleSecondary("plan mode", props.interactionMode === "plan"),
                 trailing: props.interactionMode === "plan" ? CHECK : null,
               },
               {
                 id: ROW_DEBUG,
                 icon: <BugIcon className={GLYPH} />,
                 title: "Debug mode",
-                secondary: toggleSecondary("debug mode", props.interactionMode === "debug"),
                 trailing: props.interactionMode === "debug" ? CHECK : null,
               },
               ...(props.supportsFastMode
@@ -205,7 +197,6 @@ export function ComposerExtrasPanel(props: {
                       id: ROW_FAST,
                       icon: <FastModeIcon className={GLYPH} />,
                       title: "Fast mode",
-                      secondary: toggleSecondary("fast mode", props.fastModeEnabled),
                       trailing: props.fastModeEnabled ? CHECK : null,
                     },
                   ]
@@ -355,7 +346,13 @@ export function ComposerExtrasPanel(props: {
   };
 
   return (
-    <div ref={containerRef} id={props.panelId} data-testid="composer-extras-panel">
+    // As wide as its rows, not the whole composer: a short menu reads as one (walk D-9).
+    <div
+      ref={containerRef}
+      id={props.panelId}
+      data-testid="composer-extras-panel"
+      className="w-max min-w-56 max-w-full"
+    >
       <input
         id={inputId}
         ref={fileInputRef}

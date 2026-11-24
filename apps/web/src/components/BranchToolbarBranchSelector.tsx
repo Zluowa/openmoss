@@ -875,6 +875,8 @@ export function BranchToolbarBranchSelector({
             : `${COMPOSER_TOOLBAR_PICKER_TRIGGER_CLASS_NAME} min-w-0 disabled:cursor-not-allowed disabled:opacity-50`
         }
         disabled={(branchesQuery.isLoading && branches.length === 0) || isBranchActionPending}
+        // Still named when a narrow row shows the icon alone.
+        {...(isPanel ? {} : { "aria-label": triggerLabel })}
       >
         {isPanel ? (
           <EnvironmentRowBody
@@ -885,7 +887,12 @@ export function BranchToolbarBranchSelector({
         ) : (
           <>
             <GitBranchIcon className="size-4 shrink-0" />
-            <span className="min-w-0 max-w-[240px] truncate" title={triggerLabel}>
+            {/* Never cut to one character (walk D-8): a few characters and an ellipsis at least,
+                or, in a landing row too narrow for that, the branch icon alone. */}
+            <span
+              className="min-w-[4em] max-w-[240px] truncate @max-[11rem]/landing-branch:hidden"
+              title={triggerLabel}
+            >
               {triggerLabel}
             </span>
             <ChevronDownIcon className="size-3 shrink-0 opacity-60" />

@@ -161,12 +161,6 @@ const NO_ITEMS_KEYS: Record<GitHubInboxKindFilter, TranslationKey> = {
   issue: "codeReview.empty.none.issue",
 };
 
-const NOUN_KEYS: Record<GitHubInboxKindFilter, TranslationKey> = {
-  all: "codeReview.noun.all",
-  pullRequest: "codeReview.noun.pullRequest",
-  issue: "codeReview.noun.issue",
-};
-
 function rateLimitedWarningText(
   error: GitHubInboxListError,
   timestampFormat: TimestampFormat,
@@ -325,7 +319,6 @@ function DetailEmptyState() {
     <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
       <GitPullRequestIcon aria-hidden className="mb-2 size-6 text-muted-foreground/60" />
       <p className="m-0 text-ui-lg text-foreground">{t("codeReview.detail.emptyTitle")}</p>
-      <p className="m-0 text-ui-sm text-muted-foreground">{t("codeReview.detail.emptyHint")}</p>
     </div>
   );
 }
@@ -799,27 +792,24 @@ export function GitHubInbox({
                                       ? t("codeReview.empty.reviewOnlyOpen")
                                       : t(NO_ITEMS_KEYS[filters.kind])}
                         </EmptyTitle>
-                        <EmptyDescription>
-                          {repositoryProjects.length === 0 &&
-                          listData?.personalState === "unavailable"
-                            ? t("codeReview.empty.retryPersonal")
-                            : repositoryProjects.length === 0 &&
-                                listData?.personalState === "loaded"
-                              ? activeFilterCount > 0
-                                ? t("codeReview.empty.tryOtherFilter")
-                                : t("codeReview.empty.personalHint")
+                        {(() => {
+                          const descriptionKey =
+                            repositoryProjects.length === 0 &&
+                            listData?.personalState === "unavailable"
+                              ? "codeReview.empty.retryPersonal"
                               : repositoryProjects.length === 0
-                                ? t("codeReview.empty.noProjectsHint")
+                                ? null
                                 : inventoryIncomplete && listData?.repositoryBatches.length === 0
-                                  ? t("codeReview.empty.uncheckedHint")
+                                  ? "codeReview.empty.uncheckedHint"
                                   : noRemote
-                                    ? t("codeReview.empty.noRemoteHint")
+                                    ? "codeReview.empty.noRemoteHint"
                                     : reviewRequestsOnlyOpen
-                                      ? t("codeReview.empty.reviewOnlyOpenHint")
-                                      : activeFilterCount > 0
-                                        ? t("codeReview.empty.tryOtherFilter")
-                                        : t("codeReview.empty.nothingHere")}
-                        </EmptyDescription>
+                                      ? "codeReview.empty.reviewOnlyOpenHint"
+                                      : null;
+                          return descriptionKey ? (
+                            <EmptyDescription>{t(descriptionKey)}</EmptyDescription>
+                          ) : null;
+                        })()}
                       </EmptyHeader>
                       {activeFilterCount > 0 ? (
                         <EmptyContent>
@@ -860,7 +850,7 @@ export function GitHubInbox({
               )}
               {truncatedRepositoryCount > 0 ? (
                 <p className={cn(PR_FINE_TEXT_CLASS_NAME, "text-muted-foreground")}>
-                  {`${format(
+                  {format(
                     filters.state === "merged"
                       ? "codeReview.truncated.merged"
                       : "codeReview.truncated.items",
@@ -870,14 +860,8 @@ export function GitHubInbox({
                           ? "codeReview.truncated.order.created"
                           : "codeReview.truncated.order.updated",
                       ),
-                      noun: t(NOUN_KEYS[filters.kind]),
                     },
-                  )} ${format(
-                    truncatedRepositoryCount === 1
-                      ? "codeReview.truncated.moreOne"
-                      : "codeReview.truncated.moreMany",
-                    { count: truncatedRepositoryCount },
-                  )}`}
+                  )}
                 </p>
               ) : null}
               {rateLimitedError ? (

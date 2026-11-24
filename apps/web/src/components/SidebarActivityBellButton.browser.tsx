@@ -1,258 +1,127 @@
 import "../index.css";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
-import { TASKS_COACHMARK } from "./OneTimeCoachmark";
 import { AppRail, railItemGlyphs } from "./AppRail";
-import { SidebarPrimaryAction } from "./SidebarPrimaryAction";
-import { TasksIcon } from "~/lib/icons";
-import { useFeatureTourStore } from "../featureTour/store";
-import { useOnboardingDialogStore } from "../onboarding/onboardingDialogStore";
-import { ProjectImportAnnouncementDialog } from "../projectImport/ProjectImportAnnouncementDialog";
-import { useProjectImportDialogStore } from "../projectImport/projectImportDialogStore";
-import { createBrowserTestServerConfig } from "../test/browserHarness";
 import { useAnnouncementSheetSlotStore } from "./announcementSheetSlot";
-import { FeatureTourDialog } from "./FeatureTourDialog";
 import { SidebarActivityBellButton } from "./Sidebar";
-import { SidebarProvider } from "./ui/sidebar";
 import { TooltipProvider } from "./ui/tooltip";
-
-const localizationTestState = vi.hoisted(() => ({
-  locale: "en" as "en" | "zh-CN",
-}));
 
 vi.mock("~/localization", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/localization")>();
   return {
     ...actual,
     useTranslation: () => ({
-      locale: localizationTestState.locale,
-      t: (key: Parameters<typeof actual.translateMoss>[1]) =>
-        actual.translateMoss(localizationTestState.locale, key),
+      locale: "en" as const,
+      t: (key: Parameters<typeof actual.translateMoss>[1]) => actual.translateMoss("en", key),
       format: (
         key: Parameters<typeof actual.formatMossTranslation>[1],
         values: Parameters<typeof actual.formatMossTranslation>[2],
-      ) => actual.formatMossTranslation(localizationTestState.locale, key, values),
+      ) => actual.formatMossTranslation("en", key, values),
     }),
   };
 });
 
-vi.mock("../lib/serverReactQuery", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../lib/serverReactQuery")>()),
-  serverConfigQueryOptions: () => ({
-    queryKey: ["server", "config"],
-    queryFn: async () => createBrowserTestServerConfig("2026-10-06T00:00:00Z"),
-    staleTime: Infinity,
-  }),
-}));
+// Walk 2026-11-24 (D-6): after the welcome, an unrequested popover 「活动 / 查看运行中的任务、
+// 已完成的工作以及需要你关注的事项。」 floated over the chat. Moss shows no coach marks: the
+// bell and the rail's Tasks button explain themselves only in their hover tooltip.
 
-const activityKey = "moss:activity-onboarding:v1";
-const importKey = "moss:project-import-announcement:v1";
-const tourKey = "moss:feature-tour:since-0.9.2:v1";
-const coachmark = "See running tasks, completed work, and anything that needs your attention.";
-
-/**
- * The copies of a text a person can see. A tooltip keeps its text in the page while closed
- * (hidden, so the trigger stays described), so presence alone does not mean it shows.
- */
-function shown(text: string): Element[] {
-  return page
-    .getByText(text)
-    .elements()
-    .filter((element) =>
-      element.checkVisibility({ opacityProperty: true, visibilityProperty: true }),
-    );
-}
-
-const clients: QueryClient[] = [];
 const screens: Awaited<ReturnType<typeof render>>[] = [];
 
+/** Tooltip popups a person can see right now. */
+function visiblePopups(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-slot='tooltip-popup']")).filter(
+    (element) => {
+      const rect = element.getBoundingClientRect();
+      return (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        element.checkVisibility({ opacityProperty: true, visibilityProperty: true })
+      );
+    },
+  );
+}
+
 beforeEach(() => {
-  localizationTestState.locale = "en";
-  for (const key of [activityKey, importKey, tourKey, "moss:tasks-onboarding:v1"])
-    localStorage.removeItem(key);
-  useOnboardingDialogStore.setState({
-    isOpen: false,
-    startupGateSettled: true,
-    betaWelcomePending: false,
-  });
-  useAnnouncementSheetSlotStore.setState({ owner: null, handedOff: false, startupSettled: false });
-  useFeatureTourStore.setState({ replay: false });
-  useProjectImportDialogStore.setState({ isOpen: false });
+  localStorage.clear();
+  // Startup announcements are done: the moment the old coach marks appeared.
+  useAnnouncementSheetSlotStore.setState({ owner: null, handedOff: false, startupSettled: true });
 });
 afterEach(async () => {
   for (const screen of screens.splice(0)) await screen.unmount();
-  for (const client of clients.splice(0)) client.clear();
-  for (const key of [activityKey, importKey, tourKey, "moss:tasks-onboarding:v1"])
-    localStorage.removeItem(key);
+  localStorage.clear();
 });
 
-async function show() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  clients.push(client);
-  const screen = await render(
-    <QueryClientProvider client={client}>
+it("opens no popover over the page on a fresh profile, and keeps the startup slot free", async () => {
+  screens.push(
+    await render(
       <TooltipProvider>
-        {/* Mount the hint first so React effect order cannot stand in for arbitration. */}
         <SidebarActivityBellButton
           active={false}
           showUnreadDot={false}
           shortcutLabel={null}
           onClick={() => {}}
         />
-        <ProjectImportAnnouncementDialog />
-        <FeatureTourDialog />
-      </TooltipProvider>
-    </QueryClientProvider>,
+        <AppRail
+          items={[
+            {
+              id: "tasks",
+              glyphs: railItemGlyphs("tasks"),
+              label: "Tasks",
+              badge: null,
+              active: false,
+              onSelect: () => {},
+            },
+          ]}
+          shortcuts={[]}
+          bottomItems={[]}
+        />
+      </TooltipProvider>,
+    ),
   );
-  screens.push(screen);
-  return screen;
-}
-
-it("waits for import and the feature tour before showing and remembering the Activity coachmark", async () => {
-  const screen = await show();
-  await expect.element(page.getByRole("dialog", { name: "Import projects" })).toBeVisible();
-  expect(shown(coachmark)).toHaveLength(0);
-  expect(localStorage.getItem(activityKey)).toBeNull();
-  await page.getByRole("button", { name: "Not now" }).click();
-  await expect
-    .element(page.getByRole("dialog", { name: "A new home for your work" }))
-    .toBeVisible();
-  expect(shown(coachmark)).toHaveLength(0);
-  expect(localStorage.getItem(activityKey)).toBeNull();
-  await page.getByRole("button", { name: "Skip tour" }).click();
-  await expect.element(page.getByText(coachmark)).toBeVisible();
-  expect(localStorage.getItem(activityKey)).toBe("seen");
-  await page.getByRole("button", { name: "Switch to activity view" }).click();
-  await expect.element(page.getByText(coachmark)).not.toBeInTheDocument();
-  await screen.unmount();
-  screens.splice(screens.indexOf(screen), 1);
-  await show();
-  await expect.element(page.getByText(coachmark)).not.toBeInTheDocument();
-});
-
-it("leaves Activity unseen when import confirmation hands off to another flow", async () => {
-  await show();
-  await page.getByRole("button", { name: "Import projects" }).click();
-  await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
-  expect(shown(coachmark)).toHaveLength(0);
-  expect(localStorage.getItem(activityKey)).toBeNull();
-});
-
-it("remembers an explicit Activity click while its coachmark is still queued", async () => {
-  useOnboardingDialogStore.setState({ startupGateSettled: false });
-  await show();
-  expect(shown(coachmark)).toHaveLength(0);
-  await page.getByRole("button", { name: "Switch to activity view" }).click();
-  expect(localStorage.getItem(activityKey)).toBe("seen");
-});
-
-it("shows after previously seen announcements and releases the slot when the hint expires", async () => {
-  const installation = "/repo/.codex/worktrees";
-  localStorage.setItem(importKey, JSON.stringify([installation]));
-  localStorage.setItem(tourKey, JSON.stringify([installation]));
-  await show();
-  await expect.element(page.getByText(coachmark)).toBeVisible();
-  expect(localStorage.getItem(activityKey)).toBe("seen");
-  await expect.element(page.getByText(coachmark)).not.toBeInTheDocument();
+  await expect.element(page.getByRole("button", { name: "Switch to activity view" })).toBeVisible();
+  // The old hint opened as soon as the slot settled; give it more than enough time.
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  expect(visiblePopups()).toHaveLength(0);
   expect(useAnnouncementSheetSlotStore.getState().owner).toBeNull();
-  expect(localStorage.getItem(activityKey)).toBe("seen");
 });
 
-it("queues the Tasks hint behind Activity and remembers selection across layouts", async () => {
-  const selectTasks = vi.fn();
-  useAnnouncementSheetSlotStore.setState({ startupSettled: true });
-  const screen = await render(
-    <TooltipProvider>
-      <SidebarActivityBellButton
-        active={false}
-        showUnreadDot={false}
-        shortcutLabel={null}
-        onClick={() => {}}
-      />
-      <SidebarProvider>
-        <ul>
-          <SidebarPrimaryAction
-            icon={TasksIcon}
-            label="Open tasks"
-            onClick={selectTasks}
-            coachmark={TASKS_COACHMARK}
+it("names the bell and the Tasks button in a short tooltip on hover", async () => {
+  screens.push(
+    await render(
+      <TooltipProvider delay={0}>
+        {/* Apart, so one tooltip never covers the other button. */}
+        <div style={{ display: "flex", gap: 240, padding: 40 }}>
+          <SidebarActivityBellButton
+            active={false}
+            showUnreadDot={false}
+            shortcutLabel="Ctrl+Shift+A"
+            onClick={() => {}}
           />
-        </ul>
-      </SidebarProvider>
-    </TooltipProvider>,
+          <AppRail
+            items={[
+              {
+                id: "tasks",
+                glyphs: railItemGlyphs("tasks"),
+                label: "Tasks",
+                badge: null,
+                active: false,
+                onSelect: () => {},
+              },
+            ]}
+            shortcuts={[]}
+            bottomItems={[]}
+          />
+        </div>
+      </TooltipProvider>,
+    ),
   );
-  screens.push(screen);
-  const copy = "Keep your to-dos in one place and hand them to an agent when you’re ready.";
-  await expect.element(page.getByText(coachmark)).toBeVisible();
-  expect(shown(copy)).toHaveLength(0);
-  await page.getByRole("button", { name: "Switch to activity view" }).click();
-  await expect.element(page.getByText(copy)).toBeVisible();
-  await page.getByRole("button", { name: "Open tasks" }).click();
-  expect(selectTasks).toHaveBeenCalledOnce();
-  await expect.element(page.getByText(copy)).not.toBeInTheDocument();
-  expect(localStorage.getItem("moss:tasks-onboarding:v1")).toBe("seen");
-  await screen.unmount();
-  screens.splice(screens.indexOf(screen), 1);
-  const remounted = await render(
-    <TooltipProvider>
-      <AppRail
-        items={[
-          {
-            id: "tasks",
-            glyphs: railItemGlyphs("tasks"),
-            label: "Tasks",
-            badge: null,
-            active: false,
-            onSelect: selectTasks,
-          },
-        ]}
-        shortcuts={[]}
-        bottomItems={[]}
-      />
-    </TooltipProvider>,
-  );
-  screens.push(remounted);
-  expect(shown(copy)).toHaveLength(0);
-  await page.getByRole("button", { name: "Tasks", exact: true }).click();
-  expect(selectTasks).toHaveBeenCalledTimes(2);
-});
-
-it("shows the Tasks coachmark as Moss's quiet popover, not a solid accent card", async () => {
-  useAnnouncementSheetSlotStore.setState({ startupSettled: true });
-  localStorage.setItem(activityKey, "seen");
-  const screen = await render(
-    <TooltipProvider>
-      <AppRail
-        items={[
-          {
-            id: "tasks",
-            glyphs: railItemGlyphs("tasks"),
-            label: "Tasks",
-            badge: null,
-            active: false,
-            onSelect: () => {},
-          },
-        ]}
-        shortcuts={[]}
-        bottomItems={[]}
-      />
-    </TooltipProvider>,
-  );
-  screens.push(screen);
-  const copy = page.getByText(TASKS_COACHMARK.description);
-  await expect.element(copy).toBeVisible();
-  const popup = copy.element().closest<HTMLElement>("[data-slot='tooltip-popup']");
-  const popupStyle = getComputedStyle(popup!);
-  // The shared popup surface, ink and muted copy, a medium (not bold) title: no white text
-  // on a solid accent fill (Moss design standard, owner acceptance 2026-11-11).
-  const white = "rgb(255, 255, 255)";
-  expect(getComputedStyle(copy.element()).color).not.toBe(white);
-  const title = page.getByText(TASKS_COACHMARK.title, { exact: true }).element();
-  expect(getComputedStyle(title).color).not.toBe(white);
-  expect(Number(getComputedStyle(title).fontWeight)).toBeLessThan(600);
-  expect(popupStyle.backgroundColor).not.toBe(getComputedStyle(copy.element()).color);
+  await page.getByRole("button", { name: "Switch to activity view" }).hover();
+  await expect
+    .poll(() => visiblePopups().map((popup) => popup.textContent))
+    .toEqual(["Activity view (Ctrl+Shift+A)"]);
+  await page.getByRole("button", { name: "Tasks", exact: true }).hover();
+  await expect.poll(() => visiblePopups().map((popup) => popup.textContent)).toEqual(["Tasks"]);
 });

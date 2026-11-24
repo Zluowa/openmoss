@@ -282,7 +282,7 @@ describe("ComposerModelPicker", () => {
     }
   });
 
-  it("checks the viewed account silently and offers retry only after failure", async () => {
+  it("checks the viewed account silently and shows no error line when that check fails (walk D-5)", async () => {
     let finish!: () => void;
     const promise = new Promise<void>((resolve) => {
       finish = resolve;
@@ -293,32 +293,21 @@ describe("ComposerModelPicker", () => {
       await vi.waitFor(() =>
         expect(onRefreshModels).toHaveBeenCalledExactlyOnceWith("codex", "codex", "if-stale"),
       );
-      expect(page.getByRole("button", { name: "Refresh models" }).elements()).toHaveLength(0);
       expect(page.getByRole("status").elements()).toHaveLength(0);
       await expect.element(page.getByRole("menuitem", { name: /GPT-5.5/u }).first()).toBeVisible();
       finish();
       await promise;
-      expect(page.getByRole("button", { name: "Refresh models" }).elements()).toHaveLength(0);
 
       onRefreshModels.mockRejectedValueOnce(new Error("offline"));
       await selectAgent("Claude");
-      await expect.element(page.getByText("Couldn’t update models.")).toBeVisible();
-      expect(onRefreshModels).toHaveBeenLastCalledWith("claudeAgent", "claudeAgent", "if-stale");
-      let finishRetry!: () => void;
-      onRefreshModels.mockReturnValueOnce(
-        new Promise<void>((resolve) => {
-          finishRetry = resolve;
-        }),
+      await vi.waitFor(() =>
+        expect(onRefreshModels).toHaveBeenLastCalledWith("claudeAgent", "claudeAgent", "if-stale"),
       );
-      const retryButton = page.getByRole("button", { name: "Retry" });
-      await retryButton.click();
-      await expect.element(retryButton).toBeDisabled();
-      expect(onRefreshModels).toHaveBeenLastCalledWith("claudeAgent", "claudeAgent", "now");
-      finishRetry();
-      await expect.element(retryButton).not.toBeInTheDocument();
+      // The models it already lists stay; the failed background check says nothing.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(page.getByText("Couldn’t update models.").elements()).toHaveLength(0);
+      expect(page.getByRole("button", { name: "Retry" }).elements()).toHaveLength(0);
       expect(page.getByRole("status").elements()).toHaveLength(0);
-      await selectAgent("Starred");
-      expect(onRefreshModels).toHaveBeenCalledTimes(3);
     } finally {
       await screen.unmount();
     }
@@ -1425,7 +1414,41 @@ describe("ComposerModelPicker with several accounts", () => {
     }
   });
 
-  it("lists Moss under Devin too, greyed out with the reason", async () => {
+  it("opens inside the window with its border whole when the trigger sits at the right edge (walk D-5)", async () => {
+    await page.viewport(1101, 782);
+    useComposerDraftStore.getState().setModelSelection(THREAD_ID, {
+      provider: "codex",
+      model: GPT_5_5,
+    });
+    // The composer's model chip near the window's right edge, as in a full-width chat.
+    const screen = await render(
+      withQueryClient(
+        <div style={{ position: "fixed", right: 8, bottom: 16 }}>
+          <Harness />
+        </div>,
+      ),
+    );
+    try {
+      await page.getByRole("button", { name: "Change model and reasoning" }).click();
+      const popup = await vi.waitFor(() => {
+        const element = document.querySelector<HTMLElement>("[data-slot='menu-popup']");
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      await vi.waitFor(() => {
+        const box = popup.getBoundingClientRect();
+        expect(box.width).toBeGreaterThan(300);
+        // 12px clear of each edge: its border and shadow are never cut by the window.
+        expect(box.right).toBeLessThanOrEqual(window.innerWidth - 12 + 0.5);
+        expect(box.left).toBeGreaterThanOrEqual(12 - 0.5);
+        expect(box.top).toBeGreaterThanOrEqual(0);
+      });
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("lists no dead Moss row under an agent that cannot use Moss (walk D-5)", async () => {
     const screen = await mountPicker({
       providers: [readyProvider("codex"), readyProvider("devin")],
     });
@@ -1433,12 +1456,9 @@ describe("ComposerModelPicker with several accounts", () => {
       await openAgents();
       await selectAgent("Devin");
       await openProviders();
-      const moss = menuOption("Moss");
-      await expect.element(moss).toHaveTextContent("MossNot available");
-      await expect.element(moss).toHaveAttribute("aria-disabled", "true");
-      expect(moss.element().getAttribute("title")).toBe(
-        "Devin only runs on its own account, so it can't use Moss yet.",
-      );
+      await expect.element(menuOption("Devin")).toBeVisible();
+      expect(page.getByRole("menuitem", { name: /^Moss/u }).elements()).toHaveLength(0);
+      expect(page.getByText("Not available").elements()).toHaveLength(0);
     } finally {
       await screen.unmount();
     }

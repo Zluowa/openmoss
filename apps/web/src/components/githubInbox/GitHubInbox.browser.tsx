@@ -35,6 +35,7 @@ vi.mock("~/hooks/useHandleNewThread", () => ({
   useHandleNewThread: () => ({ handleNewThread: vi.fn() }),
 }));
 
+import { MossLocaleScope } from "~/localization";
 import { GitHubInbox } from "./GitHubInbox";
 import { mergeGitHubInboxSearch, type GitHubInboxSearch } from "./githubInbox.logic";
 
@@ -307,13 +308,14 @@ function Harness({ initialSearch }: { initialSearch: GitHubInboxSearch }) {
   );
 }
 
-function mount(initialSearch: GitHubInboxSearch = {}) {
+function mount(initialSearch: GitHubInboxSearch = {}, locale?: "zh-CN") {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  const harness = <Harness initialSearch={initialSearch} />;
   return render(
     <QueryClientProvider client={queryClient}>
-      <Harness initialSearch={initialSearch} />
+      {locale ? <MossLocaleScope locale={locale}>{harness}</MossLocaleScope> : harness}
     </QueryClientProvider>,
   );
 }
@@ -544,6 +546,37 @@ describe("GitHubInbox list", () => {
     expect(document.querySelector('[aria-label="Active filters"]')).toBeNull();
   });
 
+  it("says in one line that a cut list is not complete", async () => {
+    localStorage.setItem(
+      "moss:app-settings:v1",
+      JSON.stringify({ ...JSON.parse(ALL_SECTIONS_OPEN), githubInboxSort: "updated" }),
+    );
+    api.list.mockImplementation(({ state }) =>
+      Promise.resolve(
+        state === "open"
+          ? listResult({
+              repositoryBatches: [
+                {
+                  repository: "acme/widgets",
+                  projectIds: [projectA],
+                  truncatedPullRequests: true,
+                  truncatedIssues: true,
+                  fetchedAt: NOW,
+                },
+              ],
+            })
+          : listResult({ items: [] }),
+      ),
+    );
+    await mount({}, "zh-CN");
+
+    await expect
+      .element(
+        page.getByText("每个仓库只显示最近更新的 50 个，其余在 GitHub 上。", { exact: true }),
+      )
+      .toBeVisible();
+  });
+
   it("shares the closed cache with Merged and persists it while URL overrides stay temporary", async () => {
     api.list.mockImplementation(({ state }) =>
       Promise.resolve(
@@ -579,7 +612,7 @@ describe("GitHubInbox list", () => {
     await closeMenu();
     await expectRows([41]);
     expect(api.list.mock.calls.length).toBe(closedReads);
-    await expect.element(page.getByText(/^Showing the 50/)).not.toBeInTheDocument();
+    await expect.element(page.getByText(/^Each repository shows only/)).not.toBeInTheDocument();
     await expect.element(page.getByRole("radio", { name: /^Issues/ })).toHaveTextContent("0");
     await page.getByRole("button", { name: "More code review actions" }).click();
     await page.getByRole("menuitem", { name: "Refresh", exact: true }).click();
@@ -1429,6 +1462,15 @@ describe("GitHubInbox Jira issues", () => {
       labels: [{ name: "safari", color: null, description: null }],
       assignees: [{ login: "acc-3", name: "Sam He", avatarUrl: null, url: null }],
     });
+  });
+
+  it("says in one line that each Jira site shows only its latest 50 issues", async () => {
+    api.sourceList.mockResolvedValue({ items: [JIRA_ISSUE], truncated: true, failedTeamIds: [] });
+    await mount({}, "zh-CN");
+
+    await expect
+      .element(page.getByText("每个站点只显示最近更新的 50 条议题。", { exact: true }))
+      .toBeVisible();
   });
 
   it("lists the person's Jira issues in their own section", async () => {

@@ -2,7 +2,7 @@ import "../../index.css";
 
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cdp, page } from "vitest/browser";
+import { cdp, page, userEvent } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
 import {
@@ -123,4 +123,28 @@ describe("sidebar toggles", () => {
       }
     },
   );
+});
+
+describe("a collapsed off-canvas panel (walk 2026-11-24, D-12)", () => {
+  it("is skipped by Tab: focus never lands on a control nobody can see", async () => {
+    await page.viewport(1280, 800);
+    const screen = await render(
+      <SidebarProvider defaultOpen={false} mobileSheet={false}>
+        <button type="button">Composer control</button>
+        <Sidebar side="right" mobileSheet={false}>
+          <button type="button">Expand panel</button>
+        </Sidebar>
+        <button type="button">After the panel</button>
+      </SidebarProvider>,
+    );
+    try {
+      const hidden = page.getByText("Expand panel").element();
+      expect(hidden.getBoundingClientRect().left).toBeGreaterThanOrEqual(1280);
+      page.getByRole("button", { name: "Composer control" }).element().focus();
+      await userEvent.keyboard("{Tab}");
+      expect(document.activeElement?.textContent).toBe("After the panel");
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

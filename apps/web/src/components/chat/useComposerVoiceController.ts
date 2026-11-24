@@ -162,7 +162,9 @@ export function useComposerVoiceController(
   });
 
   const canStartVoiceNotes = mossSignIn === "signed-in" || personalVoice.canStartVoiceNotes;
-  const showVoiceNotesControl = mossSignIn === "signed-in" || personalVoice.showVoiceNotesControl;
+  // The mic is on every composer whatever the model, so the buttons never change with it
+  // (walk 2026-11-24, V-1). Where dictation cannot run, pressing it says why.
+  const showVoiceNotesControl = true;
 
   useEffect(() => {
     const invalidatedRequestId = voiceTranscriptionRequestIdRef.current + 1;

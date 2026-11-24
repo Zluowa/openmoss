@@ -32,7 +32,7 @@ describe("ThreadErrorBanner", () => {
 
   it("expands a long safe error and collapses it accessibly", async () => {
     await render(
-      <div style={{ width: 320 }}>
+      <div style={{ width: 200 }}>
         <ThreadErrorBanner error={LONG_SAFE_ERROR} />
       </div>,
     );
@@ -52,7 +52,7 @@ describe("ThreadErrorBanner", () => {
 
     await hide.click();
     await expect.element(show).toHaveAttribute("aria-expanded", "false");
-    expect(getComputedStyle(fullError).webkitLineClamp).toBe("3");
+    expect(getComputedStyle(fullError).webkitLineClamp).toBe("6");
     // The error text is rendered once, collapsed or expanded.
     expect(page.getByText("provider request failed", { exact: false }).elements()).toHaveLength(1);
   });
@@ -91,7 +91,7 @@ describe("ThreadErrorBanner", () => {
   it("resets details and copy feedback when the error changes", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     const screen = await render(
-      <div style={{ width: 320 }}>
+      <div style={{ width: 200 }}>
         <ThreadErrorBanner error={LONG_SAFE_ERROR} />
       </div>,
     );
@@ -111,6 +111,25 @@ describe("ThreadErrorBanner", () => {
       .toBeVisible();
     await screen.rerender(<ThreadErrorBanner error={null} />);
     await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows the paused-delivery sentence in full in a narrow column beside the dock (walk N2-5)", async () => {
+    // The chat column beside the right dock is about 300px wide.
+    await render(
+      <div style={{ width: 300 }}>
+        <ThreadErrorBanner
+          error={formatProviderDeliveryBlockDetail("Acceptance is uncertain")}
+          onUnblock={() => {}}
+          onDismiss={() => {}}
+        />
+      </div>,
+    );
+    const alert = page.getByRole("alert");
+    await expect.element(alert).toBeVisible();
+    const text = alert.element().querySelector<HTMLElement>("p[data-translation-skip]")!;
+    // Nothing folded away: the whole sentence is painted, with no 显示详情 needed for it.
+    expect(text.scrollHeight).toBeLessThanOrEqual(text.clientHeight + 1);
+    await expect.element(page.getByRole("button", { name: /details/ })).not.toBeInTheDocument();
   });
 
   it("only offers existing unblock recovery for quarantine and never resends errors", async () => {

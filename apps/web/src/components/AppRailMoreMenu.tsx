@@ -4,8 +4,7 @@
 // Layer: App shell component
 import type { ComponentType, ReactNode } from "react";
 import { useTranslation } from "~/localization";
-import { PinStatusIcon } from "~/lib/pin";
-import { CustomizeIcon, FolderIcon } from "~/lib/icons";
+import { CustomizeIcon, PinIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { SIDEBAR_ROW_FOCUS_CLASS_NAME } from "~/sidebarRowStyles";
 import {
@@ -64,7 +63,7 @@ function ShortcutsSubmenu({ shortcuts }: { readonly shortcuts: AppRailMoreMenuSh
   return (
     <MenuSub>
       <MenuSubTrigger className="font-normal">
-        <FolderIcon className="size-4 shrink-0" />
+        <PinIcon className="size-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{t("sidebar.more.railShortcuts")}</span>
       </MenuSubTrigger>
       <ComposerPickerMenuSubPopup className="max-h-[min(28rem,calc(100dvh-5rem))] w-56 overflow-y-auto font-normal">
@@ -119,7 +118,9 @@ function FeatureRow({ entry }: { readonly entry: AppRailMoreMenuEntry }) {
               />
             }
           >
-            <PinStatusIcon pinned={entry.pinned === true} className="size-3 opacity-100" />
+            {/* One outline weight beside the row's outline icons; a pinned row keeps its pin
+                in view, an unpinned one shows it on hover (walk R-8). */}
+            <PinIcon className="size-3 opacity-100" />
           </TooltipTrigger>
           <TooltipPopup side="right">{pinLabel}</TooltipPopup>
         </Tooltip>
@@ -179,20 +180,20 @@ export function AppRailMoreMenu({
             {shortcuts ? <ShortcutsSubmenu shortcuts={shortcuts} /> : null}
           </MenuGroup>
           <MenuSeparator />
-          <MenuGroup>
-            <MenuGroupLabel className="font-normal">
-              {t("sidebar.more.commonPlugins")}
-            </MenuGroupLabel>
-            {plugins.length === 0 ? (
-              <div className="px-2 py-1.5 text-ui-sm text-muted-foreground">
-                {t("sidebar.more.noPlugins")}
-              </div>
-            ) : null}
-            {plugins.map((entry) => (
-              <FeatureRow key={entry.key} entry={entry} />
-            ))}
-          </MenuGroup>
-          <MenuSeparator />
+          {/* No placeholder sentence: the group shows once there are plugins to list. */}
+          {plugins.length > 0 ? (
+            <>
+              <MenuGroup>
+                <MenuGroupLabel className="font-normal">
+                  {t("sidebar.more.commonPlugins")}
+                </MenuGroupLabel>
+                {plugins.map((entry) => (
+                  <FeatureRow key={entry.key} entry={entry} />
+                ))}
+              </MenuGroup>
+              <MenuSeparator />
+            </>
+          ) : null}
           <MenuGroup>
             {utilities.map((entry) => (
               <FeatureRow key={entry.key} entry={entry} />

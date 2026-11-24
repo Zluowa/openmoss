@@ -4,7 +4,6 @@ import { cleanup, render } from "vitest-browser-react";
 import "../index.css";
 import { useState } from "react";
 import { ProviderInstanceId, type RuntimeMode } from "@moss/contracts";
-import { REQUEST_CURRENT_APP_SNAP_EVENT } from "../appSnap.logic";
 import { RuntimeUsageControls } from "./BranchToolbar";
 
 // Moss defaults to zh-CN; pin English so the English menu/assertion labels hold.
@@ -134,27 +133,23 @@ describe("task-invoked Computer", () => {
     await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
   });
 
-  it("keeps Share current app as a separate capture action", async () => {
+  it("keeps the permission menu about permissions only (walk D-9)", async () => {
     const previousBridge = window.desktopBridge;
-    const onRequest = vi.fn();
     vi.stubGlobal("desktopBridge", {
       ...previousBridge,
       appSnap: { captureCurrentApp: vi.fn() },
     });
-    window.addEventListener(REQUEST_CURRENT_APP_SNAP_EVENT, onRequest);
     try {
       await render(<Controls />);
       await page.getByRole("button", { name: "Change permissions", exact: true }).click();
-      await page.getByRole("menuitem", { name: "Share current app" }).click();
-      expect(onRequest).toHaveBeenCalledTimes(1);
-      await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
-      await expect
-        .element(page.getByRole("button", { name: "Change permissions", exact: true }))
-        .toBeVisible();
-      expect(page.getByRole("button").element().textContent).toContain("Ask for approval");
+      await expect.element(page.getByRole("menu")).toBeVisible();
+      const rows = page.getByRole("menu").element().querySelectorAll("[role^='menuitem']");
+      expect(Array.from(rows).every((row) => row.getAttribute("role") === "menuitemradio")).toBe(
+        true,
+      );
+      expect(page.getByText("Share current app").elements()).toHaveLength(0);
     } finally {
       vi.unstubAllGlobals();
-      window.removeEventListener(REQUEST_CURRENT_APP_SNAP_EVENT, onRequest);
     }
   });
 });

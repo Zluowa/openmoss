@@ -14,6 +14,12 @@
   isolation: isolate;
 }
 
+/* The engine's own figures strip (求和/平均值 in its 万 grouping) under the grid: Moss's sheet
+   bar shows the selection's figures, so the engine's copy is not drawn (WALK-4 N4-3). */
+[data-sheet-engine] .fortune-stat-area {
+  display: none;
+}
+
 /* Selection: accent tint with a 1px accent edge; the active cell a 2px accent outline. */
 [data-sheet-engine] .luckysheet-cell-selected {
   border-color: var(--primary) !important;

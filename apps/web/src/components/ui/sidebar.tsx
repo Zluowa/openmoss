@@ -418,6 +418,9 @@ function Sidebar({
             className,
           )}
           data-slot="sidebar-container"
+          // A panel slid off-canvas is out of sight, so it is out of the Tab order and the
+          // accessibility tree too: focus never lands on a control nobody can see.
+          inert={state === "collapsed" && collapsible === "offcanvas" ? true : undefined}
           {...props}
         >
           {/* The inner surface is the safe place for visual skinning. The outer shell owns

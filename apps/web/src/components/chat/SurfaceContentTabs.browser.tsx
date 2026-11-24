@@ -41,7 +41,7 @@ describe("SurfaceContentTabs overflow", () => {
 
   it("keeps titles readable and lists tabs that do not fit in an overflow menu", async () => {
     const onSelect = vi.fn();
-    const screen = await mountStrip(560, onSelect);
+    const screen = await mountStrip(360, onSelect);
     try {
       const overflow = page.getByRole("button", { name: /more tabs?$/ });
       await expect.element(overflow).toBeVisible();
@@ -53,12 +53,55 @@ describe("SurfaceContentTabs overflow", () => {
       const fontSizePx = Number.parseFloat(
         getComputedStyle(document.querySelector<HTMLElement>("[data-surface-tab]")!).fontSize,
       );
-      expect(Math.min(...tabWidths)).toBeGreaterThanOrEqual(fontSizePx * 12 - 1);
+      expect(Math.min(...tabWidths)).toBeGreaterThanOrEqual(fontSizePx * 6 - 1);
 
       await overflow.click();
       const lastTitle = TITLES.at(-1)!;
       await page.getByRole("menuitem", { name: lastTitle }).click();
       expect(onSelect).toHaveBeenCalledWith(`tab-${TITLES.length - 1}`);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("fits two chat tabs whole in a narrow title bar, titles cut at the end (walk D-11)", async () => {
+    // The title bar beside the dock left about 200px for the tabs (1101px window, 2026-11-24).
+    const screen = await render(
+      <div style={{ width: "200px", display: "flex" }}>
+        <SurfaceContentTabs
+          ariaLabel="Open threads"
+          activeKey="tab-1"
+          tabs={["把这张图放到画布上，帮我加一个标题", "新建对话"].map((title, index) => ({
+            key: `tab-${index}`,
+            title,
+            icon: <span aria-hidden className="size-4" />,
+            onSelect: () => {},
+            onClose: () => {},
+          }))}
+        />
+      </div>,
+    );
+    try {
+      await expect.element(page.getByRole("navigation", { name: "Open threads" })).toBeVisible();
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const nav = page.getByRole("navigation", { name: "Open threads" }).element();
+      const navRect = nav.getBoundingClientRect();
+      const tabs = Array.from(nav.querySelectorAll<HTMLElement>("[data-surface-tab]"));
+      expect(tabs).toHaveLength(2);
+      // Both tabs whole inside the strip: nothing scrolled off at either side.
+      for (const tab of tabs) {
+        const rect = tab.getBoundingClientRect();
+        expect(rect.left).toBeGreaterThanOrEqual(navRect.left - 0.5);
+        expect(rect.right).toBeLessThanOrEqual(navRect.right + 0.5);
+      }
+      expect(page.getByRole("button", { name: /more tabs?$/ }).elements()).toHaveLength(0);
+      // The long title starts at its first character and ends in an ellipsis.
+      const title = page.getByText("把这张图放到画布上，帮我加一个标题", { exact: true }).element();
+      const style = getComputedStyle(title);
+      expect(style.textOverflow).toBe("ellipsis");
+      expect(style.maskImage === "none" || style.maskImage === "").toBe(true);
+      expect(title.scrollWidth).toBeGreaterThan(title.clientWidth);
+      expect(title.scrollLeft).toBe(0);
     } finally {
       await screen.unmount();
     }

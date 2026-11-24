@@ -220,10 +220,11 @@ describe("ProjectPicker workspace choices", () => {
     });
 
     try {
+      // The chip names the folder only; the worktree's path is in the menu (walk N2-4).
       await expect.element(page.getByTestId("workspace-picker-trigger")).toHaveTextContent("moss");
       await expect
         .element(page.getByTestId("workspace-picker-trigger"))
-        .toHaveTextContent(SELECTED_WORKTREE);
+        .not.toHaveTextContent(SELECTED_WORKTREE);
       await page.getByTestId("workspace-picker-trigger").click();
       await expect.element(page.getByPlaceholder("Search projects")).toBeVisible();
       expect(page.getByRole("option").elements()).toHaveLength(2);

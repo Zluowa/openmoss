@@ -1630,10 +1630,6 @@ export default function GitActionsControl({
         <DialogPopup className="max-w-md">
           <DialogHeader>
             <DialogTitle>Create Branch</DialogTitle>
-            <DialogDescription>
-              Create and switch to a branch from the current HEAD. Future commits, pushes, and PRs
-              will use it.
-            </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-3">
             <form

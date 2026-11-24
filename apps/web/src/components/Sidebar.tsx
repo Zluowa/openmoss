@@ -187,6 +187,7 @@ import {
 } from "../storeSelectors";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { useActivityThreads } from "../hooks/useActivityThreads";
+import { usePageAssistantThreadIds } from "../hooks/usePageAssistantThreadIds";
 import { useCommittedPathname } from "../hooks/useCommittedPathname";
 import { countNeedsYouActions } from "./inbox/inbox.logic";
 import {
@@ -298,7 +299,6 @@ import {
 } from "./SidebarActivityView";
 import { RailUpdateControl } from "./providerUpdates/RailUpdateControl";
 import { SidebarIconButton, sidebarIconButtonSlotClass } from "./SidebarIconButton";
-import { OneTimeCoachmark, TASKS_COACHMARK } from "./OneTimeCoachmark";
 import { SidebarLeadingIcon } from "./SidebarLeadingIcon";
 import { SidebarPrimaryAction } from "./SidebarPrimaryAction";
 import { RailAutomationsPanel } from "./RailAutomationsPanel";
@@ -401,6 +401,7 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
   excludeHiddenProjectAgentCoordinatorThreads,
+  excludeItemChatThreads,
   buildProjectThreadTree,
   collectSidebarThreadAncestorIds,
   derivePinnedProjectIdsForSidebar,
@@ -1245,40 +1246,41 @@ export function SidebarActivityBellButton({
 }) {
   const { t } = useTranslation();
   return (
-    <OneTimeCoachmark
-      storageKey="moss:activity-onboarding:v1"
-      title={t("sidebar.activity.onboardingTitle")}
-      description={t("sidebar.activity.onboardingDescription")}
-      tooltip={`${t("sidebar.activity.tooltip")}${shortcutLabel ? ` (${shortcutLabel})` : ""}`}
-      tooltipSide="bottom"
-    >
-      <button
-        type="button"
-        aria-label={
-          active
-            ? t("sidebar.activity.switchToClassicView")
-            : t("sidebar.activity.switchToActivityView")
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={
+              active
+                ? t("sidebar.activity.switchToClassicView")
+                : t("sidebar.activity.switchToActivityView")
+            }
+            aria-pressed={active}
+            onClick={onClick}
+            className={cn(
+              "relative inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors",
+              sidebarIconButtonSlotClass("header"),
+              SIDEBAR_ROW_FOCUS_CLASS_NAME,
+              active
+                ? "bg-[color-mix(in_srgb,var(--color-text-accent)_15%,transparent)] text-[var(--color-text-accent)]"
+                : "sidebar-icon-button text-muted-foreground/75 hover:text-foreground",
+            )}
+          >
+            <BellIcon className={sidebarGlyphClass("leading")} />
+            {showUnreadDot ? (
+              <span
+                aria-hidden
+                className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-[var(--color-text-accent)] ring-2 ring-[var(--sidebar-background,var(--background))]"
+              />
+            ) : null}
+          </button>
         }
-        aria-pressed={active}
-        onClick={onClick}
-        className={cn(
-          "relative inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors",
-          sidebarIconButtonSlotClass("header"),
-          SIDEBAR_ROW_FOCUS_CLASS_NAME,
-          active
-            ? "bg-[color-mix(in_srgb,var(--color-text-accent)_15%,transparent)] text-[var(--color-text-accent)]"
-            : "sidebar-icon-button text-muted-foreground/75 hover:text-foreground",
-        )}
-      >
-        <BellIcon className={sidebarGlyphClass("leading")} />
-        {showUnreadDot ? (
-          <span
-            aria-hidden
-            className="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-[var(--color-text-accent)] ring-2 ring-[var(--sidebar-background,var(--background))]"
-          />
-        ) : null}
-      </button>
-    </OneTimeCoachmark>
+      />
+      <TooltipPopup side="bottom">
+        {`${t("sidebar.activity.tooltip")}${shortcutLabel ? ` (${shortcutLabel})` : ""}`}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -1796,9 +1798,15 @@ export default function Sidebar() {
     visibleNonGroupThreads: visibleNonGroupSidebarThreads,
     activityNonGroupThreads: activityNonGroupSidebarThreads,
   } = useActivityThreads({ hideAutomationRunThreads });
+  const itemChatThreadIds = usePageAssistantThreadIds();
   const displaySidebarTreeThreads = useMemo(
-    () => excludeHiddenProjectAgentCoordinatorThreads(sidebarTreeThreads, coordinatorThreadIds),
-    [coordinatorThreadIds, sidebarTreeThreads],
+    // A 资料空间 item's chat stays inside the item, not in a project's list (S-6).
+    () =>
+      excludeItemChatThreads(
+        excludeHiddenProjectAgentCoordinatorThreads(sidebarTreeThreads, coordinatorThreadIds),
+        itemChatThreadIds,
+      ),
+    [coordinatorThreadIds, itemChatThreadIds, sidebarTreeThreads],
   );
   const previousAutoExpandThreadIdRef = useRef<ThreadId | null>(null);
   // Reveal collapsed ancestors once when navigating to a child thread, while keeping
@@ -7038,7 +7046,6 @@ export default function Sidebar() {
                         return (
                           <SidebarPrimaryAction
                             key={id}
-                            {...(id === "tasks" ? { coachmark: TASKS_COACHMARK } : {})}
                             icon={item.icon}
                             {...(item.iconClassName ? { iconClassName: item.iconClassName } : {})}
                             label={item.label}
@@ -7377,7 +7384,12 @@ export default function Sidebar() {
                 </SidebarMenu>
               </SidebarGroup>
             ) : null}
-            {!isOnMossbot && !isOnSettings && !activityViewEnabled ? (
+            {/* Only under the chats: not repeated on the scheduled-tasks or project panels (R-5). */}
+            {!isOnMossbot &&
+            !isOnSettings &&
+            !activityViewEnabled &&
+            !showRailProjectPanel &&
+            !showRailAutomationsPanel ? (
               <SidebarGettingStarted
                 onOpenAutomations={() => void navigate({ to: "/automations" })}
                 onOpenConnectors={() =>

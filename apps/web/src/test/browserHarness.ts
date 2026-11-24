@@ -4,7 +4,6 @@ import {
   type ServerSettingsView,
 } from "@moss/contracts";
 
-import { TASKS_COACHMARK } from "../components/OneTimeCoachmark";
 import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";
 import { PROJECT_IMPORT_ANNOUNCEMENT_STORAGE_KEY } from "../projectImport/useProjectImportAnnouncement";
 
@@ -51,8 +50,6 @@ export function acknowledgeStartupAnnouncementsForTest(config: ServerConfig): vo
     PROJECT_IMPORT_ANNOUNCEMENT_STORAGE_KEY,
     JSON.stringify([config.worktreesDir]),
   );
-  localStorage.setItem(TASKS_COACHMARK.storageKey, "seen");
-  localStorage.setItem("synara:activity-onboarding:v1", "seen");
 }
 
 export function createFullscreenTestHost(): HTMLDivElement {

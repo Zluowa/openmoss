@@ -307,7 +307,6 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       ["Search starred…", "搜索已收藏…"],
       ["Search models", "搜索模型"],
       ["Select effort", "选择思考强度"],
-      ["Share current app", "分享当前应用"],
       ["Repository conventions", "仓库约定"],
       [
         "In each project, matches recent change descriptions and change request titles.",

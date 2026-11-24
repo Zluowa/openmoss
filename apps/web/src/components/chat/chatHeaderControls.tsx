@@ -325,9 +325,8 @@ export function SurfaceTabChip({
     <>
       {trailingClose && icon !== null ? glyph : null}
       {leading}
-      <span className={trailingClose ? "min-w-0 flex-1 truncate-fade truncate-fade-4" : "truncate"}>
-        {label}
-      </span>
+      {/* A cut title ends in an ellipsis, as everywhere else in Moss (walk D-11). */}
+      <span className={trailingClose ? "min-w-0 flex-1 truncate" : "truncate"}>{label}</span>
       {trailing}
     </>
   );

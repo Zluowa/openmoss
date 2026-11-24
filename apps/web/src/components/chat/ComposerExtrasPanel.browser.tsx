@@ -202,6 +202,43 @@ describe("ComposerExtrasPanel", () => {
     ]);
   });
 
+  it("shows a short menu: each row its name only, as wide as the rows (walk D-9)", async () => {
+    // The panel floats in a composer-wide slot; a 900px slot stands in for a wide composer.
+    const slot = document.createElement("div");
+    slot.style.width = "900px";
+    document.body.append(slot);
+    const screen = await render(
+      <ComposerExtrasPanel
+        panelId="composer-extras-panel"
+        interactionMode="default"
+        supportsFastMode
+        fastModeEnabled={false}
+        onAddAttachments={vi.fn()}
+        onToggleFastMode={vi.fn()}
+        onInteractionModeChange={vi.fn()}
+        onInsertGoal={vi.fn()}
+        onClose={vi.fn()}
+      />,
+      { container: slot },
+    );
+    try {
+      const options = page.getByRole("option").elements();
+      expect(options.map((option) => option.textContent?.trim())).toEqual([
+        "Files and folders",
+        "Goal",
+        "Plan mode",
+        "Debug mode",
+        "Fast mode",
+      ]);
+      const panel = page.getByTestId("composer-extras-panel").element();
+      expect(panel.getBoundingClientRect().width).toBeLessThan(450);
+      expect(panel.getBoundingClientRect().width).toBeGreaterThan(200);
+    } finally {
+      await screen.unmount();
+      slot.remove();
+    }
+  });
+
   it("toggles the interaction mode and closes", async () => {
     await using menu = await mountMenu({ interactionMode: "debug" });
 

@@ -84,8 +84,6 @@ const APP_COPY: Readonly<Record<string, string>> = {
   "All tasks": "所有任务",
   "The day recap needs a newer Moss server.": "每日回顾需要更新版本的 Moss 服务器。",
   "The recap didn’t load.": "回顾没有加载出来。",
-  "Keep your to-dos in one place and hand them to an agent when you’re ready.":
-    "把待办事项集中放在一处，准备好后交给智能体。",
   "Dismiss What's new": "关闭更新内容",
   "New · v": "新功能 · v",
   "Find out what’s new": "了解更新内容",

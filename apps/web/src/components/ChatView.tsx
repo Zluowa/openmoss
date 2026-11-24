@@ -67,7 +67,6 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type CSSProperties,
 } from "react";
 import { useCopyThreadIdToClipboard } from "~/hooks/useCopyToClipboard";
 import {
@@ -462,7 +461,6 @@ import { ComposerTipRow } from "./chat/ComposerTipRow";
 import { COMPOSER_STACKED_PANEL_ICON_CLASS_NAME } from "./chat/composerStackedPanelStyles";
 import { ComposerPullRequestAutoFixHint } from "./chat/ComposerPullRequestAutoFixHint";
 import { ComposerImageModelNotice } from "./chat/ComposerImageModelNotice";
-import { ComposerQuoteRows } from "./chat/ComposerQuoteRows";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
 import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
 import {
@@ -569,8 +567,6 @@ import {
   COMPOSER_FOLDER_PICKER_CAPSULE_HOVER_CLASS_NAME,
   COMPOSER_INPUT_SHELL_CLASS_NAME,
   COMPOSER_INPUT_SURFACE_CLASS_NAME,
-  COMPOSER_SINGLE_ROW_EDITOR_CLASS_NAME,
-  COMPOSER_SINGLE_ROW_SURFACE_CLASS_NAME,
   COMPOSER_TOOLBAR_CAPSULE_HOVER_CLASS_NAME,
   COMPOSER_TOOLBAR_TRIGGER_TEXT_CLASS_NAME,
   ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
@@ -611,7 +607,6 @@ import { useChatWorkLog } from "./chat/useChatWorkLog";
 import { useChatWorkspaceSelection } from "./chat/useChatWorkspaceSelection";
 import { useComposerDiscovery } from "./chat/useComposerDiscovery";
 import { useComposerReferences } from "./chat/useComposerReferences";
-import { useComposerSingleRow } from "./chat/useComposerSingleRow";
 import { useComposerVoiceController } from "./chat/useComposerVoiceController";
 import { useThreadErrorToast } from "./chat/useThreadErrorToast";
 import { useTranscriptAssistantSelectionAction } from "./chat/useTranscriptAssistantSelectionAction";
@@ -1087,7 +1082,6 @@ export default function ChatView({
   ]);
 
   const composerFormRef = useRef<HTMLFormElement>(null);
-  const composerStatusRowRef = useRef<HTMLDivElement>(null);
   // Set by whichever mounted GitActionsControl instance (header quick-action or the
   // Environment panel row) last registered — either performs the identical commit &
   // push mutation for this thread's repo, so it doesn't matter which one is "current".
@@ -3998,11 +3992,7 @@ export default function ChatView({
       // Tier the footer controls by MEASURED overflow: demote one step while
       // the footer row's content is wider than the row, promote back (with
       // hysteresis) when the recorded overflow width is comfortably exceeded.
-      // Started threads move the pickers to the row under the composer, so that row is
-      // the one that can overflow.
-      const footerRow =
-        composerStatusRowRef.current ??
-        composerForm.querySelector<HTMLElement>("[data-chat-composer-footer]");
+      const footerRow = composerForm.querySelector<HTMLElement>("[data-chat-composer-footer]");
       if (footerRow) {
         const rowOverflows = footerRow.scrollWidth > footerRow.clientWidth + 1;
         // The leading cluster clips (overflow-hidden) in compact mode instead
@@ -4061,36 +4051,8 @@ export default function ChatView({
     // between them replaces the node the observer watches.
     isCenteredEmptyLanding,
   ]);
-  // Started threads get the single-row composer while the draft is one plain line. Anything
-  // that needs the block's room (approvals, questions, plan follow-up, banners, attachment
-  // chips) keeps the block layout.
   // A draft that starts with `@devs` reports a problem; a hint above the editor says so.
   const showsDevsReportHint = MOSS_DEVS_REPORTS_ENABLED && parseDevsInvocation(prompt) !== null;
-  const composerSingleRow = useComposerSingleRow({
-    formRef: composerFormRef,
-    prompt,
-    // A suggestion that would wrap gets the block's room, like a long draft.
-    prediction: composerPrediction.ghost,
-    eligible:
-      !isCenteredEmptyLanding &&
-      !showsDevsReportHint &&
-      !isComposerApprovalState &&
-      pendingUserInputs.length === 0 &&
-      !showPlanFollowUpPrompt &&
-      !(pendingAutomationConversation && pendingAutomationConversation.threadId === threadId) &&
-      !(serverThread?.snoozedUntil != null && serverThread.archivedAt == null) &&
-      !isPreparingComposerImages &&
-      // Quoted passages keep the one-line composer: they show in a strip above the line,
-      // as desktop chat does. Every other attachment still opens the full block.
-      composerBrowserAnnotations.length === 0 &&
-      composerFileComments.length === 0 &&
-      composerPastedTexts.length === 0 &&
-      composerPullRequestContexts.length === 0 &&
-      composerFiles.length === 0 &&
-      composerImages.length === 0,
-  });
-
-  const composerQuoteStrip = composerSingleRow && composerAssistantSelections.length > 0;
 
   useEffect(() => {
     // Capture the carried sidebar-open intent synchronously (ref reads/writes stay
@@ -7172,9 +7134,6 @@ export default function ChatView({
   // the branch-toolbar row below the input instead of getting clipped; the
   // relocated variant is icon-only since relocation means space is minimal.
   const relocateComposerLeadingControls = composerFooterControlsPlan.relocateLeadingControls;
-  // Started threads keep the composer to + / text / mic / send: permission, model/effort and
-  // the context ring sit in the row under it, beside the branch controls.
-  const composerStatusBelow = !isCenteredEmptyLanding;
   const composerExtrasTrigger = (
     <ComposerExtrasTrigger
       open={isComposerExtrasPanelOpen}
@@ -7188,7 +7147,8 @@ export default function ChatView({
     />
   );
   const composerContextMeter =
-    (composerStatusBelow || (!isVoiceRecording && !isVoiceTranscribing)) &&
+    !isVoiceRecording &&
+    !isVoiceTranscribing &&
     runtimeUsageContextWindow &&
     composerFooterControlsPlan.showContextMeter ? (
       <ContextWindowMeter
@@ -7299,7 +7259,7 @@ export default function ChatView({
       // both themes (chips float over the page), rounded on top only and flush against
       // the input shell below. No overlap/underlay tricks — in dark mode a slice tucked
       // behind the composer's translucent corners reads as a visible cut along the seam.
-      className="chat-composer-shell squircle mx-auto flex min-h-8 w-full min-w-0 flex-nowrap items-center gap-x-1.5 overflow-hidden !rounded-b-none !rounded-t-[var(--composer-radius)] px-1.5 py-1 transition-colors duration-150 ease-out motion-reduce:transition-none sm:min-h-7"
+      className="@container chat-composer-shell squircle mx-auto flex min-h-8 w-full min-w-0 flex-nowrap items-center gap-x-1.5 overflow-hidden !rounded-b-none !rounded-t-[var(--composer-radius)] px-1.5 py-1 transition-colors duration-150 ease-out motion-reduce:transition-none sm:min-h-7"
     >
       {showContainerChatWorkspacePicker ? (
         <ProjectPicker
@@ -7352,7 +7312,8 @@ export default function ChatView({
       <div
         aria-hidden={showEmptyLandingBranchToolbar ? undefined : true}
         className={cn(
-          "flex min-w-0 flex-1 items-center transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
+          // Clips rather than lets a chip run under the next one at the narrowest widths.
+          "@container/landing-branch flex min-w-0 flex-1 items-center overflow-hidden transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none",
           showEmptyLandingBranchToolbar
             ? "translate-y-0 opacity-100"
             : "pointer-events-none opacity-0",
@@ -7388,7 +7349,8 @@ export default function ChatView({
           )}
         >
           <TemporaryThreadIcon className="size-4" />
-          <span className="sr-only sm:not-sr-only">Temporary</span>
+          {/* Icon only in a narrow row (beside a dock), so the branch keeps its name (D-8). */}
+          <span className="sr-only @[30rem]:not-sr-only">Temporary</span>
         </Button>
       ) : null}
     </div>
@@ -7886,7 +7848,6 @@ export default function ChatView({
                 isThreadDragOverComposer && "ring-1 ring-info/65",
               )}
               aria-disabled={isSidechatExpired}
-              data-composer-layout={composerSingleRow ? "row" : undefined}
               {...threadMentionDropzoneProps}
             >
               <div
@@ -7894,12 +7855,8 @@ export default function ChatView({
                 className={cn(
                   COMPOSER_INPUT_SURFACE_CLASS_NAME,
                   composerProviderState.composerSurfaceClassName,
-                  composerSingleRow && COMPOSER_SINGLE_ROW_SURFACE_CLASS_NAME,
                   composerOverlayOpen && !isComposerApprovalState && "overflow-visible",
                 )}
-                style={
-                  composerQuoteStrip ? ({ "--composer-row-line": 2 } as CSSProperties) : undefined
-                }
               >
                 <ComposerInputBanners
                   roundedTopReset={false}
@@ -7937,24 +7894,9 @@ export default function ChatView({
                       : null
                   }
                 />
-                {composerQuoteStrip ? (
-                  <div
-                    data-composer-quote-strip="true"
-                    className="col-span-full row-start-1 pe-0.5 pt-0.5 pb-1"
-                  >
-                    <ComposerQuoteRows
-                      selections={composerAssistantSelections}
-                      onRemove={removeComposerAssistantSelectionFromDraft}
-                    />
-                  </div>
-                ) : null}
                 <div
                   className={cn(
-                    composerSingleRow
-                      ? COMPOSER_SINGLE_ROW_EDITOR_CLASS_NAME
-                      : COMPOSER_EDITOR_PADDING_CLASS_NAME,
-                    // While dictating, the recorder bar takes the editor's cell.
-                    composerSingleRow && (isVoiceRecording || isVoiceTranscribing) && "hidden",
+                    COMPOSER_EDITOR_PADDING_CLASS_NAME,
                     composerOverlayOpen && !isComposerApprovalState && "overflow-visible",
                   )}
                 >
@@ -8017,7 +7959,6 @@ export default function ChatView({
                     )}
                   {!isComposerApprovalState &&
                     pendingUserInputs.length === 0 &&
-                    !composerQuoteStrip &&
                     (composerAssistantSelections.length > 0 ||
                       composerBrowserAnnotations.length > 0 ||
                       composerFileComments.length > 0 ||
@@ -8098,7 +8039,6 @@ export default function ChatView({
                                   : "Do anything in Moss"
                     }
                     disabled={isComposerEditorDisabled}
-                    singleLine={composerSingleRow}
                   />
                 </div>
                 {/* Bottom toolbar — hidden while an approval takes over the composer,
@@ -8106,7 +8046,6 @@ export default function ChatView({
                     floating above (see ComposerPendingApprovalPanel). */}
                 {activePendingApproval ? null : (
                   <ChatComposerFooter
-                    layout={composerSingleRow ? "row" : "block"}
                     resumeControl={
                       composerResumeEligible || isResumePendingForCurrentThread
                         ? composerResumeControl
@@ -8149,14 +8088,12 @@ export default function ChatView({
                     }}
                     isComposerFooterCompact={isComposerFooterCompact}
                     leadingControls={
-                      composerStatusBelow
-                        ? composerExtrasTrigger
-                        : relocateComposerLeadingControls
-                          ? null
-                          : renderComposerLeadingControls({ iconOnly: false })
+                      relocateComposerLeadingControls
+                        ? null
+                        : renderComposerLeadingControls({ iconOnly: false })
                     }
-                    composerPickerControls={composerStatusBelow ? null : composerPickerControls}
-                    contextMeter={composerStatusBelow ? null : composerContextMeter}
+                    composerPickerControls={composerPickerControls}
+                    contextMeter={composerContextMeter}
                     interactionMode={interactionMode}
                     resetInteractionMode={handleResetInteractionMode}
                     sidebarAction={
@@ -8539,7 +8476,7 @@ export default function ChatView({
                     anchored to the bottom of the pane (with its workspace-tools rail
                     stacked on top of the input) so starting a chat keeps the composer
                     where it lives for the rest of the conversation. */}
-                  <div className="relative flex min-h-0 flex-1 items-center justify-center">
+                  <div className="@container relative flex min-h-0 flex-1 items-center justify-center">
                     {/* Codex-style hero: glyph plus one question, nothing else. Suggestions
                       and import prompts stay on demand (sidebar / "+" menu / settings). */}
                     <div
@@ -8559,7 +8496,9 @@ export default function ChatView({
                             : `What should we build in ${activeProjectDisplayName ?? "this folder"}?`
                         }
                         data-hero-heading="true"
-                        className="text-[26px] font-normal leading-[1.15] tracking-[-0.015em] text-foreground/95 sm:text-[30px]"
+                        // Scales with the pane (a dock beside it, a narrow window) and keeps its
+                        // lines even: never three huge lines or one character alone (walk D-8).
+                        className="text-[length:clamp(1.25rem,5cqi,1.875rem)] font-normal leading-[1.15] tracking-[-0.015em] text-balance text-foreground/95"
                       >
                         {isEmptyChatLanding ? (
                           "What should we build?"
@@ -8854,74 +8793,26 @@ export default function ChatView({
                           : composerSection}
                       </div>
                     </div>
-                    {composerStatusBelow ? (
-                      <>
-                        <div className="pt-0.5" />
-                        {/* Row under the composer: permission, branch controls (git threads), then
-                            model/effort and the context ring. The footer tiers measure this row. */}
-                        <div
-                          className={cn(
-                            CHAT_COLUMN_GUTTER_CLASS_NAME,
-                            ENVIRONMENT_CONTENT_INSET_MOTION_CLASS,
-                          )}
-                          style={
-                            contentInsetRightPx ? { paddingRight: contentInsetRightPx } : undefined
-                          }
-                        >
-                          <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
-                            <div
-                              ref={composerStatusRowRef}
-                              data-chat-composer-status-row=""
-                              className="@container flex min-h-9 w-full min-w-0 flex-wrap items-center gap-1 pb-1.5 pt-1"
-                            >
-                              <RuntimeUsageControls
-                                {...runtimeUsageControlsProps}
-                                className="shrink-0"
-                              />
-                              {showTrailingBranchToolbar ? (
-                                <BranchToolbar
-                                  {...branchToolbarProps}
-                                  className="min-w-0 flex-[1_0_9rem] px-1 py-0"
-                                />
-                              ) : (
-                                <div className="min-w-0 flex-1" />
-                              )}
-                              <div className="ml-auto flex shrink-0 items-center gap-2 pr-1">
-                                {composerPickerControls}
-                                {composerContextMeter}
+                    {/* The pickers live in the composer's own footer before and after the first
+                        send; this row only holds the branch controls and, at the narrowest width,
+                        the relocated + and permission controls. */}
+                    <div className={cn(showTrailingBranchToolbar ? "pt-0.5" : "pt-3 sm:pt-4")} />
+                    {showTrailingBranchToolbar || relocateComposerLeadingControls ? (
+                      <div className={CHAT_COLUMN_GUTTER_CLASS_NAME}>
+                        <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
+                          <div className="flex w-full items-center gap-1">
+                            {relocateComposerLeadingControls ? (
+                              <div className="flex shrink-0 items-center gap-1 pl-1">
+                                {renderComposerLeadingControls({ iconOnly: true })}
                               </div>
-                            </div>
+                            ) : null}
+                            {showTrailingBranchToolbar ? (
+                              <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
+                            ) : null}
                           </div>
                         </div>
-                      </>
-                    ) : (
-                      <>
-                        {/* Empty landing with voice still floats here, but the pickers stay in the
-                            footer. Keep the old relocate/git row so they are not duplicated. */}
-                        <div
-                          className={cn(showTrailingBranchToolbar ? "pt-0.5" : "pt-3 sm:pt-4")}
-                        />
-                        {showTrailingBranchToolbar || relocateComposerLeadingControls ? (
-                          <div className={CHAT_COLUMN_GUTTER_CLASS_NAME}>
-                            <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
-                              <div className="flex w-full items-center gap-1">
-                                {relocateComposerLeadingControls ? (
-                                  <div className="flex shrink-0 items-center gap-1 pl-1">
-                                    {renderComposerLeadingControls({ iconOnly: true })}
-                                  </div>
-                                ) : null}
-                                {showTrailingBranchToolbar ? (
-                                  <BranchToolbar
-                                    {...branchToolbarProps}
-                                    className="min-w-0 flex-1"
-                                  />
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </>
-                    )}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}

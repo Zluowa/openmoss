@@ -4,7 +4,7 @@
 // Layer: Mossbot route UI
 // Exports: MossbotWorkspace
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "~/components/ui/button";
 import { SearchInput } from "~/components/ui/search-input";
 import { Menu, MenuTrigger, MenuCheckboxItem } from "~/components/ui/menu";
@@ -21,10 +21,7 @@ import { MossbotRoomCreateDialog, useMossbotRoomList } from "./MossbotRooms";
 import { MossbotConversationRoster } from "./MossbotConversationRoster";
 import { MossbotFolderDialog, MossbotNewConversationMenu } from "./MossbotConversationFolders";
 import { isMossbot } from "./mossbot.logic";
-import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
 import { MossbotCompanion } from "./MossbotCompanion";
-import { MossbotOnboarding } from "./MossbotOnboarding";
-import { useMossbotOnboardingPresence } from "./mossbotOnboardingPresence";
 
 export function MossbotWorkspace() {
   const { t } = useMossbotCopy();
@@ -39,41 +36,6 @@ export function MossbotWorkspace() {
   const assistants = [...summariesByProjectId.values()].filter(isMossbot);
   // Nothing yet: the page is the one invitation, not an empty list under it.
   const empty = loaded && assistants.length === 0 && rooms.isSuccess && rooms.data.length === 0;
-  // First run: the page becomes the onboarding. It stays open after the assistant is created (the list is no longer
-  // empty then) until the person starts chatting or skips it.
-  const onboardingSkipped = useMossbotPreferencesStore((s) => s.onboardingSkipped);
-  const setOnboardingSkipped = useMossbotPreferencesStore((s) => s.setOnboardingSkipped);
-  const [onboarding, setOnboarding] = useState(false);
-  useEffect(() => {
-    if (empty && !onboardingSkipped) setOnboarding(true);
-  }, [empty, onboardingSkipped]);
-  // While the stage is up the shell hides the list panel; leaving (start chatting, skip, another page) brings it back.
-  const setOnboardingPresence = useMossbotOnboardingPresence((s) => s.setActive);
-  useEffect(() => {
-    setOnboardingPresence(onboarding);
-    return () => setOnboardingPresence(false);
-  }, [onboarding, setOnboardingPresence]);
-  // The onboarding lives in the same content card as every other Mossbot view: the shared top bar keeps the
-  // title-bar band (window controls, traffic lights, drag region) and the stage starts under it.
-  if (onboarding)
-    return (
-      <RouteInsetSurface>
-        <div
-          data-mossbot-workspace
-          className={cn(
-            "mossbot-home flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-            CHAT_BACKGROUND_CLASS_NAME,
-          )}
-        >
-          <RouteSurfaceHeader divider={false}>
-            <span className="min-w-0 flex-1 truncate text-ui font-medium md:invisible">
-              Mossbot
-            </span>
-          </RouteSurfaceHeader>
-          <MossbotOnboarding onLeave={() => setOnboarding(false)} />
-        </div>
-      </RouteInsetSurface>
-    );
   return (
     <RouteInsetSurface>
       <div
@@ -100,19 +62,6 @@ export function MossbotWorkspace() {
             <p className="text-ui-lg font-medium text-foreground">
               {t("A little help, always at hand.")}
             </p>
-            <Button size="sm" className="mt-4" onClick={() => setTemplate("personal")}>
-              {t("Create your assistant")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setOnboardingSkipped(false);
-                setOnboarding(true);
-              }}
-            >
-              {t("Show the intro")}
-            </Button>
           </main>
         ) : (
           <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
