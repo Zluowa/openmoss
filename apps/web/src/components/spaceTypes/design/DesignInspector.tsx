@@ -83,9 +83,11 @@ const FIELD_CLASS =
 function Section(props: { title: string; children: ReactNode; actions?: ReactNode }) {
   return (
     <section className="border-b border-border px-3 py-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-ui-sm font-medium text-foreground">{props.title}</h3>
-        {props.actions}
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="shrink-0 whitespace-nowrap text-ui-sm font-medium text-foreground">
+          {props.title}
+        </h3>
+        {props.actions ? <div className="flex min-w-0 justify-end">{props.actions}</div> : null}
       </div>
       <div className="flex flex-col gap-1.5">{props.children}</div>
     </section>
@@ -487,11 +489,8 @@ function PropertiesTab(props: Parameters<typeof DesignInspector>[0]) {
             {editor.canvas.system?.name ?? "未使用"}
           </span>
         </Row>
-        <p className="text-ui-xs text-muted-foreground">
-          这一页有 {editor.pageBoards.length} 个画板。在画布上点选画板或元素，在这里调整它。按住
-          Ctrl 拖动可以框选画板里的元素。
-        </p>
-        {!editor.readOnly ? (
+        {/* An empty page offers its sizes once, on the canvas; not here as well. */}
+        {!editor.readOnly && editor.pageBoards.length > 0 ? (
           <div className="flex flex-wrap gap-1">
             {BOARD_PRESETS.slice(0, 4).map((preset) => (
               <Button
@@ -515,14 +514,7 @@ function PropertiesTab(props: Parameters<typeof DesignInspector>[0]) {
 function ComponentsLibrary(props: { editor: DesignEditorState; boardId: string | null }) {
   const { editor } = props;
   const own = new Set((editor.canvas.components ?? []).map((component) => component.id));
-  if (!editor.components.length)
-    return (
-      <Section title="组件">
-        <p className="text-ui-xs text-muted-foreground">
-          选中画板里的一个元素，在属性里点“做成组件”，就可以在各个画板里重复使用，改一处处处跟着变。
-        </p>
-      </Section>
-    );
+  if (!editor.components.length) return null;
   return (
     <Section title="组件">
       {editor.components.map((component) => (
@@ -747,9 +739,6 @@ function GuidesSection(props: { editor: DesignEditorState; board: DesignBoard })
         ) : null
       }
     >
-      {guides.length === 0 ? (
-        <p className="text-ui-xs text-muted-foreground">按 Shift+G 显示或隐藏所有布局网格。</p>
-      ) : null}
       {guides.map((guide, index) => (
         <div key={index} className="flex items-center gap-1 text-ui-sm">
           <span className="flex-1 truncate">

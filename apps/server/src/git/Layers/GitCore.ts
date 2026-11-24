@@ -33,7 +33,7 @@ import {
   type GitBlameLineResult,
   type GitRecentCommit,
 } from "@moss/contracts";
-import { isTemporaryWorktreeBranch } from "@moss/shared/git";
+import { GIT_NOT_INSTALLED_DETAIL, isTemporaryWorktreeBranch } from "@moss/shared/git";
 import { parseGitHubRepositoryNameWithOwnerFromRemoteUrl } from "@moss/shared/githubRepository";
 import { isWorkspaceRelativePathSafe } from "@moss/shared/path";
 import { decodeJsonResult } from "@moss/shared/schemaJson";
@@ -588,6 +588,16 @@ function parseStashEntries(input: string): StashEntry[] {
   });
 }
 
+/** A spawn that failed because the `git` program does not exist on this computer. */
+export function isGitProgramMissing(cause: unknown): boolean {
+  const reason = (cause as { readonly reason?: unknown } | null | undefined)?.reason as
+    | { readonly _tag?: unknown; readonly module?: unknown; readonly method?: unknown }
+    | undefined;
+  return (
+    reason?._tag === "NotFound" && reason.module === "ChildProcess" && reason.method === "spawn"
+  );
+}
+
 function toGitCommandError(
   input: Pick<ExecuteGitInput, "operation" | "cwd" | "args">,
   detail: string,
@@ -599,7 +609,9 @@ function toGitCommandError(
           operation: input.operation,
           command: commandLabel(input.args),
           cwd: input.cwd,
-          detail: `${cause instanceof Error && cause.message.length > 0 ? cause.message : "Unknown error"} - ${detail}`,
+          detail: isGitProgramMissing(cause)
+            ? GIT_NOT_INSTALLED_DETAIL
+            : `${cause instanceof Error && cause.message.length > 0 ? cause.message : "Unknown error"} - ${detail}`,
           ...(cause !== undefined ? { cause } : {}),
         });
 }

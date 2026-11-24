@@ -12,6 +12,14 @@ const LEGACY_THREAD_PLACEHOLDER_PATTERN = new RegExp(
   `^${LEGACY_THREAD_PLACEHOLDER_PREFIX}\\/[0-9a-f]{8}$`,
 );
 
+/** The detail of a git command that could not start because git is not on this computer. */
+export const GIT_NOT_INSTALLED_DETAIL = "Git is not installed on this computer.";
+
+/** True for a git command error whose cause is that git is not installed. */
+export function isGitNotInstalledErrorMessage(message: string): boolean {
+  return message.includes(GIT_NOT_INSTALLED_DETAIL);
+}
+
 export function sanitizeBranchFragment(raw: string): string {
   const normalized = raw
     .trim()

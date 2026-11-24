@@ -46,9 +46,15 @@ function TooltipProvider({
 }
 
 type TooltipRootProps = Loose<ComponentProps<typeof TooltipPrimitive>> & {
-  /** Base UI let the pointer rest on the tooltip; Moss tooltips are text, so it is accepted only. */
+  /**
+   * `false` marks a tooltip a person uses with the pointer (it scrolls or holds a link): it takes
+   * the pointer while open. Any other tooltip is text and lets presses through to what it covers.
+   */
   disableHoverablePopup?: boolean | undefined;
 };
+
+/** Whether the open tooltip takes the pointer (see `disableHoverablePopup`). */
+const TooltipTakesPointer = createContext(false);
 
 /**
  * Whether the tooltip's surface is drawn: while it is open and for its closing animation. UI SDK
@@ -61,12 +67,7 @@ const TooltipShown = createContext<boolean | null>(null);
 /** Longer than the closing transition (duration-120 on the positioner). */
 const CLOSING_MS = 200;
 
-function Tooltip({
-  disableHoverablePopup: _disableHoverablePopup,
-  children,
-  onOpenChange,
-  ...props
-}: TooltipRootProps) {
+function Tooltip({ disableHoverablePopup, children, onOpenChange, ...props }: TooltipRootProps) {
   const [fromTrigger, provide] = useTriggerOptions();
   const [ownOpen, setOwnOpen] = useState(Boolean(props.defaultOpen));
   const open = props.open ?? ownOpen;
@@ -80,25 +81,27 @@ function Tooltip({
     return () => clearTimeout(timer);
   }, [open]);
   return (
-    <TooltipShown.Provider value={open || closing}>
-      <TooltipPrimitive
-        {...definedProps<object, ComponentProps<typeof TooltipPrimitive>>({
-          ...props,
-          delay: props.delay ?? fromTrigger.delay,
-          closeDelay: props.closeDelay ?? fromTrigger.closeDelay,
-          closeOnPress: props.closeOnPress ?? fromTrigger.closeOnClick,
-          onOpenChange: (next: boolean, details: unknown) => {
-            setOwnOpen(next);
-            (onOpenChange as ((next: boolean, details: unknown) => void) | undefined)?.(
-              next,
-              details,
-            );
-          },
-        })}
-      >
-        {provide(children as ReactNode)}
-      </TooltipPrimitive>
-    </TooltipShown.Provider>
+    <TooltipTakesPointer.Provider value={disableHoverablePopup === false}>
+      <TooltipShown.Provider value={open || closing}>
+        <TooltipPrimitive
+          {...definedProps<object, ComponentProps<typeof TooltipPrimitive>>({
+            ...props,
+            delay: props.delay ?? fromTrigger.delay,
+            closeDelay: props.closeDelay ?? fromTrigger.closeDelay,
+            closeOnPress: props.closeOnPress ?? fromTrigger.closeOnClick,
+            onOpenChange: (next: boolean, details: unknown) => {
+              setOwnOpen(next);
+              (onOpenChange as ((next: boolean, details: unknown) => void) | undefined)?.(
+                next,
+                details,
+              );
+            },
+          })}
+        >
+          {provide(children as ReactNode)}
+        </TooltipPrimitive>
+      </TooltipShown.Provider>
+    </TooltipTakesPointer.Provider>
   );
 }
 
@@ -221,6 +224,7 @@ function TooltipPopup({
 }: TooltipPopupProps) {
   const variant = variantProp ?? "default";
   const shown = useContext(TooltipShown);
+  const takesPointer = useContext(TooltipTakesPointer);
   // The surface is drawn only once the tooltip opens, so UI SDK first places it at its empty size
   // (over its own trigger) and corrects that a frame later. For two frames after opening it is
   // invisible and lets presses through, as Base UI never showed an unplaced popup: a press on the
@@ -253,6 +257,9 @@ function TooltipPopup({
       collisionPadding={(props as { collisionPadding?: number }).collisionPadding ?? 5}
       className={cn(
         POPUP_INHERITANCE_RESET_CLASS_NAME,
+        // A text tooltip lets a press reach the control it covers (one left open by a resting
+        // pointer had swallowed clicks on its neighbour); one used with the pointer keeps it.
+        takesPointer ? null : "pointer-events-none",
         "z-50 max-w-(--available-width) outline-none data-placing:pointer-events-none data-placing:invisible",
         "origin-(--transform-origin) transition-[scale,opacity] duration-120 ease-snap motion-reduce:transition-none motion-reduce:duration-0 data-ending-style:scale-98 data-starting-style:scale-98 data-ending-style:opacity-0 data-starting-style:opacity-0",
         positionerClassName,

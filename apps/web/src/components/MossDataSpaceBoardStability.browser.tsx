@@ -329,6 +329,9 @@ describe("Data Space Whiteboard + Dock stability in real Chromium", () => {
     const canvasIframe = page.getByTitle("Moss Canvas", { exact: true });
     await expect.element(canvasIframe).toBeVisible();
     await expect.element(page.getByText("画布启动失败")).not.toBeInTheDocument();
+    // The panel stays closed until asked, whatever mode was used last.
+    expect(document.querySelector("[data-space-canvas-dock='pip']")).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
     await expect
       .element(page.getByRole("complementary", { name: "Moss 画布助手浮窗", exact: true }))
       .toBeVisible();
@@ -375,6 +378,8 @@ describe("Data Space Whiteboard + Dock stability in real Chromium", () => {
 
     const canvasIframe = page.getByTitle("Moss Canvas", { exact: true });
     await expect.element(canvasIframe).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: "问 Moss", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "停靠到右侧分栏", exact: true }));
     await expect
       .poll(() => document.querySelector("[data-space-canvas-dock='docked']") !== null)
       .toBe(true);

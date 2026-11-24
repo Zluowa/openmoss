@@ -79,6 +79,7 @@ import {
   PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME,
 } from "./ui/dialog";
 import { Input } from "./ui/input";
+import { toastManager } from "./ui/toast";
 
 type LibraryProps = Parameters<typeof MossLibraryDestination>[0];
 type Props = LibraryProps & {
@@ -319,7 +320,7 @@ function DataSpaceWorkspace({
       return {
         kind: "page" as const,
         itemId: open.pageId,
-        title: page?.title ?? "未命名页面",
+        title: page?.title ?? "未命名文档",
         sourceThreadId: page?.sourceThreadId ?? null,
         revision: page?.revision ?? null,
       };
@@ -445,9 +446,14 @@ function DataSpaceWorkspace({
 
   const trashItem = (item: SpaceItem) =>
     run("移到回收站", async () => {
+      // 撤销 restores from the revision the trash produced, not the one the card showed.
+      let trashed: SpaceItem = item;
       if (item.source.type === "page") {
         const page = item.source.page;
-        await pageMutation(page, { op: isSpaceRoot(page) ? "trash-space" : "trash" });
+        const result = await pageMutation(page, {
+          op: isSpaceRoot(page) ? "trash-space" : "trash",
+        });
+        trashed = { ...item, source: { ...item.source, page: result.page } };
       } else if (item.source.type === "output") {
         await ensureNativeApi().pages.outputState({
           scopeSpaceId,
@@ -460,6 +466,11 @@ function DataSpaceWorkspace({
         throw new Error("应用页的删除会在这个版本中接入。");
       }
       if (open?.type === "item" && open.key === item.key) setOpen(null);
+      toastManager.add({
+        type: "success",
+        title: "已移到回收站",
+        actionProps: { children: "撤销", onClick: () => void restoreItem(trashed) },
+      });
     });
   const restoreItem = (item: SpaceItem) =>
     run("恢复", async () => {
@@ -551,8 +562,48 @@ function DataSpaceWorkspace({
       setNotice(`已把“${item.title}”保存为应用页。`);
     });
 
+  /** 文档 opens at once, untitled (as Claude's Docs do); it is named later in place. */
+  const createUntitledPage = async (parent: Page | null) => {
+    if (busy || !isCurrent()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const spaceId = parent?.spaceId ?? (section.type === "space" ? section.spaceId : null);
+      const parentPageId =
+        parent?.id ??
+        (spaceId ? (spaces.find((space) => space.id === spaceId)?.rootPageId ?? null) : null);
+      const input: PagesMutateInput =
+        createIntent.pending ??
+        createIntent.remember({
+          op: "create",
+          requestId: crypto.randomUUID(),
+          scopeSpaceId,
+          title: "未命名文档",
+          spaceId,
+          parentPageId,
+        });
+      const result = await createIntent.submit(input, (pending) =>
+        ensureNativeApi().pages.mutate(pending),
+      );
+      createIntent.clear();
+      if (!isCurrent()) return;
+      client.setQueryData(pagesQueryKeys.read(account, scopeSpaceId, result.page.id), result);
+      setOpen({ type: "page", pageId: result.page.id });
+      await refresh();
+    } catch (cause) {
+      if (isPageMutationRejected(cause)) createIntent.clear();
+      if (isCurrent()) setError(cause instanceof Error ? cause.message : "创建失败，请重试。");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const startCreate = async (action: SpaceCreateAction, parent: Page | null = null) => {
     if (!(await leave())) return;
+    if (action === "page" && !(createIntent.pending?.op === "create-space")) {
+      await createUntitledPage(parent);
+      return;
+    }
     if (action === "page" || action === "space") {
       if (createIntent.pending) {
         setDialog(
@@ -709,20 +760,20 @@ function DataSpaceWorkspace({
   const sectionCopy = (() => {
     switch (section.type) {
       case "all":
-        return { title: "全部", description: "页面、应用页和对话里生成的文件都在这里。" };
+        return { title: "资料空间", description: "" };
       case "kind": {
         const labels = {
-          page: "页面",
+          page: "文档",
           slides: "幻灯片",
           site: "站点",
           image: "图像",
-          app: "应用",
+          app: "应用页",
         } as const;
         return { title: labels[section.kind], description: "" };
       }
       case "space": {
         const space = spaces.find((entry) => entry.id === section.spaceId);
-        return { title: space?.title ?? "资料空间", description: "这个资料空间里的页面。" };
+        return { title: space?.title ?? "资料空间", description: "" };
       }
       default:
         return { title: "回收站", description: "" };
@@ -1058,7 +1109,7 @@ function DataSpaceWorkspace({
                 autoFocus
                 className={PROJECT_DIALOG_FIELD_CONTROL_CLASS_NAME}
                 maxLength={256}
-                placeholder={dialog?.mode === "page" ? "未命名页面" : "为话题或小组起个名字"}
+                placeholder={dialog?.mode === "page" ? "未命名文档" : "为话题或小组起个名字"}
                 value={name}
                 disabled={busy || (dialog?.mode !== "rename" && createIntent.pending !== null)}
                 onChange={(event) => setName(event.currentTarget.value)}

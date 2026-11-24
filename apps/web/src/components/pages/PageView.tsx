@@ -207,7 +207,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
       new Blob([draft.richContent ?? draft.content], {
         type: draft.richContent !== null ? "application/json" : "text/markdown;charset=utf-8",
       }),
-      `${draft.title || "页面"}${draft.richContent !== null ? ".page.json" : ".md"}`,
+      `${draft.title || "文档"}${draft.richContent !== null ? ".page.json" : ".md"}`,
     );
     if (!captured)
       setActionError("无法确认编辑器最新内容，已下载当前保留的草稿。请重试编辑器并再次备份。");
@@ -534,7 +534,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     editorHeaderSupport && !(sourceEditing && !readOnly && !state.richContent);
   const editorHeader = {
     title: state.title,
-    placeholder: "未命名页面",
+    placeholder: "未命名文档",
     editable: !readOnly,
     crumbs: ancestors.map((ancestor) => ({ id: `page:${ancestor.id}`, label: ancestor.title })),
     links: [
@@ -553,7 +553,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     subpages: props.pages
       .filter((item) => item.parentPageId === page.id && item.trashedAt === null)
       .slice(0, 50)
-      .map((item) => ({ id: `page:${item.id}`, label: item.title || "未命名页面" })),
+      .map((item) => ({ id: `page:${item.id}`, label: item.title || "未命名文档" })),
     onTitleChange: (title: string) => session.change({ title }),
     onAppearanceChange: (change: { icon?: string | null; cover?: PageCover | null }) =>
       void perform((saved) => mutate(saved, { op: "page-appearance", ...change })),
@@ -734,7 +734,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
               void perform((saved) => mutate(saved, { op: isRoot ? "restore-space" : "restore" }))
             }
           >
-            恢复{isRoot ? "资料空间" : "页面"}
+            恢复{isRoot ? "资料空间" : "文档"}
           </Button>
         </div>
       ) : null}
@@ -768,7 +768,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                   ref={titleInput}
                   className="w-full bg-transparent text-3xl font-semibold outline-none"
                   aria-label="页面标题"
-                  placeholder="未命名页面"
+                  placeholder="未命名文档"
                   maxLength={256}
                   value={state.title}
                   disabled={readOnly}
@@ -915,7 +915,7 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
                         requestId: crypto.randomUUID(),
                         scopeSpaceId: props.scopeSpaceId,
                         title:
-                          `${version.page.title || "未命名页面"}（版本 ${revision} 副本）`.slice(
+                          `${version.page.title || "未命名文档"}（版本 ${revision} 副本）`.slice(
                             0,
                             256,
                           ),

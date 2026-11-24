@@ -339,11 +339,16 @@ function PageCardPreview({
     retry: false,
   });
 
-  const lines = (query.data ?? "")
+  const body = (query.data ?? "")
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.length > 0 && !line.startsWith("---"))
-    .slice(0, 4);
+    .filter((line) => line.length > 0 && !line.startsWith("---"));
+  // The preview reads like the page: its title on top, then its first lines.
+  const lines = (
+    page.title && body[0]?.replace(/^#+\s*/u, "") !== page.title
+      ? [`# ${page.title}`, ...body]
+      : body
+  ).slice(0, 4);
 
   return (
     <PreviewFrame kind="page" className="items-end px-4 pt-2.5 pb-0">

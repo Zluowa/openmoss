@@ -351,7 +351,7 @@ describe("SpaceGallery V2", () => {
     const nav = page.getByRole("navigation", { name: "条目", exact: true });
     for (const label of [
       "全部",
-      "页面",
+      "文档",
       "幻灯片",
       "电子表格",
       "设计",
@@ -363,7 +363,8 @@ describe("SpaceGallery V2", () => {
     ]) {
       await expect.element(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
     }
-    await expect.element(page.getByText("已删除条目保留 30 天")).toBeVisible();
+    // No standing explanation under 回收站.
+    await expect.element(page.getByText("已删除条目保留 30 天")).not.toBeInTheDocument();
 
     await userEvent.click(nav.getByRole("button", { name: "电子表格", exact: true }));
     await vi.waitFor(() => {
@@ -374,10 +375,22 @@ describe("SpaceGallery V2", () => {
     });
 
     await userEvent.click(page.getByRole("button", { name: "创建", exact: true }).first());
-    const siteItem = document.querySelector('[data-space-create="site"]');
-    const pluginItem = document.querySelector('[data-space-create="plugin"]');
-    expect(siteItem?.getAttribute("aria-disabled")).toBe("true");
-    expect(pluginItem?.getAttribute("aria-disabled")).toBe("true");
+    // Only what can be created now: no greyed or "coming soon" rows (WALK-2 N2-2).
+    await expect.element(page.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-space-create]")];
+    expect(rows.map((row) => row.dataset.spaceCreate)).toEqual([
+      "page",
+      "slides",
+      "sheet",
+      "board",
+      "design",
+      "dashboard",
+      "app",
+      "image",
+      "template",
+      "upload",
+    ]);
+    expect(rows.filter((row) => row.getAttribute("aria-disabled") === "true")).toEqual([]);
   });
 
   it("emits keepItemOpen & starterPrompt metadata from TemplatePickerDialog", async () => {

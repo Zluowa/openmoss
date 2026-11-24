@@ -13,12 +13,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
-import { PageTextIcon } from "~/lib/icons";
+import { PageTextIcon, TableIcon } from "~/lib/icons";
 import { MossLocaleScope } from "~/localization";
 import { BrowserThemeFixture, installBrowserFixtureTheme } from "~/test/browserThemeFixture";
 import { createDataSpaceFixture } from "~/test/mossDataSpaceFixture";
 
 import { PageTitleMenu } from "../pages/chrome/PageTitleMenu";
+import { SpaceTitleMenu } from "../spaceTypes/shared/SpaceEditorChrome";
 import { SpaceHome } from "./SpaceHome";
 import { buildSpaceItems, setSyncedSpaceHomeKind, type SpaceItem } from "./spaceItems";
 
@@ -168,5 +169,35 @@ describe("资料空间 重命名", () => {
     await expect
       .element(page.getByRole("button", { name: "年度计划 页面菜单" }))
       .toHaveTextContent("年度计划");
+  });
+  it("renames a sheet, slides or design from the same title menu", async () => {
+    const onRename = vi.fn<(title: string) => void>();
+    const onSaveAsTemplate = vi.fn();
+    function Harness() {
+      const [title, setTitle] = useState("未命名电子表格");
+      return (
+        <SpaceTitleMenu
+          title={title}
+          untitled="未命名"
+          icon={TableIcon}
+          readOnly={false}
+          onRename={(next) => {
+            onRename(next);
+            setTitle(next);
+          }}
+          onSaveAsTemplate={onSaveAsTemplate}
+        />
+      );
+    }
+    await renderInHarness(<Harness />);
+    await userEvent.click(page.getByRole("button", { name: "未命名电子表格 菜单" }));
+    await expect.element(page.getByRole("menuitem", { name: "存为模板" })).toBeVisible();
+    await userEvent.click(page.getByRole("menuitem", { name: "重命名" }));
+    await expect.element(page.getByRole("textbox", { name: "名称" })).toHaveFocus();
+    await userEvent.keyboard("年度预算{Enter}");
+    expect(onRename).toHaveBeenCalledWith("年度预算");
+    await expect
+      .element(page.getByRole("button", { name: "年度预算 菜单" }))
+      .toHaveTextContent("年度预算");
   });
 });

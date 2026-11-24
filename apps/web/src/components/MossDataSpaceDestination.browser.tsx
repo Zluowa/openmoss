@@ -14,6 +14,7 @@ import { cleanup, render } from "vitest-browser-react";
 
 import { MossDataSpaceDestination } from "./MossDataSpaceDestination";
 import { TooltipProvider } from "./ui/tooltip";
+import { ToastProvider } from "./ui/toast";
 import { MossLocalizationProvider } from "~/localization";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
@@ -48,13 +49,15 @@ async function mount() {
       <QueryClientProvider client={client}>
         <MossLocalizationProvider localeOverride="zh-CN">
           <TooltipProvider>
-            <div style={{ height: "100vh", display: "flex" }}>
-              <MossDataSpaceDestination
-                onClose={() => undefined}
-                onStartConversation={async () => undefined}
-                onStartPageConversation={async () => undefined}
-              />
-            </div>
+            <ToastProvider position="top-center">
+              <div style={{ height: "100vh", display: "flex" }}>
+                <MossDataSpaceDestination
+                  onClose={() => undefined}
+                  onStartConversation={async () => undefined}
+                  onStartPageConversation={async () => undefined}
+                />
+              </div>
+            </ToastProvider>
           </TooltipProvider>
         </MossLocalizationProvider>
       </QueryClientProvider>
@@ -321,6 +324,25 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     await expectPageTitle("Research page");
   });
 
+  it("moves an item to 回收站 with a 撤销 that brings it back", async () => {
+    fixture.put(pageDocument("page-one", "Research page", "Body"));
+    await mount();
+    const card = () => document.querySelector<HTMLElement>("[data-space-item='page:page-one']");
+    await vi.waitFor(() => expect(card()).not.toBeNull());
+    await userEvent.hover(card()!);
+    await page.getByRole("button", { name: "Research page 的操作", exact: true }).click();
+    await page.getByRole("menuitem", { name: "移到回收站", exact: true }).click();
+    await expect.element(page.getByText("已移到回收站", { exact: true })).toBeVisible();
+    await vi.waitFor(() => expect(card()).toBeNull());
+    await page.getByRole("button", { name: "撤销", exact: true }).click();
+    // Restored from the revision the trash produced; the card is back in 全部.
+    await vi.waitFor(() => expect(card()).not.toBeNull());
+    expect(fixture.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ op: "restore", pageId: "page-one", expectedRevision: 2 }),
+    );
+    await expect.element(page.getByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("creates a child with its real parent identity and exposes it in the page tree", async () => {
     const parent = fixture.put(pageDocument());
     await mount();
@@ -331,9 +353,11 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
       .getByRole("button", { name: /^(插入|Insert)$/ })
       .click();
     await page.getByRole("menuitem", { name: /^(子页面|Subpage)/ }).click();
-    await page.getByRole("textbox", { name: "页面名称", exact: true }).fill("Evidence child");
-    await page.getByRole("button", { name: "创建", exact: true }).click();
-    await expectPageTitle("Evidence child");
+    // It opens at once, untitled: no dialog asks for a name first.
+    await expectPageTitle("未命名文档");
+    await expect
+      .element(page.getByRole("textbox", { name: "页面名称", exact: true }))
+      .not.toBeInTheDocument();
     expect(fixture.mutate).toHaveBeenLastCalledWith(
       expect.objectContaining({
         op: "create",
@@ -343,7 +367,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
       }),
     );
     // The navigation entry's name carries its shortcut.
-    await titleMenu(/^页面导航/, "Evidence child");
+    await titleMenu(/^页面导航/, "未命名文档");
     await expect
       .element(
         page

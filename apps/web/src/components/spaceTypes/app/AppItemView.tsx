@@ -15,9 +15,8 @@ import type {
 import { ReadonlyAppItemFrame } from "./ReadonlyAppItemFrame";
 import { readonlyAppItemCopy } from "./readonlyAppItemCopy";
 
-import { DashboardLayoutIcon, SparklesIcon } from "~/lib/icons";
+import { DashboardLayoutIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
-import { Button } from "../../ui/button";
 
 export interface AppItemHostChrome {
   hideTopBar?: boolean;
@@ -124,23 +123,6 @@ export function AppItemView(props: {
     dockInsets?.bottomInsetPx ??
     0;
 
-  const askDockFromPill = () => {
-    if (!dock) return;
-    const selection: SpaceCanvasSelectionContext = {
-      kind: "app",
-      itemId: props.pageId,
-      title: props.title || copy.title,
-    };
-    dock.setSelection(selection);
-    void dock.ask({
-      prefillOnly: true,
-      preferredState: dock.state === "collapsed" ? "pip" : dock.state,
-      selection,
-      keepItemOpen: true,
-      origin: "bottom-pill",
-    });
-  };
-
   return (
     <div className="relative flex min-h-0 flex-1 flex-col" data-app-item>
       <div className="min-h-0 flex-1">
@@ -160,28 +142,16 @@ export function AppItemView(props: {
           }}
         />
       </div>
-      {dock ? (
+      {dock && capabilitySummary ? (
         <div
           className="pointer-events-none absolute inset-x-0 z-10 flex justify-center px-3"
           style={{ bottom: Math.max(12, bottomInsetPx + 12) }}
           data-app-floating-pill
         >
           <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-1 shadow-md backdrop-blur-sm">
-            {capabilitySummary ? (
-              <span className="max-w-48 truncate px-1.5 text-ui-xs text-muted-foreground">
-                {copy.limit}
-              </span>
-            ) : null}
-            <Button
-              size="xs"
-              variant="ghost"
-              className="gap-1 rounded-full px-2.5 text-ui-sm font-medium"
-              data-testid="app-ask-moss"
-              onClick={askDockFromPill}
-            >
-              <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
-              <span>{locale.startsWith("zh") ? "问 Moss" : "Ask Moss"}</span>
-            </Button>
+            <span className="max-w-48 truncate px-1.5 text-ui-xs text-muted-foreground">
+              {copy.limit}
+            </span>
           </div>
         </div>
       ) : null}

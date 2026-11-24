@@ -174,7 +174,8 @@ function engineCell(
   if (style?.color) out.fc = style.color;
   if (style?.fill) out.bg = style.fill;
   if (style?.align) out.ht = ALIGN_TO_ENGINE[style.align];
-  out.vt = VALIGN_TO_ENGINE[style?.valign ?? "top"];
+  // A cell with no vertical alignment sits at the bottom, as in Excel and Google Sheets.
+  out.vt = VALIGN_TO_ENGINE[style?.valign ?? "bottom"];
   // Text that does not wrap runs on over blank neighbours (the engine's "overflow").
   out.tb = style?.wrap ? "2" : "1";
   if (merge) out.mc = merge;
@@ -306,7 +307,7 @@ function styleOf(
   const valign = Number(cell.vt);
   if (cell.vt !== undefined && cell.vt !== null && cell.vt !== "") {
     if (valign === 0) style.valign = "middle";
-    else if (valign === 2) style.valign = "bottom";
+    else if (valign === 1) style.valign = "top";
   }
   if (String(cell.tb) === "2") style.wrap = true;
   const format = cell.ct?.fa;

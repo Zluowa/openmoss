@@ -8,6 +8,7 @@ import {
   DEVIN_FULL_ARCHIVE_TIMEOUT_MS,
   DEVIN_RANGE_CHUNK_BYTES,
   DEVIN_STATIC_ORIGIN,
+  devinWindowsUpdateFailureReason,
   downloadDevinArchiveBytes,
   manifestUrlForDevinDistribution,
   resolveDevinWindowsTargetTriple,
@@ -362,5 +363,20 @@ describe("devinWindowsUpdate", () => {
       `GET:bytes=0-${DEVIN_RANGE_CHUNK_BYTES - 1}`,
       "GET:none",
     ]);
+  });
+});
+
+describe("devinWindowsUpdateFailureReason", () => {
+  it("names the reason the dialog words, never the updater's own text", () => {
+    expect(devinWindowsUpdateFailureReason("timed-out")).toBe("timed-out");
+    expect(devinWindowsUpdateFailureReason(new Error("write failed: ENOSPC"))).toBe("disk-full");
+    expect(
+      devinWindowsUpdateFailureReason(
+        new Error("Extracted Devin update archive did not contain bin/devin.exe."),
+      ),
+    ).toBe("verify-failed");
+    expect(devinWindowsUpdateFailureReason(new Error("HTTP 503 from static.devin.ai"))).toBe(
+      "download-failed",
+    );
   });
 });

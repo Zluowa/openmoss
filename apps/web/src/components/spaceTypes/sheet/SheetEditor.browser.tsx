@@ -131,6 +131,46 @@ describe("电子表格 editor", () => {
     });
   });
 
+  it("draws a cell with no alignment at the bottom of a tall row, an explicit top at the top", async () => {
+    await page.viewport(1200, 760);
+    const tall = parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "s1",
+          name: "工作表1",
+          rowHeights: { "0": 80 },
+          cells: [
+            { r: 0, c: 0, v: 1200 },
+            { r: 0, c: 1, v: 3400, s: { valign: "top" } },
+          ],
+        },
+      ],
+    });
+    // Where each number is painted, as the canvas draws it.
+    const drawnAt = new Map<string, number>();
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, ...rest) {
+      drawnAt.set(String(text), y);
+      return fillText.call(this, text, x, y, ...rest);
+    };
+    try {
+      await render(
+        <div style={{ width: 1100, height: 680, display: "flex", flexDirection: "column" }}>
+          <SheetEditor workbook={tall} title="表" onChange={vi.fn()} onReplace={vi.fn()} />
+        </div>,
+      );
+      await vi.waitFor(() => {
+        expect(drawnAt.has("1200")).toBe(true);
+        expect(drawnAt.has("3400")).toBe(true);
+      });
+      // In an 80px row the default (bottom) text is drawn well below the explicit top one.
+      expect(drawnAt.get("1200")! - drawnAt.get("3400")!).toBeGreaterThan(40);
+    } finally {
+      CanvasRenderingContext2D.prototype.fillText = fillText;
+    }
+  });
+
   it("lays out the formula row, the grid, the tool card and the sheet bar", async () => {
     await page.viewport(1200, 760);
     await mount();
@@ -204,12 +244,16 @@ describe("电子表格 editor", () => {
     },
   );
 
-  it("adds a sheet and offers Moss or an import on a blank sheet", async () => {
+  it("adds a sheet, with nothing floating over a blank sheet's cells", async () => {
     await page.viewport(1200, 760);
     const onReplace = vi.fn<(next: SheetWorkbook) => void>();
     await mount(undefined, onReplace);
     await page.getByRole("tab", { name: "笔记" }).click();
-    await expect.element(page.getByText("导入一个文件开始。")).toBeVisible();
+    await expect
+      .element(page.getByRole("tab", { name: "笔记" }))
+      .toHaveAttribute("aria-selected", "true");
+    expect(document.querySelector("[data-sheet-empty]")).toBeNull();
+    await expect.element(page.getByText("导入一个文件开始。")).not.toBeInTheDocument();
     await page.getByRole("button", { name: "添加工作表" }).click();
     await page.getByRole("menuitem", { name: "空白工作表" }).click();
     expect(onReplace.mock.lastCall?.[0].sheets.map((sheet) => sheet.name)).toEqual([
@@ -239,15 +283,33 @@ describe("电子表格 editor", () => {
         </div>
       );
     }
-    for (const mode of ["light", "dark"] as const) {
-      const view = await render(<Themed mode={mode} />);
-      await expect.element(page.getByRole("figure", { name: "每月花费" })).toBeVisible();
-      await vi.waitFor(() =>
-        expect(document.querySelector(`[data-sheet-theme="${mode}"]`)).not.toBeNull(),
-      );
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      await page.screenshot({ path: `__screenshots__/sheet-editor/${mode}.png` });
-      await view.unmount();
+    // Which font each number is painted in, as the canvas draws it.
+    const drawnFonts = new Map<string, string>();
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, ...rest) {
+      drawnFonts.set(String(text), this.font);
+      return fillText.call(this, text, ...rest);
+    };
+    try {
+      for (const mode of ["light", "dark"] as const) {
+        const view = await render(<Themed mode={mode} />);
+        await expect.element(page.getByRole("figure", { name: "每月花费" })).toBeVisible();
+        await vi.waitFor(() =>
+          expect(document.querySelector(`[data-sheet-theme="${mode}"]`)).not.toBeNull(),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        // Numbers are in the UI font, never a serif fallback.
+        expect(drawnFonts.get("1,200"), "1,200 is drawn").toBeDefined();
+        expect(drawnFonts.get("1,200")).not.toMatch(/Times New Roman/u);
+        // The corner above the row numbers is painted like the headers beside it (dark too).
+        const corner = document.querySelector<HTMLElement>(".fortune-left-top")!;
+        const canvas = document.querySelector<HTMLElement>("[data-sheet-engine] canvas")!;
+        expect(getComputedStyle(corner).filter).toBe(getComputedStyle(canvas).filter);
+        await page.screenshot({ path: `__screenshots__/sheet-editor/${mode}.png` });
+        await view.unmount();
+      }
+    } finally {
+      CanvasRenderingContext2D.prototype.fillText = fillText;
     }
   });
 

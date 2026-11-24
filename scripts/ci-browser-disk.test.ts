@@ -190,7 +190,10 @@ describe("hosted component browser cache lifetime", () => {
     assert.equal(geometry.run, "bun run --cwd apps/web test:browser:geometry");
     assert.equal(geometry["timeout-minutes"], 10);
     assert.equal(geometry["continue-on-error"], true);
-    assert.equal(geometry.if, "${{ matrix.project == 'components' && matrix.lane == '1/4' }}");
+    assert.equal(
+      geometry.if,
+      "${{ steps.work.outputs.run == 'true' && matrix.project == 'components' && matrix.lane == '1/4' }}",
+    );
     for (const [name, phase] of [
       ["Browser test (stable)", "STABLE"],
       ["Browser test (compiled transcript render scope)", "COMPILER"],
