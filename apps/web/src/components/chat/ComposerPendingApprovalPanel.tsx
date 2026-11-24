@@ -63,14 +63,6 @@ interface ComposerPendingApprovalPanelProps {
   ) => Promise<void>;
 }
 
-type ParsedApproval = {
-  tool: string | null;
-  fileName: string | null;
-  fileDir: string | null;
-  command: string | null;
-  fallback: string | null;
-};
-
 // Moss-owned Computer consent stays off the session grant. Each scope names its
 // own allow/deny copy; the card chrome is still Codex's Deny / Allow once row.
 const COMPUTER_SCOPES: Record<
@@ -126,7 +118,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   // decides on, so its rows are open from the start.
   const webMcpCall = readWebMcpApprovalRows(approval);
   const [paramsOpen, setParamsOpen] = useState(webMcpCall !== null);
-  const parsed = parseApprovalDetail(approval.detail);
+  // What the provider sent is shown exactly as it arrived (REVIEW-RULES rule 9).
+  const detail = approval.detail && approval.detail.length > 0 ? approval.detail : null;
+  const filePath = requestedFilePath(detail);
   const requestId = approval.requestId;
   const requestKey = pendingRequestInstanceKey(requestId, approval.lifecycleGeneration);
   const submissionKey = JSON.stringify([requestKey, approval.responseAttemptKey ?? null]);
@@ -135,10 +129,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
     ? COMPUTER_SCOPES[approval.approvalScope]
     : undefined;
   const sessionAvailable = !computerScope && approval.sessionApprovalAvailable !== false;
-  const fileCount = parsed.fileName ? 1 : 0;
   const mcpTool = resolveMcpApprovalTool({
     serverName: approval.toolServerName,
-    toolName: approval.toolName ?? parsed.tool ?? undefined,
+    toolName: approval.toolName,
   });
   const mossAppsAction =
     mcpTool.tool && isMossAppsServer(mcpTool.server)
@@ -256,6 +249,7 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
   };
 
   const reasonTitle = approval.approvalReason?.trim() || null;
+  const reasonIsTitle = reasonTitle !== null && (variant === "terminal" || variant === "edit");
   const title = webMcpCall
     ? format("composer.webMcpApproval.title", {
         site: webMcpCall.site,
@@ -263,21 +257,18 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
       })
     : computerScope
       ? computerScope.prompt
-      : reasonTitle && (variant === "terminal" || variant === "edit")
+      : reasonIsTitle
         ? reasonTitle
         : variant === "terminal"
           ? t("execApprovalRequest.prompt")
           : variant === "edit"
-            ? format(
-                fileCount === 1
-                  ? "patchApprovalRequest.prompt.one"
-                  : "patchApprovalRequest.prompt.many",
-                {},
-              )
+            ? // The card cannot count a patch's files (a clamped `Edit:` input no longer
+              // parses), so it never claims more than one.
+              t("patchApprovalRequest.prompt.one")
             : variant === "mcp"
               ? mcpApprovalTitle()
-              : approval.requestKind === "file-read" && parsed.fileName
-                ? format("permissionRequest.view", { paths: parsed.fileName })
+              : approval.requestKind === "file-read" && filePath
+                ? format("permissionRequest.view", { paths: filePath })
                 : t("execApprovalRequest.prompt");
 
   const subtitle = webMcpCall
@@ -338,8 +329,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
       </div>
       {paramsOpen || !hasParams ? (
         <ApprovalDetail
-          parsed={parsed}
-          suppressText={reasonTitle}
+          detail={detail}
+          // The detail repeats the reason only where the reason is the title (terminal and edit).
+          suppressText={reasonIsTitle ? reasonTitle : null}
           // Hidden only where it repeats what the card shows: Codex's generated question, or the
           // provider's sentence over a tool's argument rows (WALK-7 N7-2, REVIEW-RULES rule 9).
           hideFallback={providerQuestionOnly || (variant === "mcp" && hasParams)}
@@ -463,14 +455,14 @@ function readWebMcpApprovalRows(
 }
 
 function ApprovalDetail({
-  parsed,
+  detail,
   permissionProfile,
   toolName,
   toolParamsDisplay,
   suppressText,
   hideFallback = false,
 }: {
-  parsed: ParsedApproval;
+  detail: string | null;
   permissionProfile?: Record<string, unknown>;
   toolName?: string;
   toolParamsDisplay?: PendingApproval["toolParamsDisplay"];
@@ -478,14 +470,11 @@ function ApprovalDetail({
   hideFallback?: boolean;
 }) {
   const { locale } = useTranslation();
+  const shownDetail = detail && !hideFallback && detail !== suppressText ? detail : null;
   if (permissionProfile) {
     return (
       <div className="mt-2">
-        {parsed.fallback ? (
-          <p className="mb-1.5 text-ui-sm leading-snug text-muted-foreground/70">
-            {parsed.fallback}
-          </p>
-        ) : null}
+        {shownDetail ? <VerbatimDetail detail={shownDetail} /> : null}
         <pre
           className="max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-control bg-[var(--color-background-elevated-secondary)] px-2.5 py-2 font-mono text-ui-sm leading-relaxed text-foreground/85"
           title="Requested permission profile"
@@ -499,9 +488,7 @@ function ApprovalDetail({
   if (toolName || (toolParamsDisplay?.length ?? 0) > 0) {
     return (
       <div className="mt-2">
-        {parsed.fallback && !hideFallback ? (
-          <p className="text-ui-sm leading-snug text-muted-foreground/70">{parsed.fallback}</p>
-        ) : null}
+        {shownDetail ? <VerbatimDetail detail={shownDetail} /> : null}
         {toolParamsDisplay && toolParamsDisplay.length > 0 ? (
           <dl className="mt-2 space-y-1 rounded-control bg-[var(--color-background-elevated-secondary)] px-2.5 py-2 text-ui-xs leading-snug">
             {toolParamsDisplay.map((parameter) => (
@@ -509,7 +496,7 @@ function ApprovalDetail({
                 <dt className="font-medium text-muted-foreground/65">
                   {approvalParamLabel(parameter, locale)}
                 </dt>
-                <dd className="min-w-0 break-words font-mono text-foreground/80">
+                <dd className="min-w-0 break-words whitespace-pre-wrap font-mono text-foreground/80">
                   {formatToolParameterValue(parameter.value)}
                 </dd>
               </div>
@@ -520,58 +507,48 @@ function ApprovalDetail({
     );
   }
 
-  if (parsed.fileName) {
-    return (
-      <div className="mt-2">
-        <p
-          className="truncate text-ui-lg font-medium leading-tight text-foreground/85"
-          title={parsed.fileDir ? `${parsed.fileDir}/${parsed.fileName}` : parsed.fileName}
-        >
-          {parsed.fileName}
-        </p>
-        {parsed.fileDir ? (
-          <p
-            className="mt-0.5 truncate font-mono text-ui-xs leading-tight text-muted-foreground/55"
-            title={parsed.fileDir}
-          >
-            {shortenPath(parsed.fileDir)}
-          </p>
-        ) : null}
-      </div>
-    );
-  }
-
-  const code = parsed.command ?? (hideFallback ? null : parsed.fallback);
-  if (code && code !== suppressText) {
-    return (
-      <div className="px-3 pb-1">
-        <div className="flex max-h-80 w-full flex-col overflow-hidden rounded-control bg-surface-tertiary text-size-code text-tertiary">
-          <div className="min-h-0 overflow-y-auto px-2 pt-2 pb-2 font-mono font-medium">
-            <Tooltip>
-              <TooltipTrigger
-                delay={200}
-                render={
-                  <span
-                    className="block break-words whitespace-pre-wrap"
-                    data-approval-command="true"
-                  >
-                    {code}
-                  </span>
-                }
-              />
-              <TooltipPopup variant="command" side="top" align="start" className="max-w-96">
-                <span className="whitespace-pre-wrap">{code}</span>
-              </TooltipPopup>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (shownDetail) return <VerbatimDetail detail={shownDetail} />;
 
   if (suppressText || hideFallback) return null;
   return (
     <p className="px-4 pb-2 text-ui text-muted-foreground/65">Review the request to continue.</p>
+  );
+}
+
+/**
+ * The request exactly as the provider sent it: every character, space and line, its `...`
+ * included. Says so in one line when the server cut it before it reached the card.
+ */
+function VerbatimDetail({ detail }: { detail: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="px-3 pb-1">
+      <div className="flex max-h-80 w-full flex-col overflow-hidden rounded-control bg-surface-tertiary text-size-code text-tertiary">
+        <div className="min-h-0 overflow-y-auto px-2 pt-2 pb-2 font-mono font-medium">
+          <Tooltip>
+            <TooltipTrigger
+              delay={200}
+              render={
+                <span
+                  className="block break-words whitespace-pre-wrap"
+                  data-approval-command="true"
+                >
+                  {detail}
+                </span>
+              }
+            />
+            <TooltipPopup variant="command" side="top" align="start" className="max-w-96">
+              <span className="whitespace-pre-wrap">{detail}</span>
+            </TooltipPopup>
+          </Tooltip>
+        </div>
+      </div>
+      {isServerClampedDetail(detail) ? (
+        <p className="px-1 pt-1 text-ui-sm text-muted-foreground" data-approval-truncated="true">
+          {t("approvalRequestCard.detailTruncated")}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -590,174 +567,34 @@ function formatToolParameterValue(value: unknown): string {
 }
 
 /**
- * Parses the approval `detail` string into structured fields.
- *
- * Detail is produced server-side by `summarizeToolRequest` as
- * `"${toolName}: ${JSON.stringify(input)}"` and is clamped to ~400 characters.
- * That means JSON.parse often fails on truncated payloads like
- * `{"file_path":"/long/path","old_string":" .fo...`. We therefore try JSON
- * first and fall back to targeted regex extraction so we can still surface the
- * file path / command even from a chopped-off string.
+ * The projection clamps a request's detail at 2,000 characters
+ * (`MAX_ACTIVITY_DATA_STRING_CHARS` in providerRuntimeActivityProjection.ts): it keeps the first
+ * 1,997 and adds `...`. Only text of exactly that shape was cut before it reached the card.
  */
-function parseApprovalDetail(detail: string | undefined): ParsedApproval {
-  const empty: ParsedApproval = {
-    tool: null,
-    fileName: null,
-    fileDir: null,
-    command: null,
-    fallback: null,
-  };
-  if (!detail || detail.length === 0) return empty;
+const SERVER_DETAIL_LIMIT = 2_000;
 
-  const colonIdx = detail.indexOf(": ");
-  const tool = colonIdx === -1 ? null : detail.slice(0, colonIdx).trim() || null;
-  const rawPayload = colonIdx === -1 ? detail : detail.slice(colonIdx + 2);
-  const payload = stripTrailingEllipsis(rawPayload);
-
-  const filePath =
-    extractJsonString(payload, ["file_path", "path", "notebook_path", "filepath"]) ?? null;
-  if (filePath) {
-    const { name, parent } = splitPath(filePath);
-    return { tool, fileName: name, fileDir: parent, command: null, fallback: null };
-  }
-
-  const command = extractJsonString(payload, ["command", "cmd"]) ?? null;
-  if (command) {
-    return {
-      tool,
-      fileName: null,
-      fileDir: null,
-      command: collapseWhitespace(command),
-      fallback: null,
-    };
-  }
-
-  const pattern = extractJsonString(payload, ["pattern", "query"]);
-  if (pattern) {
-    return {
-      tool,
-      fileName: null,
-      fileDir: null,
-      command: pattern,
-      fallback: null,
-    };
-  }
-
-  const url = extractJsonString(payload, ["url"]);
-  if (url) {
-    return { tool, fileName: null, fileDir: null, command: url, fallback: null };
-  }
-
-  // Payload is not a recognized JSON shape — treat it as a raw command/text.
-  const fallback = collapseWhitespace(payload);
-  return {
-    tool,
-    fileName: null,
-    fileDir: null,
-    command: null,
-    fallback: fallback.length > 0 ? fallback : null,
-  };
+function isServerClampedDetail(detail: string): boolean {
+  return detail.length === SERVER_DETAIL_LIMIT && detail.endsWith("...");
 }
 
 /**
- * Extracts the first matching string field from a (possibly truncated) JSON
- * object. Prefers a real JSON.parse when it succeeds, otherwise falls back to
- * a permissive regex that tolerates truncation mid-value.
+ * The path a file request names, for the title only (the body shows the detail whole). Read only
+ * from a complete `Tool: {json}` detail that parses as an object; anything else names no file.
  */
-function extractJsonString(payload: string, keys: ReadonlyArray<string>): string | null {
-  const parsed = tryParseJson(payload);
-  if (parsed && typeof parsed === "object") {
-    const record = parsed as Record<string, unknown>;
-    for (const key of keys) {
-      const value = record[key];
-      if (typeof value === "string" && value.length > 0) {
-        return value;
-      }
-    }
-  }
-
-  for (const key of keys) {
-    const value = regexExtractString(payload, key);
-    if (value && value.length > 0) {
-      return value;
-    }
-  }
-  return null;
-}
-
-function tryParseJson(value: string): unknown {
+function requestedFilePath(detail: string | null): string | null {
+  const match = detail?.match(/^[A-Za-z][\w-]*: (\{[\s\S]*\})$/u);
+  if (!match?.[1]) return null;
+  let input: unknown;
   try {
-    return JSON.parse(value);
+    input = JSON.parse(match[1]);
   } catch {
     return null;
   }
-}
-
-/**
- * Pulls a JSON string value for `key` out of a possibly truncated JSON-ish
- * payload. Handles the common `\"` and `\\` escapes inside the string body.
- * If the value is unterminated (truncation), returns whatever was captured.
- */
-function regexExtractString(payload: string, key: string): string | null {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // Anchored to `"key"` followed by a colon and an opening quote.
-  const pattern = new RegExp(`"${escapedKey}"\\s*:\\s*"`, "g");
-  const match = pattern.exec(payload);
-  if (!match) return null;
-
-  const start = match.index + match[0].length;
-  let out = "";
-  for (let i = start; i < payload.length; i++) {
-    const ch = payload[i];
-    if (ch === "\\") {
-      const next = payload[i + 1];
-      if (next === undefined) break;
-      if (next === "n") out += "\n";
-      else if (next === "t") out += "\t";
-      else if (next === "r") out += "\r";
-      else out += next;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      return out;
-    }
-    out += ch;
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const record = input as Record<string, unknown>;
+  for (const key of ["file_path", "path", "notebook_path"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.length > 0) return value;
   }
-  // Truncated before closing quote — return partial value if we got anything.
-  return out.length > 0 ? out : null;
-}
-
-function stripTrailingEllipsis(value: string): string {
-  return value.replace(/\.{3}$/u, "").replace(/…$/u, "");
-}
-
-function splitPath(path: string): { name: string; parent: string | null } {
-  const normalized = path.replace(/\\/g, "/");
-  const trimmed = normalized.replace(/\/+$/, "");
-  const lastSep = trimmed.lastIndexOf("/");
-  if (lastSep === -1) {
-    return { name: trimmed, parent: null };
-  }
-  return {
-    name: trimmed.slice(lastSep + 1) || trimmed,
-    parent: trimmed.slice(0, lastSep) || null,
-  };
-}
-
-function shortenPath(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  const homeMatch = normalized.match(/^\/(?:Users|home)\/[^/]+(?=\/|$)/);
-  const withoutHome = homeMatch ? `~${normalized.slice(homeMatch[0].length)}` : normalized;
-  const segments = withoutHome.split("/").filter((s) => s.length > 0);
-  if (segments.length <= 3) {
-    return withoutHome;
-  }
-  const leading = withoutHome.startsWith("~") ? "~" : "";
-  const tail = segments.slice(-2).join("/");
-  return `${leading}/…/${tail}`.replace(/^\/…/, "…");
-}
-
-function collapseWhitespace(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return null;
 }

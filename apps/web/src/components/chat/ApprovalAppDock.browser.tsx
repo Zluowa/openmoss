@@ -123,9 +123,8 @@ describe("command approval mark", () => {
       expect(tile.getBoundingClientRect().right).toBeLessThan(deny!.getBoundingClientRect().left);
       // The command reads on its box, and the box is the card's own raised surface: never a
       // light box on the dark card.
-      const code = [...document.querySelectorAll<HTMLElement>("*")].find(
-        (element) => element.children.length === 0 && element.textContent === "bun run test",
-      )!;
+      const code = document.querySelector<HTMLElement>('[data-approval-command="true"]')!;
+      expect(code.innerText).toBe('Bash: {"command":"bun run test"}');
       const pixels = await captureViewportPixels();
       const codeBox = code.getBoundingClientRect();
       const boxColor = pixelAt(pixels, codeBox.left - 3, codeBox.top + codeBox.height / 2);

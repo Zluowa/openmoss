@@ -45,7 +45,9 @@ describe("HubPendingApprovals", () => {
     const open = vi.fn();
     const screen = await render(<HubPendingApprovals threadIds={[workerId]} onOpenThread={open} />);
     try {
-      await expect.element(page.getByText("pwd", { exact: true })).toBeInTheDocument();
+      await expect
+        .element(page.getByText('Bash: {"command":"pwd"}', { exact: true }))
+        .toBeInTheDocument();
       expect(harness.respond).not.toHaveBeenCalled();
       await page.getByRole("button", { name: "Test worker", exact: true }).click();
       expect(open).toHaveBeenCalledWith(workerId);
@@ -68,7 +70,9 @@ describe("HubPendingApprovals", () => {
       <HubPendingApprovals threadIds={[workerId]} onOpenThread={vi.fn()} />,
     );
     try {
-      await expect.element(page.getByText("pwd", { exact: true })).toBeInTheDocument();
+      await expect
+        .element(page.getByText('Bash: {"command":"pwd"}', { exact: true }))
+        .toBeInTheDocument();
       expect(harness.respond).not.toHaveBeenCalled();
       await page.getByRole("button", { name: "Approval options" }).click();
       await expect
@@ -152,7 +156,9 @@ describe("HubPendingApprovals", () => {
       />,
     );
     try {
-      await expect.element(page.getByText("pwd", { exact: true })).toBeInTheDocument();
+      await expect
+        .element(page.getByText('Bash: {"command":"pwd"}', { exact: true }))
+        .toBeInTheDocument();
     } finally {
       await screen.unmount();
     }
