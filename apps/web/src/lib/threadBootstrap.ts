@@ -128,6 +128,7 @@ interface ResolveTerminalThreadCreationStateInput {
   draftComposerState: ComposerThreadDraftState | null;
   draftThread: DraftThreadState | null;
   options: NewThreadOptions | undefined;
+  projectDefaultModelSelection: ModelSelection | null;
   projectId: ProjectId;
   resolveProviderForInstanceId?: (
     instanceId: ProviderInstanceId,
@@ -338,9 +339,7 @@ export function resolveTerminalThreadCreationState(
         input.activeThread?.projectId === input.projectId
           ? input.activeThread.modelSelection
           : null,
-      // A project's stored `defaultModelSelection` is only what the composer showed when the
-      // project was created; nobody sets it, so it never picks a new chat's agent (WALK-3 D-2).
-      projectModelSelection: null,
+      projectModelSelection: input.projectDefaultModelSelection,
       defaultProvider: input.defaultProvider,
       ...(input.fresh !== undefined ? { fresh: input.fresh } : {}),
       ...(input.resolveProviderForInstanceId

@@ -2812,8 +2812,9 @@ export default function Sidebar() {
         stickyActiveProvider: stickyActiveProviderForNewChat(
           draftStore.stickyActiveProvider,
           draftStore.stickyModelSelectionByProvider,
-          appSettings.defaultProvider,
+          project.defaultModelSelection?.provider ?? appSettings.defaultProvider,
         ),
+        projectDefaultProvider: project.defaultModelSelection?.provider ?? null,
         projectCwd: project.cwd,
         draftWorktreePath: draftThread?.worktreePath ?? null,
         serverCwd,

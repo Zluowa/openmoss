@@ -196,11 +196,11 @@ export function useGitHubInboxSidechat(selection: GitHubInboxSelection | null) {
         activeProvider: stickyActiveProviderForNewChat(
           draftStore.stickyActiveProvider,
           draftStore.stickyModelSelectionByProvider,
-          settings.defaultProvider,
+          project?.defaultModelSelection?.provider ?? settings.defaultProvider,
         ),
       },
       threadModelSelection: null,
-      projectModelSelection: null,
+      projectModelSelection: project?.defaultModelSelection ?? null,
       defaultProvider: settings.defaultProvider,
       resolveProviderForInstanceId: (instanceId) =>
         getProviderInstanceOptions(settings).find((instance) => instance.instanceId === instanceId)

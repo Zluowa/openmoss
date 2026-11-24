@@ -92,15 +92,12 @@ it("keeps custom provider instances distinct while restoring and changing a scra
       selectedProviderInstanceId: "codex_personal",
       selectedModel: "gpt-5.4-mini",
     });
-    // The pick stays on this surface: the chat composer's last-used model is untouched, so a
-    // new chat or a page's 问 Moss never opens on it (WALK-1 D-2: 「6 Astra 低」).
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex_work?.model).toBe(
       "gpt-5.4",
     );
     expect(
-      useComposerDraftStore.getState().stickyModelSelectionByProvider.codex_personal,
-    ).toBeUndefined();
-    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex_work");
+      useComposerDraftStore.getState().stickyModelSelectionByProvider.codex_personal?.model,
+    ).toBe("gpt-5.4-mini");
   } finally {
     await hook.unmount();
   }

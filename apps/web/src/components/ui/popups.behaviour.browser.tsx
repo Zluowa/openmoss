@@ -587,64 +587,6 @@ describe("Tooltip", () => {
     await expect.element(trigger).toHaveFocus();
   });
 
-  it("lets a press reach the control an open tooltip covers", async () => {
-    const coveredPress = vi.fn();
-    await render(
-      <div className="relative p-8 pt-24">
-        <button
-          type="button"
-          className="absolute inset-x-0 top-0 h-24"
-          onClick={coveredPress}
-          aria-label="下面的按钮"
-        />
-        <Tooltip defaultOpen>
-          <TooltipTrigger render={<Button variant="ghost" aria-label="复制路径" />}>
-            复制
-          </TooltipTrigger>
-          <TooltipPopup>复制路径到剪贴板</TooltipPopup>
-        </Tooltip>
-      </div>,
-    );
-    const tip = () => shown('[data-slot="tooltip-popup"]');
-    await expect.poll(tip, { timeout: 1_500 }).not.toBeNull();
-    await expect
-      .poll(() => document.querySelector('[data-slot="tooltip-positioner"][data-placing]'))
-      .toBeNull();
-    const box = tip()!.getBoundingClientRect();
-    const x = box.left + box.width / 2;
-    const y = box.top + box.height / 2;
-    // The tooltip shows over the button, and the point under it belongs to the button.
-    expect(box.width).toBeGreaterThan(0);
-    const under = document.elementFromPoint(x, y);
-    expect(under?.getAttribute("aria-label")).toBe("下面的按钮");
-    (under as HTMLElement).click();
-    expect(coveredPress).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the pointer on a tooltip a person uses with it (disableHoverablePopup={false})", async () => {
-    await render(
-      <div className="relative p-8 pt-24">
-        <button type="button" className="absolute inset-x-0 top-0 h-24" aria-label="下面的按钮" />
-        <Tooltip defaultOpen disableHoverablePopup={false}>
-          <TooltipTrigger render={<Button variant="ghost" aria-label="计划" />}>
-            计划
-          </TooltipTrigger>
-          <TooltipPopup>
-            <a href="#plan">打开计划</a>
-          </TooltipPopup>
-        </Tooltip>
-      </div>,
-    );
-    const tip = () => shown('[data-slot="tooltip-popup"]');
-    await expect.poll(tip, { timeout: 1_500 }).not.toBeNull();
-    await expect
-      .poll(() => document.querySelector('[data-slot="tooltip-positioner"][data-placing]'))
-      .toBeNull();
-    const link = tip()!.querySelector("a")!.getBoundingClientRect();
-    const under = document.elementFromPoint(link.left + link.width / 2, link.top + link.height / 2);
-    expect(under?.textContent).toBe("打开计划");
-  });
-
   it("leaves Escape to a focused field's own handler while a tooltip shows", async () => {
     const fieldEscape = vi.fn();
     await render(

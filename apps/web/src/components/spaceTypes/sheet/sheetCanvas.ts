@@ -128,6 +128,21 @@ function cellText(cell: Cell | null, formulas = false): string {
 }
 
 /** Redraws a cell's text with a different look (rule font, the table header's weight). */
+/**
+ * Whether a cell holds a number. A number loaded from the file is a number; one a person just
+ * typed can reach the painter as its text with the engine's number type on it.
+ */
+function isNumberCell(cell: Cell | null): boolean {
+  if (typeof cell?.v === "number") return Number.isFinite(cell.v);
+  const typed = cell?.ct as { t?: string } | undefined;
+  return (
+    typed?.t === "n" &&
+    typeof cell?.v === "string" &&
+    cell.v.trim() !== "" &&
+    Number.isFinite(Number(cell.v))
+  );
+}
+
 function drawText(
   ctx: CanvasRenderingContext2D,
   cell: Cell | null,
@@ -162,7 +177,7 @@ function drawText(
     ctx.font = `${italic ? "italic " : ""}${bold ? 600 : 400} ${size}px ${fontFamily}`;
     ctx.fillStyle = look.color ?? (typeof cell?.fc === "string" ? cell.fc : INK);
     ctx.textBaseline = "middle";
-    const numeric = typeof cell?.v === "number";
+    const numeric = isNumberCell(cell);
     const align = cell?.ht === undefined || cell?.ht === null ? (numeric ? 2 : 1) : Number(cell.ht);
     const pad = 6;
     const measured = ctx.measureText(text).width;
@@ -415,7 +430,7 @@ export function makeSheetCanvasHooks(state: () => SheetPaintState) {
         // A number with no alignment of its own sits right, as in Excel; the engine draws
         // every cell left unless told otherwise.
         const generalNumber =
-          typeof cell?.v === "number" &&
+          isNumberCell(cell) &&
           (cell?.ht === undefined || cell?.ht === null) &&
           !(s.showFormulas && cell?.f);
         if (header || font || formula || localized || generalNumber)

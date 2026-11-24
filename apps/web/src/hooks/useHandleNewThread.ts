@@ -23,6 +23,7 @@ import {
   useAppSettings,
 } from "../appSettings";
 import { prefetchModelsForNewThread } from "../lib/providerModelPrefetch";
+import { providerInstanceModelSelectionKey } from "../composerDraftModels";
 import { createPastedTextDraft } from "../lib/composerPastedText";
 import { hasActiveComposerSend } from "../lib/composerSendOwnership";
 import { useProviderStatusesForLocalConfig } from "../hooks/useProviderStatusesForLocalConfig";
@@ -182,6 +183,7 @@ export function useHandleNewThread() {
           : null,
       defaultProvider: settings.defaultProvider,
       projectId: project.id,
+      projectDefaultModelSelection: project.defaultModelSelection,
       options: resolveInheritedThreadContext({
         activeThread: sourceThread,
         activeDraftThread: sourceDraft,
@@ -271,12 +273,31 @@ export function useHandleNewThread() {
   };
 
   /**
-   * The agent a page sends work to: a page's 问 Moss is a new chat, so it starts on the one
-   * default (Settings → 通用, resolved to its account instance such as the Moss lane), never on
-   * whatever another surface picked last (WALK-1 D-2: the 图像 page's image model showed here).
+   * The agent a page sends work to: the one last chosen in the chat composer, else the new-chat
+   * default (which resolves the account instance, such as the Moss lane).
    */
-  const pageAgentSelection = (): ModelSelection =>
-    resolveNewConversationDefaultModelSelection(settings);
+  const pageAgentSelection = (): ModelSelection => {
+    const { stickyActiveProvider, stickyModelSelectionByProvider } =
+      useComposerDraftStore.getState();
+    const stickyProvider = stickyActiveProvider
+      ? (stickyModelSelectionByProvider[stickyActiveProvider]?.provider ??
+        resolveProviderForInstanceId(stickyActiveProvider))
+      : null;
+    if (stickyActiveProvider && stickyProvider) {
+      const instanceId = resolveSelectableProviderInstanceId(
+        settings,
+        stickyProvider,
+        stickyActiveProvider,
+      );
+      const sticky =
+        stickyModelSelectionByProvider[
+          providerInstanceModelSelectionKey(stickyProvider, instanceId)
+        ];
+      if (sticky) return { ...sticky, instanceId };
+    }
+    // A page has no chat of its own to inherit from; start where a new chat would.
+    return resolveNewConversationDefaultModelSelection(settings);
+  };
 
   /**
    * Resolves a project matching a Space artifact (`scopeSpaceId`). Unlike general new-chat creation,
@@ -334,6 +355,7 @@ export function useHandleNewThread() {
           : null,
       defaultProvider: settings.defaultProvider,
       projectId: matchingProject.id,
+      projectDefaultModelSelection: matchingProject.defaultModelSelection,
       options: inheritActive
         ? resolveInheritedThreadContext({
             activeThread: sourceThread,
@@ -1052,6 +1074,7 @@ export function useHandleNewThread() {
         providerOverride: options?.provider ?? null,
         draftActiveProvider: draftComposer?.activeProvider ?? null,
         stickyActiveProvider: draftStore.stickyActiveProvider,
+        projectDefaultProvider: project?.defaultModelSelection?.provider ?? null,
         projectCwd: project?.cwd ?? null,
         draftWorktreePath: draftThread?.worktreePath ?? null,
         worktreePath: options?.worktreePath ?? null,
@@ -1174,10 +1197,17 @@ export function useHandleNewThread() {
       projectId,
       routeThreadId: focusedThreadId,
     });
+    // Read from the store at call time so post-sync sidebar flows can use the latest project defaults.
+    const projectDefaultModelSelection =
+      useStore.getState().projects.find((project) => project.id === projectId)
+        ?.defaultModelSelection ?? null;
     const applyUsableStickyState = (threadId: ThreadId) => {
-      // New chats open on the one default agent (Settings → 通用); a chat that picked
-      // another agent doesn't move it.
-      applyStickyState(threadId, settings.defaultProvider);
+      // New chats open on the default agent (the project's, else Settings → 通用); a chat
+      // that picked another agent doesn't move it.
+      applyStickyState(
+        threadId,
+        projectDefaultModelSelection?.provider ?? settings.defaultProvider,
+      );
       if (options?.provider || !hasReconciledServerProviderStatuses(queryClient)) {
         return;
       }
@@ -1197,7 +1227,7 @@ export function useHandleNewThread() {
       }
 
       // Back to the one default, never to whichever other agent happens to be signed in.
-      const fallbackProvider = settings.defaultProvider;
+      const fallbackProvider = projectDefaultModelSelection?.provider ?? settings.defaultProvider;
       if (!hasUsableProviderAccount(providerStatuses, fallbackProvider)) {
         return;
       }
@@ -1212,7 +1242,7 @@ export function useHandleNewThread() {
               }
             : null,
           threadModelSelection: null,
-          projectModelSelection: null,
+          projectModelSelection: projectDefaultModelSelection,
           defaultProvider: fallbackProvider,
           resolveProviderForInstanceId,
           defaultInstanceIdForProvider,
@@ -1235,6 +1265,7 @@ export function useHandleNewThread() {
           useComposerDraftStore.getState().draftsByThreadId[targetThreadId] ?? null,
         draftThread,
         options: creationOptions,
+        projectDefaultModelSelection,
         projectId,
         resolveProviderForInstanceId,
         defaultInstanceIdForProvider,
@@ -1472,6 +1503,7 @@ export function useHandleNewThread() {
       draftComposerState: useComposerDraftStore.getState().draftsByThreadId[routeThreadId] ?? null,
       defaultProvider: settings.defaultProvider,
       projectId: activeDraftThread.projectId,
+      projectDefaultModelSelection: project.defaultModelSelection,
       options: undefined,
       resolveProviderForInstanceId: (id) =>
         providerInstances.find((instance) => instance.instanceId === id)?.provider ?? null,

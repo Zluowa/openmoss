@@ -154,7 +154,7 @@ export const ModelReroutedTimelineRow = memo(function ModelReroutedTimelineRow(p
         <span className="min-w-0 truncate" style={{ fontSize: String(props.fontSizePx) + "px" }}>
           {message}
         </span>
-        <Tooltip disableHoverablePopup={false}>
+        <Tooltip>
           <TooltipTrigger
             render={
               <button

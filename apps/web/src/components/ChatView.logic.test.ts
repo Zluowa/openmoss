@@ -3416,28 +3416,62 @@ describe("thread detail hydration", () => {
 });
 
 describe("resolveDraftFallbackModelSelection", () => {
-  it("uses the settings default provider", () => {
-    expect(resolveDraftFallbackModelSelection({ settingsDefaultProvider: "devin" })).toEqual({
-      provider: "devin",
-      model: "adaptive",
-    });
+  it("prefers an explicit project default over the settings default provider", () => {
+    expect(
+      resolveDraftFallbackModelSelection({
+        projectDefault: { provider: "codex", model: "gpt-5.5" },
+        settingsDefaultProvider: "devin",
+      }),
+    ).toEqual({ provider: "codex", model: "gpt-5.5" });
   });
 
-  it("falls back to codex when the settings default has no static model (pi, omp)", () => {
-    for (const settingsDefaultProvider of ["pi", "omp"] as const) {
-      expect(resolveDraftFallbackModelSelection({ settingsDefaultProvider })).toEqual({
-        provider: "codex",
-        model: DEFAULT_MODEL_BY_PROVIDER.codex,
-      });
-    }
+  it("uses the settings default provider when the project has no default", () => {
+    expect(
+      resolveDraftFallbackModelSelection({
+        projectDefault: null,
+        settingsDefaultProvider: "devin",
+      }),
+    ).toEqual({ provider: "devin", model: "adaptive" });
+  });
+
+  it("falls back to codex when the settings default is pi and no project default exists", () => {
+    expect(
+      resolveDraftFallbackModelSelection({
+        projectDefault: null,
+        settingsDefaultProvider: "pi",
+      }),
+    ).toEqual({ provider: "codex", model: DEFAULT_MODEL_BY_PROVIDER.codex });
+  });
+
+  it("uses the project default provider when the settings default is omp", () => {
+    expect(
+      resolveDraftFallbackModelSelection({
+        projectDefault: { provider: "claudeAgent", model: "claude-sonnet-5" },
+        settingsDefaultProvider: "omp",
+      }),
+    ).toEqual({ provider: "claudeAgent", model: "claude-sonnet-5" });
+  });
+
+  it("falls back to codex when the settings default is omp and no project default exists", () => {
+    expect(
+      resolveDraftFallbackModelSelection({
+        projectDefault: null,
+        settingsDefaultProvider: "omp",
+      }),
+    ).toEqual({ provider: "codex", model: DEFAULT_MODEL_BY_PROVIDER.codex });
   });
 
   it("skips the ACP agents' runtime-only catalogs the same way", () => {
     for (const settingsDefaultProvider of ["kimi", "minimax", "zcode"] as const) {
-      expect(resolveDraftFallbackModelSelection({ settingsDefaultProvider })).toEqual({
-        provider: "codex",
-        model: DEFAULT_MODEL_BY_PROVIDER.codex,
-      });
+      expect(
+        resolveDraftFallbackModelSelection({ projectDefault: null, settingsDefaultProvider }),
+      ).toEqual({ provider: "codex", model: DEFAULT_MODEL_BY_PROVIDER.codex });
+      expect(
+        resolveDraftFallbackModelSelection({
+          projectDefault: { provider: "kimi", model: "kimi-k3" },
+          settingsDefaultProvider,
+        }),
+      ).toEqual({ provider: "kimi", model: "kimi-k3" });
     }
   });
 });

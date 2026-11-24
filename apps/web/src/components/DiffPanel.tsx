@@ -492,6 +492,10 @@ export default function DiffPanel({
   const draftThread = useComposerDraftStore((store) =>
     activeThreadId ? (store.draftThreadsByThreadId[activeThreadId] ?? null) : null,
   );
+  const fallbackDraftProjectId = draftThread?.projectId ?? null;
+  const fallbackDraftProject = useStore(
+    useMemo(() => createProjectSelector(fallbackDraftProjectId), [fallbackDraftProjectId]),
+  );
   // Keep draft-backed thread context available before the first server turn exists.
   const activeThreadContext = useMemo((): DiffPanelThreadCatalog | undefined => {
     if (serverThreadCatalog) {
@@ -502,11 +506,18 @@ export default function DiffPanel({
       serverThread: undefined,
       draftThread,
       fallbackModelSelection: resolveDraftFallbackModelSelection({
+        projectDefault: fallbackDraftProject?.defaultModelSelection,
         settingsDefaultProvider: settings.defaultProvider,
       }),
     });
     return draftBackedThread ? toDiffPanelThreadCatalog(draftBackedThread) : undefined;
-  }, [activeThreadId, draftThread, serverThreadCatalog, settings.defaultProvider]);
+  }, [
+    activeThreadId,
+    draftThread,
+    fallbackDraftProject?.defaultModelSelection,
+    serverThreadCatalog,
+    settings.defaultProvider,
+  ]);
   const activeProjectId = activeThreadContext?.projectId ?? draftThread?.projectId ?? null;
   const activeProject = useStore(
     useMemo(() => createProjectSelector(activeProjectId), [activeProjectId]),
