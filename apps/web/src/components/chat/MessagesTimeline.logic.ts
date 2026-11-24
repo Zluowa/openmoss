@@ -2221,6 +2221,10 @@ function markInterruptedTurnsWithoutHeader(
   for (const [turnId, index] of lastRowIndexByTurnId) {
     const timing = turnTimingByTurnId.get(turnId);
     if (!timing || (!timing.interrupted && !timing.failed) || headedTurnIds.has(turnId)) continue;
+    // A turn that failed and was not interrupted shows its failure row, its one status with its
+    // one action: a line saying 「已中断」 under it was a second status (WALK-12 N12-2). A turn
+    // that failed and was then interrupted has no failure row, so it keeps its line.
+    if (timing.failed && !timing.interrupted) continue;
     const row = rows[index]!;
     if (row.kind !== "work" && row.kind !== "message" && row.kind !== "inline-visual") continue;
     row.turnEndMarker = {
@@ -2695,13 +2699,16 @@ function collapseSettledTurns(
     const header: TurnHeader = {
       elapsed: elapsed ?? null,
       endedAt: responseEnd ?? message.createdAt,
-      outcome: responseTiming?.failed
-        ? "interrupted"
-        : responseTiming?.stoppedByUser
-          ? "stopped"
-          : responseTiming?.interrupted
-            ? "interrupted"
-            : "completed",
+      // A turn that shows its failure row keeps only its time here: the row says what
+      // happened. One that failed and was then interrupted has no such row and says so.
+      outcome:
+        responseTiming?.failed && !responseTiming.interrupted
+          ? "completed"
+          : responseTiming?.stoppedByUser
+            ? "stopped"
+            : responseTiming?.interrupted
+              ? "interrupted"
+              : "completed",
       reason: responseTiming?.failureReason ?? null,
       modelChange: null,
       resumedBy,

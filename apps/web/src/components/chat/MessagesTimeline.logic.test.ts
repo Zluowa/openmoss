@@ -2047,10 +2047,9 @@ describe("deriveMessagesTimelineRows", () => {
       expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe(
         "Stopped by you after 6.0s",
       );
-      expect(messageRow(rows, "a3")?.turnHeader?.outcome).toBe("interrupted");
-      expect(formatTurnHeaderLabel(messageRow(rows, "a3")!.turnHeader!)).toBe(
-        "Interrupted after 20s",
-      );
+      // A failed turn's header keeps only its time; its failure row says what happened.
+      expect(messageRow(rows, "a3")?.turnHeader?.outcome).toBe("completed");
+      expect(formatTurnHeaderLabel(messageRow(rows, "a3")!.turnHeader!)).toBe("Worked for 20s");
     });
 
     it("ignores a runtime error the turn recovered from", () => {
@@ -2149,9 +2148,7 @@ describe("deriveMessagesTimelineRows", () => {
         timelineEntries: threeTurns,
         turnTimingByTurnId: timing,
       });
-      expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe(
-        "Interrupted after 6.0s",
-      );
+      expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe("Worked for 6.0s");
     });
 
     it("does not attribute an already interrupted turn to a later stale Stop request", () => {
@@ -2257,7 +2254,7 @@ describe("deriveMessagesTimelineRows", () => {
       expect(messageRow(rows, "a1")?.turnHeader?.elapsed).toBe("6.0s");
     });
 
-    it("marks a provider failure without an assistant response on its last work row", () => {
+    it("WALK-12 N12-2: puts no interrupted line under a provider failure: its row is the one status", () => {
       const entry = workEntry("running", "2026-01-01T00:00:01Z", "Running command");
       if (entry.kind !== "work") throw new Error("Expected work");
       entry.entry.turnId = TurnId.makeUnsafe("t1");
@@ -2277,10 +2274,95 @@ describe("deriveMessagesTimelineRows", () => {
           ],
         ]),
       });
-      expect(rows.at(-1)).toMatchObject({
-        turnEndMarker: { outcome: "interrupted", elapsed: "16s", reason: "usage limit reached" },
-      });
+      expect(rows.some((row) => "turnEndMarker" in row && row.turnEndMarker)).toBe(false);
     });
+
+    // Only a turn that shows its failure row loses its interrupted status. A turn that hit a
+    // runtime error and then ended interrupted has no failure row, with or without the person's
+    // Stop: its end line and its header still say it did not finish.
+    const errorThenInterrupted = (
+      turnId: string,
+      ending: "aborted" | "stopped by the person",
+      at: { error: string; stop: string; end: string },
+    ) => [
+      turnActivity(
+        `${turnId}-err`,
+        turnId,
+        "runtime.error",
+        { message: "Transient network error" },
+        at.error,
+        "error",
+      ),
+      ...(ending === "aborted"
+        ? [turnActivity(`${turnId}-abort`, turnId, "turn.aborted", {}, at.end)]
+        : [
+            turnActivity(
+              `${turnId}-stop`,
+              turnId,
+              "turn.stop-requested",
+              { requestedBy: "user" },
+              at.stop,
+            ),
+            turnActivity(
+              `${turnId}-done`,
+              turnId,
+              "turn.completed",
+              { state: "interrupted" },
+              at.end,
+            ),
+          ]),
+    ];
+
+    it.each(["aborted", "stopped by the person"] as const)(
+      "WALK-12 N12-2: keeps the end line of a turn that hit a runtime error and was then %s",
+      (ending) => {
+        const entry = workEntry("ls", "2026-01-01T00:00:01Z", "Ran ls");
+        if (entry.kind !== "work") throw new Error("Expected work");
+        entry.entry.turnId = TurnId.makeUnsafe("t1");
+        const rows = deriveMessagesTimelineRows({
+          ...baseInput,
+          timelineEntries: [userEntry("u1", "2026-01-01T00:00:00Z"), entry],
+          turnTimingByTurnId: deriveTurnTimingByTurnId({
+            turnDiffSummaries: [],
+            latestTurn: null,
+            activities: [
+              turnActivity("start", "t1", "turn.started", {}, "2026-01-01T00:00:00Z"),
+              ...errorThenInterrupted("t1", ending, {
+                error: "2026-01-01T00:00:02Z",
+                stop: "2026-01-01T00:00:02.200Z",
+                end: "2026-01-01T00:00:02.500Z",
+              }),
+            ],
+          }),
+        });
+        const markers = rows.flatMap((row) =>
+          "turnEndMarker" in row && row.turnEndMarker ? [row.turnEndMarker] : [],
+        );
+        expect(
+          markers.map((marker) => formatTurnHeaderLabel({ ...marker, resumedBy: null })),
+        ).toEqual(["Interrupted after 2.5s"]);
+      },
+    );
+
+    it.each(["aborted", "stopped by the person"] as const)(
+      "WALK-12 N12-2: keeps Interrupted in the header of a turn that hit a runtime error and was then %s",
+      (ending) => {
+        const rows = deriveMessagesTimelineRows({
+          ...baseInput,
+          timelineEntries: threeTurns,
+          turnTimingByTurnId: timings(
+            errorThenInterrupted("t2", ending, {
+              error: "2026-01-01T00:01:02Z",
+              stop: "2026-01-01T00:01:04Z",
+              end: "2026-01-01T00:01:06Z",
+            }),
+          ),
+        });
+        expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe(
+          "Interrupted after 6.0s",
+        );
+      },
+    );
 
     it("ends a failed turn's line with its time only: the failure row says why", () => {
       expect(
