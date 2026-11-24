@@ -39,7 +39,10 @@ const calls = vi.hoisted(() => ({
   history: vi.fn(),
   generate: vi.fn(),
   wait: vi.fn(),
+  libraryUpload: vi.fn(),
 }));
+// Photos put in here are also kept in 资料空间; the upload itself is a server call.
+vi.mock("~/lib/libraryUpload", () => ({ uploadPickedLibraryFiles: calls.libraryUpload }));
 // Keep the real shell, pickers, image decoding, gallery, file reader and download
 // path, including the real React Query account boundary. Only media server calls
 // use deterministic fixtures, so no paid generation runs during acceptance.
@@ -444,6 +447,34 @@ describe("Moss Images browser workflow", () => {
     ]) {
       expect(document.body.textContent, line).not.toContain(line);
     }
+  });
+
+  it("WALK-1 S-19: one upload control; a photo put in opens on click and is kept in 资料空间", async () => {
+    await mountWorkspace();
+    // 添加照片 has one way to put a photo in: the 上传照片 card.
+    await expect.element(page.getByRole("button", { name: "上传照片" })).toBeVisible();
+    expect(page.getByRole("button", { name: "选择参考照片" }).elements()).toHaveLength(0);
+    const blob = await (await fetch(originalImage)).blob();
+    const drop = new DataTransfer();
+    drop.items.add(new File([blob], "sunrise.png", { type: "image/png" }));
+    document
+      .querySelector("[data-moss-images-workspace]")!
+      .dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: drop }),
+      );
+    // Kept in 资料空间, as an upload there is.
+    await vi.waitFor(() => expect(calls.libraryUpload).toHaveBeenCalledTimes(1));
+    expect(
+      (calls.libraryUpload.mock.calls[0]![0] as File[]).map((file) => file.name),
+      "uploaded to 资料空间",
+    ).toEqual(["sunrise.png"]);
+    // The photo opens on click.
+    await page.getByRole("button", { name: "打开照片：sunrise.png" }).click();
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    expect(
+      document.querySelector<HTMLImageElement>('[role="dialog"] img')?.getAttribute("src"),
+      "the photo is shown",
+    ).toBe(document.querySelector<HTMLImageElement>('img[alt="已选照片：sunrise.png"]')!.src);
   });
 
   it("signed out of Moss: says so once, and the composer adds no provider sign-in line", async () => {
@@ -1360,12 +1391,8 @@ describe("Moss Images browser workflow", () => {
     const text = document.createRange();
     text.selectNodeContents(notice!.firstChild!);
     expect(text.getBoundingClientRect().top - workspaceTop).toBeGreaterThanOrEqual(20);
-    // "选择参考照片" showed a left arrow, which reads as "back".
-    const picker = page.getByRole("button", { name: "选择参考照片" }).element();
-    const glyph = picker.querySelector<HTMLElement>("[data-slot=central-icon]")!;
-    const glyphMask = glyph.style.mask || glyph.style.webkitMask;
-    expect(glyphMask).not.toContain("chevron-left");
-    expect(glyphMask).toContain("images-1");
+    // One upload control (S-19): the 上传照片 card, no second picker button.
+    expect(page.getByRole("button", { name: "选择参考照片" }).elements()).toHaveLength(0);
     // One upload card fits the row: no previous / next buttons beside 添加照片.
     expect(page.getByRole("button", { name: "上一组照片" }).elements()).toHaveLength(0);
     expect(page.getByRole("button", { name: "下一组照片" }).elements()).toHaveLength(0);

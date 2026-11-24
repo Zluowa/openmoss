@@ -2129,6 +2129,66 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("WALK-6 R-9: 定时任务 → 图像 → 收信箱 → 代码审查, then Back three times ends on 定时任务 passing 图像", async () => {
+    desktopTitleBar.on = true;
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("rail-history"),
+        targetText: "Rail history",
+      }),
+    });
+    // The rail's English names: 定时任务 Scheduled, 图像 Images, 收信箱 Inbox, 代码审查 Code review.
+    const rail = () => document.querySelector<HTMLElement>('nav[aria-label="Primary"]')!;
+    const current = () =>
+      rail()
+        .querySelector('button[aria-current="page"]')
+        ?.getAttribute("aria-label")
+        ?.split(" · ")[0] ?? null; // a badge adds " · <count>"
+    const imagesShown = () => document.querySelector("[data-moss-images-destination]") !== null;
+    const arrow = (name: "Back" | "Forward") => {
+      const buttons = document.querySelectorAll<HTMLButtonElement>(`button[aria-label="${name}"]`);
+      expect(buttons, `one ${name} on screen`).toHaveLength(1);
+      return buttons[0]!;
+    };
+    const expectOn = async (label: string, pathname: string, images: boolean, at: string) => {
+      await expect.poll(current, { message: `${at}: ${label} is current` }).toBe(label);
+      await expect
+        .poll(imagesShown, { message: `${at}: 图像 ${images ? "is shown" : "is gone"}` })
+        .toBe(images);
+      await expect
+        .poll(() => mounted.router.state.location.pathname, { message: `${at}: address` })
+        .toBe(pathname);
+    };
+    try {
+      await waitForLayout();
+      // The walker's steps: four rail pages in turn.
+      const pages = [
+        ["Scheduled", "/automations", false],
+        ["Images", "/automations", true],
+        ["Inbox", "/inbox", false],
+        ["Code review", "/pull-requests", false],
+      ] as const;
+      for (const [label, pathname, images] of pages) {
+        rail().querySelector<HTMLButtonElement>(`button[aria-label^="${label}"]`)!.click();
+        await expectOn(label, pathname, images, `open ${label}`);
+      }
+      // Back three times walks them in reverse, through 图像.
+      for (const [label, pathname, images] of [pages[2], pages[1], pages[0]]) {
+        expect(arrow("Back").disabled, `Back to ${label} is available`).toBe(false);
+        arrow("Back").click();
+        await expectOn(label, pathname, images, `Back to ${label}`);
+      }
+      // Forward goes to 图像 again.
+      expect(arrow("Forward").disabled, "Forward is available").toBe(false);
+      arrow("Forward").click();
+      await expectOn("Images", "/automations", true, "Forward to Images");
+    } finally {
+      desktopTitleBar.on = false;
+      await mounted.cleanup();
+    }
+  });
+
   it("WALK-6 R-9 on 图像 with a result tab: one Back, one Forward, and the toggle takes the click at its centre", async () => {
     desktopTitleBar.on = true;
     // One past image, so 图像 can open it in a result tab.

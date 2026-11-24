@@ -71,9 +71,6 @@ export function CoordinatorSuggestions({
                 </button>
               ))}
             </div>
-            <p className="px-4 text-ui-sm text-muted-foreground">
-              {t("Or answer in the conversation below")}
-            </p>
           </DisclosureRegion>
         ) : (
           <>

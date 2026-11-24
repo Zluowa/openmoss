@@ -214,9 +214,6 @@ export function RuntimeUsageControls({
         : runtimeSource.description,
   };
   const runtimeModePending = activeRuntimeMode !== undefined && activeRuntimeMode !== runtimeMode;
-  const pendingDescription = runtimeModePending
-    ? ` Applies next turn. This turn still uses ${RUNTIME_MODE_PRESENTATION[activeRuntimeMode].label}.`
-    : "";
   const hideLabel = hideLabelProp ?? false;
   return (
     <div
@@ -237,7 +234,6 @@ export function RuntimeUsageControls({
                   COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
                   runtimeMode === "full-access" && RUNTIME_FULL_ACCESS_ACCENT_CLASS_NAME,
                 )}
-                title={`${runtimePresentation.label}: ${runtimePresentation.description}.${pendingDescription} Click to change permissions.`}
                 aria-label={t("chat.permissions.change")}
               />
             }

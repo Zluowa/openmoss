@@ -59,7 +59,6 @@ describe("translateZhCnPresentationText with Object.prototype member names", () 
         [`${name} hex value`, `${name} 十六进制值`],
         [`, mostly in the ${name}`, `，主要集中在${name}`],
         [`Show ${name}`, `显示 ${name}`],
-        [`${name}: ${name}. Click to change permissions.`, `${name}：${name}。点击更改权限。`],
         [`⌘K ${name}. Try another.`, `⌘K ${name}. Try another.`],
         [
           `Codex CLI is installed but failed to run. ${name}`,

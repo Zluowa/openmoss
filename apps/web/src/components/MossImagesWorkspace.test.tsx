@@ -13,6 +13,12 @@ const calls = vi.hoisted(() => ({
   generate: vi.fn(),
   wait: vi.fn(),
   assetReference: vi.fn(),
+  libraryUpload: vi.fn(),
+}));
+vi.mock("~/lib/libraryUpload", () => ({ uploadPickedLibraryFiles: calls.libraryUpload }));
+vi.mock("@tanstack/react-query", async (original) => ({
+  ...(await original<typeof import("@tanstack/react-query")>()),
+  useQueryClient: () => ({ invalidateQueries: async () => undefined }),
 }));
 const accountSource = vi.hoisted(() => ({ key: "settled:a", transitioning: false }));
 vi.mock("~/lib/mossImagesAccountBoundary", () => ({
@@ -244,6 +250,7 @@ beforeEach(() => {
   calls.assetReference.mockReset().mockResolvedValue("data:image/png;base64,Y2FjaGVkLWltYWdl");
   calls.generate.mockReset().mockResolvedValue(complete);
   calls.wait.mockReset().mockImplementation(async ({ job }: { job: MossImageJob }) => job);
+  calls.libraryUpload.mockReset().mockResolvedValue({ items: [], imported: 1, skipped: 0 });
 });
 afterEach(() => {
   cleanup();

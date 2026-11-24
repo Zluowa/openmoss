@@ -147,6 +147,7 @@ import {
   toggleRailShortcutKey,
 } from "../appRail.logic";
 import { useRailShellStore } from "../railShellStore";
+import { useHistoryDestination } from "../appNavigation";
 import { isElectron } from "../env";
 import {
   closeMossCanvas,
@@ -2126,13 +2127,15 @@ export default function Sidebar() {
   // Mossbot is open in every flavor; the Hubs surface is gone, so a hub chat opened from a
   // link or search shows in the ordinary thread view.
   const isOnMossbot = pathname === "/mossbot" || activeMossbot !== null;
+  const historyDestination = useHistoryDestination();
   useEffect(() => {
     reconcileRailShell({
       pathname,
       onMossbotSurface: isOnMossbot,
       projectIds: threadsHydrated ? new Set(projects.map((project) => project.id)) : null,
+      destination: historyDestination,
     });
-  }, [isOnMossbot, pathname, projects, reconcileRailShell, threadsHydrated]);
+  }, [historyDestination, isOnMossbot, pathname, projects, reconcileRailShell, threadsHydrated]);
   const ordinarySpaceProjects = useMemo(
     () =>
       projects.filter((project) =>

@@ -13,7 +13,10 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState }
 import {
   goBackInAppHistory,
   goForwardInAppHistory,
+  pushHistoryDestination,
   resolveAppNavigationState,
+  useHistoryDestination,
+  type HistoryDestination,
 } from "../appNavigation";
 import { AppRailSlotProvider } from "../components/AppRail";
 import { AppShellTopStrip } from "../components/AppShellTopStrip";
@@ -560,6 +563,28 @@ function ChatRouteLayout() {
     originNavigationVersion.current += 1;
     if (await (canvasLeaveGuard.current?.() ?? Promise.resolve(true))) clearDestinationSurface();
   }, [clearDestinationSurface]);
+  // Shows 图像 or 资料空间: from the rail, a content link, or a history entry that shows it.
+  const showDestination = useCallback(
+    (next: HistoryDestination) => {
+      originNavigationVersion.current += 1;
+      // Content links bypass Sidebar's onSelect. Keep the rail in sync so its
+      // destination reconciliation does not immediately dismiss the new surface.
+      useRailShellStore.getState().selectRouteItem(next);
+      if (destinationSurface !== null && next !== destinationSurface) {
+        pendingCanvasDestination.current = next;
+        void (canvasLeaveGuard.current?.() ?? Promise.resolve(true)).then((saved) => {
+          if (pendingCanvasDestination.current !== next) return;
+          pendingCanvasDestination.current = null;
+          if (saved) setDestinationSurface(next);
+          else useRailShellStore.getState().selectRouteItem(destinationSurface);
+        });
+      } else {
+        pendingCanvasDestination.current = null;
+        setDestinationSurface(next);
+      }
+    },
+    [destinationSurface],
+  );
   const openThreadCanvas = useCallback(
     async (id: string, image?: MossCanvasImageFocus) => {
       if (id !== activeCanvasThread.current) return;
@@ -638,28 +663,29 @@ function ChatRouteLayout() {
         return true;
       }
       if (detail.surface === "images" || detail.surface === "library") {
-        originNavigationVersion.current += 1;
-        const next = detail.surface;
-        // Content links bypass Sidebar's onSelect. Keep the rail in sync so its
-        // destination reconciliation does not immediately dismiss the new surface.
-        useRailShellStore.getState().selectRouteItem(next);
-        if (destinationSurface !== null && next !== destinationSurface) {
-          pendingCanvasDestination.current = next;
-          void (canvasLeaveGuard.current?.() ?? Promise.resolve(true)).then((saved) => {
-            if (pendingCanvasDestination.current !== next) return;
-            pendingCanvasDestination.current = null;
-            if (saved) setDestinationSurface(next);
-            else useRailShellStore.getState().selectRouteItem(destinationSurface);
-          });
-        } else {
-          pendingCanvasDestination.current = null;
-          setDestinationSurface(next);
-        }
+        showDestination(detail.surface);
         return true;
       }
       return false;
     });
-  }, [destinationSurface, openThreadCanvas, clearDestinationSurface, navigate]);
+  }, [openThreadCanvas, clearDestinationSurface, navigate, showDestination]);
+  // Every visit to 图像 or 资料空间, and every return to the page under it, takes a history
+  // entry of its own (R-9); Back and Forward to such an entry show what it showed.
+  const historyDestination = useHistoryDestination();
+  const shownDestination = useRef(destinationSurface);
+  useEffect(() => {
+    if (shownDestination.current === destinationSurface) return;
+    shownDestination.current = destinationSurface;
+    // A `#space-page=` link opens 资料空间 through the hash itself.
+    if (window.location.hash.startsWith(SPACE_PAGE_HASH_PREFIX)) return;
+    pushHistoryDestination(router.history, destinationSurface);
+  }, [destinationSurface, router]);
+  // Only a change of entry shows its destination; a later close stays closed.
+  const showDestinationOfEntry = useRef(showDestination);
+  showDestinationOfEntry.current = showDestination;
+  useEffect(() => {
+    if (historyDestination !== null) showDestinationOfEntry.current(historyDestination);
+  }, [historyDestination]);
   // A 资料空间 page opened "in a new window" arrives as `#space-page=<id>`: land on the
   // destination, which opens that page and clears the hash.
   useEffect(() => {

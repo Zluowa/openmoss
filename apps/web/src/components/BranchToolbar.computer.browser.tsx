@@ -68,7 +68,18 @@ describe("task-invoked Computer", () => {
       .element(page.getByRole("button", { name: "Change permissions", exact: true }))
       .toBeVisible();
     expect(page.getByRole("button").element().textContent).toContain("Full access (next turn)");
-    expect(page.getByRole("button").element().getAttribute("title")).toContain("Ask for approval");
+    // The label says "(next turn)"; no native tooltip explains it (walk N8-5).
+    expect(page.getByRole("button").element().getAttribute("title")).toBeNull();
+  });
+
+  it("names the permission control without a tooltip that explains it (walk N8-5)", async () => {
+    // The walker hovered 更改权限 and got a native tooltip: 「需要批准：只读沙箱：Moss 在编辑文件或
+    // 运行命令前会询问。点击更改权限。」.
+    await render(<Controls />);
+    const trigger = page.getByRole("button", { name: "Change permissions", exact: true });
+    await expect.element(trigger).toBeVisible();
+    expect(trigger.element().getAttribute("title")).toBeNull();
+    expect(document.body.innerHTML).not.toMatch(/Click to change permissions|before it edits/u);
   });
 
   it("keeps access rules available without a persistent Computer switch", async () => {

@@ -1810,7 +1810,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
     "Moss 在项目内编辑；需要更多权限的操作由审查器决定",
   "No sandbox: Moss runs everything without asking, with full access to your computer":
     "无沙箱：Moss 不询问就执行所有操作，并完全访问你的电脑",
-  "Click to change permissions.": "点击更改权限。",
   "Chat background": "对话背景",
   "ASCII background": "ASCII 背景",
   "Show the animated ASCII field on empty chats. Reduced motion keeps the field still.":
@@ -1961,20 +1960,6 @@ function translateKnownUiText(value: string): string {
   return lookupPhrase(UI_TEXT, value) ?? value;
 }
 
-/** Composer permission button titles mix a localized label with English provider copy. */
-function translateZhCnRuntimeModeTitle(value: string): string | null {
-  const match =
-    /^(.*?): (.*?)\.( Applies next turn\. This turn still uses ([^.]+)\.)? Click to change permissions\.$/.exec(
-      value,
-    );
-  if (!match) return null;
-  const label = translateKnownUiText(match[1] ?? "");
-  const description = translateKnownUiText(match[2] ?? "");
-  const pendingLabel = match[4] ? translateKnownUiText(match[4]) : null;
-  const pending = pendingLabel ? `下一轮生效。本轮仍使用${pendingLabel}。` : "";
-  return `${label}：${description}。${pending}点击更改权限。`;
-}
-
 function translateZhCnPresentationTextForNode(value: string, node: Node): string {
   // The generic workspace status intentionally uses `思考中`; build 6119 uses
   // the more active `正在思考` only inside Realtime Voice surfaces.
@@ -2070,9 +2055,6 @@ export function translateZhCnPresentationText(value: string): string {
     const translated = translateFeatureText(value);
     if (translated !== value) return translated;
   }
-
-  const runtimeModeTitle = translateZhCnRuntimeModeTitle(value);
-  if (runtimeModeTitle) return runtimeModeTitle;
 
   const realtimeVoiceText = translateZhCnRealtimeVoiceDynamicText(value);
   if (realtimeVoiceText !== value) return realtimeVoiceText;

@@ -96,7 +96,6 @@ const ASSISTANT_COPY: Record<string, string> = {
   "Shopping and reservations": "购物、订票订餐",
   "Code and projects": "写代码、看项目",
   "Just chat": "先随便聊聊",
-  "Or answer in the conversation below": "或在下方聊天中回答",
   Name: "名字",
   Slate: "黛蓝",
   "Try again": "重试",

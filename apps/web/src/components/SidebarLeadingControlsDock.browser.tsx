@@ -15,6 +15,7 @@ vi.mock("~/env", async (importOriginal) => ({
   isElectron: true,
 }));
 vi.mock("~/appNavigation", () => ({
+  appHistory: {},
   useAppNavigationState: () => ({ canGoBack: true, canGoForward: true }),
   goBackInAppHistory: navigation.back,
   goForwardInAppHistory: navigation.forward,

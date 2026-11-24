@@ -188,6 +188,11 @@ vi.mock("../lib/realtimeVoiceWebSocket", async () => {
   };
 });
 
+const permissionTrigger = (mode: string) =>
+  Array.from(
+    document.querySelectorAll<HTMLButtonElement>('button[aria-label="Change permissions"]'),
+  ).find((button) => button.textContent?.trim().startsWith(mode)) ?? null;
+
 describe("ChatView transcript geometry (full app)", () => {
   installChatViewFixture();
 
@@ -1126,7 +1131,7 @@ describe("ChatView transcript geometry (full app)", () => {
         .element(page.getByRole("button", { name: "Change permissions", exact: true }))
         .toHaveTextContent("Ask for approval");
       const trigger = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[title^="Ask for approval:"]'),
+        () => permissionTrigger("Ask for approval"),
         "Missing persisted access mode trigger",
       );
       trigger.click();
@@ -1179,7 +1184,7 @@ describe("ChatView transcript geometry (full app)", () => {
 
     try {
       const supervisedTrigger = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[title^="Ask for approval:"]'),
+        () => permissionTrigger("Ask for approval"),
         "Unable to find the Ask for approval access-mode trigger.",
       );
       supervisedTrigger.click();
@@ -1193,7 +1198,7 @@ describe("ChatView transcript geometry (full app)", () => {
       autoOption.click();
 
       const autoTrigger = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[title^="Approve for me:"]'),
+        () => permissionTrigger("Approve for me"),
         "Approve for me did not become the acknowledged composer access mode.",
       );
       autoTrigger.click();

@@ -3,15 +3,24 @@
 // Layer: Shared web shell chrome
 // Depends on: appNavigation history helpers, header Button/Tooltip primitives
 
+import { useRouter } from "@tanstack/react-router";
+
 import { ArrowLeftIcon, ArrowRightIcon } from "~/lib/icons";
-import { goBackInAppHistory, goForwardInAppHistory, useAppNavigationState } from "~/appNavigation";
+import {
+  appHistory,
+  goBackInAppHistory,
+  goForwardInAppHistory,
+  useAppNavigationState,
+} from "~/appNavigation";
 import { desktopTitleBarControlsShown } from "~/lib/desktopTitleBar";
 import { cn, isMacNavigatorPlatform } from "~/lib/utils";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
 export function AppNavigationButtons({ className }: { className?: string }) {
-  const { canGoBack, canGoForward } = useAppNavigationState();
+  // The router's own history (the app's history in the app); outside a router, the app's history.
+  const history = useRouter({ warn: false })?.history ?? appHistory;
+  const { canGoBack, canGoForward } = useAppNavigationState(history);
   const isMac = isMacNavigatorPlatform();
   const backShortcutLabel = isMac ? "⌘[" : "Alt+Left";
   const forwardShortcutLabel = isMac ? "⌘]" : "Alt+Right";
@@ -37,7 +46,7 @@ export function AppNavigationButtons({ className }: { className?: string }) {
               className="size-8 rounded-control"
               aria-label="Back"
               disabled={!canGoBack}
-              onClick={() => goBackInAppHistory()}
+              onClick={() => goBackInAppHistory(history)}
             />
           }
         >
@@ -55,7 +64,7 @@ export function AppNavigationButtons({ className }: { className?: string }) {
               className="size-8 rounded-control"
               aria-label="Forward"
               disabled={!canGoForward}
-              onClick={() => goForwardInAppHistory()}
+              onClick={() => goForwardInAppHistory(history)}
             />
           }
         >

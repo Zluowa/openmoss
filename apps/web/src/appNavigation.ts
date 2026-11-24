@@ -8,6 +8,7 @@ import {
   createBrowserHistory,
   createHashHistory,
   createMemoryHistory,
+  useRouterState,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
@@ -73,6 +74,38 @@ export function syncAppNavigationState(
   };
 }
 
+/** The Moss pages drawn over the route (图像, 资料空间); each visit still takes a history entry. */
+export type HistoryDestination = "images" | "library";
+
+const HISTORY_DESTINATION_KEY = "mossDestination";
+
+/** The destination a history entry shows, or null for the route alone. */
+export function historyDestinationOf(state: unknown): HistoryDestination | null {
+  if (!state || typeof state !== "object") return null;
+  const value = (state as Record<string, unknown>)[HISTORY_DESTINATION_KEY];
+  return value === "images" || value === "library" ? value : null;
+}
+
+/**
+ * Records opening a destination, or going back to the page under it, as a history entry of
+ * its own at the same address, so Back and Forward walk the pages in the order they were seen.
+ */
+export function pushHistoryDestination(
+  history: RouterHistory,
+  destination: HistoryDestination | null,
+): void {
+  if (historyDestinationOf(history.location.state) === destination) return;
+  history.push(
+    history.location.href,
+    destination === null ? {} : { [HISTORY_DESTINATION_KEY]: destination },
+  );
+}
+
+/** The destination the current history entry shows. */
+export function useHistoryDestination(): HistoryDestination | null {
+  return useRouterState({ select: (state) => historyDestinationOf(state.location.state) });
+}
+
 export interface AppNavigationState {
   canGoBack: boolean;
   canGoForward: boolean;
@@ -109,16 +142,16 @@ export function resolveAppNavigationState(history: RouterHistory = appHistory): 
   };
 }
 
-export function useAppNavigationState(): AppNavigationState {
-  const [navigationState, setNavigationState] = useState(() => resolveAppNavigationState());
+export function useAppNavigationState(history: RouterHistory = appHistory): AppNavigationState {
+  const [navigationState, setNavigationState] = useState(() => resolveAppNavigationState(history));
 
   useEffect(() => {
     const updateNavigationState = (event?: HistorySubscriberEvent) =>
-      setNavigationState(syncAppNavigationState(appHistory, event?.action));
-    const unsubscribe = appHistory.subscribe(updateNavigationState);
+      setNavigationState(syncAppNavigationState(history, event?.action));
+    const unsubscribe = history.subscribe(updateNavigationState);
     updateNavigationState();
     return unsubscribe;
-  }, []);
+  }, [history]);
 
   return navigationState;
 }

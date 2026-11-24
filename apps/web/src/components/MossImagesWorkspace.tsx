@@ -9,16 +9,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import {
-  PlusIcon,
-  XIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  BookIcon,
-  ImageIcon,
-} from "~/lib/icons";
+import { PlusIcon, XIcon, ChevronLeftIcon, ChevronRightIcon, BookIcon } from "~/lib/icons";
+import { uploadPickedLibraryFiles } from "~/lib/libraryUpload";
+import { ExpandedImageOverlay } from "./chat/ExpandedImageOverlay";
+import { useExpandedImagePreview } from "./chat/useExpandedImagePreview";
 import { useTheme } from "~/hooks/useTheme";
 import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
@@ -235,6 +232,9 @@ export function MossImagesWorkspace({
     file: File | null;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+  const { expandedImage, setExpandedImage, closeExpandedImage, navigateExpandedImage } =
+    useExpandedImagePreview();
   const photoRowRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
   const threadRef = useRef(threadId);
@@ -1026,6 +1026,23 @@ export function MossImagesWorkspace({
     }
   };
 
+  // A photo a person picks or drops here is also kept in 资料空间, like any upload there.
+  const addPickedPhotos = async (files: FileList | null) => {
+    const picked = Array.from(files ?? []);
+    const tabId = activeTab.id;
+    if (!(await addReferences(picked))) return;
+    try {
+      await uploadPickedLibraryFiles(picked);
+      await queryClient.invalidateQueries({ queryKey: ["pages"] });
+    } catch (error) {
+      if (mountedRef.current)
+        updateTab(tabId, (tab) => ({
+          ...tab,
+          error: error instanceof Error ? error.message : String(error),
+        }));
+    }
+  };
+
   const addGeneratedReference = (job: MossImageJob, index: number) => {
     const image = {
       src: mossImagePreviewSource(job, index),
@@ -1412,7 +1429,7 @@ export function MossImagesWorkspace({
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
         setDraggingImages(false);
-        void addReferences(event.dataTransfer.files);
+        void addPickedPhotos(event.dataTransfer.files);
       }}
     >
       {draggingImages && (
@@ -1438,6 +1455,11 @@ export function MossImagesWorkspace({
           }
         />
       )}
+      <ExpandedImageOverlay
+        expandedImage={expandedImage}
+        onClose={closeExpandedImage}
+        onNavigate={navigateExpandedImage}
+      />
       <input
         ref={fileInputRef}
         type="file"
@@ -1447,7 +1469,7 @@ export function MossImagesWorkspace({
         tabIndex={-1}
         aria-label="参考图文件"
         onChange={(event) => {
-          void addReferences(event.target.files);
+          void addPickedPhotos(event.target.files);
           event.target.value = "";
         }}
       />
@@ -1534,17 +1556,7 @@ export function MossImagesWorkspace({
               <h1 className={`mb-5 ${PAGE_TITLE_CLASS_NAME}`}>图像</h1>
               {composer}
               <div className="mx-auto mt-8 max-w-[768px]" data-moss-images-photos>
-                <div className="mb-4 flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="icon-lg"
-                    className="rounded-full"
-                    aria-label="选择参考照片"
-                    disabled={!canAttach}
-                    onClick={() => setReferencePickerKey(discoveryKey)}
-                  >
-                    <ImageIcon className="size-4" />
-                  </Button>
+                <div className="mb-4 flex min-h-control-lg items-center gap-2">
                   <h2 className="text-ui-sm font-medium">添加照片</h2>
                   <span className="flex-1" />
                   {photoRowScrolls ? (
@@ -1587,13 +1599,28 @@ export function MossImagesWorkspace({
                     <PlusIcon className="size-5" />
                     <span className="absolute bottom-3 text-ui-xs">上传照片</span>
                   </ButtonPrimitive>
-                  {activeTab.references.map((reference) => (
-                    <img
+                  {activeTab.references.map((reference, index) => (
+                    <ButtonPrimitive
+                      type="button"
                       key={reference.id}
-                      src={reference.url}
-                      alt={`已选照片：${reference.name}`}
-                      className="h-44 w-36 shrink-0 rounded-card object-cover"
-                    />
+                      aria-label={`打开照片：${reference.name}`}
+                      className="h-44 w-36 shrink-0 overflow-hidden rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      onClick={() =>
+                        setExpandedImage({
+                          images: activeTab.references.map((photo) => ({
+                            src: photo.url,
+                            name: photo.name,
+                          })),
+                          index,
+                        })
+                      }
+                    >
+                      <img
+                        src={reference.url}
+                        alt={`已选照片：${reference.name}`}
+                        className="size-full object-cover"
+                      />
+                    </ButtonPrimitive>
                   ))}
                   {jobs
                     .filter((job) => job.imageUrls.length > 0)

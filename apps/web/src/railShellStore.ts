@@ -11,6 +11,7 @@ import {
   reconcileActiveRailItem,
   type RailItemId,
   type RailPanelItemId,
+  type RailSurfaceItemId,
 } from "./appRail.logic";
 
 const STORAGE_KEY = "moss:rail-shell:v1";
@@ -94,6 +95,8 @@ interface RailShellState extends PersistedRailShellState {
     pathname: string;
     onMossbotSurface?: boolean;
     projectIds: ReadonlySet<ProjectId> | null;
+    /** The destination (图像, 资料空间) the history entry shows over the route, if any. */
+    destination?: RailSurfaceItemId | null;
   }) => void;
 }
 
@@ -121,20 +124,23 @@ export const useRailShellStore = create<RailShellState>((set, get) => ({
     set({ railProjectId: null });
     persist(get());
   },
-  reconcile: ({ pathname, onMossbotSurface = false, projectIds }) => {
+  reconcile: ({ pathname, onMossbotSurface = false, projectIds, destination = null }) => {
     const current = get();
     // A clicked panel item stays active on a route item's route (a pinned project while on Pull
-    // requests); only a navigation re-syncs it.
-    const routeKey = onMossbotSurface ? `mossbot:${pathname}` : pathname;
+    // requests); only a navigation re-syncs it. A history entry that shows 图像 or 资料空间
+    // over the route makes that item active.
+    const pathKey = onMossbotSurface ? `mossbot:${pathname}` : pathname;
+    const routeKey = destination === null ? pathKey : `${destination}:${pathKey}`;
     const activeItem =
       routeKey === current.reconciledRouteKey
         ? current.activeItem
-        : reconcileActiveRailItem({
+        : (destination ??
+          reconcileActiveRailItem({
             current: current.activeItem,
             pathname,
             onMossbotSurface,
             panelView: current.panelView,
-          });
+          }));
     const railProjectId =
       current.railProjectId !== null &&
       projectIds !== null &&
