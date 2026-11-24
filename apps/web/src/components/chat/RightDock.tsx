@@ -41,10 +41,10 @@ import {
   CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
   CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
   DOCK_HEADER_ICON_BUTTON_CLASS,
-  SurfaceTabChip,
   SurfaceChipIcon,
 } from "./chatHeaderControls";
 import { McpAppDockPane } from "./McpAppDockPane";
+import { SurfaceContentTabs } from "./SurfaceContentTabs";
 import { McpAppNavigationControls } from "./McpAppNavigationControls";
 import { AppsIcon } from "~/lib/icons";
 import {
@@ -176,8 +176,6 @@ interface RightDockProps {
   keepMountedPaneIds?: ReadonlySet<string> | undefined;
   /** Extra controls placed before the collapse toggle in the right-dock header bar. */
   headerExtraControls?: ReactNode;
-  /** Chrome-style close-lock duration in ms so rapid tab closes don't shift X under the pointer. */
-  tabCloseLockMs?: number | undefined;
   /** Dragging the seam divider below this width (px) auto-collapses the dock when shrinking past minWidth. */
   collapseBelowMinWidthPx?: number | undefined;
   /** Live docked panel width updates (px) for host chrome inset coordination. */
@@ -218,46 +216,6 @@ function RightDockLauncher(props: {
         })}
       </div>
     </nav>
-  );
-}
-
-function RightDockTab(props: {
-  pane: RightDockPane | McpAppDockEntrySnapshot;
-  label: string;
-  icon?: ReactNode;
-  active: boolean;
-  lockedWidthPx?: number | null | undefined;
-  closable?: boolean | undefined;
-  onSelect?: (() => void) | undefined;
-  onClose?: (() => void) | undefined;
-}) {
-  const { format } = useTranslation();
-  const closable = props.closable !== false && props.onClose !== undefined;
-  const tabStyle: CSSProperties | undefined =
-    props.lockedWidthPx && props.lockedWidthPx > 0
-      ? { width: `${props.lockedWidthPx}px`, minWidth: `${props.lockedWidthPx}px` }
-      : undefined;
-  return (
-    <div style={tabStyle} className={props.lockedWidthPx ? "shrink-0" : "min-w-0"}>
-      <SurfaceTabChip
-        active={props.active}
-        title={props.label}
-        label={props.label}
-        // One tab style with the chat's tabs: the close control on the right (WALK-1 R-6).
-        closePlacement="trailing"
-        icon={
-          props.icon ??
-          ("kind" in props.pane ? (
-            resolveRightDockPaneIcon(props.pane)
-          ) : (
-            <SurfaceChipIcon icon={AppsIcon} />
-          ))
-        }
-        closeLabel={closable ? format("rightDock.closePane", { label: props.label }) : undefined}
-        onSelect={props.onSelect}
-        onClose={closable ? props.onClose : undefined}
-      />
-    </div>
   );
 }
 
@@ -380,11 +338,6 @@ function RightDockSurface(
   // Codex keeps the right panel as a sibling pane by default, including the
   // empty quick-start state. The width button is the explicit full-width mode.
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const tabStripRef = useRef<HTMLDivElement | null>(null);
-  const tabLockTimerRef = useRef<number | null>(null);
-  const [lockedTabWidths, setLockedTabWidths] = useState<Readonly<Record<string, number>> | null>(
-    null,
-  );
   const [collapseCueActive, setCollapseCueActive] = useState(false);
   const railDragRef = useRef<{
     startX: number;
@@ -405,43 +358,6 @@ function RightDockSurface(
   const onCollapseRef = useRef(onCollapse);
   onCollapseRef.current = onCollapse;
   const collapseBelowMinWidthPx = props.collapseBelowMinWidthPx;
-
-  const clearTabCloseLock = () => {
-    if (tabLockTimerRef.current !== null && typeof window !== "undefined") {
-      window.clearTimeout(tabLockTimerRef.current);
-      tabLockTimerRef.current = null;
-    }
-    setLockedTabWidths(null);
-  };
-
-  useEffect(() => clearTabCloseLock, []);
-
-  const handleClosePaneWithLock = (paneId: string) => {
-    const closeLockMs = props.tabCloseLockMs ?? 0;
-    if (closeLockMs > 0 && tabStripRef.current && typeof window !== "undefined") {
-      const nextWidths: Record<string, number> = {};
-      const chips = tabStripRef.current.querySelectorAll<HTMLElement>("[data-right-dock-tab-id]");
-      chips.forEach((chip) => {
-        const id = chip.dataset.rightDockTabId;
-        if (!id || id === paneId) return;
-        const measured = Math.round(chip.getBoundingClientRect().width);
-        if (measured > 0) {
-          nextWidths[id] = Math.max(90, Math.min(240, measured));
-        }
-      });
-      if (Object.keys(nextWidths).length > 0) {
-        setLockedTabWidths(nextWidths);
-        if (tabLockTimerRef.current !== null) {
-          window.clearTimeout(tabLockTimerRef.current);
-        }
-        tabLockTimerRef.current = window.setTimeout(() => {
-          tabLockTimerRef.current = null;
-          setLockedTabWidths(null);
-        }, closeLockMs);
-      }
-    }
-    props.onClosePane(paneId);
-  };
 
   useEffect(() => {
     if (!collapseBelowMinWidthPx || typeof window === "undefined") {
@@ -731,104 +647,95 @@ function RightDockSurface(
                 right edge just before the window's caption buttons. The side-panel
                 toggle lives here whenever the dock is open, so it sits at the same
                 top-right spot the chat header uses while the dock is closed. */}
-            {/* Fit the tab strip to its tabs so the rest of the bar stays draggable;
-                Chromium does not clip app regions to this scroller, so the strip is
-                one no-drag box (`.surface-content-tabs`) rather than per-chip boxes. */}
-            <div
-              ref={tabStripRef}
-              onPointerLeave={clearTabCloseLock}
-              data-tab-close-locked={lockedTabWidths ? "true" : undefined}
-              className="surface-content-tabs flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            >
-              {props.state.panes.map((pane) => {
-                const pinned = Boolean(props.pinnedPaneIds?.has(pane.id));
-                return (
-                  // Tabs shrink evenly to a readable width; past that the strip scrolls (WALK-1 R-3).
-                  <div
-                    key={pane.id}
-                    data-right-dock-tab-id={pane.id}
-                    className="min-w-[5.5rem] max-w-[11rem] shrink basis-[11rem]"
-                  >
-                    <RightDockTab
-                      pane={pane}
-                      label={
-                        props.paneLabelOverrides?.[pane.id] ??
-                        t(RIGHT_DOCK_LABEL_KEY_BY_KIND[pane.kind])
-                      }
-                      icon={props.paneIconOverrides?.[pane.id]}
-                      active={activeMcpAppId === null && pane.id === props.state.activePaneId}
-                      lockedWidthPx={lockedTabWidths?.[pane.id]}
-                      closable={!pinned}
-                      onSelect={onSelectPane ? () => onSelectPane(pane.id) : undefined}
-                      onClose={pinned ? undefined : () => handleClosePaneWithLock(pane.id)}
-                    />
-                  </div>
-                );
-              })}
-              {mcpAppEntries.map((entry) => (
-                <RightDockTab
-                  key={entry.id}
-                  pane={entry}
-                  label={entry.title}
-                  active={entry.id === activeMcpAppId}
-                  onSelect={() => props.onSelectMcpApp?.(entry.id)}
-                  onClose={() => props.onCloseMcpApp?.(entry.id)}
-                />
-              ))}
-            </div>
-            {/* The "+" stays in view however many tabs are open (WALK-1 R-3). */}
-            <div
-              className="flex shrink-0 items-center [-webkit-app-region:no-drag]"
-              data-right-dock-add
-            >
-              {props.state.panes.length > 0 && visibleAddMenuKinds.length > 0 ? (
-                <Menu modal={false}>
-                  <MenuTrigger
-                    render={
-                      <Button
-                        variant="chrome"
-                        size="icon-xs"
-                        aria-label={t("rightDock.addPanel")}
-                        title={t("rightDock.addPanel")}
-                        className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                      />
-                    }
-                  >
-                    <PlusIcon className="size-4" />
-                  </MenuTrigger>
-                  <ComposerPickerMenuPopup align="start" side="bottom" className="w-44 min-w-44">
-                    {visibleAddMenuKinds.map((kind) => {
-                      const { Icon } = getRightDockPaneMeta(kind);
-                      // The launcher's own words, so the two lists read the same (WALK-1 C-4).
-                      const label =
-                        props.launcherItems?.find((item) => item.kind === kind)?.label ??
-                        t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
-                      return (
-                        <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
-                          <Icon className="size-4 shrink-0" />
-                          <span>{label}</span>
-                        </MenuItem>
-                      );
-                    })}
-                  </ComposerPickerMenuPopup>
-                </Menu>
-              ) : null}
-              {props.state.panes.length > 0 &&
-              visibleAddMenuKinds.length === 0 &&
-              props.addAction ? (
-                <IconButton
-                  variant="chrome"
-                  size="icon-xs"
-                  label={props.addAction.label}
-                  tooltip={props.addAction.label}
-                  tooltipSide="bottom"
-                  className={DOCK_HEADER_ICON_BUTTON_CLASS}
-                  onClick={props.addAction.onClick}
-                >
-                  <PlusIcon className="size-4" />
-                </IconButton>
-              ) : null}
-            </div>
+            {/* The strip is one no-drag box (`.surface-content-tabs`): Chromium does not
+                clip app regions to a scroller, so the chips are not their own boxes. */}
+            {/* The chat's own tab strip (one strip for the chat and the dock): tabs shrink
+                to their icon and a little of the label, and those that still do not fit are
+                listed in its menu, so none lies under the buttons beside it (WALK-5 R-3). */}
+            <SurfaceContentTabs
+              ariaLabel={t("rightDock.tabs")}
+              // The "+" right after the tabs, always drawn (WALK-1 R-3); the strip keeps room for it.
+              trailing={
+                <span className="flex items-center" data-right-dock-add>
+                  {props.state.panes.length > 0 && visibleAddMenuKinds.length > 0 ? (
+                    <Menu modal={false}>
+                      <MenuTrigger
+                        render={
+                          <Button
+                            variant="chrome"
+                            size="icon-xs"
+                            aria-label={t("rightDock.addPanel")}
+                            title={t("rightDock.addPanel")}
+                            className={DOCK_HEADER_ICON_BUTTON_CLASS}
+                          />
+                        }
+                      >
+                        <PlusIcon className="size-4" />
+                      </MenuTrigger>
+                      <ComposerPickerMenuPopup
+                        align="start"
+                        side="bottom"
+                        className="w-44 min-w-44"
+                      >
+                        {visibleAddMenuKinds.map((kind) => {
+                          const { Icon } = getRightDockPaneMeta(kind);
+                          // The launcher's own words, so the two lists read the same (WALK-1 C-4).
+                          const label =
+                            props.launcherItems?.find((item) => item.kind === kind)?.label ??
+                            t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
+                          return (
+                            <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
+                              <Icon className="size-4 shrink-0" />
+                              <span>{label}</span>
+                            </MenuItem>
+                          );
+                        })}
+                      </ComposerPickerMenuPopup>
+                    </Menu>
+                  ) : null}
+                  {props.state.panes.length > 0 &&
+                  visibleAddMenuKinds.length === 0 &&
+                  props.addAction ? (
+                    <IconButton
+                      variant="chrome"
+                      size="icon-xs"
+                      label={props.addAction.label}
+                      tooltip={props.addAction.label}
+                      tooltipSide="bottom"
+                      className={DOCK_HEADER_ICON_BUTTON_CLASS}
+                      onClick={props.addAction.onClick}
+                    >
+                      <PlusIcon className="size-4" />
+                    </IconButton>
+                  ) : null}
+                </span>
+              }
+              activeKey={activeMcpAppId ?? props.state.activePaneId}
+              tabs={[
+                ...props.state.panes.map((pane) => {
+                  const pinned = Boolean(props.pinnedPaneIds?.has(pane.id));
+                  const label =
+                    props.paneLabelOverrides?.[pane.id] ??
+                    t(RIGHT_DOCK_LABEL_KEY_BY_KIND[pane.kind]);
+                  return {
+                    key: pane.id,
+                    title: label,
+                    icon: props.paneIconOverrides?.[pane.id] ?? resolveRightDockPaneIcon(pane),
+                    onSelect: onSelectPane ? () => onSelectPane(pane.id) : undefined,
+                    onClose: pinned ? undefined : () => props.onClosePane(pane.id),
+                    dataAttributes: { "data-right-dock-tab-id": pane.id },
+                  };
+                }),
+                ...mcpAppEntries.map((entry) => ({
+                  key: entry.id,
+                  title: entry.title,
+                  icon: <SurfaceChipIcon icon={AppsIcon} />,
+                  onSelect: () => props.onSelectMcpApp?.(entry.id),
+                  onClose: () => props.onCloseMcpApp?.(entry.id),
+                  dataAttributes: { "data-right-dock-tab-id": entry.id },
+                })),
+              ]}
+            />
             <div
               className="ml-auto flex shrink-0 items-center gap-1"
               data-right-dock-layout-controls

@@ -108,7 +108,7 @@ async function renderShell(vertical = false) {
 }
 
 describe("sidebar leading controls dock", () => {
-  it("keeps clipped thread tabs from excluding the chrome beside their scroll viewport", async () => {
+  it("keeps the chrome beside a full thread strip draggable, its tabs listed rather than clipped", async () => {
     await page.viewport(1280, 800);
     const onSelect = vi.fn();
     const onClose = vi.fn();
@@ -134,24 +134,25 @@ describe("sidebar leading controls dock", () => {
     );
     try {
       const strip = screen.container.querySelector<HTMLElement>(".scroll-fade-x")!;
-      expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth);
-      for (const position of [1, 0, 0.5]) {
-        strip.scrollLeft = position * (strip.scrollWidth - strip.clientWidth);
-        await expect
-          .poll(() => {
-            const rect = strip.getBoundingClientRect();
-            const y = rect.top + rect.height / 2;
-            // Clipped tabs add the overflow menu button right after the strip; the chrome
-            // past that control must stay draggable.
-            const trailing =
-              screen.container.querySelector<HTMLElement>("[aria-label$='more tabs']") ?? strip;
-            return [
-              nativeDragRegionAt(screen.container, rect.left - 6, y),
-              nativeDragRegionAt(screen.container, trailing.getBoundingClientRect().right + 6, y),
-            ];
-          })
-          .toEqual(["drag", "drag"]);
-      }
+      // Eighteen tabs do not fit: the strip draws those that do and lists the rest, so nothing
+      // in it is clipped (WALK-5 R-3).
+      await expect.element(screen.getByRole("button", { name: /more tabs$/ })).toBeVisible();
+      expect(strip.scrollWidth).toBeLessThanOrEqual(strip.clientWidth + 1);
+      expect(strip.querySelectorAll("[data-surface-tab]").length).toBeLessThan(18);
+      await expect
+        .poll(() => {
+          const rect = strip.getBoundingClientRect();
+          const y = rect.top + rect.height / 2;
+          // The overflow menu button sits right after the strip; the chrome past it and
+          // before the strip must stay draggable.
+          const trailing =
+            screen.container.querySelector<HTMLElement>("[aria-label$='more tabs']") ?? strip;
+          return [
+            nativeDragRegionAt(screen.container, rect.left - 6, y),
+            nativeDragRegionAt(screen.container, trailing.getBoundingClientRect().right + 6, y),
+          ];
+        })
+        .toEqual(["drag", "drag"]);
       const rect = strip.getBoundingClientRect();
       const visibleTab = Array.from(strip.querySelectorAll<HTMLElement>("[data-surface-tab]")).find(
         (tab) => {

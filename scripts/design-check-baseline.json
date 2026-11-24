@@ -363,8 +363,7 @@
     "raw-button": 1
   },
   "apps/web/src/components/chat/MessagesTimeline.tsx": {
-    "raw-button": 10,
-    "native-title": 2
+    "native-title": 1
   },
   "apps/web/src/components/chat/MessageTrail.tsx": {
     "raw-button": 1
@@ -642,15 +641,6 @@
   "apps/web/src/components/images/MossImageMarkupEditor.tsx": {
     "hex-color": 5
   },
-  "apps/web/src/components/images/MossImagesComposer.tsx": {
-    "arbitrary-shadow": 1
-  },
-  "apps/web/src/components/images/MossImagesDiscovery.tsx": {
-    "heavy-weight": 1,
-    "raw-button": 4,
-    "hand-tablist": 1,
-    "gradient": 2
-  },
   "apps/web/src/components/InlineLinkChip.tsx": {
     "raw-button": 1,
     "native-title": 2
@@ -751,11 +741,6 @@
   "apps/web/src/components/MossCustomizeSecondarySidebar.tsx": {
     "raw-button": 3,
     "native-title": 1
-  },
-  "apps/web/src/components/MossImagesWorkspace.tsx": {
-    "heavy-weight": 1,
-    "raw-button": 3,
-    "native-title": 2
   },
   "apps/web/src/components/MossLibrarySurface.logic.ts": {
     "hex-color": 3

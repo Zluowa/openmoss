@@ -26,6 +26,7 @@ import { resolveShortcutCommand } from "~/keybindings";
 import { PlusSignIcon, TerminalIcon } from "~/lib/icons";
 import { isTerminalFocused } from "~/lib/terminalFocus";
 import { showThreadContextMenu } from "~/lib/threadContextMenu";
+import { useTranslation } from "~/localization";
 import { readNativeApi } from "~/nativeApi";
 import {
   closeOpenThreadTab,
@@ -94,6 +95,7 @@ export function OpenThreadTabStrip(props: {
    */
   onNewThread: (() => Promise<ThreadId | null>) | null;
 }) {
+  const { t } = useTranslation();
   const { activeThreadId, keybindings } = props;
   useRecordOpenThreadTab(activeThreadId);
   const openTabs = useOpenThreadTabs({ activeThreadId });
@@ -339,7 +341,7 @@ export function OpenThreadTabStrip(props: {
   return (
     <>
       <SurfaceContentTabs
-        ariaLabel="Open threads"
+        ariaLabel={t("surfaceTabs.openThreads")}
         activeKey={shownThreadId}
         selectionAria="current"
         onMove={moveThreadTab}

@@ -63,7 +63,6 @@ export const SPACE_DOCK_DEFAULT_TOP_INSET_PX = 44;
 export const SPACE_DOCK_FOOT_BAR_ROOM_PX = 60;
 export const SPACE_DOCK_RIGHT_SNAP_ZONE_PX = 80;
 export const SPACE_DOCK_RIGHT_COLLAPSE_THRESHOLD_PX = 320;
-export const SPACE_DOCK_TAB_CLOSE_LOCK_MS = 300;
 export const SPACE_DOCK_RECENT_THREADS_LRU_LIMIT = 500;
 
 const RECENT_THREADS_STORAGE_KEY = "moss.spaceCanvasDock.recentThreads.v1";

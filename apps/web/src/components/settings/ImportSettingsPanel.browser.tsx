@@ -133,7 +133,8 @@ describe("Settings → Import", () => {
     expect(api.listProjectImports).toHaveBeenCalled();
 
     // The configuration import below asks for tools only and offers no chats.
-    await expect.element(page.getByText("3 个技能 · 1 项设置")).toBeVisible();
+    // The row names the kinds the source holds, with the import dialog's labels.
+    await expect.element(page.getByText("设置 1 · 技能 3")).toBeVisible();
     expect(api.probeWorkspaceImport).toHaveBeenCalledWith({ scope: "tools" });
     expect(document.body.textContent).not.toContain("个最近对话");
   });

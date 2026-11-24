@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { ToolActivityDisclosure } from "./ToolActivityDisclosure";
 // FILE: MessagesTimeline.tsx
 // Purpose: Renders the chat transcript rows and lets LegendList own scrolling/follow behavior.
@@ -261,6 +262,11 @@ import {
   type ThreadFindMatch,
 } from "./threadFind.logic";
 import { shouldPrefetchThreadHistory } from "./threadHistoryPrefetch";
+
+/** A text toggle in the transcript (Show more, +N more tool calls): the shared Button's link
+ *  variant without its control box, so it reads as the muted line it sits in. */
+const TIMELINE_TEXT_TOGGLE_CLASS_NAME =
+  "h-auto min-h-0 rounded-inline border-0 px-0 py-0 font-normal transition-colors duration-150 hover:text-foreground";
 
 const MAX_VISIBLE_INLINE_TOOL_ENTRIES = 4;
 const EMPTY_EDITOR_KEYBINDINGS: ResolvedKeybindingsConfig = [];
@@ -2122,17 +2128,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 </div>
                 {cappedRenderPlan.hasOverflow && (
                   <div className="mt-1.5 flex items-center justify-start gap-2 px-0.5">
-                    <button
-                      type="button"
-                      className={cn(
-                        "text-size-chat transition-colors duration-150 hover:text-foreground",
-                        MUTED_LABEL_TEXT_CLASS_NAME,
-                      )}
+                    <Button
+                      variant="link"
+                      className={cn(TIMELINE_TEXT_TOGGLE_CLASS_NAME, MUTED_LABEL_TEXT_CLASS_NAME)}
                       style={{ fontSize: `${appTypographyScale.uiSmPx}px` }}
                       onClick={() => handleToggleWorkGroup(groupId)}
                     >
                       {isExpanded ? "Show less" : `Show ${cappedRenderPlan.hiddenEntryCount} more`}
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -2152,17 +2155,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               <div className="space-y-0.5">{visibleEntries.map(renderEntryRow)}</div>
               {showOverflowToggle && (
                 <div className="mt-1.5 flex items-center justify-start gap-2 px-0.5">
-                  <button
-                    type="button"
-                    className={cn(
-                      "text-size-chat transition-colors duration-150 hover:text-foreground",
-                      MUTED_LABEL_TEXT_CLASS_NAME,
-                    )}
+                  <Button
+                    variant="link"
+                    className={cn(TIMELINE_TEXT_TOGGLE_CLASS_NAME, MUTED_LABEL_TEXT_CLASS_NAME)}
                     style={{ fontSize: `${appTypographyScale.uiSmPx}px` }}
                     onClick={() => handleToggleWorkGroup(groupId)}
                   >
                     {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -2932,10 +2932,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       </div>
                       {display.toolGroupId && cappedRenderPlan.hasOverflow && (
                         <div className="py-0.5">
-                          <button
-                            type="button"
+                          <Button
+                            variant="link"
                             className={cn(
-                              "transition-colors duration-150 hover:text-foreground",
+                              TIMELINE_TEXT_TOGGLE_CLASS_NAME,
                               MUTED_LABEL_TEXT_CLASS_NAME,
                             )}
                             style={{ fontSize: `${normalizedChatFontSizePx}px` }}
@@ -2944,7 +2944,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             {display.toolExpanded
                               ? "Show less"
                               : `+${cappedRenderPlan.hiddenEntryCount} more tool calls`}
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -2958,10 +2958,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       </div>
                       {display.toolGroupId && display.hasToolOverflow && (
                         <div className="py-0.5">
-                          <button
-                            type="button"
+                          <Button
+                            variant="link"
                             className={cn(
-                              "transition-colors duration-150 hover:text-foreground",
+                              TIMELINE_TEXT_TOGGLE_CLASS_NAME,
                               MUTED_LABEL_TEXT_CLASS_NAME,
                             )}
                             style={{ fontSize: `${normalizedChatFontSizePx}px` }}
@@ -2970,7 +2970,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             {display.toolExpanded
                               ? "Show less"
                               : `+${display.hiddenToolCount} more tool calls`}
-                          </button>
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -3441,12 +3441,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {!conversationOnly && inlineEditedFilesFromTurnSummary.length > 0 && (
                   <div className="mt-2 space-y-0.5">
                     {inlineEditedFilesFromTurnSummary.map((file) => (
-                      <button
+                      <ButtonPrimitive
                         key={`inline-summary-edit:${row.message.id}:${file.path}`}
                         type="button"
                         className="group/file-row flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none"
-                        title={file.path}
-                        onClick={() => onOpenTurnDiff(turnSummary!.turnId, file.path)}
+                        onClick={() => {
+                          onOpenTurnDiff(turnSummary!.turnId, file.path);
+                        }}
                       >
                         <EditedFileRowContent
                           filePath={file.path}
@@ -3455,7 +3456,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           fontSizePx={normalizedChatFontSizePx}
                           compact={false}
                         />
-                      </button>
+                      </ButtonPrimitive>
                     ))}
                   </div>
                 )}
@@ -3482,14 +3483,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-ui"
                         >
                           {creation.threads.map((thread) => (
-                            <button
+                            <ButtonPrimitive
                               key={thread.threadId}
                               type="button"
-                              className="text-foreground underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground/70"
-                              onClick={() => onOpenThread?.(ThreadId.makeUnsafe(thread.threadId))}
+                              className="rounded-inline text-foreground underline decoration-foreground/30 underline-offset-2 outline-none hover:decoration-foreground/70 focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => {
+                                onOpenThread?.(ThreadId.makeUnsafe(thread.threadId));
+                              }}
                             >
                               {thread.title}
-                            </button>
+                            </ButtonPrimitive>
                           ))}
                         </p>
                       ) : (
@@ -3682,11 +3685,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           </DisclosureRegion>
                         ) : null}
                         {overflowCheckpointFiles.length > 0 ? (
-                          <button
+                          <ButtonPrimitive
                             type="button"
                             className="flex min-h-9 w-full items-center justify-start gap-2 border-t border-[color:var(--color-border)] bg-transparent px-3 py-1.5 text-ui-sm font-normal text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
                             aria-expanded={fileListExpanded}
-                            onClick={() => toggleFileListExpanded(turnSummaryCard.turnId)}
+                            onClick={() => {
+                              toggleFileListExpanded(turnSummaryCard.turnId);
+                            }}
                           >
                             <DisclosureChevron open={fileListExpanded} />
                             <span>
@@ -3697,7 +3702,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                                     "file",
                                   )}`}
                             </span>
-                          </button>
+                          </ButtonPrimitive>
                         ) : null}
                       </DisclosureRegion>
                     </div>
@@ -4867,17 +4872,22 @@ const UserMessageCollapsibleText = memo(function UserMessageCollapsibleText(prop
         </div>
       </div>
       {(clamped || props.expanded) && (
-        <button
-          type="button"
+        <Button
+          variant="link"
           data-scroll-anchor-ignore
-          className="mt-1 block text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/72"
+          className={cn(
+            TIMELINE_TEXT_TOGGLE_CLASS_NAME,
+            "mt-1 block text-muted-foreground/55 hover:text-foreground/72",
+          )}
           style={{ fontSize: `${getChatProseFontSizePx(props.chatFontSizePx)}px` }}
           aria-expanded={props.expanded}
           aria-controls={contentId}
-          onClick={props.onToggle}
+          onClick={() => {
+            props.onToggle();
+          }}
         >
           {props.expanded ? "Show less" : "Show more"}
-        </button>
+        </Button>
       )}
     </>
   );

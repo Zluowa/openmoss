@@ -5,7 +5,7 @@
 
 import type { LibraryEntry } from "@moss/contracts";
 
-import { getFileIconName } from "~/file-icons";
+import { getFileTypeName } from "~/file-icons";
 
 export type LibraryViewMode = "list" | "grid";
 export type LibraryTypeFilter = "all" | "documents" | "images" | "code" | "other";
@@ -54,7 +54,8 @@ const CODE_ICON_NAMES = new Set([
 export function libraryEntryTypeBucket(
   entry: Pick<LibraryEntry, "name" | "kind">,
 ): Exclude<LibraryTypeFilter, "all"> {
-  const iconName = getFileIconName(entry.name);
+  // Sorted by the file's type, not by the glyph it is drawn with (all files share one style).
+  const iconName = getFileTypeName(entry.name);
   if (IMAGE_ICON_NAMES.has(iconName)) return "images";
   if (DOCUMENT_ICON_NAMES.has(iconName)) return "documents";
   if (CODE_ICON_NAMES.has(iconName)) return "code";

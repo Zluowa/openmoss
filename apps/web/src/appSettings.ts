@@ -972,6 +972,10 @@ export function normalizeTerminalFontFamily(value: string | null | undefined): s
   return (value ?? "").replace(/[;{}<>\n\r]/g, "").slice(0, 256);
 }
 
+// Chinese in the terminal uses the UI's Chinese face rather than the browser's default Song.
+const TERMINAL_FONT_FALLBACK =
+  '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace';
+
 // Build the CSS font-family stack written to `--terminal-font-family`, or null
 // when the bundled default (defined in index.css) should stay in effect.
 //
@@ -989,12 +993,12 @@ export function resolveTerminalFontFamilyStack(value: string | null | undefined)
   );
 
   if (normalized.includes(",")) {
-    return hasGenericFallback ? normalized : `${normalized}, monospace`;
+    return hasGenericFallback ? normalized : `${normalized}, ${TERMINAL_FONT_FALLBACK}`;
   }
 
   const isQuoted = /^(["']).*\1$/.test(normalized);
   const family = !isQuoted && /\s/.test(normalized) ? `"${normalized}"` : normalized;
-  return hasGenericFallback ? family : `${family}, monospace`;
+  return hasGenericFallback ? family : `${family}, ${TERMINAL_FONT_FALLBACK}`;
 }
 
 function normalizeProviderBinaryPathOverride(

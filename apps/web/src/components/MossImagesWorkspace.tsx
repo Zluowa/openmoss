@@ -1,5 +1,14 @@
 // Account-bound Images workspace; shared gallery owns Focused/Canvas, zoom and downloads.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link } from "@tanstack/react-router";
 
 import {
@@ -56,6 +65,7 @@ import {
 import { Button } from "./ui/button";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "./ui/dialog";
 import { Menu, MenuItem, MenuPopupBase, MenuTrigger } from "./ui/menu";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { MossImagesComposer } from "./images/MossImagesComposer";
 import { MossImagesDiscovery } from "./images/MossImagesDiscovery";
 import type { ModelSelection } from "@moss/contracts";
@@ -1566,16 +1576,18 @@ export function MossImagesWorkspace({
                   ) : null}
                 </div>
                 <div ref={photoRowRef} className="flex gap-3 overflow-x-auto pb-1">
-                  <button
+                  <ButtonPrimitive
                     type="button"
                     aria-label="上传照片"
-                    className="relative flex h-44 w-36 shrink-0 items-center justify-center rounded-card bg-muted text-muted-foreground transition-colors hover:bg-muted/80"
+                    className="relative flex h-44 w-36 shrink-0 items-center justify-center rounded-card bg-muted text-muted-foreground transition-colors outline-none hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring"
                     disabled={!canAttach}
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                    }}
                   >
                     <PlusIcon className="size-5" />
                     <span className="absolute bottom-3 text-ui-xs">上传照片</span>
-                  </button>
+                  </ButtonPrimitive>
                   {activeTab.references.map((reference) => (
                     <img
                       key={reference.id}
@@ -1588,13 +1600,15 @@ export function MossImagesWorkspace({
                     .filter((job) => job.imageUrls.length > 0)
                     .slice(0, 8)
                     .map((job) => (
-                      <button
+                      <ButtonPrimitive
                         type="button"
                         key={job.jobId}
                         aria-label={`使用“${job.prompt}”作参考图`}
-                        className="h-44 w-36 shrink-0 overflow-hidden rounded-card"
+                        className="h-44 w-36 shrink-0 overflow-hidden rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={!canAttach}
-                        onClick={() => addGeneratedReference(job, 0)}
+                        onClick={() => {
+                          addGeneratedReference(job, 0);
+                        }}
                       >
                         <img
                           src={mossImagePreviewSource(job, 0)}
@@ -1602,7 +1616,7 @@ export function MossImagesWorkspace({
                           referrerPolicy="no-referrer"
                           className="size-full object-cover"
                         />
-                      </button>
+                      </ButtonPrimitive>
                     ))}
                 </div>
               </div>
@@ -1617,17 +1631,12 @@ export function MossImagesWorkspace({
                 )}
               <div className="mt-8 flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-ui-lg font-semibold">我的图像</h2>
+                  <h2 className="text-ui-lg font-medium">我的图像</h2>
                   <p className="mt-1 text-ui-xs text-muted-foreground">
                     可在资料库中找到你的所有图像及更多内容
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-full"
-                  onClick={openMossLibraryDestination}
-                >
+                <Button variant="outline" size="sm" onClick={openMossLibraryDestination}>
                   <BookIcon className="size-4" />
                   打开资料库
                 </Button>
@@ -1645,7 +1654,7 @@ export function MossImagesWorkspace({
                         key={job.jobId}
                         className="group relative overflow-hidden rounded-card bg-muted"
                       >
-                        <button
+                        <ButtonPrimitive
                           key={job.jobId}
                           type="button"
                           aria-label={`打开图像：${job.prompt}`}
@@ -1661,7 +1670,9 @@ export function MossImagesWorkspace({
                             )
                           }
                           disabled={activeTab.busy}
-                          onClick={() => void restoreConversation(job)}
+                          onClick={() => {
+                            void restoreConversation(job);
+                          }}
                         >
                           <div className="flex aspect-square items-center justify-center overflow-hidden">
                             {job.imageUrls[0] ? (
@@ -1679,7 +1690,7 @@ export function MossImagesWorkspace({
                             )}
                           </div>
                           <span className="sr-only">{jobStatusLabel(job)}</span>
-                        </button>
+                        </ButtonPrimitive>
                         {job.imageUrls[0] && onEditInCanvas && (
                           <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                             <Button
@@ -1797,7 +1808,7 @@ export function MossImagesWorkspace({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mr-1 rounded-full"
+                  className="mr-1"
                   disabled={activeTab.busy}
                   onClick={() =>
                     openImageInCanvas({
@@ -1813,7 +1824,7 @@ export function MossImagesWorkspace({
               <Button
                 variant="outline"
                 size="sm"
-                className="mr-1 rounded-full"
+                className="mr-1"
                 disabled={
                   (!onEditInCanvas && (!hasAccount || !supportsReferences)) ||
                   activeTab.busy ||
@@ -1835,8 +1846,8 @@ export function MossImagesWorkspace({
                     ? "修改标注"
                     : "标注"}
               </Button>
-              <span
-                title={
+              <ModelLimitTooltip
+                reason={
                   onEditInCanvas || model?.supportsMaskEdits === true
                     ? undefined
                     : "此模型未提供选区擦除能力"
@@ -1845,7 +1856,7 @@ export function MossImagesWorkspace({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mr-1 rounded-full"
+                  className="mr-1"
                   disabled={
                     (!onEditInCanvas &&
                       (!canGenerate || !supportsReferences || model?.supportsMaskEdits !== true)) ||
@@ -1864,9 +1875,9 @@ export function MossImagesWorkspace({
                 >
                   擦除
                 </Button>
-              </span>
-              <span
-                title={
+              </ModelLimitTooltip>
+              <ModelLimitTooltip
+                reason={
                   onEditInCanvas || model?.supportsTransparentBackground === true
                     ? undefined
                     : "此模型未提供透明背景能力"
@@ -1875,7 +1886,7 @@ export function MossImagesWorkspace({
                 <Button
                   variant="outline"
                   size="sm"
-                  className="mr-1 rounded-full"
+                  className="mr-1"
                   disabled={
                     (!onEditInCanvas &&
                       (!canGenerate ||
@@ -1896,12 +1907,11 @@ export function MossImagesWorkspace({
                 >
                   移除背景
                 </Button>
-              </span>
+              </ModelLimitTooltip>
               {onEditInCanvas ? (
                 <Button
                   variant="outline"
                   size="sm"
-                  className="rounded-full"
                   disabled={activeTab.busy}
                   onClick={() =>
                     openImageInCanvas({
@@ -1917,7 +1927,7 @@ export function MossImagesWorkspace({
                 <Menu key={activeImage.id}>
                   <MenuTrigger
                     disabled={!canGenerate || !supportsReferences || activeTab.busy}
-                    render={<Button variant="outline" size="sm" className="rounded-full" />}
+                    render={<Button variant="outline" size="sm" />}
                   >
                     调整比例
                   </MenuTrigger>
@@ -2085,5 +2095,23 @@ export function MossImagesWorkspace({
         </DialogPopup>
       </Dialog>
     </section>
+  );
+}
+
+/** Why an edit is unavailable for this model, on hover of the disabled control (the Moss
+ *  tooltip on a wrapper, since a disabled button receives no pointer events). */
+function ModelLimitTooltip({
+  reason,
+  children,
+}: {
+  reason: string | undefined;
+  children: ReactNode;
+}) {
+  if (!reason) return <span>{children}</span>;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span />}>{children}</TooltipTrigger>
+      <TooltipPopup side="top">{reason}</TooltipPopup>
+    </Tooltip>
   );
 }

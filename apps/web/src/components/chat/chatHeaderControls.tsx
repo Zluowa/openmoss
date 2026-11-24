@@ -268,6 +268,7 @@ export function SurfaceTabChip({
   onLabelDoubleClick,
   onContextMenu,
   sortable,
+  dataAttributes,
 }: {
   icon: ReactNode;
   label: ReactNode;
@@ -287,6 +288,8 @@ export function SurfaceTabChip({
   onLabelDoubleClick?: (() => void) | undefined;
   /** Opens the tab's own menu at the pointer, in place of the default context menu. */
   onContextMenu?: ((position: { x: number; y: number }) => void) | undefined;
+  /** `data-*` attributes for the chip's root (a host's own handle on its tabs). */
+  dataAttributes?: Readonly<Record<`data-${string}`, string>> | undefined;
   // Pointer activators only: dnd-kit's `attributes` would put a second role and tab stop
   // on a chip whose buttons already carry them, and advertise a keyboard drag.
   sortable?:
@@ -325,8 +328,14 @@ export function SurfaceTabChip({
     <>
       {trailingClose && icon !== null ? glyph : null}
       {leading}
-      {/* A cut title ends in an ellipsis, as everywhere else in Moss (walk D-11). */}
-      <span className={trailingClose ? "min-w-0 flex-1 truncate" : "truncate"}>{label}</span>
+      {/* A cut title ends in an ellipsis, as everywhere else in Moss (walk D-11); a title that
+          fits is drawn whole (WALK-5 R-3). */}
+      <span
+        className={trailingClose ? "min-w-0 flex-1 truncate" : "truncate"}
+        data-surface-tab-label=""
+      >
+        {label}
+      </span>
       {trailing}
     </>
   );
@@ -336,6 +345,7 @@ export function SurfaceTabChip({
       ref={sortable?.setNodeRef}
       style={sortable?.style}
       {...sortable?.listeners}
+      {...dataAttributes}
       data-surface-tab=""
       data-surface-tab-active={active ? "" : undefined}
       className={cn(

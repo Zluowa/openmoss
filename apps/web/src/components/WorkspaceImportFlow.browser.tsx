@@ -110,7 +110,7 @@ describe("WorkspaceImportFlow probe errors", () => {
 
     await renderFlow();
 
-    await expect.element(page.getByText("3 个技能", { exact: false }).first()).toBeVisible();
+    await expect.element(page.getByText("技能 3", { exact: false }).first()).toBeVisible();
     expect(nativeApi.probeWorkspaceImport).toHaveBeenCalledTimes(2);
     expect(document.body.textContent).not.toContain("没来得及读完");
   });
@@ -159,5 +159,56 @@ describe("WorkspaceImportFlow probe errors", () => {
     await renderFlow();
     await expect.element(page.getByRole("button", { name: "导入", exact: true })).toBeVisible();
     await expect.element(page.getByText("Claude Code", { exact: true })).toBeVisible();
+    // The row names what is there, not a list of zeros.
+    await expect.element(page.getByText("MCP 服务器 2", { exact: true })).toBeVisible();
+    expect(document.body.textContent).not.toContain("技能 0");
+  });
+
+  // WALK-5 P-4, the walker's steps and data: 设置 → 导入 in an isolated profile whose Claude Code
+  // home holds only its own files. The server answers what it answered for that profile
+  // (claude: present false, every count 0; no sync sources; no history).
+  it("WALK-5 P-4: a Claude Code with nothing of the person's offers no row, button or switch", async () => {
+    nativeApi.probeWorkspaceImport.mockResolvedValue({
+      sources: [
+        source({
+          present: false,
+          skillCount: 0,
+          honorAbleSettingCount: 0,
+          chatCount: 0,
+          projectCount: 0,
+        }),
+        source({
+          source: "codex",
+          displayName: "Codex",
+          present: false,
+          skillCount: 0,
+          honorAbleSettingCount: 0,
+          chatCount: 0,
+          projectCount: 0,
+        }),
+      ],
+      requiresSourceChoice: false,
+    });
+    await renderFlow();
+    await expect.poll(() => nativeApi.probeWorkspaceImport.mock.calls.length).toBeGreaterThan(0);
+    await expect.poll(() => document.body.textContent?.includes("正在查找") ?? false).toBe(false);
+    expect(page.getByRole("button", { name: "导入", exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("switch").elements()).toHaveLength(0);
+    const text = document.body.textContent ?? "";
+    expect(text).not.toContain("保持导入同步");
+    expect(text).not.toContain("自定义");
+    expect(text).not.toMatch(/0 个|技能 0|设置 0/u);
+  });
+
+  it("WALK-5 P-4: nothing imported yet, so no sync switch even beside a source with something", async () => {
+    nativeApi.probeWorkspaceImport.mockResolvedValue({
+      sources: [source({ skillCount: 3, honorAbleSettingCount: 0, chatCount: 0, projectCount: 0 })],
+      requiresSourceChoice: false,
+    });
+    await renderFlow();
+    await expect.element(page.getByRole("button", { name: "导入", exact: true })).toBeVisible();
+    // The switch keeps imports in sync, which means something only after an import.
+    expect(page.getByRole("switch").elements()).toHaveLength(0);
+    expect(document.body.textContent).not.toContain("保持导入同步");
   });
 });

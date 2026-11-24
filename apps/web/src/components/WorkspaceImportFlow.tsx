@@ -114,23 +114,28 @@ function providerForSource(source: WorkspaceImportSourceKind): SupportedProvider
   return SOURCE_PROVIDER[source] ?? "codex";
 }
 
+/** What a source holds, by kind: only the kinds it has ("插件 3 · MCP 服务器 1"), never a list of
+ * zeros. Chats and projects only where this flow imports them. */
 function sourceSummary(
   preview: WorkspaceImportSourcePreview,
-  format: ReturnType<typeof useTranslation>["format"],
+  t: ReturnType<typeof useTranslation>["t"],
   includeConversations: boolean,
 ): string {
   const counts = workspaceImportCategoryCounts(preview);
-  if (!includeConversations) {
-    return format("import.source.toolsSummary", {
-      skills: counts.skills,
-      settings: counts.settings,
-    });
-  }
-  return format("import.source.summary", {
-    skills: counts.skills,
-    settings: counts.settings,
-    chats: counts.chats,
-  });
+  return (Object.keys(counts) as WorkspaceImportCategoryKind[])
+    .filter(
+      (kind) =>
+        counts[kind] > 0 && (includeConversations || (kind !== "chats" && kind !== "projects")),
+    )
+    .map((kind) =>
+      kind === "chats" || kind === "projects"
+        ? t(kind === "chats" ? "import.modal.chats" : "import.modal.projects").replace(
+            "{count}",
+            String(counts[kind]),
+          )
+        : `${categoryLabel(kind, t)} ${counts[kind]}`,
+    )
+    .join(" · ");
 }
 
 function formatHistoryDate(value: string): string {
@@ -471,44 +476,47 @@ export function WorkspaceImportFlow({
 
       {present.length > 0 ? (
         <>
-          <SettingsSectionShell title={t("import.autosync.title")}>
-            <SettingsCard>
-              <div className="flex items-center justify-between gap-4 px-4 py-4">
-                <div className="min-w-0">
-                  <div className="text-ui-lg font-medium text-foreground">
-                    {t("import.autosync.label")}
+          {/* Keeping imports in sync only means something once something was imported. */}
+          {history.length > 0 ? (
+            <SettingsSectionShell title={t("import.autosync.title")}>
+              <SettingsCard>
+                <div className="flex items-center justify-between gap-4 px-4 py-4">
+                  <div className="min-w-0">
+                    <div className="text-ui-lg font-medium text-foreground">
+                      {t("import.autosync.label")}
+                    </div>
+                    <div className="mt-1 text-ui-sm text-muted-foreground">
+                      {syncEnabled ? t("import.autosync.description") : null}
+                    </div>
                   </div>
-                  <div className="mt-1 text-ui-sm text-muted-foreground">
-                    {syncEnabled ? t("import.autosync.description") : null}
-                  </div>
+                  <Switch
+                    aria-label={t("import.autosync.label")}
+                    checked={syncEnabled}
+                    disabled={isBusy}
+                    onCheckedChange={(checked) => {
+                      const enabled = Boolean(checked);
+                      const sources =
+                        syncStateRef.current.sources.length > 0
+                          ? syncStateRef.current.sources
+                          : present.map((source) => source.source);
+                      void persistSyncPreferences(enabled, syncCategories, sources);
+                    }}
+                  />
                 </div>
-                <Switch
-                  aria-label={t("import.autosync.label")}
-                  checked={syncEnabled}
-                  disabled={isBusy}
-                  onCheckedChange={(checked) => {
-                    const enabled = Boolean(checked);
-                    const sources =
-                      syncStateRef.current.sources.length > 0
-                        ? syncStateRef.current.sources
-                        : present.map((source) => source.source);
-                    void persistSyncPreferences(enabled, syncCategories, sources);
-                  }}
-                />
-              </div>
-              <div className="flex items-center justify-end border-t border-border/70 px-4 py-2.5">
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="ghost"
-                  disabled={!canCustomizeSync || isBusy}
-                  onClick={() => setCustomizeOpen(true)}
-                >
-                  {t("import.autosync.customize")}
-                </Button>
-              </div>
-            </SettingsCard>
-          </SettingsSectionShell>
+                <div className="flex items-center justify-end border-t border-border/70 px-4 py-2.5">
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    disabled={!canCustomizeSync || isBusy}
+                    onClick={() => setCustomizeOpen(true)}
+                  >
+                    {t("import.autosync.customize")}
+                  </Button>
+                </div>
+              </SettingsCard>
+            </SettingsSectionShell>
+          ) : null}
 
           <SettingsSectionShell title={t("import.sources.title")}>
             <SettingsCard>
@@ -516,7 +524,7 @@ export function WorkspaceImportFlow({
                 <SourceRow
                   key={source.source}
                   source={source}
-                  summary={sourceSummary(source, format, includeConversations)}
+                  summary={sourceSummary(source, t, includeConversations)}
                   disabled={isBusy}
                   onImport={() => openSelection(source)}
                 />

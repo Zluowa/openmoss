@@ -101,6 +101,29 @@ function isSafeFileName(name: string): boolean {
   return SAFE_TEXT_EXTENSIONS.has(nodePath.extname(name).toLowerCase()) || !nodePath.extname(name);
 }
 
+/**
+ * Claude Code keeps its plugin marketplace catalog under `plugins/` by itself: cloned
+ * marketplaces in `marketplaces/` and the bookkeeping files beside them. None of it is a plugin
+ * the person installed, so it is neither offered nor imported (WALK-5 P-4: a Claude Code with
+ * nothing of the person's showed an 导入 row).
+ */
+const CLAUDE_PLUGIN_CATALOG_FILES = new Set([
+  "known_marketplaces.json",
+  "installed_plugins.json",
+  "config.json",
+]);
+
+function isClaudePluginCatalogEntry(
+  source: WorkspaceImportSourceKind,
+  category: WorkspaceImportCategoryKind,
+  relative: string,
+  isDirectory: boolean,
+): boolean {
+  if (category !== "plugins" || normalizeWorkspaceImportSource(source) !== "claude") return false;
+  if (relative.includes(nodePath.sep)) return false;
+  return isDirectory ? relative === "marketplaces" : CLAUDE_PLUGIN_CATALOG_FILES.has(relative);
+}
+
 async function walkResourceRoot(
   root: string,
   source: WorkspaceImportSourceKind,
@@ -127,6 +150,7 @@ async function walkResourceRoot(
       if (entry.name.startsWith(".") && entry.name !== ".well-known") continue;
       const next = nodePath.join(current, entry.name);
       const nextRelative = relative ? nodePath.join(relative, entry.name) : entry.name;
+      if (isClaudePluginCatalogEntry(source, category, nextRelative, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
         await visit(next, nextRelative, depth + 1);
         continue;
@@ -201,6 +225,7 @@ async function countResourceRoot(
       if (entry.name.startsWith(".") && entry.name !== ".well-known") continue;
       const next = nodePath.join(current, entry.name);
       const nextRelative = relative ? nodePath.join(relative, entry.name) : entry.name;
+      if (isClaudePluginCatalogEntry(source, category, nextRelative, entry.isDirectory())) continue;
       if (entry.isDirectory()) {
         folders.push([next, nextRelative]);
         continue;

@@ -1,8 +1,10 @@
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { useState } from "react";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Tabs } from "../ui/tabs";
 import {
   MOSS_IMAGE_STYLES,
   MOSS_IMAGE_TEMPLATES,
@@ -25,6 +27,16 @@ export interface MossImagesDiscoveryProps {
   readonly templates?: readonly MossImageTemplate[];
   readonly styles?: readonly MossImageStyle[];
 }
+
+const DISCOVERY_TABS = [
+  { id: "templates", label: "模板" },
+  { id: "popular", label: "热门" },
+] as const;
+/** A picture tile: the picture at the card radius, its name under it on the paper (one
+ *  paper, no gradient scrim or white text over the image). */
+const DISCOVERY_TILE_CLASS_NAME =
+  "group flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+const DISCOVERY_TILE_CAPTION_CLASS_NAME = "truncate px-0.5 text-ui-sm text-foreground";
 
 function Preview({
   url,
@@ -102,61 +114,46 @@ function DiscoveryPanel({
     (!preview.requiresReference || (supportsReferences && referenceCount > 0));
   return (
     <section aria-label="图片灵感与样式" className="space-y-4 text-ui">
-      <div role="tablist" aria-label="图像灵感" className="flex items-center gap-1">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === "templates"}
-          className={`rounded-full px-4 py-2 text-ui-sm ${section === "templates" ? "bg-surface-secondary font-medium" : "text-muted-foreground"}`}
-          onClick={() => setSection("templates")}
-        >
-          模板
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === "popular"}
-          className={`rounded-full px-4 py-2 text-ui-sm ${section === "popular" ? "bg-surface-secondary font-medium" : "text-muted-foreground"}`}
-          onClick={() => setSection("popular")}
-        >
-          热门
-        </button>
-      </div>
+      <Tabs
+        ariaLabel="图像灵感"
+        tabs={DISCOVERY_TABS}
+        selected={section}
+        onSelect={setSection}
+        testId="image-discovery-tabs"
+      />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {section === "templates"
           ? templates.map((template) => (
-              <button
+              <ButtonPrimitive
                 key={template.id}
                 type="button"
                 aria-label={`预览${template.title}`}
                 disabled={disabled}
-                className="group relative min-w-0 cursor-pointer overflow-hidden rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+                className={DISCOVERY_TILE_CLASS_NAME}
                 onClick={() => {
                   setRatio(aspectRatio);
                   setPreviewId(template.id);
                 }}
               >
                 <Preview url={template.previewUrl} title={template.title} compact />
-                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/25 to-transparent px-3 pb-3 pt-10 text-ui-sm font-medium text-white truncate whitespace-nowrap">
-                  {template.title}
-                </span>
-              </button>
+                <span className={DISCOVERY_TILE_CAPTION_CLASS_NAME}>{template.title}</span>
+              </ButtonPrimitive>
             ))
           : styles.map((style) => (
-              <button
+              <ButtonPrimitive
                 key={style.id}
                 type="button"
                 aria-label={`选择${style.title}样式`}
                 aria-pressed={selectedStyle?.id === style.id}
                 disabled={disabled || (style.requiresReference && !supportsReferences)}
-                className="relative overflow-hidden rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => onSelectStyle(style)}
+                className={DISCOVERY_TILE_CLASS_NAME}
+                onClick={() => {
+                  onSelectStyle(style);
+                }}
               >
                 <Preview url={style.previewUrl} title={style.title} compact />
-                <span className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/30 to-transparent px-3 pb-3 pt-10 text-ui-sm font-medium text-white truncate whitespace-nowrap">
-                  {style.title}
-                </span>
-              </button>
+                <span className={DISCOVERY_TILE_CAPTION_CLASS_NAME}>{style.title}</span>
+              </ButtonPrimitive>
             ))}
       </div>
       {section === "popular" && selectedStyle && (
@@ -182,7 +179,7 @@ function DiscoveryPanel({
                 title={preview.title}
               />
               <div className="flex min-w-0 flex-col gap-5 py-2">
-                <DialogTitle className="text-2xl font-semibold">{preview.title}</DialogTitle>
+                <DialogTitle>{preview.title}</DialogTitle>
                 <DialogDescription>{preview.description}</DialogDescription>
                 <Collapsible className="text-ui-sm text-muted-foreground">
                   <CollapsibleTrigger>查看描述</CollapsibleTrigger>

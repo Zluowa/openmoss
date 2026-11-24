@@ -426,7 +426,6 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
             paneLabelOverrides={{ primary: "主文档", "extra-1": "临时 1", "extra-2": "临时 2" }}
             addMenuKinds={[]}
             pinnedPaneIds={new Set(["primary"])}
-            tabCloseLockMs={300}
             collapseBelowMinWidthPx={320}
             onSelectPane={() => undefined}
             onClosePane={(id) => setPanes((list) => list.filter((entry) => entry.id !== id))}
@@ -453,7 +452,6 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
     await expect.element(page.getByText("临时 2")).toBeVisible();
     expect(document.querySelector("[data-right-dock-tab-id='extra-1']")).toBeNull();
     expect(document.querySelector("[data-right-dock-tab-id='extra-2']")).not.toBeNull();
-    expect(document.querySelector("[data-tab-close-locked='true']")).not.toBeNull();
 
     // Drag seam rightwards past <320px to trigger auto-collapse callback.
     const rail = document.querySelector<HTMLElement>("[data-slot='sidebar-rail']")!;

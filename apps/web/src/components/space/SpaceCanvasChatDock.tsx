@@ -92,7 +92,6 @@ import {
 import {
   SPACE_DOCK_DEFAULT_TOP_INSET_PX,
   SPACE_DOCK_RIGHT_COLLAPSE_THRESHOLD_PX,
-  SPACE_DOCK_TAB_CLOSE_LOCK_MS,
   type SpaceDockFailureRecovery,
   type SpaceDockPipRect,
   type SpaceDockPipResizeEdge,
@@ -1607,7 +1606,6 @@ export function SpaceCanvasChatDockHost(props: {
             addAction={rightDockAddAction}
             pinnedPaneIds={PINNED_PRIMARY_PANE_IDS}
             keepMountedPaneIds={PINNED_PRIMARY_PANE_IDS}
-            tabCloseLockMs={SPACE_DOCK_TAB_CLOSE_LOCK_MS}
             collapseBelowMinWidthPx={SPACE_DOCK_RIGHT_COLLAPSE_THRESHOLD_PX}
             onWidthChange={handleDockedWidthChange}
             onSelectPane={handleSelectRightDockPane}

@@ -1753,7 +1753,8 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(tsxMarkup).toContain("/central-icons-reversed/react.svg");
+    // One line style for every file type: a .tsx file is drawn with the plain code glyph.
+    expect(tsxMarkup).toContain("/central-icons-reversed/code-brackets.svg");
     expect(tsxMarkup).not.toContain("/central-icons-reversed/folder-2.svg");
 
     const pluginMarkup = renderToStaticMarkup(

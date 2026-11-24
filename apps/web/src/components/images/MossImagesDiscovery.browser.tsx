@@ -345,3 +345,29 @@ it("blocks actions inside an open portal when the owning workspace becomes unava
   expect(selectStyle).not.toHaveBeenCalled();
   await expect.element(page.getByRole("dialog")).not.toBeInTheDocument();
 });
+
+it("draws 模板 / 热门 as the shared tabs and names each picture under it, with no scrim", async () => {
+  await mount();
+  const tablist = page.getByRole("tablist", { name: "图像灵感" }).element();
+  expect(tablist.getAttribute("data-slot")).toBe("tabs");
+  for (const tab of tablist.querySelectorAll<HTMLElement>('[role="tab"]')) {
+    expect(tab.getBoundingClientRect().height).toBe(28);
+    expect(getComputedStyle(tab).borderTopLeftRadius).toBe("8px");
+  }
+  const [first] = MOSS_IMAGE_TEMPLATES;
+  const tile = page.getByRole("button", { name: `预览${first!.title}` }).element();
+  const caption = [...tile.querySelectorAll<HTMLElement>("span")].find(
+    (span) => span.textContent === first!.title,
+  )!;
+  const picture = tile.firstElementChild as HTMLElement;
+  // The name sits on the paper under the picture, in ink, with no gradient over the image.
+  expect(caption.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+    picture.getBoundingClientRect().bottom,
+  );
+  expect(getComputedStyle(caption).backgroundImage).toBe("none");
+  expect(getComputedStyle(caption).color).not.toBe("rgb(255, 255, 255)");
+  // The preview dialog's title is the shared dialog title (15 px), not a 24 px heading.
+  await userEvent.click(page.elementLocator(tile));
+  const title = page.getByRole("dialog").getByText(first!.title, { exact: true }).first().element();
+  expect(getComputedStyle(title).fontSize).toBe("15px");
+});

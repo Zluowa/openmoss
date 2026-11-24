@@ -1,6 +1,6 @@
 // FILE: fileIcons.ts
 // Purpose: Map file/folder paths to Central icon names (the central-icons-reversed
-//          asset set) and each glyph's colour. Anything we don't have a dedicated glyph
+//          asset set), all line glyphs in one muted colour. Anything we don't have a dedicated glyph
 //          for falls back to the generic `code-brackets` icon.
 // Layer: Shared pure logic: the desktop (composer, diff panel, timeline, sidebar) and the
 //          phone's file lists draw the same glyph in the same colour from these tables.
@@ -16,6 +16,35 @@ const DEFAULT_FILE_ICON = "code-brackets";
 // the prototype chain and returns an inherited member instead of an icon name.
 function createIconTable(entries: Record<string, string>): ReadonlyMap<string, string> {
   return new Map(Object.entries(entries));
+}
+
+// One icon style (WALK-1 R-6, WALK-2 N2-3): every file glyph is a line glyph in one muted
+// colour. The tables keep each file's type (typescript, json, markdown…) for the callers that
+// sort by type (getFileTypeName); only the drawn icon is folded here. Brand logos (filled marks such as the JavaScript tile or the JSON spiral) and
+// lettered tags (PNG, JPG, M↓) fall back to the plain code, image or text glyph.
+const OUTLINE_GLYPH_FOR = new Map<string, string>([
+  ["bun", "code-brackets"],
+  ["c", "code-brackets"],
+  ["git", "code-brackets"],
+  ["java", "code-brackets"],
+  ["javascript", "code-brackets"],
+  ["json", "code-brackets"],
+  ["npm", "code-brackets"],
+  ["php", "code-brackets"],
+  ["phyton", "code-brackets"],
+  ["react", "code-brackets"],
+  ["rust", "code-brackets"],
+  ["svelte", "code-brackets"],
+  ["typescript", "code-brackets"],
+  ["vercel", "code-brackets"],
+  ["vue", "code-brackets"],
+  ["file-png", "image-alt-text"],
+  ["file-jpg", "image-alt-text"],
+  ["markdown", "file-text"],
+]);
+
+function outlineGlyph(glyph: string): string {
+  return OUTLINE_GLYPH_FOR.get(glyph) ?? glyph;
 }
 
 // Exact basename → Central icon name (case-insensitive lookup). Add entries here
@@ -205,7 +234,8 @@ function extensionCandidates(fileName: string): string[] {
 
 // Resolves the Central icon name for a file path, defaulting to the generic
 // bracket glyph when the basename/extension has no dedicated icon.
-export function getFileIconName(pathValue: string): string {
+/** The file's type, named by its dedicated glyph (typescript, json, markdown…); not drawn. */
+export function getFileTypeName(pathValue: string): string {
   const basename = basenameOfPath(pathValue).toLowerCase();
   const byName = FILE_ICON_BY_BASENAME.get(basename);
   if (byName) return byName;
@@ -214,6 +244,11 @@ export function getFileIconName(pathValue: string): string {
     if (byExt) return byExt;
   }
   return DEFAULT_FILE_ICON;
+}
+
+/** The glyph a file is drawn with: one line style for every type. */
+export function getFileIconName(pathValue: string): string {
+  return outlineGlyph(getFileTypeName(pathValue));
 }
 
 // MIME type → Central icon name, used as a fallback for attachments whose
@@ -261,16 +296,16 @@ export function getAttachmentIconName(attachment: {
 }): string {
   const basename = basenameOfPath(attachment.name).toLowerCase();
   const byName = FILE_ICON_BY_BASENAME.get(basename);
-  if (byName) return byName;
+  if (byName) return outlineGlyph(byName);
   for (const candidate of extensionCandidates(basename)) {
     const byExt = FILE_ICON_BY_EXTENSION.get(candidate);
-    if (byExt) return byExt;
+    if (byExt) return outlineGlyph(byExt);
   }
 
   const mimeType = attachment.mimeType?.trim().toLowerCase() ?? "";
   if (mimeType.length > 0) {
     const byMime = FILE_ICON_BY_MIME_TYPE.get(mimeType);
-    if (byMime) return byMime;
+    if (byMime) return outlineGlyph(byMime);
     const topLevelType = mimeType.split("/")[0];
     if (topLevelType === "image") return "image-alt-text";
     if (topLevelType === "audio") return "audio";
@@ -282,48 +317,11 @@ export function getAttachmentIconName(attachment: {
 }
 
 /**
- * The colour each file glyph is drawn in. A glyph not listed takes the bracket glyph's
- * colour; `vercel` is drawn in the text colour, so it has none here.
+ * File glyphs carry no colour of their own (design standard: colour only where it carries
+ * meaning). Callers draw them in the muted text colour, like folders.
  */
-export const FILE_ICON_COLORS: Readonly<Record<string, string>> = {
-  audio: "#38bdf8",
-  bun: "#f4d7a1",
-  "calendar-days": "#f59e0b",
-  c: "#659ad2",
-  console: "#4ade80",
-  "code-brackets": "#9ca3af",
-  "file-jpg": "#22c55e",
-  "file-pdf": "#ef4444",
-  "file-png": "#22c55e",
-  "file-text": "#94a3b8",
-  "file-zip": "#f97316",
-  "page-text": "#94a3b8",
-  git: "#f05032",
-  "image-alt-text": "#22c55e",
-  java: "#f89820",
-  javascript: "#f7df1e",
-  json: "#f5c542",
-  lock: "#f59e0b",
-  markdown: "#6cb6ff",
-  npm: "#cb3837",
-  php: "#777bb4",
-  phyton: "#3776ab",
-  react: "#61dafb",
-  rust: "#dea584",
-  "settings-gear-1": "#a78bfa",
-  svelte: "#ff3e00",
-  typescript: "#3178c6",
-  video: "#c084fc",
-  vue: "#42b883",
-};
-
-/** Glyphs drawn in the text colour rather than a colour of their own. */
-export const FILE_ICON_TEXT_COLORED: ReadonlySet<string> = new Set(["vercel"]);
-
-/** The colour a file glyph is drawn in, or null for the text colour. */
-export function fileIconColor(iconName: string): string | null {
-  if (FILE_ICON_TEXT_COLORED.has(iconName)) return null;
-  return FILE_ICON_COLORS[iconName] ?? FILE_ICON_COLORS["code-brackets"]!;
+export function fileIconColor(_iconName: string): string | null {
+  return null;
 }
 
 /** The folder glyphs, closed and open (the desktop's FolderIcon and FolderOpenIcon). */
@@ -338,9 +336,9 @@ export const FILE_ICON_GLYPH_NAMES: readonly string[] = [
     "audio",
     "video",
     "file-text",
-    ...FILE_ICON_BY_BASENAME.values(),
-    ...FILE_ICON_BY_EXTENSION.values(),
-    ...FILE_ICON_BY_MIME_TYPE.values(),
+    ...[...FILE_ICON_BY_BASENAME.values()].map(outlineGlyph),
+    ...[...FILE_ICON_BY_EXTENSION.values()].map(outlineGlyph),
+    ...[...FILE_ICON_BY_MIME_TYPE.values()].map(outlineGlyph),
     FOLDER_ICON_NAMES.closed,
     FOLDER_ICON_NAMES.open,
   ]),

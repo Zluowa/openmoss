@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { page } from "vitest/browser";
 import "../../index.css";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import { RightDock } from "./RightDock";
 import type { RightDockThreadState } from "../../rightDockStore.logic";
@@ -588,12 +588,26 @@ it("keeps every tab readable and the dock's own controls in view with many tabs 
     expect(rect.left).toBeGreaterThanOrEqual(headerRect.left - 1);
     expect(rect.right).toBeLessThanOrEqual(headerRect.right + 1);
   }
-  // No tab collapses to a character: each keeps at least 5.5rem, and tabs share the room evenly.
+  // Tabs keep at least 6em and share the room evenly; those without room are listed, and
+  // every tab drawn lies left of the "+" (WALK-5 R-3).
   const tabs = [...document.querySelectorAll<HTMLElement>("[data-right-dock-tab-id]")];
   const widths = tabs.map((tab) => tab.getBoundingClientRect().width);
-  expect(widths).toHaveLength(5);
-  for (const width of widths) expect(width).toBeGreaterThanOrEqual(87);
+  expect(widths.length).toBeGreaterThan(0);
+  const tabEm = Number.parseFloat(
+    getComputedStyle(tabs[0]!.querySelector("[data-surface-tab]") ?? tabs[0]!).fontSize,
+  );
+  for (const width of widths) expect(width).toBeGreaterThanOrEqual(tabEm * 6 - 1);
   expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(2);
+  for (const tab of tabs)
+    expect(tab.getBoundingClientRect().right).toBeLessThanOrEqual(add.getBoundingClientRect().left);
+  if (tabs.length < 5)
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: `${5 - tabs.length} more ${5 - tabs.length === 1 ? "tab" : "tabs"}`,
+        }),
+      )
+      .toBeVisible();
   // One tab style with the chat's tabs: the close control sits right of the label (WALK-1 R-6).
   const activeTab = tabs[0]!;
   const close = screen
@@ -604,5 +618,119 @@ it("keeps every tab readable and the dock's own controls in view with many tabs 
   )!;
   expect(activeTab.contains(close)).toBe(true);
   expect(close.getBoundingClientRect().left).toBeGreaterThan(label.getBoundingClientRect().left);
+  await screen.unmount();
+});
+
+// What the walker opened in WALK-5, in that order.
+const WALK_FIVE_PANES = [
+  { pane: makeFilePane("canvas"), label: "画布" },
+  { pane: makeFilePane("browser"), label: "浏览器" },
+  { pane: makeFilePane("files"), label: "文件" },
+  { pane: makeFilePane("terminal"), label: "终端" },
+];
+
+/** The dock in an 1110-wide window, with the window's caption buttons on its bar. */
+async function renderWalkFiveDock(count: number) {
+  const opened = WALK_FIVE_PANES;
+  // The walker's dock was 425 of 1110 px wide. Stored widths are ratios of the regular range,
+  // 320 px (0) to 1110 - 352 = 758 px (1).
+  const { RIGHT_DOCK_WIDTH_STORAGE_KEY } = await import("./rightDockSizing.logic");
+  localStorage.setItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, String((425 - 320) / (758 - 320)));
+  return renderDock(
+    <div style={{ display: "flex", width: 1110, height: 600 }}>
+      <div style={{ flex: 1 }}>Chat</div>
+      <RightDock
+        state={{
+          open: true,
+          activePaneId: opened[count - 1]!.pane.id,
+          panes: opened.slice(0, count).map((entry) => entry.pane),
+        }}
+        paneLabelOverrides={Object.fromEntries(opened.map((entry) => [entry.pane.id, entry.label]))}
+        minWidth={300}
+        defaultWidth="425px"
+        shouldAcceptWidth={() => true}
+        windowControlsGutterClassName="pr-[138px]! sm:pr-[138px]!"
+        // The window's bar also carries the bottom-panel and expand buttons.
+        headerExtraControls={
+          <>
+            <button type="button" aria-label="Bottom panel" className="size-7 shrink-0" />
+            <button type="button" aria-label="Expand" className="size-7 shrink-0" />
+          </>
+        }
+        addMenuKinds={["explorer", "browser", "terminal"]}
+        onClosePane={() => {}}
+        onCollapse={() => {}}
+        onOpenChange={() => {}}
+        onAddPane={() => {}}
+        renderPane={(currentPane) => <div>Document {currentPane.id}</div>}
+      />
+    </div>,
+  );
+}
+
+/** How much of the label's end its mask fades out, in px (0 when it is drawn whole). */
+function labelFadePx(label: HTMLElement): number {
+  const mask = getComputedStyle(label).maskImage || getComputedStyle(label).webkitMaskImage;
+  if (!mask || mask === "none") return 0;
+  const cuts = [...mask.matchAll(/calc\(100% - ([\d.]+)px\)/g)].map((match) => Number(match[1]));
+  return cuts.length > 0 ? Math.max(...cuts) : 0;
+}
+
+it("WALK-5 R-3: one pane, its two-character label 画布 is drawn whole, not masked", async () => {
+  await page.viewport(1110, 800);
+  const screen = await renderWalkFiveDock(1);
+  await expect.element(screen.getByText("Document canvas", { exact: true })).toBeVisible();
+  const tab = document.querySelector<HTMLElement>('[data-right-dock-tab-id="canvas"]')!;
+  const label = [...tab.querySelectorAll<HTMLElement>("span")].find(
+    (span) => span.textContent === "画布" && span.children.length === 0,
+  )!;
+  expect(label.scrollWidth).toBeLessThanOrEqual(label.clientWidth);
+  expect(labelFadePx(label)).toBe(0);
+  await screen.unmount();
+});
+
+it("WALK-5 R-3: four panes in an 1110-wide window all lie left of the dock's buttons, the active one shown", async () => {
+  await page.viewport(1110, 800);
+  const screen = await renderWalkFiveDock(4);
+  // Every tab drawn lies wholly left of the first button, the active 终端 among them.
+  await expect.element(screen.getByText("Document terminal", { exact: true })).toBeVisible();
+  const firstButton = screen.getByRole("button", { name: "Add panel", exact: true }).element();
+  // The walker's geometry: the dock 425 px wide.
+  const dock = document.querySelector<HTMLElement>("[data-slot='sidebar-container']")!;
+  expect(Math.abs(dock.getBoundingClientRect().width - 425)).toBeLessThanOrEqual(12);
+  const controls = document.querySelector<HTMLElement>("[data-right-dock-layout-controls]")!;
+  const header = document.querySelector<HTMLElement>("[data-right-dock-content]")!
+    .firstElementChild as HTMLElement;
+  await vi.waitFor(() => {
+    // The buttons in their order: "+", the layout buttons, then the window's caption buttons
+    // (the 138 px gutter at the bar's right end).
+    const buttonLeft = firstButton.getBoundingClientRect().left;
+    const controlsRect = controls.getBoundingClientRect();
+    expect(firstButton.getBoundingClientRect().right).toBeLessThanOrEqual(controlsRect.left + 1);
+    expect(controlsRect.right).toBeLessThanOrEqual(header.getBoundingClientRect().right - 138 + 1);
+    const tabs = [...document.querySelectorAll<HTMLElement>("[data-right-dock-tab-id]")];
+    expect(tabs.length).toBeGreaterThan(0);
+    for (const tab of tabs)
+      expect(tab.getBoundingClientRect().right).toBeLessThanOrEqual(buttonLeft);
+    const active = document.querySelector<HTMLElement>('[data-right-dock-tab-id="terminal"]');
+    expect(active).not.toBeNull();
+    expect(active!.getBoundingClientRect().width).toBeGreaterThan(0);
+  });
+  // A pane without room is one click away in the strip's list, not under a button.
+  const drawn = new Set(
+    [...document.querySelectorAll<HTMLElement>("[data-right-dock-tab-id]")].map(
+      (tab) => tab.dataset.rightDockTabId,
+    ),
+  );
+  const listed = WALK_FIVE_PANES.filter((entry) => !drawn.has(entry.pane.id));
+  if (listed.length > 0) {
+    await screen
+      .getByRole("button", {
+        name: `${listed.length} more ${listed.length === 1 ? "tab" : "tabs"}`,
+      })
+      .click();
+    for (const entry of listed)
+      await expect.element(screen.getByRole("menuitem", { name: entry.label })).toBeVisible();
+  }
   await screen.unmount();
 });

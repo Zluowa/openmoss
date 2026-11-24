@@ -849,10 +849,17 @@
     Consolas,
     "Liberation Mono",
     Menlo,
+    /* Chinese inside code and the terminal: the UI's Chinese face, not the browser's Song. */
+    "PingFang SC",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "Noto Sans CJK SC",
     monospace
   );
   --font-chat-code-family: var(--theme-font-code-family, var(--font-mono-family));
-  --terminal-font-family: "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", monospace;
+  --terminal-font-family:
+    "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --app-shell-background: transparent;
   /* Width of the rail layout's fixed icon column (see AppRail): 36px buttons with 7.5px
      either side. */
@@ -1058,10 +1065,10 @@ body,
   border-radius: inherit;
 }
 
+/* Mono only for code. Fields and prompt boxes keep the UI font (Tailwind's reset gives them
+   `font: inherit`); a field that holds code says so with `font-mono` / `font-chat-code`. */
 pre,
-code,
-textarea,
-input {
+code {
   font-family: var(--font-mono-family);
 }
 
@@ -2112,8 +2119,7 @@ body [class*="openui-theme-portal-"] {
   padding: 0;
   border: 0;
   background: transparent;
-  /* Override the global `textarea { font-family: mono }` reset — this field is
-     UI chrome, not code, so it must use the normal UI font. */
+  /* UI chrome inside the code viewer, not code: the normal UI font. */
   font-family: var(--font-ui-family);
   font-size: var(--app-font-size-ui-lg, 15px);
   line-height: 1.5;
@@ -5011,10 +5017,17 @@ diffs-container {
     Consolas,
     "Liberation Mono",
     Menlo,
+    /* Chinese inside code and the terminal: the UI's Chinese face, not the browser's Song. */
+    "PingFang SC",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "Noto Sans CJK SC",
     monospace
   );
   --font-chat-code-family: var(--theme-font-code-family, var(--font-mono-family));
-  --terminal-font-family: "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", monospace;
+  --terminal-font-family:
+    "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --app-shell-background: transparent;
   --app-sidebar-backdrop-filter: none;
   --app-sidebar-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.025);

@@ -1,8 +1,8 @@
 // FILE: SurfaceContentTabs.tsx
 // Purpose: Browser-style content tabs shared by the open-thread strip in the chat header
 //          and the right dock's pane strip. Tabs are comfortable while few are open, shrink
-//          together as more open, and scroll behind an edge fade once they reach their
-//          minimum width. Tabs scrolled out of view are listed in an overflow menu. Dragging
+//          together as more open down to the icon and a little of the label, and the tabs
+//          that still do not fit are listed in the strip's menu instead of drawn. Dragging
 //          a tab reorders it; holding it near an edge scrolls the hidden tabs in; pulling it
 //          out above or below the strip hands it to the caller (the chat splits with it).
 // Layer: Chat surface UI primitive
@@ -26,12 +26,14 @@ import {
   type ReactNode,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
 import { ChevronDownIcon, DragHandleIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
@@ -43,15 +45,17 @@ import {
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 import { findHiddenSurfaceTabIndexes, isSurfaceTabDraggedOut } from "./surfaceContentTabs.logic";
 
-// Tab width in `em` of the chip's own UI font, so it scales with the font size chosen in
-// Settings: every tab starts at a comfortable basis and shrinks evenly with the rest down
-// to a floor that still fits the icon, a few characters of title with an ellipsis, and the
-// close button. Past the floor the strip scrolls instead of crushing the tabs further, and the
-// overflow menu lists what scrolled away. The floor is low enough that two or three tabs fit a
-// narrow window whole, rather than one scrolled to a slice of its middle (walk D-11), and it
-// never exceeds the strip itself, so a squeezed strip still shows one whole tab.
-// Width also supplies the strip's intrinsic size; the basis still drives tab shrinking.
+// One behaviour for every strip (the chat's open threads and the right dock), WALK-5 R-3:
+// tabs start at a comfortable basis (in `em` of the chip's UI font, so it follows the font
+// size chosen in Settings) and shrink evenly down to a floor that still fits the icon, a few
+// characters of title with an ellipsis, and the close button (6em, walk D-11). Tabs that still
+// do not fit are not drawn: they are listed in the strip's menu, the active one always drawn.
+// Nothing scrolls, so no tab lies under the controls beside the strip and a title is only ever
+// cut at its end. The floor never exceeds the strip itself.
 const CONTENT_TAB_SIZE_CLASS_NAME = "w-[18em] min-w-[min(6em,100%)] grow-0 shrink basis-[18em]";
+const TAB_FLOOR_EM = 6;
+const TAB_GAP_PX = 4;
+const MENU_BUTTON_RESERVE_PX = 30;
 const CONTENT_TAB_FROZEN_SIZE_CLASS_NAME =
   "w-[var(--surface-tab-frozen-width)] min-w-0 grow-0 shrink-0 basis-[var(--surface-tab-frozen-width)]";
 // The strip sits on the rail's shell band, above the card it belongs to (the chat, or the
@@ -73,6 +77,8 @@ export interface SurfaceContentTab<Key extends string> {
   onSelect?: (() => void) | undefined;
   /** Omitted for a tab that cannot close: no X, and a middle click does nothing. */
   onClose?: (() => void) | undefined;
+  /** `data-*` attributes for the tab's chip. */
+  dataAttributes?: Readonly<Record<`data-${string}`, string>> | undefined;
   onTitleDoubleClick?: (() => void) | undefined;
   /** Opens the tab's context menu at the pointer. Omitted, the tab has none. */
   onContextMenu?: ((position: { x: number; y: number }) => void) | undefined;
@@ -173,6 +179,9 @@ export function SurfaceContentTabs<Key extends string>(props: {
   trailing?: ReactNode;
 }) {
   const { tabs, activeKey, onMove } = props;
+  const { format, t } = useTranslation();
+  // How many tabs fit beside each other at their floor; null until measured (all drawn).
+  const [fitCount, setFitCount] = useState<number | null>(null);
   // A press that travels becomes a drag; a still one stays a click on the tab or its X.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const navRef = useRef<HTMLElement>(null);
@@ -267,11 +276,53 @@ export function SurfaceContentTabs<Key extends string>(props: {
       resizeObserver.disconnect();
       strip.removeEventListener("scroll", schedule);
     };
+  }, [tabCount, fitCount]);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const measure = () => {
+      // The floor is in `em` of the chip's own font (the same 6em as its class).
+      const chip = nav.querySelector<HTMLElement>("[data-surface-tab]");
+      const em =
+        Number.parseFloat(getComputedStyle(chip ?? nav).fontSize) ||
+        Number.parseFloat(getComputedStyle(document.documentElement).fontSize) ||
+        16;
+      const floor = TAB_FLOOR_EM * em;
+      // The strip's own trailing control (the dock's "+") stays drawn after the tabs.
+      const trailing = nav.querySelector<HTMLElement>("[data-surface-tabs-trailing]");
+      const width =
+        nav.getBoundingClientRect().width -
+        (trailing ? trailing.getBoundingClientRect().width + TAB_GAP_PX : 0);
+      const fits = (count: number) => count * floor + (count - 1) * TAB_GAP_PX;
+      const next =
+        fits(tabCount) <= width
+          ? tabCount
+          : Math.max(
+              1,
+              Math.floor((width - MENU_BUTTON_RESERVE_PX + TAB_GAP_PX) / (floor + TAB_GAP_PX)),
+            );
+      setFitCount((previous) => (previous === next ? previous : next));
+    };
+    measure();
+    const resizeObserver = new ResizeObserver(measure);
+    resizeObserver.observe(nav);
+    return () => resizeObserver.disconnect();
   }, [tabCount]);
-  const hiddenTabs = hiddenTabIndexes.flatMap((index) => {
-    const tab = tabs[index];
-    return tab ? [tab] : [];
-  });
+  // The tabs drawn in the strip, in order, the active one always among them.
+  const drawnTabs = useMemo(() => {
+    if (fitCount === null || fitCount >= tabs.length) return tabs;
+    const drawn = tabs.slice(0, fitCount);
+    const active = tabs.find((tab) => tab.key === activeKey);
+    if (active && !drawn.includes(active)) drawn.splice(fitCount - 1, 1, active);
+    return drawn;
+  }, [activeKey, fitCount, tabs]);
+  const scrolledAway = new Set(
+    hiddenTabIndexes.flatMap((index) => {
+      const tab = drawnTabs[index];
+      return tab ? [tab.key] : [];
+    }),
+  );
+  const hiddenTabs = tabs.filter((tab) => !drawnTabs.includes(tab) || scrolledAway.has(tab.key));
 
   const freezeTabWidths = () => {
     const nav = navRef.current;
@@ -288,7 +339,7 @@ export function SurfaceContentTabs<Key extends string>(props: {
       dividers
       className="surface-content-tabs w-max max-w-full"
     >
-      {tabs.map((tab) => {
+      {drawnTabs.map((tab) => {
         const active = tab.key === activeKey;
         const { onClose } = tab;
         const chipProps = {
@@ -296,16 +347,16 @@ export function SurfaceContentTabs<Key extends string>(props: {
           closePlacement: "trailing",
           selectionAria: props.selectionAria,
           className: cn(
-            frozenTabWidthPx === null
-              ? CONTENT_TAB_SIZE_CLASS_NAME
-              : CONTENT_TAB_FROZEN_SIZE_CLASS_NAME,
+            frozenTabWidthPx !== null
+              ? CONTENT_TAB_FROZEN_SIZE_CLASS_NAME
+              : CONTENT_TAB_SIZE_CLASS_NAME,
             active && CONTENT_TAB_ACTIVE_CLASS_NAME,
             tab.key === draggedOutKey && "opacity-40",
           ),
           title: tab.title,
           label: tab.title,
           icon: tab.icon,
-          closeLabel: `Close ${tab.title}`,
+          closeLabel: format("surfaceTabs.close", { title: tab.title }),
           onSelect: tab.onSelect,
           onClose: onClose
             ? () => {
@@ -315,6 +366,7 @@ export function SurfaceContentTabs<Key extends string>(props: {
             : undefined,
           onLabelDoubleClick: tab.onTitleDoubleClick,
           onContextMenu: tab.onContextMenu,
+          dataAttributes: tab.dataAttributes,
         } satisfies ComponentProps<typeof SurfaceTabChip>;
         return onMove ? (
           <SortableSurfaceTabChip key={tab.key} sortableId={tab.key} {...chipProps} />
@@ -322,7 +374,11 @@ export function SurfaceContentTabs<Key extends string>(props: {
           <SurfaceTabChip key={tab.key} {...chipProps} />
         );
       })}
-      {props.trailing}
+      {props.trailing ? (
+        <span className="flex shrink-0 items-center" data-surface-tabs-trailing="">
+          {props.trailing}
+        </span>
+      ) : null}
     </SurfaceTabStrip>
   );
 
@@ -366,7 +422,7 @@ export function SurfaceContentTabs<Key extends string>(props: {
           }}
         >
           <SortableContext
-            items={tabs.map((tab) => tab.key)}
+            items={drawnTabs.map((tab) => tab.key)}
             strategy={horizontalListSortingStrategy}
           >
             {strip}
@@ -382,8 +438,12 @@ export function SurfaceContentTabs<Key extends string>(props: {
               <Button
                 variant="chrome"
                 size="icon-xs"
-                aria-label={`${hiddenTabs.length} more ${hiddenTabs.length === 1 ? "tab" : "tabs"}`}
-                title="Show hidden tabs"
+                aria-label={
+                  hiddenTabs.length === 1
+                    ? t("surfaceTabs.moreOne")
+                    : format("surfaceTabs.more", { count: String(hiddenTabs.length) })
+                }
+                title={t("surfaceTabs.showHidden")}
                 className={cn(DOCK_HEADER_ICON_BUTTON_CLASS, "ms-0.5 self-center")}
               />
             }

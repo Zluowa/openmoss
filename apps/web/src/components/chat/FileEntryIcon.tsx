@@ -44,7 +44,7 @@ export const FileEntryIcon = function FileEntryIcon(props: {
     props.mimeType === undefined
       ? getFileIconName(props.pathValue)
       : getAttachmentIconName({ name: props.pathValue, mimeType: props.mimeType });
-  // Each glyph's colour comes from the shared table the phone draws from too.
+  // One muted colour for every file glyph, the same as folders and as the phone.
   const color = props.colorMode === "inherit" ? undefined : fileIconColor(iconName);
 
   return (
@@ -53,7 +53,7 @@ export const FileEntryIcon = function FileEntryIcon(props: {
       className={cn(
         "size-4 shrink-0",
         props.className,
-        color === null ? "text-foreground" : undefined,
+        color === null ? FOLDER_ICON_COLOR_CLASS_NAME : undefined,
       )}
       {...(color ? { style: { color } } : {})}
     />

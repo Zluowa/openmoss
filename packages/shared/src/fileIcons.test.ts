@@ -1,6 +1,7 @@
 import { assert, describe, it } from "vitest";
 
 import {
+  fileIconColor,
   getAttachmentIconName,
   getFileIconName,
   inferEntryKindFromPath,
@@ -46,8 +47,9 @@ describe("getFileIconName", () => {
   });
 
   it("is case insensitive on basename lookup", () => {
-    assert.equal(getFileIconName("PACKAGE.JSON"), "npm");
-    assert.equal(getFileIconName("Main.PY"), "phyton");
+    assert.equal(getFileIconName("PACKAGE.JSON"), "code-brackets");
+    assert.equal(getFileIconName("Main.MD"), "file-text");
+    assert.equal(getFileIconName("Photo.PNG"), "image-alt-text");
   });
 
   it("treats known extensionless basenames as files", () => {
@@ -101,6 +103,26 @@ describe("getAttachmentIconName", () => {
   it("never resolves an inherited Object.prototype member as an icon name", () => {
     for (const token of PROTOTYPE_MEMBER_TOKENS) {
       assert.equal(getAttachmentIconName({ name: token, mimeType: "" }), "file-text", token);
+    }
+  });
+});
+
+describe("one file icon style", () => {
+  it("draws every file type as a line glyph with no colour of its own", () => {
+    const glyphs = [
+      "data.json",
+      "index.js",
+      "photo.png",
+      "README.md",
+      "style.css",
+      "main.ts",
+      "package.json",
+      ".gitignore",
+      "Cargo.toml",
+    ].map((file) => getFileIconName(file));
+    for (const glyph of glyphs) {
+      assert.include(["code-brackets", "image-alt-text", "file-text", "settings-gear-1"], glyph);
+      assert.isNull(fileIconColor(glyph));
     }
   });
 });

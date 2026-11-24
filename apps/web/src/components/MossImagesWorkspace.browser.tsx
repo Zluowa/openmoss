@@ -1261,7 +1261,16 @@ describe("Moss Images browser workflow", () => {
     await expect
       .element(page.getByRole("button", { name: "移除背景", exact: true }))
       .toBeDisabled();
-    expect(document.querySelector('[title="此模型未提供选区擦除能力"]')).not.toBeNull();
+    // Why it is unavailable is the Moss tooltip on the disabled control's wrapper, not a native title.
+    expect(document.querySelector('[title="此模型未提供选区擦除能力"]')).toBeNull();
+    const eraseWrapper = page
+      .getByRole("button", { name: "擦除", exact: true })
+      .element().parentElement!;
+    await userEvent.hover(page.elementLocator(eraseWrapper));
+    await expect
+      .poll(() => document.querySelector("[data-slot='tooltip-popup']")?.textContent ?? "")
+      .toBe("此模型未提供选区擦除能力");
+    await userEvent.unhover(page.elementLocator(eraseWrapper));
     expect(calls.generate).not.toHaveBeenCalled();
     catalog = {
       ...catalog,

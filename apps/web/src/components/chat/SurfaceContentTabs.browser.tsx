@@ -4,6 +4,8 @@ import { page } from "vitest/browser";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { MossLocaleScope } from "~/localization";
+
 import { SurfaceContentTabs } from "./SurfaceContentTabs";
 
 const TITLES = [
@@ -39,26 +41,99 @@ describe("SurfaceContentTabs overflow", () => {
     await page.viewport(1280, 900);
   });
 
-  it("keeps titles readable and lists tabs that do not fit in an overflow menu", async () => {
+  it("shrinks tabs to their floor, draws only those that fit and lists the rest", async () => {
     const onSelect = vi.fn();
     const screen = await mountStrip(360, onSelect);
     try {
       const overflow = page.getByRole("button", { name: /more tabs?$/ });
       await expect.element(overflow).toBeVisible();
-      // Each tab keeps its floor width instead of shrinking to a few letters.
-      const tabWidths = Array.from(
-        document.querySelectorAll<HTMLElement>("[data-surface-tab]"),
-        (tab) => tab.getBoundingClientRect().width,
+      // Each tab drawn keeps its floor and lies wholly inside the strip (WALK-5 R-3).
+      const strip = document
+        .querySelector<HTMLElement>(".surface-content-tabs")!
+        .getBoundingClientRect();
+      const tabs = Array.from(document.querySelectorAll<HTMLElement>("[data-surface-tab]"), (tab) =>
+        tab.getBoundingClientRect(),
       );
+      expect(tabs.length).toBeLessThan(TITLES.length);
+      // The floor fits the icon, a few characters and the close button (walk D-11).
       const fontSizePx = Number.parseFloat(
         getComputedStyle(document.querySelector<HTMLElement>("[data-surface-tab]")!).fontSize,
       );
-      expect(Math.min(...tabWidths)).toBeGreaterThanOrEqual(fontSizePx * 6 - 1);
+      for (const tab of tabs) {
+        expect(tab.width).toBeGreaterThanOrEqual(fontSizePx * 6 - 1);
+        expect(tab.left).toBeGreaterThanOrEqual(strip.left - 0.5);
+        expect(tab.right).toBeLessThanOrEqual(strip.right + 0.5);
+      }
 
       await overflow.click();
       const lastTitle = TITLES.at(-1)!;
       await page.getByRole("menuitem", { name: lastTitle }).click();
       expect(onSelect).toHaveBeenCalledWith(`tab-${TITLES.length - 1}`);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
+  it("WALK-5 R-3: the chat strip draws a long title from its first character and lists in Chinese", async () => {
+    // What the walker saw: 「列出这个项目里的文件」 beside the active 「新建对话」, cut at its start.
+    const mount = (widthPx: number) =>
+      render(
+        <MossLocaleScope locale="zh-CN">
+          <div style={{ width: `${widthPx}px`, display: "flex" }}>
+            <SurfaceContentTabs
+              ariaLabel="打开的对话"
+              activeKey="new"
+              tabs={[
+                {
+                  key: "files",
+                  title: "列出这个项目里的文件",
+                  icon: <span aria-hidden className="size-4" />,
+                },
+                {
+                  key: "new",
+                  title: "新建对话",
+                  icon: <span aria-hidden className="size-4" />,
+                  onClose: () => {},
+                },
+              ].map((tab) => ({ ...tab, onSelect: () => {} }))}
+            />
+          </div>
+        </MossLocaleScope>,
+      );
+    let screen = await mount(260);
+    try {
+      const longTab = await vi.waitFor(() => {
+        const tab = [...document.querySelectorAll<HTMLElement>("[data-surface-tab]")].find((chip) =>
+          chip.textContent?.includes("列出这个项目里的文件"),
+        );
+        expect(tab).toBeDefined();
+        return tab!;
+      });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const strip = document.querySelector<HTMLElement>(".surface-content-tabs")!;
+      // It starts at its first character: nothing of it lies before the strip's start.
+      expect(longTab.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+        strip.getBoundingClientRect().left - 0.5,
+      );
+      expect(strip.scrollLeft).toBe(0);
+      const label = longTab.querySelector<HTMLElement>("[data-surface-tab-label]")!;
+      expect(label.scrollLeft).toBe(0);
+      expect(label.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+        longTab.getBoundingClientRect().left,
+      );
+    } finally {
+      await screen.unmount();
+    }
+    // Too narrow for both: the other tab is listed, and the list speaks Chinese.
+    screen = await mount(120);
+    try {
+      await expect.element(page.getByRole("button", { name: "还有 1 个标签页" })).toBeVisible();
+      const nav = document.querySelector<HTMLElement>("nav")!;
+      expect(nav.textContent ?? "").not.toMatch(/[A-Za-z]/u);
+      for (const element of nav.querySelectorAll<HTMLElement>("[aria-label], [title]"))
+        expect(
+          `${element.getAttribute("aria-label") ?? ""}${element.getAttribute("title") ?? ""}`,
+        ).not.toMatch(/[A-Za-z]/u);
     } finally {
       await screen.unmount();
     }

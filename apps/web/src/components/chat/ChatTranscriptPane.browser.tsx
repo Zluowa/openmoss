@@ -295,6 +295,10 @@ describe("ChatTranscriptPane", () => {
         "button[data-scroll-anchor-ignore]",
       )!;
       expect(expandButton.textContent).toBe("Show more");
+      // The shared Button (link variant), drawn as the muted line it sits in: no box.
+      expect(expandButton.getAttribute("data-slot")).toBe("button");
+      expect(getComputedStyle(expandButton).borderTopWidth).toBe("0px");
+      expect(getComputedStyle(expandButton).backgroundColor).toBe("rgba(0, 0, 0, 0)");
       expect(expandButton.getAttribute("aria-expanded")).toBe("false");
       expect(clamp.id).not.toBe("");
       expect(expandButton.getAttribute("aria-controls")).toBe(clamp.id);

@@ -104,7 +104,7 @@ export function MossImagesComposer(props: {
       data-moss-images-composer-frame
       data-moss-composer-provider={selection.provider}
       data-moss-composer-provider-instance={selection.instanceId}
-      className="mx-auto w-full max-w-[768px] rounded-composer border border-border/60 bg-surface p-2 shadow-[0_2px_3px_rgba(0,0,0,0.02),0_12px_32px_rgba(0,0,0,0.03)]"
+      className="mx-auto w-full max-w-[768px] rounded-composer border border-border/60 bg-surface p-2 shadow-sm"
       onSubmit={(event) => {
         event.preventDefault();
         send();

@@ -542,6 +542,28 @@ function appendAxeScenario(
   }
 }
 
+/** Waits until an opening surface has finished its enter transition and is fully opaque. */
+async function settleOpenAnimation(element: HTMLElement): Promise<void> {
+  await vi.waitFor(() => {
+    if (
+      element.closest("[data-starting-style]") ||
+      element.querySelector("[data-starting-style]")
+    ) {
+      throw new Error("Still entering.");
+    }
+  });
+  await Promise.all(
+    document.getAnimations().map((animation) => animation.finished.catch(() => undefined)),
+  );
+  await vi.waitFor(() => {
+    for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+      if (Number.parseFloat(getComputedStyle(node).opacity) < 1) {
+        throw new Error("Still fading in.");
+      }
+    }
+  });
+}
+
 async function runAxe(root: axe.ElementContext): Promise<axe.AxeResults> {
   return axe.run(root, {
     runOnly: { type: "tag", values: AXE_WCAG_TAGS },
@@ -1106,6 +1128,9 @@ describe("Moss plugin library accessibility contract", () => {
       if (!document.querySelector('[role="dialog"]')) throw new Error("Dialog did not open.");
     });
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    // Measure the dialog as a person reads it, after its open fade: axe's colour-contrast on the
+    // title read a half-transparent frame once (merge/FLAKES.md, run 45323162097).
+    await settleOpenAnimation(dialog);
     appendAxeScenario(axeScenarios, issues, "install-auth-dialog", await runAxe(document.body));
     collectSemantics("install-auth-dialog", dialog, semantics, issues);
     collectAnnouncement("install-auth-dialog", "status", dialog, announcements, issues);
