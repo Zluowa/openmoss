@@ -1116,7 +1116,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="UI density"
-          description="How much space sits around things."
           resetAction={
             settings.uiDensity !== defaults.uiDensity ? (
               <SettingResetButton
@@ -1146,7 +1145,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Chat width"
-          description="How wide the chat can grow."
           resetAction={
             settings.chatWidth !== defaults.chatWidth ? (
               <SettingResetButton
@@ -1176,7 +1174,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Base font size"
-          description="The base text size for Moss."
           resetAction={
             settings.chatFontSizePx !== defaults.chatFontSizePx ? (
               <SettingResetButton
@@ -1217,7 +1214,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Terminal font size"
-          description="Text size in the terminal."
           resetAction={
             settings.terminalFontSizePx !== defaults.terminalFontSizePx ? (
               <SettingResetButton
@@ -1258,7 +1254,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Terminal font"
-          description="Any monospace font on this computer."
           resetAction={
             settings.terminalFontFamily !== defaults.terminalFontFamily ? (
               <SettingResetButton
@@ -1334,7 +1329,6 @@ export function SettingsContent({
       <SettingsSection title="Time and reading">
         <SettingsRow
           title="Time format"
-          description="12- or 24-hour time."
           resetAction={
             settings.timestampFormat !== defaults.timestampFormat ? (
               <SettingResetButton

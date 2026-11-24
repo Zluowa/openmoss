@@ -201,9 +201,6 @@ function OffState({
     <div className="flex flex-col" data-testid="computer-history-off-state">
       <section className="flex flex-col items-start rounded-card border border-border bg-[var(--color-background-panel)] px-9 py-[30px] text-start">
         <h2 className="text-base font-medium leading-6">{t("settings.history.off.title")}</h2>
-        <p className="mt-[5px] text-ui leading-[18px] text-muted-foreground">
-          {t("settings.history.off.description")}
-        </p>
         {disabled && disabledReason ? (
           <Tooltip>
             <TooltipTrigger
@@ -1875,12 +1872,12 @@ export function ComputerHistorySettingsPanel() {
         ) : null}
         {!supported ? (
           <p className="mb-4 text-ui-lg text-muted-foreground" role="status">
-            {state.message ?? t("settings.history.unavailable")}
+            {t("settings.history.unavailable")}
           </p>
         ) : null}
         <OffState
           disabled={!supported || mutationPending}
-          disabledReason={state.message ?? t("settings.history.unavailable")}
+          disabledReason={t("settings.history.unavailable")}
           onTurnOn={() => setConsentOpen(true)}
           t={t}
           format={format}

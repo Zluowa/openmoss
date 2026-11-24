@@ -120,7 +120,6 @@ vi.mock("~/localization", () => {
     "settings.history.state.unknown": "Unknown",
     "settings.history.state.unavailableLabel": "Unavailable",
     "settings.history.off.title": "Let Moss follow your work",
-    "settings.history.off.description": "Moss can summarize your activity.",
     "settings.history.off.benefits": "Ask about what you were working on.",
     "settings.history.off.privacy":
       "When turned on, Moss saves text summaries of your activity across allowed apps and websites, potentially including communications. Audio and private-mode web browsing are never included, and you can pause or clear your history and manage what’s included at any time. This feature increases token usage.",
@@ -535,7 +534,7 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!h-6");
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!py-0.5");
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!text-ui");
-    // Settings one-set: the off state explains nothing beyond one line; no demo card.
+    // Settings one-set: the off state explains nothing under its title; no demo card.
     expect(document.querySelector('[data-testid="computer-history-off-example"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Capture scope");
     await screen.unmount();
@@ -1395,14 +1394,14 @@ describe("ComputerHistorySettingsPanel", () => {
   });
 
   for (const theme of ["light", "dark"] as const) {
-    it(`settings one-set (${theme}): the off state is a title, one line, Turn on and the privacy line`, async () => {
+    it(`settings one-set (${theme}): the off state is a title, Turn on and the privacy line`, async () => {
       document.documentElement.classList.toggle("dark", theme === "dark");
       try {
         const screen = await render(<ComputerHistorySettingsPanel />);
         const off = page.getByTestId("computer-history-off-state");
         await expect.element(off).toBeVisible();
         await expect.element(page.getByRole("button", { name: "Turn on" })).toBeVisible();
-        expect(off.element().querySelectorAll("section p")).toHaveLength(1);
+        expect(off.element().querySelectorAll("section p")).toHaveLength(0);
         expect(off.element().textContent).not.toContain("Ask about what you were working on.");
         expect(document.querySelector('[data-testid="computer-history-off-example"]')).toBeNull();
         expect(page.getByRole("button", { name: "Next example" }).elements()).toHaveLength(0);

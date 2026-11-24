@@ -3433,10 +3433,8 @@ const EN_TRANSLATIONS = {
   "settings.history.loadingHistory": "Loading history…",
   "settings.history.loadingPermissions": "Loading permissions…",
   "settings.history.off.title": "Let Moss follow your work",
-  "settings.history.off.description":
-    "Moss can summarize your activity across the apps and websites you use without saving screenshots or audio recordings.",
   "settings.history.off.privacy":
-    "When turned on, Moss saves text summaries of your activity across allowed apps and websites, potentially including communications. Audio and private-mode web browsing are never included, and you can pause or clear your history and manage what’s included at any time. This feature increases token usage.",
+    "When turned on, Moss saves text summaries of your activity across allowed apps and websites, potentially including communications. Screenshots, audio and private-mode web browsing are never included, and you can pause or clear your history and manage what’s included at any time. This feature increases token usage.",
   "settings.history.captureScope": "Capture scope",
   "settings.history.captureScopeDetail":
     "Computer History persists bounded app/window metadata and local semantic text summaries. It does not persist keystrokes, mouse input, accessibility diffs, screenshots, or audio.",
@@ -8209,10 +8207,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.loadingHistory": "正在加载历史记录…",
   "settings.history.loadingPermissions": "正在加载权限…",
   "settings.history.off.title": "让 Moss 了解你的工作",
-  "settings.history.off.description":
-    "Moss 可以总结你使用的应用和网站活动，但不会保存屏幕截图或音频录音。",
   "settings.history.off.privacy":
-    "开启后，Moss 会保存你允许的应用和网站活动文本摘要，其中可能包含通信内容。不会包含音频或无痕浏览，且你可以随时暂停、清除历史并管理记录范围。此功能会增加 token 使用量。",
+    "开启后，Moss 会保存你允许的应用和网站活动文本摘要，其中可能包含通信内容。不会包含屏幕截图、音频或无痕浏览，且你可以随时暂停、清除历史并管理记录范围。此功能会增加 token 使用量。",
   "settings.history.captureScope": "捕获范围",
   "settings.history.captureScopeDetail":
     "电脑历史会持久化有界的应用和窗口元数据，以及本地语义文本摘要；不会持久化按键、鼠标输入、辅助功能差异、截图或音频。",
