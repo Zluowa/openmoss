@@ -634,6 +634,244 @@ describe("ChatView transcript geometry (full app)", () => {
     },
   );
 
+  // WALK-12 N12-2: `[[WALK:FAIL]]`, the gateway answered 500. Under the one error card a divider
+  // still read 「⚠ 已中断，用时 2.5 秒」: a failed turn said it was interrupted too. One failed
+  // turn shows one status, its failure row, with its one action.
+  it.each([
+    { theme: "light", locale: "zh-CN" },
+    { theme: "dark", locale: "zh-CN" },
+    { theme: "light", locale: "en" },
+  ] as const)(
+    "WALK-12 N12-2: a failed turn says it failed once, with no interrupted line: $theme, $locale",
+    async ({ theme, locale }) => {
+      setImageLimitFixtureTheme(theme);
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: locale }));
+      const highDemand =
+        "We\u2019re currently experiencing high demand, which may cause temporary errors.";
+      const base = createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("walk12-fail-user"),
+        targetText: "再试一次 [[WALK:FAIL]]",
+      });
+      const turnId = TurnId.makeUnsafe("walk12-fail-turn");
+      const endedAt = new Date(Date.parse(NOW_ISO) + 2_500).toISOString();
+      const snapshot: OrchestrationReadModel = {
+        ...base,
+        threads: [
+          {
+            ...base.threads[0]!,
+            messages: [
+              createUserMessage({
+                id: MessageId.makeUnsafe("walk12-fail-user"),
+                text: "再试一次 [[WALK:FAIL]]",
+                offsetSeconds: 0,
+              }),
+            ],
+            latestTurn: {
+              turnId,
+              state: "error",
+              requestedAt: NOW_ISO,
+              startedAt: NOW_ISO,
+              completedAt: endedAt,
+              assistantMessageId: null,
+            },
+            activities: [
+              {
+                id: EventId.makeUnsafe("walk12-fail-started"),
+                turnId,
+                createdAt: NOW_ISO,
+                sequence: 1,
+                kind: "turn.started",
+                tone: "info",
+                summary: "Turn started",
+                payload: {},
+              },
+              {
+                id: EventId.makeUnsafe("walk12-fail-error"),
+                turnId,
+                createdAt: endedAt,
+                sequence: 2,
+                kind: "runtime.error",
+                tone: "error",
+                summary: "Provider runtime error",
+                payload: { message: highDemand, class: "provider_error" },
+              },
+              {
+                id: EventId.makeUnsafe("walk12-fail-completed"),
+                turnId,
+                createdAt: endedAt,
+                sequence: 3,
+                kind: "turn.completed",
+                tone: "error",
+                summary: "Turn failed",
+                payload: { state: "failed", errorMessage: highDemand },
+              },
+            ],
+          },
+        ],
+      };
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      try {
+        const sentence =
+          locale === "zh-CN"
+            ? "模型服务暂时过载，请稍后重试。"
+            : "The model service is temporarily overloaded. Retry in a moment.";
+        await expect.element(page.getByText(sentence, { exact: true })).toBeVisible();
+        await vi.waitFor(() => {
+          const surfaces = [...document.querySelectorAll<HTMLElement>("[data-error-surface]")];
+          expect(surfaces.map((surface) => surface.dataset.errorSurface)).toEqual(["failure-row"]);
+        });
+        const text = document.body.textContent ?? "";
+        expect(text).not.toContain("已中断");
+        expect(text).not.toMatch(/Interrupted/u);
+        expect(document.querySelector("[data-interrupted-turn]")).toBeNull();
+        const card = document.querySelector<HTMLElement>('[data-error-surface="failure-row"]')!;
+        expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+          locale === "zh-CN" ? "继续任务" : "Continue task",
+        ]);
+      } finally {
+        await mounted.cleanup();
+        localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+      }
+    },
+  );
+
+  // WALK-12 N12-2 review: only a turn that shows its failure row drops the end line. A turn that
+  // hit a runtime error and then ended interrupted, with or without the person's Stop, has no
+  // failure row: its interrupted end line is what says the task did not finish.
+  it.each([
+    ["runtime.error then turn.aborted keeps its interrupted end line", "aborted"],
+    [
+      "runtime.error then the person's Stop keeps its interrupted end line",
+      "stopped by the person",
+    ],
+    [
+      "runtime.error then a failed end shows only the failure row with 继续任务, no 已中断",
+      "failed",
+    ],
+  ] as const)("WALK-12 N12-2: %s", async (_shows, ending) => {
+    const failureRow = ending === "failed";
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    const highDemand =
+      "We\u2019re currently experiencing high demand, which may cause temporary errors.";
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("walk12-n12-2-user"),
+      targetText: "再试一次 [[WALK:FAIL]]",
+    });
+    const turnId = TurnId.makeUnsafe("walk12-n12-2-turn");
+    const endedAt = new Date(Date.parse(NOW_ISO) + 2_500).toISOString();
+    type Activity = OrchestrationReadModel["threads"][number]["activities"][number];
+    const activity = (
+      id: string,
+      sequence: number,
+      createdAt: string,
+      kind: string,
+      tone: Activity["tone"],
+      summary: string,
+      payload: Activity["payload"],
+    ): Activity => ({
+      id: EventId.makeUnsafe(`walk12-n12-2-${id}`),
+      turnId,
+      createdAt,
+      sequence,
+      kind,
+      tone,
+      summary,
+      payload,
+    });
+    const ends: Record<typeof ending, Activity[]> = {
+      aborted: [activity("aborted", 4, endedAt, "turn.aborted", "info", "Turn aborted", {})],
+      "stopped by the person": [
+        activity("stop", 4, isoAt(2.2), "turn.stop-requested", "info", "Stop requested", {
+          requestedBy: "user",
+        }),
+        activity("completed", 5, endedAt, "turn.completed", "info", "Turn interrupted", {
+          state: "interrupted",
+        }),
+      ],
+      failed: [
+        activity("completed", 4, endedAt, "turn.completed", "error", "Turn failed", {
+          state: "failed",
+          errorMessage: highDemand,
+        }),
+      ],
+    };
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...base.threads[0]!,
+          messages: [
+            createUserMessage({
+              id: MessageId.makeUnsafe("walk12-n12-2-user"),
+              text: "再试一次 [[WALK:FAIL]]",
+              offsetSeconds: 0,
+            }),
+          ],
+          latestTurn: {
+            turnId,
+            state: failureRow ? "error" : "interrupted",
+            requestedAt: NOW_ISO,
+            startedAt: NOW_ISO,
+            completedAt: endedAt,
+            assistantMessageId: null,
+          },
+          activities: [
+            activity("started", 1, NOW_ISO, "turn.started", "info", "Turn started", {}),
+            activity("ls", 2, isoAt(1), "tool.completed", "tool", "Ran command", {
+              itemType: "command_execution",
+              status: "completed",
+              title: "Ran command",
+              detail: "ls",
+              data: {
+                item: {
+                  type: "commandExecution",
+                  id: "walk12-n12-2-ls",
+                  command: "ls",
+                  cwd: "/workspace/walk",
+                  aggregatedOutput: "README.md\nindex.js\n",
+                  exitCode: 0,
+                },
+              },
+            }),
+            activity("error", 3, isoAt(2), "runtime.error", "error", "Provider runtime error", {
+              message: highDemand,
+              class: "provider_error",
+            }),
+            ...ends[ending],
+          ],
+        },
+      ],
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      const endLine = /^(?:Interrupted after|已中断，用时) 2\.5 ?(?:s|秒)$/u;
+      if (failureRow) {
+        await expect
+          .element(page.getByText("模型服务暂时过载，请稍后重试。", { exact: true }))
+          .toBeVisible();
+        await vi.waitFor(() => {
+          const surfaces = [...document.querySelectorAll<HTMLElement>("[data-error-surface]")];
+          expect(surfaces.map((surface) => surface.dataset.errorSurface)).toEqual(["failure-row"]);
+        });
+        const card = document.querySelector<HTMLElement>('[data-error-surface="failure-row"]')!;
+        expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+          "继续任务",
+        ]);
+        const text = document.body.textContent ?? "";
+        expect(text).not.toContain("已中断");
+        expect(text).not.toMatch(/Interrupted/u);
+        expect(page.getByText(endLine).elements()).toHaveLength(0);
+      } else {
+        await expect.element(page.getByText(endLine)).toBeVisible();
+        expect(page.getByText(endLine).elements()).toHaveLength(1);
+        expect(document.querySelector("[data-error-surface]")).toBeNull();
+      }
+    } finally {
+      await mounted.cleanup();
+      localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+    }
+  });
+
   // WALK-H1 H-11 review: the one action must be the one that fixes it. A turn that ended
   // because the agent's sign-in expired offers the provider settings, not 继续任务 (which runs
   // again on the same expired sign-in).
