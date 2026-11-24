@@ -40,7 +40,7 @@ export const SPACE_TYPED_KINDS: Record<TypedItemKind, SpaceTypedKindDefinition> 
   },
   board: {
     kind: "board",
-    defaultTitle: "未命名白板",
+    defaultTitle: "未命名画布",
     description: "在 Moss 画布中自由绘制",
     templates: false,
   },

@@ -311,6 +311,12 @@ export interface AgentGatewayMediaToolsInput {
     credential: MossMediaCredential,
     context: ToolContext,
   ) => Effect.Effect<MossCanvasMutateResult, unknown>;
+  /**
+   * Offers moss_canvas_mutate to agents. Off until the tool applies its changes through the
+   * open Canvas editor: today it writes the saved board from the server, which can drop what
+   * a person drew since the last autosave, or be overwritten by it (WO-3, 2026-11-24).
+   */
+  readonly enableCanvasMutate?: boolean;
   readonly resolveWorkspaceRoot?: (context: ToolContext) => Effect.Effect<string | null>;
   readonly focusCanvasJob?: (
     jobId: string,
@@ -407,12 +413,12 @@ export function makeAgentGatewayMediaTools(
     const chat = imageChatGuidance(job, Date.now());
     return mcpToolResultJson(chat ? { ...job, chat } : job);
   };
-  return [
+  const tools: ToolEntry[] = [
     {
       definition: {
         name: "moss_canvas_open",
         description:
-          "Open Moss Canvas / Whiteboard (画布/白板) in the right panel for this conversation. It is not a document space: never use moss_pages_* for Canvas. Use moss_canvas_read to inspect shapes or the person's selection, and moss_canvas_mutate to draw frames, notes, text, shapes, or connectors directly on the board. Call this whenever the person asks to open, show or use Canvas/Whiteboard/白板/画布, or to lay out or edit an image there; do not open it on your own after an ordinary generation. Optional jobId (an image job from this conversation, from moss_media_list or moss_media_generate) focuses that image; imageIndex picks one of its outputs. Opening generates nothing and costs nothing.",
+          "Open Moss Canvas (画布) for this conversation in the side panel of the person's Moss window; it shows within a second. This tool is the only way to open it: never use a browser, the shell or computer use to open Moss or its Canvas. It is not a document space: never use moss_pages_* for Canvas. Use moss_canvas_read to inspect shapes or the person's selection. Call this whenever the person asks to open, show or use Canvas/画布/白板, or to lay out or edit an image there; do not open it on your own after an ordinary generation. Optional jobId (an image job from this conversation, from moss_media_list or moss_media_generate) focuses that image; imageIndex picks one of its outputs. Opening generates nothing and costs nothing.",
         inputSchema: {
           type: "object",
           properties: {
@@ -928,4 +934,7 @@ export function makeAgentGatewayMediaTools(
         ),
     },
   ];
+  return input.enableCanvasMutate
+    ? tools
+    : tools.filter((tool) => tool.definition.name !== "moss_canvas_mutate");
 }

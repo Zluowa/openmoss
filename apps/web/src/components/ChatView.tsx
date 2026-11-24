@@ -2353,7 +2353,7 @@ export default function ChatView({
     if (conversationGeneratedImages.length === 0) return;
     const dock = useRightDockStore.getState();
     const pane = dock.dockStateByThreadId[threadId]?.panes.find(
-      (entry) => entry.kind === "imagePreview",
+      (entry) => (entry.kind === "canvas" || entry.kind === "imagePreview") && entry.imagePreview,
     );
     if (!pane?.imagePreview) return;
     const merged = mergeConversationImages(pane.imagePreview.images, conversationGeneratedImages);
@@ -6415,8 +6415,10 @@ export default function ChatView({
       if (preview.generated && shouldOpenGeneratedImageInCanvas(preview)) {
         if (!(await flushConversationImageEditors(threadId))) return;
         const groupId = preview.generated.groupId;
+        // The conversation's one 画布, beside the chat (owner, 2026-11-24): never a
+        // second canvas tab, never full width unless the person expands it.
         openRightDockPane(threadId, {
-          kind: "imagePreview",
+          kind: "canvas",
           imagePreview: {
             images: mergeConversationImages(
               conversationGeneratedImages,

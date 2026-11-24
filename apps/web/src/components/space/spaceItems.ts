@@ -180,7 +180,7 @@ export const SPACE_KIND_FILTERS: ReadonlyArray<{ id: SpaceKindFilter; label: str
   { id: "sheet", label: "电子表格" },
   { id: "design", label: "设计" },
   { id: "dashboard", label: "数据看板" },
-  { id: "board", label: "白板" },
+  { id: "board", label: "画布" },
   { id: "app", label: "应用页" },
   { id: "site", label: "站点" },
   { id: "image", label: "图像" },

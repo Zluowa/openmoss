@@ -491,6 +491,11 @@ interface TestFixture {
 }
 
 let fixture: TestFixture;
+// The open domain-event stream, so a case can append an activity the way the server does.
+let domainEventStream: {
+  client: Parameters<typeof sendEffectRpcChunk>[0];
+  requestId: string;
+} | null = null;
 let threadDetailSnapshotBarrier: Promise<void> | null = null;
 const threadDetailSnapshotBarrierById = new Map<ThreadId, Promise<void>>();
 const wsRequests: WsRequestEnvelope["body"][] = [];
@@ -2087,6 +2092,10 @@ const worker = setupWorker(
           threadDetailSnapshotBarrierById.get(threadId) ?? threadDetailSnapshotBarrier;
         if (barrier) void barrier.then(sendDetailSnapshot);
         else sendDetailSnapshot();
+        return;
+      }
+      if (method === WS_METHODS.subscribeOrchestrationDomainEvents) {
+        domainEventStream = { client, requestId: parsed.request.id };
         return;
       }
       if (method === WS_METHODS.subscribeServerProviderStatuses) {
@@ -22257,8 +22266,7 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(
           useRightDockStore
             .getState()
-            .dockStateByThreadId[THREAD_ID]?.panes.some((pane) => pane.kind === "imagePreview") ??
-            false,
+            .dockStateByThreadId[THREAD_ID]?.panes.some((pane) => pane.kind === "canvas") ?? false,
         ).toBe(false);
         await userEvent.keyboard("{ArrowLeft}");
         await expect
@@ -22290,9 +22298,7 @@ describe("ChatView transcript geometry (full app)", () => {
           expect(pane?.dataset.generatedImagePreviewView).toBe("playground");
           const canvasPane = useRightDockStore
             .getState()
-            .dockStateByThreadId[THREAD_ID]?.panes.find(
-              (candidate) => candidate.kind === "imagePreview",
-            );
+            .dockStateByThreadId[THREAD_ID]?.panes.find((candidate) => candidate.kind === "canvas");
           expect(canvasPane?.imagePreview?.activeImageId).toBe(
             "turn-generated-image-preview:generated-preview-two",
           );
@@ -22305,6 +22311,68 @@ describe("ChatView transcript geometry (full app)", () => {
       }
     },
   );
+
+  it("shows the conversation's 画布 beside the chat within seconds after an agent opens it", async () => {
+    useRightDockStore.setState({ dockStateByThreadId: {} });
+    localStorage.setItem("moss:activity-onboarding:v1", "seen");
+    domainEventStream = null;
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1_200, height: 760 },
+      snapshot: createSnapshotWithGeneratedImagePreview(),
+    });
+    try {
+      await withMissingCanvasBundle(async () => {
+        await vi.waitFor(() => expect(domainEventStream).not.toBeNull());
+        // What the server appends when the agent calls moss_canvas_open.
+        sendEffectRpcChunk(
+          domainEventStream!.client,
+          domainEventStream!.requestId,
+          makeDomainEvent(
+            "thread.activity-appended",
+            {
+              threadId: THREAD_ID,
+              activity: {
+                id: EventId.makeUnsafe("agent:canvas-open-browser-case:canvas-open"),
+                createdAt: isoAt(10_000),
+                kind: "canvas.open.requested",
+                summary: "Open conversation Canvas",
+                tone: "info",
+                turnId: null,
+                payload: { source: "moss-mcp-canvas", threadId: THREAD_ID },
+              },
+            },
+            { sequence: 10_000 },
+          ),
+        );
+        const sentAt = performance.now();
+        await vi.waitFor(
+          () => {
+            const panel = document.querySelector<HTMLElement>('[data-testid="right-dock-panel"]');
+            const workspace = panel?.querySelector<HTMLElement>(
+              "[data-conversation-image-workspace]",
+            );
+            const chat = document.querySelector<HTMLElement>("[data-right-dock-main-content]");
+            expect(workspace).not.toBeNull();
+            expect(workspace!.closest("[inert]")).toBeNull();
+            expect(workspace!.getBoundingClientRect().width).toBeGreaterThan(300);
+            expect(workspace!.getBoundingClientRect().height).toBeGreaterThan(400);
+            // The chat stays on screen beside it.
+            expect(chat?.getAttribute("data-app-shell-right-panel-full-width")).toBe("false");
+            expect(chat!.getBoundingClientRect().width).toBeGreaterThan(300);
+          },
+          { timeout: 3_000, interval: 16 },
+        );
+        expect(performance.now() - sentAt).toBeLessThan(3_000);
+        expect(
+          useRightDockStore
+            .getState()
+            .dockStateByThreadId[THREAD_ID]?.panes.filter((pane) => pane.kind === "canvas"),
+        ).toHaveLength(1);
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
 
   it("covers generated image preview B2.1 controls and full-width rail", async () => {
     useRightDockStore.setState({ dockStateByThreadId: {} });
@@ -22397,12 +22465,11 @@ describe("ChatView transcript geometry (full app)", () => {
           document.querySelector('[data-testid="generated-image-preview-zoom-trigger"]'),
         ).not.toBeNull();
       });
-      await waitForGeneratedImagePreviewDockSettled(true);
+      // The 画布 chip opens beside the chat; only the expand control widens it.
+      await waitForGeneratedImagePreviewDockSettled(false);
       expect(previewPane.getAttribute("data-image-id")).toBe(
         "turn-generated-image-preview:generated-preview-one",
       );
-      await page.getByTestId("right-dock-width-toggle").click();
-      await waitForGeneratedImagePreviewDockSettled(false);
       const routeMainContent = document.querySelector<HTMLElement>(
         "[data-right-dock-main-content]",
       );
@@ -22678,8 +22745,6 @@ describe("ChatView transcript geometry (full app)", () => {
         "Unable to find the dark B2.1 generated image preview pane.",
       );
       await vi.waitFor(() => expect(previewPane.getAttribute("data-image-status")).toBe("loaded"));
-      await waitForGeneratedImagePreviewDockSettled(true);
-      await page.getByTestId("right-dock-width-toggle").click();
       await waitForGeneratedImagePreviewDockSettled(false);
       document.querySelector<HTMLButtonElement>('[data-testid="right-dock-width-toggle"]')?.click();
       await waitForGeneratedImagePreviewDockSettled(true);
@@ -23024,8 +23089,7 @@ describe("ChatView transcript geometry (full app)", () => {
     const imagePreview = () =>
       useRightDockStore
         .getState()
-        .dockStateByThreadId[THREAD_ID]?.panes.find((pane) => pane.kind === "imagePreview")
-        ?.imagePreview;
+        .dockStateByThreadId[THREAD_ID]?.panes.find((pane) => pane.kind === "canvas")?.imagePreview;
     const nativeFetch = window.fetch.bind(window);
     const canvasRequests: { url: URL; init: RequestInit | undefined }[] = [];
     const canvasFetch = vi.spyOn(window, "fetch").mockImplementation((input, init) => {
@@ -23164,13 +23228,14 @@ describe("ChatView transcript geometry (full app)", () => {
           )?.disabled,
         ).toBe(false);
       });
+      // The 画布 view stays beside the chat: only the expand control widens the dock.
       await vi.waitFor(() => {
-        expect(previewPane.getAttribute("data-generated-image-preview-full-width")).toBe("true");
+        expect(previewPane.getAttribute("data-generated-image-preview-full-width")).toBe("false");
         expect(
           document
             .querySelector("[data-right-dock-main-content]")
             ?.getAttribute("data-app-shell-right-panel-full-width"),
-        ).toBe("true");
+        ).toBe("false");
       });
       await vi.waitFor(() =>
         expect(previewPane.getAttribute("data-generated-image-preview-transitioning")).toBe(
@@ -23241,6 +23306,9 @@ describe("ChatView transcript geometry (full app)", () => {
         );
         expect(previewPane.getAttribute("data-image-status")).toBe("loaded");
       });
+      // The rail is a full-width affordance; the person widens the 画布 with the expand control.
+      document.querySelector<HTMLButtonElement>('[data-testid="right-dock-width-toggle"]')?.click();
+      await waitForGeneratedImagePreviewDockSettled(true);
       const secondRailTile = await waitForElement(
         () =>
           previewPane.querySelector<HTMLButtonElement>(
@@ -23256,6 +23324,9 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(previewPane.getAttribute("data-image-status")).toBe("loaded");
         expect(secondRailTile.getAttribute("aria-current")).toBe("true");
       });
+      // The same control gives the chat back.
+      document.querySelector<HTMLButtonElement>('[data-testid="right-dock-width-toggle"]')?.click();
+      await waitForGeneratedImagePreviewDockSettled(false);
       previewPane
         .querySelector<HTMLButtonElement>(
           '[data-testid="generated-image-preview-view-playground"]',
@@ -23278,7 +23349,7 @@ describe("ChatView transcript geometry (full app)", () => {
       const persistedDockStateByThreadId =
         persistedCanvasState.state?.dockStateByThreadId ?? persistedCanvasState.dockStateByThreadId;
       const persistedPreview = persistedDockStateByThreadId?.[THREAD_ID]?.panes?.find(
-        (pane: { kind?: string }) => pane.kind === "imagePreview",
+        (pane: { kind?: string }) => pane.kind === "canvas",
       )?.imagePreview;
       expect(persistedPreview?.view).toBe("playground");
       expect(persistedPreview?.activeImageId).toBe(
@@ -23312,7 +23383,9 @@ describe("ChatView transcript geometry (full app)", () => {
         expect(rehydratedPane.getAttribute("data-image-id")).toBe(
           "turn-generated-image-preview:generated-preview-two",
         );
-        expect(rehydratedPane.getAttribute("data-generated-image-preview-full-width")).toBe("true");
+        expect(rehydratedPane.getAttribute("data-generated-image-preview-full-width")).toBe(
+          "false",
+        );
       });
       await expectCanvasUnavailable("turn-generated-image-preview:generated-preview-two");
 
@@ -23334,6 +23407,8 @@ describe("ChatView transcript geometry (full app)", () => {
         '[data-testid="generated-image-preview-view-single"]',
       );
       focusedToggle?.click();
+      await waitForGeneratedImagePreviewDockSettled(false);
+      document.querySelector<HTMLButtonElement>('[data-testid="right-dock-width-toggle"]')?.click();
       await waitForGeneratedImagePreviewDockSettled(true);
       await vi.waitFor(() => {
         expect(reopenedPane.getAttribute("data-generated-image-preview-view")).toBe("single");
@@ -23502,13 +23577,14 @@ describe("ChatView transcript geometry (full app)", () => {
       darkPane
         .querySelector<HTMLButtonElement>('[data-testid="generated-image-preview-view-playground"]')
         ?.click();
+      // The 画布 view stays beside the chat: only the expand control widens the dock.
       await vi.waitFor(() => {
-        expect(darkPane.getAttribute("data-generated-image-preview-full-width")).toBe("true");
+        expect(darkPane.getAttribute("data-generated-image-preview-full-width")).toBe("false");
         expect(
           document
             .querySelector("[data-right-dock-main-content]")
             ?.getAttribute("data-app-shell-right-panel-full-width"),
-        ).toBe("true");
+        ).toBe("false");
       });
       await vi.waitFor(() =>
         expect(darkPane.getAttribute("data-generated-image-preview-view")).toBe("playground"),

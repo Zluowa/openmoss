@@ -23,7 +23,7 @@ const KIND_LABELS: Record<string, string> = {
   page: "文档",
   slides: "幻灯片",
   sheet: "表格",
-  board: "白板",
+  board: "画布",
   design: "设计",
   app: "应用页",
   data: "数据",

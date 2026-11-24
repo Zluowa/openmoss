@@ -58,6 +58,7 @@ import { useStore } from "../store";
 import { createProjectLastActivityAtSelector } from "../storeSelectors";
 import { railItemShowsPanel } from "../appRail.logic";
 import { useRailShellStore } from "../railShellStore";
+import { agentCanvasOpenRequest, claimAgentCanvasOpen } from "../components/chat/agentCanvasOpen";
 import {
   MOSS_CANVAS_CLOSE_EVENT,
   registerMossCanvasHost,
@@ -667,38 +668,35 @@ function ChatRouteLayout() {
   useEffect(
     () =>
       ensureNativeApi().orchestration.onDomainEvent((event) => {
-        if (
-          event.type !== "thread.activity-appended" ||
-          event.payload.threadId !== activeCanvasThread.current
-        )
-          return;
-        const kind = event.payload.activity.kind;
-        if (kind !== "canvas.open.requested" && kind !== "canvas.updated") return;
-        const value: unknown = event.payload.activity.payload;
-        if (!value || typeof value !== "object" || Array.isArray(value)) return;
-        const payload = value as Record<string, unknown>;
-        if (payload.source !== "moss-mcp-canvas") return;
-        const targetThreadId = String(event.payload.threadId);
-        if (kind === "canvas.updated") {
-          if (payload.open !== false) {
-            clearDestinationSurface();
-            useRightDockStore.getState().openPane(ThreadId.makeUnsafe(targetThreadId), {
-              kind: "canvas",
-            });
-          }
-          reloadMossCanvas(targetThreadId, String(payload.revision ?? event.payload.activity.id));
+        if (event.type !== "thread.activity-appended") return;
+        if (event.payload.activity.kind === "canvas.updated") {
+          // An agent changed the board: an open 画布 shows it. The dock is not opened for
+          // every write; moss_canvas_open (or the person) opens it.
+          const value: unknown = event.payload.activity.payload;
+          if (!value || typeof value !== "object" || Array.isArray(value)) return;
+          const payload = value as Record<string, unknown>;
+          if (payload.source !== "moss-mcp-canvas") return;
+          reloadMossCanvas(
+            String(event.payload.threadId),
+            String(payload.revision ?? event.payload.activity.id),
+          );
           return;
         }
-        void openThreadCanvas(
-          targetThreadId,
-          sanitizeMossCanvasImageFocus({
-            jobId: payload.jobId,
-            imageIndex: payload.imageIndex,
-            action: "canvas",
-          }),
-        );
+        const request = agentCanvasOpenRequest(event.payload.activity);
+        if (!request || !claimAgentCanvasOpen(String(event.payload.activity.id))) return;
+        const id = String(event.payload.threadId);
+        if (id !== activeCanvasThread.current) {
+          // The person is looking at another conversation: its 画布 is open beside that
+          // chat when they go back to it, as the agent said (owner, 2026-11-23).
+          useRightDockStore.getState().openPane(ThreadId.makeUnsafe(id), {
+            kind: "canvas",
+            ...(request.image ? { canvasImage: request.image } : {}),
+          });
+          return;
+        }
+        void openThreadCanvas(id, request.image);
       }),
-    [clearDestinationSurface, openThreadCanvas],
+    [openThreadCanvas],
   );
   useEffect(() => {
     const onClose = () => {
