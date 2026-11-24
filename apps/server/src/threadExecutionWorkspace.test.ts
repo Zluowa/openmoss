@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { ProjectId, ThreadId } from "@moss/contracts";
@@ -7,7 +17,7 @@ import { Effect, Option } from "effect";
 import { afterEach, expect, it } from "vitest";
 import { ensureIsolatedScratchWorkspace } from "./scratchWorkspaces";
 import { resolveThreadExecutionWorkspace } from "./threadExecutionWorkspace";
-import { publishThreadOutput, readThreadOutput } from "./threadOutputFile";
+import { publishThreadOutput, readThreadOutput, statThreadOutput } from "./threadOutputFile";
 import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
 
 const homes: string[] = [];
@@ -100,4 +110,25 @@ it("saves complete distinct downloads and rejects replacements, links and escape
     await expect(readThreadOutput(f.folder, candidate)).rejects.toThrow();
   }
   await expect(publishThreadOutput(f.folder, "alias/new.pptx", bytes, false)).rejects.toThrow();
+});
+
+it("WALK-6 N6-1: gives the times of a file a command made in a chat folder without git, and none for a file the download refuses", async () => {
+  const f = await fixture();
+  // The chat folder is not a git repository, so its turns have no checkpoint diff.
+  await expect(stat(path.join(f.folder, ".git"))).rejects.toThrow();
+  const readme = path.join(f.folder, "README.md");
+  await writeFile(readme, "# notes");
+  const weeksAgo = new Date("2026-10-30T09:00:00.000Z");
+  await utimes(readme, weeksAgo, weeksAgo);
+  const turnStartedMs = Date.now() - 1_000;
+  // What `python make_report.py` leaves behind.
+  await writeFile(path.join(f.folder, "report.xlsx"), "workbook bytes");
+  const report = await statThreadOutput(f.folder, "report.xlsx");
+  expect(report?.modifiedAtMs).toBeGreaterThanOrEqual(turnStartedMs);
+  expect(await statThreadOutput(f.folder, path.join(f.folder, "report.xlsx"))).toEqual(report);
+  expect((await statThreadOutput(f.folder, "README.md"))?.modifiedAtMs).toBe(weeksAgo.getTime());
+  await writeFile(path.join(f.folder, ".env"), "hidden");
+  for (const candidate of ["missing.xlsx", "../report.xlsx", ".env", f.homeDir]) {
+    expect(await statThreadOutput(f.folder, candidate)).toBeNull();
+  }
 });

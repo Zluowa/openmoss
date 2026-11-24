@@ -13,11 +13,12 @@ import { useSidebar } from "~/components/ui/sidebar";
 import { Button } from "~/components/ui/button";
 import { ArrowLeftIcon } from "~/lib/icons";
 import ChatMarkdown from "~/components/ChatMarkdown";
+import type { TurnFileWindow } from "~/lib/threadOutputFileTimes";
 import { VisualFollowUpContext } from "~/lib/visualFollowUp";
 import { MossbotAvatar } from "./MossbotAvatar";
 import { MossbotRoomMenu } from "./MossbotRoomMenu";
 import { useMossbotPreferencesStore } from "~/mossbotPreferencesStore";
-import { isMossbot } from "./mossbot.logic";
+import { isMossbot, mossbotRoomReplyFileWindows } from "./mossbot.logic";
 import { useMossbotCopy } from "./mossbot.copy";
 import { cn } from "~/lib/utils";
 import { NewRoomPanel } from "./openmaus/NewRoomPanel";
@@ -243,14 +244,12 @@ export function MossbotRoomConversation({ roomId }: { roomId: string }) {
                     speaker={entry.member && <span>{entry.member.name}</span>}
                   >
                     {entry.member ? (
-                      <ChatMarkdown
+                      <MemberMarkdown
                         text={entry.text}
-                        cwd={undefined}
                         threadId={entry.member.threadId}
                         messageId={entry.id}
-                        variant="assistant"
-                        isStreaming={entry.streaming}
-                        renderInlineVisualizations
+                        streaming={entry.streaming}
+                        fileWindow={entry.fileWindow}
                       />
                     ) : (
                       <>
@@ -372,6 +371,7 @@ export function MossbotRoomConversation({ roomId }: { roomId: string }) {
 }
 function roomEntries(data: MossbotRoomView) {
   const member = (id: ProjectId | null) => data.room.members.find((m) => m.id === id);
+  const fileWindows = mossbotRoomReplyFileWindows(data);
   return [
     ...data.room.lines.map((line) => ({
       id: line.id,
@@ -380,6 +380,7 @@ function roomEntries(data: MossbotRoomView) {
       member: member(line.senderId),
       streaming: false,
       attachments: line.attachments ?? [],
+      fileWindow: undefined,
     })),
     ...data.replies.map((r) => ({
       id: r.message.id,
@@ -388,8 +389,43 @@ function roomEntries(data: MossbotRoomView) {
       member: member(r.memberId),
       streaming: r.message.streaming,
       attachments: [],
+      fileWindow: fileWindows.get(r.message.id),
     })),
   ].toSorted((a, b) => a.at.localeCompare(b.at));
+}
+
+/**
+ * A member's reply or post. A reply passes when its turn ran, so 下载 appears beside a linked file
+ * that turn made and not beside one it only read (WALK-6 N6-1). A post a member made with the
+ * group tool has no turn to go by and keeps every download, as before.
+ */
+function MemberMarkdown(props: {
+  text: string;
+  threadId: string;
+  messageId: string;
+  streaming: boolean;
+  fileWindow: TurnFileWindow | undefined;
+}) {
+  const startedAt = props.fileWindow?.startedAt;
+  const completedAt = props.fileWindow?.completedAt ?? null;
+  // The group is fetched again every few seconds: the same times keep the same window object, so
+  // the reply's markdown is not drawn again for nothing.
+  const fileWindow = useMemo(
+    () => (startedAt === undefined ? undefined : { startedAt, completedAt }),
+    [startedAt, completedAt],
+  );
+  return (
+    <ChatMarkdown
+      text={props.text}
+      cwd={undefined}
+      threadId={props.threadId}
+      messageId={props.messageId}
+      variant="assistant"
+      isStreaming={props.streaming}
+      renderInlineVisualizations
+      producedFileWindow={fileWindow}
+    />
+  );
 }
 
 /** Above a room's first shown message: the shared ghost Button, 13 px and normal weight. */

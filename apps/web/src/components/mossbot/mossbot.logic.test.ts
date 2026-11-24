@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  MessageId,
   ProjectId,
   ThreadId,
   SUPPORTED_PROVIDER_KINDS,
+  TurnId,
+  type MossbotRoomView,
   type ProjectAgentSummary,
 } from "@moss/contracts";
 import {
   buildMossbotConfigureInput,
   isMossbot,
   mossbotCompanionState,
+  mossbotRoomReplyFileWindows,
   mossbotStatus,
   resolveMossbotForThread,
 } from "./mossbot.logic";
@@ -146,5 +150,97 @@ describe("Mossbot provider selection", () => {
     );
     expect(mossbotCompanionState({ ...summary, coordinatorStatus: "stopped" })).toBe("sleeping");
     expect(mossbotCompanionState({ ...summary, coordinatorStatus: "idle" })).toBe("idle");
+  });
+});
+
+const at = (second: number) => `2026-11-24T11:00:${String(second).padStart(2, "0")}.000Z`;
+
+describe("mossbotRoomReplyFileWindows (WALK-6 N6-1 in a group)", () => {
+  const ROOM_CREATED_AT = "2026-11-24T10:00:00.000Z";
+  const analyst = ProjectId.makeUnsafe("analyst");
+  const writer = ProjectId.makeUnsafe("writer");
+  function reply(
+    memberId: ProjectId,
+    id: string,
+    turnId: string | null,
+    createdAt: string,
+    updatedAt: string,
+    streaming = false,
+  ): MossbotRoomView["replies"][number] {
+    return {
+      memberId,
+      threadId: ThreadId.makeUnsafe(`${memberId}-thread`),
+      message: {
+        id: MessageId.makeUnsafe(id),
+        role: "assistant",
+        text: id,
+        turnId: turnId === null ? null : TurnId.makeUnsafe(turnId),
+        streaming,
+        source: "native",
+        createdAt,
+        updatedAt,
+      },
+    };
+  }
+  const windows = (replies: MossbotRoomView["replies"], running: ReadonlyArray<ProjectId> = []) =>
+    mossbotRoomReplyFileWindows({
+      room: {
+        createdAt: ROOM_CREATED_AT,
+        deliveries: running.map((memberId) => ({
+          requestId: `post-${memberId}`,
+          memberId,
+          state: "running" as const,
+          error: null,
+        })),
+      },
+      replies,
+    });
+
+  it("runs a member's first turn from the group's creation to the turn's last message", () => {
+    const result = windows([
+      reply(analyst, "a1", "turn-1", at(12), at(13)),
+      reply(analyst, "a2", "turn-1", at(20), at(25)),
+    ]);
+    const window = { startedAt: ROOM_CREATED_AT, completedAt: at(25) };
+    expect(result.get("a1")).toEqual(window);
+    expect(result.get("a2")).toEqual(window);
+  });
+
+  it("starts a later turn at the member's previous turn, not at a post that waited in its queue", () => {
+    // turn-1 ran until about 0:30; the post that started turn-2 came at 0:15 and waited, and
+    // turn-2 worked before its first message at 0:50.
+    const result = windows([
+      reply(analyst, "a1", "turn-1", at(10), at(30)),
+      reply(analyst, "a2", "turn-2", at(50), at(55)),
+    ]);
+    expect(result.get("a2")).toEqual({ startedAt: at(10), completedAt: at(55) });
+  });
+
+  it("keeps each member's turns apart", () => {
+    const result = windows([
+      reply(analyst, "a1", "turn-a", at(10), at(20)),
+      reply(writer, "w1", "turn-w", at(30), at(40)),
+    ]);
+    expect(result.get("w1")).toEqual({ startedAt: ROOM_CREATED_AT, completedAt: at(40) });
+  });
+
+  it("leaves the turn open while its reply streams or its member still works", () => {
+    expect(windows([reply(analyst, "a1", "turn-1", at(10), at(12), true)]).get("a1")).toEqual({
+      startedAt: ROOM_CREATED_AT,
+      completedAt: null,
+    });
+    const working = windows(
+      [
+        reply(analyst, "a1", "turn-1", at(10), at(20)),
+        reply(analyst, "a2", "turn-2", at(30), at(35)),
+      ],
+      [analyst],
+    );
+    expect(working.get("a1")).toEqual({ startedAt: ROOM_CREATED_AT, completedAt: at(20) });
+    expect(working.get("a2")).toEqual({ startedAt: at(10), completedAt: null });
+  });
+
+  it("gives no window to a reply without a turn, so its chips keep their download", () => {
+    expect(windows([reply(analyst, "a1", null, at(10), at(12))]).has("a1")).toBe(false);
   });
 });

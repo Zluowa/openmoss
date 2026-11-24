@@ -223,6 +223,8 @@ import { ownerRoleRequired, ownerOnlyWsRpcHandler } from "./wsOwnerAuthorization
 export { ownerRoleRequired, ownerOnlyWsRpcHandler } from "./wsOwnerAuthorization";
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { resolveThreadWorkspaceCwd } from "./checkpointing/Utils";
+import { resolveThreadExecutionWorkspace } from "./threadExecutionWorkspace";
+import { statThreadOutput } from "./threadOutputFile";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { realpathNearestExisting } from "./realpathNearestExisting";
 import { pickFolderNativeDialog } from "./systemDialogs";
@@ -3281,6 +3283,35 @@ const makeWsRpcHandlersLayer = () =>
               }),
             })),
             "Failed to resolve file reference outside the workspace",
+          ),
+        [WS_METHODS.projectsStatThreadOutputFiles]: (input) =>
+          rpcEffect(
+            Effect.gen(function* () {
+              const none = { files: input.paths.map(() => null) };
+              const thread = Option.getOrUndefined(
+                yield* projectionReadModelQuery.getThreadShellById(input.threadId),
+              );
+              if (!thread) return none;
+              const project = Option.getOrUndefined(
+                yield* projectionReadModelQuery.getProjectShellById(thread.projectId),
+              );
+              if (!project) return none;
+              // The folder the thread's output download serves from, so a file gets times only
+              // when its 下载 would work.
+              const cwd = yield* resolveThreadExecutionWorkspace({
+                thread,
+                project,
+                config,
+                query: projectionReadModelQuery,
+              });
+              if (!cwd) return none;
+              return {
+                files: yield* Effect.promise(() =>
+                  Promise.all(input.paths.map((file) => statThreadOutput(cwd, file))),
+                ),
+              };
+            }),
+            "Failed to read thread output files",
           ),
         [WS_METHODS.projectsCreateLocalFilePreviewGrant]: (input) =>
           rpcEffect(

@@ -29,6 +29,7 @@ import {
   normalizeCompactToolLabel as normalizeCompactToolLabelValue,
 } from "../../lib/toolCallLabel";
 import type { PlacedHtmlRender } from "../../lib/htmlRenderSurfaces";
+import type { TurnFileWindow } from "../../lib/threadOutputFileTimes";
 import { localizeProviderRuntimeMessage } from "../../lib/providerRuntimeMessages";
 import type { MossLocaleCode } from "../../appSettings";
 import type { ModelReroutedReason } from "../../workLog";
@@ -750,6 +751,99 @@ export function editedFilesFromWorkEntries(
   return [...byPath.values()];
 }
 
+/**
+ * The files each turn produced: what it wrote, created or edited (its checkpoint diff and its
+ * file-change tool calls) and the files it exported. A file the turn only read or deleted is
+ * not one of them, so a reply's chip for it offers no download (WALK-6 N6-1).
+ */
+export function collectProducedFilesByTurn(
+  timelineEntries: ReadonlyArray<TimelineEntry>,
+  turnDiffSummaryByAssistantMessageId: ReadonlyMap<MessageId, TurnDiffSummary>,
+  chatArtifactsByTurn: ReadonlyMap<string, ReadonlyArray<TurnChatArtifact>>,
+): ReadonlyMap<string, ReadonlyArray<string>> {
+  const byTurn = new Map<string, Set<string>>();
+  const add = (turnId: string | null | undefined, path: string) => {
+    const trimmed = path.trim();
+    if (!turnId || !trimmed) return;
+    const paths = byTurn.get(turnId) ?? new Set<string>();
+    paths.add(trimmed);
+    byTurn.set(turnId, paths);
+  };
+  for (const timelineEntry of timelineEntries) {
+    if (timelineEntry.kind !== "work") continue;
+    const entry = timelineEntry.entry;
+    for (const file of editedFilesFromWorkEntries([entry])) {
+      if (entry.fileChangeKinds?.[file.path] === "delete") continue;
+      add(entry.turnId, file.path);
+    }
+  }
+  for (const summary of turnDiffSummaryByAssistantMessageId.values()) {
+    for (const file of summary.files) {
+      if (file.kind?.startsWith("delete")) continue;
+      add(summary.turnId, file.path);
+    }
+  }
+  for (const [turnId, artifacts] of chatArtifactsByTurn) {
+    for (const { artifact } of artifacts) {
+      if (artifact.kind === "file") add(turnId, artifact.file.file);
+    }
+  }
+  return new Map([...byTurn].map(([turnId, paths]) => [turnId, [...paths].toSorted()]));
+}
+
+/**
+ * When each turn ran: from the request that began it (or its first record) to its end, open while
+ * it still runs. A reply's chip for a file the turn's commands created or wrote in this span offers
+ * 下载 too, though no file-change tool or checkpoint diff names it (WALK-6 N6-1).
+ */
+export function collectTurnFileWindows(input: {
+  timelineEntries: ReadonlyArray<TimelineEntry>;
+  turnTimingByTurnId?: ReadonlyMap<TurnId, TurnTiming> | undefined;
+  runningTurnId?: TurnId | null | undefined;
+}): ReadonlyMap<string, TurnFileWindow> {
+  const spans = new Map<string, { start: number; end: number }>();
+  let requestedAt: string | null = null;
+  const widen = (
+    turnId: string | null | undefined,
+    times: ReadonlyArray<string | null | undefined>,
+  ) => {
+    if (!turnId) return;
+    const span = spans.get(turnId);
+    const known = [...times, ...(span ? [] : [requestedAt])]
+      .map((time) => (time ? Date.parse(time) : Number.NaN))
+      .filter(Number.isFinite);
+    if (known.length === 0) return;
+    spans.set(turnId, {
+      start: Math.min(span?.start ?? Number.POSITIVE_INFINITY, ...known),
+      end: Math.max(span?.end ?? Number.NEGATIVE_INFINITY, ...known),
+    });
+  };
+  for (const timelineEntry of input.timelineEntries) {
+    if (timelineEntry.kind === "work") {
+      widen(timelineEntry.entry.turnId, [timelineEntry.entry.createdAt]);
+      continue;
+    }
+    if (timelineEntry.kind !== "message" && timelineEntry.kind !== "message-segment") continue;
+    const message = timelineEntry.message;
+    if (message.role === "user" && timelineEntry.kind === "message")
+      requestedAt = message.createdAt;
+    widen(message.turnId, [message.createdAt, message.completedAt]);
+  }
+  for (const [turnId, timing] of input.turnTimingByTurnId ?? []) {
+    if (spans.has(turnId))
+      widen(turnId, [timing.requestedAt, timing.startedAt, timing.completedAt]);
+  }
+  return new Map(
+    [...spans].map(([turnId, span]) => [
+      turnId,
+      {
+        startedAt: new Date(span.start).toISOString(),
+        completedAt: turnId === input.runningTurnId ? null : new Date(span.end).toISOString(),
+      },
+    ]),
+  );
+}
+
 export function formatTurnHeaderLabel(
   header: Pick<TurnHeader, "elapsed" | "outcome" | "reason" | "resumedBy">,
 ): string {
@@ -922,6 +1016,10 @@ export type MessagesTimelineRow =
       generatedImageGallery?: GeneratedImageGallery | undefined;
       /** Decks and exported files from this turn, drawn as cards under the answer. */
       chatArtifacts?: ReadonlyArray<TurnChatArtifact> | undefined;
+      /** Files this turn wrote, created, edited or exported (see collectProducedFilesByTurn). */
+      producedFilePaths?: ReadonlyArray<string> | undefined;
+      /** When this turn ran: a linked file made in this span is its output too. */
+      producedFileWindow?: TurnFileWindow | undefined;
       // True while this row's turn is still running. The end-of-turn changes
       // card (Undo / Review) is held back until the turn settles so it cannot
       // pre-empt the composer's live changes strip mid-turn.
@@ -945,6 +1043,8 @@ export type MessagesTimelineRow =
       segmentIndex: number;
       generatedImageGallery?: GeneratedImageGallery | undefined;
       chatArtifacts?: ReadonlyArray<TurnChatArtifact> | undefined;
+      producedFilePaths?: ReadonlyArray<string> | undefined;
+      producedFileWindow?: TurnFileWindow | undefined;
     }
   | {
       kind: "proposed-plan";
@@ -1530,6 +1630,16 @@ export function deriveMessagesTimelineRows(input: {
   const chatArtifactsByTurn = collectTurnChatArtifacts(
     input.timelineEntries.flatMap((entry) => (entry.kind === "work" ? [entry.entry] : [])),
   );
+  const producedFilesByTurn = collectProducedFilesByTurn(
+    input.timelineEntries,
+    input.turnDiffSummaryByAssistantMessageId,
+    chatArtifactsByTurn,
+  );
+  const turnFileWindows = collectTurnFileWindows({
+    timelineEntries: input.timelineEntries,
+    turnTimingByTurnId: input.turnTimingByTurnId,
+    runningTurnId: input.activeTurnInProgress ? input.activeTurnId : null,
+  });
   // Typed image-generation activities remain in the chronology walk only long
   // enough to place their dedicated gallery row. They are never passed to
   // generic work grouping or Worked-for folding; legacy untyped records remain
@@ -1973,6 +2083,14 @@ export function deriveMessagesTimelineRows(input: {
           timelineEntry.segmentIndex
           ? chatArtifactsByTurn.get(String(timelineEntry.message.turnId))
           : undefined;
+      const segmentTurnId =
+        timelineEntry.message.role === "assistant" && timelineEntry.message.turnId != null
+          ? String(timelineEntry.message.turnId)
+          : null;
+      const segmentProducedFilePaths =
+        segmentTurnId !== null ? producedFilesByTurn.get(segmentTurnId) : undefined;
+      const segmentProducedFileWindow =
+        segmentTurnId !== null ? turnFileWindows.get(segmentTurnId) : undefined;
       nextRows.push({
         kind: "message-segment",
         id: timelineEntry.id,
@@ -1981,6 +2099,8 @@ export function deriveMessagesTimelineRows(input: {
         segmentIndex: timelineEntry.segmentIndex,
         ...(generatedImageGallery ? { generatedImageGallery } : {}),
         ...(segmentChatArtifacts ? { chatArtifacts: segmentChatArtifacts } : {}),
+        ...(segmentProducedFilePaths ? { producedFilePaths: segmentProducedFilePaths } : {}),
+        ...(segmentProducedFileWindow ? { producedFileWindow: segmentProducedFileWindow } : {}),
       });
       continue;
     }
@@ -2012,6 +2132,14 @@ export function deriveMessagesTimelineRows(input: {
       terminalAssistantMessageIds.has(message.id)
         ? chatArtifactsByTurn.get(String(message.turnId))
         : undefined;
+    const producedFilePaths =
+      message.role === "assistant" && message.turnId != null
+        ? producedFilesByTurn.get(String(message.turnId))
+        : undefined;
+    const producedFileWindow =
+      message.role === "assistant" && message.turnId != null
+        ? turnFileWindows.get(String(message.turnId))
+        : undefined;
 
     nextRows.push({
       kind: "message",
@@ -2031,6 +2159,8 @@ export function deriveMessagesTimelineRows(input: {
           : undefined,
       ...(generatedImageGallery ? { generatedImageGallery } : {}),
       ...(chatArtifacts ? { chatArtifacts } : {}),
+      ...(producedFilePaths ? { producedFilePaths } : {}),
+      ...(producedFileWindow ? { producedFileWindow } : {}),
       revertTurnCount:
         message.role === "user" ? input.revertTurnCountByUserMessageId.get(message.id) : undefined,
     });
@@ -3322,6 +3452,13 @@ export function collectInlineVisualEmbedOwners(
   return owners;
 }
 
+function turnFileWindowsEqual(
+  a: TurnFileWindow | undefined,
+  b: TurnFileWindow | undefined,
+): boolean {
+  return a?.startedAt === b?.startedAt && a?.completedAt === b?.completedAt;
+}
+
 function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean {
   if (a.kind !== b.kind || a.id !== b.id) return false;
 
@@ -3479,6 +3616,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.assistantTurnDiffSummary === bm.assistantTurnDiffSummary &&
         generatedImageGalleriesEqual(a.generatedImageGallery, bm.generatedImageGallery) &&
         chatArtifactsEqual(a.chatArtifacts, bm.chatArtifacts) &&
+        stringArraysEqual(a.producedFilePaths, bm.producedFilePaths) &&
+        turnFileWindowsEqual(a.producedFileWindow, bm.producedFileWindow) &&
         a.revertTurnCount === bm.revertTurnCount
       );
     }
@@ -3489,7 +3628,9 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
         a.message === bm.message &&
         a.segmentIndex === bm.segmentIndex &&
         generatedImageGalleriesEqual(a.generatedImageGallery, bm.generatedImageGallery) &&
-        chatArtifactsEqual(a.chatArtifacts, bm.chatArtifacts)
+        chatArtifactsEqual(a.chatArtifacts, bm.chatArtifacts) &&
+        stringArraysEqual(a.producedFilePaths, bm.producedFilePaths) &&
+        turnFileWindowsEqual(a.producedFileWindow, bm.producedFileWindow)
       );
     }
 

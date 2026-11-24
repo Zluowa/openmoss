@@ -6,6 +6,7 @@
 import { StreamingMarkdownProvider, StreamingMarkdownText } from "./chat/StreamingMarkdownText";
 import { THREAD_OUTPUT_ROUTE, threadOutputHref } from "@moss/shared/threadWorkspace";
 import { downloadUrlAsBlob } from "~/lib/browserDownload";
+import { type TurnFileWindow, useFileMadeDuringTurn } from "~/lib/threadOutputFileTimes";
 import {
   openSpacePage,
   rememberStartSlide,
@@ -307,6 +308,18 @@ interface ChatMarkdownProps {
    * inline-code chip uses one of these when the match is unique.
    */
   knownAbsoluteFilePaths?: ReadonlyArray<string> | undefined;
+  /**
+   * Files this reply's turn wrote, created, edited or exported. Only these get a download
+   * beside their chip: a file the agent only read is not its output. A caller that passes
+   * neither this nor `producedFileWindow` has no turn data; Moss cannot tell a read file from a
+   * made one there, so every file chip keeps its download (WALK-6 N6-1).
+   */
+  producedFilePaths?: ReadonlyArray<string> | undefined;
+  /**
+   * When the reply's turn ran. A linked file created or written in that span is the turn's output
+   * as well: a command made it, where no file-change tool or checkpoint diff names it.
+   */
+  producedFileWindow?: TurnFileWindow | undefined;
 }
 
 // Source line of the enclosing task-list item, provided by the `li` override.
@@ -1569,13 +1582,69 @@ function LocalOpenableFileChip(props: {
       {renderContext?.threadId &&
       !renderContext.isUserVariant &&
       /\.(pptx|docx|xlsx|pdf|txt|md|csv|tsv|zip)$/iu.test(chipPath) ? (
-        <ThreadOutputDownload
-          href={threadOutputHref(renderContext.threadId, chipPath)}
-          fileName={basenameOfPath(chipPath)}
-        />
+        // Without turn data Moss cannot tell what the turn made, so the download stays: no one
+        // loses it for a file the agent produced (WALK-6 N6-1).
+        (renderContext.producedFilePaths === undefined &&
+          renderContext.producedFileWindow === undefined) ||
+        isProducedFilePath(chipPath, renderContext.producedFilePaths, renderContext.cwd) ? (
+          <ThreadOutputDownload
+            href={threadOutputHref(renderContext.threadId, chipPath)}
+            fileName={basenameOfPath(chipPath)}
+          />
+        ) : renderContext.producedFileWindow ? (
+          <MadeDuringTurnDownload
+            threadId={renderContext.threadId}
+            path={chipPath}
+            window={renderContext.producedFileWindow}
+          />
+        ) : null
       ) : null}
     </>
   );
+}
+
+/** A path in one comparable form: forward slashes, no leading "./", absolute under `cwd`. */
+function comparableFilePath(path: string, cwd: string | undefined): string {
+  const normalized = path
+    .trim()
+    .replaceAll("\\", "/")
+    .replace(/^(?:\.\/)+/u, "");
+  const absolute =
+    cwd && !isLocalAbsolutePath(normalized)
+      ? `${cwd.replaceAll("\\", "/").replace(/\/+$/u, "")}/${normalized}`
+      : normalized;
+  // Windows paths compare without case.
+  return /^[a-z]:\//iu.test(absolute) ? absolute.toLowerCase() : absolute;
+}
+
+/** Whether `path` names one of the files the turn produced. */
+function isProducedFilePath(
+  path: string,
+  producedFilePaths: ReadonlyArray<string> | undefined,
+  cwd: string | undefined,
+): boolean {
+  if (!producedFilePaths || producedFilePaths.length === 0) return false;
+  const target = comparableFilePath(path, cwd);
+  return producedFilePaths.some((produced) => {
+    const candidate = comparableFilePath(produced, cwd);
+    if (candidate === target) return true;
+    // With no folder to resolve against, a relative path matches on whole segments.
+    return (
+      (!isLocalAbsolutePath(candidate) && target.endsWith(`/${candidate}`)) ||
+      (!isLocalAbsolutePath(target) && candidate.endsWith(`/${target}`))
+    );
+  });
+}
+
+/** 下载 beside a file the turn's commands created or wrote, once the server has said so. */
+function MadeDuringTurnDownload(props: { threadId: string; path: string; window: TurnFileWindow }) {
+  const made = useFileMadeDuringTurn(props.threadId, props.path, props.window);
+  return made ? (
+    <ThreadOutputDownload
+      href={threadOutputHref(props.threadId, props.path)}
+      fileName={basenameOfPath(props.path)}
+    />
+  ) : null;
 }
 
 function ThreadOutputDownload(props: { href: string; fileName: string; children?: ReactNode }) {
@@ -2046,6 +2115,8 @@ interface MarkdownRenderContextValue {
   isInsideLink: boolean;
   cwd: ChatMarkdownProps["cwd"];
   knownAbsoluteFilePaths: string[] | undefined;
+  producedFilePaths: ChatMarkdownProps["producedFilePaths"];
+  producedFileWindow: ChatMarkdownProps["producedFileWindow"];
   diffThemeName: DiffThemeName;
   isStreaming: boolean;
   isUserVariant: boolean;
@@ -2751,6 +2822,8 @@ function ChatMarkdown({
   findActiveRange: findActiveRangeProp,
   onTaskToggle,
   knownAbsoluteFilePaths: knownAbsoluteFilePathsProp,
+  producedFilePaths,
+  producedFileWindow,
   variant: variantProp,
   mentionReferences,
   terminalContexts,
@@ -2911,6 +2984,8 @@ function ChatMarkdown({
       isInsideLink: false,
       cwd,
       knownAbsoluteFilePaths,
+      producedFilePaths,
+      producedFileWindow,
       diffThemeName,
       isStreaming,
       isUserVariant,
@@ -2930,6 +3005,8 @@ function ChatMarkdown({
     [
       cwd,
       knownAbsoluteFilePaths,
+      producedFilePaths,
+      producedFileWindow,
       diffThemeName,
       isStreaming,
       isUserVariant,

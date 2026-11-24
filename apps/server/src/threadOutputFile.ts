@@ -60,6 +60,24 @@ export async function readThreadOutput(root: string, requested: string, sha256?:
   return { bytes, name: path.basename(file) };
 }
 
+/**
+ * When a file the thread's download would serve was last written and created, or null when the
+ * download would refuse it (outside the folder, hidden, a link, missing). Reads no bytes.
+ */
+export async function statThreadOutput(root: string, requested: string) {
+  try {
+    const stat = await lstat(await threadOutputPath(root, requested));
+    if (stat.nlink !== 1 || !stat.isFile() || stat.isSymbolicLink()) return null;
+    return {
+      modifiedAtMs: stat.mtimeMs,
+      // Some file systems record no creation time and report 0.
+      createdAtMs: stat.birthtimeMs > 0 ? stat.birthtimeMs : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Publish complete bytes without following or overwriting an existing destination. */
 export async function publishThreadOutput(
   root: string,

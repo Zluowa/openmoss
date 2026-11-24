@@ -580,6 +580,8 @@ import {
   ProjectResolveWorkspaceFileReferencesResult,
   ProjectResolveOutOfRootFileReferenceInput,
   ProjectResolveOutOfRootFileReferenceResult,
+  ProjectStatThreadOutputFilesInput,
+  ProjectStatThreadOutputFilesResult,
   ProjectRunDevServerInput,
   ProjectRunDevServerResult,
   ProjectSearchEntriesInput,
@@ -968,6 +970,15 @@ export const WsProjectsResolveOutOfRootFileReferenceRpc = Rpc.make(
   {
     payload: ProjectResolveOutOfRootFileReferenceInput,
     success: ProjectResolveOutOfRootFileReferenceResult,
+    error: WsRpcError,
+  },
+);
+
+export const WsProjectsStatThreadOutputFilesRpc = Rpc.make(
+  WS_METHODS.projectsStatThreadOutputFiles,
+  {
+    payload: ProjectStatThreadOutputFilesInput,
+    success: ProjectStatThreadOutputFilesResult,
     error: WsRpcError,
   },
 );
@@ -3481,6 +3492,7 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsProjectsSubscribeFileChangeRpc,
   WsProjectsResolveWorkspaceFileReferencesRpc,
   WsProjectsResolveOutOfRootFileReferenceRpc,
+  WsProjectsStatThreadOutputFilesRpc,
   WsProjectsCreateLocalFilePreviewGrantRpc,
   WsProjectsWriteFileRpc,
   WsProjectsRunDevServerRpc,

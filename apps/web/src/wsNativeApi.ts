@@ -744,6 +744,8 @@ export function createWsNativeApi(): WsNativeApi {
         transport.request(WS_METHODS.projectsResolveWorkspaceFileReferences, input),
       resolveOutOfRootFileReference: (input) =>
         transport.request(WS_METHODS.projectsResolveOutOfRootFileReference, input),
+      statThreadOutputFiles: (input) =>
+        transport.request(WS_METHODS.projectsStatThreadOutputFiles, input),
       createLocalFilePreviewGrant: (input) =>
         transport.request(WS_METHODS.projectsCreateLocalFilePreviewGrant, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),

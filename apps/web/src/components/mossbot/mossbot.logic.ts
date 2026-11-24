@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  MossbotRoomView,
   ProjectAgentConfigureInput,
   ProjectAgentSummary,
   ProjectId,
@@ -9,6 +10,7 @@ import {
   buildGroupConfigureInput,
   buildGroupSettingsBaseline,
 } from "../chat/group/groupSettingsDialog.logic";
+import type { TurnFileWindow } from "../../lib/threadOutputFileTimes";
 
 export const MOSSBOT_TEMPLATES = [
   {
@@ -130,4 +132,67 @@ export function mossbotStatus(summary: ProjectAgentSummary): string {
   if (summary.coordinatorStatus === "running") return "Working";
   if (summary.coordinatorStatus === "stopped") return "Stopped";
   return "Ready";
+}
+
+/**
+ * When the turn behind each member reply of a group ran, by the reply's message id. A file the
+ * reply links that was created or written in that span is the member's output and gets 下载, as
+ * in the main chat (WALK-6 N6-1).
+ *
+ * The span starts no later than the turn can have begun: at the member's previous turn's last
+ * message, or at the group's creation for its first turn. The person's post is not a safe start,
+ * because it may wait in the member's queue while an earlier turn still runs, and a later post
+ * may come in while this turn works before its first message. The span ends with the turn's last
+ * message, and stays open while that message streams or while the member is still working.
+ */
+export function mossbotRoomReplyFileWindows(view: {
+  readonly room: Pick<MossbotRoomView["room"], "createdAt" | "deliveries">;
+  readonly replies: MossbotRoomView["replies"];
+}): ReadonlyMap<string, TurnFileWindow> {
+  const working = new Set<string>(
+    view.room.deliveries
+      .filter((delivery) => delivery.state === "running")
+      .map((delivery) => delivery.memberId),
+  );
+  const messagesByMember = new Map<string, MossbotRoomView["replies"][number]["message"][]>();
+  for (const reply of view.replies) {
+    const messages = messagesByMember.get(reply.memberId) ?? [];
+    messages.push(reply.message);
+    messagesByMember.set(reply.memberId, messages);
+  }
+  const windows = new Map<string, TurnFileWindow>();
+  for (const [memberId, messages] of messagesByMember) {
+    // One member thread runs one turn at a time, so its turns follow each other in this order.
+    const turns = new Map<string, { startedAt: string; messages: typeof messages }>();
+    let lastTurnMessageAt: string | null = null;
+    let latestTurnId: string | null = null;
+    for (const message of messages.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+      // A message without a turn says nothing about when one ran: its chips keep their download.
+      if (!message.turnId) continue;
+      let turn = turns.get(message.turnId);
+      if (!turn) {
+        const groupStart =
+          view.room.createdAt < message.createdAt ? view.room.createdAt : message.createdAt;
+        turn = { startedAt: lastTurnMessageAt ?? groupStart, messages: [] };
+        turns.set(message.turnId, turn);
+      }
+      turn.messages.push(message);
+      lastTurnMessageAt = message.createdAt;
+      latestTurnId = message.turnId;
+    }
+    for (const [turnId, turn] of turns) {
+      const open =
+        turn.messages.some((message) => message.streaming) ||
+        (turnId === latestTurnId && working.has(memberId));
+      const completedAt = open
+        ? null
+        : turn.messages
+            .map((message) => message.updatedAt)
+            .toSorted()
+            .at(-1)!;
+      const window = { startedAt: turn.startedAt, completedAt };
+      for (const message of turn.messages) windows.set(message.id, window);
+    }
+  }
+  return windows;
 }

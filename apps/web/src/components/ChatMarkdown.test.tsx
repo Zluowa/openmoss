@@ -127,16 +127,38 @@ describe("ChatMarkdown", () => {
     HEAVY_MODULE_TEST_TIMEOUT_MS,
   );
 
-  it("offers owner downloads for common text, table and archive links", async () => {
+  it("offers owner downloads for the text, table and archive files the turn produced", async () => {
     const { default: ChatMarkdown } = await import("./ChatMarkdown");
     const extensions = ["txt", "md", "csv", "tsv", "zip"];
     const text = extensions
       .map((ext) => `[report.${ext}](C:/workspace/report.${ext})`)
       .join("\n\n");
     const html = renderWithQueryClient(
-      <ChatMarkdown text={text} cwd="C:/workspace" threadId="owner" isStreaming={false} />,
+      <ChatMarkdown
+        text={text}
+        cwd="C:/workspace"
+        threadId="owner"
+        isStreaming={false}
+        producedFilePaths={extensions.map((ext) => `report.${ext}`)}
+      />,
     );
     for (const ext of extensions) expect(html).toContain(`download="report.${ext}"`);
+    // The same files, only read by the turn: no download.
+    const readOnly = renderWithQueryClient(
+      <ChatMarkdown
+        text={text}
+        cwd="C:/workspace"
+        threadId="owner"
+        isStreaming={false}
+        producedFilePaths={[]}
+      />,
+    );
+    expect(readOnly).not.toContain("data-thread-output-download");
+    // A caller with no turn data: Moss cannot tell, so every file keeps its download.
+    const noTurnData = renderWithQueryClient(
+      <ChatMarkdown text={text} cwd="C:/workspace" threadId="owner" isStreaming={false} />,
+    );
+    for (const ext of extensions) expect(noTurnData).toContain(`download="report.${ext}"`);
   });
   it("leaves Codex visualize markers as text because CLI 0.162.1 never emits them", async () => {
     const { default: ChatMarkdown } = await import("./ChatMarkdown");

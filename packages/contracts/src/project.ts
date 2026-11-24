@@ -4,6 +4,7 @@ import {
   PositiveInt,
   ProcessEnvRecord,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
 
@@ -18,6 +19,7 @@ export const PROJECT_PREVIEW_READ_FILE_MAX_BYTES = 20_000_000;
 const PROJECT_DIRECTORY_LIST_MAX_DEPTH = 32;
 const PROJECT_SCRIPT_DISCOVERY_MAX_DEPTH = 3;
 export const PROJECT_RESOLVE_WORKSPACE_FILE_REFERENCES_MAX_PATHS = 128;
+export const PROJECT_STAT_THREAD_OUTPUT_FILES_MAX_PATHS = 64;
 const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 
 export const ProjectFileEncoding = Schema.Literals(["utf8", "utf8-bom"]);
@@ -252,6 +254,29 @@ export const ProjectResolveWorkspaceFileReferencesResult = Schema.Struct({
 });
 export type ProjectResolveWorkspaceFileReferencesResult =
   typeof ProjectResolveWorkspaceFileReferencesResult.Type;
+
+// When files a reply links were written: the server answers for the files the thread's output
+// download serves (inside the conversation's folder), null for any other path. The reply offers
+// 下载 beside a file its turn's commands created or changed (WALK-6 N6-1).
+export const ProjectStatThreadOutputFilesInput = Schema.Struct({
+  threadId: ThreadId,
+  paths: Schema.Array(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+  ).check(Schema.isMinLength(1), Schema.isMaxLength(PROJECT_STAT_THREAD_OUTPUT_FILES_MAX_PATHS)),
+});
+export type ProjectStatThreadOutputFilesInput = typeof ProjectStatThreadOutputFilesInput.Type;
+
+export const ProjectThreadOutputFileTimes = Schema.Struct({
+  modifiedAtMs: Schema.Number,
+  /** Null where the file system does not record when a file was created. */
+  createdAtMs: Schema.NullOr(Schema.Number),
+});
+export type ProjectThreadOutputFileTimes = typeof ProjectThreadOutputFileTimes.Type;
+
+export const ProjectStatThreadOutputFilesResult = Schema.Struct({
+  files: Schema.Array(Schema.NullOr(ProjectThreadOutputFileTimes)),
+});
+export type ProjectStatThreadOutputFilesResult = typeof ProjectStatThreadOutputFilesResult.Type;
 
 // Locates a chat file reference that failed to read inside the workspace root:
 // the server retries the workspace-relative path against ancestor directories

@@ -2301,6 +2301,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         threadId={threadId}
                         messageId={row.message.id}
                         segmentIndex={row.segmentIndex}
+                        producedFilePaths={row.producedFilePaths}
+                        producedFileWindow={row.producedFileWindow}
                         renderInlineVisualizations={row.message.role === "assistant"}
                         isStreaming={false}
                         shareParse
@@ -3188,6 +3190,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         }
                       : {})}
                     knownAbsoluteFilePaths={knownAbsoluteFilePaths}
+                    producedFilePaths={row.producedFilePaths}
+                    producedFileWindow={row.producedFileWindow}
                     {...threadFindMarkdownProps(findHighlight, item.message.id)}
                   />
                 </InlineVisualEmbedContext.Provider>
@@ -3481,6 +3485,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                               : {})}
                             markers={messageMarkers}
                             knownAbsoluteFilePaths={knownAbsoluteFilePaths}
+                            producedFilePaths={row.producedFilePaths}
+                            producedFileWindow={row.producedFileWindow}
                             {...(conversationOnly && onOpenThread ? { onOpenThread } : {})}
                             {...threadFindMarkdownProps(findHighlight, row.message.id)}
                           />
