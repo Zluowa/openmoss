@@ -109,8 +109,10 @@ export function resolveRightDockAddMenuKinds(
   if (!launcherItems) {
     return addMenuKinds;
   }
-  const availableKinds = new Set(launcherItems.map((item) => item.kind));
-  return addMenuKinds.filter((kind) => availableKinds.has(kind));
+  // One list of panes (WALK-1 C-4): the + menu offers what the launcher lists, in the launcher's
+  // order, limited to the kinds this host adds (a host with none keeps its own + action).
+  const offered = new Set(addMenuKinds);
+  return launcherItems.map((item) => item.kind).filter((kind) => offered.has(kind));
 }
 
 // Empty-dock launchers prioritize the everyday workspace tools. Review only
@@ -127,6 +129,10 @@ const RIGHT_DOCK_LAUNCHER_ORDER: readonly RightDockPaneKind[] = [
   "device",
   "git",
 ];
+
+/** The chat dock's + menu: every pane its launcher can list, so the two lists are one (C-4). */
+export const RIGHT_DOCK_CHAT_ADD_MENU_KINDS: readonly RightDockPaneKind[] =
+  RIGHT_DOCK_LAUNCHER_ORDER;
 
 const RIGHT_DOCK_LAUNCHER_LABEL_KEYS: Partial<Record<RightDockPaneKind, TranslationKey>> = {
   diff: "rightDock.launcher.review",
@@ -159,6 +165,8 @@ export function resolveRightDockLauncherItems(
     hasReview: boolean;
     /** True when the local server can host the iOS Simulator pane. */
     hasDeviceSupport?: boolean;
+    /** False while this chat cannot start a side chat (a draft, a side chat itself); default true. */
+    hasSideChat?: boolean;
   },
   t: (key: TranslationKey) => string = DEFAULT_RIGHT_DOCK_TRANSLATOR,
 ): readonly RightDockLauncherItem[] {
@@ -170,6 +178,9 @@ export function resolveRightDockLauncherItems(
       return [];
     }
     if ((kind === "explorer" || kind === "canvas") && !input.hasWorkspace) {
+      return [];
+    }
+    if (kind === "sidechat" && input.hasSideChat === false) {
       return [];
     }
     const meta = getRightDockPaneMeta(kind, t);

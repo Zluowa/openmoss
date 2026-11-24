@@ -9,11 +9,14 @@
 // thread id and have the dock invoke it. Only threads that can offer /side register.
 
 import type { ThreadId } from "@moss/contracts";
+import { useSyncExternalStore } from "react";
 
 export type SidechatCreator = (options?: { initialPrompt?: string }) => Promise<unknown>;
 
 const creatorsByThreadId = new Map<ThreadId, SidechatCreator>();
 const waitersByThreadId = new Map<ThreadId, Set<(creator: SidechatCreator | undefined) => void>>();
+const listeners = new Set<() => void>();
+const notifyListeners = () => listeners.forEach((listener) => listener());
 
 function notifyCreatorWaiters(threadId: ThreadId, creator: SidechatCreator | undefined): void {
   const waiters = waitersByThreadId.get(threadId);
@@ -25,9 +28,11 @@ function notifyCreatorWaiters(threadId: ThreadId, creator: SidechatCreator | und
 export function registerSidechatCreator(threadId: ThreadId, creator: SidechatCreator): () => void {
   creatorsByThreadId.set(threadId, creator);
   notifyCreatorWaiters(threadId, creator);
+  notifyListeners();
   return () => {
     if (creatorsByThreadId.get(threadId) === creator) {
       creatorsByThreadId.delete(threadId);
+      notifyListeners();
     }
   };
 }
@@ -61,4 +66,16 @@ export function waitForSidechatCreator(
       resolve(undefined);
     }, timeoutMs);
   });
+}
+
+/** Whether this chat can start a side chat now: the dock offers 侧边聊天 only then (WALK-1 R-2). */
+export function useCanStartSidechat(threadId: ThreadId): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    () => creatorsByThreadId.has(threadId),
+    () => false,
+  );
 }

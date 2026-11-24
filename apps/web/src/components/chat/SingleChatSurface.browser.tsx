@@ -49,6 +49,7 @@ import { McpAppCard } from "./McpAppCard";
 import { MossLocaleScope } from "../../localization";
 import { RealtimeVoiceControllerProvider } from "./RealtimeVoiceControllerProvider";
 import { SingleChatSurface } from "./SingleChatSurface";
+import { registerSidechatCreator } from "../../lib/sidechatCreatorRegistry";
 
 const surfaceHarness = vi.hoisted(() => ({ useRealChatView: false }));
 const SurfaceStub = vi.hoisted(() => () => <div data-single-chat-surface-child="true" />);
@@ -856,6 +857,7 @@ describe("SingleChatSurface right-dock host contract", () => {
   });
 
   it("opens 画布 beside the chat from the launcher and from a chat image, never full width", async () => {
+    let cleanupSidechat: (() => void) | null = null;
     const nativeFetch = window.fetch.bind(window);
     // This fixture has no Canvas bundle; the pane must still appear beside the chat at once.
     const canvasFetch = vi.spyOn(window, "fetch").mockImplementation((input, init) => {
@@ -897,16 +899,22 @@ describe("SingleChatSurface right-dock host contract", () => {
         expect(canvasRect.left).toBeGreaterThanOrEqual(chatRect.right - 1);
       };
 
+      // This chat can start a side chat, so the launcher lists 侧边聊天 too.
+      const unregisterSidechat = registerSidechatCreator(THREAD_ID, async () => undefined);
+      cleanupSidechat = unregisterSidechat;
       // The launcher lists 画布 right after 侧边聊天, by the same name as the image chip.
       const launcher = await vi.waitFor(() => {
         const current = host.querySelector<HTMLElement>('[data-testid="right-dock-empty-actions"]');
         expect(current).not.toBeNull();
         return current!;
       });
-      const kinds = [
-        ...launcher.querySelectorAll<HTMLElement>('[data-testid^="right-dock-empty-action-"]'),
-      ].map((button) => button.dataset.testid!.replace("right-dock-empty-action-", ""));
-      expect(kinds.indexOf("canvas")).toBe(kinds.indexOf("sidechat") + 1);
+      await vi.waitFor(() => {
+        const kinds = [
+          ...launcher.querySelectorAll<HTMLElement>('[data-testid^="right-dock-empty-action-"]'),
+        ].map((button) => button.dataset.testid!.replace("right-dock-empty-action-", ""));
+        expect(kinds).toContain("sidechat");
+        expect(kinds.indexOf("canvas")).toBe(kinds.indexOf("sidechat") + 1);
+      });
       const canvasButton = launcher.querySelector<HTMLButtonElement>(
         '[data-testid="right-dock-empty-action-canvas"]',
       )!;
@@ -951,6 +959,7 @@ describe("SingleChatSurface right-dock host contract", () => {
       await vi.waitFor(expectCanvasBesideChat);
     } finally {
       await mounted?.cleanup();
+      cleanupSidechat?.();
       canvasFetch.mockRestore();
     }
   });
@@ -1035,6 +1044,65 @@ describe("SingleChatSurface right-dock host contract", () => {
         { timeout: 3_000, interval: 16 },
       );
     } finally {
+      await mounted?.cleanup();
+      canvasFetch.mockRestore();
+    }
+  });
+
+  it("offers 侧边聊天 only when the chat can start one, and the + menu lists the launcher's panes", async () => {
+    const nativeFetch = window.fetch.bind(window);
+    const canvasFetch = vi.spyOn(window, "fetch").mockImplementation((input, init) => {
+      const url = new URL(
+        input instanceof Request ? input.url : String(input),
+        window.location.href,
+      );
+      if (url.origin === window.location.origin && url.pathname === "/canvas/") {
+        return Promise.resolve(new Response("Canvas bundle missing", { status: 503 }));
+      }
+      return nativeFetch(input, init);
+    });
+    let mounted: Awaited<ReturnType<typeof mountSurface>> | null = null;
+    let unregister: (() => void) | null = null;
+    try {
+      mounted = await mountSurface({ width: 1_200, openImageDock: false });
+      const host = mounted.host;
+      useRightDockStore.setState({
+        dockStateByThreadId: { [THREAD_ID]: { open: true, panes: [], activePaneId: null } },
+      });
+      const launcherLabels = () =>
+        [...host.querySelectorAll<HTMLElement>('[data-testid^="right-dock-empty-action-"]')].map(
+          (button) => button.textContent?.trim() ?? "",
+        );
+      const launcherKinds = () =>
+        [...host.querySelectorAll<HTMLElement>('[data-testid^="right-dock-empty-action-"]')].map(
+          (button) => button.dataset.testid!.replace("right-dock-empty-action-", ""),
+        );
+      // This chat cannot start a side chat yet (WALK-1 R-2): the launcher does not offer one.
+      await vi.waitFor(() => expect(launcherKinds().length).toBeGreaterThan(0));
+      expect(launcherKinds()).not.toContain("sidechat");
+      // Once it can, 侧边聊天 is there.
+      unregister = registerSidechatCreator(THREAD_ID, async () => undefined);
+      await vi.waitFor(() => expect(launcherKinds()).toContain("sidechat"));
+      const labels = launcherLabels();
+
+      // Open a pane, then the + menu lists the same panes in the same order (WALK-1 C-4).
+      await userEvent.click(
+        host.querySelector<HTMLButtonElement>('[data-testid="right-dock-empty-action-canvas"]')!,
+      );
+      await vi.waitFor(() =>
+        expect(host.querySelector("[data-conversation-image-workspace]")).not.toBeNull(),
+      );
+      await page.getByRole("button", { name: "Add panel", exact: true }).click();
+      const menuLabels = await vi.waitFor(() => {
+        const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+          (item) => item.textContent?.trim() ?? "",
+        );
+        expect(items.length).toBeGreaterThan(0);
+        return items;
+      });
+      expect(menuLabels).toEqual(labels);
+    } finally {
+      unregister?.();
       await mounted?.cleanup();
       canvasFetch.mockRestore();
     }

@@ -249,6 +249,36 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     expect(recover).toHaveBeenCalledWith({ op: "restore", recoveryId: "review", observation });
   });
 
+  it("does not save an empty 画布 while no Moss account is signed in (WALK-1 C-1)", async () => {
+    const originalFetch = window.fetch;
+    // The canvas's account check, as the server answers it signed out.
+    window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url.includes("/api/moss/media/canvas/account"))
+        return Promise.resolve(
+          new Response(JSON.stringify({ authenticated: false, user: null }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      return originalFetch(input, init);
+    }) as typeof window.fetch;
+    try {
+      await mount();
+      const tile = document.querySelector<HTMLButtonElement>('[data-space-create-tile="board"]');
+      expect(tile).not.toBeNull();
+      const before = fixture.mutate.mock.calls.length;
+      await userEvent.click(tile!);
+      // What the person sees: the way forward, and no new empty card.
+      await expect
+        .element(page.getByText("登录 Moss 账号后即可使用画布。", { exact: true }))
+        .toBeVisible();
+      expect(fixture.mutate.mock.calls.length).toBe(before);
+    } finally {
+      window.fetch = originalFetch;
+    }
+  });
+
   it("reconciles an unknown create-space result with the original request instead of duplicating it", async () => {
     fixture.state.loseCreateResponse = true;
     await mount();

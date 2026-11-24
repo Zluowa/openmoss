@@ -238,12 +238,13 @@ function RightDockTab(props: {
       ? { width: `${props.lockedWidthPx}px`, minWidth: `${props.lockedWidthPx}px` }
       : undefined;
   return (
-    <div style={tabStyle} className={props.lockedWidthPx ? "shrink-0" : undefined}>
+    <div style={tabStyle} className={props.lockedWidthPx ? "shrink-0" : "min-w-0"}>
       <SurfaceTabChip
         active={props.active}
         title={props.label}
         label={props.label}
-        labelClassName="max-w-[10rem]"
+        // One tab style with the chat's tabs: the close control on the right (WALK-1 R-6).
+        closePlacement="trailing"
         icon={
           props.icon ??
           ("kind" in props.pane ? (
@@ -742,7 +743,12 @@ function RightDockSurface(
               {props.state.panes.map((pane) => {
                 const pinned = Boolean(props.pinnedPaneIds?.has(pane.id));
                 return (
-                  <div key={pane.id} data-right-dock-tab-id={pane.id} className="min-w-0 shrink-0">
+                  // Tabs shrink evenly to a readable width; past that the strip scrolls (WALK-1 R-3).
+                  <div
+                    key={pane.id}
+                    data-right-dock-tab-id={pane.id}
+                    className="min-w-[5.5rem] max-w-[11rem] shrink basis-[11rem]"
+                  >
                     <RightDockTab
                       pane={pane}
                       label={
@@ -769,6 +775,12 @@ function RightDockSurface(
                   onClose={() => props.onCloseMcpApp?.(entry.id)}
                 />
               ))}
+            </div>
+            {/* The "+" stays in view however many tabs are open (WALK-1 R-3). */}
+            <div
+              className="flex shrink-0 items-center [-webkit-app-region:no-drag]"
+              data-right-dock-add
+            >
               {props.state.panes.length > 0 && visibleAddMenuKinds.length > 0 ? (
                 <Menu modal={false}>
                   <MenuTrigger
@@ -787,7 +799,10 @@ function RightDockSurface(
                   <ComposerPickerMenuPopup align="start" side="bottom" className="w-44 min-w-44">
                     {visibleAddMenuKinds.map((kind) => {
                       const { Icon } = getRightDockPaneMeta(kind);
-                      const label = t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
+                      // The launcher's own words, so the two lists read the same (WALK-1 C-4).
+                      const label =
+                        props.launcherItems?.find((item) => item.kind === kind)?.label ??
+                        t(RIGHT_DOCK_LABEL_KEY_BY_KIND[kind]);
                       return (
                         <MenuItem key={kind} onClick={() => props.onAddPane(kind)}>
                           <Icon className="size-4 shrink-0" />

@@ -41,7 +41,7 @@ import { gitBranchesQueryOptions } from "../../lib/gitReactQuery";
 import { canComposerHandlePanelWidth } from "../../lib/panelResize";
 import { projectListDirectoriesQueryOptions } from "../../lib/projectReactQuery";
 import { serverConfigQueryOptions } from "../../lib/serverReactQuery";
-import { waitForSidechatCreator } from "../../lib/sidechatCreatorRegistry";
+import { useCanStartSidechat, waitForSidechatCreator } from "../../lib/sidechatCreatorRegistry";
 import {
   clearSidechatPaneRetention,
   getSidechatPaneRetentionVersion,
@@ -119,7 +119,7 @@ import {
   resolveRightDockSurfaceControlShortcutLabels,
 } from "./rightDockFullWidth.logic";
 import {
-  RIGHT_DOCK_ADD_MENU_KINDS,
+  RIGHT_DOCK_CHAT_ADD_MENU_KINDS,
   buildRightDockPaneLabelOverrides,
   getRightDockPaneMeta,
   resolveRightDockLauncherItems,
@@ -400,12 +400,14 @@ export function SingleChatSurface(props: {
     isGitRepo: hasGitRepository,
   });
   const hasDeviceSupport = useDeviceSupport();
+  const canStartSidechat = useCanStartSidechat(props.threadId);
   const dockLauncherItems = resolveRightDockLauncherItems(
     {
       hasWorkspace: workspaceRoot !== null,
       hasGitRepository,
       hasReview: dockDiffTotals.fileCount > 0,
       hasDeviceSupport,
+      hasSideChat: canStartSidechat,
     },
     t,
   );
@@ -1576,7 +1578,7 @@ export function SingleChatSurface(props: {
           defaultWidth={DIFF_INLINE_DEFAULT_WIDTH}
           widthStorageKey={rightDockThreadWidthStorageKey(props.threadId)}
           shouldAcceptWidth={shouldAcceptDockWidth}
-          addMenuKinds={RIGHT_DOCK_ADD_MENU_KINDS}
+          addMenuKinds={RIGHT_DOCK_CHAT_ADD_MENU_KINDS}
           launcherItems={dockLauncherItems}
           motionKey={props.threadId}
           activePaneRuntimeMode={
@@ -1597,9 +1599,8 @@ export function SingleChatSurface(props: {
           }}
           onCloseMcpApp={(entryId) => void closeMcpAppDockEntry(entryId)}
           onSelectPane={handleSelectDockPane}
-          activePaneOwnsWidthToggle={
-            !mcpAppDockEntries.some((entry) => entry.selected) && activePane?.kind === "browser"
-          }
+          // The dock's own expand serves every pane, the browser included (WALK-1 R-4).
+          activePaneOwnsWidthToggle={false}
           onClosePane={(paneId) => {
             if (
               ["imagePreview", "canvas"].includes(
