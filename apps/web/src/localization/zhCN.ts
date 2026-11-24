@@ -106,7 +106,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
     "做我的研究伙伴。寻找一手资料、比较证据、区分事实与假设，给出有来源的实用结论。保存研究笔记，只在有帮助时建议后续研究。",
   "Help me move my projects forward. Understand the goal, inspect current work, use scoped worker threads when useful, track decisions and blockers, and report verified results. Preserve existing work and respect approvals.":
     "帮我推进项目。理解目标、检查当前进展，在需要时分配范围明确的任务，跟踪决定与阻碍，汇报已验证的结果。保留现有工作，遵守审批要求。",
-  "A little help, always at hand.": "随时在身边，帮你把事情做好。",
   "Meet Mossbot. Personal assistants that remember what matters, use your skills, and work across your projects.":
     "认识 Mossbot：记住重要的事，使用你的技能，在不同项目间协助你。",
   "Create an assistant": "创建助手",

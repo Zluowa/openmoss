@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import type { SVGProps } from "react";
 import { cn } from "~/lib/utils";
 import {
@@ -163,10 +164,10 @@ export function MossbotAvatarPicker(props: {
   return (
     <div role="group" aria-label={t("Assistant avatar")} className="flex flex-wrap gap-2">
       {MOSSBOT_AVATARS.map((avatar) => (
-        <button
+        <ButtonPrimitive
           key={avatar.key}
           type="button"
-          disabled={props.disabled}
+          disabled={props.disabled ?? false}
           aria-label={t(avatar.label)}
           aria-pressed={selectedKey === avatar.key}
           onClick={() => props.onChange(avatar.key)}
@@ -176,7 +177,7 @@ export function MossbotAvatarPicker(props: {
           )}
         >
           <MossbotAvatar icon={avatar.key} color={props.color} className="size-8" />
-        </button>
+        </ButtonPrimitive>
       ))}
     </div>
   );

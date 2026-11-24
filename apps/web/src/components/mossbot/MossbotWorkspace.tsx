@@ -59,9 +59,6 @@ export function MossbotWorkspace() {
         {empty ? (
           <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 px-6 pb-16 text-center">
             <MossbotCompanion live interactive className="mb-3 size-16" />
-            <p className="text-ui-lg font-medium text-foreground">
-              {t("A little help, always at hand.")}
-            </p>
           </main>
         ) : (
           <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">

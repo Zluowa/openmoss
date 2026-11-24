@@ -185,14 +185,9 @@ export function Composer({
             </Button>
           )}
           <ComposerSendButton
-            compact={false}
             waits={working}
             label={t(working ? "Queue message" : "Send message")}
-            title={t(working ? "Queue message" : "Send message")}
             disabled={disabled || !text.trim()}
-            look={{
-              className: "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30",
-            }}
             onSend={() => void send()}
           />
         </div>

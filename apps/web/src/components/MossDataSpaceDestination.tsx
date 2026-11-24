@@ -85,6 +85,8 @@ import { toastManager } from "./ui/toast";
 type LibraryProps = Parameters<typeof MossLibraryDestination>[0];
 type Props = LibraryProps & {
   onStartPageConversation: (document: PagesReadResult, isCurrent: () => boolean) => Promise<void>;
+  /** The title bar's sidebar toggle shows and hides this page's sidebar (shown when absent). */
+  sidebarVisible?: boolean;
 };
 
 /** What fills the content sheet besides a section's item list. */
@@ -136,6 +138,7 @@ function DataSpaceWorkspace({
   scopeSpaceId,
   isCurrent,
   onStartPageConversation,
+  sidebarVisible = true,
   ...libraryProps
 }: Props & { account: string; scopeSpaceId: SpaceId | null; isCurrent: () => boolean }) {
   const client = useQueryClient();
@@ -788,41 +791,43 @@ function DataSpaceWorkspace({
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden" data-moss-data-spaces>
-      <SpaceSidebar
-        scopeSpaceId={scopeSpaceId}
-        section={section}
-        openKey={openKey}
-        recent={recentItems(items)}
-        spaces={spaces}
-        pages={allPages}
-        onSection={(next) => void showSection(next)}
-        onOpen={(item) => void openItem(item)}
-        onOpenPage={(pageId) => void openPage(pageId)}
-        onCreate={(action) => void startCreate(action)}
-        onCreateSubpage={(parent) => void startCreate("page", parent)}
-        onRenameSpace={(space) => {
-          setName(space.title);
-          setError(null);
-          setDialog({ mode: "rename", space });
-        }}
-        onSpaceIcon={(space, icon) => {
-          const root = allPages.find((page) => page.id === space.rootPageId);
-          if (root)
-            void run("更换图标", () =>
-              pageMutation(root, { op: "space-icon", icon }).then(() => undefined),
-            );
-        }}
-        onTrashSpace={(space) => {
-          const root = allPages.find((page) => page.id === space.rootPageId);
-          if (root)
-            void run("移到回收站", async () => {
-              await pageMutation(root, { op: "trash-space" });
-              if (section.type === "space" && section.spaceId === space.id)
-                setSection({ type: "all" });
-            });
-        }}
-        onClose={libraryProps.onClose}
-      />
+      {sidebarVisible === false ? null : (
+        <SpaceSidebar
+          scopeSpaceId={scopeSpaceId}
+          section={section}
+          openKey={openKey}
+          recent={recentItems(items)}
+          spaces={spaces}
+          pages={allPages}
+          onSection={(next) => void showSection(next)}
+          onOpen={(item) => void openItem(item)}
+          onOpenPage={(pageId) => void openPage(pageId)}
+          onCreate={(action) => void startCreate(action)}
+          onCreateSubpage={(parent) => void startCreate("page", parent)}
+          onRenameSpace={(space) => {
+            setName(space.title);
+            setError(null);
+            setDialog({ mode: "rename", space });
+          }}
+          onSpaceIcon={(space, icon) => {
+            const root = allPages.find((page) => page.id === space.rootPageId);
+            if (root)
+              void run("更换图标", () =>
+                pageMutation(root, { op: "space-icon", icon }).then(() => undefined),
+              );
+          }}
+          onTrashSpace={(space) => {
+            const root = allPages.find((page) => page.id === space.rootPageId);
+            if (root)
+              void run("移到回收站", async () => {
+                await pageMutation(root, { op: "trash-space" });
+                if (section.type === "space" && section.spaceId === space.id)
+                  setSection({ type: "all" });
+              });
+          }}
+          onClose={libraryProps.onClose}
+        />
+      )}
       <div ref={workspaceHostRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <SpaceCanvasChatDockHost
           artifact={activeArtifact}

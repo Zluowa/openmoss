@@ -692,38 +692,10 @@
     "hand-status-dot": 2
   },
   "apps/web/src/components/mossbot/MossbotAvatar.tsx": {
-    "hex-color": 2,
-    "raw-button": 1
-  },
-  "apps/web/src/components/mossbot/MossbotConversationRoster.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/mossbot/MossbotProfile.tsx": {
-    "raw-button": 4
-  },
-  "apps/web/src/components/mossbot/MossbotRooms.tsx": {
-    "raw-button": 1
-  },
-  "apps/web/src/components/mossbot/openmaus/BotPickerList.tsx": {
-    "raw-button": 1
+    "hex-color": 2
   },
   "apps/web/src/components/mossbot/openmaus/ComposerMenuRow.tsx": {
     "raw-button": 1
-  },
-  "apps/web/src/components/mossbot/openmaus/ComposerSendButton.tsx": {
-    "raw-button": 1,
-    "native-title": 1
-  },
-  "apps/web/src/components/mossbot/openmaus/JumpToLatestButton.tsx": {
-    "raw-button": 1,
-    "native-title": 1
-  },
-  "apps/web/src/components/mossbot/openmaus/RoomBubble.tsx": {
-    "arbitrary-radius": 4
-  },
-  "apps/web/src/components/mossbot/openmaus/RoomHeader.tsx": {
-    "raw-button": 2,
-    "native-title": 2
   },
   "apps/web/src/components/MossCanvasProjectsHost.tsx": {
     "heavy-weight": 3,

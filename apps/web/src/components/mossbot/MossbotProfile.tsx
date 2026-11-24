@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { lazy, Suspense, useState } from "react";
 import type { ProjectAgentSummary } from "@moss/contracts";
 import { useNavigate } from "@tanstack/react-router";
@@ -147,7 +148,7 @@ export function MossbotProfile({
           ) : (
             <>
               <div className="mossbot-profile-card">
-                <button
+                <ButtonPrimitive
                   type="button"
                   className="mossbot-profile-row"
                   onClick={() => setTasksOpen(true)}
@@ -158,8 +159,8 @@ export function MossbotProfile({
                     {activeCount} {t("enabled")}
                   </small>
                   <ChevronRightIcon />
-                </button>
-                <button
+                </ButtonPrimitive>
+                <ButtonPrimitive
                   type="button"
                   className="mossbot-profile-row"
                   onClick={() => setSection("memory")}
@@ -167,8 +168,8 @@ export function MossbotProfile({
                   <FoldersIcon />
                   <span>{t("Knowledge library")}</span>
                   <ChevronRightIcon />
-                </button>
-                <button
+                </ButtonPrimitive>
+                <ButtonPrimitive
                   type="button"
                   className="mossbot-profile-row"
                   onClick={() => setSection("environment")}
@@ -177,8 +178,8 @@ export function MossbotProfile({
                   <span>{t("Computer")}</span>
                   <small>{t("Access settings")}</small>
                   <ChevronRightIcon />
-                </button>
-                <button
+                </ButtonPrimitive>
+                <ButtonPrimitive
                   type="button"
                   className="mossbot-profile-row"
                   onClick={() => setSection("plugins")}
@@ -186,7 +187,7 @@ export function MossbotProfile({
                   <PluginIcon />
                   <span>{t("Skills & apps")}</span>
                   <ChevronRightIcon />
-                </button>
+                </ButtonPrimitive>
               </div>
               <div className="mossbot-profile-card mt-4">
                 <div className="mossbot-profile-row">

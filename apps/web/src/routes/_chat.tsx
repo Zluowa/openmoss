@@ -536,12 +536,17 @@ function ChatRouteLayout() {
   // Images keeps its own panel toggle (its top chrome dispatches moss-sidebar-toggle);
   // every other destination hides the chat panel outright.
   const [imagesSidebarVisible, setImagesSidebarVisible] = useState(false);
+  // 资料空间's own sidebar is what the title bar's toggle shows and hides there (R-9); the chat
+  // panel stays away on that page.
+  const [spaceSidebarVisible, setSpaceSidebarVisible] = useState(true);
   const isDestinationSurface = destinationSurface !== null;
   const resolvedSidebarOpen =
     isEditorView || railHidesPanel
       ? false
       : isDestinationSurface
-        ? destinationSurface === "images" && imagesSidebarVisible
+        ? destinationSurface === "images"
+          ? imagesSidebarVisible
+          : spaceSidebarVisible
         : sidebarOpen;
   const clearDestinationSurface = useCallback(() => {
     originNavigationVersion.current += 1;
@@ -746,6 +751,10 @@ function ChatRouteLayout() {
         setImagesSidebarVisible((visible) => !visible);
         return;
       }
+      if (destinationSurface === "library") {
+        setSpaceSidebarVisible((visible) => !visible);
+        return;
+      }
       setSidebarOpen((open) => !open);
     };
     window.addEventListener("moss-sidebar-toggle", onToggleSidebar);
@@ -762,6 +771,10 @@ function ChatRouteLayout() {
       }
       if (destinationSurface === "images") {
         setImagesSidebarVisible(open);
+        return;
+      }
+      if (destinationSurface === "library") {
+        setSpaceSidebarVisible(open);
         return;
       }
       setSidebarOpen(open);
@@ -838,6 +851,7 @@ function ChatRouteLayout() {
           onStartPageConversation={(document, isCurrent) =>
             startPageConversation(document, clearDestinationSurface, isCurrent)
           }
+          sidebarVisible={spaceSidebarVisible}
         />
       ) : (
         <Outlet />
@@ -875,7 +889,13 @@ function ChatRouteLayout() {
               <AppShellTopStrip />
               <div className="flex min-h-0 flex-1">
                 <div ref={setRailSlot} className="flex shrink-0" />
-                <div className="app-rail-panel relative flex min-h-0 shrink-0 overflow-hidden [contain:paint]">
+                <div
+                  className={cn(
+                    "app-rail-panel relative flex min-h-0 shrink-0 overflow-hidden [contain:paint]",
+                    // On 资料空间 the toggle drives that page's sidebar; the chat panel stays away.
+                    destinationSurface === "library" && "hidden",
+                  )}
+                >
                   {sidebarElement}
                 </div>
               </div>

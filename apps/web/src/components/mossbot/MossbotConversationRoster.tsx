@@ -1,3 +1,4 @@
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import type { MouseEvent, ReactNode } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import type { ProjectAgentSummary, MossbotRoom } from "@moss/contracts";
@@ -118,9 +119,9 @@ function ConversationRow({
       data-compact={compact || undefined}
       onContextMenu={openMenu}
     >
-      <button
+      <ButtonPrimitive
         type="button"
-        disabled={disabled}
+        disabled={disabled ?? false}
         aria-current={active ? "page" : undefined}
         className="mossbot-assistant-row"
         onClick={onOpen}
@@ -147,7 +148,7 @@ function ConversationRow({
           )}
           {unread && <span className="mossbot-unread-dot" aria-label={t("Unread")} />}
         </span>
-      </button>
+      </ButtonPrimitive>
       {menu}
     </li>
   );

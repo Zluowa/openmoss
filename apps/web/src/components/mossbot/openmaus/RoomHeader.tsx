@@ -1,6 +1,7 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
 // Moss owns the bar: RouteSurfaceHeader (sidebar controls, drag region, window-control and
 // traffic-light gutters) and the chat header's title and control sizes.
+import { Button } from "~/components/ui/button";
 import type { RefObject, ReactNode } from "react";
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
 import { CHAT_HEADER_CONTROL_CLASS_NAME } from "~/components/chat/chatHeaderControls";
@@ -37,38 +38,35 @@ export function RoomHeader({
     <RouteSurfaceHeader divider={false} className="mossbot-room-header shrink-0">
       <div data-roomhead-row className="flex min-w-0 flex-1 items-center gap-1">
         {navigation}
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           data-room-name
           onClick={() => onOpenMembers()}
-          title={t("Group settings")}
           aria-label={`${t("Group settings")} · ${group.name}`}
           aria-haspopup="dialog"
           className={cn(
             CHAT_HEADER_CONTROL_CLASS_NAME,
-            "flex min-w-0 items-center gap-2 px-1.5 text-ui text-foreground outline-none [-webkit-app-region:no-drag] hover:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-ring/60",
+            "min-w-0 gap-2 px-1.5 text-foreground [-webkit-app-region:no-drag]",
           )}
         >
           <MossbotGroupAvatar members={members} className="mossbot-row-avatar" />
           <span className="truncate font-medium">{group.name}</span>
-        </button>
+        </Button>
         <div className="min-w-0 flex-1" />
         <div
           data-roomhead-controls
           className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
         >
           {menu ?? (
-            <button
+            <Button
               ref={membersTriggerRef}
-              type="button"
+              variant="ghost"
+              size="sm"
               data-room-faces
-              onClick={onOpenMembers}
-              title={t("Manage members")}
+              onClick={() => onOpenMembers()}
               aria-label={membersLabel}
-              className={cn(
-                CHAT_HEADER_CONTROL_CLASS_NAME,
-                "flex items-center px-1 hover:bg-[var(--color-background-button-secondary-hover)]",
-              )}
+              className={cn(CHAT_HEADER_CONTROL_CLASS_NAME, "px-1")}
             >
               <span className="flex items-center -space-x-1.5">
                 {faces.slice(0, SIMPLE_FACES)}
@@ -78,7 +76,7 @@ export function RoomHeader({
                   </span>
                 )}
               </span>
-            </button>
+            </Button>
           )}
         </div>
       </div>

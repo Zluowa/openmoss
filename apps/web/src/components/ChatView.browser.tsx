@@ -6334,8 +6334,7 @@ describe("ChatView transcript geometry (full app)", () => {
           visited.push(to);
         }
         // A full-width page (收信箱, 代码审查…) brings the panel back when the toggle opens it.
-        // 资料空间 replaces the chat shell and keeps the panel hidden, so the toggle has nothing
-        // to open there: its cluster is checked with the panel collapsed only.
+        // On 资料空间 the toggle shows and hides that page's own sidebar (WALK-6 R-9).
         if (sidebarState() === "collapsed") {
           toggle().click();
           for (let waited = 0; waited < 2000 && sidebarState() === "collapsed"; waited += 100) {
@@ -6361,12 +6360,54 @@ describe("ChatView transcript geometry (full app)", () => {
         }
         if (!held) await setPanel(true, `${to}, back:`);
       }
-      expect(panelHeldOn, "pages that keep the panel hidden").toEqual(["资料空间"]);
+      expect(panelHeldOn, "pages that keep the panel hidden").toEqual([]);
       expect([...bandOn].sort(), "full-window pages visited").toEqual(["Images", "资料空间"]);
       expect(visited, "every rail page was visited").toEqual([...railLabels, ...routes]);
     } finally {
       desktopTitleBar.on = false;
       closeSettings();
+      await mounted.cleanup();
+    }
+  });
+
+  it("WALK-6 R-9 on 资料空间: the title bar's toggle hides and shows the 资料空间 sidebar", async () => {
+    desktopTitleBar.on = true;
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("space-toggle"),
+        targetText: "Space toggle",
+      }),
+    });
+    const toggle = () =>
+      document.querySelector<HTMLButtonElement>('button[aria-label="Toggle thread sidebar"]')!;
+    const spaceSidebar = () => document.querySelector<HTMLElement>("[data-space-sidebar]");
+    const shown = () => {
+      const box = spaceSidebar()?.getBoundingClientRect();
+      return !!box && box.width > 0 && box.height > 0;
+    };
+    try {
+      await waitForLayout();
+      // The walker's steps: rail → 资料空间, then the toggle at the title bar's left, twice.
+      const rail = document.querySelector<HTMLElement>('nav[aria-label="Primary"]')!;
+      rail.querySelector<HTMLButtonElement>('button[aria-label="资料空间"]')!.click();
+      await expect.poll(shown, { message: "资料空间 opens with its sidebar" }).toBe(true);
+      const centre = () => {
+        const rect = toggle().getBoundingClientRect();
+        return document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      };
+      expect(toggle().contains(centre()), "the toggle takes the click").toBe(true);
+      toggle().click();
+      await expect.poll(shown, { message: "the toggle hides the 资料空间 sidebar" }).toBe(false);
+      toggle().click();
+      await expect.poll(shown, { message: "the toggle shows it again" }).toBe(true);
+      // The chat panel stays away on 资料空间: nothing of it is on screen.
+      const chatPanel = document.querySelector<HTMLElement>(
+        '[data-slot="sidebar"][data-side="left"]',
+      );
+      expect(chatPanel?.checkVisibility() ?? false).toBe(false);
+    } finally {
+      desktopTitleBar.on = false;
       await mounted.cleanup();
     }
   });

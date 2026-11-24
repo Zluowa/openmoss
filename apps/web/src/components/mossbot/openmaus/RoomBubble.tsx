@@ -12,8 +12,8 @@ export interface BubbleJoin {
 
 export function joinedCorners(side: "start" | "end", join: BubbleJoin): string {
   return cn(
-    join.above && (side === "start" ? "rounded-ss-[6px]" : "rounded-se-[6px]"),
-    join.below && (side === "start" ? "rounded-es-[6px]" : "rounded-ee-[6px]"),
+    join.above && (side === "start" ? "rounded-ss-control-xs" : "rounded-se-control-xs"),
+    join.below && (side === "start" ? "rounded-es-control-xs" : "rounded-ee-control-xs"),
   );
 }
 

@@ -1,4 +1,5 @@
 // Adapted from OpenMaus @ 58378e8 (Apache-2.0). See third_party/openmaus/UI-PORTS.md.
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import { Check } from "./icons";
 import type { RoomBot as Bot } from "./host";
 import { BotAvatar } from "./host";
@@ -24,7 +25,7 @@ export function BotPickerList({
         <div className="px-2 py-4 text-center text-ui-sm text-muted-foreground">{emptyHint}</div>
       )}
       {bots.map((b) => (
-        <button
+        <ButtonPrimitive
           key={b.id}
           disabled={disabled}
           onClick={() => onToggle(b.id)}
@@ -44,7 +45,7 @@ export function BotPickerList({
           >
             {picked.has(b.id) && <Check size={12} />}
           </span>
-        </button>
+        </ButtonPrimitive>
       ))}
     </div>
   );

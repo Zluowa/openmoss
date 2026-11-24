@@ -216,15 +216,7 @@ export function MossbotRoomConversation({ roomId }: { roomId: string }) {
             {query.isSuccess && data && !entries.length && (
               <RoomEmpty name={data.room.name} members={activeMembers} />
             )}
-            {scroll.hiddenCount > 0 && (
-              <button
-                type="button"
-                className="self-center text-ui-sm text-muted-foreground"
-                onClick={scroll.loadEarlier}
-              >
-                {t("Load earlier messages")}
-              </button>
-            )}
+            {scroll.hiddenCount > 0 && <MossbotLoadEarlierButton onLoad={scroll.loadEarlier} />}
             <VisualFollowUpContext.Provider
               value={(text) => setPrompt(prompt ? `${prompt}\n${text}` : text)}
             >
@@ -398,4 +390,22 @@ function roomEntries(data: MossbotRoomView) {
       attachments: [],
     })),
   ].toSorted((a, b) => a.at.localeCompare(b.at));
+}
+
+/** Above a room's first shown message: the shared ghost Button, 13 px and normal weight. */
+export function MossbotLoadEarlierButton({ onLoad }: { onLoad: () => void }) {
+  const { t } = useMossbotCopy();
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="self-center font-normal text-ui-sm text-muted-foreground sm:text-ui-sm"
+      data-mossbot-load-earlier=""
+      onClick={() => {
+        onLoad();
+      }}
+    >
+      {t("Load earlier messages")}
+    </Button>
+  );
 }
