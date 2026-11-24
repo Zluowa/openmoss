@@ -78,7 +78,6 @@ export function MossCloudLoginPage({ addAccount = false }: { readonly addAccount
     <MossAuthShell
       backToApp
       title={addAccount ? "Add a Moss account" : "Sign in to Moss"}
-      description="Continue with Google through the Moss global account service."
       footer={
         addAccount ? (
           <Link className={linkClassName} search={{ accountView: "google" }} to="/account">
@@ -170,7 +169,6 @@ export function MossCloudForgotPasswordPage() {
   return (
     <MossAuthShell
       title="Reset your password"
-      description="We’ll email you a reset link."
       footer={
         <Link className={linkClassName} to="/login">
           Back to sign in
@@ -264,7 +262,6 @@ export function MossCloudVerifyEmailPage({
   return (
     <MossAuthShell
       title="Verify your email"
-      description="Open the link we sent to finish signing in."
       footer={
         <Link className={linkClassName} to="/login">
           Return to sign in

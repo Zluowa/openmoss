@@ -129,8 +129,6 @@ const CHROME_LABELS: Readonly<Record<string, string>> = {
   "Usage and credits": "用量和积分",
   "Open Settings → Usage to see quota and buy credits.": "在设置 → 用量里查看额度并充值。",
   "Open Usage": "打开用量",
-  "Continue with Google through the Moss global account service.":
-    "通过 Moss 全球账号服务使用 Google 继续。",
 
   // Composer
   "Optimizing image": "正在优化图片",

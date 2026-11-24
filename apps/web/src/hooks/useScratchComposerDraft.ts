@@ -125,8 +125,9 @@ export function useScratchComposerDraft(input: {
       supportsAutoMode?: boolean,
       options?: ProviderOptions,
     ) => {
-      // Mirrors the composer: update the scratch draft and persist the sticky selection.
-      useComposerDraftStore.getState().setModelSelectionAndSticky(
+      // Kept on this surface only: a pick here (the 图像 page's image model, say) is not the
+      // chat composer's last-used model, so it never reaches new chats or a page's 问 Moss.
+      useComposerDraftStore.getState().setModelSelection(
         scratchThreadId,
         buildModelSelection(provider, model, options, supportsAutoMode, {
           instanceId: instanceId ?? provider,

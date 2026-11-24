@@ -827,24 +827,23 @@ export function resolveThreadDetailHydration(input: {
 }
 
 /**
- * Fallback model selection for a draft thread before the first server turn exists.
- * An explicit project default wins; otherwise the user's default provider is used
- * (providers without a static default model, such as pi, omp or the ACP agents,
- * are skipped), then codex. The model comes from the project default only when
- * it matches the chosen provider, otherwise the provider's own default.
+ * Fallback model selection for a draft thread before the first server turn exists: the one
+ * default, Settings → General's provider (providers without a static default model, such as
+ * pi, omp or the ACP agents, are skipped), then codex. A project's stored
+ * `defaultModelSelection` is only what the composer showed when the project was created;
+ * nobody sets it, so it never decides a new chat's agent (WALK-3 D-2).
  */
 export function resolveDraftFallbackModelSelection(input: {
-  projectDefault: ModelSelection | null | undefined;
   settingsDefaultProvider: ProviderKind;
 }): ModelSelection {
-  const settingsProvider =
-    getDefaultModel(input.settingsDefaultProvider) === null ? null : input.settingsDefaultProvider;
-  const provider = input.projectDefault?.provider ?? settingsProvider ?? "codex";
-  const model =
-    (provider === input.projectDefault?.provider ? input.projectDefault.model : null) ??
-    getDefaultModel(provider) ??
-    DEFAULT_MODEL_BY_PROVIDER.codex;
-  return buildModelSelection(provider, model);
+  const provider =
+    getDefaultModel(input.settingsDefaultProvider) === null
+      ? "codex"
+      : input.settingsDefaultProvider;
+  return buildModelSelection(
+    provider,
+    getDefaultModel(provider) ?? DEFAULT_MODEL_BY_PROVIDER.codex,
+  );
 }
 
 /** Placeholder title for a thread that has not been sent yet (header, open-thread tabs). */

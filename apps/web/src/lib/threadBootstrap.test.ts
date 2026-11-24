@@ -299,7 +299,6 @@ describe("threadBootstrap", () => {
         draftComposerState: makeComposerDraftState(),
         draftThread: makeDraftThread(),
         options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
         projectId: PROJECT_ID,
       }),
     ).toEqual({
@@ -329,7 +328,6 @@ describe("threadBootstrap", () => {
         draftComposerState: makeComposerDraftState(),
         draftThread: null,
         options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
         projectId: PROJECT_ID,
       }).interactionMode,
     ).toBe("default");
@@ -357,7 +355,6 @@ describe("threadBootstrap", () => {
         draftComposerState: null,
         draftThread: null,
         options: undefined,
-        projectDefaultModelSelection: null,
         projectId: PROJECT_ID,
       }).lastKnownPr,
     ).toEqual(pullRequest);
@@ -376,7 +373,6 @@ describe("threadBootstrap", () => {
         draftComposerState: makeComposerDraftState(),
         draftThread: makeDraftThread({ interactionMode: "plan" }),
         options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
         projectId: PROJECT_ID,
       }).interactionMode,
     ).toBe("plan");
@@ -398,7 +394,6 @@ describe("threadBootstrap", () => {
         options: {
           envMode: "local",
         },
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
         projectId: PROJECT_ID,
       }),
     ).toMatchObject({
@@ -407,7 +402,7 @@ describe("threadBootstrap", () => {
       branch: "feature/terminal-bootstrap",
     });
   });
-  it("uses the project default ahead of last-used model options for a fresh bootstrap", () => {
+  it("opens a fresh bootstrap on the default agent, not the last-used one", () => {
     const lastUsed = modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" });
     expect(
       resolveTerminalThreadCreationState({
@@ -421,9 +416,8 @@ describe("threadBootstrap", () => {
         draftThread: makeDraftThread(),
         options: undefined,
         fresh: true,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.5"),
         projectId: PROJECT_ID,
-      }).modelSelection,
-    ).toEqual(modelSelection("codex", "gpt-5.5"));
+      }).modelSelection.provider,
+    ).toBe("codex");
   });
 });

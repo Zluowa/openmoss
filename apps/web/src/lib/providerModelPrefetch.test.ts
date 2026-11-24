@@ -389,7 +389,7 @@ describe("prefetchModelsForNewThread", () => {
     prefetchModelsForNewThread(queryClient, {
       settings: makeSettings(),
       projectCwd: "/tmp/project",
-      projectDefaultProvider: "opencode",
+      providerOverride: "opencode",
     });
 
     const modelKeys = prefetchQuery.mock.calls

@@ -134,7 +134,6 @@ export function resolveNewThreadModelPrefetchProvider(input: {
   providerOverride?: ProviderKind | null | undefined;
   draftActiveProvider?: ProviderInstanceId | null | undefined;
   stickyActiveProvider?: ProviderInstanceId | null | undefined;
-  projectDefaultProvider?: ProviderKind | null | undefined;
   defaultProvider: ProviderKind;
   resolveProviderForInstanceId?: (
     instanceId: ProviderInstanceId,
@@ -149,7 +148,6 @@ export function resolveNewThreadModelPrefetchProvider(input: {
     input.providerOverride ??
     resolveInstance(input.draftActiveProvider) ??
     resolveInstance(input.stickyActiveProvider) ??
-    input.projectDefaultProvider ??
     input.defaultProvider
   );
 }
@@ -487,7 +485,6 @@ export function prefetchModelsForNewThread(
     providerOverride?: ProviderKind | null;
     draftActiveProvider?: ProviderInstanceId | null;
     stickyActiveProvider?: ProviderInstanceId | null;
-    projectDefaultProvider?: ProviderKind | null;
     projectCwd?: string | null;
     draftWorktreePath?: string | null;
     serverCwd?: string | null;
@@ -517,7 +514,6 @@ export function prefetchModelsForNewThread(
     providerOverride: input.providerOverride,
     draftActiveProvider: input.draftActiveProvider,
     stickyActiveProvider: input.stickyActiveProvider,
-    projectDefaultProvider: input.projectDefaultProvider,
     defaultProvider: input.settings.defaultProvider,
     resolveProviderForInstanceId,
   });

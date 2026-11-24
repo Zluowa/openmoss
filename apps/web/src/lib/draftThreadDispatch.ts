@@ -264,7 +264,6 @@ function promoteDraftThread(args: {
     draftComposerState: composerStore.draftsByThreadId[input.threadId] ?? null,
     draftThread: composerStore.getDraftThread(input.threadId),
     options: undefined,
-    projectDefaultModelSelection: args.project?.defaultModelSelection ?? null,
     projectId: input.projectId,
     resolveProviderForInstanceId: (instanceId) =>
       resolveProviderForInstanceId(input.providerInstances, instanceId),

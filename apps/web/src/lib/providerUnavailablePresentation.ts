@@ -11,6 +11,18 @@ import {
 import { formatMossTranslation, translateMoss } from "../localization";
 import type { MossLocaleCode } from "../uiLocale";
 
+/** A signed-out agent the Moss account can serve instead (it has a Moss lane). */
+export function mossCanServeSignedOutProvider(
+  input: Pick<ProviderSendAvailability, "provider" | "status" | "unavailableReason">,
+): boolean {
+  const mossInstanceId = mossDefaultManagedInstanceIdForProvider(input.provider);
+  return (
+    resolveProviderSendBlockedReasonKind(input) === "unauthenticated" &&
+    mossInstanceId !== undefined &&
+    (input.status?.instanceId ?? input.provider) !== mossInstanceId
+  );
+}
+
 export function localizeProviderSendBlockedReason(
   locale: MossLocaleCode,
   input: Pick<ProviderSendAvailability, "provider" | "status" | "unavailableReason">,
@@ -24,9 +36,7 @@ export function localizeProviderSendBlockedReason(
       // Agents Moss's gateway serves can switch to the Moss account instead of signing in.
       return formatMossTranslation(
         locale,
-        mossDefaultManagedInstanceIdForProvider(input.provider) !== undefined &&
-          (input.status?.instanceId ?? input.provider) !==
-            mossDefaultManagedInstanceIdForProvider(input.provider)
+        mossCanServeSignedOutProvider(input)
           ? "provider.send.blocked.unauthenticatedWithMoss"
           : "provider.send.blocked.unauthenticated",
         { provider: providerLabel },

@@ -498,8 +498,10 @@ import {
 } from "./auth/useMossGatewayUnreachable";
 import { ComposerSendBlockedNotice } from "./chat/ComposerSendBlockedNotice";
 import type { SendBlockedAvailability } from "./chat/chatSendTypes";
-import { resolveProviderSendBlockedReasonKind } from "../lib/providerAvailability";
-import { localizeProviderSendBlockedReason } from "../lib/providerUnavailablePresentation";
+import {
+  localizeProviderSendBlockedReason,
+  mossCanServeSignedOutProvider,
+} from "../lib/providerUnavailablePresentation";
 import { resolveProviderModelLabel } from "./chat/ProviderModelPicker";
 import {
   RateLimitBanner,
@@ -977,17 +979,9 @@ export default function ChatView({
         : null,
     [forkSourceThread?.title, forkSourceThreadId],
   );
-  const fallbackDraftProjectId = draftThread?.projectId ?? null;
-  const fallbackDraftProject = useStore(
-    useMemo(() => createProjectSelector(fallbackDraftProjectId), [fallbackDraftProjectId]),
-  );
   const draftFallbackModelSelection = useMemo<ModelSelection>(
-    () =>
-      resolveDraftFallbackModelSelection({
-        projectDefault: fallbackDraftProject?.defaultModelSelection,
-        settingsDefaultProvider: settings.defaultProvider,
-      }),
-    [fallbackDraftProject?.defaultModelSelection, settings.defaultProvider],
+    () => resolveDraftFallbackModelSelection({ settingsDefaultProvider: settings.defaultProvider }),
+    [settings.defaultProvider],
   );
 
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
@@ -6810,15 +6804,11 @@ export default function ChatView({
     scheduleComposerFocus();
   }, [scheduleComposerFocus, updateSettings]);
 
-  // "Use default" in group settings means the app default — the project's default
-  // model first, then the user's default provider, never the active thread's model.
+  // "Use default" in group settings means the app default (Settings → General), never the
+  // active thread's model.
   const groupPanelDefaultModelSelection = useMemo<ModelSelection>(
-    () =>
-      resolveDraftFallbackModelSelection({
-        projectDefault: activeProject?.defaultModelSelection,
-        settingsDefaultProvider: settings.defaultProvider,
-      }),
-    [activeProject?.defaultModelSelection, settings.defaultProvider],
+    () => resolveDraftFallbackModelSelection({ settingsDefaultProvider: settings.defaultProvider }),
+    [settings.defaultProvider],
   );
 
   const handlePromptChange = useStableCallback(onPromptChange);
@@ -7622,8 +7612,7 @@ export default function ChatView({
                   )}
                   onSignInMoss={
                     mossAccountGatewayState === "signed-out" &&
-                    resolveProviderSendBlockedReasonKind(visibleSendBlocked.availability) ===
-                      "unauthenticated"
+                    mossCanServeSignedOutProvider(visibleSendBlocked.availability)
                       ? () => {
                           setSendBlocked(null);
                           void navigate({ to: "/login" });

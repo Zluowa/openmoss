@@ -79,7 +79,9 @@ import {
   onTestFinished,
   vi,
 } from "vitest";
-import { cleanup, render } from "vitest-browser-react";
+import { cleanup, render, renderHook } from "vitest-browser-react";
+import { flushSync } from "react-dom";
+import { useScratchComposerDraft } from "../hooks/useScratchComposerDraft";
 
 import { type ComposerImageAttachment, useComposerDraftStore } from "../composerDraftStore";
 import { createPastedTextDraft } from "../lib/composerPastedText";
@@ -16861,6 +16863,65 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  // WALK-3 N3-2: Devin's stop banner offered 「登录 Moss」 as its main button, but a Moss
+  // sign-in does not sign Devin in. The button is offered only for agents Moss can serve.
+  it("offers no Moss sign-in when the blocked agent is one Moss cannot serve", async () => {
+    let providers: ServerConfig["providers"] = [];
+    useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, THREAD_ID);
+    useComposerDraftStore.getState().setModelSelection(THREAD_ID, {
+      provider: "devin",
+      instanceId: ProviderInstanceId.makeUnsafe("devin"),
+      model: "adaptive",
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withoutProjectDefaultModelSelection(createDraftOnlySnapshot()),
+      configureFixture: (nextFixture) => {
+        providers = [
+          ...nextFixture.serverConfig.providers,
+          {
+            provider: "devin",
+            instanceId: "devin",
+            driver: "devin",
+            status: "warning",
+            available: true,
+            authStatus: "unauthenticated",
+            checkedAt: NOW_ISO,
+          },
+        ];
+        nextFixture.serverConfig = { ...nextFixture.serverConfig, providers };
+        nextFixture.providerStatusesSnapshot = providers;
+        nextFixture.serverSettings = {
+          ...nextFixture.serverSettings,
+          providers: {
+            ...nextFixture.serverSettings.providers,
+            devin: { ...nextFixture.serverSettings.providers.devin, enabled: true },
+          },
+        };
+      },
+    });
+
+    try {
+      await reconcileServerProviderStatuses(mounted.router.options.context.queryClient, providers);
+      const editor = await waitForComposerEditor();
+      editor.focus();
+      await userEvent.keyboard("hello");
+      await vi.waitFor(() => expect(editor.textContent).toContain("hello"));
+      await userEvent.keyboard("{Enter}");
+
+      const notice = page.getByTestId("composer-send-blocked-notice");
+      await expect.element(notice).toBeVisible();
+      expect((notice.element() as HTMLElement).textContent).toContain("Devin");
+      await expect
+        .element(page.getByRole("button", { name: "Open Settings", exact: true }))
+        .toBeVisible();
+      expect(page.getByRole("button", { name: "Sign in to Moss" }).elements()).toHaveLength(0);
+      expect(hasDispatchedCommandType("thread.turn.start")).toBe(false);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   // WALK-1 D-2: signed out, the chip showed another signed-in agent instead of the default
   // and changed by itself when statuses refreshed. It shows the default, and stays there.
   it("keeps the default agent on the composer chip when another agent is signed in", async () => {
@@ -16921,6 +16982,138 @@ describe("ChatView transcript geometry (full app)", () => {
       // The person sees Codex's model, not the signed-in Claude one, and it never changed.
       expect(readChip()).not.toMatch(/Claude|Opus|Sonnet|Haiku|Fable/u);
       expect(readChip()).toBe(shown);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  // WALK-3 D-2: a project created while the composer showed Devin kept Devin as its own
+  // default, so 新对话 in it opened (and sent) on Devin while Settings said Codex.
+  it("opens and sends a new chat on the settings default, not the agent its project was created on", async () => {
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: "msg-user-project-stamp-test" as MessageId,
+      targetText: "project stamp test",
+    });
+    let providers: ServerConfig["providers"] = [];
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: {
+        ...snapshot,
+        projects: snapshot.projects.map((project) =>
+          project.id === PROJECT_ID
+            ? {
+                ...project,
+                defaultModelSelection: {
+                  provider: "devin",
+                  instanceId: ProviderInstanceId.makeUnsafe("devin"),
+                  model: "adaptive",
+                },
+              }
+            : project,
+        ),
+      },
+      configureFixture: (nextFixture) => {
+        providers = [
+          ...nextFixture.serverConfig.providers,
+          {
+            provider: "devin",
+            instanceId: "devin",
+            driver: "devin",
+            status: "warning",
+            available: true,
+            authStatus: "unauthenticated",
+            checkedAt: NOW_ISO,
+          },
+        ];
+        nextFixture.serverConfig = { ...nextFixture.serverConfig, providers };
+        nextFixture.providerStatusesSnapshot = providers;
+        nextFixture.serverSettings = {
+          ...nextFixture.serverSettings,
+          providers: {
+            ...nextFixture.serverSettings.providers,
+            devin: { ...nextFixture.serverSettings.providers.devin, enabled: true },
+          },
+        };
+      },
+    });
+
+    try {
+      await reconcileServerProviderStatuses(mounted.router.options.context.queryClient, providers);
+      await vi.waitFor(() => {
+        expect(
+          hasReconciledServerProviderStatuses(mounted.router.options.context.queryClient),
+        ).toBe(true);
+      });
+      const newThreadButton = page.getByTestId("new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+      await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to the new chat.",
+      );
+
+      const chip = page.getByRole("button", { name: "Change model and reasoning" });
+      await expect.element(chip).toBeVisible();
+      const editor = await waitForComposerEditor();
+      editor.focus();
+      await userEvent.keyboard("hello");
+      await vi.waitFor(() => expect(editor.textContent).toContain("hello"));
+      expect((chip.element() as HTMLElement).textContent ?? "").not.toMatch(/Adaptive|Devin/u);
+
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        const created = wsRequests
+          .map((request) => readDispatchedCommand(request))
+          .find(
+            (command) => command?.type === "thread.create" || command?.type === "thread.turn.start",
+          ) as { modelSelection?: { provider?: string } } | undefined;
+        expect(created?.modelSelection?.provider).toBe("codex");
+      });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  // WALK-1 D-2 / space-fix: a model picked on the 图像 page (its image model) became the chat
+  // composer's last-used Codex model, so new chats and an item's 问 Moss opened on 「6 Astra」.
+  it("does not open a new chat on a model picked on another surface", async () => {
+    const scratch = await renderHook(() =>
+      useScratchComposerDraft({
+        defaultProvider: "codex",
+        settings: {
+          codexAccounts: [],
+          codexHomePath: "",
+          selectedCodexAccountId: "default",
+          providerInstances: {},
+        },
+      }),
+    );
+    flushSync(() => scratch.result.current.handleProviderModelChange("codex", "gpt-6-astra"));
+    await scratch.unmount();
+
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withoutProjectDefaultModelSelection(
+        createSnapshotForTargetUser({
+          targetMessageId: "msg-user-other-surface-test" as MessageId,
+          targetText: "other surface test",
+        }),
+      ),
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+      await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to the new chat.",
+      );
+      const chip = page.getByRole("button", { name: "Change model and reasoning" });
+      await expect.element(chip).toBeVisible();
+      expect((chip.element() as HTMLElement).textContent ?? "").not.toMatch(/Astra/iu);
     } finally {
       await mounted.cleanup();
     }

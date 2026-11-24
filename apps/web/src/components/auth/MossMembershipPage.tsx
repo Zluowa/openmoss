@@ -146,20 +146,6 @@ function PersonalPlanCard({
 }) {
   const { format, locale, t } = useTranslation();
   const agentUsageMultiplier = mossMembershipAgentUsageMultiplier(plan, basicMonthlyPriceCny);
-  const lead = (() => {
-    switch (plan.code) {
-      case "basic":
-        return t("mossPay.membership.basicLead");
-      case "plus":
-        return t("mossPay.membership.plusLead");
-      case "pro":
-        return t("mossPay.membership.proLead");
-      case "max":
-        return t("mossPay.membership.maxLead");
-      default:
-        return t("mossPay.membership.defaultLead");
-    }
-  })();
   return (
     <article
       className={cn(
@@ -183,7 +169,6 @@ function PersonalPlanCard({
           {t("mossPay.catalog.perMonth")}
         </span>
       </div>
-      <p className="mt-4 min-h-10 text-ui-lg leading-5 font-medium">{lead}</p>
       <Button
         className="mt-5 h-11 w-full"
         data-testid={`moss-membership-subscribe-${plan.code}`}
@@ -519,12 +504,6 @@ export function MossMembershipPage({
                 </div>
                 <p className="mt-10 text-lg font-semibold">
                   {t("mossPay.membership.businessSoon")}
-                </p>
-                <p className="mt-3 text-ui-lg leading-6 text-slate-600 dark:text-muted-foreground">
-                  {t("mossPay.membership.businessDescription")}
-                </p>
-                <p className="mt-8 text-ui-lg font-medium">
-                  {t("mossPay.membership.businessLead")}
                 </p>
                 <button
                   className="mt-auto h-11 w-full cursor-default rounded-full bg-blue-600 text-ui-lg font-medium text-white opacity-55"

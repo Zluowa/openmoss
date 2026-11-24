@@ -17,7 +17,7 @@ jobs:
   proof:
     name: Proof Screenshots
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
@@ -39,11 +39,38 @@ jobs:
             echo "::warning::playwright install attempt $attempt failed or took over 200 s"
           done
           exit 1
-      - name: Install a Chinese font
-        timeout-minutes: 5
+      - name: Restore the Chinese font
+        id: font
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25
+        with:
+          path: ~/.local/share/fonts/moss-cjk
+          key: ${{ runner.os }}-fonts-noto-cjk-v1
+      - name: Install the Chinese font
+        if: ${{ steps.font.outputs.cache-hit != 'true' }}
+        timeout-minutes: 18
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends fonts-noto-cjk
+          for attempt in 1 2 3; do
+            sudo apt-get update -qq -o Acquire::Retries=3 \
+              && sudo apt-get install -y -qq --no-install-recommends -o Acquire::Retries=3 fonts-noto-cjk \
+              && break
+            echo "::warning::font install attempt $attempt failed"
+            sleep 15
+          done
+          # Copy the sans files the package really installed (fonts-noto-cjk ships Regular and
+          # Bold; other weights are in fonts-noto-cjk-extra, which is not installed).
+          mkdir -p ~/.local/share/fonts/moss-cjk
+          dpkg -L fonts-noto-cjk | grep -E '/NotoSansCJK-[A-Za-z]+\.ttc$' | while read -r file; do
+            cp "$file" ~/.local/share/fonts/moss-cjk/
+          done
+          if ! ls ~/.local/share/fonts/moss-cjk/*.ttc >/dev/null 2>&1; then
+            echo "::error::fonts-noto-cjk installed no NotoSansCJK file to cache"
+            exit 1
+          fi
+          ls -la ~/.local/share/fonts/moss-cjk
+      - name: Use the Chinese font
+        run: |
+          fc-cache -f ~/.local/share/fonts
+          fc-list :lang=zh family | grep -q . || { echo "::error::no Chinese font installed"; exit 1; }
           fc-list :lang=zh family | head -3
       - name: Build the web client
         timeout-minutes: 8
