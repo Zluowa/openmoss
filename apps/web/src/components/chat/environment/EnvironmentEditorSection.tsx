@@ -9,7 +9,7 @@ import type { EditorId, ResolvedKeybindingsConfig } from "@moss/contracts";
 
 import { useEditorLaunchers } from "~/hooks/useEditorLaunchers";
 import { EditorViewIcon } from "~/lib/icons";
-import { useTranslation } from "~/localization";
+import { formatMossNameTranslation, useTranslation } from "~/localization";
 
 import { ComposerPickerMenuPopup } from "../ComposerPickerMenuPopup";
 import { Menu, MenuRadioGroup, MenuRadioItem, MenuShortcut, MenuTrigger } from "../../ui/menu";
@@ -40,7 +40,7 @@ export function EnvironmentEditorSection({
    */
   bare?: boolean;
 }) {
-  const { format, t } = useTranslation();
+  const { locale, t } = useTranslation();
   const {
     options,
     preferredEditor,
@@ -90,7 +90,7 @@ export function EnvironmentEditorSection({
               }
               label={
                 activeOption
-                  ? format("chat.editor.openIn", {
+                  ? formatMossNameTranslation(locale, "chat.editor.openIn", {
                       editor:
                         activeOption.value === "terminal"
                           ? t("chat.editor.terminal")

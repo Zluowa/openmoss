@@ -9594,6 +9594,37 @@ export function formatMossTranslation(
   });
 }
 
+const HAN_CHARACTER = /\p{Script=Han}/u;
+
+/**
+ * For a template whose slot holds a name written either in Chinese or in Latin letters, such
+ * as an app's. Chinese typography puts a space between Chinese and Latin text and none between
+ * Chinese and Chinese, so a space the template keeps beside the slot is dropped where both
+ * sides are Chinese: 「在 Cursor 中打开」 stays, 「在 终端 中打开」 reads 「在终端中打开」 (walk N12-8).
+ */
+export function formatMossNameTranslation(
+  locale: MossLocaleCode,
+  key: TranslationKey,
+  values: Record<string, string | number>,
+): string {
+  const template = translateMoss(locale, key);
+  return template.replace(
+    /( ?)\{([a-zA-Z0-9_]+)\}( ?)/g,
+    (match, before: string, name: string, after: string, offset: number) => {
+      const value = values[name];
+      if (value == null) return match;
+      const text = String(value);
+      const joinsBefore = HAN_CHARACTER.test(template[offset - 1] ?? "");
+      const joinsAfter = HAN_CHARACTER.test(template[offset + match.length] ?? "");
+      const startsHan = HAN_CHARACTER.test(text.at(0) ?? "");
+      const endsHan = HAN_CHARACTER.test(text.at(-1) ?? "");
+      return `${before && !(joinsBefore && startsHan) ? before : ""}${text}${
+        after && !(joinsAfter && endsHan) ? after : ""
+      }`;
+    },
+  );
+}
+
 interface MossLocalizationContextValue {
   locale: MossLocaleCode;
   t: (key: TranslationKey) => string;
