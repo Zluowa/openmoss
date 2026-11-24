@@ -119,11 +119,12 @@ const GREETINGS: Record<InboxSlotId, string> = {
 };
 
 /**
- * The working day starts at 04:00, so the small hours still count as the evening's slot; the
- * greeting follows the clock instead (nobody says "good evening" at 03:30).
+ * The working day starts at 04:00, so the small hours still count as the evening's slot. The
+ * greeting names the same slot as the cards under it: at 01:32 the headline said 「夜深了」
+ * beside a card saying 「晚上，现在」 (walk 2026-11-24, R-9).
  */
-function inboxGreeting(slotId: InboxSlotId, nowMs: number): string {
-  return new Date(nowMs).getHours() < 4 ? "Up late" : GREETINGS[slotId];
+function inboxGreeting(slotId: InboxSlotId): string {
+  return GREETINGS[slotId];
 }
 
 // The page and the recap column are size containers: cards follow the room they actually
@@ -686,7 +687,7 @@ export default function InboxView() {
                 <h1 className={PAGE_TITLE_CLASS_NAME}>Inbox</h1>
                 <p className="text-ui text-muted-foreground @2xl:text-ui-lg">
                   {/* One sentence, one text node, so it translates whole (punctuation too). */}
-                  {`${inboxGreeting(day.currentSlotId, nowMs)}. ${summary}`}
+                  {`${inboxGreeting(day.currentSlotId)}. ${summary}`}
                 </p>
               </div>
               {unreadThreads.length > 0 ? (

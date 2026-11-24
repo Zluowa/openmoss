@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseSheetWorkbook } from "@moss/shared/spaceItems/sheetWorkbook";
+import { parseSheetWorkbook, type SheetWorkbook } from "@moss/shared/spaceItems/sheetWorkbook";
 
 import { fromEngineSheets, toEngineSheets } from "./sheet/sheetEngine";
 import { computeWorkbookFormulas } from "@moss/shared/spaceItems/sheetFormulas";
@@ -240,6 +240,45 @@ describe("电子表格 xlsx and csv", () => {
   });
 });
 
+describe("电子表格 vertical alignment: bottom by default, as in Excel", () => {
+  const book = () =>
+    parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "s1",
+          name: "表",
+          cells: [
+            { r: 0, c: 0, v: "默认" },
+            { r: 1, c: 0, v: "顶端", s: { valign: "top" } },
+            { r: 2, c: 0, v: "居中", s: { valign: "middle" } },
+            { r: 3, c: 0, v: "底端", s: { valign: "bottom" } },
+          ],
+        },
+      ],
+    });
+  const valignOf = (workbook: SheetWorkbook, r: number) =>
+    workbook.sheets[0]!.cells.find((cell) => cell.r === r)?.s?.valign;
+
+  it("stores an explicit top and leaves the default (bottom) unstored", () => {
+    const parsed = book();
+    expect(valignOf(parsed, 0)).toBeUndefined();
+    expect(valignOf(parsed, 1)).toBe("top");
+    expect(valignOf(parsed, 2)).toBe("middle");
+    expect(valignOf(parsed, 3)).toBeUndefined();
+    // Saved and read again, an explicit top is still top.
+    expect(valignOf(parseSheetWorkbook(JSON.parse(JSON.stringify(parsed))), 1)).toBe("top");
+  });
+
+  it("imports and exports xlsx with default, top and middle cells unchanged", async () => {
+    const back = await xlsxToWorkbook((await workbookToXlsx(book())).buffer as ArrayBuffer);
+    expect(valignOf(back, 0)).toBeUndefined();
+    expect(valignOf(back, 1)).toBe("top");
+    expect(valignOf(back, 2)).toBe("middle");
+    expect(valignOf(back, 3)).toBeUndefined();
+  });
+});
+
 describe("电子表格 engine mapping of looks and layers", () => {
   it("round-trips borders, merges, row heights, frozen columns, gridlines and the layers", () => {
     const rich = parseSheetWorkbook({
@@ -263,7 +302,7 @@ describe("电子表格 engine mapping of looks and layers", () => {
                 italic: true,
                 underline: "double",
                 size: 12,
-                valign: "bottom",
+                valign: "top",
                 color: "#C2352A",
                 border: { t: { style: "thin" }, l: { style: "dashed", color: "#2A6AC9" } },
               },

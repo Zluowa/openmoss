@@ -349,11 +349,14 @@ describe("native official media tools", () => {
   });
   it("uses existing capability and active-turn gates, without broadening session grants", () => {
     const { tools } = harness();
-    expect(tools.map((tool) => tool.definition.name)).toEqual(MOSS_MEDIA_TOOL_NAMES);
+    // moss_canvas_mutate stays out of what an agent can call until it writes through the
+    // open editor (WO-3, 2026-11-24).
+    expect(tools.map((tool) => tool.definition.name)).toEqual(
+      MOSS_MEDIA_TOOL_NAMES.filter((name) => name !== "moss_canvas_mutate"),
+    );
     expect(tools.map((tool) => tool.requiredCapability)).toEqual([
       "thread:write",
       "thread:read",
-      "thread:write",
       "thread:read",
       "thread:write",
       "thread:read",
@@ -379,6 +382,7 @@ describe("native official media tools", () => {
       resolveCredential: Effect.fail(new Error("unused")),
       resolveCanvasCredential: Effect.sync(() => activeCred),
       mutateCanvas,
+      enableCanvasMutate: true,
     });
     const call = async (args: Record<string, unknown>) => {
       const result = await Effect.runPromise(

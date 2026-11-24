@@ -1862,6 +1862,18 @@ export function excludeHiddenProjectAgentCoordinatorThreads<T extends { readonly
   );
 }
 
+/**
+ * Drops the chats that belong to a 资料空间 item (its 问 Moss panel's thread). They live
+ * inside the item, not in the main sidebar's lists (walk 2026-11-24, S-6).
+ */
+export function excludeItemChatThreads<T extends { readonly id: string }>(
+  threads: readonly T[],
+  itemChatThreadIds: ReadonlySet<string>,
+): readonly T[] {
+  if (itemChatThreadIds.size === 0) return threads;
+  return threads.filter((thread) => !itemChatThreadIds.has(thread.id));
+}
+
 // Groups thread summaries once so project-specific sidebar derivations can reuse the same slices.
 export function groupSidebarThreadsByProjectId(
   threads: readonly SidebarThreadSummary[],

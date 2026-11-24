@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { closeMossCanvasStores } from "./mossCanvasStorage";
 import {
@@ -11,7 +12,12 @@ import {
 } from "./mossCanvasMutate";
 import { readMossCanvasSummary } from "./mossCanvasSummary";
 
-const BUNDLE_DIR = "D:/DevTemp/moss-build-cache/canvas-bundle/baaa97b54f5a9f9ff06d928c/bundle";
+// The built Canvas bundle (scripts/prepare-moss-canvas-bundle.ts; CI's Desktop Build job), or the
+// one MOSS_CANVAS_BUNDLE_DIR names. Without it the storage round trip cannot run.
+const BUNDLE_DIR =
+  process.env.MOSS_CANVAS_BUNDLE_DIR?.trim() ||
+  resolve(fileURLToPath(new URL("../../..", import.meta.url)), "apps/desktop/canvas-bundle");
+const HAS_BUNDLE = existsSync(join(BUNDLE_DIR, "apps/codex-canvas"));
 
 const identity = {
   account: { id: "user-a", realm: "memfire-phone" as const },
@@ -89,48 +95,57 @@ describe("mossCanvasMutate", () => {
     expect(cleared.shapeCounts).toEqual({ note: 1 });
   });
 
-  it("persists to hosted Canvas storage and round-trips through readMossCanvasSummary", async () => {
-    vi.stubEnv("MOSS_CANVAS_BUNDLE_DIR", BUNDLE_DIR);
-    const stateDirectory = mkdtempSync(join(tmpdir(), "moss-canvas-mutate-"));
-    try {
-      const workspace = { threadId: "thread-mutate-1", cwd: stateDirectory, title: "协作白板" };
-      const write1 = await mutateMossCanvas({
-        stateDirectory,
-        identity,
-        workspace,
-        title: "协作白板",
-        ops: [
-          { op: "addFrame", key: "frame-main", name: "方案规划" },
-          { op: "addNote", key: "note-a", text: "接入右侧白板", frame: "frame-main" },
-          { op: "addShape", key: "box-b", geo: "rectangle", text: "支持 MCP", frame: "frame-main" },
-          { op: "connect", key: "arrow-ab", from: "note-a", to: "box-b", text: "联动" },
-        ],
-      });
-      expect(write1.revision).toBeTruthy();
-      expect(write1.shapeCounts).toEqual({ frame: 1, note: 1, geo: 1, arrow: 1 });
+  it.skipIf(!HAS_BUNDLE)(
+    "persists to hosted Canvas storage and round-trips through readMossCanvasSummary",
+    async () => {
+      vi.stubEnv("MOSS_CANVAS_BUNDLE_DIR", BUNDLE_DIR);
+      const stateDirectory = mkdtempSync(join(tmpdir(), "moss-canvas-mutate-"));
+      try {
+        const workspace = { threadId: "thread-mutate-1", cwd: stateDirectory, title: "协作白板" };
+        const write1 = await mutateMossCanvas({
+          stateDirectory,
+          identity,
+          workspace,
+          title: "协作白板",
+          ops: [
+            { op: "addFrame", key: "frame-main", name: "方案规划" },
+            { op: "addNote", key: "note-a", text: "接入右侧白板", frame: "frame-main" },
+            {
+              op: "addShape",
+              key: "box-b",
+              geo: "rectangle",
+              text: "支持 MCP",
+              frame: "frame-main",
+            },
+            { op: "connect", key: "arrow-ab", from: "note-a", to: "box-b", text: "联动" },
+          ],
+        });
+        expect(write1.revision).toBeTruthy();
+        expect(write1.shapeCounts).toEqual({ frame: 1, note: 1, geo: 1, arrow: 1 });
 
-      const summary = await readMossCanvasSummary({
-        stateDirectory,
-        identity,
-        workspace,
-      });
-      expect(summary.exists).toBe(true);
-      expect(summary.title).toBe("协作白板");
-      expect(summary.shapeCounts).toEqual({ frame: 1, note: 1, geo: 1, arrow: 1 });
-      expect(summary.shapes.some((s) => s.id === write1.created["note-a"])).toBe(true);
+        const summary = await readMossCanvasSummary({
+          stateDirectory,
+          identity,
+          workspace,
+        });
+        expect(summary.exists).toBe(true);
+        expect(summary.title).toBe("协作白板");
+        expect(summary.shapeCounts).toEqual({ frame: 1, note: 1, geo: 1, arrow: 1 });
+        expect(summary.shapes.some((s) => s.id === write1.created["note-a"])).toBe(true);
 
-      const write2 = await mutateMossCanvas({
-        stateDirectory,
-        identity,
-        workspace,
-        ops: [{ op: "update", id: write1.created["note-a"]!, text: "已接入右侧白板" }],
-      });
-      expect(write2.shapes.find((s) => s.id === write1.created["note-a"])?.text).toBe(
-        "已接入右侧白板",
-      );
-    } finally {
-      closeMossCanvasStores();
-      rmSync(stateDirectory, { recursive: true, force: true });
-    }
-  });
+        const write2 = await mutateMossCanvas({
+          stateDirectory,
+          identity,
+          workspace,
+          ops: [{ op: "update", id: write1.created["note-a"]!, text: "已接入右侧白板" }],
+        });
+        expect(write2.shapes.find((s) => s.id === write1.created["note-a"])?.text).toBe(
+          "已接入右侧白板",
+        );
+      } finally {
+        closeMossCanvasStores();
+        rmSync(stateDirectory, { recursive: true, force: true });
+      }
+    },
+  );
 });

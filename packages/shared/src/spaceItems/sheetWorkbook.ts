@@ -58,6 +58,7 @@ export interface SheetCellStyle {
   /** #RRGGBB fill. */
   readonly fill?: string;
   readonly align?: "left" | "center" | "right";
+  /** Vertical place of the text; absent means bottom, as in Excel and Google Sheets. */
   readonly valign?: "top" | "middle" | "bottom";
   readonly wrap?: boolean;
   /** Number format code (`0.00`, `0%`, `yyyy-mm-dd`…). */
@@ -563,7 +564,7 @@ export function parseSheetCellStyle(raw: unknown, where = "style"): SheetCellSty
   if (value.valign !== undefined) {
     if (value.valign !== "top" && value.valign !== "middle" && value.valign !== "bottom")
       fail(`${where}.valign must be top, middle or bottom`);
-    if (value.valign !== "top") out.valign = value.valign;
+    if (value.valign !== "bottom") out.valign = value.valign;
   }
   if (value.format !== undefined) {
     if (typeof value.format !== "string" || value.format.length > 128)

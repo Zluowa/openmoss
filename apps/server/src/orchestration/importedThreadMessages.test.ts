@@ -7,11 +7,7 @@ import type { SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 import { ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
-import {
-  mapClaudeSessionMessages,
-  mapCodexSnapshotMessages,
-  mapFactorySnapshotMessages,
-} from "./importedThreadMessages.ts";
+import { mapClaudeSessionMessages, mapCodexSnapshotMessages } from "./importedThreadMessages.ts";
 
 const threadId = ThreadId.makeUnsafe("thread-1");
 const importedAt = "2026-07-08T00:00:00.000Z";
@@ -225,46 +221,4 @@ describe("Claude transcript imports", () => {
       mapClaudeSessionMessages({ threadId, importedAt, messages }).map((message) => message.text),
     ).toEqual(["Question", "Answer"]);
   });
-});
-
-it("maps visible Factory session items and ignores unrelated rows", () => {
-  const importedAt = "2026-07-08T00:00:00.000Z";
-  expect(
-    mapFactorySnapshotMessages({
-      threadId: ThreadId.makeUnsafe("thread-1"),
-      importedAt,
-      turns: [
-        {
-          items: [
-            {
-              type: "factoryMessage",
-              id: "user-1",
-              role: "user",
-              text: "Question",
-              timestamp: "2026-07-07T23:59:00.000Z",
-            },
-            { type: "tool", text: "hidden" },
-          ],
-        },
-        {
-          items: [{ type: "factoryMessage", id: "assistant-1", role: "assistant", text: "Answer" }],
-        },
-      ],
-    }),
-  ).toEqual([
-    {
-      messageId: "import:thread-1:droid:0:0:user-1",
-      role: "user",
-      text: "Question",
-      createdAt: "2026-07-07T23:59:00.000Z",
-      updatedAt: "2026-07-07T23:59:00.000Z",
-    },
-    {
-      messageId: "import:thread-1:droid:1:0:assistant-1",
-      role: "assistant",
-      text: "Answer",
-      createdAt: "2026-07-08T00:00:00.001Z",
-      updatedAt: "2026-07-08T00:00:00.001Z",
-    },
-  ]);
 });

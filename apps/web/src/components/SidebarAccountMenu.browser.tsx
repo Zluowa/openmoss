@@ -247,7 +247,17 @@ describe("SidebarAccountMenu", () => {
           .element()
           .querySelector("[data-slot=central-icon]")
           ?.getAttribute("style"),
+      ).toContain("arrow-box-right.svg");
+      // 个人资料 keeps the person glyph; 登录 has its own (walk R-8: both wore the same one).
+      expect(
+        page
+          .getByRole("menuitem", { name: "个人资料" })
+          .element()
+          .querySelector("[data-slot=central-icon]")
+          ?.getAttribute("style"),
       ).toContain("circle-person.svg");
+      // Signed out there is no account to name: no greyed 「Moss」 row on top.
+      expect(page.getByRole("menuitem", { name: "Moss", exact: true }).length).toBe(0);
       await page.screenshot({ path: "../../../../output/playwright/account-sign-in.png" });
       expect(page.getByRole("menuitem", { name: "退出登录" }).length).toBe(0);
       // Signed out there is no usage to show and no plan to upgrade.

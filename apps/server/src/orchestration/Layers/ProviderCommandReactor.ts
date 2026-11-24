@@ -1514,7 +1514,7 @@ const make = Effect.gen(function* () {
   const queuedTurnPromotionOwner = `provider-queued-turn:${crypto.randomUUID()}`;
   const sidechatContextBootstrapThreadIds = new Set<string>();
   // Fresh sessions that cannot inherit native conversation state need one
-  // transcript bootstrap (fork fallbacks and non-resumable Droid model changes).
+  // transcript bootstrap (fork fallbacks).
   const freshSessionContextBootstrapThreadIds = new Set<string>();
   // Fork-from-turn threads whose native fork could not stop at the chosen
   // turn; their fresh-session notice explains the deliberate transcript rebuild.
@@ -1809,7 +1809,7 @@ const make = Effect.gen(function* () {
     attempt: PendingContextBootstrapAttempt,
     event: ProviderQueueDrainEvent,
   ) {
-    // Keep bootstrap flags after cancellation or failure even though Droid may
+    // Keep bootstrap flags after cancellation or failure even though the provider may
     // already have received the prompt. A bounded duplicate on retry is safer
     // than dropping the only model-visible copy of the retained transcript.
     if (event.type !== "turn.completed" || event.payload.state !== "completed") {
@@ -3186,9 +3186,7 @@ const make = Effect.gen(function* () {
               previousModelSelection ?? thread.modelSelection,
               desiredModelSelection,
             )
-          : (currentProvider === "droid" ||
-              currentProvider === "grok" ||
-              currentProvider === "devin") &&
+          : (currentProvider === "grok" || currentProvider === "devin") &&
             requestedModelSelection !== undefined &&
             !isDeepStrictEqual(previousModelSelection, requestedModelSelection);
       const requestedComputerControl = options?.enableComputerControl;
@@ -3355,8 +3353,7 @@ const make = Effect.gen(function* () {
       const restartedSession = restartedOutcome.session;
       if (
         shouldRegisterContextBootstrap &&
-        ((currentProvider === "droid" && !providerChanged && resumeCursor === undefined) ||
-          restartedOutcome.priorTranscriptBootstrapPending === true)
+        restartedOutcome.priorTranscriptBootstrapPending === true
       ) {
         freshSessionContextBootstrapThreadIds.add(threadId);
       }
@@ -3438,15 +3435,6 @@ const make = Effect.gen(function* () {
         forkFromEarlierTurnContextThreadIds.add(threadId);
       }
       if (forked) {
-        if (
-          shouldRegisterContextBootstrap &&
-          preferredProvider === "droid" &&
-          thread.sidechatSourceThreadId
-        ) {
-          // Droid's ACP fork preserves the native session but does not guarantee
-          // that the imported sidechat transcript is model-visible on its first prompt.
-          sidechatContextBootstrapThreadIds.add(threadId);
-        }
         threadSessionModelSelections.set(threadId, desiredModelSelection);
         threadSessionComputerControl.set(threadId, forkComputerControl);
         threadSessionAutoApproveMossTools.set(threadId, autoApproveMossTools);
@@ -4810,9 +4798,6 @@ const make = Effect.gen(function* () {
         capturePreTurnBaselines,
         input.claudeCompactionCancellation,
       ).pipe(Effect.onError(() => cancelPendingHubBaseline));
-      const tracksDroidContextAcceptance =
-        activeSession?.provider === "droid" &&
-        (sidechatBootstrapText !== null || priorTranscriptBootstrapText !== null);
       const tracksDurableContextAcceptance =
         selectedProvider !== "codex" &&
         persistsPriorTranscriptBootstrap(selectedProvider) &&
@@ -4826,7 +4811,7 @@ const make = Effect.gen(function* () {
       const tracksEscalationAcceptance =
         interruptEscalation !== undefined && selectedProvider !== "codex";
       pendingContextBootstrapAttempt =
-        tracksDroidContextAcceptance || tracksDurableContextAcceptance || tracksEscalationAcceptance
+        tracksDurableContextAcceptance || tracksEscalationAcceptance
           ? {
               clearSidechat:
                 sidechatBootstrapText !== null || priorTranscriptBootstrapText !== null,

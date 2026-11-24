@@ -112,6 +112,7 @@ const HUB_COPY: Readonly<Record<string, string>> = {
   // Library
   Grid: "网格",
   Documents: "文档",
+  Downloads: "下载",
   History: "历史记录",
   Restored: "已恢复",
   "Date modified": "修改日期",

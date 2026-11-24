@@ -187,6 +187,7 @@ import {
 } from "../storeSelectors";
 import { derivePendingApprovals, derivePendingUserInputs } from "../session-logic";
 import { useActivityThreads } from "../hooks/useActivityThreads";
+import { usePageAssistantThreadIds } from "../hooks/usePageAssistantThreadIds";
 import { useCommittedPathname } from "../hooks/useCommittedPathname";
 import { countNeedsYouActions } from "./inbox/inbox.logic";
 import {
@@ -401,6 +402,7 @@ import {
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import {
   excludeHiddenProjectAgentCoordinatorThreads,
+  excludeItemChatThreads,
   buildProjectThreadTree,
   collectSidebarThreadAncestorIds,
   derivePinnedProjectIdsForSidebar,
@@ -1796,9 +1798,15 @@ export default function Sidebar() {
     visibleNonGroupThreads: visibleNonGroupSidebarThreads,
     activityNonGroupThreads: activityNonGroupSidebarThreads,
   } = useActivityThreads({ hideAutomationRunThreads });
+  const itemChatThreadIds = usePageAssistantThreadIds();
   const displaySidebarTreeThreads = useMemo(
-    () => excludeHiddenProjectAgentCoordinatorThreads(sidebarTreeThreads, coordinatorThreadIds),
-    [coordinatorThreadIds, sidebarTreeThreads],
+    // A 资料空间 item's chat stays inside the item, not in a project's list (S-6).
+    () =>
+      excludeItemChatThreads(
+        excludeHiddenProjectAgentCoordinatorThreads(sidebarTreeThreads, coordinatorThreadIds),
+        itemChatThreadIds,
+      ),
+    [coordinatorThreadIds, itemChatThreadIds, sidebarTreeThreads],
   );
   const previousAutoExpandThreadIdRef = useRef<ThreadId | null>(null);
   // Reveal collapsed ancestors once when navigating to a child thread, while keeping
@@ -4510,6 +4518,15 @@ export default function Sidebar() {
     return collapseSameTitleSidebarThreads(
       recentSidebarThreads.filter((thread) => {
         if (listed.has(thread.id)) return false;
+        // A chat nobody has written in yet (a 资料空间 item's own 问 Moss chat, made before
+        // anything is asked) is not a recent chat (walk 2026-11-24, R-5).
+        if (
+          thread.latestUserMessageAt === null &&
+          (thread.latestHumanMessageAt ?? null) === null &&
+          thread.latestTurn === null
+        ) {
+          return false;
+        }
         const title = thread.title.trim();
         return !(title && !thread.parentThreadId && listedTitles.has(title));
       }),
@@ -7378,7 +7395,12 @@ export default function Sidebar() {
                 </SidebarMenu>
               </SidebarGroup>
             ) : null}
-            {!isOnMossbot && !isOnSettings && !activityViewEnabled ? (
+            {/* Only under the chats: not repeated on the scheduled-tasks or project panels (R-5). */}
+            {!isOnMossbot &&
+            !isOnSettings &&
+            !activityViewEnabled &&
+            !showRailProjectPanel &&
+            !showRailAutomationsPanel ? (
               <SidebarGettingStarted
                 onOpenAutomations={() => void navigate({ to: "/automations" })}
                 onOpenConnectors={() =>

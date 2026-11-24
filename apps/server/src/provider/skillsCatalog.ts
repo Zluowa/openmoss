@@ -35,14 +35,28 @@ export interface SkillRoot {
 
 // ── Filesystem walking ───────────────────────────────────────────────
 
+/**
+ * Like Git's GIT_CEILING_DIRECTORIES: the walk never climbs into this directory. Only the test
+ * configuration sets it (to the temp root), so a test's project never reaches the skill or MCP
+ * folders of the real home on hosts whose temp folder lives inside it. Moss itself never sets it.
+ */
+const ANCESTOR_SEARCH_CEILING_ENV = "MOSS_ANCESTOR_SEARCH_CEILING";
+
+function comparablePath(value: string): string {
+  const resolved = nodePath.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
 export function ancestorsFromDeepest(cwd: string): string[] {
   const resolved = nodePath.resolve(cwd);
+  const ceilingSetting = process.env[ANCESTOR_SEARCH_CEILING_ENV]?.trim();
+  const ceiling = ceilingSetting ? comparablePath(ceilingSetting) : undefined;
   const ancestors: string[] = [];
   let current = resolved;
   while (true) {
     ancestors.push(current);
     const parent = nodePath.dirname(current);
-    if (parent === current) {
+    if (parent === current || (ceiling !== undefined && comparablePath(parent) === ceiling)) {
       return ancestors;
     }
     current = parent;

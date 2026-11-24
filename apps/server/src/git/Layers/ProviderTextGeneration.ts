@@ -1,6 +1,5 @@
 import {
   PROVIDER_DISPLAY_NAMES,
-  type DroidModelSelection,
   type ModelSelection,
   type ProviderKind,
   type ProviderStartOptions,
@@ -25,11 +24,6 @@ import * as Selection from "../textGenerationSelection.ts";
 import { GitCore } from "../Services/GitCore.ts";
 import { GitHubCli } from "../Services/GitHubCli.ts";
 
-const parseDroidModelSlug = (model: string | undefined): { readonly model: string } | null => {
-  const match = model && /^droid[:/](.+)$/.exec(model);
-  return match && match[1] ? { model: match[1] } : null;
-};
-
 interface RoutableTextGenerationInput {
   readonly model?: string;
   readonly modelSelection?: ModelSelection;
@@ -41,7 +35,6 @@ const makeProviderTextGeneration = Effect.gen(function* () {
   const claudeTextGeneration = yield* TextGen.ClaudeTextGeneration;
   const codexTextGeneration = yield* TextGen.CodexTextGeneration;
   const cursorTextGeneration = yield* TextGen.CursorTextGeneration;
-  const droidTextGeneration = yield* TextGen.DroidTextGeneration;
   const openCodeTextGeneration = yield* TextGen.OpenCodeTextGeneration;
   const serverSettings = yield* ServerSettingsService;
   const serverConfig = Option.getOrUndefined(yield* Effect.serviceOption(ServerConfig));
@@ -107,7 +100,6 @@ const makeProviderTextGeneration = Effect.gen(function* () {
     claudeAgent: claudeTextGeneration,
     codex: codexTextGeneration,
     cursor: cursorTextGeneration,
-    droid: droidTextGeneration,
     opencode: openCodeTextGeneration,
   } satisfies Record<Selection.GitTextGenerationProvider, TextGen.TextGenerationShape>;
 
@@ -128,11 +120,7 @@ const makeProviderTextGeneration = Effect.gen(function* () {
 
   const resolveRequestedProvider = (input: RoutableTextGenerationInput): ProviderKind =>
     input.modelSelection?.provider ??
-    (parseDroidModelSlug(input.model) !== null
-      ? "droid"
-      : parseOpenCodeModelSlug(input.model) !== null
-        ? "opencode"
-        : "codex");
+    (parseOpenCodeModelSlug(input.model) !== null ? "opencode" : "codex");
 
   const resolveInvocation = <TInput extends RoutableTextGenerationInput>(
     operation: TextGen.TextGenerationOperation,
@@ -169,16 +157,7 @@ const makeProviderTextGeneration = Effect.gen(function* () {
         });
       }
 
-      const modelSelectionOverride =
-        selectedProvider === "droid" && !input.modelSelection && !fallbackModelSelection
-          ? ({
-              provider: "droid",
-              instanceId: "droid",
-              model: parseDroidModelSlug(input.model)?.model ?? "droid",
-            } satisfies DroidModelSelection)
-          : undefined;
-      const selectedModelSelection =
-        fallbackModelSelection ?? input.modelSelection ?? modelSelectionOverride;
+      const selectedModelSelection = fallbackModelSelection ?? input.modelSelection;
       const selectedInstanceId = selectedModelSelection
         ? resolveModelSelectionInstanceId(selectedModelSelection)
         : selectedProvider;

@@ -172,10 +172,6 @@ const BROWSER_COPY: Readonly<Record<string, string>> = {
   "Cookie import scope": "Cookie 导入范围",
   "This site:": "此网站：",
   "All sites in this profile": "此配置文件中的所有网站",
-  "Imports all compatible cookies from the selected profile. Every imported signed-in session becomes available across Moss browser tabs and agent workflows.":
-    "导入所选配置文件中所有兼容的 Cookie。每个导入的登录会话都可在 Moss 浏览器标签和智能体工作流中使用。",
-  "Imports this site, its subdomains, and matching parent domains. Imported sessions are shared across Moss browser tabs and agent workflows.":
-    "导入此网站、它的子域名和匹配的上级域名。导入的会话会在 Moss 浏览器标签和智能体工作流之间共享。",
   "Cookie source browser": "Cookie 来源浏览器",
   "Cookie source profile": "Cookie 来源配置文件",
   "I allow Moss and its agents to use all imported signed-in sessions from this profile.":

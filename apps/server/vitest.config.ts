@@ -32,6 +32,10 @@ export default mergeConfig(
           "moss-server-vitest-powershell",
           "ModuleAnalysisCache",
         ),
+        // Project-folder walks (skills, MCP config) stop below the temp root, so a test's project
+        // never reaches the real home's folders where the temp folder lives inside the profile
+        // (Windows %TEMP%, a lane's temp under the home).
+        MOSS_ANCESTOR_SEARCH_CEILING: os.tmpdir(),
       },
     },
   }),

@@ -21,7 +21,6 @@ import {
   MessageCircleIcon,
   SlideDeckIcon,
   TerminalIcon,
-  WhiteboardIcon,
 } from "~/lib/icons";
 import { type RightDockPane, type RightDockPaneKind } from "~/rightDockStore.logic";
 import { CHAT_SURFACE_CHIP_ICON_CLASS_NAME, SurfaceChipIcon } from "./chatHeaderControls";
@@ -56,7 +55,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMetaDe
   file: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   htmlRender: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   imagePreview: { labelKey: "rightDock.pane.imagePreview", Icon: GeneratedImagePreviewIcon },
-  canvas: { labelKey: "rightDock.pane.whiteboard", Icon: WhiteboardIcon },
+  canvas: { labelKey: "rightDock.pane.canvas", Icon: GeneratedImagePreviewIcon },
   deck: { labelKey: "rightDock.pane.deck", Icon: SlideDeckIcon },
   terminal: { labelKey: "rightDock.pane.terminal", Icon: TerminalIcon },
   sidechat: { labelKey: "rightDock.launcher.sideChats", Icon: MessageCircleIcon },
@@ -122,9 +121,9 @@ const RIGHT_DOCK_LAUNCHER_ORDER: readonly RightDockPaneKind[] = [
   "diff",
   "terminal",
   "browser",
-  "canvas",
   "explorer",
   "sidechat",
+  "canvas",
   "device",
   "git",
 ];
@@ -144,7 +143,7 @@ const RIGHT_DOCK_PANE_LABEL_KEYS: Record<RightDockPaneKind, TranslationKey> = {
   file: "rightDock.pane.file",
   htmlRender: "rightDock.pane.file",
   imagePreview: "rightDock.pane.imagePreview",
-  canvas: "rightDock.pane.whiteboard",
+  canvas: "rightDock.pane.canvas",
   deck: "rightDock.pane.deck",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.pane.sideTask",

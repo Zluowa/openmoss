@@ -7,7 +7,8 @@ import {
 } from "./textGenerationCapabilities";
 
 describe("auxiliary text-generation capabilities", () => {
-  it.each(["antigravity", "grok", "pi", "devin"] satisfies ProviderKind[])(
+  // Droid is retired: a stale Droid chat falls back like any provider without text generation.
+  it.each(["antigravity", "grok", "pi", "devin", "droid"] satisfies ProviderKind[])(
     "falls back to configured text generation for unsupported %s chats",
     (provider) => {
       const modelSelection = {
@@ -20,7 +21,7 @@ describe("auxiliary text-generation capabilities", () => {
     },
   );
 
-  it.each(["codex", "claudeAgent", "cursor", "droid", "opencode"] satisfies ProviderKind[])(
+  it.each(["codex", "claudeAgent", "cursor", "opencode"] satisfies ProviderKind[])(
     "preserves the exact %s instance override",
     (provider) => {
       const modelSelection = {

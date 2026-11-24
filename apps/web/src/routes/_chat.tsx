@@ -1,5 +1,4 @@
 import { ThreadId, type ResolvedKeybindingsConfig } from "@moss/contracts";
-import { useMossbotOnboardingPresence } from "~/components/mossbot/mossbotOnboardingPresence";
 import { CHAT_SURFACE_HEADER_HEIGHT_PX } from "@moss/shared/desktopChrome";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -58,6 +57,7 @@ import { useStore } from "../store";
 import { createProjectLastActivityAtSelector } from "../storeSelectors";
 import { railItemShowsPanel } from "../appRail.logic";
 import { useRailShellStore } from "../railShellStore";
+import { agentCanvasOpenRequest, claimAgentCanvasOpen } from "../components/chat/agentCanvasOpen";
 import {
   MOSS_CANVAS_CLOSE_EVENT,
   registerMossCanvasHost,
@@ -531,11 +531,8 @@ function ChatRouteLayout() {
   // every other destination hides the chat panel outright.
   const [imagesSidebarVisible, setImagesSidebarVisible] = useState(false);
   const isDestinationSurface = destinationSurface !== null;
-  // The Mossbot onboarding takes the panel's room while it is on screen (presentation only: the stored
-  // preference in `sidebarOpen` is untouched, so the panel returns as the person left it).
-  const mossbotOnboarding = useMossbotOnboardingPresence((state) => state.active);
   const resolvedSidebarOpen =
-    isEditorView || railHidesPanel || mossbotOnboarding
+    isEditorView || railHidesPanel
       ? false
       : isDestinationSurface
         ? destinationSurface === "images" && imagesSidebarVisible
@@ -667,38 +664,35 @@ function ChatRouteLayout() {
   useEffect(
     () =>
       ensureNativeApi().orchestration.onDomainEvent((event) => {
-        if (
-          event.type !== "thread.activity-appended" ||
-          event.payload.threadId !== activeCanvasThread.current
-        )
-          return;
-        const kind = event.payload.activity.kind;
-        if (kind !== "canvas.open.requested" && kind !== "canvas.updated") return;
-        const value: unknown = event.payload.activity.payload;
-        if (!value || typeof value !== "object" || Array.isArray(value)) return;
-        const payload = value as Record<string, unknown>;
-        if (payload.source !== "moss-mcp-canvas") return;
-        const targetThreadId = String(event.payload.threadId);
-        if (kind === "canvas.updated") {
-          if (payload.open !== false) {
-            clearDestinationSurface();
-            useRightDockStore.getState().openPane(ThreadId.makeUnsafe(targetThreadId), {
-              kind: "canvas",
-            });
-          }
-          reloadMossCanvas(targetThreadId, String(payload.revision ?? event.payload.activity.id));
+        if (event.type !== "thread.activity-appended") return;
+        if (event.payload.activity.kind === "canvas.updated") {
+          // An agent changed the board: an open 画布 shows it. The dock is not opened for
+          // every write; moss_canvas_open (or the person) opens it.
+          const value: unknown = event.payload.activity.payload;
+          if (!value || typeof value !== "object" || Array.isArray(value)) return;
+          const payload = value as Record<string, unknown>;
+          if (payload.source !== "moss-mcp-canvas") return;
+          reloadMossCanvas(
+            String(event.payload.threadId),
+            String(payload.revision ?? event.payload.activity.id),
+          );
           return;
         }
-        void openThreadCanvas(
-          targetThreadId,
-          sanitizeMossCanvasImageFocus({
-            jobId: payload.jobId,
-            imageIndex: payload.imageIndex,
-            action: "canvas",
-          }),
-        );
+        const request = agentCanvasOpenRequest(event.payload.activity);
+        if (!request || !claimAgentCanvasOpen(String(event.payload.activity.id))) return;
+        const id = String(event.payload.threadId);
+        if (id !== activeCanvasThread.current) {
+          // The person is looking at another conversation: its 画布 is open beside that
+          // chat when they go back to it, as the agent said (owner, 2026-11-23).
+          useRightDockStore.getState().openPane(ThreadId.makeUnsafe(id), {
+            kind: "canvas",
+            ...(request.image ? { canvasImage: request.image } : {}),
+          });
+          return;
+        }
+        void openThreadCanvas(id, request.image);
       }),
-    [clearDestinationSurface, openThreadCanvas],
+    [openThreadCanvas],
   );
   useEffect(() => {
     const onClose = () => {
@@ -741,8 +735,6 @@ function ChatRouteLayout() {
   // Toggling the panel open on a full-width route brings back the current panel item.
   const handleSidebarOpenChange = useCallback(
     (open: boolean) => {
-      // The toggle is hidden during the onboarding; a shortcut or swipe changes nothing there.
-      if (mossbotOnboarding) return;
       if (open && railHidesPanel) {
         selectRailPanelItem(railPanelView);
       }
@@ -752,7 +744,7 @@ function ChatRouteLayout() {
       }
       setSidebarOpen(open);
     },
-    [mossbotOnboarding, railHidesPanel, railPanelView, selectRailPanelItem, destinationSurface],
+    [railHidesPanel, railPanelView, selectRailPanelItem, destinationSurface],
   );
   // ThreadSidebar owns the existing rail actions and portals them into the fixed
   // desktop slot. The project panel can collapse without taking the rail with it.

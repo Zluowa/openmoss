@@ -26,13 +26,11 @@ import type { ProjectLaunchServers } from "./useProjectLaunchServers";
 
 /** The footer line: how to use the list, and where it is kept. */
 export function useLaunchServerFooter(servers: ProjectLaunchServers): {
-  readonly lead: string;
   readonly fileLine: string;
 } {
-  const { t, format } = useTranslation();
+  const { format } = useTranslation();
   const file = servers.editFile;
   return {
-    lead: t("browser.servers.footerLead"),
     // Until the file is read the source is unknown; say nothing rather than guess.
     fileLine: !servers.loaded
       ? ""
@@ -55,12 +53,7 @@ function RowStatus({ state }: { state: LaunchServerRow["state"] }) {
     );
   }
   if (state === "running") {
-    return (
-      <StatusDot
-        aria-label={t("browser.servers.running")}
-        className="size-2 bg-success shadow-[0_0_0_2.5px_color-mix(in_srgb,var(--success)_18%,transparent)]"
-      />
-    );
+    return <StatusDot aria-label={t("browser.servers.running")} className="size-2 bg-success" />;
   }
   return null;
 }
@@ -208,8 +201,6 @@ export function LaunchServersPage(props: {
         className="shrink-0 px-6 pb-5 text-center text-ui-sm leading-snug text-[var(--color-text-foreground-secondary)]"
         data-browser-servers-footer=""
       >
-        {footer.lead}
-        <br />
         {editFilePath && props.onEditFile ? (
           <button
             type="button"

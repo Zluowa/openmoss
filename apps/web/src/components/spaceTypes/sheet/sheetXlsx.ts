@@ -144,7 +144,7 @@ export async function workbookToXlsx(workbook: SheetWorkbook): Promise<Uint8Arra
         out.alignment = {
           ...(style.align ? { horizontal: style.align } : {}),
           vertical:
-            style.valign === "middle" ? "middle" : style.valign === "bottom" ? "bottom" : "top",
+            style.valign === "middle" ? "middle" : style.valign === "top" ? "top" : "bottom",
           ...(style.wrap ? { wrapText: true } : {}),
         };
       }
@@ -230,8 +230,9 @@ function styleOf(cell: ExcelJS.Cell): SheetCellStyle | undefined {
   const align = cell.alignment?.horizontal;
   if (align === "left" || align === "center" || align === "right") style.align = align;
   const vertical = cell.alignment?.vertical;
+  // xlsx without a vertical alignment, or bottom, is Moss's default (no valign).
   if (vertical === "middle") style.valign = "middle";
-  else if (vertical === "bottom") style.valign = "bottom";
+  else if (vertical === "top") style.valign = "top";
   if (cell.alignment?.wrapText) style.wrap = true;
   if (cell.numFmt && cell.numFmt !== "General" && cell.numFmt.length <= 128)
     style.format = cell.numFmt;

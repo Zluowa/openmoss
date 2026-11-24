@@ -183,7 +183,7 @@ describe("SpaceGallery V2", () => {
 
     expect(tiles[2]!.textContent).toContain("电子表格");
     expect(tiles[2]!.textContent).toContain("Beta");
-    expect(tiles[5]!.textContent).toContain("白板");
+    expect(tiles[5]!.textContent).toContain("画布");
     expect(tiles[5]!.textContent).toContain("Beta");
     await userEvent.click(tiles[5]!);
     expect(onCreate).toHaveBeenCalledWith("board");
@@ -356,7 +356,7 @@ describe("SpaceGallery V2", () => {
       "电子表格",
       "设计",
       "数据看板",
-      "白板",
+      "画布",
       "应用页",
       "图像",
       "站点",

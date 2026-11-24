@@ -47,14 +47,13 @@ export function prepareProviderAuthenticationSettings(input: {
   // credentials, rather than logging into a terminal-only synthetic home.
   if (
     (instance.isDefault && !instance.config.profileDir && instance.raw.environment === undefined) ||
-    !["devin", "antigravity", "droid"].includes(instance.driver)
+    !["devin", "antigravity"].includes(instance.driver)
   ) {
     return null;
   }
   const profileDir =
     typeof instance.config.profileDir === "string" ? instance.config.profileDir.trim() : "";
-  const directoryKind =
-    instance.driver === "antigravity" ? "gemini" : instance.driver === "droid" ? "kilo" : "devin";
+  const directoryKind = instance.driver === "antigravity" ? "gemini" : "devin";
   const platform = process.platform;
   const normalizeName = (name: string) =>
     platform === "win32" ? name.trim().toUpperCase() : name.trim();
@@ -71,8 +70,7 @@ export function prepareProviderAuthenticationSettings(input: {
       directoryKind,
       `instance-${Buffer.from(input.instanceId).toString("hex")}`,
     );
-  const nativeDriver =
-    instance.driver === "devin" ? "devin" : instance.driver === "droid" ? "droid" : "antigravity";
+  const nativeDriver = instance.driver === "devin" ? "devin" : "antigravity";
   const defaults = {
     ...providerHomeEnvironment(expandProviderAccountHomePath(home, input.homeDir), platform),
     ...(instance.driver === "antigravity" ? { GEMINI_FORCE_FILE_STORAGE: "true" } : {}),
