@@ -92,6 +92,8 @@ vi.mock("~/components/PluginLibrary", () => ({
   PluginLibrary: () => <div data-testid="plugin-library-stub">PluginLibrary stub</div>,
 }));
 
+import { MossLocaleScope } from "~/localization";
+import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "~/localization/zhCN";
 import { makeProject } from "~/storeTestFixtures";
 import { useStore } from "~/store";
 import { useProjectAgentSummariesStore } from "./useProjectAgentSummaries";
@@ -140,9 +142,9 @@ function emitProjectAgentEvent(event: ProjectAgentStreamEvent) {
   harness.projectAgentListeners.forEach((listener) => listener(event));
 }
 
-function renderPanel() {
+function renderPanel(locale?: "zh-CN") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const panel = (
     <QueryClientProvider client={queryClient}>
       <ProjectPanel
         open
@@ -157,8 +159,9 @@ function renderPanel() {
         onOpenAutomation={vi.fn()}
         onClose={vi.fn()}
       />
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  return render(locale ? <MossLocaleScope locale={locale}>{panel}</MossLocaleScope> : panel);
 }
 
 describe("ProjectPanel configured state", () => {
@@ -471,6 +474,24 @@ describe("ProjectPanel polished sections", () => {
     expect(text).toContain("Claude Opus 5.5");
     expect(text).toContain("Medium");
     expect(text).not.toContain("Claude ·");
+  });
+
+  it("names the coordinator row in Chinese to a screen reader (walk N12-5)", async () => {
+    harness.api.projectAgent.getOverview.mockResolvedValue(overview());
+    document.documentElement.lang = "zh-CN";
+    document.documentElement.dataset.mossLocale = "zh-CN";
+    installZhCnUiLocalization();
+    const screen = await renderPanel("zh-CN");
+    try {
+      await expect
+        .element(page.getByRole("button", { name: "打开 alpha", exact: true }))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+      uninstallZhCnUiLocalization();
+      document.documentElement.lang = "en";
+      delete document.documentElement.dataset.mossLocale;
+    }
   });
 
   it("always shows Threads by state, with live threads under Working and no activity chart", async () => {

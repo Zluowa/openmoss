@@ -13,6 +13,8 @@ import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { WorkspaceFileOpenerContext, type WorkspaceFileOpener } from "~/lib/workspaceFileOpener";
+import { MossLocaleScope } from "~/localization";
+import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "~/localization/zhCN";
 
 import { FileChipHoverCardContent } from "./FileChipHoverCard";
 import { InlineMentionChip } from "./InlineMentionChip";
@@ -107,6 +109,39 @@ it("shows a created page by its own title and opens it in the panel", async () =
     expect(opener.openFile).toHaveBeenCalledWith("simple-page/index.html");
   } finally {
     await cleanup();
+  }
+});
+
+it("names the page card in Chinese to a screen reader (walk N12-5)", async () => {
+  await page.viewport(720, 420);
+  const readFile = vi
+    .fn()
+    .mockResolvedValue(
+      htmlFile("simple-page/index.html", "<html><head><title>盖碗冲泡计时</title></head></html>"),
+    );
+  document.documentElement.lang = "zh-CN";
+  document.documentElement.dataset.mossLocale = "zh-CN";
+  installZhCnUiLocalization();
+  const { cleanup } = await withHarness(
+    readFile,
+    makeOpener(),
+    <MossLocaleScope locale="zh-CN">
+      <TurnPageCards
+        files={[{ path: "simple-page/index.html", kind: "added", additions: 246, deletions: 0 }]}
+        workspaceRoot="/workspace/ceshi"
+        theme="light"
+      />
+    </MossLocaleScope>,
+  );
+  try {
+    await expect
+      .element(page.getByRole("button", { name: "打开网页 盖碗冲泡计时", exact: true }))
+      .toBeVisible();
+  } finally {
+    await cleanup();
+    uninstallZhCnUiLocalization();
+    document.documentElement.lang = "en";
+    delete document.documentElement.dataset.mossLocale;
   }
 });
 

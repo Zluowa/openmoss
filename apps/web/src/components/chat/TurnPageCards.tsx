@@ -22,6 +22,7 @@ import { projectReadFileQueryOptions } from "~/lib/projectReactQuery";
 import { useSharedFileOpener } from "~/lib/sharedViewer";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "~/lib/workspaceFileOpener";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import type { TurnDiffFileChange } from "~/types";
 
 import { isChatHtmlPagePath, readHtmlDocumentTitle } from "./chatFileKind";
@@ -47,6 +48,7 @@ function TurnPageCard(props: {
   workspaceRoot: string | undefined;
   theme: "light" | "dark";
 }) {
+  const { format } = useTranslation();
   const opener = useWorkspaceFileOpener();
   // A shared conversation's guest opens the page in its viewer pane, through the share.
   const openSharedFile = useSharedFileOpener();
@@ -77,7 +79,7 @@ function TurnPageCard(props: {
           canOpen ? "cursor-interaction" : "cursor-default",
         )}
         disabled={!canOpen}
-        aria-label={`Open page ${title}`}
+        aria-label={format("chat.pageCard.openAria", { title })}
         title={openSharedFile ? title : path}
         data-turn-page-card={path}
         onClick={() =>

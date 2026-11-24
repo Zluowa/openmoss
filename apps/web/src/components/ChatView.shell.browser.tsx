@@ -4065,6 +4065,35 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("names a Codex chat's sidebar row in Chinese whatever its title says (walk N12-5)", async () => {
+    // The walk's Codex chat: its title is the first prompt, a sentence with file names in it,
+    // which the page's translation never caught, so a screen reader heard 「Open 帮我看看…」.
+    const title =
+      "帮我看看这个项目，读一下说明，给 index.js 加减法和乘法，再看看 missing.txt [[WALK:FULL]]";
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    const snapshot = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("zh-cn-sidebar-row-name"),
+      targetText: title,
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: { ...snapshot, threads: snapshot.threads.map((thread) => ({ ...thread, title })) },
+    });
+    installZhCnUiLocalization();
+
+    try {
+      await expect
+        .element(page.getByRole("button", { name: `打开 ${title}`, exact: true }).first())
+        .toBeVisible();
+      await expect
+        .element(page.getByRole("button", { name: `Open ${title}`, exact: true }))
+        .not.toBeInTheDocument();
+    } finally {
+      uninstallZhCnUiLocalization();
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps the zh-CN rail More menu, pinned plugin shortcuts and Help wired to the sidebar", async () => {
     // Regression guard: a rebase once dropped this wiring from Sidebar while the
     // AppRailMoreMenu component tests stayed green.

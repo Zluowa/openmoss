@@ -127,6 +127,26 @@ it("the transcript's sub-agent card, opened, is Chinese all through", async () =
   });
 });
 
+it("the transcript card's sub-agent rows name themselves in Chinese to a screen reader (walk N12-5)", async () => {
+  const screen = await render(
+    <MossLocaleScope locale="zh-CN">
+      <SubagentRunContext.Provider value={context}>
+        <SubagentRunCard workEntry={entry} />
+      </SubagentRunContext.Provider>
+    </MossLocaleScope>,
+  );
+  const header = screen.container.querySelector<HTMLElement>("button[aria-expanded]");
+  if (header?.getAttribute("aria-expanded") === "false") header.click();
+  for (const name of names) {
+    await expect
+      .element(page.getByRole("button", { name: `打开 ${name}`, exact: true }))
+      .toBeVisible();
+  }
+  await expect
+    .element(page.getByRole("button", { name: "Open answer_a", exact: true }))
+    .not.toBeInTheDocument();
+});
+
 it("the side panel's sub-agent rows are Chinese all through", async () => {
   const screen = await render(
     <MossLocaleScope locale="zh-CN">

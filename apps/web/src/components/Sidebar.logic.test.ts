@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { formatMossTranslation, type TranslationKey } from "../localization";
 import {
   buildProjectThreadTree,
   collectSidebarThreadAncestorIds,
@@ -325,16 +326,28 @@ describe("resolveSidebarProjectRowLabel", () => {
 });
 
 describe("resolveThreadRowAriaLabel", () => {
+  const en = (key: TranslationKey, values: Record<string, string | number>) =>
+    formatMossTranslation("en", key, values);
+  const zh = (key: TranslationKey, values: Record<string, string | number>) =>
+    formatMossTranslation("zh-CN", key, values);
+
   it("names the row for its thread title", () => {
-    expect(resolveThreadRowAriaLabel({ title: "Fixture: working thread" })).toBe(
+    expect(resolveThreadRowAriaLabel({ title: "Fixture: working thread" }, en)).toBe(
       "Open Fixture: working thread",
     );
   });
 
+  it("names the row in Chinese under zh-CN, whatever the title looks like", () => {
+    expect(resolveThreadRowAriaLabel({ title: "帮我看看 index.js" }, zh)).toBe(
+      "打开 帮我看看 index.js",
+    );
+    expect(resolveThreadRowAriaLabel({ title: "  " }, zh)).toBe("打开对话");
+  });
+
   it("trims whitespace and falls back when the title is empty", () => {
-    expect(resolveThreadRowAriaLabel({ title: "  spaced  " })).toBe("Open spaced");
-    expect(resolveThreadRowAriaLabel({ title: "   " })).toBe("Open thread");
-    expect(resolveThreadRowAriaLabel({ title: "" })).toBe("Open thread");
+    expect(resolveThreadRowAriaLabel({ title: "  spaced  " }, en)).toBe("Open spaced");
+    expect(resolveThreadRowAriaLabel({ title: "   " }, en)).toBe("Open thread");
+    expect(resolveThreadRowAriaLabel({ title: "" }, en)).toBe("Open thread");
   });
 });
 

@@ -5159,7 +5159,7 @@ export default function Sidebar() {
             role="button"
             tabIndex={0}
             data-thread-item
-            aria-label={resolveThreadRowAriaLabel(thread)}
+            aria-label={resolveThreadRowAriaLabel(thread, format)}
             aria-description={prChip?.tooltip}
             className={cn(
               SIDEBAR_HEADER_ROW_CLASS_NAME,
@@ -5330,7 +5330,7 @@ export default function Sidebar() {
                 data-thread-entry-point={threadEntryPoint}
                 size="sm"
                 isActive={isActive}
-                aria-label={resolveThreadRowAriaLabel(thread)}
+                aria-label={resolveThreadRowAriaLabel(thread, format)}
                 aria-description={prChip?.tooltip}
                 className={cn(
                   resolveThreadRowClassName({

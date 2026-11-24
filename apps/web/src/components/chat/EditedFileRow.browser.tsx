@@ -19,6 +19,8 @@ vi.mock("../ui/toast", () => ({
 }));
 
 import { resolveEditorLabel } from "~/editorMetadata";
+import { MossLocaleScope } from "~/localization";
+import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "~/localization/zhCN";
 import { WorkspaceFileOpenerContext } from "~/lib/workspaceFileOpener";
 import { EditedFileRow } from "./EditedFileRow";
 
@@ -301,6 +303,34 @@ describe("EditedFileRow", () => {
       expect(row.querySelectorAll("svg, img")).toHaveLength(0);
     } finally {
       await screen.unmount();
+    }
+  });
+
+  it("names the changed file's open actions in Chinese to a screen reader (walk N12-5)", async () => {
+    document.documentElement.lang = "zh-CN";
+    document.documentElement.dataset.mossLocale = "zh-CN";
+    installZhCnUiLocalization();
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        {editedFileRow({
+          openFile: vi.fn(() => true),
+          filePath: "index.js",
+          workspaceRoot: WORKSPACE_ROOT,
+        })}
+      </MossLocaleScope>,
+    );
+    try {
+      await expect
+        .element(page.getByRole("group", { name: "打开 index.js", exact: true }))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByRole("button", { name: "打开 index.js 的选项", exact: true }))
+        .toBeVisible();
+    } finally {
+      await screen.unmount();
+      uninstallZhCnUiLocalization();
+      document.documentElement.lang = "en";
+      delete document.documentElement.dataset.mossLocale;
     }
   });
 });

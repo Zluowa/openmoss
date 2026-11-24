@@ -123,7 +123,7 @@ function SubagentRunRowView({
   context: SubagentRunContextValue | null;
 }) {
   const [nestedOpen, setNestedOpen] = useState(false);
-  const { locale } = useTranslation();
+  const { format, locale } = useTranslation();
   const description = describeSubagentRunRow(row, { nowMs, allStopped, locale });
   const live = row.phase === "running" || row.phase === "waiting" || row.phase === "starting";
   const { threadId } = row;
@@ -146,7 +146,7 @@ function SubagentRunRowView({
           className="flex min-w-0 flex-1 items-center gap-2 text-left outline-none after:absolute after:inset-0 after:rounded-card after:content-[''] focus-visible:after:ring-1 focus-visible:after:ring-ring/60 disabled:cursor-default"
           disabled={!openThread}
           onClick={openThread}
-          aria-label={`Open ${row.item.primaryLabel}`}
+          aria-label={format("chat.subagentRun.openAria", { name: row.item.primaryLabel })}
         >
           <span className="flex min-w-0 flex-1 items-center gap-2">
             <SubagentIdentityLine item={row.item} />

@@ -9,6 +9,7 @@ import type { CSSProperties } from "react";
 import { useCopyPathToClipboard } from "~/hooks/useCopyToClipboard";
 import { CopyIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 
 import { MenuItem } from "../ui/menu";
 import { DiffStatLabel } from "./DiffStatLabel";
@@ -42,6 +43,7 @@ const EDITED_FILE_EDITOR_ORDER: ReadonlyArray<EditorId> = [
 
 export function EditedFileRow(props: EditedFileRowProps) {
   const copyPathToClipboard = useCopyPathToClipboard();
+  const { format } = useTranslation();
   const { absolutePath, relativePath } = resolveEditedFilePathTargets(
     props.filePath,
     props.workspaceRoot,
@@ -105,8 +107,8 @@ export function EditedFileRow(props: EditedFileRowProps) {
         openInTarget={launcherTarget}
         menuEditorOrder={EDITED_FILE_EDITOR_ORDER}
         preferFileEditor
-        groupLabel={`Open ${props.filePath}`}
-        menuLabel={`Open ${props.filePath} options`}
+        groupLabel={format("chat.editedFile.openAria", { path: props.filePath })}
+        menuLabel={format("chat.editedFile.optionsAria", { path: props.filePath })}
         additionalMenuItems={
           <>
             <MenuItem

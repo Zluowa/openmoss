@@ -36,6 +36,7 @@ import {
   hasReconciledServerProviderStatuses,
   reconcileServerProviderStatuses,
 } from "../lib/serverReactQuery";
+import { pageAssistantThreads } from "../lib/pageAi/pageAssistantThread";
 import { useRightDockStore } from "../rightDockStore";
 import { useOpenThreadTabsStore } from "../openThreadTabsStore";
 import { useStore } from "../store";
@@ -2152,6 +2153,75 @@ describe("ChatView transcript geometry (full app)", () => {
       await mounted.router.navigate({ to: "/$threadId", params: { threadId: itemThreadId } });
       await expect.element(page.getByTestId("empty-landing-heading")).toBeVisible();
     } finally {
+      useRightDockStore.setState({ dockStateByThreadId: {} });
+      await mounted.cleanup();
+    }
+  });
+
+  it("N7-6: a 资料空间 document's 问 Moss with nothing sent shows an empty chat with no code controls", async () => {
+    // WALK-7 N7-6: a document's 问 Moss, nothing sent. The item's chat (an ordinary thread in
+    // the project, bound to the document, no message yet) opens in the dock pane beside the
+    // item. It showed 「对话开始 / 跳到第一条消息」 in the empty chat, and the composer offered
+    // 本地 and 选择分支, controls for a checkout a document's chat does not work in.
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    const itemThreadId = ThreadId.makeUnsafe("thread-n7-6-document-chat");
+    const documentKey = "default:local:page-n7-6-notes";
+    const base = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("msg-n7-6-host"),
+        targetText: "N7-6 host chat",
+      }),
+      itemThreadId,
+    );
+    const snapshot = {
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === itemThreadId ? { ...thread, title: "会议纪要", session: null } : thread,
+      ),
+    };
+    pageAssistantThreads.set(documentKey, itemThreadId);
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot,
+      configureFixture: (nextFixture) => {
+        nextFixture.gitBranchByCwd = { "/repo/project": "main" };
+      },
+    });
+    installZhCnUiLocalization();
+    try {
+      await waitForComposerEditor();
+      useRightDockStore
+        .getState()
+        .openPane(THREAD_ID, { kind: "sidechat", threadId: itemThreadId });
+      await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            '[data-chat-pane-scope^="dock-sidechat:"] [contenteditable="true"]',
+          ),
+        "The document's chat composer is missing.",
+      );
+      const dockPanel = document.querySelector<HTMLElement>('[data-testid="right-dock-panel"]')!;
+      await waitForLayout();
+      await waitForLayout();
+      // The composer is there, in Chinese, as the walker saw it.
+      await vi.waitFor(() =>
+        expect(dockPanel.querySelector('button[aria-label="发送消息"]')).not.toBeNull(),
+      );
+      // The empty chat shows nothing: no history marker, no loader, no new-chat question.
+      for (const text of ["对话开始", "跳到第一条消息", "加载更早的消息", "正在加载"]) {
+        expect(dockPanel.textContent).not.toContain(text);
+      }
+      expect(dockPanel.querySelector('[data-testid="empty-landing-heading"]')).toBeNull();
+      // No run location or branch for a document's chat.
+      const buttonTexts = [...dockPanel.querySelectorAll("button")].map(
+        (button) => button.textContent?.trim() ?? "",
+      );
+      expect(buttonTexts).not.toContain("本地");
+      expect(buttonTexts).not.toContain("选择分支");
+      expect(buttonTexts).not.toContain("main");
+    } finally {
+      uninstallZhCnUiLocalization();
+      pageAssistantThreads.forget(documentKey);
       useRightDockStore.setState({ dockStateByThreadId: {} });
       await mounted.cleanup();
     }

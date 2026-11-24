@@ -2477,6 +2477,9 @@ export default function ChatView({
   // A side chat, and any chat docked beside an item (its 问 Moss panel), opens on an empty
   // transcript: the new-chat landing and its question belong to the home chat (walk N3-3).
   const opensOnEmptyTranscript = activeThreadIsSidechat || isDockSidechatPaneScopeId(paneScopeId);
+  // The same chats work on no checkout: no run location, branch or project scripts (walk N7-6:
+  // a document's 问 Moss offered 「本地」 and 「选择分支」).
+  const showsCodeControls = !opensOnEmptyTranscript;
   // Stable identity: this element is forwarded to the memoized MessagesTimeline, so
   // building it inline in JSX would defeat its `memo()` on every keystroke.
   const transcriptEmptyStateContent = useMemo((): ReactNode => {
@@ -7194,7 +7197,7 @@ export default function ChatView({
       ? { onCheckoutPullRequestRequest: openPullRequestDialog }
       : {}),
   };
-  const showTrailingBranchToolbar = !activeThreadIsSidechat && isGitRepo && !environmentEnabled;
+  const showTrailingBranchToolbar = showsCodeControls && isGitRepo && !environmentEnabled;
   const showEmptyLandingBranchToolbar =
     isCenteredEmptyLanding && activeProject?.kind === "project" && !isHomeChatContainer;
   // Temporary is chosen while starting a chat. Draft metadata covers local reloads;
@@ -7379,7 +7382,7 @@ export default function ChatView({
     subagentSourceThreadId: stripSourceThreadId,
     diffDisabledReason,
     diffTotals: repoDiffTotals,
-    branchToolbar: activeThreadIsSidechat ? null : branchToolbarProps,
+    branchToolbar: showsCodeControls ? branchToolbarProps : null,
     recap: threadRecap,
     pinnedMessages,
     pinnedMessageTextById,
@@ -7405,7 +7408,7 @@ export default function ChatView({
     onRegisterCommitAndPushTrigger,
     contextWindow: displayedContextWindow,
     projectScripts:
-      activeProject && activeProjectScripts !== undefined && !activeThreadIsSidechat
+      activeProject && activeProjectScripts !== undefined && showsCodeControls
         ? {
             scripts: activeProjectScripts,
             preferredScriptId: lastInvokedScriptByProjectId[activeProject.id] ?? null,

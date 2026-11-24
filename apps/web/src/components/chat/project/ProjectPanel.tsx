@@ -24,6 +24,7 @@ import { BotIcon, PauseIcon, PlayIcon, SettingsIcon, XIcon } from "~/lib/icons";
 import { FastModeBadgeIcon } from "../FastModeBadgeIcon";
 import { formatThreadModelSummaryLabel, resolveThreadModelSummary } from "~/lib/threadModelSummary";
 import { cn } from "~/lib/utils";
+import { useTranslation } from "~/localization";
 import { useAutomations } from "~/routes/-automations.shared";
 import { useStore } from "~/store";
 import { SOFT_SURFACE_FILL_CLASS_NAME } from "~/surfaceStyles";
@@ -114,6 +115,7 @@ export function ProjectPanel({
   settingsInitialSection,
   onSettingsDialogOpenChange,
 }: ProjectPanelProps) {
+  const { format } = useTranslation();
   const [internalDialogOpen, setInternalDialogOpen] = useState(false);
   const agentDialogOpen = settingsDialogOpen ?? internalDialogOpen;
   const setAgentDialogOpen = (open: boolean) => {
@@ -400,7 +402,9 @@ export function ProjectPanel({
                 )
               }
               label={personal ? "Assistant" : "Coordinator"}
-              aria-label={`Open ${coordinatorDisplayName}`}
+              aria-label={format("chat.projectPanel.openCoordinatorAria", {
+                name: coordinatorDisplayName,
+              })}
               title={coordinatorDisplayName}
               onClick={openCoordinatorThread}
               trailing={

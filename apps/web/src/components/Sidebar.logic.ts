@@ -16,6 +16,7 @@ import { pluralize } from "@moss/shared/text";
 import { resolveThreadEnvironmentMode } from "@moss/shared/threadEnvironment";
 import { isWorkspaceRootWithin, workspaceRootsEqual } from "@moss/shared/threadWorkspace";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
+import type { TranslationKey } from "../localization";
 import {
   resolveRestorableThreadRoute,
   type LastThreadRoute,
@@ -250,11 +251,20 @@ export function resolveSidebarProjectRowLabel(
  * Accessible name for a sidebar thread row. The row renders a `role="button"`
  * div whose only other label comes from the truncated title span — an explicit
  * name keeps the control identifiable to assistive tech and automation even
- * when the visible text is clipped or carries status glyphs.
+ * when the visible text is clipped or carries status glyphs. It is written in the
+ * app's language: the page's translation only caught titles that looked like a
+ * name, so a row titled with a sentence read 「Open …」 (walk N12-5). The caller
+ * passes the app's `format` so this module stays free of the React localization
+ * module (hook tests that mock `react` import it).
  */
-export function resolveThreadRowAriaLabel(thread: Pick<SidebarThreadSummary, "title">): string {
+export function resolveThreadRowAriaLabel(
+  thread: Pick<SidebarThreadSummary, "title">,
+  format: (key: TranslationKey, values: Record<string, string | number>) => string,
+): string {
   const title = nonEmptyDisplayValue(thread.title);
-  return title === null ? "Open thread" : `Open ${title}`;
+  return title === null
+    ? format("sidebar.thread.openUntitledAria", {})
+    : format("sidebar.thread.openAria", { title });
 }
 
 export type SidebarThreadHoverMetadata = {

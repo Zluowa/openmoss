@@ -29,7 +29,7 @@ export function EnvironmentAutomationsSection({
   readonly automations: readonly EnvironmentAutomationPanelItem[];
   readonly onOpenAutomation: (definition: AutomationDefinition) => void;
 }) {
-  const { locale } = useTranslation();
+  const { format, locale } = useTranslation();
   if (automations.length === 0) {
     return null;
   }
@@ -58,7 +58,7 @@ export function EnvironmentAutomationsSection({
                 {cadence}
               </span>
             }
-            aria-label={`Open automation ${name}`}
+            aria-label={format("chat.environment.openAutomationAria", { name })}
             title={`${name} - ${cadence}`}
             onClick={() => onOpenAutomation(definition)}
           />

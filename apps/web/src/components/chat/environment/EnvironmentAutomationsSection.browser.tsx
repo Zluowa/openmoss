@@ -9,6 +9,8 @@ import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { MossLocaleScope } from "~/localization";
+
 import { EnvironmentAutomationsSection } from "./EnvironmentAutomationsSection";
 
 const baseAutomation = (overrides: Partial<AutomationDefinition> = {}): AutomationDefinition => ({
@@ -70,5 +72,26 @@ describe("EnvironmentAutomationsSection", () => {
       .click();
 
     expect(onOpenAutomation).toHaveBeenCalledWith(definition);
+  });
+
+  it("names the automation row in Chinese from its own copy under zh-CN (walk N12-5)", async () => {
+    // Rendered without the page translation: the row's name must come from the app's own
+    // zh-CN copy, not from a regex that rewrites English after the fact.
+    const definition = baseAutomation({ name: "每天看一下 index.js 的变化" });
+
+    await render(
+      <MossLocaleScope locale="zh-CN">
+        <EnvironmentAutomationsSection automations={[{ definition }]} onOpenAutomation={vi.fn()} />
+      </MossLocaleScope>,
+    );
+
+    await expect
+      .element(
+        page.getByRole("button", { name: "打开定时任务 每天看一下 index.js 的变化", exact: true }),
+      )
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: /^Open automation/ }))
+      .not.toBeInTheDocument();
   });
 });
