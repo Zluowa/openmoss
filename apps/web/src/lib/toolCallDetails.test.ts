@@ -5,6 +5,8 @@ import {
   deriveWorkLogToolDetails,
   parseWorkLogMcpToolResult,
   patchFromFileChangeActivities,
+  pathInside,
+  splitToolDiffByFile,
 } from "./toolCallDetails";
 
 describe("deriveToolFailureSummary", () => {
@@ -181,5 +183,144 @@ describe("patchFromFileChangeActivities (WALK-6 H-6)", () => {
         null,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("splitToolDiffByFile (walk N11-3)", () => {
+  it("keeps each file's path and its hunks' lines, without the diff's own header lines", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "index 1111111..2222222 100644",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,2 +1,2 @@",
+      " keep",
+      "--- a removed line that starts with dashes",
+      "+++ an added line that starts with pluses",
+      "@@ -9 +9 @@",
+      "-old",
+      "+new",
+      "\\ No newline at end of file",
+      "diff --git a/b.md b/b.md",
+      "new file mode 100644",
+      "--- /dev/null",
+      "+++ b/b.md",
+      "@@ -0,0 +1 @@",
+      "+hello",
+      "",
+    ].join("\n");
+    expect(splitToolDiffByFile(diff)).toEqual([
+      {
+        path: "src/a.ts",
+        hunks: [
+          [
+            " keep",
+            "--- a removed line that starts with dashes",
+            "+++ an added line that starts with pluses",
+          ],
+          ["-old", "+new"],
+        ],
+      },
+      { path: "b.md", hunks: [["+hello"]] },
+    ]);
+  });
+
+  it("shows bare hunk lines as they are", () => {
+    expect(splitToolDiffByFile("@@ -1 +1 @@\n-const a = 1;\n+const a = 2;")).toEqual([
+      { path: null, hunks: [["-const a = 1;", "+const a = 2;"]] },
+    ]);
+  });
+
+  // #967 review: Codex deletes one file and changes another in the same edit (absolute paths).
+  const codexRoot = String.raw`D:\walk\profile\code`;
+  const deleteThenUpdate = {
+    itemType: "file_change",
+    status: "completed",
+    data: {
+      item: {
+        type: "fileChange",
+        id: "call_7",
+        changes: [
+          { path: String.raw`${codexRoot}\gone.txt`, kind: { type: "delete" }, diff: "a\nb\nc\n" },
+          {
+            path: String.raw`${codexRoot}\index.js`,
+            kind: { type: "update", move_path: null },
+            diff: "@@ -1 +1,3 @@\n export const add = 1;\n+export const sub = 2;\n+export const mul = 3;\n",
+          },
+        ],
+      },
+    },
+  };
+
+  it("names each file of a Codex edit that deletes one file and changes another", () => {
+    const details = deriveWorkLogToolDetails({
+      label: "File change",
+      itemType: "file_change",
+      payload: deleteThenUpdate,
+    });
+    const files = splitToolDiffByFile(details?.diff ?? "");
+    expect(
+      files.map((file) => ({
+        path: file.path && pathInside(file.path, codexRoot),
+        hunks: file.hunks,
+      })),
+    ).toEqual([
+      { path: "gone.txt", hunks: [["-a", "-b", "-c"]] },
+      {
+        path: "index.js",
+        hunks: [[" export const add = 1;", "+export const sub = 2;", "+export const mul = 3;"]],
+      },
+    ]);
+    const shownLines = files.flatMap((file) => file.hunks.flat());
+    expect(shownLines.filter((line) => /^(?:diff --git |--- |\+\+\+ |@@ )/u.test(line))).toEqual(
+      [],
+    );
+  });
+
+  it("writes a Codex delete as its old lines removed, named inside the project folder", () => {
+    const patch = patchFromFileChangeActivities(
+      [{ id: "a1", turnId: "turn-1", payload: deleteThenUpdate }],
+      "turn-1",
+      codexRoot,
+    );
+    expect(patch).toBe(
+      [
+        "diff --git a/gone.txt b/gone.txt",
+        "--- a/gone.txt",
+        "+++ /dev/null",
+        "@@ -1,3 +0,0 @@",
+        "-a",
+        "-b",
+        "-c",
+        "diff --git a/index.js b/index.js",
+        "--- a/index.js",
+        "+++ b/index.js",
+        "@@ -1 +1,3 @@",
+        " export const add = 1;",
+        "+export const sub = 2;",
+        "+export const mul = 3;",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("starts the next file at its diff --git line even when a hunk's counts run past it", () => {
+    const diff = [
+      "diff --git a/gone.txt b/gone.txt",
+      "--- a/gone.txt",
+      "+++ /dev/null",
+      "@@ -0,0 +1,5 @@",
+      "-a",
+      "diff --git a/index.js b/index.js",
+      "--- a/index.js",
+      "+++ b/index.js",
+      "@@ -1 +1,2 @@",
+      " keep",
+      "+added",
+    ].join("\n");
+    expect(splitToolDiffByFile(diff)).toEqual([
+      { path: "gone.txt", hunks: [["-a"]] },
+      { path: "index.js", hunks: [[" keep", "+added"]] },
+    ]);
   });
 });

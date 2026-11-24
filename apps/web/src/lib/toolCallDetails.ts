@@ -332,9 +332,11 @@ function codexChangesDiff(changes: unknown): string | undefined {
     const to = kind === "delete" ? "/dev/null" : `b/${path}`;
     const header = [`diff --git a/${path} b/${path}`, `--- ${from}`, `+++ ${to}`].join("\n");
     if (/^(?:@@|--- )/mu.test(diff)) return [`${header}\n${diff}`];
-    const sign = kind === "delete" ? "-" : "+";
     const lines = diff.replace(/\n$/u, "").split("\n");
-    const hunk = `@@ -0,0 +1,${lines.length} @@`;
+    // A deleted file's lines all go from the old side; any other whole text is all added.
+    const sign = kind === "delete" ? "-" : "+";
+    const hunk =
+      kind === "delete" ? `@@ -1,${lines.length} +0,0 @@` : `@@ -0,0 +1,${lines.length} @@`;
     return [[header, hunk, ...lines.map((line) => sign + line)].join("\n")];
   });
   return parts.length > 0 ? parts.join("\n") : undefined;
@@ -378,13 +380,102 @@ function extractUnifiedDiff(payload: Record<string, unknown> | null): string | u
  * Moss has no snapshot to compare with (a folder outside Git), so 查看更改 still shows the lines.
  */
 /** `path` relative to `root` when it lies inside it (either slash, any case), else as given. */
-function pathInside(path: string, root: string | null): string {
+export function pathInside(path: string, root: string | null | undefined): string {
   if (!root) return path;
   const slashed = path.replaceAll("\\", "/");
   const base = root.replaceAll("\\", "/").replace(/\/+$/u, "");
   return base.length > 0 && slashed.toLowerCase().startsWith(`${base.toLowerCase()}/`)
     ? slashed.slice(base.length + 1)
     : path;
+}
+
+/** One file of a unified diff as a person reads it: its path and its hunks' lines. */
+export interface ToolDiffFile {
+  /** The changed file's path as the diff names it (no `a/`/`b/`), or null for bare hunks. */
+  readonly path: string | null;
+  /** Each hunk's lines (context, `+` and `-`), without the `@@` line. */
+  readonly hunks: ReadonlyArray<ReadonlyArray<string>>;
+}
+
+const DIFF_FILE_HEADER_PATTERN =
+  /^(?:index |new file mode|deleted file mode|old mode|new mode|similarity index|dissimilarity index|rename from|rename to|copy from|copy to|Binary files )/u;
+const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/u;
+/** What a hunk's line starts with: context, an added or removed line, or `\ No newline`. */
+const HUNK_LINE_PATTERN = /^[ +\\-]/u;
+
+function diffHeaderPath(raw: string): string | null {
+  const path = raw.split("\t")[0]!.trim();
+  if (path === "/dev/null" || path.length === 0) return null;
+  return path.startsWith("a/") || path.startsWith("b/") ? path.slice(2) : path;
+}
+
+/**
+ * Splits a unified diff into its files, keeping only what a person reads: each file's path and
+ * the lines of its hunks. The `diff --git`, `---`, `+++`, `index` and `@@` lines go (walk N11-3).
+ * A hunk's line counts say where it ends, so a removed line that starts with `--` stays a line.
+ * A line no hunk line can be (one not starting with a space, `+`, `-` or `\`, such as
+ * `diff --git`) ends the hunk whatever its counts said, so a wrong count never pulls in the
+ * next file.
+ */
+export function splitToolDiffByFile(diff: string): ToolDiffFile[] {
+  const files: Array<{ path: string | null; hunks: string[][] }> = [];
+  let hunk: string[] | null = null;
+  let oldLeft = 0;
+  let newLeft = 0;
+  const currentFile = (fresh: boolean) => {
+    const last = files.at(-1);
+    if (last && !fresh) return last;
+    const next: { path: string | null; hunks: string[][] } = { path: null, hunks: [] };
+    files.push(next);
+    hunk = null;
+    return next;
+  };
+  for (const line of diff.replace(/\r?\n$/u, "").split(/\r?\n/u)) {
+    if (line.length > 0 && !HUNK_LINE_PATTERN.test(line)) {
+      oldLeft = 0;
+      newLeft = 0;
+    }
+    if (hunk !== null && (oldLeft > 0 || newLeft > 0)) {
+      if (line.startsWith("\\")) continue;
+      (hunk as string[]).push(line);
+      if (!line.startsWith("+")) oldLeft -= 1;
+      if (!line.startsWith("-")) newLeft -= 1;
+      continue;
+    }
+    if (line.startsWith("diff --git ")) {
+      currentFile(true).path = / b\/(.+)$/u.exec(line)?.[1] ?? null;
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      // A `---` after a file's hunks starts the next file of a diff without `diff --git` lines.
+      const file = currentFile((files.at(-1)?.hunks.length ?? 1) > 0);
+      file.path = diffHeaderPath(line.slice(4)) ?? file.path;
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const file = currentFile(false);
+      file.path = diffHeaderPath(line.slice(4)) ?? file.path;
+      continue;
+    }
+    const counts = HUNK_HEADER_PATTERN.exec(line);
+    if (counts) {
+      const file = currentFile(false);
+      hunk = [];
+      file.hunks.push(hunk);
+      oldLeft = counts[1] === undefined ? 1 : Number(counts[1]);
+      newLeft = counts[2] === undefined ? 1 : Number(counts[2]);
+      continue;
+    }
+    if (DIFF_FILE_HEADER_PATTERN.test(line) || line.startsWith("\\")) continue;
+    // Lines outside any counted hunk (a diff written by hand) are shown as they are.
+    if (hunk === null) {
+      const file = currentFile(false);
+      hunk = [];
+      file.hunks.push(hunk);
+    }
+    (hunk as string[]).push(line);
+  }
+  return files;
 }
 
 /** The payload with its Codex change paths made relative to the project folder. */

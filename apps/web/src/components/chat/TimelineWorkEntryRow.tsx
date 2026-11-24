@@ -1242,6 +1242,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 <ToolDetailsDisclosure
                   key={`${workEntry.id}:${changedFilePath}`}
                   details={workEntry.toolDetails}
+                  cwd={markdownCwd}
                   activity={workEntry.liveActivity}
                   compact={compact}
                   dataFileChangeRow
@@ -1454,6 +1455,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             const parentRow = (
               <ToolDetailsDisclosure
                 details={workEntry.toolDetails}
+                cwd={markdownCwd}
                 mcpToolResult={workEntry.mcpToolResult}
                 activity={workEntry.liveActivity}
                 onImageExpand={onImageExpand}
@@ -1820,6 +1822,8 @@ function ToolDetailsDisclosure(props: {
   compact: boolean;
   dataFileChangeRow?: boolean | undefined;
   details?: TimelineWorkEntry["toolDetails"] | undefined;
+  /** The project folder, so changed files are named inside it. */
+  cwd?: string | undefined;
   mcpToolResult?: TimelineWorkEntry["mcpToolResult"] | undefined;
   activity?: TimelineWorkEntry["liveActivity"] | undefined;
   detailContent?: ReactNode;
@@ -1987,6 +1991,7 @@ function ToolDetailsDisclosure(props: {
               ) : (
                 <ToolCallDetailsContent
                   details={props.details}
+                  cwd={props.cwd}
                   mcpToolResult={props.mcpToolResult}
                   activity={props.activity}
                   timestampFormat={props.timestampFormat}

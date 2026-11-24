@@ -11,7 +11,13 @@ import { FileIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import type { TimestampFormat } from "../../appSettings";
-import type { WorkLogToolDetails, WorkLogToolOutputDetails } from "../../lib/toolCallDetails";
+import {
+  pathInside,
+  splitToolDiffByFile,
+  type ToolDiffFile,
+  type WorkLogToolDetails,
+  type WorkLogToolOutputDetails,
+} from "../../lib/toolCallDetails";
 import type { WorkLogLiveActivity, WorkLogMcpToolResult } from "../../workLog";
 import ChatMarkdown from "../ChatMarkdown";
 import { Badge } from "../ui/badge";
@@ -36,6 +42,7 @@ export function ToolCallDetailsContent({
   activity,
   variant = "default",
   onImageExpand,
+  cwd,
 }: {
   details: WorkLogToolDetails | undefined;
   mcpToolResult?: WorkLogMcpToolResult | undefined;
@@ -44,6 +51,8 @@ export function ToolCallDetailsContent({
   timestampFormat?: TimestampFormat;
   variant?: "default" | "embedded";
   onImageExpand?: ((preview: ExpandedImagePreview) => void) | undefined;
+  /** The project folder: agents report absolute paths, files are named inside it. */
+  cwd?: string | undefined;
 }) {
   if (mcpToolResult) {
     return (
@@ -52,6 +61,14 @@ export function ToolCallDetailsContent({
   }
   // Nothing came back but the row itself: the disclosure shows nothing more.
   if (!details && !activity?.detail) return null;
+  const diffFiles = details?.diff ? splitToolDiffByFile(details.diff) : [];
+  // A file the diff below names is not listed again above it.
+  const namedInDiff = new Set(
+    diffFiles.flatMap((file) => (file.path ? [samePathKey(pathInside(file.path, cwd))] : [])),
+  );
+  const listedFiles = details?.files?.filter(
+    (file) => !namedInDiff.has(samePathKey(pathInside(file, cwd))),
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-ui-gap-xs" data-tool-call-details="true">
@@ -72,9 +89,9 @@ export function ToolCallDetailsContent({
         />
       ) : null}
 
-      {details?.files?.length ? (
+      {listedFiles?.length ? (
         <Card className="divide-y divide-[color:var(--color-border)]" data-tool-files="">
-          {details.files.map((file) => (
+          {listedFiles.map((file) => (
             <ListRow
               key={file}
               className="rounded-none"
@@ -82,7 +99,7 @@ export function ToolCallDetailsContent({
               // A path is read in full: it wraps instead of losing its end (the file name).
               title={
                 <span className="whitespace-normal break-all" data-translation-skip="true">
-                  {file}
+                  {pathInside(file, cwd)}
                 </span>
               }
             />
@@ -90,18 +107,11 @@ export function ToolCallDetailsContent({
         </Card>
       ) : null}
 
-      {details?.diff ? <DiffCodeBlock>{details.diff}</DiffCodeBlock> : null}
+      {diffFiles.length > 0 ? <DiffCodeBlock files={diffFiles} cwd={cwd} /> : null}
 
       {details?.edits?.map((edit, index) => (
         <Card key={`${edit.path ?? "edit"}:${index}`} data-tool-edit="">
-          {edit.path ? (
-            <div
-              className="border-b border-[color:var(--color-border)] px-3 py-2 text-ui-sm break-all text-muted-foreground"
-              data-translation-skip="true"
-            >
-              {edit.path}
-            </div>
-          ) : null}
+          {edit.path ? <ToolFilePathHeader path={pathInside(edit.path, cwd)} /> : null}
           {edit.oldText !== undefined ? (
             <pre className={cn(DETAIL_CODE_CLASS_NAME, REMOVED_LINE_CLASS_NAME)}>
               {edit.oldText}
@@ -170,27 +180,56 @@ function ToolOutput({ output }: { output: WorkLogToolOutputDetails }) {
   );
 }
 
-function DiffCodeBlock({ children }: { children: string }) {
-  const lines = children.split(/\r?\n/);
+/** The same path, whichever slash and case the agent wrote it with. */
+function samePathKey(path: string): string {
+  return path.replaceAll("\\", "/").toLowerCase();
+}
+
+/** A file's name on top of what the agent did to it, inside its card. */
+function ToolFilePathHeader({ path }: { path: string }) {
+  return (
+    <div
+      className="border-b border-[color:var(--color-border)] px-3 py-2 text-ui-sm break-all text-muted-foreground"
+      data-tool-file-path=""
+      data-translation-skip="true"
+    >
+      {path}
+    </div>
+  );
+}
+
+/** Each changed file by its name inside the project, then the lines of its hunks. */
+function DiffCodeBlock({ files, cwd }: { files: ToolDiffFile[]; cwd: string | undefined }) {
   return (
     <Card data-tool-diff="">
-      <pre className="max-h-[min(52vh,34rem)] overflow-auto py-2 font-chat-code text-chat-code">
-        {lines.map((line, index) => (
-          <span
-            key={`${index}:${line.slice(0, 24)}`}
-            className={cn(
-              "block min-w-max whitespace-pre-wrap break-words px-3",
-              line.startsWith("+") && !line.startsWith("+++") ? ADDED_LINE_CLASS_NAME : null,
-              line.startsWith("-") && !line.startsWith("---") ? REMOVED_LINE_CLASS_NAME : null,
-              line.startsWith("@@") || /^(diff --git|index |--- |\+\+\+ )/.test(line)
-                ? "text-muted-foreground"
-                : null,
+      {files.map((file, fileIndex) => (
+        <div
+          key={`${fileIndex}:${file.path ?? ""}`}
+          className={cn(fileIndex > 0 && "border-t border-[color:var(--color-border)]")}
+        >
+          {file.path ? <ToolFilePathHeader path={pathInside(file.path, cwd)} /> : null}
+          <pre className="max-h-[min(52vh,34rem)] overflow-auto py-2 font-chat-code text-chat-code">
+            {file.hunks.map((hunk, hunkIndex) =>
+              hunk.map((line, index) => (
+                <span
+                  key={`${hunkIndex}:${index}:${line.slice(0, 24)}`}
+                  className={cn(
+                    "block min-w-max whitespace-pre-wrap break-words px-3",
+                    // Lines of the next hunk are not next to the last one: a rule between them.
+                    hunkIndex > 0 &&
+                      index === 0 &&
+                      "mt-2 border-t border-[color:var(--color-border)] pt-2",
+                    line.startsWith("+") ? ADDED_LINE_CLASS_NAME : null,
+                    line.startsWith("-") ? REMOVED_LINE_CLASS_NAME : null,
+                  )}
+                >
+                  {line.length > 0 ? line : " "}
+                </span>
+              )),
             )}
-          >
-            {line.length > 0 ? line : " "}
-          </span>
-        ))}
-      </pre>
+          </pre>
+        </div>
+      ))}
     </Card>
   );
 }

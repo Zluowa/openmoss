@@ -16,7 +16,11 @@ import { render } from "vitest-browser-react";
 import type { MossLocaleCode } from "~/appSettings";
 import { MossLocaleScope } from "~/localization";
 import { deriveWorkLogEntries, type WorkLogEntry } from "../../workLog";
-import { walk7Turn, walk7TurnActivities } from "../../test/fixtures/walk7CodexTurn.fixture";
+import {
+  walk7ProjectFolder,
+  walk7Turn,
+  walk7TurnActivities,
+} from "../../test/fixtures/walk7CodexTurn.fixture";
 import { BrowserThemeFixture, installBrowserFixtureTheme } from "../../test/browserThemeFixture";
 import { deriveAgentActivityTimelineState } from "./agentActivity.logic";
 import { CommandShellDetails } from "./CommandShellDetails";
@@ -67,7 +71,7 @@ const CASES = (["light", "dark"] as const).flatMap((theme) =>
   (["zh-CN", "en"] as const).map((locale) => ({ theme, locale })),
 );
 
-function Row(props: { entry: WorkLogEntry; locale: MossLocaleCode }) {
+function Row(props: { entry: WorkLogEntry; locale: MossLocaleCode; projectFolder?: string }) {
   return (
     <BrowserThemeFixture>
       <MossLocaleScope locale={props.locale}>
@@ -76,7 +80,7 @@ function Row(props: { entry: WorkLogEntry; locale: MossLocaleCode }) {
             workEntry={props.entry}
             chatMetaFontSizePx={13}
             textFontSizePx={14}
-            markdownCwd={undefined}
+            markdownCwd={props.projectFolder}
             onImageExpand={() => {}}
             timestampFormat="24-hour"
           />
@@ -159,6 +163,42 @@ describe.each(CASES)("WALK-6 tool rows ($theme, $locale)", ({ theme, locale }) =
       "Elapsed",
     ]) {
       expect(text).not.toContain(label);
+    }
+  });
+
+  it("N11-3: the opened edit row names index.js inside the project and shows only the changed lines", async () => {
+    // WALK-11 N11-3: the edit row of the finished turn, opened, showed the absolute path over
+    // three lines beside an empty box, then raw `diff --git`, `---`, `+++` and `@@` lines.
+    await render(<Row entry={editEntry} locale={locale} projectFolder={walk7ProjectFolder} />);
+    const trigger = document.querySelector<HTMLElement>("[data-file-change-row='true']")!;
+    await userEvent.click(page.elementLocator(trigger));
+    await expect.poll(() => document.querySelector("[data-tool-diff]")).not.toBeNull();
+    const details = document.querySelector<HTMLElement>("[data-tool-call-details]")!;
+    const name = details.querySelector<HTMLElement>("[data-tool-diff] [data-tool-file-path]");
+    expect(name, "the change names its file").not.toBeNull();
+    expect(name!.textContent).toBe("index.js");
+    // One line: the name's box is its line plus its padding.
+    const style = getComputedStyle(name!);
+    expect(name!.getBoundingClientRect().height).toBeLessThanOrEqual(
+      Number.parseFloat(style.lineHeight) +
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom) +
+        Number.parseFloat(style.borderBottomWidth) +
+        0.5,
+    );
+    // No list of the same file above the change (the empty box with the absolute path).
+    expect(details.querySelector("[data-tool-files]")).toBeNull();
+    expect(details.textContent).not.toContain(walk7ProjectFolder);
+    const lines = [...details.querySelectorAll<HTMLElement>("[data-tool-diff] pre span")].map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual([
+      " export const add = (a, b) => a + b;",
+      "+export const sub = (a, b) => a - b;",
+      "+export const mul = (a, b) => a * b;",
+    ]);
+    for (const header of ["diff --git", "--- ", "+++ ", "@@"]) {
+      expect(details.textContent).not.toContain(header);
     }
   });
 
