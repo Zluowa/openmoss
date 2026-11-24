@@ -663,8 +663,6 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
       toastManager.add({
         type: "success",
         title: "Opening Moss Beta",
-        description:
-          "Beta is copying your projects, settings, and provider sign-ins from stable on first launch.",
       });
       refresh();
     } finally {
@@ -724,10 +722,6 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
         <BetaChannelMark />
         <div className="min-w-0 flex-1 space-y-1">
           <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>You're on Moss Beta</p>
-          <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>
-            Moss Beta works like Moss here: it sends error reports only while Send error reports is
-            on in Settings, and it doesn't send usage counts or crash dumps.
-          </p>
           <div className="flex flex-wrap items-center gap-2 pt-1.5">
             {state.stableInstalled ? (
               <Button size="xs" variant="outline" onClick={() => setLeaveDialogOpen(true)}>
@@ -761,20 +755,12 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
             <p className={SETTINGS_CARD_ROW_TITLE_CLASS_NAME}>Moss Beta</p>
-            <span className="inline-flex items-center rounded-full bg-[var(--beta-pill)] px-1.5 py-0.5 text-ui-xs font-medium leading-none text-[var(--beta-pill-ink)]">
-              Beta
-            </span>
             {state.installed && state.version ? (
               <span className="text-ui-xs text-muted-foreground">v{state.version} installed</span>
             ) : state.installed ? (
               <span className="text-ui-xs text-muted-foreground">Installed</span>
             ) : null}
           </div>
-          <p className={SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME}>
-            {state.installed
-              ? "Beta runs next to Moss with its own data, so nothing here changes. Copy your data to bring over projects, settings, and provider sign-ins."
-              : "Try new features before everyone else. Moss Beta is a separate app with its own data, and this app stays exactly as it is."}
-          </p>
           {state.lastImportAt ? (
             <p className="text-ui-xs text-muted-foreground">
               Last copied your data {new Date(state.lastImportAt).toLocaleString()}.
@@ -870,9 +856,7 @@ export function BetaChannelSettingsPanel({ active }: { readonly active: boolean 
           <AlertDialogHeader>
             <AlertDialogTitle>Replace Moss Beta data?</AlertDialogTitle>
             <AlertDialogDescription>
-              Copying from Moss replaces Beta chats and projects. Chats and projects created only in
-              Beta will be lost. Matching settings and provider sign-ins are overwritten, but
-              Beta-only sign-ins may remain. Your data in Moss will not change.
+              Chats and projects created only in Beta will be lost.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

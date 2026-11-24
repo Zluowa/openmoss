@@ -642,7 +642,8 @@ export function SettingsContent({
   const renderBooleanSettingRow = (config: {
     settingKey: BooleanSettingKey;
     title: string;
-    description: string;
+    /** Only when a person needs it to decide; most rows are their title alone. */
+    description?: string | undefined;
     resetLabel: string;
     ariaLabel: string;
   }) => {
@@ -683,7 +684,6 @@ export function SettingsContent({
       <SettingsSection title="Core defaults">
         <SettingsRow
           title="Default provider"
-          description="Used for new chats until you pick a model."
           resetAction={
             settings.defaultProvider !== defaults.defaultProvider ? (
               <SettingResetButton
@@ -887,7 +887,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "sidebarThreadAttentionFirst",
           title: "Working and unread on top",
-          description: "Keep chats that are working or unread at the top.",
           resetLabel: "working and unread on top",
           ariaLabel: "Move working and unread threads to the top of the sidebar",
         })}
@@ -905,7 +904,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "showAutomationRunThreads",
           title: "Automation runs",
-          description: "Show the chat each automation run creates.",
           resetLabel: "automation runs",
           ariaLabel: "Show automation run threads in the sidebar",
         })}
@@ -958,7 +956,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentEditor",
             title: "Editor",
-            description: "Show the editor and Open in editor.",
             resetLabel: "editor section",
             ariaLabel: "Show the Editor section in the Environment panel",
           })}

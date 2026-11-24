@@ -992,8 +992,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Switching…": "正在切换…",
   "Switch to Moss": "切换到 Moss",
   "Replace Moss Beta data?": "替换 Moss Beta 数据？",
-  "Copying from Moss replaces Beta chats and projects. Chats and projects created only in Beta will be lost. Matching settings and provider sign-ins are overwritten, but Beta-only sign-ins may remain. Your data in Moss will not change.":
-    "从 Moss 复制会替换 Beta 的对话和项目。仅在 Beta 中创建的对话和项目将丢失。匹配的设置和服务商登录状态会被覆盖，但仅在 Beta 登录的账号可能保留。你在 Moss 中的数据不会改变。",
+  "Chats and projects created only in Beta will be lost.": "仅在 Beta 中创建的对话和项目会丢失。",
   "Keep Beta data": "保留 Beta 数据",
   "Replace Beta data and open": "替换 Beta 数据并打开",
   "Quit Moss Beta first so it can pick up the import on its next launch.":

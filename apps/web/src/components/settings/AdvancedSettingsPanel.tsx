@@ -151,7 +151,6 @@ export function AboutSettingsSection() {
       {authSessionQuery.data?.authenticated && authSessionQuery.data.sessionMethod ? (
         <SettingsRow
           title="This browser"
-          description="Sign out and close this browser's connection."
           control={
             <Button
               size="xs"
