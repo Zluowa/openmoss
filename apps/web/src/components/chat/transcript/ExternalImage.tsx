@@ -5,7 +5,7 @@
 // Layer: Chat transcript UI
 // Exports: ExternalImage
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -28,7 +28,7 @@ export function ExternalImage(props: { src: string; alt: string }) {
   const href = parsed.url.href;
   return (
     <>
-      <ButtonPrimitive
+      <HitArea
         type="button"
         data-external-image=""
         onClick={(event) => {
@@ -39,7 +39,7 @@ export function ExternalImage(props: { src: string; alt: string }) {
         className="inline-grid h-32 w-40 cursor-interaction items-center justify-items-center rounded-card border border-border bg-foreground/[0.035] p-4 align-top font-sans text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {t("transcript.image.show")}
-      </ButtonPrimitive>
+      </HitArea>
       <AlertDialog open={asking} onOpenChange={setAsking}>
         <AlertDialogPopup className="max-w-md">
           <AlertDialogHeader>

@@ -1,5 +1,5 @@
 // Account-bound Images workspace; shared gallery owns Focused/Canvas, zoom and downloads.
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import {
   useCallback,
   useEffect,
@@ -1587,10 +1587,10 @@ export function MossImagesWorkspace({
                   ) : null}
                 </div>
                 <div ref={photoRowRef} className="flex gap-3 overflow-x-auto pb-1">
-                  <ButtonPrimitive
+                  <HitArea
                     type="button"
                     aria-label="上传照片"
-                    className="relative flex h-44 w-36 shrink-0 items-center justify-center rounded-card bg-muted text-muted-foreground transition-colors outline-none hover:bg-muted/80 focus-visible:ring-2 focus-visible:ring-ring"
+                    className="relative flex h-44 w-36 shrink-0 items-center justify-center rounded-card bg-muted text-muted-foreground transition-colors hover:bg-muted/80 disabled:opacity-100"
                     disabled={!canAttach}
                     onClick={() => {
                       fileInputRef.current?.click();
@@ -1598,13 +1598,13 @@ export function MossImagesWorkspace({
                   >
                     <PlusIcon className="size-5" />
                     <span className="absolute bottom-3 text-ui-xs">上传照片</span>
-                  </ButtonPrimitive>
+                  </HitArea>
                   {activeTab.references.map((reference, index) => (
-                    <ButtonPrimitive
+                    <HitArea
                       type="button"
                       key={reference.id}
                       aria-label={`打开照片：${reference.name}`}
-                      className="h-44 w-36 shrink-0 overflow-hidden rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="h-44 w-36 shrink-0 overflow-hidden rounded-card"
                       onClick={() =>
                         setExpandedImage({
                           images: activeTab.references.map((photo) => ({
@@ -1620,17 +1620,17 @@ export function MossImagesWorkspace({
                         alt={`已选照片：${reference.name}`}
                         className="size-full object-cover"
                       />
-                    </ButtonPrimitive>
+                    </HitArea>
                   ))}
                   {jobs
                     .filter((job) => job.imageUrls.length > 0)
                     .slice(0, 8)
                     .map((job) => (
-                      <ButtonPrimitive
+                      <HitArea
                         type="button"
                         key={job.jobId}
                         aria-label={`使用“${job.prompt}”作参考图`}
-                        className="h-44 w-36 shrink-0 overflow-hidden rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        className="h-44 w-36 shrink-0 overflow-hidden rounded-card disabled:opacity-100"
                         disabled={!canAttach}
                         onClick={() => {
                           addGeneratedReference(job, 0);
@@ -1642,7 +1642,7 @@ export function MossImagesWorkspace({
                           referrerPolicy="no-referrer"
                           className="size-full object-cover"
                         />
-                      </ButtonPrimitive>
+                      </HitArea>
                     ))}
                 </div>
               </div>
@@ -1675,11 +1675,11 @@ export function MossImagesWorkspace({
                         key={job.jobId}
                         className="group relative overflow-hidden rounded-card bg-muted"
                       >
-                        <ButtonPrimitive
+                        <HitArea
                           key={job.jobId}
                           type="button"
                           aria-label={`打开图像：${job.prompt}`}
-                          className="group block w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          className="group block w-full text-left disabled:opacity-100"
                           onContextMenu={(event) =>
                             job.imageUrls[0] &&
                             showImageMenu(
@@ -1711,7 +1711,7 @@ export function MossImagesWorkspace({
                             )}
                           </div>
                           <span className="sr-only">{jobStatusLabel(job)}</span>
-                        </ButtonPrimitive>
+                        </HitArea>
                         {job.imageUrls[0] && onEditInCanvas && (
                           <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
                             <Button

@@ -3,7 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: TimelineTodoPlanRow
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { useEffect, useState, type CSSProperties } from "react";
 
 import { useMediaQuery } from "~/hooks/useMediaQuery";
@@ -231,7 +231,7 @@ export function TimelineTodoPlanRow(props: {
           closeOnClick={false}
           delay={0}
           render={
-            <ButtonPrimitive
+            <HitArea
               aria-label={label}
               className="-my-1.5 inline-flex max-w-full min-w-0 cursor-interaction border-0 bg-transparent p-0 py-1.5 text-start text-codex-secondary outline-none hover:text-default focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset motion-reduce:transition-none"
               data-todo-plan-trigger="true"

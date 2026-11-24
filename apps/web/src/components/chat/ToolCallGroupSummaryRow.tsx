@@ -6,7 +6,7 @@
 // Exports: ToolCallGroupSummaryRow
 // Depends on: DisclosureRegion/DisclosureChevron (shared disclosure motion)
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useTranslation } from "../../localization";
@@ -179,7 +179,7 @@ export function ToolCallGroupSummaryRow(
         style={{ fontSize: `${fontSizePx}px` }}
       >
         {/* UI SDK's button with the row's own look: a whole-line hit area, not a Button. */}
-        <ButtonPrimitive
+        <HitArea
           type="button"
           aria-expanded={open}
           className="inline-flex min-h-6 min-w-0 max-w-full items-center gap-1 rounded-control py-0.5 text-left transition-colors duration-200 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -244,13 +244,13 @@ export function ToolCallGroupSummaryRow(
             </span>
           ) : null}
           {showViewChanges ? null : caret}
-        </ButtonPrimitive>
+        </HitArea>
         {showViewChanges ? (
           <>
             <span aria-hidden className="shrink-0">
               ·
             </span>
-            <ButtonPrimitive
+            <HitArea
               type="button"
               data-tool-group-view-changes=""
               className="shrink-0 cursor-interaction rounded-control underline underline-offset-2 transition-colors duration-200 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
@@ -259,8 +259,8 @@ export function ToolCallGroupSummaryRow(
               }}
             >
               {t("chat.toolGroup.viewChanges")}
-            </ButtonPrimitive>
-            <ButtonPrimitive
+            </HitArea>
+            <HitArea
               type="button"
               aria-hidden
               tabIndex={-1}
@@ -270,7 +270,7 @@ export function ToolCallGroupSummaryRow(
               }}
             >
               {caret}
-            </ButtonPrimitive>
+            </HitArea>
           </>
         ) : null}
       </div>

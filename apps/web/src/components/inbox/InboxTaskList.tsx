@@ -6,7 +6,7 @@
 // Exports: InboxTaskList, Group
 
 import type { ThreadId } from "@moss/contracts";
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { pluralize } from "@moss/shared/text";
 import { useId, type DragEvent, type ReactNode } from "react";
 
@@ -80,7 +80,7 @@ function TaskRow({
 }) {
   return (
     // A whole-row hit area (the standard allows it): UI SDK's button with the row's look.
-    <ButtonPrimitive
+    <HitArea
       type="button"
       onClick={() => {
         onOpen();
@@ -112,7 +112,7 @@ function TaskRow({
           {time}
         </span>
       ) : null}
-    </ButtonPrimitive>
+    </HitArea>
   );
 }
 

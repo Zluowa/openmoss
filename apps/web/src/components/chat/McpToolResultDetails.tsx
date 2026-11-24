@@ -9,7 +9,7 @@ import { type ReactNode, useState } from "react";
 
 import type { McpProjectionAnnotations, McpToolResultContentBlock } from "@moss/contracts";
 import type { WorkLogMcpToolResult } from "~/lib/toolCallDetails";
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { CircleAlertIcon, CodeIcon } from "~/lib/icons";
@@ -166,14 +166,14 @@ function LocalArtifactContentBlock({
   const content =
     block.mediaKind === "image" ? (
       onImageExpand ? (
-        <ButtonPrimitive
+        <HitArea
           type="button"
           className="block w-fit max-w-full cursor-zoom-in rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label={imageAlt}
           onClick={activateImage}
         >
           {image}
-        </ButtonPrimitive>
+        </HitArea>
       ) : (
         image
       )

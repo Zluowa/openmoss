@@ -6,7 +6,7 @@
 // Layer: Chat transcript primitive
 // Exports: TranscriptThreadChip, useTranscriptThreadLabel
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import type { ThreadId } from "@moss/contracts";
 import type { MouseEvent, ReactNode } from "react";
 
@@ -85,7 +85,7 @@ export function TranscriptThreadLink(props: {
   }
   const open = props.onOpenThread;
   return (
-    <ButtonPrimitive
+    <HitArea
       type="button"
       data-thread-link="live"
       data-thread-id={props.threadId}
@@ -96,7 +96,7 @@ export function TranscriptThreadLink(props: {
       className="max-w-full cursor-interaction truncate p-0 text-foreground underline decoration-foreground/40 underline-offset-2 hover:decoration-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <bdi>{title}</bdi>
-    </ButtonPrimitive>
+    </HitArea>
   );
 }
 
@@ -129,9 +129,10 @@ export function TranscriptThreadChip(props: {
     <PreviewCard>
       <PreviewCardTrigger
         render={
-          <ButtonPrimitive
+          <HitArea
             type="button"
-            className={CHIP_LIVE_CLASS_NAME}
+            // A chip with nothing to open keeps its full tone, as before.
+            className={cn(CHIP_LIVE_CLASS_NAME, "disabled:opacity-100")}
             data-thread-chip="live"
             data-thread-id={threadId}
             onClick={handleClick}

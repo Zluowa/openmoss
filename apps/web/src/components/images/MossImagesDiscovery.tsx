@@ -1,4 +1,4 @@
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { useState } from "react";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
@@ -34,8 +34,7 @@ const DISCOVERY_TABS = [
 ] as const;
 /** A picture tile: the picture at the card radius, its name under it on the paper (one
  *  paper, no gradient scrim or white text over the image). */
-const DISCOVERY_TILE_CLASS_NAME =
-  "group flex min-w-0 cursor-interaction flex-col gap-1.5 rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+const DISCOVERY_TILE_CLASS_NAME = "group flex min-w-0 flex-col gap-1.5 rounded-card text-left";
 const DISCOVERY_TILE_CAPTION_CLASS_NAME = "truncate px-0.5 text-ui-sm text-foreground";
 
 function Preview({
@@ -124,7 +123,7 @@ function DiscoveryPanel({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         {section === "templates"
           ? templates.map((template) => (
-              <ButtonPrimitive
+              <HitArea
                 key={template.id}
                 type="button"
                 aria-label={`预览${template.title}`}
@@ -137,10 +136,10 @@ function DiscoveryPanel({
               >
                 <Preview url={template.previewUrl} title={template.title} compact />
                 <span className={DISCOVERY_TILE_CAPTION_CLASS_NAME}>{template.title}</span>
-              </ButtonPrimitive>
+              </HitArea>
             ))
           : styles.map((style) => (
-              <ButtonPrimitive
+              <HitArea
                 key={style.id}
                 type="button"
                 aria-label={`选择${style.title}样式`}
@@ -153,7 +152,7 @@ function DiscoveryPanel({
               >
                 <Preview url={style.previewUrl} title={style.title} compact />
                 <span className={DISCOVERY_TILE_CAPTION_CLASS_NAME}>{style.title}</span>
-              </ButtonPrimitive>
+              </HitArea>
             ))}
       </div>
       {section === "popular" && selectedStyle && (

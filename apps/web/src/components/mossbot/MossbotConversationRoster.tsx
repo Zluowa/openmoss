@@ -1,4 +1,4 @@
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import type { MouseEvent, ReactNode } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import type { ProjectAgentSummary, MossbotRoom } from "@moss/contracts";
@@ -119,7 +119,7 @@ function ConversationRow({
       data-compact={compact || undefined}
       onContextMenu={openMenu}
     >
-      <ButtonPrimitive
+      <HitArea
         type="button"
         disabled={disabled ?? false}
         aria-current={active ? "page" : undefined}
@@ -148,7 +148,7 @@ function ConversationRow({
           )}
           {unread && <span className="mossbot-unread-dot" aria-label={t("Unread")} />}
         </span>
-      </ButtonPrimitive>
+      </HitArea>
       {menu}
     </li>
   );

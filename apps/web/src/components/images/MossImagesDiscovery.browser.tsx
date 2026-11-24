@@ -371,3 +371,20 @@ it("draws 模板 / 热门 as the shared tabs and names each picture under it, wi
   const title = page.getByRole("dialog").getByText(first!.title, { exact: true }).first().element();
   expect(getComputedStyle(title).fontSize).toBe("15px");
 });
+
+it("draws each picture as the shared hit area: pointer on the web, arrow in the app, dimmed while busy", async () => {
+  await mount();
+  const [first] = MOSS_IMAGE_TEMPLATES;
+  const tile = page.getByRole("button", { name: `预览${first!.title}` }).element();
+  expect(tile.hasAttribute("data-hit-area")).toBe(true);
+  expect(getComputedStyle(tile).cursor).toBe("pointer");
+  document.documentElement.dataset.runtime = "electron";
+  try {
+    expect(getComputedStyle(tile).cursor).toBe("default");
+  } finally {
+    delete document.documentElement.dataset.runtime;
+  }
+  expect(getComputedStyle(tile).opacity).toBe("1");
+  await userEvent.click(page.getByRole("button", { name: "设为忙碌" }));
+  await expect.poll(() => getComputedStyle(tile).opacity).toBe("0.64");
+});

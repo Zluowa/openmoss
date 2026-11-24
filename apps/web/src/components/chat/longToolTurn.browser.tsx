@@ -120,6 +120,14 @@ describe.each(CASES)("a long turn of tool rows ($theme, $locale)", ({ theme, loc
     await expect.poll(() => summaryTrigger() !== null).toBe(true);
     const trigger = summaryTrigger()!;
     expect(trigger.tagName).toBe("BUTTON");
+    // The shared interaction cursor: a hand on the web, the arrow in the desktop app (HitArea).
+    expect(getComputedStyle(trigger).cursor).toBe("pointer");
+    document.documentElement.setAttribute("data-runtime", "electron");
+    try {
+      expect(getComputedStyle(trigger).cursor).toBe("default");
+    } finally {
+      document.documentElement.removeAttribute("data-runtime");
+    }
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
     // One line: never taller than a small control, whatever the count says.
     expect(trigger.getBoundingClientRect().height).toBeGreaterThanOrEqual(24);

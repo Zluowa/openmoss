@@ -340,15 +340,11 @@
   "apps/web/src/components/chat/InlineVisualTable.tsx": {
     "raw-button": 2
   },
-  "apps/web/src/components/chat/McpToolResultDetails.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
   "apps/web/src/components/chat/MermaidDiagram.tsx": {
     "raw-button": 1
   },
   "apps/web/src/components/chat/MessagesTimeline.tsx": {
-    "native-title": 1,
-    "ui-sdk-outside-ui": 1
+    "native-title": 1
   },
   "apps/web/src/components/chat/MessageTrail.tsx": {
     "raw-button": 1
@@ -460,27 +456,14 @@
     "native-title": 1,
     "hand-status-dot": 1
   },
-  "apps/web/src/components/chat/TimelineReasoningRow.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
   "apps/web/src/components/chat/TimelineStreamErrorRow.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/chat/TimelineSubagentActivityGroup.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
   "apps/web/src/components/chat/TimelineTodoPlanRow.tsx": {
-    "hand-spinner": 1,
-    "ui-sdk-outside-ui": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/chat/TimelineWorkEntryRow.tsx": {
     "raw-button": 3
-  },
-  "apps/web/src/components/chat/ToolActivityDisclosure.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/chat/ToolCallGroupSummaryRow.tsx": {
-    "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/chat/TraitsPicker.tsx": {
     "raw-button": 1
@@ -491,23 +474,11 @@
   "apps/web/src/components/chat/transcript/ChapterHeading.tsx": {
     "native-title": 1
   },
-  "apps/web/src/components/chat/transcript/ExternalImage.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
   "apps/web/src/components/chat/transcript/ForgeRefChip.tsx": {
     "native-title": 1
   },
   "apps/web/src/components/chat/transcript/HoverMountGate.tsx": {
     "raw-button": 1
-  },
-  "apps/web/src/components/chat/transcript/RedactedSecret.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/chat/transcript/TranscriptDisclosureRow.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/chat/transcript/TranscriptThreadChip.tsx": {
-    "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/chat/TranscriptSelectionAction.tsx": {
     "raw-button": 1,
@@ -640,12 +611,6 @@
   "apps/web/src/components/images/MossImageMarkupEditor.tsx": {
     "hex-color": 5
   },
-  "apps/web/src/components/images/MossImagesDiscovery.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/inbox/InboxTaskList.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
   "apps/web/src/components/InlineLinkChip.tsx": {
     "raw-button": 1,
     "native-title": 2
@@ -682,17 +647,7 @@
     "hand-status-dot": 2
   },
   "apps/web/src/components/mossbot/MossbotAvatar.tsx": {
-    "hex-color": 2,
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/mossbot/MossbotConversationRoster.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/mossbot/MossbotProfile.tsx": {
-    "ui-sdk-outside-ui": 1
-  },
-  "apps/web/src/components/mossbot/openmaus/BotPickerList.tsx": {
-    "ui-sdk-outside-ui": 1
+    "hex-color": 2
   },
   "apps/web/src/components/mossbot/openmaus/ComposerMenuRow.tsx": {
     "raw-button": 1
@@ -713,9 +668,6 @@
   "apps/web/src/components/MossCustomizeSecondarySidebar.tsx": {
     "raw-button": 3,
     "native-title": 1
-  },
-  "apps/web/src/components/MossImagesWorkspace.tsx": {
-    "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/MossLibrarySurface.logic.ts": {
     "hex-color": 3

@@ -1,4 +1,4 @@
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { ToolActivityDisclosure } from "./ToolActivityDisclosure";
 // FILE: MessagesTimeline.tsx
 // Purpose: Renders the chat transcript rows and lets LegendList own scrolling/follow behavior.
@@ -3508,7 +3508,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {!conversationOnly && inlineEditedFilesFromTurnSummary.length > 0 && (
                   <div className="mt-2 space-y-0.5">
                     {inlineEditedFilesFromTurnSummary.map((file) => (
-                      <ButtonPrimitive
+                      <HitArea
                         key={`inline-summary-edit:${row.message.id}:${file.path}`}
                         type="button"
                         className="group/tool-row group/file-row flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none"
@@ -3523,7 +3523,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           fontSizePx={normalizedChatFontSizePx}
                           compact={false}
                         />
-                      </ButtonPrimitive>
+                      </HitArea>
                     ))}
                   </div>
                 )}
@@ -3550,7 +3550,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-ui"
                         >
                           {creation.threads.map((thread) => (
-                            <ButtonPrimitive
+                            <HitArea
                               key={thread.threadId}
                               type="button"
                               className="rounded-inline text-foreground underline decoration-foreground/30 underline-offset-2 outline-none hover:decoration-foreground/70 focus-visible:ring-2 focus-visible:ring-ring"
@@ -3559,7 +3559,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                               }}
                             >
                               {thread.title}
-                            </ButtonPrimitive>
+                            </HitArea>
                           ))}
                         </p>
                       ) : (
@@ -3752,7 +3752,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           </DisclosureRegion>
                         ) : null}
                         {overflowCheckpointFiles.length > 0 ? (
-                          <ButtonPrimitive
+                          <HitArea
                             type="button"
                             className="flex min-h-9 w-full items-center justify-start gap-2 border-t border-[color:var(--color-border)] bg-transparent px-3 py-1.5 text-ui-sm font-normal text-muted-foreground transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground"
                             aria-expanded={fileListExpanded}
@@ -3769,7 +3769,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                                     "file",
                                   )}`}
                             </span>
-                          </ButtonPrimitive>
+                          </HitArea>
                         ) : null}
                       </DisclosureRegion>
                     </div>

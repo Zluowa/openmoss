@@ -153,6 +153,19 @@ describe("MossbotConversationRoster rows", () => {
     expect(region.element().querySelector(".mossbot-list-item")).not.toBeNull();
   });
 
+  it("keeps the landing row's own 1 px focus frame on the shared hit area", async () => {
+    setState({ loaded: true, loadFailed: false, roomsPending: false, assistants: [assistant] });
+    const region = roster(false, false);
+    await expect.element(region.getByText("Personal assistant")).toBeInTheDocument();
+    const row = region.element().querySelector<HTMLElement>(".mossbot-assistant-row")!;
+    expect(row.hasAttribute("data-hit-area")).toBe(true);
+    expect(getComputedStyle(row).cursor).toBe("pointer");
+    row.focus();
+    expect(row.matches(":focus-visible")).toBe(true);
+    // Mossbot's frame (one ring-coloured pixel), not the hit area's default 2 px ring.
+    expect(getComputedStyle(row).boxShadow).toMatch(/ 0px 0px 0px 1px$/);
+  });
+
   it("leaves the empty invitation to the landing page", async () => {
     setState({ loaded: true, loadFailed: false, roomsPending: false });
     const region = roster(false);

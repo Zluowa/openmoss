@@ -3,7 +3,7 @@
 // Layer: Web chat presentation component
 // Exports: ToolActivityDisclosure
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import { motion } from "motion/react";
 import { useId, useState, type ReactNode } from "react";
 
@@ -97,7 +97,7 @@ export function ToolActivityDisclosure(props: {
           data-tool-group-header="true"
         >
           {hasContent && (
-            <ButtonPrimitive
+            <HitArea
               type="button"
               aria-labelledby={summaryId}
               aria-expanded={expanded}

@@ -1,4 +1,4 @@
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
+import { HitArea } from "~/components/ui/hit-area";
 import type { SVGProps } from "react";
 import { cn } from "~/lib/utils";
 import {
@@ -164,7 +164,7 @@ export function MossbotAvatarPicker(props: {
   return (
     <div role="group" aria-label={t("Assistant avatar")} className="flex flex-wrap gap-2">
       {MOSSBOT_AVATARS.map((avatar) => (
-        <ButtonPrimitive
+        <HitArea
           key={avatar.key}
           type="button"
           disabled={props.disabled ?? false}
@@ -172,12 +172,12 @@ export function MossbotAvatarPicker(props: {
           aria-pressed={selectedKey === avatar.key}
           onClick={() => props.onChange(avatar.key)}
           className={cn(
-            "mossbot-avatar-choice grid size-12 place-items-center rounded-card border border-transparent hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "mossbot-avatar-choice grid size-12 place-items-center rounded-card border border-transparent hover:bg-foreground/5 disabled:opacity-100",
             selectedKey === avatar.key && "border-foreground/15 bg-foreground/5",
           )}
         >
           <MossbotAvatar icon={avatar.key} color={props.color} className="size-8" />
-        </ButtonPrimitive>
+        </HitArea>
       ))}
     </div>
   );
