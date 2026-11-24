@@ -69,6 +69,7 @@ import { useProjectEnvironmentStore } from "../projectEnvironmentStore";
 import { type TerminalContextDraft } from "../lib/terminalContext";
 import { isMacNavigatorPlatform } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
+import { useOnboardingDialogStore } from "../onboarding/onboardingDialogStore";
 import { resetHomeChatProjectPrewarmStateForTests } from "../lib/chatProjects";
 import { getRouter } from "../router";
 import { useRightDockStore } from "../rightDockStore";
@@ -4167,6 +4168,10 @@ export function installChatViewFixture() {
       splitViewsById: {},
       splitViewIdBySourceThreadId: {},
     });
+    // The welcome tour's open state lives in a module store that outlives the unmounted app.
+    // A case that opened it (or failed with it open) left its modal over every later mount,
+    // so their clicks landed on the dialog's backdrop (red #958).
+    useOnboardingDialogStore.setState({ isOpen: false, openReason: null, engaged: false });
   });
 
   afterEach(async (context) => {

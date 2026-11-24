@@ -921,7 +921,29 @@ describe("ChatView transcript geometry (full app)", () => {
       // The first-time setup is still there for a person who wants to run it again.
       await mounted.router.navigate({ to: "/settings", search: { section: "general" } });
       await page.getByRole("button", { name: "Open welcome tour" }).click();
-      await expect.element(page.getByRole("dialog", { name: /^Welcome to / })).toBeVisible();
+      const welcome = page.getByRole("dialog", { name: /^Welcome to / });
+      await expect.element(welcome).toBeVisible();
+      // 设置 stays open under the tour; each dialog draws its own backdrop and viewport.
+      const tour = welcome.element();
+      const overlayOwners = () =>
+        [
+          ...document.querySelectorAll(
+            '[data-slot="dialog-backdrop"], [data-slot="dialog-viewport"]',
+          ),
+        ]
+          .map((layer) => {
+            const portal = layer.parentElement;
+            if (portal?.querySelector('[data-testid="settings-dialog"]')) return "settings";
+            return portal?.contains(tour) ? "tour" : "other";
+          })
+          .sort();
+      expect(overlayOwners()).toEqual(["settings", "settings", "tour", "tour"]);
+      // Skipping it takes the tour's backdrop and viewport with it: only 设置 is left, and its
+      // page takes clicks again.
+      await page.getByRole("button", { name: "Skip setup" }).click();
+      await expect.element(welcome).not.toBeInTheDocument();
+      await expect.poll(overlayOwners).toEqual(["settings", "settings"]);
+      await page.getByRole("button", { name: "Open welcome tour" }).click({ trial: true });
     } finally {
       await mounted.cleanup();
     }
