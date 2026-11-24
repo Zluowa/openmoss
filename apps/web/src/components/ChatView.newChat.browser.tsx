@@ -4565,4 +4565,68 @@ describe("ChatView transcript geometry (full app)", () => {
       await mounted.cleanup();
     }
   });
+  // WALK-8 N8-2: with the side panel open beside a new chat the composer narrows, and its
+  // model chip showed only the Moss mark, the gear and ⌄: the model name was gone.
+  it.each([
+    { width: 1100, sidePanel: true },
+    { width: 760, sidePanel: false },
+  ])(
+    "WALK-8 N8-2: the composer's model chip keeps the model name readable at $width×780 (side panel open: $sidePanel)",
+    async ({ width, sidePanel }) => {
+      localStorage.setItem("moss:app-settings:v1", JSON.stringify({ localeOverride: "zh-CN" }));
+      useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, THREAD_ID);
+      const mounted = await mountChatView({
+        viewport: { ...DEFAULT_VIEWPORT, width, height: 780 },
+        snapshot: withoutProjectDefaultModelSelection(createDraftOnlySnapshot()),
+        configureFixture: configureMossManagedDefaults,
+      });
+      installZhCnUiLocalization();
+      try {
+        await waitForComposerEditor();
+        const chip = await waitForElement(
+          () => document.querySelector<HTMLElement>("[data-moss-visible-model-reasoning-control]"),
+          "Unable to find the composer's model chip.",
+        );
+        const form = document.querySelector<HTMLElement>("[data-chat-composer-form]")!;
+        if (sidePanel) {
+          await page.getByRole("button", { name: "显示/隐藏侧边栏" }).first().click();
+          await expect.element(page.getByTestId("right-dock-panel")).toBeVisible();
+        }
+        // The composer has settled at its width beside the panel (or the window).
+        await expect
+          .poll(async () => {
+            const before = form.getBoundingClientRect().width;
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            return form.getBoundingClientRect().width === before ? before : -1;
+          })
+          .toBeGreaterThan(0);
+        if (sidePanel) expect(form.getBoundingClientRect().width).toBeLessThan(400);
+        // The name as painted: a span reading the model's name, not the screen-reader copy.
+        const paintedName = () =>
+          [...chip.querySelectorAll<HTMLElement>("span")].find(
+            (span) =>
+              span.children.length === 0 &&
+              span.textContent === "GPT-5.6 Sol" &&
+              getComputedStyle(span).position !== "absolute",
+          );
+        await vi.waitFor(() => {
+          const name = paintedName();
+          expect(name).toBeDefined();
+          const box = name!.getBoundingClientRect();
+          expect(box.width).toBeGreaterThan(0);
+          expect(box.height).toBeGreaterThan(0);
+          // Whole: at these widths nothing of it is cut.
+          expect(name!.scrollWidth).toBeLessThanOrEqual(name!.clientWidth + 1);
+          const chipBox = chip.getBoundingClientRect();
+          expect(box.left).toBeGreaterThanOrEqual(chipBox.left - 1);
+          expect(box.right).toBeLessThanOrEqual(chipBox.right + 1);
+          expect(chipBox.right).toBeLessThanOrEqual(form.getBoundingClientRect().right + 1);
+        });
+      } finally {
+        uninstallZhCnUiLocalization();
+        useRightDockStore.setState({ dockStateByThreadId: {} });
+        await mounted.cleanup();
+      }
+    },
+  );
 });

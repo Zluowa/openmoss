@@ -30,8 +30,9 @@ const TRIGGER_TRAIT_LABEL_CLASS_NAME = cn(
   COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME,
 );
 
-// Must render inside a `Menu`. `hideModelLabel` / `hideStatusLabel` are the narrow-composer
-// degradation steps: the text moves to title/sr-only so assistive tech keeps it.
+// Must render inside a `Menu`. `hideAccountName` / `hideStatusLabel` are the narrow-composer
+// degradation steps: the text moves to title/sr-only so assistive tech keeps it. The model
+// name is never hidden; in a footer too narrow for it, it ellipsizes.
 export function ComposerModelMenuTrigger(props: {
   provider: ProviderKind;
   /** The composer runs on a Moss account (a Moss lane): the mark is Moss's, whatever runs it. */
@@ -47,7 +48,7 @@ export function ComposerModelMenuTrigger(props: {
   showsFastBadge: boolean;
   /** Fast mode was requested but is not serving; the badge turns into a muted outline. */
   fastModeNotice?: FastModeNotice | null | undefined;
-  hideModelLabel?: boolean | undefined;
+  hideAccountName?: boolean | undefined;
   hideStatusLabel?: boolean | undefined;
   disabled?: boolean | undefined;
   isMenuOpen: boolean;
@@ -75,7 +76,6 @@ export function ComposerModelMenuTrigger(props: {
   const ProviderIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[props.provider];
   const hiddenTriggerTitle = [
     props.accountLabel,
-    props.hideModelLabel ? props.modelLabel : null,
     props.hideStatusLabel ? props.statusLabel : null,
     props.hideStatusLabel ? props.contextWindowLabel : null,
   ]
@@ -88,7 +88,7 @@ export function ComposerModelMenuTrigger(props: {
       variant="chrome"
       disabled={props.disabled ?? false}
       className={cn(
-        "min-w-0 shrink-0 justify-start gap-1.5 whitespace-nowrap px-2 sm:px-2.5 [&_svg,&_[data-slot=central-icon]]:mx-0",
+        "min-w-0 justify-start gap-1.5 whitespace-nowrap px-2 sm:px-2.5 [&_svg,&_[data-slot=central-icon]]:mx-0",
         COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
       )}
       aria-label="Change model and reasoning"
@@ -97,7 +97,9 @@ export function ComposerModelMenuTrigger(props: {
     />
   );
 
-  const renderLabel = (label: typeof liveLabel) => (
+  // `sizes`: this copy is the one that sizes the pill (the frozen copy while it is frozen), so
+  // the footer measures its model name to tell whether the name is cut.
+  const renderLabel = (label: typeof liveLabel, sizes: boolean) => (
     <>
       {props.mossLane ? (
         <MossLogo
@@ -120,7 +122,7 @@ export function ComposerModelMenuTrigger(props: {
         className="-ms-1 size-1.5 shrink-0 self-start ring-0"
       />
       {props.accountName ? (
-        props.hideModelLabel ? (
+        props.hideAccountName ? (
           <span className="sr-only">{props.accountLabel}</span>
         ) : (
           <span className={cn("max-w-24 shrink-0 truncate", COMPOSER_MUTED_ACCENT_TEXT_CLASS_NAME)}>
@@ -128,13 +130,12 @@ export function ComposerModelMenuTrigger(props: {
           </span>
         )
       ) : null}
-      {props.hideModelLabel ? (
-        <span className="sr-only">{label.modelLabel}</span>
-      ) : (
-        <span className="min-w-0 truncate text-[var(--color-text-foreground)]">
-          {label.modelLabel}
-        </span>
-      )}
+      <span
+        {...(sizes ? { "data-composer-model-label": "" } : {})}
+        className="min-w-0 truncate text-[var(--color-text-foreground)]"
+      >
+        {label.modelLabel}
+      </span>
       {label.showsFastBadge ? (
         <FastModeBadgeIcon
           notice={props.fastModeNotice}
@@ -172,14 +173,14 @@ export function ComposerModelMenuTrigger(props: {
         {sizingLabel ? (
           <>
             <span aria-hidden="true" className={cn(labelRowClassName, "invisible")}>
-              {renderLabel(sizingLabel)}
+              {renderLabel(sizingLabel, true)}
             </span>
             <span className={cn(labelRowClassName, "absolute inset-0")}>
-              {renderLabel(liveLabel)}
+              {renderLabel(liveLabel, false)}
             </span>
           </>
         ) : (
-          <span className={labelRowClassName}>{renderLabel(liveLabel)}</span>
+          <span className={labelRowClassName}>{renderLabel(liveLabel, true)}</span>
         )}
       </span>
       <ChevronDownIcon aria-hidden="true" className="ms-0.5 size-3 shrink-0 opacity-60" />

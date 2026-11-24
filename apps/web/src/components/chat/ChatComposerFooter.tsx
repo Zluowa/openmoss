@@ -157,7 +157,8 @@ export function ChatComposerFooter({
       <div
         data-chat-composer-actions="right"
         data-moss-visible-composer-actions="true"
-        className={cn("flex items-center gap-2", voiceActive ? "min-w-0 flex-1" : "shrink-0")}
+        // Shrinks only by ellipsizing the model name; every other control here keeps its size.
+        className={cn("flex min-w-0 items-center gap-2", voiceActive && "flex-1")}
       >
         {realtimeVoice?.active ? realtimeVoice.controls : null}
         {realtimeVoice?.active ? null : contextMeter}

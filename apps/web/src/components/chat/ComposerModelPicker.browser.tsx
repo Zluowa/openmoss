@@ -1696,14 +1696,18 @@ describe("Claude composer budget suffix", () => {
           prompt=""
           onPromptChange={vi.fn()}
           contextWindowLabel={label === "(1M)" ? runtimeLabel : label}
-          hideModelLabel={compact}
+          hideAccountName={compact}
           hideStatusLabel={compact}
         />,
       );
       const button = page.getByRole("button", { name: "Change model and reasoning" });
       expect(button.element().textContent).toBe(expected);
       if (compact) {
-        await expect.element(button).toHaveAttribute("title", `Fable 5.1 · High · ${label}`);
+        // Compact drops the effort and window labels to the title; the model name stays painted.
+        await expect.element(button).toHaveAttribute("title", `High · ${label}`);
+        const name = button.element().querySelector<HTMLElement>("[data-composer-model-label]");
+        expect(name?.textContent).toBe("Fable 5.1");
+        expect(name!.getBoundingClientRect().width).toBeGreaterThan(0);
         expect(button.element().getBoundingClientRect().width).toBeLessThan(150);
       }
       await screen.unmount();

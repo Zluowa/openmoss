@@ -151,9 +151,9 @@ type ComposerModelPickerProps = {
   providerInstances?: ReadonlyArray<ProviderModelPickerInstance>;
   selectedProviderInstanceId?: ProviderInstanceId;
   modelOptionsByProviderInstance?: ProviderModelOptionsByProviderInstance;
-  // Narrow-composer degradation: drop the model name (provider icon stays)
-  // and/or the effort/status label; both remain available to assistive tech.
-  hideModelLabel?: boolean;
+  // Narrow-composer degradation: drop the account name and/or the effort/status label;
+  // both remain available to assistive tech. The model name always stays.
+  hideAccountName?: boolean;
   hideStatusLabel?: boolean;
   contextWindowLabel?: string | null;
   /** Signed in, but Moss's gateway can't be reached: Moss rows say so instead of 登录. */
@@ -774,7 +774,7 @@ export function ComposerModelPicker(props: ComposerModelPickerProps) {
         contextWindowLabel={activeProvider === "claudeAgent" ? props.contextWindowLabel : null}
         showsFastBadge={showsComposerFastModeBadge(currentTraitSelection)}
         fastModeNotice={activeProvider === "claudeAgent" ? props.fastModeNotice : null}
-        hideModelLabel={props.hideModelLabel}
+        hideAccountName={props.hideAccountName}
         hideStatusLabel={props.hideStatusLabel}
         disabled={props.disabled}
         isMenuOpen={isMenuOpen}

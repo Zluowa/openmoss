@@ -4007,10 +4007,15 @@ export default function ChatView({
           nextCompact &&
           leadingCluster !== null &&
           leadingCluster.scrollWidth > leadingCluster.clientWidth + 1;
+        // The model name gives way with an ellipsis instead of overflowing the row, so a
+        // cut name is overflow too: every other step goes before it is cut.
+        const modelLabelCut = [
+          ...footerRow.querySelectorAll<HTMLElement>("[data-composer-model-label]"),
+        ].some((label) => label.scrollWidth > label.clientWidth + 1);
         const nextStep = resolveNextComposerFooterTier({
           currentTier: composerFooterTierRef.current,
           clientWidth: footerRow.clientWidth,
-          isOverflowing: rowOverflows || leadingClips,
+          isOverflowing: rowOverflows || leadingClips || modelLabelCut,
           demotionWidths: composerFooterDemotionWidthsRef.current,
         });
         composerFooterDemotionWidthsRef.current = nextStep.demotionWidths;
@@ -5994,7 +5999,7 @@ export default function ChatView({
     )
   ) : (
     <ComposerModelPicker
-      hideModelLabel={!composerFooterControlsPlan.showModelLabel}
+      hideAccountName={!composerFooterControlsPlan.showAccountLabel}
       hideStatusLabel={!composerFooterControlsPlan.showTraitsLabel}
       contextWindowLabel={composerContextWindowLabel}
       fastModeNotice={composerFastModeNotice}
@@ -6047,7 +6052,7 @@ export default function ChatView({
               (boundProvider !== null && selectedProvider === boundProvider)
             }
             compact={isComposerFooterCompact}
-            hideLabel={!composerFooterControlsPlan.showModelLabel}
+            hideLabel={!composerFooterControlsPlan.showAccountLabel}
             onProviderInstanceChange={onProviderInstanceSelect}
             onManageAccounts={openProviderAccountSettings}
           />

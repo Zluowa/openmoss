@@ -13,9 +13,11 @@ export function shouldUseCompactComposerFooter(
 
 // Progressive degradation for the footer's picker cluster.
 // Degradation order (first thing to go first): context-window meter ->
-// traits/effort label (gear icon stays) -> model name (provider icon stays) ->
-// relocate the leading controls (extras "+" menu, access-rules indicator) into
-// the row below the input, next to the branch toolbar.
+// traits/effort label (gear icon stays) -> account name -> relocate the leading
+// controls (extras "+" menu, access-rules indicator) into the row below the
+// input, next to the branch toolbar. The model name is never one of the steps:
+// a person must always see which model answers (WALK-8 N8-2), so once nothing
+// else can go it ellipsizes instead.
 //
 // Visibility is driven by MEASURED overflow, not estimated widths: label
 // lengths vary per provider/model and the app supports UI font scaling, so any
@@ -26,12 +28,12 @@ export function shouldUseCompactComposerFooter(
 // pane promotes back with hysteresis instead of flickering at the boundary.
 export interface ComposerFooterControlsPlan {
   showContextMeter: boolean;
-  showModelLabel: boolean;
+  showAccountLabel: boolean;
   showTraitsLabel: boolean;
   relocateLeadingControls: boolean;
 }
 
-// Tier 0 = everything visible ... tier 3 = icons only, tier 4 = leading
+// Tier 0 = everything visible ... tier 3 = no account name, tier 4 = leading
 // controls move below the input.
 export const COMPOSER_FOOTER_MAX_TIER = 4;
 // Extra width (px) required beyond the recorded overflow point before stepping
@@ -45,7 +47,7 @@ export function composerFooterPlanForTier(
   return {
     showContextMeter: hasContextMeter && tier < 1,
     showTraitsLabel: tier < 2,
-    showModelLabel: tier < 3,
+    showAccountLabel: tier < 3,
     relocateLeadingControls: tier >= 4,
   };
 }
