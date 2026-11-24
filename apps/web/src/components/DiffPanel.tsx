@@ -50,6 +50,7 @@ import {
 } from "../lib/chatReferences";
 import { resolveDiffEnvironmentState } from "../lib/threadEnvironment";
 import { disclosureWidthClassName } from "../lib/disclosureMotion";
+import { patchFromFileChangeActivities } from "../lib/toolCallDetails";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { type RepoDiffScope, useRepoDiffScopeStore } from "../repoDiffScopeStore";
 import { useStore } from "../store";
@@ -95,6 +96,7 @@ import { useCodeSelectionAction } from "./chat/useCodeSelectionAction";
 import { useProjectFileChangeSubscription } from "../hooks/useProjectFileChangeSubscription";
 import {
   createDiffPanelRepoLiveRefreshSelector,
+  createDiffPanelActivitiesSelector,
   createDiffPanelThreadCatalogSelector,
   toDiffPanelThreadCatalog,
   type DiffPanelThreadCatalog,
@@ -679,7 +681,32 @@ export default function DiffPanel({
   const isLoadingCheckpointDiff = checkpointDiffDisplay.isLoading;
   const checkpointDiffError = checkpointDiffDisplay.error;
 
-  const selectedPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
+  const checkpointPatch = selectedTurn ? selectedTurnCheckpointDiff : conversationCheckpointDiff;
+  const threadActivities = useStore(
+    useMemo(() => createDiffPanelActivitiesSelector(activeThreadId), [activeThreadId]),
+  );
+  // No checkpoint patch (outside Git, no snapshot taken, or none asked for): the patch the
+  // agent's own file-change records carry. A checkpoint patch that does arrive always wins.
+  const recordedPatch = useMemo(
+    () =>
+      diffViewKind === "turn" && typeof checkpointPatch !== "string" && !isLoadingCheckpointDiff
+        ? patchFromFileChangeActivities(
+            threadActivities,
+            selectedTurn?.turnId ?? selectedTurnId,
+            activeCwd ?? null,
+          )
+        : undefined,
+    [
+      activeCwd,
+      checkpointPatch,
+      diffViewKind,
+      isLoadingCheckpointDiff,
+      selectedTurn,
+      selectedTurnId,
+      threadActivities,
+    ],
+  );
+  const selectedPatch = checkpointPatch ?? recordedPatch;
   const reportedTurnFiles = useMemo(
     () => collectReportedTurnFiles(selectedTurn ? [selectedTurn] : orderedTurnDiffSummaries),
     [orderedTurnDiffSummaries, selectedTurn],
@@ -1306,7 +1333,7 @@ export default function DiffPanel({
           onSelectFile={selectFile}
           onRetry={handleDiffReload}
         />
-      ) : gitRepoStatus === false ? (
+      ) : gitRepoStatus === false && recordedPatch === undefined ? (
         <PanelStateMessage density="compact" fill="flex">
           Turn diffs are unavailable because this project is not a git repository.
         </PanelStateMessage>

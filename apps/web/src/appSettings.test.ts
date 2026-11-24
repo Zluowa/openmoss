@@ -738,16 +738,16 @@ describe("terminal font family settings", () => {
 
   it("quotes a single multi-word font and appends a monospace fallback", () => {
     expect(resolveTerminalFontFamilyStack("Fira Code")).toBe(
-      '"Fira Code", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace',
+      '"Fira Code", "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace',
     );
     expect(resolveTerminalFontFamilyStack("Menlo")).toBe(
-      'Menlo, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace',
+      'Menlo, "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace',
     );
   });
 
   it("preserves explicit font stacks while adding a generic fallback when missing", () => {
     expect(resolveTerminalFontFamilyStack('"Fira Code", Menlo')).toBe(
-      '"Fira Code", Menlo, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace',
+      '"Fira Code", Menlo, "Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace',
     );
     expect(resolveTerminalFontFamilyStack('"Fira Code", ui-monospace')).toBe(
       '"Fira Code", ui-monospace',

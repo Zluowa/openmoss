@@ -147,7 +147,7 @@ function Combobox({
 }
 
 const END_CONTROL_CLASS_NAME =
-  "combobox-end-control -translate-y-1/2 absolute top-1/2 inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-control border border-transparent opacity-80 outline-none transition-opacity pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 has-[+[data-slot=combobox-clear]]:hidden sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0";
+  "combobox-end-control -translate-y-1/2 absolute top-1/2 inline-flex size-8 shrink-0 items-center justify-center rounded-control border border-transparent opacity-80 outline-none transition-opacity pointer-coarse:after:absolute pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 hover:opacity-100 has-[+[data-slot=combobox-clear]]:hidden sm:size-7 [&_svg:not([class*='size-'])]:size-4.5 sm:[&_svg:not([class*='size-'])]:size-4 [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0";
 
 type ComboboxInputProps = Omit<
   React.ComponentProps<typeof CommandSearchInput>,
@@ -362,7 +362,7 @@ function ComboboxItem({
       })}
       aria-selected={chosen}
       className={cn(
-        `grid min-h-[1.625rem] cursor-default grid-cols-[1fr_auto] items-center gap-3 ${COMPOSER_PICKER_OPTION_RADIUS_CLASS_NAME} px-2.5 py-px text-ui text-[var(--color-text-foreground)] outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 sm:min-h-6 sm:text-ui [&_svg:not([class*='size-'])]:size-3 [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0`,
+        `grid min-h-[1.625rem] grid-cols-[1fr_auto] items-center gap-3 ${COMPOSER_PICKER_OPTION_RADIUS_CLASS_NAME} px-2.5 py-px text-ui text-[var(--color-text-foreground)] outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 sm:min-h-6 sm:text-ui [&_svg:not([class*='size-'])]:size-3 [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0`,
         className,
       )}
       render={(itemProps) => (

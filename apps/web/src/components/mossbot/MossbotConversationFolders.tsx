@@ -49,17 +49,20 @@ export function MossbotNewConversationMenu({
             variant="ghost"
             size="icon-sm"
             className={sidebar ? "sidebar-icon-button" : undefined}
-            aria-label={t("New assistant or group")}
+            aria-label={t(sidebar ? "New group chat" : "New assistant or group")}
           />
         }
       >
         <PlusIcon />
       </MenuTrigger>
       <ComposerPickerMenuPopup align="end">
-        <MenuItem onClick={onAssistant}>
-          <PlusIcon />
-          {t("New assistant")}
-        </MenuItem>
+        {/* The sidebar's own 新建助手 row creates assistants; its header offers only the rest. */}
+        {sidebar ? null : (
+          <MenuItem onClick={onAssistant}>
+            <PlusIcon />
+            {t("New assistant")}
+          </MenuItem>
+        )}
         <MenuItem onClick={onRoom}>
           <UsersIcon />
           {t("New group chat")}

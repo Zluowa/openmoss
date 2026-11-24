@@ -1436,7 +1436,6 @@ export function MossImagesWorkspace({
               createImagesTab(`images-${crypto.randomUUID()}`, "新图像"),
             ])
           }
-          onToggleSidebar={() => window.dispatchEvent(new Event("moss-sidebar-toggle"))}
         />
       )}
       <input
@@ -1630,21 +1629,16 @@ export function MossImagesWorkspace({
                   </p>
                 )}
               <div className="mt-8 flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-ui-lg font-medium">我的图像</h2>
-                  <p className="mt-1 text-ui-xs text-muted-foreground">
-                    可在资料库中找到你的所有图像及更多内容
-                  </p>
-                </div>
+                <h2 className="text-ui-lg font-medium">我的图像</h2>
                 <Button variant="outline" size="sm" onClick={openMossLibraryDestination}>
                   <BookIcon className="size-4" />
                   打开资料库
                 </Button>
               </div>
               {jobs.length === 0 ? (
-                <p className="mt-5 text-ui-sm text-muted-foreground">
-                  {loading ? "正在读取生成记录…" : "你在这里创建的图像会显示在这里。"}
-                </p>
+                loading ? (
+                  <p className="mt-5 text-ui-sm text-muted-foreground">正在读取生成记录…</p>
+                ) : null
               ) : (
                 <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
                   {jobs

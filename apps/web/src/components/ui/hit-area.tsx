@@ -16,7 +16,7 @@ import { definedProps, type Loose } from "./uiSdkProps";
 /** Focus ring, the app's interaction cursor (an arrow in the desktop app, a hand on the web)
  *  and the disabled state; nothing else. */
 export const HIT_AREA_CLASS_NAME =
-  "cursor-interaction outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+  "outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-64";
 
 type HitAreaProps = Omit<
   Loose<ComponentProps<typeof ButtonPrimitive>>,

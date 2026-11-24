@@ -4,8 +4,12 @@
 
 import { Terminal, type ITheme } from "@xterm/xterm";
 
-const FALLBACK_MONO_FONT_FAMILY =
+// Named fixed-width faces come first, so xterm measures its cells with one (WALK-8 N8-1);
+// Chinese faces follow for the glyphs those lack, and the generic `monospace` stays last because
+// Chrome maps it to a Song face (NSimSun) for Chinese.
+export const FALLBACK_MONO_FONT_FAMILY =
   '"JetBrains Mono", "JetBrainsMono NFM", "JetBrainsMono NF", ' +
+  '"Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", ' +
   '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace';
 const FALLBACK_TERMINAL_FONT_SIZE_PX = 12;
 const TERMINAL_FONT_WEIGHT = 300;

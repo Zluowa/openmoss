@@ -767,7 +767,7 @@ function SidebarRail({
                  The line is drawn on the seam: a hairline that turns into a 2 px accent line
                  on hover (after a short delay) and stays lit while dragging. */
               "absolute inset-y-0 -left-px z-40 hidden w-[7px] sm:flex",
-              canResize ? "cursor-col-resize" : "cursor-pointer",
+              canResize && "cursor-col-resize",
               "before:pointer-events-none before:absolute before:inset-y-0 before:left-px before:w-px before:bg-[var(--color-border-light,var(--border))]",
               "after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-[2px] after:bg-[var(--color-text-accent)] after:opacity-0 after:transition-opacity after:duration-200 after:ease-out",
               "hover:after:opacity-100 hover:after:delay-100 data-[resizing=true]:after:opacity-100 data-[resizing=true]:after:delay-0",
@@ -782,7 +782,7 @@ function SidebarRail({
                  `col-resize` (the ↔ handle) when resizing is available — matching the
                  body cursor used during the drag — else `pointer` for the toggle. */
                 "absolute inset-y-0 z-[25] hidden w-4 sm:flex",
-                canResize ? "cursor-col-resize" : "cursor-pointer",
+                canResize && "cursor-col-resize",
                 side === "left" ? "left-0 -translate-x-1/2" : "right-0 translate-x-1/2",
               ]
             : [
@@ -996,7 +996,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button flex w-full cursor-pointer items-center gap-2 overflow-hidden rounded-row p-2 text-left text-ui-lg leading-snug outline-hidden ring-ring/60 transition-[width,height,padding] hover:bg-[var(--sidebar-accent)] focus-visible:ring-1 active:bg-[var(--sidebar-accent-active)] active:text-[var(--sidebar-accent-foreground)] disabled:pointer-events-none disabled:opacity-50 menu-item-has-action:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-[var(--sidebar-selected)] data-[active=true]:text-[var(--sidebar-accent-foreground)] data-[state=open]:hover:bg-[var(--sidebar-accent)] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
+  "peer/menu-button flex w-full cursor-interaction items-center gap-2 overflow-hidden rounded-row p-2 text-left text-ui-lg leading-snug outline-hidden ring-ring/60 transition-[width,height,padding] hover:bg-[var(--sidebar-accent)] focus-visible:ring-1 active:bg-[var(--sidebar-accent-active)] active:text-[var(--sidebar-accent-foreground)] disabled:pointer-events-none disabled:opacity-50 menu-item-has-action:pe-8 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-[var(--sidebar-selected)] data-[active=true]:text-[var(--sidebar-accent-foreground)] data-[state=open]:hover:bg-[var(--sidebar-accent)] group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
   {
     defaultVariants: {
       size: "default",
@@ -1172,7 +1172,7 @@ function SidebarMenuSubButton({
   const isActive = isActiveProp ?? false;
   const defaultProps = {
     className: cn(
-      "-translate-x-px flex h-7 min-w-0 cursor-pointer items-center gap-2 overflow-hidden rounded-row px-2 text-sidebar-foreground outline-hidden ring-ring/60 hover:bg-[var(--sidebar-accent)] focus-visible:ring-1 active:bg-[var(--sidebar-accent-active)] active:text-[var(--sidebar-accent-foreground)] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
+      "-translate-x-px flex h-7 min-w-0 cursor-interaction items-center gap-2 overflow-hidden rounded-row px-2 text-sidebar-foreground outline-hidden ring-ring/60 hover:bg-[var(--sidebar-accent)] focus-visible:ring-1 active:bg-[var(--sidebar-accent-active)] active:text-[var(--sidebar-accent-foreground)] disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 [&>span:last-child]:truncate [&>svg:not([class*='size-'])]:size-4 [&>svg,&>[data-slot=central-icon]]:shrink-0",
       "data-[active=true]:bg-[var(--sidebar-selected)] data-[active=true]:text-[var(--sidebar-accent-foreground)]",
       size === "sm" && "text-ui leading-snug",
       size === "md" && "text-ui-lg leading-snug",

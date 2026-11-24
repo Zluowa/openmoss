@@ -252,6 +252,32 @@
     color: var(--color-foreground);
     overflow: visible;
   }
+  /* The cursor (design standard, "Cursor"), as Claude desktop sets it: every control takes the
+     interaction cursor, the arrow in the desktop app and the hand on the web; a disabled control
+     shows the arrow; text links keep the hand (TextLink). Written once here at zero specificity,
+     so shared parts carry no cursor class and a drag, resize or text cursor still wins. */
+  :where(
+    button,
+    summary,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"]
+  ) {
+    cursor: var(--cursor-interaction, pointer);
+  }
+  :where(button, [role]):where(
+    :disabled,
+    [aria-disabled="true"],
+    [data-disabled]:not([data-disabled="false"])
+  ) {
+    cursor: default;
+  }
   body {
     @apply text-foreground relative;
     /* `--app-window-background` is the single translucent coat when the whole window is
@@ -859,8 +885,11 @@
     monospace
   );
   --font-chat-code-family: var(--theme-font-code-family, var(--font-mono-family));
+  /* Named fixed-width faces first (xterm measures its cells with the first face found), then
+     the UI's Chinese faces, then the generic monospace, which Chrome maps to Song for Chinese. */
   --terminal-font-family:
-    "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", "PingFang SC", "Microsoft YaHei UI",
+    "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", "Cascadia Mono", Consolas, "SF Mono",
+    Menlo, "DejaVu Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --app-shell-background: transparent;
   /* Width of the rail layout's fixed icon column (see AppRail): 36px buttons with 7.5px
@@ -2672,6 +2701,13 @@ body [class*="openui-theme-portal-"] {
       --scroll-fade-e: 0px;
     }
   }
+}
+
+/* The interaction cursor for a control the base rule cannot see by its role (a custom row, a
+   link that acts as a control): the arrow in the desktop app, the hand on the web. A utility, so
+   variants such as `[button&]:cursor-interaction` work. */
+@utility cursor-interaction {
+  cursor: var(--cursor-interaction, pointer);
 }
 
 @utility scroll-fade {
@@ -4726,10 +4762,6 @@ diffs-container {
     background: var(--color-surface-elevated-secondary) !important;
   }
 
-  .cursor-interaction {
-    cursor: var(--cursor-interaction, pointer);
-  }
-
   :root {
     --cursor-interaction: pointer;
   }
@@ -5033,8 +5065,11 @@ diffs-container {
     monospace
   );
   --font-chat-code-family: var(--theme-font-code-family, var(--font-mono-family));
+  /* Named fixed-width faces first (xterm measures its cells with the first face found), then
+     the UI's Chinese faces, then the generic monospace, which Chrome maps to Song for Chinese. */
   --terminal-font-family:
-    "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", "PingFang SC", "Microsoft YaHei UI",
+    "JetBrainsMono NFM", "JetBrainsMono NF", "JetBrains Mono", "Cascadia Mono", Consolas, "SF Mono",
+    Menlo, "DejaVu Sans Mono", "Liberation Mono", "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --app-shell-background: transparent;
   --app-sidebar-backdrop-filter: none;

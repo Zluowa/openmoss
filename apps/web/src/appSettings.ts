@@ -972,8 +972,11 @@ export function normalizeTerminalFontFamily(value: string | null | undefined): s
   return (value ?? "").replace(/[;{}<>\n\r]/g, "").slice(0, 256);
 }
 
-// Chinese in the terminal uses the UI's Chinese face rather than the browser's default Song.
-const TERMINAL_FONT_FALLBACK =
+// A configured face that is missing falls back to a named fixed-width face first, so the
+// terminal's cells stay monospace (N8-1); Chinese then uses the UI's Chinese face, and the
+// generic `monospace` stays last because Chrome maps it to a Song face for Chinese.
+export const TERMINAL_FONT_FALLBACK =
+  '"Cascadia Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", "Liberation Mono", ' +
   '"PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", monospace';
 
 // Build the CSS font-family stack written to `--terminal-font-family`, or null

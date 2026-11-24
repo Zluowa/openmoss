@@ -6,7 +6,12 @@
 
 import "../index.css";
 
-import { CheckpointRef, TurnId, type NativeApi } from "@moss/contracts";
+import {
+  CheckpointRef,
+  TurnId,
+  type NativeApi,
+  type OrchestrationThreadActivity,
+} from "@moss/contracts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { page } from "vitest/browser";
@@ -17,6 +22,7 @@ import { useStore } from "../store";
 import type { SplitViewPanePanelState } from "../splitViewStore";
 import type { TurnDiffSummary } from "../types";
 import { makeState, makeThread } from "../storeTestFixtures";
+import { walk7ProjectFolder, walk7TurnActivities } from "../test/fixtures/walk7CodexTurn.fixture";
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -67,7 +73,9 @@ function Harness(props: { filePath: string | null }) {
 }
 
 async function mountPanel(input: {
-  summary: TurnDiffSummary;
+  summary: TurnDiffSummary | null;
+  activities?: OrchestrationThreadActivity[];
+  projectCwd?: string;
   getTurnDiff: ReturnType<typeof vi.fn>;
   isRepo: boolean;
   filePath: string | null;
@@ -102,7 +110,18 @@ async function mountPanel(input: {
     },
   } as unknown as NativeApi);
   await page.viewport(1000, 800);
-  useStore.setState(makeState(makeThread({ turnDiffSummaries: [input.summary] })));
+  const state = makeState(
+    makeThread({
+      turnDiffSummaries: input.summary ? [input.summary] : [],
+      activities: input.activities ?? [],
+    }),
+  );
+  const projectCwd = input.projectCwd;
+  useStore.setState(
+    projectCwd
+      ? { ...state, projects: state.projects.map((project) => ({ ...project, cwd: projectCwd })) }
+      : state,
+  );
   queryClient = new QueryClient({
     defaultOptions: { queries: { refetchOnWindowFocus: false, refetchOnReconnect: false } },
   });
@@ -200,3 +219,43 @@ it("shows the reported files for a folder that is not a Git repository", async (
     expect(readFile.mock.calls.map(([request]) => request.relativePath)).toContain("notes/todo.md"),
   );
 });
+
+// WALK-6 H-6 (walk on main 55dbfe1d1, project `code` outside Git): Codex applied a patch adding
+// sub and mul to index.js; 查看更改 said 「所选范围没有可用补丁。」. The patch is in the turn's own
+// file-change records, so the panel shows it from there. The records are the walker's own
+// (WALK-7 state DB): started and completed, the file named by its absolute Windows path. Only
+// their turn id is moved onto this harness's turn.
+const WALK7_FILE_CHANGES = (walk7TurnActivities as unknown as OrchestrationThreadActivity[])
+  .filter((activity) => (activity.payload as { itemType?: string }).itemType === "file_change")
+  .map((activity) => ({ ...activity, turnId: TURN_ID }));
+
+for (const isRepo of [false, true]) {
+  it(`H-6: 查看更改 shows the applied patch from the turn's own record (${isRepo ? "no snapshot" : "folder outside Git"})`, async () => {
+    const getTurnDiff = vi.fn().mockRejectedValue(new Error(NOT_READY));
+    await mountPanel({
+      summary: null,
+      activities: WALK7_FILE_CHANGES,
+      projectCwd: walk7ProjectFolder,
+      getTurnDiff,
+      isRepo,
+      filePath: null,
+    });
+    await expect
+      .element(page.getByText("export const sub = (a, b) => a - b;", { exact: true }), {
+        timeout: 2_000,
+      })
+      .toBeVisible();
+    await expect
+      .element(page.getByText("export const mul = (a, b) => a * b;", { exact: true }))
+      .toBeVisible();
+    // Started and completed records of one change show it once.
+    expect(
+      page.getByText("export const sub = (a, b) => a - b;", { exact: true }).elements(),
+    ).toHaveLength(1);
+    expect(WALK7_FILE_CHANGES).toHaveLength(2);
+    // The file is named inside the project folder, not by its absolute path.
+    expect(page.getByText("person", { exact: false }).elements()).toHaveLength(0);
+    expect(document.body.innerText).not.toContain("No patch available for this selection.");
+    expect(document.body.innerText).not.toContain("not a git repository");
+  });
+}

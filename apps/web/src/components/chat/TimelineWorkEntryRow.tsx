@@ -142,7 +142,8 @@ import { TimelineStreamErrorRow } from "./TimelineStreamErrorRow";
 import { McpAppCard } from "./McpAppCard";
 import { McpAppRowPlacementContext } from "./mcpAppPlacement";
 import { WebMcpActivity } from "./WebMcpActivity";
-import { deriveToolFailureSummary } from "../../lib/toolCallDetails";
+import { deriveToolFailureSummary, isNotFoundToolFailure } from "../../lib/toolCallDetails";
+import { classifyToolCallSummaryCategory, entryFileKeys } from "./toolCallGroup.logic";
 
 import { DISCLOSURE_CLEANUP_BUFFER_MS, DISCLOSURE_TRANSITION_MS } from "../../lib/disclosureMotion";
 import { MUTED_LABEL_TEXT_CLASS_NAME, MUTED_LABEL_TEXT_COLOR } from "~/surfaceStyles";
@@ -936,12 +937,15 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   // it holds more than its line, the row opens in place onto the whole text.
   const canOpenAgentActivity =
     Boolean(onOpenAgentActivity) && isAgentActivityWorkEntry(workEntry) && !isNarrationRow;
-  const narrationParagraphs = isNarrationRow ? formatWorkRunNarrationParagraphs(workEntry) : [];
-  const narrationBody =
-    narrationParagraphs.length > 1 ||
-    (narrationParagraphs.length === 1 && narrationParagraphs[0] !== preview)
-      ? narrationParagraphs
-      : null;
+  // H-10 (WALK-6): the row already shows its line; the opened body never repeats it.
+  const narrationParagraphs = isNarrationRow
+    ? formatWorkRunNarrationParagraphs(workEntry).filter(
+        (paragraph) =>
+          normalizeToolTextForComparison(paragraph) !==
+          normalizeToolTextForComparison(preview ?? ""),
+      )
+    : [];
+  const narrationBody = narrationParagraphs.length > 0 ? narrationParagraphs : null;
   const openAgentActivity = canOpenAgentActivity
     ? () => onOpenAgentActivity?.(workEntry.id)
     : undefined;
@@ -978,11 +982,26 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
           locale,
         })
       : null;
-  const failureMetaText = failure
-    ? failure.exitCode !== null
-      ? format("chat.tool.failedWithExit", { code: failure.exitCode })
-      : t("chat.tool.failed")
+  // H-7 (WALK-6): a failed read says what happened in plain words, not "Read x · failed".
+  const failedReadTarget =
+    failure && classifyToolCallSummaryCategory(workEntry) === "read"
+      ? (entryFileKeys(workEntry)[0] ?? null)
+      : null;
+  const failedReadSentence = failedReadTarget
+    ? format(
+        isNotFoundToolFailure(workEntry.toolDetails)
+          ? "chat.tool.readNotFound"
+          : "chat.tool.readFailed",
+        { name: basenameOfPath(failedReadTarget) || failedReadTarget },
+      )
     : null;
+  const failureMetaText = failedReadSentence
+    ? null
+    : failure
+      ? failure.exitCode !== null
+        ? format("chat.tool.failedWithExit", { code: failure.exitCode })
+        : t("chat.tool.failed")
+      : null;
   // A computer-control denial renders as an actionable card (enable + retry)
   // instead of a buried tool-error line. Kept after the hooks above so the
   // early return never changes hook order.
@@ -1408,7 +1427,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                           commandIsInProgress || workEntry.mcpToolResult?.status === "inProgress"
                         }
                       >
-                        {commandParts ? renderWorkEntrySentence(commandParts) : summaryText}
+                        {failedReadSentence ??
+                          (commandParts ? renderWorkEntrySentence(commandParts) : summaryText)}
                       </ConversationShimmer>
                       {visibleLiveActivityMetaText ? (
                         <span data-live-activity-meta="true"> · {visibleLiveActivityMetaText}</span>

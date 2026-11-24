@@ -40,7 +40,7 @@ const headerButtonDarkBorderClassName =
 // Icon child rules name both an `<svg>` and a Central glyph span; the comment on
 // CENTRAL_ICON_SLOT (lib/central-icons) says which rules stay svg-only and why.
 const buttonVariants = cva(
-  "[&_svg,&_[data-slot=central-icon]]:-mx-0.5 relative inline-flex shrink-0 cursor-pointer items-center justify-center gap-ui-gap-xs [--app-icon-size:--theme(--spacing-ui-icon)] whitespace-nowrap rounded-control border font-medium text-ui outline-none pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 focus-visible:ring-1 focus-visible:ring-ring/60 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 sm:text-ui [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-ui-icon [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0",
+  "[&_svg,&_[data-slot=central-icon]]:-mx-0.5 relative inline-flex shrink-0 items-center justify-center gap-ui-gap-xs [--app-icon-size:--theme(--spacing-ui-icon)] whitespace-nowrap rounded-control border font-medium text-ui outline-none pointer-coarse:after:absolute pointer-coarse:after:size-full pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-11 focus-visible:ring-1 focus-visible:ring-ring/60 focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 sm:text-ui [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-ui-icon [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0",
   {
     defaultVariants: {
       shape: "default",

@@ -4,6 +4,7 @@ import {
   deriveToolFailureSummary,
   deriveWorkLogToolDetails,
   parseWorkLogMcpToolResult,
+  patchFromFileChangeActivities,
 } from "./toolCallDetails";
 
 describe("deriveToolFailureSummary", () => {
@@ -128,5 +129,57 @@ describe("parseWorkLogMcpToolResult widget binding", () => {
     expect(
       parseWorkLogMcpToolResult("tool.completed", projection(binding), "mcp_tool_call")?.app,
     ).toEqual(binding);
+  });
+});
+
+describe("patchFromFileChangeActivities (WALK-6 H-6)", () => {
+  // The walk's apply_patch record (WALK-7 state DB): started and completed, absolute Windows path.
+  const record = (id: string, status: string) => ({
+    id,
+    turnId: "turn-1",
+    payload: {
+      itemType: "file_change",
+      status,
+      data: {
+        item: {
+          type: "fileChange",
+          id: "call_6",
+          changes: [
+            {
+              path: String.raw`D:\walk\profile\code\index.js`,
+              kind: { type: "update", move_path: null },
+              diff: "@@ -1 +1,3 @@\n export const add = (a, b) => a + b;\n+export const sub = (a, b) => a - b;\n+export const mul = (a, b) => a * b;\n",
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  it("builds one patch per change item, named inside the project folder", () => {
+    const patch = patchFromFileChangeActivities(
+      [record("a1", "inProgress"), record("a2", "completed")],
+      "turn-1",
+      "d:/walk/profile/code",
+    );
+    expect(patch).toBe(
+      "diff --git a/index.js b/index.js\n--- a/index.js\n+++ b/index.js\n@@ -1 +1,3 @@\n export const add = (a, b) => a + b;\n+export const sub = (a, b) => a - b;\n+export const mul = (a, b) => a * b;\n",
+    );
+  });
+
+  it("keeps other turns and other activities out", () => {
+    expect(patchFromFileChangeActivities([record("a1", "completed")], "turn-2")).toBeUndefined();
+    expect(
+      patchFromFileChangeActivities(
+        [
+          {
+            id: "x",
+            turnId: "turn-1",
+            payload: { itemType: "command_execution", data: { diff: "x" } },
+          },
+        ],
+        null,
+      ),
+    ).toBeUndefined();
   });
 });

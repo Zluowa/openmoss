@@ -432,6 +432,20 @@ describe("Moss Images browser workflow", () => {
 
   // The tester, signed out of Moss and of Codex: the page said 「登录 Moss 账号…」 and the
   // composer under it added 「Codex 尚未登录…」, a second sign-in sentence.
+  it("WALK-8 N8-4: 我的图像 shows its heading and 打开资料库, no explaining lines", async () => {
+    // No images yet: the heading and 打开资料库, nothing under them.
+    await mountWorkspace(vi.fn(async (_input: MossImagesConversationInput) => undefined));
+    await expect.element(page.getByRole("heading", { name: "我的图像" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "打开资料库" })).toBeVisible();
+    await vi.waitFor(() => expect(document.body.textContent).not.toContain("正在读取生成记录"));
+    for (const line of [
+      "可在资料库中找到你的所有图像及更多内容",
+      "你在这里创建的图像会显示在这里。",
+    ]) {
+      expect(document.body.textContent, line).not.toContain(line);
+    }
+  });
+
   it("signed out of Moss: says so once, and the composer adds no provider sign-in line", async () => {
     providerFixture.codexUnauthenticated = true;
     catalog = { ...catalog, account: null };

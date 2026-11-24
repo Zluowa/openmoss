@@ -104,13 +104,13 @@ function Select({ items, itemToValue, ...props }: SelectProps) {
 // purpose — do not add it back.
 type SelectPopupSurface = "composer" | "settings";
 
-const settingsSelectOptionClassName = `[&>svg,&>[data-slot=central-icon]]:-mx-0.5 flex cursor-default select-none items-center ${COMPOSER_PICKER_OPTION_RADIUS_CLASS_NAME} text-ui text-[var(--color-text-foreground)] outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg,&>[data-slot=central-icon]]:pointer-events-none [&>svg,&>[data-slot=central-icon]]:shrink-0 grid in-data-align-trigger:min-w-[calc(var(--anchor-width)+1.25rem)]`;
+const settingsSelectOptionClassName = `[&>svg,&>[data-slot=central-icon]]:-mx-0.5 flex select-none items-center ${COMPOSER_PICKER_OPTION_RADIUS_CLASS_NAME} text-ui text-[var(--color-text-foreground)] outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 [&>svg:not([class*='opacity-'])]:opacity-80 [&>svg,&>[data-slot=central-icon]]:pointer-events-none [&>svg,&>[data-slot=central-icon]]:shrink-0 grid in-data-align-trigger:min-w-[calc(var(--anchor-width)+1.25rem)]`;
 
 const SelectPopupSurfaceContext = React.createContext<SelectPopupSurface>("composer");
 
 // Keep neutral select chrome on the same token families Codex uses for menus and list hover.
 const selectTriggerVariants = cva(
-  "relative inline-flex cursor-pointer select-none items-center justify-between gap-ui-gap-xs border rounded-control text-left text-ui outline-none transition-[color,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-ui [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0 [&_svg:not([class*='size-'])]:size-ui-icon",
+  "relative inline-flex select-none items-center justify-between gap-ui-gap-xs border rounded-control text-left text-ui outline-none transition-[color,background-color] data-disabled:pointer-events-none data-disabled:opacity-64 sm:text-ui [&_svg,&_[data-slot=central-icon]]:pointer-events-none [&_svg,&_[data-slot=central-icon]]:shrink-0 [&_svg:not([class*='size-'])]:size-ui-icon",
   {
     defaultVariants: {
       size: "default",

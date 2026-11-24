@@ -84,6 +84,9 @@ export function CommandShellDetails(props: {
     normalizeTerminalOutputForRender(renderedOutputText),
   );
   const status = resolveCommandShellStatus(activity, output);
+  // H-8 (WALK-6): only a running command stays pinned to its newest line; a finished one,
+  // failed above all, opens at its top so the error sentence reads first.
+  const followsTail = status.kind === "running";
   const { copyToClipboard: copyCommand, isCopied: commandCopied } = useCopyToClipboard();
   const { copyToClipboard: copyOutput, isCopied: outputCopied } = useCopyToClipboard();
   const { copyToClipboard: copyContents, isCopied: contentsCopied } = useCopyToClipboard();
@@ -96,16 +99,16 @@ export function CommandShellDetails(props: {
     if (!outputScroll) return;
     const maxScrollTop = outputScroll.scrollHeight - outputScroll.clientHeight;
     const overflowing = maxScrollTop > 1;
-    const atVisualBottom = -outputScroll.scrollTop >= maxScrollTop - 1;
-    const atVisualTop = outputScroll.scrollTop >= -1;
+    // A reversed (tail-following) box scrolls with negative offsets from its bottom.
+    const fromTop = followsTail ? maxScrollTop + outputScroll.scrollTop : outputScroll.scrollTop;
     const next: ShellOutputFadeState = {
-      top: overflowing && !atVisualBottom,
-      bottom: overflowing && !atVisualTop,
+      top: overflowing && fromTop > 1,
+      bottom: overflowing && fromTop < maxScrollTop - 1,
     };
     setOutputFade((current) =>
       current.top === next.top && current.bottom === next.bottom ? current : next,
     );
-  }, []);
+  }, [followsTail]);
 
   useLayoutEffect(() => {
     updateOutputFade();
@@ -184,10 +187,12 @@ export function CommandShellDetails(props: {
         <div
           ref={outputScrollRef}
           className={cx(
-            "vertical-scroll-fade-mask scroll-fade-y box-border flex max-h-36 flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre [--edge-fade-distance:2rem] [--scroll-fade-size:2rem] [animation-direction:reverse]",
+            "vertical-scroll-fade-mask scroll-fade-y box-border flex max-h-36 overflow-x-hidden overflow-y-auto whitespace-pre-wrap break-words [--edge-fade-distance:2rem] [--scroll-fade-size:2rem]",
+            followsTail ? "flex-col-reverse [animation-direction:reverse]" : "flex-col",
             SHELL_CODE_CLASS_NAME,
           )}
           data-shell-output-scroll="true"
+          data-shell-output-anchor={followsTail ? "tail" : "top"}
           data-shell-output-fade-top={outputFade.top ? "true" : "false"}
           data-shell-output-fade-bottom={outputFade.bottom ? "true" : "false"}
           onScroll={updateOutputFade}
@@ -198,7 +203,7 @@ export function CommandShellDetails(props: {
             } as CSSProperties
           }
         >
-          <div className="w-max min-w-full px-3 py-2" data-translation-skip="true">
+          <div className="min-w-full px-3 py-2" data-translation-skip="true">
             <RenderedShellOutput
               segments={renderedOutputSegments}
               fallbackText={renderedOutputText}

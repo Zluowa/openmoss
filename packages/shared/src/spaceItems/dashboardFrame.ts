@@ -75,7 +75,7 @@ export function dashboardPalette(
 const FONT_STACKS = {
   sans: '"Inter Variable",Inter,"PingFang SC","Microsoft YaHei",system-ui,sans-serif',
   serif: '"Noto Serif SC","Source Han Serif SC","Songti SC",SimSun,Georgia,serif',
-  mono: '"JetBrains Mono","Cascadia Mono",ui-monospace,"Microsoft YaHei",monospace',
+  mono: '"JetBrains Mono","Cascadia Mono",ui-monospace,Consolas,Menlo,"Microsoft YaHei",monospace',
 } as const;
 
 export function dashboardTokensCss(

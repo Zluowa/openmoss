@@ -6400,6 +6400,107 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("WALK-6 R-9 on 图像 with a result tab: one Back, one Forward, and the toggle takes the click at its centre", async () => {
+    desktopTitleBar.on = true;
+    // One past image, so 图像 can open it in a result tab.
+    const account = { id: "acct_r9", realm: "moss" };
+    const conversationId = `mossconv_${"a".repeat(32)}`;
+    const pastJob = {
+      jobId: "moss_r9_result",
+      status: "failed_terminal",
+      prompt: "山间日出",
+      createdAt: "2026-11-24T08:00:00.000Z",
+      modelId: "gpt-image-2-official",
+      imageUrls: [],
+      billingStatus: "released",
+      conversationId,
+      parentJobId: null,
+    };
+    worker.use(
+      http.get("*/api/moss/media/history", () =>
+        HttpResponse.json({ account, jobs: [pastJob], nextCursor: null }),
+      ),
+      http.get("*/api/moss/media/conversations/:conversationId", () =>
+        HttpResponse.json({
+          account,
+          jobs: [pastJob],
+          nextCursor: null,
+          conversationId,
+          kind: "image",
+        }),
+      ),
+    );
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("images-result-cluster"),
+        targetText: "Images result cluster",
+      }),
+    });
+    try {
+      await waitForLayout();
+      // The walker's steps: rail → 图像, open the past image in its result tab.
+      const rail = document.querySelector<HTMLElement>('nav[aria-label="Primary"]')!;
+      rail.querySelector<HTMLButtonElement>('button[aria-label="Images"]')!.click();
+      const card = () =>
+        document.querySelector<HTMLButtonElement>('button[aria-label="打开图像：山间日出"]');
+      await expect
+        .poll(() => !!card() && !card()!.disabled, { message: "the past image is listed" })
+        .toBe(true);
+      card()!.click();
+      await expect
+        .poll(
+          () =>
+            document
+              .querySelector("[data-moss-images-mode]")
+              ?.getAttribute("data-moss-images-mode"),
+          { message: "a result tab is open" },
+        )
+        .toBe("result");
+      await expect
+        .poll(() => document.querySelector("[data-moss-codex-top-tab-chrome]") !== null, {
+          message: "the result tab's header is drawn",
+        })
+        .toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 450)); // the panel's slide
+      // One cluster: exactly one Back and one Forward on screen.
+      for (const name of ["Back", "Forward"]) {
+        expect(
+          document.querySelectorAll(`button[aria-label="${name}"]`),
+          `one ${name}`,
+        ).toHaveLength(1);
+      }
+      const toggle = document.querySelector<HTMLButtonElement>(
+        'button[aria-label="Toggle thread sidebar"]',
+      )!;
+      const cluster = toggle.parentElement!;
+      // Electron folds the page's drag and no-drag boxes in document order: the last one over a
+      // point decides whether a click there drags the window.
+      const regionAt = (x: number, y: number) =>
+        Array.from(document.querySelectorAll<HTMLElement>("body *")).reduce((last, element) => {
+          const rect = element.getBoundingClientRect();
+          if (x < rect.left || x >= rect.right || y < rect.top || y >= rect.bottom) return last;
+          const region = getComputedStyle(element).getPropertyValue("-webkit-app-region");
+          return region === "drag" || region === "no-drag" ? region : last;
+        }, "");
+      for (const control of cluster.querySelectorAll<HTMLButtonElement>("button")) {
+        const rect = control.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        // A disabled arrow (nowhere to go) takes no pointer: then nothing else may be on top.
+        expect(
+          (control.disabled ? cluster : control).contains(document.elementFromPoint(x, y)),
+          `${control.ariaLabel} takes the click at its centre`,
+        ).toBe(true);
+        expect(regionAt(x, y), `${control.ariaLabel} does not drag the window`).toBe("no-drag");
+      }
+    } finally {
+      worker.resetHandlers();
+      desktopTitleBar.on = false;
+      await mounted.cleanup();
+    }
+  });
+
   it("keeps desktop More, Settings, customization, and project shortcuts connected", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,

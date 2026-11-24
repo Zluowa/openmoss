@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  getTerminalFontFamily,
   getTerminalMinimumContrastRatio,
   isTerminalBackgroundTranslucent,
   terminalThemeFromApp,
@@ -77,5 +78,23 @@ describe("getTerminalMinimumContrastRatio", () => {
 
     root.classList.add("dark");
     expect(getTerminalMinimumContrastRatio()).toBe(1);
+  });
+});
+
+describe("WALK-8 N8-1: terminal text without JetBrains Mono", () => {
+  it("draws Latin in even cells, as xterm measures them", async () => {
+    // A PC without JetBrains Mono: drop those faces and let the rest of the stack decide.
+    const stack = getTerminalFontFamily()
+      .split(",")
+      .map((face) => face.trim())
+      .filter((face) => !/JetBrains/u.test(face))
+      .join(", ");
+    await document.fonts.ready;
+    const context = document.createElement("canvas").getContext("2d")!;
+    context.font = `16px ${stack}`;
+    // xterm sizes a cell from one glyph; in a fixed-width face every Latin glyph has that width.
+    const narrow = context.measureText("iiiiiiiiii").width;
+    const wide = context.measureText("WWWWWWWWWW").width;
+    expect(Math.abs(wide - narrow)).toBeLessThan(0.5);
   });
 });

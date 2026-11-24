@@ -65,6 +65,12 @@ const twMerge = extendTailwindMerge({
         "bubble",
       ],
     },
+    // The interaction cursor (index.css `@utility cursor-interaction`) is one of the cursors, so
+    // a caller's `cursor-col-resize` or `cursor-text` replaces it instead of the stylesheet
+    // order deciding.
+    classGroups: {
+      cursor: [{ cursor: ["interaction"] }],
+    },
   },
 });
 

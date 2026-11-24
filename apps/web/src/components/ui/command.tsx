@@ -365,7 +365,7 @@ function CommandItem({ className, onClick, ...props }: CommandItemProps) {
         onSelect: onClick,
       })}
       className={cn(
-        "flex min-h-8 cursor-default select-none items-center rounded-control px-2 py-1 text-ui outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 sm:min-h-7 sm:text-ui",
+        "flex min-h-8 select-none items-center rounded-control px-2 py-1 text-ui outline-none data-disabled:pointer-events-none data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-[var(--color-text-foreground)] data-disabled:opacity-64 sm:min-h-7 sm:text-ui",
         "py-1.5",
         className,
       )}

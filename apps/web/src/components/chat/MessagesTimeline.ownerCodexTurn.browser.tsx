@@ -361,11 +361,13 @@ describe.each(["light", "dark"] as const)("the owner's Codex turn (%s)", (mode) 
     expect(visibleText()).not.toContain("返回");
     await shot("4-reasoning-clicked");
 
-    // One command opened: command, output, exit code; the row text is unchanged.
-    await scrollTurnIntoView("Get-Content -Raw");
+    // One command opened: command, output, exit code; the row text is unchanged. The failed
+    // read of a missing SKILL.md says so in words (WALK-6 H-7), not as an exit code.
+    await scrollTurnIntoView("没找到 SKILL.md");
     const failedRead = [...host().querySelectorAll<HTMLElement>("[data-tool-detail-header]")].find(
-      (element) => element.innerText.includes("失败 · 退出码 1"),
+      (element) => element.innerText.includes("没找到 SKILL.md"),
     )!;
+    expect(failedRead.innerText).not.toContain("退出码");
     const headerBefore = failedRead.innerText;
     failedRead.querySelector<HTMLElement>("[data-tool-detail-trigger]")!.click();
     await expect.poll(() => host().querySelector("[data-command-shell]")).not.toBeNull();

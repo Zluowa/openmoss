@@ -263,7 +263,7 @@ export function classifyToolCallSummaryCategory(entry: WorkLogEntry): ToolCallSu
 
 // Distinct-file identity for an edit/read entry. Entries with no file info
 // count as one unit each so the total never under-reports work.
-function entryFileKeys(entry: WorkLogEntry): ReadonlyArray<string> {
+export function entryFileKeys(entry: WorkLogEntry): ReadonlyArray<string> {
   if (entry.changedFiles && entry.changedFiles.length > 0) {
     return entry.changedFiles;
   }
@@ -382,6 +382,10 @@ export function summarizeToolCallGroup(
       failedCount += 1;
     }
     const category = classifyToolCallSummaryCategory(entry);
+    // H-7 (WALK-6): a read that failed read nothing; it counts only as a failure.
+    if (category === "read" && entry.toolStatus === "failed") {
+      continue;
+    }
     callsByCategory.set(category, (callsByCategory.get(category) ?? 0) + 1);
     const count = countByCategory.get(category) ?? 0;
     if (category === "message") {

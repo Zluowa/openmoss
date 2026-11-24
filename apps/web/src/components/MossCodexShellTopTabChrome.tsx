@@ -6,9 +6,7 @@
 
 import { useMemo, useState } from "react";
 
-import { goBackInAppHistory, goForwardInAppHistory, useAppNavigationState } from "~/appNavigation";
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   ChatBubbleIcon,
   ClockIcon,
@@ -16,7 +14,6 @@ import {
   EllipsisIcon,
   ExternalLinkIcon,
   GitBranchIcon,
-  PanelLeftIcon,
   PanelRightCloseIcon,
   PencilIcon,
   PinIcon,
@@ -38,7 +35,7 @@ import { cn } from "~/lib/utils";
 import { useTheme } from "~/hooks/useTheme";
 import { usePinnedThreadsStore } from "~/pinnedThreadsStore";
 
-import { AppNavigationButtons } from "./AppNavigationButtons";
+import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import { Button } from "./ui/button";
 import {
   Menu,
@@ -97,13 +94,7 @@ export interface MossCodexShellTopTabChromeProps {
   readonly className?: string;
   /** When true, reserve leading gutter for macOS traffic lights (Electron). */
   readonly trafficLightGutter?: boolean;
-  /**
-   * Prefer always-visible ← → (Codex) over AppNavigationButtons Electron-gate.
-   * Default true for Images destination parity with dest-images / shot 01.
-   */
-  readonly forceNavButtons?: boolean;
-  /** When true, the leading cluster reserves the rail + open sidebar column
-   * so the first tab starts at the main surface edge, like Codex. */
+  /** When true, the tab strip starts just inside the main surface seam, like Codex. */
   readonly continuousShell?: boolean;
 }
 
@@ -129,7 +120,6 @@ export type MossShellTabMenuAction =
 // headers and native caption controls. Keeping the global strip on that token
 // prevents a one- or two-pixel seam when it overlays route-owned headers.
 const SHELL_TOPBAR_HEIGHT_CLASS = "h-[46px]";
-const SHELL_NAV_CLUSTER_CLASS = "w-[15.8125rem]";
 const SHELL_TAB_ACTIVE_CLASS = "w-auto max-w-[14.75rem]";
 /** Icon buttons on the shell band: muted at rest, full ink on a faint tint when hovered. */
 const SHELL_ICON_BUTTON_TONE_CLASS =
@@ -179,11 +169,9 @@ export function MossCodexShellTopTabChrome({
   bare = false,
   className,
   trafficLightGutter = true,
-  forceNavButtons = true,
   continuousShell = false,
 }: MossCodexShellTopTabChromeProps) {
   const { resolvedTheme } = useTheme();
-  const { canGoBack, canGoForward } = useAppNavigationState();
   const [rightSidebarActive, setRightSidebarActive] = useState(false);
   const activeTitle = useMemo(
     () => tabs.find((tab) => tab.active)?.title ?? tabs[0]?.title ?? "图像",
@@ -358,77 +346,9 @@ export function MossCodexShellTopTabChrome({
       )}
       aria-label="Moss window tabs"
     >
-      <div
-        className={cn(
-          `flex h-full shrink-0 items-center gap-1.5 border-e-0 pe-2 [-webkit-app-region:no-drag]`,
-          continuousShell ? "w-[var(--moss-shell-leading-cluster-width)]" : SHELL_NAV_CLUSTER_CLASS,
-          "border-[color:var(--app-chrome-divider-color)]",
-        )}
-      >
-        {forceNavButtons ? (
-          <>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className={cn("size-6 rounded-control", SHELL_ICON_BUTTON_TONE_CLASS)}
-                    aria-label="Back"
-                    data-moss-top-action="back"
-                    disabled={!canGoBack}
-                    onClick={() => goBackInAppHistory()}
-                  />
-                }
-              >
-                <ArrowLeftIcon className="size-4" />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">Back</TooltipPopup>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className={cn("size-6 rounded-control", SHELL_ICON_BUTTON_TONE_CLASS)}
-                    aria-label="Forward"
-                    data-moss-top-action="forward"
-                    disabled={!canGoForward}
-                    onClick={() => goForwardInAppHistory()}
-                  />
-                }
-              >
-                <ArrowRightIcon className="size-4" />
-              </TooltipTrigger>
-              <TooltipPopup side="bottom">Forward</TooltipPopup>
-            </Tooltip>
-          </>
-        ) : (
-          <AppNavigationButtons />
-        )}
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className={cn("size-6 rounded-control", SHELL_ICON_BUTTON_TONE_CLASS)}
-                aria-label="Toggle sidebar"
-                data-moss-top-action="toggle-sidebar"
-                disabled={!onToggleSidebar}
-                onClick={() => onToggleSidebar?.()}
-              />
-            }
-          >
-            <PanelLeftIcon className="size-4" />
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">Sidebar</TooltipPopup>
-        </Tooltip>
-      </div>
+      {/* The shell's one sidebar toggle and Back/Forward stay in the title bar (R-9): the
+          header only keeps clear of them. */}
+      <SidebarHeaderNavigationControls />
 
       {!bare && !stripCollapsed ? (
         <div

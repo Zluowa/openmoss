@@ -313,6 +313,33 @@ function extractToolOutputDetails(input: {
   };
 }
 
+/**
+ * Codex reports an applied patch as `item.changes: [{ path, kind, diff }]`: an update's diff is
+ * its hunks, an added or deleted file's diff is the whole text. H-5 (WALK-6): the edit row opens
+ * onto these lines, so they become one unified diff with a header per file.
+ */
+function codexChangesDiff(changes: unknown): string | undefined {
+  if (!Array.isArray(changes)) return undefined;
+  const parts = changes.flatMap((raw) => {
+    const change = asRecord(raw);
+    const path = typeof change?.path === "string" ? change.path : null;
+    const diff = typeof change?.diff === "string" ? change.diff : null;
+    if (!path || !diff) return [];
+    const kindRecord = asRecord(change?.kind);
+    const kind = typeof change?.kind === "string" ? change.kind : kindRecord?.type;
+    if (/^diff --git /mu.test(diff)) return [diff];
+    const from = kind === "add" ? "/dev/null" : `a/${path}`;
+    const to = kind === "delete" ? "/dev/null" : `b/${path}`;
+    const header = [`diff --git a/${path} b/${path}`, `--- ${from}`, `+++ ${to}`].join("\n");
+    if (/^(?:@@|--- )/mu.test(diff)) return [`${header}\n${diff}`];
+    const sign = kind === "delete" ? "-" : "+";
+    const lines = diff.replace(/\n$/u, "").split("\n");
+    const hunk = `@@ -0,0 +1,${lines.length} @@`;
+    return [[header, hunk, ...lines.map((line) => sign + line)].join("\n")];
+  });
+  return parts.length > 0 ? parts.join("\n") : undefined;
+}
+
 function extractUnifiedDiff(payload: Record<string, unknown> | null): string | undefined {
   const data = asRecord(payload?.data);
   const rawOutput = asRecord(data?.rawOutput);
@@ -340,7 +367,66 @@ function extractUnifiedDiff(payload: Record<string, unknown> | null): string | u
     itemResult?.unifiedDiff,
     itemResult?.diff,
     itemResult?.patch,
+    codexChangesDiff(item?.changes),
+    codexChangesDiff(data?.changes),
   );
+}
+
+/**
+ * The patch an agent's own file-change records amount to, for one turn or (turnId null) the
+ * whole chat: the last record of each change item, in the order the items started. Used where
+ * Moss has no snapshot to compare with (a folder outside Git), so 查看更改 still shows the lines.
+ */
+/** `path` relative to `root` when it lies inside it (either slash, any case), else as given. */
+function pathInside(path: string, root: string | null): string {
+  if (!root) return path;
+  const slashed = path.replaceAll("\\", "/");
+  const base = root.replaceAll("\\", "/").replace(/\/+$/u, "");
+  return base.length > 0 && slashed.toLowerCase().startsWith(`${base.toLowerCase()}/`)
+    ? slashed.slice(base.length + 1)
+    : path;
+}
+
+/** The payload with its Codex change paths made relative to the project folder. */
+function withChangesInside(
+  payload: Record<string, unknown>,
+  root: string | null,
+): Record<string, unknown> {
+  const data = asRecord(payload.data);
+  const item = asRecord(data?.item);
+  if (!root || !Array.isArray(item?.changes)) return payload;
+  const changes = item.changes.map((raw) => {
+    const change = asRecord(raw);
+    return change && typeof change.path === "string"
+      ? { ...change, path: pathInside(change.path, root) }
+      : raw;
+  });
+  return { ...payload, data: { ...data, item: { ...item, changes } } };
+}
+
+export function patchFromFileChangeActivities(
+  activities: ReadonlyArray<{ id: string; turnId: string | null; payload: unknown }>,
+  turnId: string | null,
+  /** The project folder: Codex reports absolute paths, the diff shows them relative to it. */
+  root: string | null = null,
+): string | undefined {
+  const latestByItem = new Map<string, Record<string, unknown>>();
+  for (const activity of activities) {
+    if (turnId !== null && activity.turnId !== turnId) continue;
+    const payload = asRecord(activity.payload);
+    if (payload?.itemType !== "file_change") continue;
+    const item = asRecord(asRecord(payload.data)?.item);
+    const itemId =
+      (typeof item?.id === "string" && item.id) ||
+      (typeof payload.itemId === "string" && payload.itemId) ||
+      activity.id;
+    latestByItem.set(itemId, payload);
+  }
+  const patches = [...latestByItem.values()].flatMap((payload) => {
+    const diff = extractUnifiedDiff(withChangesInside(payload, root));
+    return diff ? [diff.endsWith("\n") ? diff : `${diff}\n`] : [];
+  });
+  return patches.length > 0 ? patches.join("") : undefined;
 }
 
 function extractWriteContent(payload: Record<string, unknown> | null): string | undefined {
@@ -584,6 +670,17 @@ function firstExplanatoryLine(value: string | undefined): string | null {
 // The exit code and one-line reason a failed tool row shows under its command.
 // Claude prefixes failed Bash output with "Exit code N" instead of reporting a
 // structured code, so that line supplies the code and is never the excerpt.
+/** A failed call whose output says the thing it looked for is not there (any shell or OS). */
+const NOT_FOUND_FAILURE_PATTERN =
+  /no such file|not found|cannot find|could not find|does not exist|ENOENT|PathNotFound|ObjectNotFound|找不到|不存在/iu;
+
+export function isNotFoundToolFailure(details: WorkLogToolDetails | undefined): boolean {
+  const output = details?.output;
+  return [output?.stderr, output?.output, output?.stdout].some(
+    (text) => typeof text === "string" && NOT_FOUND_FAILURE_PATTERN.test(text),
+  );
+}
+
 export function deriveToolFailureSummary(
   details: WorkLogToolDetails | undefined,
 ): ToolFailureSummary {

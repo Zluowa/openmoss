@@ -3,8 +3,8 @@
 //          patterns the standard forbids (hard-coded colours, size-named or arbitrary radii,
 //          arbitrary font sizes and shadows, extra font weights, hand-drawn buttons; native
 //          tooltips and gradients; outside components/ui also hand-made tab strips, spinners,
-//          status dots and UI SDK parts used directly) and fails when any file has more than the
-//          recorded baseline. Existing drift may only go down.
+//          status dots, UI SDK parts used directly and a hand cursor set by hand) and fails
+//          when any file has more than the recorded baseline. Existing drift may only go down.
 // Layer: Repository check (`bun run design:check`, part of `bun lint`)
 // Exports: none (CLI). `--update` rewrites the baseline to the current counts; use it after
 //          cleaning a file up, never to accept new drift.
@@ -56,6 +56,13 @@ const rules = {
     // A UI SDK part used directly: the unstyled layer under components/ui, never a screen's part.
     pattern: /from\s+["']@ui-sdk\/react\/[\w-]+["']/g,
     fix: "use the shared part: HitArea (tile, card, custom row), ListRow, TextLink, Button, IconButton",
+    outsideUiOnly: true,
+  },
+  "cursor-pointer": {
+    // The hand set by hand. Controls take the interaction cursor from one base rule (arrow in
+    // the desktop app, hand on the web, as Claude desktop); only a text link keeps the hand.
+    pattern: /\bcursor-pointer\b/g,
+    fix: "drop it: a control gets its cursor from the shared rule; a link in text is TextLink",
     outsideUiOnly: true,
   },
   "hand-tablist": {

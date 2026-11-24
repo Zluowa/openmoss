@@ -185,3 +185,17 @@ export function createDiffPanelRepoLiveRefreshSelector(
     return previousShouldPoll;
   };
 }
+
+/** The thread's activity records (stable while they are unchanged), for the patch fallback. */
+export function createDiffPanelActivitiesSelector(
+  threadId: ThreadId | null | undefined,
+): (state: AppState) => Thread["activities"] {
+  return (state) =>
+    threadId
+      ? collectByIds(
+          state.activityIdsByThreadId?.[threadId] ?? EMPTY_ACTIVITY_IDS,
+          state.activityByThreadId?.[threadId] ?? EMPTY_ACTIVITY_MAP,
+          EMPTY_ACTIVITIES,
+        )
+      : EMPTY_ACTIVITIES;
+}
