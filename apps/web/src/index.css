@@ -1731,9 +1731,13 @@ body [class*="openui-theme-portal-"] {
 }
 
 /* The desktop chat's code block in a transcript: a 1px outline, no fill or title bar,
-   as wide as its content, and its buttons pinned to the top-right corner. */
+   as wide as its content, and its buttons at the top-right corner. The buttons are a column
+   of their own beside the code, not a layer over it: the code scrolls or wraps in the space
+   left of them, so at no width does a button cover a line (WALK-6 H-12: 「a ⧉ b」 with the 差异
+   pane open). A one-line block centres them on its line. */
 .chat-markdown .chat-markdown-codeblock[data-transcript-fence] {
-  position: relative;
+  display: flex;
+  align-items: flex-start;
   width: fit-content;
   min-width: min(14rem, 100%);
   max-width: 100%;
@@ -1742,24 +1746,29 @@ body [class*="openui-theme-portal-"] {
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
+.chat-markdown .chat-markdown-codeblock[data-transcript-fence]:not([data-multiline]) {
+  align-items: center;
+}
+
+.chat-markdown .chat-markdown-codeblock[data-transcript-fence] .chat-markdown-codeblock__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .chat-markdown .chat-markdown-codeblock[data-transcript-fence] .chat-markdown-codeblock__header {
-  position: absolute;
-  top: 0;
-  right: 0.4375rem;
-  z-index: 1;
-  padding: 0.25rem 0 0;
+  order: 2;
+  flex: none;
+  padding: 0.25rem 0.4375rem 0 0;
 }
 
 .chat-markdown
   .chat-markdown-codeblock[data-transcript-fence]:not([data-multiline])
   .chat-markdown-codeblock__header {
-  top: 50%;
-  padding: 0;
-  transform: translateY(-50%);
+  padding: 0 0.4375rem 0 0;
 }
 
 .chat-markdown .chat-markdown-codeblock[data-transcript-fence] .chat-markdown-codeblock__body pre {
-  padding-right: 3rem;
+  padding-right: 0.5rem;
 }
 
 .chat-markdown .chat-markdown-codeblock__header {

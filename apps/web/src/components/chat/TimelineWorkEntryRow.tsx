@@ -1207,8 +1207,10 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             const canOpenEditedDiff = Boolean(turnId && onOpenTurnDiff);
             const canOpenEditedRow = canOpenToolDetails || canOpenEditedDiff;
             const editedRowClassName = cn(
-              "group/file-row flex w-full max-w-full items-center text-left transition-colors duration-150",
-              compact ? "gap-1.5" : "gap-2",
+              "group/tool-row group/file-row flex w-full max-w-full items-center text-left transition-colors duration-150",
+              // The same line as a tool row (its text is leading-5 / leading-6), so the work log
+              // keeps one rhythm across an edit (WALK-7: 27 px after 「已编辑」 against 30–31).
+              compact ? "gap-1.5 leading-5" : "gap-2 leading-6",
               canOpenEditedRow ? "cursor-interaction focus-visible:outline-none" : "cursor-default",
             );
             const editedRowChildren = (
@@ -1242,7 +1244,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   details={workEntry.toolDetails}
                   activity={workEntry.liveActivity}
                   compact={compact}
-                  summaryClassName={editedRowClassName}
                   dataFileChangeRow
                   timestampFormat={timestampFormat}
                 >
@@ -1592,39 +1593,39 @@ export function EditedFileRowContent(props: {
       <span
         className={cn(
           "flex shrink-0 items-center justify-center",
-          WORK_ROW_MUTED_HOVER_TONE["file-row"],
+          WORK_ROW_MUTED_HOVER_TONE["tool-row"],
           compact ? "size-4" : "size-5",
         )}
         data-tool-icon="edit"
       >
         <MossKineticIcon name="editing" active={props.active ?? false} className="size-4" />
       </span>
-      <ConversationShimmer
-        active={props.active ?? false}
-        className={cn("font-system-ui shrink-0", WORK_ROW_MUTED_HOVER_TONE["file-row"])}
-        style={{ fontSize: `${fontSizePx}px` }}
-      >
-        {editedLabel}
-      </ConversationShimmer>
-      <span
-        className={cn(
-          "font-system-ui max-w-[28rem] truncate underline-offset-2",
-          WORK_ROW_MUTED_HOVER_TONE["file-row"],
-          // Filename doubles as a link affordance: underline on the same row hover/focus.
-          "group-hover/file-row:underline group-focus-visible/file-row:underline",
-        )}
-        style={{ fontSize: `${fontSizePx}px` }}
-      >
-        {basenameOfPath(filePath)}
-      </span>
-      {hasStat ? (
-        <span
-          className="font-system-ui shrink-0 tabular-nums whitespace-nowrap"
+      <div className="min-w-0 overflow-hidden">
+        <p
+          className={cn(
+            "truncate",
+            compact ? "leading-5" : "leading-6",
+            WORK_ROW_MUTED_HOVER_TONE["tool-row"],
+          )}
           style={{ fontSize: `${fontSizePx}px` }}
         >
-          <DiffStatLabel additions={additions ?? 0} deletions={deletions ?? 0} />
-        </span>
-      ) : null}
+          <ConversationShimmer active={props.active ?? false} className="font-system-ui">
+            {editedLabel}
+          </ConversationShimmer>{" "}
+          <span
+            className="font-system-ui underline-offset-2 group-hover/tool-row:underline group-focus-visible/tool-row:underline"
+            data-edited-file-name="true"
+          >
+            {basenameOfPath(filePath)}
+          </span>
+          {hasStat ? (
+            <span className="font-system-ui tabular-nums whitespace-nowrap">
+              {" "}
+              <DiffStatLabel additions={additions ?? 0} deletions={deletions ?? 0} />
+            </span>
+          ) : null}
+        </p>
+      </div>
     </>
   );
 }

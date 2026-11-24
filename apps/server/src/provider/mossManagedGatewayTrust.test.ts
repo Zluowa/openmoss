@@ -235,6 +235,38 @@ describe("isTrustedMossManagedGatewayUrl", () => {
       }),
     ).toBe(false);
   });
+
+  it("lists a loopback primary only behind the walk switch and an exact trusted origin", () => {
+    const base = { MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL: LOOPBACK_GATEWAY };
+    const origin = "http://127.0.0.1:54321";
+    expect(mossManagedGatewayEntriesForAuthority("moss-enterprise-key", base)).toEqual([]);
+    expect(
+      mossManagedGatewayEntriesForAuthority("moss-enterprise-key", {
+        ...base,
+        MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS: origin,
+      }),
+    ).toEqual([]);
+    expect(
+      mossManagedGatewayEntriesForAuthority("moss-enterprise-key", {
+        ...base,
+        MOSS_WALK_LOOPBACK_GATEWAY: "1",
+      }),
+    ).toEqual([]);
+    expect(
+      mossManagedGatewayEntriesForAuthority("moss-enterprise-key", {
+        ...base,
+        MOSS_WALK_LOOPBACK_GATEWAY: "1",
+        MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS: "http://127.0.0.1:54322",
+      }),
+    ).toEqual([]);
+    expect(
+      mossManagedGatewayEntriesForAuthority("moss-enterprise-key", {
+        ...base,
+        MOSS_WALK_LOOPBACK_GATEWAY: "1",
+        MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS: origin,
+      }),
+    ).toEqual([LOOPBACK_GATEWAY]);
+  });
 });
 
 describe("the shipped release's CN gateway entries", () => {

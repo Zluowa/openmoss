@@ -14,6 +14,12 @@ export const MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY =
 export const MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS_ENV_KEY =
   "MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_FALLBACK_URLS";
 export const MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS_ENV_KEY = "MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS";
+/**
+ * Test-only switch for the walk harness (`tools/walk`). With it set to "1", a configured gateway
+ * entry may be a plain-http 127.0.0.1 stub, and only when that exact origin is also listed in
+ * MOSS_TRUSTED_MODEL_GATEWAY_ORIGINS. Without it, configured entries must be https.
+ */
+export const MOSS_WALK_LOOPBACK_GATEWAY_ENV_KEY = "MOSS_WALK_LOOPBACK_GATEWAY";
 
 /**
  * The CN model gateway's first entry (phone/MemFire and enterprise-key lanes); the tunnel entry
@@ -121,8 +127,15 @@ function configuredGatewayEntriesForAuthority(
         ]
       : [env[MOSS_SUPABASE_GOOGLE_MODEL_GATEWAY_URL_ENV_KEY]];
   const entries: Array<{ readonly configured: string; readonly gateway: NormalizedGateway }> = [];
+  const walkLoopback = env[MOSS_WALK_LOOPBACK_GATEWAY_ENV_KEY] === "1";
   for (const [index, value] of values.entries()) {
-    const gateway = normalizedGateway(value, { allowLoopbackHttp: false });
+    const candidate = normalizedGateway(value, { allowLoopbackHttp: walkLoopback });
+    const gateway =
+      candidate && candidate.origin.startsWith("http:")
+        ? explicitlyTrustedOrigins(env).has(candidate.origin)
+          ? candidate
+          : undefined
+        : candidate;
     if (!gateway) {
       if (index === 0) return [];
       continue;

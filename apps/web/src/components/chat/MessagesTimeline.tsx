@@ -3511,7 +3511,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       <ButtonPrimitive
                         key={`inline-summary-edit:${row.message.id}:${file.path}`}
                         type="button"
-                        className="group/file-row flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none"
+                        className="group/tool-row group/file-row flex w-full max-w-full items-center gap-2 px-0 py-1.5 text-left transition-colors duration-150 focus-visible:outline-none"
                         onClick={() => {
                           onOpenTurnDiff(turnSummary!.turnId, file.path);
                         }}

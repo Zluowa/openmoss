@@ -71,7 +71,7 @@ function Row(props: { entry: WorkLogEntry; locale: MossLocaleCode }) {
   return (
     <BrowserThemeFixture>
       <MossLocaleScope locale={props.locale}>
-        <div className="w-[640px] bg-background p-6 text-foreground">
+        <div className="w-[640px] bg-background p-6 text-foreground" data-row-host="">
           <TimelineWorkEntryRow
             workEntry={props.entry}
             chatMetaFontSizePx={13}
@@ -233,6 +233,22 @@ describe.each(CASES)("WALK-6 tool rows ($theme, $locale)", ({ theme, locale }) =
     expect(contrastOf(output)).toBeGreaterThanOrEqual(4.5);
     const commandLine = document.querySelector<HTMLElement>("[data-shell-command]")!;
     expect(contrastOf(commandLine)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("WALK-7 rhythm: the edit row is as tall as a command row, so the work log steps evenly", async () => {
+    const listEntry = walk7Entry(
+      "Get-ChildItem",
+      (entry) => entry.itemType === "command_execution" && entry.toolStatus === "completed",
+    );
+    await render(<Row entry={listEntry} locale={locale} />);
+    await render(<Row entry={editEntry} locale={locale} />);
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-row-host] > div")];
+    expect(rows).toHaveLength(2);
+    const [commandRow, editRow] = [rows[0]!, rows[1]!];
+    const commandHeight = commandRow.getBoundingClientRect().height;
+    const editHeight = editRow.getBoundingClientRect().height;
+    expect(commandHeight).toBeGreaterThan(0);
+    expect(editHeight).toBe(commandHeight);
   });
 
   it("H-10: a narration row opens to its text without repeating its title", async () => {
