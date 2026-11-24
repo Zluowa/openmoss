@@ -1405,7 +1405,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Side chat expiry"
-          description="Close side chats that sit unused this long."
           resetAction={
             settings.sidechatExpiry !== defaults.sidechatExpiry ? (
               <SettingResetButton
@@ -1430,7 +1429,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Enter while dictating"
-          description="What Enter does while you dictate."
           resetAction={
             settings.voiceEnterBehavior !== defaults.voiceEnterBehavior ? (
               <SettingResetButton
@@ -1456,7 +1454,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "enableAssistantStreaming",
           title: "Assistant output",
-          description: "Show replies as they are written.",
           resetLabel: "assistant output",
           ariaLabel: "Stream assistant messages",
         })}
@@ -1464,7 +1461,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "collapseFinishedTurns",
           title: "Fold finished turns",
-          description: "Fold each finished turn into one line.",
           resetLabel: "fold finished turns",
           ariaLabel: "Fold finished turns",
         })}
@@ -1472,7 +1468,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "composerEffortSlider",
           title: "Effort slider",
-          description: "Pick thinking effort with a slider.",
           resetLabel: "effort slider",
           ariaLabel: "Show effort slider in the composer",
         })}
@@ -1480,7 +1475,7 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "showRateLimitWarnings",
           title: "Rate limit warnings",
-          description: "Warn when a usage limit is close. A reached limit always shows.",
+          description: "A reached limit still shows when this is off.",
           resetLabel: "rate limit warnings",
           ariaLabel: "Show rate limit warnings",
         })}
@@ -1523,7 +1518,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "autoOpenDevicePane",
           title: "Automatically open simulator",
-          description: "Open the Simulator pane when an agent uses it.",
           resetLabel: "automatically open simulator",
           ariaLabel: "Automatically open simulator",
         })}
@@ -1539,7 +1533,6 @@ export function SettingsContent({
       <SettingsSection title="Review">
         <SettingsRow
           title="Diff layout"
-          description="Stacked or side by side."
           resetAction={
             defaultDiffRenderMode !== DEFAULT_DIFF_RENDER_MODE ? (
               <SettingResetButton
@@ -1564,7 +1557,6 @@ export function SettingsContent({
         />
         <SettingsRow
           title="Open pull requests and issues"
-          description="Where pull request and issue links open."
           resetAction={
             settings.githubLinkOpenTarget !== defaults.githubLinkOpenTarget ? (
               <SettingResetButton
@@ -1608,7 +1600,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "showPullRequestDiffColors",
           title: t("settings.behavior.pullRequestDiffColors.title"),
-          description: t("settings.behavior.pullRequestDiffColors.description"),
           resetLabel: t("settings.behavior.pullRequestDiffColors.resetLabel"),
           ariaLabel: t("settings.behavior.pullRequestDiffColors.aria"),
         })}
@@ -1616,7 +1607,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "githubInboxIncludeUpstreams",
           title: "Include fork upstreams",
-          description: "Include the repository a fork came from.",
           resetLabel: "include fork upstreams",
           ariaLabel: "Include fork upstreams in code review",
         })}
@@ -1624,7 +1614,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "diffWordWrap",
           title: "Diff line wrapping",
-          description: "Wrap long lines in diffs.",
           resetLabel: "diff line wrapping",
           ariaLabel: "Wrap diff lines by default",
         })}
@@ -1636,7 +1625,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "confirmThreadDelete",
           title: "Delete confirmation",
-          description: "Ask before deleting a thread and its chat history.",
           resetLabel: "delete confirmation",
           ariaLabel: "Confirm thread deletion",
         })}
@@ -1644,7 +1632,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "confirmThreadArchive",
           title: "Archive confirmation",
-          description: "Ask before archiving a thread.",
           resetLabel: "archive confirmation",
           ariaLabel: "Confirm thread archive",
         })}
@@ -1652,7 +1639,7 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "confirmTerminalTabClose",
           title: "Terminal close confirmation",
-          description: "Ask before closing a terminal tab and clearing its history.",
+          description: "Closing a tab clears its history.",
           resetLabel: "terminal close confirmation",
           ariaLabel: "Confirm terminal tab close",
         })}

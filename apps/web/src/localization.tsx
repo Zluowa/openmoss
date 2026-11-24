@@ -4311,8 +4311,6 @@ const EN_TRANSLATIONS = {
   "settings.behavior.diffLineWrapping.resetLabel": "diff line wrapping",
   "settings.behavior.diffLineWrapping.aria": "Wrap diff lines by default",
   "settings.behavior.pullRequestDiffColors.title": "Pull request diff colors",
-  "settings.behavior.pullRequestDiffColors.description":
-    "Show additions in green and deletions in red in pull request summaries.",
   "settings.behavior.pullRequestDiffColors.resetLabel": "pull request diff colors",
   "settings.behavior.pullRequestDiffColors.aria": "Show pull request diff colors",
   "settings.behavior.safetyConfirmations": "Safety confirmations",
@@ -9015,8 +9013,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.behavior.diffLineWrapping.resetLabel": "Diff 自动换行",
   "settings.behavior.diffLineWrapping.aria": "默认换行显示 diff 行",
   "settings.behavior.pullRequestDiffColors.title": "拉取请求差异着色",
-  "settings.behavior.pullRequestDiffColors.description":
-    "在拉取请求摘要中用绿色显示新增内容，用红色显示删除内容。",
   "settings.behavior.pullRequestDiffColors.resetLabel": "拉取请求差异着色",
   "settings.behavior.pullRequestDiffColors.aria": "显示拉取请求差异着色",
   "settings.behavior.safetyConfirmations": "安全确认",

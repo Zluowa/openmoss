@@ -28,11 +28,6 @@ const primaryCopy = [
   ["settings.behavior.followUp.option.steer", "Steer", "引导"],
   ["settings.behavior.pullRequestDiffColors.title", "Pull request diff colors", "拉取请求差异着色"],
   [
-    "settings.behavior.pullRequestDiffColors.description",
-    "Show additions in green and deletions in red in pull request summaries.",
-    "在拉取请求摘要中用绿色显示新增内容，用红色显示删除内容。",
-  ],
-  [
     "settings.behavior.pullRequestDiffColors.resetLabel",
     "pull request diff colors",
     "拉取请求差异着色",
@@ -632,7 +627,6 @@ describe("HEL-20 primary zh-CN localization contract", () => {
       "settings.behavior.followUp.option.queue",
       "settings.behavior.followUp.option.steer",
       "settings.behavior.pullRequestDiffColors.title",
-      "settings.behavior.pullRequestDiffColors.description",
     ] as const) {
       expect(settings, `SettingsContent.tsx must use ${key}`).toContain(key);
     }
