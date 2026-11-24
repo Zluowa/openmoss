@@ -91,8 +91,12 @@ that session to do so; touches production.
 - After the owner's direct "publish" for that version, publishes and verifies that
   a real previous version updates.
 
+- Publishes to the preview channel under the preview channel rule
+  (`docs/release.md`), without asking, only when every condition holds.
+
 **Never:** publishes a commit that was not the one verified; treats a standing
-approval as approval for this release.
+approval as approval for this release, other than the preview channel rule for a
+version that meets all of it.
 
 ## Operations
 
