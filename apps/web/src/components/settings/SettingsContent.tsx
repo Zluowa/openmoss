@@ -726,8 +726,7 @@ export function SettingsContent({
         />
 
         <SettingsRow
-          title="New threads"
-          description="Where new chats work by default."
+          title="Where new chats work"
           resetAction={
             settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode ? (
               <SettingResetButton
@@ -781,14 +780,11 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "anchorSentMessagesToTop",
           title: "Move sent messages to top",
-          description: "Scroll each message you send to the top.",
           resetLabel: "move sent messages to top",
           ariaLabel: "Move sent messages to top",
         })}
-
         <SettingsRow
           title="Welcome tour"
-          description="Go through first-time setup again."
           control={
             <Button
               variant="outline"
@@ -805,7 +801,6 @@ export function SettingsContent({
       <SettingsSection title="Sidebar organization">
         <SettingsRow
           title="Project order"
-          description="How projects are sorted in the sidebar."
           resetAction={
             settings.sidebarProjectSortOrder !== defaults.sidebarProjectSortOrder ? (
               <SettingResetButton
@@ -845,7 +840,6 @@ export function SettingsContent({
 
         <SettingsRow
           title="Thread order"
-          description="How chats are sorted in each project."
           resetAction={
             settings.sidebarThreadSortOrder !== defaults.sidebarThreadSortOrder ? (
               <SettingResetButton
@@ -892,7 +886,6 @@ export function SettingsContent({
         {renderBooleanSettingRow({
           settingKey: "showChatsSection",
           title: "Chats",
-          description: "Show chats outside projects.",
           resetLabel: "chats section",
           ariaLabel: "Show the Chats section in the sidebar",
         })}
@@ -910,7 +903,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "environmentPanelDefaultOpen",
             title: "Open by default",
-            description: "Open the Environment panel in new chats.",
             resetLabel: "environment panel default open",
             ariaLabel: "Open the Environment panel by default on normal threads",
           })}
@@ -920,7 +912,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentSubagents",
             title: "Subagents",
-            description: "Show the chat's subagents.",
             resetLabel: "subagents section",
             ariaLabel: "Show the Subagents section in the Environment panel",
           })}
@@ -928,7 +919,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentUsage",
             title: "Usage",
-            description: "Show account usage.",
             resetLabel: "usage section",
             ariaLabel: "Show the Usage section in the Environment panel",
           })}
@@ -936,7 +926,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentRepository",
             title: "Repository",
-            description: "Show the GitHub repository link.",
             resetLabel: "repository section",
             ariaLabel: "Show the Repository section in the Environment panel",
           })}
@@ -944,7 +933,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentPullRequest",
             title: "Pull request",
-            description: "Show the branch's open pull request.",
             resetLabel: "pull request section",
             ariaLabel: "Show the Pull request section in the Environment panel",
           })}
@@ -961,7 +949,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentRecap",
             title: "Recap",
-            description: "Show the chat recap.",
             resetLabel: "recap section",
             ariaLabel: "Show the Recap section in the Environment panel",
           })}
@@ -969,7 +956,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentPinned",
             title: "Pinned messages",
-            description: "Show pinned messages.",
             resetLabel: "pinned messages section",
             ariaLabel: "Show the Pinned messages section in the Environment panel",
           })}
@@ -977,7 +963,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentInstructions",
             title: "Project instructions",
-            description: "Show the project's instructions.",
             resetLabel: "project instructions section",
             ariaLabel: "Show the Project instructions section in the Environment panel",
           })}
@@ -985,7 +970,6 @@ export function SettingsContent({
           {renderBooleanSettingRow({
             settingKey: "showEnvironmentNotepad",
             title: "Notepad",
-            description: "Show the chat's notepad.",
             resetLabel: "notepad section",
             ariaLabel: "Show the Notepad section in the Environment panel",
           })}
@@ -1724,7 +1708,6 @@ export function SettingsContent({
   };
 
   const pageTitle = t(settingsSectionTranslationKeys(activeSection).label);
-  const pageDescription = t(settingsSectionTranslationKeys(activeSection).description);
   // Pages that draw their own header (Profile's hero, Plugins' title with its actions).
   const pageOwnsHeader = activeSection === "plugins" || activeSection === "providers";
   const pageHasNoDefaults =
@@ -1765,7 +1748,6 @@ export function SettingsContent({
             <header className="mb-7 flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h1 className={PAGE_TITLE_CLASS_NAME}>{pageTitle}</h1>
-                <p className="mt-1 truncate text-ui text-muted-foreground">{pageDescription}</p>
               </div>
               {activeSection === "shortcuts" ? (
                 <KeyboardShortcutsResetButton />

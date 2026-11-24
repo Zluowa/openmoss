@@ -95,9 +95,9 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   {
     id: "general:new-threads",
     section: "general",
-    title: "New threads",
+    title: "Where new chats work",
     keywords:
-      "Pick the default workspace mode for newly created draft threads. local worktree environment",
+      "New threads. Pick the default workspace mode for newly created draft threads. local worktree environment",
   },
   {
     id: "general:delete-worktree-on-archive",

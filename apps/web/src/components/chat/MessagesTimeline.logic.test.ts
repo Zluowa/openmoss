@@ -22,8 +22,9 @@ import {
   deriveTurnTimingByTurnId,
   findLastLiveWorkGroupId,
   formatTurnHeaderLabel,
+  isThreadErrorShownInTimeline,
+  latestSendFailureEntry,
   normalizeCompactToolLabel,
-  summarizeTurnFailureReason,
   planWorkEntryRenderChunks,
   resolveWorkEntryChunkFold,
   resolveAssistantMessageCopyState,
@@ -2010,7 +2011,7 @@ describe("deriveMessagesTimelineRows", () => {
       expect(timing.get(TurnId.makeUnsafe("t2"))?.model?.model).toBe("claude-opus-5-5");
     });
 
-    it("says who ended a turn early: the user or the provider, with its reason", () => {
+    it("says who ended a turn early: the user or the provider (the failure row says why)", () => {
       const rows = deriveMessagesTimelineRows({
         ...baseInput,
         timelineEntries: threeTurns,
@@ -2048,7 +2049,7 @@ describe("deriveMessagesTimelineRows", () => {
       );
       expect(messageRow(rows, "a3")?.turnHeader?.outcome).toBe("interrupted");
       expect(formatTurnHeaderLabel(messageRow(rows, "a3")!.turnHeader!)).toBe(
-        "Interrupted after 20s · usage limit reached",
+        "Interrupted after 20s",
       );
     });
 
@@ -2149,7 +2150,7 @@ describe("deriveMessagesTimelineRows", () => {
         turnTimingByTurnId: timing,
       });
       expect(formatTurnHeaderLabel(messageRow(rows, "a2")!.turnHeader!)).toBe(
-        "Interrupted after 6.0s · usage limit reached",
+        "Interrupted after 6.0s",
       );
     });
 
@@ -2281,36 +2282,7 @@ describe("deriveMessagesTimelineRows", () => {
       });
     });
 
-    it("leaves failures the card already explains out of the header", () => {
-      expect(
-        summarizeTurnFailureReason({
-          message: 'Conflict: {"object":"moss.operation_status","status":"completed"}',
-        }),
-      ).toBeNull();
-      expect(
-        summarizeTurnFailureReason({
-          message:
-            "unexpected status 502 Bad Gateway: The model service is temporarily unavailable., url: https://moss.example/v1/responses",
-        }),
-      ).toBeNull();
-    });
-
-    it("leaves why a turn ended to the failure card, in old and new wordings", () => {
-      // Real-data dry run: the header read 「已中断，用时 141 毫秒 · Claude failed to complete the
-      // turn.」 above a card that already said 「…没能完成这一轮。」.
-      for (const message of [
-        "The model service failed to complete the turn.",
-        "Claude failed to complete the turn.",
-        "The model service returned a server error. Retry in a moment.",
-        "The selected model is unavailable for this account.",
-        "The model service rejected the request as invalid.",
-        "The model reached the maximum output length before completing the turn.",
-        "The model service could not load its cloud credentials. Check or refresh them, then retry.",
-        "The turn failed.",
-        "Claude runtime interrupted.",
-      ]) {
-        expect(summarizeTurnFailureReason({ message })).toBeNull();
-      }
+    it("ends a failed turn's line with its time only: the failure row says why", () => {
       expect(
         formatTurnHeaderLabel({
           outcome: "interrupted",
@@ -2319,18 +2291,6 @@ describe("deriveMessagesTimelineRows", () => {
           resumedBy: null,
         }),
       ).toBe("Interrupted after 141ms");
-    });
-
-    it("clips unknown provider reasons to one short line", () => {
-      expect(summarizeTurnFailureReason({ errorCode: "server_overloaded" })).toBe(
-        "model at capacity",
-      );
-      expect(summarizeTurnFailureReason({ message: `Boom\n${"x".repeat(200)}` })).toBe("Boom");
-      expect(summarizeTurnFailureReason({ message: "y".repeat(200) })?.length).toBe(80);
-      expect(summarizeTurnFailureReason({ message: "" })).toBeNull();
-      expect(
-        summarizeTurnFailureReason({ message: "workspace routing discovery unauthorized (401)" }),
-      ).toBe("sign-in expired");
     });
   });
 
@@ -3204,5 +3164,71 @@ describe("findLastLiveWorkGroupId", () => {
         workingRow,
       ]),
     ).toBeNull();
+  });
+});
+
+// WALK-4 N4-1 review: a failed message's row hides the banner only for its own error, and
+// only the latest failed message can be sent again.
+describe("failed message rows", () => {
+  const message = (id: string, role: "user" | "assistant", at: string): TimelineEntry => ({
+    id,
+    kind: "message",
+    createdAt: at,
+    message: {
+      id: MessageId.makeUnsafe(id),
+      role,
+      text: id,
+      createdAt: at,
+      streaming: false,
+    } as ChatMessage,
+  });
+  const failedRow = (id: string, at: string, details: string[]): TimelineEntry => ({
+    id,
+    kind: "work",
+    createdAt: at,
+    entry: {
+      id,
+      createdAt: at,
+      label: "Message not sent",
+      tone: "error",
+      sendFailure: { detail: details[0]!, details },
+    } as WorkLogEntry,
+  });
+  const REFUSED =
+    "Error: Provider adapter process error (devin) for thread t: Devin ACP advertised only interactive auth.";
+
+  it("hides the banner only for the latest failed message's own error", () => {
+    const entries = [
+      message("ask", "user", "2026-11-24T10:00:00.000Z"),
+      failedRow("send-failure:a", "2026-11-24T10:00:01.000Z", [REFUSED]),
+    ];
+    expect(
+      isThreadErrorShownInTimeline(entries, "Devin ACP advertised only interactive auth."),
+    ).toBe(true);
+    // A later, different error is not the row's: its banner shows.
+    expect(isThreadErrorShownInTimeline(entries, "The Codex app-server exited unexpectedly.")).toBe(
+      false,
+    );
+  });
+
+  it("offers 重试 only on the latest failed message, until a newer message or reply", () => {
+    const older = failedRow("send-failure:older", "2026-11-24T10:00:01.000Z", [REFUSED]);
+    const latest = failedRow("send-failure:latest", "2026-11-24T10:05:01.000Z", [REFUSED]);
+    const entries = [
+      message("first", "user", "2026-11-24T10:00:00.000Z"),
+      older,
+      message("second", "user", "2026-11-24T10:05:00.000Z"),
+      latest,
+    ];
+    expect(latestSendFailureEntry(entries)?.id).toBe("send-failure:latest");
+    expect(
+      latestSendFailureEntry([...entries, message("third", "user", "2026-11-24T10:06:00.000Z")]),
+    ).toBeUndefined();
+    expect(
+      latestSendFailureEntry([
+        ...entries,
+        message("reply", "assistant", "2026-11-24T10:06:00.000Z"),
+      ]),
+    ).toBeUndefined();
   });
 });

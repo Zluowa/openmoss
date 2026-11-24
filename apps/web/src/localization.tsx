@@ -4112,7 +4112,7 @@ const EN_TRANSLATIONS = {
   "settings.general.newThreads.aria": "Default thread mode",
   "settings.general.composerPrediction.title": "Show predictions",
   "settings.general.composerPrediction.description":
-    "After a reply, suggest your next message in gray. Tab puts it in; nothing is sent.",
+    "Suggests your next message in gray; Tab puts it in.",
   "settings.general.composerPrediction.resetLabel": "show predictions",
   "settings.general.composerPrediction.aria": "Show predictions",
   "settings.general.threadEnv.local": "Local",
@@ -8844,8 +8844,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.general.newThreads.resetLabel": "新对话",
   "settings.general.newThreads.aria": "默认对话模式",
   "settings.general.composerPrediction.title": "显示预测消息",
-  "settings.general.composerPrediction.description":
-    "回复后用灰字预测下一条消息，按 Tab 填入，不会自动发送。",
+  "settings.general.composerPrediction.description": "用灰字预测下一条消息，按 Tab 填入。",
   "settings.general.composerPrediction.resetLabel": "显示预测消息",
   "settings.general.composerPrediction.aria": "显示预测消息",
   "settings.general.threadEnv.local": "本地",

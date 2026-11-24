@@ -8,7 +8,8 @@
 //          isProviderDeliveryBlockDetail, UNCONFIRMED_TURN_START_DETAIL,
 //          isUnconfirmedTurnStartDetail, PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
 //          isPreviousRuntimeNotStoppedDetail, PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
-//          PROVIDER_TURN_SILENT_ACTIVITY_KIND
+//          PROVIDER_TURN_SILENT_ACTIVITY_KIND, SEND_FAILURE_CAUSES, SendFailureCause,
+//          readSendFailureCause
 
 /**
  * Written when Moss stopped waiting for a turn start whose effect on the provider it could
@@ -67,4 +68,26 @@ export function isProviderDeliveryBlockDetail(detail: string | null | undefined)
     normalized === PROVIDER_DELIVERY_BLOCK_SUMMARY ||
     normalized.startsWith(PROVIDER_DELIVERY_BLOCK_DETAIL_PREFIX)
   );
+}
+
+/**
+ * Why a message did not start, decided by the server where the start failed and written on
+ * its `provider.turn.start.failed` activity (`payload.cause`, with `payload.messageId`). The
+ * chat shows one row per failed message from it, and nothing else repeats it:
+ * - `provider-signed-out`: the agent is not signed in; signing in is the one fix.
+ * - `provider-unreachable`: the agent could not be started; sending again can work.
+ * - `not-confirmed`: Moss stopped waiting for a start it could not confirm; it sent nothing
+ *   again, sending again is the person's choice.
+ */
+export const SEND_FAILURE_CAUSES = [
+  "provider-signed-out",
+  "provider-unreachable",
+  "not-confirmed",
+] as const;
+export type SendFailureCause = (typeof SEND_FAILURE_CAUSES)[number];
+
+export function readSendFailureCause(value: unknown): SendFailureCause | undefined {
+  return (SEND_FAILURE_CAUSES as ReadonlyArray<unknown>).includes(value)
+    ? (value as SendFailureCause)
+    : undefined;
 }

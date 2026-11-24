@@ -53,6 +53,20 @@ import {
 } from "./threadErrorPresentation";
 
 describe("resolveThreadErrorPresentation", () => {
+  // WALK-H1 H-11: a gateway 500 after the agent's retries ended the turn in English.
+  it("says an overloaded gateway in Moss's words and offers to continue", () => {
+    const raw = "We’re currently experiencing high demand, which may cause temporary errors.";
+    expect(resolveThreadErrorPresentation(raw, "zh-CN", "turn-failure")).toMatchObject({
+      title: "模型服务暂时过载，请稍后重试。",
+      retryable: true,
+    });
+    // Unknown provider words from a failed turn never reach the screen as they are.
+    expect(
+      resolveThreadErrorPresentation("upstream said: something odd happened", "en", "turn-failure")
+        .title,
+    ).toBe("The provider could not complete this request. Try again shortly.");
+  });
+
   it.each([
     [WS_MESSAGE_NOT_SENT_DETAIL, "Moss 暂时连不上后端，这条消息没有发出，内容还在输入框里。"],
     [

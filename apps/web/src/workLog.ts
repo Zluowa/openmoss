@@ -58,8 +58,11 @@ import { pluralize, stripTerminalControlSequences } from "@moss/shared/text";
 import { suppressCoordinatorCheckinMessages } from "@moss/shared/coordinatorCheckin";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import {
+  isUnconfirmedTurnStartDetail,
   PROVIDER_TURN_SILENT_ACTIVITY_KIND,
   PROVIDER_TURN_START_DELAYED_ACTIVITY_KIND,
+  readSendFailureCause,
+  type SendFailureCause,
 } from "@moss/shared/providerDeliveryBlock";
 import type { HtmlRenderReference } from "@moss/shared/htmlRender";
 import { HTML_RENDER_ACTIVITY_KIND, htmlRenderFromActivity } from "@moss/shared/htmlRenderActivity";
@@ -255,6 +258,18 @@ export interface WorkLogEntry {
   providerHandoff?: ProviderHandoffInfo;
   /** Durable terminal feedback; session readiness never clears a failed turn. */
   turnFailure?: { cause: string; message: string; errorCode?: string };
+  /**
+   * A message that did not start: one row per message, with the one cause the server decided
+   * (`cause`) or, for records written before it decided one, the first failure's words.
+   */
+  sendFailure?: {
+    cause?: SendFailureCause;
+    detail: string;
+    /** Every record's words for this message (the session error repeats one of them). */
+    details: ReadonlyArray<string>;
+    /** The agent the message was sent to (written by the server, else read from its words). */
+    provider?: string;
+  };
   // An answered agent question, paired with the answers the user submitted. It
   // renders as a question/answer exchange that stays visible outside the
   // collapsed turn instead of as two bare "User input" log lines.
@@ -890,6 +905,7 @@ export function deriveWorkLogEntries(
 ): WorkLogEntry[] {
   const visibleTurnIds = options.visibleTurnIds;
   const ordered = orderedActivities(activities);
+  const sendFailureEchoKeys = deriveSendFailureEchoKeys(ordered);
   const automaticApprovalReviews = deriveAutomaticApprovalReviewObservations(
     ordered,
     latestTurnId,
@@ -955,6 +971,8 @@ export function deriveWorkLogEntries(
         parseWorkLogUsageNotice(asRecord(activity.payload)) !== undefined,
     )
     .filter((activity) => !isProviderRetryWorkingActivity(activity))
+    .filter((activity) => !isSendFailureActivity(activity))
+    .filter((activity) => !isSendFailureEcho(activity, sendFailureEchoKeys))
     .filter((activity) => shouldKeepActivityForWorkLog(activity, latestTurnId, visibleTurnIds))
     .filter((activity) => activity.kind !== AUTOMATIC_APPROVAL_REVIEW_ACTIVITY_KIND)
     .filter(
@@ -1015,7 +1033,137 @@ export function deriveWorkLogEntries(
     ...withBackgroundTaskRows(withSubagentProgressOutcomes(withNotices, ordered), ordered),
     ...completions,
     ...deriveTurnFailureEntries(ordered),
+    ...deriveSendFailureEntries(ordered),
   ];
+}
+
+/** Summaries the server writes for a message that did not start (before causes were written). */
+const SEND_FAILURE_SUMMARIES: ReadonlySet<string> = new Set([
+  "Provider turn start failed",
+  "Provider turn start timed out",
+  "Provider turn start was not confirmed",
+]);
+/** Records without a message id that belong to one send arrive within this span. */
+const LEGACY_SEND_FAILURE_SPAN_MS = 10 * 60_000;
+
+function isSendFailureActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "provider.turn.start.failed") return false;
+  const payload = asRecord(activity.payload);
+  return (
+    asTrimmedString(payload?.messageId) !== null || SEND_FAILURE_SUMMARIES.has(activity.summary)
+  );
+}
+
+function failureTextKey(text: string | null | undefined): string | null {
+  const stripped = text?.trim().replace(PROVIDER_FAILURE_PREFIX, "");
+  return stripped ? normalizeToolTextForComparison(stripped) : null;
+}
+
+/** The words of each failed send, with when it failed: the same words nearby repeat it. */
+function deriveSendFailureEchoKeys(
+  ordered: ReadonlyArray<OrchestrationThreadActivity>,
+): ReadonlyMap<string, ReadonlyArray<number>> {
+  const keys = new Map<string, number[]>();
+  for (const activity of ordered) {
+    if (!isSendFailureActivity(activity)) continue;
+    const key = failureTextKey(asTrimmedString(asRecord(activity.payload)?.detail));
+    if (key === null) continue;
+    keys.set(key, [...(keys.get(key) ?? []), Date.parse(activity.createdAt)]);
+  }
+  return keys;
+}
+
+/**
+ * A turn-less runtime error with a failed send's own words, within a minute of it: the session
+ * reporting the same failure. The send's row already shows it.
+ */
+function isSendFailureEcho(
+  activity: OrchestrationThreadActivity,
+  keys: ReadonlyMap<string, ReadonlyArray<number>>,
+): boolean {
+  if (activity.kind !== "runtime.error" || activity.turnId !== null || keys.size === 0)
+    return false;
+  const payload = asRecord(activity.payload);
+  const key = failureTextKey(asTrimmedString(payload?.message) ?? asTrimmedString(payload?.detail));
+  const at = Date.parse(activity.createdAt);
+  return (
+    key !== null &&
+    (keys.get(key) ?? []).some(
+      (failedAt) => at >= failedAt && at - failedAt <= REPEATED_FAILURE_WINDOW_MS,
+    )
+  );
+}
+
+function sendFailureCauseOf(activity: OrchestrationThreadActivity): SendFailureCause | undefined {
+  const payload = asRecord(activity.payload);
+  return (
+    readSendFailureCause(payload?.cause) ??
+    (isUnconfirmedTurnStartDetail(asTrimmedString(payload?.detail)) ? "not-confirmed" : undefined)
+  );
+}
+
+/**
+ * One row per message that did not start. Later records of the same send (a start that timed
+ * out, then "not confirmed") are consequences: a decided cause (signed out, could not start)
+ * wins, then "not confirmed", then the first failure's words.
+ */
+function deriveSendFailureEntries(
+  ordered: ReadonlyArray<OrchestrationThreadActivity>,
+): WorkLogEntry[] {
+  const groups: Array<{ key: string; activities: OrchestrationThreadActivity[] }> = [];
+  for (const activity of ordered) {
+    if (!isSendFailureActivity(activity)) continue;
+    const messageId = asTrimmedString(asRecord(activity.payload)?.messageId);
+    const previous = groups.at(-1);
+    const previousLast = previous?.activities.at(-1);
+    const joinsLegacyGroup =
+      messageId === null &&
+      previous !== undefined &&
+      previous.key.startsWith("legacy:") &&
+      previousLast !== undefined &&
+      Date.parse(activity.createdAt) - Date.parse(previousLast.createdAt) <=
+        LEGACY_SEND_FAILURE_SPAN_MS;
+    const key = messageId !== null ? `message:${messageId}` : `legacy:${activity.id}`;
+    const existing = messageId !== null ? groups.find((group) => group.key === key) : undefined;
+    if (existing) existing.activities.push(activity);
+    else if (joinsLegacyGroup) previous.activities.push(activity);
+    else groups.push({ key, activities: [activity] });
+  }
+  return groups.map(({ key, activities }) => {
+    const first = activities[0]!;
+    const decided = activities.find((activity) => {
+      const cause = sendFailureCauseOf(activity);
+      return cause !== undefined && cause !== "not-confirmed";
+    });
+    const unconfirmed = activities.find(
+      (activity) => sendFailureCauseOf(activity) === "not-confirmed",
+    );
+    const chosen = decided ?? unconfirmed ?? first;
+    const cause = sendFailureCauseOf(chosen);
+    const details = activities.flatMap((activity) => {
+      const detail = asTrimmedString(asRecord(activity.payload)?.detail);
+      return detail ? [detail] : [];
+    });
+    const provider =
+      activities
+        .map((activity) => asTrimmedString(asRecord(activity.payload)?.provider))
+        .find((value) => value !== null) ??
+      details.map((detail) => PROVIDER_FAILURE_PREFIX_PROVIDER.exec(detail)?.[1]).find(Boolean);
+    return {
+      id: `send-failure:${key}`,
+      createdAt: first.createdAt,
+      ...withProviderSequence(first),
+      tone: "error" as const,
+      label: "Message not sent",
+      activityKind: first.kind,
+      sendFailure: {
+        ...(cause ? { cause } : {}),
+        detail: asTrimmedString(asRecord(chosen.payload)?.detail) ?? chosen.summary,
+        details,
+        ...(provider ? { provider } : {}),
+      },
+    };
+  });
 }
 
 interface AutomaticApprovalReviewObservation {
@@ -3114,6 +3262,9 @@ function collapseDerivedWorkLogEntries(
 const PROVIDER_FAILURE_PREFIX =
   /^(?:Error:\s*)?Provider adapter (?:process error|request failed) \([^)]+\) for [^:]+:\s*/u;
 const REPEATED_FAILURE_WINDOW_MS = 60_000;
+/** The agent an adapter failure names: "Provider adapter process error (devin) for …". */
+const PROVIDER_FAILURE_PREFIX_PROVIDER =
+  /^(?:Error:\s*)?Provider adapter (?:process error|request failed) \(([^)]+)\) for /u;
 
 function repeatedFailureKey(entry: DerivedWorkLogEntry): string | null {
   if (

@@ -519,6 +519,7 @@ import {
   shouldShowImageGenerationLimitBanner,
 } from "./chat/imageGenerationLimit.logic";
 import { resolveUsageLimitStop } from "./chat/threadErrorPresentation";
+import { useSendFailureContext } from "./chat/useSendFailureContext";
 import { resolveAccountOutageThreadError } from "./chat/mossAccountOutage";
 import { ThreadDetailHydrationState } from "./chat/ThreadDetailHydrationState";
 import { useUnreadableThread } from "./UnreadableThreadsNotice";
@@ -6670,6 +6671,19 @@ export default function ChatView({
       if (sent) dismissActiveThreadError();
     });
   }, [dismissActiveThreadError, onRetryStartFailure]);
+  // A message that did not start shows one row in the transcript (its cause and one action).
+  const {
+    context: sendFailureContext,
+    latestFailureSaysSignedOut: latestSendFailureSaysSignedOut,
+  } = useSendFailureContext({
+    provider: activeThreadProvider ?? selectedProvider,
+    providerInstanceId: activeThreadProviderInstanceId,
+    providerStatuses,
+    workLogEntries,
+    messages: activeThread?.messages,
+    locale,
+    onRetry: canRetryActiveThreadStart ? retryActiveThreadStart : undefined,
+  });
   const dismissThreadError = useCallback(
     (errorThreadId: ThreadId) => {
       setThreadError(errorThreadId, null);
@@ -8416,7 +8430,11 @@ export default function ChatView({
           a toast only fires for a live error on a thread that is not
           currently visible (see `useThreadErrorToast`). */}
         <ProviderHealthBanner
-          status={shouldShowProviderHealthBanner ? visibleActiveProviderStatus : null}
+          status={
+            shouldShowProviderHealthBanner && !latestSendFailureSaysSignedOut
+              ? visibleActiveProviderStatus
+              : null
+          }
           onDismiss={dismissActiveProviderHealthBanner}
         />
         <MossGatewayUnreachableBanner instanceId={selectedProviderInstanceId} />
@@ -8638,6 +8656,7 @@ export default function ChatView({
                           }
                           recoverableTurnId={recoverableFailedTurnId}
                           accountServiceUnavailable={mossAccountOutage.unavailable}
+                          sendFailureContext={sendFailureContext}
                           turnRecoveryDisabled={
                             isSendBusy ||
                             isConnecting ||

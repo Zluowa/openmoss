@@ -13,8 +13,11 @@ import {
   MessageId,
   ORCHESTRATION_WS_METHODS,
   type OrchestrationReadModel,
+  ProviderInstanceId,
+  type ServerConfig,
   TurnId,
 } from "@moss/contracts";
+import { reconcileServerProviderStatuses } from "../lib/serverReactQuery";
 import { page, userEvent } from "vitest/browser";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -77,6 +80,7 @@ import {
   waitForURL,
   wsRequests,
   installChatViewFixture,
+  setImageLimitFixtureTheme,
 } from "../test/chatViewBrowserHarness";
 
 // Off for every test but the title-bar one, which needs the desktop app's own title-bar
@@ -175,6 +179,507 @@ vi.mock("../lib/realtimeVoiceWebSocket", async () => {
 describe("ChatView transcript geometry (full app)", () => {
   installChatViewFixture();
 
+  // WALK-4 N4-1: one failed message showed four error texts (a status card, a banner with
+  // 重试 and two cut-off lines). A failed message shows one sentence and its one action, at the
+  // message; the banner and the status card do not repeat it.
+  describe("a message that did not start", () => {
+    const UNCONFIRMED =
+      "Moss could not confirm what the provider did with this message, so it stopped waiting. It was not sent again.";
+    const DEVIN_REFUSED =
+      "Error: Provider adapter process error (devin) for thread t: Devin ACP advertised only interactive auth (devin-browser).";
+    const failure = (
+      id: string,
+      offsetSeconds: number,
+      summary: string,
+      payload: Record<string, string>,
+    ) => ({
+      id: EventId.makeUnsafe(id),
+      turnId: null,
+      createdAt: isoAt(offsetSeconds),
+      sequence: offsetSeconds,
+      kind: "provider.turn.start.failed" as const,
+      tone: "error" as const,
+      summary,
+      payload,
+    });
+    const CASES = [
+      {
+        name: "agent signed out (the walk's own record)",
+        signedOut: true,
+        sessionError: UNCONFIRMED,
+        activities: [
+          failure("refused", 1, "Provider turn start failed", { detail: DEVIN_REFUSED }),
+          failure("unconfirmed", 37, "Provider turn start was not confirmed", {
+            detail: UNCONFIRMED,
+          }),
+        ],
+        sentence: { en: "Devin is not signed in.", "zh-CN": "Devin 尚未登录。" },
+        action: { en: "Sign in", "zh-CN": "登录" },
+      },
+      {
+        name: "agent signed out",
+        signedOut: true,
+        sessionError: DEVIN_REFUSED,
+        activities: [
+          failure("refused", 1, "Provider turn start failed", {
+            detail: DEVIN_REFUSED,
+            cause: "provider-signed-out",
+            messageId: "failed-send",
+          }),
+        ],
+        sentence: { en: "Devin is not signed in.", "zh-CN": "Devin 尚未登录。" },
+        action: { en: "Sign in", "zh-CN": "登录" },
+      },
+      {
+        name: "agent could not be started",
+        signedOut: false,
+        sessionError: "Error: Provider adapter process error (devin) for thread t: spawn failed",
+        activities: [
+          failure("unreachable", 1, "Provider turn start failed", {
+            detail: "Error: Provider adapter process error (devin) for thread t: spawn failed",
+            cause: "provider-unreachable",
+            messageId: "failed-send",
+          }),
+        ],
+        sentence: {
+          en: "Devin could not be started, so this message was not sent.",
+          "zh-CN": "Devin 没能启动，消息未发出。",
+        },
+        action: { en: "Retry", "zh-CN": "重试" },
+      },
+      {
+        name: "start not confirmed",
+        signedOut: false,
+        sessionError: UNCONFIRMED,
+        activities: [
+          failure("timed-out", 1, "Provider turn start timed out", {
+            detail: "Timed out waiting for turn/start.",
+            messageId: "failed-send",
+          }),
+          failure("unconfirmed", 31, "Provider turn start was not confirmed", {
+            detail: UNCONFIRMED,
+            cause: "not-confirmed",
+            messageId: "failed-send",
+          }),
+        ],
+        sentence: {
+          en: "Moss couldn't confirm what the provider did with this message, so it stopped waiting and didn't send it again. You can try again.",
+          "zh-CN": "Moss 没能确认服务商是否处理了这条消息，已停止等待，也没有重复发送。可以重试。",
+        },
+        action: { en: "Retry", "zh-CN": "重试" },
+      },
+    ] as const;
+    const LOOKS = [
+      { theme: "light", locale: "en" },
+      { theme: "dark", locale: "zh-CN" },
+      { theme: "dark", locale: "en" },
+      { theme: "light", locale: "zh-CN" },
+    ] as const;
+
+    // Review of #864: each row names the agent it was sent to, and only the latest failed
+    // message offers 重试 (it resends the latest message).
+    it("names each failed message's own agent and offers 重试 only on the latest", async () => {
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "en" }));
+      const base = createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("second-send"),
+        targetText: "Try again on Codex",
+      });
+      const snapshot: OrchestrationReadModel = {
+        ...base,
+        threads: [
+          {
+            ...base.threads[0]!,
+            messages: [
+              createUserMessage({
+                id: MessageId.makeUnsafe("first-send"),
+                text: "List the files",
+                offsetSeconds: 0,
+              }),
+              createUserMessage({
+                id: MessageId.makeUnsafe("second-send"),
+                text: "Try again on Codex",
+                offsetSeconds: 60,
+              }),
+            ],
+            latestTurn: null,
+            activities: [
+              failure("devin-failed", 1, "Provider turn start failed", {
+                detail: "Error: Provider adapter process error (devin) for thread t: spawn failed",
+                cause: "provider-unreachable",
+                messageId: "first-send",
+                provider: "devin",
+              }),
+              failure("codex-unconfirmed", 91, "Provider turn start was not confirmed", {
+                detail: UNCONFIRMED,
+                cause: "not-confirmed",
+                messageId: "second-send",
+                provider: "codex",
+              }),
+            ],
+          },
+        ],
+      };
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      try {
+        await expect
+          .element(
+            page.getByText("Devin could not be started, so this message was not sent.", {
+              exact: true,
+            }),
+          )
+          .toBeVisible();
+        const rows = [
+          ...document.querySelectorAll<HTMLElement>('[data-error-surface="failure-row"]'),
+        ];
+        expect(rows).toHaveLength(2);
+        expect(
+          rows.map((row) =>
+            [...row.querySelectorAll("button")].map((button) => button.textContent),
+          ),
+        ).toEqual([[], ["Retry"]]);
+      } finally {
+        await mounted.cleanup();
+        localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+      }
+    });
+
+    it.each(CASES.flatMap((testCase) => LOOKS.map((look) => ({ ...testCase, ...look }))))(
+      "shows one error and one action: $name, $theme, $locale",
+      async ({ signedOut, sessionError, activities, sentence, action, theme, locale }) => {
+        setImageLimitFixtureTheme(theme);
+        localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: locale }));
+        const base = createSnapshotForTargetUser({
+          targetMessageId: MessageId.makeUnsafe("failed-send"),
+          targetText: "List the files in this project",
+        });
+        const devin = {
+          provider: "devin" as const,
+          instanceId: ProviderInstanceId.makeUnsafe("devin"),
+          model: "adaptive",
+        };
+        const snapshot: OrchestrationReadModel = {
+          ...base,
+          threads: [
+            {
+              ...base.threads[0]!,
+              modelSelection: devin,
+              messages: [
+                createUserMessage({
+                  id: MessageId.makeUnsafe("failed-send"),
+                  text: "List the files in this project",
+                  offsetSeconds: 0,
+                }),
+              ],
+              latestTurn: null,
+              session: {
+                ...base.threads[0]!.session!,
+                status: "error",
+                providerName: "devin",
+                providerInstanceId: "devin",
+                activeTurnId: null,
+                lastError: sessionError,
+              },
+              activities: [...activities],
+            },
+          ],
+        };
+        let providers: ServerConfig["providers"] = [];
+        const mounted = await mountChatView({
+          viewport: DEFAULT_VIEWPORT,
+          snapshot,
+          configureFixture: (nextFixture) => {
+            providers = [
+              ...nextFixture.serverConfig.providers,
+              {
+                provider: "devin",
+                instanceId: "devin",
+                driver: "devin",
+                status: signedOut ? "warning" : "ready",
+                available: true,
+                authStatus: signedOut ? "unauthenticated" : "authenticated",
+                checkedAt: NOW_ISO,
+              },
+            ];
+            nextFixture.serverConfig = { ...nextFixture.serverConfig, providers };
+            nextFixture.providerStatusesSnapshot = providers;
+            nextFixture.serverSettings = {
+              ...nextFixture.serverSettings,
+              providers: {
+                ...nextFixture.serverSettings.providers,
+                devin: { ...nextFixture.serverSettings.providers.devin, enabled: true },
+              },
+            };
+          },
+        });
+        try {
+          await reconcileServerProviderStatuses(
+            mounted.router.options.context.queryClient,
+            providers,
+          );
+          const row = page.getByText(sentence[locale], { exact: true });
+          await expect.element(row).toBeVisible();
+          // One error surface, the message's own row; nothing else repeats it.
+          await vi.waitFor(() => {
+            const surfaces = [...document.querySelectorAll<HTMLElement>("[data-error-surface]")];
+            expect(surfaces.map((surface) => surface.dataset.errorSurface)).toEqual([
+              "failure-row",
+            ]);
+          });
+          const surface = document.querySelector<HTMLElement>(
+            '[data-error-surface="failure-row"]',
+          )!;
+          const buttons = [...surface.querySelectorAll("button")].map(
+            (button) => button.textContent?.trim() ?? "",
+          );
+          expect(buttons).toEqual([action[locale]]);
+          // The sentence wraps whole: nothing is cut off.
+          const text = row.element() as HTMLElement;
+          expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth + 1);
+          expect(getComputedStyle(text).textOverflow).not.toBe("ellipsis");
+          expect(page.getByText(sentence[locale]).elements()).toHaveLength(1);
+          // 重试 only where sending again can work.
+          if (action.en === "Sign in") {
+            const retryLabel = locale === "zh-CN" ? "重试" : "Retry";
+            expect(
+              page.getByRole("button", { name: retryLabel, exact: true }).elements(),
+            ).toHaveLength(0);
+          }
+        } finally {
+          await mounted.cleanup();
+          localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+        }
+      },
+    );
+  });
+
+  // WALK-H1 H-11: the gateway answered 500, Codex retried and ended the turn. The chat showed a
+  // red 「任务中断」 card and a line 「已中断，用时 2.7 秒 · We're currently experiencing high
+  // demand…」, both in English, the line cut off, and two buttons in two styles. One sentence in
+  // the UI language, one next step, and the end line keeps only the time.
+  it.each([
+    { theme: "light", locale: "en" },
+    { theme: "dark", locale: "zh-CN" },
+    { theme: "dark", locale: "en" },
+    { theme: "light", locale: "zh-CN" },
+  ] as const)(
+    "WALK-H1 H-11: shows a turn the gateway failed after retries once: $theme, $locale",
+    async ({ theme, locale }) => {
+      setImageLimitFixtureTheme(theme);
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: locale }));
+      const highDemand =
+        "We\u2019re currently experiencing high demand, which may cause temporary errors.";
+      const base = createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("gateway-500-user"),
+        targetText: "Create missing.txt",
+      });
+      const turnId = TurnId.makeUnsafe("gateway-500-turn");
+      const snapshot: OrchestrationReadModel = {
+        ...base,
+        threads: [
+          {
+            ...base.threads[0]!,
+            messages: [
+              createUserMessage({
+                id: MessageId.makeUnsafe("gateway-500-user"),
+                text: "Create missing.txt",
+                offsetSeconds: 0,
+              }),
+            ],
+            latestTurn: {
+              turnId,
+              state: "error",
+              requestedAt: NOW_ISO,
+              startedAt: NOW_ISO,
+              completedAt: isoAt(3),
+              assistantMessageId: null,
+            },
+            activities: [
+              {
+                id: EventId.makeUnsafe("gateway-500-error"),
+                turnId,
+                createdAt: isoAt(3),
+                sequence: 1,
+                kind: "runtime.error",
+                tone: "error",
+                summary: "Provider runtime error",
+                payload: { message: highDemand, class: "provider_error" },
+              },
+              {
+                id: EventId.makeUnsafe("gateway-500-completed"),
+                turnId,
+                createdAt: isoAt(3),
+                sequence: 2,
+                kind: "turn.completed",
+                tone: "error",
+                summary: "Turn failed",
+                payload: { state: "failed", errorMessage: highDemand },
+              },
+            ],
+          },
+        ],
+      };
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      try {
+        const sentence =
+          locale === "zh-CN"
+            ? "模型服务暂时过载，请稍后重试。"
+            : "The model service is temporarily overloaded. Retry in a moment.";
+        await expect.element(page.getByText(sentence, { exact: true })).toBeVisible();
+        await vi.waitFor(() => {
+          const surfaces = [...document.querySelectorAll<HTMLElement>("[data-error-surface]")];
+          expect(surfaces.map((surface) => surface.dataset.errorSurface)).toEqual(["failure-row"]);
+        });
+        const card = document.querySelector<HTMLElement>('[data-error-surface="failure-row"]')!;
+        expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+          locale === "zh-CN" ? "继续任务" : "Continue task",
+        ]);
+        // The provider's own words are nowhere on screen, and the sentence is said once.
+        expect(document.body.textContent ?? "").not.toMatch(/high demand/iu);
+        expect(page.getByText(sentence).elements()).toHaveLength(1);
+        const text = page.getByText(sentence, { exact: true }).element() as HTMLElement;
+        expect(text.scrollWidth).toBeLessThanOrEqual(text.clientWidth + 1);
+      } finally {
+        await mounted.cleanup();
+        localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+      }
+    },
+  );
+
+  // WALK-H1 H-11 review: the one action must be the one that fixes it. A turn that ended
+  // because the agent's sign-in expired offers the provider settings, not 继续任务 (which runs
+  // again on the same expired sign-in).
+  it("WALK-H1 H-11: offers the provider settings for a turn whose sign-in expired", async () => {
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "en" }));
+    const expired = "Your access token could not be refreshed. Please log out and sign in again.";
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("expired-user"),
+      targetText: "Create missing.txt",
+    });
+    const turnId = TurnId.makeUnsafe("expired-turn");
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...base.threads[0]!,
+          messages: [
+            createUserMessage({
+              id: MessageId.makeUnsafe("expired-user"),
+              text: "Create missing.txt",
+              offsetSeconds: 0,
+            }),
+          ],
+          latestTurn: {
+            turnId,
+            state: "error",
+            requestedAt: NOW_ISO,
+            startedAt: NOW_ISO,
+            completedAt: isoAt(3),
+            assistantMessageId: null,
+          },
+          activities: [
+            {
+              id: EventId.makeUnsafe("expired-error"),
+              turnId,
+              createdAt: isoAt(3),
+              sequence: 1,
+              kind: "runtime.error",
+              tone: "error",
+              summary: "Provider runtime error",
+              payload: { message: expired, class: "provider_error" },
+            },
+            {
+              id: EventId.makeUnsafe("expired-completed"),
+              turnId,
+              createdAt: isoAt(3),
+              sequence: 2,
+              kind: "turn.completed",
+              tone: "error",
+              summary: "Turn failed",
+              payload: { state: "failed", errorMessage: expired },
+            },
+          ],
+        },
+      ],
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      const sentence =
+        "This account's sign-in has expired. Sign in again in provider settings, or switch to Moss.";
+      await expect.element(page.getByText(sentence, { exact: true })).toBeVisible();
+      const card = document.querySelector<HTMLElement>('[data-error-surface="failure-row"]')!;
+      expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+        "Open provider settings",
+      ]);
+    } finally {
+      await mounted.cleanup();
+      localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+    }
+  });
+
+  // #864 review: the banner above the transcript stays away only for the failed message's own
+  // error. A later message with a different error gets its banner.
+  it("shows the banner for a later, different error after a failed message", async () => {
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "en" }));
+    const base = createSnapshotForTargetUser({
+      targetMessageId: MessageId.makeUnsafe("later-send"),
+      targetText: "And now this",
+    });
+    const snapshot: OrchestrationReadModel = {
+      ...base,
+      threads: [
+        {
+          ...base.threads[0]!,
+          messages: [
+            createUserMessage({
+              id: MessageId.makeUnsafe("failed-send"),
+              text: "List the files",
+              offsetSeconds: 0,
+            }),
+            createUserMessage({
+              id: MessageId.makeUnsafe("later-send"),
+              text: "And now this",
+              offsetSeconds: 60,
+            }),
+          ],
+          latestTurn: null,
+          session: {
+            ...base.threads[0]!.session!,
+            status: "error",
+            activeTurnId: null,
+            lastError: "Working directory not found: /tmp/moved-project",
+          },
+          activities: [
+            {
+              id: EventId.makeUnsafe("earlier-failure"),
+              turnId: null,
+              createdAt: isoAt(1),
+              sequence: 1,
+              kind: "provider.turn.start.failed",
+              tone: "error",
+              summary: "Provider turn start was not confirmed",
+              payload: {
+                detail:
+                  "Moss could not confirm what the provider did with this message, so it stopped waiting. It was not sent again.",
+                cause: "not-confirmed",
+                messageId: "failed-send",
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await vi.waitFor(() => {
+        expect(document.querySelectorAll('[data-error-surface="thread-error"]')).toHaveLength(1);
+      });
+      expect(document.querySelectorAll('[data-error-surface="failure-row"]')).toHaveLength(1);
+    } finally {
+      await mounted.cleanup();
+      localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+    }
+  });
+
   it("keeps persistent turn failure visible after reopening and admits one manual continuation", async () => {
     const base = createSnapshotForTargetUser({
       targetMessageId: MessageId.makeUnsafe("failure-user"),
@@ -236,7 +741,9 @@ describe("ChatView transcript geometry (full app)", () => {
       ],
     };
     const first = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
-    await expect.element(page.getByText("Task interrupted", { exact: true })).toBeVisible();
+    // One sentence in the UI language, not the provider's own words (WALK-H1 H-11).
+    const sentence = "The model service is temporarily overloaded. Retry in a moment.";
+    await expect.element(page.getByText(sentence, { exact: true })).toBeVisible();
     await first.cleanup();
     const reopened = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     let releaseSend!: () => void;
@@ -245,8 +752,13 @@ describe("ChatView transcript geometry (full app)", () => {
     });
     const restoreApi = installDeterministicSendNativeApi({ beforeTurnStart: () => barrier });
     try {
-      await expect.element(page.getByText("Task interrupted", { exact: true })).toBeVisible();
+      await expect.element(page.getByText(sentence, { exact: true })).toBeVisible();
       expect(document.querySelectorAll("[data-turn-failure]")).toHaveLength(1);
+      // One next step, nothing beside it.
+      const card = document.querySelector<HTMLElement>("[data-turn-failure]")!;
+      expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+        "Continue task",
+      ]);
       await page.getByRole("button", { name: "Change model and reasoning", exact: true }).click();
       await expect.element(page.getByLabelText("Search models", { exact: true })).toBeVisible();
       page

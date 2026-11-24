@@ -99,6 +99,7 @@ export const ProviderHealthBanner = function ProviderHealthBanner({
   return (
     <ChatColumnBannerFrame>
       <Alert
+        data-error-surface="provider-health"
         className={cn(
           EXPANDED_NOTIFICATION_SURFACE_CLASS_NAME,
           onDismiss && !isDurablyUnavailable ? "pr-10" : undefined,

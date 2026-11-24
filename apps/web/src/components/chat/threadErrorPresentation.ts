@@ -12,6 +12,7 @@ import {
   isPreviousRuntimeNotStoppedDetail,
   isProviderDeliveryBlockDetail,
   isUnconfirmedTurnStartDetail,
+  type SendFailureCause,
 } from "@moss/shared/providerDeliveryBlock";
 
 import type { MossLocaleCode } from "~/appSettings";
@@ -119,6 +120,11 @@ const MOSS_GATEWAY_REPEAT_REFUSED_PATTERN =
 const MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING =
   "An identical request is still running. Retry when it finishes.";
 // A stream that dropped partway, in Codex's and MiniMax's own transport words.
+// OpenAI-style gateways answer an overloaded model with this sentence (HTTP 500), after the
+// agent's own retries (WALK-H1 H-11).
+const HIGH_DEMAND_PATTERN =
+  /\bcurrently experiencing high demand\b|\bselected model is at capacity\b/iu;
+const MODEL_OVERLOADED_MESSAGE = "The model service is temporarily overloaded. Retry in a moment.";
 const STREAM_DROPPED_PATTERN =
   /\bstream disconnected before completion\b|\bupstream error: terminated\b/iu;
 const STREAM_DROPPED_MESSAGE = "The connection to the model service dropped. Try again.";
@@ -384,7 +390,11 @@ export function resolveQuotaOwnedThreadError(
 export function resolveThreadErrorPresentation(
   error: string,
   locale: MossLocaleCode,
-  context: "thread" | "provider-start-failure" = "thread",
+  /**
+   * Where the words came from: a thread error, or a persisted failure record of a message
+   * that did not start or a turn that failed, whose unknown words never reach the screen.
+   */
+  context: "thread" | "provider-start-failure" | "turn-failure" = "thread",
 ): ThreadErrorPresentation {
   const raw = error.trim();
   const missingWorkingDirectory = workingDirectoryNotFoundError(raw, locale);
@@ -422,6 +432,9 @@ export function resolveThreadErrorPresentation(
     safeText = localizeProviderRuntimeMessage(MOSS_GATEWAY_IDENTICAL_REQUEST_RUNNING, locale);
   } else if (MOSS_GATEWAY_REPEAT_REFUSED_PATTERN.test(raw)) {
     safeText = repeatRequestRefusedError(locale);
+  } else if (HIGH_DEMAND_PATTERN.test(raw)) {
+    safeText = localizeProviderRuntimeMessage(MODEL_OVERLOADED_MESSAGE, locale);
+    retryable = true;
   } else if (STREAM_DROPPED_PATTERN.test(raw)) {
     safeText = localizeProviderRuntimeMessage(STREAM_DROPPED_MESSAGE, locale);
   } else if (AGENT_PROCESS_EXIT_PATTERN.test(raw)) {
@@ -459,7 +472,7 @@ export function resolveThreadErrorPresentation(
   } else if (piModelSignInMissing) {
     safeText = localizeProviderRuntimeMessage(piModelSignInMissing[0], locale);
     changeModelFirst = true;
-  } else if (context === "provider-start-failure") {
+  } else if (context !== "thread") {
     // A historical provider-start failure is a persisted transport record, not
     // author-written copy. Even a short unknown value may contain an adapter or
     // account identifier, so only recognized categories may reach the row.
@@ -501,5 +514,57 @@ export function resolveThreadErrorPresentation(
     ...(recoveryAction ? { recoveryAction, surface: "history" as const } : {}),
     ...(retryable ? { retryable } : {}),
     ...(changeModelFirst ? { changeModelFirst } : {}),
+  };
+}
+
+/** What a failed message's row says, and the one action that changes it. */
+export interface SendFailurePresentation {
+  readonly title: string;
+  readonly action: "sign-in" | "retry" | null;
+}
+
+/**
+ * The row of a message that did not start: one sentence and one action, from the one cause
+ * the server decided. A record written before causes were (or a start Moss could not confirm)
+ * whose agent is signed out now reads as signed out: signing in is still the one fix.
+ */
+export function resolveSendFailurePresentation(input: {
+  readonly cause: SendFailureCause | undefined;
+  readonly detail: string;
+  readonly providerLabel: string;
+  readonly providerSignedOut: boolean;
+  readonly locale: MossLocaleCode;
+}): SendFailurePresentation {
+  const { cause, locale, providerLabel } = input;
+  if (
+    cause === "provider-signed-out" ||
+    (cause !== "provider-unreachable" && input.providerSignedOut)
+  ) {
+    return {
+      title:
+        locale === "zh-CN" ? `${providerLabel} 尚未登录。` : `${providerLabel} is not signed in.`,
+      action: "sign-in",
+    };
+  }
+  if (cause === "provider-unreachable") {
+    return {
+      title:
+        locale === "zh-CN"
+          ? `${providerLabel} 没能启动，消息未发出。`
+          : `${providerLabel} could not be started, so this message was not sent.`,
+      action: "retry",
+    };
+  }
+  if (cause === "not-confirmed") {
+    return { title: unconfirmedTurnStartError(locale), action: "retry" };
+  }
+  const presentation = resolveThreadErrorPresentation(
+    input.detail,
+    locale,
+    "provider-start-failure",
+  );
+  return {
+    title: presentation.title,
+    action: presentation.retryable === true ? "retry" : null,
   };
 }

@@ -586,6 +586,12 @@ describe("ProviderCommandReactor", () => {
     readonly computerService?: ComputerServiceShape;
     readonly gatewaySessions?: AgentGatewaySessionRegistryShape;
     readonly managedTurnPreflight?: MossManagedTurnPreflightShape;
+    /** What ProviderHealth reports (sign-in state decides a failed send's cause). */
+    readonly providerStatuses?: ReadonlyArray<{
+      readonly provider: string;
+      readonly instanceId?: string;
+      readonly authStatus?: string;
+    }>;
     readonly getClaudeCacheObservation?: NonNullable<
       ProviderServiceShape["getClaudeCacheObservation"]
     >;
@@ -1079,7 +1085,7 @@ describe("ProviderCommandReactor", () => {
       ),
       Layer.provideMerge(
         Layer.succeed(ProviderHealth, {
-          getStatuses: Effect.succeed([]),
+          getStatuses: Effect.succeed(input?.providerStatuses ?? []),
           refresh: Effect.succeed([]),
           updateProvider: () => Effect.die("updateProvider unsupported in test"),
           streamChanges: Stream.empty,
@@ -8002,6 +8008,56 @@ describe("ProviderCommandReactor", () => {
     );
     expect(blockers.map((blocker) => blocker.eventSequence)).toEqual([turnStartRequested.sequence]);
   });
+
+  // WALK-4 N4-1: one failed message, one cause. A start the agent refused because it is not
+  // signed in is recorded once, with its cause and message; nothing later re-reports it as
+  // "not confirmed".
+  it.each([
+    ["signed out", "unauthenticated", "provider-signed-out"],
+    ["signed in but could not start", "authenticated", "provider-unreachable"],
+  ] as const)(
+    "records one cause for a message whose agent %s",
+    async (_label, authStatus, expectedCause) => {
+      const harness = await createHarness({
+        providerStatuses: [{ provider: "codex", instanceId: "codex", authStatus }],
+      });
+      const now = new Date().toISOString();
+      const threadId = ThreadId.makeUnsafe("thread-1");
+      harness.startSession.mockImplementationOnce(() =>
+        Effect.fail(
+          new ProviderAdapterProcessError({
+            provider: "codex",
+            threadId,
+            reason: "startup-failed",
+            detail: "Codex is not signed in.",
+          }),
+        ),
+      );
+
+      await dispatchHarnessUserTurn(harness, {
+        messageId: "signed-out-message",
+        text: "List the files",
+        createdAt: now,
+      });
+      await harness.drain();
+      const failures = ((await readHarnessThread(harness))?.activities ?? []).filter(
+        (activity) => activity.kind === "provider.turn.start.failed",
+      );
+      expect(failures).toHaveLength(1);
+      expect(failures[0]?.payload).toMatchObject({
+        cause: expectedCause,
+        messageId: "signed-out-message",
+      });
+      const blockers = await Effect.runPromise(
+        harness.deliveryRepository.listBlockingDeliveries({
+          consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+          threadId,
+          limit: 10,
+        }),
+      );
+      expect(blockers).toEqual([]);
+    },
+  );
 
   it("accepts a new message after a failed Codex startup without reconciliation", async () => {
     const harness = await createHarness();

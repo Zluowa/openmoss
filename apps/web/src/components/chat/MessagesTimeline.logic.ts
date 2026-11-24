@@ -21,6 +21,7 @@ import {
 } from "@moss/contracts";
 import { isProviderKind } from "../../providerOrdering";
 import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
+import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import { isCodexRuntimeWarningType, type WorkLogUserInputExchangeItem } from "../../workLog";
 import {
   isMossMediaJobToolCall,
@@ -53,10 +54,6 @@ import {
   resolveReasoningBody,
 } from "./reasoningPresentation";
 import { computeWorkedDurationMs } from "./workedForPresentation";
-import {
-  isExplainedProviderFailure,
-  isProviderSignInExpiredError,
-} from "./threadErrorPresentation";
 import type { UserStoppedRecord } from "./userStoppedPresentation";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
@@ -571,37 +568,6 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-const MAX_TURN_FAILURE_REASON_CHARS = 80;
-
-// A short, human reason for a provider-side interruption: well-known causes get
-// a fixed phrase, anything else its first line, clipped to sit in a header.
-export function summarizeTurnFailureReason(input: {
-  errorCode?: string | null;
-  message?: string | null;
-}): string | null {
-  const message = input.message?.trim() ?? "";
-  if (input.errorCode === "server_overloaded" || /at capacity|overloaded/i.test(message)) {
-    return "model at capacity";
-  }
-  if (/usage limit|rate limit|quota|out of credits/i.test(message)) {
-    return "usage limit reached";
-  }
-  if (isProviderSignInExpiredError(message)) {
-    return "sign-in expired";
-  }
-  // The failure card above already says this in plain words; the raw text adds only noise.
-  if (isExplainedProviderFailure(message)) {
-    return null;
-  }
-  const firstLine = message.split(/\r?\n/u, 1)[0]?.trim() ?? "";
-  if (firstLine.length === 0) {
-    return null;
-  }
-  return firstLine.length > MAX_TURN_FAILURE_REASON_CHARS
-    ? `${firstLine.slice(0, MAX_TURN_FAILURE_REASON_CHARS - 1).trimEnd()}…`
-    : firstLine;
-}
-
 // The model a `turn.started` activity names; Claude's context-window reports
 // stand in for turns recorded before turns carried their model.
 function activityTurnModel(activity: OrchestrationThreadActivity): {
@@ -708,14 +674,10 @@ export function deriveTurnTimingByTurnId(input: {
         (payload?.state === "failed" || activity.tone === "error")) ||
       activity.kind === "runtime.error";
     if (failed) {
-      const previousReason = timings.get(activity.turnId)?.failureReason ?? null;
+      // Why it ended is said once, by the turn's failure row (WALK-H1 H-11: the end line
+      // repeated the provider's English sentence, cut off); the end line keeps only the time.
       update(activity.turnId, {
         failed: true,
-        failureReason:
-          summarizeTurnFailureReason({
-            errorCode: nonEmptyString(payload?.errorCode),
-            message: nonEmptyString(payload?.errorMessage) ?? nonEmptyString(payload?.message),
-          }) ?? previousReason,
         ...(activity.kind === "turn.completed"
           ? { completedAt: timings.get(activity.turnId)?.completedAt ?? activity.createdAt }
           : {}),
@@ -1499,9 +1461,11 @@ export function deriveTerminalAssistantMessageIds(
 // Server-posted coordinator notices and provider handoff boundaries keep their own
 // row: they are not turn work, so they never merge into or fold with a turn.
 function isNonFoldableWorkEntry(
-  entry: Pick<WorkLogEntry, "mossWorkerNotice" | "providerHandoff" | "turnFailure">,
+  entry: Pick<WorkLogEntry, "mossWorkerNotice" | "providerHandoff" | "turnFailure" | "sendFailure">,
 ): boolean {
-  return Boolean(entry.mossWorkerNotice || entry.providerHandoff || entry.turnFailure);
+  return Boolean(
+    entry.mossWorkerNotice || entry.providerHandoff || entry.turnFailure || entry.sendFailure,
+  );
 }
 
 // Server-posted coordinator notices and provider handoff boundaries keep their own
@@ -1512,6 +1476,7 @@ export function isStandaloneWorkEntry(
     | "mossWorkerNotice"
     | "providerHandoff"
     | "turnFailure"
+    | "sendFailure"
     | "subagentRun"
     | "activityKind"
     | "nativeEventType"
@@ -1522,6 +1487,7 @@ export function isStandaloneWorkEntry(
     entry.mossWorkerNotice ||
     entry.providerHandoff ||
     entry.turnFailure ||
+    entry.sendFailure ||
     entry.subagentRun ||
     (entry.activityKind === "runtime.warning" &&
       entry.turnId == null &&
@@ -3525,4 +3491,58 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return a.createdAt === bg.createdAt && generatedImageGalleriesEqual(a.gallery, bg.gallery);
     }
   }
+}
+
+/**
+ * True when the transcript already shows the thread's current error at the message it belongs
+ * to, so the banner above the transcript stays away: a banner is only for something not tied
+ * to one message. A quarantine (Unblock) keeps its banner: its action lives there.
+ */
+export function isThreadErrorShownInTimeline(
+  entries: ReadonlyArray<TimelineEntry>,
+  threadError: string,
+): boolean {
+  if (
+    entries.some((entry) => entry.kind === "work" && entry.entry.turnFailure?.cause === threadError)
+  )
+    return true;
+  if (isProviderDeliveryBlockDetail(threadError)) return false;
+  // Only the latest failed message, with the same words: a later, different error still
+  // gets its banner.
+  const latest = latestSendFailureEntry(entries);
+  if (!latest?.sendFailure) return false;
+  const error = comparableFailureText(threadError);
+  return latest.sendFailure.details.some((detail) => {
+    const words = comparableFailureText(detail);
+    return words.length > 0 && (words === error || error.includes(words) || words.includes(error));
+  });
+}
+
+const ADAPTER_FAILURE_PREFIX =
+  /^(?:Error:\s*)?Provider adapter (?:process error|request failed) \([^)]+\) for [^:]+:\s*/u;
+
+/** The words of a failure without the adapter prefix, case or whitespace differences. */
+function comparableFailureText(text: string): string {
+  return text.trim().replace(ADAPTER_FAILURE_PREFIX, "").replace(/\s+/gu, " ").toLowerCase();
+}
+
+/**
+ * The row of the latest message that did not start, when no reply and no newer message came
+ * after it: the one failure 重试 can still send again (it resends the latest message).
+ */
+export function latestSendFailureEntry(
+  entries: ReadonlyArray<TimelineEntry>,
+): WorkLogEntry | undefined {
+  let latest: WorkLogEntry | undefined;
+  let latestIndex = -1;
+  let lastMessageAfterRow = -1;
+  entries.forEach((entry, index) => {
+    if (entry.kind === "work" && entry.entry.sendFailure) {
+      latest = entry.entry;
+      latestIndex = index;
+    }
+    // A reply, or a newer message, after the row means it is no longer the latest send.
+    if (entry.kind === "message" && latestIndex >= 0) lastMessageAfterRow = index;
+  });
+  return latestIndex > lastMessageAfterRow ? latest : undefined;
 }

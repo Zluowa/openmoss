@@ -1870,6 +1870,14 @@ describe("Devin stale resume classification", () => {
       transport: true,
       recoverable: false,
     },
+    {
+      // WALK-4 N4-1: refused during setup, before any prompt: nothing was sent.
+      name: "Devin not signed in",
+      resume: false,
+      message:
+        "Devin ACP advertised only interactive auth (devin-browser). Moss will not open a browser during a message send.",
+      recoverable: false,
+    },
   ])("classifies $name without leaving a live session", async (testCase) => {
     const cause = testCase.transport
       ? new AcpTransportError({ detail: testCase.message, cause: new Error(testCase.message) })
@@ -1892,8 +1900,9 @@ describe("Devin stale resume classification", () => {
           .pipe(Effect.flip);
         expect(error).toBeInstanceOf(ProviderAdapterProcessError);
         expect(error).toMatchObject({ cause });
+        // Session setup never carries the prompt: a failure there sent nothing.
         expect((error as ProviderAdapterProcessError).reason).toBe(
-          testCase.recoverable ? "resume-state-unavailable" : undefined,
+          testCase.recoverable ? "resume-state-unavailable" : "startup-failed",
         );
         expect(yield* adapter.hasSession(threadId)).toBe(false);
       }).pipe(Effect.provide(makeDevinAdapterTestLayer(runtime))),

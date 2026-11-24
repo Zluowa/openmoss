@@ -88,7 +88,6 @@ export function AboutSettingsSection() {
     <SettingsSection title="About">
       <SettingsRow
         title="Version"
-        description="Current version"
         control={
           <span className="text-ui leading-snug font-medium text-muted-foreground tabular-nums">
             {APP_VERSION}
@@ -97,7 +96,6 @@ export function AboutSettingsSection() {
       />
       <SettingsRow
         title="Release notes"
-        description="What changed in each update."
         control={
           <Button
             size="xs"
@@ -116,7 +114,6 @@ export function AboutSettingsSection() {
       </SettingsRow>
       <SettingsRow
         title="Feature tour"
-        description="A short look at what Moss can do."
         control={
           <Button
             size="xs"
@@ -194,7 +191,6 @@ export function KeybindingsFileRow() {
     <SettingsSection title="Advanced">
       <SettingsRow
         title="Keybindings file"
-        description="Edit every shortcut in a text editor."
         control={
           <Button
             size="xs"

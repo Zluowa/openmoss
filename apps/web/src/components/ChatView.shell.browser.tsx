@@ -927,6 +927,36 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("WALK-10 #890: 设置 → 通用 keeps only the lines a person relies on", async () => {
+    const snapshot = createSnapshotWithLongAssistantResponse();
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    try {
+      await mounted.router.navigate({ to: "/settings", search: { section: "general" } });
+      await vi.waitFor(() =>
+        expect(document.querySelector("[data-settings-section=general] header h1")).not.toBeNull(),
+      );
+      const general = document.querySelector<HTMLElement>("[data-settings-section=general]")!;
+      // Rule 1: one title, no subtitle under it.
+      expect(general.querySelector("header")!.querySelectorAll("p")).toHaveLength(0);
+      // Rule 4: the label says what the control does.
+      expect(general.textContent).toContain("Where new chats work");
+      // The first-time setup stays reachable.
+      expect(general.textContent).toContain("Open welcome tour");
+      // Rule 2: a line stays only for what is deleted, sent, charged or changed at the next start.
+      const lines = [...general.querySelectorAll('[data-slot="settings-row"] p')]
+        .map((line) => line.textContent?.trim() ?? "")
+        .filter((line) => line.length > 0);
+      expect(lines).toEqual([
+        "Suggests your next message in gray; Tab puts it in.",
+        "Remove an unused worktree after archiving. The branch stays.",
+        // What is sent and what never is.
+        "Send a report when Moss hits an error. Chats, code and keys are never included.",
+      ]);
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   // #1374: real route, dock and Lexical composers; only the server boundary is
   // simulated. The main agent must keep running while the panel toggles.
   it("previews split widths without persisting and restores the released ratio after remount", async () => {

@@ -34,6 +34,7 @@ import { DISCLOSURE_CONTENT_MOTION_CLASS } from "~/lib/disclosureMotion";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ChatEmptyStateHero } from "./ChatEmptyStateHero";
 import { MessagesTimeline, type MessagesTimelineController } from "./MessagesTimeline";
+import { isThreadErrorShownInTimeline } from "./MessagesTimeline.logic";
 import { composerOverlayAffordanceBottomPx } from "./composerOverlay";
 import { MessageTrail } from "./MessageTrail";
 import { createActiveTrailStore, deriveMessageTrailItems } from "./messageTrail.logic";
@@ -161,6 +162,7 @@ interface ChatTranscriptPaneProps {
   recoverableTurnId?: ComponentProps<typeof MessagesTimeline>["recoverableTurnId"];
   accountServiceUnavailable?: boolean;
   turnRecoveryDisabled?: boolean;
+  sendFailureContext?: ComponentProps<typeof MessagesTimeline>["sendFailureContext"];
   onContinueFailedTurn?: ComponentProps<typeof MessagesTimeline>["onContinueFailedTurn"];
   onChangeRecoveryModel?: () => void;
   unblockingThread?: boolean;
@@ -274,6 +276,7 @@ export function ChatTranscriptPane({
   recoverableTurnId,
   accountServiceUnavailable,
   turnRecoveryDisabled,
+  sendFailureContext,
   onContinueFailedTurn,
   onChangeRecoveryModel,
   unblockingThread,
@@ -431,9 +434,7 @@ export function ChatTranscriptPane({
           a floating overlay, so it can never cover message content. */}
       {!agentActivityDetail &&
       threadError &&
-      !visibleTimelineEntries.some(
-        (entry) => entry.kind === "work" && entry.entry.turnFailure?.cause === threadError,
-      ) ? (
+      !isThreadErrorShownInTimeline(visibleTimelineEntries, threadError) ? (
         <div className="flex shrink-0 justify-center px-3 pt-2">
           <ThreadErrorBanner
             error={threadError}
@@ -526,6 +527,7 @@ export function ChatTranscriptPane({
               {...(recoverableTurnId !== undefined ? { recoverableTurnId } : {})}
               {...(accountServiceUnavailable ? { accountServiceUnavailable } : {})}
               {...(turnRecoveryDisabled !== undefined ? { turnRecoveryDisabled } : {})}
+              {...(sendFailureContext ? { sendFailureContext } : {})}
               {...(onContinueFailedTurn ? { onContinueFailedTurn } : {})}
               {...(onChangeRecoveryModel ? { onChangeRecoveryModel } : {})}
               hubWorkItemsByMessageId={hubWorkItemsByMessageId}

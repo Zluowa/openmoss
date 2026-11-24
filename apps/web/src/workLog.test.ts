@@ -4,6 +4,7 @@ import {
   MOSS_GENERATED_IMAGE_ARTIFACT_KIND,
   type OrchestrationThreadActivity,
 } from "@moss/contracts";
+import { UNCONFIRMED_TURN_START_DETAIL } from "@moss/shared/providerDeliveryBlock";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -530,8 +531,94 @@ describe("deriveWorkLogEntries", () => {
       ],
       undefined,
     );
-    // A minute later the same failure is a new attempt, so it gets its own row.
-    expect(entries.map((entry) => entry.id)).toEqual(["start-failed", "later-failure"]);
+    // One row for the failed message; a minute later the same failure is a new attempt, so
+    // it gets its own row.
+    expect(entries.map((entry) => entry.id).toSorted()).toEqual([
+      "later-failure",
+      "send-failure:legacy:start-failed",
+    ]);
+  });
+
+  // WALK-4 N4-1: the walker's record. Devin refused the start (not signed in), then 36 s later
+  // Moss also wrote "not confirmed" for the same send. One message, one row.
+  it("draws one row for a message whose start failed and was later reported unconfirmed", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "devin-refused",
+          createdAt: "2026-11-23T22:32:55.878Z",
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          tone: "error",
+          payload: {
+            detail:
+              "Error: Provider adapter process error (devin) for thread t: Devin ACP advertised only interactive auth (devin-browser).",
+          },
+        }),
+        makeActivity({
+          id: "not-confirmed",
+          createdAt: "2026-11-23T22:33:31.645Z",
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start was not confirmed",
+          tone: "error",
+          payload: { detail: UNCONFIRMED_TURN_START_DETAIL },
+        }),
+      ],
+      undefined,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "send-failure:legacy:devin-refused",
+      sendFailure: { cause: "not-confirmed" },
+    });
+  });
+
+  it("keeps the cause the server decided over a later report on the same message", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "refused",
+          createdAt: "2026-11-24T10:00:00.000Z",
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          tone: "error",
+          payload: {
+            detail: "Devin is not signed in.",
+            cause: "provider-signed-out",
+            messageId: "m1",
+          },
+        }),
+        makeActivity({
+          id: "unconfirmed",
+          createdAt: "2026-11-24T10:00:40.000Z",
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start was not confirmed",
+          tone: "error",
+          payload: {
+            detail: UNCONFIRMED_TURN_START_DETAIL,
+            cause: "not-confirmed",
+            messageId: "m1",
+          },
+        }),
+        makeActivity({
+          id: "second-message",
+          createdAt: "2026-11-24T10:01:00.000Z",
+          kind: "provider.turn.start.failed",
+          summary: "Provider turn start failed",
+          tone: "error",
+          payload: {
+            detail: "Devin is not signed in.",
+            cause: "provider-signed-out",
+            messageId: "m2",
+          },
+        }),
+      ],
+      undefined,
+    );
+    expect(entries.map((entry) => [entry.id, entry.sendFailure?.cause])).toEqual([
+      ["send-failure:message:m1", "provider-signed-out"],
+      ["send-failure:message:m2", "provider-signed-out"],
+    ]);
   });
 
   it("reuses unchanged entry objects across passes over the same activities", () => {

@@ -4,8 +4,9 @@
 // Exports: ThreadErrorBanner
 //
 // Live session errors sit above the transcript; durable turn failures reuse
-// the same banner inside the timeline. Threads off screen still toast live
-// session errors via useThreadErrorToast.
+// the same banner inside the timeline. A message that did not start shows here
+// too, as one sentence and its one action (`oneAction`). Threads off screen
+// still toast live session errors via useThreadErrorToast.
 
 import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
 import { useId, useLayoutEffect, useRef, useState } from "react";
@@ -34,10 +35,42 @@ type ThreadErrorBannerProps = {
   onUnblock?: () => void;
   unblocking?: boolean;
   className?: string;
+  /**
+   * A failed message's row: the sentence already decided for it and the one action that
+   * changes it. Nothing else is offered (no copy, no details): the cause is the whole story.
+   */
+  oneAction?: { readonly label: string; readonly onAction: () => void } | null;
 };
 
 export function ThreadErrorBanner(props: ThreadErrorBannerProps) {
   if (!props.error) return null;
+  if (props.oneAction !== undefined) {
+    return (
+      <Alert
+        variant="error"
+        data-failure-row=""
+        data-error-surface="failure-row"
+        className={cn("w-full max-w-[36rem] shadow-sm", props.className)}
+      >
+        <CircleAlertIcon />
+        <AlertDescription className="min-w-0">
+          <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{props.error}</p>
+          {props.oneAction ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                size="xs"
+                variant="destructive-outline"
+                disabled={props.recoveryDisabled}
+                onClick={props.oneAction.onAction}
+              >
+                {props.oneAction.label}
+              </Button>
+            </div>
+          ) : null}
+        </AlertDescription>
+      </Alert>
+    );
+  }
   // A different failure starts collapsed, with fresh copy feedback.
   return <ThreadErrorBannerContent key={props.error} {...props} error={props.error} />;
 }
@@ -75,7 +108,11 @@ function ThreadErrorBannerContent({
   const canRetry = onRetry !== undefined && presentation.retryable === true;
   const changeModelFirst = presentation.changeModelFirst === true;
   return (
-    <Alert variant="error" className={cn("w-full max-w-[36rem] shadow-sm", className)}>
+    <Alert
+      variant="error"
+      data-error-surface="thread-error"
+      className={cn("w-full max-w-[36rem] shadow-sm", className)}
+    >
       <CircleAlertIcon />
       {title ? <AlertTitle>{title}</AlertTitle> : null}
       <AlertDescription className="min-w-0">

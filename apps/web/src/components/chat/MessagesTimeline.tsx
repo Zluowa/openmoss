@@ -94,6 +94,11 @@ import { ForkSourceDivider, type ForkSourceReference } from "./ForkSourceDivider
 import { MossThreadCreationCard } from "./MossThreadCreationCard";
 import { ProviderHandoffDivider } from "./ProviderHandoffDivider";
 import { ThreadErrorBanner } from "./ThreadErrorBanner";
+import {
+  resolveSendFailurePresentation,
+  resolveThreadErrorPresentation,
+} from "./threadErrorPresentation";
+import { openSettings as openSettingsDialog } from "~/settingsDialogStore";
 import { WorkerMonitorNoticePill } from "./WorkerMonitorNoticePill";
 import { type ExpandedImagePreview } from "./ExpandedImagePreview";
 import { GeneratedImageGallery } from "./GeneratedImageGallery";
@@ -189,7 +194,9 @@ import {
   resolveWorkEntryJumpTarget,
   type StableMessagesTimelineRowsState,
   type TurnTiming,
+  latestSendFailureEntry,
 } from "./MessagesTimeline.logic";
+import type { SendFailureContext } from "./useSendFailureContext";
 import { rewriteThreadIdsAsMarkdownLinks } from "./project/projectPanel.logic";
 import { summarizeToolCallGroup } from "./toolCallGroup.logic";
 import { ToolCallGroupSummaryRow } from "./ToolCallGroupSummaryRow";
@@ -534,6 +541,12 @@ interface MessagesTimelineProps {
    */
   accountServiceUnavailable?: boolean;
   turnRecoveryDisabled?: boolean;
+  /**
+   * What a failed message's row needs: the thread's agent, whether it is signed out now (a
+   * record without a decided cause then reads as signed out) and the row's two possible
+   * actions; each row offers at most one.
+   */
+  sendFailureContext?: SendFailureContext;
   onContinueFailedTurn?: (
     turnId: TurnId,
     options?: { readonly afterStop?: boolean },
@@ -711,6 +724,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   recoverableTurnId,
   accountServiceUnavailable,
   turnRecoveryDisabled,
+  sendFailureContext,
   onContinueFailedTurn,
   onChangeRecoveryModel: onChangeRecoveryModelProp,
   nowIso,
@@ -798,6 +812,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       ? rawTimelineEntries.filter((entry) => !isHiddenToolEntry(entry))
       : rawTimelineEntries;
   }, [rawTimelineEntries]);
+  // 重试 resends the latest message, so only the latest failed message's row offers it.
+  const retryableSendFailureId = useMemo(
+    () => latestSendFailureEntry(timelineEntries)?.id ?? null,
+    [timelineEntries],
+  );
   // The marker stays only while the kept message is still the transcript's tail.
   const lastTimelineMessageId = useMemo(() => {
     for (let index = rawTimelineEntries.length - 1; index >= 0; index -= 1) {
@@ -1981,26 +2000,71 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     <>
       {row.kind === "work" &&
         row.groupedEntries.map((entry) => {
+          if (!entry.sendFailure) return null;
+          // The agent this message was sent to, not the one the thread uses now.
+          const failedAgent = entry.sendFailure.provider;
+          const presentation = resolveSendFailurePresentation({
+            cause: entry.sendFailure.cause,
+            detail: entry.sendFailure.detail,
+            providerLabel: sendFailureContext?.labelFor(failedAgent) ?? failedAgent ?? "",
+            providerSignedOut: sendFailureContext?.isSignedOut(failedAgent) ?? false,
+            locale,
+          });
+          const onRetry =
+            entry.id === retryableSendFailureId ? sendFailureContext?.onRetry : undefined;
+          const action =
+            presentation.action === "sign-in" && sendFailureContext
+              ? {
+                  label: t("provider.readiness.signInAction"),
+                  onAction: () => sendFailureContext.onSignIn(failedAgent),
+                }
+              : presentation.action === "retry" && onRetry
+                ? { label: t("chat.error.retry"), onAction: onRetry }
+                : null;
+          return (
+            <div key={entry.id} data-send-failure-row={entry.id}>
+              <ThreadErrorBanner
+                error={presentation.title}
+                oneAction={action}
+                recoveryDisabled={turnRecoveryDisabled ?? false}
+              />
+            </div>
+          );
+        })}
+      {row.kind === "work" &&
+        row.groupedEntries.map((entry) => {
           if (!entry.turnFailure) return null;
           const recoverable = Boolean(entry.turnId) && entry.turnId === recoverableTurnId;
           const waitingForAccountService = recoverable && accountServiceUnavailable === true;
+          // One sentence in the UI language and the one next step (WALK-H1 H-11): the provider's
+          // own words never show as they are. The step is the one that fixes it: the provider
+          // settings when the sign-in must be renewed (continuing would fail the same way), else
+          // 更换模型 when the same model fails the same way, else 继续任务 on the turn that can
+          // still be continued.
+          const presentation = waitingForAccountService
+            ? resolveThreadErrorPresentation(MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE, locale)
+            : resolveThreadErrorPresentation(entry.turnFailure.cause, locale, "turn-failure");
+          const action =
+            presentation.recoveryAction === "manage-providers" && presentation.retryable !== true
+              ? {
+                  label: t("chat.error.openProviderSettings"),
+                  onAction: () => openSettingsDialog({ section: "providers" }),
+                }
+              : !recoverable || waitingForAccountService || !onContinueFailedTurn
+                ? null
+                : presentation.changeModelFirst === true && onChangeRecoveryModel
+                  ? { label: t("chat.error.changeModel"), onAction: onChangeRecoveryModel }
+                  : {
+                      label: t("chat.error.continueTask"),
+                      onAction: () => {
+                        void onContinueFailedTurn(entry.turnId!);
+                      },
+                    };
           return (
             <div key={entry.id} data-turn-failure={entry.turnId ?? entry.id}>
               <ThreadErrorBanner
-                title={t("chat.error.taskInterrupted")}
-                error={
-                  waitingForAccountService
-                    ? MOSS_ACCOUNT_SERVICE_UNAVAILABLE_MESSAGE
-                    : entry.turnFailure.cause
-                }
-                {...(recoverable && !waitingForAccountService && onContinueFailedTurn
-                  ? {
-                      onContinue: () => {
-                        void onContinueFailedTurn(entry.turnId!);
-                      },
-                      ...(onChangeRecoveryModel ? { onChangeModel: onChangeRecoveryModel } : {}),
-                    }
-                  : {})}
+                error={presentation.title}
+                oneAction={action}
                 recoveryDisabled={turnRecoveryDisabled ?? false}
               />
             </div>
@@ -2024,7 +2088,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           // Handoff boundaries render as the divider above, not as work rows.
           const groupedEntries = row.groupedEntries.filter(
             (workEntry) =>
-              !workEntry.mossThreadCreation && !workEntry.providerHandoff && !workEntry.turnFailure,
+              !workEntry.mossThreadCreation &&
+              !workEntry.providerHandoff &&
+              !workEntry.turnFailure &&
+              !workEntry.sendFailure,
           );
           if (groupedEntries.length === 0) {
             return null;

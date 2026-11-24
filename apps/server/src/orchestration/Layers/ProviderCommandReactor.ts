@@ -88,6 +88,7 @@ import {
   formatProviderDeliveryBlockDetail,
   PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL,
   PROVIDER_DELIVERY_BLOCK_SUMMARY,
+  type SendFailureCause,
   UNCONFIRMED_TURN_START_DETAIL,
 } from "@moss/shared/providerDeliveryBlock";
 import { buildStalePendingRequestFailureDetail } from "@moss/shared/threadSummary";
@@ -2148,6 +2149,29 @@ const make = Effect.gen(function* () {
     }
   });
 
+  /**
+   * The one cause of a message that did not start, decided here from what failed and the
+   * agent's own sign-in status: signed out (sign in), could not be started (send again), or
+   * undecided (the row keeps the failure's own words).
+   */
+  const resolveSendFailureCause = Effect.fnUntraced(function* (input: {
+    readonly modelSelection: ModelSelection | undefined;
+    readonly failure: unknown;
+  }) {
+    const provider = input.modelSelection?.provider;
+    if (provider === undefined) return undefined;
+    const instanceId = input.modelSelection?.instanceId ?? provider;
+    const statuses = yield* providerHealth.getStatuses;
+    const status =
+      statuses.find((candidate) => (candidate.instanceId ?? candidate.provider) === instanceId) ??
+      statuses.find((candidate) => candidate.provider === provider);
+    if (status?.authStatus === "unauthenticated") return "provider-signed-out" as const;
+    return input.failure instanceof ProviderAdapterProcessError &&
+      input.failure.reason === "startup-failed"
+      ? ("provider-unreachable" as const)
+      : undefined;
+  });
+
   const appendProviderFailureActivity = (input: {
     readonly threadId: ThreadId;
     readonly kind:
@@ -2166,6 +2190,10 @@ const make = Effect.gen(function* () {
     readonly lifecycleGeneration?: string;
     readonly responseCommandId?: CommandId;
     readonly settlementStatus?: "retryable" | "uncertain";
+    /** A failed send's cause, its message and the agent it was sent to: one row per message. */
+    readonly cause?: SendFailureCause;
+    readonly messageId?: MessageId;
+    readonly provider?: string;
   }) =>
     orchestrationEngine.dispatch({
       type: "thread.activity.append",
@@ -2182,6 +2210,9 @@ const make = Effect.gen(function* () {
           ...(input.lifecycleGeneration ? { lifecycleGeneration: input.lifecycleGeneration } : {}),
           ...(input.responseCommandId ? { responseCommandId: input.responseCommandId } : {}),
           ...(input.settlementStatus ? { settlementStatus: input.settlementStatus } : {}),
+          ...(input.cause ? { cause: input.cause } : {}),
+          ...(input.messageId ? { messageId: input.messageId } : {}),
+          ...(input.provider ? { provider: input.provider } : {}),
         },
         turnId: input.turnId,
         createdAt: input.createdAt,
@@ -5784,7 +5815,13 @@ const make = Effect.gen(function* () {
                     expectedGoalStartedAt: event.payload.initialGoalStartedAt,
                   });
                 }
-                if (!cancelledCompaction)
+                if (!cancelledCompaction) {
+                  const sendFailureCause = previousRuntimeNotStopped
+                    ? undefined
+                    : yield* resolveSendFailureCause({
+                        modelSelection: event.payload.modelSelection ?? thread.modelSelection,
+                        failure,
+                      });
                   yield* appendProviderFailureActivity({
                     threadId: event.payload.threadId,
                     kind: "provider.turn.start.failed",
@@ -5792,7 +5829,11 @@ const make = Effect.gen(function* () {
                     detail,
                     turnId: null,
                     createdAt: event.payload.createdAt,
+                    ...(sendFailureCause ? { cause: sendFailureCause } : {}),
+                    messageId: event.payload.messageId,
+                    provider: (event.payload.modelSelection ?? thread.modelSelection).provider,
                   });
+                }
                 // Restore the runtime's state after a refused reconfiguration or
                 // cancelled native control. An optimistic starting row must not
                 // make the ordered interrupt tear down an established runtime.
@@ -8543,6 +8584,7 @@ const make = Effect.gen(function* () {
       turnId: null,
       createdAt,
       settlementStatus: "uncertain",
+      messageId: event.payload.messageId,
     });
   });
 
@@ -8611,6 +8653,9 @@ const make = Effect.gen(function* () {
       detail: UNCONFIRMED_TURN_START_DETAIL,
       turnId: null,
       createdAt,
+      cause: "not-confirmed",
+      messageId: event.payload.messageId,
+      ...(event.payload.modelSelection ? { provider: event.payload.modelSelection.provider } : {}),
     });
     const session = (yield* resolveThreadShell(event.payload.threadId))?.session;
     if (!session) return;
