@@ -2,6 +2,7 @@ import {
   chmodSync,
   mkdtempSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -53,7 +54,7 @@ import {
 import { TestClock } from "effect/testing";
 import * as PlatformError from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
-import { vi } from "vitest";
+import { afterAll, beforeAll, vi } from "vitest";
 
 import { MOSS_CODEX_HOME_OVERLAY_DIR, resolveActiveCodexHomeWritePath } from "../../codexHomePaths";
 import { CODEX_CLI_UNPARSEABLE_VERSION_MESSAGE } from "../codexCliVersion.ts";
@@ -3652,6 +3653,19 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
   // path being tested.
 
   describe("checkCodexProviderStatus", () => {
+    // A path built for another platform and written through the real file system lands in the
+    // working directory as one file name with backslashes in it (#729).
+    let workingDirectoryBefore = new Set<string>();
+    beforeAll(() => {
+      workingDirectoryBefore = new Set(readdirSync(process.cwd()));
+    });
+    afterAll(() => {
+      const strays = readdirSync(process.cwd()).filter(
+        (name) => !workingDirectoryBefore.has(name) && name.includes("\\"),
+      );
+      assert.deepStrictEqual(strays, []);
+    });
+
     it.effect("returns ready when codex is installed and authenticated", () =>
       Effect.gen(function* () {
         // Point CODEX_HOME at an empty tmp dir (no config.toml) so the
@@ -3694,33 +3708,37 @@ it.layer(NodeServices.layer)("ProviderHealth", (it) => {
       ),
     );
 
-    it.effect("propagates verbatim Windows arguments through the Effect command", () => {
-      const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-      return Effect.gen(function* () {
-        yield* withTempCodexHome();
-        const status = yield* makeCheckCodexProviderStatus("C:\\tools(x86)\\codex.cmd");
-        assert.strictEqual(status.status, "ready");
-      }).pipe(
-        Effect.provide(
-          mockSpawnerLayer(
-            (args, command, _env, options) => {
-              assert.strictEqual(command.toLowerCase(), "c:\\windows\\system32\\cmd.exe");
-              assert.strictEqual(options?.windowsVerbatimArguments, true);
-              const commandLine = args.at(-1) ?? "";
-              if (commandLine.includes('"--version"')) {
-                return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
-              }
-              if (commandLine.includes('"-c" "mcp_servers={}" "login" "status"')) {
-                return { stdout: "Logged in\n", stderr: "", code: 0 };
-              }
-              throw new Error(`Unexpected args: ${args.join(" ")}`);
-            },
-            { rawCommand: true },
+    // Runs on Windows only. Faking process.platform elsewhere builds the Codex overlay path
+    // with win32 separators and then writes it through the real file system, which leaves a
+    // "\tmp\moss-test-runtime-*" folder in the working directory (#729). The command plan
+    // itself is covered on every platform by packages/shared/src/platformProcess.test.ts.
+    it.effect.runIf(process.platform === "win32")(
+      "propagates verbatim Windows arguments through the Effect command",
+      () =>
+        Effect.gen(function* () {
+          yield* withTempCodexHome();
+          const status = yield* makeCheckCodexProviderStatus("C:\\tools(x86)\\codex.cmd");
+          assert.strictEqual(status.status, "ready");
+        }).pipe(
+          Effect.provide(
+            mockSpawnerLayer(
+              (args, command, _env, options) => {
+                assert.strictEqual(command.toLowerCase(), "c:\\windows\\system32\\cmd.exe");
+                assert.strictEqual(options?.windowsVerbatimArguments, true);
+                const commandLine = args.at(-1) ?? "";
+                if (commandLine.includes('"--version"')) {
+                  return { stdout: "codex 1.0.0\n", stderr: "", code: 0 };
+                }
+                if (commandLine.includes('"-c" "mcp_servers={}" "login" "status"')) {
+                  return { stdout: "Logged in\n", stderr: "", code: 0 };
+                }
+                throw new Error(`Unexpected args: ${args.join(" ")}`);
+              },
+              { rawCommand: true },
+            ),
           ),
         ),
-        Effect.ensuring(Effect.sync(() => platform.mockRestore())),
-      );
-    });
+    );
 
     it.effect("uses configured codex home for version, config, and auth probes", () => {
       let sawLoginStatusProbe = false;
