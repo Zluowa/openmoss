@@ -37,7 +37,7 @@ function fullCatalog(): ProviderModelDescriptor[] {
 }
 
 describe("resolveComposerCodexPowerOptions", () => {
-  it("keeps canonical order and removes the GPT- prefix from labels", () => {
+  it("keeps canonical order and keeps the model list's name in labels", () => {
     const result = resolveComposerCodexPowerOptions({
       runtimeModels: fullCatalog(),
       model: "gpt-5.6-sol",
@@ -45,12 +45,12 @@ describe("resolveComposerCodexPowerOptions", () => {
     });
 
     expect(result.choices.map((choice) => choice.label)).toEqual([
-      "5.6 Terra Light",
-      "5.6 Sol Light",
-      "5.6 Sol Standard",
-      "5.6 Sol Extended",
-      "5.6 Sol Extra High",
-      "5.6 Sol Ultra",
+      "GPT-5.6 Terra Light",
+      "GPT-5.6 Sol Light",
+      "GPT-5.6 Sol Standard",
+      "GPT-5.6 Sol Extended",
+      "GPT-5.6 Sol Extra High",
+      "GPT-5.6 Sol Ultra",
     ]);
   });
 
@@ -232,7 +232,7 @@ describe("resolveComposerPowerOptions", () => {
     const result = resolveComposerPowerOptions({
       provider: "codex",
       model: "gpt-5.6-sol",
-      modelLabel: "5.6 Sol",
+      modelLabel: "GPT-5.6 Sol",
       optionId: "reasoningEffort",
       effortLevels: SOL_EFFORTS.map((value) => level(value)),
       effort: "high",
@@ -240,12 +240,12 @@ describe("resolveComposerPowerOptions", () => {
     });
 
     expect(result.choices.map((choice) => choice.label)).toEqual([
-      "5.6 Terra Light",
-      "5.6 Sol Light",
-      "5.6 Sol Standard",
-      "5.6 Sol Extended",
-      "5.6 Sol Extra High",
-      "5.6 Sol Ultra",
+      "GPT-5.6 Terra Light",
+      "GPT-5.6 Sol Light",
+      "GPT-5.6 Sol Standard",
+      "GPT-5.6 Sol Extended",
+      "GPT-5.6 Sol Extra High",
+      "GPT-5.6 Sol Ultra",
     ]);
     expect(result.selectedIndex).toBe(3);
   });

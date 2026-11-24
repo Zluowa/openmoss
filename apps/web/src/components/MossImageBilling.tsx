@@ -37,7 +37,7 @@ export function MossImageBilling({ job }: { readonly job: MossImageJob }) {
                 Number.isSafeInteger(actualCost) &&
                 actualCost >= 0 && (
                   <p>
-                    供应商实际成本 {formatMediaOriginalCost(String(actualCost))} {billing.currency}
+                    服务商实际成本 {formatMediaOriginalCost(String(actualCost))} {billing.currency}
                   </p>
                 )}
               {billing.fxVersion && <p>换算版本 {billing.fxVersion}</p>}

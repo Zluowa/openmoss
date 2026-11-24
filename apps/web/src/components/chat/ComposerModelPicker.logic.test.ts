@@ -11,7 +11,6 @@ import {
   buildProviderTabRows,
   buildStarredModelOptionsPatch,
   buildStarredTabRows,
-  composerModelDisplayName,
   modelPickerShortcutRowIndex,
   resolveDefaultRowModel,
 } from "./ComposerModelPicker.logic";
@@ -236,20 +235,5 @@ describe("modelPickerShortcutRowIndex", () => {
     expect(
       modelPickerShortcutRowIndex({ ...base, key: "2", metaKey: true, altKey: true }),
     ).toBeNull();
-  });
-});
-
-describe("composerModelDisplayName", () => {
-  it("drops the family prefix the provider icon already shows", () => {
-    expect(composerModelDisplayName("claudeAgent", "Claude Opus 5")).toBe("Opus 5");
-    expect(composerModelDisplayName("codex", "GPT-6 Astra")).toBe("6 Astra");
-    expect(composerModelDisplayName("codex", "GPT-5.3-Codex")).toBe("5.3-Codex");
-  });
-
-  it("keeps names without the prefix, bare family names, and gateway models", () => {
-    expect(composerModelDisplayName("codex", "codex-mini-latest")).toBe("codex-mini-latest");
-    expect(composerModelDisplayName("claudeAgent", "Claude")).toBe("Claude");
-    expect(composerModelDisplayName("cursor", "Claude 4 Sonnet")).toBe("Claude 4 Sonnet");
-    expect(composerModelDisplayName("opencode", "GPT-5")).toBe("GPT-5");
   });
 });

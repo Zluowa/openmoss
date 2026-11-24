@@ -975,13 +975,13 @@ describe("ChatView transcript geometry (full app)", () => {
           provider: "codex",
           model: "gpt-5.5",
         });
-        // The composer trigger shows the model without its family prefix ("5.5").
+        // The composer trigger shows the model by the name the model list gives it ("GPT-5.5").
         await vi.waitFor(() =>
           expect(
             document.querySelector<HTMLButtonElement>(
               'button[aria-label="Change model and reasoning"]',
             )?.textContent ?? "",
-          ).toContain("5.5"),
+          ).toContain("GPT-5.5"),
         );
         releaseUpload();
         await vi.waitFor(() =>

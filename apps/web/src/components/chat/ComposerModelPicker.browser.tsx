@@ -347,6 +347,17 @@ describe("ComposerModelPicker", () => {
     });
   });
 
+  it("names the model in the composer as the model list does, with no short form (WALK-12 N12-7)", async () => {
+    const screen = await mountPicker();
+    try {
+      const trigger = page.getByRole("button", { name: "Change model and reasoning" });
+      await expect.element(trigger).toBeVisible();
+      expect(trigger.element().textContent).toContain("GPT-5.5");
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("opens on the active provider tab and commits a clicked model", async () => {
     const onProviderModelChange = vi.fn();
     const screen = await mountPicker({ onProviderModelChange });

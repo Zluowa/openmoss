@@ -564,7 +564,7 @@ describe("ComposerCodexPowerPicker", () => {
       expect(onChange).toHaveBeenCalledTimes(1);
       await vi.waitFor(() => {
         expect(document.querySelector("[data-codex-power-selected]")?.textContent).toBe(
-          "5.6 Sol Extra High",
+          "GPT-5.6 Sol Extra High",
         );
       });
       expect(document.querySelector('[data-slot="menu-popup"]')).not.toBeNull();
@@ -629,7 +629,7 @@ describe("ComposerCodexPowerPicker", () => {
       // Down, down, (ctrl ignored), up, inverted-up: back where the tick tap left us.
       await vi.waitFor(() => {
         expect(document.querySelector("[data-codex-power-selected]")?.textContent).toBe(
-          "5.6 Sol Extra High",
+          "GPT-5.6 Sol Extra High",
         );
       });
       expect(document.querySelector('[data-slot="menu-popup"]')).not.toBeNull();
@@ -1007,7 +1007,7 @@ describe("ComposerCodexPowerPicker", () => {
         );
       });
       expect(document.querySelector("[data-codex-power-selected]")?.textContent).toBe(
-        "5.6 Sol Standard",
+        "GPT-5.6 Sol Standard",
       );
     } finally {
       await mounted.cleanup();

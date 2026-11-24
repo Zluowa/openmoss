@@ -79,8 +79,7 @@ function normalized(value: string | null | undefined): string | null {
 }
 
 function modelLabelForDescriptor(descriptor: ProviderModelDescriptor): string {
-  const name = descriptor.name.trim() || descriptor.slug.trim();
-  return name.replace(/^GPT-/iu, "");
+  return descriptor.name.trim() || descriptor.slug.trim();
 }
 
 function advertisedEffortsForDescriptor(descriptor: ProviderModelDescriptor): ReadonlySet<string> {
@@ -262,7 +261,7 @@ export type ComposerPowerEffortLevel = {
 export type ComposerPowerOptionsInput = {
   readonly provider: ProviderKind;
   readonly model: string | null | undefined;
-  /** Display label for the current model, already stripped of any vendor prefix. */
+  /** Display label for the current model: the name the model list shows, unshortened. */
   readonly modelLabel: string;
   /** Provider option key that stores the effort for this provider/model. */
   readonly optionId: string;
