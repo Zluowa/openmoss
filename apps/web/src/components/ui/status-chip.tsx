@@ -1,6 +1,6 @@
 // FILE: status-chip.tsx
 // Purpose: Shared status visuals: the bare StatusDot every status indicator draws, the
-//          StatusChip that pairs it with a label (Tasks pills, kanban card thread status),
+//          StatusChip that pairs it with a label (Tasks pills, provider and usage rows),
 //          and the ink status glyphs use for marks cut out of a solid disc.
 // Layer: UI primitive
 // Exports: StatusDot, StatusChip, STATUS_GLYPH_CUTOUT_STROKE

@@ -639,7 +639,7 @@ export function resolveThreadStatusPill(input: {
       label: "Pending Approval",
       // The sidebar chip is the green capsule (SidebarThreadRowContent). The
       // trailing slot is the gray working spinner, not this dot — see
-      // SidebarStatusTrailingGlyph. Kanban still reads dotClass.
+      // SidebarStatusTrailingGlyph.
       colorClass: "text-emerald-700 dark:text-emerald-400",
       dotClass: "bg-emerald-500 dark:bg-emerald-400",
       pulse: false,

@@ -1,6 +1,6 @@
 // FILE: KanbanCardView.tsx
 // Purpose: Presentational kanban card — title, draft preview, provider/branch/env/PR
-//          meta row with status pill and relative timestamp.
+//          meta row with the relative timestamp and the card's one status.
 // Layer: UI component (pure; drag wiring lives in KanbanColumn)
 // Exports: KanbanCardView
 
@@ -15,9 +15,11 @@ import {
   type ThreadPullRequest,
 } from "~/hooks/useThreadPullRequests";
 import { PrStateChip } from "../pullRequest/PrStateChip";
-import { resolveThreadStatusPill } from "../Sidebar.logic";
-import { ThreadStatusPillChip } from "../ThreadStatusPillChip";
+import { resolveThreadStatusPill, type ThreadStatusPill } from "../Sidebar.logic";
 import { ProviderIcon } from "../ProviderIcon";
+import { TASK_META_TONE_CLASS } from "../tasks/TaskCardPrimitives";
+import { TaskStatusGlyph } from "../tasks/TaskGlyphs";
+import type { TaskMetaTone, TaskStatusKind } from "../tasks/tasks.logic";
 import {
   GitBranchIcon,
   PaperclipIcon,
@@ -30,11 +32,18 @@ import { formatElapsedSpan } from "~/lib/relativeTime";
 import { formatTimeAgo } from "~/lib/timeFormat";
 import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
-import { Badge } from "~/components/ui/badge";
 import { ELEVATED_HOVER_SURFACE_CLASS_NAME } from "../../surfaceStyles";
-import { KANBAN_ATTENTION_LABELS, KANBAN_COLUMN_V2_LABELS } from "@moss/shared/kanban";
-import { KanbanStatusIcon } from "./KanbanStatusIcon";
-import { kanbanThreadCardId, refineAttentionFlagsForLivePr, type KanbanCard } from "./kanban.logic";
+import {
+  KANBAN_ATTENTION_LABELS,
+  KANBAN_COLUMN_V2_LABELS,
+  type KanbanAttentionFlag,
+} from "@moss/shared/kanban";
+import {
+  kanbanThreadCardId,
+  refineAttentionFlagsForLivePr,
+  type KanbanCard,
+  type KanbanColumnKey,
+} from "./kanban.logic";
 
 /** Resolved PR badge per thread from the board root's useThreadPullRequests call. */
 export type KanbanCardPrLookup = ReadonlyMap<ThreadId, ThreadPullRequest>;
@@ -55,34 +64,63 @@ export interface KanbanCardViewProps {
   nowMs?: number;
 }
 
+// The Tasks list's status for what a card's flag, thread or column says.
+const FLAG_STATUS: Record<KanbanAttentionFlag, TaskStatusKind> = {
+  failed: "stopped",
+  stuck: "stopped",
+  "awaiting-approval": "needs",
+  "awaiting-input": "needs",
+  "needs-review": "review",
+};
+
+// Thread statuses that only restate the column: "Working"/"Connecting" are In Progress,
+// "Completed" is Done.
+const REDUNDANT_COLUMN_PILL_LABELS = new Set<ThreadStatusPill["label"]>([
+  "Working",
+  "Connecting",
+  "Completed",
+]);
+
+const PILL_STATUS: Partial<Record<ThreadStatusPill["label"], TaskStatusKind>> = {
+  "Pending Approval": "needs",
+  "Awaiting Input": "needs",
+  Reminder: "needs",
+  "Plan Ready": "review",
+  "In Background": "running",
+  "Preparing worktree": "starting",
+};
+
+const COLUMN_STATUS: Record<KanbanColumnKey, TaskStatusKind> = {
+  draft: "todo",
+  inProgress: "running",
+  awaitingYou: "needs",
+  done: "done",
+};
+
+// The word's tone, as the Tasks list tints the same status.
+const STATUS_TONE: Partial<Record<TaskStatusKind, TaskMetaTone>> = {
+  needs: "attention",
+  review: "review",
+  stopped: "failure",
+};
+
 /**
- * At-a-glance status tag. Terminal-first threads get a dedicated "Terminal" tag —
- * an idle terminal is not a draft, so column status would be misleading.
+ * The card's one status (WALK-12 N12-6: a waiting card showed its thread pill, an attention
+ * badge and its column, all saying the same thing). What the card needs from the person
+ * comes first (failed, awaiting approval…), then what its thread is doing when the column
+ * does not already say it, then the column itself. Terminal-first threads read "Terminal":
+ * an idle terminal is not a draft.
  */
-function KanbanCardColumnLabel({ card }: { card: KanbanCard }) {
-  if (card.isTerminal) {
-    return (
-      <span className="flex shrink-0 items-center gap-1 text-ui-xs text-muted-foreground">
-        <TerminalIcon className="size-3 shrink-0" aria-hidden />
-        Terminal
-      </span>
-    );
+function resolveKanbanCardStatus(
+  card: KanbanCard,
+  pr: ReturnType<typeof resolveThreadPullRequestFallback> | null,
+): { label: string; kind: TaskStatusKind } {
+  // An explicit `null` PR means live resolution settled with no open PR (drop
+  // needs-review); `undefined` means the row has not resolved yet (keep the seeded flag).
+  const flag = refineAttentionFlagsForLivePr(card.attention, pr === null ? null : pr?.state)[0];
+  if (flag) {
+    return { label: KANBAN_ATTENTION_LABELS[flag], kind: FLAG_STATUS[flag] };
   }
-  return (
-    <span className="flex shrink-0 items-center gap-1 text-ui-xs text-muted-foreground">
-      <KanbanStatusIcon column={card.column} className="size-3" />
-      {KANBAN_COLUMN_V2_LABELS[card.column]}
-    </span>
-  );
-}
-
-// Pills that merely restate the card's column add nothing, so we drop them and
-// let the column label speak: "Working"/"Connecting" duplicate the "In Progress"
-// column, and "Completed" duplicates "Done". Distinct, actionable states
-// (Pending Approval, Awaiting Input, Plan Ready) still surface as pills.
-const REDUNDANT_COLUMN_PILL_LABELS = new Set(["Working", "Connecting", "Completed"]);
-
-function KanbanCardStatusPill({ card }: { card: KanbanCard }) {
   const pill = card.thread
     ? resolveThreadStatusPill({
         thread: card.thread,
@@ -90,55 +128,39 @@ function KanbanCardStatusPill({ card }: { card: KanbanCard }) {
         hasPendingUserInput: card.thread.hasPendingUserInput,
       })
     : null;
-  if (!pill || REDUNDANT_COLUMN_PILL_LABELS.has(pill.label)) {
-    return null;
+  if (pill && !REDUNDANT_COLUMN_PILL_LABELS.has(pill.label)) {
+    return { label: pill.label, kind: PILL_STATUS[pill.label] ?? COLUMN_STATUS[card.column] };
   }
-  return <ThreadStatusPillChip pill={pill} />;
+  return {
+    label: card.isTerminal ? "Terminal" : KANBAN_COLUMN_V2_LABELS[card.column],
+    kind: COLUMN_STATUS[card.column],
+  };
 }
 
-/**
- * v2-path red attention pills. Failed and stuck render their label so the card is
- * never a silent normal card (D1); awaiting-approval/awaiting-input/needs-review
- * also carry their pill flags. A card can carry more than one flag (stuck +
- * needs-review), so up to two pills render — kept compact, never a wall of red.
- * Classic cards never set `attention`, so this stays empty for the 3-column
- * escape hatch.
- */
-function KanbanCardAttentionPill({
+/** The card's one status: the Tasks list's glyph and word, in the list's tones. */
+function KanbanCardStatus({
   card,
   pr,
 }: {
   card: KanbanCard;
   pr: ReturnType<typeof resolveThreadPullRequestFallback> | null;
 }) {
-  if (!card.attention || card.attention.length === 0) {
-    return null;
-  }
-  // Preserve the resolved-empty vs not-yet-resolved distinction: an explicit
-  // `null` PR means live resolution settled with no open PR (drop needs-review),
-  // while `undefined` means the row has not resolved yet (keep the initial pill).
-  // Refinement operates on raw flags (`card.attention`); display copy is mapped
-  // after, so the comparison never drifts from the flag set.
-  const refinedFlags = refineAttentionFlagsForLivePr(
-    card.attention,
-    pr === null ? null : pr?.state,
-  );
-  // Tone follows what the pill actually renders — a refined-out needs-review can
-  // never hide a failed/stuck flag behind a red pill (M1). Up to two labels.
-  const visibleFlags = refinedFlags.slice(0, 2);
-  // The standard's badge: colour 8% under the same colour's text; red for failed or stuck,
-  // amber for what waits on the person.
-  const variant = visibleFlags.some((flag) => flag === "failed" || flag === "stuck")
-    ? "error"
-    : "warning";
+  const status = resolveKanbanCardStatus(card, pr);
   return (
-    <>
-      {visibleFlags.map((flag) => (
-        <Badge key={flag} variant={variant}>
-          {KANBAN_ATTENTION_LABELS[flag]}
-        </Badge>
-      ))}
-    </>
+    <span
+      data-kanban-card-status=""
+      className={cn(
+        "flex shrink-0 items-center gap-1 text-ui-xs",
+        TASK_META_TONE_CLASS[STATUS_TONE[status.kind] ?? "muted"],
+      )}
+    >
+      {card.isTerminal ? (
+        <TerminalIcon className="size-3 shrink-0" aria-hidden />
+      ) : (
+        <TaskStatusGlyph kind={status.kind} className="size-3" />
+      )}
+      {status.label}
+    </span>
   );
 }
 
@@ -250,38 +272,25 @@ function KanbanCardViewComponent({
           <PaperclipIcon className="size-3 shrink-0 text-muted-foreground/70" aria-hidden />
         ) : null}
         <span className="ml-auto flex min-w-0 shrink-0 items-center gap-ui-gap-xs">
+          {activeWorkElapsed ? (
+            <span className="shrink-0 text-ui-xs text-muted-foreground">
+              Worked for {activeWorkElapsed}
+            </span>
+          ) : card.timestamp && !card.isOptimisticDispatch ? (
+            <span className="shrink-0 text-ui-xs text-muted-foreground">
+              {formatTimeAgo(card.timestamp, { locale, now: nowMs })}
+            </span>
+          ) : null}
           {card.isOptimisticDispatch ? (
-            // Optimistically In Progress — the thread's real status (Draft/Completed)
-            // would contradict the column until the first runtime signal arrives.
-            <>
-              <span className="flex shrink-0 items-center gap-1 text-ui-xs text-info-foreground">
-                <Spinner className="size-3 shrink-0" aria-hidden />
-                Starting…
-              </span>
-              {activeWorkElapsed ? (
-                <span className="shrink-0 text-ui-xs text-muted-foreground">
-                  Worked for {activeWorkElapsed}
-                </span>
-              ) : null}
-            </>
+            // Optimistically In Progress: the thread's real status (Draft/Completed) would
+            // contradict the column until the first runtime signal arrives.
+            <span className="flex shrink-0 items-center gap-1 text-ui-xs text-info-foreground">
+              <Spinner className="size-3 shrink-0" aria-hidden />
+              Starting…
+            </span>
           ) : (
-            <>
-              <KanbanCardStatusPill card={card} />
-              {card.attention && card.attention.length > 0 ? (
-                <KanbanCardAttentionPill card={card} pr={pr} />
-              ) : null}
-              {activeWorkElapsed ? (
-                <span className="shrink-0 text-ui-xs text-muted-foreground">
-                  Worked for {activeWorkElapsed}
-                </span>
-              ) : card.timestamp ? (
-                <span className="shrink-0 text-ui-xs text-muted-foreground">
-                  {formatTimeAgo(card.timestamp, { locale, now: nowMs })}
-                </span>
-              ) : null}
-            </>
+            <KanbanCardStatus card={card} pr={pr} />
           )}
-          <KanbanCardColumnLabel card={card} />
         </span>
       </span>
     </HitArea>
