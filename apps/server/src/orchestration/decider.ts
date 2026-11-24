@@ -1620,6 +1620,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           subagentNickname: command.subagentNickname,
           subagentRole: command.subagentRole,
           forkSourceThreadId: null,
+          // An item panel's warm-up chat: not listed until something is sent in it (WALK-1 S-6).
+          ...(command.listedAfterFirstSend === true ? { listedAfterFirstSend: true } : {}),
           // A standalone sidechat starts its inactivity clock at creation, like a forked one.
           ...(sidechatContext !== null
             ? {

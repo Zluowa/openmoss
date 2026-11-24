@@ -233,6 +233,7 @@ import Migration0168 from "./Migrations/168_PageItemKindsOpen.ts";
 import Migration0169 from "./Migrations/169_PageDocStyleAndTextComments.ts";
 import Migration0170 from "./Migrations/170_ProjectionThreadsPullRequestLinks.ts";
 import Migration0171 from "./Migrations/171_PageAssistantThread.ts";
+import Migration0172 from "./Migrations/172_ProjectionThreadsListedAfterFirstSend.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -418,6 +419,7 @@ export const migrationEntries = [
   [169, "PageDocStyleAndTextComments", Migration0169],
   [170, "ProjectionThreadsPullRequestLinks", Migration0170],
   [171, "PageAssistantThread", Migration0171],
+  [172, "ProjectionThreadsListedAfterFirstSend", Migration0172],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -476,6 +478,10 @@ export const MIGRATIONS_OLDER_READERS_MAY_IGNORE: ReadonlyArray<readonly [number
   // `lastKnownPr` the older build changed (see `resolveStoredPullRequestLinks`).
   [170, "ProjectionThreadsPullRequestLinks"],
   [171, "PageAssistantThread"],
+  // A new nullable `listed_after_first_send`, no backfill (null: listed as before). It rides on
+  // `thread.created` as an optional field older decoders drop; older builds upsert threads by
+  // named columns and never touch it, and the newer upsert keeps the value set at creation.
+  [172, "ProjectionThreadsListedAfterFirstSend"],
 ];
 
 /**

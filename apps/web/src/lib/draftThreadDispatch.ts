@@ -254,6 +254,8 @@ function promoteDraftThread(args: {
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   createdAt: string;
+  /** Made before anything is sent: not listed until its first send (WALK-1 S-6). */
+  listedAfterFirstSend?: true;
 }) {
   const { api, input } = args;
   const composerStore = useComposerDraftStore.getState();
@@ -289,6 +291,7 @@ function promoteDraftThread(args: {
       // thread is created by this dispatch, so use the same send timestamp as
       // the first turn instead of carrying the draft's idle time into sorting.
       createdAt: args.createdAt,
+      ...(args.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     },
     api,
   );
@@ -298,6 +301,7 @@ function promoteDraftThread(args: {
  * Creates the durable thread for a local draft without sending anything, so its
  * agent can start before the first message. Resolves to false when Moss could not
  * create it; the draft then stays local and a later dispatch creates it as usual.
+ * The thread is marked so it is listed nowhere until something is sent in it (WALK-1 S-6).
  */
 export async function createDraftThreadWithoutTurn(input: {
   threadId: ThreadId;
@@ -326,6 +330,7 @@ export async function createDraftThreadWithoutTurn(input: {
       draftThread?.interactionMode ??
       DEFAULT_INTERACTION_MODE,
     createdAt: new Date().toISOString(),
+    listedAfterFirstSend: true,
   });
   return promotion !== "unavailable";
 }

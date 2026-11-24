@@ -2,6 +2,7 @@
 // Purpose: Stable Zustand selectors for entity lookups and lightweight sidebar projections.
 // Exports: Selector factories used by routes and sidebar-heavy components.
 
+import { chatThreadIsListed } from "@moss/shared/chatThreads";
 import { isRoomProjectThread, roomProjectIdsOf } from "./lib/mossbotRoomThreads";
 import type { ProjectId, ThreadEnvironmentMode, ThreadId } from "@moss/contracts";
 import { isAutomationRunThread } from "@moss/shared/automationMode";
@@ -578,6 +579,9 @@ export function isSidebarThreadVisible(
 ): boolean {
   // Sidechats live in their host's dock (a thread's, or the inbox's for standalone ones).
   if (isSidechatThread(thread)) return false;
+  // An item panel's warm-up chat is listed once something is sent in it (WALK-1 S-6); the phone
+  // applies the same rule.
+  if (!chatThreadIsListed(thread)) return false;
   if (thread.snoozedUntil != null && !options?.includeSnoozed) return false;
   if (!options?.hideAutomationRunThreads) return true;
   if (thread.isPinned) return true;

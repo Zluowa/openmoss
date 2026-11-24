@@ -3223,6 +3223,104 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("keeps a new chat named before its first send as a sidebar row (#863 review, WALK-1 S-6)", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-named-draft-test" as MessageId,
+        targetText: "named draft test",
+      }),
+      configureFixture: (nextFixture) => {
+        nextFixture.serverConfig = {
+          ...nextFixture.serverConfig,
+          keybindings: [
+            {
+              command: "chat.new",
+              shortcut: {
+                key: "o",
+                metaKey: false,
+                ctrlKey: false,
+                shiftKey: true,
+                altKey: false,
+                modKey: true,
+              },
+              whenAst: {
+                type: "not",
+                node: { type: "identifier", name: "terminalFocus" },
+              },
+            },
+          ],
+        };
+      },
+    });
+
+    try {
+      await waitForServerConfigToApply();
+      const composerEditor = await waitForComposerEditor();
+      composerEditor.focus();
+      await waitForLayout();
+      const draftPath = await triggerChatNewShortcutUntilPath(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to a new draft thread UUID from the shortcut.",
+      );
+      const draftId = draftPath.slice(1) as ThreadId;
+
+      // The person names the new chat before sending anything: double-click its title.
+      const title = await waitForElement(
+        () => document.querySelector<HTMLElement>("h2[title]"),
+        "Unable to find the new chat's title.",
+      );
+      title.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+      const input = page.getByRole("textbox", { name: /name/i });
+      await input.fill("周报草稿");
+      await userEvent.keyboard("{Enter}");
+
+      // Naming creates the chat on the server, unmarked: it is not an item panel's warm-up chat.
+      const createCommand = await vi.waitFor(
+        () => {
+          const request = wsRequests.find(
+            (candidate) =>
+              candidate._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              typeof candidate.command === "object" &&
+              candidate.command !== null &&
+              "type" in candidate.command &&
+              "threadId" in candidate.command &&
+              candidate.command.type === "thread.create" &&
+              candidate.command.threadId === draftId,
+          );
+          expect(request).toBeDefined();
+          return request!.command as Record<string, unknown>;
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+      expect(createCommand.title).toBe("周报草稿");
+      expect(createCommand).not.toHaveProperty("listedAfterFirstSend");
+
+      // The server's thread, as that command makes it: no turn, the person's title.
+      const withThread = addThreadToSnapshot(fixture.snapshot, draftId);
+      useStore.getState().syncServerReadModel({
+        ...withThread,
+        threads: withThread.threads.map((thread) =>
+          thread.id === draftId ? { ...thread, title: "周报草稿" } : thread,
+        ),
+      });
+      useComposerDraftStore.getState().clearDraftThread(draftId);
+
+      await vi.waitFor(
+        () => {
+          const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-thread-item]"));
+          expect(rows.some((row) => row.textContent?.includes("周报草稿"))).toBe(true);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+    }
+  });
+
   it("promotes a stored terminal draft using its saved context and model selection", async () => {
     const restoreNativeApi = installDeterministicSendNativeApi();
     const draftThreadId = ThreadId.makeUnsafe("thread-terminal-draft-reuse");

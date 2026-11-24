@@ -118,6 +118,7 @@ function toThreadShell(thread: Thread): ThreadShell {
     sidechatContext: thread.sidechatContext ?? null,
     sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: thread.sidechatExpiredAt ?? null,
+    ...(thread.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     lastKnownPr: thread.lastKnownPr ?? null,
     pullRequests: thread.pullRequests ?? [],
     handoff: thread.handoff ?? null,
@@ -392,6 +393,7 @@ function sidebarThreadSummariesEqual(
     (left.sidechatContext?.url ?? null) === (right.sidechatContext?.url ?? null) &&
     (left.sidechatLastActivityAt ?? null) === (right.sidechatLastActivityAt ?? null) &&
     (left.sidechatExpiredAt ?? null) === (right.sidechatExpiredAt ?? null) &&
+    (left.listedAfterFirstSend ?? null) === (right.listedAfterFirstSend ?? null) &&
     deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
     deepEqualJson(left.pullRequests ?? [], right.pullRequests ?? []) &&
     (left.handoff ?? null) === (right.handoff ?? null) &&
@@ -446,6 +448,7 @@ function buildSidebarThreadSummary(
     sidechatContext: thread.sidechatContext ?? null,
     sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: thread.sidechatExpiredAt ?? null,
+    ...(thread.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     lastKnownPr: thread.lastKnownPr ?? null,
     pullRequests: thread.pullRequests ?? [],
     handoff: thread.handoff ?? null,

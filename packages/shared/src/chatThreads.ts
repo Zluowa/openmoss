@@ -1,9 +1,25 @@
 // FILE: chatThreads.ts
 // Purpose: Shared chat-thread title helpers used by web and server flows.
 // Layer: Shared util
-// Exports: generic title checks plus fallback/generated title sanitizers
+// Exports: generic title checks plus fallback/generated title sanitizers; the listed-chat rule
 
 export const GENERIC_CHAT_THREAD_TITLE = "New thread";
+
+/**
+ * Whether a chat is listed (desktop sidebar, search, recents, the phone's list). A chat made
+ * before anything was sent so its agent could warm up (an item's 问 Moss panel) carries
+ * `listedAfterFirstSend` and shows nowhere until something is sent in it (WALK-1 S-6). Every
+ * other chat, including a terminal-first one or a new chat named before its first send, is
+ * listed as before. Nothing is deleted; the rule only decides what is listed.
+ */
+export function chatThreadIsListed(thread: {
+  readonly latestTurn: unknown;
+  readonly latestUserMessageAt?: string | null | undefined;
+  readonly listedAfterFirstSend?: boolean | null | undefined;
+}): boolean {
+  if (thread.listedAfterFirstSend !== true) return true;
+  return thread.latestTurn != null || thread.latestUserMessageAt != null;
+}
 const MAX_CHAT_THREAD_TITLE_LENGTH = 60;
 export const THREAD_TITLE_CONTEXT_MAX_CHARS = 8_000;
 export const THREAD_TITLE_CONTEXT_MAX_MESSAGES = 12;

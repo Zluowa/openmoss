@@ -236,7 +236,7 @@ const CUSTOM_DEFAULT_ORDER = [
   BASE_ORDER[5],
 ];
 
-function makeThread(id: ThreadId, title: string, isPinned: boolean) {
+function makeThread(id: ThreadId, title: string, isPinned: boolean, warmUp = false) {
   return {
     id,
     projectId: PROJECT_ID,
@@ -267,6 +267,8 @@ function makeThread(id: ThreadId, title: string, isPinned: boolean) {
     lastKnownPr: null,
     latestTurn: null,
     latestUserMessageAt: null,
+    // An item panel's chat made before anything was sent (WALK-1 S-6).
+    ...(warmUp ? { listedAfterFirstSend: true } : {}),
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
@@ -286,6 +288,8 @@ const THREADS = [
   makeThread(DELTA, "Delta", false),
   makeThread(ECHO, "Echo", false),
   makeThread(FOXTROT, "Foxtrot", false),
+  // An item's 问 Moss panel opened, nothing sent: never a sidebar row.
+  makeThread("thread-opened-not-sent" as ThreadId, "未命名文档", false, true),
 ];
 
 function makeSnapshot(
@@ -937,5 +941,15 @@ describe("SidebarThreadPlacementDnd production receipt matrix", () => {
     await expect.poll(() => screen.boundary.calls).toBe(2);
     await capture(SCREENSHOTS.reducedUndo);
     await screen.cleanup();
+  });
+
+  it("WALK-1 S-6: an item's 问 Moss chat nothing was sent in is not a sidebar row", async () => {
+    const screen = await renderReceipt("same-custom", "light");
+    try {
+      await expect.element(page.getByText("Bravo", { exact: true }).first()).toBeVisible();
+      expect(page.getByText("未命名文档", { exact: true }).elements()).toHaveLength(0);
+    } finally {
+      await screen.cleanup();
+    }
   });
 });

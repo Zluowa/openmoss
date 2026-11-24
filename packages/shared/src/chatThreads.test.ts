@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildPromptThreadTitleFallback,
+  chatThreadIsListed,
   formatCodexChatThreadTitle,
   buildThreadTitleConversationContext,
   GENERIC_CHAT_THREAD_TITLE,
@@ -155,5 +156,22 @@ describe("chatThreads", () => {
       }),
     ).toBe("0903｜研究｜PR #42 review");
     expect(isStructuredCodexChatThreadTitle("0903｜研究｜PR #42 review")).toBe(true);
+  });
+});
+
+describe("chatThreadIsListed", () => {
+  it("hides an item panel's warm-up chat until something is sent in it", () => {
+    const warmUp = { latestTurn: null, latestUserMessageAt: null, listedAfterFirstSend: true };
+    expect(chatThreadIsListed(warmUp)).toBe(false);
+    expect(chatThreadIsListed({ ...warmUp, latestUserMessageAt: "2026-11-24T00:00:00Z" })).toBe(
+      true,
+    );
+    expect(chatThreadIsListed({ ...warmUp, latestTurn: { turnId: "t" } })).toBe(true);
+  });
+
+  it("lists every other chat with no turn as before (terminal-first, named before sending)", () => {
+    expect(chatThreadIsListed({ latestTurn: null, latestUserMessageAt: null })).toBe(true);
+    expect(chatThreadIsListed({ latestTurn: null, listedAfterFirstSend: null })).toBe(true);
+    expect(chatThreadIsListed({ latestTurn: null, listedAfterFirstSend: false })).toBe(true);
   });
 });

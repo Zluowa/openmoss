@@ -272,6 +272,8 @@ export interface Thread extends ThreadWorkspaceState {
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
   sidechatExpiredAt?: string | null;
+  /** An item panel's chat made before anything was sent: listed only after its first send. */
+  listedAfterFirstSend?: boolean | null;
   handoff?: ThreadHandoff | null;
   claudeCacheReview?: PendingClaudeCacheReview | null;
   /** Client projection cursor shared by shell and detail cache-review updates. */
@@ -332,6 +334,8 @@ export interface ThreadShell extends ThreadWorkspaceState {
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
   sidechatExpiredAt?: string | null;
+  /** An item panel's chat made before anything was sent: listed only after its first send. */
+  listedAfterFirstSend?: boolean | null;
   handoff?: ThreadHandoff | null;
   claudeCacheReview?: PendingClaudeCacheReview | null;
   claudeCacheReviewSequence?: number;
@@ -400,6 +404,8 @@ export interface SidebarThreadSummary {
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
   sidechatExpiredAt?: string | null;
+  /** An item panel's chat made before anything was sent: listed only after its first send. */
+  listedAfterFirstSend?: boolean | null;
   handoff?: ThreadHandoff | null;
   lastKnownPr?: OrchestrationThreadPullRequest | null;
   pullRequests?: ReadonlyArray<OrchestrationThreadPullRequestLink>;

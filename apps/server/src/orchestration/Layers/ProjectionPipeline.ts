@@ -620,6 +620,7 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
             sidechatContext: event.payload.sidechatContext,
             sidechatLastActivityAt: event.payload.sidechatLastActivityAt,
             sidechatExpiredAt: event.payload.sidechatExpiredAt,
+            listedAfterFirstSend: event.payload.listedAfterFirstSend === true ? true : null,
             lastKnownPr: event.payload.lastKnownPr ?? null,
             pullRequests:
               pullRequestLinksFromEventPayload(event.payload, event.payload.createdAt) ?? [],

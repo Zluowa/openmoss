@@ -82,6 +82,10 @@ export const ProjectionThread = Schema.Struct({
   sidechatExpiredAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
+  // An item panel's warm-up chat, listed only after its first send (migration 172, WALK-1 S-6).
+  listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   lastKnownPr: Schema.NullOr(OrchestrationThreadPullRequest),
   // Omission or null preserves the stored links on upsert; null on read means the row predates
   // links or holds links this build cannot decode (readers fall back to `lastKnownPr`).

@@ -34,6 +34,9 @@ const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     createBranchFlowCompleted: SqliteBoolean,
     isPinned: SqliteBoolean,
+    listedAfterFirstSend: Schema.optional(Schema.NullOr(SqliteBoolean)).pipe(
+      Schema.withDecodingDefault(() => null),
+    ),
     handoff: Schema.NullOr(Schema.fromJsonString(ThreadHandoff)),
     claudeCacheReview: Schema.optional(
       Schema.NullOr(Schema.fromJsonString(PendingClaudeCacheReview)),
@@ -88,6 +91,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json,
           sidechat_last_activity_at,
           sidechat_expired_at,
+          listed_after_first_send,
           last_known_pr_json,
           pull_requests_json,
           latest_turn_id,
@@ -143,6 +147,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.sidechatContext == null ? null : JSON.stringify(row.sidechatContext)},
           ${row.sidechatLastActivityAt ?? null},
           ${row.sidechatExpiredAt ?? null},
+          ${row.listedAfterFirstSend == null ? null : row.listedAfterFirstSend ? 1 : 0},
           ${row.lastKnownPr === null ? null : JSON.stringify(row.lastKnownPr)},
           ${row.pullRequests == null ? null : JSON.stringify(row.pullRequests)},
           ${row.latestTurnId},
@@ -198,6 +203,11 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json = excluded.sidechat_context_json,
           sidechat_last_activity_at = excluded.sidechat_last_activity_at,
           sidechat_expired_at = excluded.sidechat_expired_at,
+          -- Set at creation only: an upsert never clears it (an older build's row carries none).
+          listed_after_first_send = COALESCE(
+            projection_threads.listed_after_first_send,
+            excluded.listed_after_first_send
+          ),
           last_known_pr_json = excluded.last_known_pr_json,
           pull_requests_json = CASE
             WHEN ${row.pullRequests == null ? 1 : 0} = 1
@@ -271,6 +281,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json AS "sidechatContext",
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
+          listed_after_first_send AS "listedAfterFirstSend",
           last_known_pr_json AS "lastKnownPr",
           pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",
@@ -335,6 +346,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json AS "sidechatContext",
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
+          listed_after_first_send AS "listedAfterFirstSend",
           last_known_pr_json AS "lastKnownPr",
           pull_requests_json AS "pullRequests",
           latest_turn_id AS "latestTurnId",

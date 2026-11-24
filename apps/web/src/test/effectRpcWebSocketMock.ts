@@ -273,6 +273,7 @@ export function createShellSnapshotFromReadModel(
         sidechatContext: thread.sidechatContext ?? null,
         sidechatLastActivityAt: thread.sidechatLastActivityAt ?? null,
         sidechatExpiredAt: thread.sidechatExpiredAt ?? null,
+        ...(thread.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
         latestTurn: thread.latestTurn,
         latestUserMessageAt: thread.latestUserMessageAt ?? null,
         hasPendingApprovals: thread.hasPendingApprovals ?? false,

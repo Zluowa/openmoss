@@ -206,6 +206,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.sidechatContext?.url ?? null) === (right.sidechatContext?.url ?? null) &&
     (left.sidechatLastActivityAt ?? null) === (right.sidechatLastActivityAt ?? null) &&
     (left.sidechatExpiredAt ?? null) === (right.sidechatExpiredAt ?? null) &&
+    (left.listedAfterFirstSend ?? null) === (right.listedAfterFirstSend ?? null) &&
     deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
     deepEqualJson(left.pullRequests ?? [], right.pullRequests ?? []) &&
     (left.handoff ?? null) === (right.handoff ?? null) &&
@@ -1970,6 +1971,7 @@ export function normalizeThreadFromReadModel(
     (previous.sidechatContext?.url ?? null) === (incoming.sidechatContext?.url ?? null) &&
     (previous.sidechatLastActivityAt ?? null) === (incoming.sidechatLastActivityAt ?? null) &&
     (previous.sidechatExpiredAt ?? null) === (incoming.sidechatExpiredAt ?? null) &&
+    (previous.listedAfterFirstSend ?? null) === (incoming.listedAfterFirstSend ?? null) &&
     deepEqualJson(previous.lastKnownPr ?? null, lastKnownPr) &&
     (previous.handoff ?? null) === handoff &&
     (previous.isProjectImport ?? false) === (incoming.isProjectImport ?? false) &&
@@ -2032,6 +2034,7 @@ export function normalizeThreadFromReadModel(
     sidechatContext: incoming.sidechatContext ?? null,
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: incoming.sidechatExpiredAt ?? null,
+    ...(incoming.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     lastKnownPr,
     pullRequests,
     handoff,
@@ -2189,6 +2192,7 @@ export function normalizeThreadShellSnapshot(
     sidechatContext: incoming.sidechatContext ?? null,
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: incoming.sidechatExpiredAt ?? null,
+    ...(incoming.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     lastKnownPr,
     pullRequests,
     handoff,

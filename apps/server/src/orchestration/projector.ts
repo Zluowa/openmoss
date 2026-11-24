@@ -1573,6 +1573,7 @@ export function projectEvent(
             sidechatContext: payload.sidechatContext,
             sidechatLastActivityAt: payload.sidechatLastActivityAt,
             sidechatExpiredAt: payload.sidechatExpiredAt,
+            ...(payload.listedAfterFirstSend === true ? { listedAfterFirstSend: true } : {}),
             lastKnownPr: payload.lastKnownPr ?? null,
             pullRequests: pullRequestLinksFromEventPayload(payload, payload.createdAt) ?? [],
             latestTurn: null,

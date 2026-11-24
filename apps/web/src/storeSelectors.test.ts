@@ -271,6 +271,31 @@ describe("sidebar thread visibility", () => {
     },
   });
 
+  it("does not list an item panel's chat nothing was sent in, and lists it once the first message is sent", () => {
+    const opened = {
+      ...summaryA,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      listedAfterFirstSend: true,
+    };
+    expect(isSidebarThreadVisible(opened)).toBe(false);
+    const state = makeState({
+      threadIds: [threadIdA],
+      sidebarThreadSummaryById: { [threadIdA]: opened },
+    });
+    expect(createSidebarTreeThreadsSelector()(state)).toEqual([]);
+    const sent = { ...opened, latestUserMessageAt: "2026-01-01T00:01:00.000Z" };
+    expect(isSidebarThreadVisible(sent)).toBe(true);
+  });
+
+  it("keeps listing a terminal-first chat and a chat named before its first send", () => {
+    // Both are server threads with no turn and no mark, as on main (#863 review).
+    const terminalFirst = { ...summaryA, title: "New terminal", latestTurn: null };
+    const namedDraft = { ...summaryA, title: "周报草稿", latestTurn: null };
+    expect(isSidebarThreadVisible(terminalFirst)).toBe(true);
+    expect(isSidebarThreadVisible(namedDraft)).toBe(true);
+  });
+
   it("always hides side chats, including pinned side chats", () => {
     expect(isSidebarThreadVisible(sidechatSummary)).toBe(false);
     const standaloneSidechat = {

@@ -1438,6 +1438,8 @@ export const OrchestrationThread = Schema.Struct({
   sidechatContext: SidechatContextField,
   sidechatLastActivityAt: SidechatLifecycleTimestamp,
   sidechatExpiredAt: SidechatLifecycleTimestamp,
+  /** Made before anything was sent (an item panel's warm-up): listed only after the first send. */
+  listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)),
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -1563,6 +1565,8 @@ export const OrchestrationThreadShell = Schema.Struct({
   sidechatContext: SidechatContextField,
   sidechatLastActivityAt: SidechatLifecycleTimestamp,
   sidechatExpiredAt: SidechatLifecycleTimestamp,
+  /** Made before anything was sent (an item panel's warm-up): listed only after the first send. */
+  listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)),
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
@@ -2016,6 +2020,11 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   /** Makes the thread a standalone sidechat (no source thread). */
   sidechatContext: Schema.optional(ThreadSidechatContext),
+  /**
+   * Made before anything is sent, so its agent warms up (an item's 问 Moss panel): not listed
+   * until something is sent in it (WALK-1 S-6). Absent for every other thread.
+   */
+  listedAfterFirstSend: Schema.optional(Schema.Boolean),
   createdAt: IsoDateTime,
 });
 
@@ -3148,6 +3157,8 @@ export const ThreadCreatedPayload = Schema.Struct({
   sidechatContext: SidechatContextField,
   sidechatLastActivityAt: SidechatLifecycleTimestamp,
   sidechatExpiredAt: SidechatLifecycleTimestamp,
+  /** Made before anything was sent (an item panel's warm-up): listed only after the first send. */
+  listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)),
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
