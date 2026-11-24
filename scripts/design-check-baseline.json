@@ -364,8 +364,7 @@
     "raw-button": 1
   },
   "apps/web/src/components/chat/MossControlPlanePanel.tsx": {
-    "raw-button": 2,
-    "native-title": 1,
+    "raw-button": 1,
     "hand-spinner": 2
   },
   "apps/web/src/components/chat/mossNormalizedTimeline.tsx": {

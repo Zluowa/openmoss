@@ -45,6 +45,17 @@ interface NormalizedEventSubscriptionRecord {
   closed: boolean;
 }
 
+/** Press a surface tab in the panel's own row (the shared Tabs; no title attribute to find it by). */
+function clickSurface(label: string) {
+  [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      "[role='tablist'][aria-label='Moss control surfaces'] [role='tab']",
+    ),
+  ]
+    .find((tab) => tab.textContent?.trim() === label)
+    ?.click();
+}
+
 function MossControlPlaneSmokeHarness() {
   const featureFlags = useFeatureFlags();
 
@@ -628,7 +639,7 @@ describe("MossControlPlanePanel browser smoke", () => {
 
       expect(nativeApi.getLoopLedgerDashboardSnapshot).not.toHaveBeenCalled();
 
-      document.querySelector<HTMLButtonElement>("[title='Sessions']")?.click();
+      clickSurface("Sessions");
       await vi.waitFor(
         () => {
           expect(document.querySelector("[data-moss-control-plane-sessions]")).toBeTruthy();
@@ -672,7 +683,7 @@ describe("MossControlPlanePanel browser smoke", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      document.querySelector<HTMLButtonElement>("[title='Events']")?.click();
+      clickSurface("Events");
       await vi.waitFor(
         () => {
           const panel = document.querySelector<HTMLElement>("[data-moss-control-plane]");
@@ -709,7 +720,7 @@ describe("MossControlPlanePanel browser smoke", () => {
         expect.any(Function),
       );
 
-      document.querySelector<HTMLButtonElement>("[title='Launch']")?.click();
+      clickSurface("Launch");
       await vi.waitFor(
         () => {
           expect(nativeApi.getLaunchPlan).toHaveBeenCalledWith({ threadId: SECONDARY_THREAD_ID });
@@ -728,7 +739,7 @@ describe("MossControlPlanePanel browser smoke", () => {
         { timeout: 8_000, interval: 16 },
       );
 
-      document.querySelector<HTMLButtonElement>("[title='Ledger']")?.click();
+      clickSurface("Ledger");
       await vi.waitFor(
         () => {
           expect(nativeApi.getLoopLedgerDashboardSnapshot).toHaveBeenCalledWith({
@@ -845,7 +856,7 @@ describe("MossControlPlanePanel browser smoke", () => {
       expect(activeSubscription!.unsubscribe).not.toHaveBeenCalled();
       expect(document.querySelector("[data-chat-composer-form='true']")).toBeTruthy();
 
-      document.querySelector<HTMLButtonElement>("[title='Sessions']")?.click();
+      clickSurface("Sessions");
       await vi.waitFor(
         () => {
           expect(
@@ -867,7 +878,7 @@ describe("MossControlPlanePanel browser smoke", () => {
           `[data-moss-session-list-row][data-thread-id='${String(SECONDARY_THREAD_ID)}']`,
         )
         ?.click();
-      document.querySelector<HTMLButtonElement>("[title='Events']")?.click();
+      clickSurface("Events");
       await vi.waitFor(
         () => {
           expect(
@@ -1444,7 +1455,7 @@ describe("MossControlPlanePanel browser smoke", () => {
 
     const enabled = await render(<MossControlPlaneSmokeHarness />);
     try {
-      document.querySelector<HTMLButtonElement>("[title='Ledger']")?.click();
+      clickSurface("Ledger");
       await vi.waitFor(
         () => {
           expect(nativeApi.getLoopLedgerDashboardSnapshot).toHaveBeenCalledTimes(1);

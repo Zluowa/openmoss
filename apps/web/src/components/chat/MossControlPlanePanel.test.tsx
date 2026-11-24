@@ -119,7 +119,8 @@ describe("MossControlPlanePanel", () => {
     expect(markup).toContain("Moss Control");
     expect(markup).toContain("thread-moss-control-plane-1");
     expect(markup).toContain("Assistant text");
-    expect(markup).toContain('aria-pressed="true"');
+    // The active surface is the selected tab of the shared Tabs.
+    expect(markup).toContain('aria-selected="true"');
     expect(markup).not.toContain("codex.eventmsg");
   });
 

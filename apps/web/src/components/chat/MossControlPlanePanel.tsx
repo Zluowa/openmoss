@@ -34,13 +34,11 @@ import {
   useMossNormalizedSessionEvents,
 } from "./mossNormalizedTimeline";
 import {
-  CHAT_SURFACE_CHIP_CLASS_NAME,
-  CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
   CHAT_SURFACE_HEADER_ROW_CLASS_NAME,
   ChatHeaderIconButton,
   SurfaceChipIcon,
-  SurfaceTabChip,
 } from "./chatHeaderControls";
+import { Tabs } from "../ui/tabs";
 
 export type MossControlPlaneSurface = "sessions" | "events" | "launch-plan" | "ledger";
 
@@ -378,39 +376,27 @@ export function MossNativeShellAccessStrip({
         </span>
         <span className="truncate">{String(threadId)}</span>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-1" aria-label="Moss shell surfaces">
-        {MOSS_CONTROL_PLANE_SURFACES.map((surface) => {
-          const active = activeSurface === surface.id;
-
-          return (
-            <button
-              key={surface.id}
-              type="button"
-              title={surface.label}
-              aria-pressed={active}
-              className={cn(
-                CHAT_SURFACE_CHIP_CLASS_NAME,
-                active && CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
-                "inline-flex min-w-0 items-center pr-2.5",
-              )}
-              data-active-surface={active ? "true" : "false"}
-              data-moss-native-launch-plan-access={
-                surface.id === "launch-plan" ? "true" : undefined
-              }
-              data-moss-native-loop-ledger-access={surface.id === "ledger" ? "true" : undefined}
-              data-moss-native-normalized-event-timeline-access={
-                surface.id === "events" ? "true" : undefined
-              }
-              data-moss-native-session-list-access={surface.id === "sessions" ? "true" : undefined}
-              data-moss-native-shell-surface={surface.id}
-              onClick={() => onSurfaceChange?.(surface.id)}
-            >
-              <SurfaceChipIcon icon={surface.icon} />
-              <span className="truncate">{surface.label}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* A developer surface (behind the off-by-default "Show Moss shell" flag): its words stay. */}
+      <Tabs
+        ariaLabel="Moss shell surfaces"
+        selected={activeSurface}
+        onSelect={(surface) => onSurfaceChange?.(surface)}
+        tabs={MOSS_CONTROL_PLANE_SURFACES.map((surface) => ({
+          id: surface.id,
+          label: surface.label,
+          leading: <SurfaceChipIcon icon={surface.icon} />,
+          dataAttributes: {
+            "data-active-surface": activeSurface === surface.id ? "true" : "false",
+            "data-moss-native-launch-plan-access":
+              surface.id === "launch-plan" ? "true" : undefined,
+            "data-moss-native-loop-ledger-access": surface.id === "ledger" ? "true" : undefined,
+            "data-moss-native-normalized-event-timeline-access":
+              surface.id === "events" ? "true" : undefined,
+            "data-moss-native-session-list-access": surface.id === "sessions" ? "true" : undefined,
+            "data-moss-native-shell-surface": surface.id,
+          },
+        }))}
+      />
     </div>
   );
 }
@@ -1047,19 +1033,18 @@ export function MossControlPlanePanelView({
             <span className="truncate text-ui-xs text-muted-foreground">{threadLabel}</span>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-1" aria-label="Moss control surfaces">
-          {MOSS_CONTROL_PLANE_SURFACES.map((surface) => (
-            <SurfaceTabChip
-              key={surface.id}
-              active={activeSurface === surface.id}
-              icon={<SurfaceChipIcon icon={surface.icon} />}
-              label={surface.label}
-              labelClassName="max-w-[4.5rem]"
-              onSelect={() => onSurfaceChange?.(surface.id)}
-              title={surface.label}
-            />
-          ))}
-        </div>
+        <Tabs
+          ariaLabel="Moss control surfaces"
+          selected={activeSurface}
+          onSelect={(surface) => onSurfaceChange?.(surface)}
+          variant="segmented"
+          className="shrink-0"
+          tabs={MOSS_CONTROL_PLANE_SURFACES.map((surface) => ({
+            id: surface.id,
+            label: surface.label,
+            leading: <SurfaceChipIcon icon={surface.icon} />,
+          }))}
+        />
       </header>
       {sessionSummary}
       {activeSurface === "sessions" ? null : providerSessionListSummary}

@@ -23,6 +23,10 @@ export interface TabItem<TId extends string> {
   readonly trailing?: ReactNode;
   /** The tab's accessible name when it differs from `label` (a short label with its count). */
   readonly accessibleLabel?: string;
+  /** An icon before the label. */
+  readonly leading?: ReactNode;
+  /** `data-*` hooks for tests and agent bridges that find a tab by its own name. */
+  readonly dataAttributes?: Readonly<Record<`data-${string}`, string | undefined>>;
 }
 
 export function Tabs<TId extends string>({
@@ -94,6 +98,7 @@ export function Tabs<TId extends string>({
             role="tab"
             aria-selected={active}
             {...(tab.accessibleLabel ? { "aria-label": tab.accessibleLabel } : {})}
+            {...tab.dataAttributes}
             tabIndex={active ? 0 : -1}
             onClick={() => {
               onSelect(tab.id);
@@ -106,6 +111,15 @@ export function Tabs<TId extends string>({
             )}
             data-slot="tab"
           >
+            {tab.leading != null ? (
+              <span
+                className="flex shrink-0 items-center"
+                data-slot="tab-leading"
+                aria-hidden="true"
+              >
+                {tab.leading}
+              </span>
+            ) : null}
             {tab.label}
             {tab.trailing != null ? (
               <span className="tabular-nums text-muted-foreground/70" data-slot="tab-trailing">
