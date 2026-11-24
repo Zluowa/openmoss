@@ -1,10 +1,11 @@
 // FILE: TaskCardPrimitives.tsx
 // Purpose: The few building blocks the floating task card repeats: the soft "well" that
 //          holds an agent's state or the hand-off prompt, the capsule buttons (a soft one and
-//          the ink one for the main action), the muted label, and the tone colours a task's
+//          the ink one for the main action), the quiet text action, the muted label, and the tone colours a task's
 //          status words use.
 // Layer: Tasks UI component
-// Exports: TaskWell, TaskPillButton, TaskActionButton, TaskCardLabel, TASK_META_TONE_CLASS
+// Exports: TaskWell, TaskPillButton, TaskTextAction, TaskActionButton, TaskCardLabel,
+//          TASK_META_TONE_CLASS
 
 import type { ComponentProps, ReactNode } from "react";
 
@@ -47,6 +48,19 @@ export function TaskPillButton({ className, ...props }: ComponentProps<typeof Bu
         "text-ui-sm text-muted-foreground hover:text-foreground sm:text-ui-sm",
         className,
       )}
+    />
+  );
+}
+
+/** A quiet text action beside the card's buttons (More choices, More options): the shared ghost
+ *  Button at 13 px and the normal weight, muted until hovered. */
+export function TaskTextAction({ className, ...props }: ComponentProps<typeof Button>) {
+  return (
+    <Button
+      variant="ghost"
+      size="xs"
+      {...props}
+      className={cn("font-normal text-muted-foreground", className)}
     />
   );
 }

@@ -58,7 +58,8 @@ describe("dynamic translation boundaries", () => {
       </>,
     );
 
-    expect(markup).toContain('title="Double-click or press F2 to rename"');
+    // The title carries no rename hint (an explanation; 任务与看板 on the shared parts).
+    expect(markup).not.toContain("Double-click or press F2 to rename");
     expect(markup).toContain('<span data-translation-skip="true">Notes</span>');
     expect(markup).toMatch(/title="Urgent"[^>]*data-translation-skip="true"/);
   });

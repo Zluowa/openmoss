@@ -8,6 +8,7 @@
 // Layer: Tasks UI component
 // Exports: TaskHandOff
 
+import { Spinner } from "~/components/ui/spinner";
 import type { Todo, TodoUpdateInput } from "@moss/contracts";
 import { applyClaudePromptEffortPrefix, isClaudeUltrathinkPrompt } from "@moss/shared/model";
 import { useQuery } from "@tanstack/react-query";
@@ -21,12 +22,11 @@ import {
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useScratchComposerDraft } from "~/hooks/useScratchComposerDraft";
 import { useScratchModelCatalog } from "~/hooks/useScratchModelCatalog";
-import { LoaderCircleIcon } from "~/lib/icons";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { cn } from "~/lib/utils";
 import { useComposerDraftStore } from "../../composerDraftStore";
-import { TaskActionButton, TaskCardLabel } from "./TaskCardPrimitives";
+import { TaskActionButton, TaskCardLabel, TaskTextAction } from "./TaskCardPrimitives";
 import { TaskDelegateChatPicker } from "./TaskDelegateChatPicker";
 import { TaskDelegateTargetPicker } from "./TaskDelegateTargetPicker";
 import { buildDelegationPrompt } from "./tasks.logic";
@@ -123,20 +123,18 @@ export function TaskHandOff({
       ) : null}
 
       <div className="flex items-center justify-between gap-2 pt-1">
-        <button
-          type="button"
+        <TaskTextAction
           aria-expanded={showsMore}
           onClick={() => setShowsMore((current) => !current)}
-          className="text-ui-sm text-muted-foreground outline-none hover:text-foreground focus-visible:underline"
         >
           {showsMore ? "Fewer options" : "More options"}
-        </button>
+        </TaskTextAction>
         <TaskActionButton
           disabled={!canStart}
           onClick={() => void handleStart()}
           className={cn("gap-2", isStarting && "cursor-progress")}
         >
-          {isStarting ? <LoaderCircleIcon className="size-4 animate-spin" /> : null}
+          {isStarting ? <Spinner className="size-4" /> : null}
           Start
         </TaskActionButton>
       </div>

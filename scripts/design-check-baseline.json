@@ -662,21 +662,6 @@
   "apps/web/src/components/issueSources/ExternalIssueRows.tsx": {
     "native-title": 1
   },
-  "apps/web/src/components/kanban/KanbanCardView.tsx": {
-    "raw-button": 1,
-    "native-title": 3,
-    "hand-spinner": 1
-  },
-  "apps/web/src/components/kanban/KanbanFilterMenu.tsx": {
-    "hand-status-dot": 1
-  },
-  "apps/web/src/components/kanban/KanbanNewTaskDialog.tsx": {
-    "native-title": 1,
-    "hand-spinner": 1
-  },
-  "apps/web/src/components/kanban/KanbanOverview.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/LocalImagePreview.tsx": {
     "hand-spinner": 1
   },
@@ -1240,24 +1225,8 @@
     "raw-button": 1,
     "hand-tablist": 1
   },
-  "apps/web/src/components/tasks/TaskAgentPanel.tsx": {
-    "raw-button": 1,
-    "native-title": 1
-  },
   "apps/web/src/components/tasks/TaskGlyphs.tsx": {
     "hand-spinner": 1
-  },
-  "apps/web/src/components/tasks/TaskHandOff.tsx": {
-    "raw-button": 1,
-    "hand-spinner": 1
-  },
-  "apps/web/src/components/tasks/TaskListItem.tsx": {
-    "raw-button": 1,
-    "native-title": 1
-  },
-  "apps/web/src/components/tasks/TaskRowTitle.tsx": {
-    "raw-button": 1,
-    "native-title": 1
   },
   "apps/web/src/components/terminal/TerminalActivityIndicator.tsx": {
     "hand-status-dot": 1

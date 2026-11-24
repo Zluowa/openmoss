@@ -8,6 +8,8 @@
 // Layer: Kanban UI component
 // Exports: KanbanNewTaskDialog
 
+import { IconButton } from "~/components/ui/icon-button";
+import { Spinner } from "~/components/ui/spinner";
 import type {
   ProjectId,
   ProviderInteractionMode,
@@ -49,7 +51,6 @@ import {
   COMPOSER_EDITOR_MIN_HEIGHT_CLASS_NAME,
   COMPOSER_EDITOR_TYPOGRAPHY_CLASS_NAME,
 } from "~/components/chat/composerPickerStyles";
-import { Button } from "~/components/ui/button";
 import {
   Dialog,
   DialogHeader,
@@ -64,7 +65,7 @@ import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesFo
 import { useComposerDropzone } from "~/hooks/useComposerDropzone";
 import { toastManager } from "~/components/ui/toast";
 import { useTheme } from "~/hooks/useTheme";
-import { ChevronRightIcon, LoaderCircleIcon, PaperclipIcon } from "~/lib/icons";
+import { ChevronRightIcon, PaperclipIcon } from "~/lib/icons";
 import { formatComposerMentionToken } from "~/lib/composerMentions";
 import { findProviderStatus, resolveVoiceTranscriptionTarget } from "~/lib/providerAvailability";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
@@ -559,7 +560,7 @@ export function KanbanNewTaskDialog({
                 className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground"
                 role="status"
               >
-                <LoaderCircleIcon className="size-4 animate-spin" />
+                <Spinner className="size-4" />
                 {`Optimizing ${pendingImageCount === 1 ? "image" : "images"}…`}
               </div>
             ) : null}
@@ -672,17 +673,16 @@ export function KanbanNewTaskDialog({
                 onChange={onFileInputChange}
               />
               {!isVoiceActive ? (
-                <Button
-                  type="button"
+                <IconButton
                   size="icon-sm"
                   variant="ghost"
                   className="mr-1 shrink-0 text-muted-foreground/70 hover:text-foreground"
-                  aria-label="Attach images"
-                  title="Attach images"
+                  label="Attach images"
+                  tooltip="Attach images"
                   onClick={() => fileInputRef.current?.click()}
                 >
                   <PaperclipIcon className="size-4" />
-                </Button>
+                </IconButton>
               ) : null}
               {!isVoiceActive && voice.showVoiceNotesControl ? (
                 <ComposerVoiceButton

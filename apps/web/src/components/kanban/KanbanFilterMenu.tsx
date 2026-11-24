@@ -8,7 +8,8 @@
 import { FilterIcon } from "~/lib/icons";
 import { useKanbanUiStore } from "../../kanbanUiStore";
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
-import { Button } from "../ui/button";
+import { IconButton } from "../ui/icon-button";
+import { StatusDot } from "../ui/status-chip";
 import { Menu, MenuCheckboxItem, MenuTrigger } from "../ui/menu";
 
 export function KanbanFilterMenu() {
@@ -18,24 +19,24 @@ export function KanbanFilterMenu() {
     <Menu>
       <MenuTrigger
         render={
-          <Button
+          <IconButton
             variant="ghost"
             size="icon-sm"
-            aria-label="Filter"
-            title="Filter"
+            label="Filter"
+            tooltip="Filter"
             data-active={needsReviewEnabled || undefined}
             className="relative text-muted-foreground hover:text-foreground data-active:text-foreground"
-          />
+          >
+            <FilterIcon />
+            {needsReviewEnabled ? (
+              <StatusDot
+                aria-hidden
+                className="absolute top-1 right-1 bg-[var(--color-text-accent)]"
+              />
+            ) : null}
+          </IconButton>
         }
-      >
-        <FilterIcon />
-        {needsReviewEnabled ? (
-          <span
-            aria-hidden
-            className="absolute top-1 right-1 size-1.5 rounded-full bg-[var(--color-text-accent)]"
-          />
-        ) : null}
-      </MenuTrigger>
+      />
       <ComposerPickerMenuPopup align="end">
         <MenuCheckboxItem
           checked={needsReviewEnabled}

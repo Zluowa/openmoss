@@ -5,6 +5,8 @@
 // Layer: UI component (read-only; drag & drop lives in the project board)
 // Exports: KanbanOverview
 
+import { IconButton } from "~/components/ui/icon-button";
+import { HitArea } from "~/components/ui/hit-area";
 import type { ProjectId } from "@moss/contracts";
 import { Button } from "~/components/ui/button";
 import { ChevronRightIcon, PlusIcon } from "~/lib/icons";
@@ -50,8 +52,7 @@ const OverviewProjectColumn = function OverviewProjectColumn({
       style={{ flex: `${overviewColumnWeight(visibleCards.length)} 1 18rem` }}
     >
       <div className="flex shrink-0 items-center gap-ui-gap-xs">
-        <button
-          type="button"
+        <HitArea
           onClick={() => onOpenProject(projectBoard.projectId)}
           className={cn(
             "group/kanban-project",
@@ -67,17 +68,17 @@ const OverviewProjectColumn = function OverviewProjectColumn({
             {projectBoard.totalCount}
           </span>
           <ChevronRightIcon className="ml-auto size-4 shrink-0 text-muted-foreground/50 opacity-0 transition-opacity group-hover/kanban-project:opacity-100 group-focus-visible/kanban-project:opacity-100" />
-        </button>
-        <Button
+        </HitArea>
+        <IconButton
           size="icon-xs"
           variant="ghost"
           className="shrink-0"
-          aria-label={`New task in ${projectBoard.projectName}`}
-          title={`New task in ${projectBoard.projectName}`}
+          label={`New task in ${projectBoard.projectName}`}
+          tooltip={`New task in ${projectBoard.projectName}`}
           onClick={() => onNewTask(projectBoard.projectId)}
         >
           <PlusIcon className="size-4" />
-        </Button>
+        </IconButton>
       </div>
       <ul className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-ui-gap-xs overflow-y-auto p-1">
         {visibleCards.map((card) => (

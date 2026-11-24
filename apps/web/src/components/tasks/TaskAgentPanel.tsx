@@ -6,6 +6,7 @@
 // Layer: Tasks UI component
 // Exports: TaskAgentPanel
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { PROVIDER_DISPLAY_NAMES, type ThreadId, type TodoUpdateInput } from "@moss/contracts";
 import { formatModelDisplayName } from "@moss/shared/model";
 
@@ -14,7 +15,13 @@ import { ComposerPendingApprovalPanel } from "~/components/chat/ComposerPendingA
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { cn } from "~/lib/utils";
 import type { PendingApproval } from "../../session-logic";
-import { TaskActionButton, TaskActionRow, TaskPillButton, TaskWell } from "./TaskCardPrimitives";
+import {
+  TaskActionButton,
+  TaskActionRow,
+  TaskPillButton,
+  TaskTextAction,
+  TaskWell,
+} from "./TaskCardPrimitives";
 import {
   describeAgentLocation,
   formatAgentActivity,
@@ -77,13 +84,15 @@ export function TaskAgentPanel({
 
   // The agent's icon and one line open each block; the model and place are its tooltip.
   const headline = (text: string, className?: string) => (
-    <div
-      className="flex min-w-0 items-center gap-2"
-      title={`${agentName} · ${model}${location ? ` · in ${fullPath ?? location}` : ""}`}
-    >
-      <ProviderIcon provider={provider} className="size-4 shrink-0" />
-      <span className={cn("min-w-0 text-ui-sm text-foreground", className)}>{text}</span>
-    </div>
+    <Tooltip>
+      <TooltipTrigger render={<div className="flex min-w-0 items-center gap-2" />}>
+        <ProviderIcon provider={provider} className="size-4 shrink-0" />
+        <span className={cn("min-w-0 text-ui-sm text-foreground", className)}>{text}</span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {`${agentName} · ${model}${location ? ` · in ${fullPath ?? location}` : ""}`}
+      </TooltipPopup>
+    </Tooltip>
   );
 
   return (
@@ -136,13 +145,9 @@ export function TaskAgentPanel({
             ) : null}
           </TaskWell>
           <TaskActionRow>
-            <button
-              type="button"
-              onClick={openChat}
-              className="mr-auto text-ui-sm text-muted-foreground outline-none hover:text-foreground focus-visible:underline"
-            >
+            <TaskTextAction onClick={openChat} className="mr-auto">
               More choices
-            </button>
+            </TaskTextAction>
             <TaskPillButton
               disabled={respondingKey === approval.requestId}
               onClick={() =>

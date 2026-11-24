@@ -4,6 +4,7 @@
 // Layer: Tasks UI component
 // Exports: TaskRowTitle, useTaskRename
 
+import { HitArea } from "~/components/ui/hit-area";
 import type { Todo, TodoUpdateInput } from "@moss/contracts";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 import { type KeyboardEvent, useState } from "react";
@@ -70,8 +71,7 @@ export function TaskRowTitle({
     );
   }
   return (
-    <button
-      type="button"
+    <HitArea
       onDoubleClick={startEditing}
       onKeyDown={(event) => {
         if (event.key === "F2") {
@@ -79,13 +79,12 @@ export function TaskRowTitle({
           startEditing();
         }
       }}
-      title="Double-click or press F2 to rename"
       className={cn(
         "min-w-0 truncate text-left text-ui outline-none",
         isDone ? "text-muted-foreground" : "text-foreground",
       )}
     >
       <span data-translation-skip="true">{title}</span>
-    </button>
+    </HitArea>
   );
 }

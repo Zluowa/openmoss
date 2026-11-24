@@ -4,6 +4,10 @@
 // Layer: UI component (pure; drag wiring lives in KanbanColumn)
 // Exports: KanbanCardView
 
+import type { ReactNode } from "react";
+import { Spinner } from "~/components/ui/spinner";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { HitArea } from "~/components/ui/hit-area";
 import type { ThreadId } from "@moss/contracts";
 
 import {
@@ -16,7 +20,6 @@ import { ThreadStatusPillChip } from "../ThreadStatusPillChip";
 import { ProviderIcon } from "../ProviderIcon";
 import {
   GitBranchIcon,
-  LoaderIcon,
   PaperclipIcon,
   PinFilledIcon,
   TerminalIcon,
@@ -186,8 +189,7 @@ function KanbanCardViewComponent({
       : null;
 
   return (
-    <button
-      type="button"
+    <HitArea
       tabIndex={isOverlay ? -1 : 0}
       onClick={onOpen ? () => onOpen(card) : undefined}
       onContextMenu={onContextMenu ? (event) => onContextMenu(card, event) : undefined}
@@ -207,8 +209,10 @@ function KanbanCardViewComponent({
           {card.title}
         </span>
         {card.thread?.isPinned ? (
-          <span title="Pinned" className="flex shrink-0 items-center pt-0.5">
-            <PinFilledIcon className="size-3 text-muted-foreground/60" aria-hidden />
+          <span className="flex shrink-0 items-center pt-0.5">
+            <CardMark label="Pinned">
+              <PinFilledIcon className="size-3 text-muted-foreground/60" aria-hidden />
+            </CardMark>
           </span>
         ) : null}
       </span>
@@ -232,14 +236,14 @@ function KanbanCardViewComponent({
           </span>
         ) : null}
         {worktreeBadgeLabel ? (
-          <span title={worktreeBadgeLabel} className="flex shrink-0 items-center">
+          <CardMark label={worktreeBadgeLabel}>
             <WorktreeIcon className="size-3 text-muted-foreground/70" aria-hidden />
-          </span>
+          </CardMark>
         ) : null}
         {isForked ? (
-          <span title="Forked thread" className="flex shrink-0 items-center">
+          <CardMark label="Forked thread">
             <GitBranchIcon className="size-3 text-success" aria-hidden />
-          </span>
+          </CardMark>
         ) : null}
         {pr ? <PrStateChip pr={pr} /> : null}
         {card.draftHasAttachments ? (
@@ -251,7 +255,7 @@ function KanbanCardViewComponent({
             // would contradict the column until the first runtime signal arrives.
             <>
               <span className="flex shrink-0 items-center gap-1 text-ui-xs text-info-foreground">
-                <LoaderIcon className="size-3 shrink-0 animate-spin" aria-hidden />
+                <Spinner className="size-3 shrink-0" aria-hidden />
                 Starting…
               </span>
               {activeWorkElapsed ? (
@@ -280,8 +284,22 @@ function KanbanCardViewComponent({
           <KanbanCardColumnLabel card={card} />
         </span>
       </span>
-    </button>
+    </HitArea>
   );
 }
 
 export const KanbanCardView = KanbanCardViewComponent;
+
+/** An icon that only marks something on the card: named by the Moss tooltip, not a native one. */
+function CardMark({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<span role="img" aria-label={label} className="flex shrink-0 items-center" />}
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipPopup side="top">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}

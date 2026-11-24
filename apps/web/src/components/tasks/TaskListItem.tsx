@@ -6,6 +6,8 @@
 // Layer: Tasks UI component
 // Exports: TaskListItem
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
+import { HitArea } from "~/components/ui/hit-area";
 import type { TodoUpdateInput } from "@moss/contracts";
 import { formatModelDisplayName } from "@moss/shared/model";
 import type { MouseEvent } from "react";
@@ -105,14 +107,13 @@ export function TaskListItem({
         selected ? SIDEBAR_ROW_ACTIVE_CLASS_NAME : SIDEBAR_ROW_HOVER_CLASS_NAME,
       )}
     >
-      <button
-        type="button"
+      <HitArea
         onClick={toggleDone}
         aria-label={`${isDone ? "Mark as not done" : "Mark as done"}: ${todo.title} (${status.label})`}
         className="flex shrink-0 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring"
       >
         <TaskStatusGlyph kind={status.kind} className="size-4" />
-      </button>
+      </HitArea>
 
       <div className="flex min-w-0 flex-1 items-baseline gap-ui-gap-xs py-ui-pad-xs">
         <TaskRowTitle title={todo.title} isDone={isDone} rename={rename} />
@@ -131,9 +132,22 @@ export function TaskListItem({
 
       {flagsPriority ? <TaskPriorityGlyph priority={todo.priority} /> : null}
       {agent ? (
-        <span title={formatModelDisplayName(agent.model) ?? agent.model} className="flex shrink-0">
-          <ProviderIcon provider={agent.provider} className="size-4 opacity-80" />
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                role="img"
+                aria-label={formatModelDisplayName(agent.model) ?? agent.model}
+                className="flex shrink-0"
+              />
+            }
+          >
+            <ProviderIcon provider={agent.provider} className="size-4 opacity-80" />
+          </TooltipTrigger>
+          <TooltipPopup side="top">
+            {formatModelDisplayName(agent.model) ?? agent.model}
+          </TooltipPopup>
+        </Tooltip>
       ) : null}
     </div>
   );
