@@ -171,6 +171,68 @@ describe("电子表格 editor", () => {
     }
   });
 
+  it("Tab keeps what was typed and moves right; Enter after Tabs starts the next row", async () => {
+    await page.viewport(1200, 760);
+    const onChange = vi.fn<(next: SheetWorkbook) => void>();
+    const blank = parseSheetWorkbook({
+      version: 1,
+      sheets: [{ id: "s1", name: "工作表1", cells: [] }],
+    });
+    await render(
+      <div style={{ width: 1100, height: 680, display: "flex", flexDirection: "column" }}>
+        <SheetEditor workbook={blank} title="表" onChange={onChange} onReplace={vi.fn()} />
+      </div>,
+    );
+    await vi.waitFor(() =>
+      expect(document.activeElement?.closest("[data-sheet-grid]")).not.toBeNull(),
+    );
+    // WALK-3 N3-1, exactly as typed there.
+    await userEvent.keyboard("1200{Tab}34{Enter}56{Tab}78{Enter}");
+    await vi.waitFor(() => {
+      const cells = onChange.mock.lastCall?.[0]?.sheets[0]!.cells ?? [];
+      const at = (r: number, c: number) => cells.find((cell) => cell.r === r && cell.c === c)?.v;
+      expect([at(0, 0), at(0, 1), at(1, 0), at(1, 1)]).toEqual([1200, 34, 56, 78]);
+    });
+  });
+
+  it("paints a number at the right of its cell and text at the left, as in Excel", async () => {
+    await page.viewport(1200, 760);
+    const book = parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "s1",
+          name: "工作表1",
+          cells: [
+            { r: 0, c: 0, v: 12345 },
+            { r: 1, c: 0, v: "abc" },
+          ],
+        },
+      ],
+    });
+    const drawnX = new Map<string, number>();
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, ...rest) {
+      drawnX.set(String(text), x);
+      return fillText.call(this, text, x, y, ...rest);
+    };
+    try {
+      await render(
+        <div style={{ width: 1100, height: 680, display: "flex", flexDirection: "column" }}>
+          <SheetEditor workbook={book} title="表" onChange={vi.fn()} onReplace={vi.fn()} />
+        </div>,
+      );
+      await vi.waitFor(() => {
+        expect(drawnX.has("12345")).toBe(true);
+        expect(drawnX.has("abc")).toBe(true);
+      });
+      // Same column: the number ends near its right edge, the text starts at its left.
+      expect(drawnX.get("12345")! - drawnX.get("abc")!).toBeGreaterThan(30);
+    } finally {
+      CanvasRenderingContext2D.prototype.fillText = fillText;
+    }
+  });
+
   it("lays out the formula row, the grid, the tool card and the sheet bar", async () => {
     await page.viewport(1200, 760);
     await mount();

@@ -172,7 +172,11 @@ function drawText(
         : align === 2
           ? info.endX - pad - measured
           : info.startX + pad;
-    const y = info.startY + Math.min(height, SHEET_GRID_METRICS.rowHeight) / 2;
+    // Where the engine would put it: bottom unless the cell says top or middle.
+    const vt = cell?.vt === undefined || cell?.vt === null ? 2 : Number(cell.vt);
+    const line = Math.min(height, SHEET_GRID_METRICS.rowHeight) / 2;
+    const y =
+      vt === 0 ? info.startY + height / 2 : vt === 1 ? info.startY + line : info.endY - line;
     ctx.fillText(text, x, y);
     const strike = look.strike ?? Number(cell?.cl) === 1;
     if (strike || look.underline) {
@@ -408,7 +412,13 @@ export function makeSheetCanvasHooks(state: () => SheetPaintState) {
           !!s.localize &&
           typeof cell?.v === "number" &&
           (!!s.localizeAllNumbers || /mmm/iu.test(String(cell?.ct?.fa ?? "")));
-        if (header || font || formula || localized)
+        // A number with no alignment of its own sits right, as in Excel; the engine draws
+        // every cell left unless told otherwise.
+        const generalNumber =
+          typeof cell?.v === "number" &&
+          (cell?.ht === undefined || cell?.ht === null) &&
+          !(s.showFormulas && cell?.f);
+        if (header || font || formula || localized || generalNumber)
           drawText(
             ctx,
             cell,

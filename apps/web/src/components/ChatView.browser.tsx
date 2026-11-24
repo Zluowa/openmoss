@@ -6459,7 +6459,10 @@ describe("ChatView transcript geometry (full app)", () => {
       // The rail's active state is optimistic, so wait for the page itself (the route
       // commit) before clicking Home — the leave handlers key off the committed pathname.
       await rail.getByRole("button", { name: "Inbox", exact: true }).click();
-      await expect.element(page.getByText(/Good (morning|afternoon|evening)/)).toBeVisible();
+      // Any of the inbox's greetings: before 04:00 local time it says "Up late" (InboxView).
+      await expect
+        .element(page.getByText(/Good (morning|afternoon|evening)|Up late/))
+        .toBeVisible();
       await rail.getByRole("button", { name: "Home", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).not.toBe("/inbox");
     } finally {

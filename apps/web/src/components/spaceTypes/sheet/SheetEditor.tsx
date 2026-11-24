@@ -524,6 +524,9 @@ export function SheetEditor(props: {
     setCommentOpen(thread ? { kind: "thread", id: thread.id } : { kind: "new", r, c });
   }, []);
   const pointer = useRef({ x: 0, y: 0 });
+  /** Where a run of Tabs started (its row and first column), for Enter to return to. */
+  const tabRun = useRef<{ row: number; col: number } | null>(null);
+  const committingTab = useRef(false);
   const clipboard = useRef<{ rows: unknown[][] } | null>(null);
   const api = () => engine.current;
   /**
@@ -2556,6 +2559,69 @@ export function SheetEditor(props: {
     </div>
   );
 
+  /**
+   * Tab while typing in a cell keeps what was typed and moves one cell right (Shift+Tab: left),
+   * as in Excel. The engine ignores Tab while a cell is being edited; Enter commits it.
+   */
+  function commitEditAndStep(event: React.KeyboardEvent): boolean {
+    const input = shell.current?.querySelector<HTMLElement>(".luckysheet-cell-input");
+    const box = shell.current?.querySelector<HTMLElement>(".luckysheet-input-box");
+    const at = selectionRef.current;
+    const editing = !!box && Number(box.style.zIndex) > 0;
+    if (readOnly || !input || !at || !editing || document.activeElement !== input) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    // The Enter that commits a Tab is not a person's Enter: it must not end the Tab run.
+    committingTab.current = true;
+    try {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }),
+      );
+    } finally {
+      committingTab.current = false;
+    }
+    const col = Math.max(0, at.col + (event.shiftKey ? -1 : 1));
+    if (tabRun.current?.row !== at.row) tabRun.current = { row: at.row, col: at.col };
+    const next = { r0: at.row, r1: at.row, c0: col, c1: col, row: at.row, col };
+    // At once: the next key a person types belongs to the new cell.
+    try {
+      api()?.setSelection([engineRange(next)] as never, { id: activeRef.current });
+    } catch {
+      // The engine is between sheets; the commit itself has happened.
+    }
+    return true;
+  }
+
+  /** Enter after a run of Tabs goes to the next row at the column the run started in. */
+  function returnAfterTabs(event: React.KeyboardEvent): boolean {
+    if (committingTab.current) return false;
+    const run = tabRun.current;
+    const at = selectionRef.current;
+    tabRun.current = null;
+    const input = shell.current?.querySelector<HTMLElement>(".luckysheet-cell-input");
+    if (readOnly || !run || !at || !input || at.row !== run.row) return false;
+    if (document.activeElement !== input) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    // The engine commits the cell (and moves down); then the run's column is taken.
+    committingTab.current = true;
+    try {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, bubbles: true }),
+      );
+    } finally {
+      committingTab.current = false;
+    }
+    const row = run.row + 1;
+    const next = { r0: row, r1: row, c0: run.col, c1: run.col, row, col: run.col };
+    try {
+      api()?.setSelection([engineRange(next)] as never, { id: activeRef.current });
+    } catch {
+      // The engine is between sheets.
+    }
+    return true;
+  }
+
   function pressEngineKey(key: "f" | "h") {
     // The engine's find bar opens from its own shortcut.
     const target =
@@ -2640,6 +2706,7 @@ export function SheetEditor(props: {
       aria-label={`电子表格：${props.title}`}
       onPointerDownCapture={(event) => {
         pointer.current = { x: event.clientX, y: event.clientY };
+        tabRun.current = null;
       }}
       onClick={(event) => {
         const target = event.target as HTMLElement;
@@ -2651,6 +2718,10 @@ export function SheetEditor(props: {
         });
       }}
       onKeyDownCapture={(event) => {
+        if (event.key === "Tab" && !isImeComposingKeyEvent(event) && commitEditAndStep(event))
+          return;
+        if (event.key === "Enter" && !isImeComposingKeyEvent(event) && returnAfterTabs(event))
+          return;
         if (event.key !== "F6" || !shell.current) return;
         if (nextSheetPart(shell.current, event.shiftKey)) {
           event.preventDefault();
