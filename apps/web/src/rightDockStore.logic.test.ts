@@ -63,6 +63,44 @@ describe("original Canvas pane", () => {
   });
 });
 
+describe("画布 opened from a chat image", () => {
+  const images = {
+    images: [{ id: "group:one", path: "/tmp/one.png", name: "one.png" }],
+    activeImageId: "group:one",
+    cwd: "/repo",
+    conversationTitle: null,
+    view: "playground" as const,
+  };
+  it("is the one conversation Canvas pane, carrying the images, and survives a reload", () => {
+    const fromLauncher = openPaneInState(createDefaultRightDockState(), {
+      paneId: "canvas",
+      kind: "canvas",
+    });
+    expect(fromLauncher.panes[0]?.imagePreview).toBeUndefined();
+    const fromImage = openPaneInState(fromLauncher, {
+      paneId: "ignored",
+      kind: "canvas",
+      imagePreview: images,
+    });
+    expect(fromImage.panes).toHaveLength(1);
+    expect(fromImage.panes[0]).toMatchObject({ id: "canvas", kind: "canvas" });
+    expect(fromImage.panes[0]?.imagePreview).toMatchObject(images);
+    // A bare reopen (launcher, agent) keeps what the pane shows.
+    expect(
+      openPaneInState(fromImage, { paneId: "x", kind: "canvas" }).panes[0]?.imagePreview,
+    ).toMatchObject(images);
+    expect(sanitizeRightDockThreadState(fromImage).panes[0]?.imagePreview).toMatchObject(images);
+    // A broken image list from storage never drops the Canvas pane itself.
+    const broken = sanitizeRightDockThreadState({
+      ...fromImage,
+      panes: [{ ...fromImage.panes[0], imagePreview: { images: "nope" } }],
+    });
+    expect(broken.panes).toHaveLength(1);
+    expect(broken.panes[0]?.kind).toBe("canvas");
+    expect(broken.panes[0]?.imagePreview).toBeUndefined();
+  });
+});
+
 describe("deck pane", () => {
   it("opens one deck pane per conversation and switches it to the requested deck", () => {
     const first = openPaneInState(createDefaultRightDockState(), {

@@ -329,7 +329,9 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
         </span>
       ) : null}
 
-      {props.saveState ? (
+      {/* One save state at a time (WALK-1 R-6): "Saved" alone when saved; while there are unsaved
+          changes the dot and the Save button say it. */}
+      {props.saveState && props.saveState !== "Unsaved changes" ? (
         <span role="status" className="shrink-0 text-ui-sm text-muted-foreground">
           {props.saveState}
         </span>
@@ -337,7 +339,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
       {/* One quiet row, as in the upstream file panel: open in an editor, the
           source/preview switch, and everything else behind "More actions". */}
       <div className="flex shrink-0 items-center gap-1">
-        {props.onSave ? (
+        {props.onSave && (props.dirty || props.saveState === "Save failed") ? (
           <Button
             variant="ghost"
             size="sm"

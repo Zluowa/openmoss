@@ -88,7 +88,7 @@ export function BoardItemView(props: {
         selection: {
           kind: "board",
           itemId: props.pageId,
-          title: "白板",
+          title: "画布",
           ...(request.selectedShapeIds?.length ? { boardIds: request.selectedShapeIds } : {}),
           ...(request.selectionText ? { summary: request.selectionText } : {}),
         },
@@ -98,7 +98,7 @@ export function BoardItemView(props: {
   if (!board) {
     return (
       <p role="alert" className="p-8 text-destructive">
-        这个白板的内容无法读取。
+        这个画布的内容无法读取。
       </p>
     );
   }
@@ -117,9 +117,9 @@ export function BoardItemView(props: {
   ) : (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
       <WhiteboardIcon className="size-8" aria-hidden />
-      <p className="text-ui-sm">白板在 Moss 画布中打开。</p>
+      <p className="text-ui-sm">在 Moss 画布中打开。</p>
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        打开白板
+        打开画布
       </Button>
     </div>
   );

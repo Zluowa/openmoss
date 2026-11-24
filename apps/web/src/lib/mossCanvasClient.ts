@@ -59,6 +59,19 @@ export async function isMossCanvasSignedOut(
   }
 }
 
+/** True when 画布 cannot open because no Moss account is signed in (the editor's storage needs one). */
+export async function isMossCanvasAccountSignedOut(signal?: AbortSignal): Promise<boolean> {
+  try {
+    const body = (await readMossImagesJson("/api/moss/media/canvas/account", {
+      method: "GET",
+      ...(signal ? { signal } : {}),
+    })) as { authenticated?: unknown } | null;
+    return body?.authenticated === false;
+  } catch (cause) {
+    return cause instanceof MossCanvasSignInRequiredError;
+  }
+}
+
 export async function loadMossCanvasBinding(
   threadId: string,
   signal?: AbortSignal,

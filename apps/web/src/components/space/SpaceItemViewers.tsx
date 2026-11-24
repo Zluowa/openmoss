@@ -222,7 +222,7 @@ const STUB_COPY: Record<string, { title: string; body: string }> = {
     title: "站点",
     body: "在任意页面的右上角「分享」中发布为站点后，会自动汇总在这里。",
   },
-  board: { title: "白板", body: "从「创建」菜单或「全部」页的新建卡片中打开白板画布。" },
+  board: { title: "画布", body: "从「创建」菜单或「全部」页的新建卡片中打开画布。" },
   app: {
     title: "应用页",
     body: "可在页面中生成可运行应用页，或将对话里生成的网页直接保存为应用页。",

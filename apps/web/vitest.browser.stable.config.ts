@@ -10,7 +10,7 @@ export const PAGE_EDITOR_BROWSER_SPEC = "src/components/MossDataSpaceDestination
 export const PAGE_EDITOR_BROWSER_SPECS = [
   PAGE_EDITOR_BROWSER_SPEC,
   "src/components/MossDataSpaceBoardStability.browser.tsx",
-  "src/components/chat/RightDockWhiteboard.browser.tsx",
+  "src/components/chat/RightDockCanvas.browser.tsx",
 ] as const;
 
 export default mergeConfig(

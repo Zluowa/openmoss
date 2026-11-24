@@ -23,6 +23,7 @@ import {
 import { ensureNativeApi } from "~/nativeApi";
 import { uploadPickedLibraryFiles } from "~/lib/libraryUpload";
 import { cn } from "~/lib/utils";
+import { isMossCanvasAccountSignedOut, MOSS_CANVAS_SIGN_IN_MESSAGE } from "~/lib/mossCanvasClient";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import { pagesQueryKeys } from "~/lib/pagesReactQuery";
 import { isPageMutationRejected, PageMutationIntent } from "~/lib/pageMutationIntent";
@@ -659,6 +660,9 @@ function DataSpaceWorkspace({
     if (action === "sheet" || action === "board" || action === "design") {
       const spaceId = section.type === "space" ? section.spaceId : null;
       await run("创建", async () => {
+        // A 画布 cannot open signed out: never save an empty one (WALK-1 C-1).
+        if (action === "board" && (await isMossCanvasAccountSignedOut()))
+          throw new Error(MOSS_CANVAS_SIGN_IN_MESSAGE);
         const created = await createSpaceItem(ensureNativeApi(), {
           scopeSpaceId,
           kind: action,

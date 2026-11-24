@@ -125,7 +125,7 @@ const CREATION_TILES: ReadonlyArray<CreationTile> = [
   },
   {
     action: "board",
-    label: "白板",
+    label: "画布",
     icon: WhiteboardIcon,
     hue: "color-mix(in srgb, var(--color-accent-red) 58%, var(--color-accent-yellow))",
     beta: true,

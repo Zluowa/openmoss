@@ -18,9 +18,11 @@ import { cleanup, render } from "vitest-browser-react";
 import { mossServerQueryKeys } from "~/components/auth/mossServerReactQuery";
 import { TooltipProvider } from "~/components/ui/tooltip";
 import { useTheme, type ThemeMode } from "~/hooks/useTheme";
-import { getConversationImageComposer } from "~/lib/conversationImageComposer";
+import {
+  flushConversationImageEditors,
+  getConversationImageComposer,
+} from "~/lib/conversationImageComposer";
 import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
-import { reloadMossCanvas } from "~/lib/mossCanvasBridge";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { MossLocalizationProvider, useTranslation } from "~/localization";
 import {
@@ -33,7 +35,7 @@ import { RightDock } from "./RightDock";
 import { RIGHT_DOCK_ADD_MENU_KINDS, resolveRightDockLauncherItems } from "./rightDockPaneMeta";
 
 const SHOTS = import.meta.env.VITE_MOSS_PAGE_EDITOR_SHOTS as string | undefined;
-const THREAD_ID = ThreadId.makeUnsafe("right-dock-whiteboard-thread");
+const THREAD_ID = ThreadId.makeUnsafe("right-dock-canvas-thread");
 
 function ThemeSync({ mode }: { readonly mode: ThemeMode }) {
   const { setTheme } = useTheme();
@@ -71,11 +73,8 @@ function DockHarness({ initialOpen = true }: { readonly initialOpen?: boolean })
         }
         data-testid="chat-column"
       >
-        <div className="space-y-2">
-          <div className="text-ui-sm font-medium text-foreground">打开右栏白板演示</div>
-          <div className="rounded-card border border-border/70 bg-muted/40 p-3 text-ui-xs text-muted-foreground">
-            右侧白板可从空面板或 + 菜单直接打开，AI 可通过 MCP 读写并实时同步。
-          </div>
+        <div className="text-ui-sm text-foreground" data-testid="chat-message">
+          打开 Moss 画布
         </div>
         <div className="rounded-card border border-border/70 bg-background p-3 text-ui-xs text-muted-foreground">
           在 Moss 里问任何事
@@ -91,14 +90,18 @@ function DockHarness({ initialOpen = true }: { readonly initialOpen?: boolean })
         fullWidth={fullWidth}
         onFullWidthChange={setFullWidth}
         onSelectPane={(paneId) => setDockState((s) => ({ ...s, activePaneId: paneId }))}
+        // Like SingleChatSurface: the Canvas saves before its pane closes.
         onClosePane={(paneId) =>
-          setDockState((s) => {
-            const panes = s.panes.filter((p) => p.id !== paneId);
-            return {
-              ...s,
-              panes,
-              activePaneId: panes[0]?.id ?? null,
-            };
+          void flushConversationImageEditors(THREAD_ID, paneId).then((saved) => {
+            if (!saved) return;
+            setDockState((s) => {
+              const panes = s.panes.filter((p) => p.id !== paneId);
+              return {
+                ...s,
+                panes,
+                activePaneId: panes[0]?.id ?? null,
+              };
+            });
           })
         }
         onCollapse={() => setDockState((s) => ({ ...s, open: false }))}
@@ -190,36 +193,6 @@ async function shot(name: string) {
   }
 }
 
-async function seedRightDockMcpBoard() {
-  const res = await fetch("/api/moss/media/canvas/storage", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      method: "test.mossCanvasMutate",
-      input: {
-        title: "右侧协作白板",
-        ops: [
-          { op: "clear" },
-          { op: "addFrame", key: "f1", name: "方案规划", x: 60, y: 80, w: 720, h: 380 },
-          { op: "addNote", key: "n1", text: "接入右侧白板", frame: "f1", color: "yellow" },
-          {
-            op: "addShape",
-            key: "s1",
-            geo: "rectangle",
-            text: "支持 MCP",
-            frame: "f1",
-            color: "blue",
-          },
-          { op: "connect", key: "c1", from: "n1", to: "s1", text: "实时同步" },
-        ],
-      },
-    }),
-  });
-  expect(res.ok).toBe(true);
-  const { result } = (await res.json()) as { result: { revision: string } };
-  return result;
-}
-
 async function waitForCanvasReady() {
   await expect
     .poll(
@@ -232,7 +205,21 @@ async function waitForCanvasReady() {
     .toBe(true);
 }
 
-describe("Right-Dock Whiteboard direct open + real Canvas bundle + MCP mutation", () => {
+function canvasDocument(): Document | null {
+  return (
+    document.querySelector<HTMLIFrameElement>('iframe[title="Moss Canvas"]')?.contentDocument ??
+    null
+  );
+}
+
+// The text tool in the Canvas toolbar, one click on the board, then typing: what a person does.
+async function placeText(y: number) {
+  const frame = page.frameLocator(page.getByTitle("Moss Canvas", { exact: true }));
+  await frame.getByRole("button", { name: "文字（T）", exact: true }).click();
+  await frame.getByTestId("canvas").click({ position: { x: 260, y } });
+}
+
+describe("右栏 画布: one click, usable, and kept", () => {
   beforeEach(async () => {
     resetEmbeddedBundleChecks();
     localStorage.clear();
@@ -252,76 +239,53 @@ describe("Right-Dock Whiteboard direct open + real Canvas bundle + MCP mutation"
     vi.unstubAllEnvs();
   });
 
-  it("exposes Whiteboard in RightDock launcher & + menu, opens side-by-side without blocking chat, and renders MCP shapes in the real Canvas", async () => {
-    await mountDock("light");
+  for (const theme of ["light", "dark"] as const) {
+    it(`opens the real Canvas beside the chat, keeps what was written across close and reopen (${theme})`, async () => {
+      await mountDock(theme);
+      const launcherCanvas = page.getByTestId("right-dock-empty-action-canvas");
+      await expect.element(launcherCanvas).toBeVisible();
+      await expect.element(launcherCanvas).toHaveTextContent("画布");
+      await shot(`right-dock-canvas-launcher-${theme}`);
 
-    // 1. Launcher exposes 白板 alongside terminal, browser, files, sidechat, source control.
-    const canvasLauncher = page.getByTestId("right-dock-empty-action-canvas");
-    await expect.element(canvasLauncher).toBeVisible();
-    await expect.element(canvasLauncher).toHaveTextContent("白板");
-    await shot("right-dock-launcher-light");
+      await userEvent.click(launcherCanvas);
+      await expect.element(page.getByTitle("Moss Canvas", { exact: true })).toBeVisible();
+      await waitForCanvasReady();
+      const chatRect = document
+        .querySelector<HTMLElement>("[data-testid='chat-column']")!
+        .getBoundingClientRect();
+      const frameRect = document
+        .querySelector<HTMLIFrameElement>('iframe[title="Moss Canvas"]')!
+        .getBoundingClientRect();
+      expect(chatRect.width).toBeGreaterThan(300);
+      expect(frameRect.width).toBeGreaterThan(400);
+      expect(frameRect.left).toBeGreaterThanOrEqual(chatRect.right - 1);
 
-    // 2. Click 白板 -> opens side-by-side in right dock (chat stays visible, no duplicate top bar).
-    await userEvent.click(canvasLauncher);
-    const canvasFrame = page.getByTitle("Moss Canvas", { exact: true });
-    await expect.element(canvasFrame).toBeVisible();
-    await expect.element(page.getByTestId("chat-column")).toBeVisible();
-    const chatRect = document
-      .querySelector<HTMLElement>("[data-testid='chat-column']")!
-      .getBoundingClientRect();
-    expect(chatRect.width).toBeGreaterThan(300);
-    // Embedded right-dock mode hides MossCanvasWebSurface's standalone "关闭画布" header.
-    expect(document.querySelector("button[aria-label='关闭画布']")).toBeNull();
+      const note = `画布便签 ${theme}`;
+      // Each run writes on an empty spot of the same conversation board.
+      await placeText(theme === "light" ? 220 : 420);
+      await userEvent.keyboard(note);
+      await userEvent.keyboard("{Escape}");
+      const frame = page.frameLocator(page.getByTitle("Moss Canvas", { exact: true }));
+      await expect
+        .element(frame.getByTestId("canvas").getByText(note, { exact: true }), { timeout: 10_000 })
+        .toBeVisible();
+      await shot(`right-dock-canvas-note-${theme}`);
 
-    // 3. Wait for real built open-hoola-canvas iframe ready handshake and check no errors.
-    await waitForCanvasReady();
-    await expect.element(page.getByText("画布启动失败")).not.toBeInTheDocument();
-
-    // 4. Ordinary chat sends are never blocked while the Whiteboard is open.
-    const composerBinding = getConversationImageComposer(THREAD_ID);
-    expect(composerBinding).toBeDefined();
-    expect(composerBinding?.target).toBeNull();
-    expect(await composerBinding!.beforeSend()).toBe(true);
-
-    // 5. "+" menu also exposes 白板.
-    await userEvent.click(page.getByRole("button", { name: "添加面板", exact: true }));
-    await expect.element(page.getByRole("menuitem", { name: "白板", exact: true })).toBeVisible();
-    await userEvent.keyboard("{Escape}");
-
-    // 6. Simulate MCP moss_canvas_mutate via server mossCanvasMutate engine and trigger reloadMossCanvas.
-    const iframeBeforeReload = document.querySelector('iframe[title="Moss Canvas"]');
-    const result = await seedRightDockMcpBoard();
-    reloadMossCanvas(THREAD_ID, result.revision);
-    await expect
-      .poll(() => document.querySelector('iframe[title="Moss Canvas"]') !== iframeBeforeReload)
-      .toBe(true);
-
-    // Real Canvas iframe reloads from hosted storage and renders the MCP-drawn shapes.
-    const reloadedFrameLocator = page.frameLocator(page.getByTitle("Moss Canvas", { exact: true }));
-    await waitForCanvasReady();
-    await expect
-      .element(reloadedFrameLocator.getByText("方案规划"), { timeout: 15_000 })
-      .toBeVisible();
-    await expect
-      .element(reloadedFrameLocator.getByText("接入右侧白板"), { timeout: 15_000 })
-      .toBeVisible();
-    await expect
-      .element(reloadedFrameLocator.getByText("支持 MCP"), { timeout: 15_000 })
-      .toBeVisible();
-    await expect.element(page.getByText("画布启动失败")).not.toBeInTheDocument();
-
-    await shot("right-dock-whiteboard-mcp-light");
-  });
-
-  it("renders the side-by-side Right-Dock Whiteboard cleanly in dark mode", async () => {
-    await mountDock("dark");
-    await seedRightDockMcpBoard();
-    await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
-    const canvasFrame = page.getByTitle("Moss Canvas", { exact: true });
-    await expect.element(canvasFrame).toBeVisible();
-    const frameLocator = page.frameLocator(canvasFrame);
-    await waitForCanvasReady();
-    await expect.element(frameLocator.getByText("接入右侧白板"), { timeout: 15_000 }).toBeVisible();
-    await shot("right-dock-whiteboard-mcp-dark");
-  });
+      // Close the pane from its tab, then open 画布 again from the launcher.
+      await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
+      await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
+      await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
+      await waitForCanvasReady();
+      await expect
+        .element(
+          page
+            .frameLocator(page.getByTitle("Moss Canvas", { exact: true }))
+            .getByTestId("canvas")
+            .getByText(note, { exact: true }),
+          { timeout: 15_000 },
+        )
+        .toBeVisible();
+      await shot(`right-dock-canvas-reopened-${theme}`);
+    });
+  }
 });

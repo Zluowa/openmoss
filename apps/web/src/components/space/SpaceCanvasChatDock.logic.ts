@@ -74,7 +74,7 @@ const ARTIFACT_KIND_LABELS: Record<SpaceArtifactKind, string> = {
   sheet: "电子表格",
   design: "设计",
   dashboard: "数据看板",
-  board: "白板",
+  board: "画布",
   app: "应用页",
 };
 
