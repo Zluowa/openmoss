@@ -178,13 +178,10 @@ describe.runIf(process.platform === "win32" && launcherReady)(
   () => {
     const directory = mkdtempSync(join(tmpdir(), "moss-job-test-"));
     const started: ChildProcess[] = [];
-    const leftovers = new Set<number>();
+    // Children are ended through their Node handles only, never by a pid kept after its process
+    // ended: Windows gives a freed pid to the next process it starts, which in the CI step can be
+    // the Codex CLI that CodexTextGeneration.windowsJob.test.ts runs beside this file.
     afterAll(() => {
-      for (const pid of leftovers) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {}
-      }
       for (const child of started) child.kill();
       rmSync(directory, { recursive: true, force: true });
     });
@@ -240,9 +237,8 @@ describe.runIf(process.platform === "win32" && launcherReady)(
       }
       throw new Error("the process tree never started");
     };
-    /** The pids still alive after `ms`; every pid is remembered for cleanup. */
+    /** The pids still alive after `ms`. */
     const survivorsAfter = async (state: Record<string, number>, ms: number) => {
-      for (const pid of Object.values(state)) leftovers.add(pid);
       const until = Date.now() + ms;
       let survivors = Object.values(state).filter(alive);
       while (survivors.length > 0 && Date.now() < until) {
@@ -402,6 +398,9 @@ describe.runIf(process.platform === "win32" && launcherReady)(
       const state = await readState(statePath);
       child.kill();
       expect((await survivorsAfter(state, 1_500)).length).toBeGreaterThan(0);
+      // Of this tree only the detached grandchild outlives the killed program, and nothing else
+      // ends it (it sleeps for 120 s), so while it is alive its pid is still its own.
+      if (alive(state.detached!)) process.kill(state.detached!, "SIGKILL");
     }, 40_000);
 
     describe("settling once per backend whether the launcher is usable", () => {
