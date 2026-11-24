@@ -8587,9 +8587,9 @@ export default function ChatView({
                           agentActivityDetail={openAgentActivityDetail}
                           hasMessages={timelineEntries.length > 0}
                           isWorking={isWorking}
-                          suppressWorkingIndicator={
-                            activePendingApproval?.requestKind === "command"
-                          }
+                          // While the turn waits on the person's approval, of any kind, only
+                          // 等待批准 shows (WALK-12 N12-11: an edit approval also said 思考中…).
+                          suppressWorkingIndicator={activePendingApproval !== null}
                           awaitingUser={
                             activePendingApproval !== null || pendingUserInputs.length > 0
                           }

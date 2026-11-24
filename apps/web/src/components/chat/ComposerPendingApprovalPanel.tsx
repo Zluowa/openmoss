@@ -25,7 +25,6 @@ import { isWebMcpCallToolName } from "~/lib/webMcpToolPresentation";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { ApprovalAppDock } from "./ApprovalAppDock";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 // Approval chrome, modeled on the Codex desktop app's approval card:
 // - shell: 1.5rem radius with a glass fill
@@ -357,7 +356,6 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
         />
       ) : null}
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-3 pt-1 pb-3">
-        {variant === "terminal" ? <ApprovalAppDock /> : null}
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
           <Button
             type="button"

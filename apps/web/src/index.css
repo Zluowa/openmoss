@@ -4981,27 +4981,6 @@ diffs-container {
   }
 }
 
-/* Command approval mark (ApprovalAppDock.tsx): a terminal window drawn in Moss's tokens. */
-.approval-command-mark {
-  background: var(--secondary);
-  color: var(--foreground);
-}
-
-.approval-command-mark-window {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  opacity: 0.55;
-}
-
-.approval-command-mark-ink {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 :root {
   color-scheme: light;
   --radius: 0.625rem;

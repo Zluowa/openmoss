@@ -545,6 +545,95 @@ describe("ChatView transcript geometry (full app)", () => {
     },
   );
 
+  // WALK-12 N12-11: the FULL turn, waiting on the edit approval (apply_patch on index.js). The
+  // work log showed 「修改代码 ▸」, then 「等待批准」 and an animated 「思考中…」 together while
+  // Moss waited for the person. Only the waiting state shows.
+  it.each([
+    { requestKind: "file-change", summary: "File-change approval requested" },
+    { requestKind: "tool", summary: "Tool approval requested" },
+  ] as const)(
+    "WALK-12 N12-11: while a $requestKind approval waits, 等待批准 shows and 思考中 does not",
+    async ({ requestKind, summary }) => {
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+      const prompt =
+        "帮我看看这个项目，读一下说明，给 index.js 加减法和乘法，再看看 missing.txt [[WALK:FULL]]";
+      const base = createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("walk12-full-user"),
+        targetText: prompt,
+      });
+      const turnId = TurnId.makeUnsafe("walk12-full-turn");
+      const thread = base.threads[0]!;
+      const snapshot: OrchestrationReadModel = {
+        ...base,
+        threads: [
+          {
+            ...thread,
+            messages: [
+              createUserMessage({
+                id: MessageId.makeUnsafe("walk12-full-user"),
+                text: prompt,
+                offsetSeconds: 0,
+              }),
+            ],
+            latestTurn: {
+              turnId,
+              state: "running",
+              requestedAt: NOW_ISO,
+              startedAt: NOW_ISO,
+              completedAt: null,
+              assistantMessageId: null,
+            },
+            session: thread.session
+              ? { ...thread.session, status: "running", activeTurnId: turnId, updatedAt: isoAt(56) }
+              : null,
+            activities: [
+              {
+                id: EventId.makeUnsafe("walk12-full-started"),
+                turnId,
+                createdAt: NOW_ISO,
+                sequence: 1,
+                kind: "turn.started",
+                tone: "info",
+                summary: "Turn started",
+                payload: {},
+              },
+              {
+                id: EventId.makeUnsafe("walk12-full-approval"),
+                turnId,
+                createdAt: isoAt(56),
+                sequence: 2,
+                kind: "approval.requested",
+                tone: "approval",
+                summary,
+                payload: {
+                  requestId: "walk12-full-request",
+                  requestKind,
+                  ...(requestKind === "tool" ? { detail: "webfetch: https://example.com" } : {}),
+                },
+              },
+            ],
+          },
+        ],
+      };
+      const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+      try {
+        const waiting = page.getByTestId("permission-request-pending");
+        await expect.element(waiting).toBeVisible();
+        expect(waiting.element().textContent).toBe("等待批准");
+        await expect.element(page.getByRole("button", { name: /拒绝/u })).toBeVisible();
+        // Held for a moment: the working line must not come back while the card waits.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
+        const transcript =
+          document.querySelector<HTMLElement>("[data-chat-transcript], main") ?? document.body;
+        expect(transcript.textContent ?? "").not.toMatch(/思考中|Thinking/u);
+        expect(document.querySelector('[data-timeline-row-kind="working"]')).toBeNull();
+      } finally {
+        await mounted.cleanup();
+        localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
+      }
+    },
+  );
+
   // WALK-H1 H-11 review: the one action must be the one that fixes it. A turn that ended
   // because the agent's sign-in expired offers the provider settings, not 继续任务 (which runs
   // again on the same expired sign-in).

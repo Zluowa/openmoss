@@ -881,3 +881,53 @@ describe("ComposerPendingApprovalPanel", () => {
     }
   });
 });
+
+describe("WALK-12 N12-10: the command approval card draws nothing that looks like a button but is not one", () => {
+  // The walker's terminal approvals: Codex 0.166 on Linux, the command whole as it was sent.
+  for (const [theme, width] of [
+    ["light", 1100],
+    ["dark", 760],
+  ] as const) {
+    it(`WALK-12 N12-10: /bin/bash -lc ls has no boxed mark beside Deny and Allow once (${theme}, ${width})`, async () => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      await page.viewport(width, 780);
+      const screen = await render(
+        <MossLocaleScope locale="zh-CN">
+          <ComposerPendingApprovalPanel
+            approval={makeApproval({ requestKind: "command", detail: "/bin/bash -lc ls" })}
+            pendingCount={1}
+            isResponding={false}
+            onRespond={vi.fn(async () => undefined)}
+          />
+        </MossLocaleScope>,
+      );
+      try {
+        const deny = page.getByRole("button", { name: /拒绝/u });
+        await expect.element(deny).toBeVisible();
+        const row = (deny.element() as HTMLElement).closest<HTMLElement>(
+          "[data-codex-approval-surface] > div",
+        )!;
+        // Everything on the action row that draws a box (a border or a fill) is a control.
+        const boxed = [...row.querySelectorAll<HTMLElement>("*")].filter((node) => {
+          if (node.closest("button")) return false;
+          const style = getComputedStyle(node);
+          const rect = node.getBoundingClientRect();
+          const bordered =
+            Number.parseFloat(style.borderTopWidth) > 0 && style.borderTopStyle !== "none";
+          const filled =
+            style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
+          return rect.width > 0 && rect.height > 0 && (bordered || filled);
+        });
+        expect(boxed.map((node) => node.outerHTML.slice(0, 80))).toEqual([]);
+        // The card still says what it is: the terminal label and the command, whole.
+        await expect.element(page.getByText("终端", { exact: true })).toBeVisible();
+        expect(document.querySelector<HTMLElement>("[data-approval-command]")?.textContent).toBe(
+          "/bin/bash -lc ls",
+        );
+      } finally {
+        await screen.unmount();
+        document.documentElement.classList.remove("dark");
+      }
+    });
+  }
+});
