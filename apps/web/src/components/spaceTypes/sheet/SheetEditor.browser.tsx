@@ -131,6 +131,46 @@ describe("电子表格 editor", () => {
     });
   });
 
+  it("draws a cell with no alignment at the bottom of a tall row, an explicit top at the top", async () => {
+    await page.viewport(1200, 760);
+    const tall = parseSheetWorkbook({
+      version: 1,
+      sheets: [
+        {
+          id: "s1",
+          name: "工作表1",
+          rowHeights: { "0": 80 },
+          cells: [
+            { r: 0, c: 0, v: 1200 },
+            { r: 0, c: 1, v: 3400, s: { valign: "top" } },
+          ],
+        },
+      ],
+    });
+    // Where each number is painted, as the canvas draws it.
+    const drawnAt = new Map<string, number>();
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, ...rest) {
+      drawnAt.set(String(text), y);
+      return fillText.call(this, text, x, y, ...rest);
+    };
+    try {
+      await render(
+        <div style={{ width: 1100, height: 680, display: "flex", flexDirection: "column" }}>
+          <SheetEditor workbook={tall} title="表" onChange={vi.fn()} onReplace={vi.fn()} />
+        </div>,
+      );
+      await vi.waitFor(() => {
+        expect(drawnAt.has("1200")).toBe(true);
+        expect(drawnAt.has("3400")).toBe(true);
+      });
+      // In an 80px row the default (bottom) text is drawn well below the explicit top one.
+      expect(drawnAt.get("1200")! - drawnAt.get("3400")!).toBeGreaterThan(40);
+    } finally {
+      CanvasRenderingContext2D.prototype.fillText = fillText;
+    }
+  });
+
   it("lays out the formula row, the grid, the tool card and the sheet bar", async () => {
     await page.viewport(1200, 760);
     await mount();

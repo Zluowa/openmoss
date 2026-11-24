@@ -221,6 +221,52 @@ describe("GitHub connection entry", () => {
     await page.getByRole("button", { name: "Open the GitHub CLI website", exact: true }).click();
     expect(openExternal).toHaveBeenCalledWith("https://cli.github.com/");
   });
+  it("shows a missing GitHub CLI inside the page card as one line and one button in a row", async () => {
+    await page.viewport(1040, 680);
+    connection.mockImplementation(async (i) =>
+      i.op === "status" ? { state: "missing" } : { state: "cancelled" },
+    );
+    await mount();
+    const install = page.getByRole("button", { name: "Install GitHub CLI", exact: true });
+    await expect.element(install).toBeVisible();
+    const empty = document.querySelector<HTMLElement>('[data-slot="empty"]')!;
+    // The same frame as the inbox: the content card inset beside the sidebar, not the bare window.
+    const shell = empty.closest<HTMLElement>("[data-github-inbox-shell]");
+    expect(shell).not.toBeNull();
+    expect(shell!.closest('[data-slot="sidebar-inset"]')).not.toBeNull();
+    // One line (the title) and one button; the gate checks again on window focus by itself.
+    expect(empty.querySelector('[data-slot="empty-description"]')).toBeNull();
+    expect(
+      getComputedStyle(empty.querySelector<HTMLElement>('[data-slot="empty-title"]')!).fontSize,
+    ).toBe("14px");
+    expect([...empty.querySelectorAll("button")].map((button) => button.textContent)).toEqual([
+      "Install GitHub CLI",
+    ]);
+    const calls = connection.mock.calls.length;
+    window.dispatchEvent(new Event("focus"));
+    await vi.waitFor(() => expect(connection.mock.calls.length).toBeGreaterThan(calls));
+  });
+  it("lays a failed install's actions out in one row", async () => {
+    await page.viewport(1040, 680);
+    connection.mockImplementation(async (i) => {
+      if (i.op === "install") return { state: "installing", phase: "installing" };
+      if (i.op === "status")
+        return connection.mock.calls.some(([input]) => input.op === "install")
+          ? { state: "installFailed", reason: "download-failed" }
+          : { state: "missing" };
+      return { state: "cancelled" };
+    });
+    await mount();
+    await page.getByRole("button", { name: "Install GitHub CLI", exact: true }).click();
+    const retry = page.getByRole("button", { name: "Try again", exact: true });
+    await expect.element(retry).toBeVisible();
+    const site = page.getByRole("button", { name: "Open the GitHub CLI website", exact: true });
+    const a = retry.element().getBoundingClientRect();
+    const b = site.element().getBoundingClientRect();
+    expect(a.top).toBe(b.top);
+    expect(a.height).toBe(b.height);
+    expect(page.getByRole("button", { name: "Check again", exact: true }).query()).toBeNull();
+  });
   it("offers the fixed verification address when the system browser cannot open", async () => {
     openExternal.mockRejectedValueOnce(new Error("unavailable"));
     connection.mockImplementation(async (i) =>

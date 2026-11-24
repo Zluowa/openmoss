@@ -1542,7 +1542,7 @@ export function SheetEditor(props: {
     strike: !!activeCell?.s?.strike,
     size: activeCell?.s?.size ?? null,
     align: activeCell?.s?.align ?? null,
-    valign: activeCell?.s?.valign ?? "top",
+    valign: activeCell?.s?.valign ?? "bottom",
     wrap: !!activeCell?.s?.wrap,
     format: activeCell?.s?.format ?? "General",
     isMerged: !!mergedHere,

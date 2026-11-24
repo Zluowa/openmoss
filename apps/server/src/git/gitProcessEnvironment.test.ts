@@ -85,10 +85,19 @@ describe("git process environment", () => {
         "ls-remote",
         `http://127.0.0.1:${port}/moss/repo.git`,
       ];
+      // The person's own Git configuration (a proxy, another credential helper) must not
+      // decide what this local remote sees.
+      const emptyGlobalConfig = join(root, "empty.gitconfig");
+      writeFileSync(emptyGlobalConfig, "");
       const startedAt = Date.now();
       const result = await runProcess("git", args, {
         cwd: root,
-        env: { ...process.env, ...gitCommandEnvironment({ args }) },
+        env: {
+          ...process.env,
+          GIT_CONFIG_GLOBAL: emptyGlobalConfig,
+          GIT_CONFIG_NOSYSTEM: "1",
+          ...gitCommandEnvironment({ args }),
+        },
         allowNonZeroExit: true,
         timeoutMs: 20_000,
       });

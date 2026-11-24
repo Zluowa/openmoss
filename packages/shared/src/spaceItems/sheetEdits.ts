@@ -1274,12 +1274,13 @@ function formatCells(work: Work, edit: Json) {
             : {}),
           ...(al.vertical !== undefined
             ? {
+                // A cell starts at the bottom (Excel's default), so "bottom" clears the style.
                 valign:
-                  al.vertical === "top"
+                  al.vertical === "bottom"
                     ? undefined
                     : al.vertical === "center"
                       ? "middle"
-                      : "bottom",
+                      : "top",
               }
             : {}),
           ...(al.wrap !== undefined ? { wrap: al.wrap === true ? true : undefined } : {}),

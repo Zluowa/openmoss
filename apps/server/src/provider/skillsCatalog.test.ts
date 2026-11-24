@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRejectedFileAlias } from "../../../../scripts/fixtures/filesystem-links.ts";
 
 import {
+  ancestorsFromDeepest,
   clearSkillsCatalogCacheForTests,
   collectSkillMarkdownPaths,
   discoverSkillsCatalog,
@@ -886,5 +887,28 @@ describe("filterDisabledSkills", () => {
       "writer",
     ]);
     expect(filterDisabledSkills(skills, [])).toHaveLength(2);
+  });
+});
+
+describe("ancestorsFromDeepest", () => {
+  it("never climbs into the search ceiling, and walks to the root without one", () => {
+    const root = path.resolve(os.tmpdir(), "ceiling-root");
+    const cwd = path.join(root, "repo", "packages", "web");
+    vi.stubEnv("MOSS_ANCESTOR_SEARCH_CEILING", root);
+    try {
+      expect(ancestorsFromDeepest(cwd)).toEqual([
+        cwd,
+        path.join(root, "repo", "packages"),
+        path.join(root, "repo"),
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    vi.stubEnv("MOSS_ANCESTOR_SEARCH_CEILING", "");
+    try {
+      expect(ancestorsFromDeepest(cwd).at(-1)).toBe(path.parse(cwd).root);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

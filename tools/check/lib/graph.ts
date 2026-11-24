@@ -161,3 +161,37 @@ export function mentionNeedles(
   }
   return [...needles];
 }
+
+/**
+ * A translation table of the web client (`localization/*.ts`; `localization.tsx` also holds the
+ * translate code every screen runs, so it follows the import graph): imported by nearly every
+ * module, so the import graph
+ * reaches nearly every test from it. Its tests are chosen by the strings a change touches instead
+ * (`diffStrings`), and the tables' own tests.
+ */
+export function isTranslationTable(path: string): boolean {
+  return /^apps\/web\/src\/localization\/[^/]+\.ts$/.test(path) && !isTestFile(path);
+}
+
+/** The tables' own tests run whenever a table changes. */
+export function isTranslationTest(path: string): boolean {
+  return /^apps\/web\/src\/(localization[^/]*|localization\/[^/]+)\.test\.tsx?$/.test(path);
+}
+
+/**
+ * The string literals on the added and removed lines of a unified diff: the texts, keys and
+ * English sources a test would assert on. Two characters at least; escapes as written.
+ */
+const STRING_LITERAL = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`([^`$\\]*)`/g;
+
+export function diffStrings(diff: string): string[] {
+  const strings = new Set<string>();
+  for (const line of diff.split("\n")) {
+    if (!/^[+-]/.test(line) || /^(\+\+\+|---) /.test(line)) continue;
+    for (const match of line.slice(1).matchAll(STRING_LITERAL)) {
+      const text = match[1] ?? match[2] ?? match[3] ?? "";
+      if ([...text].length >= 2) strings.add(text);
+    }
+  }
+  return [...strings].toSorted();
+}
