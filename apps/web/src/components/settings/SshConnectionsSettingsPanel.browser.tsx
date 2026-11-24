@@ -15,6 +15,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { MossLocaleScope } from "~/localization";
+import { Button } from "~/components/ui/button";
 import { SshConnectionsSettingsPanel } from "./SshConnectionsSettingsPanel";
 import { getAppTypographyCssVariables } from "~/lib/appTypography";
 
@@ -395,4 +396,26 @@ describe("SSH connection device UI", () => {
     await expect.element(page.getByRole("button", { name: "Add", exact: true })).toBeDisabled();
     await browser.unmount();
   });
+});
+
+it("settings one-set 5/5: every 添加 button takes the shared Button radius, not a pill", async () => {
+  await mount();
+  await render(<Button size="sm">参照按钮</Button>);
+  const reference = getComputedStyle(
+    page.getByRole("button", { name: "参照按钮", exact: true }).element(),
+  ).borderTopLeftRadius;
+  const expectShared = (element: Element) => {
+    const radius = getComputedStyle(element).borderTopLeftRadius;
+    expect(radius).toBe(reference);
+    expect(Number.parseFloat(radius)).toBeLessThan(element.getBoundingClientRect().height / 2);
+  };
+  const add = page.getByRole("button", { name: "添加", exact: true }).first();
+  await expect.element(add).toBeVisible();
+  for (const element of page.getByRole("button", { name: "添加", exact: true }).elements()) {
+    expectShared(element);
+  }
+  await add.click();
+  const pickerAdd = dialog().getByRole("button", { name: "添加", exact: true });
+  await expect.element(pickerAdd).toBeVisible();
+  expectShared(pickerAdd.element());
 });

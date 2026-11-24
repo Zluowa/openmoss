@@ -32,7 +32,7 @@ opens the PR; the author never merges it.
      Say so in the PR; the full lanes are the coordinator's. `--allow-root` runs
      the selection anyway.
    - Browser files: it runs up to 20 selected component files and never
-     `ChatView.browser.tsx`; anything more is left to the coordinator's lane. Say
+     the `ChatView.*.browser.tsx` files; anything more is left to the coordinator's lane. Say
      which in the report.
    - It waits for one of the machine's two quick-gate slots, and holds its
      tests while another owner's heavy lane runs (`--no-wait` overrides, for a

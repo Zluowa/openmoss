@@ -3153,16 +3153,12 @@ const EN_TRANSLATIONS = {
   "settings.connections.remote.empty": "No devices paired yet.",
   "settings.connections.remote.origin": "Moss address on the other device",
   "settings.connections.remote.credential": "One-time pairing code",
-  "settings.connections.remote.addressHint":
-    "Use an HTTPS address, or HTTP only for loopback testing. Enter the origin without a path, query, or credentials.",
   "settings.connections.remote.consent":
     "Pairing authorizes access to the other device’s Moss workspace. Only continue with permission from its owner. This does not enable computer control or grant system permissions.",
   "settings.connections.remote.pair": "Pair device",
   "settings.connections.remote.pairing": "Pairing…",
   "settings.connections.remote.paired": "Device paired. Select Connect to open its Moss workspace.",
   "settings.connections.remote.pairAgain": "Pair again",
-  "settings.connections.remote.repairDescription":
-    "The previous connection is kept until the new pairing succeeds. Ask the owner for a new one-time code.",
   "settings.connections.remote.disconnected": "Disconnected",
   "settings.connections.remote.connecting": "Connecting…",
   "settings.connections.remote.connected": "Connected",
@@ -3241,8 +3237,6 @@ const EN_TRANSLATIONS = {
   "settings.connections.tabs.ssh": "SSH",
   "settings.connections.tabs.phone": "Phone",
   "settings.phone.title": "Use Moss on your phone",
-  "settings.phone.description":
-    "Your phone opens this Moss directly, with every chat, approval, diff and terminal. Scan once, then add it to your home screen to use it like an app.",
   "settings.phone.refresh": "Refresh phone access",
   "settings.phone.error": "Could not update phone access. Refresh and try again.",
   "settings.phone.ownerOnly": "Only this computer's owner can pair a phone.",
@@ -3271,13 +3265,11 @@ const EN_TRANSLATIONS = {
   "settings.phone.qrAlt": "QR code to pair your phone with Moss",
   "settings.phone.qrFailed": "Could not draw the QR code. Copy the link instead.",
   "settings.phone.step.scan": "Scan with the phone camera.",
-  "settings.phone.step.open": "Open the link; Moss signs the phone in.",
-  "settings.phone.step.install": "Share → Add to Home Screen to install it as an app.",
   "settings.phone.expiry": "Valid until {time}",
   "settings.phone.copyLink": "Copy link",
   "settings.phone.cancel": "Withdraw code",
   "settings.phone.plaintext":
-    "This address is unencrypted HTTP: use it only on a network you trust. Voice input needs HTTPS, so it is not available on the phone this way.",
+    "Unencrypted HTTP: use it only on a network you trust. Voice input is off.",
   "settings.phone.paired": "Your phone is connected",
   "settings.phone.paired.title": "Paired phones",
   "settings.phone.paired.none": "No phone is paired yet.",
@@ -3431,17 +3423,10 @@ const EN_TRANSLATIONS = {
   "settings.history.title": "Computer history",
   "settings.history.description":
     "A local, encrypted timeline of the apps and websites you choose. Moss never uploads raw observations.",
-  "settings.history.enableDescription":
-    "Augment memories with your computer activity so Moss can help with anything you’re working on.",
-  "settings.history.learnMore": "Learn more",
-  "settings.history.learnMorePrivacy": "Learn more about privacy",
   "settings.history.turnOffAriaLabel": "Turn off Computer History",
   "settings.history.choose": "Choose",
   "settings.history.selectedCount": "{count} selected",
   "settings.history.historyTitle": "History",
-  "settings.history.historyAbout": "About computer history",
-  "settings.history.historyDescription":
-    "Moss records text summaries of your computer activity. You can control what Moss can reference by deleting individual records or clearing recent history.",
   "settings.history.askAboutHistory": "Ask about your history",
   "settings.history.loadingSettings": "Loading your settings…",
   "settings.history.loadingHistory": "Loading history…",
@@ -3449,28 +3434,8 @@ const EN_TRANSLATIONS = {
   "settings.history.off.title": "Let Moss follow your work",
   "settings.history.off.description":
     "Moss can summarize your activity across the apps and websites you use without saving screenshots or audio recordings.",
-  "settings.history.off.benefits":
-    "Ask about what you were working on, get help without explaining everything again, or discover opportunities to automate repeated tasks.",
   "settings.history.off.privacy":
     "When turned on, Moss saves text summaries of your activity across allowed apps and websites, potentially including communications. Audio and private-mode web browsing are never included, and you can pause or clear your history and manage what’s included at any time. This feature increases token usage.",
-  "settings.history.off.example.followUp.user":
-    "What did I promise to send Sarah after yesterday’s meeting?",
-  "settings.history.off.example.followUp.assistant":
-    "You told Sarah in Slack you’d send the Q3 budget by Friday. The latest version is in Google Sheets, and your meeting notes in Google Docs list two numbers to confirm: hiring and travel.",
-  "settings.history.off.example.beforeLunch.user": "What was I working on before lunch?",
-  "settings.history.off.example.beforeLunch.assistant":
-    "You were revising the launch presentation in Google Slides, checking campaign numbers in Google Sheets, and reviewing feedback from Maya in Slack. You left off updating the rollout timeline.",
-  "settings.history.off.example.planningDocument.user":
-    "What was that planning document I was looking at today?",
-  "settings.history.off.example.planningDocument.assistant":
-    "You were reviewing the Q4 launch plan in Google Docs this morning. Here’s the document:",
-  "settings.history.off.example.planningDocument.link": "Q4 Launch Planning",
-  "settings.history.off.example.remodel.user": "Where was I on the home remodel?",
-  "settings.history.off.example.remodel.assistant":
-    "You narrowed the backsplash to two options in Chrome, compared quotes in Google Sheets, and saved the contractor’s revised estimate in Google Drive. The next decision is white subway tile or blue zellige.",
-  "settings.history.off.example.previous": "Previous example",
-  "settings.history.off.example.next": "Next example",
-  "settings.history.off.example.position": "Example {current} of {total}",
   "settings.history.captureScope": "Capture scope",
   "settings.history.captureScopeDetail":
     "Computer History persists bounded app/window metadata and local semantic text summaries. It does not persist keystrokes, mouse input, accessibility diffs, screenshots, or audio.",
@@ -3479,7 +3444,6 @@ const EN_TRANSLATIONS = {
   "settings.history.error.applications": "Detected apps could not be loaded",
   "settings.history.error.historyLoad": "Computer history could not be loaded",
   "settings.history.error.permissionsLoad": "Computer history permissions could not be loaded",
-  "settings.history.permissionsRestart": "If the issue persists, please restart Moss.",
   "settings.history.error.policy": "Computer history permissions could not be saved",
   "settings.history.error.enable": "Unable to enable Computer History.",
   "settings.history.error.update": "Unable to update Computer History.",
@@ -3533,9 +3497,7 @@ const EN_TRANSLATIONS = {
   "settings.history.resume": "Resume",
   "settings.history.pause": "Pause",
   "settings.history.finishSetup": "Finish setup",
-  "settings.history.permissions": "Permissions",
-  "settings.history.permissionsDescription":
-    "Choose which apps and websites to exclude or include in computer history",
+  "settings.history.permissions": "Apps and websites recorded",
   "settings.history.tryAgain": "Try again",
   "settings.history.appWeb": "Applications and websites",
   "settings.history.appWebDescription":
@@ -3622,8 +3584,6 @@ const EN_TRANSLATIONS = {
     "No verified locale-independent private-window adapter is installed.",
   "settings.history.browserDetail.unknown":
     "The browser returned an unknown window mode; capture is disabled.",
-  "settings.history.privateNoteShort":
-    "Private-mode web browsing activity is never included in computer history.",
   "settings.history.done": "Done",
   "settings.history.consent.title": "You're in control.",
   "settings.history.suggestedSkill": "Suggested skill",
@@ -8001,16 +7961,12 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.connections.remote.empty": "还没有配对的设备。",
   "settings.connections.remote.origin": "对方设备的 Moss 地址",
   "settings.connections.remote.credential": "一次性配对码",
-  "settings.connections.remote.addressHint":
-    "请输入 HTTPS 地址；仅本机回环地址允许 HTTP。地址中不要包含路径、查询参数或账号凭据。",
   "settings.connections.remote.consent":
     "配对将授权访问对方设备的 Moss 工作区。请在获得对方许可后继续；配对不会自动开启电脑控制或授予系统权限。",
   "settings.connections.remote.pair": "配对设备",
   "settings.connections.remote.pairing": "正在配对…",
   "settings.connections.remote.paired": "设备已配对。点击「连接」即可打开对方的 Moss 工作区。",
   "settings.connections.remote.pairAgain": "重新配对",
-  "settings.connections.remote.repairDescription":
-    "新配对成功后才会替换旧连接。请向对方获取新的一次性配对码。",
   "settings.connections.remote.disconnected": "未连接",
   "settings.connections.remote.connecting": "正在连接…",
   "settings.connections.remote.connected": "已连接",
@@ -8081,8 +8037,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.connections.tabs.ssh": "SSH",
   "settings.connections.tabs.phone": "手机",
   "settings.phone.title": "在手机上使用 Moss",
-  "settings.phone.description":
-    "手机直接打开这台电脑上的 Moss，所有对话、审批、差异和终端都在。扫码一次，再添加到主屏幕，就能像 App 一样使用。",
   "settings.phone.refresh": "刷新手机访问",
   "settings.phone.error": "未能更新手机访问，请刷新后重试。",
   "settings.phone.ownerOnly": "只有这台电脑的所有者可以配对手机。",
@@ -8109,13 +8063,10 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.phone.qrAlt": "用于将手机与 Moss 配对的二维码",
   "settings.phone.qrFailed": "二维码生成失败，请改为复制链接。",
   "settings.phone.step.scan": "用手机相机扫码。",
-  "settings.phone.step.open": "打开链接，Moss 会让手机登录。",
-  "settings.phone.step.install": "点 分享 → 添加到主屏幕，像 App 一样使用。",
   "settings.phone.expiry": "有效期至 {time}",
   "settings.phone.copyLink": "复制链接",
   "settings.phone.cancel": "撤回配对码",
-  "settings.phone.plaintext":
-    "此地址使用未加密的 HTTP，请只在可信的网络中使用。语音输入需要 HTTPS，因此这种连接方式下手机无法使用语音输入。",
+  "settings.phone.plaintext": "未加密的 HTTP，请只在可信的网络中使用；语音输入不可用。",
   "settings.phone.paired": "手机已连接",
   "settings.phone.paired.title": "已配对的手机",
   "settings.phone.paired.none": "还没有配对的手机。",
@@ -8247,17 +8198,10 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.nav.connections.description": "其他设备、配对和 SSH。",
   "settings.history.title": "电脑历史记录",
   "settings.history.description": "仅在本机加密保存你选择的应用和网站轨迹，Moss 不会上传原始记录。",
-  "settings.history.enableDescription":
-    "利用你的电脑活动增强记忆，让 Moss 能帮助你处理正在做的任何事情。",
-  "settings.history.learnMore": "了解更多",
-  "settings.history.learnMorePrivacy": "了解更多关于隐私的信息",
   "settings.history.turnOffAriaLabel": "关闭电脑历史",
   "settings.history.choose": "选择",
   "settings.history.selectedCount": "已选择 {count} 项",
   "settings.history.historyTitle": "历史记录",
-  "settings.history.historyAbout": "关于电脑历史记录",
-  "settings.history.historyDescription":
-    "Moss 会记录电脑活动的文本摘要。你可以通过删除单条记录或清除近期历史来控制 Moss 可以参考的内容。",
   "settings.history.askAboutHistory": "询问计算机历史",
   "settings.history.loadingSettings": "正在加载设置…",
   "settings.history.loadingHistory": "正在加载历史记录…",
@@ -8265,26 +8209,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.off.title": "让 Moss 了解你的工作",
   "settings.history.off.description":
     "Moss 可以总结你使用的应用和网站活动，但不会保存屏幕截图或音频录音。",
-  "settings.history.off.benefits":
-    "询问你正在处理的工作，不必再次解释背景，还可以发现重复任务的自动化机会。",
   "settings.history.off.privacy":
     "开启后，Moss 会保存你允许的应用和网站活动文本摘要，其中可能包含通信内容。不会包含音频或无痕浏览，且你可以随时暂停、清除历史并管理记录范围。此功能会增加 token 使用量。",
-  "settings.history.off.example.followUp.user": "昨天的会议后，我答应发给 Sarah 什么？",
-  "settings.history.off.example.followUp.assistant":
-    "你在 Slack 中告诉 Sarah 会在周五前发送第三季度预算。最新版本在 Google Sheets 中，Google Docs 的会议记录列出了需要确认的招聘和差旅两个数字。",
-  "settings.history.off.example.beforeLunch.user": "午饭前我在做什么？",
-  "settings.history.off.example.beforeLunch.assistant":
-    "你在 Google Slides 中修改发布演示文稿，在 Google Sheets 中核对活动数据，并在 Slack 中查看 Maya 的反馈。你最后停在更新发布计划的时间线上。",
-  "settings.history.off.example.planningDocument.user": "我今天看的那份计划文档在哪里？",
-  "settings.history.off.example.planningDocument.assistant":
-    "今天上午你在 Google Docs 中查看第四季度发布计划。文档如下：",
-  "settings.history.off.example.planningDocument.link": "第四季度发布计划",
-  "settings.history.off.example.remodel.user": "我家装修进行到哪一步了？",
-  "settings.history.off.example.remodel.assistant":
-    "你在 Chrome 中把墙砖缩小到两个选项，在 Google Sheets 中比较报价，并在 Google Drive 中保存了承包商修改后的估价。下一步要决定白色地铁砖还是蓝色 zellige。",
-  "settings.history.off.example.previous": "上一个示例",
-  "settings.history.off.example.next": "下一个示例",
-  "settings.history.off.example.position": "第 {current} 个示例，共 {total} 个",
   "settings.history.captureScope": "捕获范围",
   "settings.history.captureScopeDetail":
     "电脑历史会持久化有界的应用和窗口元数据，以及本地语义文本摘要；不会持久化按键、鼠标输入、辅助功能差异、截图或音频。",
@@ -8293,7 +8219,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.error.applications": "无法加载已检测的应用",
   "settings.history.error.historyLoad": "无法加载电脑历史记录",
   "settings.history.error.permissionsLoad": "无法加载电脑历史记录权限",
-  "settings.history.permissionsRestart": "如果问题仍然存在，请重新启动 Moss。",
   "settings.history.error.policy": "无法保存电脑历史记录权限",
   "settings.history.error.enable": "无法开启电脑历史。",
   "settings.history.error.update": "无法更新电脑历史。",
@@ -8341,8 +8266,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.resume": "恢复",
   "settings.history.pause": "暂停",
   "settings.history.finishSetup": "完成设置",
-  "settings.history.permissions": "权限",
-  "settings.history.permissionsDescription": "选择要在电脑历史记录中排除或纳入的应用和网站",
+  "settings.history.permissions": "记录的应用和网站",
   "settings.history.tryAgain": "重试",
   "settings.history.appWeb": "应用与网站",
   "settings.history.appWebDescription": "应用和网站策略独立，阻止规则优先；无痕浏览仍会排除。",
@@ -8420,7 +8344,6 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
     "自动化权限被拒绝或活动标签页适配器失败；已停用浏览器捕获。",
   "settings.history.browserDetail.unsupported": "没有经过验证的、与语言无关的隐私窗口适配器。",
   "settings.history.browserDetail.unknown": "浏览器返回未知窗口模式；已停用捕获。",
-  "settings.history.privateNoteShort": "隐私模式下的网页浏览活动绝不会包含在电脑历史记录中。",
   "settings.history.done": "完成",
   "settings.history.consent.title": "一切由你掌控。",
   "settings.history.suggestedSkill": "建议技能",

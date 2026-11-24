@@ -5,6 +5,7 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 import { MossLocaleScope } from "~/localization";
+import { Button } from "~/components/ui/button";
 import { RemoteComputersSettingsPanel } from "./RemoteComputersSettingsPanel";
 
 useConnectionSettingsBrowserTheme();
@@ -217,3 +218,14 @@ it.each([false, true])(
     await screen.unmount();
   },
 );
+
+it("settings one-set 5/5: 添加设备 takes the shared Button radius, not a pill", async () => {
+  await mount();
+  await render(<Button size="sm">参照按钮</Button>);
+  const add = page.getByRole("button", { name: "添加设备", exact: true });
+  await expect.element(add).toBeVisible();
+  const reference = page.getByRole("button", { name: "参照按钮", exact: true }).element();
+  const radius = getComputedStyle(add.element()).borderTopLeftRadius;
+  expect(radius).toBe(getComputedStyle(reference).borderTopLeftRadius);
+  expect(Number.parseFloat(radius)).toBeLessThan(add.element().getBoundingClientRect().height / 2);
+});

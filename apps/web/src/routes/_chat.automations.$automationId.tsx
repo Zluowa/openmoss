@@ -1,3 +1,6 @@
+import { HitArea } from "~/components/ui/hit-area";
+import { IconButton } from "~/components/ui/icon-button";
+import { RunArchiveButton } from "~/components/automation/RunArchiveButton";
 import {
   type AutomationDefinition,
   type AutomationRun,
@@ -300,7 +303,6 @@ function AutomationDetailView() {
   // A pending proposal must be accepted before the server allows any update, so every
   // inline control is read-only until then instead of erroring on each interaction.
   const editable = !pendingProposal;
-  const editDisabledTitle = editable ? undefined : "Accept the automation proposal first";
 
   const patch = (input: Omit<AutomationUpdateInput, "id">) =>
     updateMutation.mutate({ id: definition.id, ...input });
@@ -443,13 +445,12 @@ function AutomationDetailView() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <RouteSurfaceHeader windowControlsGutter={false}>
             <div className="flex min-w-0 flex-1 items-center gap-1.5 text-ui-lg [-webkit-app-region:no-drag]">
-              <button
-                type="button"
+              <HitArea
                 onClick={() => void navigate({ to: "/automations" })}
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
               >
                 Automations
-              </button>
+              </HitArea>
               <CentralIcon
                 name="chevron-right-small"
                 className="size-4 shrink-0 text-muted-foreground"
@@ -464,13 +465,11 @@ function AutomationDetailView() {
                 value={definition.name}
                 onCommit={(value) => patch({ name: value })}
                 disabled={!editable}
-                title={editDisabledTitle}
               />
               <AutomationPromptField
                 value={definition.prompt}
                 onCommit={(value) => patch({ prompt: value })}
                 disabled={!editable}
-                title={editDisabledTitle}
               />
               <AutomationSaveStatus
                 saving={updateMutation.isPending}
@@ -519,27 +518,25 @@ function AutomationDetailView() {
             >
               <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
                 {!pendingProposal && canPauseAutomation(definition) ? (
-                  <Button
-                    type="button"
+                  <IconButton
                     size="icon-sm"
                     variant="ghost"
-                    aria-label={definition.enabled ? "Pause" : "Resume"}
-                    title={definition.enabled ? "Pause" : "Resume"}
+                    label={definition.enabled ? "Pause" : "Resume"}
+                    tooltip={definition.enabled ? "Pause" : "Resume"}
                     onClick={togglePause}
                   >
                     <CentralIcon name={definition.enabled ? "pause" : "play"} className="size-4" />
-                  </Button>
+                  </IconButton>
                 ) : null}
-                <Button
-                  type="button"
+                <IconButton
                   size="icon-sm"
                   variant="ghost"
-                  aria-label="Delete"
-                  title="Delete"
+                  label="Delete"
+                  tooltip="Delete"
                   onClick={() => void deleteDefinition()}
                 >
                   <CentralIcon name="trash-can-simple" className="size-4" />
-                </Button>
+                </IconButton>
                 <Button
                   type="button"
                   size="sm"
@@ -623,7 +620,6 @@ function AutomationDetailView() {
                       variant="outline"
                       className="self-start"
                       disabled={!editable || updateMutation.isPending}
-                      title={editDisabledTitle}
                       // Server-side, re-enabling clears the disabled reason and resets the
                       // failure counter (and the iteration count for run-limit stops), so one
                       // click fully recovers the automation.
@@ -653,7 +649,6 @@ function AutomationDetailView() {
                         value={definition.worktreeMode}
                         options={WORKTREE_OPTIONS}
                         disabled={!editable}
-                        title={editDisabledTitle}
                         onChange={(value) => requestWorktreeChange(value as AutomationWorktreeMode)}
                       />
                     </span>
@@ -667,7 +662,6 @@ function AutomationDetailView() {
                       value={definition.projectId}
                       options={projects.map((entry) => ({ value: entry.id, label: entry.name }))}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onChange={(value) =>
                         patch({ projectId: value as AutomationDefinition["projectId"] })
                       }
@@ -677,8 +671,7 @@ function AutomationDetailView() {
                 {definition.sourceThreadId ? (
                   <DetailRow label="Created from">
                     {sourceThread ? (
-                      <button
-                        type="button"
+                      <HitArea
                         onClick={() =>
                           void navigate({
                             to: "/$threadId",
@@ -688,7 +681,7 @@ function AutomationDetailView() {
                         className="min-w-0 truncate text-right text-foreground transition-colors hover:text-primary"
                       >
                         {resolveThreadPickerTitle(sourceThread.title)}
-                      </button>
+                      </HitArea>
                     ) : (
                       "Thread unavailable"
                     )}
@@ -699,7 +692,6 @@ function AutomationDetailView() {
                     value={scheduleKindFromSchedule(schedule)}
                     options={SCHEDULE_KIND_OPTIONS}
                     disabled={!editable}
-                    title={editDisabledTitle}
                     onChange={(value) =>
                       patch({
                         schedule: scheduleFromKind(
@@ -719,7 +711,6 @@ function AutomationDetailView() {
                         includeHourly: true,
                       })}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onChange={(value) =>
                         patch({
                           schedule: {
@@ -737,7 +728,6 @@ function AutomationDetailView() {
                       type="datetime-local"
                       value={datetimeLocalFromIso(schedule.runAt)}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onChange={(event) =>
                         event.target.value
                           ? patch({
@@ -762,7 +752,6 @@ function AutomationDetailView() {
                       // unmounts this row the closure is stale, so never flush through it.
                       flushOnUnmount={false}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onCommit={(value) =>
                         patch({
                           schedule: {
@@ -781,7 +770,6 @@ function AutomationDetailView() {
                     <InlineTime
                       value={schedule.timeOfDay}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onChange={(value) =>
                         value ? patch({ schedule: { ...schedule, timeOfDay: value } }) : undefined
                       }
@@ -798,7 +786,6 @@ function AutomationDetailView() {
                           label: weekdayLabel(day),
                         }))}
                         disabled={!editable}
-                        title={editDisabledTitle}
                         onChange={(value) =>
                           patch({
                             schedule: updateWeeklyScheduleDay(schedule, Number.parseInt(value, 10)),
@@ -810,7 +797,6 @@ function AutomationDetailView() {
                       <InlineTime
                         value={schedule.timeOfDay}
                         disabled={!editable}
-                        title={editDisabledTitle}
                         onChange={(value) =>
                           value
                             ? patch({
@@ -836,7 +822,6 @@ function AutomationDetailView() {
                       normalize={trimDraft}
                       flushOnUnmount={false}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onCommit={(value) => patch({ schedule: { ...schedule, timezone: value } })}
                     />
                   </EditRow>
@@ -852,7 +837,6 @@ function AutomationDetailView() {
                 <ModelOptionRows
                   modelSelection={definition.modelSelection}
                   disabled={!editable}
-                  disabledTitle={editDisabledTitle}
                   onChange={applyModelSelection}
                 />
                 <EditRow label="Mode">
@@ -866,12 +850,9 @@ function AutomationDetailView() {
                           value: "heartbeat",
                           label: MODE_LABELS.heartbeat,
                           disabled: projectThreads.length === 0,
-                          title:
-                            projectThreads.length === 0 ? "No threads in this project" : undefined,
                         },
                       ]}
                       disabled={!editable}
-                      title={editDisabledTitle}
                       onChange={(value) => requestModeChange(value as AutomationDefinition["mode"])}
                     />
                   </span>
@@ -884,7 +865,6 @@ function AutomationDetailView() {
                       { value: "failed-runs-only", label: "Failed runs only" },
                     ]}
                     disabled={!editable}
-                    title={editDisabledTitle}
                     onChange={(value) =>
                       patch({
                         notificationPolicy:
@@ -898,7 +878,6 @@ function AutomationDetailView() {
                     value={stopWhen}
                     placeholder="Never"
                     disabled={!editable}
-                    title={editDisabledTitle}
                     onCommit={(value) =>
                       patch({
                         completionPolicy: completionPolicyFromStopWhen(value),
@@ -913,7 +892,6 @@ function AutomationDetailView() {
                       automationFailurePolicyValue(definition.stopAfterConsecutiveFailures),
                     )}
                     disabled={!editable}
-                    title={editDisabledTitle}
                     onChange={(value) =>
                       patch({
                         stopAfterConsecutiveFailures:
@@ -927,7 +905,6 @@ function AutomationDetailView() {
                     value={definition.maxIterations == null ? "" : String(definition.maxIterations)}
                     options={maxIterationOptions(definition.maxIterations)}
                     disabled={!editable}
-                    title={editDisabledTitle}
                     onChange={(value) =>
                       patch({ maxIterations: value === "" ? null : Number.parseInt(value, 10) })
                     }
@@ -961,7 +938,6 @@ function AutomationDetailView() {
                           label: resolveThreadPickerTitle(thread.title),
                         }))}
                         disabled={!editable}
-                        title={editDisabledTitle}
                         onChange={(value) => patch({ targetThreadId: value as ThreadId })}
                       />
                     </div>
@@ -969,8 +945,7 @@ function AutomationDetailView() {
                 ) : continuationThreadId !== null ? (
                   <DetailRow label="Thread">
                     {continuedThread ? (
-                      <button
-                        type="button"
+                      <HitArea
                         onClick={() =>
                           void navigate({
                             to: "/$threadId",
@@ -980,7 +955,7 @@ function AutomationDetailView() {
                         className="min-w-0 truncate text-right text-foreground transition-colors hover:text-primary"
                       >
                         {resolveThreadPickerTitle(continuedThread.title)}
-                      </button>
+                      </HitArea>
                     ) : (
                       "Thread unavailable"
                     )}
@@ -1102,12 +1077,10 @@ function AutomationDetailView() {
 function ModelOptionRows({
   modelSelection,
   disabled,
-  disabledTitle,
   onChange,
 }: {
   readonly modelSelection: ModelSelection;
   readonly disabled?: boolean;
-  readonly disabledTitle?: string | undefined;
   readonly onChange: (next: ModelSelection) => void;
 }) {
   const { provider, model } = modelSelection;
@@ -1145,9 +1118,9 @@ function ModelOptionRows({
           return (
             <EditRow key={descriptor.id} label={descriptor.label}>
               <InlineToggle
+                label={descriptor.label}
                 value={getProviderOptionCurrentValue(descriptor) === true}
                 disabled={disabled}
-                title={disabled ? disabledTitle : undefined}
                 onChange={(checked) => setOption(descriptor, checked)}
               />
             </EditRow>
@@ -1163,7 +1136,6 @@ function ModelOptionRows({
                 label: option.label,
               }))}
               disabled={disabled}
-              title={disabled ? disabledTitle : undefined}
               onChange={(value) => setOption(descriptor, value)}
             />
           </EditRow>
@@ -1230,8 +1202,7 @@ function RunRow({
       </div>
       {triageActionable ? (
         <div className="flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          <button
-            type="button"
+          <HitArea
             onClick={(event) => {
               event.stopPropagation();
               onMarkRead(!unread);
@@ -1239,22 +1210,12 @@ function RunRow({
             className="text-muted-foreground transition-colors hover:text-foreground"
           >
             {unread ? "Read" : "Unread"}
-          </button>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onArchive(!archived);
-            }}
-            title={
-              run.permissionSnapshot.worktreeMode === "local"
-                ? undefined
-                : "Archiving does not remove generated worktrees or branches."
-            }
-            className="text-muted-foreground transition-colors hover:text-foreground"
-          >
-            {archived ? "Unarchive" : "Archive"}
-          </button>
+          </HitArea>
+          <RunArchiveButton
+            archived={archived}
+            keepsGeneratedWork={run.permissionSnapshot.worktreeMode !== "local"}
+            onArchive={onArchive}
+          />
         </div>
       ) : null}
       {active ? (

@@ -297,7 +297,7 @@
     "evidence": "Failed in verify-full 2f2bf3fb7 (11-11), 311eccbf7 and 4 pr runs; ci-audit C12."
   },
   {
-    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > covers generated image preview B2.1 controls and full-width rail",
+    "id": "chat:apps/web/src/components/ChatView.media.browser.tsx > ChatView transcript geometry (full app) > covers generated image preview B2.1 controls and full-width rail",
     "platform": "win32",
     "reason": "Load flake: fails in the full chat lane under load; passes alone.",
     "owner": "web/transcript",
@@ -306,7 +306,7 @@
     "evidence": "Failed in verify-full fbb0202b4 (11-11), ac83ca313, 81cd3ff55; passed alone after fbb0202b4 (merge log 11-11)."
   },
   {
-    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > covers B2.2a reduced-motion coachmark and transition behavior",
+    "id": "chat:apps/web/src/components/ChatView.media.browser.tsx > ChatView transcript geometry (full app) > covers B2.2a reduced-motion coachmark and transition behavior",
     "platform": "win32",
     "reason": "Machine-only: fails alone on plain main on the shared Windows PC with the machine quiet; passed in 2 full runs.",
     "owner": "web/transcript",
@@ -315,7 +315,7 @@
     "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/chat.log), rerun-b8q-872e13f22, rerun-b8-872e13f22, full-872e13f22, full-aeaf97e53, full-34e1b5114; passed in full-d72ff1523, full-f81d08430."
   },
   {
-    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > provider handoff destination > never persists a provider switch before its explicit handoff",
+    "id": "chat:apps/web/src/components/ChatView.composer.browser.tsx > ChatView transcript geometry (full app) > provider handoff destination > never persists a provider switch before its explicit handoff",
     "platform": "win32",
     "reason": "Machine-only: fails alone on plain main on the shared Windows PC with the machine quiet.",
     "owner": "web/transcript",
@@ -324,7 +324,7 @@
     "evidence": "Control on main 1ea39e96d (rerun-b8q-1ea39e96d/chat.log), rerun-b8q-872e13f22, rerun-b8-872e13f22, full-872e13f22, full-cefafe703, full-b88cfde18, full-c080f51ef."
   },
   {
-    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > provider handoff destination > shows a dismissible pre-send tip above the composer when leaving Claude for 'codex' ('ready')",
+    "id": "chat:apps/web/src/components/ChatView.composer.browser.tsx > ChatView transcript geometry (full app) > provider handoff destination > shows a dismissible pre-send tip above the composer when leaving Claude for 'codex' ('ready')",
     "platform": "win32",
     "reason": "Load flake: fails in busy chat lanes; passes alone at other times.",
     "owner": "web/transcript",
@@ -333,7 +333,7 @@
     "evidence": "rerun-b8-872e13f22, full-872e13f22, full-cefafe703, full-b88cfde18; failed on main f1d4ee077 in another session's control."
   },
   {
-    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > fits a split pane's diff panel and loads its content (1100 px window)",
+    "id": "chat:apps/web/src/components/ChatView.shell.browser.tsx > ChatView transcript geometry (full app) > fits a split pane's diff panel and loads its content (1100 px window)",
     "platform": "win32",
     "reason": "Machine-only: fails on plain main and quiet candidates on the shared Windows PC; the 1920 px case passes.",
     "owner": "web/transcript",
@@ -342,7 +342,7 @@
     "evidence": "Failed in rerun-b8-872e13f22, full-872e13f22, full-cefafe703; main 1ea39e96d failed its 1600 px sibling in the same control (rerun-b8q-1ea39e96d/chat.log)."
   },
   {
-    "id": "chat:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > fits a split pane's diff panel and loads its content (1600 px window)",
+    "id": "chat:apps/web/src/components/ChatView.shell.browser.tsx > ChatView transcript geometry (full app) > fits a split pane's diff panel and loads its content (1600 px window)",
     "platform": "win32",
     "reason": "Machine-only: fails alone on plain main on the shared Windows PC with the machine quiet; the 1920 px case passes.",
     "owner": "web/transcript",
@@ -360,7 +360,7 @@
     "evidence": "rerun-b3-cefafe703, full-cefafe703, full-051cc6be9, full-2f2bf3fb7, full-311eccbf7, full-ed8546b97."
   },
   {
-    "id": "geometry:apps/web/src/components/ChatView.browser.tsx > ChatView transcript geometry (full app) > [geometry:linux]",
+    "id": "geometry:apps/web/src/components/ChatView.geometry.browser.tsx > ChatView transcript geometry (full app) > [geometry:linux]",
     "platform": "all",
     "reason": "Pixel/font/layout assertions that differ on hosted Ubuntu. The stable browser lanes filter out every [geometry:linux] case; the geometry lane runs them, without blocking.",
     "owner": "web/transcript",

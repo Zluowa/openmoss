@@ -157,12 +157,9 @@ describe("translateMoss", () => {
 
   it("keeps Computer History product copy Moss-branded in both locales", () => {
     const brandedKeys = [
-      "settings.history.enableDescription",
-      "settings.history.historyDescription",
       "settings.history.off.title",
       "settings.history.off.description",
       "settings.history.off.privacy",
-      "settings.history.permissionsRestart",
       "settings.history.error.turnOn",
       "settings.history.clearSuccess",
     ] as const;

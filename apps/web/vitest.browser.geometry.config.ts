@@ -8,7 +8,7 @@ export default defineConfig({
     ...browserConfig.test,
     // A name filter still imports every included module before skipping it.
     // Keep the reviewed tag inventory in browser-ci-partitions.test.ts in sync.
-    include: ["src/components/ChatView.browser.tsx"],
+    include: ["src/components/ChatView.geometry.browser.tsx"],
     passWithNoTests: false,
     testNamePattern: /\[geometry:linux\]/,
     // This lane is where the quarantined geometry cases run (test-quarantine.json), so the

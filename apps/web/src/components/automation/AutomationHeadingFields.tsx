@@ -24,12 +24,10 @@ export function AutomationNameField({
   value,
   onCommit,
   disabled,
-  title,
 }: {
   readonly value: string;
   readonly onCommit: (value: string) => void;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
 }) {
   const draft = useCommitDraft({
     value,
@@ -42,7 +40,6 @@ export function AutomationNameField({
     <input
       value={draft.draft}
       disabled={disabled}
-      title={title}
       aria-label="Automation name"
       aria-invalid={draft.error !== null || undefined}
       placeholder="Automation name"
@@ -70,12 +67,10 @@ export function AutomationPromptField({
   value,
   onCommit,
   disabled,
-  title,
 }: {
   readonly value: string;
   readonly onCommit: (value: string) => void;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
 }) {
   const draft = useCommitDraft({
     value,
@@ -88,7 +83,6 @@ export function AutomationPromptField({
     <textarea
       value={draft.draft}
       disabled={disabled}
-      title={title}
       aria-label="Automation prompt"
       aria-invalid={draft.error !== null || undefined}
       placeholder="What should this automation do on each run?"

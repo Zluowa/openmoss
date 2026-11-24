@@ -5,6 +5,7 @@ import type { RemoteComputerConnection, RemoteComputerState } from "@moss/contra
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import { Spinner } from "~/components/ui/spinner";
 import { toastManager } from "~/components/ui/toast";
 import {
   Dialog,
@@ -23,7 +24,7 @@ import {
   AlertDialogFooter,
   AlertDialogClose,
 } from "~/components/ui/alert-dialog";
-import { DeviceLaptopIcon, Loader2Icon, TrashCanIcon } from "~/lib/icons";
+import { DeviceLaptopIcon, TrashCanIcon } from "~/lib/icons";
 import { useTranslation, type TranslationKey } from "~/localization";
 import { LARGE_DIALOG_TITLE_CLASS_NAME } from "~/surfaceStyles";
 import { SettingsCard } from "./SettingsPanelPrimitives";
@@ -244,7 +245,7 @@ export function RemoteComputersSettingsPanel({ active }: { readonly active: bool
     >
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-ui-lg font-medium">{t("settings.connections.remote.title")}</h2>
-        <Button size="sm" className="rounded-full" disabled={!api} onClick={() => openPair()}>
+        <Button size="sm" disabled={!api} onClick={() => openPair()}>
           {t("settings.connections.remote.add")}
         </Button>
       </div>
@@ -380,11 +381,6 @@ export function RemoteComputersSettingsPanel({ active }: { readonly active: bool
             className="contents"
           >
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
-              {draft?.previousId ? (
-                <p className="text-ui text-muted-foreground">
-                  {t("settings.connections.remote.repairDescription")}
-                </p>
-              ) : null}
               <label className="block space-y-2 text-ui font-medium">
                 <span>{t("settings.ssh.name")}</span>
                 <Input
@@ -427,9 +423,6 @@ export function RemoteComputersSettingsPanel({ active }: { readonly active: bool
                   }
                 />
               </label>
-              <p className="text-ui-sm text-muted-foreground">
-                {t("settings.connections.remote.addressHint")}
-              </p>
               {pairError ? (
                 <p role="alert" className="text-ui text-destructive">
                   {t(pairError)}
@@ -441,7 +434,7 @@ export function RemoteComputersSettingsPanel({ active }: { readonly active: bool
                 {t("settings.ssh.cancel")}
               </Button>
               <Button type="submit" disabled={pairing}>
-                {pairing ? <Loader2Icon className="size-ui-icon-sm animate-spin" /> : null}
+                {pairing ? <Spinner aria-label="" className="size-ui-icon-sm" /> : null}
                 {t(
                   pairing
                     ? "settings.connections.remote.pairing"

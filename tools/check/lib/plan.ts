@@ -1,7 +1,7 @@
 // Turns a list of changed files into the steps of `bun run check`. Pure: no I/O.
 import {
   BROWSER_TEST_INCLUDE,
-  CHAT_VIEW_BROWSER_SPEC,
+  CHAT_VIEW_BROWSER_SPECS,
   PAGE_EDITOR_BROWSER_SPECS,
 } from "../../../apps/web/src/test/browserTestLanes.ts";
 import { entryMatcher, typeOwners } from "./typeScope.ts";
@@ -171,7 +171,7 @@ export interface TestGroups {
   readonly browserNotRun: { readonly file: string; readonly reason: string }[];
 }
 
-export const GATE_SKIPS_BROWSER = [`apps/web/${CHAT_VIEW_BROWSER_SPEC}`];
+export const GATE_SKIPS_BROWSER = CHAT_VIEW_BROWSER_SPECS.map((spec) => `apps/web/${spec}`);
 
 const BROWSER_INCLUDED = BROWSER_TEST_INCLUDE.map((glob) => entryMatcher("", glob)!);
 

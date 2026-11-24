@@ -73,7 +73,7 @@ const sources = [
     path: "apps/web/src/components/Panel.browser.tsx",
     text: 'const { Panel } = await import("./Panel");',
   },
-  { path: "apps/web/src/components/ChatView.browser.tsx", text: 'vi.mock("~/lib/run");' },
+  { path: "apps/web/src/components/ChatView.composer.browser.tsx", text: 'vi.mock("~/lib/run");' },
   { path: "apps/server/src/run.ts", text: 'import { run } from "@moss/shared/process";' },
   { path: "apps/server/src/run.test.ts", text: 'import "./run";' },
   { path: "apps/desktop/src/main.ts", text: "export {};" },
@@ -238,7 +238,7 @@ describe("test selection", () => {
   it("selects the tests that import a changed file through any chain, in every package", () => {
     expect(selectFor(["packages/contracts/src/thread.ts"]).tests).toEqual([
       "apps/server/src/run.test.ts",
-      "apps/web/src/components/ChatView.browser.tsx",
+      "apps/web/src/components/ChatView.composer.browser.tsx",
       "apps/web/src/components/Panel.browser.tsx",
       "apps/web/src/components/Panel.test.tsx",
       "packages/shared/src/process.test.ts",
@@ -262,7 +262,7 @@ describe("test selection", () => {
       "@moss/cli": ["src/run.test.ts"],
     });
     expect(groups.browser).toEqual(["src/components/Panel.browser.tsx"]);
-    expect(groups.browserLeft).toEqual(["src/components/ChatView.browser.tsx"]);
+    expect(groups.browserLeft).toEqual(["src/components/ChatView.composer.browser.tsx"]);
   });
 
   it("never hands the components project a browser file its config leaves out", () => {

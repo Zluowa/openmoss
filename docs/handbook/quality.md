@@ -21,7 +21,7 @@ your branch with its merge base on `origin/main`, checks format and lint on the
 changed files, runs the design, sync-fs, brand and skills checks when their files
 changed, typechecks the packages whose code imports a changed file, and runs the
 unit tests that import one, chosen from the import graph. It runs at most 20
-selected component browser files and never `ChatView.browser.tsx`; more than that
+selected component browser files and never the `ChatView.*.browser.tsx` files; more than that
 is left to the coordinator's lane. A change to root configuration prints "full run
 required" and fails. Each step prints its time and, on failure, the exact command
 to reproduce it. It reruns failing test files alone before it reports, and keeps

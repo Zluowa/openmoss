@@ -1,3 +1,4 @@
+import { StatusDot } from "~/components/ui/status-chip";
 import { useTranslation } from "~/localization";
 import { automationDisplayName } from "~/lib/automationDisplayName";
 // FILE: RailAutomationsPanel.tsx
@@ -69,10 +70,7 @@ export function RailAutomationsPanel({
         detail={automationRowSubtitle(definition, latestRun, now, t)}
         meta={
           hasUnreadResult(latestRun) ? (
-            <span
-              aria-label="New result"
-              className="block size-1.5 rounded-full bg-[var(--color-text-accent)]"
-            />
+            <StatusDot aria-label="New result" className="block bg-[var(--color-text-accent)]" />
           ) : undefined
         }
       />

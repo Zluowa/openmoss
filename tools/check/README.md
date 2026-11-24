@@ -45,7 +45,7 @@ unstaged edits, untracked files, deletions.
    that do not test with Vitest are reported and skipped. These run alongside the types.
 7. **Browser**: up to 20 selected component browser files run in
    `vitest.browser.ci.config.ts --project=components`. More than 20 are left to the
-   coordinator's lane, and `ChatView.browser.tsx` always is (it takes over ten minutes alone).
+   coordinator's lane, and the `ChatView.*.browser.tsx` files always are (together they take over ten minutes).
    The browser port is `VITEST_BROWSER_API_PORT`, or 52000 plus `MOSS_PORT_OFFSET` from a `ws`
    lease.
 8. **Phone app** (`apps/mobile`): not a workspace package (root `workspaces` lists

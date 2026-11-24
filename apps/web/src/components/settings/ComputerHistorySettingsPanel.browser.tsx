@@ -138,7 +138,7 @@ vi.mock("~/localization", () => {
     "settings.history.off.example.next": "Next example",
     "settings.history.off.example.position": "Example {current} of {total}",
     "settings.history.turnOnAction": "Turn on",
-    "settings.history.permissions": "Permissions",
+    "settings.history.permissions": "Apps and websites recorded",
     "settings.history.permissionsDescription":
       "Choose which apps and websites to exclude or include in computer history",
     "settings.history.finishSetup": "Finish setup",
@@ -535,14 +535,8 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!h-6");
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!py-0.5");
     expect(page.getByRole("button", { name: "Turn on" }).element().className).toContain("!text-ui");
-    expect(
-      document.querySelector("[data-computer-history-example-user]")?.getAttribute("style"),
-    ).toContain("moss-computer-history-user-send");
-    expect(
-      Array.from(document.querySelectorAll("style")).some((style) =>
-        style.textContent?.includes("prefers-reduced-motion"),
-      ),
-    ).toBe(true);
+    // Settings one-set: the off state explains nothing beyond one line; no demo card.
+    expect(document.querySelector('[data-testid="computer-history-off-example"]')).toBeNull();
     expect(document.body.textContent).not.toContain("Capture scope");
     await screen.unmount();
 
@@ -910,9 +904,8 @@ describe("ComputerHistorySettingsPanel", () => {
     const firstSettingsRowText = firstSettingsRow?.firstElementChild?.firstElementChild;
     expect(firstSettingsRowText?.firstElementChild?.className).toContain("text-ui");
     expect(firstSettingsRowText?.firstElementChild?.className).toContain("leading-[18px]");
-    expect(firstSettingsRowText?.lastElementChild?.className).toContain(
-      "text-[var(--color-text-foreground-secondary)]",
-    );
+    // The enable row has no second line under its title.
+    expect(firstSettingsRowText?.childElementCount).toBe(1);
     const timeline = page.getByTestId("computer-history-timeline");
     expect(
       page.getByTestId("computer-history-history-section").element().firstElementChild?.className,
@@ -938,18 +931,8 @@ describe("ComputerHistorySettingsPanel", () => {
     expect(askIcon?.getAttribute("viewBox")).toBe("0 0 14 12");
     expect(askIcon?.getAttribute("width")).toBe("14");
     expect(askIcon?.getAttribute("height")).toBe("12");
-    const historyInfo = page.getByRole("button", { name: "About computer history" });
-    expect(historyInfo.element().className).toContain("size-4");
-    expect(historyInfo.element().className).toContain("cursor-interaction");
-    expect(historyInfo.element().className).toContain("text-tertiary");
-    expect(historyInfo.element().querySelector("svg")?.getAttribute("viewBox")).toBe("0 0 21 21");
-    expect(historyInfo.element().querySelectorAll("svg path")).toHaveLength(3);
-    const previousRuntime = document.documentElement.dataset.runtime;
-    document.documentElement.dataset.runtime = "electron";
-    expect(getComputedStyle(historyInfo.element()).cursor).toBe("default");
-    delete document.documentElement.dataset.runtime;
-    expect(getComputedStyle(historyInfo.element()).cursor).toBe("pointer");
-    if (previousRuntime) document.documentElement.dataset.runtime = previousRuntime;
+    // No info icon with an explanation beside the History title.
+    expect(page.getByRole("button", { name: "About computer history" }).elements()).toHaveLength(0);
     await userEvent.hover(sixHourTime as HTMLElement);
     await vi.waitFor(() =>
       expect(document.querySelector('[data-slot="tooltip-popup"]')?.textContent).toContain(" – "),
@@ -1028,7 +1011,7 @@ describe("ComputerHistorySettingsPanel", () => {
     const revealButton = page
       .getByRole("button", { name: "Reveal Editor event in Finder" })
       .first();
-    expect(revealButton.element().className).toContain("size-5.5");
+    expect(revealButton.element().getAttribute("data-slot")).toBe("tooltip-trigger");
     const revealIcon = revealButton.element().querySelector("svg");
     expect(revealIcon?.getAttribute("viewBox")).toBe("0 0 20 20");
     expect(revealIcon?.querySelector("path")?.getAttribute("d")).toContain(
@@ -1048,8 +1031,8 @@ describe("ComputerHistorySettingsPanel", () => {
       entryId: "history-1",
     });
     const deleteButton = page.getByRole("button", { name: "Delete Editor event" });
-    expect(deleteButton.element().getAttribute("style")).toContain("width 0.16s");
-    expect(deleteButton.element().className).toContain("w-5.5");
+    expect(deleteButton.element().getAttribute("data-slot")).toBe("tooltip-trigger");
+    expect(deleteButton.element().hasAttribute("title")).toBe(false);
     const deleteIcon = deleteButton.element().querySelector("svg");
     expect(deleteIcon?.getAttribute("viewBox")).toBe("0 0 20 20");
     expect(deleteIcon?.querySelector("path")?.getAttribute("d")).toContain("M3.5 5.5h13");
@@ -1063,7 +1046,7 @@ describe("ComputerHistorySettingsPanel", () => {
     );
     expect(
       page.getByRole("button", { name: "Confirm delete Editor event" }).element().className,
-    ).toContain("w-14");
+    ).toContain("bg-destructive");
     await page.getByRole("button", { name: "Confirm delete Editor event" }).click();
     expect(harness.api.computerHistory.clearHistory).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -1326,9 +1309,9 @@ describe("ComputerHistorySettingsPanel", () => {
         }),
       )
       .toBeVisible();
-    await expect
-      .element(page.getByText("If the issue persists, please restart Moss.", { exact: true }))
-      .toBeVisible();
+    // The error and Try again stay; no second line under the error.
+    await expect.element(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    expect(document.body.textContent).not.toContain("If the issue persists");
     await page.getByRole("button", { name: "Try again" }).click();
     await expect.element(page.getByRole("button", { name: "Add app" })).toBeVisible();
     expect(harness.api.computerHistory.getSettings).toHaveBeenCalled();
@@ -1411,88 +1394,38 @@ describe("ComputerHistorySettingsPanel", () => {
     await screen.unmount();
   });
 
-  it("keeps the off-state carousel accessible across target viewports", async () => {
-    configureApi(OFF_STATE);
-    const screen = await render(<ComputerHistorySettingsPanel />);
-    for (const [width, height] of [
-      [1760, 916],
-      [768, 900],
-      [375, 812],
-    ] as const) {
-      await page.viewport(width, height);
-      await expect.element(page.getByTestId("computer-history-off-state")).toBeVisible();
-      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
-    }
-    await screen.unmount();
-  });
-
-  it("matches the carousel cadence, keyed remount, reduced-motion stop, and planning link", async () => {
-    configureApi(OFF_STATE);
-    const timeoutSpy = vi.spyOn(window, "setTimeout");
-    const screen = await render(<ComputerHistorySettingsPanel />);
-    const initialLabel = page.getByRole("status", { name: "Example 1 of 4" });
-    await expect.element(initialLabel).toBeVisible();
-    const firstUserNode = document.querySelector<HTMLElement>(
-      "[data-computer-history-example-user]",
-    );
-    const userAnimation = firstUserNode?.getAttribute("style");
-    expect(userAnimation).toContain("moss-computer-history-user-send");
-    expect(userAnimation).toContain("var(--transition-duration-basic");
-    const firstWordNodes = document.querySelectorAll<HTMLElement>(
-      "[data-computer-history-example-word]",
-    );
-    expect(firstWordNodes[0]?.getAttribute("style")).toContain(
-      "var(--transition-duration-relaxed, .3s) + var(--transition-duration-basic, .15s)",
-    );
-    expect(firstWordNodes[1]?.getAttribute("style")).toContain("75ms");
-    expect(
-      Array.from(firstWordNodes).some((node) => node.getAttribute("style")?.includes("1 * 75ms")),
-    ).toBe(true);
-    const previousExample = page.getByRole("button", { name: "Previous example" });
-    const nextExample = page.getByRole("button", { name: "Next example" });
-    expect(previousExample.element().querySelector("svg")?.getAttribute("viewBox")).toBe(
-      "0 0 20 20",
-    );
-    expect(previousExample.element().querySelector("svg")?.getBoundingClientRect().width).toBe(16);
-    expect(nextExample.element().querySelector("svg")?.className.baseVal).toContain("-scale-x-100");
-    const carouselTimer = timeoutSpy.mock.calls.find(([, delay]) => delay === 14_000)?.[0];
-    expect(carouselTimer).toBeTypeOf("function");
-    (carouselTimer as (() => void) | undefined)?.();
-    await expect.element(page.getByRole("status", { name: "Example 2 of 4" })).toBeVisible();
-    expect(document.querySelector("[data-computer-history-example-user]")).not.toBe(firstUserNode);
-    expect(document.querySelector("[data-computer-history-example-user]")?.textContent).toContain(
-      "What was I working on before lunch?",
-    );
-    await page.getByRole("button", { name: "Next example" }).click();
-    await expect.element(page.getByText("Q4 Launch Planning", { exact: true })).toBeVisible();
-    expect(
-      document.querySelector("[data-computer-history-example-word]")?.textContent,
-    ).toBeTruthy();
-    await screen.unmount();
-    timeoutSpy.mockRestore();
-
-    const originalMatchMedia = window.matchMedia;
-    const mediaSpy = vi.spyOn(window, "matchMedia").mockImplementation((query) => {
-      const matches = query === "(prefers-reduced-motion: reduce)";
-      return {
-        matches,
-        media: query,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      } as MediaQueryList;
+  for (const theme of ["light", "dark"] as const) {
+    it(`settings one-set (${theme}): the off state is a title, one line, Turn on and the privacy line`, async () => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+      try {
+        const screen = await render(<ComputerHistorySettingsPanel />);
+        const off = page.getByTestId("computer-history-off-state");
+        await expect.element(off).toBeVisible();
+        await expect.element(page.getByRole("button", { name: "Turn on" })).toBeVisible();
+        expect(off.element().querySelectorAll("section p")).toHaveLength(1);
+        expect(off.element().textContent).not.toContain("Ask about what you were working on.");
+        expect(document.querySelector('[data-testid="computer-history-off-example"]')).toBeNull();
+        expect(page.getByRole("button", { name: "Next example" }).elements()).toHaveLength(0);
+        // The demo's gradient is gone; the card is plain panel paper.
+        const card = off.element().querySelector("section")!;
+        expect(getComputedStyle(card).backgroundImage).toBe("none");
+        await screen.unmount();
+      } finally {
+        document.documentElement.classList.remove("dark");
+      }
     });
-    const reducedTimeoutSpy = vi.spyOn(window, "setTimeout");
-    const reducedScreen = await render(<ComputerHistorySettingsPanel />);
-    await expect.element(page.getByRole("status", { name: "Example 1 of 4" })).toBeVisible();
-    expect(reducedTimeoutSpy.mock.calls.some(([, delay]) => delay === 14_000)).toBe(false);
-    await reducedScreen.unmount();
-    reducedTimeoutSpy.mockRestore();
-    mediaSpy.mockRestore();
-    window.matchMedia = originalMatchMedia;
+  }
+
+  it("settings one-set: the recording-scope row is named for what it controls, with no line under it", async () => {
+    configureApi(ON_STATE);
+    const screen = await render(<ComputerHistorySettingsPanel />);
+    const label = page.getByText("Apps and websites recorded", { exact: true });
+    await expect.element(label).toBeVisible();
+    const row = label.element().closest('[data-slot="settings-row"]')!;
+    expect(row.textContent).not.toContain("Choose which apps and websites");
+    expect(row.textContent).not.toMatch(/^Permissions/u);
+    await expect.element(page.getByRole("button", { name: "Choose" })).toBeVisible();
+    await screen.unmount();
   });
 
   it("keeps dark mode and the source panel within narrow viewport bounds", async () => {
@@ -1519,9 +1452,6 @@ describe("ComputerHistorySettingsPanel", () => {
     await deleteButton.click();
     const confirming = page.getByRole("button", { name: "Confirm delete Editor event" });
     expect(confirming.element().className).toContain("bg-destructive");
-    expect(confirming.element().getAttribute("style")).toContain(
-      "0.16s cubic-bezier(0.2, 0.8, 0.2, 1)",
-    );
     await userEvent.keyboard("{Escape}");
     await expect.element(page.getByRole("button", { name: "Delete Editor event" })).toBeVisible();
     await page.getByRole("button", { name: "Delete Editor event" }).click();

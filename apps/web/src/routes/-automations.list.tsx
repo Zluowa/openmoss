@@ -1,3 +1,4 @@
+import { IconButton } from "~/components/ui/icon-button";
 import { type TranslationKey } from "~/localization";
 // FILE: -automations.list.tsx
 // Purpose: The automation list pieces shared by the Automations page and the rail layout's
@@ -100,7 +101,7 @@ export function AutomationListRow({
   const isPanel = (densityProp ?? "page") === "panel";
   const active = activeProp ?? false;
   return (
-    // A div with role="button" (not a real <button>) so inline controls like the hover delete
+    // A div with role="button" (not a real button element) so inline controls like the hover delete
     // can be nested buttons; the keydown guard lets those controls handle their own events
     // without also firing the row's navigation.
     <div
@@ -153,18 +154,19 @@ export function AutomationListRow({
         </span>
       )}
       {onDelete ? (
-        <button
-          type="button"
-          aria-label="Delete automation"
-          title="Delete"
+        <IconButton
+          variant="ghost"
+          size="icon-xs"
+          label="Delete automation"
+          tooltip="Delete"
           onClick={(event) => {
             event.stopPropagation();
             onDelete();
           }}
-          className="shrink-0 self-center rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+          className="shrink-0 self-center text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
         >
           <CentralIcon name="trash-can-simple" className="size-4" />
-        </button>
+        </IconButton>
       ) : null}
     </div>
   );

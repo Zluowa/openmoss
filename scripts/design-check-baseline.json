@@ -41,13 +41,6 @@
   "apps/web/src/components/auth/MossPhoneAuth.tsx": {
     "heavy-weight": 2
   },
-  "apps/web/src/components/automation/AutomationHeadingFields.tsx": {
-    "native-title": 2
-  },
-  "apps/web/src/components/automation/automationInlineFields.tsx": {
-    "raw-button": 1,
-    "native-title": 5
-  },
   "apps/web/src/components/BranchToolbarBranchSelector.tsx": {
     "raw-button": 2,
     "native-title": 2
@@ -626,9 +619,6 @@
   "apps/web/src/components/FeedbackDialog.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/FilterPillGroup.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/GitActionsControl.tsx": {
     "raw-button": 2,
     "native-title": 2
@@ -978,9 +968,6 @@
     "native-title": 1
   },
   "apps/web/src/components/pullRequest/PullRequestTimelineTab.tsx": {
-    "hand-status-dot": 1
-  },
-  "apps/web/src/components/RailAutomationsPanel.tsx": {
     "hand-status-dot": 1
   },
   "apps/web/src/components/ReviewFileTreePanel.tsx": {
@@ -1525,20 +1512,11 @@
     "heavy-weight": 2,
     "gradient": 4
   },
-  "apps/web/src/routes/_chat.automations.$automationId.tsx": {
-    "raw-button": 5,
-    "native-title": 2
-  },
   "apps/web/src/routes/_chat.skills.tsx": {
     "hex-color": 3
   },
-  "apps/web/src/routes/-automations.list.tsx": {
-    "raw-button": 2,
-    "native-title": 1
-  },
   "apps/web/src/routes/-automations.shared.tsx": {
-    "hand-spinner": 1,
-    "hand-status-dot": 2
+    "hand-spinner": 1
   },
   "apps/web/src/surfaceStyles.ts": {
     "heavy-weight": 2

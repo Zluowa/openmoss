@@ -4,6 +4,7 @@
 // Exports: DetailGroup/DetailRow/StatusValue/EditRow layout rows plus the inline
 // commit-on-change controls (select, toggle, time, commit-on-blur text input).
 
+import { Switch } from "~/components/ui/switch";
 import type { AutomationMode, AutomationWorktreeMode } from "@moss/contracts";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
@@ -15,7 +16,6 @@ export type SelectOption = {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
 };
 
 export const MODE_LABELS: Record<AutomationMode, string> = {
@@ -112,30 +112,22 @@ export function InlineSelect({
   options,
   onChange,
   disabled,
-  title,
 }: {
   readonly value: string;
   readonly options: readonly SelectOption[];
   readonly onChange: (value: string) => void;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
 }) {
   return (
     <div className="relative flex min-w-0 items-center">
       <select
         value={value}
         disabled={disabled}
-        title={title}
         onChange={(event) => onChange(event.target.value)}
         className={cn(INLINE_CONTROL_CLASS, "max-w-[11rem] appearance-none truncate pr-5")}
       >
         {options.map((option) => (
-          <option
-            key={option.value}
-            value={option.value}
-            disabled={option.disabled}
-            title={option.title}
-          >
+          <option key={option.value} value={option.value} disabled={option.disabled}>
             {option.label}
           </option>
         ))}
@@ -148,27 +140,26 @@ export function InlineSelect({
   );
 }
 
+/** A boolean option: the shared Switch, named by its row's label. */
 export function InlineToggle({
+  label,
   value,
   onChange,
   disabled,
-  title,
 }: {
+  readonly label: string;
   readonly value: boolean;
   readonly onChange: (value: boolean) => void;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
 }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      title={title}
-      onClick={() => onChange(!value)}
-      className={cn(INLINE_CONTROL_CLASS, "min-w-[3rem]")}
-    >
-      {value ? "On" : "Off"}
-    </button>
+    <Switch
+      aria-label={label}
+      checked={value}
+      disabled={disabled ?? false}
+      onCheckedChange={(checked) => onChange(checked)}
+      className="mr-1.5"
+    />
   );
 }
 
@@ -176,19 +167,16 @@ export function InlineTime({
   value,
   onChange,
   disabled,
-  title,
 }: {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
 }) {
   return (
     <input
       type="time"
       value={value}
       disabled={disabled}
-      title={title}
       onChange={(event) => onChange(event.target.value)}
       className={INLINE_CONTROL_CLASS}
     />
@@ -205,7 +193,6 @@ export function InlineCommitTextInput({
   normalize,
   flushOnUnmount,
   disabled,
-  title,
   className,
   placeholder,
 }: {
@@ -215,7 +202,6 @@ export function InlineCommitTextInput({
   readonly normalize?: ((value: string) => string) | undefined;
   readonly flushOnUnmount?: boolean | undefined;
   readonly disabled?: boolean | undefined;
-  readonly title?: string | undefined;
   readonly className?: string;
   readonly placeholder?: string;
 }) {
@@ -226,7 +212,6 @@ export function InlineCommitTextInput({
     <input
       value={draft.draft}
       disabled={disabled}
-      title={title}
       placeholder={placeholder}
       aria-invalid={draft.error !== null || undefined}
       onChange={(event) => draft.setDraft(event.target.value)}

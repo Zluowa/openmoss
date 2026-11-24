@@ -15,8 +15,19 @@ export const BROWSER_TEST_INCLUDE = [
   "src/whatsNew/**/*.browser.tsx",
 ] as const;
 
-/** The full-app ChatView file: the CI config's `chat` project, in four case partitions. */
-export const CHAT_VIEW_BROWSER_SPEC = "src/components/ChatView.browser.tsx";
+/**
+ * The full-app ChatView files (one suite split by feature on src/test/chatViewBrowserHarness.tsx):
+ * the CI config's `chat` project, in four case partitions.
+ */
+export const CHAT_VIEW_BROWSER_SPECS = [
+  "src/components/ChatView.composer.browser.tsx",
+  "src/components/ChatView.geometry.browser.tsx",
+  "src/components/ChatView.media.browser.tsx",
+  "src/components/ChatView.newChat.browser.tsx",
+  "src/components/ChatView.shell.browser.tsx",
+  "src/components/ChatView.transcript.browser.tsx",
+  "src/components/ChatView.workspace.browser.tsx",
+] as const;
 
 /**
  * Drives the real Canvas Plate editor, which exists only after the pinned Canvas bundle is

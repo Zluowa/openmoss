@@ -1,4 +1,3 @@
-import { MOSS_HELP_SITE_URL } from "@moss/shared/desktopIdentity";
 import type {
   ComputerHistoryApp,
   ComputerHistoryClearScope,
@@ -11,15 +10,7 @@ import {
   COMPUTER_HISTORY_MENTION_REFERENCE,
   COMPUTER_HISTORY_MENTION_TOKEN,
 } from "@moss/shared/computerHistoryMention";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { useComposerDraftStore } from "~/composerDraftStore";
@@ -31,10 +22,8 @@ import {
   ComputerHistoryClipboardIcon,
   ComputerHistoryFolderIcon,
   ComputerHistoryGlobeIcon,
-  ComputerHistoryInfoIcon,
   ComputerHistoryPersonVideoIcon,
   ComputerHistoryPlusIcon,
-  ComputerHistoryPreviousIcon,
   ComputerHistoryRemoveIcon,
   ComputerHistorySearchIcon,
   ComputerHistoryTrashIcon,
@@ -44,10 +33,12 @@ import { ComputerHistoryModal } from "~/components/settings/ComputerHistorySetti
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Menu, MenuItem, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "~/components/ui/menu";
+import { IconButton } from "~/components/ui/icon-button";
+import { Spinner } from "~/components/ui/spinner";
+import { StatusDot } from "~/components/ui/status-chip";
 import { Switch } from "~/components/ui/switch";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
-import { LoaderIcon } from "~/lib/icons";
 import {
   CLEAR_SCOPE_LABELS,
   DEFAULT_SETTINGS,
@@ -60,7 +51,6 @@ import {
   fallbackApplicationName,
   isComputerHistoryApplicationIncluded,
   normalizeHostInput,
-  segmentExampleText,
   timelineDayGroups,
   timelineHasGap,
   toggleTimelineCluster,
@@ -68,12 +58,9 @@ import {
 } from "~/components/settings/ComputerHistorySettingsPanel.model";
 import { toastManager } from "~/components/ui/toast";
 import { useHandleNewChat } from "~/hooks/useHandleNewChat";
-import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useTranslation, type TranslationKey } from "~/localization";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
-
-const COMPUTER_HISTORY_LEARN_MORE_URL = MOSS_HELP_SITE_URL;
 
 const COMPUTER_HISTORY_TOOLTIP_CLASS_NAME =
   "!rounded-control !border !border-[var(--color-text-foreground)] !bg-[var(--color-background-primary-solid)] !px-2 !py-1.5 !text-ui !leading-[18px] !text-[var(--color-text-primary-solid)] !shadow-none !backdrop-blur-0";
@@ -93,7 +80,7 @@ function ComputerHistorySettingsRow({
   control,
 }: {
   title: ReactNode;
-  description: ReactNode;
+  description?: ReactNode;
   control: ReactNode;
 }) {
   return (
@@ -104,64 +91,17 @@ function ComputerHistorySettingsRow({
       <div className="flex min-w-0 flex-1 items-center gap-3">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="min-w-0 text-ui leading-[18px] font-medium text-foreground">{title}</div>
-          <div className="min-w-0 text-ui-sm leading-4 text-balance text-[var(--color-text-foreground-secondary)]">
-            {description}
-          </div>
+          {description ? (
+            <div className="min-w-0 text-ui-sm leading-4 text-balance text-[var(--color-text-foreground-secondary)]">
+              {description}
+            </div>
+          ) : null}
         </div>
       </div>
       <div className="flex max-w-full shrink-0 items-center gap-3">{control}</div>
     </div>
   );
 }
-
-function ComputerHistoryLearnMore({ label, testId }: { label: string; testId: string }) {
-  const url = COMPUTER_HISTORY_LEARN_MORE_URL;
-  if (!url) return null;
-  return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noreferrer"
-      className="text-[var(--color-token-text-link-foreground)]"
-      data-testid={testId}
-      onClick={(event) => {
-        event.preventDefault();
-        void ensureNativeApi()
-          .shell.openExternal(url)
-          .catch(() => {});
-      }}
-    >
-      {label}
-    </a>
-  );
-}
-
-const OFF_STATE_EXAMPLES = [
-  {
-    key: "follow-up",
-    user: "settings.history.off.example.followUp.user",
-    assistant: "settings.history.off.example.followUp.assistant",
-  },
-  {
-    key: "before-lunch",
-    user: "settings.history.off.example.beforeLunch.user",
-    assistant: "settings.history.off.example.beforeLunch.assistant",
-  },
-  {
-    key: "planning-document",
-    user: "settings.history.off.example.planningDocument.user",
-    assistant: "settings.history.off.example.planningDocument.assistant",
-  },
-  {
-    key: "remodel",
-    user: "settings.history.off.example.remodel.user",
-    assistant: "settings.history.off.example.remodel.assistant",
-  },
-] as const satisfies ReadonlyArray<{
-  key: string;
-  user: TranslationKey;
-  assistant: TranslationKey;
-}>;
 
 const ASK_ABOUT_HISTORY_PROMPTS = [
   "Give me a list of tasks I’ve worked on today and their status",
@@ -179,56 +119,6 @@ const ASK_ABOUT_HISTORY_PROMPTS = [
   "How do I split my time between focused work, switching tabs, and returning to unfinished tasks?",
   "What was I working on before my last break?",
 ] as const;
-
-const OFF_STATE_MOTION_STYLE = `
-[data-testid="computer-history-off-state"] {
-  --transition-duration-basic: .15s;
-  --transition-duration-relaxed: .3s;
-  --ease-enter-snappy: cubic-bezier(.23,1,.32,1);
-}
-@keyframes moss-computer-history-user-send {
-  from { opacity: 0; transform: translateY(170px) scale(.98); }
-  70%, to { opacity: 1; }
-  to { transform: translateY(0) scale(1); }
-}
-@keyframes moss-computer-history-word-appear {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-computer-history-example-user], [data-computer-history-example-word] {
-    animation-duration: 1ms !important;
-    animation-delay: 0s !important;
-  }
-}
-`;
-
-function InfoTooltip({ label, description }: { label: string; description: string }) {
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        delay={0}
-        render={
-          <button
-            type="button"
-            aria-label={label}
-            className="inline-flex size-4 cursor-interaction items-center justify-center text-tertiary outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <ComputerHistoryInfoIcon className="size-4" aria-hidden="true" />
-          </button>
-        }
-      />
-      <TooltipPopup
-        side="top"
-        sideOffset={2}
-        className={COMPUTER_HISTORY_TOOLTIP_CLASS_NAME}
-        viewportClassName={COMPUTER_HISTORY_TOOLTIP_VIEWPORT_CLASS_NAME}
-      >
-        {description}
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
 
 const HISTORY_APP_ICON_MAX_DATA_URL_LENGTH = 192_000;
 const HISTORY_APP_ICON_DATA_URL_PATTERN = /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/u;
@@ -282,143 +172,11 @@ function AppIcon({
   );
 }
 
-function AnimatedExample({
-  user,
-  assistant,
-  index,
-  total,
-  onPrevious,
-  onNext,
-  t,
-  format,
-  locale,
-}: {
-  user: string;
-  assistant: string;
-  index: number;
-  total: number;
-  onPrevious: () => void;
-  onNext: () => void;
-  t: (key: TranslationKey) => string;
-  format: (key: TranslationKey, values: Record<string, string | number>) => string;
-  locale: string;
-}) {
-  const words = segmentExampleText(assistant, locale);
-  const positionLabel = format("settings.history.off.example.position", {
-    current: index + 1,
-    total,
-  });
-  return (
-    <>
-      <style>{OFF_STATE_MOTION_STYLE}</style>
-      <div
-        className="relative min-h-[340px] overflow-hidden"
-        data-testid="computer-history-off-example"
-      >
-        <div
-          aria-hidden="true"
-          className="absolute inset-0 bg-[radial-gradient(circle_at_24%_28%,rgba(109,167,255,.95),transparent_34%),radial-gradient(circle_at_72%_68%,rgba(168,94,255,.88),transparent_42%),linear-gradient(135deg,#101b44,#2e1462_58%,#071833)] bg-cover bg-[center_44%]"
-        />
-        <div className="group/example absolute inset-5 z-10 flex min-h-0 flex-col overflow-y-auto rounded-popover border border-border bg-background/95 p-5 pb-12 text-ui-lg leading-5 text-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <p
-            className="ms-auto max-w-[77%] min-w-0 overflow-hidden break-words rounded-bubble bg-foreground/5 px-3 py-2 opacity-0"
-            data-computer-history-example-user
-            style={{
-              animation:
-                "moss-computer-history-user-send calc(var(--transition-duration-relaxed, .3s) + var(--transition-duration-basic, .15s)) var(--ease-enter-snappy, cubic-bezier(.23,1,.32,1)) forwards",
-            }}
-          >
-            {user}
-          </p>
-          <p className="mt-4 text-[var(--color-text-foreground-secondary)]" aria-live="polite">
-            <span className="sr-only">
-              {index === 2
-                ? `${assistant} ${t("settings.history.off.example.planningDocument.link")}`
-                : assistant}
-            </span>
-            <span aria-hidden="true">
-              {words.map(({ text, delayIndex }, wordIndex) => (
-                <span
-                  key={`${index}-${wordIndex}`}
-                  className="opacity-0"
-                  data-computer-history-example-word
-                  style={
-                    {
-                      animation:
-                        "moss-computer-history-word-appear var(--transition-duration-relaxed, .3s) ease-out forwards",
-                      animationDelay: `calc(var(--transition-duration-relaxed, .3s) + var(--transition-duration-basic, .15s) + ${delayIndex} * 75ms)`,
-                    } as CSSProperties
-                  }
-                >
-                  {text}
-                </span>
-              ))}
-              {index === 2 ? (
-                <span
-                  className="inline text-[var(--color-token-text-link-foreground)] opacity-0"
-                  data-computer-history-example-word
-                  style={{
-                    animation:
-                      "moss-computer-history-word-appear var(--transition-duration-relaxed, .3s) ease-out forwards",
-                    animationDelay: `calc(var(--transition-duration-relaxed, .3s) + var(--transition-duration-basic, .15s) + ${(words.at(-1)?.delayIndex ?? -1) + 1} * 75ms)`,
-                  }}
-                >
-                  {" "}
-                  {t("settings.history.off.example.planningDocument.link")}
-                </span>
-              ) : null}
-            </span>
-          </p>
-          <div className="absolute right-3 bottom-3 flex gap-1 opacity-0 transition-opacity duration-150 group-focus-within/example:opacity-100 group-hover/example:opacity-100 motion-reduce:transition-none">
-            <button
-              type="button"
-              aria-label={t("settings.history.off.example.previous")}
-              className="inline-flex size-[26px] items-center justify-center rounded-control border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={onPrevious}
-            >
-              <ComputerHistoryPreviousIcon className="size-4" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              aria-label={t("settings.history.off.example.next")}
-              className="inline-flex size-[26px] items-center justify-center rounded-control border border-border bg-secondary text-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={onNext}
-            >
-              <ComputerHistoryPreviousIcon
-                className="size-4 -scale-x-100 transform"
-                aria-hidden="true"
-              />
-            </button>
-          </div>
-        </div>
-        <div
-          className="absolute bottom-[9px] left-1/2 flex -translate-x-1/2 items-center gap-[5px]"
-          role="status"
-          aria-label={positionLabel}
-        >
-          {Array.from({ length: total }, (_, dotIndex) => (
-            <span
-              key={dotIndex}
-              className={cn(
-                "size-1 rounded-full bg-foreground",
-                dotIndex !== index && "opacity-50",
-              )}
-              aria-hidden="true"
-            />
-          ))}
-        </div>
-      </div>
-    </>
-  );
-}
-
 function OffState({
   disabled,
   disabledReason,
   onTurnOn,
   t,
-  format,
-  locale,
 }: {
   disabled: boolean;
   disabledReason?: string;
@@ -427,69 +185,46 @@ function OffState({
   format: (key: TranslationKey, values: Record<string, string | number>) => string;
   locale: string;
 }) {
-  const [exampleIndex, setExampleIndex] = useState(0);
-  const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-  const example = OFF_STATE_EXAMPLES[exampleIndex] ?? OFF_STATE_EXAMPLES[0]!;
-  useEffect(() => {
-    if (reducedMotion) return;
-    const timer = window.setTimeout(() => {
-      setExampleIndex((current) => (current + 1) % OFF_STATE_EXAMPLES.length);
-    }, 14_000);
-    return () => window.clearTimeout(timer);
-  }, [exampleIndex, reducedMotion]);
+  const turnOn = (
+    <Button
+      variant="default"
+      size="sm"
+      className={COMPUTER_HISTORY_DEFAULT_BUTTON_CLASS_NAME}
+      disabled={disabled}
+      onClick={onTurnOn}
+      data-testid="computer-history-turn-on"
+    >
+      {t("settings.history.turnOnAction")}
+    </Button>
+  );
   return (
     <div className="flex flex-col" data-testid="computer-history-off-state">
-      <section className="grid min-h-[340px] grid-cols-2 overflow-hidden rounded-card border border-border bg-[var(--color-background-panel)] max-md:grid-cols-1">
-        <div className="flex min-w-0 flex-col items-start justify-center px-9 py-[30px] text-start">
-          <h2 className="text-base font-medium leading-6">{t("settings.history.off.title")}</h2>
-          <div className="mt-[5px] flex max-w-[300px] flex-col gap-3 text-ui leading-[18px] text-muted-foreground">
-            <p>{t("settings.history.off.description")}</p>
-            <p>{t("settings.history.off.benefits")}</p>
-          </div>
-          <span
-            className={cn(
-              "mt-4 inline-flex",
-              disabled &&
-                "cursor-not-allowed rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-            tabIndex={disabled ? 0 : undefined}
-            title={disabled ? disabledReason : undefined}
-          >
-            <Button
-              variant="default"
-              size="sm"
-              className={COMPUTER_HISTORY_DEFAULT_BUTTON_CLASS_NAME}
-              disabled={disabled}
-              onClick={onTurnOn}
-              data-testid="computer-history-turn-on"
+      <section className="flex flex-col items-start rounded-card border border-border bg-[var(--color-background-panel)] px-9 py-[30px] text-start">
+        <h2 className="text-base font-medium leading-6">{t("settings.history.off.title")}</h2>
+        <p className="mt-[5px] text-ui leading-[18px] text-muted-foreground">
+          {t("settings.history.off.description")}
+        </p>
+        {disabled && disabledReason ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  className="mt-4 inline-flex cursor-not-allowed rounded-control outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  tabIndex={0}
+                  data-testid="computer-history-turn-on-unavailable"
+                />
+              }
             >
-              {t("settings.history.turnOnAction")}
-            </Button>
-          </span>
-        </div>
-        <AnimatedExample
-          key={example.key}
-          user={t(example.user)}
-          assistant={t(example.assistant)}
-          index={exampleIndex}
-          total={OFF_STATE_EXAMPLES.length}
-          onPrevious={() =>
-            setExampleIndex(
-              (current) => (current - 1 + OFF_STATE_EXAMPLES.length) % OFF_STATE_EXAMPLES.length,
-            )
-          }
-          onNext={() => setExampleIndex((current) => (current + 1) % OFF_STATE_EXAMPLES.length)}
-          t={t}
-          format={format}
-          locale={locale}
-        />
+              {turnOn}
+            </TooltipTrigger>
+            <TooltipPopup side="top">{disabledReason}</TooltipPopup>
+          </Tooltip>
+        ) : (
+          <span className="mt-4 inline-flex">{turnOn}</span>
+        )}
       </section>
       <p className="mt-[18px] text-ui leading-5 text-muted-foreground">
-        {t("settings.history.off.privacy")}{" "}
-        <ComputerHistoryLearnMore
-          label={t("settings.history.learnMore")}
-          testId="computer-history-off-learn-more"
-        />
+        {t("settings.history.off.privacy")}
       </p>
     </div>
   );
@@ -697,7 +432,7 @@ function AppPicker({
   if (position === null || portalContainer === null || typeof document === "undefined") return null;
   return createPortal(
     <div
-      className="fixed z-50 m-px flex w-[240px] select-none flex-col overflow-y-auto rounded-popover bg-[var(--color-surface-elevated-secondary)]/90 px-1 py-1 text-[var(--color-text-foreground)] shadow-[0_0_0_0.5px_var(--color-border),0_8px_16px_-4px_#0000001f] ring-[0.5px] ring-border backdrop-blur-sm max-h-[min(350px,calc(100vh-16px))]"
+      className="fixed z-50 m-px flex w-[240px] select-none flex-col overflow-y-auto rounded-popover bg-[var(--color-surface-elevated-secondary)]/90 px-1 py-1 text-[var(--color-text-foreground)] shadow-xl ring-[0.5px] ring-border backdrop-blur-sm max-h-[min(350px,calc(100vh-16px))]"
       style={{ left: position.left, top: position.top, maxHeight: position.maxHeight }}
       role="listbox"
       aria-label={t("settings.history.searchApps")}
@@ -1396,7 +1131,6 @@ export function ComputerHistorySettingsPanel() {
               <p className="text-destructive" role="alert">
                 {permissionLoadError}
               </p>
-              <p className="text-muted-foreground">{t("settings.history.permissionsRestart")}</p>
             </div>
             <Button
               variant="outline"
@@ -1606,13 +1340,6 @@ export function ComputerHistorySettingsPanel() {
                 </div>
               </section>
             </div>
-            <p className="mt-3 text-ui-sm leading-[17px] text-muted-foreground">
-              {t("settings.history.privateNoteShort")}{" "}
-              <ComputerHistoryLearnMore
-                label={t("settings.history.learnMorePrivacy")}
-                testId="computer-history-permissions-learn-more"
-              />
-            </p>
             <div className="mt-3 flex justify-end gap-3">
               <Button
                 disabled={permissionSaving}
@@ -1628,9 +1355,7 @@ export function ComputerHistorySettingsPanel() {
                 className={COMPUTER_HISTORY_DIALOG_BUTTON_CLASS_NAME}
                 onClick={() => void savePermissions()}
               >
-                {permissionSaving ? (
-                  <LoaderIcon className="size-4 animate-spin" aria-hidden="true" />
-                ) : null}
+                {permissionSaving ? <Spinner aria-label="" className="size-4" /> : null}
                 {t(permissionInitialSetup ? "settings.history.continue" : "settings.history.done")}
               </Button>
             </div>
@@ -1641,15 +1366,7 @@ export function ComputerHistorySettingsPanel() {
   };
 
   const renderTimeline = () => {
-    const historyTitle = (
-      <span className="flex items-center gap-2">
-        <span>{t("settings.history.historyTitle")}</span>
-        <InfoTooltip
-          label={t("settings.history.historyAbout")}
-          description={t("settings.history.historyDescription")}
-        />
-      </span>
-    );
+    const historyTitle = <span>{t("settings.history.historyTitle")}</span>;
     const clearMenu = (
       <div className="relative" data-computer-history-clear-menu>
         <Menu open={clearMenuOpen} onOpenChange={setClearMenuOpen}>
@@ -1744,9 +1461,10 @@ export function ComputerHistorySettingsPanel() {
                 const expanded = !collapsedDays.has(group.key);
                 return (
                   <section key={group.key} className="px-5 py-4">
-                    <button
-                      type="button"
-                      className="inline-flex items-center gap-2 text-left text-ui-lg font-medium outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="-ms-2 text-ui-lg"
                       aria-expanded={expanded}
                       onClick={() =>
                         setCollapsedDays((current) => toggleTimelineCluster(current, group.key))
@@ -1762,7 +1480,7 @@ export function ComputerHistorySettingsPanel() {
                         )}
                         aria-hidden="true"
                       />
-                    </button>
+                    </Button>
                     {expanded ? (
                       <div className="flex flex-col">
                         {group.entries.map((entry, entryIndex) => {
@@ -1832,20 +1550,20 @@ export function ComputerHistorySettingsPanel() {
                                   className={cn(
                                     "absolute top-0 left-0 h-[17px] w-px bg-border",
                                     gap.before &&
-                                      "bg-[repeating-linear-gradient(to_bottom,hsl(var(--muted-foreground)/.5)_0_2px,transparent_2px_5px)]",
+                                      "w-0 border-l border-dashed border-muted-foreground/50 bg-transparent",
                                     entryIndex === 0 && "hidden",
                                   )}
                                   data-history-rail-before="true"
                                 />
-                                <span
-                                  className="absolute top-[19px] left-1/2 size-1.5 -translate-x-1/2 rounded-full bg-muted-foreground"
+                                <StatusDot
+                                  className="absolute top-[19px] left-1/2 -translate-x-1/2 bg-muted-foreground"
                                   data-history-rail-dot="true"
                                 />
                                 <span
                                   className={cn(
                                     "absolute top-[27px] right-0 bottom-0 w-px bg-border",
                                     gap.after &&
-                                      "bg-[repeating-linear-gradient(to_bottom,hsl(var(--muted-foreground)/.5)_0_2px,transparent_2px_5px)]",
+                                      "w-0 border-l border-dashed border-muted-foreground/50 bg-transparent",
                                     entryIndex === group.entries.length - 1 && "hidden",
                                   )}
                                   data-history-rail-after="true"
@@ -1885,66 +1603,43 @@ export function ComputerHistorySettingsPanel() {
                                       visible && "opacity-100",
                                     )}
                                   >
-                                    <Tooltip>
-                                      <TooltipTrigger
-                                        delay={700}
-                                        render={
-                                          <button
-                                            type="button"
-                                            className="inline-flex size-5.5 shrink-0 items-center justify-center rounded-control-xs text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring"
-                                            aria-label={format(
-                                              windowsHistory
-                                                ? "settings.history.revealExplorerFor"
-                                                : "settings.history.revealFinderFor",
-                                              {
-                                                title: entry.title,
-                                              },
-                                            )}
-                                            onClick={(event) => {
-                                              event.currentTarget.blur();
-                                              const api = ensureNativeApi().computerHistory;
-                                              if (!api) return;
-                                              void api.revealInFinder({ entryId: entry.id });
-                                            }}
-                                          >
-                                            <ComputerHistoryFolderIcon
-                                              className="size-4"
-                                              aria-hidden="true"
-                                            />
-                                          </button>
-                                        }
+                                    <IconButton
+                                      size="icon-xs"
+                                      label={format(
+                                        windowsHistory
+                                          ? "settings.history.revealExplorerFor"
+                                          : "settings.history.revealFinderFor",
+                                        { title: entry.title },
+                                      )}
+                                      tooltip={t(
+                                        windowsHistory
+                                          ? "settings.history.revealExplorer"
+                                          : "settings.history.revealFinder",
+                                      )}
+                                      tooltipDelay={700}
+                                      className="text-muted-foreground"
+                                      onClick={(event) => {
+                                        event.currentTarget.blur();
+                                        const api = ensureNativeApi().computerHistory;
+                                        if (!api) return;
+                                        void api.revealInFinder({ entryId: entry.id });
+                                      }}
+                                    >
+                                      <ComputerHistoryFolderIcon
+                                        className="size-4"
+                                        aria-hidden="true"
                                       />
-                                      <TooltipPopup
-                                        side="top"
-                                        sideOffset={2}
-                                        className={COMPUTER_HISTORY_TOOLTIP_CLASS_NAME}
-                                        viewportClassName={
-                                          COMPUTER_HISTORY_TOOLTIP_VIEWPORT_CLASS_NAME
-                                        }
-                                      >
-                                        {t(
-                                          windowsHistory
-                                            ? "settings.history.revealExplorer"
-                                            : "settings.history.revealFinder",
-                                        )}
-                                      </TooltipPopup>
-                                    </Tooltip>
+                                    </IconButton>
                                     <Tooltip disabled={confirming}>
                                       <TooltipTrigger
                                         delay={700}
                                         render={
-                                          <button
-                                            type="button"
-                                            className={cn(
-                                              "inline-flex h-5.5 shrink-0 items-center justify-center rounded-control-xs text-muted-foreground outline-none hover:bg-secondary hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring",
-                                              confirming
-                                                ? "w-14 border border-destructive bg-destructive text-white hover:bg-destructive/90 hover:text-white"
-                                                : "w-5.5",
-                                            )}
-                                            style={{
-                                              transition:
-                                                "width .16s cubic-bezier(.2,.8,.2,1), background-color .12s, color .12s, opacity .12s",
-                                            }}
+                                          <Button
+                                            size={confirming ? "xs" : "icon-xs"}
+                                            variant={confirming ? "destructive" : "ghost"}
+                                            className={
+                                              confirming ? undefined : "text-muted-foreground"
+                                            }
                                             disabled={mutationPending}
                                             aria-busy={mutationPending}
                                             data-chronicle-delete-confirming={
@@ -1969,7 +1664,7 @@ export function ComputerHistorySettingsPanel() {
                                                 aria-hidden="true"
                                               />
                                             )}
-                                          </button>
+                                          </Button>
                                         }
                                       />
                                       <TooltipPopup
@@ -2104,9 +1799,9 @@ export function ComputerHistorySettingsPanel() {
                                     <p className="mt-1 text-ui-lg leading-5 text-muted-foreground">
                                       {entry.suggestion.description}
                                     </p>
-                                    <button
-                                      type="button"
-                                      className="mt-1 text-ui-lg leading-5 text-primary underline-offset-2 hover:underline focus-visible:underline"
+                                    <Button
+                                      variant="link"
+                                      className="mt-1 h-auto min-h-0 p-0 text-ui-lg leading-5"
                                       onClick={() =>
                                         void askAbout(
                                           entry.suggestion?.type === "skill"
@@ -2122,7 +1817,7 @@ export function ComputerHistorySettingsPanel() {
                                           : "settings.history.createSuggestedAutomation",
                                         { name: entry.suggestion.name },
                                       )}
-                                    </button>
+                                    </Button>
                                   </div>
                                 ) : null}
                               </article>
@@ -2196,7 +1891,7 @@ export function ComputerHistorySettingsPanel() {
           title={t("settings.history.consent.title")}
           onClose={() => setConsentOpen(false)}
         >
-          <h2 className="text-base font-semibold">{t("settings.history.consent.title")}</h2>
+          <h2 className="text-base font-medium">{t("settings.history.consent.title")}</h2>
           <ul className="mt-3 flex flex-col gap-3 text-ui-lg text-muted-foreground">
             <li className="flex items-start gap-3">
               <ComputerHistoryBookIcon
@@ -2260,15 +1955,6 @@ export function ComputerHistorySettingsPanel() {
       >
         <ComputerHistorySettingsRow
           title={t("settings.history.title")}
-          description={
-            <>
-              {t("settings.history.enableDescription")}{" "}
-              <ComputerHistoryLearnMore
-                label={t("settings.history.learnMore")}
-                testId="computer-history-enabled-learn-more"
-              />
-            </>
-          }
           control={
             <div className="flex items-center gap-2">
               {state.activationState === "waiting_for_permissions" ? (
@@ -2300,7 +1986,7 @@ export function ComputerHistorySettingsPanel() {
                   aria-busy="true"
                   data-testid="computer-history-resume-loading"
                 >
-                  <LoaderIcon className="size-4 animate-spin" aria-hidden="true" />
+                  <Spinner aria-label="" className="size-4" />
                   {t("settings.history.resume")}
                 </Button>
               ) : state.recorderState === "running" || state.recorderState === "paused" ? (
@@ -2327,7 +2013,6 @@ export function ComputerHistorySettingsPanel() {
         />
         <ComputerHistorySettingsRow
           title={t("settings.history.permissions")}
-          description={t("settings.history.permissionsDescription")}
           control={
             <Button
               disabled={mutationPending}
@@ -2353,9 +2038,7 @@ export function ComputerHistorySettingsPanel() {
       >
         {clearConfirmScope ? (
           <>
-            <h2 className="text-base font-semibold">
-              {t(clearScopeQuestionKey(clearConfirmScope))}
-            </h2>
+            <h2 className="text-base font-medium">{t(clearScopeQuestionKey(clearConfirmScope))}</h2>
             <p className="mt-1 text-ui-lg text-muted-foreground">
               {t("settings.history.clearDescription")}
             </p>

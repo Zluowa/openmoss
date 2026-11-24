@@ -7,6 +7,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ComposerPickerMenuPopup } from "~/components/chat/ComposerPickerMenuPopup";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
+import { Spinner } from "~/components/ui/spinner";
+import { StatusDot } from "~/components/ui/status-chip";
 import { Switch } from "~/components/ui/switch";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "~/components/ui/menu";
 import {
@@ -31,7 +33,6 @@ import {
   EllipsisIcon,
   GlobeIcon,
   InfoIcon,
-  Loader2Icon,
   PencilIcon,
   RefreshCwIcon,
   ServerIcon,
@@ -353,7 +354,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-ui-lg font-medium">{t("settings.ssh.fromThisComputer")}</h2>
         {connections.length > 0 ? (
-          <Button className="rounded-full" size="sm" disabled={!api} onClick={openPicker}>
+          <Button size="sm" disabled={!api} onClick={openPicker}>
             {t("settings.ssh.addShort")}
           </Button>
         ) : null}
@@ -394,7 +395,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
               <ServerIcon className="size-7" />
             </div>
             <p className="text-ui text-muted-foreground">{t("settings.ssh.empty")}</p>
-            <Button className="rounded-full" size="sm" disabled={!api} onClick={openPicker}>
+            <Button size="sm" disabled={!api} onClick={openPicker}>
               {t("settings.ssh.addShort")}
             </Button>
           </div>
@@ -425,18 +426,17 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-1.5 ps-6 text-ui text-muted-foreground">
                     {status === "connecting" ? (
-                      <Loader2Icon aria-hidden className="size-3.5 shrink-0 animate-spin" />
+                      <Spinner aria-label="" className="size-3.5 shrink-0" />
                     ) : (
-                      <span
-                        aria-hidden
-                        className={cn(
-                          "size-1.5 shrink-0 rounded-full",
+                      <StatusDot
+                        aria-hidden="true"
+                        className={
                           status === "connected"
-                            ? "bg-emerald-500"
+                            ? "bg-success"
                             : status === "failed"
                               ? "bg-destructive"
-                              : "bg-muted-foreground/40",
-                        )}
+                              : "bg-muted-foreground/40"
+                        }
                       />
                     )}
                     <span role="status" className="truncate">
@@ -524,7 +524,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3">
             {hostsLoading ? (
               <p role="status" className="flex items-center gap-2 text-ui text-muted-foreground">
-                <Loader2Icon className="size-4 animate-spin" />
+                <Spinner aria-label="" className="size-4" />
                 {t("settings.ssh.config.loading")}
               </p>
             ) : null}
@@ -609,7 +609,6 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
               </Button>
             </div>
             <Button
-              className="rounded-full"
               disabled={importing || hostsLoading || selectedHosts.size === 0}
               onClick={() => void addSelected()}
             >
@@ -659,9 +658,6 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
                 <DialogDescription className="sr-only">
                   {t("settings.ssh.details.description")}
                 </DialogDescription>
-                <span className="mt-1 w-fit rounded-full bg-foreground/6 px-2.5 py-0.5 text-ui-sm font-medium">
-                  SSH
-                </span>
               </DialogHeader>
               <Button
                 className="absolute end-12 top-3"

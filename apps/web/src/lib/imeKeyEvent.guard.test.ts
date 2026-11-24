@@ -202,11 +202,6 @@ const ALLOWED_SITES: readonly AllowedSite[] = [
     reason: "global handler that returns on input, textarea and contenteditable targets",
   },
   {
-    file: "components/chat/ComposerPendingApprovalPanel.tsx",
-    line: 'event.key === "Enter" && !(target instanceof HTMLButtonElement)',
-    reason: "returns on input, textarea and contenteditable targets",
-  },
-  {
     file: "confirmDialogFallback.ts",
     line: 'e.key === "Enter"',
     reason: "its own modal holds focus; only buttons",

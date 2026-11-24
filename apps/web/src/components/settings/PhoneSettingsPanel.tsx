@@ -210,7 +210,6 @@ export function PhoneSettingsPanel({ active }: { readonly active: boolean }) {
           <RefreshCwIcon className="size-ui-icon-sm" />
         </Button>
       </div>
-      <p className="text-ui text-muted-foreground">{t("settings.phone.description")}</p>
       {loading ? (
         <p role="status" className="text-ui text-muted-foreground">
           {t("settings.ssh.loading")}
@@ -275,11 +274,9 @@ export function PhoneSettingsPanel({ active }: { readonly active: boolean }) {
                   failedLabel={t("settings.phone.qrFailed")}
                 />
                 <div className="w-full min-w-0 flex-1 space-y-2">
-                  <ol className="list-decimal space-y-1 ps-5 text-ui-sm text-muted-foreground">
-                    <li>{t("settings.phone.step.scan")}</li>
-                    <li>{t("settings.phone.step.open")}</li>
-                    <li>{t("settings.phone.step.install")}</li>
-                  </ol>
+                  <p className="text-ui-sm text-muted-foreground">
+                    {t("settings.phone.step.scan")}
+                  </p>
                   <p className="text-ui-sm text-muted-foreground">
                     {format("settings.phone.expiry", {
                       time:

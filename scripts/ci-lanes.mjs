@@ -71,7 +71,7 @@ export function quickCovers(report) {
 }
 
 /**
- * Whether no chat-project browser test (ChatView.browser.tsx, which the Quick Check never runs:
+ * Whether no chat-project browser test (the ChatView.*.browser.tsx files, which the Quick Check never runs:
  * it needs the four chat partitions) is reached. When false, the chat partitions run.
  * @param {QuickPlan} report
  */

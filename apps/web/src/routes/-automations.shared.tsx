@@ -1,3 +1,5 @@
+import { IconButton } from "~/components/ui/icon-button";
+import { StatusDot } from "~/components/ui/status-chip";
 import {
   type AutomationCreateInput,
   type AutomationDefinition,
@@ -290,7 +292,7 @@ export function RunStatusIndicator({
         className,
       )}
     >
-      <span className="block size-1.5 rounded-full bg-current" />
+      <StatusDot className="block bg-current" />
     </span>
   );
 }
@@ -1144,7 +1146,7 @@ export function AutomationDialog({
                       className="mt-0.5"
                     />
                   ) : (
-                    <span className="mt-1 size-1.5 shrink-0 rounded-full bg-amber-500" />
+                    <StatusDot className="mt-1 bg-amber-500" />
                   )}
                   <span className="min-w-0">
                     <span className="font-medium text-foreground">{warning.title}</span>
@@ -1368,17 +1370,17 @@ export function AutomationDialog({
             <Menu>
               <MenuTrigger
                 render={
-                  <Button
+                  <IconButton
                     variant="ghost"
                     size="icon-sm"
-                    aria-label="Run mode"
-                    title="Run mode"
+                    label="Run mode"
+                    tooltip="Run mode"
                     className="rounded-control text-[var(--color-text-foreground-secondary)]"
-                  />
+                  >
+                    <SkillCubeIcon className="size-4" />
+                  </IconButton>
                 }
-              >
-                <SkillCubeIcon className="size-4" />
-              </MenuTrigger>
+              />
               <ComposerPickerMenuPopup align="start" className="w-56">
                 <MenuGroup>
                   <MenuGroupLabel>Mode</MenuGroupLabel>
@@ -1478,26 +1480,26 @@ export function AutomationDialog({
             <Menu>
               <MenuTrigger
                 render={
-                  <Button
+                  <IconButton
                     variant="ghost"
                     size="icon-sm"
-                    aria-label="Permissions"
-                    title="Permissions"
+                    label="Permissions"
+                    tooltip="Permissions"
                     className="rounded-control text-[var(--color-text-foreground-secondary)]"
-                  />
+                  >
+                    <CentralIcon
+                      name={
+                        form.runtimeMode === "auto"
+                          ? "shield-code"
+                          : form.runtimeMode === "full-access"
+                            ? "shield-access"
+                            : "brain"
+                      }
+                      className="size-4"
+                    />
+                  </IconButton>
                 }
-              >
-                <CentralIcon
-                  name={
-                    form.runtimeMode === "auto"
-                      ? "shield-code"
-                      : form.runtimeMode === "full-access"
-                        ? "shield-access"
-                        : "brain"
-                  }
-                  className="size-4"
-                />
-              </MenuTrigger>
+              />
               <ComposerPickerMenuPopup align="start" className="w-48">
                 <MenuRadioGroup
                   value={form.runtimeMode}

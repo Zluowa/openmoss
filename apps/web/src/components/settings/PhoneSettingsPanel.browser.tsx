@@ -149,3 +149,28 @@ for (const variant of ["light", "dark"] as const) {
     await screen.unmount();
   });
 }
+
+// Settings one-set 5/5: the plain-HTTP warning is one sentence, in both languages and themes.
+for (const variant of ["light", "dark"] as const) {
+  for (const [locale, switchName, line] of [
+    [
+      "en",
+      "Allow phone connections",
+      "Unencrypted HTTP: use it only on a network you trust. Voice input is off.",
+    ],
+    ["zh-CN", "允许手机连接", "未加密的 HTTP，请只在可信的网络中使用；语音输入不可用。"],
+  ] as const) {
+    it(`settings one-set 5/5: shows the one-line plain-HTTP warning, ${locale} ${variant}`, async () => {
+      applyTheme(variant);
+      installDesktop(OFF);
+      const screen = await mount(locale);
+      await page.getByRole("switch", { name: switchName, exact: true }).click();
+      const warning = page.getByText(line, { exact: true });
+      await expect.element(warning).toBeVisible();
+      const box = warning.element().getBoundingClientRect();
+      expect(box.height).toBeGreaterThan(0);
+      expect(document.body.textContent).not.toMatch(/Voice input needs HTTPS|语音输入需要 HTTPS/u);
+      await screen.unmount();
+    });
+  }
+}
