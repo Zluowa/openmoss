@@ -6,15 +6,19 @@
 // Layer: Web 资料空间 typed editors, shared parts
 // Exports: SpaceToolbarButton, SpaceToolbarSegmented, SpaceSidePanel, SpaceToolbarDivider
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
-import { ArrowLeftIcon, type LucideIcon, SparklesIcon } from "~/lib/icons";
+import { ArrowLeftIcon, ChevronDownIcon, type LucideIcon, SparklesIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import type { SpaceCanvasDockController } from "../../space/spaceCanvasDockContract";
 import { DOCK_HEADER_ICON_BUTTON_CLASS } from "../../chat/chatHeaderControls";
 import { DockPaneHeader } from "../../chat/DockPaneHeader";
+import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
+import { PAGE_CHROME_PILL_CLASS_NAME } from "../../pages/chrome/pageChromeStyles";
+import { SpaceInlineRename } from "../../space/SpaceInlineRename";
 import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
+import { Menu, MenuItem, MenuTrigger } from "../../ui/menu";
 
 /** Toolbar button: icon only, label as its tooltip (and the shortcut, when it has one). */
 export function SpaceToolbarButton(props: {
@@ -156,6 +160,72 @@ export function SpaceSidePanel(props: {
       <div className="min-h-0 flex-1 overflow-y-auto">{props.children}</div>
       {props.footer}
     </aside>
+  );
+}
+
+/**
+ * The title of a typed editor: the same pill and menu as a document's title (Claude: one title
+ * menu). 重命名 turns it into a field in place; 存为模板 lives here, not as a bar button.
+ */
+export function SpaceTitleMenu(props: {
+  readonly title: string;
+  readonly untitled: string;
+  readonly icon: LucideIcon;
+  readonly readOnly: boolean;
+  readonly onRename: (title: string) => void;
+  readonly onSaveAsTemplate?: (() => void) | undefined;
+}) {
+  const Icon = props.icon;
+  const [renaming, setRenaming] = useState(false);
+  const shown = props.title.trim() || props.untitled;
+  if (renaming) {
+    return (
+      <span
+        className={cn(PAGE_CHROME_PILL_CLASS_NAME, "max-w-[min(22rem,100%)] min-w-0 shrink pe-1")}
+        data-space-title-pill
+      >
+        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <SpaceInlineRename
+          value={props.title}
+          label="名称"
+          onCommit={props.onRename}
+          onDone={() => setRenaming(false)}
+          className="h-6 w-56 px-1.5 text-ui-sm"
+        />
+      </span>
+    );
+  }
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className={cn(
+              PAGE_CHROME_PILL_CLASS_NAME,
+              "max-w-[min(22rem,100%)] min-w-0 shrink font-normal",
+            )}
+            aria-label={`${shown} 菜单`}
+            data-space-title-pill
+          />
+        }
+      >
+        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate">{shown}</span>
+        <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+      </MenuTrigger>
+      <ComposerPickerMenuPopup align="start" className="w-48 min-w-48">
+        <MenuItem disabled={props.readOnly} onClick={() => setRenaming(true)}>
+          重命名
+        </MenuItem>
+        {props.onSaveAsTemplate ? (
+          <MenuItem disabled={props.readOnly} onClick={props.onSaveAsTemplate}>
+            存为模板
+          </MenuItem>
+        ) : null}
+      </ComposerPickerMenuPopup>
+    </Menu>
   );
 }
 

@@ -187,7 +187,7 @@ describe("资料空间 items", () => {
 describe("spaceItemDisplayTitle", () => {
   it("keeps a real title and names untitled items instead of showing nothing", () => {
     expect(spaceItemDisplayTitle({ title: "会议纪要", kind: "page" })).toBe("会议纪要");
-    expect(spaceItemDisplayTitle({ title: "  ", kind: "page" })).toBe("未命名页面");
+    expect(spaceItemDisplayTitle({ title: "  ", kind: "page" })).toBe("未命名文档");
     expect(spaceItemDisplayTitle({ title: "", kind: "slides" })).toBe("未命名");
   });
 });

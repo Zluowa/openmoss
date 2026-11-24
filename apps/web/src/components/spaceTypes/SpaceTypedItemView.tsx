@@ -27,7 +27,6 @@ import {
 } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
-import { TemplateGridIcon } from "~/lib/icons";
 import type {
   SpaceCanvasDockController,
   SpaceCanvasHostInsets,
@@ -37,7 +36,7 @@ import { Button } from "../ui/button";
 import { AppItemView } from "./app/AppItemView";
 import { BoardItemView } from "./board/BoardItemView";
 import { DashboardItemView } from "./dashboard/DashboardItemView";
-import { SpaceUnifiedTopChrome } from "./shared/SpaceEditorChrome";
+import { SpaceTitleMenu, SpaceUnifiedTopChrome } from "./shared/SpaceEditorChrome";
 import { DeckEditorHost } from "./slides/DeckEditorHost";
 import { pageTypesQueryKeys } from "./spaceItemTypes";
 
@@ -329,18 +328,19 @@ function TypedItemEditor(
     }
   }, [draft, item.kind]);
 
+  const kindMeta = spaceKindMeta(dashboard ? "dashboard" : item.kind);
   const titleField = (
-    <input
-      aria-label="标题"
-      value={title}
+    <SpaceTitleMenu
+      title={title}
+      untitled="未命名"
+      icon={kindMeta.icon}
       readOnly={readOnly}
-      maxLength={256}
-      onChange={(event) => {
-        setTitle(event.target.value);
-        latest.current.title = event.target.value;
-        if (event.target.value.trim()) schedule();
+      onRename={(next) => {
+        setTitle(next);
+        latest.current.title = next;
+        schedule();
       }}
-      className="min-w-0 flex-1 truncate bg-transparent text-ui-lg font-medium outline-none"
+      onSaveAsTemplate={item.kind === "board" ? undefined : () => void saveAsTemplate()}
     />
   );
   const saveStatus = (
@@ -353,7 +353,6 @@ function TypedItemEditor(
     </span>
   );
 
-  const kindMeta = spaceKindMeta(item.kind);
   const hostChrome = useMemo(
     () => ({
       hideTopBar: true,
@@ -371,7 +370,6 @@ function TypedItemEditor(
 
   const unifiedTopChrome = props.hideHeader ? null : (
     <SpaceUnifiedTopChrome
-      icon={kindMeta.icon}
       onBack={props.onBack}
       titleSlot={titleField}
       statusSlot={
@@ -383,14 +381,6 @@ function TypedItemEditor(
         </>
       }
       hostActions={hostActions}
-      trailingActions={
-        readOnly || item.kind === "board" ? null : (
-          <Button size="xs" variant="ghost" onClick={() => void saveAsTemplate()}>
-            <TemplateGridIcon />
-            <span>存为模板</span>
-          </Button>
-        )
-      }
       dock={props.dock ?? null}
     />
   );

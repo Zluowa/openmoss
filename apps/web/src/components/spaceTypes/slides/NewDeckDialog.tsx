@@ -96,7 +96,7 @@ export function NewDeckDialog(props: {
                       onClick={() => props.onFromPage(page)}
                       className="truncate rounded-[6px] px-2.5 py-1.5 text-left text-ui-sm hover:bg-accent"
                     >
-                      {page.title || "未命名页面"}
+                      {page.title || "未命名文档"}
                     </button>
                   ))
                 ) : (

@@ -207,6 +207,22 @@ describe("设计 in the 资料空间", () => {
       await expect
         .poll(() => document.querySelectorAll("iframe[data-design-frame]").length)
         .toBe(1);
+      // The new artboard is shown whole, inside the visible canvas (WALK-1 S-14).
+      await expect
+        .poll(() => {
+          const canvas = document.querySelector("[data-design-canvas]")!.getBoundingClientRect();
+          const frame = document
+            .querySelector("iframe[data-design-frame]")!
+            .getBoundingClientRect();
+          return (
+            frame.width > 0 &&
+            frame.left >= canvas.left &&
+            frame.top >= canvas.top &&
+            frame.right <= canvas.right &&
+            frame.bottom <= canvas.bottom
+          );
+        })
+        .toBe(true);
       await expect
         .poll(() => document.querySelector("[data-save-state]")?.getAttribute("data-save-state"), {
           timeout: 5_000,

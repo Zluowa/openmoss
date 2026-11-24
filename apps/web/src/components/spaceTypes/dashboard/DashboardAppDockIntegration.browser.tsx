@@ -97,14 +97,8 @@ describe("Dashboard & App dock integration", () => {
     expect(onHostActionsChange).toHaveBeenCalled();
     // Old h-10 inner bar is gone; readonly frame fills container.
     expect(document.querySelector("[data-app-item] .border-b")).toBeNull();
-    await page.getByTestId("app-ask-moss").click();
-    expect(dock.ask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        origin: "bottom-pill",
-        prefillOnly: true,
-        selection: expect.objectContaining({ kind: "app", itemId: "app-1" }),
-      }),
-    );
+    // With a dock, 问 Moss is the one entry in the header; no second one floats over the work.
+    await expect.element(page.getByTestId("app-ask-moss")).not.toBeInTheDocument();
   });
 
   it("auto-applies generated Dashboard draft with one-click undo, shimmer overlay, and dock.ask pill", async () => {
@@ -184,14 +178,8 @@ describe("Dashboard & App dock integration", () => {
     });
 
     await expect.element(page.getByTestId("dashboard-undo-moss")).toBeVisible();
-    await page.getByTestId("dashboard-ask-trigger").click();
-    expect(dock.ask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        origin: "bottom-pill",
-        prefillOnly: true,
-        selection: expect.objectContaining({ kind: "dashboard", itemId: "dash-1" }),
-      }),
-    );
+    // With a dock, 问 Moss is the one entry in the header; no second one floats over the work.
+    await expect.element(page.getByTestId("dashboard-ask-trigger")).not.toBeInTheDocument();
 
     await page.getByTestId("dashboard-undo-moss").click();
     await vi.waitFor(() => {

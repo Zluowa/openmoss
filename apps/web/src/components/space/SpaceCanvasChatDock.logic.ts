@@ -73,9 +73,9 @@ const ARTIFACT_KIND_LABELS: Record<SpaceArtifactKind, string> = {
   slides: "幻灯片",
   sheet: "电子表格",
   design: "设计",
-  dashboard: "仪表盘",
+  dashboard: "数据看板",
   board: "白板",
-  app: "应用",
+  app: "应用页",
 };
 
 export function spaceArtifactKindLabel(kind: SpaceArtifactKind): string {

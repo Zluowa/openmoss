@@ -749,7 +749,7 @@ export function SheetToolCard(props: {
             <EraserIcon aria-hidden /> 清除格式
           </MenuItem>
         </ToolMenu>
-        {s.commentAvailable || s.dockAvailable || s.mossLabel ? <SpaceToolbarDivider /> : null}
+        {s.commentAvailable || (!s.dockAvailable && s.mossLabel) ? <SpaceToolbarDivider /> : null}
         {s.commentAvailable && a.onToggleComments ? (
           <Button
             type="button"
@@ -769,20 +769,7 @@ export function SheetToolCard(props: {
             {commentCount ? commentCount : null}
           </Button>
         ) : null}
-        {s.dockAvailable ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            disabled={off || s.mossBusy}
-            data-testid="sheet-ask-moss-trigger"
-            className="shrink-0 gap-1 rounded-full px-2.5 text-ui-sm font-medium"
-            onClick={() => (a.onAskDock ? a.onAskDock() : a.askMoss(""))}
-          >
-            <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
-            <span>{s.mossBusy ? "Moss 正在思考…" : "问 Moss"}</span>
-          </Button>
-        ) : s.mossLabel ? (
+        {s.dockAvailable ? null : s.mossLabel ? (
           <form
             className="flex h-7 w-48 shrink-0 items-center rounded-control border border-border bg-background px-2"
             onSubmit={(event) => {

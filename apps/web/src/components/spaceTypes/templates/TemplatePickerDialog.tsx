@@ -52,10 +52,10 @@ const KIND_ICONS: Record<SpaceTemplateKind, LucideIcon> = {
 };
 const FILTERS: ReadonlyArray<{ id: SpaceTemplateKind | "all"; label: string }> = [
   { id: "all", label: "全部" },
-  { id: "page", label: "页面" },
+  { id: "page", label: "文档" },
   { id: "slides", label: "幻灯片" },
   { id: "sheet", label: "电子表格" },
-  { id: "app", label: "仪表盘" },
+  { id: "app", label: "应用页" },
   { id: "design", label: "设计" },
 ];
 const builtInData = new Map(BUILT_IN_TEMPLATES.map((template) => [template.id, template]));

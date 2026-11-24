@@ -107,7 +107,7 @@ export function PageTitleMenu(
         }
       >
         <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate">{props.title || "未命名页面"}</span>
+        <span className="min-w-0 truncate">{props.title || "未命名文档"}</span>
         <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
       </MenuTrigger>
       <ComposerPickerMenuPopup align="start" className="w-60 min-w-60">

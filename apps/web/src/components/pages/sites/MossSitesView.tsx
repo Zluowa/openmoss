@@ -75,9 +75,6 @@ export function MossSitesView(props: {
       <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className={PAGE_TITLE_CLASS_NAME}>站点</h1>
-          <p className="mt-2 text-ui-sm text-muted-foreground">
-            从资料空间发布的页面和应用页。在页面的“分享 → 发布”里发布新的站点。
-          </p>
         </div>
         <SearchInput
           aria-label="搜索站点"
@@ -127,11 +124,6 @@ export function MossSitesView(props: {
           <GlobeIcon className="size-6 opacity-60" aria-hidden />
           <p className="text-ui text-foreground">
             {tab === "pinned" ? "还没有置顶的站点" : search ? "没有匹配的站点" : "还没有站点"}
-          </p>
-          <p className="max-w-sm text-ui-sm">
-            {tab === "pinned"
-              ? "在站点的菜单里选择“置顶”，它就会出现在这里。"
-              : "打开一个页面，点右上角的“分享”，在“发布”里把它发布成站点。"}
           </p>
         </div>
       ) : (

@@ -1163,23 +1163,19 @@ export function DashboardItemView(props: {
                       {copy.askSelected(runtime.selection.text.slice(0, 40))}
                     </span>
                   ) : null}
-                  <Button
-                    size="xs"
-                    variant="ghost"
-                    className="gap-1 rounded-full px-2.5 text-ui-sm font-medium"
-                    disabled={!canAsk}
-                    data-testid="dashboard-ask-trigger"
-                    onClick={() => {
-                      if (dock) {
-                        askDockWithPrompt(undefined, "bottom-pill");
-                        return;
-                      }
-                      setAskOpen((prev) => !prev);
-                    }}
-                  >
-                    <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
-                    <span>{copy.askMoss}</span>
-                  </Button>
+                  {dock ? null : (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="gap-1 rounded-full px-2.5 text-ui-sm font-medium"
+                      disabled={!canAsk}
+                      data-testid="dashboard-ask-trigger"
+                      onClick={() => setAskOpen((prev) => !prev)}
+                    >
+                      <SparklesIcon className="size-3.5 text-[var(--primary)]" aria-hidden />
+                      <span>{copy.askMoss}</span>
+                    </Button>
+                  )}
                 </div>
               </div>
             ) : null}
