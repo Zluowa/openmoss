@@ -1,0 +1,67 @@
+name: Bug report
+description: 可复现的缺陷或 CI / Sentry 故障
+title: "[Bug] "
+labels:
+  - type:bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        线上故障先在 Slack #工程-issue 报警；此 Issue 需要与一个 Linear Bug 绑定。
+  - type: input
+    id: linear
+    attributes:
+      label: Linear issue
+      description: 例如 HEL-456；若由自动化创建，回填生成的 key。
+      placeholder: HEL-456
+    validations:
+      required: true
+  - type: input
+    id: slack_thread
+    attributes:
+      label: Slack thread URL
+      description: 讨论、报警或复现记录所在的 Slack 线程。
+      placeholder: https://app.slack.com/archives/...
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境与版本
+      placeholder: production / v1.2.3 / Chrome 128
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为与日志
+      description: 请脱敏；附 CI、Sentry 或截图链接，不粘贴 token/cookie。
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重度
+      options:
+        - sev1 (阻断核心流程)
+        - sev2 (重要功能受影响)
+        - sev3 (有替代路径)
+        - sev4 (体验或文案)
+    validations:
+      required: true

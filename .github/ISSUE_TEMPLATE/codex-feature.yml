@@ -1,0 +1,57 @@
+name: Feature / Product change
+description: 已在 Slack #产品与设计 对齐过的产品需求或改进
+title: "[Feature] "
+labels:
+  - type:feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先完成产品讨论，再提交此表单。Linear 是正式状态源；GitHub Issue 用于执行上下文。
+  - type: input
+    id: linear
+    attributes:
+      label: Linear issue
+      description: 例如 HEL-123。没有 Linear 事项时先创建，再填写这里。
+      placeholder: HEL-123
+    validations:
+      required: true
+  - type: input
+    id: slack_thread
+    attributes:
+      label: Slack thread URL
+      description: #产品与设计 中确认范围的线程链接。
+      placeholder: https://app.slack.com/archives/...
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 用户问题与目标
+      description: 说明谁遇到什么问题，以及可观察的结果。
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 用 Given / When / Then 或可测量清单描述完成条件。
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: 设计与交互材料
+      description: Figma、原型、截图或决策记录链接。
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 发布风险
+      options:
+        - low
+        - medium
+        - high
+    validations:
+      required: true
