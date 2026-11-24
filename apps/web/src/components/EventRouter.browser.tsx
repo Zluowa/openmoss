@@ -886,15 +886,31 @@ describe("EventRouter scoped orchestration sync", () => {
                 error: new Error("overflow exhausted"),
               });
           }
-          await page.getByRole("button", { name: "Retry updates", exact: true }).click();
+          // The retry runs in the app's own subscription queue, so when its rejection lands
+          // depends on that queue, not on a clock. Wait for the event itself: the rejected
+          // subscribe, then the toast the app hands to the manager. No time budget is involved.
+          let resolveToastAdded = () => {};
+          const toastAdded = new Promise<void>((resolve) => {
+            resolveToastAdded = resolve;
+          });
+          const add = toastManager.add.bind(toastManager);
+          const addSpy = vi.spyOn(toastManager, "add").mockImplementation((options) => {
+            const id = add(options);
+            if (options.title === title) resolveToastAdded();
+            return id;
+          });
+          try {
+            await page.getByRole("button", { name: "Retry updates", exact: true }).click();
+            await toastAdded;
+          } finally {
+            addSpy.mockRestore();
+          }
           await expect.element(page.getByText(title, { exact: true })).toBeVisible();
-          await vi.waitFor(() =>
-            expect(
-              [...document.querySelectorAll('[data-slot="toast-title"]')].filter(
-                (element) => element.textContent === title,
-              ),
-            ).toHaveLength(1),
-          );
+          expect(
+            [...document.querySelectorAll('[data-slot="toast-title"]')].filter(
+              (element) => element.textContent === title,
+            ),
+          ).toHaveLength(1);
         }
       } finally {
         subscribe.mockRestore();

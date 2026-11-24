@@ -3,7 +3,6 @@
 //          The shared fixture is src/test/chatViewBrowserHarness.tsx; every ChatView.*.browser.tsx
 //          keeps the one suite name, so case names (and the CI partitions) are unchanged.
 
-import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";
 import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
 import { EventId, MessageId, ThreadId, TurnId, WS_METHODS } from "@moss/contracts";
 import { HttpResponse, http } from "msw";
@@ -907,23 +906,23 @@ describe("ChatView transcript geometry (full app)", () => {
     },
   );
 
-  it("WALK-6 H-1: never opens startup highlights by itself, and Replay feature tour still opens them", async () => {
-    localStorage.removeItem(FEATURE_TOUR_STORAGE_KEY);
+  it("WALK-6 H-1: nothing opens by itself, the feature tour is gone and 欢迎导览 still opens the setup", async () => {
     const snapshot = createSnapshotWithLongAssistantResponse();
-    const remounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
+    const mounted = await mountChatView({ viewport: DEFAULT_VIEWPORT, snapshot });
     try {
       await new Promise((resolve) => setTimeout(resolve, 1_000));
-      expect(document.querySelector("[data-feature-tour]")).toBeNull();
       expect(document.querySelectorAll('[role="dialog"]').length).toBe(0);
       await page.getByTestId("composer-editor").click();
-      await remounted.router.navigate({ to: "/settings", search: { section: "advanced" } });
-      await page.getByRole("button", { name: "Replay feature tour" }).click();
-      await expect
-        .element(page.getByRole("dialog", { name: "A new home for your work" }))
-        .toBeVisible();
-      await page.getByRole("button", { name: "Skip tour" }).click();
+      // One tour entry: 关于 offers no feature tour.
+      await mounted.router.navigate({ to: "/settings", search: { section: "advanced" } });
+      await expect.element(page.getByText("Release notes", { exact: true })).toBeVisible();
+      expect(page.getByRole("button", { name: "Replay feature tour" }).elements()).toHaveLength(0);
+      // The first-time setup is still there for a person who wants to run it again.
+      await mounted.router.navigate({ to: "/settings", search: { section: "general" } });
+      await page.getByRole("button", { name: "Open welcome tour" }).click();
+      await expect.element(page.getByRole("dialog", { name: /^Welcome to / })).toBeVisible();
     } finally {
-      await remounted.cleanup();
+      await mounted.cleanup();
     }
   });
 

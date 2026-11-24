@@ -754,40 +754,7 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Show project-level instructions in the Environment panel.": "在环境面板中显示项目级说明。",
   "Show the per-thread notepad in the Environment panel.": "在环境面板中显示每个对话的记事本。",
 
-  // Welcome tour (feature tour dialog and its settings re-entry point).
-  "A new home for your work": "你的工作新家",
-  "A slimmer rail, open-chat tabs, and refreshed icons put your workspace within reach.":
-    "更窄的导航栏、已打开对话的标签页和焕然一新的图标，让你的工作区触手可及。",
-  "Customize the rail and keep your favorite tools close.": "自定义导航栏，让常用工具近在咫尺。",
-  "Move between open chats or work in split panes.": "在已打开的对话之间切换，或使用分屏窗格工作。",
-  "Make it yours with project icons, colors, and window appearance.":
-    "通过项目图标、颜色和窗口外观，打造属于你的风格。",
-  "Your agents, together": "你的智能体，齐聚一堂",
-  "Use multiple accounts from the same provider and choose the right one for each chat.":
-    "使用同一服务商的多个账号，并为每个对话选择合适的账号。",
-  "Add and sign in to accounts from provider settings.": "在服务商设置中添加并登录账号。",
-  "See account names in the model picker and track their usage.":
-    "在模型选择器中查看账号名称并跟踪其用量。",
-  "Hand work to another provider from the picker, in the same thread.":
-    "在同一对话中通过选择器将工作交给另一个服务商。",
-  "From review to the next change": "从审阅到下一个更改",
-  "The redesigned Code review page brings pull requests, issues, and agent actions into one place.":
-    "重新设计的代码审阅页将拉取请求、议题和智能体操作汇聚一处。",
-  "Browse and sort the list, then inspect a pull request or issue.":
-    "浏览并排序列表，然后查看拉取请求或议题。",
-  "Discuss changes in a side chat beside the details.": "在详情旁的侧边对话中讨论更改。",
-  "Ask an agent to review or continue the work.": "让智能体审阅或继续这项工作。",
-  "Give bigger work a team": "给更大的工作配一个团队",
-  "Hubs bring a coordinator and worker agents together around a shared project in Moss Beta.":
-    "在 Moss Beta 中，Hubs 让协调者与工作智能体围绕共享项目协同工作。",
-  "Keep shared context in the Hub Library and track delegated work.":
-    "在 Hub Library 中保存共享上下文，并跟踪已委派的工作。",
-  "Plan Tasks in a list or Kanban board and hand them to agents.":
-    "在列表或看板中规划任务，并交给智能体执行。",
-  "Open Inbox for today's tasks, review requests, and activity recap.":
-    "打开收信箱，查看今日任务、审阅请求和活动摘要。",
-  "Skip tour": "跳过导览",
-  "Start exploring": "开始探索",
+  // Welcome tour (first-time setup) and its settings entry.
   "Welcome tour": "欢迎导览",
   "Replay the first-run setup: feature tour, provider selection, appearance, and first project.":
     "重玩首次启动设置：功能导览、服务商选择、外观和第一个项目。",
@@ -803,7 +770,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Choose your agents": "选择你的智能体",
   "Pick an appearance": "选一个外观",
   "You're all set": "都准备好了",
-  "Replay feature tour": "重播功能导览",
 
   // Project import landing banner.
   "Import your Claude Code and Codex projects": "导入你的 Claude Code 和 Codex 项目",
@@ -1787,11 +1753,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Manage Prisma Postgres databases and backups.": "管理 Prisma Postgres 数据库和备份。",
   "Search models, datasets, Spaces, and papers.": "搜索模型、数据集、Spaces 和论文。",
   Dashboard: "仪表盘",
-  "API review": "API 审阅",
-  "Dashboard polish": "打磨仪表盘",
-  "+ Add the empty state": "+ 补上空状态",
-  "− Remove the placeholder": "− 去掉占位",
-  "Ask an agent to review": "让智能体审阅",
   Coordinator: "协调者",
   Frontend: "前端",
   "Next chat needing attention": "下一个需要关注的对话",

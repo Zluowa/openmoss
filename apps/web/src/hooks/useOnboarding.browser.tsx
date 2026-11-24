@@ -31,7 +31,6 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   localStorage.removeItem("moss:onboarding:v2");
   localStorage.removeItem("moss:onboarding:v2");
-  localStorage.removeItem("moss:feature-tour:since-0.9.2:v1");
   localStorage.removeItem("moss:project-import-announcement:v1");
   mocks.getConfig.mockReset().mockResolvedValue({ worktreesDir: "/a/worktrees" });
   // Keep the server marker absent to exercise the failed-write fallback.
@@ -48,7 +47,6 @@ afterEach(() => {
   for (const client of clients.splice(0)) client.clear();
   localStorage.removeItem("moss:onboarding:v2");
   localStorage.removeItem("moss:onboarding:v2");
-  localStorage.removeItem("moss:feature-tour:since-0.9.2:v1");
   localStorage.removeItem("moss:project-import-announcement:v1");
 });
 
@@ -71,11 +69,8 @@ describe("onboarding installation identity", () => {
     await vi.waitFor(() => expect(hook.result.current.isOpen).toBe(true));
     expect(useOnboardingDialogStore.getState().openReason).toBe("first-run");
     await act(async () => hook.result.current.complete());
-    expect(JSON.parse(localStorage.getItem("moss:feature-tour:since-0.9.2:v1") ?? "[]")).toEqual([
-      "/a/worktrees",
-    ]);
-    // Written to disk at once: the server marker is, and a stop before Chromium's delayed
-    // commit would otherwise greet this brand-new user with the highlights next launch.
+    // Written to disk at once: a stop before Chromium's delayed commit would otherwise
+    // greet this brand-new user with the welcome again next launch.
     expect(flushStorage).toHaveBeenCalled();
     // Its project step is the import, so the old "Import projects" announcement stays away.
     expect(JSON.parse(localStorage.getItem("moss:project-import-announcement:v1") ?? "[]")).toEqual(
@@ -111,7 +106,6 @@ describe("onboarding installation identity", () => {
       });
     });
     await vi.waitFor(() => expect(hook.result.current.isOpen).toBe(false));
-    expect(localStorage.getItem("moss:feature-tour:since-0.9.2:v1")).toBeNull();
     await hook.unmount();
   });
 
@@ -139,7 +133,6 @@ describe("onboarding installation identity", () => {
     );
     await hook.rerender();
     expect(hook.result.current.isOpen).toBe(false);
-    expect(localStorage.getItem("moss:feature-tour:since-0.9.2:v1")).toBeNull();
     expect(
       JSON.parse(localStorage.getItem("moss:onboarding:v2") ?? "null")?.completedAt ?? null,
     ).toBeNull();

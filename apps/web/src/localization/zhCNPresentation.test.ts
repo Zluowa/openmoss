@@ -55,28 +55,6 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
     );
   });
 
-  it("translates the welcome tour slides and controls", () => {
-    expect(translateZhCnPresentationText("A new home for your work")).toBe("你的工作新家");
-    expect(
-      translateZhCnPresentationText(
-        "A slimmer rail, open-chat tabs, and refreshed icons put your workspace within reach.",
-      ),
-    ).toBe("更窄的导航栏、已打开对话的标签页和焕然一新的图标，让你的工作区触手可及。");
-    expect(
-      translateZhCnPresentationText("Customize the rail and keep your favorite tools close."),
-    ).toBe("自定义导航栏，让常用工具近在咫尺。");
-    expect(translateZhCnPresentationText("Move between open chats or work in split panes.")).toBe(
-      "在已打开的对话之间切换，或使用分屏窗格工作。",
-    );
-    expect(
-      translateZhCnPresentationText(
-        "Make it yours with project icons, colors, and window appearance.",
-      ),
-    ).toBe("通过项目图标、颜色和窗口外观，打造属于你的风格。");
-    expect(translateZhCnPresentationText("Skip tour")).toBe("跳过导览");
-    expect(translateZhCnPresentationText("Start exploring")).toBe("开始探索");
-  });
-
   it("translates the Inbox greeting, summary tail, and empty state", () => {
     expect(translateZhCnPresentationText("Good morning")).toBe("早上好");
     expect(translateZhCnPresentationText("Good afternoon")).toBe("下午好");
@@ -162,7 +140,6 @@ describe("translateZhCnPresentationText merged-shell coverage", () => {
       translateZhCnPresentationText("Your projects and conversations stay on this machine."),
     ).toBe("你的项目和对话都留在这台电脑上。");
     expect(translateZhCnPresentationText("Skip setup")).toBe("跳过设置");
-    expect(translateZhCnPresentationText("Replay feature tour")).toBe("重播功能导览");
     expect(translateZhCnPresentationText("Activity scope")).toBe("活动范围");
     expect(translateZhCnPresentationText("Loading activity...")).toBe("正在加载活动…");
     expect(translateZhCnPresentationText("Drafts")).toBe("草稿");

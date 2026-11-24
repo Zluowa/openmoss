@@ -825,8 +825,6 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Release notes": "更新记录",
   "What changed in each update.": "每次更新改了什么。",
   "Where new chats work": "新对话的工作位置",
-  "Feature tour": "功能导览",
-  "A short look at what Moss can do.": "快速看看 Moss 能做什么。",
   Replay: "重新播放",
   "Repair local data": "修复本地数据",
   "Use this if your chats don't show up. Your chats stay.": "对话不显示时使用，不会删除对话。",

@@ -110,8 +110,6 @@ const CHROME_LABELS: Readonly<Record<string, string>> = {
   "Thread is already unblocked": "对话已解除阻塞",
   "Thread updates paused": "对话更新已暂停",
 
-  "Feature tour slides": "功能导览幻灯片",
-
   // Sign-in
   "This Google sign-in link is incomplete.": "这个 Google 登录链接不完整。",
   "Google sign-in unavailable": "Google 登录不可用",

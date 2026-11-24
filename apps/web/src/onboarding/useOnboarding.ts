@@ -10,11 +10,6 @@ import { Schema } from "effect";
 import { useEffect, useRef, useState } from "react";
 
 import { useAppSettings } from "../appSettings";
-import {
-  EMPTY_FEATURE_TOUR_SEEN,
-  FEATURE_TOUR_STORAGE_KEY,
-  FeatureTourSeenSchema,
-} from "../featureTour/store";
 import { flushLocalStorageToDisk, useLocalStorage } from "../hooks/useLocalStorage";
 import { serverConfigQueryOptions, serverSettingsQueryOptions } from "../lib/serverReactQuery";
 import { isOrdinarySpaceProject } from "../lib/spaces";
@@ -55,11 +50,6 @@ export function useOnboarding(): UseOnboardingResult {
     ONBOARDING_STORAGE_KEY,
     INITIAL_STORAGE,
     OnboardingStorageSchema,
-  );
-  const [, setFeatureTourSeen] = useLocalStorage(
-    FEATURE_TOUR_STORAGE_KEY,
-    EMPTY_FEATURE_TOUR_SEEN,
-    FeatureTourSeenSchema,
   );
   const [, setProjectImportAnnouncementSeen] = useLocalStorage(
     PROJECT_IMPORT_ANNOUNCEMENT_STORAGE_KEY,
@@ -190,9 +180,6 @@ export function useOnboarding(): UseOnboardingResult {
       // A new installation has just seen its welcome flow. Record this here, before
       // delayed startup probes mount announcements, so it is not greeted twice.
       if (openReason === "first-run") {
-        setFeatureTourSeen((seen) =>
-          seen.includes(installationKey) ? seen : [...seen, installationKey],
-        );
         // Its project step opens on importing conversations, so the older "Import projects"
         // announcement has nothing left to say on this installation.
         setProjectImportAnnouncementSeen((seen) =>

@@ -4,7 +4,6 @@ import {
   type ServerSettingsView,
 } from "@moss/contracts";
 
-import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";
 import { PROJECT_IMPORT_ANNOUNCEMENT_STORAGE_KEY } from "../projectImport/useProjectImportAnnouncement";
 
 export function createBrowserTestServerConfig(checkedAt: string): ServerConfig {
@@ -45,7 +44,6 @@ export function createBrowserTestServerSettings(completedAt: string): ServerSett
  * Call after any `localStorage.clear()`.
  */
 export function acknowledgeStartupAnnouncementsForTest(config: ServerConfig): void {
-  localStorage.setItem(FEATURE_TOUR_STORAGE_KEY, JSON.stringify([config.worktreesDir]));
   localStorage.setItem(
     PROJECT_IMPORT_ANNOUNCEMENT_STORAGE_KEY,
     JSON.stringify([config.worktreesDir]),

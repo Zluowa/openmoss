@@ -199,7 +199,6 @@
     "src/components/EditorWorkspaceView.browser.tsx": 1.6,
     "src/components/EditProjectDialog.browser.tsx": 1.1,
     "src/components/EventRouter.browser.tsx": 85.7,
-    "src/components/FeatureTourDialog.browser.tsx": 12,
     "src/components/FeedbackDialog.browser.tsx": 1.2,
     "src/components/GitActionsControl.browser.tsx": 1.6,
     "src/components/githubInbox/GitHubConnection.browser.tsx": 9.1,

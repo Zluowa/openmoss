@@ -13,7 +13,6 @@
 import { useRef, type ReactNode, type KeyboardEventHandler } from "react";
 
 import { useAnnouncementSheetSlot } from "./announcementSheetSlot";
-import { cn } from "~/lib/utils";
 import { Button } from "./ui/button";
 import {
   Dialog,
@@ -28,7 +27,6 @@ const ACTION_BUTTON_CLASS_NAME = "rounded-control text-ui-lg sm:text-ui-lg";
 
 export function AnnouncementSheet(props: {
   open: boolean;
-  presentation?: "sheet" | "tour";
   onKeyDown?: KeyboardEventHandler<HTMLDivElement>;
   // Footer start (e.g. a pager) and the slot between dismiss and confirm (e.g. Back).
   navigation?: ReactNode;
@@ -74,7 +72,6 @@ export function AnnouncementSheet(props: {
         showCloseButton={false}
         initialFocus={sheetRef}
         onKeyDown={props.onKeyDown}
-        data-feature-tour={props.presentation === "tour" ? "" : undefined}
         className="max-w-[420px] rounded-dialog"
       >
         {/* Take initial focus here rather than on the first button: the sheet opens
@@ -85,19 +82,11 @@ export function AnnouncementSheet(props: {
           tabIndex={-1}
           className="flex min-h-0 flex-col overflow-y-auto p-5 outline-none"
         >
-          <div
-            aria-hidden
-            className={cn(
-              "mb-8 flex h-16 items-center",
-              props.presentation === "tour" && "mb-6 h-auto shrink-0",
-            )}
-          >
+          <div aria-hidden className="mb-8 flex h-16 items-center">
             {props.hero}
           </div>
 
-          <DialogHeader
-            className={cn("gap-2 p-0", props.presentation === "tour" && "min-h-[90px] shrink-0")}
-          >
+          <DialogHeader className="gap-2 p-0">
             <DialogTitle className="text-[19px] leading-tight">{props.title}</DialogTitle>
             <DialogDescription className="text-ui-lg leading-normal">
               {props.description}
@@ -106,12 +95,7 @@ export function AnnouncementSheet(props: {
 
           {props.details}
 
-          <DialogFooter
-            className={cn(
-              "shrink-0 gap-2 p-0 pt-3",
-              props.presentation === "tour" && "flex-row flex-wrap items-center justify-end",
-            )}
-          >
+          <DialogFooter className="shrink-0 gap-2 p-0 pt-3">
             {props.navigation}
             {props.dismissLabel !== undefined ? (
               <Button

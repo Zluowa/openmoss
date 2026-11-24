@@ -63,6 +63,7 @@ import {
   ServiceMap,
   Stream,
 } from "effect";
+import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -566,6 +567,8 @@ describe("ProviderCommandReactor", () => {
     readonly startReactor?: boolean;
     readonly interruptTurn?: ProviderServiceShape["interruptTurn"];
     readonly commandEventTimeout?: Duration.Duration;
+    /** Run the reactor on Effect's TestClock: its timeouts only fire when `advanceClock` says so. */
+    readonly testClock?: boolean;
     readonly preTurnBaselineTimeout?: Duration.Duration;
     readonly cacheResponseTimeout?: Duration.Duration;
     readonly gatewayOperationCompletionWaitTimeout?: Duration.Duration;
@@ -1193,10 +1196,17 @@ describe("ProviderCommandReactor", () => {
       const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
       await Effect.runPromise(ingestion.start.pipe(Scope.provide(harnessScope)));
     }
+    const testClockServices = input?.testClock
+      ? await Effect.runPromise(Layer.buildWithScope(TestClock.layer(), harnessScope))
+      : undefined;
+    const withTestClock = <A, E>(effect: Effect.Effect<A, E>) =>
+      testClockServices ? effect.pipe(Effect.provideServices(testClockServices)) : effect;
+    const advanceClock = (duration: Duration.Input) =>
+      Effect.runPromise(withTestClock(TestClock.adjust(duration)).pipe(Effect.scoped));
     let reactorStarted = false;
     const startReactor = async () => {
       if (reactorStarted) return;
-      const start = reactor.start.pipe(Scope.provide(harnessScope));
+      const start = withTestClock(reactor.start.pipe(Scope.provide(harnessScope)));
       await Effect.runPromise(
         input?.logMessages
           ? start.pipe(
@@ -1379,6 +1389,7 @@ describe("ProviderCommandReactor", () => {
         return attachmentPath;
       },
       drain,
+      advanceClock,
       emitRuntimeEvent,
       predictNextUserMessage,
       setRuntimeSessionTurnState,
@@ -17843,9 +17854,10 @@ describe("ProviderCommandReactor", () => {
   });
 
   it("releases a timed-out promoted turn when its live provider turn settles", async () => {
-    const harness = await createHarness({
-      commandEventTimeout: Duration.millis(25),
-    });
+    // The reactor runs on the TestClock, so its start deadline passes only when the test
+    // advances it: the work before `sendTurn` cannot time out, however slow the machine.
+    const commandEventTimeout = Duration.millis(25);
+    const harness = await createHarness({ commandEventTimeout, testClock: true });
     await seedQueuedTurnBehindLiveTurn(harness, {
       liveTurnId: asTurnId("turn-running-timeout"),
       messageId: asMessageId("msg-queue-timeout-1"),
@@ -17872,7 +17884,9 @@ describe("ProviderCommandReactor", () => {
       turnId: asTurnId("turn-running-timeout"),
       eventId: "evt-turn-completed-timeout",
     });
+    // The provider has accepted the turn and never answers; only now does the deadline pass.
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.advanceClock(commandEventTimeout);
     await waitFor(async () =>
       Effect.runPromise(
         harness.deliveryRepository

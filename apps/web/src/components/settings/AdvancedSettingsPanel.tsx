@@ -9,8 +9,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
 
 import { logoutCurrentBrowserSession } from "~/authLogout";
-import { useFeatureTourStore } from "~/featureTour/store";
-import { closeSettings } from "~/settingsDialogStore";
 import { APP_VERSION } from "~/branding";
 import { resolveAndPersistPreferredEditor } from "~/editorPreferences";
 import { Button } from "~/components/ui/button";
@@ -112,23 +110,6 @@ export function AboutSettingsSection() {
           <MossReleaseHistory className="pt-2" />
         </DisclosureRegion>
       </SettingsRow>
-      <SettingsRow
-        title="Feature tour"
-        control={
-          <Button
-            size="xs"
-            variant="outline"
-            aria-label="Replay feature tour"
-            onClick={() => {
-              // The tour is its own dialog; close Settings so it isn't left open underneath.
-              closeSettings();
-              useFeatureTourStore.getState().open();
-            }}
-          >
-            Replay
-          </Button>
-        }
-      />
       {shouldOfferRecoveryTools ? (
         <SettingsRow
           title="Repair local data"

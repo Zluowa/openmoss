@@ -61,8 +61,6 @@ vi.mock("~/store", () => ({
     }),
 }));
 
-import { useFeatureTourStore } from "~/featureTour/store";
-import { openSettings, settingsDialogStore } from "~/settingsDialogStore";
 import { AboutSettingsSection, KeybindingsFileRow } from "./AdvancedSettingsPanel";
 
 describe("AboutSettingsSection (System tools folded into General)", () => {
@@ -141,14 +139,11 @@ describe("AboutSettingsSection (System tools folded into General)", () => {
     await expect.poll(() => Math.round(region!.getBoundingClientRect().height)).toBe(0);
   });
 
-  it("replays the feature tour from About and closes Settings so it isn't left underneath", async () => {
-    openSettings({ section: "general" });
-    useFeatureTourStore.getState().close();
+  it("keeps one tour entry: 关于 has no feature tour", async () => {
     await render(<AboutSettingsSection />);
-    await page.getByRole("button", { name: "Replay feature tour" }).click();
-    expect(useFeatureTourStore.getState().replay).toBe(true);
-    expect(settingsDialogStore.getState().isOpen).toBe(false);
-    useFeatureTourStore.getState().close();
+    await expect.element(page.getByText("Release notes", { exact: true })).toBeVisible();
+    expect(page.getByText("Feature tour", { exact: true }).elements()).toHaveLength(0);
+    expect(page.getByRole("button", { name: "Replay feature tour" }).elements()).toHaveLength(0);
   });
 
   it("keeps the keybindings file one row with no path on screen", async () => {
