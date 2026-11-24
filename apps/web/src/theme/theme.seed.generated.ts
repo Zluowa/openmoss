@@ -363,7 +363,7 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
       contrast: 0,
       fonts: {
         code: null,
-        ui: "Satoshi",
+        ui: null,
       },
       ink: "#e4e4e7",
       opaqueWindows: false,
@@ -574,7 +574,7 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
       accent: "#ff6363",
       contrast: 0,
       fonts: {
-        code: '"Jetbrains Mono"',
+        code: null,
         ui: "Inter",
       },
       ink: "#fefefe",
@@ -590,7 +590,7 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
       accent: "#ff6363",
       contrast: 0,
       fonts: {
-        code: '"Jetbrains Mono"',
+        code: null,
         ui: "Inter",
       },
       ink: "#030303",
@@ -770,8 +770,8 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
       accent: "#006efe",
       contrast: 0,
       fonts: {
-        code: '"Geist Mono", ui-monospace, "SFMono-Regular"',
-        ui: "Geist, Inter",
+        code: null,
+        ui: null,
       },
       ink: "#ededed",
       opaqueWindows: true,
@@ -786,8 +786,8 @@ export const THEME_SEED_CATALOG: Record<string, Partial<Record<ThemeVariant, Chr
       accent: "#006aff",
       contrast: 0,
       fonts: {
-        code: '"Geist Mono", ui-monospace, "SFMono-Regular"',
-        ui: "Geist, Inter",
+        code: null,
+        ui: null,
       },
       ink: "#171717",
       opaqueWindows: true,

@@ -399,7 +399,7 @@ describe("code theme seeds", () => {
         contrast: 22,
         fonts: {
           code: '"JetBrains Mono"',
-          ui: "Satoshi",
+          ui: null,
         },
         ink: getCodeThemeSeed("lobster", "dark").ink,
         opaqueWindows: true,

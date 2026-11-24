@@ -37,9 +37,9 @@ export function renderPairingFailure(locale: MossLocaleCode = resolveBootstrapLo
 
   document.title = t("pairingFailure.documentTitle");
   root.innerHTML = `
-    <main role="alert" aria-live="assertive" style="min-height:100vh;box-sizing:border-box;display:grid;place-items:center;padding:32px;background:#10110f;color:#f3f0e8;font-family:'DM Sans',sans-serif">
+    <main role="alert" aria-live="assertive" style="min-height:100vh;box-sizing:border-box;display:grid;place-items:center;padding:32px;background:#10110f;color:#f3f0e8;font-family:var(--font-ui-family)">
       <section style="width:min(100%,520px);border:1px solid #373a34;background:#171915;padding:clamp(28px,6vw,52px);box-shadow:12px 12px 0 #080907">
-        <p style="margin:0 0 22px;color:#d6ff55;font:600 12px/1.2 'Geist Mono',monospace;letter-spacing:.16em;text-transform:uppercase">${t("pairingFailure.eyebrow")}</p>
+        <p style="margin:0 0 22px;color:#d6ff55;font:600 12px/1.2 var(--font-mono-family);letter-spacing:.16em;text-transform:uppercase">${t("pairingFailure.eyebrow")}</p>
         <h1 tabindex="-1" style="margin:0;color:#fffdf7;font-size:clamp(32px,7vw,52px);font-weight:600;line-height:.98;letter-spacing:-.045em">${t("pairingFailure.title")}</h1>
         <p style="margin:24px 0 0;color:#b8bbb2;font-size:16px;line-height:1.6">${t("pairingFailure.description")}</p>
       </section>

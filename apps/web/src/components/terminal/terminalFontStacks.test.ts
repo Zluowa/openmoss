@@ -31,7 +31,9 @@ function families(stack: string): string[] {
 }
 
 function cssStacks(name: string): string[] {
-  const css = readFileSync(resolve(__dirname, "../../index.css"), "utf8");
+  const css = ["../../index.css", "../../fontStacks.css"]
+    .map((file) => readFileSync(resolve(__dirname, file), "utf8"))
+    .join("\n");
   const stacks = [...css.matchAll(new RegExp(`${name}:([^;]+);`, "gu"))].map((match) =>
     match[1]!.replace(/var\(\s*--theme-font-code-family,/u, "").replace(/\)\s*$/u, ""),
   );

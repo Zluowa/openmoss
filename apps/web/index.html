@@ -6,6 +6,9 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
+    <!-- The two Google Fonts hosts in style-src and font-src are for Design artboards: they render
+         in srcdoc frames, which run under this policy as well as their own (designDocument.ts).
+         Allowing a host requests nothing; the shell itself loads no font from another site. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*; media-src 'self' data: blob: http://localhost:* http://127.0.0.1:*; connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:* https://*.ingest.us.sentry.io wss://rt.mossbotai.com wss://rt-global.mossbotai.com wss://moss-cn-realtime-edge.inkcomicai.com wss://moss-global-realtime.inkcomicai.com; worker-src 'self' blob:; frame-src 'self' moss-local-preview: http://localhost:* http://127.0.0.1:* http://*.moss-app.localhost:*;"
@@ -22,16 +25,6 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#181818" media="(prefers-color-scheme: dark)" />
     <link rel="preload" as="image" href="/moss-logo-coral.png" type="image/png" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Fonts are optional: preload without blocking the module bootstrap. -->
-    <link
-      id="moss-web-fonts"
-      href="https://fonts.googleapis.com/css2?family=Cal+Sans&family=DM+Sans:ital,opsz,wght@0,9..40,300..800;1,9..40,300..800&family=Geist:wght@100..900&family=Geist+Mono:wght@100..900&family=Inter:opsz,wght@14..32,100..900&display=swap"
-      rel="preload"
-      as="style"
-    />
-    <script src="/font-loader.js" defer></script>
     <title>Moss</title>
     <style>
       /* Boot splash — shown while the JS bundle is parsing and React mounts.

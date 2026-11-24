@@ -3,6 +3,8 @@
 
 import "./storageOriginMigration";
 
+import "./bundledFonts";
+
 import { bootstrapSignedOutScreen } from "./authSignedOut";
 import { prepareBootstrapLocalization } from "./bootstrapLocalization";
 import { bootstrapPairingSession } from "./pairingBootstrap";

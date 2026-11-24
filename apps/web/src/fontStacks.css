@@ -1,0 +1,44 @@
+/* The interface and code font stacks, kept once. index.css imports this file for the app, and
+   bootstrap.ts loads it before anything else so the screens drawn before the app (signed out,
+   pairing failed) use the same stacks. A theme's own font, when it has one, replaces the stack. */
+:root {
+  /* Claude's type: Latin text in a variable sans at light weights, CJK through the same
+     system fallback chain Claude uses (PingFang on macOS, Microsoft YaHei on Windows, named
+     here so Windows never falls back to SimSun; Noto Sans CJK on Linux).
+     Claude's own face is proprietary; Inter is the closest open match (within 1% of its
+     width and cap height), with its weights tuned to Claude's stems in index.css. */
+  --font-ui-family: var(
+    --theme-font-ui-family,
+    "Inter Variable",
+    "Inter",
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    "PingFang SC",
+    "PingFang TC",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "Hiragino Sans",
+    "Apple SD Gothic Neo",
+    "Noto Sans CJK SC",
+    "Noto Sans SC",
+    sans-serif
+  );
+  --font-mono-family: var(
+    --theme-font-code-family,
+    "JetBrains Mono Variable",
+    "JetBrains Mono",
+    "SF Mono",
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    /* Chinese inside code and the terminal: the UI's Chinese face, not the browser's Song. */
+    "PingFang SC",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    "Noto Sans CJK SC",
+    monospace
+  );
+}
