@@ -26,6 +26,7 @@ import { loadMossImageJob } from "~/lib/mossImagesClient";
 import { MOSS_MEDIA_MODEL_NAMES } from "@moss/shared/mossMediaPlugins";
 import { useIsSharedViewer } from "~/lib/sharedViewer";
 import { ImageIcon } from "~/lib/icons";
+import { spaceKindMeta } from "../space/spaceKinds";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "../../localization";
 import { Button } from "../ui/button";
@@ -37,6 +38,8 @@ import {
   type GeneratedImageGalleryImage,
 } from "./generatedImageGallery.logic";
 
+/** The one 画布's icon, as the 资料空间 画布 type draws it. */
+const CanvasIcon = spaceKindMeta("board").icon;
 const GALLERY_GAP_PX = 8;
 const GALLERY_MAX_IMAGES_PER_PAGE = 4;
 
@@ -643,7 +646,7 @@ function GeneratedImageGalleryTile(props: {
             data-testid="generated-image-open-canvas"
             onClick={onOpenCanvas}
           >
-            <GeneratedImagePreviewIcon className="size-4" />
+            <CanvasIcon className="size-4" />
             {t("chat.generatedImage.canvas")}
           </Button>
         </div>

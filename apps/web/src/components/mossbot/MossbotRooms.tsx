@@ -214,11 +214,7 @@ export function MossbotRoomConversation({ roomId }: { roomId: string }) {
               </p>
             )}
             {query.isSuccess && data && !entries.length && (
-              <RoomEmpty
-                name={data.room.name}
-                members={activeMembers}
-                hint={t("Use @name to ask one assistant, or @everyone to hear from the group.")}
-              />
+              <RoomEmpty name={data.room.name} members={activeMembers} />
             )}
             {scroll.hiddenCount > 0 && (
               <button

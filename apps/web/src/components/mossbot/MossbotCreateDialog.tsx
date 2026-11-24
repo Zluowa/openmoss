@@ -7,7 +7,6 @@ import { Input } from "~/components/ui/input";
 import { Textarea } from "~/components/ui/textarea";
 import {
   Dialog,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogPanel,
@@ -55,9 +54,6 @@ export function MossbotCreateDialog(props: {
       <DialogPopup className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Create a Mossbot</DialogTitle>
-          <DialogDescription className="sr-only">
-            Give your assistant a purpose. You can change its model, memory, and skills later.
-          </DialogDescription>
         </DialogHeader>
         <DialogPanel className="space-y-5">
           <div className="space-y-2">

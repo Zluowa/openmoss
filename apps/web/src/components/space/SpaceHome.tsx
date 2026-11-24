@@ -22,7 +22,6 @@ import {
   SlidesIcon,
   SparklesIcon,
   TableIcon,
-  WhiteboardIcon,
   XIcon,
   type LucideIcon,
 } from "~/lib/icons";
@@ -126,7 +125,7 @@ const CREATION_TILES: ReadonlyArray<CreationTile> = [
   {
     action: "board",
     label: "画布",
-    icon: WhiteboardIcon,
+    icon: spaceKindMeta("board").icon,
     hue: "color-mix(in srgb, var(--color-accent-red) 58%, var(--color-accent-yellow))",
     beta: true,
   },

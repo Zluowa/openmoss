@@ -436,6 +436,8 @@ describe("MessagesTimeline tool details", () => {
 
     try {
       expect(document.querySelector("[data-tool-detail-trigger='true']")).toBeNull();
+      // No operating-system tooltip floats over the row on hover (owner, 11-20).
+      expect(host.querySelector("[title]")).toBeNull();
       document.querySelector<HTMLButtonElement>("button")?.click();
       expect(onOpenAgentActivity).toHaveBeenCalledWith("agent-live-activity");
       expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
@@ -482,6 +484,8 @@ describe("MessagesTimeline tool details", () => {
     try {
       const fileRow = document.querySelector<HTMLButtonElement>("[data-file-change-row='true']");
       expect(fileRow).not.toBeNull();
+      // The path opens with the row (the diff); no operating-system tooltip floats over it.
+      expect(host.querySelector("[title]")).toBeNull();
       fileRow?.click();
       expect(onOpenTurnDiff).toHaveBeenCalledWith(turnId, "src/app.ts");
       expect(document.querySelector("[data-tool-details-inline='true']")).toBeNull();
@@ -568,6 +572,7 @@ describe("MessagesTimeline tool details", () => {
       );
       expect(trigger).not.toBeNull();
       expect(screen.container.querySelector('[data-slot="tooltip-trigger"]')).toBeNull();
+      expect(screen.container.querySelector("[title]")).toBeNull();
 
       await userEvent.hover(trigger!);
       // Wait past the previous 200ms hover-card delay to prove no floating card mounts.

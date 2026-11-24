@@ -28,7 +28,6 @@ import {
   SlidesIcon,
   TableIcon,
   TrashCanIcon,
-  WhiteboardIcon,
   WindowAppIcon,
   XIcon,
   type LucideIcon,
@@ -55,6 +54,7 @@ import { SidebarMenu, SidebarMenuItem } from "../ui/sidebar";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
 import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
+import { spaceKindMeta } from "./spaceKinds";
 import { SpaceSyncMenuItem } from "./SpaceSyncMenuItem";
 import {
   formatRelativeTime,
@@ -89,7 +89,7 @@ const KIND_ROWS: ReadonlyArray<SidebarKindRow> = [
   { target: "filter", kind: "sheet", label: "电子表格", icon: TableIcon },
   { target: "filter", kind: "design", label: "设计", icon: PaletteIcon },
   { target: "filter", kind: "dashboard", label: "数据看板", icon: DataDashboardIcon },
-  { target: "filter", kind: "board", label: "画布", icon: WhiteboardIcon },
+  { target: "filter", kind: "board", label: "画布", icon: spaceKindMeta("board").icon },
   { target: "section", kind: "app", label: "应用页", icon: WindowAppIcon },
   { target: "section", kind: "image", label: "图像", icon: ImagesIcon },
   { target: "section", kind: "site", label: "站点", icon: GlobeIcon },

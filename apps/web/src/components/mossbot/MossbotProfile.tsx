@@ -200,16 +200,9 @@ export function MossbotProfile({
                     onCheckedChange={(checked) =>
                       useMossbotPreferencesStore.getState().setMuted(assistant.projectId, !checked)
                     }
-                    aria-describedby="mossbot-notification-help"
                   />
                 </div>
               </div>
-              <p
-                id="mossbot-notification-help"
-                className="px-3 pt-2 text-ui-sm text-muted-foreground"
-              >
-                {t("Notify me when this assistant finishes or needs me.")}
-              </p>
               <Button
                 variant="link"
                 size="sm"

@@ -14,7 +14,6 @@ import {
   SlidesIcon,
   TableIcon,
   TemplateIcon,
-  WhiteboardIcon,
   WindowAppIcon,
   type LucideIcon,
 } from "~/lib/icons";
@@ -22,6 +21,7 @@ import {
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { Badge } from "../ui/badge";
 import { Menu, MenuGroup, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
+import { spaceKindMeta } from "./spaceKinds";
 
 /** What the user picked; the destination decides what each one opens. */
 export type SpaceCreateAction =
@@ -51,7 +51,7 @@ const GROUPS: ReadonlyArray<ReadonlyArray<SpaceCreateMenuEntry>> = [
     { id: "page", label: "文档", icon: PageTextIcon },
     { id: "slides", label: "幻灯片", icon: SlidesIcon },
     { id: "sheet", label: "电子表格", icon: TableIcon, badge: "Beta" },
-    { id: "board", label: "画布", icon: WhiteboardIcon, badge: "Beta" },
+    { id: "board", label: "画布", icon: spaceKindMeta("board").icon, badge: "Beta" },
     { id: "design", label: "设计", icon: PaletteIcon },
     { id: "dashboard", label: "数据看板", icon: DataDashboardIcon },
     { id: "app", label: "应用页", icon: WindowAppIcon },

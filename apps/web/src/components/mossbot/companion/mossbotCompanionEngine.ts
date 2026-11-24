@@ -945,7 +945,6 @@ const STATES = {
   idle: {
     label: "空闲",
     motion: "呼吸",
-    desc: "正面看着你，摆个姿势停一停，偶尔眨两下眼",
     face: [
       ["neutral", 6],
       ["curious", 1],
@@ -960,7 +959,6 @@ const STATES = {
   spawn: {
     label: "新建",
     motion: "发芽",
-    desc: "一粒种子鼓成圆团，睁眼，头顶冒出嫩芽",
     face: [["neutral", 1]],
     clips: ["sprouting"],
     look: 0.3,
@@ -973,7 +971,6 @@ const STATES = {
   listening: {
     label: "在听",
     motion: "向光",
-    desc: "嫩芽像植物向着光一样，朝你的方向弯过去",
     face: [["attentive", 1]],
     clips: ["listenLook", "listenNod", "listenTilt", "listenLook"],
     look: 1,
@@ -983,7 +980,6 @@ const STATES = {
   thinking: {
     label: "思考",
     motion: "冒孢子",
-    desc: "抬眼琢磨，嫩芽慢慢摇，一粒粒孢子飘上去",
     face: [["pondering", 1]],
     clips: ["ponder"],
     look: 0,
@@ -993,7 +989,6 @@ const STATES = {
   working: {
     label: "工作中",
     motion: "转风车",
-    desc: "两片叶子转成风车叶，再长出两片，一起转起来",
     face: [
       ["focused", 3],
       ["neutral", 1],
@@ -1007,7 +1002,6 @@ const STATES = {
   busy: {
     label: "用电脑",
     motion: "化作风车",
-    desc: "身体裂成四瓣，展开成 Moss 风车转起来",
     face: [["focused", 1]],
     morph: "pinwheel",
     clips: ["idleRest"],
@@ -1018,7 +1012,6 @@ const STATES = {
   waiting: {
     label: "等你确认",
     motion: "朝你弯",
-    desc: "嫩芽朝你弯下来，时不时轻跳一下",
     face: [
       ["attentive", 3],
       ["surprised", 1],
@@ -1033,7 +1026,6 @@ const STATES = {
   notify: {
     label: "来消息",
     motion: "起风",
-    desc: "一阵风从左边吹过，叶子被吹得摆动",
     face: [["neutral", 1]],
     clips: ["gust"],
     look: 0.2,
@@ -1043,7 +1035,6 @@ const STATES = {
   done: {
     label: "完成",
     motion: "长新叶",
-    desc: "转一圈跳起来，嫩芽中间长出一片新叶",
     face: [["happy", 1]],
     clips: ["cheer"],
     look: 0.3,
@@ -1055,7 +1046,6 @@ const STATES = {
   error: {
     label: "出错",
     motion: "垂叶",
-    desc: "叶子耷拉下来，摇摇头",
     face: [["sad", 1]],
     clips: ["sigh"],
     look: 0.2,
@@ -1065,7 +1055,6 @@ const STATES = {
   sleeping: {
     label: "休息",
     motion: "合叶",
-    desc: "两片叶子像夜里的植物一样合拢，慢慢呼吸",
     face: [["closed", 1]],
     clips: ["snooze"],
     look: 0,
@@ -1077,7 +1066,6 @@ const STATES = {
   greeting: {
     label: "打招呼",
     motion: "挥叶",
-    desc: "跳起来，两片叶子像手一样挥一挥",
     face: [["joyful", 1]],
     clips: ["wave"],
     look: 0.5,

@@ -20,6 +20,9 @@ import { createDataSpaceFixture } from "~/test/mossDataSpaceFixture";
 import { SpaceHome } from "./SpaceHome";
 import { SpaceSidebar } from "./SpaceSidebar";
 import { buildSpaceItems, recentItems, setSyncedSpaceHomeKind } from "./spaceItems";
+import { spaceKindMeta } from "./spaceKinds";
+import { getCentralIconUrl } from "~/lib/central-icons";
+import { centralIconNameOf } from "~/lib/icons";
 
 function makePage(id: string, title: string): Page {
   return {
@@ -145,6 +148,22 @@ describe("资料空间 home, as a person sees it", () => {
       }
     });
   }
+
+  it("draws 画布 with its type's one icon on the 新建 tile and in the sidebar", async () => {
+    await page.viewport(1280, 900);
+    await renderHome(1280);
+    // The same entry the chat dock's 画布 tab, launcher and + menu draw (WALK-4 N4-2).
+    const mask = getCentralIconUrl(centralIconNameOf(spaceKindMeta("board").icon)!)!;
+    const drawn = (root: Element | null | undefined) =>
+      root?.querySelector<HTMLElement>('[data-slot="central-icon"]')?.getAttribute("style") ?? "";
+    await vi.waitFor(() => {
+      expect(drawn(document.querySelector('[data-space-create-tile="board"]'))).toContain(mask);
+      const sidebarRow = [...document.querySelectorAll<HTMLElement>("button, a")].find(
+        (element) => element.textContent?.trim() === "画布",
+      );
+      expect(drawn(sidebarRow)).toContain(mask);
+    });
+  });
 
   it("shows an empty document's title on its card", async () => {
     await page.viewport(1280, 900);

@@ -69,8 +69,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Create group": "创建群聊",
   "Group chat": "群聊",
   "Good work starts with a conversation.": "好的合作，从聊一聊开始。",
-  "Use @name to ask one assistant, or @everyone to hear from the group.":
-    "用 @名字 找一位助手，也可以用 @everyone 听听大家的想法。",
   "Message group": "发消息到群聊",
   "Stop group": "停止群聊",
   "Could not load group chats.": "暂时无法加载群聊。",
@@ -132,8 +130,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Create a Mossbot": "创建 Mossbot",
   "Create assistant": "创建助手",
   "Creating…": "正在创建…",
-  "Give your assistant a purpose. You can change its model, memory, and skills later.":
-    "告诉助手该如何帮助你，之后可随时调整模型、记忆和技能。",
   "Personality & instructions": "个性与指令",
   "A standing brief for this assistant, kept separate from your other assistants.":
     "专属于这个助手的长期指令，与其他助手分开保存。",

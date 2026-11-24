@@ -100,9 +100,6 @@ export function MossbotWorkspace() {
             <p className="text-ui-lg font-medium text-foreground">
               {t("A little help, always at hand.")}
             </p>
-            <p className="max-w-xs text-ui leading-snug text-muted-foreground">
-              {t("Research, write, plan, and keep track of what matters.")}
-            </p>
             <Button size="sm" className="mt-4" onClick={() => setTemplate("personal")}>
               {t("Create your assistant")}
             </Button>

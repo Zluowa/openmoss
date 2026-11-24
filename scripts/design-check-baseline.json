@@ -494,8 +494,7 @@
     "hand-spinner": 1
   },
   "apps/web/src/components/chat/TimelineWorkEntryRow.tsx": {
-    "raw-button": 3,
-    "native-title": 4
+    "raw-button": 3
   },
   "apps/web/src/components/chat/ToolActivityDisclosure.tsx": {
     "raw-button": 1

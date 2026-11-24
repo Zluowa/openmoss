@@ -1,5 +1,8 @@
 import { resetThreadDetailResumeCursors } from "../threadDetailResumeCursors";
 import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
+import { getCentralIconUrl } from "~/lib/central-icons";
+import { centralIconNameOf } from "~/lib/icons";
+import { spaceKindMeta } from "./space/spaceKinds";
 import { FEATURE_TOUR_STORAGE_KEY } from "../featureTour/store";
 import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
 import { translateMoss } from "../localization";
@@ -3846,7 +3849,17 @@ function expectGeneratedImagePreviewReceipt(options?: { mobile?: boolean }): HTM
   expect(rect?.right).toBeLessThanOrEqual(window.innerWidth + 1);
   expect(rect?.top).toBeGreaterThanOrEqual(0);
   expect(rect?.bottom).toBeLessThanOrEqual(window.innerHeight + 1);
-  expect(document.querySelector('[data-generated-image-icon="preview"]')).not.toBeNull();
+  // The pane's tab draws its icon: an image preview's, or the one 画布 icon (WALK-4 N4-2).
+  const canvasIcon = getCentralIconUrl(centralIconNameOf(spaceKindMeta("board").icon)!)!;
+  expect(
+    document.querySelector('[data-generated-image-icon="preview"]') ??
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          '[data-right-dock-tab-id] [data-slot="central-icon"]',
+        ),
+      ].find((icon) => icon.getAttribute("style")?.includes(canvasIcon)) ??
+      null,
+  ).not.toBeNull();
   if (options?.mobile) {
     const mobileSidebar = document.querySelector<HTMLElement>(
       '[data-sidebar="sidebar"][data-mobile="true"]',

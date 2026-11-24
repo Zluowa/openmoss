@@ -30,12 +30,9 @@ export function useLaunchServerFooter(servers: ProjectLaunchServers): {
 } {
   const { t } = useTranslation();
   return {
-    // The action on the list, never a file path (WALK-1 R-4). Until the list is read, nothing.
-    fileLine: !servers.loaded
-      ? ""
-      : servers.source === "none"
-        ? t("browser.servers.footerNone")
-        : t("browser.servers.footerEdit"),
+    // The action on an existing list, never a file path (WALK-1 R-4). No list, no line: a person
+    // who wants a server listed asks the agent (WALK-4 N4-4). Until the list is read, nothing.
+    fileLine: servers.loaded && servers.source !== "none" ? t("browser.servers.footerEdit") : "",
   };
 }
 

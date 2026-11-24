@@ -924,11 +924,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     Boolean(preview) &&
     normalizeToolTextForComparison(heading) !== normalizeToolTextForComparison(preview ?? "");
   const rawCommand = workEntry.rawCommand ?? workEntry.command;
-  const hoverText = isFixedTextActivity
-    ? heading
-    : historicalThreadError
-      ? historicalThreadError
-      : (rawCommand ?? (showInlineAgentTaskPreview ? heading : (webFetchUrl ?? displayText)));
   const changedFiles = workEntry.changedFiles ?? [];
   const showEditedRows = isFileChangeWorkEntry(workEntry) && changedFiles.length > 0;
   const showSubagentRows =
@@ -1242,7 +1237,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                 type="button"
                 data-file-change-row="true"
                 className={editedRowClassName}
-                title={changedFilePath}
                 disabled={!canOpenEditedRow}
                 onClick={() => {
                   if (!turnId || !onOpenTurnDiff) {
@@ -1274,7 +1268,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
           <AgentActivityOpenSurface
             canOpen={canOpenAgentActivity}
             compact={compact}
-            title={hoverText}
             onOpen={openAgentActivity}
           >
             <span
@@ -1292,7 +1285,6 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
                   "font-medium text-foreground/72",
                 )}
                 style={{ fontSize: `${rowFontSizePx}px` }}
-                title={hoverText}
               >
                 <span>{subagentSummary}</span>
               </p>
@@ -1620,7 +1612,6 @@ function AgentActivityOpenSurface(props: {
   /** Warm-up hook fired on hover/focus so opening feels instant. */
   onHover?: (() => void) | undefined;
   onOpen?: (() => void) | undefined;
-  title?: string | undefined;
   dataToolDetailTrigger?: boolean | undefined;
 }) {
   const className = cn(
@@ -1635,7 +1626,6 @@ function AgentActivityOpenSurface(props: {
     <button
       type="button"
       className={className}
-      title={props.title}
       onClick={props.onOpen}
       data-tool-detail-trigger={props.dataToolDetailTrigger ? "true" : undefined}
       {...(props.onHover ? { onPointerEnter: props.onHover, onFocus: props.onHover } : {})}
@@ -1643,9 +1633,7 @@ function AgentActivityOpenSurface(props: {
       {props.children}
     </button>
   ) : (
-    <div className={className} title={props.title}>
-      {props.children}
-    </div>
+    <div className={className}>{props.children}</div>
   );
 }
 

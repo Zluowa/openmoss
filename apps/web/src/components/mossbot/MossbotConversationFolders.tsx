@@ -89,9 +89,7 @@ export function MossbotFolderDialog({
     <RenameDialog
       open
       title={t(folder ? "Rename conversation group" : "New conversation group")}
-      description={t(
-        "Choose a unique name, up to 60 characters. Groups organize conversations on this device; chat members stay the same.",
-      )}
+      description={t("Choose a unique name, up to 60 characters.")}
       initialValue={folder?.name ?? ""}
       saveLabel={t(folder ? "Save" : "Create conversation group")}
       cancelLabel={t("Cancel")}

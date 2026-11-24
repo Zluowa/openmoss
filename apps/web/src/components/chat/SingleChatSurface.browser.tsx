@@ -4,6 +4,9 @@
 
 import "../../index.css";
 import { resetEmbeddedBundleChecks } from "~/lib/embeddedBundleCheck";
+import { getCentralIconUrl } from "~/lib/central-icons";
+import { centralIconNameOf } from "~/lib/icons";
+import { spaceKindMeta } from "../space/spaceKinds";
 
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -920,11 +923,22 @@ describe("SingleChatSurface right-dock host contract", () => {
       )!;
       expect(canvasButton.getBoundingClientRect().height).toBeGreaterThan(0);
       expect(canvasButton.textContent?.trim()).toBe("Canvas");
+      // One thing, one icon: the launcher draws the 资料空间 画布 type's icon (WALK-4 N4-2), the
+      // same entry SpaceHomeLook.browser.tsx finds on the 资料空间 tile and sidebar.
+      const whiteboardMask = getCentralIconUrl(centralIconNameOf(spaceKindMeta("board").icon)!);
+      expect(whiteboardMask).not.toBeNull();
+      const drawnIcon = (root: Element | null | undefined) =>
+        root?.querySelector<HTMLElement>('[data-slot="central-icon"]')?.getAttribute("style") ?? "";
+      expect(drawnIcon(canvasButton)).toContain(whiteboardMask!);
 
       // One click: the Canvas pane is on screen beside the chat within a second.
       await userEvent.click(canvasButton);
       await vi.waitFor(expectCanvasBesideChat, { timeout: 1_000, interval: 16 });
       expect(canvasPanes()).toHaveLength(1);
+      // Its tab in the dock draws the same icon.
+      expect(
+        drawnIcon(host.querySelector(`[data-right-dock-tab-id="${canvasPanes()[0]!.id}"]`)),
+      ).toContain(whiteboardMask!);
 
       // The 画布 chip on a chat image opens the same pane with its images, still beside the chat.
       useRightDockStore.getState().openPane(THREAD_ID, {

@@ -55,8 +55,7 @@ const ASSISTANT_COPY: Record<string, string> = {
   "No matching conversations.": "没有匹配的会话。",
   "Your conversations will live here.": "你的会话会显示在这里。",
   "Move conversations here from their menu.": "从会话菜单中移入这个分组。",
-  "Choose a unique name, up to 60 characters. Groups organize conversations on this device; chat members stay the same.":
-    "请填写不重复的名称，最多 60 个字符。分组用于整理此设备上的会话，不影响群聊成员。",
+  "Choose a unique name, up to 60 characters.": "请填写不重复的名称，最多 60 个字符。",
   "Group chat actions": "群聊操作",
   "Open group chat": "打开群聊",
   "Hide group chat": "隐藏群聊",
@@ -80,7 +79,6 @@ const ASSISTANT_COPY: Record<string, string> = {
   "Access settings": "访问设置",
   "Files and tools": "文件与工具",
   enabled: "已开启",
-  "Notify me when this assistant finishes or needs me.": "助手完成任务或等你处理时通知你。",
   "Notification settings": "通知设置",
   "Review the name and instructions before sharing. Memory, conversations and account access stay private.":
     "分享前请检查名称和指令。模板不包含记忆、聊天记录和账号权限。",

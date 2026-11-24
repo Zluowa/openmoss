@@ -24,6 +24,7 @@ import {
 } from "~/lib/icons";
 import { type RightDockPane, type RightDockPaneKind } from "~/rightDockStore.logic";
 import { CHAT_SURFACE_CHIP_ICON_CLASS_NAME, SurfaceChipIcon } from "./chatHeaderControls";
+import { spaceKindMeta } from "../space/spaceKinds";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { GeneratedImagePreviewIcon } from "./GeneratedImagePreviewIcon";
 import { resolveGeneratedImagePreviewTitle } from "./GeneratedImagePreviewPane";
@@ -55,7 +56,8 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMetaDe
   file: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   htmlRender: { labelKey: "rightDock.pane.file", Icon: FileIcon },
   imagePreview: { labelKey: "rightDock.pane.imagePreview", Icon: GeneratedImagePreviewIcon },
-  canvas: { labelKey: "rightDock.pane.canvas", Icon: GeneratedImagePreviewIcon },
+  // The one 画布 draws the 资料空间 画布 type's icon (one entry, spaceKinds.ts).
+  canvas: { labelKey: "rightDock.pane.canvas", Icon: spaceKindMeta("board").icon },
   deck: { labelKey: "rightDock.pane.deck", Icon: SlideDeckIcon },
   terminal: { labelKey: "rightDock.pane.terminal", Icon: TerminalIcon },
   sidechat: { labelKey: "rightDock.launcher.sideChats", Icon: MessageCircleIcon },

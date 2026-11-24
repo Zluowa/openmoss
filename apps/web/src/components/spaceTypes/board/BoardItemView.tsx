@@ -6,13 +6,15 @@
 import { parseBoardItem } from "@moss/shared/spaceItems/itemData";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { WhiteboardIcon } from "~/lib/icons";
+import { spaceKindMeta } from "../../space/spaceKinds";
 import type {
   SpaceCanvasDockController,
   SpaceCanvasHostInsets,
 } from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
 import { MossCanvasWebSurface } from "../../MossCanvasWebSurface";
+
+const CanvasIcon = spaceKindMeta("board").icon;
 
 export function BoardItemView(props: {
   data: string;
@@ -116,7 +118,7 @@ export function BoardItemView(props: {
     </div>
   ) : (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
-      <WhiteboardIcon className="size-8" aria-hidden />
+      <CanvasIcon className="size-8" aria-hidden />
       <p className="text-ui-sm">在 Moss 画布中打开。</p>
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
         打开画布
