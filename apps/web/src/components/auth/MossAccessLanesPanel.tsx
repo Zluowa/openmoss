@@ -71,7 +71,7 @@ export function MossAccessLanesPanel({
           登录方式
         </h2>
         <p className="mt-1 text-ui-lg leading-6 text-muted-foreground">
-          可以同时登录多种方式；同一时间只有一种方式为 Moss 提供模型。
+          同一时间只有一种方式为 Moss 提供模型。
         </p>
       </header>
       <ul className="divide-y divide-border/70">
