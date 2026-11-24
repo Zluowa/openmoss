@@ -359,6 +359,19 @@ diff --git a/react.js b/react.js
      getFixedItemSize: useWrapIfItem(getFixedItemSize),
      getItemType: useWrapIfItem(getItemType),
      horizontal: !!horizontal,
+@@ -7976,7 +8122,11 @@
+     anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorMaxSize,
+     anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorOffset,
+     didAnchoredEndSpaceAnchorIndexChange,
+-    numColumnsProp
++    numColumnsProp,
++    // The reserve is sized as viewport minus the content below the anchor, and that
++    // content includes the bottom padding: when the padding changes (a host's
++    // floating composer grows) the reserve must be resized in the same commit.
++    stylePaddingBottomState
+   ]);
+   React3.useLayoutEffect(() => {
+     const previousContentInsetEndAdjustment = previousContentInsetEndAdjustmentRef.current;
 diff --git a/react.mjs b/react.mjs
 --- a/react.mjs
 +++ b/react.mjs
@@ -720,6 +733,19 @@ diff --git a/react.mjs b/react.mjs
      getFixedItemSize: useWrapIfItem(getFixedItemSize),
      getItemType: useWrapIfItem(getItemType),
      horizontal: !!horizontal,
+@@ -7955,7 +8101,11 @@
+     anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorMaxSize,
+     anchoredEndSpace == null ? void 0 : anchoredEndSpace.anchorOffset,
+     didAnchoredEndSpaceAnchorIndexChange,
+-    numColumnsProp
++    numColumnsProp,
++    // The reserve is sized as viewport minus the content below the anchor, and that
++    // content includes the bottom padding: when the padding changes (a host's
++    // floating composer grows) the reserve must be resized in the same commit.
++    stylePaddingBottomState
+   ]);
+   useLayoutEffect(() => {
+     const previousContentInsetEndAdjustment = previousContentInsetEndAdjustmentRef.current;
 diff --git a/react.d.ts b/react.d.ts
 --- a/react.d.ts
 +++ b/react.d.ts
