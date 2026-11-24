@@ -8,6 +8,8 @@ import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CSS_VAR } from "@moss/shared/deskt
 
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "~/components/ui/dialog";
+import { IconButton } from "~/components/ui/icon-button";
+import { Spinner } from "~/components/ui/spinner";
 import { isElectron } from "~/env";
 import { useDesktopCustomTitleBarActive } from "~/hooks/useDesktopCustomTitleBar";
 import { DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
@@ -15,7 +17,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   DownloadIcon,
-  Loader2Icon,
   Maximize2,
   MinusIcon,
   PlusIcon,
@@ -73,7 +74,7 @@ export function ExpandedImageOverlay({
           initialFocus={closeButtonRef}
           aria-label={t("chat.imageLightbox.title")}
           data-dark-window-overlay=""
-          className="bg-[#181818] text-white [--color-text-foreground-secondary:#d4d4d4] [--color-text-foreground:#fff] [--color-background-button-secondary-hover:#ffffff14] [-webkit-app-region:no-drag]"
+          className="bg-media-stage text-media-stage-foreground [--color-text-foreground-secondary:var(--media-stage-foreground-muted)] [--color-text-foreground:var(--media-stage-foreground)] [--color-background-button-secondary-hover:var(--media-stage-hover)] [-webkit-app-region:no-drag]"
         >
           <DialogTitle className="sr-only">{t("chat.imageLightbox.title")}</DialogTitle>
           <ImageLightboxContent
@@ -247,33 +248,37 @@ function ImageLightboxContent({
             : undefined
         }
       >
-        <p className="min-w-0 flex-1 truncate text-ui-sm text-white/80" title={image.name}>
+        <p
+          className="min-w-0 flex-1 truncate text-ui-sm text-media-stage-foreground/80"
+          title={image.name}
+        >
           {image.name}
         </p>
         {imageCount > 1 ? (
-          <p className="shrink-0 text-ui-sm tabular-nums text-white/50" aria-live="polite">
+          <p
+            className="shrink-0 text-ui-sm tabular-nums text-media-stage-foreground/50"
+            aria-live="polite"
+          >
             {index + 1} / {imageCount}
           </p>
         ) : null}
-        <Button
+        <IconButton
           size="icon-xl"
-          variant="ghost"
           onClick={downloadImage}
-          aria-label={t("chat.imageLightbox.download")}
-          title={t("chat.imageLightbox.download")}
+          label={t("chat.imageLightbox.download")}
+          tooltip={t("chat.imageLightbox.download")}
         >
           <DownloadIcon />
-        </Button>
-        <Button
+        </IconButton>
+        <IconButton
           size="icon-xl"
-          variant="ghost"
           onClick={onClose}
-          aria-label={t("chat.imageLightbox.close")}
-          title={t("chat.imageLightbox.closeHint")}
+          label={t("chat.imageLightbox.close")}
+          tooltip={t("chat.imageLightbox.close")}
           ref={closeButtonRef}
         >
           <XIcon />
-        </Button>
+        </IconButton>
       </header>
       <div className="relative min-h-0 flex-1">
         <div
@@ -303,11 +308,11 @@ function ImageLightboxContent({
                 aria-label={t("chat.imageLightbox.loading")}
                 className="absolute pointer-events-none"
               >
-                <Loader2Icon className="size-6 animate-spin motion-reduce:animate-none text-white/50" />
+                <Spinner className="size-6 text-media-stage-foreground/50 motion-reduce:animate-none" />
               </span>
             ) : null}
             {failed ? (
-              <p role="status" className="text-ui text-white/60">
+              <p role="status" className="text-ui text-media-stage-foreground/60">
                 {t("chat.imageLightbox.unavailable")}
               </p>
             ) : (
@@ -394,40 +399,40 @@ function ImageLightboxContent({
         ) : null}
       </div>
       <footer className="flex h-16 shrink-0 items-center justify-center gap-1">
-        <Button
+        <IconButton
           size="icon-xl"
-          variant="ghost"
           disabled={!naturalSize || zoom <= GENERATED_IMAGE_PREVIEW_MIN_ZOOM_PERCENT}
-          aria-label={t("chat.imageLightbox.zoomOut")}
-          title={t("chat.imageLightbox.zoomOut")}
+          label={t("chat.imageLightbox.zoomOut")}
+          tooltip={t("chat.imageLightbox.zoomOut")}
           onClick={() => changeZoom(zoom / 1.25)}
         >
           <MinusIcon />
-        </Button>
-        <span className="w-14 text-center text-ui-sm tabular-nums text-white/70" aria-live="polite">
+        </IconButton>
+        <span
+          className="w-14 text-center text-ui-sm tabular-nums text-media-stage-foreground/70"
+          aria-live="polite"
+        >
           {Math.round(zoom)}%
         </span>
-        <Button
+        <IconButton
           size="icon-xl"
-          variant="ghost"
           disabled={!naturalSize || zoom >= GENERATED_IMAGE_PREVIEW_MAX_ZOOM_PERCENT}
-          aria-label={t("chat.imageLightbox.zoomIn")}
-          title={t("chat.imageLightbox.zoomIn")}
+          label={t("chat.imageLightbox.zoomIn")}
+          tooltip={t("chat.imageLightbox.zoomIn")}
           onClick={() => changeZoom(zoom * 1.25)}
         >
           <PlusIcon />
-        </Button>
-        <span aria-hidden="true" className="mx-2 h-4 w-px bg-white/15" />
-        <Button
+        </IconButton>
+        <span aria-hidden="true" className="mx-2 h-4 w-px bg-media-stage-foreground/15" />
+        <IconButton
           size="icon-xl"
-          variant="ghost"
           disabled={!naturalSize}
-          aria-label={t("chat.imageLightbox.fit")}
-          title={t("chat.imageLightbox.fit")}
+          label={t("chat.imageLightbox.fit")}
+          tooltip={t("chat.imageLightbox.fit")}
           onClick={() => setManualZoom(null)}
         >
           <Maximize2 />
-        </Button>
+        </IconButton>
       </footer>
     </>
   );

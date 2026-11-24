@@ -2,16 +2,16 @@
 // Purpose: The list row, from `SettingsListRow`: title in 14 px medium ink, an optional
 //          description in muted ink, optional leading picture and trailing actions. Two heights
 //          from the standard: `default` 32 (a compact row) and `lg` 48 (a row with a thumbnail).
-//          Radius 8. A row given `onClick` is a button across the whole row (UI SDK's button,
+//          Radius 8. A row given `onClick` is one hit area across the whole row (`HitArea`,
 //          Moss's look): it takes keyboard focus, fills with 3.5% ink on hover and draws the focus
 //          frame around the whole row; its actions stay separate buttons on top.
 // Layer: UI primitive
 // Exports: ListRow
 
-import { Button as ButtonPrimitive } from "@ui-sdk/react/button";
 import type { ComponentProps, ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
+import { HitArea } from "./hit-area";
 import {
   SETTINGS_CARD_ROW_DESCRIPTION_CLASS_NAME,
   SETTINGS_CARD_ROW_TITLE_CLASS_NAME,
@@ -66,15 +66,15 @@ export function ListRow({
       {...props}
     >
       {onClick ? (
-        <ButtonPrimitive
-          type="button"
+        // The shared hit area across the row; the row draws the focus frame around itself.
+        <HitArea
           onClick={() => {
             onClick();
           }}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-ui-gap-sm outline-none after:absolute after:inset-0 after:rounded-row"
+          className="flex min-w-0 flex-1 items-center gap-ui-gap-sm after:absolute after:inset-0 after:rounded-row focus-visible:ring-0"
         >
           {body}
-        </ButtonPrimitive>
+        </HitArea>
       ) : (
         body
       )}

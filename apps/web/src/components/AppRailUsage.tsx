@@ -8,7 +8,7 @@
 import { DEFAULT_SERVER_SETTINGS_VIEW, type ServerProviderUsageSnapshot } from "@moss/contracts";
 import { deriveProviderInstances } from "@moss/shared/providerInstances";
 import { useQuery } from "@tanstack/react-query";
-import { useState, type ComponentProps, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useAppSettings, type RailUsageWindow } from "~/appSettings";
 import { providerUsageSnapshotInstanceId } from "~/lib/providerUsageSnapshot";
@@ -35,6 +35,7 @@ import { useMossPayQuotaQuery } from "./auth/useMossPayQuotaQuery";
 import { useMossQuotaSummary } from "./auth/useMossQuotaSummary";
 import { resolveEnvironmentProviderUsageSummary } from "./chat/environment/EnvironmentUsageSection.logic";
 import { MossLogo } from "./MossLogo";
+import { SidebarIconButton, type SidebarIconButtonProps } from "./SidebarIconButton";
 import { ProviderAccountDot } from "./ProviderAccountMark";
 import { ProviderIcon } from "./ProviderIcon";
 import { useProviderUsageMenuModel } from "./ProviderUsageMenuControl";
@@ -94,8 +95,9 @@ const COMPACT_DOUBLE_RING = {
 /** Up to this many accounts keep the full-size rings. */
 export const RAIL_USAGE_FULL_SIZE_RINGS = 2;
 
+/** Size only: the surface, hairline and shadow are the shared popover's own. */
 const RAIL_USAGE_POPOVER_CLASS_NAME =
-  "min-w-60 max-w-[min(20rem,calc(100vw-4rem))] rounded-popover border-[0.5px] border-border bg-[color-mix(in_srgb,var(--color-background-elevated-primary-opaque)_94%,transparent)] p-0 shadow-lg backdrop-blur-xl before:hidden [&_[data-slot=popover-viewport]]:p-0";
+  "min-w-60 max-w-[min(20rem,calc(100vw-4rem))] [&_[data-slot=popover-viewport]]:p-0";
 
 function RailUsagePopoverShell({
   sourceLabel,
@@ -128,27 +130,32 @@ function RailUsagePopoverShell({
   );
 }
 
-/** The rail button a ring sits in; the popover trigger renders through it. */
+/** The rail button a ring sits in: the rail's shared icon button with the ring as its content
+ *  (as the update ring does); the popover trigger renders through it. */
 function RailUsageRingButton({
   ariaLabel,
   compact,
+  children,
   ...rest
-}: Omit<ComponentProps<"button">, "aria-label" | "className" | "type"> & {
+}: Omit<SidebarIconButtonProps, "icon" | "label" | "className" | "type"> & {
   ariaLabel: string;
   compact: boolean;
   "data-rail-usage-moss"?: string;
 }) {
   return (
-    <button
+    <SidebarIconButton
       {...rest}
-      type="button"
-      aria-label={ariaLabel}
+      icon={MossLogo}
+      label={ariaLabel}
+      size="lg"
       className={cn(
         appRailButtonClassName(false),
-        "relative flex shrink-0 cursor-pointer items-center justify-center",
+        "relative items-center justify-center",
         compact && "size-7",
       )}
-    />
+    >
+      {children}
+    </SidebarIconButton>
   );
 }
 
@@ -209,7 +216,6 @@ function AppRailUsageRing({
           <RailUsageRingButton
             ariaLabel={`${summary.ariaLabel}. ${t("sidebar.railUsage.open")}`}
             compact={compact}
-            title={summary.ariaLabel}
           />
         }
       >
@@ -354,7 +360,6 @@ function AppRailMossUsageRing({
           <RailUsageRingButton
             ariaLabel={`${label}. ${t("sidebar.railUsage.open")}`}
             compact={compact}
-            title={label}
             data-rail-usage-moss=""
           />
         }

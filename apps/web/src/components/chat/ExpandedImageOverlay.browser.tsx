@@ -282,7 +282,6 @@ describe("ExpandedImageOverlay", () => {
       title: "Expanded image preview",
       download: "Download image",
       close: "Close image preview",
-      closeHint: "Close (Escape)",
       previous: "Previous image",
       next: "Next image",
       zoomOut: "Zoom out",
@@ -294,7 +293,6 @@ describe("ExpandedImageOverlay", () => {
       title: "放大图片预览",
       download: "下载图片",
       close: "关闭图片预览",
-      closeHint: "关闭（Escape）",
       previous: "上一张图片",
       next: "下一张图片",
       zoomOut: "缩小",
@@ -319,14 +317,25 @@ describe("ExpandedImageOverlay", () => {
     );
     try {
       await expect.element(page.getByRole("dialog", { name: labels.title })).toBeVisible();
-      for (const label of [labels.download, labels.zoomIn, labels.zoomOut, labels.fit]) {
+      // The always-dark media stage token, the same in both themes.
+      const stage = page.getByRole("dialog", { name: labels.title }).element();
+      expect(getComputedStyle(stage).backgroundColor).toBe("rgb(24, 24, 24)");
+      // Icon-only controls carry the Moss tooltip, not an operating-system one.
+      for (const label of [
+        labels.download,
+        labels.zoomIn,
+        labels.zoomOut,
+        labels.fit,
+        labels.close,
+      ]) {
         await expect
           .element(page.getByRole("button", { name: label, exact: true }))
-          .toHaveAttribute("title", label);
+          .not.toHaveAttribute("title");
       }
+      await page.getByRole("button", { name: labels.zoomIn, exact: true }).hover();
       await expect
-        .element(page.getByRole("button", { name: labels.close }))
-        .toHaveAttribute("title", labels.closeHint);
+        .poll(() => document.querySelector("[data-slot='tooltip-popup']")?.textContent ?? "")
+        .toBe(labels.zoomIn);
       await expect.element(page.getByRole("button", { name: labels.previous })).toBeVisible();
       await expect.element(page.getByRole("button", { name: labels.next })).toBeVisible();
     } finally {

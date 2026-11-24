@@ -2,8 +2,9 @@
 // Purpose: Holds the web app to docs/design/moss-design-standard.md. Counts, per UI file, the
 //          patterns the standard forbids (hard-coded colours, size-named or arbitrary radii,
 //          arbitrary font sizes and shadows, extra font weights, hand-drawn buttons; native
-//          tooltips and gradients; outside components/ui also hand-made tab strips, spinners and
-//          status dots) and fails when any file has more than the recorded baseline. Existing drift may only go down.
+//          tooltips and gradients; outside components/ui also hand-made tab strips, spinners,
+//          status dots and UI SDK parts used directly) and fails when any file has more than the
+//          recorded baseline. Existing drift may only go down.
 // Layer: Repository check (`bun run design:check`, part of `bun lint`)
 // Exports: none (CLI). `--update` rewrites the baseline to the current counts; use it after
 //          cleaning a file up, never to accept new drift.
@@ -50,6 +51,12 @@ const rules = {
     // An HTML element (lower-case tag) carrying title=; `=>`, `<=` and `>=` may sit in between.
     pattern: /<([a-z][a-z0-9]*)\b(?:[^<>]|=>|<=|>=)*?\stitle=/g,
     fix: "give an icon-only control the Moss Tooltip; title= stays only on truncated text",
+  },
+  "ui-sdk-outside-ui": {
+    // A UI SDK part used directly: the unstyled layer under components/ui, never a screen's part.
+    pattern: /from\s+["']@ui-sdk\/react\/[\w-]+["']/g,
+    fix: "use the shared part: HitArea (tile, card, custom row), ListRow, TextLink, Button, IconButton",
+    outsideUiOnly: true,
   },
   "hand-tablist": {
     pattern: /role=["']tablist["']/g,

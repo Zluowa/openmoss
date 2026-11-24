@@ -649,6 +649,47 @@ describe("Moss media HTTP route", () => {
     expect(await response.json()).toMatchObject({ error: { code: "SNAPSHOT_REVISION_CONFLICT" } });
   });
 
+  it("hands a stale projects.write's revision refusal to the Canvas as error.code", async () => {
+    // The Canvas editor's save names the revision it holds; the hosted bridge only keeps
+    // body.error.code, so the refusal must reach it as HOOLA_PROJECT_REVISION_MISMATCH.
+    const app = harness(),
+      store = canvasStore();
+    let revision = 2;
+    store.request.mockImplementation(async (method: string, input?: Record<string, unknown>) => {
+      if (method !== "projects.write") return { saved: true };
+      // As the Canvas project store does (electron/desktop-projects.mjs writeProject).
+      if (input?.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== `rev-${revision}`)
+        throw Object.assign(new Error("The project changed since it was read"), {
+          code: "HOOLA_PROJECT_REVISION_MISMATCH",
+        });
+      revision += 1;
+      const entry = { saved: true, updatedAt: `rev-${revision}` };
+      return entry;
+    });
+    vi.spyOn(canvasStorage, "mossCanvasStorageFor").mockResolvedValue(store);
+    const write = (expectedUpdatedAt: string) =>
+      app.request("/api/moss/media/canvas/storage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          method: "projects.write",
+          input: {
+            relativePath: "conversation.tldr",
+            snapshot: { document: { store: {}, schema: {} }, session: {} },
+            expectedUpdatedAt,
+          },
+          expectedAccount: { id: "account-a", realm: "memfire-phone" },
+        }),
+      });
+    const current = await write("rev-2");
+    expect(current.status).toBe(200);
+    const stale = await write("rev-2");
+    expect(stale.ok).toBe(false);
+    expect(await stale.json()).toMatchObject({
+      error: { code: "HOOLA_PROJECT_REVISION_MISMATCH" },
+    });
+  });
+
   it("does not repeat an asset promotion after an unknown transport result", async () => {
     const app = harness();
     const promote = vi

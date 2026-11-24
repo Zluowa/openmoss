@@ -330,4 +330,69 @@ describe("右栏 画布: one click, usable, and kept", () => {
       .toBeVisible();
     await expect.element(board().getByText("人在同时写字", { exact: true })).toBeVisible();
   });
+  it("keeps an edit written underneath the open 画布 and the stroke drawn meanwhile, on the board and in the saved file", async () => {
+    // The test server's Canvas storage, as the bridge reaches it.
+    const storage = async (method: string, input: Record<string, unknown> = {}) => {
+      const response = await fetch("/api/moss/media/canvas/storage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ method, input }),
+      });
+      expect(response.ok).toBe(true);
+      return ((await response.json()) as { result: unknown }).result;
+    };
+    const savedBoard = async () => {
+      const active = (await storage("projects.active")) as { relativePath?: string } | null;
+      if (!active?.relativePath) return "";
+      const read = (await storage("projects.read", { relativePath: active.relativePath })) as {
+        snapshot?: unknown;
+      };
+      return JSON.stringify(read.snapshot ?? null);
+    };
+    await mountDock("light");
+    await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
+    await waitForCanvasReady();
+    const board = () =>
+      page.frameLocator(page.getByTitle("Moss Canvas", { exact: true })).getByTestId("canvas");
+    const iframeBefore = document.querySelector('iframe[title="Moss Canvas"]');
+
+    // The person writes; the editor saves it and holds that revision.
+    await placeText(160);
+    await userEvent.keyboard("先写的一行");
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(savedBoard, { timeout: 10_000 }).toContain("先写的一行");
+
+    // Another writer changes the saved board underneath the open editor (Moss writing an agent's
+    // edit while no editor answered).
+    await storage("test.mossCanvasMutate", {
+      ops: [{ op: "addNote", key: "u", text: "写在下面的便签", x: 520, y: 420 }],
+    });
+    expect(await savedBoard()).toContain("写在下面的便签");
+
+    // The person draws meanwhile: that save is refused, the editor merges the newer board in.
+    await placeText(300);
+    await userEvent.keyboard("同时写的一行");
+    await userEvent.keyboard("{Escape}");
+
+    // On the open board, without a reload: all three.
+    expect(document.querySelector('iframe[title="Moss Canvas"]')).toBe(iframeBefore);
+    await expect
+      .element(board().getByText("写在下面的便签", { exact: true }), { timeout: 15_000 })
+      .toBeVisible();
+    await expect.element(board().getByText("先写的一行", { exact: true })).toBeVisible();
+    await expect.element(board().getByText("同时写的一行", { exact: true })).toBeVisible();
+    await shot("right-dock-canvas-merged-underneath-light");
+    // And in the saved file: the edit underneath was not written over.
+    await expect
+      .poll(
+        async () => {
+          const saved = await savedBoard();
+          return ["先写的一行", "写在下面的便签", "同时写的一行"].every((text) =>
+            saved.includes(text),
+          );
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+  });
 });

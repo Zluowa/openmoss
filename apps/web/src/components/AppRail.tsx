@@ -28,6 +28,7 @@ import {
 import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import type { SidebarActionBadge } from "./Sidebar.logic";
 import { SidebarIconButton } from "./SidebarIconButton";
+import { StatusDot } from "./ui/status-chip";
 
 type RailGlyph = ComponentType<{ className?: string }>;
 /** A rail button's glyph pair. Both are the same outline glyph: like Claude's sidebar, the
@@ -163,9 +164,9 @@ function AppRailButton({ item }: { item: AppRailItem }) {
       {button}
       {/* Same corner dot as the Activity bell's unread marker; the count is in the tooltip. */}
       {item.badge ? (
-        <span
+        <StatusDot
           aria-hidden
-          className="pointer-events-none absolute top-1 right-1 size-1.5 rounded-full bg-[var(--color-text-accent)]"
+          className="pointer-events-none absolute top-1 right-1 bg-[var(--color-text-accent)]"
         />
       ) : null}
     </div>

@@ -110,6 +110,8 @@
   --color-status-open: var(--status-open);
   --color-status-merged: var(--status-merged);
   --color-status-neutral: var(--status-neutral);
+  --color-media-stage: var(--media-stage);
+  --color-media-stage-foreground: var(--media-stage-foreground);
   --color-info-foreground: var(--info-foreground);
   --color-info: var(--info);
   --color-destructive-foreground: var(--destructive-foreground);
@@ -915,6 +917,12 @@
   --status-open: var(--color-decoration-added, var(--success));
   --status-merged: var(--color-indigo-500);
   --status-neutral: var(--color-zinc-500);
+  /* Full-surface media stage (image viewer, slide presenter, video): always dark, in both
+     themes, because a picture is judged against a dark surround. Never for panels or cards. */
+  --media-stage: #181818;
+  --media-stage-foreground: #ffffff;
+  --media-stage-foreground-muted: #d4d4d4;
+  --media-stage-hover: rgb(255 255 255 / 8%);
   /* Project palette (Edit project → Icons). Same recipe as the status tints: the plain
      color in light, a step toward white in dark. */
   --project-red: var(--color-red-500);

@@ -263,6 +263,15 @@ describe("AppRailUsage", () => {
     expect(dotBounds.right).toBeLessThanOrEqual(glyphBounds.right + 5);
     await work.click();
     await expect.element(page.getByText("Usage source: Claude · Work")).toBeVisible();
+    // The shared popover surface: its radius, hairline and shadow, not a hand-made glass card.
+    const usagePopup = page
+      .getByText("Usage source: Claude · Work")
+      .element()
+      .closest<HTMLElement>("[data-slot='popover-popup']")!;
+    const usagePopupStyle = getComputedStyle(usagePopup);
+    expect(Number.parseFloat(usagePopupStyle.borderTopLeftRadius)).toBe(12);
+    expect(usagePopupStyle.borderTopWidth).not.toBe("0.5px");
+    expect(usagePopupStyle.backdropFilter).not.toContain("blur(24px)");
     await expect.element(page.getByText("Claude · Work", { exact: true }).last()).toBeVisible();
     await expect.element(page.getByText("20% left", { exact: true }).last()).toBeVisible();
     await expect
