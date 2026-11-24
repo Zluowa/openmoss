@@ -377,7 +377,7 @@ export const WorkspaceFilePreviewHeader = function WorkspaceFilePreviewHeader(
                   aria-checked={selected}
                   title={props.isHtml ? segment.htmlTitle : segment.title}
                   className={cn(
-                    "flex h-6 w-7 cursor-pointer items-center justify-center rounded-control transition-colors",
+                    "flex h-6 w-7 cursor-interaction items-center justify-center rounded-control transition-colors",
                     selected
                       ? "bg-[var(--color-background-button-secondary)] text-[var(--color-text-foreground)]"
                       : "text-muted-foreground hover:text-foreground",

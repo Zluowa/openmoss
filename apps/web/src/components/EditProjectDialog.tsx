@@ -135,7 +135,7 @@ function EditProjectForm({
                     <button
                       type="button"
                       aria-label={t("projectSetup.editProject.chooseIcon")}
-                      className="flex size-full cursor-pointer items-center justify-center rounded-s-[inherit] text-muted-foreground outline-hidden transition-colors hover:bg-foreground/5 focus-visible:bg-foreground/6 data-popup-open:bg-foreground/6"
+                      className="flex size-full cursor-interaction items-center justify-center rounded-s-[inherit] text-muted-foreground outline-hidden transition-colors hover:bg-foreground/5 focus-visible:bg-foreground/6 data-popup-open:bg-foreground/6"
                     />
                   }
                 >

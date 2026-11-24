@@ -150,7 +150,7 @@ function RailUpdatePill({
           <button
             type="button"
             data-provider-update-retry
-            className="relative z-[1] mr-0.5 shrink-0 cursor-pointer rounded-control-xs px-1.5 py-0.5 font-medium outline-none hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+            className="relative z-[1] mr-0.5 shrink-0 cursor-interaction rounded-control-xs px-1.5 py-0.5 font-medium outline-none hover:bg-current/10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
             onClick={onRetry}
           >
             {retryLabel}
@@ -160,7 +160,7 @@ function RailUpdatePill({
           <button
             type="button"
             aria-label={dismissLabel}
-            className="relative z-[1] mr-1 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-control-xs opacity-70 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+            className="relative z-[1] mr-1 flex size-5 shrink-0 cursor-interaction items-center justify-center rounded-control-xs opacity-70 outline-none hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
             onClick={onDismiss}
           >
             <XIcon className="size-3.5 shrink-0" />

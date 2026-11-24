@@ -52,7 +52,7 @@ const STATE_PRESENTATION: Record<ProviderSetupState, { label: string; dotClassNa
 };
 
 const INLINE_ACTION_CLASS_NAME =
-  "cursor-pointer text-foreground underline decoration-foreground/40 underline-offset-[3px] transition-colors hover:decoration-foreground motion-reduce:transition-none";
+  "cursor-interaction text-foreground underline decoration-foreground/40 underline-offset-[3px] transition-colors hover:decoration-foreground motion-reduce:transition-none";
 
 const STATE_LABEL_KEYS = {
   connected: "provider.readiness.ready",
@@ -336,7 +336,7 @@ export function ProvidersStep(props: { readonly detection: ProviderDetection }) 
               <ProviderIcon provider={descriptor.kind} className="size-ui-icon shrink-0" />
               <label
                 htmlFor={checkboxId}
-                className="flex min-w-0 flex-1 cursor-pointer flex-col gap-0.5"
+                className="flex min-w-0 flex-1 cursor-interaction flex-col gap-0.5"
               >
                 <span className="truncate text-ui-lg font-medium text-foreground">
                   {descriptor.displayName}
@@ -357,7 +357,7 @@ export function ProvidersStep(props: { readonly detection: ProviderDetection }) 
                 render={<button type="button" />}
                 nativeButton
                 checked={enabled}
-                className="cursor-pointer border-foreground/50 dark:not-data-checked:bg-background"
+                className="cursor-interaction border-foreground/50 dark:not-data-checked:bg-background"
                 aria-label={format(
                   enabled
                     ? "settings.providers.activity.disableAria"
@@ -374,21 +374,19 @@ export function ProvidersStep(props: { readonly detection: ProviderDetection }) 
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-ui-gap-sm text-ui text-muted-foreground">
+        {/* No count line: each row shows its own state (walk D-7, WALK-7). A check still running
+            or failed is said, because it changes what the rows mean. */}
         <span aria-live="polite">
           {summary.detecting > 0
             ? t("onboarding.providers.detecting")
             : summary.checkFailed > 0
               ? t("onboarding.providers.failed")
-              : format("onboarding.providers.summary", {
-                  connected: summary.connected,
-                  login: summary.needsSignIn,
-                  missing: summary.notInstalled,
-                })}
+              : null}
         </span>
         <button
           type="button"
           disabled={detection.detecting}
-          className="inline-flex cursor-pointer items-center gap-1.5 text-foreground/70 transition-colors hover:text-foreground disabled:opacity-60 motion-reduce:transition-none"
+          className="inline-flex cursor-interaction items-center gap-1.5 text-foreground/70 transition-colors hover:text-foreground disabled:opacity-60 motion-reduce:transition-none"
           onClick={() => void detection.detect()}
         >
           <RefreshCwIcon

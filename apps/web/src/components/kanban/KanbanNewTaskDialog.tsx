@@ -694,7 +694,7 @@ export function KanbanNewTaskDialog({
                 />
               ) : null}
             </div>
-            <label className="flex shrink-0 cursor-pointer items-center gap-2 text-ui-xs text-muted-foreground">
+            <label className="flex shrink-0 cursor-interaction items-center gap-2 text-ui-xs text-muted-foreground">
               <Switch
                 checked={sendAsGoal && !sendAsDraft}
                 disabled={sendAsDraft}

@@ -8524,7 +8524,7 @@ export default function ChatView({
                                     type="button"
                                     data-testid="empty-landing-heading-project-trigger"
                                     data-translation-skip="true"
-                                    className="cursor-pointer rounded-sm text-inherit underline decoration-dotted decoration-[1.5px] underline-offset-[6px] transition-colors duration-150 ease-out hover:text-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
+                                    className="cursor-interaction rounded-sm text-inherit underline decoration-dotted decoration-[1.5px] underline-offset-[6px] transition-colors duration-150 ease-out hover:text-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 motion-reduce:transition-none"
                                   >
                                     {activeProjectDisplayName ?? "this folder"}
                                   </button>

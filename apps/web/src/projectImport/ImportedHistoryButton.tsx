@@ -104,19 +104,22 @@ export function useImportedHistory(threadId: string, enabled: boolean) {
   };
 }
 
+/**
+ * Loads a chat's earlier messages. Once every message is here it shows nothing: a 「对话开始」
+ * marker and a 「跳到第一条消息」 button above a first message already in view say nothing a
+ * person can act on (walk H-13).
+ */
 export function ImportedHistoryButton({
   history,
   onFirstMessage,
-  completeLabel,
   loadLabel = "Load earlier messages",
 }: {
   history: { nextCursor: unknown; loading: boolean; error: string | null; load: () => unknown };
   onFirstMessage?: () => void;
-  completeLabel?: string;
   loadLabel?: string;
 }) {
   const complete = !history.nextCursor && !history.error && !history.loading;
-  if (complete && !completeLabel) return null;
+  if (complete) return null;
   return (
     <div
       className="flex flex-col items-center gap-1 px-3 pb-4 text-ui-sm text-muted-foreground"
@@ -125,20 +128,18 @@ export function ImportedHistoryButton({
       <Button
         size="sm"
         variant="ghost"
-        disabled={history.loading || complete}
+        disabled={history.loading}
         onClick={() => {
           void history.load();
         }}
       >
-        {complete
-          ? completeLabel
-          : history.loading
-            ? "Loading earlier messages…"
-            : history.error
-              ? "Retry loading earlier messages"
-              : loadLabel}
+        {history.loading
+          ? "Loading earlier messages…"
+          : history.error
+            ? "Retry loading earlier messages"
+            : loadLabel}
       </Button>
-      {onFirstMessage && (history.nextCursor || completeLabel) ? (
+      {onFirstMessage && history.nextCursor ? (
         <Button size="sm" variant="ghost" disabled={history.loading} onClick={onFirstMessage}>
           Go to first message
         </Button>

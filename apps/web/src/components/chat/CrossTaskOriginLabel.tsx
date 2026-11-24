@@ -47,7 +47,7 @@ export const CrossTaskOriginLabel = memo(function CrossTaskOriginLabel({
     "inline-flex max-w-full items-center gap-2 self-end rounded-control py-1",
     "font-system-ui text-ui font-normal text-muted-foreground/72",
     onOpenSourceThread &&
-      "cursor-pointer transition-colors duration-150 hover:text-foreground/82 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+      "cursor-interaction transition-colors duration-150 hover:text-foreground/82 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
   );
 
   if (onOpenSourceThread) {

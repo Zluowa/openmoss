@@ -36,7 +36,7 @@ export function Select({
       <select
         {...props}
         className={cn(
-          "peer w-full min-w-0 cursor-pointer appearance-none truncate [color-scheme:var(--code-color-scheme)] [&_option]:bg-popover [&_option]:text-foreground disabled:cursor-default disabled:opacity-50",
+          "peer w-full min-w-0 cursor-interaction appearance-none truncate [color-scheme:var(--code-color-scheme)] [&_option]:bg-popover [&_option]:text-foreground disabled:cursor-default disabled:opacity-50",
           VARIANTS[variant],
           variant === "ghost" ? GHOST.select : SIZES[size].select,
         )}

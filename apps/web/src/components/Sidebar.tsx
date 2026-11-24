@@ -1259,7 +1259,7 @@ export function SidebarActivityBellButton({
             aria-pressed={active}
             onClick={onClick}
             className={cn(
-              "relative inline-flex shrink-0 cursor-pointer items-center justify-center transition-colors",
+              "relative inline-flex shrink-0 cursor-interaction items-center justify-center transition-colors",
               sidebarIconButtonSlotClass("header"),
               SIDEBAR_ROW_FOCUS_CLASS_NAME,
               active
@@ -5639,7 +5639,9 @@ export default function Sidebar() {
               className={cn(
                 SIDEBAR_HEADER_ROW_CLASS_NAME,
                 "hover:bg-[var(--sidebar-accent)] group-hover/project-header:bg-[var(--sidebar-accent)] group-hover/project-header:text-[var(--sidebar-accent-foreground)]",
-                isManualProjectSorting ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                isManualProjectSorting
+                  ? "cursor-grab active:cursor-grabbing"
+                  : "cursor-interaction",
               )}
               {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.attributes : {})}
               {...(isManualProjectSorting && dragHandleProps ? dragHandleProps.listeners : {})}
@@ -5721,7 +5723,7 @@ export default function Sidebar() {
               aria-pressed={isProjectPinned}
               title={pinActionLabel(project.name, isProjectPinned)}
               className={cn(
-                "sidebar-icon-button absolute left-2 top-1/2 z-20 inline-flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-control-xs transition-opacity hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
+                "sidebar-icon-button absolute left-2 top-1/2 z-20 inline-flex size-4 -translate-y-1/2 cursor-interaction items-center justify-center rounded-control-xs transition-opacity hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
                 SIDEBAR_ROW_LABEL_TEXT_CLASS_NAME,
                 isProjectPinned
                   ? "pointer-events-auto opacity-100"
@@ -7246,7 +7248,7 @@ export default function Sidebar() {
                         SIDEBAR_HEADER_ROW_CLASS_NAME,
                         SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
                         SIDEBAR_ROW_HOVER_CLASS_NAME,
-                        "cursor-pointer",
+                        "cursor-interaction",
                       )}
                       onClick={() => setChatSectionExpanded((current) => !current)}
                       onKeyDown={(event) => {

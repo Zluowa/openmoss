@@ -78,7 +78,7 @@ export function SheetReaderFilterDialog(props: {
             aria-label="值"
           >
             {shown.map((value) => (
-              <label key={value} className="flex cursor-pointer items-center gap-2 text-ui">
+              <label key={value} className="flex cursor-interaction items-center gap-2 text-ui">
                 <Checkbox
                   checked={keep.has(value)}
                   onCheckedChange={(checked) => toggle(value, checked === true)}

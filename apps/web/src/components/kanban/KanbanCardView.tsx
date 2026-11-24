@@ -195,7 +195,7 @@ function KanbanCardViewComponent({
       className={cn(
         // Moss destination cards are panels: hairline border on the card fill, no grey wash
         // or glass. Hover tints with ink; a dragged card lifts with the overlay shadow.
-        "flex w-full cursor-pointer flex-col gap-ui-gap-xs rounded-card border border-border bg-card p-ui-pad-md text-left",
+        "flex w-full cursor-interaction flex-col gap-ui-gap-xs rounded-card border border-border bg-card p-ui-pad-md text-left",
         ELEVATED_HOVER_SURFACE_CLASS_NAME,
         "focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none",
         isOverlay && "shadow-xl",

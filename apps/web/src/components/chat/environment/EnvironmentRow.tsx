@@ -29,7 +29,7 @@ import {
  * trigger and a plain button row are visually identical.
  */
 export const ENVIRONMENT_ROW_CLASS_NAME = cn(
-  "flex h-8 w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-row px-2.5 text-left",
+  "flex h-8 w-full min-w-0 cursor-interaction items-center gap-2.5 rounded-row px-2.5 text-left",
   "text-ui font-medium text-[var(--color-text-foreground)]/80",
   "outline-none",
   ELEVATED_HOVER_SURFACE_CLASS_NAME,

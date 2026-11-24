@@ -844,7 +844,7 @@ function FileFold(
                       }
                     }}
                   />
-                  <span className="inline-flex h-6 cursor-pointer items-center rounded-control-xs px-2 text-ui-sm text-foreground hover:bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)]">
+                  <span className="inline-flex h-6 cursor-interaction items-center rounded-control-xs px-2 text-ui-sm text-foreground hover:bg-[color-mix(in_srgb,var(--foreground)_3.5%,transparent)]">
                     {copy.replaceFile}
                   </span>
                 </label>

@@ -236,7 +236,7 @@ export function SettingsRow({
       <div
         className={cn(
           "flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between",
-          onClick && "cursor-pointer",
+          onClick && "cursor-interaction",
         )}
         onClick={onClick}
       >

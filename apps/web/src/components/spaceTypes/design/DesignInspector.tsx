@@ -199,7 +199,7 @@ function ColorField(props: {
           type="color"
           aria-label={`${props.label}：取色`}
           value={hex || "#000"}
-          className="h-6 w-7 shrink-0 cursor-pointer rounded-control-xs border border-border bg-transparent p-0.5"
+          className="h-6 w-7 shrink-0 cursor-interaction rounded-control-xs border border-border bg-transparent p-0.5"
           onChange={(event) => props.onChange(event.target.value, true)}
         />
         <TextField

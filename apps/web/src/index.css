@@ -781,7 +781,7 @@
   background: var(--card);
   border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
   transition:
     transform 120ms ease,
     box-shadow 120ms ease;
@@ -794,7 +794,7 @@
   background: var(--card);
   border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
 }
 
 .theme-slider:focus-visible::-webkit-slider-thumb {
@@ -1201,7 +1201,7 @@ label:has(> select#reasoning-effort) select {
   position: absolute;
   inset: 0;
   opacity: 0;
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
   width: 100%;
   height: 100%;
 }
@@ -1281,7 +1281,7 @@ label:has(> select#reasoning-effort) select {
 }
 
 .chat-markdown .chat-markdown-task-checkbox:not(:disabled) {
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
 }
 
 /* Transcript markdown opts into native bidi ownership per prose block. Keep
@@ -2081,7 +2081,7 @@ body [class*="openui-theme-portal-"] {
   justify-content: center;
   padding: 0;
   background: var(--app-code-viewer-sticky-surface, var(--color-background-surface));
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
 }
 
 .editor-file-viewer__comment-add-glyph {
@@ -3623,7 +3623,7 @@ diffs-container {
 .diff-render-file [data-diffs-header],
 .diff-render-file [data-diff-file-header],
 .diff-render-file [data-file-info] {
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
 }
 
 .diff-render-file__image-preview {
@@ -6251,7 +6251,7 @@ html.moss-opaque-surface #root {
   border: 0;
   border-radius: var(--radius-card);
   box-shadow: none;
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
   transition:
     background-color 120ms ease,
     color 120ms ease,
@@ -6432,7 +6432,7 @@ html.moss-opaque-surface #root {
   background-color: var(--moss-theme-picker-light-80);
   border: 0;
   border-radius: 999px;
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
   pointer-events: auto;
   user-select: none;
   backdrop-filter: blur(24px);
@@ -6625,7 +6625,7 @@ html.moss-opaque-surface #root {
   height: 56px;
   padding: 4px;
   overflow: hidden;
-  cursor: pointer;
+  cursor: var(--cursor-interaction, pointer);
   background-color: var(--moss-theme-picker-dark-2);
   border-radius: var(--radius-dialog);
   touch-action: none;

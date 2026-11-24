@@ -136,7 +136,7 @@ export function GitHubItemHeader({
               aria-label={format("codeReview.state.change", { state: state.word })}
               className={cn(
                 pillClassName,
-                "cursor-pointer pr-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                "cursor-interaction pr-1.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               )}
             >
               {pillContent}

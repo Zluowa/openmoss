@@ -401,7 +401,7 @@ export function SlidesPresenter(props: {
       }}
     >
       <div
-        className="flex min-h-0 flex-1 cursor-pointer items-center justify-center"
+        className="flex min-h-0 flex-1 cursor-interaction items-center justify-center"
         onClick={(event) => (event.clientX < window.innerWidth / 4 ? back() : forward())}
       >
         <FittedSlide

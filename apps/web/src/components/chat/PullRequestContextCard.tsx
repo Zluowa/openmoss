@@ -100,7 +100,7 @@ export function UserMessagePullRequestContextCard({
         type="button"
         aria-expanded={expanded}
         title={expanded ? "Hide the prompt this card sent" : "Show the prompt this card sent"}
-        className="cursor-pointer rounded-card text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        className="cursor-interaction rounded-card text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         onClick={() => setExpanded((value) => !value)}
       >
         <PullRequestContextCardShell

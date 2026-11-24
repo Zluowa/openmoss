@@ -162,7 +162,7 @@ export function RealtimeVoicePreviewPicker({
       <button
         type="button"
         aria-label={previewLabel}
-        className="relative flex size-36 cursor-pointer items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-4 focus-visible:ring-offset-popover disabled:cursor-default disabled:opacity-64"
+        className="relative flex size-36 cursor-interaction items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-4 focus-visible:ring-offset-popover disabled:cursor-default disabled:opacity-64"
         disabled={previewDisabled}
         onClick={() => {
           if (previewState === "playing") {
@@ -199,7 +199,7 @@ export function RealtimeVoicePreviewPicker({
         <button
           type="button"
           aria-label="Previous voice"
-          className="inline-flex cursor-pointer items-center justify-center rounded-full p-2 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/70 disabled:cursor-default disabled:opacity-40"
+          className="inline-flex cursor-interaction items-center justify-center rounded-full p-2 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/70 disabled:cursor-default disabled:opacity-40"
           disabled={voices.length < 2}
           onClick={() => selectVoice(selectedIndex - 1)}
         >
@@ -212,7 +212,7 @@ export function RealtimeVoicePreviewPicker({
         <button
           type="button"
           aria-label="Next voice"
-          className="inline-flex cursor-pointer items-center justify-center rounded-full p-2 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/70 disabled:cursor-default disabled:opacity-40"
+          className="inline-flex cursor-interaction items-center justify-center rounded-full p-2 text-muted-foreground outline-none hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/70 disabled:cursor-default disabled:opacity-40"
           disabled={voices.length < 2}
           onClick={() => selectVoice(selectedIndex + 1)}
         >
@@ -254,7 +254,7 @@ export function RealtimeVoicePreviewPicker({
               aria-posinset={index + 1}
               aria-setsize={voices.length}
               className={cn(
-                "size-2.5 shrink-0 cursor-pointer rounded-full bg-foreground ring-offset-2 ring-offset-popover outline-none focus-visible:ring-1 focus-visible:ring-ring/70",
+                "size-2.5 shrink-0 cursor-interaction rounded-full bg-foreground ring-offset-2 ring-offset-popover outline-none focus-visible:ring-1 focus-visible:ring-ring/70",
                 !selected && "opacity-30",
               )}
               tabIndex={selected ? 0 : -1}

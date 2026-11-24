@@ -1209,7 +1209,7 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
             const editedRowClassName = cn(
               "group/file-row flex w-full max-w-full items-center text-left transition-colors duration-150",
               compact ? "gap-1.5" : "gap-2",
-              canOpenEditedRow ? "cursor-pointer focus-visible:outline-none" : "cursor-default",
+              canOpenEditedRow ? "cursor-interaction focus-visible:outline-none" : "cursor-default",
             );
             const editedRowChildren = (
               <EditedFileRowContent
@@ -1643,7 +1643,7 @@ function AgentActivityOpenSurface(props: {
     // the same 4px below its line, so thoughts and calls share one rhythm.
     "group/tool-row flex w-full items-center pb-1 text-left transition-[opacity,translate] duration-200",
     props.compact ? "gap-1.5" : "gap-2",
-    props.canOpen ? "cursor-pointer focus-visible:outline-none" : "cursor-default",
+    props.canOpen ? "cursor-interaction focus-visible:outline-none" : "cursor-default",
   );
 
   return props.canOpen ? (
@@ -1835,7 +1835,7 @@ function ToolDetailsDisclosure(props: {
     props.summaryClassName ??
     cn(
       "group/tool-row group/activity-header inline-flex min-w-0 max-w-full self-start items-center gap-1 text-start",
-      "cursor-pointer",
+      "cursor-interaction",
     );
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const bodyId = `tool-details-body-${useId().replace(/[^a-zA-Z0-9-]/gu, "")}`;
@@ -1940,7 +1940,7 @@ function ToolDetailsDisclosure(props: {
           aria-controls={bodyId}
           aria-expanded={disclosureOpen}
           aria-labelledby={summaryLabelId}
-          className="absolute inset-0 z-0 cursor-pointer rounded-control bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:ring-offset-0"
+          className="absolute inset-0 z-0 cursor-interaction rounded-control bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:ring-offset-0"
           data-file-change-row={props.dataFileChangeRow ? "true" : undefined}
           data-tool-detail-trigger="true"
           onClick={(event) => {

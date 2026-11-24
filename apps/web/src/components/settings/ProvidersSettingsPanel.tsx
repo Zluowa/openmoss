@@ -1803,7 +1803,7 @@ function ProviderAccountsControl(props: {
                   type="button"
                   aria-label={`Select ${account.label}`}
                   aria-current={selected ? "true" : undefined}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring/60"
+                  className="flex min-w-0 flex-1 cursor-interaction items-center gap-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring/60"
                   onClick={() => setSelectedAccountId(account.instanceId)}
                 >
                   <ProviderAccountAvatar provider={provider} accentColor={account.accentColor} />

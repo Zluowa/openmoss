@@ -982,7 +982,7 @@ function SelectionChildRow({
 }) {
   const Icon = TOOL_CATEGORY_ICONS[category];
   return (
-    <label className="flex cursor-pointer items-center gap-3 rounded-control px-3 py-2 hover:bg-foreground/5">
+    <label className="flex cursor-interaction items-center gap-3 rounded-control px-3 py-2 hover:bg-foreground/5">
       <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-foreground/5">
         <Icon className="size-4 text-muted-foreground" />
       </span>
@@ -1149,7 +1149,7 @@ function SyncCustomizeDialog({
             return (
               <label
                 key={category}
-                className="flex cursor-pointer items-center gap-3 rounded-control px-3 py-2 hover:bg-foreground/5"
+                className="flex cursor-interaction items-center gap-3 rounded-control px-3 py-2 hover:bg-foreground/5"
               >
                 <Checkbox
                   checked={draft.has(category)}

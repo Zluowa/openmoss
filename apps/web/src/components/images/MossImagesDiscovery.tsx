@@ -35,7 +35,7 @@ const DISCOVERY_TABS = [
 /** A picture tile: the picture at the card radius, its name under it on the paper (one
  *  paper, no gradient scrim or white text over the image). */
 const DISCOVERY_TILE_CLASS_NAME =
-  "group flex min-w-0 cursor-pointer flex-col gap-1.5 rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
+  "group flex min-w-0 cursor-interaction flex-col gap-1.5 rounded-card text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-64";
 const DISCOVERY_TILE_CAPTION_CLASS_NAME = "truncate px-0.5 text-ui-sm text-foreground";
 
 function Preview({

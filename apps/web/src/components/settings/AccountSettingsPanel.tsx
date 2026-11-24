@@ -210,7 +210,7 @@ function MossPhoneAccountSettingsBody({
   const session = accountQuery.data?.session;
 
   if (accountQuery.isPending) {
-    return <MossAuthLoading label="正在加载账号…" />;
+    return <MossAuthLoading label={copy.accountSettings.loading} />;
   }
   if (accountQuery.isError) {
     return (
@@ -251,12 +251,9 @@ function MossPhoneAccountSettingsBody({
       <MossPayPanel />
 
       <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-card border border-border/70 p-4">
-        <div className="min-w-0">
-          <h2 className="text-ui-lg font-medium">{copy.accountSettings.usageAndCreditsTitle}</h2>
-          <p className="mt-1 text-ui-sm text-muted-foreground">
-            {copy.accountSettings.usageAndCreditsDescription}
-          </p>
-        </div>
+        <h2 className="min-w-0 text-ui-lg font-medium">
+          {copy.accountSettings.usageAndCreditsTitle}
+        </h2>
         <Button type="button" onClick={onOpenUsage} size="sm">
           {copy.accountSettings.openUsage}
         </Button>
@@ -264,9 +261,7 @@ function MossPhoneAccountSettingsBody({
 
       <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-t border-border/70 pt-5">
         <p aria-live="polite" className="text-ui-sm text-muted-foreground" role="status">
-          {logoutMutation.isPending
-            ? copy.accountSettings.signingOut
-            : "登录状态已安全保存在本机；除非主动退出或服务端撤销，否则无需再次验证。"}
+          {logoutMutation.isPending ? copy.accountSettings.signingOut : null}
         </p>
         <Button
           type="button"
@@ -324,7 +319,6 @@ function MossCloudAccountSettingsBody({
       <div className="flex flex-col gap-4">
         <Alert variant="error">
           <AlertTitle>{copy.accountSettings.loadFailedTitle}</AlertTitle>
-          <AlertDescription>{copy.accountSettings.loadFailedDescription}</AlertDescription>
         </Alert>
         <div>
           <Button
@@ -385,14 +379,9 @@ function MossCloudAccountSettingsBody({
         />
       ) : (
         <section className="flex flex-wrap items-center justify-between gap-4 rounded-card border border-border/70 p-4">
-          <div className="min-w-0 space-y-1">
-            <h2 className="text-ui-lg font-medium text-foreground">
-              {copy.accountSettings.signedOutTitle}
-            </h2>
-            <p className="text-ui-sm text-muted-foreground">
-              {copy.accountSettings.signedOutDescription}
-            </p>
-          </div>
+          <h2 className="min-w-0 text-ui-lg font-medium text-foreground">
+            {copy.accountSettings.signedOutTitle}
+          </h2>
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onOpenProfile}>
               {copy.accountSettings.openProfile}
@@ -417,14 +406,9 @@ function MossCloudAccountSettingsBody({
 
       <section aria-labelledby="saved-accounts-heading" className="min-w-0">
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <h2 id="saved-accounts-heading" className="text-ui-lg font-medium">
-              {copy.accountSettings.googleAccountsTitle}
-            </h2>
-            <p className="mt-0.5 text-ui-sm text-muted-foreground">
-              {copy.accountSettings.switchWithoutSignOut}
-            </p>
-          </div>
+          <h2 id="saved-accounts-heading" className="text-ui-lg font-medium">
+            {copy.accountSettings.googleAccountsTitle}
+          </h2>
           <Link
             className={cn(buttonVariants({ size: "sm", variant: "outline" }), "shrink-0")}
             onClick={closeSettings}
@@ -528,12 +512,9 @@ function MossCloudAccountSettingsBody({
       {account && state.session ? <MossPayPanel /> : null}
       {account && state.session ? (
         <section className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-card border border-border/70 p-4">
-          <div className="min-w-0">
-            <h2 className="text-ui-lg font-medium">{copy.accountSettings.usageAndCreditsTitle}</h2>
-            <p className="mt-1 text-ui-sm text-muted-foreground">
-              {copy.accountSettings.usageAndCreditsDescription}
-            </p>
-          </div>
+          <h2 className="min-w-0 text-ui-lg font-medium">
+            {copy.accountSettings.usageAndCreditsTitle}
+          </h2>
           <Button type="button" onClick={onOpenUsage} size="sm">
             {copy.accountSettings.openUsage}
           </Button>
@@ -584,7 +565,7 @@ function MossEnterpriseAccountSettingsBody({
   const statusNotice = mossEnterpriseKeyStatusNotice(state?.modelGatewayStatus);
 
   if (stateQuery.isPending) {
-    return <MossAuthLoading label="正在加载账号…" />;
+    return <MossAuthLoading label={copy.accountSettings.loading} />;
   }
   if (!state?.authenticated) {
     return (
@@ -617,7 +598,7 @@ function MossEnterpriseAccountSettingsBody({
 
       <section className="flex min-w-0 flex-wrap items-center justify-between gap-4 border-t border-border/70 pt-5">
         <p className="text-ui-sm text-muted-foreground" role="status">
-          {signOut.isPending ? copy.accountSettings.signingOut : "Key 只保存在本机的安全存储中。"}
+          {signOut.isPending ? copy.accountSettings.signingOut : null}
         </p>
         <Button
           type="button"

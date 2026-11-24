@@ -33,7 +33,7 @@ export function KanbanNewTaskSubmissionControls({
 
   return (
     <div className="ml-auto flex min-w-0 basis-full items-center justify-end gap-3 sm:basis-auto">
-      <label className="flex cursor-pointer items-center gap-2 py-0.5 text-ui-sm text-muted-foreground">
+      <label className="flex cursor-interaction items-center gap-2 py-0.5 text-ui-sm text-muted-foreground">
         <Switch
           checked={sendAsDraft}
           disabled={isCreating}

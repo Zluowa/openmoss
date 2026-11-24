@@ -448,7 +448,7 @@ export function AppPageFrame({
                 </div>
               ) : null}
               {confirmView.rememberLabel ? (
-                <label className="flex cursor-pointer items-center gap-2 text-ui text-foreground">
+                <label className="flex cursor-interaction items-center gap-2 text-ui text-foreground">
                   <Checkbox
                     checked={confirmRemember}
                     onCheckedChange={(checked) => setConfirmRemember(checked === true)}

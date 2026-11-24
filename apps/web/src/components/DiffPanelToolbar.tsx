@@ -78,7 +78,7 @@ const DIFF_PANEL_PICKER_ICON_CLASS_NAME = "size-4 shrink-0 text-[var(--color-tex
 
 /** Tighter than EnvironmentRow — dock header has no 16px icon gutter column. */
 const DIFF_PANEL_PICKER_TRIGGER_CLASS_NAME = cn(
-  "flex h-8 min-w-0 max-w-[min(38%,11rem)] cursor-pointer items-center gap-1.5 py-1 pl-2.5 pr-2.5 text-left",
+  "flex h-8 min-w-0 max-w-[min(38%,11rem)] cursor-interaction items-center gap-1.5 py-1 pl-2.5 pr-2.5 text-left",
   "text-ui font-normal text-[var(--color-text-foreground)]",
   "outline-none transition-colors",
   BUTTON_GROUP_SURFACE_CLASS_NAME,
@@ -312,7 +312,7 @@ export const DiffPanelToolbar = function DiffPanelToolbar(props: DiffPanelToolba
         <button
           type="button"
           className={cn(
-            "mx-1 mt-1 flex h-8 w-[calc(100%-0.5rem)] cursor-pointer items-center justify-center rounded-control px-2 text-ui-sm",
+            "mx-1 mt-1 flex h-8 w-[calc(100%-0.5rem)] cursor-interaction items-center justify-center rounded-control px-2 text-ui-sm",
             "text-muted-foreground",
             ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
           )}

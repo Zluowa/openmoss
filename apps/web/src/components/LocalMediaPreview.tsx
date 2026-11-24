@@ -171,7 +171,7 @@ function MediaPlayer({
           <div className="flex items-center gap-2 border-t border-border px-3 py-2">
             <input
               type="range"
-              className="h-5 min-w-0 flex-1 cursor-pointer accent-foreground disabled:cursor-default disabled:opacity-40"
+              className="h-5 min-w-0 flex-1 cursor-interaction accent-foreground disabled:cursor-default disabled:opacity-40"
               aria-label={`Seek in ${fileName}`}
               disabled={duration <= 0}
               min={0}

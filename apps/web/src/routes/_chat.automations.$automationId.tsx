@@ -1219,7 +1219,7 @@ function RunRow({
       }
       className={cn(
         "group flex items-center gap-2 rounded-control px-1.5 py-1.5 text-ui leading-snug transition-colors",
-        openable ? "cursor-pointer hover:bg-foreground/[0.03]" : undefined,
+        openable ? "cursor-interaction hover:bg-foreground/[0.03]" : undefined,
       )}
     >
       <RunStatusIndicator status={run.status} />

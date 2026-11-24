@@ -489,7 +489,7 @@ export function PluginLibraryImportDialog({
                       htmlFor={`plugin-import-kind-${option}`}
                       data-testid={`plugin-import-kind-${option}`}
                       className={cn(
-                        "flex min-h-16 min-w-0 cursor-pointer items-center gap-2 rounded-control border px-3 text-left text-ui-lg transition-colors focus-within:ring-1 focus-within:ring-ring/60",
+                        "flex min-h-16 min-w-0 cursor-interaction items-center gap-2 rounded-control border px-3 text-left text-ui-lg transition-colors focus-within:ring-1 focus-within:ring-ring/60",
                         kind === option
                           ? "border-foreground bg-foreground/5 text-foreground"
                           : "border-border text-muted-foreground hover:bg-muted/40 hover:text-foreground",
@@ -624,7 +624,7 @@ export function PluginLibraryImportDialog({
                       {t("plugins.import.conflict.choiceLabel")}
                     </legend>
                     <label
-                      className="flex cursor-pointer items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
+                      className="flex cursor-interaction items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
                       data-testid="plugin-import-conflict-skip-option"
                     >
                       <input
@@ -638,7 +638,7 @@ export function PluginLibraryImportDialog({
                       <span className="font-medium">{t("plugins.import.conflict.skip")}</span>
                     </label>
                     <label
-                      className="flex cursor-pointer items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
+                      className="flex cursor-interaction items-start gap-2 rounded-control border border-border px-3 py-2.5 text-ui-lg"
                       data-testid="plugin-import-conflict-replace-option"
                     >
                       <input

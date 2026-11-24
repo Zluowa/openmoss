@@ -589,7 +589,7 @@ function LeaveBetaDialog({
           {canMoveToTrash ? (
             <label
               htmlFor={trashCheckboxId}
-              className="flex cursor-pointer select-none items-start gap-2 pt-2 text-ui text-foreground"
+              className="flex cursor-interaction select-none items-start gap-2 pt-2 text-ui text-foreground"
             >
               <Checkbox
                 id={trashCheckboxId}

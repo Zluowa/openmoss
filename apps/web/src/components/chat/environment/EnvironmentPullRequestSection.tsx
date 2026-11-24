@@ -272,7 +272,7 @@ function MenuRow({
     <MenuItem
       onClick={() => onOpenUrl(url)}
       className={cn(
-        "w-full cursor-pointer rounded-control text-left data-highlighted:bg-[var(--color-background-elevated-secondary)]",
+        "w-full cursor-interaction rounded-control text-left data-highlighted:bg-[var(--color-background-elevated-secondary)]",
         className,
       )}
     >

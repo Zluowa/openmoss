@@ -1,8 +1,9 @@
 // FILE: ComposerAttachmentPreview.tsx
-// Purpose: The preview a composer attachment opens: an image at a comfortable size over the
-//   dimmed chat, with close and mark up beside its top edge, or a card naming a file. Mark up
-//   reuses Moss's shared markup bar and canvas (the browser panel's too); Save replaces the
-//   attachment with the marked image.
+// Purpose: Marking up a composer image, and the card a composer file opens. Viewing an image is
+//   the shared image viewer (ExpandedImageOverlay, with 标注图片 as its extra control), the same
+//   one a sent image opens; this takes over only while the image is marked up. Mark up reuses
+//   Moss's shared markup bar and canvas (the browser panel's too); Save replaces the attachment
+//   with the marked image.
 // Layer: Chat composer UI
 // Exports: ComposerAttachmentPreview, ComposerAttachmentPreviewTarget
 
@@ -15,7 +16,7 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
 } from "../../composerDraftStore";
-import { PencilIcon, XIcon } from "~/lib/icons";
+import { XIcon } from "~/lib/icons";
 import { notifyNativeSurfaceOcclusionChange } from "~/lib/nativeSurfaceOcclusion";
 import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
@@ -48,11 +49,10 @@ interface ComposerAttachmentPreviewProps {
   readonly onClose: () => void;
   /** Swaps an image attachment for its marked copy. Without it images have no Mark up. */
   readonly onReplaceImage?: ((imageId: string, file: File) => void | Promise<void>) | undefined;
-  /** Arrow keys step through these while an image is shown (not while marking it up). */
-  readonly images?: readonly ComposerImageAttachment[];
-  readonly onShowImage?: (imageId: string) => void;
   /** Each change opens markup on the shown image (a Canvas image opened in Moss). */
   readonly markupRequestKey?: number;
+  /** Markup ended without saving: the caller shows the image in the shared viewer again. */
+  readonly onLeaveMarkup?: () => void;
 }
 
 // The image never grows past 40rem wide, as in Claude's preview, and leaves room for the
@@ -63,8 +63,6 @@ const PREVIEW_FRAME_CLASS_NAME = "relative w-fit max-w-[min(40rem,calc(100vw-6re
 // Round, quiet buttons on the dim: white glyphs, a faint fill on hover.
 const PREVIEW_BUTTON_CLASS_NAME =
   "size-8 rounded-full bg-black/35 text-white/90 shadow-none hover:bg-black/55 hover:text-white focus-visible:ring-2 focus-visible:ring-white/70 [&_[data-slot=central-icon]]:size-4";
-
-const NO_IMAGES: readonly ComposerImageAttachment[] = [];
 
 function markedName(name: string): string {
   const dot = name.lastIndexOf(".");
@@ -123,12 +121,14 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
     return notifyNativeSurfaceOcclusionChange;
   }, [open]);
 
+  const { onLeaveMarkup } = props;
   const leaveMarkup = useCallback(() => {
     setMarking(false);
     setHistory(EMPTY_MARKUP_HISTORY);
     setConfirmingDiscard(false);
     setTool("pen");
-  }, []);
+    onLeaveMarkup?.();
+  }, [onLeaveMarkup]);
 
   const hasMarks = history.marks.length > 0;
   /** Close while marking up asks first when there are marks, then returns to the preview. */
@@ -148,10 +148,6 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
     else requestCloseMarkup();
   }, [confirmingDiscard, marking, onClose, requestCloseMarkup]);
 
-  const images = props.images ?? NO_IMAGES;
-  const onShowImage = props.onShowImage;
-  const imageId = target?.kind === "image" ? target.image.id : null;
-
   // Escape is taken here, before the composer or a dialog around it can act on it. A menu
   // of the bar or a text mark being typed keeps its own Escape.
   useEffect(() => {
@@ -165,20 +161,11 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
         event.preventDefault();
         event.stopPropagation();
         dismiss();
-        return;
       }
-      if (marking || !imageId || !onShowImage || images.length <= 1) return;
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      const index = images.findIndex((image) => image.id === imageId);
-      if (index < 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const step = event.key === "ArrowLeft" ? -1 : 1;
-      onShowImage(images[(index + step + images.length) % images.length]!.id);
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [dismiss, imageId, images, marking, onShowImage, open]);
+  }, [dismiss, open]);
 
   const addMark = useCallback((mark: MarkupMark) => {
     setHistory((current) => addMarkupMark(current, mark));
@@ -241,24 +228,7 @@ export function ComposerAttachmentPreview(props: ComposerAttachmentPreviewProps)
             marks={history.marks}
             onAddMark={addMark}
           />
-        ) : (
-          <PreviewActions>
-            {closeButton}
-            {props.onReplaceImage ? (
-              <IconButton
-                label={t("composer.attachmentPreview.annotate")}
-                tooltip={t("composer.attachmentPreview.annotate")}
-                tooltipSide="right"
-                variant="ghost"
-                className={PREVIEW_BUTTON_CLASS_NAME}
-                data-attachment-preview-annotate=""
-                onClick={() => setMarking(true)}
-              >
-                <PencilIcon />
-              </IconButton>
-            ) : null}
-          </PreviewActions>
-        )}
+        ) : null}
       </div>
     );
   } else if (target?.kind === "file") {

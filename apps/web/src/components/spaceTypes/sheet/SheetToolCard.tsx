@@ -348,7 +348,7 @@ function ColorPicker(props: {
             <input
               type="color"
               aria-label="自定义颜色"
-              className="h-6 w-10 cursor-pointer rounded-inline border border-border bg-transparent"
+              className="h-6 w-10 cursor-interaction rounded-inline border border-border bg-transparent"
               onChange={(event) => pick(event.target.value.toUpperCase())}
             />
           </label>

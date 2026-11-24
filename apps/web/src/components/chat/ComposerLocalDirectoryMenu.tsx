@@ -41,7 +41,7 @@ const LOCAL_SEARCH_MIN_QUERY_LENGTH = 2;
  *  keyboard highlight and pointer hover land on the same surface. */
 function directoryMenuRowClassName(isHighlighted: boolean): string {
   return cn(
-    "cursor-pointer select-none gap-2 rounded-card px-2 py-1",
+    "cursor-interaction select-none gap-2 rounded-card px-2 py-1",
     ELEVATED_HOVER_SURFACE_CLASS_NAME,
     isHighlighted &&
       "bg-[var(--color-background-elevated-secondary)] text-[var(--color-text-foreground)]",

@@ -105,7 +105,7 @@ export function DiffPanelChangeMarkers(props: {
           type="button"
           aria-label={`${CHANGE_MARKER_LABEL_BY_KIND[marker.kind]}: ${marker.path}`}
           title={marker.path}
-          className="pointer-events-auto absolute left-0 w-full cursor-pointer rounded-full opacity-70 transition-opacity hover:opacity-100"
+          className="pointer-events-auto absolute left-0 w-full cursor-interaction rounded-full opacity-70 transition-opacity hover:opacity-100"
           style={{
             top: `${marker.top}px`,
             height: `${DIFF_CHANGE_MARKER_HEIGHT_PX}px`,

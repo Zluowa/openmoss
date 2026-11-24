@@ -203,6 +203,30 @@ describe("welcome tour", () => {
     }
   });
 
+  it("shows steps 2 and 3 as their title and their rows, with no explaining line or count (walk D-7, WALK-7)", async () => {
+    // The walker on a fresh profile: 开始使用, then the agents step and the appearance step.
+    await page.viewport(1101, 782);
+    const { screen } = await mountTour();
+    try {
+      await page.getByRole("button", { name: "Get started", exact: true }).click();
+      await expect.poll(heading).toBe("Choose your agents");
+      const dialog = () => document.querySelector<HTMLElement>('[data-slot="dialog-popup"]')!;
+      // Let detection settle, so a count line would have been drawn.
+      await expect.poll(() => dialog().textContent ?? "").not.toMatch(/Detecting/u);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(dialog().querySelector('[data-slot="dialog-description"]')).toBeNull();
+      expect(dialog().textContent).not.toMatch(/found automatically|Uncheck any/u);
+      expect(dialog().textContent).not.toMatch(/connected ·|need sign-in ·|not installed/u);
+
+      await page.getByRole("button", { name: "Continue", exact: true }).click();
+      await expect.poll(heading).toBe("Pick an appearance");
+      expect(dialog().querySelector('[data-slot="dialog-description"]')).toBeNull();
+      expect(dialog().textContent).not.toMatch(/Applies live|Settings → Appearance/u);
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("ends with the summary right above its button, without an empty band", async () => {
     await page.viewport(1101, 782);
     const { screen } = await mountTour();

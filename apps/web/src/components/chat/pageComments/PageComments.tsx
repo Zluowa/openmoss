@@ -252,7 +252,7 @@ export function NewCommentCard(props: {
           />
         </div>
         <div className="flex items-center gap-1">
-          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-ui text-foreground">
+          <label className="flex min-w-0 flex-1 cursor-interaction items-center gap-2 text-ui text-foreground">
             <Checkbox
               checked={asksAgent}
               onCheckedChange={(checked) => {

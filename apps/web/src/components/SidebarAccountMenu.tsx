@@ -729,7 +729,7 @@ export function RailAccountMenu() {
             data-sidebar-rail-item="profile"
             data-testid="rail-account-menu-trigger"
             title={model.identity.title ?? model.identity.label}
-            className="group/rail-item flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+            className="group/rail-item flex size-8 shrink-0 cursor-interaction items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
           />
         }
       >

@@ -52,17 +52,12 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Keeps the chat column at the default reading width (46rem).":
     "对话栏保持默认阅读宽度（46rem）。",
   Wide: "宽",
-  "Gives tables and wide content more room (72rem).": "为表格和较宽的内容留出更多空间（72rem）。",
   Full: "全宽",
-  "Lets the chat column use the full window width.": "对话栏使用整个窗口的宽度。",
   "Restart to apply title bar": "重启后应用标题栏",
   "The window frame updates the next time Moss launches.": "下次启动 Moss 时更新窗口边框。",
   "Could not update title bar": "无法更新标题栏",
   "Restart required": "需要重启",
-  "Restart Moss to apply. Some Linux window managers work better with the system title bar.":
-    "重启 Moss 后生效。部分 Linux 窗口管理器使用系统标题栏效果更好。",
-  "Replace the system title bar with Moss's frameless chrome and window controls. Restart required to apply.":
-    "用 Moss 的无边框外观和窗口控件替换系统标题栏。需要重启才能生效。",
+  "Restart Moss to apply.": "重启 Moss 后生效。",
   "App icon": "应用图标",
   Solid: "不透明",
   Translucent: "半透明",
@@ -82,12 +77,9 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Light theme picture file": "浅色主题图片文件",
   "Applies after Moss's own styles while this theme is in use. It cannot load files from other sites or add text.":
     "使用此主题时，在 Moss 自身样式之后生效。它不能从其他网站加载文件，也不能添加文字。",
-  "Rules that load files are removed: @import, image-set(), and url() other than data:, #id or a picture added here.":
-    "会加载文件的规则会被移除：@import、image-set()，以及 data:、#id 或在这里添加的图片以外的 url()。",
+  "Rules that load files are removed.": "会加载文件的规则会被移除。",
   "Add picture": "添加图片",
   "Adding picture…": "正在添加图片…",
-  "PNG, JPEG, WebP, GIF or AVIF, up to 10 MB, kept at full quality on this computer.":
-    "支持 PNG、JPEG、WebP、GIF 或 AVIF，最大 10 MB，以原画质保存在这台电脑上。",
   "Picture added behind the chat:": "已把图片放到聊天背景：",
   "Pictures added on this computer stay on this computer: the copy keeps their references, and on another computer they do not show.":
     "在这台电脑上添加的图片只保存在这台电脑上：复制的内容只带图片的引用，在别的电脑上不会显示。",
@@ -851,7 +843,6 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Sign out this browser?": "退出此浏览器的登录？",
   "Tighter spacing everywhere.": "间距更紧凑。",
   "More room around everything.": "间距更宽松。",
-  "The usual reading width.": "常规阅读宽度。",
   "The microphone the message marks listen to.": "消息标记跟随的麦克风。",
   "Applies the next time Moss opens.": "下次打开 Moss 时生效。",
   "Used for new chats until you pick a model.": "选择模型前，新对话默认使用它。",
@@ -876,7 +867,6 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Show the project's instructions.": "显示项目说明。",
   "Show the chat's notepad.": "显示对话记事本。",
   "The icon in the dock or taskbar.": "程序坞或任务栏中的图标。",
-  "Use Moss's default font instead of the theme's.": "使用 Moss 默认字体，而不是主题字体。",
   "How much space sits around things.": "界面元素之间的留白。",
   "How wide the chat can grow.": "对话区域最宽可以多宽。",
   "The base text size for Moss.": "Moss 的基础字号。",

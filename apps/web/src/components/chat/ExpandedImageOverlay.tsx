@@ -3,8 +3,19 @@
 // Layer: Chat and composer UI component
 // Exports: ExpandedImageOverlay
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
-import { DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CSS_VAR } from "@moss/shared/desktopChrome";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import {
+  CHAT_SURFACE_HEADER_HEIGHT_PX,
+  DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CSS_VAR,
+} from "@moss/shared/desktopChrome";
 
 import { Button } from "~/components/ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "~/components/ui/dialog";
@@ -12,7 +23,6 @@ import { IconButton } from "~/components/ui/icon-button";
 import { Spinner } from "~/components/ui/spinner";
 import { isElectron } from "~/env";
 import { useDesktopCustomTitleBarActive } from "~/hooks/useDesktopCustomTitleBar";
-import { DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS } from "~/hooks/useDesktopTopBarGutter";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -23,7 +33,7 @@ import {
   XIcon,
 } from "~/lib/icons";
 import { notifyNativeSurfaceOcclusionChange } from "~/lib/nativeSurfaceOcclusion";
-import { cn, isMacNavigatorPlatform } from "~/lib/utils";
+import { isMacNavigatorPlatform } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import { useLocalImageDownloadClick } from "../LocalImagePreview";
 import type { ExpandedImageItem, ExpandedImagePreview } from "./ExpandedImagePreview";
@@ -42,12 +52,15 @@ interface ExpandedImageOverlayProps {
   readonly expandedImage: ExpandedImagePreview | null;
   readonly onClose: () => void;
   readonly onNavigate: (direction: -1 | 1) => void;
+  /** Extra controls for the shown image, before download (a composer image's 标注图片). */
+  readonly actions?: ReactNode;
 }
 
 export function ExpandedImageOverlay({
   expandedImage,
   onClose,
   onNavigate,
+  actions,
 }: ExpandedImageOverlayProps) {
   const { t } = useTranslation();
   const image = expandedImage?.images[expandedImage.index];
@@ -84,6 +97,7 @@ export function ExpandedImageOverlay({
             closeButtonRef={closeButtonRef}
             onClose={onClose}
             onNavigate={onNavigate}
+            actions={actions}
           />
         </DialogPopup>
       ) : null}
@@ -98,6 +112,7 @@ function ImageLightboxContent({
   closeButtonRef,
   onClose,
   onNavigate,
+  actions,
 }: {
   image: ExpandedImageItem;
   index: number;
@@ -105,6 +120,7 @@ function ImageLightboxContent({
   closeButtonRef: RefObject<HTMLButtonElement | null>;
   onClose: () => void;
   onNavigate: (direction: -1 | 1) => void;
+  actions: ReactNode;
 }) {
   const { t } = useTranslation();
   const customTitleBarActive = useDesktopCustomTitleBarActive();
@@ -235,11 +251,20 @@ function ImageLightboxContent({
 
   return (
     <>
+      {customTitleBarActive ? (
+        // Moss draws the window's own minimise / maximise / close in this band (Windows, Linux).
+        // The viewer leaves it to them, as a strip that still drags the window, so its own
+        // download and close sit on the row below and never beside the window's close (WALK-9
+        // N9-1: two × at the top right, one closing the image and one closing Moss).
+        <div
+          aria-hidden="true"
+          className="shrink-0 [-webkit-app-region:drag]"
+          style={{ height: CHAT_SURFACE_HEADER_HEIGHT_PX }}
+          data-image-viewer-title-band=""
+        />
+      ) : null}
       <header
-        className={cn(
-          "flex h-16 shrink-0 items-center gap-3 px-4 sm:px-6",
-          customTitleBarActive && DESKTOP_TOP_BAR_WINDOW_CONTROLS_GUTTER_CLASS,
-        )}
+        className="flex h-16 shrink-0 items-center gap-3 px-4 sm:px-6 [-webkit-app-region:no-drag]"
         style={
           isElectron && isMacNavigatorPlatform()
             ? {
@@ -262,6 +287,7 @@ function ImageLightboxContent({
             {index + 1} / {imageCount}
           </p>
         ) : null}
+        {actions}
         <IconButton
           size="icon-xl"
           onClick={downloadImage}

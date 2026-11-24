@@ -282,7 +282,7 @@ export const TimelineSubagentActivityGroup = memo(function TimelineSubagentActiv
           "timeline-subagent-chip timeline-subagent-chip-enter me-1.5 first:-ms-1.5 inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full border pe-2 ps-1.5 align-middle text-left text-ui-lg leading-5 outline-none";
         const interactiveClassName = cn(
           chipClassName,
-          "timeline-subagent-chip-interactive cursor-pointer",
+          "timeline-subagent-chip-interactive cursor-interaction",
         );
         const staticClassName = chipClassName;
         const motionProps = animateEntrance

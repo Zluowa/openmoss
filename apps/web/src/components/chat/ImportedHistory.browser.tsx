@@ -147,9 +147,34 @@ it("keeps the child thread's parent link and status alongside complete native hi
     .element(page.getByRole("button", { name: "Open parent thread Parent work" }))
     .toBeVisible();
   await expect.element(page.getByText("Done in 8s", { exact: true })).toBeVisible();
-  await expect.element(page.getByRole("button", { name: "Start of conversation" })).toBeVisible();
+  // The whole (empty) history is here: no 「对话开始」 marker (walk H-13).
+  expect(page.getByRole("button", { name: "Start of conversation" }).elements()).toHaveLength(0);
   await page.getByRole("button", { name: "Open parent thread Parent work" }).click();
   expect(openParent).toHaveBeenCalledWith(subagentThread.parentThreadId);
+});
+
+it("shows no 「对话开始」 or 「跳到第一条消息」 above a first message already in view (walk H-13)", async () => {
+  // The walker scrolled up to the first message of a chat whose whole history was loaded.
+  const thread = makeThread();
+  useStore.setState({
+    ...makeState(thread),
+    threadHistoryById: { [thread.id]: { totalMessageCount: recent.length, olderCursor: null } },
+    threadDetailSyncById: { [thread.id]: "synced" },
+  });
+  const screen = await render(
+    <div style={{ height: 600 }}>
+      <ChatTranscriptPane {...props} activeThreadId={thread.id} isProjectImport={false} />
+    </div>,
+  );
+  try {
+    await expect.element(page.getByText(/^Recent message 0\./u)).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    for (const name of ["Start of conversation", "Go to first message", "Load earlier messages"]) {
+      expect(page.getByRole("button", { name }).elements(), name).toHaveLength(0);
+    }
+  } finally {
+    await screen.unmount();
+  }
 });
 
 it("prepends older imported messages without moving the reading position and isolates late responses after switching chats", async () => {

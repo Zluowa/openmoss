@@ -288,8 +288,6 @@ const CHROME_LABELS: Readonly<Record<string, string>> = {
   Detecting: "正在检测",
   "Could not check": "无法检查",
   "Can't start": "暂时无法使用",
-  "Agents on this computer are found automatically. Uncheck any you don't want Moss to use.":
-    "已自动找到这台电脑上的智能体。不想让 Moss 使用的，取消勾选即可。",
   "Applies to both light and dark": "同时应用于浅色和深色",
 
   // App shell

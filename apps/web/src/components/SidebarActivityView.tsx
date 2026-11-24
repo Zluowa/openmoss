@@ -236,7 +236,7 @@ export function ActivityThreadRow({
           onDragEnd={endThreadDrag}
           data-testid={`activity-thread-${thread.id}`}
           className={cn(
-            "flex w-full min-w-0 cursor-pointer flex-col gap-1 rounded-row px-2.5 py-2 text-left select-none",
+            "flex w-full min-w-0 cursor-interaction flex-col gap-1 rounded-row px-2.5 py-2 text-left select-none",
             SIDEBAR_ROW_FOCUS_CLASS_NAME,
             isActive ? SIDEBAR_ROW_ACTIVE_CLASS_NAME : SIDEBAR_ROW_HOVER_CLASS_NAME,
             isSettled && "opacity-55 transition-opacity hover:opacity-85",
@@ -489,7 +489,7 @@ function ActivityScopeMenu({
             type="button"
             aria-label={t("sidebar.activity.filterByProject")}
             className={cn(
-              "flex h-full min-w-0 flex-1 cursor-pointer items-center gap-1 rounded-row text-left",
+              "flex h-full min-w-0 flex-1 cursor-interaction items-center gap-1 rounded-row text-left",
               SIDEBAR_ROW_FOCUS_CLASS_NAME,
             )}
           />

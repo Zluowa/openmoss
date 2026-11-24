@@ -166,3 +166,52 @@ it("shows each colour as a round swatch, not a hex string", async () => {
   const card = swatch.element().closest("[data-slot], div")!.parentElement!;
   expect(card.textContent ?? "").not.toMatch(/#[0-9a-f]{6}/i);
 });
+
+// Settings one-set 2/5: Reset, Copy and Import are the shared Button; the colour reset is
+// IconButton with the shared tooltip, never a native title.
+it.each(["light", "dark"] as const)(
+  "puts the editor actions on the shared parts (%s)",
+  async (variant) => {
+    const title = variant === "dark" ? "Dark" : "Light";
+    localStorage.setItem(
+      "moss:theme",
+      JSON.stringify({
+        ...DEFAULT_THEME_STATE,
+        mode: variant,
+        chromeThemes: {
+          ...DEFAULT_THEME_STATE.chromeThemes,
+          [variant]: { ...DEFAULT_THEME_STATE.chromeThemes[variant], accent: "#123456" },
+        },
+      }),
+    );
+    root.classList.toggle("dark", variant === "dark");
+    try {
+      await render(
+        <div style={{ width: 640 }}>
+          <ThemePackEditor variant={variant} />
+        </div>,
+      );
+      window.dispatchEvent(new StorageEvent("storage", { key: "moss:theme" }));
+      for (const name of ["Reset", "Copy", "Import"]) {
+        const action = page.getByRole("button", { name, exact: true }).first();
+        await expect.element(action).toBeVisible();
+        // Import opens a dialog, so the shared Button carries the dialog trigger's slot.
+        expect(action.element().getAttribute("data-slot")).toBe(
+          name === "Import" ? "dialog-trigger" : "button",
+        );
+        expect(Math.round(action.element().getBoundingClientRect().height)).toBe(24);
+      }
+
+      const reset = page.getByRole("button", { name: `Reset ${title} theme accent color` });
+      await expect.element(reset).toBeVisible();
+      expect(reset.element().hasAttribute("title")).toBe(false);
+      // IconButton with a tooltip is the shared Button rendered as the tooltip's trigger.
+      expect(reset.element().getAttribute("data-slot")).toBe("tooltip-trigger");
+      expect(reset.element().tagName).toBe("BUTTON");
+      await reset.hover();
+      await expect.element(page.getByText("Reset to default", { exact: true })).toBeVisible();
+    } finally {
+      root.classList.remove("dark");
+    }
+  },
+);

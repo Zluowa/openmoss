@@ -35,7 +35,7 @@ export function SubagentRunningChip({
       aria-label={`${runningCount} ${pluralize(runningCount, "subagent")} running, show ${pluralize(runningCount, "it", "them")}`}
       onClick={onClick}
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] py-1 pr-2 pl-2.5 text-ui-sm text-foreground/85 backdrop-blur-md hover:cursor-pointer",
+        "flex items-center gap-1.5 rounded-full border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] py-1 pr-2 pl-2.5 text-ui-sm text-foreground/85 backdrop-blur-md hover:cursor-interaction",
         "hover:bg-[image:linear-gradient(var(--color-background-elevated-secondary),var(--color-background-elevated-secondary))]",
         visible ? "pointer-events-auto" : "pointer-events-none",
       )}

@@ -57,13 +57,6 @@ const STEP_TITLES: Record<OnboardingStep, string> = {
   done: "You're all set",
 };
 
-const STEP_DESCRIPTIONS: Record<Exclude<OnboardingStep, "done">, string> = {
-  welcome: "",
-  providers: `Agents on this computer are found automatically. Uncheck any you don't want ${APP_BASE_NAME} to use.`,
-  theme: "Applies live behind this window. Change it anytime in Settings → Appearance.",
-  project: "",
-};
-
 /** Welcome and Done are hero steps: centered header, no step counter, centered body. */
 function isHeroStep(step: OnboardingStep): boolean {
   return step === "welcome" || step === "done";
@@ -126,7 +119,9 @@ function OnboardingFlow(props: {
     locale,
   });
 
-  const description = step === "done" ? doneSummary : STEP_DESCRIPTIONS[step];
+  // Only the last step has a line under its title (its summary): every other step is its
+  // title and its rows; the rows and the theme pictures say the rest (walk D-7, WALK-7).
+  const description = step === "done" ? doneSummary : null;
   const stepIndex = ONBOARDING_STEPS.indexOf(step);
   const hero = isHeroStep(step);
 

@@ -106,7 +106,6 @@ const APP_COPY: Readonly<Record<string, string>> = {
   // 数据看板 toolbar (the en copy in dashboardCopy.ts; zh uses its own strings).
   "Hide sources": "隐藏数据来源",
   "Stop reading": "停止朗读",
-  "Start of conversation": "对话开始",
   "Thread model": "对话模型",
   "Thread effort": "对话思考强度",
   "Thread approvals": "对话审批",

@@ -111,9 +111,8 @@ it("does not report agents as not installed while the first probe is running", a
   for (const resolve of pendingRefreshes) resolve({ providers: [codexStatus] });
 
   await expect.element(page.getByText("Connected", { exact: true })).toBeVisible();
-  await expect
-    .element(page.getByText("1 connected · 0 need sign-in · 12 not installed"))
-    .toBeVisible();
+  // Each row shows its own state; there is no count line (walk D-7, WALK-7).
+  expect(page.getByText(/connected · /u).elements()).toHaveLength(0);
 });
 
 it("keeps unchecked choices visible and preserves a user's opt-out after re-detect", async () => {
@@ -215,9 +214,8 @@ it("leaves missing agents unknown after a timeout and recovers on retry", async 
   mocks.refreshProviders.mockResolvedValue({ providers: [codexStatus] });
   await page.getByRole("button", { name: "Re-detect" }).click();
   await expect.element(page.getByText("Connected", { exact: true })).toBeVisible();
-  await expect
-    .element(page.getByText("1 connected · 0 need sign-in · 12 not installed"))
-    .toBeVisible();
+  // Each row shows its own state; there is no count line (walk D-7, WALK-7).
+  expect(page.getByText(/connected · /u).elements()).toHaveLength(0);
 });
 
 const signedOutClaude: ServerProviderStatus = {

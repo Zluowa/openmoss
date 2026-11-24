@@ -1263,8 +1263,6 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   "Theme and typography": "主题与排版",
   "Reset theme to default": "将主题重置为默认值",
   "Choose how Moss looks across the app.": "选择 Moss 在整个应用中的外观。",
-  "Applies live behind this window. Change it anytime in Settings → Appearance.":
-    "可立即预览，之后可随时在“设置 → 外观”中更改。",
   "Theme preference": "主题偏好",
   theme: "主题",
   "base font size": "基础字号",

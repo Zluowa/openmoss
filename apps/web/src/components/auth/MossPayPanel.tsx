@@ -190,7 +190,6 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
   const {
     phoneAccountQuery,
     cloudAccountQuery: accountQuery,
-    accountIdentity: selectedAccountIdentity,
     quotaQuery,
     quota,
     accountLoading,
@@ -309,12 +308,8 @@ export function MossPayPanel({ showCatalog = false }: { showCatalog?: boolean } 
             >
               {t("mossPay.heading")}
             </h2>
-            <p className="mt-1 text-ui-lg leading-relaxed text-muted-foreground">
-              {plansPurchasable &&
-              (rail?.id === "stripe_checkout" || selectedAccountIdentity?.startsWith("cloud:"))
-                ? t("mossPay.descriptionStripe")
-                : t("mossPay.description")}
-            </p>
+            {/* Rule 1: a paying person relies on how usage is charged. */}
+            <p className="mt-1 text-ui-sm text-muted-foreground">{t("mossPay.costNote")}</p>
           </div>
           {!showCatalog && (quota || quotaLoading) ? (
             <div className="shrink-0 text-right">

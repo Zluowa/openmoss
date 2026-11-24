@@ -31,7 +31,7 @@ export function MossImageBilling({ job }: { readonly job: MossImageJob }) {
             )}
           {(billing.fxVersion || (Number.isSafeInteger(actualCost) && billing.currency)) && (
             <details className="text-ui-xs">
-              <summary className="cursor-pointer">费用明细</summary>
+              <summary className="cursor-interaction">费用明细</summary>
               {billing.currency &&
                 typeof actualCost === "number" &&
                 Number.isSafeInteger(actualCost) &&

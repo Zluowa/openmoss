@@ -96,7 +96,7 @@ const PALETTE_INPUT_CLASS =
 const PALETTE_GROUP_LABEL_CLASS =
   "flex items-center justify-between px-2.5 pt-2 pb-1 font-normal text-ui-xs text-muted-foreground/70";
 const PALETTE_ITEM_CLASS =
-  "palette-row squircle min-h-[30px] cursor-pointer items-center gap-3 rounded-control px-2.5 py-0 text-foreground data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-foreground sm:min-h-[30px]";
+  "palette-row squircle min-h-[30px] cursor-interaction items-center gap-3 rounded-control px-2.5 py-0 text-foreground data-highlighted:bg-[var(--color-background-button-secondary-hover)] data-highlighted:text-foreground sm:min-h-[30px]";
 const PALETTE_ICON_CLASS = "size-4 shrink-0 text-muted-foreground";
 const PALETTE_TEXT_CLASS = "min-w-0 flex-1 truncate text-ui";
 const PALETTE_META_CLASS = "max-w-[45%] shrink-0 truncate text-ui-meta text-muted-foreground/70";

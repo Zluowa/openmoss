@@ -202,7 +202,7 @@ export const DOCK_TAB_CHIP_CLASS_NAME = cn(
  *  Color is muted while the tab (not the close button) is hovered and brightens to full
  *  foreground on direct hover of the close button so the X reads as interactive. */
 export const DOCK_TAB_ICON_SLOT_CLASS_NAME =
-  "relative flex size-4 shrink-0 cursor-pointer items-center justify-center rounded-full bg-transparent text-[var(--color-text-foreground-secondary)] transition-colors group-hover/dock-tab:bg-[var(--color-background-button-secondary-hover)] group-focus-within/dock-tab:bg-[var(--color-background-button-secondary-hover)] hover:bg-[var(--color-background-button-secondary)] hover:text-[var(--color-text-foreground)]";
+  "relative flex size-4 shrink-0 cursor-interaction items-center justify-center rounded-full bg-transparent text-[var(--color-text-foreground-secondary)] transition-colors group-hover/dock-tab:bg-[var(--color-background-button-secondary-hover)] group-focus-within/dock-tab:bg-[var(--color-background-button-secondary-hover)] hover:bg-[var(--color-background-button-secondary)] hover:text-[var(--color-text-foreground)]";
 
 /** Dock-only extra: fade the resting glyph out so the hover X can swap in.
  *  Layered on top of {@link SurfaceChipIcon}'s shared size/strength. */
@@ -216,7 +216,7 @@ export const DOCK_TAB_CLOSE_GLYPH_CLASS_NAME =
 /** Trailing close button for content tabs: a 24px target overlaid on the chip's end with
  *  its own hover disc, so it reads as separate from the (already filled) chip behind it. */
 const SURFACE_TAB_TRAILING_CLOSE_CLASS_NAME =
-  "absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-control-xs text-[var(--color-text-foreground-secondary)] outline-none transition-[opacity,background-color,color] hover:bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-ring/60";
+  "absolute top-1/2 right-1 flex size-6 -translate-y-1/2 cursor-interaction items-center justify-center rounded-control-xs text-[var(--color-text-foreground-secondary)] outline-none transition-[opacity,background-color,color] hover:bg-[color-mix(in_srgb,var(--foreground)_8%,transparent)] hover:text-[var(--color-text-foreground)] focus-visible:ring-1 focus-visible:ring-ring/60";
 
 /** Keyboard focus ring for a chip's select button (the chip itself carries no focus). */
 const SURFACE_TAB_SELECT_FOCUS_CLASS_NAME =

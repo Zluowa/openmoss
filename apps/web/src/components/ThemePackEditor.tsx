@@ -22,6 +22,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
+import { IconButton } from "./ui/icon-button";
 import { Input } from "./ui/input";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Select, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -40,7 +41,6 @@ import {
   SETTINGS_CONTROL_RADIUS_CLASS_NAME,
   SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
 } from "../settingsPanelStyles";
-import { ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME } from "../surfaceStyles";
 import { useTranslation } from "~/localization";
 import {
   DEFAULT_THEME_STATE,
@@ -68,12 +68,6 @@ const WINDOW_MATERIAL_OPTIONS = [
   { value: "translucent", label: "Translucent" },
 ] as const;
 const COLOR_PICKER_COMMIT_DELAY_MS = 220;
-
-/** Borderless text action in the editor's header chrome (Copy, Import). */
-const EDITOR_TEXT_ACTION_CLASS_NAME = cn(
-  "shrink-0 whitespace-nowrap rounded-control px-2 py-1 text-ui leading-snug text-[var(--color-text-foreground-secondary)]",
-  ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
-);
 
 export function ThemePackEditor({ variant, isActive: isActiveProp }: ThemePackEditorProps) {
   const {
@@ -151,27 +145,16 @@ export function ThemePackEditor({ variant, isActive: isActiveProp }: ThemePackEd
         <div className="flex items-center gap-2">
           <h3 className="text-ui-lg font-medium text-foreground">{titleLabel}</h3>
           {!isPristine ? (
-            <button
-              type="button"
-              onClick={() => resetThemeVariant(variant)}
-              className={cn(
-                "rounded-control px-1.5 py-0.5 text-ui-sm text-[var(--color-text-foreground-secondary)]",
-                ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
-              )}
-            >
+            <Button size="xs" variant="ghost" onClick={() => resetThemeVariant(variant)}>
               Reset
-            </button>
+            </Button>
           ) : null}
         </div>
         <div className="flex items-center gap-1">
           <ImportThemeDialog variant={variant} onImport={handleImport} />
-          <button
-            type="button"
-            onClick={() => void handleCopy()}
-            className={EDITOR_TEXT_ACTION_CLASS_NAME}
-          >
+          <Button size="xs" variant="ghost" onClick={() => void handleCopy()}>
             Copy
-          </button>
+          </Button>
           <Select
             value={pack.codeThemeId}
             onValueChange={(value) => {
@@ -498,8 +481,7 @@ function ThemeCssSection({
           />
           {loadsFiles ? (
             <p className="text-ui-sm leading-snug text-warning">
-              Rules that load files are removed: @import, image-set(), and url() other than data:,
-              #id or a picture added here.
+              Rules that load files are removed.
             </p>
           ) : null}
           {removedCount > 0 ? (
@@ -576,9 +558,6 @@ function ThemePictureButton({
       <Button variant="outline" size="xs" disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? "Adding picture…" : "Add picture"}
       </Button>
-      <span className="text-ui-sm leading-snug text-muted-foreground">
-        PNG, JPEG, WebP, GIF or AVIF, up to 10 MB, kept at full quality on this computer.
-      </span>
       {status ? (
         <p
           className={cn(
@@ -696,23 +675,18 @@ function ColorPill({
   return (
     <div className="flex items-center gap-1">
       {onReset ? (
-        <button
-          type="button"
+        <IconButton
+          label={`Reset ${ariaLabel}`}
+          tooltip="Reset to default"
           onClick={() => {
             clearCommitTimer();
             pendingCommitRef.current = null;
             setDraftHex(null);
             onReset();
           }}
-          className={cn(
-            "rounded-control p-1 text-[var(--color-text-foreground-tertiary)]",
-            ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
-          )}
-          aria-label={`Reset ${ariaLabel}`}
-          title="Reset to default"
         >
           <ResetGlyph />
-        </button>
+        </IconButton>
       ) : null}
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
         <PopoverTrigger
@@ -859,7 +833,7 @@ function ThemeSlider({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
         aria-label={ariaLabel}
-        className="theme-slider h-1.5 w-44 cursor-pointer appearance-none rounded-full bg-transparent focus-visible:outline-none"
+        className="theme-slider h-1.5 w-44 cursor-interaction appearance-none rounded-full bg-transparent focus-visible:outline-none"
         style={{
           background: `linear-gradient(to right, var(--primary) 0%, var(--primary) ${fillPct}%, var(--input) ${fillPct}%, var(--input) 100%)`,
         }}
@@ -916,9 +890,9 @@ function ImportThemeDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger
         render={
-          <button type="button" className={EDITOR_TEXT_ACTION_CLASS_NAME}>
+          <Button size="xs" variant="ghost">
             Import
-          </button>
+          </Button>
         }
       />
       <DialogPopup className="max-w-md">

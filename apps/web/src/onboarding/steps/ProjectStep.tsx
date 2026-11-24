@@ -157,7 +157,7 @@ export function ProjectStep(props: {
               type="button"
               disabled={picking || submitting}
               className={cn(
-                "flex h-[168px] w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-card border border-dashed border-foreground/18 text-ui-lg text-foreground transition-colors outline-none hover:bg-foreground/3 focus-visible:border-foreground/40 disabled:opacity-50 motion-reduce:transition-none",
+                "flex h-[168px] w-full cursor-interaction flex-col items-center justify-center gap-2 rounded-card border border-dashed border-foreground/18 text-ui-lg text-foreground transition-colors outline-none hover:bg-foreground/3 focus-visible:border-foreground/40 disabled:opacity-50 motion-reduce:transition-none",
                 isDropTarget &&
                   "border-solid border-[color:var(--color-border-focus)] bg-foreground/5",
               )}

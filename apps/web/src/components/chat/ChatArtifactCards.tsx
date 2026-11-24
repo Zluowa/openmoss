@@ -78,7 +78,7 @@ export function ChatDeckCard(props: { deck: SlidesDeckArtifact; threadId: string
       type="button"
       className={cn(
         CARD_CLASS_NAME,
-        "group/deck-card cursor-pointer transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,var(--color-background-elevated-primary))] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/60",
+        "group/deck-card cursor-interaction transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,var(--color-background-elevated-primary))] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/60",
       )}
       data-chat-deck-card={deck.pageId}
       aria-label={format("chat.artifact.deck.openLabel", { title: deck.title })}

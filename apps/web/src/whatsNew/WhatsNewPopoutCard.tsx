@@ -112,7 +112,7 @@ export function WhatsNewPopoutCard({
         onClick={onOpen}
         onKeyDown={onKeyDown}
         className={cn(
-          "group relative flex cursor-pointer flex-col overflow-hidden rounded-card",
+          "group relative flex cursor-interaction flex-col overflow-hidden rounded-card",
           "border border-white/[0.08] bg-popover text-popover-foreground shadow-xl",
           "transition-[transform,box-shadow,border-color] duration-150",
           "hover:border-primary/40 hover:shadow-2xl hover:[transform:translateY(-1px)]",

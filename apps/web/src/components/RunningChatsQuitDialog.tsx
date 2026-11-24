@@ -173,7 +173,7 @@ function RunningChatsQuitDialogContent({
             htmlFor={resumeCheckboxId}
             className={cn(
               uiFont,
-              "flex min-w-0 cursor-pointer select-none items-center gap-2 px-1 text-ui font-normal leading-[18px] text-muted-foreground",
+              "flex min-w-0 cursor-interaction select-none items-center gap-2 px-1 text-ui font-normal leading-[18px] text-muted-foreground",
             )}
           >
             <Checkbox

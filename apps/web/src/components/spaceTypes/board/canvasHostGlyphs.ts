@@ -15,6 +15,7 @@ export const CANVAS_HOST_GLYPH_NAMES = [
   "arrow-rotate-counter-clockwise",
   "arrow-up",
   "audio",
+  "blocks",
   "books",
   "bubble-annotation-2",
   "chain-link-1",

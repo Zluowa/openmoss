@@ -179,7 +179,7 @@ export function FastModeToggle({
             aria-label="Fast mode"
             aria-pressed={enabled}
             className={cn(
-              "flex shrink-0 cursor-pointer items-center justify-center transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--color-border-focus)]/60",
+              "flex shrink-0 cursor-interaction items-center justify-center transition-colors hover:bg-[color-mix(in_srgb,var(--foreground)_6%,transparent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[color:var(--color-border-focus)]/60",
               tone === "accent" ? "size-6 rounded-control" : "-my-1 size-5 rounded-control",
             )}
             onClick={onToggle}

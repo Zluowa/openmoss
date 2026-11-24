@@ -295,7 +295,7 @@ function ColorField(props: {
         value={/^#[0-9a-fA-F]{6}$/u.test(props.value) ? props.value : ""}
         disabled={props.disabled}
         onChange={(event) => props.onChange(event.target.value)}
-        className="h-7 w-10 cursor-pointer rounded-control border border-border bg-transparent p-0.5"
+        className="h-7 w-10 cursor-interaction rounded-control border border-border bg-transparent p-0.5"
       />
     </label>
   );
@@ -370,7 +370,7 @@ function StyleSection(props: Parameters<typeof DashboardDesignPanel>[0]) {
                       },
                     )
                   }
-                  className="h-7 w-full cursor-pointer rounded-control-xs border border-border bg-transparent p-0.5"
+                  className="h-7 w-full cursor-interaction rounded-control-xs border border-border bg-transparent p-0.5"
                 />
               ))}
             </div>

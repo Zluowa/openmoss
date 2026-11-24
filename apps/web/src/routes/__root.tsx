@@ -685,7 +685,7 @@ function RootRouteErrorView({ error, reset }: ErrorComponentProps) {
         </div>
 
         <details className="group mt-5 overflow-hidden rounded-card border border-border/70 bg-background/55">
-          <summary className="cursor-pointer list-none px-3 py-2 text-ui leading-snug font-medium text-muted-foreground">
+          <summary className="cursor-interaction list-none px-3 py-2 text-ui leading-snug font-medium text-muted-foreground">
             <span className="group-open:hidden">Show error details</span>
             <span className="hidden group-open:inline">Hide error details</span>
           </summary>

@@ -309,7 +309,7 @@ export function CreateProjectDialog(props: {
                     type="button"
                     aria-label={t("projectSetup.createProject.removeFolder")}
                     disabled={submitting}
-                    className="-me-1 shrink-0 cursor-pointer rounded-inline p-1 text-muted-foreground/55 transition-colors hover:text-foreground disabled:opacity-50"
+                    className="-me-1 shrink-0 cursor-interaction rounded-inline p-1 text-muted-foreground/55 transition-colors hover:text-foreground disabled:opacity-50"
                     onClick={() => {
                       setFolderPath("");
                       setPickedPath(null);

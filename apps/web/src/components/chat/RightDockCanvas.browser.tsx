@@ -273,7 +273,7 @@ describe("右栏 画布: one click, usable, and kept", () => {
       await shot(`right-dock-canvas-note-${theme}`);
 
       // Close the pane from its tab, then open 画布 again from the launcher.
-      await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
+      await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
       await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
       await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
       await waitForCanvasReady();
@@ -289,6 +289,73 @@ describe("右栏 画布: one click, usable, and kept", () => {
       await shot(`right-dock-canvas-reopened-${theme}`);
     });
   }
+
+  it("组件 in the hosted bar shows its glyph, turns 内容创作 off and on, keeps the board, and the choice survives reopening", async () => {
+    await mountDock("light");
+    await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
+    await waitForCanvasReady();
+    const frame = () => page.frameLocator(page.getByTitle("Moss Canvas", { exact: true }));
+    const kitsButton = () => frame().getByRole("button", { name: "组件", exact: true });
+    const imageCard = () => frame().getByRole("button", { name: "图片卡", exact: true });
+    const contentKit = () => frame().getByRole("menuitemcheckbox", { name: "内容创作" });
+
+    // The button sits right before 问 Moss, and its glyph is served by Moss (canvasHostGlyphs.ts).
+    await expect.element(kitsButton()).toBeVisible();
+    const glyph = await vi.waitFor(() => {
+      const button = canvasDocument()?.querySelector<HTMLElement>('[data-moss-bar-tool="kits"]');
+      const span = button?.querySelector<HTMLElement>("span");
+      expect(span).toBeTruthy();
+      const rect = span!.getBoundingClientRect();
+      expect(rect.width).toBeGreaterThan(10);
+      return {
+        mask: span!.style.mask || span!.style.webkitMask,
+        origin: canvasDocument()!.location.origin,
+      };
+    });
+    expect(glyph.mask).toContain("/central-icons-reversed/blocks.svg");
+    const icon = await fetch(`${glyph.origin}/central-icons-reversed/blocks.svg`);
+    expect(icon.ok).toBe(true);
+    expect(await icon.text()).toContain("<svg");
+
+    await placeText(520);
+    await userEvent.keyboard("组件开关时留下的字");
+    await userEvent.keyboard("{Escape}");
+    await expect.element(imageCard()).toBeVisible();
+
+    // Turn 内容创作 off: the cards leave the bar, the board keeps what it holds.
+    await userEvent.click(kitsButton());
+    await expect.element(contentKit()).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(contentKit());
+    await expect.element(contentKit()).toHaveAttribute("aria-checked", "false");
+    await expect
+      .poll(() => canvasDocument()?.querySelector('[data-moss-bar-tool="image-card"]') ?? null)
+      .toBeNull();
+    await expect
+      .element(frame().getByTestId("canvas").getByText("组件开关时留下的字", { exact: true }))
+      .toBeVisible();
+    await shot("right-dock-canvas-kits-content-off-light");
+
+    // Close and reopen the 画布: the choice is kept with the board.
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
+    await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
+    await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
+    await waitForCanvasReady();
+    await expect.element(kitsButton()).toBeVisible();
+    expect(canvasDocument()?.querySelector('[data-moss-bar-tool="image-card"]') ?? null).toBeNull();
+    await expect
+      .element(frame().getByTestId("canvas").getByText("组件开关时留下的字", { exact: true }), {
+        timeout: 15_000,
+      })
+      .toBeVisible();
+
+    // Turn it on again: the cards are back.
+    await userEvent.click(kitsButton());
+    await userEvent.click(contentKit());
+    await expect.element(contentKit()).toHaveAttribute("aria-checked", "true");
+    await expect.element(imageCard()).toBeVisible();
+    await shot("right-dock-canvas-kits-content-on-light");
+  });
 
   it("shows an agent's edit on the open 画布 without a reload, and keeps what the person wrote meanwhile", async () => {
     await mountDock("light");
@@ -321,7 +388,7 @@ describe("右栏 画布: one click, usable, and kept", () => {
     await shot("right-dock-canvas-agent-edit-light");
 
     // Saved together: close the 画布 and open it again.
-    await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
     await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
     await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
     await waitForCanvasReady();

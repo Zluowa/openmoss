@@ -124,27 +124,23 @@ for (const theme of ["light", "dark"] as const) {
     try {
       const thumbnail = page.getByRole("button", { name: "Preview github-cli.png" });
       await thumbnail.click();
+      // The image opens in the shared image viewer, as a sent one does (WALK-9 N9-2).
+      const viewer = page.getByRole("dialog", { name: "Expanded image preview" });
+      await expect.element(viewer).toBeVisible();
+      await expect.element(page.getByRole("button", { name: "Close image preview" })).toHaveFocus();
+      await expect.element(page.getByRole("button", { name: "Download image" })).toBeVisible();
+      await shot(`image-${theme}`);
+
+      await page.getByRole("button", { name: "Mark up image" }).click();
       const dialog = page.getByRole("dialog", { name: "Attachment preview" });
       await expect.element(dialog).toBeVisible();
-      // Close has focus first, so Enter or Escape both get out at once.
-      await expect.element(page.getByRole("button", { name: "Close preview" })).toHaveFocus();
+      await expect.element(viewer).not.toBeInTheDocument();
       await vi.waitFor(() =>
         expect(rect("[data-attachment-preview-image] img").width).toBeCloseTo(640, 0),
       );
       const image = rect("[data-attachment-preview-image] img");
       // Centred, not full screen.
       expect(Math.abs(image.left + image.width / 2 - 640)).toBeLessThan(2);
-      // Close and Mark up stacked to the right of the image's top edge.
-      const close = rect("[data-attachment-preview-close]");
-      const annotate = rect("[data-attachment-preview-annotate]");
-      expect(close.left - image.right).toBeGreaterThanOrEqual(4);
-      expect(close.left - image.right).toBeLessThanOrEqual(8);
-      expect(Math.abs(close.top - image.top)).toBeLessThan(1);
-      expect(annotate.top).toBeGreaterThan(close.bottom);
-      expect(Math.abs(annotate.left - close.left)).toBeLessThan(1);
-      await shot(`image-${theme}`);
-
-      await page.getByRole("button", { name: "Mark up image" }).click();
       const toolbar = page.getByRole("toolbar", { name: "Annotation tools" });
       await expect.element(toolbar).toBeVisible();
       // No element to select on an image: the bar opens on the pen, full, with Save.
@@ -282,13 +278,30 @@ for (const theme of ["light", "dark"] as const) {
   });
 }
 
-it("keeps small images at their own size and big ones inside the window, 860 to 1600 wide", async () => {
+it("marks up small images at their own size and big ones inside the window, 860 to 1600 wide", async () => {
   const small = imageAttachment("small", await pictureFile("small.png", 180, 120));
   const tall = imageAttachment("tall", await pictureFile("tall.png", 900, 2400));
   const wide = imageAttachment("wide", await pictureFile("wide.png", 3200, 1200));
   const screen = await render(
     <Harness initialImages={[small, tall, wide]} onReplaced={() => {}} />,
   );
+  const markUp = async (name: string) => {
+    await page.getByRole("button", { name: `Preview ${name}` }).click();
+    await page.getByRole("button", { name: "Mark up image" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+  };
+  // Escape without marks leaves markup for the viewer; Escape again closes the viewer.
+  const leave = async (name: string) => {
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .element(page.getByRole("dialog", { name: "Expanded image preview" }))
+      .toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect
+      .element(page.getByRole("dialog", { name: "Expanded image preview" }))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: `Preview ${name}` })).toHaveFocus();
+  };
   try {
     for (const [width, height] of [
       [860, 640],
@@ -296,11 +309,11 @@ it("keeps small images at their own size and big ones inside the window, 860 to 
       [1600, 1000],
     ] as const) {
       await page.viewport(width, height);
-      await page.getByRole("button", { name: "Preview small.png" }).click();
+      await markUp("small.png");
       await vi.waitFor(() => expect(rect("[data-attachment-preview-image] img").width).toBe(180));
       expect(rect("[data-attachment-preview-image] img").height).toBe(120);
-      // Arrow keys step through the composer's images.
-      await userEvent.keyboard("{ArrowRight}");
+      await leave("small.png");
+      await markUp("tall.png");
       await vi.waitFor(() => {
         const image = rect("[data-attachment-preview-image] img");
         // A tall image fits the height, leaving room above and below.
@@ -308,21 +321,68 @@ it("keeps small images at their own size and big ones inside the window, 860 to 
         expect(image.height).toBeGreaterThan(height - 160);
         expect(image.width).toBeLessThan(640);
       });
-      await userEvent.keyboard("{ArrowRight}");
+      await leave("tall.png");
+      // In the viewer, its buttons fit in the window.
+      await page.getByRole("button", { name: "Preview wide.png" }).click();
+      for (const name of ["Mark up image", "Download image", "Close image preview"]) {
+        await expect.element(page.getByRole("button", { name, exact: true })).toBeVisible();
+        expect(
+          page.getByRole("button", { name, exact: true }).element().getBoundingClientRect().right,
+        ).toBeLessThanOrEqual(width);
+      }
+      await page.getByRole("button", { name: "Mark up image" }).click();
+      await expect.element(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
       await vi.waitFor(() => {
         const image = rect("[data-attachment-preview-image] img");
         expect(image.width).toBeCloseTo(640, 0);
         expect(image.height).toBeCloseTo(240, 0);
-        // Its buttons still fit in the window.
-        expect(rect("[data-attachment-preview-close]").right).toBeLessThanOrEqual(width);
+        // While marking up, its bar fits in the window.
+        expect(rect("[data-markup-toolbar]").right).toBeLessThanOrEqual(width);
       });
       if (width === 860) await shot("wide-860");
-      await userEvent.keyboard("{Escape}");
-      await expect
-        .element(page.getByRole("dialog", { name: "Attachment preview" }))
-        .not.toBeInTheDocument();
-      await expect.element(page.getByRole("button", { name: "Preview small.png" })).toHaveFocus();
+      await leave("wide.png");
     }
+  } finally {
+    await screen.unmount();
+  }
+});
+
+it("steps through the composer's images in the viewer with the arrow keys", async () => {
+  await page.viewport(1280, 820);
+  const first = imageAttachment("first", await pictureFile("first.png", 400, 300));
+  const second = imageAttachment("second", await pictureFile("second.png", 400, 300));
+  const screen = await render(<Harness initialImages={[first, second]} onReplaced={() => {}} />);
+  try {
+    await page.getByRole("button", { name: "Preview first.png" }).click();
+    const viewer = page.getByRole("dialog", { name: "Expanded image preview" });
+    await expect.element(viewer.getByText("1 / 2")).toBeVisible();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(viewer.getByText("2 / 2")).toBeVisible();
+    await expect.element(viewer.getByText("second.png")).toBeVisible();
+  } finally {
+    await screen.unmount();
+  }
+});
+
+it("N9-2: a pasted image opens in the same viewer as a sent one, with 标注图片 as its extra control", async () => {
+  await page.viewport(1280, 820);
+  const pasted = imageAttachment("pasted", await pictureFile("pasted.png", 800, 600));
+  const screen = await render(<Harness initialImages={[pasted]} onReplaced={() => {}} />);
+  try {
+    await page.getByRole("button", { name: "Preview pasted.png" }).click();
+    const viewer = page.getByRole("dialog", { name: "Expanded image preview" });
+    await expect.element(viewer).toBeVisible();
+    // The sent-image viewer: its dark stage and its own controls, not the light preview.
+    expect(document.querySelector("[data-attachment-preview]")).toBeNull();
+    expect(viewer.element().className).toContain("bg-media-stage");
+    for (const name of ["Download image", "Close image preview", "Mark up image"]) {
+      await expect.element(page.getByRole("button", { name, exact: true })).toBeVisible();
+    }
+    // Leaving markup without marks comes back to the same viewer.
+    await page.getByRole("button", { name: "Mark up image" }).click();
+    await expect.element(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.element(viewer).toBeVisible();
   } finally {
     await screen.unmount();
   }

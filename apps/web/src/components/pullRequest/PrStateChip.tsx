@@ -111,7 +111,7 @@ export function PrStateCountChip({
             onKeyDown={stopRowGesture}
             className={cn(
               PR_FINE_TEXT_CLASS_NAME,
-              "flex shrink-0 cursor-pointer items-center gap-0.5 rounded-inline hover:underline",
+              "flex shrink-0 cursor-interaction items-center gap-0.5 rounded-inline hover:underline",
               "outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
               presentation.colorClass,
               className,

@@ -69,7 +69,7 @@ export function GroupGeneralSection(props: {
                   props.personal ? "Use the default assistant avatar" : "Use the default hub icon"
                 }
                 className={cn(
-                  "cursor-pointer rounded-inline text-ui-sm text-muted-foreground transition-colors hover:text-foreground",
+                  "cursor-interaction rounded-inline text-ui-sm text-muted-foreground transition-colors hover:text-foreground",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                 )}
                 onClick={() => onChange({ coordinatorIcon: "", coordinatorColor: "" })}

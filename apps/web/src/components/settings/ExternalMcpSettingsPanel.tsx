@@ -284,7 +284,7 @@ export function ExternalMcpSettingsPanel(props: { active: boolean }) {
                     <label
                       key={project.id}
                       className={cn(
-                        "flex cursor-pointer items-center justify-between gap-3 rounded-control border px-3 py-2 text-ui leading-snug transition-colors",
+                        "flex cursor-interaction items-center justify-between gap-3 rounded-control border px-3 py-2 text-ui leading-snug transition-colors",
                         checked ? "border-foreground/30 bg-muted/70" : "border-border/70",
                       )}
                     >

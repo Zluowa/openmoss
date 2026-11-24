@@ -888,7 +888,7 @@ export function PluginLibraryRow({
         data-plugin-library-focus-key={focusKey}
         onClick={(event) => onOpen(event.currentTarget)}
         className={cn(
-          "flex min-w-0 flex-1 cursor-pointer items-center gap-3 self-stretch rounded-row text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex min-w-0 flex-1 cursor-interaction items-center gap-3 self-stretch rounded-row text-left outline-none focus-visible:ring-2 focus-visible:ring-ring",
           dimmed && "opacity-60",
         )}
       >

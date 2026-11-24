@@ -74,7 +74,7 @@ function TurnPageCard(props: {
         className={cn(
           "group/page-card relative isolate flex max-w-[min(100%,318px)] min-w-[min(100%,318px)] items-center gap-1.5 self-start rounded-control py-1.5 ps-2.5 pe-1 text-start outline-none",
           "focus-visible:ring-2 focus-visible:ring-ring/60",
-          canOpen ? "cursor-pointer" : "cursor-default",
+          canOpen ? "cursor-interaction" : "cursor-default",
         )}
         disabled={!canOpen}
         aria-label={`Open page ${title}`}

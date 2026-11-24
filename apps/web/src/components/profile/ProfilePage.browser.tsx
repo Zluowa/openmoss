@@ -532,6 +532,14 @@ describe("Profile page, avatar presets, and Settings → 账号", () => {
       await expect.element(page.getByText("国内账号服务")).toBeVisible();
       await expect.element(page.getByText("登录方式")).toBeVisible();
       await expect.element(page.getByText("会员与积分")).toBeVisible();
+      // Settings one-set 3/5: one line under the header says how usage is charged.
+      await expect
+        .element(page.getByText("用量按实际上游成本计费。", { exact: true }))
+        .toBeVisible();
+      expect(document.body.textContent).not.toContain("实际周期");
+      // Explaining lines removed from this page stay removed.
+      expect(document.body.textContent).not.toContain("登录状态已安全保存在本机");
+      expect(document.body.textContent).not.toContain("在设置 → 用量与限额查看剩余额度并充值");
       await expect.element(page.getByText("用量与充值")).toBeVisible();
       await expect.element(page.getByRole("button", { name: "打开个人资料" })).toBeVisible();
       await expect.element(page.getByRole("button", { name: "退出登录" })).toBeVisible();

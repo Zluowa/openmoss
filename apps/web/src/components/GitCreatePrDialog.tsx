@@ -120,7 +120,7 @@ export function GitCreatePrDialog({
           onChange={(event) => setBody(event.target.value)}
         />
         {view.showCommitToggle && (
-          <label className="flex cursor-pointer items-center gap-2 py-1 text-ui leading-snug">
+          <label className="flex cursor-interaction items-center gap-2 py-1 text-ui leading-snug">
             <Checkbox
               checked={includeLocalChanges}
               onCheckedChange={(checked) => setIncludeLocalChanges(checked === true)}

@@ -543,7 +543,7 @@ export function SshConnectionsSettingsPanel({ active = true }: { readonly active
                   return (
                     <label
                       key={entry.alias}
-                      className="flex cursor-pointer items-center gap-3 px-4 py-3.5 text-ui"
+                      className="flex cursor-interaction items-center gap-3 px-4 py-3.5 text-ui"
                       data-ssh-config-alias={entry.alias}
                     >
                       <DeviceLaptopIcon

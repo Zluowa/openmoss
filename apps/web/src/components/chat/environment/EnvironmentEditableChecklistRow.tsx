@@ -178,7 +178,7 @@ export function EnvironmentEditableChecklistRow({
               ? "text-muted-foreground/55 line-through"
               : "text-[var(--color-text-foreground)] hover:text-foreground",
             available
-              ? "cursor-pointer hover:underline"
+              ? "cursor-interaction hover:underline"
               : "cursor-default text-muted-foreground/55",
           )}
         >

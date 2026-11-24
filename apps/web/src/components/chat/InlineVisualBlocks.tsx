@@ -271,7 +271,7 @@ function ListBlock({
       <ul className="m-0 flex list-none flex-col gap-2 p-0">
         {block.items.map((item, index) => (
           <li key={index}>
-            <label className="flex cursor-pointer items-start gap-2.5">
+            <label className="flex cursor-interaction items-start gap-2.5">
               <Checkbox
                 className="mt-[0.2em]"
                 checked={checked[index] ?? false}

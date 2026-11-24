@@ -1676,7 +1676,7 @@ export function SpaceCanvasChatDockHost(props: {
             </DialogDescription>
           </DialogHeader>
           <DialogPanel>
-            <label className="flex cursor-pointer items-center gap-2 text-ui-sm text-foreground">
+            <label className="flex cursor-interaction items-center gap-2 text-ui-sm text-foreground">
               <Checkbox
                 checked={closeConfirmDontAsk}
                 onCheckedChange={(checked) => setCloseConfirmDontAsk(Boolean(checked))}

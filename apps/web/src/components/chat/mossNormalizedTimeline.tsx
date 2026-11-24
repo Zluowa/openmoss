@@ -1688,7 +1688,7 @@ function MossNormalizedEventTraceMetadata({
       data-event-type={event.type}
       data-moss-normalized-trace=""
     >
-      <summary className="cursor-pointer text-ui-sm font-medium text-muted-foreground">
+      <summary className="cursor-interaction text-ui-sm font-medium text-muted-foreground">
         Trace
       </summary>
       <dl className="mt-1 grid grid-cols-[5.25rem_minmax(0,1fr)] gap-x-2 gap-y-1 text-ui-sm">

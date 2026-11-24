@@ -50,7 +50,7 @@ export const SIDEBAR_SECTION_LABEL_CLASS_NAME = `text-ui-sm font-normal ${SIDEBA
 
 /** Project/chat/settings header rows and settings sidebar nav items. */
 export const SIDEBAR_HEADER_ROW_CLASS_NAME = [
-  "flex w-full min-w-0 cursor-pointer items-center text-left select-none",
+  "flex w-full min-w-0 cursor-interaction items-center text-left select-none",
   SIDEBAR_ROW_HEIGHT_CLASS_NAME,
   SIDEBAR_ROW_GAP_CLASS_NAME,
   SIDEBAR_ROW_RADIUS_CLASS_NAME,
@@ -61,7 +61,7 @@ export const SIDEBAR_HEADER_ROW_CLASS_NAME = [
 
 /** Thread rows nested under a project. */
 export const SIDEBAR_THREAD_ROW_BASE_CLASS_NAME = [
-  "flex w-full min-w-0 translate-x-0 cursor-pointer flex-nowrap items-center justify-start text-left select-none",
+  "flex w-full min-w-0 translate-x-0 cursor-interaction flex-nowrap items-center justify-start text-left select-none",
   SIDEBAR_ROW_HEIGHT_CLASS_NAME,
   SIDEBAR_ROW_RADIUS_CLASS_NAME,
   "pl-8 text-ui",

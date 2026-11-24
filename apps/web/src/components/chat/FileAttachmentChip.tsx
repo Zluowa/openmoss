@@ -191,7 +191,7 @@ export function FileAttachmentChip({
               "aria-label": format("attachments.preview", { name: file.name }),
               "data-attachment-open": "",
               className: cn(
-                "cursor-pointer transition-colors hover:border-[color:var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "cursor-interaction transition-colors hover:border-[color:var(--color-border)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 className,
               ),
               onClick: (event: React.MouseEvent<HTMLSpanElement>) => {

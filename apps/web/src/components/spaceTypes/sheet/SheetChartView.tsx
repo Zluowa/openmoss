@@ -81,7 +81,7 @@ function ChartDrawing(props: {
             onClick={() =>
               setOff((o) => (o.includes(s.i) ? o.filter((i) => i !== s.i) : [...o, s.i]))
             }
-            className="cursor-pointer"
+            className="cursor-interaction"
           >
             <rect
               x={x - 4}

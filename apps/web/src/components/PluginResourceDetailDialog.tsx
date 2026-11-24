@@ -536,7 +536,7 @@ function PluginPagePromptShowcase({
             type="button"
             aria-label={`${title} ${prompt}`}
             aria-disabled={!onActivate}
-            className="max-w-[77%] cursor-pointer rounded-card bg-background/75 py-2 pl-2 pr-1.5 text-left text-ui-lg leading-[21px] text-foreground outline-hidden hover:bg-background focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
+            className="max-w-[77%] cursor-interaction rounded-card bg-background/75 py-2 pl-2 pr-1.5 text-left text-ui-lg leading-[21px] text-foreground outline-hidden hover:bg-background focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default"
             disabled={!onActivate}
             onClick={() => onActivate?.(prompt)}
           >

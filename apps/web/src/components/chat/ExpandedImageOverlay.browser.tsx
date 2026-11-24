@@ -16,6 +16,13 @@ import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 
 vi.mock("~/lib/browserDownload", () => ({ downloadUrlAsBlob: vi.fn(async () => undefined) }));
 
+// Whether Moss draws the window's own minimise / maximise / close (Windows, Linux).
+const titleBar = vi.hoisted(() => ({ active: false }));
+vi.mock("~/hooks/useDesktopCustomTitleBar", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("~/hooks/useDesktopCustomTitleBar")>()),
+  useDesktopCustomTitleBarActive: () => titleBar.active,
+}));
+
 const imageUrl = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1600"><rect width="2400" height="1600" fill="coral"/></svg>')}`;
 
 const pointerCommands = commands as unknown as {
@@ -24,6 +31,51 @@ const pointerCommands = commands as unknown as {
 };
 
 describe("ExpandedImageOverlay", () => {
+  it("N9-1: with Moss's own title bar, the viewer's download and close sit below the window's controls", async () => {
+    titleBar.active = true;
+    await page.viewport(1101, 800);
+    const screen = await render(
+      <ExpandedImageOverlay
+        expandedImage={{ images: [{ src: imageUrl, name: "Sent image" }], index: 0 }}
+        onClose={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+    try {
+      const close = page.getByRole("button", { name: "Close image preview" });
+      await expect.element(close).toBeVisible();
+      // The title band is left to the window's buttons, and still drags the window.
+      const band = document.querySelector<HTMLElement>("[data-image-viewer-title-band]")!;
+      expect(band).not.toBeNull();
+      expect(getComputedStyle(band).getPropertyValue("-webkit-app-region")).toBe("drag");
+      const bandBottom = band.getBoundingClientRect().bottom;
+      expect(bandBottom).toBeGreaterThanOrEqual(40);
+      for (const name of ["Close image preview", "Download image"]) {
+        const rect = page.getByRole("button", { name }).element().getBoundingClientRect();
+        expect(rect.top).toBeGreaterThanOrEqual(bandBottom);
+      }
+    } finally {
+      titleBar.active = false;
+      await screen.unmount();
+    }
+  });
+
+  it("N9-1: without a drawn title bar (macOS, the web) the viewer keeps its controls at the top", async () => {
+    const screen = await render(
+      <ExpandedImageOverlay
+        expandedImage={{ images: [{ src: imageUrl, name: "Sent image" }], index: 0 }}
+        onClose={() => {}}
+        onNavigate={() => {}}
+      />,
+    );
+    try {
+      await expect.element(page.getByRole("button", { name: "Close image preview" })).toBeVisible();
+      expect(document.querySelector("[data-image-viewer-title-band]")).toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
+
   it("consumes Escape for the image before dismissing its owning draft dialog", async () => {
     function DraftDialog() {
       const [open, setOpen] = useState(true);

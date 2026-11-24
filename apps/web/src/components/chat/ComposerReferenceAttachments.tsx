@@ -21,6 +21,11 @@ import { type FileCommentDraft } from "../../lib/fileComments";
 import { type PullRequestContextDraft } from "../../lib/pullRequestContext";
 import { type ChatAssistantSelectionAttachment } from "../../types";
 import { ComposerQuoteRows } from "./ComposerQuoteRows";
+import { ExpandedImageOverlay } from "./ExpandedImageOverlay";
+import { useExpandedImagePreviewKeys } from "./useExpandedImagePreview";
+import { IconButton } from "../ui/icon-button";
+import { PencilIcon } from "~/lib/icons";
+import { useTranslation } from "~/localization";
 import { ComposerImageAttachmentChip } from "./ComposerImageAttachmentChip";
 import { FileAttachmentChip } from "./FileAttachmentChip";
 import { ComposerPastedTextCard } from "./PastedTextChip";
@@ -77,7 +82,11 @@ export function ComposerReferenceAttachments({
 }: ComposerReferenceAttachmentsProps) {
   const pastedTexts = pastedTextsProp ?? [];
   const pullRequestContexts = pullRequestContextsProp ?? [];
+  const { t } = useTranslation();
   const [previewed, setPreviewed] = useState<{ kind: "image" | "file"; id: string } | null>(null);
+  // An image is shown in the shared image viewer (as a sent one is); only marking it up opens
+  // the markup preview (WALK-9 N9-2: one viewer for one image).
+  const [markingImage, setMarkingImage] = useState(false);
   // Another surface (Canvas) may ask to open an image here, straight into markup.
   // Its attachment can still be on its way, so a request waits briefly for it.
   const [markupRequestKey, setMarkupRequestKey] = useState(0);
@@ -90,6 +99,7 @@ export function ComposerReferenceAttachments({
     if (!imagesRef.current.some((image) => image.id === request.imageId)) return false;
     pendingPreview.current = null;
     setPreviewed({ kind: "image", id: request.imageId });
+    setMarkingImage(Boolean(request.markup));
     if (request.markup) setMarkupRequestKey((key) => key + 1);
     return true;
   }, []);
@@ -112,11 +122,39 @@ export function ComposerReferenceAttachments({
     previewed?.kind === "image" ? images.find((image) => image.id === previewed.id) : undefined;
   const previewFile =
     previewed?.kind === "file" ? files.find((file) => file.id === previewed.id) : undefined;
-  const previewTarget: ComposerAttachmentPreviewTarget | null = previewImage
-    ? { kind: "image", image: previewImage }
-    : previewFile
-      ? { kind: "file", file: previewFile }
+  const previewTarget: ComposerAttachmentPreviewTarget | null =
+    previewImage && markingImage
+      ? { kind: "image", image: previewImage }
+      : previewFile
+        ? { kind: "file", file: previewFile }
+        : null;
+  const viewedIndex =
+    previewImage && !markingImage ? images.findIndex((image) => image.id === previewImage.id) : -1;
+  const viewedImages =
+    viewedIndex >= 0
+      ? {
+          images: images.map((image) => ({ src: image.previewUrl, name: image.name })),
+          index: viewedIndex,
+        }
       : null;
+  const closePreview = useCallback(() => {
+    setPreviewed(null);
+    setMarkingImage(false);
+  }, []);
+  const navigateViewer = useCallback(
+    (direction: -1 | 1) => {
+      if (viewedIndex < 0 || images.length === 0) return;
+      const next = images[(viewedIndex + direction + images.length) % images.length];
+      if (next) setPreviewed({ kind: "image", id: next.id });
+    },
+    [images, viewedIndex],
+  );
+  useExpandedImagePreviewKeys({
+    open: viewedImages !== null,
+    imageCount: images.length,
+    onClose: closePreview,
+    onNavigate: navigateViewer,
+  });
   if (
     assistantSelections.length === 0 &&
     browserAnnotations.length === 0 &&
@@ -192,15 +230,38 @@ export function ComposerReferenceAttachments({
               image={image}
               images={images}
               nonPersisted={nonPersistedImageIdSet.has(image.id)}
-              onOpenPreview={(imageId) => setPreviewed({ kind: "image", id: imageId })}
+              onOpenPreview={(imageId) => {
+                setMarkingImage(false);
+                setPreviewed({ kind: "image", id: imageId });
+              }}
               onRemoveImage={onRemoveImage}
             />
           ))}
+          <ExpandedImageOverlay
+            expandedImage={viewedImages}
+            onClose={closePreview}
+            onNavigate={navigateViewer}
+            actions={
+              onReplaceImage ? (
+                <IconButton
+                  size="icon-xl"
+                  label={t("composer.attachmentPreview.annotate")}
+                  tooltip={t("composer.attachmentPreview.annotate")}
+                  data-attachment-preview-annotate=""
+                  onClick={() => {
+                    setMarkingImage(true);
+                    setMarkupRequestKey((key) => key + 1);
+                  }}
+                >
+                  <PencilIcon />
+                </IconButton>
+              ) : null
+            }
+          />
           <ComposerAttachmentPreview
             target={previewTarget}
-            images={images}
-            onShowImage={(imageId) => setPreviewed({ kind: "image", id: imageId })}
-            onClose={() => setPreviewed(null)}
+            onClose={closePreview}
+            onLeaveMarkup={() => setMarkingImage(false)}
             onReplaceImage={onReplaceImage}
             markupRequestKey={markupRequestKey}
           />

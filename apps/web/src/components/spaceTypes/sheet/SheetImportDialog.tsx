@@ -199,7 +199,7 @@ export function SheetImportDialog(props: {
                 className="w-28"
               />
             </div>
-            <label className="flex h-7 cursor-pointer items-center gap-2 text-ui">
+            <label className="flex h-7 cursor-interaction items-center gap-2 text-ui">
               <Checkbox
                 checked={plan.headings}
                 onCheckedChange={(checked) => setHeadings(checked === true)}

@@ -157,22 +157,18 @@ const CHAT_WIDTH_OPTIONS = [
   {
     value: "standard",
     label: "Standard",
-    description: "The usual reading width.",
   },
   {
     value: "wide",
     label: "Wide",
-    description: "Gives tables and wide content more room (72rem).",
   },
   {
     value: "full",
     label: "Full",
-    description: "Lets the chat column use the full window width.",
   },
 ] as const satisfies ReadonlyArray<{
   value: ChatWidthMode;
   label: string;
-  description: string;
 }>;
 
 const PROVIDER_SELECT_OPTIONS = VISIBLE_PROVIDER_DESCRIPTORS.map((descriptor) => descriptor.kind);
@@ -1077,11 +1073,7 @@ export function SettingsContent({
           {supportsCustomTitleBarSetting ? (
             <SettingsRow
               title="Use custom title bar"
-              description={
-                customTitleBarRestartRequired
-                  ? "Restart Moss to apply. Some Linux window managers work better with the system title bar."
-                  : "Replace the system title bar with Moss's frameless chrome and window controls. Restart required to apply."
-              }
+              description={customTitleBarRestartRequired ? "Restart Moss to apply." : undefined}
               status={customTitleBarRestartRequired ? "Restart required" : undefined}
               resetAction={
                 settings.useCustomTitleBar !== defaults.useCustomTitleBar ? (
@@ -1124,7 +1116,6 @@ export function SettingsContent({
       <SettingsSection title="Typography and spacing">
         <SettingsRow
           title="Use default UI font"
-          description="Use Moss's default font instead of the theme's."
           resetAction={
             !systemUiFont ? (
               <SettingResetButton label="default UI font" onClick={() => setSystemUiFont(true)} />

@@ -46,8 +46,7 @@
   },
   "apps/web/src/components/automation/automationInlineFields.tsx": {
     "raw-button": 1,
-    "native-title": 5,
-    "cursor-pointer": 1
+    "native-title": 5
   },
   "apps/web/src/components/BranchToolbarBranchSelector.tsx": {
     "raw-button": 2,
@@ -97,8 +96,7 @@
   },
   "apps/web/src/components/chat/ChatArtifactCards.tsx": {
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/chat/ChatComposerFooter.tsx": {
     "arbitrary-radius": 1,
@@ -115,15 +113,13 @@
     "arbitrary-radius": 1,
     "raw-button": 3,
     "native-title": 4,
-    "hand-status-dot": 1,
-    "cursor-pointer": 2
+    "hand-status-dot": 1
   },
   "apps/web/src/components/chat/ChatProviderSendControl.tsx": {
     "hand-spinner": 2
   },
   "apps/web/src/components/chat/ChatTranscriptPane.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/chatTypography.ts": {
     "arbitrary-radius": 1
@@ -138,15 +134,13 @@
   "apps/web/src/components/chat/ComposerCapsule.tsx": {
     "arbitrary-radius": 1,
     "raw-button": 1,
-    "native-title": 2,
-    "cursor-pointer": 1
+    "native-title": 2
   },
   "apps/web/src/components/chat/ComposerChoiceRow.tsx": {
     "raw-button": 1
   },
   "apps/web/src/components/chat/ComposerEffortSliderCard.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/ComposerEnvironmentPicker.tsx": {
     "raw-button": 1
@@ -163,8 +157,7 @@
     "gradient": 1
   },
   "apps/web/src/components/chat/ComposerLocalDirectoryMenu.tsx": {
-    "raw-button": 2,
-    "cursor-pointer": 1
+    "raw-button": 2
   },
   "apps/web/src/components/chat/ComposerPendingApprovalPanel.tsx": {
     "raw-button": 1,
@@ -172,8 +165,7 @@
   },
   "apps/web/src/components/chat/composerPickerStyles.ts": {
     "arbitrary-radius": 1,
-    "arbitrary-shadow": 2,
-    "cursor-pointer": 2
+    "arbitrary-shadow": 2
   },
   "apps/web/src/components/chat/ComposerQueuedHeader.tsx": {
     "raw-button": 2
@@ -216,8 +208,7 @@
     "hand-spinner": 1
   },
   "apps/web/src/components/chat/CrossTaskOriginLabel.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/EditedFileRow.tsx": {
     "raw-button": 1,
@@ -225,8 +216,7 @@
   },
   "apps/web/src/components/chat/environment/EnvironmentEditableChecklistRow.tsx": {
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/chat/environment/EnvironmentEditorSection.tsx": {
     "raw-button": 1
@@ -245,12 +235,10 @@
   "apps/web/src/components/chat/environment/EnvironmentPullRequestSection.tsx": {
     "raw-button": 1,
     "native-title": 3,
-    "hand-spinner": 2,
-    "cursor-pointer": 1
+    "hand-spinner": 2
   },
   "apps/web/src/components/chat/environment/EnvironmentRow.tsx": {
-    "raw-button": 2,
-    "cursor-pointer": 1
+    "raw-button": 2
   },
   "apps/web/src/components/chat/environment/EnvironmentStudioOutputsSection.tsx": {
     "native-title": 1
@@ -273,9 +261,6 @@
   "apps/web/src/components/chat/FastModeBadgeIcon.tsx": {
     "native-title": 1
   },
-  "apps/web/src/components/chat/FileAttachmentChip.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/components/chat/FileChipHoverCard.tsx": {
     "native-title": 1
   },
@@ -284,9 +269,6 @@
   },
   "apps/web/src/components/chat/FileEntryIcon.tsx": {
     "hex-color": 29
-  },
-  "apps/web/src/components/chat/fileRowStyles.ts": {
-    "cursor-pointer": 1
   },
   "apps/web/src/components/chat/FloatingBrowserPanel.tsx": {
     "arbitrary-radius": 2,
@@ -320,8 +302,7 @@
   },
   "apps/web/src/components/chat/group/GroupGeneralSection.tsx": {
     "raw-button": 3,
-    "native-title": 2,
-    "cursor-pointer": 1
+    "native-title": 2
   },
   "apps/web/src/components/chat/group/GroupLinkProjectDialog.tsx": {
     "raw-button": 1
@@ -352,8 +333,7 @@
   },
   "apps/web/src/components/chat/InlineVisualBlocks.tsx": {
     "native-title": 1,
-    "hand-status-dot": 2,
-    "cursor-pointer": 1
+    "hand-status-dot": 2
   },
   "apps/web/src/components/chat/InlineVisualCharts.tsx": {
     "native-title": 1
@@ -388,8 +368,7 @@
     "hand-spinner": 1
   },
   "apps/web/src/components/chat/ModelStarButton.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/MossControlPlanePanel.tsx": {
     "raw-button": 2,
@@ -397,8 +376,7 @@
     "hand-spinner": 2
   },
   "apps/web/src/components/chat/mossNormalizedTimeline.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/MultiAgentActionDisclosure.tsx": {
     "raw-button": 1
@@ -414,8 +392,7 @@
   },
   "apps/web/src/components/chat/pageComments/PageComments.tsx": {
     "raw-button": 2,
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/components/chat/PastedTextChip.tsx": {
     "raw-button": 1
@@ -435,8 +412,7 @@
   },
   "apps/web/src/components/chat/ProjectPicker.tsx": {
     "raw-button": 3,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/chat/ProposedPlanCard.tsx": {
     "gradient": 1
@@ -449,8 +425,7 @@
   },
   "apps/web/src/components/chat/PullRequestContextCard.tsx": {
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/chat/RealtimeVoiceOnboarding.tsx": {
     "hex-color": 7,
@@ -473,8 +448,7 @@
     "native-title": 1
   },
   "apps/web/src/components/chat/SubagentRunningChip.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/SubagentThreadIntro.tsx": {
     "raw-button": 1,
@@ -492,27 +466,23 @@
     "arbitrary-shadow": 1,
     "raw-button": 7,
     "native-title": 1,
-    "hand-status-dot": 1,
-    "cursor-pointer": 3
+    "hand-status-dot": 1
   },
   "apps/web/src/components/chat/TimelineReasoningRow.tsx": {
     "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/chat/TimelineStreamErrorRow.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/TimelineSubagentActivityGroup.tsx": {
-    "ui-sdk-outside-ui": 1,
-    "cursor-pointer": 1
+    "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/chat/TimelineTodoPlanRow.tsx": {
     "hand-spinner": 1,
     "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/chat/TimelineWorkEntryRow.tsx": {
-    "raw-button": 3,
-    "cursor-pointer": 4
+    "raw-button": 3
   },
   "apps/web/src/components/chat/ToolActivityDisclosure.tsx": {
     "ui-sdk-outside-ui": 1
@@ -521,8 +491,7 @@
     "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/chat/TraitsPicker.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/chat/transcript/cards/noticeCards.tsx": {
     "raw-button": 2
@@ -556,8 +525,7 @@
     "arbitrary-radius": 1,
     "arbitrary-shadow": 1,
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/chat/UserImageAttachmentThumbnail.tsx": {
     "arbitrary-shadow": 1,
@@ -576,8 +544,7 @@
   },
   "apps/web/src/components/chat/workspaceExplorer.tsx": {
     "raw-button": 3,
-    "native-title": 3,
-    "cursor-pointer": 1
+    "native-title": 3
   },
   "apps/web/src/components/chat/WorkspaceFileEditorChrome.tsx": {
     "native-title": 3,
@@ -585,8 +552,7 @@
   },
   "apps/web/src/components/chat/WorkspaceFilePreviewHeader.tsx": {
     "raw-button": 1,
-    "native-title": 4,
-    "cursor-pointer": 1
+    "native-title": 4
   },
   "apps/web/src/components/ChatMarkdown.tsx": {
     "raw-button": 2,
@@ -597,8 +563,7 @@
     "arbitrary-radius": 1,
     "arbitrary-font-size": 2,
     "raw-button": 1,
-    "hand-spinner": 2,
-    "cursor-pointer": 1
+    "hand-spinner": 2
   },
   "apps/web/src/components/composerInlineChip.ts": {
     "raw-button": 1,
@@ -609,8 +574,7 @@
   },
   "apps/web/src/components/CreateProjectDialog.tsx": {
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/DesktopWindowControls.tsx": {
     "hex-color": 2,
@@ -618,13 +582,11 @@
     "native-title": 3
   },
   "apps/web/src/components/device/DeviceControlRail.tsx": {
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/device/DeviceFrame.tsx": {
     "hex-color": 7,
-    "raw-button": 1,
-    "cursor-pointer": 1
+    "raw-button": 1
   },
   "apps/web/src/components/device/DeviceScreenStates.tsx": {
     "arbitrary-font-size": 1,
@@ -641,14 +603,12 @@
   },
   "apps/web/src/components/DiffPanelChangeMarkers.tsx": {
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/DiffPanelToolbar.tsx": {
     "raw-button": 3,
     "native-title": 2,
-    "hand-spinner": 1,
-    "cursor-pointer": 2
+    "hand-spinner": 1
   },
   "apps/web/src/components/DocxPreviewPanel.tsx": {
     "native-title": 1,
@@ -661,8 +621,7 @@
   "apps/web/src/components/EditProjectDialog.tsx": {
     "arbitrary-radius": 2,
     "raw-button": 1,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/FeedbackDialog.tsx": {
     "raw-button": 1
@@ -677,9 +636,6 @@
   "apps/web/src/components/GitCommitDialog.tsx": {
     "raw-button": 2
   },
-  "apps/web/src/components/GitCreatePrDialog.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/components/GitDialogChrome.tsx": {
     "raw-button": 1
   },
@@ -689,8 +645,7 @@
     "hand-status-dot": 1
   },
   "apps/web/src/components/githubInbox/GitHubIssueEditors.tsx": {
-    "hand-spinner": 1,
-    "cursor-pointer": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/Icons.tsx": {
     "hex-color": 22
@@ -702,8 +657,7 @@
     "hex-color": 5
   },
   "apps/web/src/components/images/MossImagesDiscovery.tsx": {
-    "ui-sdk-outside-ui": 1,
-    "cursor-pointer": 1
+    "ui-sdk-outside-ui": 1
   },
   "apps/web/src/components/inbox/InboxTaskList.tsx": {
     "ui-sdk-outside-ui": 1
@@ -721,19 +675,14 @@
   "apps/web/src/components/kanban/KanbanCardView.tsx": {
     "raw-button": 1,
     "native-title": 3,
-    "hand-spinner": 1,
-    "cursor-pointer": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/kanban/KanbanFilterMenu.tsx": {
     "hand-status-dot": 1
   },
   "apps/web/src/components/kanban/KanbanNewTaskDialog.tsx": {
     "native-title": 1,
-    "hand-spinner": 1,
-    "cursor-pointer": 1
-  },
-  "apps/web/src/components/kanban/KanbanNewTaskSubmissionControls.tsx": {
-    "cursor-pointer": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/kanban/KanbanOverview.tsx": {
     "raw-button": 1
@@ -744,8 +693,7 @@
   "apps/web/src/components/LocalMediaPreview.tsx": {
     "hex-color": 10,
     "native-title": 4,
-    "hand-spinner": 1,
-    "cursor-pointer": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/LocalServerIdentity.tsx": {
     "native-title": 2
@@ -780,9 +728,6 @@
   "apps/web/src/components/mossbot/openmaus/ComposerMenuRow.tsx": {
     "raw-button": 1
   },
-  "apps/web/src/components/mossbot/openmaus/Select.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/components/MossCanvasProjectsHost.tsx": {
     "heavy-weight": 3,
     "hand-status-dot": 1
@@ -800,9 +745,6 @@
     "raw-button": 3,
     "native-title": 1
   },
-  "apps/web/src/components/MossImageBilling.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/components/MossImagesWorkspace.tsx": {
     "ui-sdk-outside-ui": 1
   },
@@ -816,9 +758,6 @@
   },
   "apps/web/src/components/NotebookPreviewPanel.tsx": {
     "native-title": 2
-  },
-  "apps/web/src/components/pageApps/AppPageFrame.tsx": {
-    "cursor-pointer": 1
   },
   "apps/web/src/components/pages/chrome/BottomComposer.tsx": {
     "arbitrary-shadow": 1,
@@ -883,19 +822,16 @@
     "arbitrary-radius": 3,
     "raw-button": 2,
     "native-title": 2,
-    "hand-spinner": 1,
-    "cursor-pointer": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/PluginLibraryImportDialog.tsx": {
-    "hand-spinner": 3,
-    "cursor-pointer": 3
+    "hand-spinner": 3
   },
   "apps/web/src/components/PluginLibraryPrimitives.tsx": {
     "arbitrary-font-size": 1,
     "raw-button": 4,
     "hand-tablist": 1,
-    "hand-spinner": 1,
-    "cursor-pointer": 1
+    "hand-spinner": 1
   },
   "apps/web/src/components/PluginManagementPanel.tsx": {
     "size-radius": 8,
@@ -912,8 +848,7 @@
     "hex-color": 4,
     "arbitrary-font-size": 4,
     "heavy-weight": 5,
-    "raw-button": 3,
-    "cursor-pointer": 1
+    "raw-button": 3
   },
   "apps/web/src/components/PptxReader.tsx": {
     "hand-spinner": 1
@@ -954,15 +889,13 @@
   "apps/web/src/components/ProjectAppearancePicker.tsx": {
     "raw-button": 4,
     "native-title": 1,
-    "hand-tablist": 1,
-    "cursor-pointer": 1
+    "hand-tablist": 1
   },
   "apps/web/src/components/ProjectFolderList.tsx": {
     "native-title": 1
   },
   "apps/web/src/components/ProjectHoverCardContent.tsx": {
-    "raw-button": 3,
-    "cursor-pointer": 3
+    "raw-button": 3
   },
   "apps/web/src/components/ProjectScriptsControl.tsx": {
     "size-radius": 1,
@@ -976,8 +909,7 @@
   },
   "apps/web/src/components/providerUpdates/RailUpdateControl.tsx": {
     "arbitrary-shadow": 1,
-    "raw-button": 3,
-    "cursor-pointer": 2
+    "raw-button": 3
   },
   "apps/web/src/components/providerUpdates/RailUpdateVisuals.tsx": {
     "hand-spinner": 1
@@ -997,8 +929,7 @@
   },
   "apps/web/src/components/pullRequest/GitHubItemHeader.tsx": {
     "heavy-weight": 1,
-    "native-title": 3,
-    "cursor-pointer": 1
+    "native-title": 3
   },
   "apps/web/src/components/pullRequest/GitHubItemInfo.tsx": {
     "raw-button": 4
@@ -1010,8 +941,7 @@
     "hand-status-dot": 1
   },
   "apps/web/src/components/pullRequest/PrStateChip.tsx": {
-    "native-title": 2,
-    "cursor-pointer": 1
+    "native-title": 2
   },
   "apps/web/src/components/pullRequest/PullRequestActions.tsx": {
     "hand-spinner": 1
@@ -1058,8 +988,7 @@
     "native-title": 1
   },
   "apps/web/src/components/RunningChatsQuitDialog.tsx": {
-    "arbitrary-radius": 1,
-    "cursor-pointer": 1
+    "arbitrary-radius": 1
   },
   "apps/web/src/components/SafariAccessOnboarding.tsx": {
     "arbitrary-shadow": 1,
@@ -1102,15 +1031,11 @@
   "apps/web/src/components/settings/ComputerSettingsPanel.tsx": {
     "hand-status-dot": 1
   },
-  "apps/web/src/components/settings/DesktopSettingsPanels.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/components/settings/ErrorReportsSettingsSection.tsx": {
     "raw-button": 1
   },
   "apps/web/src/components/settings/ExternalMcpSettingsPanel.tsx": {
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/components/settings/IncomingComputerConnections.tsx": {
     "heavy-weight": 2
@@ -1127,16 +1052,12 @@
   "apps/web/src/components/settings/MossBillingSettingsPanel.tsx": {
     "hand-spinner": 1
   },
-  "apps/web/src/components/settings/MossReleaseHistory.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/components/settings/ProfileSettingsPanel.tsx": {
     "heavy-weight": 1,
     "raw-button": 1
   },
   "apps/web/src/components/settings/ProviderAccentColorControl.tsx": {
-    "raw-button": 2,
-    "cursor-pointer": 2
+    "raw-button": 2
   },
   "apps/web/src/components/settings/providers/AddUnifiedProviderDialog.tsx": {
     "hand-spinner": 2
@@ -1157,8 +1078,7 @@
   },
   "apps/web/src/components/settings/ProvidersSettingsPanel.tsx": {
     "raw-button": 2,
-    "hand-spinner": 2,
-    "cursor-pointer": 1
+    "hand-spinner": 2
   },
   "apps/web/src/components/settings/ProviderUsageSettingsPanel.tsx": {
     "heavy-weight": 1,
@@ -1168,15 +1088,11 @@
   "apps/web/src/components/settings/RealtimeVoicePreviewPicker.tsx": {
     "heavy-weight": 1,
     "raw-button": 4,
-    "hand-status-dot": 1,
-    "cursor-pointer": 4
+    "hand-status-dot": 1
   },
   "apps/web/src/components/settings/RemoteComputersSettingsPanel.tsx": {
     "heavy-weight": 1,
     "hand-spinner": 1
-  },
-  "apps/web/src/components/settings/SettingsPanelPrimitives.tsx": {
-    "cursor-pointer": 1
   },
   "apps/web/src/components/settings/ShortcutRecorderDialog.tsx": {
     "arbitrary-radius": 1,
@@ -1185,8 +1101,7 @@
   "apps/web/src/components/settings/SshConnectionsSettingsPanel.tsx": {
     "heavy-weight": 1,
     "hand-spinner": 2,
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/components/settings/ThemeModePicker.tsx": {
     "hex-color": 14,
@@ -1210,18 +1125,15 @@
     "size-radius": 1,
     "raw-button": 4,
     "native-title": 3,
-    "hand-status-dot": 1,
-    "cursor-pointer": 4
+    "hand-status-dot": 1
   },
   "apps/web/src/components/SidebarAccountMenu.tsx": {
     "size-radius": 3,
     "raw-button": 2,
-    "native-title": 3,
-    "cursor-pointer": 1
+    "native-title": 3
   },
   "apps/web/src/components/SidebarActivityView.tsx": {
-    "raw-button": 2,
-    "cursor-pointer": 2
+    "raw-button": 2
   },
   "apps/web/src/components/SidebarCustomizeList.tsx": {
     "raw-button": 1
@@ -1236,12 +1148,10 @@
     "raw-button": 2
   },
   "apps/web/src/components/SidebarIconButton.tsx": {
-    "raw-button": 2,
-    "cursor-pointer": 1
+    "raw-button": 2
   },
   "apps/web/src/components/SidebarListSection.tsx": {
-    "raw-button": 3,
-    "cursor-pointer": 2
+    "raw-button": 3
   },
   "apps/web/src/components/SidebarNavigationRail.tsx": {
     "hex-color": 8,
@@ -1259,8 +1169,7 @@
     "hand-status-dot": 3
   },
   "apps/web/src/components/SidebarSearchPalette.tsx": {
-    "arbitrary-radius": 1,
-    "cursor-pointer": 1
+    "arbitrary-radius": 1
   },
   "apps/web/src/components/SidebarStatusTrailingGlyph.tsx": {
     "native-title": 2
@@ -1277,8 +1186,7 @@
     "arbitrary-radius": 1
   },
   "apps/web/src/components/space/SpaceCanvasChatDock.tsx": {
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/components/space/SpaceHome.tsx": {
     "raw-button": 2,
@@ -1295,22 +1203,15 @@
     "raw-button": 1,
     "hand-tablist": 1
   },
-  "apps/web/src/components/spaceTypes/dashboard/DashboardPanels.tsx": {
-    "cursor-pointer": 2
-  },
   "apps/web/src/components/spaceTypes/dashboard/DashboardSourcesPanel.tsx": {
     "native-title": 1,
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/components/spaceTypes/design/DesignCanvasView.tsx": {
     "hand-status-dot": 2
   },
   "apps/web/src/components/spaceTypes/design/DesignEditor.tsx": {
     "hand-status-dot": 1
-  },
-  "apps/web/src/components/spaceTypes/design/DesignInspector.tsx": {
-    "cursor-pointer": 1
   },
   "apps/web/src/components/spaceTypes/shared/SpaceEditorChrome.tsx": {
     "hand-spinner": 1,
@@ -1323,20 +1224,10 @@
     "native-title": 1
   },
   "apps/web/src/components/spaceTypes/sheet/SheetChartView.tsx": {
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/components/spaceTypes/sheet/SheetHistoryPanel.tsx": {
     "native-title": 1
-  },
-  "apps/web/src/components/spaceTypes/sheet/SheetImportDialog.tsx": {
-    "cursor-pointer": 1
-  },
-  "apps/web/src/components/spaceTypes/sheet/SheetReaderFilterDialog.tsx": {
-    "cursor-pointer": 1
-  },
-  "apps/web/src/components/spaceTypes/sheet/SheetToolCard.tsx": {
-    "cursor-pointer": 1
   },
   "apps/web/src/components/spaceTypes/slides/DeckViewer.tsx": {
     "arbitrary-radius": 2,
@@ -1353,8 +1244,7 @@
   "apps/web/src/components/spaceTypes/slides/SlidesPresenter.tsx": {
     "hex-color": 2,
     "arbitrary-radius": 2,
-    "raw-button": 8,
-    "cursor-pointer": 1
+    "raw-button": 8
   },
   "apps/web/src/components/spaceTypes/slides/SlideView.tsx": {
     "hex-color": 1
@@ -1398,8 +1288,7 @@
   "apps/web/src/components/ThemePackEditor.tsx": {
     "hex-color": 3,
     "raw-button": 5,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/components/ThreadHoverCardContent.tsx": {
     "cursor-pointer": 1
@@ -1504,16 +1393,13 @@
   "apps/web/src/components/WorkspaceImportFlow.tsx": {
     "raw-button": 2,
     "native-title": 1,
-    "hand-spinner": 1,
-    "cursor-pointer": 2
+    "hand-spinner": 1
   },
   "apps/web/src/components/WorkspaceSearchPalette.tsx": {
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/confirmDialogFallback.ts": {
-    "heavy-weight": 1,
-    "cursor-pointer": 2
+    "heavy-weight": 1
   },
   "apps/web/src/guest/components/GuestComposer.tsx": {
     "arbitrary-font-size": 1,
@@ -1551,9 +1437,6 @@
     "heavy-weight": 1,
     "raw-button": 1
   },
-  "apps/web/src/guest/pages/PageRichView.tsx": {
-    "cursor-pointer": 1
-  },
   "apps/web/src/lib/brandIcons.tsx": {
     "hex-color": 28,
     "arbitrary-radius": 1
@@ -1582,8 +1465,7 @@
     "arbitrary-radius": 3,
     "arbitrary-shadow": 1,
     "raw-button": 4,
-    "hand-status-dot": 1,
-    "cursor-pointer": 3
+    "hand-status-dot": 1
   },
   "apps/web/src/lib/openui/oiuStyle.ts": {
     "hex-color": 2
@@ -1615,18 +1497,15 @@
     "hand-tablist": 1
   },
   "apps/web/src/onboarding/steps/ProjectStep.tsx": {
-    "raw-button": 2,
-    "cursor-pointer": 1
+    "raw-button": 2
   },
   "apps/web/src/onboarding/steps/ProvidersStep.tsx": {
     "raw-button": 3,
-    "hand-spinner": 2,
-    "cursor-pointer": 4
+    "hand-spinner": 2
   },
   "apps/web/src/onboarding/steps/ThemeStep.tsx": {
     "raw-button": 1,
-    "hand-status-dot": 1,
-    "cursor-pointer": 1
+    "hand-status-dot": 1
   },
   "apps/web/src/pairingBootstrap.ts": {
     "hex-color": 8
@@ -1637,37 +1516,29 @@
   "apps/web/src/projectImport/ProjectImportPanel.tsx": {
     "raw-button": 4,
     "native-title": 2,
-    "hand-spinner": 2,
-    "cursor-pointer": 1
+    "hand-spinner": 2
   },
   "apps/web/src/projectImport/ProjectImportProjectCard.tsx": {
-    "native-title": 3,
-    "cursor-pointer": 2
+    "native-title": 3
   },
   "apps/web/src/routes/__root.tsx": {
     "heavy-weight": 2,
-    "gradient": 4,
-    "cursor-pointer": 1
+    "gradient": 4
   },
   "apps/web/src/routes/_chat.automations.$automationId.tsx": {
     "raw-button": 5,
-    "native-title": 2,
-    "cursor-pointer": 1
+    "native-title": 2
   },
   "apps/web/src/routes/_chat.skills.tsx": {
     "hex-color": 3
   },
   "apps/web/src/routes/-automations.list.tsx": {
     "raw-button": 2,
-    "native-title": 1,
-    "cursor-pointer": 1
+    "native-title": 1
   },
   "apps/web/src/routes/-automations.shared.tsx": {
     "hand-spinner": 1,
     "hand-status-dot": 2
-  },
-  "apps/web/src/sidebarRowStyles.ts": {
-    "cursor-pointer": 2
   },
   "apps/web/src/surfaceStyles.ts": {
     "heavy-weight": 2
@@ -1677,7 +1548,6 @@
   },
   "apps/web/src/whatsNew/WhatsNewPopoutCard.tsx": {
     "raw-button": 1,
-    "gradient": 2,
-    "cursor-pointer": 1
+    "gradient": 2
   }
 }

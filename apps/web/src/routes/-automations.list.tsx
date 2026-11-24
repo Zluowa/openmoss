@@ -116,7 +116,7 @@ export function AutomationListRow({
       }}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group flex w-full cursor-pointer items-start rounded-row text-left",
+        "group flex w-full cursor-interaction items-start rounded-row text-left",
         isPanel
           ? cn(
               "gap-2 px-2 py-1.5",

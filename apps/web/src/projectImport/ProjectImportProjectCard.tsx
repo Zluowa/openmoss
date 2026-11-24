@@ -73,7 +73,7 @@ export function ProjectImportProjectCard(props: {
           onCheckedChange={(checked) => props.onSelectionChange(availableKeys, checked)}
         />
         <CollapsibleTrigger
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
+          className="flex min-w-0 flex-1 cursor-interaction items-center gap-2.5 text-left"
           aria-label={`Conversations in ${project.title}`}
         >
           <span className="min-w-0 flex-1">
@@ -155,7 +155,10 @@ export function ProjectImportProjectCard(props: {
             const imported = thread.alreadyImported || props.completedKeys.has(key);
             const skipped = !imported && props.skippedKeys?.has(key) === true;
             return (
-              <label key={thread.key} className="flex cursor-pointer items-center gap-2.5 py-1.5">
+              <label
+                key={thread.key}
+                className="flex cursor-interaction items-center gap-2.5 py-1.5"
+              >
                 <Checkbox
                   checked={imported || (!skipped && props.selected.has(key))}
                   disabled={props.disabled || imported || skipped}

@@ -93,16 +93,11 @@ export interface ProfileCopy {
   readonly nameErrors: Readonly<Record<ProfileDisplayNameError, string>>;
   readonly errors: Readonly<Record<ProfileErrorKind, string>>;
   readonly accountSettings: {
-    readonly profileShortcutTitle: string;
-    readonly profileShortcutDescription: string;
     readonly openProfile: string;
     readonly signedOutTitle: string;
-    readonly signedOutDescription: string;
     readonly goToSignIn: string;
     readonly backToPhoneAccount: string;
     readonly googleAccountsTitle: string;
-    readonly googleAccountsDescription: string;
-    readonly switchWithoutSignOut: string;
     readonly addAccount: string;
     readonly noSavedAccounts: string;
     readonly current: string;
@@ -113,14 +108,12 @@ export interface ProfileCopy {
     readonly remove: string;
     readonly removing: string;
     readonly usageAndCreditsTitle: string;
-    readonly usageAndCreditsDescription: string;
     readonly openUsage: string;
     readonly signOut: string;
     readonly signingOut: string;
     readonly sessionExpires: (formatted: string) => string;
     readonly actionFailed: string;
     readonly loadFailedTitle: string;
-    readonly loadFailedDescription: string;
     readonly retry: string;
     readonly signInUnavailable: string;
     readonly loading: string;
@@ -239,16 +232,11 @@ const ZH_COPY: ProfileCopy = {
     unknown: "保存失败，请稍后重试。",
   },
   accountSettings: {
-    profileShortcutTitle: "个人资料",
-    profileShortcutDescription: "自定义头像、显示名称、@ID，查看 Token 活动与统计。",
     openProfile: "打开个人资料",
     signedOutTitle: "当前未登录 Moss 账号",
-    signedOutDescription: "登录后可使用 Moss 模型额度、会员套餐，并在多设备间同步个人资料。",
     goToSignIn: "前往登录",
     backToPhoneAccount: "返回手机号账号",
     googleAccountsTitle: "已保存的账号",
-    googleAccountsDescription: "无需退出即可在已保存的账号之间切换。",
-    switchWithoutSignOut: "无需退出即可切换。",
     addAccount: "添加账号",
     noSavedAccounts: "还没有已保存的账号。",
     current: "当前",
@@ -259,14 +247,12 @@ const ZH_COPY: ProfileCopy = {
     remove: "移除",
     removing: "正在移除…",
     usageAndCreditsTitle: "用量与充值",
-    usageAndCreditsDescription: "在设置 → 用量与限额查看剩余额度并充值。",
     openUsage: "打开用量",
     signOut: "退出登录",
     signingOut: "正在退出…",
     sessionExpires: (formatted) => `登录有效期至 ${formatted}`,
     actionFailed: "账号操作失败",
     loadFailedTitle: "暂时无法连接 Moss",
-    loadFailedDescription: "请重试或重启 Moss 后再试。",
     retry: "重试",
     signInUnavailable: "当前无法使用 Moss 账号登录。",
     loading: "正在加载账号…",
@@ -386,16 +372,11 @@ const EN_COPY: ProfileCopy = {
     unknown: "Couldn’t save changes. Please try again.",
   },
   accountSettings: {
-    profileShortcutTitle: "Profile",
-    profileShortcutDescription: "Customize your avatar, name, @handle, and view activity stats.",
     openProfile: "Open profile",
     signedOutTitle: "Not signed in",
-    signedOutDescription: "Sign in to use Moss quota, plans, and sync your profile across devices.",
     goToSignIn: "Sign in",
     backToPhoneAccount: "Back to phone account",
     googleAccountsTitle: "Saved accounts",
-    googleAccountsDescription: "Switch without signing out.",
-    switchWithoutSignOut: "Switch without signing out.",
     addAccount: "Add account",
     noSavedAccounts: "No saved accounts yet.",
     current: "Current",
@@ -406,14 +387,12 @@ const EN_COPY: ProfileCopy = {
     remove: "Remove",
     removing: "Removing…",
     usageAndCreditsTitle: "Usage and credits",
-    usageAndCreditsDescription: "Open Settings → Usage to see quota and buy credits.",
     openUsage: "Open Usage",
     signOut: "Sign out",
     signingOut: "Signing out…",
     sessionExpires: (formatted) => `Session expires ${formatted}`,
     actionFailed: "Account action failed",
     loadFailedTitle: "Couldn’t connect to Moss",
-    loadFailedDescription: "Restart Moss and try again.",
     retry: "Try again",
     signInUnavailable: "Moss account sign-in isn’t available right now.",
     loading: "Loading your Moss account…",

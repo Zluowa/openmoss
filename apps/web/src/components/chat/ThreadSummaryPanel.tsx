@@ -108,7 +108,7 @@ function ThreadSummarySection({
       <header className="sticky top-0 z-10 flex h-7 w-full min-w-0 items-center justify-start gap-2 bg-[var(--color-background-elevated-primary-opaque)] ps-3.5 pe-2.5 pb-0.5 text-ui-lg text-[var(--color-text-foreground-tertiary)]">
         <button
           type="button"
-          className="group/section-toggle inline-flex min-w-0 shrink-0 cursor-pointer items-center gap-1.5 rounded-control py-0.5 pr-1 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+          className="group/section-toggle inline-flex min-w-0 shrink-0 cursor-interaction items-center gap-1.5 rounded-control py-0.5 pr-1 text-left outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
           aria-expanded={open}
           aria-controls={contentId}
           onClick={() => setOpen(!open)}
@@ -210,7 +210,7 @@ function CreateOutputMenu({
       <button
         type="button"
         aria-label={label}
-        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-pointer items-center rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-interaction items-center rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </button>
@@ -271,7 +271,7 @@ function AddSourceMenu({
       <button
         type="button"
         aria-label={label}
-        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-pointer items-center rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
+        className="group relative isolate flex min-h-7 w-full min-w-0 cursor-interaction items-center rounded-row border-0 bg-transparent px-0 py-1 text-left text-ui-lg text-[var(--color-text-foreground)] outline-none before:absolute before:inset-y-0 before:-inset-x-2 before:-z-10 before:rounded-row before:content-[''] hover:before:bg-[var(--color-background-elevated-secondary)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-border-accent)]"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </button>

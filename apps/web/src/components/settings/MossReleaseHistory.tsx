@@ -59,7 +59,7 @@ function MossReleaseRow({
       data-moss-release={release.version}
     >
       <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-2 py-2 text-left">
+        <CollapsibleTrigger className="flex w-full cursor-interaction items-center gap-2 py-2 text-left">
           <DisclosureChevron open={open} />
           <span className="text-ui text-foreground tabular-nums">{release.version}</span>
           <span className="text-ui text-muted-foreground">

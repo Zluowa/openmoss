@@ -474,7 +474,6 @@ export function ChatTranscriptPane({
                           return nativeHistory.load();
                         },
                       }}
-                      completeLabel="Start of conversation"
                       onFirstMessage={() => {
                         void loadFirstMessage();
                       }}
@@ -637,7 +636,7 @@ export function ChatTranscriptPane({
               aria-hidden={!scrollButtonVisible}
               tabIndex={scrollButtonVisible ? 0 : -1}
               className={cn(
-                "flex size-8 items-center justify-center rounded-full border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] text-[var(--color-text-foreground)] backdrop-blur-md hover:cursor-pointer",
+                "flex size-8 items-center justify-center rounded-full border border-[color:var(--color-border)] bg-[var(--color-background-elevated-primary-opaque)] text-[var(--color-text-foreground)] backdrop-blur-md hover:cursor-interaction",
                 // The hover tint is layered over the opaque fill instead of replacing it: the
                 // shared elevated hover is a thin ink wash, which alone would let the
                 // transcript read through the button.

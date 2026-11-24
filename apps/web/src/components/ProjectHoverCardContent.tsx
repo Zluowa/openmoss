@@ -73,7 +73,7 @@ export function ProjectHoverCardContent({
           aria-pressed={isPinned}
           onClick={onTogglePin}
           className={cn(
-            "-mr-1 shrink-0 cursor-pointer rounded-inline p-1 transition-colors",
+            "-mr-1 shrink-0 cursor-interaction rounded-inline p-1 transition-colors",
             isPinned ? "text-foreground" : "text-muted-foreground/55 hover:text-foreground",
           )}
         >
@@ -95,7 +95,7 @@ export function ProjectHoverCardContent({
         onClick={onEditProject}
         className={cn(
           ROW_CLASS_NAME,
-          "cursor-pointer text-left text-foreground/80 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
+          "cursor-interaction text-left text-foreground/80 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
         )}
       >
         <SettingsIcon className={ICON_CLASS_NAME} aria-hidden />
@@ -107,7 +107,7 @@ export function ProjectHoverCardContent({
           onClick={onEditProjectAgent}
           className={cn(
             ROW_CLASS_NAME,
-            "cursor-pointer text-left text-foreground/80 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
+            "cursor-interaction text-left text-foreground/80 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
           )}
         >
           <BotIcon className={ICON_CLASS_NAME} aria-hidden />

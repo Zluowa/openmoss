@@ -28,7 +28,7 @@ export function ProviderAccentColorControl(props: {
             aria-label={`Accent color ${color} for ${props.accountLabel}`}
             aria-pressed={isSelected}
             className={cn(
-              "size-5 cursor-pointer rounded-full outline-none ring-offset-2 ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring/60",
+              "size-5 cursor-interaction rounded-full outline-none ring-offset-2 ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring/60",
               isSelected && "ring-2 ring-foreground/70",
             )}
             style={{ backgroundColor: color }}
@@ -40,7 +40,7 @@ export function ProviderAccentColorControl(props: {
       {selected ? (
         <button
           type="button"
-          className="ms-1 cursor-pointer text-ui-sm text-muted-foreground hover:text-foreground"
+          className="ms-1 cursor-interaction text-ui-sm text-muted-foreground hover:text-foreground"
           onClick={() => props.onChange(undefined)}
         >
           Clear

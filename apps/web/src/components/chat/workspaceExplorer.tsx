@@ -697,7 +697,7 @@ export function ExplorerActivityBarButton(props: {
     <button
       type="button"
       className={cn(
-        "relative flex h-12 w-full cursor-pointer items-center justify-center text-muted-foreground/72 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
+        "relative flex h-12 w-full cursor-interaction items-center justify-center text-muted-foreground/72 transition-colors hover:bg-[var(--color-background-button-secondary-hover)] hover:text-foreground",
         props.active && "bg-[var(--color-background-button-secondary)] text-foreground",
       )}
       aria-label={props.label}

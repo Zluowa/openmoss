@@ -276,7 +276,7 @@ export function IssueValuePicker<T>({
         render={
           <div
             className={cn(
-              "-mx-2 block cursor-pointer rounded-row px-2 py-1 text-left transition-colors",
+              "-mx-2 block cursor-interaction rounded-row px-2 py-1 text-left transition-colors",
               "hover:bg-[var(--color-background-button-secondary-hover)]",
               "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
               "data-[popup-open]:bg-[var(--color-background-button-secondary-hover)]",

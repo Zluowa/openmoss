@@ -87,7 +87,7 @@ export function SidebarIconButton({
     ...buttonProps,
     "aria-label": label,
     className: cn(
-      "sidebar-icon-button inline-flex shrink-0 cursor-pointer",
+      "sidebar-icon-button inline-flex shrink-0 cursor-interaction",
       SLOT_SIZE[size],
       triggerElement.props.className,
       className,

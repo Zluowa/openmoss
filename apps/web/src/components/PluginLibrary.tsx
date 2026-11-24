@@ -1073,7 +1073,7 @@ function ResourceCard({
         type="button"
         aria-label={title}
         onClick={onOpen}
-        className="flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+        className="flex min-w-0 flex-1 cursor-interaction items-start gap-3 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
       >
         {glyph}
         <div className="min-w-0 flex-1">

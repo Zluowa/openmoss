@@ -30,7 +30,7 @@ const COMPOSER_CAPSULE_CLASS_NAME = [
 /** Hover/open wash for clickable capsules, drawn on ::after: the glass fill is unlayered
  *  CSS, so a Tailwind `hover:bg-*` on the capsule itself would never win. */
 const COMPOSER_CAPSULE_INTERACTIVE_CLASS_NAME =
-  "cursor-pointer outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:transition-colors hover:text-foreground hover:after:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-ring/60 data-popup-open:text-foreground data-popup-open:after:bg-[var(--color-background-button-secondary-hover)]";
+  "cursor-interaction outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:transition-colors hover:text-foreground hover:after:bg-[var(--color-background-button-secondary-hover)] focus-visible:ring-1 focus-visible:ring-ring/60 data-popup-open:text-foreground data-popup-open:after:bg-[var(--color-background-button-secondary-hover)]";
 
 /** Text action inside a capsule (tip "Turn on", "Use Medium"). */
 export const COMPOSER_CAPSULE_ACTION_CLASS_NAME = cn(

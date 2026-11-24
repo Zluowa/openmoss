@@ -48,7 +48,7 @@ function renderLeaf(node: PageRichNode, key: number, options?: RenderOptions): R
     content = (
       <mark
         className={cn(
-          "cursor-pointer border-b-2 border-[color-mix(in_srgb,#f2c94c_70%,transparent)] bg-[color-mix(in_srgb,#f2c94c_16%,transparent)] text-inherit",
+          "cursor-interaction border-b-2 border-[color-mix(in_srgb,#f2c94c_70%,transparent)] bg-[color-mix(in_srgb,#f2c94c_16%,transparent)] text-inherit",
           focused && "bg-[color-mix(in_srgb,#f2c94c_36%,transparent)]",
         )}
         data-guest-comment={comments.join(" ")}

@@ -381,7 +381,7 @@ export function ProjectImportPanel(props: {
             <label
               key={provider}
               className={cn(
-                "flex h-8 cursor-pointer items-center gap-2 rounded-control border px-2.5 transition-colors motion-reduce:transition-none",
+                "flex h-8 cursor-interaction items-center gap-2 rounded-control border px-2.5 transition-colors motion-reduce:transition-none",
                 providers.includes(provider)
                   ? "border-foreground/14 bg-foreground/[0.05] text-foreground"
                   : "border-foreground/8 text-muted-foreground hover:bg-foreground/[0.03]",

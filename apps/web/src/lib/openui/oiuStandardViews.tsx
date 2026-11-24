@@ -472,7 +472,7 @@ export function SegmentedControlView({ props }) {
             onClick={() => field.setValue(option.value)}
             {...radioItemProps(option.value)}
             className={cx(
-              "h-7 cursor-pointer rounded-inline px-3 text-ui-sm whitespace-nowrap transition-colors disabled:cursor-default",
+              "h-7 cursor-interaction rounded-inline px-3 text-ui-sm whitespace-nowrap transition-colors disabled:cursor-default",
               active
                 ? "font-medium text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -543,7 +543,7 @@ export function PressableView({ props, renderNode }) {
         }
       }}
       className={cx(
-        "flex min-w-0 cursor-pointer flex-col gap-2 rounded-card p-2 transition-colors aria-disabled:cursor-default aria-disabled:hover:bg-transparent",
+        "flex min-w-0 cursor-interaction flex-col gap-2 rounded-card p-2 transition-colors aria-disabled:cursor-default aria-disabled:hover:bg-transparent",
         INK_HOVER,
         FOCUS_RING,
       )}
@@ -785,7 +785,7 @@ export function FlashcardFlipView({ props }) {
     <div
       // Several study cards stacked on their own join into one deck (index.css, data-oiu-row).
       data-oiu-row=""
-      className={cx("flex min-w-0 cursor-pointer flex-col", PANEL)}
+      className={cx("flex min-w-0 cursor-interaction flex-col", PANEL)}
       onClick={(event) => {
         if (event.target instanceof Element && event.target.closest("button, a")) return;
         setOpen((value) => !value);
