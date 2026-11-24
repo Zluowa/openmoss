@@ -2,10 +2,10 @@ import type { GitHubConnectionResult, GitHubInboxListResult } from "@moss/contra
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { RouteSurfaceHeader } from "../RouteSurface";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
+import { GitHubInboxShell } from "./GitHubInboxShell";
 import { GitHubIcon } from "~/lib/icons";
 import { isMacPlatform } from "~/lib/utils";
 import {
@@ -291,21 +291,19 @@ function HostConnection({
                     ? "codeReview.gh.failed"
                     : "codeReview.gh.signInTitle",
   );
-  const description = t(
-    pending
-      ? "codeReview.gh.codeHint"
-      : result?.state === "missing"
-        ? "codeReview.gh.missingHint"
-        : result?.state === "installing"
-          ? result.phase === "installing" && onMac()
+  // A second line only where the person needs it to act: the device code step, install progress,
+  // and why an install failed. The title and the one button say the rest.
+  const description: string | null = pending
+    ? t("codeReview.gh.codeHint")
+    : result?.state === "installing"
+      ? t(
+          result.phase === "installing" && onMac()
             ? MAC_INSTALLING_COPY
-            : INSTALL_PHASE_COPY[result.phase]
-          : result?.state === "installFailed"
-            ? INSTALL_FAILURE_COPY[result.reason]
-            : result?.state === "disconnected"
-              ? "codeReview.gh.disconnectedHint"
-              : "codeReview.gh.accountHint",
-  );
+            : INSTALL_PHASE_COPY[result.phase],
+        )
+      : result?.state === "installFailed"
+        ? t(INSTALL_FAILURE_COPY[result.reason])
+        : null;
   const controls = pending ? (
     <>
       {result.code && (
@@ -367,13 +365,13 @@ function HostConnection({
             {t("codeReview.gh.openWebsite")}
           </Button>
         )}
-        <Button
-          size="sm"
-          variant={installFailed ? "ghost" : "outline"}
-          onClick={() => setRetry((n) => n + 1)}
-        >
-          {t("codeReview.gh.checkAgain")}
-        </Button>
+        {/* The gate checks again by itself whenever the window regains focus; the button is
+            only for states with nothing else to press. */}
+        {result.state === "unavailable" || result.state === "busy" ? (
+          <Button size="sm" variant="outline" onClick={() => setRetry((n) => n + 1)}>
+            {t("codeReview.gh.checkAgain")}
+          </Button>
+        ) : null}
       </>
     )
   );
@@ -388,7 +386,9 @@ function HostConnection({
           <GitHubIcon aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="m-0 text-ui-sm font-medium text-foreground">{title}</p>
-            <p className="m-0 text-ui-xs leading-relaxed text-muted-foreground">{description}</p>
+            {description ? (
+              <p className="m-0 text-ui-xs leading-relaxed text-muted-foreground">{description}</p>
+            ) : null}
           </div>
         </div>
         {pending && result.code ? (
@@ -416,16 +416,11 @@ function HostConnection({
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <RouteSurfaceHeader
-        divider={false}
-        className="app-top-bar shrink-0"
-        rowClassName="h-[var(--app-top-strip-height)]"
-      />
-      <Empty className="mx-auto max-w-md px-5 py-12">
+    <GitHubInboxShell>
+      <Empty>
         <EmptyHeader>
           <EmptyTitle>{title}</EmptyTitle>
-          <EmptyDescription>{description}</EmptyDescription>
+          {description ? <EmptyDescription>{description}</EmptyDescription> : null}
         </EmptyHeader>
         {pending && result.code && (
           <div
@@ -436,7 +431,7 @@ function HostConnection({
           </div>
         )}
         <EmptyContent>
-          {controls}
+          <div className="flex flex-wrap items-center justify-center gap-ui-gap-xs">{controls}</div>
           {openError && (
             <p role="alert" className="text-ui-sm text-destructive">
               {t("codeReview.gh.browserFailed")}
@@ -445,6 +440,6 @@ function HostConnection({
           {openError && <code className="text-ui-sm">{pending ? deviceUrl : GITHUB_CLI_PAGE}</code>}
         </EmptyContent>
       </Empty>
-    </div>
+    </GitHubInboxShell>
   );
 }
