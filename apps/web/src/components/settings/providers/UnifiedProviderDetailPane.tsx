@@ -12,6 +12,8 @@ import {
   ProviderBrandTile,
 } from "~/components/ProviderBrandIcons";
 import { Button } from "~/components/ui/button";
+import { StatusChip } from "~/components/ui/status-chip";
+import { Spinner } from "~/components/ui/spinner";
 import { Input } from "~/components/ui/input";
 import { SelectItem } from "~/components/ui/select";
 import { Switch } from "~/components/ui/switch";
@@ -19,7 +21,6 @@ import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   CheckIcon,
-  Loader2Icon,
   LockIcon,
   PencilIcon,
   PlusIcon,
@@ -216,10 +217,9 @@ export function UnifiedProviderDetailPane(props: {
                 {props.provider.apiKeyConfigured ? (
                   <>
                     <span aria-hidden="true">·</span>
-                    <span className="inline-flex items-center gap-1.5 text-success">
-                      <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
-                      <span>{isZh ? "已配置密钥" : "Key saved"}</span>
-                    </span>
+                    <StatusChip className="text-success" dotClassName="bg-success">
+                      {isZh ? "已配置密钥" : "Key saved"}
+                    </StatusChip>
                   </>
                 ) : null}
                 {isGlobalDefault ? (
@@ -425,7 +425,7 @@ export function UnifiedProviderDetailPane(props: {
               className="transition-transform duration-120 active:scale-[0.98] motion-reduce:transition-none"
             >
               {testing ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
+                <Spinner aria-label="" className="size-3.5" />
               ) : testResult?.ok ? (
                 <CheckIcon className="size-3.5 text-success" />
               ) : (
@@ -473,7 +473,7 @@ export function UnifiedProviderDetailPane(props: {
             onClick={() => void persistProvider()}
             className="transition-transform duration-120 active:scale-[0.98] motion-reduce:transition-none"
           >
-            {saving ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
+            {saving ? <Spinner aria-label="" className="size-3.5" /> : null}
             {isZh ? "保存" : "Save changes"}
           </Button>
         </div>

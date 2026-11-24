@@ -9,6 +9,8 @@ import {
 } from "~/lib/providerInstancePresentation";
 import { cn } from "~/lib/utils";
 
+import { Button } from "../ui/button";
+
 export function ProviderAccentColorControl(props: {
   value: string | undefined;
   /** `undefined` clears the accent. */
@@ -38,13 +40,14 @@ export function ProviderAccentColorControl(props: {
         );
       })}
       {selected ? (
-        <button
-          type="button"
-          className="ms-1 cursor-interaction text-ui-sm text-muted-foreground hover:text-foreground"
+        <Button
+          size="xs"
+          variant="ghost"
+          className="ms-1"
           onClick={() => props.onChange(undefined)}
         >
           Clear
-        </button>
+        </Button>
       ) : null}
     </div>
   );

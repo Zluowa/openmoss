@@ -7,6 +7,8 @@ import { motion, useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
 import { ProviderBrandTile } from "~/components/ProviderBrandIcons";
 import { Button } from "~/components/ui/button";
+import { Spinner } from "~/components/ui/spinner";
+import { StatusDot } from "~/components/ui/status-chip";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -163,12 +165,11 @@ export function ProvidersSplitWorkbench(props: {
                   aria-label={refreshLabel}
                   onClick={props.onRefreshProviders}
                 >
-                  <RefreshCwIcon
-                    className={cn(
-                      "size-4 transition-transform duration-200",
-                      props.refreshingProviders && "animate-spin",
-                    )}
-                  />
+                  {props.refreshingProviders ? (
+                    <Spinner aria-label="" className="size-4" />
+                  ) : (
+                    <RefreshCwIcon className="size-4" />
+                  )}
                 </Button>
               }
             />
@@ -228,10 +229,7 @@ export function ProvidersSplitWorkbench(props: {
                     <ProviderBrandTile variant="bare" iconId={provider.iconId} size="sm" />
                     <span className={SETTINGS_SIDEBAR_ITEM_LABEL_CLASS_NAME}>{provider.name}</span>
                     {provider.apiKeyConfigured ? (
-                      <span
-                        aria-hidden="true"
-                        className="size-1.5 shrink-0 rounded-full bg-success/80"
-                      />
+                      <StatusDot aria-hidden="true" className="bg-success/80" />
                     ) : null}
                   </RailNavButton>
                 );
@@ -282,14 +280,7 @@ export function ProvidersSplitWorkbench(props: {
                               className="relative flex size-2.5 shrink-0 items-center justify-center"
                               aria-label={isZh ? "有新版本可更新" : "Update available"}
                             >
-                              <span
-                                aria-hidden="true"
-                                className="absolute inline-flex size-2 animate-ping rounded-full bg-info/45 motion-reduce:animate-none"
-                              />
-                              <span
-                                aria-hidden="true"
-                                className="relative inline-flex size-1.5 rounded-full bg-info"
-                              />
+                              <StatusDot aria-hidden="true" pulse className="bg-info" />
                             </span>
                           }
                         />

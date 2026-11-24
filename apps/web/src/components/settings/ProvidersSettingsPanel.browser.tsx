@@ -999,9 +999,6 @@ it("picks a Claude projects source without enabling sharing or rewriting an acco
     });
     await editor.getByRole("switch", { name: /Share Claude history across accounts/u }).click();
     expect(updateSettings).toHaveBeenLastCalledWith({ claudeShareStateAcrossAccounts: true });
-    await expect
-      .element(editor.getByText(/Existing chats keep their original source/u))
-      .toBeVisible();
     await captureHistorySettings("claude", editor.element() as HTMLElement);
   } finally {
     vi.unstubAllGlobals();
@@ -1016,7 +1013,6 @@ it("edits the selected account beside the list and offers one-click sign-in", as
   await page.getByRole("button", { name: "Select Work", exact: true }).click();
   const editor = page.getByRole("group", { name: "Work account", exact: true });
   await expect.element(editor.getByText("Not authenticated", { exact: true })).toBeVisible();
-  await expect.element(editor.getByText(/Use Sign in to authenticate/u)).toBeVisible();
   await expect
     .element(editor.getByRole("button", { name: "Sign in to Work", exact: true }))
     .toBeVisible();
@@ -1680,3 +1676,181 @@ it("renders zh-CN Moss CLI model authorization controls cleanly in Light and Dar
     else root.setAttribute("data-moss-locale", previous.locale);
   }
 });
+
+// --- Settings one-set pass 4/5: the shortened lines and the shared parts as a person sees them. ---
+
+async function inZhCn(run: () => Promise<void>) {
+  const root = document.documentElement;
+  const previous = { lang: root.lang, locale: root.getAttribute("data-moss-locale") };
+  root.lang = "zh-CN";
+  root.setAttribute("data-moss-locale", "zh-CN");
+  const restore = installZhCnUiLocalization();
+  try {
+    await run();
+  } finally {
+    restore();
+    root.lang = previous.lang;
+    if (previous.locale === null) root.removeAttribute("data-moss-locale");
+    else root.setAttribute("data-moss-locale", previous.locale);
+  }
+}
+
+async function inTheme(theme: "light" | "dark", run: () => Promise<void>) {
+  const root = document.documentElement;
+  const hadDark = root.classList.contains("dark");
+  root.classList.toggle("dark", theme === "dark");
+  try {
+    await run();
+  } finally {
+    root.classList.toggle("dark", hadDark);
+  }
+}
+
+async function openAccountAdvanced() {
+  const folded = page.getByRole("button", { name: "Advanced settings & accounts", exact: true });
+  if (folded.elements().length > 0 && folded.element().getAttribute("aria-expanded") === "false") {
+    await folded.click();
+  }
+  // An account editor with launch details keeps them behind "Advanced"; one without has none.
+  const advanced = page.getByRole("button", { name: "Advanced", exact: true });
+  if (advanced.elements().length > 0) await advanced.first().click();
+}
+
+function boxOf(element: Element) {
+  const rect = element.getBoundingClientRect();
+  return { width: Math.round(rect.width), height: Math.round(rect.height) };
+}
+
+for (const theme of ["light", "dark"] as const) {
+  it(`settings one-set 4/5 (${theme}): program path and Artifacts keep one short line each, in English and Chinese`, async () => {
+    await inTheme(theme, async () => {
+      const { props: panelProps } = accountProps({ disabledProviders: [] });
+      const { rerender } = await render(<ProvidersSettingsPanel {...panelProps} />);
+      await openAccountAdvanced();
+      await expect.element(page.getByText("Applies after restarting Moss.").first()).toBeVisible();
+      expect(document.body.textContent).not.toContain("then its bundled copy");
+
+      await rerender(<ProvidersSettingsPanel {...panelProps} providerTarget="claudeAgent" />);
+      await openAccountAdvanced();
+      await expect
+        .element(page.getByText("Publishes to claude.ai. Needs a paid claude.ai plan."))
+        .toBeVisible();
+      expect(document.body.textContent).not.toContain("keeps Artifacts off in embedded sessions");
+
+      await inZhCn(async () => {
+        await rerender(<ProvidersSettingsPanel {...panelProps} providerTarget="claudeAgent" />);
+        await expect
+          .element(page.getByText("会发布到 claude.ai，需要 claude.ai 付费套餐。"))
+          .toBeVisible();
+        await expect.element(page.getByText("重启 Moss 后生效。").first()).toBeVisible();
+      });
+    });
+  });
+
+  it(`settings one-set 4/5 (${theme}): a saved OpenCode password reads Configured`, async () => {
+    await inTheme(theme, async () => {
+      const { props: panelProps } = accountProps({
+        disabledProviders: [],
+        openCodeServerPasswordConfigured: true,
+      });
+      const { rerender } = await render(
+        <ProvidersSettingsPanel {...panelProps} providerTarget="opencode" />,
+      );
+      const openFold = async () => {
+        const folded = page.getByRole("button", {
+          name: "Advanced settings & accounts",
+          exact: true,
+        });
+        if (
+          folded.elements().length > 0 &&
+          folded.element().getAttribute("aria-expanded") === "false"
+        ) {
+          await folded.click();
+        }
+      };
+      await openFold();
+      const password = page.getByLabelText("OpenCode server password").first();
+      await expect.element(password).toBeVisible();
+      await expect.element(password).toHaveAttribute("placeholder", "Configured");
+      await inZhCn(async () => {
+        await rerender(<ProvidersSettingsPanel {...panelProps} providerTarget="opencode" />);
+        await openFold();
+        await expect
+          .element(page.getByLabelText("OpenCode 服务器密码").first())
+          .toHaveAttribute("placeholder", "已配置");
+      });
+    });
+  });
+
+  it(`settings one-set 4/5 (${theme}): accent Clear, refresh spinner and update dot are the shared parts`, async () => {
+    await inTheme(theme, async () => {
+      harness.statuses = [
+        ...harness.statuses.map((status) =>
+          status.provider === "opencode"
+            ? {
+                ...status,
+                available: true,
+                status: "ready" as const,
+                version: "2.2.5",
+                message: undefined,
+                versionAdvisory: {
+                  currentVersion: "2.2.5",
+                  latestVersion: "2.3.2",
+                  latestVersionKnowable: true,
+                  status: "behind_latest" as const,
+                  canUpdate: false,
+                  updateCommand: null,
+                  checkedAt: "2026-11-23T00:00:00.000Z",
+                  message: null,
+                },
+              }
+            : status,
+        ),
+        WORK_STATUS,
+      ];
+      let finish!: () => void;
+      harness.refresh.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const { props: panelProps } = accountProps({ disabledProviders: [] });
+      await render(<ProvidersSettingsPanel {...panelProps} />);
+
+      // Update available: the shared 6px status dot, visible in the rail.
+      const update = page.getByLabelText("Update available").first();
+      await expect.element(update).toBeVisible();
+      const dot = update.element().querySelector("span")!;
+      expect(boxOf(dot)).toEqual({ width: 6, height: 6 });
+      expect(getComputedStyle(dot).borderRadius).not.toBe("0px");
+
+      // Refreshing shows the shared spinner inside the same button.
+      await page.getByRole("button", { name: "Refresh status", exact: true }).click();
+      const checking = page.getByRole("button", { name: "Checking setup", exact: true });
+      await expect.element(checking).toBeDisabled();
+      // The shared Spinner (a central icon with role="status"), not a rotating refresh arrow.
+      const spinner = checking.element().querySelector('[role="status"]')!;
+      expect(spinner).not.toBeNull();
+      // Layout size, not the bounding box: the glyph is rotating, and a turned square measures wider.
+      const spinnerStyle = getComputedStyle(spinner);
+      expect({ width: spinnerStyle.width, height: spinnerStyle.height }).toEqual({
+        width: "16px",
+        height: "16px",
+      });
+      finish();
+      await expect
+        .element(page.getByRole("button", { name: "Refresh status", exact: true }))
+        .toBeEnabled();
+
+      // Accent Clear is a shared xs Button, the same height as the editor's other small buttons.
+      await page.getByRole("button", { name: "Select Work", exact: true }).click();
+      const editor = page.getByRole("group", { name: "Work account", exact: true });
+      const clear = editor.getByRole("button", { name: "Clear", exact: true });
+      await expect.element(clear).toBeVisible();
+      const remove = editor.getByRole("button", { name: "Remove" });
+      expect(boxOf(clear.element()).height).toBe(boxOf(remove.element()).height);
+      expect(clear.element().getAttribute("data-slot")).toBe("button");
+    });
+  });
+}

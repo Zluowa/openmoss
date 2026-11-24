@@ -15,10 +15,7 @@ import { useInPageGlassOverlay } from "~/hooks/useInPageGlassOverlay";
 import { GITHUB_PERSONAL_PROJECT_ID, type ProjectId, type ThreadId } from "@moss/contracts";
 import { useState, type ReactNode } from "react";
 
-import {
-  CHAT_SURFACE_CHIP_CLASS_NAME,
-  CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
-} from "~/components/chat/chatHeaderControls";
+import { Tabs } from "~/components/ui/tabs";
 import { MENU_ICON_CLASS_NAME } from "~/components/chat/composerPickerStyles";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "~/components/ui/empty";
 import { IconButton } from "~/components/ui/icon-button";
@@ -26,7 +23,6 @@ import { MenuItem } from "~/components/ui/menu";
 import { Skeleton } from "~/components/ui/skeleton";
 import { ChatBubbleIcon, ExternalLinkIcon, LinkIcon } from "~/lib/icons";
 import { PinStatusIcon } from "~/lib/pin";
-import { cn } from "~/lib/utils";
 import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import { SendToAgentMenuItems, type GitHubItemSendTarget } from "./GitHubItemAgentActions";
@@ -130,10 +126,7 @@ export interface GitHubItemTabOption<T extends string> {
   trailing?: ReactNode;
 }
 
-/**
- * A detail's tab row: the flat chip skin of the chat surfaces' own tabs (the dock tab strip and
- * the header toggles), so the page and the chat dock switch tabs with the same control.
- */
+/** A detail's views (概览 / 文件 …): the shared Tabs, as any page switches views inside it. */
 export function GitHubItemTabs<T extends string>({
   tabs,
   value,
@@ -149,24 +142,17 @@ export function GitHubItemTabs<T extends string>({
   className?: string;
 }) {
   return (
-    <nav className={cn("flex min-w-0 items-center gap-0.5", className)} aria-label={label}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.value}
-          type="button"
-          aria-pressed={value === tab.value}
-          onClick={() => onChange(tab.value)}
-          className={cn(
-            CHAT_SURFACE_CHIP_CLASS_NAME,
-            "inline-flex items-center px-2.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @max-[46rem]/topbar:px-2",
-            value === tab.value && CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
-          )}
-        >
-          {tab.label}
-          {tab.trailing}
-        </button>
-      ))}
-    </nav>
+    <Tabs
+      ariaLabel={label}
+      selected={value}
+      onSelect={onChange}
+      tabs={tabs.map((tab) => ({
+        id: tab.value,
+        label: tab.label,
+        ...(tab.trailing != null ? { trailing: tab.trailing } : {}),
+      }))}
+      {...(className ? { className } : {})}
+    />
   );
 }
 

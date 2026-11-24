@@ -77,7 +77,6 @@ export function ProviderActivitySettings({
     <SettingsSection title={t("settings.providers.activity.title")}>
       <SettingsRow
         title={t("settings.providers.activity.title")}
-        description={t("settings.providers.activity.description")}
         status={
           saving
             ? t("settings.providers.activity.saving")

@@ -225,6 +225,10 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
     "请为这个账号指定私有 HOME。配置目录默认为该 HOME 下的 .claude。",
   "Each account signs in separately. Chats created with shared history keep their selected source when you switch accounts.":
     "每个账号单独登录。启用共享历史后创建的对话，在切换账号时仍使用原先选定的历史目录。",
+  "Applies after restarting Moss.": "重启 Moss 后生效。",
+  "Publishes to claude.ai. Needs a paid claude.ai plan.":
+    "会发布到 claude.ai，需要 claude.ai 付费套餐。",
+  Configured: "已配置",
   "Each account signs in on its own and gets its own tab in the model picker.":
     "每个账号单独登录，并在模型选择器中有自己的标签。",
   "Shown in the account list and the model picker. Optional.":

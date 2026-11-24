@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { ProviderBrandTile } from "~/components/ProviderBrandIcons";
 import { ProviderIcon } from "~/components/ProviderIcon";
 import { Button } from "~/components/ui/button";
+import { StatusDot } from "~/components/ui/status-chip";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { DisclosureChevron } from "~/components/ui/DisclosureChevron";
 import { SelectItem } from "~/components/ui/select";
@@ -213,10 +214,7 @@ export function CliAgentDetailPane(props: {
               className="mt-0.5 flex items-center gap-1.5 text-ui-sm text-muted-foreground"
               data-agent-readiness={servedByMoss ? "moss" : (readiness?.state ?? "unknown")}
             >
-              <span
-                aria-hidden="true"
-                className={cn("size-1.5 shrink-0 rounded-full", statusDotClass)}
-              />
+              <StatusDot aria-hidden="true" className={statusDotClass} />
               <span>{statusText}</span>
             </p>
           </div>

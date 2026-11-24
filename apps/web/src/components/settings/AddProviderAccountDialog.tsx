@@ -16,7 +16,6 @@ import { ProviderIcon } from "../ProviderIcon";
 import { Button } from "../ui/button";
 import {
   Dialog,
-  DialogDescription,
   dialogFieldLabelClassName,
   DialogFooter,
   DialogHeader,
@@ -109,9 +108,6 @@ export function AddProviderAccountDialog(props: {
       <DialogPopup className="max-w-md">
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
-          <DialogDescription>
-            Each account signs in on its own and gets its own tab in the model picker.
-          </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <form id={formId} className="space-y-3" onSubmit={submit} noValidate>
@@ -149,9 +145,6 @@ export function AddProviderAccountDialog(props: {
                 spellCheck={false}
                 autoFocus
               />
-              <span className="block text-ui-sm text-muted-foreground">
-                Shown in the account list and the model picker. Optional.
-              </span>
             </label>
             <label className="block space-y-1">
               <span className={dialogFieldLabelClassName}>Account ID</span>
@@ -164,17 +157,9 @@ export function AddProviderAccountDialog(props: {
                 spellCheck={false}
                 aria-invalid={submitAttempted && idError !== null}
               />
-              <span
-                className={
-                  submitAttempted && idError !== null
-                    ? "block text-ui-sm text-destructive"
-                    : "block text-ui-sm text-muted-foreground"
-                }
-              >
-                {submitAttempted && idError !== null
-                  ? idError
-                  : "Routing key used by threads and sessions. Letters, digits, '-', or '_'."}
-              </span>
+              {submitAttempted && idError !== null ? (
+                <span className="block text-ui-sm text-destructive">{idError}</span>
+              ) : null}
             </label>
             <div className="space-y-1">
               <span className={dialogFieldLabelClassName}>Accent color</span>

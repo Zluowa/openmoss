@@ -7,11 +7,12 @@
 import type { ProviderKind, ServerProviderStatus } from "@moss/contracts";
 
 import { readAgentInstallState, useAgentInstall } from "~/lib/agentInstall";
-import { DownloadIcon, Loader2Icon } from "~/lib/icons";
+import { DownloadIcon } from "~/lib/icons";
 import type { AgentReadiness } from "~/lib/providerAvailability";
 import { providerInstallStateKey } from "~/lib/providerReadinessCopy";
 import { useTranslation } from "~/localization";
 import { Button } from "../ui/button";
+import { Spinner } from "~/components/ui/spinner";
 
 export function AgentInstallButton(props: {
   provider: ProviderKind;
@@ -63,7 +64,7 @@ export function AgentInstallButton(props: {
           onClick={() => void install.install(props.readiness)}
         >
           {state === "installing" ? (
-            <Loader2Icon aria-hidden="true" className="size-3.5 animate-spin" />
+            <Spinner aria-label="" className="size-3.5" />
           ) : (
             <DownloadIcon aria-hidden="true" className="size-3.5" />
           )}

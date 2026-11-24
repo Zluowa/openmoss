@@ -457,12 +457,14 @@ describe("GitHubInbox list", () => {
     await mount();
     await expectRows([44, 43, 42, 41]);
     // Each kind segment counts what it would show under the other filters.
-    await expect.element(page.getByRole("radio", { name: "All, 4" })).toBeChecked();
-    await expect.element(page.getByRole("radio", { name: "Pull requests, 2" })).toBeVisible();
+    await expect
+      .element(page.getByRole("tab", { name: "All, 4" }))
+      .toHaveAttribute("aria-selected", "true");
+    await expect.element(page.getByRole("tab", { name: "Pull requests, 2" })).toBeVisible();
     // No filter is away from its default, so no chips and nothing to clear.
     expect(document.querySelector('[aria-label="Active filters"]')).toBeNull();
 
-    await page.getByRole("radio", { name: "Issues, 2" }).click();
+    await page.getByRole("tab", { name: "Issues, 2" }).click();
     await expectRows([43, 42]);
 
     // One Filter menu holds every filter; projects and labels are submenus.
@@ -471,7 +473,7 @@ describe("GitHubInbox list", () => {
     await page.getByRole("menuitem", { name: /^Projects/ }).click();
     await page.getByRole("menuitemcheckbox", { name: "Beta" }).click();
     await expectRows([43]);
-    await expect.element(page.getByRole("radio", { name: "Pull requests, 1" })).toBeVisible();
+    await expect.element(page.getByRole("tab", { name: "Pull requests, 1" })).toBeVisible();
     await page.getByRole("menuitemcheckbox", { name: "Alpha" }).click();
     await expectRows([43, 42]);
     await closeMenu();
@@ -500,7 +502,7 @@ describe("GitHubInbox list", () => {
     await expectRows([42, 41]);
     await closeMenu();
 
-    await page.getByRole("radio", { name: /^Pull requests/ }).click();
+    await page.getByRole("tab", { name: /^Pull requests/ }).click();
     await expectRows([41]);
     await page
       .getByRole("textbox", { name: "Search pull requests and issues" })
@@ -514,13 +516,15 @@ describe("GitHubInbox list", () => {
   it("keeps filters across a remount, while a URL override wins for one visit", async () => {
     const first = await mount();
     await expectRows([44, 43, 42, 41]);
-    await page.getByRole("radio", { name: /^Issues/ }).click();
+    await page.getByRole("tab", { name: /^Issues/ }).click();
     await expectRows([43, 42]);
     await first.unmount();
 
     const second = await mount();
     await expectRows([43, 42]);
-    await expect.element(page.getByRole("radio", { name: /^Issues/ })).toBeChecked();
+    await expect
+      .element(page.getByRole("tab", { name: /^Issues/ }))
+      .toHaveAttribute("aria-selected", "true");
     await second.unmount();
 
     // The sidebar's per-project button: one project for this visit, saved filters untouched.
@@ -613,7 +617,7 @@ describe("GitHubInbox list", () => {
     await expectRows([41]);
     expect(api.list.mock.calls.length).toBe(closedReads);
     await expect.element(page.getByText(/^Each repository shows only/)).not.toBeInTheDocument();
-    await expect.element(page.getByRole("radio", { name: /^Issues/ })).toHaveTextContent("0");
+    await expect.element(page.getByRole("tab", { name: /^Issues/ })).toHaveTextContent("0");
     await page.getByRole("button", { name: "More code review actions" }).click();
     await page.getByRole("menuitem", { name: "Refresh", exact: true }).click();
     await closeMenu();
@@ -641,10 +645,10 @@ describe("GitHubInbox list", () => {
     await mount();
     await expectRows([44, 43, 42, 41]);
 
-    (document.querySelector('[role="radio"][aria-checked="true"]') as HTMLElement).focus();
+    (document.querySelector('[role="tab"][aria-selected="true"]') as HTMLElement).focus();
     await userEvent.keyboard("{ArrowRight}");
     await expectRows([44, 41]);
-    await expect.element(page.getByRole("radio", { name: /^Pull requests/ })).toHaveFocus();
+    await expect.element(page.getByRole("tab", { name: /^Pull requests/ })).toHaveFocus();
     await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
     await expectRows([43, 42]);
   });
@@ -677,7 +681,7 @@ describe("GitHubInbox selection", () => {
     expect(api.openExternal).toHaveBeenCalledWith("https://github.com/acme/widgets/issues/42");
 
     // The same tab row as a pull request: Summary, then the issue's Timeline.
-    await page.getByRole("button", { name: "Timeline" }).click();
+    await page.getByRole("tab", { name: "Timeline" }).click();
     await expect.element(page.getByText(/opened this issue/)).toBeVisible();
   });
 
@@ -690,7 +694,7 @@ describe("GitHubInbox selection", () => {
 
     await expect.element(page.getByRole("heading", { name: "Fix login redirect" })).toBeVisible();
     await expect.element(page.getByText("widgets #41")).toBeVisible();
-    await expect.element(page.getByRole("button", { name: "Summary" })).toBeVisible();
+    await expect.element(page.getByRole("tab", { name: "Summary" })).toBeVisible();
     expect(api.pullRequestDetail).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: projectA,
@@ -1251,7 +1255,7 @@ describe("GitHubInbox Linear issues", () => {
     await expectRows([44, 43, 42, 41]);
 
     await expect.element(page.getByRole("button", { name: /Sync fails offline/ })).toBeVisible();
-    await expect.element(page.getByRole("radio", { name: "Issues, 3" })).toBeVisible();
+    await expect.element(page.getByRole("tab", { name: "Issues, 3" })).toBeVisible();
     expect(api.sourceList).toHaveBeenCalledWith({
       source: "linear",
       teamIds: ["team-eng", "team-ops"],
@@ -1259,7 +1263,7 @@ describe("GitHubInbox Linear issues", () => {
     });
 
     // Pull requests only: Linear stays out of the list, but still counts under Issues.
-    await page.getByRole("radio", { name: /^Pull requests/ }).click();
+    await page.getByRole("tab", { name: /^Pull requests/ }).click();
     await expect
       .poll(() => page.getByRole("button", { name: /Sync fails offline/ }).elements().length)
       .toBe(0);
@@ -1411,7 +1415,7 @@ describe("GitHubInbox Linear issues", () => {
     await mount();
 
     await expect.element(page.getByRole("button", { name: /Sync fails offline/ })).toBeVisible();
-    await expect.element(page.getByRole("radio", { name: "Issues, 1" })).toBeVisible();
+    await expect.element(page.getByRole("tab", { name: "Issues, 1" })).toBeVisible();
     await expect.element(page.getByText("Sign in to GitHub CLI", { exact: true })).toBeVisible();
 
     await page.getByRole("button", { name: /Sync fails offline/ }).click();

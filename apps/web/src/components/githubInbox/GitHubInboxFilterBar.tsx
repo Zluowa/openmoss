@@ -17,11 +17,6 @@ import type {
   GitHubInboxStateFilter,
 } from "~/appSettings";
 import {
-  CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME,
-  CHAT_SURFACE_CONTROL_HOVER_CLASS_NAME,
-  CHAT_SURFACE_CONTROL_IDLE_TEXT_CLASS_NAME,
-} from "~/components/chat/chatHeaderControls";
-import {
   ComposerPickerMenuPopup,
   ComposerPickerMenuSubPopup,
 } from "~/components/chat/ComposerPickerMenuPopup";
@@ -45,7 +40,7 @@ import {
   MenuTrigger,
 } from "~/components/ui/menu";
 import { SearchInput } from "~/components/ui/search-input";
-import { useRadioGroupKeyboardNav } from "~/hooks/useRadioGroupKeyboardNav";
+import { Tabs } from "~/components/ui/tabs";
 import {
   EllipsisIcon,
   FilterIcon,
@@ -108,9 +103,7 @@ const KIND_TABS: ReadonlyArray<{
   },
   { value: "issue", label: "codeReview.kind.issue", short: "codeReview.kind.issue" },
 ];
-const KIND_VALUES = KIND_TABS.map((tab) => tab.value);
-
-/** Kind as quiet text tabs, in the same fill and ink as the detail's tabs, at list size. */
+/** Kind as the shared segmented control over the one list, each choice with its row count. */
 function KindTabs({
   value,
   counts,
@@ -121,49 +114,23 @@ function KindTabs({
   onChange: (kind: GitHubInboxKindFilter) => void;
 }) {
   const { t } = useTranslation();
-  const radioItemProps = useRadioGroupKeyboardNav({
-    values: KIND_VALUES,
-    value,
-    onValueChange: onChange,
-  });
   return (
-    <div
-      role="radiogroup"
-      aria-label={t("codeReview.kind.group")}
-      className="flex items-center gap-0.5"
-    >
-      {KIND_TABS.map((tab) => {
-        const active = tab.value === value;
+    <Tabs
+      variant="segmented"
+      ariaLabel={t("codeReview.kind.group")}
+      selected={value}
+      onSelect={onChange}
+      tabs={KIND_TABS.map((tab) => {
         const count = counts?.[tab.value];
-        return (
-          <button
-            key={tab.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={count === undefined ? t(tab.label) : `${t(tab.label)}, ${count}`}
-            className={cn(
-              "flex h-5 items-center gap-1 rounded-control-xs px-1.5 text-ui-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-              active
-                ? CHAT_SURFACE_CONTROL_ACTIVE_CLASS_NAME
-                : cn(
-                    CHAT_SURFACE_CONTROL_IDLE_TEXT_CLASS_NAME,
-                    CHAT_SURFACE_CONTROL_HOVER_CLASS_NAME,
-                  ),
-            )}
-            onClick={() => onChange(tab.value)}
-            {...radioItemProps(tab.value)}
-          >
-            {t(tab.short)}
-            {count === undefined ? null : (
-              <span className="text-ui-xs font-normal tabular-nums text-muted-foreground/70">
-                {count}
-              </span>
-            )}
-          </button>
-        );
+        return {
+          id: tab.value,
+          label: t(tab.short),
+          ...(count === undefined
+            ? { accessibleLabel: t(tab.label) }
+            : { trailing: count, accessibleLabel: `${t(tab.label)}, ${count}` }),
+        };
       })}
-    </div>
+    />
   );
 }
 

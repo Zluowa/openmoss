@@ -21,9 +21,7 @@ export function MossAccountSettingsSection() {
         ? t("provider.readiness.reason.moss-gateway-unreachable")
         : state === "unavailable"
           ? t("settings.providers.accounts.mossUnavailable")
-          : state === "signed-out"
-            ? t("settings.providers.accounts.mossDescription")
-            : undefined;
+          : undefined;
   const status =
     state === "connected"
       ? t("settings.providers.accounts.connected")

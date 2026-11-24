@@ -8,6 +8,7 @@ import {
   ProviderBrandTile,
 } from "~/components/ProviderBrandIcons";
 import { Button } from "~/components/ui/button";
+import { Spinner } from "~/components/ui/spinner";
 import {
   Dialog,
   DialogDescription,
@@ -26,7 +27,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import {
   CheckIcon,
   ChevronLeftIcon,
-  Loader2Icon,
   LockIcon,
   PencilIcon,
   PlusIcon,
@@ -532,7 +532,7 @@ export function AddUnifiedProviderDialog(props: {
                     className="transition-transform duration-120 active:scale-[0.98] motion-reduce:transition-none"
                   >
                     {testing ? (
-                      <Loader2Icon className="size-3.5 animate-spin" />
+                      <Spinner aria-label="" className="size-3.5" />
                     ) : testResult?.ok ? (
                       <CheckIcon className="size-3.5 text-success" />
                     ) : (
@@ -595,7 +595,7 @@ export function AddUnifiedProviderDialog(props: {
               disabled={saving || !name.trim() || !baseUrl.trim()}
               onClick={() => void handleSave()}
             >
-              {saving ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
+              {saving ? <Spinner aria-label="" className="size-3.5" /> : null}
               {isZh ? "保存" : "Save provider"}
             </Button>
           ) : null}

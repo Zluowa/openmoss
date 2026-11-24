@@ -630,7 +630,6 @@
     "raw-button": 1
   },
   "apps/web/src/components/githubInbox/GitHubInboxFilterBar.tsx": {
-    "raw-button": 1,
     "hand-spinner": 1
   },
   "apps/web/src/components/Icons.tsx": {
@@ -890,9 +889,6 @@
   "apps/web/src/components/pullRequest/GitHubItemHeader.tsx": {
     "native-title": 3
   },
-  "apps/web/src/components/pullRequest/GitHubItemPageLayout.tsx": {
-    "raw-button": 1
-  },
   "apps/web/src/components/pullRequest/PrStateChip.tsx": {
     "native-title": 1
   },
@@ -923,12 +919,6 @@
   "apps/web/src/components/SegmentedPicker.tsx": {
     "raw-button": 1,
     "native-title": 1
-  },
-  "apps/web/src/components/settings/AgentInstallButton.tsx": {
-    "hand-spinner": 1
-  },
-  "apps/web/src/components/settings/AgentSignInButton.tsx": {
-    "hand-spinner": 1
   },
   "apps/web/src/components/settings/AppIconPicker.tsx": {
     "arbitrary-radius": 1,
@@ -976,28 +966,10 @@
     "raw-button": 1
   },
   "apps/web/src/components/settings/ProviderAccentColorControl.tsx": {
-    "raw-button": 2
-  },
-  "apps/web/src/components/settings/providers/AddUnifiedProviderDialog.tsx": {
-    "hand-spinner": 2
-  },
-  "apps/web/src/components/settings/providers/CliAgentDetailPane.tsx": {
-    "hand-status-dot": 1
-  },
-  "apps/web/src/components/settings/providers/MossProviderDetailPane.tsx": {
-    "hand-status-dot": 2
-  },
-  "apps/web/src/components/settings/providers/ProvidersSplitWorkbench.tsx": {
-    "hand-spinner": 1,
-    "hand-status-dot": 3
-  },
-  "apps/web/src/components/settings/providers/UnifiedProviderDetailPane.tsx": {
-    "hand-spinner": 2,
-    "hand-status-dot": 1
+    "raw-button": 1
   },
   "apps/web/src/components/settings/ProvidersSettingsPanel.tsx": {
-    "raw-button": 2,
-    "hand-spinner": 2
+    "raw-button": 1
   },
   "apps/web/src/components/settings/ProviderUsageSettingsPanel.tsx": {
     "heavy-weight": 1,

@@ -8,9 +8,9 @@
 import type { ProviderInstanceId, ProviderKind, ServerProviderStatus } from "@moss/contracts";
 
 import { useAgentSignIn } from "~/lib/agentSignIn";
-import { Loader2Icon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 import { Button } from "../ui/button";
+import { Spinner } from "~/components/ui/spinner";
 
 export function AgentSignInButton(props: {
   provider: ProviderKind;
@@ -32,7 +32,7 @@ export function AgentSignInButton(props: {
     return (
       <span className="inline-flex items-center gap-2" data-agent-sign-in="waiting">
         <span className="inline-flex items-center gap-1.5 text-ui-sm text-muted-foreground">
-          <Loader2Icon aria-hidden="true" className="size-3.5 animate-spin" />
+          <Spinner aria-label="" className="size-3.5" />
           <span role="status">
             {signIn.state === "verifying"
               ? t("provider.signIn.verifying")

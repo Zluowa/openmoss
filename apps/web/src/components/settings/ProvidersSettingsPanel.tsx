@@ -67,15 +67,7 @@ import {
 import { useProviderStatusesForLocalConfig } from "~/hooks/useProviderStatusesForLocalConfig";
 import { useRefreshProviderStatusesNow } from "~/hooks/useProviderStatusRefresh";
 import { CentralIcon } from "~/lib/central-icons";
-import {
-  CopyIcon,
-  DownloadIcon,
-  FolderOpenIcon,
-  Loader2Icon,
-  PlusIcon,
-  PlayIcon,
-  XIcon,
-} from "~/lib/icons";
+import { CopyIcon, DownloadIcon, FolderOpenIcon, PlusIcon, PlayIcon, XIcon } from "~/lib/icons";
 import { copyTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { useTranslation, type TranslationKey } from "~/localization";
 import { normalizeProviderAccentColor } from "~/lib/providerInstancePresentation";
@@ -115,9 +107,10 @@ import {
   SETTINGS_OUTLINED_SURFACE_CLASS_NAME,
   SETTINGS_STACKED_ROWS_DIVIDER_CLASS_NAME,
 } from "~/settingsPanelStyles";
-import { ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME } from "~/surfaceStyles";
 
 import { Button } from "../ui/button";
+import { IconButton } from "~/components/ui/icon-button";
+import { Spinner } from "~/components/ui/spinner";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { SelectItem } from "../ui/select";
@@ -186,7 +179,7 @@ type ProviderInstallTextField = {
   readonly folder?: true;
   readonly label: string;
   readonly placeholder: string;
-  readonly description: ReactNode;
+  readonly description?: ReactNode;
 };
 type ProviderInstallPasswordField = {
   readonly kind: "password";
@@ -194,13 +187,13 @@ type ProviderInstallPasswordField = {
   readonly configuredKey: ProviderInstallPasswordConfiguredKey;
   readonly label: string;
   readonly placeholder: string;
-  readonly description: ReactNode;
+  readonly description?: ReactNode;
 };
 type ProviderInstallBooleanField = {
   readonly kind: "boolean";
   readonly settingsKey: ProviderInstallBooleanKey;
   readonly label: string;
-  readonly description: ReactNode;
+  readonly description?: ReactNode;
 };
 type ProviderInstallField =
   | ProviderInstallTextField
@@ -235,12 +228,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         settingsKey: "codexBinaryPath",
         label: "Codex binary path",
         placeholder: "Codex binary path",
-        description: (
-          <>
-            Moss uses the selected program, then the installed CLI, then its bundled copy. Program
-            changes take effect after restarting Moss.
-          </>
-        ),
+        description: "Applies after restarting Moss.",
       },
       {
         kind: "text",
@@ -248,15 +236,11 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         folder: true,
         label: "CODEX_HOME path",
         placeholder: "CODEX_HOME",
-        description:
-          "Codex home directory. When history sharing is enabled, this is the shared history source; each account needs a separate private config and sign-in directory.",
       },
       {
         kind: "boolean",
         settingsKey: "codexShareStateAcrossAccounts",
         label: "Share Codex history across accounts",
-        description:
-          "New chats use the selected history source with private account credentials and configuration. Existing chats keep their original history source. No history is moved or merged.",
       },
     ],
   },
@@ -268,12 +252,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         settingsKey: "claudeBinaryPath",
         label: "Claude binary path",
         placeholder: "Claude binary path",
-        description: (
-          <>
-            Moss uses the selected program, then the installed CLI, then its bundled copy. Program
-            changes take effect after restarting Moss.
-          </>
-        ),
+        description: "Applies after restarting Moss.",
       },
       {
         kind: "text",
@@ -281,7 +260,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         folder: true,
         label: "Claude HOME path",
         placeholder: "Claude HOME",
-        description: "Optional HOME directory for this Claude account.",
       },
       {
         kind: "text",
@@ -289,27 +267,17 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         label: "Shared Claude projects directory",
         placeholder: "Absolute projects directory",
         folder: true,
-        description:
-          "Choose the existing projects directory to share. Each account needs an explicit, separate private HOME and config directory.",
       },
       {
         kind: "boolean",
         settingsKey: "claudeShareStateAcrossAccounts",
         label: "Share Claude history across accounts",
-        description:
-          "New chats use this projects directory. Existing chats keep their original source. A newly shared Moss account starts with fresh user settings, home plugins and caches; workspace configuration still applies.",
       },
       {
         kind: "boolean",
         settingsKey: "claudeEnableArtifacts",
         label: "Artifacts, /design and /slides",
-        description: (
-          <>
-            Claude Code keeps Artifacts off in embedded sessions. Turn this on so{" "}
-            <code>/design</code> and <code>/slides</code> publish to claude.ai. Needs a claude.ai
-            login on a Pro, Max, Team or Enterprise plan, and applies to new sessions.
-          </>
-        ),
+        description: "Publishes to claude.ai. Needs a paid claude.ai plan.",
       },
     ],
   },
@@ -323,8 +291,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         placeholder: "Cursor Agent or Cursor CLI path",
         description: (
           <>
-            Leave blank to use <code>cursor-agent</code> from your PATH. Cursor editor CLI paths are
-            accepted too.
+            Leave blank to use <code>cursor-agent</code> from your PATH.
           </>
         ),
       },
@@ -333,7 +300,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         settingsKey: "cursorApiEndpoint",
         label: "Cursor API endpoint",
         placeholder: "https://api2.cursor.sh",
-        description: "Optional Cursor API endpoint override passed to `cursor-agent -e`.",
       },
     ],
   },
@@ -379,8 +345,7 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         placeholder: "devin",
         description: (
           <>
-            Leave blank to use <code>devin</code> from your PATH. Authenticate with{" "}
-            <code>devin auth login</code> or set WINDSURF_API_KEY.
+            Leave blank to use <code>devin</code> from your PATH.
           </>
         ),
       },
@@ -419,8 +384,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         kind: "boolean",
         settingsKey: "openCodeExperimentalWebSockets",
         label: "OpenAI response WebSockets",
-        description:
-          "Use Opencode's experimental OpenAI response WebSocket transport for managed local servers.",
       },
     ],
   },
@@ -443,7 +406,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         settingsKey: "piAgentDir",
         label: "Pi agent directory",
         placeholder: "Pi agent directory",
-        description: "Optional custom Pi agent directory for auth, models, skills, and commands.",
       },
     ],
   },
@@ -466,8 +428,6 @@ const PROVIDER_INSTALL_SETTINGS: readonly ProviderInstallSettings[] = [
         settingsKey: "ompAgentDir",
         label: "Oh My Pi agent directory",
         placeholder: "Oh My Pi agent directory",
-        description:
-          "Optional custom Oh My Pi agent directory for auth, models, skills, and commands.",
       },
     ],
   },
@@ -686,20 +646,16 @@ function SortableProviderVisibilityRow(props: {
       )}
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        <button
-          type="button"
+        <IconButton
           ref={setActivatorNodeRef}
-          className={cn(
-            "inline-flex size-6 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground active:cursor-grabbing",
-            ELEVATED_HOVER_SURFACE_RAISED_TEXT_CLASS_NAME,
-            SETTINGS_INSET_RADIUS_CLASS_NAME,
-          )}
-          aria-label={`Reorder ${props.option.title}`}
+          size="icon-sm"
+          className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
+          label={`Reorder ${props.option.title}`}
           {...attributes}
           {...listeners}
         >
           <CentralIcon name="dot-grid-2x3" className="size-4" />
-        </button>
+        </IconButton>
         <ProviderIcon provider={props.option.provider} className="size-4 shrink-0" />
         <span className="min-w-0">
           <span className="block truncate text-ui-lg leading-snug text-foreground">
@@ -844,7 +800,7 @@ function ProviderUpdateAction(props: {
       }}
     >
       {props.active ? (
-        <Loader2Icon className="size-4 animate-spin" />
+        <Spinner aria-label="" className="size-4" />
       ) : (
         <DownloadIcon className="size-4" />
       )}
@@ -862,7 +818,6 @@ function AccountFolderButton({ onSelect }: { onSelect: (directory: string) => vo
       size="xs"
       variant="outline"
       disabled={!desktop}
-      title={desktop ? undefined : "Directory selection is available in the Moss desktop app."}
       onClick={async () => {
         try {
           const directory = await ensureNativeApi().dialogs.pickFolder();
@@ -894,9 +849,11 @@ function ProviderInstallFieldControl(props: {
           <span className="block text-ui leading-snug font-medium text-foreground">
             {props.field.label}
           </span>
-          <span className="mt-1 block text-ui leading-snug text-muted-foreground">
-            {props.field.description}
-          </span>
+          {props.field.description ? (
+            <span className="mt-1 block text-ui leading-snug text-muted-foreground">
+              {props.field.description}
+            </span>
+          ) : null}
         </span>
         <Switch
           id={id}
@@ -927,11 +884,7 @@ function ProviderInstallFieldControl(props: {
           onCommit={(nextValue) =>
             props.updateSettings({ [props.field.settingsKey]: nextValue } as Partial<AppSettings>)
           }
-          placeholder={
-            isPassword && configured
-              ? "Configured — enter a replacement or leave blank"
-              : props.field.placeholder
-          }
+          placeholder={isPassword && configured ? "Configured" : props.field.placeholder}
           type={isPassword ? "password" : undefined}
           autoComplete={isPassword ? "new-password" : undefined}
           spellCheck={false}
@@ -942,9 +895,11 @@ function ProviderInstallFieldControl(props: {
           />
         ) : null}
       </div>
-      <span className="mt-1 block text-ui leading-snug text-muted-foreground">
-        {props.field.description}
-      </span>
+      {props.field.description ? (
+        <span className="mt-1 block text-ui leading-snug text-muted-foreground">
+          {props.field.description}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -981,9 +936,6 @@ function CodexDefaultAccountControl(props: {
           </SelectItem>
         ))}
       </SettingsSelectControl>
-      <span className="block text-ui-sm text-muted-foreground">
-        Used until you pick another account in the model picker.
-      </span>
     </div>
   );
 }
@@ -1058,7 +1010,6 @@ function providerAccountIdentityFields(
         key: "homePath",
         label: "CODEX_HOME path",
         placeholder: "~/.codex-work",
-        description: "Leave blank and Moss keeps this account's sign-in in its own folder.",
       },
     ];
   }
@@ -1068,9 +1019,6 @@ function providerAccountIdentityFields(
         key: "configDir",
         label: "Claude config directory",
         placeholder: "~/.claude-work",
-        description:
-          "Leave blank and Moss keeps this account's sign-in in its own folder. " +
-          "Set a directory to use a Claude config folder you already signed in to.",
       },
     ];
   }
@@ -1080,7 +1028,6 @@ function providerAccountIdentityFields(
       key: "profileDir",
       label: "Profile directory",
       placeholder: "Provider account directory",
-      description: "Used as this account's provider config root without changing your shell files.",
     },
   ];
 }
@@ -1442,21 +1389,6 @@ function ProviderAccountsControl(props: {
               />
             </label>
           ) : null}
-          {isAccountProvider ? (
-            <span className="block text-ui-sm text-muted-foreground sm:col-span-2">
-              {provider === "codex" && props.settings.codexShareStateAcrossAccounts
-                ? "Use a separate private directory for this account. The shared history directory is selected on the default account."
-                : provider === "claudeAgent" && props.settings.claudeShareStateAcrossAccounts
-                  ? "Choose a private HOME for this account. The config directory defaults to .claude inside that HOME."
-                  : provider === "codex"
-                    ? "Leave both paths blank and Moss keeps this account's sign-in in its " +
-                      "own folder. Set a shadow auth home to keep only the sign-in elsewhere " +
-                      "while sharing settings and history with the default account, or a " +
-                      "CODEX_HOME to keep everything separate."
-                    : "Leave blank and Moss keeps this account's sign-in in its own folder. " +
-                      "Set a directory to use a Claude config folder you already signed in to."}
-            </span>
-          ) : null}
           {!isAccountProvider && provider !== "pi" && provider !== "omp" ? (
             <label className="block sm:col-span-2">
               <span className="block text-ui-sm font-medium text-foreground">
@@ -1472,9 +1404,6 @@ function ProviderAccountsControl(props: {
                 placeholder="Provider account directory"
                 spellCheck={false}
               />
-              <span className="mt-1 block text-ui-sm text-muted-foreground">
-                Used as this account&apos;s provider config root without changing your shell files.
-              </span>
             </label>
           ) : null}
         </div>
@@ -1491,20 +1420,13 @@ function ProviderAccountsControl(props: {
               placeholder={cliCommand}
               spellCheck={false}
             />
-            <span
-              className={cn(
-                "mt-1 block text-ui-sm",
-                cliAliasInvalid || cliCommandConflicts
-                  ? "text-destructive"
-                  : "text-muted-foreground",
-              )}
-            >
-              {cliAliasInvalid
-                ? "Use 1–64 letters, numbers, dashes, or underscores; bare provider commands are reserved."
-                : cliCommandConflicts
-                  ? "This command is already assigned to another account. Choose a unique override."
-                  : "Available in Moss terminals for zsh, bash, fish, and scripts."}
-            </span>
+            {cliAliasInvalid || cliCommandConflicts ? (
+              <span className="mt-1 block text-ui-sm text-destructive">
+                {cliAliasInvalid
+                  ? "Use 1–64 letters, numbers, dashes, or underscores; bare provider commands are reserved."
+                  : "This command is already assigned to another account. Choose a unique override."}
+              </span>
+            ) : null}
           </label>
           {props.config.fields.filter(isAdvancedField).map((field) => renderField(field, entry))}
           {provider === "claudeAgent" ? (
@@ -1524,9 +1446,6 @@ function ProviderAccountsControl(props: {
                 placeholder="Optional shared credential directory"
                 spellCheck={false}
               />
-              <span className="mt-1 block text-ui-sm text-muted-foreground">
-                Leave blank unless your setup already uses a separate secure-storage directory.
-              </span>
             </label>
           ) : null}
         </ProviderInstanceAdvancedSection>
@@ -1605,7 +1524,7 @@ function ProviderAccountsControl(props: {
             onClick={() => void startSignIn(account)}
           >
             {startingSignIn ? (
-              <Loader2Icon className="size-4 animate-spin" />
+              <Spinner aria-label="" className="size-4" />
             ) : (
               <PlayIcon className="size-4" />
             )}
@@ -1636,9 +1555,7 @@ function ProviderAccountsControl(props: {
 
         {status.detail && status.tone !== "ready" && status.tone !== "idle" ? (
           <div className="border-b border-border/70 px-3 py-2 text-ui-sm text-muted-foreground">
-            {liveStatus?.authStatus === "unauthenticated"
-              ? "Use Sign in to authenticate this account, then complete the provider's prompts."
-              : status.detail}
+            {status.detail}
           </div>
         ) : null}
 
@@ -1728,17 +1645,9 @@ function ProviderAccountsControl(props: {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 sm:flex-nowrap">
-        <div className="min-w-0">
-          <span className="block text-ui-sm font-medium text-foreground">
-            {providerLabel} accounts
-          </span>
-          <span className="mt-1 block text-ui-sm text-muted-foreground">
-            {(provider === "codex" && props.settings.codexShareStateAcrossAccounts) ||
-            (provider === "claudeAgent" && props.settings.claudeShareStateAcrossAccounts)
-              ? "Each account signs in separately. Chats created with shared history keep their selected source when you switch accounts."
-              : "Each account signs in on its own and gets its own tab in the model picker. A thread stays on the account it started with."}
-          </span>
-        </div>
+        <span className="min-w-0 text-ui-sm font-medium text-foreground">
+          {providerLabel} accounts
+        </span>
         <div className="flex shrink-0 items-center gap-2">
           <Button
             type="button"
@@ -1746,11 +1655,6 @@ function ProviderAccountsControl(props: {
             variant="outline"
             onClick={importInstance}
             disabled={typeof window === "undefined" || !window.desktopBridge}
-            title={
-              typeof window === "undefined" || !window.desktopBridge
-                ? "Directory import is available in the Moss desktop app."
-                : `Use an existing ${providerLabel} directory as a new account, without moving it.`
-            }
           >
             <FolderOpenIcon className="size-4" />
             Import directory

@@ -10,6 +10,7 @@ import { useMossAccountGatewayState } from "~/components/auth/useMossGatewayUnre
 import { MossLogoMark } from "~/components/MossLogoMark";
 import { ProviderBrandTile } from "~/components/ProviderBrandIcons";
 import { Button } from "~/components/ui/button";
+import { StatusDot } from "~/components/ui/status-chip";
 import { Switch } from "~/components/ui/switch";
 import { CheckIcon, PlusIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -117,7 +118,7 @@ export function MossProviderDetailPane(props: {
           ) : accountStatusLabel ? (
             <span className="inline-flex items-center gap-1.5 text-ui-sm text-muted-foreground">
               {accountState === "connected" ? (
-                <span aria-hidden="true" className="size-1.5 rounded-full bg-success" />
+                <StatusDot aria-hidden="true" className="bg-success" />
               ) : null}
               <span>{accountStatusLabel}</span>
             </span>
