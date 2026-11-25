@@ -11,12 +11,20 @@ import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 
-import { useComposerDraftStore } from "../composerDraftStore";
+import {
+  resolvePreferredComposerModelSelection,
+  useComposerDraftStore,
+} from "../composerDraftStore";
+import {
+  composerThreadDraftIsPending,
+  composerThreadDraftPreviewText,
+} from "../composerDraftDomain";
 import { stripDiffSearchParams } from "../diffRouteSearch";
 import {
   getActiveComposerSendThreadIds,
   subscribeComposerSends,
 } from "../lib/composerSendOwnership";
+import { useTranslation } from "../localization";
 import {
   buildOpenThreadTabs,
   canKeepOpenThreadTab,
@@ -39,9 +47,16 @@ export function useOpenThreadTabs(input: {
   projectId?: ProjectId | null | undefined;
 }): OpenThreadTab[] {
   const { activeThreadId } = input;
+  const { t } = useTranslation();
   const threadIds = useOpenThreadTabsStore((state) => state.threadIds);
   const pruneThreadTabs = useOpenThreadTabsStore((state) => state.pruneThreadTabs);
   const threadsHydrated = useStore((state) => state.threadsHydrated);
+  const draftThreads = useComposerDraftStore(
+    useShallow((state) => threadIds.map((threadId) => state.draftThreadsByThreadId[threadId])),
+  );
+  const drafts = useComposerDraftStore(
+    useShallow((state) => threadIds.map((threadId) => state.draftsByThreadId[threadId])),
+  );
   const activeComposerSendThreadIds = useSyncExternalStore(
     subscribeComposerSends,
     getActiveComposerSendThreadIds,
@@ -91,9 +106,24 @@ export function useOpenThreadTabs(input: {
     );
   }, [activeThreadId, pruneThreadTabs, threadsHydrated]);
 
+  const fallbackDraftTitle = t("chat.header.newChat");
   const sources = threadIds.map((threadId, index): OpenThreadTabSource => {
     const summary = summaries[index];
     const activities = parentActivities[index];
+    const draftThread = draftThreads[index];
+    const draft = drafts[index];
+    const unsentDraft =
+      !summary && draftThread && draft && composerThreadDraftIsPending(draft)
+        ? {
+            projectId: draftThread.projectId,
+            title: composerThreadDraftPreviewText(draft) ?? fallbackDraftTitle,
+            provider: resolvePreferredComposerModelSelection({
+              draft,
+              threadModelSelection: undefined,
+              projectModelSelection: undefined,
+            }).provider,
+          }
+        : undefined;
     return {
       threadId,
       summary,
@@ -107,6 +137,7 @@ export function useOpenThreadTabs(input: {
         summary?.envMode === "worktree" &&
         summary.latestTurn === null &&
         summary.session === null,
+      ...(unsentDraft ? { unsentDraft } : {}),
     };
   });
 
@@ -122,9 +153,19 @@ export function useOpenThreadTabs(input: {
 export function useRecordOpenThreadTab(threadId: ThreadId | null): void {
   const showThreadInTab = useOpenThreadTabsStore((state) => state.showThreadInTab);
   useLayoutEffect(() => {
-    if (threadId) {
-      showThreadInTab(threadId);
-    }
+    if (!threadId) return;
+    const currentThreadId = useOpenThreadTabsStore.getState().currentThreadId;
+    const currentDraft =
+      currentThreadId && currentThreadId !== threadId
+        ? useComposerDraftStore.getState().draftsByThreadId[currentThreadId]
+        : undefined;
+    const preserveCurrentTab =
+      currentThreadId !== null &&
+      currentThreadId !== threadId &&
+      !useStore.getState().sidebarThreadSummaryById[currentThreadId] &&
+      Boolean(useComposerDraftStore.getState().draftThreadsByThreadId[currentThreadId]) &&
+      Boolean(currentDraft && composerThreadDraftIsPending(currentDraft));
+    showThreadInTab(threadId, preserveCurrentTab ? { preserveCurrentTab: true } : undefined);
   }, [showThreadInTab, threadId]);
 }
 

@@ -16,7 +16,7 @@ import {
   createBrowserTestServerConfig,
   createBrowserTestServerSettings,
 } from "../test/browserHarness";
-import { useOpenThreadTabs } from "./useOpenThreadTabs";
+import { useOpenThreadTabs, useRecordOpenThreadTab } from "./useOpenThreadTabs";
 
 function createQueryClient() {
   const queryClient = new QueryClient();
@@ -122,6 +122,62 @@ it("starts and stops the worktree tab spinner with its send before a session exi
   } finally {
     finishSend(false);
     await operation;
+    await hook.unmount();
+    queryClient.clear();
+  }
+});
+
+it("keeps an unsent draft tab and composer content when switching to another task", async () => {
+  localStorage.setItem("moss:server-settings-migrated:v1", "1");
+  const projectId = ProjectId.makeUnsafe("project");
+  const draftThreadId = ThreadId.makeUnsafe("unsent-draft");
+  const otherThreadId = ThreadId.makeUnsafe("other-saved");
+  useComposerDraftStore.getState().setProjectDraftThreadId(projectId, draftThreadId, {});
+  useComposerDraftStore.getState().setPrompt(draftThreadId, "我在第一张截图中输入的内容");
+  useStore.setState({
+    threadsHydrated: true,
+    sidebarThreadSummaryById: {
+      [otherThreadId]: {
+        id: otherThreadId,
+        projectId,
+        title: "Other task",
+        modelSelection: { provider: "codex", model: "gpt-5.4" },
+        session: null,
+        latestTurn: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+      } as SidebarThreadSummary,
+    },
+  });
+  const queryClient = createQueryClient();
+  const hook = await renderHook(
+    (props?: { activeThreadId: ThreadId }) => {
+      const activeThreadId = props?.activeThreadId ?? draftThreadId;
+      useRecordOpenThreadTab(activeThreadId);
+      return useOpenThreadTabs({ activeThreadId });
+    },
+    {
+      initialProps: { activeThreadId: draftThreadId },
+      wrapper: ({ children }: PropsWithChildren) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    },
+  );
+  try {
+    await expect
+      .poll(() => hook.result.current.map((tab) => [tab.threadId, tab.title]))
+      .toEqual([[draftThreadId, "我在第一张截图中输入的内容"]]);
+    await hook.rerender({ activeThreadId: otherThreadId });
+    await expect
+      .poll(() => hook.result.current.map((tab) => [tab.threadId, tab.title]))
+      .toEqual([
+        [draftThreadId, "我在第一张截图中输入的内容"],
+        [otherThreadId, "Other task"],
+      ]);
+    expect(useComposerDraftStore.getState().draftsByThreadId[draftThreadId]?.prompt).toBe(
+      "我在第一张截图中输入的内容",
+    );
+  } finally {
     await hook.unmount();
     queryClient.clear();
   }

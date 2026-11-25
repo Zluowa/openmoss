@@ -3320,6 +3320,38 @@ describe("ChatView transcript geometry (full app)", () => {
     try {
       // A lone active saved chat still needs no redundant rail tab.
       expect(page.getByRole("button", { name: "Chat 1", exact: true }).elements()).toHaveLength(0);
+      const emptyDraftId = ThreadId.makeUnsafe("019f88ab-cdea-7100-8b00-000000000021");
+      useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, emptyDraftId, {});
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: emptyDraftId },
+        search: () => ({ view: "editor" as const }),
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${emptyDraftId}`,
+        "The empty editor draft should open in place.",
+      );
+      // An empty draft opened in place replaces the saved chat with no second tab.
+      expect(useOpenThreadTabsStore.getState().threadIds).toEqual([emptyDraftId]);
+      expect(page.getByRole("button", { name: "Chat 1", exact: true }).elements()).toHaveLength(0);
+      // Returning from an empty/unedited draft drops it cleanly with no leftover tab.
+      await mounted.router.navigate({
+        to: "/$threadId",
+        params: { threadId: THREAD_ID },
+        search: () => ({ view: "editor" as const }),
+      });
+      await waitForURL(
+        mounted.router,
+        (path) => path === `/${THREAD_ID}`,
+        "The saved chat should open again from the empty draft.",
+      );
+      await vi.waitFor(() =>
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([THREAD_ID]),
+      );
+      expect(page.getByRole("button", { name: "Chat 1", exact: true }).elements()).toHaveLength(0);
+
+      // An edited unsent draft opens in place, then keeps its tab when switching back.
       const draftId = ThreadId.makeUnsafe("019f88ab-cdea-7100-8b00-000000000022");
       useComposerDraftStore.getState().setProjectDraftThreadId(PROJECT_ID, draftId, {});
       useComposerDraftStore.getState().setPrompt(draftId, "Keep this unsent prompt");
@@ -3333,10 +3365,10 @@ describe("ChatView transcript geometry (full app)", () => {
           "Keep this unsent prompt",
         ),
       );
-      // The draft opened in place of the saved chat, so the rail has no second chat tab.
+      // The draft opened in place of the saved chat, so the rail has no second chat tab yet.
       expect(useOpenThreadTabsStore.getState().threadIds).toEqual([draftId]);
       expect(page.getByRole("button", { name: "Chat 1", exact: true }).elements()).toHaveLength(0);
-      // Back to the saved chat the way the sidebar goes there; the draft keeps its text.
+      // Back to the saved chat the way the sidebar goes there; the edited draft keeps its tab and text.
       await mounted.router.navigate({
         to: "/$threadId",
         params: { threadId: THREAD_ID },
@@ -3348,8 +3380,10 @@ describe("ChatView transcript geometry (full app)", () => {
         "The saved chat should open again from the draft.",
       );
       await vi.waitFor(() =>
-        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([THREAD_ID]),
+        expect(useOpenThreadTabsStore.getState().threadIds).toEqual([draftId, THREAD_ID]),
       );
+      await expect.element(page.getByRole("button", { name: "Chat 1", exact: true })).toBeVisible();
+      await expect.element(page.getByRole("button", { name: "Chat 2", exact: true })).toBeVisible();
       expect(mounted.router.state.location.search.view).toBe("editor");
       expect(useComposerDraftStore.getState().draftsByThreadId[draftId]?.prompt).toBe(
         "Keep this unsent prompt",

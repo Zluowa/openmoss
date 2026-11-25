@@ -115,6 +115,18 @@ describe("showThreadInOpenTabs", () => {
       showThreadInOpenTabs({ threadIds, threadId: c, currentThreadId: a, inNewTab: true }),
     ).toBe(threadIds);
   });
+
+  it("keeps the current tab when preserveCurrentTab is true (unsent draft)", () => {
+    expect(
+      showThreadInOpenTabs({
+        threadIds: [a, b],
+        threadId: c,
+        currentThreadId: b,
+        inNewTab: false,
+        preserveCurrentTab: true,
+      }),
+    ).toEqual([a, b, c]);
+  });
 });
 
 describe("withActiveDraftOpenThreadTab", () => {
@@ -279,6 +291,39 @@ describe("buildOpenThreadTabs", () => {
     });
 
     expect(tabs.map((tab) => tab.threadId)).toEqual(["b"]);
+  });
+
+  it("keeps background tabs for unsent drafts with content while still hiding empty drafts", () => {
+    const tabs = buildOpenThreadTabs({
+      activeThreadId: ThreadId.makeUnsafe("saved"),
+      sources: [
+        serverSource("saved"),
+        {
+          threadId: ThreadId.makeUnsafe("draft-with-text"),
+          summary: undefined,
+          terminalEntryPoint: false,
+          unsentDraft: {
+            projectId: projectA,
+            title: "Unfinished prompt",
+            provider: "claudeAgent",
+          },
+        },
+        {
+          threadId: ThreadId.makeUnsafe("empty-draft"),
+          summary: undefined,
+          terminalEntryPoint: false,
+        },
+      ],
+    });
+
+    expect(tabs).toEqual([
+      expect.objectContaining({ threadId: "saved" }),
+      expect.objectContaining({
+        threadId: "draft-with-text",
+        title: "Unfinished prompt",
+        provider: "claudeAgent",
+      }),
+    ]);
   });
 });
 

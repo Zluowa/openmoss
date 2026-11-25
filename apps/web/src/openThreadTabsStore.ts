@@ -33,7 +33,7 @@ interface OpenThreadTabsStoreState {
   /** Adds a tab for the thread (the explicit "open in a new tab"). */
   openThreadTab: (threadId: ThreadId) => void;
   /** Records the thread on screen, in place unless a new tab was requested. */
-  showThreadInTab: (threadId: ThreadId) => void;
+  showThreadInTab: (threadId: ThreadId, options?: { preserveCurrentTab?: boolean }) => void;
   /**
    * Asks for the next thread shown to open in a tab of its own, for actions that only
    * learn the thread once it is on screen (a new chat from the strip's +).
@@ -80,13 +80,14 @@ export const useOpenThreadTabsStore = create<OpenThreadTabsStoreState>()(
         const threadIds = addOpenThreadTab(current, threadId);
         if (threadIds !== current) set({ threadIds });
       },
-      showThreadInTab: (threadId) => {
+      showThreadInTab: (threadId, options) => {
         const state = get();
         const threadIds = showThreadInOpenTabs({
           threadIds: state.threadIds,
           threadId,
           currentThreadId: state.currentThreadId,
           inNewTab: state.newTabRequested,
+          ...(options?.preserveCurrentTab ? { preserveCurrentTab: true } : {}),
         });
         if (
           threadIds === state.threadIds &&

@@ -34,6 +34,14 @@ export interface OpenThreadTabSource {
   parentThread?: Pick<Thread, "id" | "activities"> | undefined;
   terminalEntryPoint: boolean;
   isPreparingWorktree?: boolean | undefined;
+  /** An unsent local draft that holds text or attachments stays visible as a tab. */
+  unsentDraft?:
+    | {
+        projectId: ProjectId;
+        title: string;
+        provider: ProviderKind;
+      }
+    | undefined;
 }
 
 // The transitions return the input array untouched when nothing changes, so the store
@@ -64,11 +72,14 @@ export function showThreadInOpenTabs(input: {
   threadId: ThreadId;
   currentThreadId: ThreadId | null;
   inNewTab: boolean;
+  preserveCurrentTab?: boolean;
 }): readonly ThreadId[] {
   const { threadIds, threadId, currentThreadId } = input;
   if (threadIds.includes(threadId)) return threadIds;
   const currentIndex =
-    !input.inNewTab && currentThreadId !== null ? threadIds.indexOf(currentThreadId) : -1;
+    !input.inNewTab && !input.preserveCurrentTab && currentThreadId !== null
+      ? threadIds.indexOf(currentThreadId)
+      : -1;
   if (currentIndex < 0) return [...threadIds, threadId];
   const next = [...threadIds];
   next[currentIndex] = threadId;
@@ -163,13 +174,24 @@ function resolveOpenThreadTab(source: OpenThreadTabSource): OpenThreadTab | null
         })?.pulse === true,
     };
   }
+  if (source.unsentDraft) {
+    return {
+      threadId: source.threadId,
+      projectId: source.unsentDraft.projectId,
+      title: source.unsentDraft.title,
+      provider: source.unsentDraft.provider,
+      isTerminal: false,
+      isRunning: false,
+    };
+  }
   return null;
 }
 
 /**
  * Tabs in open order. `projectId` scopes the list (the editor view only shows its own
- * project's threads); unsent drafts never render. An active saved thread renders even when it is
- * a thread that could not keep a tab in the background (archived, Side chat).
+ * project's threads); empty unsent drafts never render, while drafts holding unsent
+ * content keep a tab so task switching never drops them. An active saved thread renders
+ * even when it is a thread that could not keep a tab in the background (archived, Side chat).
  */
 export function buildOpenThreadTabs(input: {
   sources: readonly OpenThreadTabSource[];
@@ -177,7 +199,10 @@ export function buildOpenThreadTabs(input: {
   projectId?: ProjectId | null | undefined;
 }): OpenThreadTab[] {
   return input.sources.flatMap((source) => {
-    if (source.threadId !== input.activeThreadId && !canKeepOpenThreadTab(source.summary, false)) {
+    if (
+      source.threadId !== input.activeThreadId &&
+      !canKeepOpenThreadTab(source.summary, Boolean(source.unsentDraft))
+    ) {
       return [];
     }
     const tab = resolveOpenThreadTab(source);
