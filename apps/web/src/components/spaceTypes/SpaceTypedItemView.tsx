@@ -36,9 +36,13 @@ import { Button } from "../ui/button";
 import { AppItemView } from "./app/AppItemView";
 import { BoardItemView } from "./board/BoardItemView";
 import { DashboardItemView } from "./dashboard/DashboardItemView";
-import { SpaceTitleMenu, SpaceUnifiedTopChrome } from "./shared/SpaceEditorChrome";
+import {
+  SpaceTitleMenu,
+  type SpaceTitleMenuHostCapabilities,
+  SpaceUnifiedTopChrome,
+} from "./shared/SpaceEditorChrome";
 import { DeckEditorHost } from "./slides/DeckEditorHost";
-import { pageTypesQueryKeys } from "./spaceItemTypes";
+import { createSpaceItem, isTypedSpaceKind, pageTypesQueryKeys } from "./spaceItemTypes";
 
 const DesignEditor = lazy(() =>
   import("./design/DesignEditor").then((module) => ({ default: module.DesignEditor })),
@@ -72,6 +76,10 @@ export function SpaceTypedItemView(props: {
   dock?: SpaceCanvasDockController | null | undefined;
   /** Optional back callback to Space Home when mounted as an opened artifact. */
   onBack?: (() => void) | undefined;
+  /** Opens a duplicated copy created from the title menu. */
+  onOpenCreated?: ((item: PageTypedItem) => void) | undefined;
+  /** Moves the open item to 回收站 from the title menu. */
+  onTrash?: ((item: PageTypedItem) => void) | undefined;
 }) {
   const query = useQuery({
     queryKey: pageTypesQueryKeys.item(props.account, props.scopeSpaceId, props.pageId),
@@ -110,13 +118,19 @@ function TypedItemEditor(
   const [state, setState] = useState<SaveState>("saved");
   const [templateNote, setTemplateNote] = useState<string | null>(null);
   const [hostActions, setHostActions] = useState<ReactNode | null>(null);
+  const [titleMenuCaps, setTitleMenuCaps] = useState<SpaceTitleMenuHostCapabilities | null>(null);
   const [hostInsets, setHostInsets] = useState<SpaceCanvasHostInsets>({
     bottomInsetPx: 0,
     rightInsetPx: 0,
   });
   const dockRegisterInsets = props.dock?.registerHostInsets;
+  const prevItemIdentityRef = useRef(`${item.page.id}:${item.kind}`);
   useEffect(() => {
+    const nextIdentity = `${item.page.id}:${item.kind}`;
+    if (prevItemIdentityRef.current === nextIdentity) return;
+    prevItemIdentityRef.current = nextIdentity;
     setHostActions(null);
+    setTitleMenuCaps(null);
   }, [item.page.id, item.kind]);
   useEffect(() => {
     const updateInsets = (next: SpaceCanvasHostInsets) =>
@@ -290,6 +304,27 @@ function TypedItemEditor(
     }
   };
 
+  const duplicateItem = async () => {
+    if (readOnly || !isTypedSpaceKind(item.kind) || item.kind === "board") return;
+    setTemplateNote(null);
+    if (!(await save())) return;
+    try {
+      const copyTitle = `${latest.current.title.trim() || "未命名"}（副本）`.slice(0, 256);
+      const copy = await createSpaceItem(ensureNativeApi(), {
+        scopeSpaceId: props.scopeSpaceId,
+        kind: item.kind,
+        title: copyTitle,
+        spaceId: item.page.spaceId,
+        parentPageId: item.page.parentPageId,
+        data: latest.current.draft,
+      });
+      props.onSaved?.(copy);
+      props.onOpenCreated?.(copy);
+    } catch (error) {
+      setTemplateNote(error instanceof Error ? error.message : "复制失败，请重试");
+    }
+  };
+
   const deck = useMemo<SlidesDeck | null>(() => {
     if (item.kind !== "slides") return null;
     try {
@@ -340,7 +375,17 @@ function TypedItemEditor(
         latest.current.title = next;
         schedule();
       }}
+      onVersionHistory={titleMenuCaps?.onVersionHistory}
+      onDuplicate={
+        !isTypedSpaceKind(item.kind) || item.kind === "board" || readOnly
+          ? undefined
+          : () => void duplicateItem()
+      }
+      exportItems={titleMenuCaps?.exportItems}
+      comments={titleMenuCaps?.comments}
+      languageAction={titleMenuCaps?.languageAction}
       onSaveAsTemplate={item.kind === "board" ? undefined : () => void saveAsTemplate()}
+      onTrash={props.onTrash && !readOnly ? () => props.onTrash?.(item) : undefined}
     />
   );
   const saveStatus = (
@@ -366,6 +411,7 @@ function TypedItemEditor(
     hostInsets,
     hostChrome,
     onHostActionsChange: setHostActions,
+    onTitleMenuChange: setTitleMenuCaps,
   };
 
   const unifiedTopChrome = props.hideHeader ? null : (

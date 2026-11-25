@@ -14,7 +14,7 @@ import { readNativeApi } from "~/nativeApi";
 import { useStore } from "~/store";
 import { createProjectSelector, createThreadSelector } from "~/storeSelectors";
 import { toastManager } from "../../ui/toast";
-import { PageChromeButton } from "./PageChromeButton";
+import { IconButton } from "../../ui/icon-button";
 
 /**
  * The folder transcription runs in: the page assistant's conversation when it has one, else the
@@ -82,13 +82,18 @@ export function PageDictationButton(props: {
   };
   const label = recorder.isRecording ? "停止听写" : busy ? "正在转成文字…" : "听写";
   return (
-    <PageChromeButton
-      icon={MicIcon}
+    <IconButton
+      size="icon-xs"
+      variant={recorder.isRecording ? "secondary" : "ghost"}
       label={label}
-      iconOnly
-      active={recorder.isRecording}
+      tooltip={label}
+      tooltipSide="top"
+      aria-pressed={recorder.isRecording}
       disabled={props.disabled || busy}
+      className="h-7 w-7 shrink-0 rounded-full"
       onClick={toggle}
-    />
+    >
+      <MicIcon className="size-3.5" aria-hidden />
+    </IconButton>
   );
 }

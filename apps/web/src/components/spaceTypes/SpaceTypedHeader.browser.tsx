@@ -15,7 +15,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
 import { MossLocaleScope } from "~/localization";
@@ -23,6 +23,7 @@ import { BrowserThemeFixture } from "~/test/browserThemeFixture";
 import { createDataSpaceFixture } from "~/test/mossDataSpaceFixture";
 
 import { spaceKindMeta } from "../space/spaceKinds";
+import { TooltipProvider } from "../ui/tooltip";
 import { SpaceTypedItemView } from "./SpaceTypedItemView";
 
 const DASHBOARD_DATA =
@@ -62,6 +63,7 @@ describe("typed editor header", () => {
         })),
         create: vi.fn(),
         save: vi.fn(),
+        dashboard: { report: vi.fn(async () => undefined), query: vi.fn() },
         templates: { list: vi.fn(async () => ({ templates: [] })), delete: vi.fn() },
       },
     });
@@ -79,14 +81,16 @@ describe("typed editor header", () => {
         client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
       >
         <MossLocaleScope locale="zh-CN">
-          <BrowserThemeFixture>
-            <span data-testid="sidebar-icon">
-              <Dashboard aria-hidden className="size-4" />
-            </span>
-            <div style={{ width: 1200, height: 700, display: "flex", flexDirection: "column" }}>
-              <SpaceTypedItemView account="acct" scopeSpaceId={null} pageId={dashPage.id} />
-            </div>
-          </BrowserThemeFixture>
+          <TooltipProvider>
+            <BrowserThemeFixture>
+              <span data-testid="sidebar-icon">
+                <Dashboard aria-hidden className="size-4" />
+              </span>
+              <div style={{ width: 1200, height: 700, display: "flex", flexDirection: "column" }}>
+                <SpaceTypedItemView account="acct" scopeSpaceId={null} pageId={dashPage.id} />
+              </div>
+            </BrowserThemeFixture>
+          </TooltipProvider>
         </MossLocaleScope>
       </QueryClientProvider>
     );
@@ -110,5 +114,49 @@ describe("typed editor header", () => {
       document.querySelector("[data-testid='sidebar-icon']")?.firstElementChild,
     );
     expect(glyph(pill.firstElementChild)).toBe(expected);
+  });
+
+  it("opens unified title menu items (重命名, 版本历史, 复制, 显示评论, 存为模板) on typed items (I-2)", async () => {
+    const Screen = () => (
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MossLocaleScope locale="zh-CN">
+          <TooltipProvider>
+            <BrowserThemeFixture>
+              <div style={{ width: 1200, height: 700, display: "flex", flexDirection: "column" }}>
+                <SpaceTypedItemView
+                  account="acct"
+                  scopeSpaceId={null}
+                  pageId={dashPage.id}
+                  onTrash={vi.fn()}
+                />
+              </div>
+            </BrowserThemeFixture>
+          </TooltipProvider>
+        </MossLocaleScope>
+      </QueryClientProvider>
+    );
+    const router = createRouter({
+      routeTree: createRootRoute({ component: Screen }),
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    await render(<RouterProvider router={router} />);
+    await userEvent.click(page.getByRole("button", { name: "营收看板 菜单", exact: true }));
+    await expect.element(page.getByRole("menuitem", { name: "重命名", exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "版本历史", exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "复制", exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "显示评论", exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "存为模板", exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "删除", exact: true })).toBeVisible();
+
+    await userEvent.click(page.getByRole("menuitem", { name: "版本历史", exact: true }));
+    await expect.element(page.getByTestId("dashboard-history-panel")).toBeVisible();
   });
 });

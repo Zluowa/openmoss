@@ -26,10 +26,12 @@ export type ClaudeOwnedProcess = SpawnedProcess & ProcessExitHandle & OwnedAgent
 export function spawnOwnedClaudeCodeProcess(
   options: SpawnOptions,
   lowerPriority = false,
+  deferPriorityUntilReady = false,
 ): ClaudeOwnedProcess {
   return spawnGuardedProviderChild(() =>
     spawnProcess(options.command, options.args, {
       lowerPriority,
+      ...(deferPriorityUntilReady ? { deferPriorityUntilReady: true } : {}),
       requireExecutable: true,
       ...(options.cwd ? { cwd: options.cwd } : {}),
       env: options.env,

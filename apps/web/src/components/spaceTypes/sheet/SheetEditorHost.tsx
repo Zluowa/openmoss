@@ -42,6 +42,7 @@ import { sheetAskPrompt } from "./sheetAiPrompt";
 import { SheetCellHistory, type CellHistoryTarget } from "./SheetCellHistory";
 import { SheetHistoryPanel } from "./SheetHistoryPanel";
 import { sheetCommentLabel, sheetCommentsKey, type SheetCommentCell } from "./sheetComments.logic";
+import type { SpaceTitleMenuHostCapabilities } from "../shared/SpaceEditorChrome";
 import { usePageCommentSync } from "../shared/pageCommentSync";
 import type { SheetAskRequest } from "./SheetEditor";
 
@@ -99,6 +100,7 @@ export function SheetEditorHost(props: {
   hostInsets?: SpaceCanvasHostInsets;
   hostChrome?: SheetEditorHostChrome;
   onHostActionsChange?: (actions: ReactNode | null) => void;
+  onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
 }) {
   const threads = useHandleNewThread();
   const threadsRef = useRef(threads);
@@ -131,6 +133,23 @@ export function SheetEditorHost(props: {
   const [cellTarget, setCellTarget] = useState<CellHistoryTarget | null>(null);
   const dockBusy = Boolean(dock?.busy);
   const aiWorking = run !== null || dockBusy;
+  const [sheetTitleCaps, setSheetTitleCaps] = useState<SpaceTitleMenuHostCapabilities | null>(null);
+  const onTitleMenuChange = props.onTitleMenuChange;
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    onTitleMenuChange({
+      ...sheetTitleCaps,
+      onVersionHistory: () => {
+        setHistoryOpen((open) => !open);
+        setViewing(null);
+        setCellTarget(null);
+      },
+    });
+  }, [onTitleMenuChange, sheetTitleCaps]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    return () => onTitleMenuChange(null);
+  }, [onTitleMenuChange]);
 
   // Cell comments live with the page on the server, as 文档's do.
   usePageCommentSync({
@@ -537,6 +556,7 @@ export function SheetEditorHost(props: {
         {...(props.hostInsets ? { hostInsets: props.hostInsets } : {})}
         {...(props.hostChrome ? { hostChrome: props.hostChrome } : {})}
         {...(props.onHostActionsChange ? { onHostActionsChange: props.onHostActionsChange } : {})}
+        {...(onTitleMenuChange ? { onTitleMenuChange: setSheetTitleCaps } : {})}
         {...(dock && !props.readOnly && !viewing ? { onAskDock } : {})}
         onSelectionReport={syncDockSelection}
         history={{

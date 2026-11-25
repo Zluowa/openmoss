@@ -202,7 +202,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
     : computerScope !== undefined
       ? null
       : variant === "terminal"
-        ? t("execApprovalRequest.shellLabel")
+        ? approval.toolName
+          ? `${t("execApprovalRequest.shellLabel")} · ${approval.toolName}`
+          : t("execApprovalRequest.shellLabel")
         : variant === "edit"
           ? t("patchApprovalRequest.fileEditsLabel")
           : variant === "mcp"
@@ -342,7 +344,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
           // The files named above are the request; no line asks to review nothing.
           namesRequest={editedFiles.length > 0}
           {...(approval.permissionProfile ? { permissionProfile: approval.permissionProfile } : {})}
-          {...(approval.toolName && !hasParams ? { toolName: approval.toolName } : {})}
+          {...(variant !== "terminal" && approval.toolName && !hasParams
+            ? { toolName: approval.toolName }
+            : {})}
           {...(hasParams && paramsOpen && approval.toolParamsDisplay
             ? {
                 toolParamsDisplay: webMcpCall

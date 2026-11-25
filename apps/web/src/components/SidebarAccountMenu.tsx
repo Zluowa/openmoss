@@ -221,14 +221,13 @@ export function resolveSidebarAccountIdentity(input: {
   }
 
   if (input.enterpriseState?.authenticated && lane === "enterprise") {
-    const keyLabel = `${input.enterpriseState.keyPrefix ?? "moss_sk_"}…`;
     return {
       kind: "authenticated",
       label: "企业 API Key",
       initials: "企",
-      title: keyLabel,
-      menuLabel: keyLabel,
-      menuTitle: keyLabel,
+      title: "企业 API Key",
+      menuLabel: "企业 API Key",
+      menuTitle: "企业 API Key",
     };
   }
 

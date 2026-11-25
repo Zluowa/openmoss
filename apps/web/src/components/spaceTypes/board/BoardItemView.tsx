@@ -13,6 +13,7 @@ import type {
 } from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
 import { MossCanvasWebSurface } from "../../MossCanvasWebSurface";
+import type { SpaceTitleMenuHostCapabilities } from "../shared/SpaceEditorChrome";
 
 const CanvasIcon = spaceKindMeta("board").icon;
 
@@ -31,6 +32,7 @@ export function BoardItemView(props: {
     origin?: "toolbar" | "selection" | "comment";
   }) => void;
   onHostActionsChange?: (actions: ReactNode | null) => void;
+  onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
 }) {
   const board = useMemo(() => {
     try {

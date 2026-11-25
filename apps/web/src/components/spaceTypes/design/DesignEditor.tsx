@@ -80,6 +80,7 @@ import {
 import { toastManager } from "../../ui/toast";
 import {
   SpaceSidePanel,
+  type SpaceTitleMenuHostCapabilities,
   SpaceToolbarButton,
   SpaceToolbarDivider,
 } from "../shared/SpaceEditorChrome";
@@ -304,6 +305,7 @@ export function DesignEditor(props: {
   hostInsets?: SpaceCanvasHostInsets;
   hostChrome?: DesignEditorHostChrome;
   onHostActionsChange?: (actions: ReactNode | null) => void;
+  onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
 }) {
   // Live room: everyone with this design open edits one canvas; the server saves it.
   const room = useRef<DesignRoomClient | null>(null);
@@ -1944,6 +1946,43 @@ export function DesignEditor(props: {
     if (!onHostActionsChange) return;
     return () => onHostActionsChange(null);
   }, [onHostActionsChange]);
+
+  const onTitleMenuChange = props.onTitleMenuChange;
+  const designTitleMenuCaps = useMemo<SpaceTitleMenuHostCapabilities | null>(() => {
+    if (!onTitleMenuChange) return null;
+    return {
+      exportItems: [
+        { id: "png-1", label: "PNG 1×", onSelect: () => chromeRef.current.exportPng(1) },
+        { id: "png-2", label: "PNG 2×", onSelect: () => chromeRef.current.exportPng(2) },
+        { id: "png-3", label: "PNG 3×", onSelect: () => chromeRef.current.exportPng(3) },
+        { id: "svg", label: "SVG", onSelect: () => chromeRef.current.exportSvg() },
+        { id: "pdf", label: "PDF（每个画板一页）", onSelect: () => chromeRef.current.exportPdf() },
+        {
+          id: "pdf-a4",
+          label: "PDF（按 A4 分页）",
+          onSelect: () => chromeRef.current.exportPdf("a4"),
+        },
+        {
+          id: "pdf-letter",
+          label: "PDF（按 Letter 分页）",
+          onSelect: () => chromeRef.current.exportPdf("letter"),
+        },
+        { id: "html", label: "HTML 网页（.zip）", onSelect: () => chromeRef.current.exportHtml() },
+      ],
+      comments: {
+        open: showComments,
+        onToggle: () => chromeRef.current.toggleComments(),
+      },
+    };
+  }, [onTitleMenuChange, showComments]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    onTitleMenuChange(designTitleMenuCaps);
+  }, [designTitleMenuCaps, onTitleMenuChange]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    return () => onTitleMenuChange(null);
+  }, [onTitleMenuChange]);
 
   const bottomInsetPx =
     props.hostChrome?.bottomInsetPx ??

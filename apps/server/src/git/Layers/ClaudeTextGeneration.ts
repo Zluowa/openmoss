@@ -267,6 +267,7 @@ const makeClaudeTextGeneration = Effect.gen(function* () {
               const child = yield* spawnProviderProcess(commandSpawner, binaryPath, args, {
                 cwd: isolatedCwd,
                 env,
+                deferPriorityUntilReady: true,
                 // Auxiliary generation has no state to preserve. A hard scoped kill
                 // avoids waiting forever when a CLI or descendant ignores SIGTERM.
                 killSignal: "SIGKILL",

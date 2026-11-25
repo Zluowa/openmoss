@@ -14,6 +14,7 @@ import type {
 } from "../../space/spaceCanvasDockContract";
 import { ReadonlyAppItemFrame } from "./ReadonlyAppItemFrame";
 import { readonlyAppItemCopy } from "./readonlyAppItemCopy";
+import type { SpaceTitleMenuHostCapabilities } from "../shared/SpaceEditorChrome";
 
 import { DashboardLayoutIcon } from "~/lib/icons";
 import { useTranslation } from "~/localization";
@@ -34,6 +35,7 @@ export function AppItemView(props: {
   hostInsets?: SpaceCanvasHostInsets;
   hostChrome?: AppItemHostChrome;
   onHostActionsChange?: (actions: ReactNode | null) => void;
+  onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
 }) {
   const { locale } = useTranslation();
   const copy = readonlyAppItemCopy(locale);

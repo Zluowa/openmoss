@@ -59,6 +59,7 @@ import {
   deckCommentThreads,
   postDeckComment,
 } from "./deckComments";
+import type { SpaceTitleMenuHostCapabilities } from "../shared/SpaceEditorChrome";
 import { DeckViewer } from "./DeckViewer";
 import { SlidesPresenter } from "./SlidesPresenter";
 
@@ -149,6 +150,7 @@ export function DeckEditorHost(props: {
   onAskDock?: (request: { prompt?: string; target?: DeckTarget; mode?: "ask" | "change" }) => void;
   /** Optional host header action lifting hook; clears on unmount. */
   onHostActionsChange?: (actions: ReactNode | null) => void;
+  onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
 }) {
   const client = useQueryClient();
   const { resolvedTheme } = useTheme();
@@ -810,6 +812,26 @@ export function DeckEditorHost(props: {
     if (effectiveHostChrome) channel.setHostChrome(effectiveHostChrome);
   }, [channel, effectiveHostChrome]);
   useEffect(() => () => props.onHostActionsChange?.(null), [props.onHostActionsChange]);
+  const onTitleMenuChange = props.onTitleMenuChange;
+  const deckTitleMenuCaps = useMemo<SpaceTitleMenuHostCapabilities | null>(() => {
+    if (!onTitleMenuChange) return null;
+    return {
+      exportItems: [
+        { id: "pptx", label: "PowerPoint (.pptx)", onSelect: () => void exportAs("pptx") },
+        { id: "pdf", label: "PDF (.pdf)", onSelect: () => void exportAs("pdf") },
+        { id: "html", label: "网页 (.html)", onSelect: () => void exportAs("html") },
+        { id: "png", label: "当前幻灯片 (.png)", onSelect: () => void exportAs("png") },
+      ],
+    };
+  }, [exportAs, onTitleMenuChange]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    onTitleMenuChange(deckTitleMenuCaps);
+  }, [deckTitleMenuCaps, onTitleMenuChange]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    return () => onTitleMenuChange(null);
+  }, [onTitleMenuChange]);
   useEffect(() => channel.setReadOnly(props.readOnly), [channel, props.readOnly]);
   useEffect(() => {
     if (props.saveState === "saved") channel.saveStatus("saved");

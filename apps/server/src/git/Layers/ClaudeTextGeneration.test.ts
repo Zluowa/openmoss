@@ -8,6 +8,7 @@ import { describe, it, assert } from "@effect/vitest";
 import { Effect, Fiber, FileSystem, Layer, Sink, Stream } from "effect";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -741,4 +742,63 @@ describe("ClaudeTextGenerationServiceLive", () => {
       Effect.provide(NodeServices.layer),
     );
   });
+
+  it.effect(
+    "keeps Windows Claude text generation at normal startup priority when lowerProviderProcessPriority is enabled",
+    () => {
+      if (process.platform !== "win32") return Effect.void;
+
+      const serverPriority = os.getPriority();
+      return Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const fixtureDirectory = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "claude-textgen-priority-",
+        });
+        const scriptPath = path.join(fixtureDirectory, "report-priority.mjs");
+        const binaryPath = path.join(fixtureDirectory, "fake-claude.cmd");
+        yield* fileSystem.writeFileString(
+          scriptPath,
+          [
+            'import os from "node:os";',
+            "process.stdin.resume();",
+            'process.stdin.on("end", () => {',
+            "  process.stdout.write(JSON.stringify({ structured_output: { title: `Priority ${os.getPriority()}` } }));",
+            "});",
+            "",
+          ].join("\n"),
+        );
+        yield* fileSystem.writeFileString(
+          binaryPath,
+          `@echo off\r\n"${process.execPath}" "${scriptPath}"\r\n`,
+        );
+
+        const textGeneration = yield* ClaudeTextGeneration;
+        const result = yield* textGeneration.generateThreadTitle({
+          cwd: fixtureDirectory,
+          message: "Check startup priority",
+          modelSelection: {
+            provider: "claudeAgent",
+            instanceId: "claudeAgent",
+            model: "claude-sonnet-4-6",
+          },
+          providerOptions: {
+            claudeAgent: {
+              binaryPath,
+            },
+          },
+        });
+
+        assert.strictEqual(result.title, `Priority ${serverPriority}`);
+      }).pipe(
+        Effect.provide(ClaudeTextGenerationServiceLive),
+        Effect.provide(ServerSettingsService.layerTest({ lowerProviderProcessPriority: true })),
+        Effect.provide(
+          ServerConfig.layerTest(process.cwd(), {
+            prefix: "claude-textgen-test-",
+          }),
+        ),
+        Effect.provide(NodeServices.layer),
+      );
+    },
+  );
 });

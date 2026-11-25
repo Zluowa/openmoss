@@ -3991,22 +3991,27 @@ export default function ChatView({
       // hysteresis) when the recorded overflow width is comfortably exceeded.
       const footerRow = composerForm.querySelector<HTMLElement>("[data-chat-composer-footer]");
       if (footerRow) {
-        const rowOverflows = footerRow.scrollWidth > footerRow.clientWidth + 1;
+        const currentTier = composerFooterTierRef.current;
+        const alreadyWrapped = composerFooterPlanForTier(currentTier, false).wrapFooter;
+        const rowOverflows = !alreadyWrapped && footerRow.scrollWidth > footerRow.clientWidth + 1;
         // The leading cluster clips (overflow-hidden) in compact mode instead
         // of growing the row's scrollWidth, so check it directly — a clipped
         // "+"/access-rules cluster must also demote the tier.
         const leadingCluster = footerRow.querySelector<HTMLElement>("[data-chat-composer-leading]");
         const leadingClips =
+          !alreadyWrapped &&
           nextCompact &&
           leadingCluster !== null &&
           leadingCluster.scrollWidth > leadingCluster.clientWidth + 1;
         // The model name gives way with an ellipsis instead of overflowing the row, so a
         // cut name is overflow too: every other step goes before it is cut.
-        const modelLabelCut = [
-          ...footerRow.querySelectorAll<HTMLElement>("[data-composer-model-label]"),
-        ].some((label) => label.scrollWidth > label.clientWidth + 1);
+        const modelLabelCut =
+          !alreadyWrapped &&
+          [...footerRow.querySelectorAll<HTMLElement>("[data-composer-model-label]")].some(
+            (label) => label.scrollWidth > label.clientWidth + 1,
+          );
         const nextStep = resolveNextComposerFooterTier({
-          currentTier: composerFooterTierRef.current,
+          currentTier,
           clientWidth: footerRow.clientWidth,
           isOverflowing: rowOverflows || leadingClips || modelLabelCut,
           demotionWidths: composerFooterDemotionWidthsRef.current,
@@ -7118,10 +7123,10 @@ export default function ChatView({
     pendingContextWindowLabel: contextWindowSelectionStatus.pendingSelectedLabel,
   };
   // The composer's leading controls (extras "+" menu, access-rules/runtime
-  // indicator). At the narrowest footer tier they relocate from the footer to
-  // the branch-toolbar row below the input instead of getting clipped; the
-  // relocated variant is icon-only since relocation means space is minimal.
-  const relocateComposerLeadingControls = composerFooterControlsPlan.relocateLeadingControls;
+  // indicator). At the narrowest footer tier the footer wraps onto multiple
+  // lines inside the composer box rather than kicking controls outside it; the
+  // wrapped variant keeps leading controls icon-only since space is minimal.
+  const wrapComposerFooter = composerFooterControlsPlan.wrapFooter;
   const composerExtrasTrigger = (
     <ComposerExtrasTrigger
       open={isComposerExtrasPanelOpen}
@@ -8062,11 +8067,10 @@ export default function ChatView({
                       ) : null,
                     }}
                     isComposerFooterCompact={isComposerFooterCompact}
-                    leadingControls={
-                      relocateComposerLeadingControls
-                        ? null
-                        : renderComposerLeadingControls({ iconOnly: false })
-                    }
+                    wrapFooter={wrapComposerFooter}
+                    leadingControls={renderComposerLeadingControls({
+                      iconOnly: wrapComposerFooter,
+                    })}
                     composerPickerControls={composerPickerControls}
                     contextMeter={composerContextMeter}
                     interactionMode={interactionMode}
@@ -8521,15 +8525,6 @@ export default function ChatView({
                     {imageComposerHost?.target
                       ? createPortal(composerSection, imageComposerHost.target)
                       : composerSection}
-                    {relocateComposerLeadingControls ? (
-                      <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
-                        <div className="flex w-full items-center gap-1">
-                          <div className="flex shrink-0 items-center gap-1 pl-1">
-                            {renderComposerLeadingControls({ iconOnly: true })}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               ) : null}
@@ -8774,21 +8769,13 @@ export default function ChatView({
                       </div>
                     </div>
                     {/* The pickers live in the composer's own footer before and after the first
-                        send; this row only holds the branch controls and, at the narrowest width,
-                        the relocated + and permission controls. */}
+                        send; this row only holds the branch controls. */}
                     <div className={cn(showTrailingBranchToolbar ? "pt-0.5" : "pt-3 sm:pt-4")} />
-                    {showTrailingBranchToolbar || relocateComposerLeadingControls ? (
+                    {showTrailingBranchToolbar ? (
                       <div className={CHAT_COLUMN_GUTTER_CLASS_NAME}>
                         <div className={COMPOSER_COLUMN_FRAME_CLASS_NAME}>
                           <div className="flex w-full items-center gap-1">
-                            {relocateComposerLeadingControls ? (
-                              <div className="flex shrink-0 items-center gap-1 pl-1">
-                                {renderComposerLeadingControls({ iconOnly: true })}
-                              </div>
-                            ) : null}
-                            {showTrailingBranchToolbar ? (
-                              <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
-                            ) : null}
+                            <BranchToolbar {...branchToolbarProps} className="min-w-0 flex-1" />
                           </div>
                         </div>
                       </div>

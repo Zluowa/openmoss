@@ -25,6 +25,7 @@ import {
 } from "@moss/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { MOSS_MANAGED_SESSION_RENEWED_MESSAGE } from "@moss/shared/mossManagedSession";
+import { hasPendingAgentStartupPriority } from "@moss/shared/agentStartupPriority";
 import { assessClaudeCache } from "@moss/shared/claudeCache";
 import { resetLocalAgentPathLookupCache } from "@moss/shared/localAgentExecutable";
 import {
@@ -69,6 +70,7 @@ import {
 import { claudeIsolatedHomePath } from "../claudeEnvironment.ts";
 import * as claudeEnvironmentModule from "../claudeEnvironment.ts";
 import { ServerSecretStoreLive } from "../../auth/Layers/ServerSecretStore.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   makeClaudeStateBindingAccess,
   type ClaudeStateBindingAccount,
@@ -8688,8 +8690,12 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       const requested = yield* Stream.runHead(adapter.streamEvents);
       assert.equal(requested._tag, "Some");
       if (requested._tag !== "Some" || requested.value.type !== "request.opened") return;
-      // The part past 400 characters (here, what it deletes) is on the card.
-      assert.equal(requested.value.payload.detail, `Bash: ${longCommand}`);
+      // The part past 400 characters (here, what it deletes) is on the card, without a tool prefix.
+      assert.equal(requested.value.payload.detail, longCommand);
+      assert.equal(
+        (requested.value.payload.args as { toolName?: unknown } | undefined)?.toolName,
+        "Bash",
+      );
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -8832,7 +8838,11 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       if (secondRequested._tag !== "Some" || secondRequested.value.type !== "request.opened") {
         return;
       }
-      assert.equal(secondRequested.value.payload.detail, "Bash: git status");
+      assert.equal(secondRequested.value.payload.detail, "git status");
+      assert.equal(
+        (secondRequested.value.payload.args as { toolName?: unknown } | undefined)?.toolName,
+        "Bash",
+      );
       const secondRuntimeRequestId = secondRequested.value.requestId;
       if (secondRuntimeRequestId === undefined) {
         return;
@@ -9008,6 +9018,64 @@ await agent("Draft the spec", { label: "delta-agent", phase: "Two" });
       Effect.provide(harness.layer),
     );
   });
+
+  it.effect(
+    "WALK-13 N13-3: a Claude command approval sends only the verbatim command in detail and keeps toolName in args",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "approval-required",
+        });
+
+        yield* Stream.take(adapter.streamEvents, 3).pipe(Stream.runDrain);
+
+        const canUseTool = harness.getLastCreateQueryInput()?.options.canUseTool;
+        assert.equal(typeof canUseTool, "function");
+        if (!canUseTool) {
+          return;
+        }
+
+        const command =
+          "echo step-01-checking-the-project-folder && echo step-02-checking-the-project-folder && echo WALK-END-OF-COMMAND";
+        const permissionPromise = canUseTool(
+          "PowerShell",
+          { command },
+          {
+            signal: new AbortController().signal,
+            toolUseID: "tool-use-ps-n13-3",
+            requestId: "request-tool-use-ps-n13-3",
+          },
+        );
+        const requested = yield* Stream.runHead(adapter.streamEvents);
+        if (requested._tag !== "Some" || requested.value.type !== "request.opened") {
+          assert.fail("expected the PowerShell command to open an approval request");
+          return;
+        }
+        assert.equal(requested.value.payload.requestType, "command_execution_approval");
+        assert.equal(requested.value.payload.detail, command);
+        assert.equal(
+          (requested.value.payload.args as { toolName?: unknown } | undefined)?.toolName,
+          "PowerShell",
+        );
+
+        yield* adapter.respondToRequest(
+          session.threadId,
+          ApprovalRequestId.makeUnsafe(String(requested.value.requestId)),
+          "decline",
+        );
+        yield* Stream.runHead(adapter.streamEvents);
+        yield* Effect.promise(() => permissionPromise);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
 
   it.effect("registers shared Claude subagent definitions with the SDK query options", () => {
     const harness = makeHarness();
@@ -16208,6 +16276,80 @@ describe("Claude subagent tracking", () => {
         assert.equal(supportedModelsCalls, 1);
         yield* adapter.stopSession(session.threadId);
       }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(layer),
+      );
+    },
+  );
+
+  it.effect(
+    "keeps Claude startup at normal Windows priority until system init when lowerProviderProcessPriority is enabled",
+    () => {
+      if (process.platform !== "win32") return Effect.void;
+
+      const serverPriority = os.getPriority();
+      const expectedLoweredPriority = Math.max(
+        serverPriority,
+        os.constants.priority.PRIORITY_BELOW_NORMAL,
+      );
+      const query = new FakeClaudeQuery();
+      let spawned: ClaudeOwnedProcess | undefined;
+      const layer = makeClaudeAdapterLive({
+        createQuery: (input) => {
+          spawned = input.options.spawnClaudeCodeProcess?.({
+            command: process.execPath,
+            args: ["-e", "setTimeout(() => {}, 10000)"],
+            env: input.options.env ?? {},
+            signal: new AbortController().signal,
+          }) as ClaudeOwnedProcess | undefined;
+          return query;
+        },
+      }).pipe(
+        Layer.provideMerge(ServerSettingsService.layerTest({ lowerProviderProcessPriority: true })),
+        Layer.provideMerge(ServerConfig.layerTest("/tmp/claude-adapter-test", "/tmp")),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const configuredDeferred = yield* Deferred.make<void>();
+        const eventsFiber = yield* Stream.runForEach(adapter.streamEvents, (event) =>
+          event.type === "session.configured"
+            ? Deferred.succeed(configuredDeferred, undefined)
+            : Effect.void,
+        ).pipe(Effect.forkScoped);
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+          modelSelection: { provider: "claudeAgent", model: "claude-sonnet-4-6" },
+        });
+
+        assert.isDefined(spawned?.pid);
+        try {
+          assert.equal(os.getPriority(spawned!.pid!), serverPriority);
+          assert.equal(hasPendingAgentStartupPriority(spawned!), true);
+
+          query.emit({
+            type: "system",
+            subtype: "init",
+            session_id: "sess-priority",
+            tools: [],
+            mcp_servers: [],
+            model: "claude-sonnet-4-6",
+          } as unknown as SDKMessage);
+
+          yield* Deferred.await(configuredDeferred);
+          assert.equal(hasPendingAgentStartupPriority(spawned!), false);
+          assert.equal(os.getPriority(spawned!.pid!), expectedLoweredPriority);
+        } finally {
+          spawned?.kill();
+          yield* Fiber.interrupt(eventsFiber);
+          yield* adapter.stopSession(session.threadId).pipe(Effect.ignore);
+        }
+      }).pipe(
+        Effect.scoped,
         Effect.provideService(Random.Random, makeDeterministicRandomService()),
         Effect.provide(layer),
       );

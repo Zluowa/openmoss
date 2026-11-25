@@ -5,9 +5,9 @@
 
 import { useEffect, useState } from "react";
 
+import { Button } from "../../ui/button";
 import { PageShareDialog, type PageShareTab } from "../sharing/PageShareDialog";
 import type { PageChromeSlotProps } from "./pageChromeContext";
-import { PAGE_CHROME_PILL_CLASS_NAME } from "./pageChromeStyles";
 
 type ShareListener = (tab: PageShareTab) => void;
 const listeners = new Set<ShareListener>();
@@ -33,16 +33,17 @@ export function TopBarShare({ context }: PageChromeSlotProps) {
   if (context.page.trashedAt) return null;
   return (
     <>
-      <button
-        type="button"
-        className={PAGE_CHROME_PILL_CLASS_NAME}
+      <Button
+        size="xs"
+        variant="outline"
+        className="h-7 shrink-0 rounded-full px-2.5 text-ui-sm font-medium"
         onClick={() => {
           setTab("share");
           setOpen(true);
         }}
       >
         分享
-      </button>
+      </Button>
       <PageShareDialog
         open={open}
         onOpenChange={setOpen}

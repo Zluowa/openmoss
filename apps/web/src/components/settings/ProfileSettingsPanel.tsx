@@ -122,8 +122,8 @@ export function useProfileAccountContext(): ProfileAccountContext {
     ? maskPhoneNumber(phoneSession.user.phoneNumber)
     : cloudAccount
       ? cloudAccount.email
-      : enterpriseSignedIn && enterpriseQuery.data?.keyPrefix
-        ? `${enterpriseQuery.data.keyPrefix}…`
+      : enterpriseSignedIn
+        ? "企业 API Key"
         : null;
 
   return { state, planName, accountSummary };

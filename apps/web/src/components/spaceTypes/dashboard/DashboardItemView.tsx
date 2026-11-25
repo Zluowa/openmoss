@@ -68,6 +68,7 @@ import { Button } from "../../ui/button";
 import { toastManager } from "../../ui/toast";
 import {
   SpaceSidePanel,
+  type SpaceTitleMenuHostCapabilities,
   SpaceToolbarButton,
   SpaceToolbarDivider,
   SpaceToolbarSegmented,
@@ -133,6 +134,7 @@ export function DashboardItemView(props: {
   readonly hostInsets?: SpaceCanvasHostInsets;
   readonly hostChrome?: DashboardItemHostChrome;
   readonly onHostActionsChange?: (actions: ReactNode | null) => void;
+  readonly onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
 }) {
   const { locale } = useTranslation();
   const copy = dashboardCopy(locale);
@@ -392,7 +394,7 @@ export function DashboardItemView(props: {
       return;
     const timer = setTimeout(() => {
       void ensureNativeApi()
-        .pageTypes.dashboard.report({
+        .pageTypes.dashboard?.report({
           scopeSpaceId: props.scopeSpaceId,
           pageId: page.id,
           revision: page.revision,
@@ -412,7 +414,7 @@ export function DashboardItemView(props: {
           width: runtime.pageText!.width,
           ...(showingDraft ? { draft: true } : {}),
         })
-        .catch(() => undefined);
+        ?.catch(() => undefined);
     }, REPORT_DELAY_MS);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -838,6 +840,35 @@ export function DashboardItemView(props: {
     if (!onHostActionsChange) return;
     return () => onHostActionsChange(null);
   }, [onHostActionsChange]);
+
+  const onTitleMenuChange = props.onTitleMenuChange;
+  const clearRuntimeAnchor = runtime.clearAnchor;
+  const dashboardTitleMenuCaps = useMemo<SpaceTitleMenuHostCapabilities | null>(() => {
+    if (!onTitleMenuChange) return null;
+    return {
+      onVersionHistory: () => togglePanel("history"),
+      ...(hasPage
+        ? {
+            comments: {
+              open: commenting,
+              disabled: editing || viewing !== null,
+              onToggle: () => {
+                setCommenting((value) => !value);
+                clearRuntimeAnchor();
+              },
+            },
+          }
+        : {}),
+    };
+  }, [clearRuntimeAnchor, commenting, editing, hasPage, onTitleMenuChange, viewing]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    onTitleMenuChange(dashboardTitleMenuCaps);
+  }, [dashboardTitleMenuCaps, onTitleMenuChange]);
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    return () => onTitleMenuChange(null);
+  }, [onTitleMenuChange]);
 
   const bottomInsetPx =
     props.hostChrome?.bottomInsetPx ??

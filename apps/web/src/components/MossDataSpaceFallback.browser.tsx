@@ -112,6 +112,7 @@ describe("Page recovery when the Canvas bundle cannot connect", () => {
     await mount();
     const titleMenu = async (entry: string) => {
       await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+      await page.getByRole("menuitem", { name: "更多操作", exact: true }).hover();
       await page.getByRole("menuitem", { name: entry, exact: true }).click();
     };
     await page
@@ -122,6 +123,7 @@ describe("Page recovery when the Canvas bundle cannot connect", () => {
     await page.screenshot({ path: "__screenshots__/qa-editor-unavailable.png" });
     await titleMenu("编辑 Markdown 源码");
     await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+    await page.getByRole("menuitem", { name: "更多操作", exact: true }).hover();
     await expect
       .element(page.getByRole("menuitem", { name: "返回文档编辑", exact: true }))
       .toBeVisible();
@@ -129,6 +131,7 @@ describe("Page recovery when the Canvas bundle cannot connect", () => {
     await page.screenshot({ path: "__screenshots__/qa-editor-markdown-recovery.png" });
     await titleMenu("置顶");
     await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+    await page.getByRole("menuitem", { name: "更多操作", exact: true }).hover();
     await expect
       .element(page.getByRole("menuitem", { name: "取消置顶", exact: true }))
       .toBeVisible();

@@ -126,9 +126,24 @@ async function expectPageHeaderLink(name: string) {
   );
 }
 
-/** Picks an entry from the open page's title menu. */
+const TITLE_MENU_TOP_LEVEL = new Set([
+  "重命名",
+  "版本历史",
+  "复制",
+  "导出",
+  "显示评论",
+  "隐藏评论",
+  "文档语言",
+  "删除",
+]);
+
+/** Picks an entry from the open page's title menu (or its 更多操作 submenu). */
 async function titleMenu(entry: string | RegExp, title = "Research page") {
   await page.getByRole("button", { name: `${title} 页面菜单`, exact: true }).click();
+  const isTopLevel = typeof entry === "string" && TITLE_MENU_TOP_LEVEL.has(entry);
+  if (!isTopLevel) {
+    await page.getByRole("menuitem", { name: "更多操作", exact: true }).hover();
+  }
   await page.getByRole("menuitem", { name: entry, exact: true }).click();
 }
 
@@ -377,12 +392,12 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     const parent = fixture.put(pageDocument());
     await mount();
     await openPage();
-    // 子页面 lives in the top bar's ＋ insert menu.
+    // 子页面 lives in the bottom bar's 更多操作 menu (D-3: no insert actions in header).
     await page
-      .getByRole("toolbar", { name: "页面工具栏", exact: true })
-      .getByRole("button", { name: /^(插入|Insert)$/ })
+      .getByRole("toolbar", { name: "文档底部工具栏", exact: true })
+      .getByRole("button", { name: "更多操作", exact: true })
       .click();
-    await page.getByRole("menuitem", { name: /^(子页面|Subpage)/ }).click();
+    await page.getByRole("menuitem", { name: /^(新建子页面|子页面|Subpage)/ }).click();
     // It opens at once, untitled: no dialog asks for a name first.
     await expectPageTitle("未命名文档");
     await expect
@@ -817,6 +832,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     await mount();
     await openPage();
     await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+    await page.getByRole("menuitem", { name: "更多操作", exact: true }).hover();
     await page.getByRole("menuitem", { name: "页面宽度", exact: true }).hover();
     await page.getByRole("menuitemradio", { name: "宽页面", exact: true }).click();
     await vi.waitFor(() =>
@@ -830,6 +846,7 @@ describe("Data spaces with the real editor and NativeApi boundary", () => {
     });
     await shot("docs-wide-page-light");
     await page.getByRole("button", { name: "Research page 页面菜单", exact: true }).click();
+    await page.getByRole("menuitem", { name: "更多操作", exact: true }).hover();
     await page.getByRole("menuitem", { name: "键盘快捷键", exact: true }).click();
     await expect.element(page.getByRole("dialog", { name: "键盘快捷键" })).toBeVisible();
     await expect.element(page.getByText("查找和替换", { exact: true })).toBeVisible();

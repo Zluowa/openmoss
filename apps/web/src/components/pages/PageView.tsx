@@ -22,7 +22,7 @@ import {
 import { ensureNativeApi, ensurePageSharingApi } from "~/nativeApi";
 import { useTheme } from "~/hooks/useTheme";
 import { downloadBlob } from "~/lib/browserDownload";
-import { XIcon } from "~/lib/icons";
+import { HistoryIcon, PageCommentIcon, Rows3Icon, XIcon } from "~/lib/icons";
 import { PageDraftJournal } from "~/lib/pageDraftJournal";
 import { mergePageComments } from "~/lib/pageCommentFeed";
 import { PageEditorSession } from "~/lib/pageEditorSession";
@@ -56,8 +56,9 @@ import { PageShortcutsDialog } from "./chrome/PageShortcutsDialog";
 import { docCommentsKey, nextPageDocStyle, pageDocStyleOf } from "./comments/pageDocComments";
 import type { PageChromeContext, PageSidePanel } from "./chrome/pageChromeContext";
 import { PageTitleMenu } from "./chrome/PageTitleMenu";
-import { PageTopBar } from "./chrome/PageTopBar";
-import { openPageShare } from "./chrome/TopBarShare";
+import { TopBarPresence } from "./chrome/TopBarPresence";
+import { openPageShare, TopBarShare } from "./chrome/TopBarShare";
+import { SpaceToolbarButton, SpaceUnifiedTopChrome } from "../spaceTypes/shared/SpaceEditorChrome";
 import { pageSharingQueryKeys } from "./sharing/pageSharing.logic";
 import {
   PageActivityPanel,
@@ -95,6 +96,8 @@ export interface PageViewProps {
   onOpenInNewWindow: (pageId: PageId) => void;
   /** Unified 3-state canvas-chat companion dock hosted in MossDataSpaceDestination. */
   dock?: SpaceCanvasDockController | null | undefined;
+  /** Optional back callback to Space Home when mounted as an opened artifact. */
+  onBack?: (() => void) | undefined;
 }
 
 export function PageView(props: PageViewProps) {
@@ -594,12 +597,23 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
     },
   };
 
+  const saveState = state.saving ? "saving" : session.dirty ? "dirty" : "saved";
+
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-page-id={page.id}>
-      <PageTopBar
-        context={context}
-        saveState={state.saving ? "saving" : session.dirty ? "dirty" : "saved"}
-        titleMenu={
+      <SpaceUnifiedTopChrome
+        ariaLabel="页面工具栏"
+        onBack={props.onBack}
+        leadingActions={
+          <SpaceToolbarButton
+            icon={Rows3Icon}
+            label="目录大纲"
+            pressed={tocOpen}
+            onClick={onToggleToc}
+            testId="page-toc-button"
+          />
+        }
+        titleSlot={
           <PageTitleMenu
             title={state.title}
             icon={kindMeta.icon}
@@ -612,6 +626,11 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
               void perform((saved) => mutate(saved, { op: "pin", pinned: !saved.page.pinned }))
             }
             onRename={(title) => session.change({ title })}
+            onHistory={() => setPanel(panel === "history" ? null : "history")}
+            comments={{
+              open: panel === "comments",
+              onToggle: () => setPanel(panel === "comments" ? null : "comments"),
+            }}
             onDuplicate={() => void duplicate()}
             onDownload={(format) => void download(format)}
             onFind={
@@ -681,6 +700,36 @@ function PageEditor({ document, ...props }: PageViewProps & { document: PagesRea
             }
           />
         }
+        statusSlot={
+          <span
+            role="status"
+            className="shrink-0 truncate text-ui-xs text-muted-foreground"
+            data-page-save-state={saveState}
+          >
+            {saveState === "saving" ? "正在保存…" : saveState === "dirty" ? "未保存" : ""}
+          </span>
+        }
+        hostActions={
+          <>
+            <SpaceToolbarButton
+              icon={HistoryIcon}
+              label="历史"
+              pressed={panel === "history"}
+              onClick={() => setPanel(panel === "history" ? null : "history")}
+              testId="page-history-button"
+            />
+            <SpaceToolbarButton
+              icon={PageCommentIcon}
+              label="评论"
+              pressed={panel === "comments"}
+              onClick={() => setPanel(panel === "comments" ? null : "comments")}
+              testId="page-comments-button"
+            />
+            <TopBarPresence context={context} />
+          </>
+        }
+        trailingActions={<TopBarShare context={context} />}
+        dock={props.dock ?? null}
       />
       {state.error ||
       actionError ||

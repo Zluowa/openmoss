@@ -110,7 +110,10 @@ import {
   MenuSubTrigger,
   MenuTrigger,
 } from "../../ui/menu";
-import { SpaceToolbarButton } from "../shared/SpaceEditorChrome";
+import {
+  SpaceToolbarButton,
+  type SpaceTitleMenuHostCapabilities,
+} from "../shared/SpaceEditorChrome";
 import { figuresOf, SheetBar } from "./SheetBar";
 import {
   makeSheetCanvasHooks,
@@ -417,6 +420,7 @@ export function SheetEditor(props: {
     readonly rightInsetPx?: number;
   };
   onHostActionsChange?: (actions: ReactNode | null) => void;
+  onTitleMenuChange?: (caps: SpaceTitleMenuHostCapabilities | null) => void;
   onAskDock?: (context: {
     sheetName: string;
     range: string | null;
@@ -2416,6 +2420,50 @@ export function SheetEditor(props: {
     if (!onHostActionsChange) return;
     return () => onHostActionsChange(null);
   }, [onHostActionsChange]);
+
+  const onTitleMenuChange = props.onTitleMenuChange;
+  const sheetTitleMenuCaps = useMemo<SpaceTitleMenuHostCapabilities | null>(() => {
+    if (!onTitleMenuChange) return null;
+    return {
+      exportItems: [
+        {
+          id: "xlsx",
+          label: "Excel 工作簿（.xlsx）",
+          onSelect: () => void exportAsRef.current("xlsx"),
+        },
+        {
+          id: "csv",
+          label: "当前工作表（.csv）",
+          onSelect: () => void exportAsRef.current("csv"),
+        },
+      ],
+      ...(commentsOn
+        ? {
+            comments: {
+              open: commenting,
+              onToggle: () => {
+                setCommenting((on) => !on);
+                setCommentOpen(null);
+              },
+            },
+          }
+        : {}),
+      languageAction: {
+        label: "区域和时区…",
+        onSelect: () => setLocaleDialog(true),
+      },
+    };
+  }, [commenting, commentsOn, onTitleMenuChange]);
+
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    onTitleMenuChange(sheetTitleMenuCaps);
+  }, [onTitleMenuChange, sheetTitleMenuCaps]);
+
+  useEffect(() => {
+    if (!onTitleMenuChange) return;
+    return () => onTitleMenuChange(null);
+  }, [onTitleMenuChange]);
 
   const viewTools = (
     <div className="flex shrink-0 items-center gap-1 pr-2" data-sheet-view-tools>

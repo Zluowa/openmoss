@@ -10,6 +10,7 @@ import { matchClaudeConfiguredModel, readClaudeSettingsModel } from "../claudeCo
  *
  * @module ClaudeAdapterLive
  */
+import { settleAgentStartupPriority } from "@moss/shared/agentStartupPriority";
 import { execProcessFile } from "@moss/shared/processRuntime";
 import nodePath from "node:path";
 import type {
@@ -2647,6 +2648,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           readonly env: NodeJS.ProcessEnv;
           readonly assertStateBindingCurrent?: () => void;
         },
+        deferPriorityUntilReady = false,
       ) =>
       (spawnOptions: ClaudeSpawnOptions): ClaudeSpawnedProcess => {
         runtime.assertStateBindingCurrent?.();
@@ -2658,7 +2660,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           spawn: () =>
             options?.spawnClaudeCodeProcess
               ? options.spawnClaudeCodeProcess(spawnOptions)
-              : spawnOwnedClaudeCodeProcess(spawnOptions, lowerPriority),
+              : spawnOwnedClaudeCodeProcess(spawnOptions, lowerPriority, deferPriorityUntilReady),
         });
         owner.process = process;
         return process;
@@ -5690,6 +5692,9 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             }
             mcpAppMethods.refreshToolDefinitions(context);
             context.lastFastModeSignature = claudeFastModeSignature(message);
+            if (context.processOwner.process) {
+              settleAgentStartupPriority(context.processOwner.process);
+            }
             yield* offerRuntimeEvent(context, {
               ...base,
               type: "session.configured",
@@ -7096,14 +7101,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               // calls still reach the user instead of becoming unrestricted.
               const requestId = ApprovalRequestId.makeUnsafe(yield* Random.nextUUIDv4);
               const requestType = classifyRequestType(toolName);
-              // The approval detail is persisted with the card; keep credentials out. It is the
-              // whole command: the card shows what will run exactly as sent.
-              const detail = summarizeToolRequest(
-                toolName,
-                toolInput,
-                JSON.stringify(toolInput, redactSensitiveJsonFields),
-                Number.POSITIVE_INFINITY,
-              );
+              // The approval detail is persisted with the card; keep credentials out. A
+              // command is the whole command exactly as sent and nothing before it (WALK-13
+              // N13-3: the box read 「PowerShell: echo …」, a tool row's summary); the tool's
+              // name rides in `args.toolName` for the card's header. Any other tool keeps its
+              // name and its whole input.
+              const commandValue = toolInput.command ?? toolInput.cmd;
+              const detail =
+                requestType === "command_execution_approval" &&
+                typeof commandValue === "string" &&
+                commandValue.trim().length > 0
+                  ? commandValue
+                  : summarizeToolRequest(
+                      toolName,
+                      toolInput,
+                      JSON.stringify(toolInput, redactSensitiveJsonFields),
+                      Number.POSITIVE_INFINITY,
+                    );
               const decisionDeferred = yield* Deferred.make<ProviderApprovalDecision>();
               const settledDeferred = yield* Deferred.make<ProviderApprovalDecision>();
               const pendingApproval: PendingApproval = {
@@ -7377,6 +7391,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             processOwner,
             yield* providerProcessPriorityEnabled,
             { binaryPath, env: claudeSdkEnv, assertStateBindingCurrent },
+            true,
           ),
           ...(input.cwd || input.additionalDirectories?.length
             ? {

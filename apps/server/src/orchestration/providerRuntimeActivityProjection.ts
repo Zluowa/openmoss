@@ -704,6 +704,16 @@ function requestedApprovalReason(
 function requestedMcpToolCallPresentation(
   event: Extract<ProviderRuntimeEvent, { type: "request.opened" }>,
 ): { title?: string; toolName?: string; toolServerName?: string; toolParamsDisplay?: unknown } {
+  // Command approvals (e.g. Claude PowerShell / Bash) carry `args.toolName` so the card
+  // header keeps the tool name visible without prefixing the verbatim command box.
+  if (
+    event.payload.requestType === "command_execution_approval" ||
+    event.payload.requestType === "exec_command_approval"
+  ) {
+    const args = asObject(event.payload.args);
+    const toolName = asString(args?.toolName)?.trim();
+    return toolName ? { toolName } : {};
+  }
   // "dynamic_tool_call" is the legacy Claude request type for the same approval.
   if (
     event.payload.requestType !== "tool_approval" &&

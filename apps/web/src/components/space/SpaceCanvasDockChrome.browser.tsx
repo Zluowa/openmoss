@@ -20,12 +20,12 @@ import { RightDock } from "../chat/RightDock";
 import { Button } from "../ui/button";
 import { TooltipProvider } from "../ui/tooltip";
 import { createDefaultRightDockState } from "~/rightDockStore.logic";
-import { PageTopBar } from "../pages/chrome/PageTopBar";
 import { BottomComposer } from "../pages/chrome/BottomComposer";
 import type { PageChromeContext, PageSidePanel } from "../pages/chrome/pageChromeContext";
 import { PageTitleMenu } from "../pages/chrome/PageTitleMenu";
-import { SpaceUnifiedTopChrome } from "../spaceTypes/shared/SpaceEditorChrome";
-import { PageTextIcon, SlidesIcon } from "~/lib/icons";
+import { TopBarShare } from "../pages/chrome/TopBarShare";
+import { SpaceToolbarButton, SpaceUnifiedTopChrome } from "../spaceTypes/shared/SpaceEditorChrome";
+import { HistoryIcon, PageCommentIcon, PageTextIcon, Rows3Icon, SlidesIcon } from "~/lib/icons";
 import {
   SPACE_DOCK_PERSIST_KEYS,
   type SpaceCanvasDockController,
@@ -90,7 +90,7 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
     await cleanup();
   });
 
-  it("renders unified 44px PageTopBar (TOC + 问 Moss) and centered Docs BottomComposer floating pill without navigating", async () => {
+  it("renders Docs on unified 44px SpaceUnifiedTopChrome (I-1), unified title menu (I-2), and BottomComposer without header insert actions (D-3)", async () => {
     const askSpy = vi.fn<(_req?: unknown) => Promise<void>>(async () => undefined);
     const docStyleCalls: Array<Record<string, unknown>> = [];
 
@@ -137,10 +137,17 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
 
       return (
         <div className="flex h-screen flex-col">
-          <PageTopBar
-            context={context}
-            saveState="saved"
-            titleMenu={
+          <SpaceUnifiedTopChrome
+            ariaLabel="页面工具栏"
+            leadingActions={
+              <SpaceToolbarButton
+                icon={Rows3Icon}
+                label="目录大纲"
+                pressed={activePanel === "navigation"}
+                onClick={() => setActivePanel((p) => (p === "navigation" ? null : "navigation"))}
+              />
+            }
+            titleSlot={
               <PageTitleMenu
                 title={pageObj.title}
                 icon={PageTextIcon}
@@ -151,6 +158,11 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
                 onShare={() => undefined}
                 onTogglePin={() => undefined}
                 onRename={() => undefined}
+                onHistory={() => setActivePanel((p) => (p === "history" ? null : "history"))}
+                comments={{
+                  open: activePanel === "comments",
+                  onToggle: () => setActivePanel((p) => (p === "comments" ? null : "comments")),
+                }}
                 onDuplicate={() => undefined}
                 onDownload={() => undefined}
                 onOpenInNewWindow={() => undefined}
@@ -161,6 +173,24 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
                 onTrash={() => undefined}
               />
             }
+            hostActions={
+              <>
+                <SpaceToolbarButton
+                  icon={HistoryIcon}
+                  label="历史"
+                  pressed={activePanel === "history"}
+                  onClick={() => setActivePanel((p) => (p === "history" ? null : "history"))}
+                />
+                <SpaceToolbarButton
+                  icon={PageCommentIcon}
+                  label="评论"
+                  pressed={activePanel === "comments"}
+                  onClick={() => setActivePanel((p) => (p === "comments" ? null : "comments"))}
+                />
+              </>
+            }
+            trailingActions={<TopBarShare context={context} />}
+            dock={dock}
           />
           <div
             className="flex-1"
@@ -180,8 +210,19 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
 
     const topBar = page.getByRole("toolbar", { name: "页面工具栏", exact: true });
     await expect.element(topBar).toBeVisible();
+    expect(topBar.element().hasAttribute("data-space-unified-chrome")).toBe(true);
+    expect(document.querySelector("[data-page-top-bar]")).toBeNull();
+    expect(document.querySelector("[data-page-slot='topBarQuickActions']")).toBeNull();
     const topBarRect = (topBar.element() as HTMLElement).getBoundingClientRect();
     expect(Math.round(topBarRect.height)).toBe(44);
+
+    // D-3: No insert quick actions in the header.
+    await expect
+      .element(topBar.getByRole("button", { name: "生成", exact: true }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(topBar.getByRole("button", { name: "插入", exact: true }))
+      .not.toBeInTheDocument();
 
     // Toggle TOC (`目录大纲`)
     await topBar.getByRole("button", { name: "目录大纲", exact: true }).click();
@@ -189,10 +230,33 @@ describe("SpaceCanvasDock & Unified Chrome", () => {
       "navigation",
     );
 
-    // Bottom floating pill toolbar controls (`字体`, `更多操作`, `评论`, `问 Moss`)
+    // I-2: Unified title menu shape exposes 重命名, 版本历史, 复制, 导出, 显示评论, 更多操作, 删除.
+    await topBar.getByRole("button", { name: "产品需求评审 页面菜单", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: "重命名", exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "版本历史", exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "复制", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "导出", exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "显示评论", exact: true }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "更多操作", exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "删除", exact: true })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+
+    // Bottom floating pill toolbar controls (`字体`, `听写`, `更多操作`, `评论`, `问 Moss`)
     const bottomToolbar = page.getByRole("toolbar", { name: "文档底部工具栏", exact: true });
     await expect.element(bottomToolbar).toBeVisible();
+    await expect
+      .element(bottomToolbar.getByRole("button", { name: "听写", exact: true }))
+      .toBeVisible();
     await bottomToolbar.getByRole("button", { name: "更多操作", exact: true }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: "更多插入", exact: true }))
+      .toBeVisible();
     await page.getByRole("menuitem", { name: "加宽页面", exact: true }).click();
     expect(docStyleCalls).toEqual([{ width: "wide" }]);
 

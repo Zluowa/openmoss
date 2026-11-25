@@ -140,12 +140,14 @@ export function AccountSettingsPanel({
 function AccountIdentityBanner({
   eyebrow,
   title,
+  initials: initialsOverride,
   subtitle,
   monoTitle = false,
   onOpenProfile,
 }: {
   readonly eyebrow: string;
   readonly title: string;
+  readonly initials?: string | undefined;
   readonly subtitle: string;
   readonly monoTitle?: boolean;
   readonly onOpenProfile: () => void;
@@ -155,7 +157,7 @@ function AccountIdentityBanner({
   const { avatarSrc, profileState } = useResolvedMossProfileAvatar();
   const { color: avatarColor } = useProfileAvatarColor();
   const effectiveName = profileState?.profile.displayName?.trim() || title;
-  const initials = deriveProfileInitials(effectiveName, "M");
+  const initials = initialsOverride ?? deriveProfileInitials(effectiveName, "M");
 
   return (
     <section
@@ -582,9 +584,9 @@ function MossEnterpriseAccountSettingsBody({
     <div className="flex min-w-0 flex-col gap-6" data-testid="settings-account-enterprise">
       <AccountIdentityBanner
         eyebrow="Moss 企业账号"
-        title={`${state.keyPrefix}…`}
+        title="企业 API Key"
+        initials="企"
         subtitle={`${state.modelCount > 0 ? `${state.modelCount} 个可用模型 · ` : ""}${mossAccessLaneSummary("enterprise")}`}
-        monoTitle
         onOpenProfile={onOpenProfile}
       />
 

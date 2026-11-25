@@ -88,7 +88,8 @@ export function ComposerModelMenuTrigger(props: {
       variant="chrome"
       disabled={props.disabled ?? false}
       className={cn(
-        "min-w-0 justify-start gap-1.5 whitespace-nowrap px-2 sm:px-2.5 [&_svg,&_[data-slot=central-icon]]:mx-0",
+        "min-w-0 max-w-full shrink justify-start whitespace-nowrap [&_svg,&_[data-slot=central-icon]]:mx-0",
+        props.hideAccountName ? "gap-1 px-1.5" : "gap-1.5 px-2 sm:px-2.5",
         COMPOSER_PICKER_TRIGGER_TEXT_CLASS_NAME,
       )}
       aria-label="Change model and reasoning"
@@ -166,9 +167,13 @@ export function ComposerModelMenuTrigger(props: {
     </>
   );
 
-  const labelRowClassName = "flex min-w-0 items-center gap-1.5 overflow-hidden";
+  const compactChrome = Boolean(props.hideAccountName);
+  const labelRowClassName = cn(
+    "flex min-w-0 items-center overflow-hidden",
+    compactChrome ? "gap-1" : "gap-1.5",
+  );
   const triggerContent = (
-    <span className="flex min-w-0 items-center gap-1.5">
+    <span className={cn("flex min-w-0 items-center", compactChrome ? "gap-1" : "gap-1.5")}>
       <span className="relative flex min-w-0 items-center">
         {sizingLabel ? (
           <>
@@ -183,7 +188,10 @@ export function ComposerModelMenuTrigger(props: {
           <span className={labelRowClassName}>{renderLabel(liveLabel, true)}</span>
         )}
       </span>
-      <ChevronDownIcon aria-hidden="true" className="ms-0.5 size-3 shrink-0 opacity-60" />
+      <ChevronDownIcon
+        aria-hidden="true"
+        className={cn("size-3 shrink-0 opacity-60", !compactChrome && "ms-0.5")}
+      />
     </span>
   );
 

@@ -1043,3 +1043,51 @@ describe("WALK-12 N12-10: the command approval card draws nothing that looks lik
     });
   }
 });
+
+describe("WALK-13 N13-3: Claude command approval shows only the command in the box and keeps the tool name on the card", () => {
+  it("WALK-13 N13-3: shows verbatim command without PowerShell: prefix and keeps PowerShell in the header", async () => {
+    const command = "echo step-01-checking-the-project-folder && echo WALK-END-OF-COMMAND";
+    for (const [locale, expectedHeader] of [
+      ["zh-CN", "终端 · PowerShell"],
+      ["en", "Terminal · PowerShell"],
+    ] as const) {
+      const [approval] = derivePendingApprovals([
+        {
+          id: EventId.makeUnsafe("walk13-n13-3"),
+          tone: "approval",
+          kind: "approval.requested",
+          summary: "Command approval requested",
+          payload: {
+            requestId: APPROVAL_REQUEST_ID,
+            lifecycleGeneration: LIFECYCLE_GENERATION,
+            requestKind: "command",
+            requestType: "command_execution_approval",
+            detail: command,
+            toolName: "PowerShell",
+          },
+          createdAt: "2026-11-25T04:35:00.000Z",
+          turnId: TurnId.makeUnsafe("turn-walk13-n13-3"),
+        },
+      ]);
+      expect(approval).toBeDefined();
+      const screen = await render(
+        <MossLocaleScope locale={locale}>
+          <ComposerPendingApprovalPanel
+            approval={approval!}
+            pendingCount={1}
+            isResponding={false}
+            onRespond={vi.fn(async () => undefined)}
+          />
+        </MossLocaleScope>,
+      );
+      try {
+        await expect.element(page.getByText(expectedHeader, { exact: true })).toBeVisible();
+        expect(document.querySelector<HTMLElement>("[data-approval-command]")?.textContent).toBe(
+          command,
+        );
+      } finally {
+        await screen.unmount();
+      }
+    }
+  });
+});

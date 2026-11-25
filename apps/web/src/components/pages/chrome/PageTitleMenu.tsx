@@ -1,14 +1,9 @@
 // FILE: PageTitleMenu.tsx
-// Purpose: The page's title pill and the menu it opens: navigation, share, pin, rename,
-//          duplicate, download, find and replace, page width and fonts, new window, activity,
-//          files, move, schedule, keyboard shortcuts, delete.
+// Purpose: The page's title pill and menu, built on SpaceTitleMenu so 文档 shares the unified
+//          资料空间 title menu shape while preserving every document action in 更多操作.
 // Layer: Space page chrome (owned by space-ui)
 
-import { useState } from "react";
-
 import type { LucideIcon } from "~/lib/icons";
-import { cn } from "~/lib/utils";
-import { ChevronDownIcon } from "~/lib/icons";
 import type { PageExportFormat } from "~/lib/pageExport";
 import {
   PAGE_DOC_LANGUAGES,
@@ -16,10 +11,9 @@ import {
   type PageEditorDocStylePatch,
 } from "~/lib/pageRichEditorChannel";
 
-import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
-import { SpaceInlineRename } from "../../space/SpaceInlineRename";
+import { ComposerPickerMenuSubPopup } from "../../chat/ComposerPickerMenuPopup";
+import { SpaceTitleMenu } from "../../spaceTypes/shared/SpaceEditorChrome";
 import {
-  Menu,
   MenuGroup,
   MenuGroupLabel,
   MenuItem,
@@ -28,11 +22,8 @@ import {
   MenuSeparator,
   MenuShortcut,
   MenuSub,
-  MenuSubPopup,
   MenuSubTrigger,
-  MenuTrigger,
 } from "../../ui/menu";
-import { PAGE_CHROME_PILL_CLASS_NAME } from "./pageChromeStyles";
 
 export interface PageTitleMenuActions {
   onNavigation: () => void;
@@ -42,6 +33,8 @@ export interface PageTitleMenuActions {
   onRename: (title: string) => void;
   onDuplicate: () => void;
   onDownload: (format: PageExportFormat) => void;
+  onHistory?: (() => void) | undefined;
+  comments?: { readonly open: boolean; readonly onToggle: () => void } | undefined;
   /** 查找 / 查找和替换 in the page editor; absent where the editor is not the rich one. */
   onFind?: ((replace: boolean) => void) | undefined;
   /** 页面宽度 and 字体 for this page on this device. */
@@ -75,42 +68,44 @@ export function PageTitleMenu(
     sourceEditing: boolean;
   },
 ) {
-  const Icon = props.icon;
-  const [renaming, setRenaming] = useState(false);
-  if (renaming) {
-    return (
-      <span
-        className={cn(PAGE_CHROME_PILL_CLASS_NAME, "max-w-[min(22rem,100%)] min-w-0 shrink pe-1")}
-        data-page-title-pill
-      >
-        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <SpaceInlineRename
-          value={props.title}
-          label="文档名称"
-          onCommit={props.onRename}
-          onDone={() => setRenaming(false)}
-          className="w-56"
-        />
-      </span>
-    );
-  }
-  return (
-    <Menu>
-      <MenuTrigger
-        render={
-          <button
-            type="button"
-            className={cn(PAGE_CHROME_PILL_CLASS_NAME, "max-w-[min(22rem,100%)] min-w-0 shrink")}
-            aria-label={`${props.title} 页面菜单`}
-            data-page-title-pill
-          />
-        }
-      >
-        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 truncate">{props.title || "未命名文档"}</span>
-        <ChevronDownIcon aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-      </MenuTrigger>
-      <ComposerPickerMenuPopup align="start" className="w-60 min-w-60">
+  const languageMenu =
+    props.docStyle && props.onDocStyle ? (
+      <MenuSub>
+        <MenuSubTrigger>文档语言</MenuSubTrigger>
+        <ComposerPickerMenuSubPopup className="w-44 min-w-44">
+          <MenuGroupLabel>用于读屏和拼写检查</MenuGroupLabel>
+          <MenuRadioGroup
+            value={props.docStyle.lang ?? "auto"}
+            onValueChange={(lang) =>
+              props.onDocStyle?.(
+                lang === "auto"
+                  ? { lang: undefined }
+                  : { lang: lang as NonNullable<PageEditorDocStyle["lang"]> },
+              )
+            }
+          >
+            <MenuRadioItem closeOnClick value="auto">
+              跟随 Moss
+            </MenuRadioItem>
+            {PAGE_DOC_LANGUAGES.map((language) => (
+              <MenuRadioItem
+                closeOnClick
+                key={language.tag}
+                value={language.tag}
+                lang={language.tag}
+              >
+                {language.name}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </ComposerPickerMenuSubPopup>
+      </MenuSub>
+    ) : undefined;
+
+  const moreMenu = (
+    <MenuSub>
+      <MenuSubTrigger>更多操作</MenuSubTrigger>
+      <ComposerPickerMenuSubPopup className="w-60 min-w-60">
         <MenuItem onClick={props.onNavigation}>
           <span className="flex-1">页面导航</span>
           <MenuShortcut>{PAGE_NAVIGATION_SHORTCUT_LABEL}</MenuShortcut>
@@ -119,19 +114,8 @@ export function PageTitleMenu(
           <>
             <MenuItem onClick={props.onShare}>分享</MenuItem>
             <MenuItem onClick={props.onTogglePin}>{props.pinned ? "取消置顶" : "置顶"}</MenuItem>
-            <MenuItem onClick={() => setRenaming(true)}>重命名</MenuItem>
-            <MenuItem onClick={props.onDuplicate}>复制</MenuItem>
           </>
         )}
-        <MenuSub>
-          <MenuSubTrigger>下载</MenuSubTrigger>
-          <MenuSubPopup className="w-44 min-w-44">
-            <MenuItem onClick={() => props.onDownload("markdown")}>Markdown (.md)</MenuItem>
-            <MenuItem onClick={() => props.onDownload("html")}>网页 (.html)</MenuItem>
-            <MenuItem onClick={() => props.onDownload("docx")}>Word (.docx)</MenuItem>
-            <MenuItem onClick={() => props.onDownload("pdf")}>PDF（打印）</MenuItem>
-          </MenuSubPopup>
-        </MenuSub>
         {props.onFind ? (
           <MenuItem onClick={() => props.onFind?.(true)}>
             <span className="flex-1">{props.trashed ? "查找" : "查找和替换"}</span>
@@ -142,7 +126,7 @@ export function PageTitleMenu(
           <>
             <MenuSub>
               <MenuSubTrigger>页面宽度</MenuSubTrigger>
-              <MenuSubPopup className="w-40 min-w-40">
+              <ComposerPickerMenuSubPopup className="w-40 min-w-40">
                 <MenuRadioGroup
                   value={props.docStyle.width}
                   onValueChange={(width) =>
@@ -156,11 +140,11 @@ export function PageTitleMenu(
                     宽页面
                   </MenuRadioItem>
                 </MenuRadioGroup>
-              </MenuSubPopup>
+              </ComposerPickerMenuSubPopup>
             </MenuSub>
             <MenuSub>
               <MenuSubTrigger>字体</MenuSubTrigger>
-              <MenuSubPopup className="w-40 min-w-40">
+              <ComposerPickerMenuSubPopup className="w-40 min-w-40">
                 <MenuGroup>
                   <MenuGroupLabel>标题</MenuGroupLabel>
                   <MenuRadioGroup
@@ -196,37 +180,7 @@ export function PageTitleMenu(
                     </MenuRadioItem>
                   </MenuRadioGroup>
                 </MenuGroup>
-              </MenuSubPopup>
-            </MenuSub>
-            <MenuSub>
-              <MenuSubTrigger>文档语言</MenuSubTrigger>
-              <MenuSubPopup className="w-44 min-w-44">
-                <MenuGroupLabel>用于读屏和拼写检查</MenuGroupLabel>
-                <MenuRadioGroup
-                  value={props.docStyle.lang ?? "auto"}
-                  onValueChange={(lang) =>
-                    props.onDocStyle?.(
-                      lang === "auto"
-                        ? { lang: undefined }
-                        : { lang: lang as NonNullable<PageEditorDocStyle["lang"]> },
-                    )
-                  }
-                >
-                  <MenuRadioItem closeOnClick value="auto">
-                    跟随 Moss
-                  </MenuRadioItem>
-                  {PAGE_DOC_LANGUAGES.map((language) => (
-                    <MenuRadioItem
-                      closeOnClick
-                      key={language.tag}
-                      value={language.tag}
-                      lang={language.tag}
-                    >
-                      {language.name}
-                    </MenuRadioItem>
-                  ))}
-                </MenuRadioGroup>
-              </MenuSubPopup>
+              </ComposerPickerMenuSubPopup>
             </MenuSub>
           </>
         ) : null}
@@ -262,15 +216,32 @@ export function PageTitleMenu(
         )}
         <MenuItem onClick={props.onBackupDrafts}>备份未保存草稿</MenuItem>
         {props.onShortcuts ? <MenuItem onClick={props.onShortcuts}>键盘快捷键</MenuItem> : null}
-        {props.trashed ? null : (
-          <>
-            <MenuSeparator />
-            <MenuItem variant="destructive" onClick={props.onTrash}>
-              删除
-            </MenuItem>
-          </>
-        )}
-      </ComposerPickerMenuPopup>
-    </Menu>
+      </ComposerPickerMenuSubPopup>
+    </MenuSub>
+  );
+
+  return (
+    <SpaceTitleMenu
+      title={props.title}
+      untitled="未命名文档"
+      icon={props.icon}
+      readOnly={props.trashed}
+      menuLabel="页面菜单"
+      inlineRenameLabel="文档名称"
+      pillKind="page"
+      onRename={props.onRename}
+      onVersionHistory={props.onHistory}
+      onDuplicate={props.trashed ? undefined : props.onDuplicate}
+      exportItems={[
+        { id: "markdown", label: "Markdown (.md)", onSelect: () => props.onDownload("markdown") },
+        { id: "html", label: "网页 (.html)", onSelect: () => props.onDownload("html") },
+        { id: "docx", label: "Word (.docx)", onSelect: () => props.onDownload("docx") },
+        { id: "pdf", label: "PDF（打印）", onSelect: () => props.onDownload("pdf") },
+      ]}
+      comments={props.comments}
+      languageMenu={languageMenu}
+      moreMenu={moreMenu}
+      onTrash={props.trashed ? undefined : props.onTrash}
+    />
   );
 }

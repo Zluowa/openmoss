@@ -875,6 +875,7 @@ function DataSpaceWorkspace({
                     onFiles={() => void leave().then((ok) => ok && setOpen({ type: "library" }))}
                     onStartConversation={onStartPageConversation}
                     dock={dock}
+                    onBack={handleTypedItemBack}
                     onOpenCreated={(document) => {
                       client.setQueryData(
                         pagesQueryKeys.read(account, scopeSpaceId, document.page.id),
@@ -927,6 +928,14 @@ function DataSpaceWorkspace({
                       onGuardChange={registerGuard}
                       dock={dock}
                       onBack={handleTypedItemBack}
+                      onOpenCreated={(created) => {
+                        client.setQueryData(
+                          pageTypesQueryKeys.item(account, scopeSpaceId, created.page.id),
+                          created,
+                        );
+                        setOpen(openPageState(created.page));
+                      }}
+                      onTrash={() => void trashItem(openedItem)}
                     />
                   ) : openedItem.source.type === "app" ? (
                     <SpaceAppViewer

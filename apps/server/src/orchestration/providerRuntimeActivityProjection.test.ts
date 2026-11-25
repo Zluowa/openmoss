@@ -995,6 +995,26 @@ describe("provider runtime activity projection", () => {
     expect(prefixed?.payload).toMatchObject({
       execpolicyAmendment: ["python3", "-c", "pass"],
     });
+    const claudeCommand = projectProviderRuntimeActivities(
+      runtimeEvent({
+        type: "request.opened",
+        eventId: "approval-request-n13-3",
+        requestId: ApprovalRequestId.makeUnsafe("request-n13-3"),
+        payload: {
+          requestType: "command_execution_approval",
+          detail: "echo step-01 && echo WALK-END-OF-COMMAND",
+          args: {
+            toolName: "PowerShell",
+            input: { command: "echo step-01 && echo WALK-END-OF-COMMAND" },
+          },
+        },
+      }),
+    )[0];
+    expect(claudeCommand?.payload).toMatchObject({
+      requestKind: "command",
+      detail: "echo step-01 && echo WALK-END-OF-COMMAND",
+      toolName: "PowerShell",
+    });
     const [resolvedApproval] = projectProviderRuntimeActivities(
       runtimeEvent({
         type: "request.resolved",

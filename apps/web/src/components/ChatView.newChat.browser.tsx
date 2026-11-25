@@ -4,6 +4,7 @@
 //          keeps the one suite name, so case names (and the CI partitions) are unchanged.
 
 import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
+import { translateMoss } from "../localization";
 import {
   EventId,
   MessageId,
@@ -4797,4 +4798,172 @@ describe("ChatView transcript geometry (full app)", () => {
       }
     },
   );
+
+  // WALK-13 N13-5: the composer beside the side panel. At 1100×780 + and the permission control
+  // sat under the composer box, outside it; at the window's minimum (854×782) the voice, dictate
+  // and send buttons ran past the chat column, which cut them off. A document's 问 Moss (a chat
+  // docked beside the item) showed the same + and permission row under its box.
+  const N13_5_THREAD_MODEL = {
+    provider: "codex",
+    instanceId: ProviderInstanceId.makeUnsafe("codex_moss"),
+    model: "gpt-5.6-terra",
+  } as const;
+  const withN13_5Model = (snapshot: OrchestrationReadModel): OrchestrationReadModel => ({
+    ...snapshot,
+    threads: snapshot.threads.map((thread) => ({ ...thread, modelSelection: N13_5_THREAD_MODEL })),
+  });
+  // Every control a person reaches in the composer lies inside the composer's box and is the
+  // topmost thing painted at its centre (nothing clips or covers it); the model name shows.
+  const expectComposerControlsInsideItsBox = (pane: "main" | "dock", label: string) => {
+    const dock = document.querySelector<HTMLElement>('[data-testid="right-dock-panel"]');
+    const inPane = (element: Element) =>
+      pane === "dock" ? dock?.contains(element) === true : dock?.contains(element) !== true;
+    const pick = (selector: string) =>
+      [...document.querySelectorAll<HTMLElement>(selector)].find(inPane) ?? null;
+    const surface = pick('[data-chat-composer-form="true"] [data-chat-composer-surface]');
+    expect(surface, `${label}: the composer box`).not.toBeNull();
+    const box = surface!.getBoundingClientRect();
+    const controls = [
+      ["+", pick('[data-moss-visible-attachment-control="true"]')],
+      [
+        "permissions",
+        pick(`button[aria-label="${translateMoss("zh-CN", "chat.permissions.change")}"]`),
+      ],
+      ["model", pick("[data-moss-visible-model-reasoning-control]")],
+      ["voice chat", pick('button[aria-label="开启语音聊天"]')],
+      [
+        "dictate",
+        pick(`button[aria-label="${translateMoss("zh-CN", "composer.dictation.aria")}"]`),
+      ],
+      ["send", pick('[data-moss-visible-send-control="true"]')],
+    ] as const;
+    const at = (rect: DOMRect) =>
+      `[${Math.round(rect.left)}–${Math.round(rect.right)} × ${Math.round(rect.top)}–${Math.round(rect.bottom)}]`;
+    for (const [name, control] of controls) {
+      expect(control, `${label}: the ${name} control`).not.toBeNull();
+      const rect = control!.getBoundingClientRect();
+      const where = `${label}: ${name} ${at(rect)} in the composer box ${at(box)}`;
+      expect(rect.width, where).toBeGreaterThan(0);
+      expect(rect.height, where).toBeGreaterThan(0);
+      expect(
+        rect.left >= box.left - 0.5 &&
+          rect.right <= box.right + 0.5 &&
+          rect.top >= box.top - 0.5 &&
+          rect.bottom <= box.bottom + 0.5,
+        where,
+      ).toBe(true);
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      // Disabled buttons carry pointer-events: none, so hit-testing lands on an ancestor
+      // (a tooltip wrapper or the composer box) unless a sibling or panel covers them.
+      const isDisabled = control instanceof HTMLButtonElement && control.disabled;
+      expect(
+        hit !== null &&
+          (isDisabled ? control!.contains(hit) || hit.contains(control!) : control!.contains(hit)),
+        `${where}: clipped or covered`,
+      ).toBe(true);
+    }
+    const name = pick("[data-composer-model-label]");
+    expect(name?.textContent, `${label}: the model name`).toBe("GPT-5.6 Terra");
+    const fontSize = Number.parseFloat(getComputedStyle(name!).fontSize);
+    // At least four characters of the name, or the whole of it (WALK-8 N8-2).
+    expect(name!.getBoundingClientRect().width, `${label}: the model name`).toBeGreaterThanOrEqual(
+      Math.min(name!.scrollWidth, fontSize * 4) - 1,
+    );
+  };
+  const waitForComposerWidthToSettle = async (pane: "main" | "dock") => {
+    const dock = () => document.querySelector<HTMLElement>('[data-testid="right-dock-panel"]');
+    const form = () =>
+      [...document.querySelectorAll<HTMLElement>('[data-chat-composer-form="true"]')].find(
+        (element) =>
+          pane === "dock" ? dock()?.contains(element) === true : dock()?.contains(element) !== true,
+      );
+    await expect
+      .poll(async () => {
+        const before = form()?.getBoundingClientRect().width ?? -1;
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const after = form()?.getBoundingClientRect().width ?? -2;
+        return after === before ? after : -1;
+      })
+      .toBeGreaterThan(0);
+  };
+
+  it.each([
+    { width: 1100, height: 780 },
+    { width: 854, height: 782 },
+  ])(
+    "WALK-13 N13-5: with the side panel open at $width×$height every composer control sits inside the composer box",
+    async ({ width, height }) => {
+      localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+      const mounted = await mountChatView({
+        viewport: { name: `n13-5-${width}`, width, height },
+        snapshot: withN13_5Model(
+          createSnapshotForTargetUser({
+            targetMessageId: MessageId.makeUnsafe("msg-n13-5-target"),
+            targetText: "帮我看看这个项目，读一下说明",
+            messagePairCount: 4,
+          }),
+        ),
+        configureFixture: configureMossManagedDefaults,
+      });
+      installZhCnUiLocalization();
+      try {
+        await waitForComposerEditor();
+        await page.getByRole("button", { name: "显示/隐藏侧边栏" }).first().click();
+        await expect.element(page.getByTestId("right-dock-panel")).toBeVisible();
+        await waitForComposerWidthToSettle("main");
+        await vi.waitFor(() => expectComposerControlsInsideItsBox("main", `${width}×${height}`));
+      } finally {
+        uninstallZhCnUiLocalization();
+        useRightDockStore.setState({ dockStateByThreadId: {} });
+        await mounted.cleanup();
+      }
+    },
+  );
+
+  it("WALK-13 N13-5: a document's 问 Moss keeps every composer control inside its composer box", async () => {
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    const itemThreadId = ThreadId.makeUnsafe("thread-n13-5-document-chat");
+    const documentKey = "default:local:page-n13-5-notes";
+    const base = addThreadToSnapshot(
+      createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("msg-n13-5-host"),
+        targetText: "N13-5 host chat",
+        messagePairCount: 4,
+      }),
+      itemThreadId,
+    );
+    const snapshot = withN13_5Model({
+      ...base,
+      threads: base.threads.map((thread) =>
+        thread.id === itemThreadId ? { ...thread, title: "未命名文档", session: null } : thread,
+      ),
+    });
+    pageAssistantThreads.set(documentKey, itemThreadId);
+    const mounted = await mountChatView({
+      viewport: { name: "n13-5-document", width: 1100, height: 780 },
+      snapshot,
+      configureFixture: configureMossManagedDefaults,
+    });
+    installZhCnUiLocalization();
+    try {
+      await waitForComposerEditor();
+      useRightDockStore
+        .getState()
+        .openPane(THREAD_ID, { kind: "sidechat", threadId: itemThreadId });
+      await waitForElement(
+        () =>
+          document.querySelector<HTMLElement>(
+            '[data-chat-pane-scope^="dock-sidechat:"] [contenteditable="true"]',
+          ),
+        "The document's chat composer is missing.",
+      );
+      await waitForComposerWidthToSettle("dock");
+      await vi.waitFor(() => expectComposerControlsInsideItsBox("dock", "问 Moss"));
+    } finally {
+      uninstallZhCnUiLocalization();
+      pageAssistantThreads.forget(documentKey);
+      useRightDockStore.setState({ dockStateByThreadId: {} });
+      await mounted.cleanup();
+    }
+  });
 });

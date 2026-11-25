@@ -18,10 +18,14 @@ import {
   TableIcon,
   TextSizeIcon,
 } from "~/lib/icons";
+import { CentralIcon } from "~/lib/central-icons";
 import { pageAiKey, usePageAiSession } from "~/lib/pageAi/pageAiSession";
 import { type PageEditorDocStyle, type PageEditorDocStylePatch } from "~/lib/pageRichEditorChannel";
 
-import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
+import {
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "../../chat/ComposerPickerMenuPopup";
 import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
 import {
@@ -32,9 +36,14 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
+  MenuShortcut,
+  MenuSub,
+  MenuSubTrigger,
   MenuTrigger,
 } from "../../ui/menu";
+import { pageAiLocale, pageAiText } from "../ai/pageAiText";
 import { pageDocStyleOf } from "../comments/pageDocComments";
+import { PageDictationButton } from "./PageDictationButton";
 import type { PageChromeSlotProps } from "./pageChromeContext";
 
 export interface PageBottomComposerProps extends PageChromeSlotProps {
@@ -57,6 +66,33 @@ export function BottomComposer({
   const docStyle = docStyleProp ?? pageDocStyleOf(context.page);
   const isWide = docStyle.width === "wide";
   const commentsOpen = context.activePanel === "comments";
+  const text = pageAiText(pageAiLocale());
+  const directInsertValues = new Set([
+    "page_subpage",
+    "h1",
+    "h2",
+    "h3",
+    "table",
+    "page_ai_image",
+    "todo",
+    "disc",
+    "decimal",
+    "blockquote",
+    "code_block",
+    "hr",
+    "callout",
+  ]);
+  const extraInsertSections = text.insertMenu
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => !directInsertValues.has(item.value)),
+    }))
+    .filter((section) => section.items.length > 0);
+  const runExtraInsertItem = (value: string) => {
+    if (value === "page_ai_generate") editor?.openAiInput("generate");
+    else if (value === "page_ai_visualize") editor?.openAiInput("visualize");
+    else editor?.runInsertItem(value);
+  };
 
   const handleAskMoss = () => {
     if (dock) {
@@ -195,6 +231,11 @@ export function BottomComposer({
         >
           <ListTodoIcon className="size-3.5" />
         </IconButton>
+        <PageDictationButton
+          pageKey={pageAiKey(context.account, context.scopeSpaceId, context.page.id)}
+          disabled={!editor?.insertText}
+          onText={(spoken) => editor?.insertText?.(spoken)}
+        />
 
         {/* More ... */}
         <Menu modal={false}>
@@ -234,6 +275,50 @@ export function BottomComposer({
                 <span>新建子页面</span>
               </MenuItem>
             </MenuGroup>
+            {extraInsertSections.length ? (
+              <>
+                <MenuSeparator />
+                <MenuSub>
+                  <MenuSubTrigger>更多插入</MenuSubTrigger>
+                  <ComposerPickerMenuSubPopup className="max-h-[min(360px,60vh)] w-72 min-w-72 overflow-y-auto">
+                    {extraInsertSections.map((section) => (
+                      <MenuGroup key={section.title}>
+                        <MenuGroupLabel>{section.title}</MenuGroupLabel>
+                        {section.items.map((item) => (
+                          <MenuItem
+                            key={item.value}
+                            disabled={!editor}
+                            onClick={() => runExtraInsertItem(item.value)}
+                          >
+                            <CentralIcon
+                              name={item.icon}
+                              className="size-4 shrink-0 text-foreground/75"
+                            />
+                            <span className="flex min-w-0 flex-1 items-center gap-2">
+                              <span
+                                className={
+                                  item.description
+                                    ? "max-w-[60%] flex-none truncate"
+                                    : "min-w-0 flex-1 truncate"
+                                }
+                              >
+                                {item.label}
+                              </span>
+                              {item.description ? (
+                                <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                                  {item.description}
+                                </span>
+                              ) : null}
+                            </span>
+                            {item.shortcut ? <MenuShortcut>{item.shortcut}</MenuShortcut> : null}
+                          </MenuItem>
+                        ))}
+                      </MenuGroup>
+                    ))}
+                  </ComposerPickerMenuSubPopup>
+                </MenuSub>
+              </>
+            ) : null}
             {onDocStyle ? (
               <>
                 <MenuSeparator />

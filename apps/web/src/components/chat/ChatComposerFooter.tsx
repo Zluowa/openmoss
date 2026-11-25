@@ -24,6 +24,8 @@ interface ChatComposerFooterProps {
       otherwise the start/return button renders beside the send controls. */
   realtimeVoice?: { active: boolean; controls: ReactNode; button: ReactNode } | null;
   isComposerFooterCompact: boolean;
+  /** Wrap footer clusters inside the composer box at narrowest widths (WALK-13 N13-5). */
+  wrapFooter?: boolean;
   leadingControls: ReactNode;
   composerPickerControls: ReactNode;
   contextMeter: ReactNode;
@@ -74,6 +76,7 @@ interface ChatComposerFooterProps {
 export function ChatComposerFooter({
   realtimeVoice: realtimeVoiceProp,
   isComposerFooterCompact,
+  wrapFooter: wrapFooterProp,
   leadingControls,
   composerPickerControls,
   contextMeter,
@@ -89,6 +92,7 @@ export function ChatComposerFooter({
   // Prop defaults resolve here: an AssignmentPattern in the destructuring makes
   // the React Compiler bail out on this hot component.
   const realtimeVoice = realtimeVoiceProp ?? null;
+  const wrapFooter = wrapFooterProp ?? false;
   const voiceActive = voice.recording || voice.transcribing;
   return (
     <div
@@ -97,7 +101,11 @@ export function ChatComposerFooter({
       className={cn(
         "@container",
         COMPOSER_FOOTER_ROW_CLASS_NAME,
-        isComposerFooterCompact ? "gap-1.5" : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
+        wrapFooter
+          ? "flex-wrap gap-1.5"
+          : isComposerFooterCompact
+            ? "gap-1.5"
+            : "flex-wrap gap-1.5 sm:flex-nowrap sm:gap-0",
       )}
     >
       <div
@@ -107,9 +115,11 @@ export function ChatComposerFooter({
           "flex items-center",
           voiceActive
             ? "min-w-0 shrink-0 gap-1"
-            : isComposerFooterCompact
-              ? "min-w-0 flex-1 gap-1 overflow-hidden"
-              : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
+            : wrapFooter
+              ? "min-w-0 shrink-0 flex-wrap gap-1"
+              : isComposerFooterCompact
+                ? "min-w-0 flex-1 gap-1 overflow-hidden"
+                : "min-w-0 flex-1 gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
         )}
       >
         {leadingControls}
@@ -157,8 +167,12 @@ export function ChatComposerFooter({
       <div
         data-chat-composer-actions="right"
         data-moss-visible-composer-actions="true"
-        // Shrinks only by ellipsizing the model name; every other control here keeps its size.
-        className={cn("flex min-w-0 items-center gap-2", voiceActive && "flex-1")}
+        // Shrinks by ellipsizing the model name; when wrapped, action buttons wrap inside the box.
+        className={cn(
+          "flex min-w-0 items-center",
+          wrapFooter ? "ml-auto max-w-full flex-wrap justify-end gap-1.5" : "gap-2",
+          voiceActive && "flex-1",
+        )}
       >
         {realtimeVoice?.active ? realtimeVoice.controls : null}
         {realtimeVoice?.active ? null : contextMeter}

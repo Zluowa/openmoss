@@ -83,6 +83,10 @@ describe("Sidebar account footer with more than one signed-in lane", () => {
       enterpriseState: { ...enterprise, active: true },
     });
     expect(usingKey.label).toBe("企业 API Key");
+    expect(usingKey.initials).toBe("企");
+    expect(usingKey.title).toBe("企业 API Key");
+    expect(usingKey.menuLabel).toBe("企业 API Key");
+    expect(usingKey.menuTitle).toBe("企业 API Key");
 
     const usingGoogle = identity({
       phoneState: phone,

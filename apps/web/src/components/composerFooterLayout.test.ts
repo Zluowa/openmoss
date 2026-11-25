@@ -42,6 +42,11 @@ describe("composerFooterPlanForTier", () => {
   it("never shows the context meter when the thread has none", () => {
     expect(composerFooterPlanForTier(0, false).showContextMeter).toBe(false);
   });
+
+  it("wraps the footer inside the composer box only at the max tier", () => {
+    expect(composerFooterPlanForTier(3, true).wrapFooter).toBe(false);
+    expect(composerFooterPlanForTier(COMPOSER_FOOTER_MAX_TIER, true).wrapFooter).toBe(true);
+  });
 });
 
 describe("resolveNextComposerFooterTier", () => {
