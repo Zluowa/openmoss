@@ -433,7 +433,12 @@ describe("RailUpdateControl", () => {
     const dialog = page.getByRole("alertdialog");
     await expect
       .element(dialog)
-      .toHaveTextContent("Update command exited with code 1: npm error code EACCES");
+      .toHaveTextContent("更新未完成，可重试或复制命令在终端中手动更新。");
+    expect(dialog.element().textContent).not.toContain("npm error code EACCES");
+    await userEvent.click(page.getByRole("button", { name: "查看详情" }));
+    await expect
+      .element(dialog)
+      .toHaveTextContent("更新命令出错退出（退出码 1）：npm error code EACCES。");
     await expect.element(page.getByRole("button", { name: "复制命令" })).toBeInTheDocument();
   });
 
@@ -505,23 +510,30 @@ describe("RailUpdateControl", () => {
     await vi.waitFor(() => expect(useProviderUpdateRunStore.getState().run).toBeNull());
   });
 
-  it("holds a ready app restart until the agents are done, and says so", async () => {
+  it("keeps Moss app update and agent CLI updates independent (Magpie separation)", async () => {
     const onClick = vi.fn();
-    const { client } = await renderControl([provider()], { state: DOWNLOADED_APP, onClick });
+    await renderControl([provider()], { state: DOWNLOADED_APP, onClick });
 
-    await userEvent.click(updateButton());
-    await expect.element(page.getByRole("alertdialog")).toHaveTextContent("Moss 1.2.3 也已准备好");
-    await userEvent.click(page.getByRole("button", { name: "取消" }));
+    // Both the agent CLI update button and the Moss desktop update button appear at the same time.
+    await expect.element(updateButton()).toBeInTheDocument();
+    const desktopButton = page.getByRole("button", {
+      name: "Update 1.2.3 is ready. Click to restart and install.",
+    });
+    await expect.element(desktopButton).toBeInTheDocument();
 
-    setProviders(client, [provider({}, { status: "current" })]);
-    await vi.waitFor(() => expect(railState()).toBe("desktop"));
-    await userEvent.click(
-      page.getByRole("button", { name: "Update 1.2.3 is ready. Click to restart and install." }),
-    );
+    // Clicking the Moss desktop update button restarts Moss immediately without waiting for agents.
+    await userEvent.click(desktopButton);
     expect(onClick).toHaveBeenCalledTimes(1);
+
+    // Opening the agent CLI update dialog does not mention Moss waiting on agent updates.
+    await userEvent.click(updateButton());
+    const dialog = page.getByRole("alertdialog");
+    await expect.element(dialog).toBeVisible();
+    expect(dialog.element().textContent).not.toContain("也已准备好");
+    await userEvent.click(page.getByRole("button", { name: "取消" }));
   });
 
-  it("shows the app download's progress on the same button", async () => {
+  it("shows the app download's progress independently alongside agent updates", async () => {
     const onClick = vi.fn();
     await renderControl([provider()], {
       state: {
@@ -532,8 +544,11 @@ describe("RailUpdateControl", () => {
       },
       onClick,
     });
-    await vi.waitFor(() => expect(railState()).toBe("desktop"));
-    const button = document.querySelector<HTMLButtonElement>("[data-rail-update-state]");
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-rail-update-state="desktop"]')).not.toBeNull(),
+    );
+    expect(document.querySelector('[data-rail-update-state="update"]')).not.toBeNull();
+    const button = document.querySelector<HTMLButtonElement>('[data-rail-update-state="desktop"]');
     expect(button?.getAttribute("aria-label")).toBe("Preparing update (42%)");
     expect(button?.querySelector("[data-rail-progress-ring]")).not.toBeNull();
     expect(button?.querySelector("[data-desktop-update-percent]")?.textContent).toBe("42%");

@@ -22,7 +22,6 @@ import { SETTINGS_TARGETS } from "~/settingsNavigation";
 import {
   getDesktopUpdateDownloadPercent,
   isDesktopUpdateDownloadNotice,
-  resolveDesktopUpdateButtonAction,
 } from "../desktopUpdate.logic";
 import { DesktopUpdateNoticeDialog } from "../DesktopUpdateNoticeDialog";
 import { DesktopUpdateRailButton } from "../DesktopUpdateRailButton";
@@ -33,7 +32,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProviderUpdateDialog } from "./ProviderUpdateDialog";
 import {
   collectProviderUpdateTargets,
-  resolveRailUpdatePresentation,
+  resolveProviderRailUpdateState,
   type ProviderUpdatePillTone,
   type ProviderUpdatePillView,
   type ProviderUpdateTarget,
@@ -223,27 +222,20 @@ export function RailUpdateControl({
     }),
   );
   const pill = useProviderUpdatePill({ providers, run, i18n });
+  const providerState = resolveProviderRailUpdateState({
+    pillTone: pill.liveTone,
+    targetCount: targets.length,
+  });
   const desktopState = desktopUpdate.state;
   // A build that cannot install updates itself only announces them (macOS without a Developer ID).
   const notice = isDesktopUpdateDownloadNotice(desktopState) ? desktopState : null;
   const noticeSnoozed = notice !== null && snoozedNoticeVersion === notice.availableVersion;
-  const presentation = resolveRailUpdatePresentation({
-    pillTone: pill.liveTone,
-    targetCount: targets.length,
-    desktop: {
-      visible: desktopUpdate.visible && desktopState !== null && !noticeSnoozed,
-      status: desktopState?.status ?? null,
-    },
-  });
+  const showDesktopControl = desktopUpdate.visible && desktopState !== null && !noticeSnoozed;
 
-  if (!presentation && !pill.view && !confirming) return null;
+  if (!providerState && !showDesktopControl && !pill.view && !confirming) return null;
 
-  const appUpdateVersion =
-    desktopState && resolveDesktopUpdateButtonAction(desktopState) === "install"
-      ? desktopState.downloadedVersion
-      : null;
   const providerTooltip =
-    presentation === "update"
+    providerState === "update"
       ? targets.length === 1
         ? t("providerUpdate.tooltip.one")
         : format("providerUpdate.tooltip.many", { count: targets.length })
@@ -253,7 +245,7 @@ export function RailUpdateControl({
     ? getDesktopUpdateDownloadPercent(desktopState)
     : null;
   const desktopProgressPill =
-    presentation === "desktop" && desktopState && !pill.view && !notice
+    showDesktopControl && desktopState && !notice
       ? desktopUpdate.installing
         ? {
             key: `${desktopState.downloadedVersion ?? desktopState.availableVersion ?? "app"}:installing`,
@@ -284,101 +276,111 @@ export function RailUpdateControl({
     desktopProgressPill !== null && dismissedDesktopProgressKey !== desktopProgressPill.key;
 
   return (
-    <div className="relative flex shrink-0 flex-col items-center">
-      {presentation === "desktop" && desktopState ? (
-        <DesktopUpdateRailButton
-          state={desktopState}
-          installing={desktopUpdate.installing}
-          label={
-            notice
-              ? format("desktopUpdate.notice.title", { version: notice.availableVersion })
-              : undefined
-          }
-          onClick={notice ? () => setNoticeOpen(true) : desktopUpdate.onClick}
-        />
-      ) : presentation ? (
-        <SidebarIconButton
-          icon={UpdateArrowCircleIcon}
-          label={providerTooltip}
-          tooltip={providerTooltip}
-          tooltipSide="right"
-          size="lg"
-          aria-disabled={presentation === "update" ? undefined : true}
-          data-rail-update-state={presentation}
-          className={cn(
-            RAIL_UPDATE_BUTTON_CLASS_NAME,
-            presentation !== "update" && "cursor-default",
-          )}
-          onClick={() => {
-            if (presentation !== "update") return;
-            setDialogTargets(targets);
-            if (!run) useProviderUpdateRunStore.setState({ outcomes: {} });
-            setConfirming(true);
-          }}
-        >
-          {presentation === "updating" ? (
-            <UpdatingIcon />
-          ) : presentation === "success" ? (
-            <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
-              <CircleCheckIcon className="size-3.5 animate-update-pop motion-reduce:animate-none" />
-            </span>
-          ) : (
-            <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
-              <UpdateArrowCircleIcon className="size-3.5" />
-            </span>
-          )}
-        </SidebarIconButton>
-      ) : null}
-      {showDesktopProgressPill && desktopProgressPill ? (
-        <div
-          data-desktop-update-pill={desktopProgressPill.phase}
-          className="absolute bottom-0 left-full z-30 ml-2 w-max max-w-64 overflow-hidden rounded-popover border-[0.5px] border-border bg-popover text-ui-sm font-medium text-foreground shadow-lg transition-[opacity,translate] duration-180 ease-out starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none"
-        >
-          <div className="relative flex min-h-8 items-center">
-            {desktopProgressPill.percent !== null ? (
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-0 w-full origin-left bg-[color-mix(in_srgb,var(--color-text-accent,var(--primary))_12%,transparent)] transition-transform duration-300 ease-out motion-reduce:transition-none"
-                style={{ transform: `scaleX(${desktopProgressPill.percent / 100})` }}
-              />
-            ) : null}
-            <div className="relative flex items-center gap-1.5 py-1.5 pr-1 pl-2.5">
-              <Spinner className="size-3 shrink-0 text-[var(--color-text-accent,var(--primary))]" />
-              <span className="truncate tabular-nums">{desktopProgressPill.label}</span>
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              aria-label={t("desktopUpdate.progress.dismiss")}
-              className="relative mr-1 text-muted-foreground hover:text-foreground"
-              onClick={() => setDismissedDesktopProgressKey(desktopProgressPill.key)}
+    <div className="flex shrink-0 flex-col items-center gap-1">
+      {providerState || pill.view ? (
+        <div className="relative flex shrink-0 flex-col items-center">
+          {providerState ? (
+            <SidebarIconButton
+              icon={UpdateArrowCircleIcon}
+              label={providerTooltip}
+              tooltip={providerTooltip}
+              tooltipSide="right"
+              size="lg"
+              aria-disabled={providerState === "update" ? undefined : true}
+              data-rail-update-state={providerState}
+              className={cn(
+                RAIL_UPDATE_BUTTON_CLASS_NAME,
+                providerState !== "update" && "cursor-default",
+              )}
+              onClick={() => {
+                if (providerState !== "update") return;
+                setDialogTargets(targets);
+                if (!run) useProviderUpdateRunStore.setState({ outcomes: {} });
+                setConfirming(true);
+              }}
             >
-              <XIcon className="size-3" />
-            </Button>
-          </div>
+              {providerState === "updating" ? (
+                <UpdatingIcon />
+              ) : providerState === "success" ? (
+                <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
+                  <CircleCheckIcon className="size-3.5 animate-update-pop motion-reduce:animate-none" />
+                </span>
+              ) : (
+                <span className={RAIL_UPDATE_DISC_CLASS_NAME}>
+                  <UpdateArrowCircleIcon className="size-3.5" />
+                </span>
+              )}
+            </SidebarIconButton>
+          ) : null}
+          {pill.view ? (
+            <RailUpdatePill
+              view={pill.view}
+              exiting={pill.exiting}
+              onOpenSettings={() => {
+                openSettingsDialog({
+                  section: "providers",
+                  target: SETTINGS_TARGETS.providerUpdates,
+                });
+              }}
+              onDismiss={pill.dismiss}
+              dismissLabel={t("providerUpdate.pill.dismiss")}
+              onRetry={
+                pill.view.retryTargets && !run
+                  ? () => {
+                      const retryTargets = pill.view?.retryTargets ?? [];
+                      pill.dismiss();
+                      void runProviderUpdates(retryTargets, queryClient, i18n);
+                    }
+                  : undefined
+              }
+              retryLabel={t("providerUpdate.pill.retry")}
+            />
+          ) : null}
         </div>
       ) : null}
-      {pill.view ? (
-        <RailUpdatePill
-          view={pill.view}
-          exiting={pill.exiting}
-          onOpenSettings={() => {
-            openSettingsDialog({ section: "providers", target: SETTINGS_TARGETS.providerUpdates });
-          }}
-          onDismiss={pill.dismiss}
-          dismissLabel={t("providerUpdate.pill.dismiss")}
-          onRetry={
-            pill.view.retryTargets && !run
-              ? () => {
-                  const retryTargets = pill.view?.retryTargets ?? [];
-                  pill.dismiss();
-                  void runProviderUpdates(retryTargets, queryClient, i18n);
-                }
-              : undefined
-          }
-          retryLabel={t("providerUpdate.pill.retry")}
-        />
+      {showDesktopControl && desktopState ? (
+        <div className="relative flex shrink-0 flex-col items-center">
+          <DesktopUpdateRailButton
+            state={desktopState}
+            installing={desktopUpdate.installing}
+            label={
+              notice
+                ? format("desktopUpdate.notice.title", { version: notice.availableVersion })
+                : undefined
+            }
+            onClick={notice ? () => setNoticeOpen(true) : desktopUpdate.onClick}
+          />
+          {showDesktopProgressPill && desktopProgressPill ? (
+            <div
+              data-desktop-update-pill={desktopProgressPill.phase}
+              className="absolute bottom-0 left-full z-30 ml-2 w-max max-w-64 overflow-hidden rounded-popover border-[0.5px] border-border bg-popover text-ui-sm font-medium text-foreground shadow-lg transition-[opacity,translate] duration-180 ease-out starting:translate-y-1.5 starting:opacity-0 motion-reduce:transition-none"
+            >
+              <div className="relative flex min-h-8 items-center">
+                {desktopProgressPill.percent !== null ? (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-0 w-full origin-left bg-[color-mix(in_srgb,var(--color-text-accent,var(--primary))_12%,transparent)] transition-transform duration-300 ease-out motion-reduce:transition-none"
+                    style={{ transform: `scaleX(${desktopProgressPill.percent / 100})` }}
+                  />
+                ) : null}
+                <div className="relative flex items-center gap-1.5 py-1.5 pr-1 pl-2.5">
+                  <Spinner className="size-3 shrink-0 text-[var(--color-text-accent,var(--primary))]" />
+                  <span className="truncate tabular-nums">{desktopProgressPill.label}</span>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={t("desktopUpdate.progress.dismiss")}
+                  className="relative mr-1 text-muted-foreground hover:text-foreground"
+                  onClick={() => setDismissedDesktopProgressKey(desktopProgressPill.key)}
+                >
+                  <XIcon className="size-3" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       ) : null}
       {notice ? (
         <DesktopUpdateNoticeDialog
@@ -402,7 +404,6 @@ export function RailUpdateControl({
           if (!open) setDialogTargets(null);
         }}
         targets={dialogTargets ?? targets}
-        appUpdateVersion={appUpdateVersion}
         onConfirm={(selected) => {
           void runProviderUpdates(selected, queryClient, i18n);
         }}

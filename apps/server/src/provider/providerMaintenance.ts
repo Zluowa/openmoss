@@ -1153,6 +1153,15 @@ function withVerifiedProviderUpdateTarget(
   }
   // Native updaters and brew own their command syntax. Do not invent a version
   // flag: with conflicting mirror metadata there is no safe one-click action.
+  // Exception: Devin's native updater (`devin-native`) fetches releases from
+  // static.devin.ai rather than Homebrew, so a lagging or unreachable Homebrew
+  // mirror must never disable one-click updates for native Devin installs.
+  if (capabilities.provider === "devin" && update.lockKey === "devin-native") {
+    if (current && target && compareParsedCliVersions(target, current) < 0) {
+      return { ...capabilities, update: null };
+    }
+    return capabilities;
+  }
   if (
     capabilities.packageChannel === "cn-mirror" &&
     capabilities.latestVersionSource !== null &&

@@ -1246,6 +1246,35 @@ describe("providerMaintenance", () => {
           assert.deepStrictEqual(prepared.update?.args, ["update"]);
         }),
     );
+
+    it.effect(
+      "keeps devin-native one-click updates enabled on cn-mirror even when the Homebrew mirror lags or fails",
+      () =>
+        Effect.gen(function* () {
+          const realFetch = globalThis.fetch;
+          globalThis.fetch = (async (input: string | URL | Request) => {
+            const url = String(input);
+            if (url.startsWith("https://formulae.brew.sh/api/")) {
+              return Response.json({ version: "3000.14.30821" });
+            }
+            return new Response("", { status: 503 });
+          }) as unknown as typeof fetch;
+          yield* Effect.addFinalizer(() => Effect.sync(() => (globalThis.fetch = realFetch)));
+          const capabilities = makeProviderMaintenanceCapabilities({
+            provider: "devin",
+            packageName: null,
+            latestVersionSource: { kind: "homebrew", name: "devin-cli", homebrewKind: "cask" },
+            updateExecutable: "devin",
+            updateArgs: ["update"],
+            updateCommandOverride: "irm https://cli.devin.ai/install.ps1 | iex",
+            updateLockKey: "devin-native",
+            packageChannel: "cn-mirror",
+          });
+          const prepared = yield* prepareProviderMaintenanceUpdate(capabilities, "3000.11.3");
+          assert.ok(prepared.update !== null);
+          assert.strictEqual(prepared.update?.lockKey, "devin-native");
+        }).pipe(Effect.scoped),
+    );
   });
 
   it.effect("retries a failed version lookup sooner than a successful one", () =>

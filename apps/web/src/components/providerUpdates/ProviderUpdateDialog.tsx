@@ -4,11 +4,18 @@
 //          in place, the way the update runs (agents keep working while they update).
 // Layer: Web shell navigation.
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
-import { CheckIcon, CircleCheckIcon, CopyIcon } from "~/lib/icons";
+import {
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CircleCheckIcon,
+  CopyIcon,
+} from "~/lib/icons";
 import { useTranslation } from "~/localization";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import { useStore } from "~/store";
 
 import { ProviderIcon } from "../ProviderIcon";
@@ -56,15 +63,12 @@ export function ProviderUpdateDialog({
   open,
   onOpenChange,
   targets,
-  appUpdateVersion,
   onConfirm,
 }: {
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
   /** The agents shown when the dialog opened; they stay listed while and after they update. */
   readonly targets: ReadonlyArray<ProviderUpdateTarget>;
-  /** A downloaded Moss version waiting for its restart. */
-  readonly appUpdateVersion: string | null;
   /** Runs the given agents' updates; the dialog stays open and follows them. */
   readonly onConfirm: (targets: ReadonlyArray<ProviderUpdateTarget>) => void;
 }) {
@@ -79,7 +83,6 @@ export function ProviderUpdateDialog({
       >
         <ProviderUpdateDialogContent
           targets={targets}
-          appUpdateVersion={appUpdateVersion}
           onConfirm={onConfirm}
           cancelRef={cancelRef}
         />
@@ -90,12 +93,10 @@ export function ProviderUpdateDialog({
 
 function ProviderUpdateDialogContent({
   targets,
-  appUpdateVersion,
   onConfirm,
   cancelRef,
 }: {
   readonly targets: ReadonlyArray<ProviderUpdateTarget>;
-  readonly appUpdateVersion: string | null;
   readonly onConfirm: (targets: ReadonlyArray<ProviderUpdateTarget>) => void;
   readonly cancelRef: React.RefObject<HTMLButtonElement | null>;
 }) {
@@ -174,11 +175,6 @@ function ProviderUpdateDialogContent({
         {usesCnMirror && !finished ? (
           <p className="text-ui-sm text-muted-foreground">{t("providerUpdate.dialog.cnMirror")}</p>
         ) : null}
-        {appUpdateVersion ? (
-          <p className="text-ui-sm text-muted-foreground">
-            {format("providerUpdate.dialog.appWaiting", { version: appUpdateVersion })}
-          </p>
-        ) : null}
       </div>
       <AlertDialogFooter>
         {runningThreads > 0 && !finished ? (
@@ -248,6 +244,18 @@ function ProviderUpdateRowStatus({ state }: { readonly state: RowState }) {
   return null;
 }
 
+function isTechnicalFailureDetail(message: string): boolean {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  return (
+    /\r?\n/.test(trimmed) ||
+    /\b(?:Update command exited with code|npm error|ERR!|ENOENT|EACCES|EPERM|ETIMEDOUT|ECONN|HTTP \d+|Suggested command:|exit (?:code|status)|stderr|stdout)\b/i.test(
+      trimmed,
+    ) ||
+    trimmed.length > 140
+  );
+}
+
 function ProviderUpdateFailure({
   target,
   message,
@@ -255,22 +263,51 @@ function ProviderUpdateFailure({
   readonly target: ProviderUpdateTarget;
   readonly message: string;
 }) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const { copyToClipboard, isCopied } = useCopyToClipboard();
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const command = target.updateCommand;
+  const localizedDetail = locale === "zh-CN" ? translateZhCnPresentationText(message) : message;
+  const collapsibleDetails = isTechnicalFailureDetail(message);
+  const summary = collapsibleDetails ? t("providerUpdate.dialog.failureSummary") : localizedDetail;
+
   return (
-    <div className="col-span-full flex items-start justify-between gap-2 pt-1 text-ui-sm">
-      <span className="min-w-0 wrap-anywhere text-destructive">{message}</span>
-      {command ? (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="shrink-0"
-          onClick={() => copyToClipboard(command, undefined)}
+    <div className="col-span-full flex flex-col gap-1.5 pt-1 text-ui-sm">
+      <div className="flex items-start justify-between gap-2">
+        <span className="min-w-0 wrap-anywhere text-destructive">{summary}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          {collapsibleDetails ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              aria-expanded={detailsOpen}
+              onClick={() => setDetailsOpen((open) => !open)}
+            >
+              {detailsOpen ? (
+                <ChevronDownIcon className="size-3" />
+              ) : (
+                <ChevronRightIcon className="size-3" />
+              )}
+              {detailsOpen
+                ? t("providerUpdate.dialog.hideDetails")
+                : t("providerUpdate.dialog.showDetails")}
+            </Button>
+          ) : null}
+          {command ? (
+            <Button variant="ghost" size="xs" onClick={() => copyToClipboard(command, undefined)}>
+              {isCopied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+              {t("providerUpdate.dialog.copyCommand")}
+            </Button>
+          ) : null}
+        </div>
+      </div>
+      {collapsibleDetails && detailsOpen ? (
+        <pre
+          data-provider-update-failure-details
+          className="max-h-32 overflow-auto rounded-control border border-border/60 bg-muted/40 px-2.5 py-1.5 font-mono text-ui-xs whitespace-pre-wrap break-all text-muted-foreground"
         >
-          {isCopied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-          {t("providerUpdate.dialog.copyCommand")}
-        </Button>
+          {localizedDetail}
+        </pre>
       ) : null}
     </div>
   );

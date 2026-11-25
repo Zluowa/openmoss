@@ -327,8 +327,12 @@ const STATUS_PATTERNS: ReadonlyArray<StatusTranslation> = [
     (detail) => `Gemini ACP 在响应前退出（${detail}）。`,
   ],
   [
-    /^Update command completed, but Moss still detects an outdated provider version(.*)\.$/,
-    (versions) => `更新命令已完成，但 Moss 仍检测到旧版服务商${versions}。`,
+    /^Update command completed, but Moss still detects an outdated provider version(?: \(installed ([^,]+), latest ([^)]+)\))?\.(?: Suggested command: (.+))?$/s,
+    (installed, latest, hint) => {
+      const versions = installed && latest ? `（当前 ${installed}，最新 ${latest}）` : "";
+      const suggestion = hint ? ` 建议命令：${hint}` : "";
+      return `更新命令已运行，但仍检测到旧版${versions}。${suggestion}`;
+    },
   ],
 ];
 

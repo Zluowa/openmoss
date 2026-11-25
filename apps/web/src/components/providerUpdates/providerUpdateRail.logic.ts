@@ -4,13 +4,8 @@
 //          logic (MIT), reduced to one machine.
 // Layer: Web shell navigation (pure logic).
 
-import {
-  PROVIDER_DISPLAY_NAMES,
-  type DesktopUpdateState,
-  type ProviderInstanceId,
-  type ProviderKind,
-  type ServerProviderStatus,
-} from "@moss/contracts";
+import type { ProviderInstanceId, ProviderKind, ServerProviderStatus } from "@moss/contracts";
+import { PROVIDER_DISPLAY_NAMES } from "@moss/contracts";
 
 import type { MossLocaleCode } from "~/appSettings";
 import type { TranslationKey } from "~/localization";
@@ -311,25 +306,19 @@ export function getProviderUpdatePillView(
   );
 }
 
-export type RailUpdatePresentation = "updating" | "update" | "success" | "desktop";
+export type ProviderRailUpdateState = "updating" | "update" | "success";
 
 /**
- * One button serves agent updates and the app's own. Agents go first because installing the app
- * restarts Moss, so a ready app update waits until the agents are done.
+ * Resolves the rail button state for Agent CLI updates independently of the Moss
+ * desktop app updater (matching Magpie's strict separation between app & CLI updates).
  */
-export function resolveRailUpdatePresentation(input: {
+export function resolveProviderRailUpdateState(input: {
   readonly pillTone: ProviderUpdatePillTone | null;
   readonly targetCount: number;
-  readonly desktop: {
-    readonly visible: boolean;
-    readonly status: DesktopUpdateState["status"] | null;
-  };
-}): RailUpdatePresentation | null {
-  const { pillTone, targetCount, desktop } = input;
+}): ProviderRailUpdateState | null {
+  const { pillTone, targetCount } = input;
   if (pillTone === "loading") return "updating";
-  if (desktop.visible && desktop.status === "downloading") return "desktop";
   if (targetCount > 0) return "update";
-  if (desktop.visible) return "desktop";
   if (pillTone === "success") return "success";
   return null;
 }

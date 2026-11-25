@@ -161,6 +161,14 @@ describe("provider status in zh-CN", () => {
       "Update command completed, but Moss could not verify the requested provider version.",
       "更新命令已完成，但 Moss 无法确认已装上要求的版本。",
     ],
+    [
+      "Update command completed, but Moss still detects an outdated provider version.",
+      "更新命令已运行，但仍检测到旧版。",
+    ],
+    [
+      "Update command completed, but Moss still detects an outdated provider version (installed 3000.11.3, latest 3000.14.30821).",
+      "更新命令已运行，但仍检测到旧版（当前 3000.11.3，最新 3000.14.30821）。",
+    ],
   ])("explains why a one-click update could not start: %s", (english, chinese) => {
     expect(translateZhCnPresentationText(english)).toBe(chinese);
   });

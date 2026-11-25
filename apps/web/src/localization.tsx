@@ -4272,8 +4272,10 @@ const EN_TRANSLATIONS = {
   "providerUpdate.dialog.latest": "Latest",
   "providerUpdate.dialog.cnMirror":
     "Downloads through a mainland China mirror, so no VPN is needed.",
-  "providerUpdate.dialog.appWaiting":
-    "Moss {version} is also ready. Once the agents finish, click this button again to restart and install it.",
+  "providerUpdate.dialog.failureSummary":
+    "Update didn't finish. Retry or copy the command to run it in a terminal.",
+  "providerUpdate.dialog.showDetails": "Show details",
+  "providerUpdate.dialog.hideDetails": "Hide details",
   "providerUpdate.dialog.runningThreads.one":
     "1 conversation is in progress. It finishes its current turn first.",
   "providerUpdate.dialog.runningThreads.many":
@@ -8991,8 +8993,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "providerUpdate.dialog.installed": "当前版本",
   "providerUpdate.dialog.latest": "最新版本",
   "providerUpdate.dialog.cnMirror": "通过国内镜像下载，不需要梯子。",
-  "providerUpdate.dialog.appWaiting":
-    "Moss {version} 也已准备好。智能体更新完后，再点一次这个按钮即可重启安装。",
+  "providerUpdate.dialog.failureSummary": "更新未完成，可重试或复制命令在终端中手动更新。",
+  "providerUpdate.dialog.showDetails": "查看详情",
+  "providerUpdate.dialog.hideDetails": "收起详情",
   "providerUpdate.dialog.runningThreads.one": "有 1 个对话正在进行，会先完成本轮。",
   "providerUpdate.dialog.runningThreads.many": "有 {count} 个对话正在进行，会先完成本轮。",
   "providerUpdate.dialog.cancel": "取消",

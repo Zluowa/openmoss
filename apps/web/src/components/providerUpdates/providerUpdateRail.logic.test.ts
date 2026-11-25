@@ -7,7 +7,7 @@ import {
   collectProviderUpdateTargets,
   getProviderUpdatePillView,
   PROVIDER_UPDATE_SUCCESS_VISIBLE_MS,
-  resolveRailUpdatePresentation,
+  resolveProviderRailUpdateState,
   type ProviderUpdateI18n,
 } from "./providerUpdateRail.logic";
 
@@ -216,53 +216,23 @@ describe("getProviderUpdatePillView", () => {
   });
 });
 
-describe("resolveRailUpdatePresentation", () => {
-  const noDesktop = { visible: false, status: null };
-
-  it("rests when nothing needs the slot", () => {
-    expect(
-      resolveRailUpdatePresentation({ pillTone: null, targetCount: 0, desktop: noDesktop }),
-    ).toBeNull();
-    expect(
-      resolveRailUpdatePresentation({ pillTone: "error", targetCount: 0, desktop: noDesktop }),
-    ).toBeNull();
+describe("resolveProviderRailUpdateState", () => {
+  it("rests when no agent needs updating", () => {
+    expect(resolveProviderRailUpdateState({ pillTone: null, targetCount: 0 })).toBeNull();
+    expect(resolveProviderRailUpdateState({ pillTone: "error", targetCount: 0 })).toBeNull();
   });
 
-  it("confirms agent updates before anything else can start", () => {
-    expect(
-      resolveRailUpdatePresentation({ pillTone: null, targetCount: 2, desktop: noDesktop }),
-    ).toBe("update");
+  it("shows update independently whenever agents are behind", () => {
+    expect(resolveProviderRailUpdateState({ pillTone: null, targetCount: 2 })).toBe("update");
   });
 
-  it("locks the button while agents update", () => {
-    expect(
-      resolveRailUpdatePresentation({ pillTone: "loading", targetCount: 2, desktop: noDesktop }),
-    ).toBe("updating");
-  });
-
-  it("holds a ready app restart until the agents are done", () => {
-    const desktop = { visible: true, status: "downloaded" } as const;
-    expect(resolveRailUpdatePresentation({ pillTone: null, targetCount: 1, desktop })).toBe(
-      "update",
-    );
-    expect(resolveRailUpdatePresentation({ pillTone: null, targetCount: 0, desktop })).toBe(
-      "desktop",
+  it("locks the agent button while agents update", () => {
+    expect(resolveProviderRailUpdateState({ pillTone: "loading", targetCount: 2 })).toBe(
+      "updating",
     );
   });
 
-  it("shows the app download's progress ahead of waiting agent updates", () => {
-    expect(
-      resolveRailUpdatePresentation({
-        pillTone: null,
-        targetCount: 1,
-        desktop: { visible: true, status: "downloading" },
-      }),
-    ).toBe("desktop");
-  });
-
-  it("celebrates a finished update until its pill leaves", () => {
-    expect(
-      resolveRailUpdatePresentation({ pillTone: "success", targetCount: 0, desktop: noDesktop }),
-    ).toBe("success");
+  it("celebrates a finished agent update until its pill leaves", () => {
+    expect(resolveProviderRailUpdateState({ pillTone: "success", targetCount: 0 })).toBe("success");
   });
 });
