@@ -47,6 +47,7 @@ export type KanbanColumnKey = KanbanClassicColumnKey | "awaitingYou";
 export type KanbanClassicColumnKey = "draft" | "inProgress" | "done";
 
 export const KANBAN_FALLBACK_DRAFT_TITLE = "New thread";
+export const KANBAN_FALLBACK_TERMINAL_TITLE = "New terminal";
 
 /**
  * Localized fallback title for untitled drafts / promoted canvas drafts that still
@@ -54,6 +55,36 @@ export const KANBAN_FALLBACK_DRAFT_TITLE = "New thread";
  */
 export function resolveKanbanFallbackDraftTitle(locale: string): string {
   return isChineseLocale(locale) ? "新对话" : KANBAN_FALLBACK_DRAFT_TITLE;
+}
+
+/**
+ * Localized fallback title for terminal threads that still carry the generic
+ * "New terminal" placeholder or an empty title (rendered inside `data-translation-skip`).
+ */
+export function resolveKanbanFallbackTerminalTitle(locale: string): string {
+  return isChineseLocale(locale) ? "新建终端" : KANBAN_FALLBACK_TERMINAL_TITLE;
+}
+
+function resolveKanbanThreadCardTitle(
+  rawTitle: string,
+  isTerminal: boolean,
+  locale: string,
+): string {
+  const trimmedTitle = rawTitle.trim();
+  if (isTerminal) {
+    return trimmedTitle.length === 0 ||
+      trimmedTitle === KANBAN_FALLBACK_TERMINAL_TITLE ||
+      trimmedTitle === KANBAN_FALLBACK_DRAFT_TITLE
+      ? resolveKanbanFallbackTerminalTitle(locale)
+      : rawTitle;
+  }
+  if (trimmedTitle.length === 0 || trimmedTitle === KANBAN_FALLBACK_DRAFT_TITLE) {
+    return resolveKanbanFallbackDraftTitle(locale);
+  }
+  if (trimmedTitle === KANBAN_FALLBACK_TERMINAL_TITLE) {
+    return resolveKanbanFallbackTerminalTitle(locale);
+  }
+  return rawTitle;
 }
 
 /**
@@ -591,11 +622,7 @@ function buildThreadCard(
     column === "inProgress" || isAwaitingStuck
       ? deriveActiveWorkStartedAt(thread.latestTurn, thread.session, timestamp)
       : null;
-  const trimmedTitle = thread.title.trim();
-  const title =
-    !isTerminal && (trimmedTitle.length === 0 || trimmedTitle === KANBAN_FALLBACK_DRAFT_TITLE)
-      ? resolveKanbanFallbackDraftTitle(locale)
-      : thread.title;
+  const title = resolveKanbanThreadCardTitle(thread.title, isTerminal, locale);
   return {
     cardId: kanbanThreadCardId(thread.id),
     threadId: thread.id,
@@ -738,7 +765,9 @@ function forceOptimisticInProgressCard(
     isOptimisticDispatch: true,
     title:
       (card.title === KANBAN_FALLBACK_DRAFT_TITLE ||
-        card.title === resolveKanbanFallbackDraftTitle("zh-CN")) &&
+        card.title === resolveKanbanFallbackDraftTitle("zh-CN") ||
+        card.title === KANBAN_FALLBACK_TERMINAL_TITLE ||
+        card.title === resolveKanbanFallbackTerminalTitle("zh-CN")) &&
       entry.title.length > 0
         ? entry.title
         : card.title,

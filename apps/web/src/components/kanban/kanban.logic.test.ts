@@ -1095,6 +1095,50 @@ describe("draft card titles", () => {
     );
     expect(enBoard.projects[0]!.draft[0]?.title).toBe("New thread");
   });
+
+  it("walk16: localizes untitled terminal drafts ('New terminal' or blank) to '新建终端' in zh-CN without touching custom titles", () => {
+    const termPlaceholderId = ThreadId.makeUnsafe("thread-term-placeholder");
+    const termBlankId = ThreadId.makeUnsafe("thread-term-blank");
+    const termCustomId = ThreadId.makeUnsafe("thread-term-custom");
+    const termFallbackFlagId = ThreadId.makeUnsafe("thread-term-unflagged");
+
+    const zhBoard = buildKanbanBoard(
+      makeBoardInput({
+        locale: "zh-CN",
+        terminalEntryThreadIds: new Set([termPlaceholderId, termBlankId, termCustomId]),
+        threads: [
+          makeSidebarThreadSummary({ id: termPlaceholderId, title: "New terminal" }),
+          makeSidebarThreadSummary({ id: termBlankId, title: "  " }),
+          makeSidebarThreadSummary({ id: termCustomId, title: "Build server" }),
+          makeSidebarThreadSummary({ id: termFallbackFlagId, title: "New terminal" }),
+        ],
+      }),
+    );
+
+    const zhTitles = Object.fromEntries(
+      zhBoard.projects[0]!.draft.map((card) => [card.threadId, card.title]),
+    );
+    expect(zhTitles[termPlaceholderId]).toBe("新建终端");
+    expect(zhTitles[termBlankId]).toBe("新建终端");
+    expect(zhTitles[termCustomId]).toBe("Build server");
+    expect(zhTitles[termFallbackFlagId]).toBe("新建终端");
+
+    const enBoard = buildKanbanBoard(
+      makeBoardInput({
+        locale: "en",
+        terminalEntryThreadIds: new Set([termPlaceholderId, termBlankId]),
+        threads: [
+          makeSidebarThreadSummary({ id: termPlaceholderId, title: "New terminal" }),
+          makeSidebarThreadSummary({ id: termBlankId, title: "" }),
+        ],
+      }),
+    );
+    const enTitles = Object.fromEntries(
+      enBoard.projects[0]!.draft.map((card) => [card.threadId, card.title]),
+    );
+    expect(enTitles[termPlaceholderId]).toBe("New terminal");
+    expect(enTitles[termBlankId]).toBe("New terminal");
+  });
 });
 
 describe("areKanbanComposerDraftSnapshotsEqual", () => {
