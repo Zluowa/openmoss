@@ -65,6 +65,7 @@ import type {
   SpaceCanvasSelectionContext,
 } from "../../space/spaceCanvasDockContract";
 import { Button } from "../../ui/button";
+import { Textarea } from "../../ui/textarea";
 import { toastManager } from "../../ui/toast";
 import {
   SpaceSidePanel,
@@ -1139,13 +1140,13 @@ export function DashboardItemView(props: {
                           {copy.askSelected(runtime.selection.text.slice(0, 60))}
                         </span>
                       ) : null}
-                      <textarea
+                      <Textarea
+                        unstyled
                         aria-label={copy.askPlaceholder}
                         value={ask}
                         rows={1}
                         autoFocus
                         placeholder={canAsk ? copy.askPlaceholder : copy.noAgent}
-                        style={{ fontFamily: "var(--font-ui-family)" }}
                         disabled={!canAsk}
                         onChange={(event) => setAsk(event.target.value)}
                         onKeyDown={(event) => {
@@ -1158,7 +1159,7 @@ export function DashboardItemView(props: {
                             sendAsk();
                           }
                         }}
-                        className="max-h-28 min-h-7 resize-none bg-transparent py-1 text-ui text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/70"
+                        className="w-full [&_textarea]:max-h-28 [&_textarea]:min-h-7 [&_textarea]:resize-none [&_textarea]:bg-transparent [&_textarea]:px-0 [&_textarea]:py-1 [&_textarea]:text-ui [&_textarea]:text-foreground [&_textarea]:[font-family:var(--font-ui-family)] [&_textarea]:placeholder:text-muted-foreground/70"
                       />
                     </div>
                     <Button

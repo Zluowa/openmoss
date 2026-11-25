@@ -5,7 +5,7 @@
 
 import "../../../index.css";
 
-import { ThreadId, type NativeApi, type PageTypedItem } from "@moss/contracts";
+import { ProjectId, ThreadId, type NativeApi, type PageTypedItem } from "@moss/contracts";
 import {
   createDashboard,
   DASHBOARD_PAGE_FILE,
@@ -25,6 +25,7 @@ import { cleanup, render } from "vitest-browser-react";
 
 import type { SpaceCanvasDockController } from "~/components/space/spaceCanvasDockContract";
 import { MossLocaleScope } from "~/localization";
+import { useStore } from "~/store";
 import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
 import { TooltipProvider } from "../../ui/tooltip";
 import { AppItemView } from "../app/AppItemView";
@@ -67,6 +68,7 @@ async function mountWithProviders(node: ReactNode) {
 }
 
 let previousApi: NativeApi | undefined;
+const initialStoreSnapshot = useStore.getState();
 
 beforeEach(() => {
   previousApi = window.nativeApi;
@@ -74,6 +76,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   await cleanup();
+  useStore.setState(initialStoreSnapshot);
   (window as { nativeApi?: NativeApi | undefined }).nativeApi = previousApi;
 });
 
@@ -188,5 +191,119 @@ describe("Dashboard & App dock integration", () => {
 
     setBusyRef.current?.(true);
     await expect.element(page.getByTestId("dashboard-shimmer")).toBeVisible();
+  });
+
+  it("renders dashboard empty prompt, standalone ask composer, and style slider with ui primitives", async () => {
+    await page.viewport(1280, 800);
+    const fixture = createDataSpaceFixture();
+    window.nativeApi = fixture.api;
+    const projectId = ProjectId.makeUnsafe("dash-standalone-proj");
+    const threadId = ThreadId.makeUnsafe("dash-standalone-thread");
+    useStore.setState({
+      threadsHydrated: true,
+      threadIds: [threadId],
+      projects: [
+        {
+          id: projectId,
+          kind: "project",
+          name: "Standalone",
+          remoteName: "Standalone",
+          folderName: "Standalone",
+          localName: "Standalone",
+          cwd: "/tmp/standalone",
+          defaultModelSelection: { provider: "codex", model: "gpt-5.4" },
+          expanded: false,
+          spaceId: null,
+          scripts: [],
+        },
+      ],
+      threadShellById: {
+        [threadId]: {
+          id: threadId,
+          codexThreadId: null,
+          projectId,
+          title: "Dashboard AI",
+          modelSelection: { provider: "codex", model: "gpt-5.4" },
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          error: null,
+          branch: null,
+          worktreePath: null,
+          createdAt: "2026-11-22T00:00:00.000Z",
+          archivedAt: null,
+        },
+      },
+    });
+    const doc = pageDocument("dash-empty-1", "空白看板", "");
+    const item: PageTypedItem = {
+      page: { ...doc.page, kind: "app", sourceThreadId: threadId },
+      kind: "app",
+      data: "",
+      dataRevision: 1,
+    };
+    const empty = createDashboard("空白看板");
+
+    const mounted = await mountWithProviders(
+      <div style={{ width: 1100, height: 700, display: "flex" }}>
+        <DashboardItemView
+          account={fixture.state.account}
+          scopeSpaceId={null}
+          item={item}
+          dashboard={empty}
+          title="空白看板"
+          readOnly={false}
+          header={<span>空白看板</span>}
+          onChange={() => {}}
+          flush={async () => true}
+          revision={() => 1}
+          reloadIfChanged={async () => false}
+          dock={null}
+        />
+      </div>,
+    );
+
+    const emptyPrompt = page.getByRole("textbox", { name: "让 Moss 修改这个看板…", exact: true });
+    await expect.element(emptyPrompt).toBeVisible();
+    expect(emptyPrompt.element().closest('[data-slot="textarea-control"]')).not.toBeNull();
+
+    await page.getByTestId("dashboard-design").click();
+    await expect.element(page.getByTestId("dashboard-design-panel")).toBeVisible();
+    await page.getByTestId("dashboard-style").getByRole("button").first().click();
+    await expect.element(page.getByRole("slider", { name: "文字大小", exact: true })).toBeVisible();
+
+    await mounted.unmount();
+
+    const populated: DashboardItem = {
+      ...empty,
+      files: {
+        [DASHBOARD_PAGE_FILE]: {
+          text: "<div><h1>营收</h1></div>",
+          edit: { via: "person", at: "2026-11-22T00:00:00.000Z" },
+        },
+      },
+    };
+    await mountWithProviders(
+      <div style={{ width: 1100, height: 700, display: "flex" }}>
+        <DashboardItemView
+          account={fixture.state.account}
+          scopeSpaceId={null}
+          item={item}
+          dashboard={populated}
+          title="营收看板"
+          readOnly={false}
+          header={<span>营收看板</span>}
+          onChange={() => {}}
+          flush={async () => true}
+          revision={() => 1}
+          reloadIfChanged={async () => false}
+          dock={null}
+        />
+      </div>,
+    );
+
+    await page.getByTestId("dashboard-ask-trigger").click();
+    const askField = page.getByRole("textbox", { name: "让 Moss 修改这个看板…", exact: true });
+    await expect.element(askField).toBeVisible();
+    expect(askField.element().closest('[data-slot="textarea-control"]')).not.toBeNull();
   });
 });

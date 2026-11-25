@@ -30,10 +30,9 @@ import { CheckIcon, Undo2Icon } from "~/lib/icons";
 import { Button } from "../../ui/button";
 import { DisclosureChevron } from "../../ui/DisclosureChevron";
 import { DisclosureRegion } from "../../ui/DisclosureRegion";
+import { Slider } from "../../ui/slider";
+import { Textarea } from "../../ui/textarea";
 import type { DashboardCopy } from "./dashboardCopy";
-
-// Prose fields, not code: the global field reset would make them monospace.
-const UI_FONT = { fontFamily: "var(--font-ui-family)" } as const;
 
 // ── Design ────────────────────────────────────────────────────────────────────────────
 
@@ -397,23 +396,25 @@ function StyleSection(props: Parameters<typeof DashboardDesignPanel>[0]) {
               })}
             </div>
           </div>
-          <label className="flex items-center justify-between gap-3 text-ui-sm text-foreground">
+          <div className="flex items-center justify-between gap-3 text-ui-sm text-foreground">
             <span className="shrink-0">{copy.styleSize}</span>
-            <input
-              type="range"
+            <Slider
+              value={base.size ?? 14}
               min={12}
               max={18}
               step={1}
-              value={base.size ?? 14}
+              showStepMarks
+              magnetic
               disabled={disabled}
               aria-label={copy.styleSize}
-              onChange={(event) => tweak({ size: Number(event.target.value) })}
-              className="min-w-0 flex-1 accent-[var(--color-text-accent)]"
+              getAriaValueText={(value) => `${value}px`}
+              onValueChange={(size) => tweak({ size })}
+              className="min-w-0 flex-1"
             />
             <span className="w-8 text-right tabular-nums text-muted-foreground">
               {base.size ?? 14}px
             </span>
-          </label>
+          </div>
           {props.style ? (
             <div className="flex items-center gap-1 pt-1" data-testid="dashboard-style-bar">
               <Button
@@ -630,12 +631,12 @@ export function DashboardEmptyState(props: {
                 if (text.trim() && props.canAsk) props.onAsk(text.trim(), form, look);
               }}
             >
-              <textarea
+              <Textarea
+                unstyled
                 aria-label={copy.askPlaceholder}
                 value={text}
                 rows={2}
                 placeholder={copy.emptyBody}
-                style={UI_FONT}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
@@ -643,7 +644,7 @@ export function DashboardEmptyState(props: {
                     if (text.trim() && props.canAsk) props.onAsk(text.trim(), form, look);
                   }
                 }}
-                className="min-h-10 flex-1 resize-none bg-transparent px-1.5 py-1 text-ui text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/70"
+                className="min-w-0 flex-1 [&_textarea]:min-h-10 [&_textarea]:resize-none [&_textarea]:bg-transparent [&_textarea]:px-1.5 [&_textarea]:py-1 [&_textarea]:text-ui [&_textarea]:text-foreground [&_textarea]:[font-family:var(--font-ui-family)] [&_textarea]:placeholder:text-muted-foreground/70"
               />
               <Button size="sm" type="submit" disabled={!text.trim() || !props.canAsk}>
                 {copy.send}

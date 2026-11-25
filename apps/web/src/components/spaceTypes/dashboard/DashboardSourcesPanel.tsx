@@ -42,6 +42,8 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "../../ui/menu";
+import { Textarea } from "../../ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import type { DashboardCopy } from "./dashboardCopy";
 import type {
   DashboardCalcState,
@@ -573,12 +575,13 @@ function QueryFold(
           {source.connector} · <span className="font-mono">{source.tool}</span>
         </p>
         {editing ? (
-          <textarea
+          <Textarea
+            size="sm"
             aria-label={copy.editQuery}
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={8}
-            className="w-full resize-y rounded-card border border-border bg-background px-2.5 py-2 font-mono text-chat-code text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full [&_textarea]:resize-y [&_textarea]:font-mono [&_textarea]:text-chat-code"
           />
         ) : null}
         {editing && props.dataset.saved?.length ? (
@@ -698,13 +701,18 @@ function ArgumentText(props: { value: unknown; params: Readonly<Record<string, u
       {parts.map((part, index) => {
         const name = /^\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}$/u.exec(part)?.[1];
         return name ? (
-          <span
-            key={index}
-            title={`${name} = ${JSON.stringify(props.params[name] ?? "")}`}
-            className="rounded-inline bg-[color-mix(in_srgb,var(--color-text-accent)_12%,transparent)] text-[var(--color-text-accent)] underline underline-offset-3"
-          >
-            {part}
-          </span>
+          <Tooltip key={index}>
+            <TooltipTrigger
+              render={
+                <span className="rounded-inline bg-[color-mix(in_srgb,var(--color-text-accent)_12%,transparent)] text-[var(--color-text-accent)] underline underline-offset-3" />
+              }
+            >
+              {part}
+            </TooltipTrigger>
+            <TooltipPopup>
+              <p>{`${name} = ${JSON.stringify(props.params[name] ?? "")}`}</p>
+            </TooltipPopup>
+          </Tooltip>
         ) : (
           part
         );
@@ -759,12 +767,13 @@ function FileFold(
           </span>
         </p>
         {editing ? (
-          <textarea
+          <Textarea
+            size="sm"
             aria-label={copy.editFile}
             value={text}
             onChange={(event) => setText(event.target.value)}
             rows={10}
-            className="w-full resize-y rounded-card border border-border bg-background px-2.5 py-2 font-mono text-chat-code text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full [&_textarea]:resize-y [&_textarea]:font-mono [&_textarea]:text-chat-code"
           />
         ) : null}
         {error ? <p className="text-ui-sm text-destructive">{error}</p> : null}
