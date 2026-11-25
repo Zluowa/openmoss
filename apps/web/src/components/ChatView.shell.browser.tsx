@@ -53,6 +53,7 @@ import {
   createSnapshotForTargetUser,
   createSnapshotWithInlineToolOverflow,
   createSnapshotWithLongAssistantResponse,
+  createSnapshotWithPendingApproval,
   createUserMessage,
   dispatchConfiguredShortcut,
   dispatchConfiguredShortcutWhenReady,
@@ -2391,6 +2392,105 @@ describe("ChatView transcript geometry (full app)", () => {
       }
     } finally {
       worker.resetHandlers();
+      desktopTitleBar.on = false;
+      await mounted.cleanup();
+    }
+  });
+
+  it("WALK-13 N13-8: 更多 → 任务 → 列表 shows all board tasks and 新建任务 opens the dialog", async () => {
+    desktopTitleBar.on = true;
+    const baseSnapshot = createSnapshotWithPendingApproval();
+    const doneThreadId = ThreadId.makeUnsafe("thread-n13-8-done");
+    const withSecond = addThreadToSnapshot(baseSnapshot, OTHER_THREAD_ID);
+    const withThird = addThreadToSnapshot(withSecond, doneThreadId);
+    const snapshot = {
+      ...withThird,
+      projects: withThird.projects.map((project) =>
+        project.id === PROJECT_ID ? { ...project, title: "code" } : project,
+      ),
+      threads: withThird.threads.map((thread) => {
+        if (thread.id === THREAD_ID) {
+          return { ...thread, title: "Task awaiting approval" };
+        }
+        if (thread.id === OTHER_THREAD_ID) {
+          return {
+            ...thread,
+            title: "Task failed",
+            latestTurn: {
+              turnId: TurnId.makeUnsafe("turn-n13-8-failed"),
+              state: "error" as const,
+              requestedAt: NOW_ISO,
+              startedAt: NOW_ISO,
+              completedAt: NOW_ISO,
+              assistantMessageId: null,
+            },
+            session: {
+              ...thread.session!,
+              status: "error" as const,
+              lastError: "Gateway 500",
+            },
+          };
+        }
+        if (thread.id === doneThreadId) {
+          return {
+            ...thread,
+            title: "Task done",
+            latestTurn: {
+              turnId: TurnId.makeUnsafe("turn-n13-8-done"),
+              state: "completed" as const,
+              requestedAt: NOW_ISO,
+              startedAt: NOW_ISO,
+              completedAt: NOW_ISO,
+              assistantMessageId: null,
+            },
+          };
+        }
+        return thread;
+      }),
+    };
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1_100, height: 780 },
+      snapshot,
+    });
+    try {
+      await waitForLayout();
+      const rail = page.getByRole("navigation", { name: "Primary", exact: true });
+      await rail.getByRole("button", { name: "More", exact: true }).click();
+      await page.getByRole("menuitem", { name: "Tasks", exact: true }).click();
+      await expect
+        .poll(() => mounted.router.state.location.pathname, { message: "Tasks opens on List view" })
+        .toBe("/tasks");
+
+      // All 3 board tasks are rendered as visible list rows (not just the quick-add line).
+      for (const title of ["Task awaiting approval", "Task failed", "Task done"]) {
+        const rowButton = page.getByRole("button", { name: title, exact: true });
+        await expect.element(rowButton).toBeVisible();
+        const box = rowButton.element().getBoundingClientRect();
+        expect(box.width, `${title} row has width`).toBeGreaterThan(0);
+        expect(box.height, `${title} row has height`).toBeGreaterThan(0);
+      }
+
+      // Clicking 新建任务 in List opens the same New task dialog as Board.
+      await page.getByRole("button", { name: "New task", exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      await expect.element(dialog).toBeVisible();
+      await expect.element(dialog.getByText("code", { exact: true })).toBeVisible();
+      await userEvent.keyboard("{Escape}");
+      await expect.element(dialog).not.toBeInTheDocument();
+
+      // Switch to Board and verify the same 3 tasks and dialog exist there too.
+      await page.getByRole("radio", { name: "Kanban", exact: true }).click();
+      await expect
+        .poll(() => mounted.router.state.location.pathname, { message: "Board view is open" })
+        .toBe("/kanban");
+      for (const title of ["Task awaiting approval", "Task failed", "Task done"]) {
+        await expect
+          .element(page.getByRole("main").getByText(title, { exact: true }))
+          .toBeVisible();
+      }
+      await page.getByRole("button", { name: "New task", exact: true }).click();
+      await expect.element(page.getByRole("dialog")).toBeVisible();
+    } finally {
       desktopTitleBar.on = false;
       await mounted.cleanup();
     }

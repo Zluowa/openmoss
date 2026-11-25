@@ -104,6 +104,8 @@ const STATUS_TONE: Partial<Record<TaskStatusKind, TaskMetaTone>> = {
   stopped: "failure",
 };
 
+export const KANBAN_STATUS_TONE = STATUS_TONE;
+
 /**
  * The card's one status (WALK-12 N12-6: a waiting card showed its thread pill, an attention
  * badge and its column, all saying the same thing). What the card needs from the person
@@ -111,9 +113,9 @@ const STATUS_TONE: Partial<Record<TaskStatusKind, TaskMetaTone>> = {
  * does not already say it, then the column itself. Terminal-first threads read "Terminal":
  * an idle terminal is not a draft.
  */
-function resolveKanbanCardStatus(
+export function resolveKanbanCardStatus(
   card: KanbanCard,
-  pr: ReturnType<typeof resolveThreadPullRequestFallback> | null,
+  pr?: ReturnType<typeof resolveThreadPullRequestFallback> | null,
 ): { label: string; kind: TaskStatusKind } {
   // An explicit `null` PR means live resolution settled with no open PR (drop
   // needs-review); `undefined` means the row has not resolved yet (keep the seeded flag).
