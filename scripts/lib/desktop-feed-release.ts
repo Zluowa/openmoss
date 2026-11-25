@@ -166,6 +166,20 @@ function assertWindowsManifestMatchesInstaller(
   }
 }
 
+/** Keeps non-draft, non-prerelease desktop tags (excluding mobile-v* releases) for monotonic feed checks. */
+export function selectDesktopFeedStableTags(
+  releases: readonly Pick<RemoteRelease, "tagName" | "draft" | "prerelease">[],
+  options: { readonly verifyOnly?: boolean; readonly version: string },
+): readonly string[] {
+  return releases
+    .filter((release) => !release.draft && !release.prerelease)
+    .map((release) => release.tagName)
+    .filter(
+      (tag) =>
+        !tag.startsWith("mobile-v") && !(options.verifyOnly && tag === `v${options.version}`),
+    );
+}
+
 /**
  * Validates a build folder and writes the two derived files into it: the channel
  * manifest installed apps request, and the checksum list. Only reads the network

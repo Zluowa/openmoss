@@ -19,6 +19,7 @@ import {
   createCurlFeedClient,
   prepareFeedRelease,
   publishFeedRelease,
+  selectDesktopFeedStableTags,
   syncDomesticMirror,
   verifyPublicFeed,
 } from "./lib/desktop-feed-release.ts";
@@ -101,10 +102,7 @@ async function main(args: readonly string[]): Promise<void> {
   assertSourceCommit(sourceCommit, version);
 
   const releases = await client.listReleases();
-  const publishedStableTags = releases
-    .filter((release) => !release.draft && !release.prerelease)
-    .map((release) => release.tagName)
-    .filter((tag) => !(verifyOnly && tag === `v${version}`));
+  const publishedStableTags = selectDesktopFeedStableTags(releases, { verifyOnly, version });
   const prepared = prepareFeedRelease({
     artifactsDirectory,
     version,

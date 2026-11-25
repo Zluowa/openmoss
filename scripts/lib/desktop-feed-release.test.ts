@@ -16,6 +16,7 @@ import {
   createCurlFeedClient,
   prepareFeedRelease,
   publishFeedRelease,
+  selectDesktopFeedStableTags,
   syncDomesticMirror,
   type FeedAsset,
   type FeedReleaseClient,
@@ -35,22 +36,26 @@ afterEach(() => {
   }
 });
 
-function writeBuildFolder(options: { readonly manifestVersion?: string } = {}): string {
+function writeBuildFolder(
+  options: { readonly version?: string; readonly manifestVersion?: string } = {},
+): string {
+  const version = options.version ?? VERSION;
+  const installerName = `Moss-${version}-x64.exe`;
   const directory = mkdtempSync(join(tmpdir(), "moss-feed-release-"));
   directories.push(directory);
   const installer = Buffer.from("installer bytes");
   const sha512 = createHash("sha512").update(installer).digest("base64");
-  writeFileSync(join(directory, INSTALLER), installer);
-  writeFileSync(join(directory, `${INSTALLER}.blockmap`), "blockmap bytes");
+  writeFileSync(join(directory, installerName), installer);
+  writeFileSync(join(directory, `${installerName}.blockmap`), "blockmap bytes");
   writeFileSync(
     join(directory, "latest.yml"),
     [
-      `version: ${options.manifestVersion ?? VERSION}`,
+      `version: ${options.manifestVersion ?? version}`,
       "files:",
-      `  - url: ${INSTALLER}`,
+      `  - url: ${installerName}`,
       `    sha512: ${sha512}`,
       `    size: ${installer.length}`,
-      `path: ${INSTALLER}`,
+      `path: ${installerName}`,
       `sha512: ${sha512}`,
       "releaseDate: '2026-10-31T00:00:00.000Z'",
       "",
@@ -210,6 +215,46 @@ describe("prepareFeedRelease", () => {
     const directory = writeBuildFolder();
     rmSync(join(directory, `${INSTALLER}.blockmap`));
     expect(() => prepare(directory)).toThrow();
+  });
+
+  it("ignores mobile-v* tags when selecting desktop stable tags while still rejecting invalid tags", () => {
+    const directory = writeBuildFolder({ version: "1.0.16" });
+    const stableWithMobile = selectDesktopFeedStableTags(
+      [
+        { tagName: "v1.0.14", draft: false, prerelease: false },
+        { tagName: "mobile-v1.0.15", draft: false, prerelease: false },
+        { tagName: "v1.0.16", draft: true, prerelease: false },
+        { tagName: "v1.0.16-beta.1", draft: false, prerelease: true },
+      ],
+      { version: "1.0.16" },
+    );
+    expect(stableWithMobile).toEqual(["v1.0.14"]);
+    expect(
+      prepareFeedRelease({
+        artifactsDirectory: directory,
+        version: "1.0.16",
+        channel: "moss",
+        publishedStableTags: stableWithMobile,
+      }).tag,
+    ).toBe("v1.0.16");
+
+    const withInvalidTag = selectDesktopFeedStableTags(
+      [
+        { tagName: "v1.0.14", draft: false, prerelease: false },
+        { tagName: "mobile-v1.0.15", draft: false, prerelease: false },
+        { tagName: "stable-1.0.15", draft: false, prerelease: false },
+      ],
+      { version: "1.0.16" },
+    );
+    expect(withInvalidTag).toEqual(["v1.0.14", "stable-1.0.15"]);
+    expect(() =>
+      prepareFeedRelease({
+        artifactsDirectory: directory,
+        version: "1.0.16",
+        channel: "moss",
+        publishedStableTags: withInvalidTag,
+      }),
+    ).toThrow(/non-SemVer tag: stable-1\.0\.15/);
   });
 });
 
