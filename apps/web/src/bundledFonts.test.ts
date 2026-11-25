@@ -21,11 +21,12 @@ const GOOGLE_FONTS_HOST = /fonts\.(?:googleapis|gstatic)\.com/u;
 // may load is its own business, not something Moss requests at start.
 const FRAME_CONTENT_POLICIES = new Set([
   "public/space-app-preview.html",
+  "public/space-design-play.html",
   "src/components/spaceTypes/design/designDocument.ts",
 ]);
-// index.html's policy line. Design artboards render in srcdoc frames, which run under this policy
-// as well as their own, so it allows what designDocument.ts allows them; allowing a host requests
-// nothing.
+// index.html's policy line. Design artboards being edited render in srcdoc frames, which run under
+// this policy as well as their own, so it allows what designDocument.ts allows them; allowing a
+// host requests nothing.
 const SHELL_POLICY = /<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]*)"\s*\/>/u;
 // A stylesheet that imports or points at another site: `@import "https://…"`, `url(//…)`.
 const REMOTE_CSS = /(?:@import\s+(?:url\(\s*)?|url\(\s*)["']?(?:https?:)?\/\//u;

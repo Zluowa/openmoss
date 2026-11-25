@@ -26,8 +26,9 @@ export async function captureViewportPixels(): Promise<ViewportPixels> {
   const shot: unknown = await page.screenshot({ base64: true, save: false });
   const base64 = typeof shot === "string" ? shot : (shot as { readonly base64: string }).base64;
   const encoded = base64.replace(/^data:[^,]*,/, "").replace(/[^A-Za-z0-9+/=]/g, "");
-  const blob = await (await fetch(`data:image/png;base64,${encoded}`)).blob();
-  const bitmap = await createImageBitmap(blob);
+  // Decoded here rather than fetched as a data: address, which a page's connect-src may refuse.
+  const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
   const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
   const context = canvas.getContext("2d");
   if (!context) throw new Error("No 2D context for the screenshot.");

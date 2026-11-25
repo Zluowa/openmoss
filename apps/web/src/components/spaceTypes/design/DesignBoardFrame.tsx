@@ -2,12 +2,14 @@
 // Purpose: One 设计 artboard's frame on the canvas. While editing it is a same-origin document
 //          with scripts off, so the editor reads and patches its DOM; while playing it runs the
 //          artboard's scripts in an isolated origin and reports followed links.
+//          A playing artboard loads through the static play host (public/space-design-play.html):
+//          a srcdoc frame inherits the app's script-src 'self', so its scripts would never run.
 // Layer: 资料空间 设计 (web)
 // Why: An edit made on the DOM is already on screen, so the frame reloads only when the source
 //      changed some other way (undo, an agent's write, a theme or tweak change).
 
 import type { DesignBoard, DesignCanvas } from "@moss/shared/spaceItems/designCanvas";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   boardSrcdoc,
@@ -15,6 +17,21 @@ import {
   DESIGN_NAV_MESSAGE,
   type DesignFrameMode,
 } from "./designDocument";
+
+/** The play host's message protocol (public/space-design-play.html). */
+const PLAY_HOST_PROTOCOL = "moss-design-play-v1";
+
+/** The play host's address for one document; a new nonce makes each document a fresh load. */
+function playHostUrl(nonce: string): string {
+  const url = new URL(`${import.meta.env.BASE_URL}space-design-play.html`, window.location.href);
+  url.searchParams.set("frame", nonce);
+  url.hash = new URLSearchParams({
+    protocol: PLAY_HOST_PROTOCOL,
+    nonce,
+    parentOrigin: window.location.origin,
+  }).toString();
+  return url.href;
+}
 
 export interface DesignFrameHandle {
   readonly boardId: string;
@@ -66,8 +83,14 @@ export const DesignBoardFrame = memo(function DesignBoardFrame(props: {
     window: () => frame.current?.contentWindow ?? null,
   });
   const keys = useRef({ style: styleKey(props.board, props.canvas), mode: props.mode });
-  const [srcDoc, setSrcDoc] = useState(() => boardSrcdoc(props.board, props.canvas, props.mode));
-  const current = useRef(srcDoc);
+  // The document the frame shows and the mode it was built for: the frame's sandbox and address
+  // follow it, so a mode change never shows the previous mode's document in the new sandbox.
+  const [view, setView] = useState(() => ({
+    html: boardSrcdoc(props.board, props.canvas, props.mode),
+    mode: props.mode,
+    nonce: crypto.randomUUID(),
+  }));
+  const current = useRef(view.html);
   const reloads = useRef(0);
 
   useEffect(() => {
@@ -85,8 +108,27 @@ export const DesignBoardFrame = memo(function DesignBoardFrame(props: {
     if (next === current.current) next = `${next}<!--${(reloads.current += 1)}-->`;
     loaded.current = false;
     current.current = next;
-    setSrcDoc(next);
+    setView({ html: next, mode: props.mode, nonce: crypto.randomUUID() });
   }, [props.board, props.canvas, props.mode]);
+
+  // A playing artboard: the host says it is ready, then gets this document once. Registered in
+  // the commit that sets the host's address, so the host's first message is never missed.
+  useLayoutEffect(() => {
+    if (view.mode !== "play") return;
+    const { html, nonce } = view;
+    let sent = false;
+    const receive = (event: MessageEvent) => {
+      const target = frame.current?.contentWindow;
+      if (sent || !target || event.source !== target || event.origin !== "null") return;
+      const data = event.data as { protocol?: unknown; nonce?: unknown; kind?: unknown } | null;
+      if (data?.protocol !== PLAY_HOST_PROTOCOL || data.nonce !== nonce || data.kind !== "ready")
+        return;
+      sent = true;
+      target.postMessage({ protocol: PLAY_HOST_PROTOCOL, nonce, kind: "document", html }, "*");
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, [view]);
 
   useEffect(() => {
     const id = props.board.id;
@@ -127,8 +169,8 @@ export const DesignBoardFrame = memo(function DesignBoardFrame(props: {
       title={props.board.name}
       // Editing: same origin, no scripts (the editor patches the DOM). Playing: scripts in an
       // opaque origin, no same-origin access, no top navigation.
-      sandbox={props.mode === "play" ? "allow-scripts allow-forms" : "allow-same-origin"}
-      srcDoc={srcDoc}
+      sandbox={view.mode === "play" ? "allow-scripts allow-forms" : "allow-same-origin"}
+      {...(view.mode === "play" ? { src: playHostUrl(view.nonce) } : { srcDoc: view.html })}
       tabIndex={props.interactive ? 0 : -1}
       data-design-frame={props.board.id}
       data-design-frame-mode={props.mode}
