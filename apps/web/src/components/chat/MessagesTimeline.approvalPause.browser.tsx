@@ -257,4 +257,80 @@ describe("MessagesTimeline awaitingUser pause duration", () => {
       await settledScreen.unmount();
     }
   });
+
+  it("#1003: freezes inner running tool row timer and suppresses 没有动静 while awaiting approval", async () => {
+    installZhCnUiLocalization();
+
+    const liveAwaitingTiming = deriveTurnTimingByTurnId({
+      turnDiffSummaries: [],
+      latestTurn: {
+        turnId: TURN_ID,
+        state: "running",
+        requestedAt: "2026-11-25T10:00:00.000Z",
+        startedAt: "2026-11-25T10:00:00.000Z",
+        completedAt: null,
+      },
+      activities: makeApprovalPauseActivities({ resolved: false }),
+    });
+
+    const entriesWithLiveTool: TimelineEntry[] = [
+      makeBaseEntries()[0]!,
+      {
+        id: "w-live-tool",
+        kind: "work",
+        createdAt: "2026-11-25T10:00:02.000Z",
+        entry: {
+          id: "work-live-tool",
+          createdAt: "2026-11-25T10:00:02.000Z",
+          label: "PowerShell",
+          tone: "tool",
+          turnId: TURN_ID,
+          liveActivity: {
+            state: "running_tool",
+            label: "PowerShell",
+            startedAt: "2026-11-25T10:00:02.000Z",
+            lastActivityAt: "2026-11-25T10:00:03.000Z",
+          },
+        },
+      },
+    ];
+
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        <div style={{ width: 800, height: 600 }}>
+          <MessagesTimeline
+            hasMessages
+            isWorking
+            awaitingUser
+            activeTurnId={TURN_ID}
+            activeTurnInProgress
+            activeTurnStartedAt="2026-11-25T10:00:00.000Z"
+            timelineEntries={entriesWithLiveTool}
+            turnDiffSummaryByAssistantMessageId={new Map()}
+            turnTimingByTurnId={liveAwaitingTiming}
+            nowIso="2026-11-25T10:03:10.000Z"
+            onOpenTurnDiff={() => {}}
+            revertTurnCountByUserMessageId={new Map()}
+            onRevertUserMessage={() => {}}
+            isRevertingCheckpoint={false}
+            onImageExpand={() => {}}
+            markdownCwd="/repo"
+            resolvedTheme="light"
+            timestampFormat="locale"
+            workspaceRoot={undefined}
+          />
+        </div>
+      </MossLocaleScope>,
+    );
+    try {
+      await expect
+        .poll(() => document.querySelector('[data-live-activity-meta="true"]')?.textContent ?? "")
+        .toContain("等待批准 · 已用时 8 秒");
+      const metaText =
+        document.querySelector('[data-live-activity-meta="true"]')?.textContent ?? "";
+      expect(metaText).not.toContain("没有动静");
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

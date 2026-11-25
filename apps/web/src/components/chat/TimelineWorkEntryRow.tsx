@@ -134,6 +134,7 @@ import {
   isLiveActivityInProgress,
   useLiveActivityNow,
 } from "../../lib/liveActivityPresentation";
+import type { WorkedPauseInterval } from "./workedForPresentation";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "../../lib/workspaceFileOpener";
 import { resolveThreadErrorPresentation } from "./threadErrorPresentation";
 import { resolveSubagentPresentation } from "../../lib/subagentPresentation";
@@ -806,6 +807,12 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   computerControlEnabled?: boolean;
   onEnableComputerControl?: () => void;
   timestampFormat: TimestampFormat;
+  /** True when the turn is paused waiting for the user to decide an approval/input card. */
+  awaitingApproval?: boolean;
+  /** Start timestamp (ms) of the open approval pause, to freeze the row's elapsed clock. */
+  approvalPausedAtMs?: number | null;
+  /** Closed approval pause intervals to exclude from elapsed/idle timers on this row. */
+  approvalPausedIntervals?: ReadonlyArray<WorkedPauseInterval>;
 }) {
   const { locale, t, format } = useTranslation();
   const mcpAppPlacement = useContext(McpAppRowPlacementContext);
@@ -830,6 +837,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     computerControlEnabled,
     onEnableComputerControl,
     timestampFormat,
+    awaitingApproval,
+    approvalPausedAtMs,
+    approvalPausedIntervals,
   } = props;
   const textFontSizePx = textFontSizePxProp ?? chatMetaFontSizePx;
   const density = densityProp ?? "default";
@@ -966,7 +976,13 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
         : EMPTY_FILE_DIFF_STATS,
     [workEntry],
   );
-  const liveActivityNowMs = useLiveActivityNow(workEntry.liveActivity);
+  const isRowAwaitingApproval =
+    awaitingApproval === true &&
+    Boolean(workEntry.liveActivity && isLiveActivityInProgress(workEntry.liveActivity));
+  const liveActivityNowMs = useLiveActivityNow(workEntry.liveActivity, {
+    paused: isRowAwaitingApproval,
+    pausedAtMs: approvalPausedAtMs,
+  });
   // A failed call says so explicitly, with its exit code and the first line
   // that explains it, instead of the generic lifecycle meta.
   const failure =
@@ -979,6 +995,8 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
       ? formatLiveActivityMeta(workEntry.liveActivity, liveActivityNowMs, {
           subagent: workEntry.itemType === "collab_agent_tool_call",
           awaitingUser: isMossUserAnswerToolCall(workEntry.toolName),
+          awaitingApproval: isRowAwaitingApproval,
+          ...(approvalPausedIntervals ? { pausedIntervals: approvalPausedIntervals } : {}),
           locale,
         })
       : null;
@@ -1141,7 +1159,12 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
     workEntry.liveActivity && isLiveActivityInProgress(workEntry.liveActivity),
   );
   const commandElapsed = workEntry.liveActivity
-    ? formatLiveActivityElapsed(workEntry.liveActivity, liveActivityNowMs, locale)
+    ? formatLiveActivityElapsed(
+        workEntry.liveActivity,
+        liveActivityNowMs,
+        locale,
+        approvalPausedIntervals,
+      )
     : null;
   const declinedByAutoReview = wasDeclinedByAutoReview(workEntry);
   const commandSummaryOptions = {

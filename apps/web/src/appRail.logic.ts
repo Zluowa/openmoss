@@ -49,14 +49,10 @@ export const RAIL_ORDERABLE_ITEM_IDS = [
 ] as const;
 export type RailOrderableItemId = (typeof RAIL_ORDERABLE_ITEM_IDS)[number];
 /**
- * Moss rail spec: only the Codex destinations show by default. The Kanban/Tasks board slot
- * stays in Customize and the "…" menu but off the rail.
+ * Moss rail spec: Plugins is visible by default on the primary rail; Kanban and Tasks stay in
+ * Customize and the "…" menu.
  */
-export const DEFAULT_HIDDEN_RAIL_ITEMS: readonly RailOrderableItemId[] = [
-  "kanban",
-  "tasks",
-  "skills",
-];
+export const DEFAULT_HIDDEN_RAIL_ITEMS: readonly RailOrderableItemId[] = ["kanban", "tasks"];
 
 const RAIL_ORDERABLE_ITEM_ID_SET: ReadonlySet<string> = new Set(RAIL_ORDERABLE_ITEM_IDS);
 
@@ -121,11 +117,17 @@ export function normalizeRailItemOrder(order: readonly string[]): RailOrderableI
 export function normalizeHiddenRailItems(hidden: readonly string[]): RailOrderableItemId[] {
   const previousDefault = ["spaces", "kanban", "tasks", "studio"];
   const previousCodexDefault = [...previousDefault, "automations", "skills"];
+  const previousSkillsHiddenDefault = [...previousDefault, "skills"];
+  const previousShippedDefault = ["kanban", "tasks", "skills"];
   if (
     (hidden.length === previousDefault.length &&
       hidden.every((id, i) => id === previousDefault[i])) ||
     (hidden.length === previousCodexDefault.length &&
-      hidden.every((id, i) => id === previousCodexDefault[i]))
+      hidden.every((id, i) => id === previousCodexDefault[i])) ||
+    (hidden.length === previousSkillsHiddenDefault.length &&
+      hidden.every((id, i) => id === previousSkillsHiddenDefault[i])) ||
+    (hidden.length === previousShippedDefault.length &&
+      hidden.every((id, i) => id === previousShippedDefault[i]))
   ) {
     return [...DEFAULT_HIDDEN_RAIL_ITEMS];
   }

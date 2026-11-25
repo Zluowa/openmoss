@@ -40,7 +40,14 @@ describe("rail item order", () => {
       "library",
       "inbox",
     ]);
-    expect(normalizeHiddenRailItems(["spaces", "kanban", "tasks", "studio"])).toContain("skills");
+    expect(DEFAULT_HIDDEN_RAIL_ITEMS).not.toContain("skills");
+    expect(normalizeHiddenRailItems(["spaces", "kanban", "tasks", "studio"])).toEqual(
+      DEFAULT_HIDDEN_RAIL_ITEMS,
+    );
+    expect(normalizeHiddenRailItems(["kanban", "tasks", "skills"])).toEqual(
+      DEFAULT_HIDDEN_RAIL_ITEMS,
+    );
+    expect(normalizeHiddenRailItems(["skills"])).toEqual(["skills"]);
   });
 
   it("completes a saved order with new items and drops unknown or duplicate ids", () => {

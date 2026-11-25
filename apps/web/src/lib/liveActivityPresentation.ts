@@ -6,6 +6,10 @@ import { useSyncExternalStore } from "react";
 
 import type { WorkLogLiveActivity } from "../workLog";
 import { formatClockDuration } from "../session-logic";
+import {
+  computeActiveWorkedDurationMs,
+  type WorkedPauseInterval,
+} from "../components/chat/workedForPresentation";
 import { startVisibleInterval } from "./visibleInterval";
 
 const NO_ACTIVITY_THRESHOLD_MS = 30_000;
@@ -55,14 +59,37 @@ export function isLiveActivityInProgress(activity: WorkLogLiveActivity): boolean
   );
 }
 
-export function useLiveActivityNow(activity: WorkLogLiveActivity | undefined): number {
+export function useLiveActivityNow(
+  activity: WorkLogLiveActivity | undefined,
+  options?: {
+    readonly paused?: boolean | undefined;
+    readonly pausedAtMs?: number | null | undefined;
+  },
+): number {
   const inProgress = activity ? isLiveActivityInProgress(activity) : false;
+  const paused = options?.paused === true;
+  const pausedAtMs = options?.pausedAtMs ?? null;
+  const shouldTick = inProgress && !paused;
   const nowMs = useSyncExternalStore(
-    inProgress ? subscribeLiveActivityClock : subscribeInactiveLiveActivityClock,
+    shouldTick ? subscribeLiveActivityClock : subscribeInactiveLiveActivityClock,
     getLiveActivityClockSnapshot,
     getLiveActivityClockSnapshot,
   );
-  return inProgress ? nowMs : Date.now();
+  if (inProgress && paused) {
+    if (pausedAtMs !== null) {
+      return pausedAtMs;
+    }
+    const lastActivityMs = parseTimestamp(activity?.lastActivityAt);
+    if (lastActivityMs !== null) {
+      return lastActivityMs;
+    }
+    const startedMs = parseTimestamp(activity?.startedAt);
+    if (startedMs !== null) {
+      return startedMs;
+    }
+    return nowMs;
+  }
+  return shouldTick ? nowMs : Date.now();
 }
 
 function parseTimestamp(value: string | undefined): number | null {
@@ -73,7 +100,11 @@ function parseTimestamp(value: string | undefined): number | null {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
-export function liveActivityElapsedMs(activity: WorkLogLiveActivity, nowMs: number): number | null {
+export function liveActivityElapsedMs(
+  activity: WorkLogLiveActivity,
+  nowMs: number,
+  pausedIntervals?: ReadonlyArray<WorkedPauseInterval> | null,
+): number | null {
   const startedAtMs = parseTimestamp(activity.startedAt);
   const lastActivityAtMs = parseTimestamp(activity.lastActivityAt);
   const reportedElapsedMs =
@@ -83,14 +114,25 @@ export function liveActivityElapsedMs(activity: WorkLogLiveActivity, nowMs: numb
 
   if (isLiveActivityInProgress(activity)) {
     if (reportedElapsedMs !== null && lastActivityAtMs !== null) {
-      return reportedElapsedMs + Math.max(0, nowMs - lastActivityAtMs);
+      const sinceLastActivityMs =
+        pausedIntervals && pausedIntervals.length > 0 && nowMs > lastActivityAtMs
+          ? (computeActiveWorkedDurationMs(lastActivityAtMs, nowMs, pausedIntervals) ?? 0)
+          : Math.max(0, nowMs - lastActivityAtMs);
+      return reportedElapsedMs + sinceLastActivityMs;
     }
-    return startedAtMs === null ? null : Math.max(0, nowMs - startedAtMs);
+    if (startedAtMs === null) return null;
+    if (pausedIntervals && pausedIntervals.length > 0) {
+      return computeActiveWorkedDurationMs(startedAtMs, nowMs, pausedIntervals);
+    }
+    return Math.max(0, nowMs - startedAtMs);
   }
 
   if (reportedElapsedMs !== null) return reportedElapsedMs;
   if (startedAtMs === null || lastActivityAtMs === null || lastActivityAtMs < startedAtMs) {
     return null;
+  }
+  if (pausedIntervals && pausedIntervals.length > 0) {
+    return computeActiveWorkedDurationMs(startedAtMs, lastActivityAtMs, pausedIntervals);
   }
   return lastActivityAtMs - startedAtMs;
 }
@@ -125,8 +167,9 @@ export function formatLiveActivityElapsed(
   activity: WorkLogLiveActivity,
   nowMs: number,
   locale = "en",
+  pausedIntervals?: ReadonlyArray<WorkedPauseInterval> | null,
 ): string | null {
-  const elapsedMs = liveActivityElapsedMs(activity, nowMs);
+  const elapsedMs = liveActivityElapsedMs(activity, nowMs, pausedIntervals);
   return elapsedMs === null ? null : formatClockDuration(elapsedMs, locale);
 }
 
@@ -137,6 +180,11 @@ export interface LiveActivityMetaOptions {
   // A tool blocked on the user's own answer (a secret request card): the quiet
   // time is the user's to end, so it reads as waiting on them, never idleness.
   readonly awaitingUser?: boolean;
+  // A running tool paused while the user decides an approval card: freeze/suppress
+  // the idle stall counter so waiting on approval never reads as "no activity".
+  readonly awaitingApproval?: boolean;
+  // Closed approval/user-input pause intervals to exclude from active idle/elapsed time.
+  readonly pausedIntervals?: ReadonlyArray<WorkedPauseInterval>;
   // The meta is one joined sentence, so it is written in the person's language here
   // instead of being left to the page translator. Defaults to English.
   readonly locale?: string;
@@ -169,17 +217,22 @@ export function formatLiveActivityMeta(
   const locale = options?.locale ?? "en";
   const zh = locale.toLowerCase().startsWith("zh");
   const parts: string[] = [];
-  const elapsedMs = liveActivityElapsedMs(activity, nowMs);
+  const elapsedMs = liveActivityElapsedMs(activity, nowMs, options?.pausedIntervals);
   const elapsed = elapsedMs === null ? null : formatClockDuration(elapsedMs, locale);
   const lastActivityAtMs = parseTimestamp(activity.lastActivityAt);
 
   if (isLiveActivityInProgress(activity)) {
     if (options?.subagent) {
       parts.push(zh ? "子智能体工作中" : "Subagent working");
+    } else if (options?.awaitingApproval) {
+      parts.push(zh ? "等待批准" : "Waiting for approval");
     } else if (options?.awaitingUser) {
       parts.push(zh ? "等你回答" : "Waiting for your answer");
     } else if (lastActivityAtMs !== null) {
-      const idleMs = Math.max(0, nowMs - lastActivityAtMs);
+      const idleMs =
+        options?.pausedIntervals && options.pausedIntervals.length > 0 && nowMs > lastActivityAtMs
+          ? (computeActiveWorkedDurationMs(lastActivityAtMs, nowMs, options.pausedIntervals) ?? 0)
+          : Math.max(0, nowMs - lastActivityAtMs);
       const idle = formatClockDuration(idleMs, locale);
       parts.push(
         idleMs >= NO_ACTIVITY_THRESHOLD_MS

@@ -10,6 +10,7 @@ import {
   DEFAULT_SERVER_SETTINGS_VIEW,
   type MossAccountSessionState,
   type MossCloudAccountState,
+  type MossEnterpriseKeyState,
   type ProviderInstanceId,
   type ServerProviderStatus,
   type ServerProviderUsageSnapshot,
@@ -39,7 +40,9 @@ import { ProviderUsageResetCredits } from "~/components/ProviderUsageResetCredit
 import {
   serverMossAccountSessionQueryOptions,
   serverMossCloudAccountStateQueryOptions,
+  serverMossEnterpriseKeyStateQueryOptions,
 } from "~/components/auth/mossServerReactQuery";
+import { mossEnterpriseKeyStatusNotice } from "~/components/auth/mossEnterpriseKey.logic";
 import { MossLogo } from "~/components/MossLogo";
 import { useTranslation } from "~/localization";
 import { MossBillingSettingsPanel } from "~/components/settings/MossBillingSettingsPanel";
@@ -105,7 +108,7 @@ function statusPill(
   }
 }
 
-export type MossUsageState = "checking" | "ready" | "signed-out" | "unavailable";
+export type MossUsageState = "checking" | "ready" | "enterprise" | "signed-out" | "unavailable";
 
 export function resolveMossUsageState(input: {
   accountState:
@@ -113,9 +116,31 @@ export function resolveMossUsageState(input: {
     | null
     | undefined;
   phoneState: Pick<MossAccountSessionState, "authenticated" | "configured"> | null | undefined;
+  enterpriseState?:
+    | Pick<MossEnterpriseKeyState, "authenticated" | "configured" | "active" | "modelGatewayStatus">
+    | null
+    | undefined;
   pending: boolean;
   failed: boolean;
 }): MossUsageState {
+  if (
+    input.enterpriseState?.authenticated &&
+    (input.enterpriseState.active ||
+      (!input.phoneState?.authenticated && !input.accountState?.authenticated))
+  ) {
+    if (!input.enterpriseState.configured) {
+      return "unavailable";
+    }
+    const gatewayStatus = input.enterpriseState.modelGatewayStatus;
+    if (
+      gatewayStatus === "auth-denied" ||
+      gatewayStatus === "no-entitlement" ||
+      gatewayStatus === "transport-degraded"
+    ) {
+      return "unavailable";
+    }
+    return "enterprise";
+  }
   if (input.phoneState?.authenticated) {
     // Phone and Google accounts are separate authorities. A phone session's
     // readiness is determined by the phone realm's own `configured` flag;
@@ -135,10 +160,14 @@ export function resolveMossUsageState(input: {
   if (input.pending) {
     return "checking";
   }
-  if (input.failed && !input.accountState && !input.phoneState) {
+  if (input.failed && !input.accountState && !input.phoneState && !input.enterpriseState) {
     return "unavailable";
   }
-  if (input.accountState?.configured || input.phoneState?.configured) {
+  if (
+    input.accountState?.configured ||
+    input.phoneState?.configured ||
+    input.enterpriseState?.configured
+  ) {
     return "signed-out";
   }
   return "unavailable";
@@ -209,20 +238,40 @@ export function resolveCodexUsageProviderInstanceId(input: {
 
 function MossUsageCard({
   state,
+  enterpriseState,
   onRetry,
 }: {
   readonly state: MossUsageState;
+  readonly enterpriseState?: MossEnterpriseKeyState | null | undefined;
   readonly onRetry: () => void;
 }) {
-  const { t } = useTranslation();
+  const { locale, t } = useTranslation();
+  const zh = locale.toLowerCase().startsWith("zh");
   const providerNameId = useId();
   const statusId = useId();
   const descriptionId = useId();
   if (state === "checking") {
     return <MossUsageSkeletonCard />;
   }
+  const enterpriseNotice = enterpriseState?.authenticated
+    ? mossEnterpriseKeyStatusNotice(enterpriseState.modelGatewayStatus)
+    : null;
+  const enterpriseLabel =
+    enterpriseState && enterpriseState.modelCount > 0
+      ? zh
+        ? `企业 API Key · ${enterpriseState.modelCount} 个可用模型`
+        : `Enterprise API Key · ${enterpriseState.modelCount} available models`
+      : zh
+        ? "企业 API Key"
+        : "Enterprise API Key";
   const presentation = (() => {
     switch (state) {
+      case "enterprise":
+        return {
+          label: t("settings.usage.status.available"),
+          description: enterpriseLabel,
+          className: "bg-success/12 text-success-foreground",
+        };
       case "ready":
         return {
           label: t("settings.usage.status.available"),
@@ -238,7 +287,7 @@ function MossUsageCard({
       case "unavailable":
         return {
           label: t("settings.usage.status.unavailable"),
-          description: t("settings.usage.moss.unavailable"),
+          description: enterpriseNotice ?? t("settings.usage.moss.unavailable"),
           className: "bg-destructive/12 text-destructive",
         };
     }
@@ -479,6 +528,7 @@ export function ProviderUsageSettingsPanel({
   const usageQuery = useQuery(serverAllProviderUsageQueryOptions());
   const mossPhoneQuery = useQuery(serverMossAccountSessionQueryOptions());
   const mossAccountQuery = useQuery(serverMossCloudAccountStateQueryOptions());
+  const mossEnterpriseQuery = useQuery(serverMossEnterpriseKeyStateQueryOptions());
   const refreshMutation = useMutation({
     mutationFn: () => fetchAllProviderUsage({ forceRefresh: true }),
     onSuccess: (data) => {
@@ -512,12 +562,15 @@ export function ProviderUsageSettingsPanel({
   const mossUsageState = resolveMossUsageState({
     accountState: mossAccountQuery.data,
     phoneState: mossPhoneQuery.data,
+    enterpriseState: mossEnterpriseQuery.data,
     pending:
       mossAccountQuery.isPending ||
       mossAccountQuery.isFetching ||
       mossPhoneQuery.isPending ||
-      mossPhoneQuery.isFetching,
-    failed: mossAccountQuery.isError && mossPhoneQuery.isError,
+      mossPhoneQuery.isFetching ||
+      mossEnterpriseQuery.isPending ||
+      mossEnterpriseQuery.isFetching,
+    failed: mossAccountQuery.isError && mossPhoneQuery.isError && mossEnterpriseQuery.isError,
   });
 
   const railUsageWindowOptions = useMemo(
@@ -533,6 +586,7 @@ export function ProviderUsageSettingsPanel({
   const retryMossStatus = () => {
     void mossPhoneQuery.refetch();
     void mossAccountQuery.refetch();
+    void mossEnterpriseQuery.refetch();
   };
 
   return (
@@ -543,7 +597,11 @@ export function ProviderUsageSettingsPanel({
           <MossBillingSettingsPanel />
         ) : (
           <SettingsSection title="Moss">
-            <MossUsageCard onRetry={retryMossStatus} state={mossUsageState} />
+            <MossUsageCard
+              enterpriseState={mossEnterpriseQuery.data}
+              onRetry={retryMossStatus}
+              state={mossUsageState}
+            />
           </SettingsSection>
         )}
       </div>

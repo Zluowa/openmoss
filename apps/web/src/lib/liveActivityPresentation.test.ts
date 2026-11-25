@@ -76,6 +76,43 @@ describe("live activity presentation", () => {
     );
   });
 
+  it("#1003: suppresses stall idle timer and excludes paused intervals when awaiting approval", () => {
+    const activity: WorkLogLiveActivity = {
+      state: "running_tool",
+      label: "Bash",
+      startedAt: STARTED_AT,
+      lastActivityAt: "2026-07-26T14:00:05.000Z",
+    };
+    const pausedAtMs = Date.parse("2026-07-26T14:00:13.000Z");
+    const zhPausedMeta = formatLiveActivityMeta(activity, pausedAtMs, {
+      awaitingApproval: true,
+      locale: "zh-CN",
+    });
+    expect(zhPausedMeta).toBe("等待批准 · 已用时 13 秒");
+    expect(zhPausedMeta).not.toContain("没有动静");
+
+    expect(
+      formatLiveActivityMeta(activity, pausedAtMs, {
+        awaitingApproval: true,
+        locale: "en",
+      }),
+    ).toBe("Waiting for approval · 13s elapsed");
+
+    const resumedAtMs = Date.parse("2026-07-26T14:01:20.000Z");
+    const pausedIntervals = [
+      {
+        startMs: pausedAtMs,
+        endMs: Date.parse("2026-07-26T14:01:18.000Z"),
+      },
+    ];
+    expect(
+      formatLiveActivityMeta(activity, resumedAtMs, {
+        pausedIntervals,
+        locale: "zh-CN",
+      }),
+    ).toBe("10 秒前有动静 · 已用时 15 秒");
+  });
+
   it("keeps progress and terminal states provider-agnostic", () => {
     const completed = runningActivity({
       state: "completed",

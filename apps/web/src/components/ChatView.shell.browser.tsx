@@ -1725,11 +1725,12 @@ describe("ChatView transcript geometry (full app)", () => {
         "Images",
         "Inbox",
         "Code review",
+        "Plugins",
         "More",
       ]) {
         await expect.element(rail.getByRole("button", { name, exact: true })).toBeVisible();
       }
-      for (const name of ["History", "Library", "Plugins", "Spaces", "Kanban", "Tasks"]) {
+      for (const name of ["History", "Library", "Spaces", "Kanban", "Tasks"]) {
         await expect
           .element(rail.getByRole("button", { name, exact: true }))
           .not.toBeInTheDocument();
@@ -2622,13 +2623,14 @@ describe("ChatView transcript geometry (full app)", () => {
         "Images",
         "Inbox",
         "Code review",
+        "Plugins",
         "More",
       ]) {
         await expect.element(rail.getByRole("button", { name, exact: true })).toBeVisible();
       }
       // Images also supports users' own CLI accounts. Extra destinations stay
       // reachable through More instead of occupying the default inline rail.
-      for (const name of ["History", "Library", "Plugins", "Spaces", "Kanban", "Tasks"]) {
+      for (const name of ["History", "Library", "Spaces", "Kanban", "Tasks"]) {
         await expect
           .element(rail.getByRole("button", { name, exact: true }))
           .not.toBeInTheDocument();
@@ -4336,6 +4338,7 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect
         .element(rail.getByRole("button", { name: "代码审查", exact: true }))
         .toBeVisible();
+      await expect.element(rail.getByRole("button", { name: "插件", exact: true })).toBeVisible();
       await expect.element(rail.getByRole("button", { name: "Figma", exact: true })).toBeVisible();
       for (const name of ["Pull requests", "Images", "Plugins"]) {
         await expect

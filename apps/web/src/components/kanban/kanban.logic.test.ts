@@ -1061,6 +1061,40 @@ describe("draft card titles", () => {
     expect(formatKanbanUntitledDraftTitle(null, "zh-CN")).toBe("草稿");
     expect(formatKanbanUntitledDraftTitle("not a date", "en")).toBe("Draft");
   });
+
+  it("n13-8: localizes untitled canvas and empty draft fallback titles in zh-CN instead of showing 'New thread'", () => {
+    const canvasThreadId = ThreadId.makeUnsafe("thread-canvas-untitled");
+    const emptyDraftId = ThreadId.makeUnsafe("draft-empty-optimistic");
+    const board = buildKanbanBoard(
+      makeBoardInput({
+        locale: "zh-CN",
+        threads: [makeSidebarThreadSummary({ id: canvasThreadId, title: "New thread" })],
+        draftThreads: [makeDraftThread(emptyDraftId)],
+        optimisticDispatchByThreadId: {
+          [emptyDraftId]: {
+            projectId: PROJECT_1,
+            title: "",
+            providerInstanceId: "codex",
+            provider: "codex",
+            baselineTurnId: null,
+            droppedAtMs: Date.parse("2026-03-09T12:00:00.000Z"),
+          },
+        },
+      }),
+    );
+
+    const project = board.projects[0]!;
+    expect(project.draft[0]?.title).toBe("新对话");
+    expect(project.inProgress[0]?.title).toBe("新对话");
+
+    const enBoard = buildKanbanBoard(
+      makeBoardInput({
+        locale: "en",
+        threads: [makeSidebarThreadSummary({ id: canvasThreadId, title: "New thread" })],
+      }),
+    );
+    expect(enBoard.projects[0]!.draft[0]?.title).toBe("New thread");
+  });
 });
 
 describe("areKanbanComposerDraftSnapshotsEqual", () => {

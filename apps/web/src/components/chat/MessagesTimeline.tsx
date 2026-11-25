@@ -158,6 +158,8 @@ import { McpAppRowPlacementContext } from "./mcpAppPlacement";
 import { TimelineReasoningRow } from "./TimelineReasoningRow";
 import { TimelineTodoPlanRow } from "./TimelineTodoPlanRow";
 import { TimelineSystemErrorRow } from "./TimelineSystemErrorRow";
+import { isLiveActivityInProgress } from "../../lib/liveActivityPresentation";
+import type { WorkedPauseInterval } from "./workedForPresentation";
 import { EMPTY_USER_STOPPED_RECORDS, type UserStoppedRecord } from "./userStoppedPresentation";
 import {
   hasLeadingUserMedia,
@@ -637,6 +639,39 @@ interface MessagesTimelineProps {
 }
 
 // Shared row routing keeps typed galleries at their assistant/standalone anchors.
+function resolveWorkEntryApprovalPauseProps(input: {
+  workEntry: WorkLogEntry;
+  turnId?: TurnId | null | undefined;
+  awaitingUser: boolean;
+  activeTurnId?: TurnId | null | undefined;
+  turnTimingByTurnId?: ReadonlyMap<TurnId, TurnTiming> | undefined;
+}): {
+  awaitingApproval?: true;
+  approvalPausedAtMs?: number | null;
+  approvalPausedIntervals?: ReadonlyArray<WorkedPauseInterval>;
+} {
+  const entryTurnId = input.workEntry.turnId ?? input.turnId ?? null;
+  const turnTiming = entryTurnId ? input.turnTimingByTurnId?.get(entryTurnId) : undefined;
+  const pausedIntervals = turnTiming?.pausedIntervals;
+  const isLive = Boolean(
+    input.workEntry.liveActivity && isLiveActivityInProgress(input.workEntry.liveActivity),
+  );
+  const isTurnPausedForApproval =
+    isLive &&
+    (input.awaitingUser || Boolean(turnTiming?.activePauseStartedAtMs)) &&
+    (!input.activeTurnId || !entryTurnId || entryTurnId === input.activeTurnId);
+  if (!isTurnPausedForApproval && !pausedIntervals?.length) {
+    return {};
+  }
+  return {
+    ...(isTurnPausedForApproval ? { awaitingApproval: true as const } : {}),
+    ...(isTurnPausedForApproval && turnTiming?.activePauseStartedAtMs !== undefined
+      ? { approvalPausedAtMs: turnTiming.activePauseStartedAtMs }
+      : {}),
+    ...(pausedIntervals?.length ? { approvalPausedIntervals: pausedIntervals } : {}),
+  };
+}
+
 function CollapsedTurnWorkItem(props: ComponentProps<typeof TimelineWorkEntryRow>) {
   const entry = props.workEntry;
   if (isTypedGeneratedImageEntry(entry)) return null;
@@ -2113,6 +2148,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               {...(onOpenAutomation ? { onOpenAutomation } : {})}
               {...(computerControlEnabled !== undefined ? { computerControlEnabled } : {})}
               {...(onEnableComputerControl ? { onEnableComputerControl } : {})}
+              {...resolveWorkEntryApprovalPauseProps({
+                workEntry,
+                awaitingUser: awaitingUser === true,
+                activeTurnId,
+                turnTimingByTurnId,
+              })}
             />
           );
           if (groupedEntries.every((entry) => entry.subagentRun)) {
@@ -2920,6 +2961,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {...(computerControlEnabled !== undefined ? { computerControlEnabled } : {})}
                 {...(onEnableComputerControl ? { onEnableComputerControl } : {})}
                 {...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {})}
+                {...resolveWorkEntryApprovalPauseProps({
+                  workEntry,
+                  turnId: turnSummary?.turnId,
+                  awaitingUser: awaitingUser === true,
+                  activeTurnId,
+                  turnTimingByTurnId,
+                })}
               />
             );
             const isLiveGroup =
@@ -3074,6 +3122,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                           ? { computerControlEnabled }
                           : {})}
                         {...(onEnableComputerControl ? { onEnableComputerControl } : {})}
+                        {...resolveWorkEntryApprovalPauseProps({
+                          workEntry,
+                          turnId: turnSummary?.turnId,
+                          awaitingUser: awaitingUser === true,
+                          activeTurnId,
+                          turnTimingByTurnId,
+                        })}
                       />
                     ))}
                   </div>
@@ -3113,6 +3168,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   {...(onOpenAutomation ? { onOpenAutomation } : {})}
                   {...(computerControlEnabled !== undefined ? { computerControlEnabled } : {})}
                   {...(onEnableComputerControl ? { onEnableComputerControl } : {})}
+                  {...resolveWorkEntryApprovalPauseProps({
+                    workEntry: item.entry,
+                    turnId: turnSummary?.turnId,
+                    awaitingUser: awaitingUser === true,
+                    activeTurnId,
+                    turnTimingByTurnId,
+                  })}
                 />
               );
             }
@@ -3545,6 +3607,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       timestampFormat={timestampFormat}
                       {...(computerControlEnabled !== undefined ? { computerControlEnabled } : {})}
                       {...(onEnableComputerControl ? { onEnableComputerControl } : {})}
+                      {...resolveWorkEntryApprovalPauseProps({
+                        workEntry,
+                        turnId: turnSummary?.turnId,
+                        awaitingUser: awaitingUser === true,
+                        activeTurnId,
+                        turnTimingByTurnId,
+                      })}
                     />
                   </div>
                 ))}

@@ -576,4 +576,50 @@ describe("UsageSettingsPanel redesign & Feishu #3/#4", () => {
       await screen.unmount();
     }
   });
+
+  it("recognizes an authenticated Enterprise API Key cleanly instead of showing 未登录", async () => {
+    await page.viewport(900, 800);
+    const client = createSeededClient({ providers: [] });
+    client.setQueryData(serverMossAccountSessionQueryOptions().queryKey, {
+      configured: true,
+      authenticated: false,
+      session: null,
+    } as never);
+    client.setQueryData(serverMossCloudAccountStateQueryOptions().queryKey, {
+      ...CLOUD_SIGNED_OUT,
+      configured: true,
+    } as never);
+    client.setQueryData(serverMossEnterpriseKeyStateQueryOptions().queryKey, {
+      configured: true,
+      authenticated: true,
+      active: true,
+      keyPrefix: null,
+      verifiedAt: "2026-11-26T00:00:00.000Z",
+      modelCount: 6,
+      modelGatewayStatus: "ready",
+    });
+
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        <QueryClientProvider client={client}>
+          <div className="mx-auto max-w-[760px] bg-background p-6 text-foreground">
+            <UsageSettingsPanel />
+          </div>
+        </QueryClientProvider>
+      </MossLocaleScope>,
+    );
+
+    try {
+      const mossSection = page.getByTestId("usage-moss-cloud-section");
+      await expect.element(mossSection).toBeVisible();
+      await expect.element(mossSection.getByText("可用", { exact: true })).toBeVisible();
+      await expect.element(mossSection.getByText(/企业 API Key · 6 个可用模型/)).toBeVisible();
+      const text = mossSection.element().textContent ?? "";
+      expect(text).not.toContain("未登录");
+      expect(text).not.toContain("登录 Moss 后即可使用内置模型");
+      expect(document.querySelector('[data-testid="moss-usage-sign-in"]')).toBeNull();
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

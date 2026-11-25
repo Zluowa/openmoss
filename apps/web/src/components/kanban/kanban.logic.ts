@@ -49,6 +49,14 @@ export type KanbanClassicColumnKey = "draft" | "inProgress" | "done";
 export const KANBAN_FALLBACK_DRAFT_TITLE = "New thread";
 
 /**
+ * Localized fallback title for untitled drafts / promoted canvas drafts that still
+ * carry the generic "New thread" placeholder (e.g. rendered inside `data-translation-skip`).
+ */
+export function resolveKanbanFallbackDraftTitle(locale: string): string {
+  return isChineseLocale(locale) ? "新对话" : KANBAN_FALLBACK_DRAFT_TITLE;
+}
+
+/**
  * Title of a draft with no typed or quoted text (only images or files): 「草稿 11月11日 14:05」 /
  * "Draft Nov 11, 14:05", so several such drafts never read as copies of one another.
  */
@@ -557,6 +565,7 @@ function buildThreadCard(
   composerDraftByThreadId: BuildKanbanBoardInput["composerDraftByThreadId"],
   isTerminal: boolean,
   v2?: KanbanV2BuildOptions,
+  locale = currentUiLocale(),
 ): KanbanCard {
   const lastActivityTimestampMs = v2?.lastActivityTimestampMsByThreadId?.[thread.id] ?? null;
   const column = v2
@@ -582,12 +591,17 @@ function buildThreadCard(
     column === "inProgress" || isAwaitingStuck
       ? deriveActiveWorkStartedAt(thread.latestTurn, thread.session, timestamp)
       : null;
+  const trimmedTitle = thread.title.trim();
+  const title =
+    !isTerminal && (trimmedTitle.length === 0 || trimmedTitle === KANBAN_FALLBACK_DRAFT_TITLE)
+      ? resolveKanbanFallbackDraftTitle(locale)
+      : thread.title;
   return {
     cardId: kanbanThreadCardId(thread.id),
     threadId: thread.id,
     projectId: thread.projectId,
     column,
-    title: thread.title,
+    title,
     provider:
       column === "draft" && composerDraft.provider ? composerDraft.provider : threadProvider,
     providerInstanceId:
@@ -692,7 +706,7 @@ function buildLocalDraftCard(
     title:
       composerDraft.prompt.length > 0 || composerDraft.hasAttachments
         ? resolveDraftCardTitle(composerDraft, draftThread.createdAt, locale)
-        : KANBAN_FALLBACK_DRAFT_TITLE,
+        : resolveKanbanFallbackDraftTitle(locale),
     provider: composerDraft.provider,
     providerInstanceId: composerDraft.providerInstanceId,
     isTerminal: false,
@@ -723,7 +737,9 @@ function forceOptimisticInProgressCard(
     column: "inProgress",
     isOptimisticDispatch: true,
     title:
-      card.title === KANBAN_FALLBACK_DRAFT_TITLE && entry.title.length > 0
+      (card.title === KANBAN_FALLBACK_DRAFT_TITLE ||
+        card.title === resolveKanbanFallbackDraftTitle("zh-CN")) &&
+      entry.title.length > 0
         ? entry.title
         : card.title,
     draftPrompt: "",
@@ -960,7 +976,7 @@ export function buildKanbanBoard(
     threadIds.add(thread.id);
     const bucket = bucketFor(boardProjectId);
     const isTerminal = input.terminalEntryThreadIds?.has(thread.id) ?? false;
-    const card = buildThreadCard(thread, input.composerDraftByThreadId, isTerminal, v2);
+    const card = buildThreadCard(thread, input.composerDraftByThreadId, isTerminal, v2, locale);
     const optimisticEntry = optimisticDispatchByThreadId[thread.id];
     if (optimisticEntry) {
       handledOptimisticThreadIds.add(thread.id);

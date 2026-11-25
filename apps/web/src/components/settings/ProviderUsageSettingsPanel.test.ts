@@ -182,5 +182,47 @@ describe("ProviderUsageSettingsPanel presentation", () => {
         failed: false,
       }),
     ).toBe("checking");
+    expect(
+      resolveMossUsageState({
+        accountState: { configured: true, authenticated: false, modelGatewayConfigured: false },
+        phoneState: { configured: true, authenticated: false },
+        enterpriseState: {
+          configured: true,
+          authenticated: true,
+          active: true,
+          modelGatewayStatus: "ready",
+        },
+        pending: false,
+        failed: false,
+      }),
+    ).toBe("enterprise");
+    expect(
+      resolveMossUsageState({
+        accountState: { configured: true, authenticated: false, modelGatewayConfigured: false },
+        phoneState: { configured: true, authenticated: false },
+        enterpriseState: {
+          configured: true,
+          authenticated: true,
+          active: true,
+          modelGatewayStatus: "auth-denied",
+        },
+        pending: false,
+        failed: false,
+      }),
+    ).toBe("unavailable");
+    expect(
+      resolveMossUsageState({
+        accountState: { configured: true, authenticated: false, modelGatewayConfigured: false },
+        phoneState: { configured: true, authenticated: true },
+        enterpriseState: {
+          configured: true,
+          authenticated: true,
+          active: false,
+          modelGatewayStatus: "ready",
+        },
+        pending: false,
+        failed: false,
+      }),
+    ).toBe("ready");
   });
 });
