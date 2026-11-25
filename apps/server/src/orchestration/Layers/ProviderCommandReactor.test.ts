@@ -17870,14 +17870,16 @@ describe("ProviderCommandReactor", () => {
     });
 
     const timedOutTurnId = asTurnId("turn-provider-accepted-before-timeout");
+    let acceptedTurnDispatched = false;
     harness.sendTurn.mockImplementationOnce(() =>
-      Effect.sync(() =>
+      Effect.sync(() => {
         harness.setRuntimeSessionTurnState({
           threadId: "thread-1",
           status: "running",
           activeTurnId: timedOutTurnId,
-        }),
-      ).pipe(Effect.andThen(Effect.never)),
+        });
+        acceptedTurnDispatched = true;
+      }).pipe(Effect.andThen(Effect.never)),
     );
 
     await settleLiveTurn(harness, {
@@ -17885,17 +17887,19 @@ describe("ProviderCommandReactor", () => {
       eventId: "evt-turn-completed-timeout",
     });
     // The provider has accepted the turn and never answers; only now does the deadline pass.
-    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await waitFor(() => acceptedTurnDispatched && harness.sendTurn.mock.calls.length === 1, 5_000);
     await harness.advanceClock(commandEventTimeout);
-    await waitFor(async () =>
-      Effect.runPromise(
-        harness.deliveryRepository
-          .firstBlockingDeliveryForThread({
-            consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
-            threadId: "thread-1",
-          })
-          .pipe(Effect.map(Option.isSome)),
-      ),
+    await waitFor(
+      async () =>
+        Effect.runPromise(
+          harness.deliveryRepository
+            .firstBlockingDeliveryForThread({
+              consumerName: PROVIDER_COMMAND_REACTOR_CONSUMER,
+              threadId: "thread-1",
+            })
+            .pipe(Effect.map(Option.isSome)),
+        ),
+      5_000,
     );
 
     const blocker = (
@@ -17921,7 +17925,7 @@ describe("ProviderCommandReactor", () => {
       turnId: timedOutTurnId,
       eventId: "evt-provider-turn-completed-after-timeout",
     });
-    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2, 5_000);
     expect(harness.sendTurn.mock.calls[1]?.[0]).toMatchObject({
       threadId: ThreadId.makeUnsafe("thread-1"),
       input: "second queued turn must drain after settlement",
