@@ -299,6 +299,95 @@ function resolveRightDockStableWidth(
   return typeof window === "undefined" ? 0 : Math.round(window.innerWidth);
 }
 
+function applyRightDockMeasuredWidth(input: {
+  wrapper: HTMLElement;
+  host: HTMLElement | null;
+  outerShell: HTMLElement | null;
+  layoutHostRef: RightDockProps["layoutHostRef"];
+  panelFullWidth: boolean;
+  activePaneKind: RightDockPaneKind | null;
+  minWidth: number;
+  widthStorageKey: string | undefined;
+  preferredDefaultWidthPx: number | undefined;
+  regularWidthRatioRef: {
+    current: { readonly key: string | undefined; readonly ratio: number } | undefined;
+  };
+  onWidthChangeRef: { current: ((widthPx: number) => void) | undefined };
+}): void {
+  const {
+    wrapper,
+    host,
+    outerShell,
+    layoutHostRef,
+    panelFullWidth,
+    activePaneKind,
+    minWidth,
+    widthStorageKey,
+    preferredDefaultWidthPx,
+    regularWidthRatioRef,
+    onWidthChangeRef,
+  } = input;
+  // Explicit chat hosts are measured outside the dock subtree. The legacy
+  // regular-only caller uses the viewport fallback above; full width always
+  // requires both explicit refs and therefore has no feedback path.
+  const hostRect = host?.getBoundingClientRect();
+  const outerShellRect = outerShell?.getBoundingClientRect();
+  const mainContentWidth = hostRect
+    ? Math.round(
+        Math.max(
+          0,
+          Math.min(hostRect.right, outerShellRect?.right ?? hostRect.right) - hostRect.left,
+        ),
+      )
+    : resolveRightDockStableWidth(layoutHostRef, wrapper);
+  const shellHeight = Math.round(hostRect?.height ?? window.innerHeight);
+  if (mainContentWidth <= 0 || shellHeight <= 0) {
+    return;
+  }
+
+  if (panelFullWidth) {
+    setInlineStyleIfChanged(wrapper, "--sidebar-width", `${mainContentWidth}px`);
+    onWidthChangeRef.current?.(mainContentWidth);
+    return;
+  }
+
+  const preferredWidth = activePaneKind ? RIGHT_DOCK_PREFERRED_WIDTH[activePaneKind] : undefined;
+  // This chat's own resized width first, then the last width resized in any chat.
+  const storedValue = resolveStoredRightDockWidth({
+    threadValue: widthStorageKey ? getLocalStorageItem(widthStorageKey, Schema.Finite) : null,
+    sharedValue: getLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, Schema.Finite),
+  });
+  if (preferredWidth !== undefined && storedValue == null) {
+    const nextPreferredWidth = Math.max(minWidth, preferredWidth);
+    setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextPreferredWidth}px`);
+    onWidthChangeRef.current?.(nextPreferredWidth);
+    return;
+  }
+
+  const resolvedDefaultWidth =
+    preferredDefaultWidthPx && Number.isFinite(preferredDefaultWidthPx)
+      ? preferredDefaultWidthPx
+      : RIGHT_DOCK_DEFAULT_WIDTH;
+  let cached = regularWidthRatioRef.current;
+  if (cached === undefined || cached.key !== widthStorageKey) {
+    cached = {
+      key: widthStorageKey,
+      ratio: resolvePersistedRightDockWidthRatio({
+        storedValue,
+        defaultWidth: resolvedDefaultWidth,
+        mainContentWidth,
+        shellHeight,
+        widthMode: "regular",
+      }),
+    };
+    regularWidthRatioRef.current = cached;
+  }
+
+  const nextWidth = resolveRightDockWidthFromRatio(cached.ratio, mainContentWidth, "regular");
+  setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextWidth}px`);
+  onWidthChangeRef.current?.(nextWidth);
+}
+
 function RightDockSurface(
   props: RightDockProps & { readonly windowControlsGutterClassName: string | null },
 ) {
@@ -398,6 +487,42 @@ function RightDockSurface(
 
   useLayoutEffect(() => {
     const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
+    // Ancestor refs (layoutHostRef on the parent host) attach after child layout effects
+    // on initial mount; fall back to the host element here for a flash-free first paint,
+    // then attach the ResizeObserver in useEffect once all ancestor refs are populated.
+    const host =
+      props.layoutHostRef?.current ??
+      (props.layoutHostRef ? (wrapper?.parentElement ?? null) : null);
+    const mainContent = props.mainContentRef?.current ?? null;
+    if (!wrapper || (panelFullWidth && (!host || !mainContent)) || !props.state.open) {
+      return;
+    }
+    applyRightDockMeasuredWidth({
+      wrapper,
+      host,
+      outerShell: resolveRightDockOuterShell(wrapper),
+      layoutHostRef: props.layoutHostRef,
+      panelFullWidth,
+      activePaneKind,
+      minWidth,
+      widthStorageKey,
+      preferredDefaultWidthPx: props.preferredDefaultWidthPx,
+      regularWidthRatioRef,
+      onWidthChangeRef,
+    });
+  }, [
+    activePaneKind,
+    minWidth,
+    panelFullWidth,
+    props.layoutHostRef,
+    props.mainContentRef,
+    props.preferredDefaultWidthPx,
+    props.state.open,
+    widthStorageKey,
+  ]);
+
+  useEffect(() => {
+    const wrapper = contentRef.current?.closest<HTMLElement>("[data-slot='sidebar-wrapper']");
     const host = props.layoutHostRef?.current ?? null;
     const mainContent = props.mainContentRef?.current ?? null;
     if (!wrapper || (panelFullWidth && (!host || !mainContent))) {
@@ -410,67 +535,19 @@ function RightDockSurface(
 
     const outerShell = resolveRightDockOuterShell(wrapper);
     const applyMeasuredWidth = () => {
-      // Explicit chat hosts are measured outside the dock subtree. The legacy
-      // regular-only caller uses the viewport fallback above; full width always
-      // requires both explicit refs and therefore has no feedback path.
-      const hostRect = host?.getBoundingClientRect();
-      const outerShellRect = outerShell?.getBoundingClientRect();
-      const mainContentWidth = hostRect
-        ? Math.round(
-            Math.max(
-              0,
-              Math.min(hostRect.right, outerShellRect?.right ?? hostRect.right) - hostRect.left,
-            ),
-          )
-        : resolveRightDockStableWidth(props.layoutHostRef, wrapper);
-      const shellHeight = Math.round(hostRect?.height ?? window.innerHeight);
-      if (mainContentWidth <= 0 || shellHeight <= 0) {
-        return;
-      }
-
-      if (panelFullWidth) {
-        setInlineStyleIfChanged(wrapper, "--sidebar-width", `${mainContentWidth}px`);
-        onWidthChangeRef.current?.(mainContentWidth);
-        return;
-      }
-
-      const preferredWidth = activePaneKind
-        ? RIGHT_DOCK_PREFERRED_WIDTH[activePaneKind]
-        : undefined;
-      // This chat's own resized width first, then the last width resized in any chat.
-      const storedValue = resolveStoredRightDockWidth({
-        threadValue: widthStorageKey ? getLocalStorageItem(widthStorageKey, Schema.Finite) : null,
-        sharedValue: getLocalStorageItem(RIGHT_DOCK_WIDTH_STORAGE_KEY, Schema.Finite),
+      applyRightDockMeasuredWidth({
+        wrapper,
+        host,
+        outerShell,
+        layoutHostRef: props.layoutHostRef,
+        panelFullWidth,
+        activePaneKind,
+        minWidth,
+        widthStorageKey,
+        preferredDefaultWidthPx: props.preferredDefaultWidthPx,
+        regularWidthRatioRef,
+        onWidthChangeRef,
       });
-      if (preferredWidth !== undefined && storedValue == null) {
-        const nextPreferredWidth = Math.max(minWidth, preferredWidth);
-        setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextPreferredWidth}px`);
-        onWidthChangeRef.current?.(nextPreferredWidth);
-        return;
-      }
-
-      const resolvedDefaultWidth =
-        props.preferredDefaultWidthPx && Number.isFinite(props.preferredDefaultWidthPx)
-          ? props.preferredDefaultWidthPx
-          : RIGHT_DOCK_DEFAULT_WIDTH;
-      let cached = regularWidthRatioRef.current;
-      if (cached === undefined || cached.key !== widthStorageKey) {
-        cached = {
-          key: widthStorageKey,
-          ratio: resolvePersistedRightDockWidthRatio({
-            storedValue,
-            defaultWidth: resolvedDefaultWidth,
-            mainContentWidth,
-            shellHeight,
-            widthMode: "regular",
-          }),
-        };
-        regularWidthRatioRef.current = cached;
-      }
-
-      const nextWidth = resolveRightDockWidthFromRatio(cached.ratio, mainContentWidth, "regular");
-      setInlineStyleIfChanged(wrapper, "--sidebar-width", `${nextWidth}px`);
-      onWidthChangeRef.current?.(nextWidth);
     };
 
     applyMeasuredWidth();

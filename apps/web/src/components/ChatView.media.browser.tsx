@@ -19,6 +19,7 @@ import { closeSettings, settingsDialogStore } from "../settingsDialogStore";
 import { useStore } from "../store";
 import { sendEffectRpcChunk } from "../test/effectRpcWebSocketMock";
 import { makeDomainEvent } from "../storeTestFixtures";
+import { desktopTitleBar } from "../test/chatViewBrowserMocks";
 import { resetCanvasAgentOpsForTests } from "./chat/canvasAgentOps";
 import {
   APP_SETTINGS_STORAGE_KEY,
@@ -313,6 +314,100 @@ describe("ChatView transcript geometry (full app)", () => {
         ).toHaveLength(1);
       });
     } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("WALK-13 N13-6: 画布 opened by the agent, then 更多 → 任务 and back: the chat keeps a readable width and the 画布 gives way", async () => {
+    useRightDockStore.setState({ dockStateByThreadId: {} });
+    localStorage.setItem("moss:activity-onboarding:v1", "seen");
+    setDomainEventStream(null);
+    desktopTitleBar.on = true;
+    // The walker's window: 1100×780.
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1_100, height: 780 },
+      snapshot: createSnapshotWithGeneratedImagePreview(),
+    });
+    const widths = () => {
+      const chat = document.querySelector<HTMLElement>("[data-right-dock-main-content]");
+      const host = document.querySelector<HTMLElement>("[data-right-dock-layout-host]");
+      const dock = document.querySelector<HTMLElement>(
+        '[data-testid="right-dock-panel"] [data-right-dock-content]',
+      );
+      return {
+        chat: Math.round(chat?.getBoundingClientRect().width ?? 0),
+        host: Math.round(host?.getBoundingClientRect().width ?? 0),
+        dock: Math.round(dock?.getBoundingClientRect().width ?? 0),
+      };
+    };
+    // A chat column narrower than this wraps the message and the composer a few characters a line.
+    const READABLE_CHAT_WIDTH = 352;
+    const expectChatReadable = async (at: string) => {
+      await expect
+        .poll(() => widths().dock, { message: `${at}: 画布 is open beside the chat` })
+        .toBeGreaterThan(0);
+      await expect
+        .poll(() => widths().chat, {
+          message: `${at}: the chat keeps a readable width (${JSON.stringify(widths())})`,
+          timeout: 3_000,
+        })
+        .toBeGreaterThanOrEqual(READABLE_CHAT_WIDTH);
+      // The panels have finished moving and it stays that way.
+      for (let frame = 0; frame < 10; frame += 1) await nextFrame();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const settled = widths();
+      expect(
+        settled.chat,
+        `${at}: still readable (${JSON.stringify(settled)})`,
+      ).toBeGreaterThanOrEqual(READABLE_CHAT_WIDTH);
+      expect(
+        settled.chat + settled.dock,
+        `${at}: the chat and 画布 share the row (${JSON.stringify(settled)})`,
+      ).toBeLessThanOrEqual(settled.host + 1);
+    };
+    try {
+      await withMissingCanvasBundle(async () => {
+        await vi.waitFor(() => expect(domainEventStream).not.toBeNull());
+        const chatPath = mounted.router.state.location.pathname;
+        // What the server appends when the agent calls moss_canvas_open.
+        sendEffectRpcChunk(
+          domainEventStream!.client,
+          domainEventStream!.requestId,
+          makeDomainEvent(
+            "thread.activity-appended",
+            {
+              threadId: THREAD_ID,
+              activity: {
+                id: EventId.makeUnsafe("agent:n13-6:canvas-open"),
+                createdAt: isoAt(10_000),
+                kind: "canvas.open.requested",
+                summary: "Open conversation Canvas",
+                tone: "info",
+                turnId: null,
+                payload: { source: "moss-mcp-canvas", threadId: THREAD_ID },
+              },
+            },
+            { sequence: 10_000 },
+          ),
+        );
+        await expectChatReadable("画布 opened by the agent");
+        // 更多 → 任务.
+        const rail = page.getByRole("navigation", { name: "Primary", exact: true });
+        await rail.getByRole("button", { name: "More", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Tasks", exact: true }).click();
+        await expect
+          .poll(() => mounted.router.state.location.pathname, { message: "任务 is open" })
+          .toMatch(/^\/(tasks|kanban)$/);
+        await expect.poll(() => widths().dock, { message: "the chat and 画布 are gone" }).toBe(0);
+        // Back to the chat.
+        await page.getByRole("button", { name: "Back", exact: true }).click();
+        await expect
+          .poll(() => mounted.router.state.location.pathname, { message: "back on the chat" })
+          .toBe(chatPath);
+        await expectChatReadable("back from 任务");
+      });
+    } finally {
+      desktopTitleBar.on = false;
       await mounted.cleanup();
     }
   });
