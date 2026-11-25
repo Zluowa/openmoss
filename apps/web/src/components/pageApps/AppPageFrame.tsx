@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
+import { IconButton } from "~/components/ui/icon-button";
 import {
   Dialog,
   DialogDescription,
@@ -271,36 +272,33 @@ export function AppPageFrame({
         {t("pageApps.frame.byline")}
       </span>
       {mode === "full" ? (
-        <Button
+        <IconButton
           variant="chrome"
           size="icon-xs"
-          aria-label={favorite ? t("pageApps.frame.unfavorite") : t("pageApps.frame.favorite")}
-          title={favorite ? t("pageApps.frame.unfavorite") : t("pageApps.frame.favorite")}
+          label={favorite ? t("pageApps.frame.unfavorite") : t("pageApps.frame.favorite")}
           disabled={!frame}
           onClick={() => void toggleFavorite()}
         >
           {favorite ? <StarFilledIcon /> : <StarIcon />}
-        </Button>
+        </IconButton>
       ) : null}
-      <Button
+      <IconButton
         variant="chrome"
         size="icon-xs"
-        aria-label={t("pageApps.frame.permissions")}
-        title={t("pageApps.frame.permissions")}
+        label={t("pageApps.frame.permissions")}
         disabled={!frame}
         onClick={() => setPermissionsOpen(() => () => undefined)}
       >
         <SlidersIcon />
-      </Button>
-      <Button
+      </IconButton>
+      <IconButton
         variant="chrome"
         size="icon-xs"
-        aria-label={t("pageApps.frame.reload")}
-        title={t("pageApps.frame.reload")}
+        label={t("pageApps.frame.reload")}
         onClick={() => setReloadKey((key) => key + 1)}
       >
         <RefreshCwIcon />
-      </Button>
+      </IconButton>
     </>
   );
 

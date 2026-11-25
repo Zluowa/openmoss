@@ -57,8 +57,11 @@ describe("AppPageFrame header", () => {
       const header = reload.element().closest("header")!;
       expect(header.classList.contains("drag-region")).toBe(true);
       for (const name of ["收藏", "权限", "重新加载"]) {
-        const right = page.getByRole("button", { name }).element().getBoundingClientRect().right;
-        expect(right).toBeLessThanOrEqual(window.innerWidth - WINDOW_BUTTONS_WIDTH);
+        const el = page.getByRole("button", { name }).element();
+        expect(el.getAttribute("title")).toBeNull();
+        expect(el.getBoundingClientRect().right).toBeLessThanOrEqual(
+          window.innerWidth - WINDOW_BUTTONS_WIDTH,
+        );
       }
     } finally {
       await screen.unmount();

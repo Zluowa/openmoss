@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { RouteSurfaceHeader } from "~/components/RouteSurface";
 import { Button } from "~/components/ui/button";
+import { IconButton } from "~/components/ui/icon-button";
 import { PencilIcon, RotateCcwIcon, StarFilledIcon, StarIcon, TrashCanIcon } from "~/lib/icons";
 
 import { pageAppsClient } from "./pageAppsClient";
@@ -100,44 +101,40 @@ export function PageAppList() {
                 </div>
               </div>
               {showTrash ? (
-                <Button
+                <IconButton
                   variant="chrome"
                   size="icon-xs"
-                  aria-label="恢复"
-                  title="恢复"
+                  label="恢复"
                   onClick={() => void mutate(app, "restore")}
                 >
                   <RotateCcwIcon />
-                </Button>
+                </IconButton>
               ) : (
                 <>
-                  <Button
+                  <IconButton
                     variant="chrome"
                     size="icon-xs"
-                    aria-label={app.favorite ? "取消收藏" : "收藏"}
-                    title={app.favorite ? "取消收藏" : "收藏"}
+                    label={app.favorite ? "取消收藏" : "收藏"}
                     onClick={() => void mutate(app, "favorite")}
                   >
                     {app.favorite ? <StarFilledIcon /> : <StarIcon />}
-                  </Button>
-                  <Button
+                  </IconButton>
+                  <IconButton
                     variant="chrome"
                     size="icon-xs"
-                    aria-label="重命名"
-                    title="重命名"
+                    label="重命名"
                     onClick={() => void mutate(app, "rename")}
                   >
                     <PencilIcon />
-                  </Button>
-                  <Button
+                  </IconButton>
+                  <IconButton
                     variant="chrome"
                     size="icon-xs"
-                    aria-label="移到回收站"
-                    title="移到回收站"
+                    label="移到回收站"
                     onClick={() => void mutate(app, "trash")}
                   >
                     <TrashCanIcon />
-                  </Button>
+                  </IconButton>
                 </>
               )}
             </div>

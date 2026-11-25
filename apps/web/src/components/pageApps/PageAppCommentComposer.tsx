@@ -19,6 +19,7 @@ import {
   placePageCommentCard,
 } from "../chat/pageComments/pageComments.logic";
 import { IconButton } from "../ui/icon-button";
+import { Textarea } from "../ui/textarea";
 
 export interface PageAppComposerPlacement {
   /** The element's box in the Moss window's coordinates. */
@@ -99,14 +100,15 @@ function Composer(props: {
             {props.anchor.quote}
           </div>
         ) : null}
-        <textarea
+        <Textarea
+          unstyled
           ref={fieldRef}
           aria-label="评论"
           rows={2}
           maxLength={PAGE_APP_COMMENT_MAX_CHARS}
           value={body}
           placeholder="添加评论…"
-          className="min-h-12 w-full resize-none bg-transparent text-ui leading-6 text-foreground outline-none [field-sizing:content] max-h-40 placeholder:text-muted-foreground/70"
+          className="w-full [&_textarea]:max-h-40 [&_textarea]:min-h-12 [&_textarea]:resize-none [&_textarea]:bg-transparent [&_textarea]:px-0 [&_textarea]:py-0 [&_textarea]:text-ui [&_textarea]:leading-6 [&_textarea]:text-foreground [&_textarea]:placeholder:text-muted-foreground/70"
           onChange={(event) => setBody(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !isImeComposingKeyEvent(event)) {
