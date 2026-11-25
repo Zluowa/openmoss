@@ -1,7 +1,7 @@
 import "../../index.css";
 
 import { MessageId } from "@moss/contracts";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { MessagesTimeline } from "./MessagesTimeline";
@@ -143,15 +143,28 @@ it("keeps attached follow through a large measured tail growth and yields to rea
     node.scrollTop = 200;
     node.dispatchEvent(new Event("scroll"));
     const readingTop = node.scrollTop;
-    await screen.rerender(timeline("Large new paragraph.\n\n".repeat(140), false));
-    await expect
-      .poll(
-        () =>
-          Array.from(node.querySelectorAll("[data-message-id='growing-reply'] p")).filter(
-            (p) => p.textContent === "Large new paragraph.",
-          ).length,
-      )
-      .toBe(140);
+    // The streaming reply reveals the 40 new paragraphs over animation frames
+    // (useSmoothStreamedText), about a second of them, and a loaded runner paints fewer frames
+    // in a second. The test paints the frames itself, so the reader is checked through every
+    // step of the reveal whatever the machine's frame rate.
+    const paragraphs = () =>
+      Array.from(node.querySelectorAll("[data-message-id='growing-reply'] p")).filter(
+        (p) => p.textContent === "Large new paragraph.",
+      ).length;
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame"] });
+    try {
+      await screen.rerender(timeline("Large new paragraph.\n\n".repeat(140), false));
+      // Until the reveal has shown everything and no frame callback is left waiting, so none
+      // is dropped when real frames return.
+      for (let frame = 0; frame < 600 && (paragraphs() < 140 || vi.getTimerCount() > 0); frame++) {
+        vi.advanceTimersToNextFrame();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(paragraphs()).toBe(140);
     await new Promise<void>((resolve) =>
       requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
     );
