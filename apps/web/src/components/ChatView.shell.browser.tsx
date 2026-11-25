@@ -2215,6 +2215,86 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
+  it("WALK-13 N13-1: 首页 → 图像 or 资料空间, then one mouse click on 收信箱, 定时任务, Mossbot or 代码审查 opens that page", async () => {
+    desktopTitleBar.on = true;
+    const mounted = await mountChatView({
+      viewport: { ...DEFAULT_VIEWPORT, width: 1280 },
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("rail-one-click"),
+        targetText: "Rail one click",
+      }),
+    });
+    // The rail's English names: 首页 Home, 图像 Images, 收信箱 Inbox, 定时任务 Scheduled,
+    // 代码审查 Code review; 资料空间 and Mossbot keep their names.
+    const rail = () => document.querySelector<HTMLElement>('nav[aria-label="Primary"]')!;
+    const current = () =>
+      rail()
+        .querySelector('button[aria-current="page"]')
+        ?.getAttribute("aria-label")
+        ?.split(" · ")[0] ?? null; // a badge adds " · <count>"
+    const shown = () =>
+      document.querySelector("[data-moss-images-destination]")
+        ? "Images"
+        : document.querySelector("[data-moss-data-spaces]")
+          ? "资料空间"
+          : null;
+    const back = () => {
+      const buttons = document.querySelectorAll<HTMLButtonElement>('button[aria-label="Back"]');
+      expect(buttons, "one Back on screen").toHaveLength(1);
+      return buttons[0]!;
+    };
+    // The walker clicked with the mouse: a real click, whose microtasks run while its event
+    // is still current (an element.click() from the test would hide the race).
+    const click = (label: string) =>
+      page
+        .getByRole("navigation", { name: "Primary", exact: true })
+        .getByRole("button", { name: new RegExp(`^${label}(?: · |$)`) })
+        .click();
+    try {
+      await waitForLayout();
+      const targets = [
+        ["Inbox", "/inbox"],
+        ["Scheduled", "/automations"],
+        ["Mossbot", "/mossbot"],
+        ["Code review", "/pull-requests"],
+      ] as const;
+      for (const source of ["Images", "资料空间"] as const) {
+        for (const [label, pathname] of targets) {
+          const at = `${source} → ${label}`;
+          await click("Home");
+          await expect.poll(current, { message: `${at}: 首页 is current` }).toBe("Home");
+          await click(source);
+          await expect.poll(shown, { message: `${at}: ${source} is shown` }).toBe(source);
+          // One click on the rail page.
+          await click(label);
+          const expectOnTarget = async (when: string) => {
+            await expect.poll(shown, { message: `${at} ${when}: ${source} is gone` }).toBe(null);
+            await expect
+              .poll(() => mounted.router.state.location.pathname, {
+                message: `${at} ${when}: the address is the clicked page`,
+              })
+              .toBe(pathname);
+            await expect.poll(current, { message: `${at} ${when}: the rail shows it` }).toBe(label);
+          };
+          await expectOnTarget("after one click");
+          // It stays there: no entry for the page under the destination lands on top.
+          for (let frame = 0; frame < 5; frame += 1) await nextFrame();
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          expect(mounted.router.state.location.pathname, `${at}: still the clicked page`).toBe(
+            pathname,
+          );
+          expect(current(), `${at}: the rail still shows it`).toBe(label);
+          // Back walks to what was seen before it: the destination.
+          back().click();
+          await expect.poll(shown, { message: `${at}: Back shows ${source}` }).toBe(source);
+        }
+      }
+    } finally {
+      desktopTitleBar.on = false;
+      await mounted.cleanup();
+    }
+  });
+
   it("WALK-6 R-9 on 图像 with a result tab: one Back, one Forward, and the toggle takes the click at its centre", async () => {
     desktopTitleBar.on = true;
     // One past image, so 图像 can open it in a result tab.

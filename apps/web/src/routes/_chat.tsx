@@ -673,12 +673,28 @@ function ChatRouteLayout() {
   // entry of its own (R-9); Back and Forward to such an entry show what it showed.
   const historyDestination = useHistoryDestination();
   const shownDestination = useRef(destinationSurface);
+  const destinationHref = useRef<string | null>(null);
   useEffect(() => {
     if (shownDestination.current === destinationSurface) return;
     shownDestination.current = destinationSurface;
     // A `#space-page=` link opens 资料空间 through the hash itself.
     if (window.location.hash.startsWith(SPACE_PAGE_HASH_PREFIX)) return;
-    pushHistoryDestination(router.history, destinationSurface);
+    if (destinationSurface !== null) {
+      destinationHref.current = router.history.location.href;
+      pushHistoryDestination(router.history, destinationSurface);
+      return;
+    }
+    const originHref = destinationHref.current;
+    destinationHref.current = null;
+    // Leaving for another route already creates its own history entry; pushing the old URL
+    // while that navigation is still committing would land on top of it (WALK-13 N13-1).
+    if (
+      router.commitLocationPromise !== undefined ||
+      (originHref !== null && router.history.location.href !== originHref)
+    ) {
+      return;
+    }
+    pushHistoryDestination(router.history, null);
   }, [destinationSurface, router]);
   // Only a change of entry shows its destination; a later close stays closed.
   const showDestinationOfEntry = useRef(showDestination);
