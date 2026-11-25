@@ -684,7 +684,7 @@ export function PluginLibraryCardIconBox({
   return (
     <span
       className={cn(
-        "plugin-library-card-icon flex shrink-0 items-center justify-center overflow-hidden rounded-control bg-card ring-1 ring-border/70 ring-inset",
+        "plugin-library-card-icon relative flex shrink-0 items-center justify-center overflow-hidden rounded-control bg-card ring-1 ring-border/70 ring-inset",
         className,
       )}
       data-testid="plugin-library-card-icon"
@@ -705,7 +705,7 @@ export function PluginLibraryDetailIconBox({
   return (
     <span
       className={cn(
-        "plugin-library-detail-icon flex shrink-0 items-center justify-center overflow-hidden rounded-card bg-card",
+        "plugin-library-detail-icon relative flex shrink-0 items-center justify-center overflow-hidden rounded-card bg-card",
         bordered && "ring-1 ring-border/70 ring-inset",
       )}
       data-testid="plugin-library-detail-icon"

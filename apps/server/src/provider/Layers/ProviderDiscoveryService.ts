@@ -68,6 +68,17 @@ import {
   MossMarketplaceSelectionTicketError,
   MossMarketplaceSelectionTicketService,
 } from "../mossMarketplaceSelectionTicket.ts";
+import {
+  MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL,
+  MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
+  mossPluginCatalogEntryForPluginId,
+  mossPluginCatalogIconUrl,
+} from "@moss/shared/mossPluginCatalog";
+import {
+  isMossPluginCatalogMarketplacePath,
+  mossPluginCatalogMarketplacePath,
+  mossPluginCatalogRoot,
+} from "../../pluginCatalog/mossPluginCatalogStore.ts";
 import { browseMossMarketplace } from "../mossMarketplaceAggregation.ts";
 import { discoverMcpCatalog } from "../mcpCatalog.ts";
 import {
@@ -750,59 +761,67 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
           schema: ProviderListPluginsInput,
           payload: input,
         });
-        const resolved = yield* resolveDiscoveryInput(parsed);
-        if (!resolved.instanceEnabled) {
-          return {
-            marketplaces: [],
-            marketplaceLoadErrors: [],
-            remoteSyncError: null,
-            featuredPluginIds: [],
-            source: "disabled",
-            cached: false,
-          };
-        }
-        const adapter = yield* registry.getByProvider(resolved.provider);
-        const nativeResult: ProviderListPluginsResult = adapter.listPlugins
-          ? yield* adapter.listPlugins(resolved).pipe(
+
+        const nativeLaneEffect: Effect.Effect<ProviderListPluginsResult, never, never> = Effect.gen(
+          function* () {
+            const resolved = yield* resolveDiscoveryInput(parsed);
+            if (!resolved.instanceEnabled) {
+              return {
+                marketplaces: [],
+                marketplaceLoadErrors: [],
+                remoteSyncError: null,
+                featuredPluginIds: [],
+                source: "disabled",
+                cached: false,
+              } satisfies ProviderListPluginsResult;
+            }
+            const adapter = yield* registry.getByProvider(resolved.provider);
+            if (!adapter.listPlugins) {
+              return {
+                marketplaces: [],
+                marketplaceLoadErrors: [],
+                remoteSyncError: null,
+                featuredPluginIds: [],
+                source: "unsupported",
+                cached: false,
+              } satisfies ProviderListPluginsResult;
+            }
+            return yield* adapter.listPlugins(resolved).pipe(
               withDiscoveryDeadline({
                 operation: "plugin listing",
                 provider: resolved.provider,
                 instanceId: resolved.instanceId,
                 timeoutMs: nativeListingTimeoutMs,
               }),
-              Effect.catch((error) =>
-                Effect.logWarning(
-                  "provider-native plugin discovery failed; serving the Moss plugin catalog only",
-                  { provider: resolved.provider, error },
-                ).pipe(
-                  Effect.as({
-                    marketplaces: [],
-                    marketplaceLoadErrors: [
-                      {
-                        marketplacePath: `${resolved.provider}${PROVIDER_PLUGIN_LISTING_LOAD_ERROR_SUFFIX}`,
-                        message:
-                          error instanceof Error
-                            ? error.message
-                            : "Provider-native plugin discovery failed.",
-                      },
-                    ],
-                    remoteSyncError: null,
-                    featuredPluginIds: [],
-                    source: "error",
-                    cached: false,
-                  } satisfies ProviderListPluginsResult),
-                ),
-              ),
-            )
-          : {
-              marketplaces: [],
-              marketplaceLoadErrors: [],
-              remoteSyncError: null,
-              featuredPluginIds: [],
-              source: "unsupported",
-              cached: false,
-            };
-        const mossCatalog = yield* Effect.tryPromise(() =>
+            );
+          },
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning(
+              "provider-native plugin discovery failed; serving the Moss plugin catalog only",
+              { provider: parsed.provider, error },
+            ).pipe(
+              Effect.as({
+                marketplaces: [],
+                marketplaceLoadErrors: [
+                  {
+                    marketplacePath: `${parsed.provider}${PROVIDER_PLUGIN_LISTING_LOAD_ERROR_SUFFIX}`,
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : "Provider-native plugin discovery failed.",
+                  },
+                ],
+                remoteSyncError: null,
+                featuredPluginIds: [],
+                source: "error",
+                cached: false,
+              } satisfies ProviderListPluginsResult),
+            ),
+          ),
+        );
+
+        const mossCatalogEffect = Effect.tryPromise(() =>
           discoverMossPluginCatalog({ cwd: parsed.cwd ?? null }),
         ).pipe(
           Effect.catchCause((cause) =>
@@ -812,14 +831,10 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
             }).pipe(Effect.as({ marketplace: null, loadErrors: [] })),
           ),
         );
-        const mossMarketplace = mossCatalog.marketplace;
-        const nativeMarketplaces = mossMarketplace
-          ? nativeResult.marketplaces.filter(
-              (marketplace) => marketplace.path !== mossMarketplace.path,
-            )
-          : nativeResult.marketplaces;
-        const remoteCatalog = parsed.catalog
-          ? yield* Effect.tryPromise(() =>
+
+        const remoteCatalogTimeoutMs = Math.min(nativeListingTimeoutMs, 8_000);
+        const remoteCatalogEffect = parsed.catalog
+          ? Effect.tryPromise(() =>
               browseMossMarketplace({
                 kind: "plugin",
                 stateDir: serverConfig.stateDir,
@@ -827,14 +842,39 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
                 forceReload: parsed.forceReload,
               }),
             ).pipe(
+              withDiscoveryDeadline({
+                operation: "remote plugin catalog",
+                provider: parsed.provider,
+                instanceId: parsed.instanceId ?? parsed.provider,
+                timeoutMs: remoteCatalogTimeoutMs,
+              }),
               Effect.catchCause((cause) =>
                 Effect.logWarning("remote Moss plugin catalog discovery failed", {
-                  provider: resolved.provider,
+                  provider: parsed.provider,
                   cause,
                 }).pipe(Effect.as(undefined)),
               ),
             )
-          : undefined;
+          : Effect.succeed(undefined);
+
+        // Run local Moss catalog, remote aggregated catalog, and provider-native
+        // discovery in parallel so disabled or stalled CLIs never hide or block
+        // Moss's own marketplace.
+        const { nativeResult, mossCatalog, remoteCatalog } = yield* Effect.all(
+          {
+            nativeResult: nativeLaneEffect,
+            mossCatalog: mossCatalogEffect,
+            remoteCatalog: remoteCatalogEffect,
+          },
+          { concurrency: "unbounded" },
+        );
+
+        const mossMarketplace = mossCatalog.marketplace;
+        const nativeMarketplaces = mossMarketplace
+          ? nativeResult.marketplaces.filter(
+              (marketplace) => marketplace.path !== mossMarketplace.path,
+            )
+          : nativeResult.marketplaces;
         return {
           ...nativeResult,
           marketplaces: mossMarketplace
@@ -842,13 +882,90 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
             : nativeMarketplaces,
           marketplaceLoadErrors: [...mossCatalog.loadErrors, ...nativeResult.marketplaceLoadErrors],
           source: mossMarketplace
-            ? nativeResult.source
+            ? nativeResult.source && nativeResult.source !== "disabled"
               ? `${nativeResult.source}+moss.plugins`
               : "moss.plugins"
             : nativeResult.source,
           ...(remoteCatalog ? { catalog: remoteCatalog } : {}),
         } satisfies ProviderListPluginsResult;
       });
+
+    const cachedMossCatalogPluginDetail = (input: {
+      readonly pluginName: string;
+      readonly marketplacePath?: string | null | undefined;
+      readonly remoteMarketplaceName?: string | null | undefined;
+    }) => {
+      const catalogRoot = mossPluginCatalogRoot(serverConfig.stateDir);
+      const targetsMossCatalog =
+        input.remoteMarketplaceName === MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME ||
+        isMossPluginCatalogMarketplacePath(catalogRoot, input.marketplacePath);
+      if (!targetsMossCatalog) return null;
+      const entry = mossPluginCatalogEntryForPluginId(
+        `${input.pluginName}@${MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME}`,
+      );
+      if (!entry) return null;
+      const marketplacePath =
+        input.marketplacePath ?? mossPluginCatalogMarketplacePath(catalogRoot);
+      const logoUrl = mossPluginCatalogIconUrl(MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL, entry);
+      const summary = {
+        id: `${entry.name}@${MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME}`,
+        remotePluginId: null,
+        name: entry.name,
+        version: entry.version,
+        localVersion: null,
+        shareContext: null,
+        availability: "AVAILABLE" as const,
+        keywords: [],
+        source: { type: "local" as const, path: marketplacePath },
+        installed: false,
+        enabled: false,
+        installPolicy: "AVAILABLE" as const,
+        installPolicySource: null,
+        authPolicy: "ON_USE" as const,
+        interface: {
+          displayName: entry.displayName,
+          shortDescription: entry.description,
+          longDescription: entry.description,
+          developerName: entry.developerName,
+          category: entry.category,
+          capabilities: [],
+          websiteUrl: entry.websiteUrl,
+          privacyPolicyUrl: null,
+          termsOfServiceUrl: null,
+          defaultPrompt: null,
+          brandColor: null,
+          composerIcon: null,
+          composerIconUrl: null,
+          logo: null,
+          logoDark: null,
+          logoUrl,
+          logoUrlDark: null,
+          screenshots: [],
+          screenshotUrls: [],
+        },
+      };
+      return {
+        plugin: {
+          marketplaceName: MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
+          marketplacePath,
+          summary,
+          shareUrl: null,
+          description: entry.description,
+          skills: entry.skills.map((skill) => ({
+            name: skill.name,
+            description: skill.description,
+            path: `${marketplacePath}/plugins/${entry.name}/skills/${skill.name}/SKILL.md`,
+            enabled: true,
+          })),
+          hooks: [],
+          apps: [],
+          appTemplates: [],
+          mcpServers: [...entry.mcpServers],
+        },
+        source: "moss.catalog-metadata",
+        cached: true,
+      };
+    };
 
     const readPlugin: ProviderDiscoveryServiceShape["readPlugin"] = (input) =>
       Effect.gen(function* () {
@@ -885,6 +1002,8 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
         }
         const resolved = yield* resolveDiscoveryInput(parsed);
         if (!resolved.instanceEnabled) {
+          const catalogDetail = cachedMossCatalogPluginDetail(parsed);
+          if (catalogDetail) return catalogDetail;
           return yield* new ProviderValidationError({
             operation: "ProviderDiscoveryService.readPlugin",
             issue: `Provider instance '${resolved.instanceId}' is disabled in Moss settings.`,
@@ -892,6 +1011,8 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
         }
         const adapter = yield* registry.getByProvider(resolved.provider);
         if (!adapter.readPlugin) {
+          const catalogDetail = cachedMossCatalogPluginDetail(parsed);
+          if (catalogDetail) return catalogDetail;
           return yield* new ProviderValidationError({
             operation: "ProviderDiscoveryService.readPlugin",
             issue: `Plugin discovery is unavailable for provider '${resolved.provider}'.`,
@@ -1227,6 +1348,7 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
             }).pipe(Effect.as([] as ProviderMcpServerDescriptor[])),
           ),
         );
+        const remoteCatalogTimeoutMs = Math.min(nativeListingTimeoutMs, 8_000);
         const remoteCatalog = parsed.catalog
           ? yield* mcpCatalogReadAdmission
               .withPermitsIfAvailable(1)(
@@ -1238,6 +1360,12 @@ const make = (options: ProviderDiscoveryServiceLiveOptions = {}) =>
                     forceReload: parsed.forceReload,
                   }),
                 ).pipe(
+                  withDiscoveryDeadline({
+                    operation: "remote MCP catalog",
+                    provider: parsed.provider,
+                    instanceId: parsed.provider,
+                    timeoutMs: remoteCatalogTimeoutMs,
+                  }),
                   Effect.catchCause((cause) =>
                     Effect.logWarning("remote Moss MCP catalog discovery failed", {
                       provider: parsed.provider,

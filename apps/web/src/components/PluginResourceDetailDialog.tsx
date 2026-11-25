@@ -33,6 +33,7 @@ import {
   ArrowRightIcon,
   BuildingsIcon,
   ChevronRightIcon,
+  CircleAlertIcon,
   CopyIcon,
   EllipsisIcon,
   ExternalLinkIcon,
@@ -399,22 +400,58 @@ function PluginDefaultPrompts({
   );
 }
 
+const MOSS_CATALOG_DOWNLOAD_FAILURE_PATTERN = /couldn't download this plugin/iu;
+
+function pluginDetailFailureText(
+  error: unknown,
+  locale: ReturnType<typeof useTranslation>["locale"],
+  t: ReturnType<typeof useTranslation>["t"],
+): string {
+  const raw =
+    error instanceof Error ? error.message.trim() : typeof error === "string" ? error.trim() : "";
+  if (raw && MOSS_CATALOG_DOWNLOAD_FAILURE_PATTERN.test(raw)) {
+    return t("plugins.catalog.downloadFailed");
+  }
+  if (raw) return localizeAntigravityRuntimeMessage(raw, locale);
+  return t("plugins.error.pluginsTitle");
+}
+
 function IncludesBody({
   detail,
   pluginDetail,
   loading,
+  error,
+  onRetry,
 }: {
   detail: ResourceDetail;
   pluginDetail?: ProviderPluginDetail | undefined;
   loading?: boolean | undefined;
+  error?: unknown;
+  onRetry?: (() => void) | undefined;
 }) {
-  const { format, t } = useTranslation();
+  const { format, locale, t } = useTranslation();
   if (detail.kind === "plugin") {
     const apps = pluginDetail?.apps ?? [];
     const skills = pluginDetail?.skills ?? [];
     const mcpServers = pluginDetail?.mcpServers ?? [];
     if (loading && !pluginDetail) {
       return <Spinner className="size-4 text-muted-foreground" />;
+    }
+    if (error && !pluginDetail) {
+      return (
+        <div
+          role="alert"
+          data-testid="plugin-detail-error"
+          className="flex items-center justify-between gap-3 rounded-card border border-border/70 bg-muted/30 px-3.5 py-2.5 text-ui-sm text-muted-foreground"
+        >
+          <span className="min-w-0 flex-1">{pluginDetailFailureText(error, locale, t)}</span>
+          {onRetry ? (
+            <Button variant="outline" size="xs" onClick={onRetry}>
+              {t("plugins.action.retry")}
+            </Button>
+          ) : null}
+        </div>
+      );
     }
     if (apps.length === 0 && skills.length === 0 && mcpServers.length === 0) {
       return <p className="text-ui-lg text-muted-foreground">{t("plugins.detail.noIncludes")}</p>;
@@ -763,6 +800,8 @@ export interface PluginResourceDetailDialogProps {
   readonly onUninstall?: (() => void) | undefined;
   readonly pluginDetail?: ProviderPluginDetail | undefined;
   readonly pluginDetailLoading?: boolean | undefined;
+  readonly pluginDetailError?: unknown;
+  readonly onRetryPluginDetail?: (() => void) | undefined;
   /** Reads only a skill that the selected provider has rediscovered and authorized. */
   readonly loadSkillContent?: SkillContentLoader | undefined;
 }
@@ -778,6 +817,8 @@ export function PluginResourceDetailDialog({
   onUninstall,
   pluginDetail,
   pluginDetailLoading = false,
+  pluginDetailError,
+  onRetryPluginDetail,
   loadSkillContent,
 }: PluginResourceDetailDialogProps) {
   const { format, locale, t } = useTranslation();
@@ -1067,6 +1108,8 @@ export function PluginResourceDetailDialog({
                   detail={effectiveDetail}
                   pluginDetail={pluginDetail}
                   loading={pluginDetailLoading}
+                  error={pluginDetailError}
+                  onRetry={onRetryPluginDetail}
                 />
               </DetailSection>
             ) : null}
@@ -1099,6 +1142,8 @@ export interface PluginResourceDetailPageProps {
   readonly onManage?: (() => void) | undefined;
   readonly pluginDetail?: ProviderPluginDetail | undefined;
   readonly pluginDetailLoading?: boolean | undefined;
+  readonly pluginDetailError?: unknown;
+  readonly onRetryPluginDetail?: (() => void) | undefined;
   readonly artworkCwd?: string | undefined;
   readonly scrollContainerRef?: RefObject<HTMLDivElement | null> | undefined;
   /** Reads a bundled skill's SKILL.md for the in-page skill preview. */
@@ -1121,6 +1166,8 @@ export function PluginResourceDetailPage({
   onManage,
   pluginDetail,
   pluginDetailLoading = false,
+  pluginDetailError,
+  onRetryPluginDetail,
   artworkCwd,
   scrollContainerRef,
   loadSkillContent,
@@ -1341,6 +1388,25 @@ export function PluginResourceDetailPage({
             </div>
           ) : effectiveDetail.kind === "plugin" ? (
             <>
+              {pluginDetailError && !pluginDetail ? (
+                <div
+                  role="alert"
+                  data-testid="plugin-detail-error"
+                  className="mx-2 flex items-center justify-between gap-3 rounded-card border border-border bg-card px-4 py-3 text-ui"
+                >
+                  <div className="flex min-w-0 items-center gap-2.5 text-muted-foreground">
+                    <CircleAlertIcon aria-hidden="true" className="size-4 shrink-0" />
+                    <span className="min-w-0 break-words">
+                      {pluginDetailFailureText(pluginDetailError, locale, t)}
+                    </span>
+                  </div>
+                  {onRetryPluginDetail ? (
+                    <Button variant="outline" size="sm" type="button" onClick={onRetryPluginDetail}>
+                      {t("plugins.action.retry")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
               <PluginPagePromptShowcase
                 detail={effectiveDetail}
                 artworkCwd={artworkCwd}
@@ -1440,19 +1506,27 @@ function PluginDetailArtwork({
   title: string;
   FallbackIcon: ReturnType<typeof detailIcon>;
 }) {
-  const [failed, setFailed] = useState(false);
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  const [loadedLogo, setLoadedLogo] = useState<string | null>(null);
+  const logoFailed = logo !== undefined && failedLogo === logo;
+  const logoLoaded = logo !== undefined && loadedLogo === logo && !logoFailed;
+
   return (
     <PluginLibraryDetailIconBox>
-      {logo && !failed ? (
+      {!logo || !logoLoaded ? <FallbackIcon className="size-8 text-muted-foreground" /> : null}
+      {logo && !logoFailed ? (
         <img
           src={logo}
           alt={title}
-          className="size-full object-contain"
-          onError={() => setFailed(true)}
+          className={
+            logoLoaded
+              ? "size-full object-contain"
+              : "pointer-events-none absolute inset-0 size-full object-contain opacity-0"
+          }
+          onLoad={() => setLoadedLogo(logo)}
+          onError={() => setFailedLogo(logo)}
         />
-      ) : (
-        <FallbackIcon className="size-8 text-muted-foreground" />
-      )}
+      ) : null}
     </PluginLibraryDetailIconBox>
   );
 }

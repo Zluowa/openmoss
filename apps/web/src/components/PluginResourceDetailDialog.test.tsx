@@ -267,4 +267,27 @@ describe("PluginResourceDetailPage", () => {
     expect(markup).not.toContain('data-plugin-detail-section="skills"');
     expect(markup).not.toContain('data-plugin-detail-section="information"');
   });
+
+  it("replaces loading skeleton with an error card and cached catalog metadata on plugin/read failure", () => {
+    const markup = renderToStaticMarkup(
+      <MossLocaleScope locale="zh-CN">
+        <PluginResourceDetailPage
+          detail={detail}
+          onBack={vi.fn()}
+          pluginDetail={undefined}
+          pluginDetailLoading={false}
+          pluginDetailError={new Error("Moss couldn't download this plugin.")}
+          onRetryPluginDetail={vi.fn()}
+          artworkCwd="/workspace"
+        />
+      </MossLocaleScope>,
+    );
+
+    expect(markup).toContain('data-plugin-detail-state="settled"');
+    expect(markup).toContain('data-testid="plugin-detail-error"');
+    expect(markup).toContain("重试");
+    expect(markup).toContain("Forge Suite");
+    expect(markup).toContain('data-plugin-detail-section="information"');
+    expect(markup).not.toContain('data-testid="plugin-detail-loading-skeleton"');
+  });
 });

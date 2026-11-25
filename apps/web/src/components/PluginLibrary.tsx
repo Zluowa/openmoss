@@ -233,6 +233,8 @@ import {
 } from "~/lib/mossServicePlugins";
 import {
   isMossPluginCatalogPlugin,
+  mossPluginCatalogFallbackEntries,
+  mossRemoteCatalogEntriesToDirectory,
   withMossPluginCatalogEntryPresentation,
   withMossPluginCatalogPresentation,
 } from "~/lib/mossPluginCatalogPresentation";
@@ -426,6 +428,7 @@ function providerPluginsQueryOptions(input: {
   marketplaceKinds?: readonly ProviderPluginMarketplaceKind[];
   forceRemoteSync?: boolean;
   forceReload?: boolean;
+  catalogLimit?: number;
   enabled?: boolean;
   staleTime?: number;
   retry?: number;
@@ -433,6 +436,7 @@ function providerPluginsQueryOptions(input: {
   const marketplaceKinds = input.marketplaceKinds ?? null;
   const forceRemoteSync = input.forceRemoteSync === true;
   const forceReload = input.forceReload === true;
+  const catalogLimit = input.catalogLimit;
   return queryOptions({
     queryKey: pluginLibraryDiscoveryQueryKeys.plugins(
       input.provider,
@@ -456,6 +460,7 @@ function providerPluginsQueryOptions(input: {
           ...(marketplaceKinds ? { marketplaceKinds: [...marketplaceKinds] } : {}),
           ...(forceRemoteSync ? { forceRemoteSync: true } : {}),
           ...(forceReload ? { forceReload: true } : {}),
+          ...(catalogLimit ? { catalog: { limit: catalogLimit } } : {}),
         }),
         PLUGIN_LIST_REQUEST_TIMEOUT_MS,
         `${input.provider} plugin list`,
@@ -564,6 +569,7 @@ function providerReadPluginQueryOptions(input: {
       });
     },
     enabled: (input.enabled ?? true) && hasExactlyOneSelector,
+    retry: false,
     staleTime: 60_000,
   });
 }
@@ -766,6 +772,33 @@ function resolvePluginBrand(plugin: ProviderPluginDescriptor): BrandArtwork | un
 // box with a muted glyph (see the restored `InstalledSkillCard`). Plugins keep
 // their own brand logo/color when the marketplace provides one.
 
+function GlyphArtworkImage({
+  src,
+  loaded,
+  onLoad,
+  onError,
+}: {
+  src: string;
+  loaded: boolean;
+  onLoad: () => void;
+  onError: () => void;
+}) {
+  return (
+    <img
+      src={src}
+      alt=""
+      className={
+        loaded
+          ? "size-full rounded-[2px] object-contain"
+          : "pointer-events-none absolute inset-0 size-full rounded-[2px] object-contain opacity-0"
+      }
+      loading="lazy"
+      onLoad={onLoad}
+      onError={onError}
+    />
+  );
+}
+
 /** The Codex card icon box: `h-10 w-10 rounded-lg border bg-transparent`. */
 function PluginGlyph({
   plugin,
@@ -783,12 +816,14 @@ function PluginGlyph({
   // Remembered per address: a plugin whose files just arrived swaps a missing
   // mirror icon for its own, which must get its chance to load.
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  const [loadedLogo, setLoadedLogo] = useState<string | null>(null);
   const logoFailed = logo !== undefined && failedLogo === logo;
+  const logoLoaded = logo !== undefined && loadedLogo === logo && !logoFailed;
 
   const wrapArtwork = (artwork: ReactNode) =>
     installed ? (
       <span
-        className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border-[0.5px] border-border bg-background shadow-lg"
+        className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border-[0.5px] border-border bg-background shadow-lg"
         style={accent ? { boxShadow: `0 0 0 0.5px ${accent}25` } : undefined}
       >
         {artwork}
@@ -801,36 +836,39 @@ function PluginGlyph({
       </PluginLibraryCardIconBox>
     );
 
-  if (logo && !logoFailed) {
-    return wrapArtwork(
-      <img
-        src={logo}
-        alt=""
-        className="size-full rounded-[2px] object-contain"
-        loading="lazy"
-        onError={() => setFailedLogo(logo)}
-      />,
-    );
-  }
+  const fallbackArtwork = brand
+    ? (() => {
+        const BrandIcon = brand.icon;
+        return (
+          <BrandIcon
+            aria-hidden="true"
+            className="size-5"
+            style={{ color: readableBrandColor(brand.color) ?? "var(--foreground)" }}
+          />
+        );
+      })()
+    : (() => {
+        const Icon = resolveResourceIcon(
+          plugin.interface?.displayName ?? plugin.name,
+          plugin.interface?.shortDescription ?? plugin.interface?.longDescription,
+          PluginIcon,
+        );
+        return <Icon aria-hidden="true" className="size-5 text-muted-foreground" />;
+      })();
 
-  if (brand) {
-    const BrandIcon = brand.icon;
-    return wrapArtwork(
-      <BrandIcon
-        aria-hidden="true"
-        className="size-5"
-        style={{ color: readableBrandColor(brand.color) ?? "var(--foreground)" }}
-      />,
-    );
-  }
-
-  // No marketplace artwork: fall back to Codex's keyword-matched glyph.
-  const Icon = resolveResourceIcon(
-    plugin.interface?.displayName ?? plugin.name,
-    plugin.interface?.shortDescription ?? plugin.interface?.longDescription,
-    PluginIcon,
+  return wrapArtwork(
+    <>
+      {!logo || !logoLoaded ? fallbackArtwork : null}
+      {logo && !logoFailed ? (
+        <GlyphArtworkImage
+          src={logo}
+          loaded={logoLoaded}
+          onLoad={() => setLoadedLogo(logo)}
+          onError={() => setFailedLogo(logo)}
+        />
+      ) : null}
+    </>,
   );
-  return wrapArtwork(<Icon aria-hidden="true" className="size-5 text-muted-foreground" />);
 }
 
 function SkillGlyph({
@@ -841,21 +879,12 @@ function SkillGlyph({
   artworkCwd?: string | undefined;
 }) {
   // Codex shows a skill's own icon (a file in its folder, or a URL) when it has one.
-  const icon = skill.interface?.iconSmallUrl ?? skill.interface?.iconSmall;
-  const [iconFailed, setIconFailed] = useState(false);
-  if (icon && !iconFailed) {
-    return (
-      <PluginLibraryCardIconBox>
-        <img
-          src={resolvePluginArtworkUrl({ src: icon, cwd: artworkCwd })}
-          alt=""
-          className="size-full rounded-[2px] object-contain"
-          loading="lazy"
-          onError={() => setIconFailed(true)}
-        />
-      </PluginLibraryCardIconBox>
-    );
-  }
+  const rawIcon = skill.interface?.iconSmallUrl ?? skill.interface?.iconSmall;
+  const icon = rawIcon ? resolvePluginArtworkUrl({ src: rawIcon, cwd: artworkCwd }) : undefined;
+  const [failedIcon, setFailedIcon] = useState<string | null>(null);
+  const [loadedIcon, setLoadedIcon] = useState<string | null>(null);
+  const iconFailed = icon !== undefined && failedIcon === icon;
+  const iconLoaded = icon !== undefined && loadedIcon === icon && !iconFailed;
   const Icon = resolveResourceIcon(
     skill.interface?.displayName ?? skill.name,
     skill.interface?.shortDescription ?? skill.description,
@@ -863,7 +892,17 @@ function SkillGlyph({
   );
   return (
     <PluginLibraryCardIconBox>
-      <Icon aria-hidden="true" className="size-5 text-muted-foreground" />
+      {!icon || !iconLoaded ? (
+        <Icon aria-hidden="true" className="size-5 text-muted-foreground" />
+      ) : null}
+      {icon && !iconFailed ? (
+        <GlyphArtworkImage
+          src={icon}
+          loaded={iconLoaded}
+          onLoad={() => setLoadedIcon(icon)}
+          onError={() => setFailedIcon(icon)}
+        />
+      ) : null}
     </PluginLibraryCardIconBox>
   );
 }
@@ -1702,15 +1741,20 @@ export function PluginLibrary({
   }, [discoveryCwd, providerThreadId, selectedProvider, selectedProviderInstanceId]);
 
   const providerLabel = PROVIDER_DISPLAY_NAMES[selectedProvider];
-  const canListPlugins =
-    !settings.disabledProviders.includes(selectedProvider) &&
-    providerCapabilities[selectedProvider].plugins;
-  const canListSkills =
-    !settings.disabledProviders.includes(selectedProvider) &&
-    providerCapabilities[selectedProvider].skills;
+  const selectedProviderDisabled =
+    settings.disabledProviders.includes(selectedProvider) ||
+    serverSettingsQuery.data?.providerInstances[selectedProviderInstanceId]?.enabled === false ||
+    serverSettingsQuery.data?.providerInstances[selectedProvider]?.enabled === false;
+  const canListNativePlugins =
+    !selectedProviderDisabled && providerCapabilities[selectedProvider].plugins;
+  const canListSkills = !selectedProviderDisabled && providerCapabilities[selectedProvider].skills;
+  const canQueryPrimaryPlugins =
+    canListNativePlugins ||
+    selectedProviderDisabled ||
+    (!awaitingSelectedCapabilities && !selectedCapabilitiesQuery?.error);
 
   const canListOptionalPluginDirectories =
-    canListPlugins &&
+    canListNativePlugins &&
     !(selectedProvider === "codex" && isMossProtectedSourceInstanceId(selectedProviderInstanceId));
 
   const primaryPluginsQuery = useQuery(
@@ -1722,7 +1766,8 @@ export function PluginLibrary({
       marketplaceKinds: PRIMARY_PLUGIN_MARKETPLACE_KINDS,
       forceRemoteSync: canListOptionalPluginDirectories,
       forceReload: true,
-      enabled: canListPlugins,
+      catalogLimit: 60,
+      enabled: canQueryPrimaryPlugins,
       retry: 1,
     }),
   );
@@ -1782,7 +1827,7 @@ export function PluginLibrary({
           pluginAuthSetup !== null ||
           connectTarget !== null ||
           installingPluginKeys.size > 0) &&
-        canListPlugins &&
+        canListNativePlugins &&
         selectedProvider === "codex",
     }),
   );
@@ -1848,7 +1893,7 @@ export function PluginLibrary({
         detailOpen &&
         detail?.kind === "plugin" &&
         !isMossManagedAppPlugin(detail.plugin) &&
-        canListPlugins,
+        canQueryPrimaryPlugins,
     }),
   );
   const mossAppDetail = useMemo(() => {
@@ -1981,32 +2026,50 @@ export function PluginLibrary({
       workspacePluginsData,
     ],
   );
+  const signedOutOfMoss = mossAppsStatusQuery.data?.availability === "authentication-required";
+  const remoteMarketplaceEntries = useMemo<PluginEntry[]>(
+    () => mossRemoteCatalogEntriesToDirectory(primaryPluginsQuery.data?.catalog, locale),
+    [locale, primaryPluginsQuery.data?.catalog],
+  );
+  const listsMossPluginCatalogInNative = nativePluginEntries.some((entry) =>
+    isMossPluginCatalogPlugin(entry.plugin),
+  );
+  const mossCatalogFallback = useMemo<PluginEntry[]>(
+    () =>
+      !canListNativePlugins && !signedOutOfMoss && !listsMossPluginCatalogInNative
+        ? mossPluginCatalogFallbackEntries(locale)
+        : [],
+    [canListNativePlugins, listsMossPluginCatalogInNative, locale, signedOutOfMoss],
+  );
   const pluginEntries = useMemo<PluginEntry[]>(
-    () => [
-      ...nativePluginEntries,
-      ...mossServicePluginDirectoryEntries({
-        region: connectorRegion,
-        installed: installedServicePlugins,
-        copy: connectorCopy,
-      }),
-      ...mossAppDirectoryEntries({
-        toolkits: mossAppToolkits,
-        connections: mossAppConnections,
-      }),
-    ],
+    () =>
+      uniquePluginEntries([
+        ...nativePluginEntries,
+        ...mossCatalogFallback,
+        ...remoteMarketplaceEntries,
+        ...mossServicePluginDirectoryEntries({
+          region: connectorRegion,
+          installed: installedServicePlugins,
+          copy: connectorCopy,
+        }),
+        ...mossAppDirectoryEntries({
+          toolkits: mossAppToolkits,
+          connections: mossAppConnections,
+        }),
+      ]),
     [
       connectorCopy,
       connectorRegion,
       installedServicePlugins,
       mossAppConnections,
       mossAppToolkits,
+      mossCatalogFallback,
       nativePluginEntries,
+      remoteMarketplaceEntries,
     ],
   );
-  // Moss's plugin catalog features its own picks wherever the CLI lists it.
-  const listsMossPluginCatalog = nativePluginEntries.some((entry) =>
-    isMossPluginCatalogPlugin(entry.plugin),
-  );
+  // Moss's plugin catalog features its own picks wherever listed or surfaced by fallback.
+  const listsMossPluginCatalog = listsMossPluginCatalogInNative || mossCatalogFallback.length > 0;
   const pluginFeaturedIds = useMemo(
     () => [
       ...new Set([
@@ -2040,15 +2103,15 @@ export function PluginLibrary({
     awaitingSelectedCapabilities && !capabilitiesLoading
       ? (selectedCapabilitiesQuery?.error ?? null)
       : null;
-  const pluginsLoading = canListPlugins
+  const pluginsLoading = canListNativePlugins
     ? primaryPluginsQuery.isLoading ||
       (primaryPluginsQuery.isPlaceholderData && primaryPluginsQuery.isFetching)
-    : capabilitiesLoading;
+    : !selectedProviderDisabled && capabilitiesLoading;
   // Moss's own sections can be on screen before the CLI's listing answers (a
   // cold start) or after it fails; the rest of the page then says so calmly.
   const nativeListingSettled = !pluginsLoading && !primaryPluginsQuery.error;
   const pluginSourcesNotice: "loading" | "failed" | null =
-    canListPlugins && pluginEntries.length > 0 && !nativeListingSettled
+    canListNativePlugins && pluginEntries.length > 0 && !nativeListingSettled
       ? pluginsLoading
         ? "loading"
         : "failed"
@@ -2062,17 +2125,15 @@ export function PluginLibrary({
   // Only the local/vertical shard is authoritative for native plugin
   // mutations. Optional directory shards commonly require separate auth; a
   // failure there must not replace a usable primary catalog with a fatal page.
-  const pluginsError = primaryPluginsQuery.error ?? capabilitiesError;
+  const pluginsError = canListNativePlugins
+    ? (primaryPluginsQuery.error ?? capabilitiesError)
+    : capabilitiesError;
   const pluginLoadErrors = [
     ...(primaryPluginsQuery.data?.marketplaceLoadErrors ?? []),
     ...(workspacePluginsData?.marketplaceLoadErrors ?? []),
     ...(sharedPluginsData?.marketplaceLoadErrors ?? []),
     ...(createdPluginsData?.marketplaceLoadErrors ?? []),
   ];
-  // Signed out of Moss, every catalog needs an account (Moss's own plugins live in the
-  // account's managed home; Codex's directory needs its sign-in), so a listing refused
-  // for want of a sign-in is that state, not a source that failed.
-  const signedOutOfMoss = mossAppsStatusQuery.data?.availability === "authentication-required";
   // A marketplace file that failed to load is named with its path; a CLI's
   // whole listing failing (timed out, signed out) is an unavailable source.
   const pluginMarketplaceLoadErrors = pluginLoadErrors.filter(
@@ -3878,6 +3939,14 @@ export function PluginLibrary({
             }}
             pluginDetail={activePluginDetail}
             pluginDetailLoading={activePluginDetailLoading}
+            pluginDetailError={mossAppDetail ? null : pluginDetailQuery.error}
+            onRetryPluginDetail={
+              mossAppDetail
+                ? undefined
+                : () => {
+                    void pluginDetailQuery.refetch();
+                  }
+            }
             artworkCwd={discoveryCwd ?? undefined}
             loadSkillContent={loadSkillContent}
           />
@@ -4265,7 +4334,9 @@ export function PluginLibrary({
                         tabIndex={-1}
                         className="flex flex-col gap-8"
                       >
-                        {selectedTab !== "mcp" && selectedCapabilitiesQuery?.isPending ? (
+                        {selectedTab !== "mcp" &&
+                        !selectedProviderDisabled &&
+                        selectedCapabilitiesQuery?.isPending ? (
                           <RowSkeletons
                             count={6}
                             label={t(
@@ -4275,6 +4346,7 @@ export function PluginLibrary({
                             )}
                           />
                         ) : selectedTab !== "mcp" &&
+                          !selectedProviderDisabled &&
                           awaitingSelectedCapabilities &&
                           selectedCapabilitiesQuery?.error ? (
                           <QueryErrorPanel
@@ -4292,7 +4364,7 @@ export function PluginLibrary({
                         ) : selectedTab === "plugins" ? (
                           <PluginsGrid
                             artworkCwd={discoveryCwd ?? undefined}
-                            canListPlugins={canListPlugins}
+                            canListPlugins
                             providerLabel={providerLabel}
                             isLoading={pluginsLoading}
                             error={pluginsError}
@@ -4536,6 +4608,14 @@ export function PluginLibrary({
         }
         pluginDetail={detail?.kind === "plugin" ? activePluginDetail : undefined}
         pluginDetailLoading={activePluginDetailLoading}
+        pluginDetailError={mossAppDetail ? null : pluginDetailQuery.error}
+        onRetryPluginDetail={
+          mossAppDetail
+            ? undefined
+            : () => {
+                void pluginDetailQuery.refetch();
+              }
+        }
       />
 
       <AlertDialog
@@ -4623,7 +4703,7 @@ export function PluginsGrid({
   onSignIn?: (() => void) | undefined;
 }) {
   const { format, t } = useTranslation();
-  if (!canListPlugins) {
+  if (!canListPlugins && !hasAny && queryItemCount === 0) {
     return (
       <EmptyPanel
         title={format("plugins.empty.pluginsUnavailableTitle", { provider: providerLabel })}

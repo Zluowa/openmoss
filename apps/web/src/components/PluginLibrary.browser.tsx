@@ -1064,4 +1064,147 @@ describe("PluginLibrary native lifecycle", () => {
     );
     expect(fixture.uninstallPluginCalls).toHaveLength(1);
   });
+
+  it("keeps Moss Catalog plugins and remote catalog visible even when Codex is disabled", async () => {
+    const fixture = new PluginLibraryNativeFixture("empty");
+    fixture.serverSettings = {
+      ...fixture.serverSettings,
+      providerInstances: {
+        ...fixture.serverSettings.providerInstances,
+        codex: {
+          driver: "codex",
+          enabled: false,
+          config: {},
+        },
+      },
+    };
+    fixture.mossAppsAvailability = "login-account-required";
+    const api = fixture.nativeApi();
+    const baseListPlugins = api.provider.listPlugins;
+    vi.spyOn(fixture, "nativeApi").mockReturnValue({
+      ...api,
+      provider: {
+        ...api.provider,
+        listPlugins: async (input: Parameters<typeof api.provider.listPlugins>[0]) => {
+          const base = await baseListPlugins(input);
+          const fieldProvenance = {
+            sourceIds: ["github"],
+            sourceTiers: ["aggregator" as const],
+            sourceVersion: "1.0.0",
+            observedAt: "2026-11-26T00:00:00.000Z",
+            generation: 1,
+            snapshot: "snap",
+            upstreamGeneration: 1,
+            upstreamSnapshot: "snap",
+            localGeneration: 1,
+            localSnapshot: "snap",
+          };
+          const entry: NonNullable<
+            Awaited<ReturnType<typeof api.provider.listPlugins>>["catalog"]
+          >["entries"][number] = {
+            id: "remote-demo",
+            kind: "plugin",
+            name: "remote-demo",
+            displayName: "Remote Catalog Demo",
+            description: "Aggregated marketplace entry",
+            tags: ["Developer Tools"],
+            sourceIds: ["github"],
+            sourceTiers: ["aggregator"],
+            sourceUrl: null,
+            homepageUrl: "https://example.com/remote-demo",
+            version: "1.0.0",
+            featured: false,
+            verified: true,
+            compatibility: [],
+            qualityScore: 85,
+            license: {
+              checkedAt: "2026-11-26T00:00:00.000Z",
+              spdxId: "MIT",
+              status: "known",
+              url: null,
+            },
+            activity: {
+              checkedAt: "2026-11-26T00:00:00.000Z",
+              lastUpdatedAt: "2026-11-25T00:00:00.000Z",
+              status: "active",
+            },
+            security: {
+              status: "source-reviewed",
+              riskLevel: "low",
+              permissions: [],
+              permissionSource: "manifest",
+              signals: [],
+              checkedAt: "2026-11-26T00:00:00.000Z",
+              executionPolicy: "never",
+            },
+            withdrawal: null,
+            provenance: {
+              identity: fieldProvenance,
+              verified: fieldProvenance,
+              featured: fieldProvenance,
+              license: fieldProvenance,
+              activity: fieldProvenance,
+              security: fieldProvenance,
+              withdrawal: null,
+            },
+            installPolicy: "manual-review-only",
+            metadata: {},
+          };
+          return {
+            ...base,
+            catalog: {
+              kind: "plugin",
+              entries: [entry],
+              nextCursor: null,
+              totalKnown: 1,
+              partial: false,
+              cached: true,
+              fetchedAt: "2026-11-26T00:00:00.000Z",
+              snapshot: "snap",
+              sources: [],
+            },
+          };
+        },
+      },
+    });
+
+    const mounted = await mount(fixture, ["/skills"], "zh-CN");
+    await expect.poll(() => document.body.textContent, { timeout: 5_000 }).toContain("Superpowers");
+    expect(document.body.textContent).toContain("Remote Catalog Demo");
+    expect(mounted.host.textContent).not.toContain("暂不支持插件");
+  });
+
+  it("shows an immediate retryable error card and cached metadata when plugin/read fails", async () => {
+    const fixture = new PluginLibraryNativeFixture();
+    const api = fixture.nativeApi();
+    let failRead = true;
+    const readPlugin = vi.fn<typeof api.provider.readPlugin>(async (input) => {
+      if (failRead) {
+        throw new Error("Moss couldn't download this plugin.");
+      }
+      return api.provider.readPlugin(input);
+    });
+    vi.spyOn(fixture, "nativeApi").mockReturnValue({
+      ...api,
+      provider: { ...api.provider, readPlugin },
+    });
+
+    await mount(fixture, ["/skills"], "zh-CN");
+    await waitForPlugin("GitHub");
+
+    await userEvent.click(page.getByRole("button", { name: "GitHub", exact: true }).first());
+    const errorBox = page.getByTestId("plugin-detail-error");
+    await expect.element(errorBox, { timeout: 5_000 }).toBeVisible();
+    expect(document.querySelector('[data-testid="plugin-detail-loading-skeleton"]')).toBeNull();
+    expect(document.body.textContent).toContain("GitHub");
+
+    failRead = false;
+    await userEvent.click(page.getByRole("button", { name: "重试", exact: true }));
+    await expect
+      .poll(() => readPlugin.mock.calls.length, { timeout: 5_000 })
+      .toBeGreaterThanOrEqual(2);
+    await expect
+      .poll(() => document.querySelector('[data-testid="plugin-detail-error"]'), { timeout: 5_000 })
+      .toBeNull();
+  });
 });

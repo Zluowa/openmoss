@@ -8,14 +8,22 @@
 // Exports: isMossPluginCatalogPlugin, withMossPluginCatalogPresentation,
 //          withMossPluginCatalogEntryPresentation
 
-import type { ProviderPluginDescriptor, ProviderPluginInterface } from "@moss/contracts";
+import type {
+  ProviderCatalogPage,
+  ProviderPluginDescriptor,
+  ProviderPluginInterface,
+} from "@moss/contracts";
 import {
+  MOSS_PLUGIN_CATALOG,
   MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL,
+  MOSS_PLUGIN_CATALOG_MARKETPLACE_DISPLAY_NAME,
+  MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
   mossPluginCatalogEntryForPluginId,
   mossPluginCatalogIconUrl,
 } from "@moss/shared/mossPluginCatalog";
 
 import type { MossLocaleCode } from "../appSettings";
+import type { ProviderPluginDirectoryEntry } from "./pluginLibraryModel";
 
 export function isMossPluginCatalogPlugin(plugin: Pick<ProviderPluginDescriptor, "id">): boolean {
   return mossPluginCatalogEntryForPluginId(plugin.id) !== undefined;
@@ -89,4 +97,113 @@ export function withMossPluginCatalogEntryPresentation<
     );
   }
   return presented;
+}
+
+/**
+ * Compiled-in Moss plugin catalog directory entries used whenever a provider-native
+ * CLI is disabled, unavailable, or omitted `moss-catalog`. Keeps the curated Moss
+ * plugin catalog browsable without requiring Codex to be enabled.
+ */
+export function mossPluginCatalogFallbackEntries(
+  locale: MossLocaleCode,
+): ProviderPluginDirectoryEntry[] {
+  return MOSS_PLUGIN_CATALOG.map((entry) => {
+    const id = `${entry.name}@${MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME}`;
+    const descriptor = withMossPluginCatalogPresentation(
+      {
+        id,
+        remotePluginId: null,
+        name: entry.name,
+        version: entry.version,
+        localVersion: null,
+        shareContext: null,
+        availability: "AVAILABLE" as const,
+        keywords: [],
+        source: { type: "remote" as const },
+        installed: false,
+        enabled: false,
+        installPolicy: "AVAILABLE" as const,
+        installPolicySource: null,
+        authPolicy: "ON_USE" as const,
+        interface: {
+          ...EMPTY_INTERFACE,
+          displayName: entry.displayName,
+          shortDescription: entry.description,
+          longDescription: entry.description,
+          developerName: entry.developerName,
+          category: entry.category,
+          websiteUrl: entry.websiteUrl,
+          logoUrl: mossPluginCatalogIconUrl(MOSS_PLUGIN_CATALOG_DEFAULT_BASE_URL, entry),
+        },
+      } satisfies ProviderPluginDescriptor,
+      locale,
+    );
+    return {
+      marketplaceName: MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
+      marketplaceDisplayName: MOSS_PLUGIN_CATALOG_MARKETPLACE_DISPLAY_NAME,
+      marketplacePath: null,
+      remoteMarketplaceName: MOSS_PLUGIN_CATALOG_MARKETPLACE_NAME,
+      bucket: "moss",
+      provenance: "local-or-vertical",
+      plugin: descriptor,
+      isFeatured: false,
+      createdByYou: false,
+      sharedWithYou: false,
+    } satisfies ProviderPluginDirectoryEntry;
+  });
+}
+
+const MOSS_REMOTE_MARKETPLACE_NAME = "moss-marketplace";
+
+/** Maps aggregated `browseMossMarketplace` plugin entries into desktop directory rows. */
+export function mossRemoteCatalogEntriesToDirectory(
+  catalog: ProviderCatalogPage | undefined,
+  locale: MossLocaleCode,
+): ProviderPluginDirectoryEntry[] {
+  if (!catalog || catalog.kind !== "plugin" || catalog.entries.length === 0) return [];
+  const displayName = locale === "zh-CN" ? "扩展市场" : "Moss Marketplace";
+  return catalog.entries.map((entry) => {
+    const id = `${entry.id}@${MOSS_REMOTE_MARKETPLACE_NAME}`;
+    const primarySource = entry.sourceIds[0] ?? null;
+    const category = entry.tags[0]?.trim() || "Developer Tools";
+    const description = entry.description?.trim() || null;
+    const websiteUrl = entry.homepageUrl?.trim() || entry.sourceUrl?.trim() || null;
+    const descriptor: ProviderPluginDescriptor = {
+      id,
+      remotePluginId: entry.id,
+      name: entry.name,
+      version: entry.version ?? null,
+      localVersion: null,
+      shareContext: null,
+      availability: entry.withdrawal ? "DISABLED_BY_ADMIN" : "AVAILABLE",
+      keywords: [...entry.tags],
+      source: { type: "remote" },
+      installed: false,
+      enabled: false,
+      installPolicy: entry.withdrawal ? "NOT_AVAILABLE" : "AVAILABLE",
+      installPolicySource: null,
+      authPolicy: "ON_USE",
+      interface: {
+        ...EMPTY_INTERFACE,
+        displayName: entry.displayName?.trim() || entry.name,
+        shortDescription: description,
+        longDescription: description,
+        developerName: primarySource,
+        category,
+        websiteUrl,
+      },
+    };
+    return {
+      marketplaceName: MOSS_REMOTE_MARKETPLACE_NAME,
+      marketplaceDisplayName: displayName,
+      marketplacePath: null,
+      remoteMarketplaceName: MOSS_REMOTE_MARKETPLACE_NAME,
+      bucket: "moss",
+      provenance: "remote-directory",
+      plugin: descriptor,
+      isFeatured: entry.featured,
+      createdByYou: false,
+      sharedWithYou: false,
+    } satisfies ProviderPluginDirectoryEntry;
+  });
 }

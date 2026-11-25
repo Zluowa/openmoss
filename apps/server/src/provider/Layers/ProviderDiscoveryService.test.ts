@@ -1360,4 +1360,78 @@ describe("ProviderDiscoveryService.listModels", () => {
     expect(spawnedProviders).not.toContain("devin");
     expect(spawnCount).toBeGreaterThanOrEqual(1);
   });
+
+  it("serves .moss/plugins immediately even when Codex is disabled or its native listing stalls", async () => {
+    const mossPluginsDir = path.join(cwd, ".moss", "plugins", "moss-local-demo");
+    await mkdir(mossPluginsDir, { recursive: true });
+    await writeFile(
+      path.join(mossPluginsDir, "plugin.json"),
+      JSON.stringify({
+        name: "moss-local-demo",
+        description: "Local Moss plugin",
+      }),
+    );
+
+    const disabledResult = await runDiscovery({
+      adapter: { listPlugins: () => Effect.never },
+      settings: {
+        providerInstances: {
+          codex: {
+            driver: "codex",
+            enabled: false,
+            config: {},
+          },
+        },
+      },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.listPlugins({ provider: "codex", cwd });
+      }),
+    });
+
+    expect(disabledResult.source).toBe("moss.plugins");
+    expect(disabledResult.marketplaces).toHaveLength(1);
+    expect(disabledResult.marketplaces[0]?.plugins.map((p) => p.name)).toContain("moss-local-demo");
+
+    const startedAt = Date.now();
+    const stalledResult = await runDiscovery({
+      adapter: { listPlugins: () => Effect.never },
+      options: { nativeListingTimeoutMs: 50 },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.listPlugins({ provider: "codex", cwd });
+      }),
+    });
+
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(stalledResult.marketplaces[0]?.plugins.map((p) => p.name)).toContain("moss-local-demo");
+    expect(stalledResult.source).toBe("error+moss.plugins");
+  });
+
+  it("returns cached moss-catalog metadata on readPlugin when Codex is disabled", async () => {
+    const detailResult = await runDiscovery({
+      adapter: {},
+      settings: {
+        providerInstances: {
+          codex: {
+            driver: "codex",
+            enabled: false,
+            config: {},
+          },
+        },
+      },
+      effect: Effect.gen(function* () {
+        const discovery = yield* ProviderDiscoveryService;
+        return yield* discovery.readPlugin({
+          provider: "codex",
+          remoteMarketplaceName: "moss-catalog",
+          pluginName: "superpowers",
+        });
+      }),
+    });
+
+    expect(detailResult.source).toBe("moss.catalog-metadata");
+    expect(detailResult.plugin.summary.name).toBe("superpowers");
+    expect(detailResult.plugin.skills.length).toBeGreaterThan(0);
+  });
 });
