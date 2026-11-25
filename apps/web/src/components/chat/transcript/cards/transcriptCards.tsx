@@ -25,7 +25,7 @@ import { useStore } from "~/store";
 import { getThreadFromState } from "~/threadDerivation";
 import { syncAnimationsToTimelineOrigin } from "~/lib/animationTimelineSync";
 import { useTranslation } from "../../../../localization";
-import { formatClockElapsed } from "../../../../session-logic";
+import { formatClockDuration, formatClockElapsed } from "../../../../session-logic";
 import { MossLogoMark } from "../../../MossLogoMark";
 import { DisclosureRegion } from "../../../ui/DisclosureRegion";
 import { Alert, AlertAction, AlertDescription } from "../../../ui/alert";
@@ -34,6 +34,7 @@ import { GeneratedImageGallery } from "../../GeneratedImageGallery";
 import { InlineVisual } from "../../InlineVisual";
 import { MESSAGE_ACTION_ICON_CLASS_NAME } from "../../MessageActionButton";
 import type { MessagesTimelineRow } from "../../MessagesTimeline.logic";
+import { computeActiveWorkedDurationMs } from "../../workedForPresentation";
 import { ProposedPlanCard } from "../../ProposedPlanCard";
 import { TimelineReasoningRow } from "../../TimelineReasoningRow";
 import { TimelineSystemErrorRow } from "../../TimelineSystemErrorRow";
@@ -72,6 +73,7 @@ export interface TranscriptCardEnv {
   resolvedTheme: "light" | "dark";
   timestampFormat: WorkEntryRowProps["timestampFormat"];
   nowIso: string | undefined;
+  awaitingUser?: boolean;
   conversationOnly: boolean;
   typography: {
     chatMetaPx: number;
@@ -411,18 +413,34 @@ export const TRANSCRIPT_CARDS: TranscriptCardRegistry = {
     spacing: "pb-2",
     // Non-collapsible twin of the settled turn header: same tone, size and hairline,
     // but counting up live.
-    Body: ({ row, env }) =>
-      env.conversationOnly ? null : (
+    Body: ({ row, env }) => {
+      const { locale } = useTranslation();
+      if (env.conversationOnly) return null;
+      const paused = env.awaitingUser === true || Boolean(row.pausedAt);
+      const effectiveNow = env.nowIso ? (paused && row.pausedAt ? row.pausedAt : env.nowIso) : null;
+      const nowLabel = effectiveNow
+        ? row.pausedIntervals?.length || (paused && row.pausedAt)
+          ? formatClockDuration(
+              computeActiveWorkedDurationMs(row.createdAt, effectiveNow, row.pausedIntervals) ?? 0,
+              locale,
+            )
+          : (formatClockElapsed(row.createdAt, effectiveNow, locale) ?? "0s")
+        : null;
+      return (
         <TurnHeaderLine
           kind="live"
           startedAt={row.createdAt}
-          nowLabel={env.nowIso ? (formatClockElapsed(row.createdAt, env.nowIso) ?? "0s") : null}
+          paused={paused}
+          pausedAt={row.pausedAt ?? null}
+          pausedIntervals={row.pausedIntervals ?? null}
+          nowLabel={nowLabel}
           modelChange={row.modelChange ?? null}
           resumedBy={row.resumedBy ?? null}
           fontSize={env.typography.chatStyle.fontSize}
           timestampFormat={env.timestampFormat}
         />
-      ),
+      );
+    },
   },
   working: { id: "moss.status", spacing: "pb-1", Body: WorkingBody },
   "worktree-setup": {

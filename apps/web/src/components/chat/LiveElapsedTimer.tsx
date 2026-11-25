@@ -8,27 +8,49 @@
 import { useEffect, useRef } from "react";
 
 import { useTranslation } from "../../localization";
-import { formatClockElapsed } from "../../session-logic";
+import { formatClockDuration } from "../../session-logic";
 import { startVisibleInterval } from "../../lib/visibleInterval";
+import { computeActiveWorkedDurationMs, type WorkedPauseInterval } from "./workedForPresentation";
 
-function formatElapsedNow(startIso: string, locale: string): string {
-  return formatClockElapsed(startIso, new Date().toISOString(), locale) ?? "0s";
+function formatElapsedAt(
+  startIso: string,
+  endIso: string,
+  locale: string,
+  pausedIntervals?: ReadonlyArray<WorkedPauseInterval> | null,
+): string {
+  const activeMs = computeActiveWorkedDurationMs(startIso, endIso, pausedIntervals);
+  return activeMs === null ? "0s" : formatClockDuration(activeMs, locale);
 }
 
-export function LiveElapsedTimer({ startedAt }: { startedAt: string }) {
+export function LiveElapsedTimer({
+  startedAt,
+  paused = false,
+  pausedAt = null,
+  pausedIntervals,
+}: {
+  startedAt: string;
+  paused?: boolean;
+  pausedAt?: string | null;
+  pausedIntervals?: ReadonlyArray<WorkedPauseInterval> | null;
+}) {
   const { locale } = useTranslation();
   const textRef = useRef<HTMLSpanElement>(null);
-  const initialText = formatElapsedNow(startedAt, locale);
+  const initialEndIso = paused && pausedAt ? pausedAt : new Date().toISOString();
+  const initialText = formatElapsedAt(startedAt, initialEndIso, locale, pausedIntervals);
 
   useEffect(() => {
     const updateText = () => {
       if (textRef.current) {
-        textRef.current.textContent = formatElapsedNow(startedAt, locale);
+        const endIso = paused && pausedAt ? pausedAt : new Date().toISOString();
+        textRef.current.textContent = formatElapsedAt(startedAt, endIso, locale, pausedIntervals);
       }
     };
     updateText();
+    if (paused) {
+      return undefined;
+    }
     return startVisibleInterval(updateText, 1000);
-  }, [locale, startedAt]);
+  }, [locale, paused, pausedAt, pausedIntervals, startedAt]);
 
   return <span ref={textRef}>{initialText}</span>;
 }

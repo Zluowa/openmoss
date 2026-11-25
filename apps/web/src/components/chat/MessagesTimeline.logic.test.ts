@@ -1942,6 +1942,178 @@ describe("deriveMessagesTimelineRows", () => {
       });
     });
 
+    it("excludes awaitingUser approval and user-input waits from settled, stopped, and live durations", () => {
+      const turnId = TurnId.makeUnsafe("paused-turn");
+      const activities = [
+        turnActivity("a1", "paused-turn", "turn.started", {}, "2026-01-01T00:00:02Z"),
+        turnActivity(
+          "a2",
+          "paused-turn",
+          "approval.requested",
+          { requestId: "req-1", lifecycleGeneration: "gen-1" },
+          "2026-01-01T00:00:10Z",
+        ),
+        // Overlapping second request while first is still pending.
+        turnActivity(
+          "a3",
+          "paused-turn",
+          "user-input.requested",
+          { requestId: "req-2", lifecycleGeneration: "gen-1" },
+          "2026-01-01T00:01:00Z",
+        ),
+        turnActivity(
+          "a4",
+          "paused-turn",
+          "approval.resolved",
+          { requestId: "req-1", lifecycleGeneration: "gen-1" },
+          "2026-01-01T00:03:10Z",
+        ),
+        turnActivity(
+          "a5",
+          "paused-turn",
+          "user-input.resolved",
+          { requestId: "req-2", lifecycleGeneration: "gen-1" },
+          "2026-01-01T00:05:10Z",
+        ),
+      ];
+
+      // Live while waiting for the first approval: pausedAt freezes at 00:00:10.
+      const awaitingLive = deriveMessagesTimelineRows({
+        ...baseInput,
+        isWorking: true,
+        activeTurnInProgress: true,
+        activeTurnId: turnId,
+        activeTurnStartedAt: "2026-01-01T00:00:02Z",
+        timelineEntries: [
+          userEntry("u1", "2026-01-01T00:00:00Z", "paused-turn"),
+          workEntry("w1", "2026-01-01T00:00:05Z", "Bash"),
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: "2026-01-01T00:00:00Z",
+            startedAt: "2026-01-01T00:00:02Z",
+            completedAt: null,
+          },
+          activities: activities.slice(0, 2),
+        }),
+      });
+      expect(awaitingLive.find((row) => row.kind === "working-header")).toMatchObject({
+        createdAt: "2026-01-01T00:00:00Z",
+        pausedAt: "2026-01-01T00:00:10.000Z",
+      });
+
+      // Live after both requests resolved: pausedAt cleared, 5m merged pause recorded.
+      const resumedLive = deriveMessagesTimelineRows({
+        ...baseInput,
+        isWorking: true,
+        activeTurnInProgress: true,
+        activeTurnId: turnId,
+        activeTurnStartedAt: "2026-01-01T00:00:02Z",
+        timelineEntries: [
+          userEntry("u1", "2026-01-01T00:00:00Z", "paused-turn"),
+          workEntry("w1", "2026-01-01T00:00:05Z", "Bash"),
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: {
+            turnId,
+            state: "running",
+            requestedAt: "2026-01-01T00:00:00Z",
+            startedAt: "2026-01-01T00:00:02Z",
+            completedAt: null,
+          },
+          activities,
+        }),
+      });
+      const resumedHeader = resumedLive.find((row) => row.kind === "working-header");
+      expect(resumedHeader).toMatchObject({
+        createdAt: "2026-01-01T00:00:00Z",
+        pausedIntervals: [
+          {
+            startMs: Date.parse("2026-01-01T00:00:10Z"),
+            endMs: Date.parse("2026-01-01T00:05:10Z"),
+          },
+        ],
+      });
+      if (resumedHeader?.kind === "working-header") {
+        expect(resumedHeader.pausedAt).toBeUndefined();
+      }
+
+      // Settled turn: total 00:00:00 -> 00:05:40 (5m 40s), minus 5m wait = 40s.
+      const settled = deriveMessagesTimelineRows({
+        ...baseInput,
+        timelineEntries: [
+          userEntry("u1", "2026-01-01T00:00:00Z", "paused-turn"),
+          workEntry("w1", "2026-01-01T00:00:05Z", "Bash"),
+          assistantEntry("answer", "2026-01-01T00:05:39Z", {
+            turnId: "paused-turn",
+            text: "Done",
+            completedAt: "2026-01-01T00:05:40Z",
+          }),
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: {
+            turnId,
+            state: "completed",
+            requestedAt: "2026-01-01T00:00:00Z",
+            startedAt: "2026-01-01T00:00:02Z",
+            completedAt: "2026-01-01T00:05:40Z",
+          },
+          activities,
+        }),
+      });
+      expect(formatTurnHeaderLabel(messageRow(settled, "answer")!.turnHeader!)).toBe(
+        "Worked for 40s",
+      );
+      expect(messageRow(settled, "answer")?.collapsedWorkDurationMs).toBe(40_000);
+
+      // Stopped while an approval was still open: exclude wait from approval.requested to completion.
+      const stoppedTurnId = TurnId.makeUnsafe("stopped-while-waiting");
+      const stoppedRows = deriveMessagesTimelineRows({
+        ...baseInput,
+        timelineEntries: [
+          userEntry("u2", "2026-01-01T00:00:00Z", "stopped-while-waiting"),
+          {
+            id: "entry-w2",
+            kind: "work",
+            createdAt: "2026-01-01T00:00:05Z",
+            entry: {
+              id: "w2",
+              createdAt: "2026-01-01T00:00:05Z",
+              label: "Bash",
+              tone: "tool",
+              turnId: stoppedTurnId,
+            },
+          },
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: {
+            turnId: stoppedTurnId,
+            state: "interrupted",
+            startedAt: "2026-01-01T00:00:00Z",
+            completedAt: "2026-01-01T00:05:12Z",
+          },
+          activities: [
+            turnActivity(
+              "stop-req",
+              "stopped-while-waiting",
+              "approval.requested",
+              { requestId: "req-stop" },
+              "2026-01-01T00:00:12Z",
+            ),
+          ],
+        }),
+      });
+      expect(stoppedRows.find((row) => row.kind === "work")).toMatchObject({
+        turnEndMarker: { elapsed: "12s", outcome: "interrupted" },
+      });
+    });
+
     it("names the model only when it differs from the previous turn", () => {
       const rows = deriveMessagesTimelineRows({
         ...baseInput,

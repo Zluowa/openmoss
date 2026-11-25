@@ -17,6 +17,7 @@ import {
   type TurnResumedBy,
 } from "./MessagesTimeline.logic";
 import { LiveElapsedTimer } from "./LiveElapsedTimer";
+import type { WorkedPauseInterval } from "./workedForPresentation";
 
 export function TurnModelChip({ model }: { model: TurnModel }) {
   const label = formatProviderModelOptionName({ provider: model.provider, slug: model.model });
@@ -60,6 +61,9 @@ export function TurnHeaderLine(
     | {
         kind: "live";
         startedAt: string;
+        paused?: boolean;
+        pausedAt?: string | null;
+        pausedIntervals?: ReadonlyArray<WorkedPauseInterval> | null;
         // Server-rendered/static surfaces pass a fixed clock.
         nowLabel?: string | null;
         modelChange?: TurnModel | null;
@@ -70,7 +74,14 @@ export function TurnHeaderLine(
   const { format, locale } = useTranslation();
   if (props.kind === "live") {
     const resumedBy = props.resumedBy && props.resumedBy.length > 0 ? props.resumedBy : null;
-    const elapsed = props.nowLabel ?? <LiveElapsedTimer startedAt={props.startedAt} />;
+    const elapsed = props.nowLabel ?? (
+      <LiveElapsedTimer
+        startedAt={props.startedAt}
+        paused={props.paused === true}
+        pausedAt={props.pausedAt ?? null}
+        pausedIntervals={props.pausedIntervals ?? null}
+      />
+    );
     return (
       <div data-turn-header="live">
         <div

@@ -3898,6 +3898,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     resolvedTheme,
     timestampFormat,
     nowIso,
+    awaitingUser: awaitingUser === true,
     conversationOnly,
     typography: {
       chatMetaPx: appTypographyScale.chatMetaPx,

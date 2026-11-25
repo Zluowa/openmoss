@@ -4,9 +4,41 @@
 
 import { formatDurationUnit, type DurationUnit } from "~/lib/timeFormat";
 
+export interface WorkedPauseInterval {
+  readonly startMs: number;
+  readonly endMs: number;
+}
+
 export type WorkedForSummary =
   | { kind: "duration"; timeLabel: string; durationMs: number }
   | { kind: "previous-messages"; count: number; plural: "one" | "many" };
+
+/** Merge overlapping or adjacent pause intervals so multi-approval waits subtract once. */
+export function mergeWorkedPauseIntervals(
+  intervals: ReadonlyArray<WorkedPauseInterval>,
+): WorkedPauseInterval[] {
+  const valid = intervals
+    .filter(
+      (interval) =>
+        Number.isFinite(interval.startMs) &&
+        Number.isFinite(interval.endMs) &&
+        interval.endMs > interval.startMs,
+    )
+    .toSorted((left, right) => left.startMs - right.startMs || left.endMs - right.endMs);
+  const merged: WorkedPauseInterval[] = [];
+  for (const interval of valid) {
+    const previous = merged.at(-1);
+    if (previous && interval.startMs <= previous.endMs) {
+      merged[merged.length - 1] = {
+        startMs: previous.startMs,
+        endMs: Math.max(previous.endMs, interval.endMs),
+      };
+    } else {
+      merged.push({ startMs: interval.startMs, endMs: interval.endMs });
+    }
+  }
+  return merged;
+}
 
 /**
  * Format an elapsed duration with the same narrow Intl units used by Codex.
@@ -43,6 +75,33 @@ export function computeWorkedDurationMs(
   const completedMs = toTimestampMs(completedAt);
   if (startMs === null || completedMs === null) return null;
   return Math.max(completedMs - startMs, 0);
+}
+
+/**
+ * Return active worked duration excluding any merged pause intervals (such as
+ * waiting for user approval or user input) that overlap `[startedAt, completedAt]`.
+ */
+export function computeActiveWorkedDurationMs(
+  startedAt: string | number | Date | null | undefined,
+  completedAt: string | number | Date | null | undefined,
+  pausedIntervals?: ReadonlyArray<WorkedPauseInterval> | null | undefined,
+): number | null {
+  const totalMs = computeWorkedDurationMs(startedAt, completedAt);
+  if (totalMs === null) return null;
+  if (!pausedIntervals || pausedIntervals.length === 0) return totalMs;
+  const startMs = toTimestampMs(startedAt!);
+  const completedMs = toTimestampMs(completedAt!);
+  if (startMs === null || completedMs === null || completedMs <= startMs) return totalMs;
+  const merged = mergeWorkedPauseIntervals(pausedIntervals);
+  let pausedMs = 0;
+  for (const interval of merged) {
+    const overlapStart = Math.max(startMs, interval.startMs);
+    const overlapEnd = Math.min(completedMs, interval.endMs);
+    if (overlapEnd > overlapStart) {
+      pausedMs += overlapEnd - overlapStart;
+    }
+  }
+  return Math.max(totalMs - pausedMs, 0);
 }
 
 /**

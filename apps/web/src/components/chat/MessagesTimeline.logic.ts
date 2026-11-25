@@ -22,7 +22,11 @@ import {
 import { isProviderKind } from "../../providerOrdering";
 import { type TimelineEntry, type WorkLogEntry, formatElapsed } from "../../session-logic";
 import { isProviderDeliveryBlockDetail } from "@moss/shared/providerDeliveryBlock";
-import { isCodexRuntimeWarningType, type WorkLogUserInputExchangeItem } from "../../workLog";
+import {
+  isCodexRuntimeWarningType,
+  orderedActivities,
+  type WorkLogUserInputExchangeItem,
+} from "../../workLog";
 import {
   isMossMediaJobToolCall,
   isMossMediaToolSearch,
@@ -54,7 +58,11 @@ import {
   isReasoningPresentationEntry,
   resolveReasoningBody,
 } from "./reasoningPresentation";
-import { computeWorkedDurationMs } from "./workedForPresentation";
+import {
+  computeActiveWorkedDurationMs,
+  mergeWorkedPauseIntervals,
+  type WorkedPauseInterval,
+} from "./workedForPresentation";
 import type { UserStoppedRecord } from "./userStoppedPresentation";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
@@ -554,6 +562,10 @@ export interface TurnTiming {
   /** Short reason for a provider-side interruption, when known. */
   readonly failureReason?: string | null;
   readonly model?: TurnModel | null;
+  /** Merged approval / user-input wait intervals recorded for this turn. */
+  readonly pausedIntervals?: ReadonlyArray<WorkedPauseInterval>;
+  /** Start timestamp (ms) of an open approval / user-input wait, if still pending. */
+  readonly activePauseStartedAtMs?: number | null;
 }
 
 function activityPayloadRecord(
@@ -718,7 +730,144 @@ export function deriveTurnTimingByTurnId(input: {
       timings.set(turnId, { ...timing, stoppedByUser: true });
     }
   }
+  applyAwaitingUserPauses(timings, input.activities, latestTurn?.turnId ?? null);
   return timings;
+}
+
+function resolvePauseInteractionRequestKey(
+  activity: OrchestrationThreadActivity,
+  payload: Record<string, unknown> | null,
+): string | null {
+  const interactionKind =
+    activity.kind === "approval.requested" ||
+    activity.kind === "approval.resolved" ||
+    activity.kind === "provider.approval.respond.failed"
+      ? "approval"
+      : activity.kind === "user-input.requested" ||
+          activity.kind === "user-input.resolved" ||
+          activity.kind === "provider.user-input.respond.failed"
+        ? "userInput"
+        : null;
+  if (!interactionKind) return null;
+  const requestId = nonEmptyString(payload?.requestId) ?? activity.id;
+  const lifecycleGeneration = nonEmptyString(payload?.lifecycleGeneration);
+  return lifecycleGeneration
+    ? `${interactionKind}:${requestId}:${lifecycleGeneration}`
+    : `${interactionKind}:${requestId}`;
+}
+
+function findFallbackTurnIdForPauseActivity(
+  timestampMs: number,
+  timings: ReadonlyMap<TurnId, TurnTiming>,
+  latestTurnId: TurnId | null,
+): TurnId | null {
+  if (!latestTurnId) return null;
+  const latest = timings.get(latestTurnId);
+  if (!latest) return null;
+  const startMs = latest.startedAt ? Date.parse(latest.startedAt) : Number.NaN;
+  const endMs = latest.completedAt ? Date.parse(latest.completedAt) : Number.NaN;
+  if (Number.isFinite(startMs) && timestampMs < startMs) return null;
+  if (Number.isFinite(endMs) && timestampMs > endMs) return null;
+  return latestTurnId;
+}
+
+function applyAwaitingUserPauses(
+  timings: Map<TurnId, TurnTiming>,
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  latestTurnId: TurnId | null,
+): void {
+  if (activities.length === 0) return;
+  const openByTurnId = new Map<TurnId, Map<string, number>>();
+  const closedByTurnId = new Map<TurnId, WorkedPauseInterval[]>();
+
+  const pushClosed = (turnId: TurnId, startMs: number, endMs: number) => {
+    const list = closedByTurnId.get(turnId) ?? [];
+    list.push({ startMs, endMs: Math.max(startMs, endMs) });
+    closedByTurnId.set(turnId, list);
+  };
+
+  const closeOpenRequest = (turnIdHint: TurnId | null, key: string, endMs: number): void => {
+    if (turnIdHint) {
+      const openMap = openByTurnId.get(turnIdHint);
+      const startMs = openMap?.get(key);
+      if (startMs !== undefined) {
+        openMap!.delete(key);
+        pushClosed(turnIdHint, startMs, endMs);
+        return;
+      }
+    }
+    for (const [turnId, openMap] of openByTurnId) {
+      const startMs = openMap.get(key);
+      if (startMs !== undefined) {
+        openMap.delete(key);
+        pushClosed(turnId, startMs, endMs);
+        return;
+      }
+    }
+  };
+
+  for (const activity of orderedActivities(activities)) {
+    const payload = activityPayloadRecord(activity);
+    const key = resolvePauseInteractionRequestKey(activity, payload);
+    if (!key) continue;
+    const timestampMs = Date.parse(activity.createdAt);
+    if (!Number.isFinite(timestampMs)) continue;
+
+    if (activity.kind === "approval.requested" || activity.kind === "user-input.requested") {
+      const targetTurnId =
+        activity.turnId ?? findFallbackTurnIdForPauseActivity(timestampMs, timings, latestTurnId);
+      if (!targetTurnId) continue;
+      let openMap = openByTurnId.get(targetTurnId);
+      if (!openMap) {
+        openMap = new Map();
+        openByTurnId.set(targetTurnId, openMap);
+      }
+      if (!openMap.has(key)) {
+        openMap.set(key, timestampMs);
+      }
+      continue;
+    }
+
+    if (activity.kind === "approval.resolved" || activity.kind === "user-input.resolved") {
+      closeOpenRequest(activity.turnId, key, timestampMs);
+      continue;
+    }
+
+    if (
+      (activity.kind === "provider.approval.respond.failed" ||
+        activity.kind === "provider.user-input.respond.failed") &&
+      (nonEmptyString(payload?.responseCommandId) === null ||
+        payload?.settlementStatus === "uncertain")
+    ) {
+      closeOpenRequest(activity.turnId, key, timestampMs);
+    }
+  }
+
+  for (const [turnId, openMap] of openByTurnId) {
+    if (openMap.size === 0) continue;
+    const timing = timings.get(turnId);
+    const completedMs = timing?.completedAt ? Date.parse(timing.completedAt) : Number.NaN;
+    if (Number.isFinite(completedMs)) {
+      for (const startMs of openMap.values()) {
+        if (completedMs > startMs) {
+          pushClosed(turnId, startMs, completedMs);
+        }
+      }
+      openMap.clear();
+    } else if (timing) {
+      const activePauseStartedAtMs = Math.min(...openMap.values());
+      timings.set(turnId, { ...timing, activePauseStartedAtMs });
+    }
+  }
+
+  for (const [turnId, rawIntervals] of closedByTurnId) {
+    const merged = mergeWorkedPauseIntervals(rawIntervals);
+    if (merged.length === 0) continue;
+    const timing = timings.get(turnId);
+    if (timing) {
+      timings.set(turnId, { ...timing, pausedIntervals: merged });
+    }
+  }
 }
 
 // "“Run delayed echo” finished", or a count when several tasks woke the turn.
@@ -1087,6 +1236,8 @@ export type MessagesTimelineRow =
       kind: "working-header";
       id: string;
       createdAt: string;
+      pausedAt?: string | null;
+      pausedIntervals?: ReadonlyArray<WorkedPauseInterval>;
       modelChange?: TurnModel | null;
       resumedBy?: ReadonlyArray<TurnResumedBy> | null;
     }
@@ -2250,6 +2401,9 @@ export function deriveMessagesTimelineRows(input: {
       nextRows,
       input.activeTurnId ?? null,
     );
+    const activeTurnTiming = input.activeTurnId
+      ? input.turnTimingByTurnId?.get(input.activeTurnId)
+      : undefined;
     nextRows.splice(index, 0, {
       kind: "working-header",
       id: "working-header-row",
@@ -2262,6 +2416,12 @@ export function deriveMessagesTimelineRows(input: {
           input.activeTurnStartedAt,
           input.turnTimingByTurnId,
         ),
+      ...(activeTurnTiming?.activePauseStartedAtMs != null
+        ? { pausedAt: new Date(activeTurnTiming.activePauseStartedAtMs).toISOString() }
+        : {}),
+      ...(activeTurnTiming?.pausedIntervals?.length
+        ? { pausedIntervals: activeTurnTiming.pausedIntervals }
+        : {}),
       ...(resumedBy ? { resumedBy } : {}),
     });
   }
@@ -2357,10 +2517,16 @@ function markInterruptedTurnsWithoutHeader(
     if (timing.failed && !timing.interrupted) continue;
     const row = rows[index]!;
     if (row.kind !== "work" && row.kind !== "message" && row.kind !== "inline-visual") continue;
+    const activeElapsedMs = computeActiveWorkedDurationMs(
+      timing.startedAt,
+      timing.completedAt,
+      timing.pausedIntervals,
+    );
     row.turnEndMarker = {
       elapsed:
-        timing.startedAt && timing.completedAt
-          ? (formatElapsed(timing.startedAt, timing.completedAt) ?? null)
+        activeElapsedMs !== null
+          ? (formatElapsed(new Date(0).toISOString(), new Date(activeElapsedMs).toISOString()) ??
+            null)
           : null,
       outcome: timing.stoppedByUser && !timing.failed ? "stopped" : "interrupted",
       reason: timing.failureReason ?? null,
@@ -2374,10 +2540,17 @@ function markInterruptedTurnsWithoutHeader(
     if (!timing?.completedAt || (!timing.interrupted && !timing.failed)) continue;
     const row = rows[index]!;
     if (row.kind !== "message") continue;
+    const activeElapsedMs = computeActiveWorkedDurationMs(
+      timing.startedAt,
+      timing.completedAt,
+      timing.pausedIntervals,
+    );
     row.turnHeader = {
-      elapsed: timing.startedAt
-        ? (formatElapsed(timing.startedAt, timing.completedAt) ?? null)
-        : null,
+      elapsed:
+        activeElapsedMs !== null
+          ? (formatElapsed(new Date(0).toISOString(), new Date(activeElapsedMs).toISOString()) ??
+            null)
+          : null,
       endedAt: timing.completedAt,
       outcome: timing.stoppedByUser && !timing.failed ? "stopped" : "interrupted",
       reason: timing.failureReason ?? null,
@@ -2789,12 +2962,18 @@ function collapseSettledTurns(
     };
     const turnTiming = turnId ? timingForThisResponse(turnId) : undefined;
     let turnStart: string | null = null;
+    const rawPausedIntervals: WorkedPauseInterval[] = [];
     for (const foldedTurnId of foldedTurnIds) {
-      const startedAt = timingForThisResponse(foldedTurnId)?.startedAt ?? null;
+      const foldedTiming = timingForThisResponse(foldedTurnId);
+      const startedAt = foldedTiming?.startedAt ?? null;
       if (startedAt !== null) {
         turnStart = turnStart === null ? startedAt : earliestTimestamp(turnStart, startedAt);
       }
+      if (foldedTiming?.pausedIntervals) {
+        rawPausedIntervals.push(...foldedTiming.pausedIntervals);
+      }
     }
+    const pausedIntervals = mergeWorkedPauseIntervals(rawPausedIntervals);
     // A provider can open the turn a woken response belongs to only when it
     // replies; that response started when the background task finished.
     if (wokenAt !== null) turnStart = wokenAt;
@@ -2820,7 +2999,11 @@ function collapseSettledTurns(
     const responseEnd = replay?.completedAt ?? responseTiming?.completedAt ?? message.completedAt;
     const workedDurationMs =
       replay?.durationMs ??
-      computeWorkedDurationMs(replay?.startedAt ?? turnStart ?? collapsedStart, responseEnd);
+      computeActiveWorkedDurationMs(
+        replay?.startedAt ?? turnStart ?? collapsedStart,
+        responseEnd,
+        pausedIntervals,
+      );
     const elapsed =
       workedDurationMs === null
         ? null
@@ -3358,6 +3541,19 @@ function resumedByEqual(
   );
 }
 
+function pausedIntervalsEqual(
+  left: ReadonlyArray<WorkedPauseInterval> | undefined,
+  right: ReadonlyArray<WorkedPauseInterval> | undefined,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return (left?.length ?? 0) === 0 && (right?.length ?? 0) === 0;
+  if (left.length !== right.length) return false;
+  return left.every(
+    (interval, index) =>
+      interval.startMs === right[index]!.startMs && interval.endMs === right[index]!.endMs,
+  );
+}
+
 function turnHeadersEqual(left: TurnHeader | undefined, right: TurnHeader | undefined): boolean {
   if (left === right) return true;
   if (!left || !right) return false;
@@ -3470,6 +3666,8 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       const bh = b as typeof a;
       return (
         a.createdAt === bh.createdAt &&
+        (a.pausedAt ?? null) === (bh.pausedAt ?? null) &&
+        pausedIntervalsEqual(a.pausedIntervals, bh.pausedIntervals) &&
         turnModelsMatch(a.modelChange ?? null, bh.modelChange ?? null) &&
         resumedByEqual(a.resumedBy ?? null, bh.resumedBy ?? null)
       );
