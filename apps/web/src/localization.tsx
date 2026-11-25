@@ -3444,6 +3444,10 @@ const EN_TRANSLATIONS = {
   "settings.history.off.title": "Let Moss follow your work",
   "settings.history.off.privacy":
     "When turned on, Moss saves text summaries of your activity across allowed apps and websites, potentially including communications. Screenshots, audio and private-mode web browsing are never included, and you can pause or clear your history and manage what’s included at any time. This feature increases token usage.",
+  "settings.history.off.windowsActivity":
+    'When turned on, Windows reads the window in front with Windows OCR on this computer and keeps only a short activity summary, such as "Writing code". Screenshots, screen text, window titles, browsers, password fields, meetings and audio are never stored. History is encrypted on this computer; you can pause or clear it at any time. This feature increases token usage.',
+  "settings.history.off.windowsMetadata":
+    "Windows OCR is not installed, so when turned on, Windows records application names only. Browser activity, window titles, screenshots and audio are excluded. History is encrypted on this computer; you can pause or clear it at any time. This feature increases token usage.",
   "settings.history.captureScope": "Capture scope",
   "settings.history.captureScopeDetail":
     "Computer History persists bounded app/window metadata and local semantic text summaries. It does not persist keystrokes, mouse input, accessibility diffs, screenshots, or audio.",
@@ -8225,6 +8229,10 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "settings.history.off.title": "让 Moss 了解你的工作",
   "settings.history.off.privacy":
     "开启后，Moss 会保存你允许的应用和网站活动文本摘要，其中可能包含通信内容。不会包含屏幕截图、音频或无痕浏览，且你可以随时暂停、清除历史并管理记录范围。此功能会增加 token 使用量。",
+  "settings.history.off.windowsActivity":
+    "开启后，Windows 会在本机用系统自带的文字识别读取最前面的窗口，只保留一句活动摘要，例如“写代码”。截图、屏幕文字、窗口标题、浏览器、密码输入框、会议画面和音频都不会保存。历史加密保存在这台电脑上，可随时暂停或清除。此功能会增加 token 使用量。",
+  "settings.history.off.windowsMetadata":
+    "这台电脑没有安装 Windows 文字识别，开启后只记录正在使用的应用名称，不记录浏览器活动、窗口标题、截图或音频。历史加密保存在这台电脑上，可随时暂停或清除。此功能会增加 token 使用量。",
   "settings.history.captureScope": "捕获范围",
   "settings.history.captureScopeDetail":
     "电脑历史会持久化有界的应用和窗口元数据，以及本地语义文本摘要；不会持久化按键、鼠标输入、辅助功能差异、截图或音频。",

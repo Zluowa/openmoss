@@ -175,11 +175,14 @@ function AppIcon({
 function OffState({
   disabled,
   disabledReason,
+  privacyKey,
   onTurnOn,
   t,
 }: {
   disabled: boolean;
   disabledReason?: string;
+  /** The one paragraph under the card: what is read and saved on this computer, and its cost. */
+  privacyKey: TranslationKey;
   onTurnOn: () => void;
   t: (key: TranslationKey) => string;
   format: (key: TranslationKey, values: Record<string, string | number>) => string;
@@ -220,9 +223,7 @@ function OffState({
           <span className="mt-4 inline-flex">{turnOn}</span>
         )}
       </section>
-      <p className="mt-[18px] text-ui leading-5 text-muted-foreground">
-        {t("settings.history.off.privacy")}
-      </p>
+      <p className="mt-[18px] text-ui leading-5 text-muted-foreground">{t(privacyKey)}</p>
     </div>
   );
 }
@@ -699,6 +700,12 @@ export function ComputerHistorySettingsPanel() {
     : captureDetail.startsWith("Windows records")
       ? "settings.history.windowsMetadata"
       : null;
+  const offPrivacyKey =
+    windowsNoticeKey === "settings.history.windowsActivity"
+      ? "settings.history.off.windowsActivity"
+      : windowsNoticeKey === "settings.history.windowsMetadata"
+        ? "settings.history.off.windowsMetadata"
+        : "settings.history.off.privacy";
   const timelineGroups = useMemo(() => timelineDayGroups(entries), [entries]);
   const permissionApplications = useMemo(() => {
     const byId = new Map<string, ComputerHistoryApp>();
@@ -1865,11 +1872,6 @@ export function ComputerHistorySettingsPanel() {
   if (!supported || !enabled) {
     return (
       <>
-        {windowsNoticeKey ? (
-          <p className="mb-4 text-ui text-muted-foreground" role="status">
-            {t(windowsNoticeKey)}
-          </p>
-        ) : null}
         {!supported ? (
           <p className="mb-4 text-ui-lg text-muted-foreground" role="status">
             {t("settings.history.unavailable")}
@@ -1878,6 +1880,7 @@ export function ComputerHistorySettingsPanel() {
         <OffState
           disabled={!supported || mutationPending}
           disabledReason={t("settings.history.unavailable")}
+          privacyKey={offPrivacyKey}
           onTurnOn={() => setConsentOpen(true)}
           t={t}
           format={format}

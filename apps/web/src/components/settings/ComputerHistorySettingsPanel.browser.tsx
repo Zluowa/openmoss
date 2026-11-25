@@ -121,6 +121,10 @@ vi.mock("~/localization", () => {
     "settings.history.state.unavailableLabel": "Unavailable",
     "settings.history.off.title": "Let Moss follow your work",
     "settings.history.off.benefits": "Ask about what you were working on.",
+    "settings.history.off.windowsMetadata":
+      "When turned on, Windows records application names only. This feature increases token usage.",
+    "settings.history.off.windowsActivity":
+      "When turned on, Windows keeps only a short activity summary read with Windows OCR. This feature increases token usage.",
     "settings.history.off.privacy":
       "When turned on, Moss saves text summaries of your activity across allowed apps and websites, potentially including communications. Audio and private-mode web browsing are never included, and you can pause or clear your history and manage what’s included at any time. This feature increases token usage.",
     "settings.history.off.example.followUp.user": "What did I promise to send Sarah?",
@@ -477,10 +481,12 @@ describe("ComputerHistorySettingsPanel", () => {
     await expect
       .element(
         page.getByText(
-          "Windows records application names only. Browser activity and window titles are excluded.",
+          "When turned on, Windows records application names only. This feature increases token usage.",
         ),
       )
       .toBeVisible();
+    expect(document.body.textContent).not.toContain("Browser activity and window titles");
+    expect(document.body.textContent).not.toContain("Moss saves text summaries");
     await page.getByRole("button", { name: "Turn on" }).click();
     await expect.element(page.getByRole("dialog", { name: "You're in control." })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
@@ -503,13 +509,14 @@ describe("ComputerHistorySettingsPanel", () => {
     await expect
       .element(
         page.getByText(
-          "Windows keeps only a short activity summary read with Windows OCR on this computer.",
+          "When turned on, Windows keeps only a short activity summary read with Windows OCR. This feature increases token usage.",
         ),
       )
       .toBeVisible();
     await expect
       .element(page.getByText("Windows records application names only.", { exact: false }))
       .not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Moss saves text summaries");
     await screen.unmount();
   });
 
