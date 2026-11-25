@@ -215,4 +215,38 @@ describe("running chats quit confirmation", () => {
       "Work in progress will stop when Moss is closed.",
     );
   });
+
+  it("distinguishes chats waiting for approval from running chats (walk N13-9)", () => {
+    const chats = listRunningChatsFromDesktopStore({
+      sidebarThreadSummaryById: {
+        waiting: {
+          id: "waiting",
+          title: "Waiting",
+          hasPendingApprovals: true,
+          session: { status: "running" },
+        },
+        running: {
+          id: "running",
+          title: "Running",
+          hasPendingApprovals: false,
+          session: { status: "running" },
+        },
+      },
+    });
+    expect(chats).toEqual([
+      { id: "running", title: "Running" },
+      { id: "waiting", title: "Waiting", waitingForApproval: true },
+    ]);
+
+    expect(
+      runningChatsQuitCopy([{ id: "waiting", title: "Waiting", waitingForApproval: true }]).title,
+    ).toBe("A chat is waiting for your approval");
+    expect(
+      runningChatsQuitCopy([
+        { id: "w1", title: "W1", waitingForApproval: true },
+        { id: "w2", title: "W2", waitingForApproval: true },
+      ]).title,
+    ).toBe("Chats are waiting for your approval");
+    expect(runningChatsQuitCopy(chats).title).toBe("Chats are still running");
+  });
 });

@@ -23,6 +23,7 @@ import { approvalParamLabel } from "~/lib/approvalParamLabels";
 import { localizeMossAppsToolAction, resolveMcpApprovalTool } from "~/lib/toolCallLabel";
 import { isWebMcpCallToolName } from "~/lib/webMcpToolPresentation";
 import { Button } from "../ui/button";
+import { ButtonKeycap } from "../ui/kbd";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
@@ -33,22 +34,6 @@ import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 //   (conversation token is white, so the well matches the card)
 // - menu: Allow once, then scoped action. Not a second Always allow.
 // i18n: approvalRequestCard.* , execApprovalRequest.shellLabel / .prompt
-
-/**
- * `Esc` on 拒绝 sits in a `bg-current/10` keycap: a gray chip on the outline button.
- * 允许 has no key: approving is a click, or the person's own Tab to it and Enter or Space
- * (walk H-4: a stray Enter must never approve a command).
- */
-function ShortcutKeycap({ children }: { children: string }) {
-  return (
-    <kbd
-      aria-hidden="true"
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-[var(--color-text-foreground)] shadow-none"
-    >
-      {children}
-    </kbd>
-  );
-}
 
 interface ComposerPendingApprovalPanelProps {
   approval: PendingApproval;
@@ -388,7 +373,9 @@ export const ComposerPendingApprovalPanel = function ComposerPendingApprovalPane
             onClick={() => respondOnce("decline")}
           >
             {denyLabel}
-            <ShortcutKeycap>Esc</ShortcutKeycap>
+            {/* 允许 has no key: approving is a click, or the person's own Tab to it and Enter or
+                Space (walk H-4: a stray Enter must never approve a command). */}
+            <ButtonKeycap>Esc</ButtonKeycap>
           </Button>
           {sessionAvailable && !computerScope ? (
             <div className="inline-flex min-w-0">

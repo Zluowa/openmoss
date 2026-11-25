@@ -21,6 +21,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/checkbox";
 import { commandDialogPopupClassName } from "~/components/ui/command";
+import { ButtonKeycap } from "~/components/ui/kbd";
 import {
   RUNNING_WORK_QUIT_LABELS,
   runningChatsQuitCopy,
@@ -53,7 +54,6 @@ const uiFont = "font-[family-name:var(--font-ui-family)]";
 const BODY_CLASS =
   "relative rounded-t-[calc(var(--radius-dialog)-1px)] border-b border-[color:var(--color-border-light)] bg-[var(--color-background-surface-under)] px-4 pt-3 pb-3.5";
 const FOOTER_CLASS = "relative flex items-center gap-2 px-3 py-2";
-const KEY_HINT_CLASS = "text-ui-sm font-normal tabular-nums opacity-55";
 
 const NO_WORK: ReadonlyArray<RunningWorkQuitItem> = [];
 
@@ -133,9 +133,14 @@ function RunningChatsQuitDialogContent({
           {copy.description}
         </AlertDialogPrimitive.Description>
         {chats.length > 0 || work.length > 0 ? (
-          <ul className="m-0 mt-3 flex max-h-[40vh] list-none flex-col gap-2 overflow-y-auto p-0">
+          <ul
+            className={cn(
+              "m-0 mt-3 flex max-h-[40vh] list-none flex-col gap-2 p-0",
+              chats.length + work.length > 1 && "overflow-y-auto",
+            )}
+          >
             {chats.map((chat) => (
-              <li key={chat.id} className="flex min-w-0 items-center gap-2.5">
+              <li key={chat.id} className="flex min-h-6 min-w-0 items-center gap-2.5">
                 <ThreadRunningSpinner />
                 <span className={cn(uiFont, "truncate text-ui-lg font-normal leading-[18px]")}>
                   {chat.title}
@@ -146,7 +151,7 @@ function RunningChatsQuitDialogContent({
               <li
                 key={item.id}
                 data-running-work={item.kind}
-                className="flex min-w-0 items-center gap-2.5"
+                className="flex min-h-6 min-w-0 items-center gap-2.5"
               >
                 <ThreadRunningSpinner />
                 <span className={cn(uiFont, "shrink-0 text-ui-lg font-normal leading-[18px]")}>
@@ -193,7 +198,7 @@ function RunningChatsQuitDialogContent({
             render={<Button variant="ghost" size="sm" className={cn(uiFont, "gap-1.5")} />}
           >
             {copy.stayLabel}
-            <span className={KEY_HINT_CLASS}>Esc</span>
+            <ButtonKeycap>Esc</ButtonKeycap>
           </AlertDialogClose>
           <Button
             autoFocus
@@ -204,9 +209,7 @@ function RunningChatsQuitDialogContent({
             onClick={() => onQuit({ resume: chats.length > 0 && resume })}
           >
             {copy.quitLabel}
-            <span aria-hidden className={KEY_HINT_CLASS}>
-              ↵
-            </span>
+            <ButtonKeycap>↵</ButtonKeycap>
           </Button>
         </div>
       </div>

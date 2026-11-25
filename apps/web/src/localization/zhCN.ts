@@ -1779,6 +1779,8 @@ const UI_TEXT: Readonly<Record<string, string>> = {
   Quit: "退出",
   "A chat is still running": "有一个对话正在运行",
   "Chats are still running": "有多个对话正在运行",
+  "A chat is waiting for your approval": "有一个对话在等你批准",
+  "Chats are waiting for your approval": "有多个对话在等你批准",
   "Work is still running": "仍有工作在运行",
   "Dev server": "开发服务器",
   "Importing conversations": "正在导入对话",

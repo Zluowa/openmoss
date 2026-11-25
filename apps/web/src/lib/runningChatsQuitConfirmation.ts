@@ -9,12 +9,16 @@ export interface RunningChatQuitCandidate {
   readonly id: string;
   readonly title: string;
   readonly hasLiveTailWork?: boolean | undefined;
+  /** The turn waits for the person to approve a command or an edit. */
+  readonly hasPendingApprovals?: boolean | undefined;
   readonly session?: { readonly status?: string | null } | null | undefined;
 }
 
 export interface RunningChatQuitSummary {
   readonly id: string;
   readonly title: string;
+  /** Its turn is not working but waiting for the person's approval; quitting still stops it. */
+  readonly waitingForApproval?: boolean;
 }
 
 export interface RunningChatsQuitCopy {
@@ -64,7 +68,11 @@ export function listRunningChatsForQuit(
       continue;
     }
     seen.add(thread.id);
-    chats.push({ id: thread.id, title: runningChatDisplayTitle(thread.title) });
+    chats.push({
+      id: thread.id,
+      title: runningChatDisplayTitle(thread.title),
+      ...(thread.hasPendingApprovals === true ? { waitingForApproval: true } : {}),
+    });
   }
   return chats.sort(compareRunningChatSummaries);
 }
@@ -171,13 +179,19 @@ export function runningChatsQuitCopy(
   appName = "Moss",
   otherWork: ReadonlyArray<RunningWorkQuitItem> = [],
 ): RunningChatsQuitCopy {
+  // Only chats that wait for the person's approval: they are not running, they wait (WALK-13 N13-9).
+  const allWaitForApproval = chats.every((chat) => chat.waitingForApproval === true);
   return {
     title:
       otherWork.length > 0 || chats.length === 0
         ? "Work is still running"
-        : chats.length === 1
-          ? "A chat is still running"
-          : "Chats are still running",
+        : allWaitForApproval
+          ? chats.length === 1
+            ? "A chat is waiting for your approval"
+            : "Chats are waiting for your approval"
+          : chats.length === 1
+            ? "A chat is still running"
+            : "Chats are still running",
     description: `Work in progress will stop when ${appName} is closed.`,
     resumeLabel: chats.length === 1 ? "Resume chat automatically" : "Resume chats automatically",
     stayLabel: "Cancel",

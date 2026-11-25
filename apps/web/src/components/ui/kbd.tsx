@@ -69,6 +69,21 @@ function ShortcutKbd({
   );
 }
 
+/**
+ * The key a button answers to, after its label: 「拒绝 Esc」, 「退出 ↵」. A gray chip in the button's
+ * own ink. It is a `kbd`, so the Chinese interface leaves the key's name as the key reads.
+ */
+function ButtonKeycap({ children }: { children: string }) {
+  return (
+    <kbd
+      aria-hidden="true"
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-control border-0 bg-[color-mix(in_oklab,currentcolor_10%,transparent)] px-1.5 py-0 font-sans text-ui-sm leading-4 text-current shadow-none"
+    >
+      {children}
+    </kbd>
+  );
+}
+
 /** The "submit this dialog" chord, spelled for the host platform. */
 export function getSubmitShortcutKeyShortcuts(): string {
   return isMacNavigatorPlatform() ? "Meta+Enter" : "Control+Enter";
@@ -83,4 +98,4 @@ function SubmitShortcutKbd({ className }: { className?: string }) {
   );
 }
 
-export { Kbd, KbdGroup, ShortcutKbd, SubmitShortcutKbd };
+export { ButtonKeycap, Kbd, KbdGroup, ShortcutKbd, SubmitShortcutKbd };
