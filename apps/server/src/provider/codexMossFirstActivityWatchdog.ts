@@ -1,12 +1,12 @@
 // FILE: codexMossFirstActivityWatchdog.ts
-// Purpose: Pure fail-fast policy for Moss CN / MemFire first-activity deadlines.
+// Purpose: Classify Codex turn progress and enforce managed first-activity deadlines.
 // CN DeepSeek with full MCP+skills+high effort often needs ~90s before its
 // first progress event; the former 45s deadline was too tight for retest-191h.
 // The gateway gives a model 120s to its first real event and ends the stream
 // itself after that, so this deadline stays above it: it's only for a stream
 // that nothing is ending.
 // Layer: Provider policy helper
-// Exports: evaluateCodexMossFirstActivityTick, CODEX_MOSS_FIRST_ACTIVITY_TIMEOUT_DEFAULT_MS, resolveCodexMossFirstActivityTimeoutMs
+// Exports: first-activity deadlines and Codex turn-progress classifiers
 
 import type { ProviderRuntimeEvent } from "@moss/contracts";
 
@@ -72,6 +72,36 @@ export function isCodexMossFirstActivityProgressEvent(event: ProviderRuntimeEven
     case "turn.completed":
     case "turn.aborted":
       return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Idle liveness also includes ongoing tool, plan, subagent, hook and compaction
+ * work. Keep the managed first-model-activity policy above unchanged.
+ */
+export function isCodexTurnProgressEvent(event: ProviderRuntimeEvent): boolean {
+  if (isCodexMossFirstActivityProgressEvent(event)) return true;
+  switch (event.type) {
+    case "tool.progress":
+    case "tool.summary":
+    case "turn.tasks.updated":
+    case "turn.diff.updated":
+    case "turn.proposed.delta":
+    case "turn.proposed.completed":
+    case "task.started":
+    case "task.progress":
+    case "task.updated":
+    case "task.completed":
+    case "hook.started":
+    case "hook.progress":
+    case "hook.completed":
+      return true;
+    case "item.started":
+    case "item.updated":
+    case "item.completed":
+      return event.payload.itemType === "context_compaction";
     default:
       return false;
   }

@@ -102,6 +102,7 @@ import {
 import {
   evaluateCodexMossFirstActivityTick,
   isCodexMossFirstActivityProgressEvent,
+  isCodexTurnProgressEvent,
   resolveCodexMossFirstActivityTimeoutMs,
 } from "../codexMossFirstActivityWatchdog.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
@@ -167,10 +168,9 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 const PROVIDER = "codex" as const;
 const CODEX_RUNTIME_WARNING_METHODS = new Set(["guardianWarning", "warning"]);
 
-// Backstop for an alive-but-silent codex app-server: if a turn produces no
-// activity at all for this long, abort it instead of showing "Working" forever.
-// Every turn-scoped event (reasoning, tool output, deltas) resets the clock and
-// a pending question/approval pauses it, so only a wedged child trips this.
+// Backstop for a codex app-server that stops making turn progress. Model and
+// tool work reset the clock; retry warnings and bookkeeping do not. A pending
+// question/approval pauses it, so human decisions have no idle deadline.
 // Generous by design; override with MOSS_CODEX_TURN_IDLE_TIMEOUT_MS.
 const CODEX_TURN_IDLE_TIMEOUT_MS = resolveAcpTurnIdleTimeoutMs({
   envVar: "MOSS_CODEX_TURN_IDLE_TIMEOUT_MS",
@@ -4038,7 +4038,7 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     const shouldSurfaceUnmappedEvent = makeUnmappedProviderEventGate();
 
     // Idle-progress backstop for codex turns. Same semantics as
-    // AcpTurnIdleWatchdog (any inbound activity resets it, a pending human
+    // AcpTurnIdleWatchdog (turn progress resets it, a pending human
     // decision pauses it), driven by one shared ticker because codex activity
     // arrives on a single manager event stream instead of per-session fibers.
     const turnWatchdogs = new Map<ThreadId, CodexTurnWatchdogEntry>();
@@ -4059,6 +4059,9 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
     };
 
     const armTurnWatchdog = (threadId: ThreadId, turnId: TurnId): void => {
+      // The response and turn/started notification can both arm the same turn.
+      // Repeated starts must not extend its deadlines or erase first progress.
+      if (turnWatchdogs.get(threadId)?.turnId === turnId) return;
       turnWatchdogs.set(threadId, {
         turnId,
         lastActivityAt: Date.now(),
@@ -4076,19 +4079,22 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
       threadId: ThreadId,
       runtimeEvents: ReadonlyArray<ProviderRuntimeEvent>,
     ): void => {
-      const entry = turnWatchdogs.get(threadId);
-      if (entry) {
-        entry.lastActivityAt = Date.now();
-      }
       for (const runtimeEvent of runtimeEvents) {
         if (runtimeEvent.type === "turn.started" && runtimeEvent.turnId) {
           armTurnWatchdog(threadId, runtimeEvent.turnId);
         }
+        const entry = turnWatchdogs.get(threadId);
+        if (
+          entry === undefined ||
+          (runtimeEvent.turnId !== undefined && runtimeEvent.turnId !== entry.turnId)
+        ) {
+          continue;
+        }
+        if (isCodexTurnProgressEvent(runtimeEvent)) {
+          entry.lastActivityAt = Date.now();
+        }
         if (isCodexMossFirstActivityProgressEvent(runtimeEvent)) {
-          const refreshedEntry = turnWatchdogs.get(threadId);
-          if (refreshedEntry !== undefined && refreshedEntry.firstActivityStartedAt !== null) {
-            refreshedEntry.firstActivityStartedAt = null;
-          }
+          entry.firstActivityStartedAt = null;
         }
       }
     };
