@@ -15,6 +15,8 @@ import {
 } from "../editorMetadata";
 import { usePreferredEditor } from "../editorPreferences";
 import { shortcutLabelForCommand } from "../keybindings";
+import { formatMossNameTranslation, translateMoss } from "../localization";
+import type { MossLocaleCode } from "../uiLocale";
 import { readNativeApi } from "../nativeApi";
 
 export interface EditorLaunchers {
@@ -30,6 +32,14 @@ export interface EditorLaunchers {
   setDefaultEditor: (editorId: EditorId) => void;
   /** Open the requested target path in the given editor (or the preferred one when null). */
   openInEditor: (editorId: EditorId | null) => void;
+}
+
+/** 「在 Cursor 中打开」, 「在终端中打开」: the name of the action that opens the target in `option`. */
+export function formatOpenInEditorLabel(locale: MossLocaleCode, option: EditorOption): string {
+  return formatMossNameTranslation(locale, "chat.editor.openIn", {
+    editor:
+      option.value === "terminal" ? translateMoss(locale, "chat.editor.terminal") : option.label,
+  });
 }
 
 /** Terminals and the file manager open a folder; they cannot show a file. */

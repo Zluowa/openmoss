@@ -134,7 +134,7 @@ describe("EditedFileRow", () => {
       editedFileRow({ openFile, onReview, workspaceRoot: WORKSPACE_ROOT }),
     );
     const pathButton = page.getByRole("button", { name: `Review changes to ${FILE_PATH}` });
-    const openButton = page.getByRole("button", { name: "Open", exact: true });
+    const openButton = page.getByRole("button", { name: "Open in Cursor", exact: true });
     const menuButton = page.getByRole("button", {
       name: `Open ${FILE_PATH} options`,
       exact: true,
@@ -219,7 +219,9 @@ describe("EditedFileRow", () => {
       }),
     );
 
-    expect(page.getByRole("button", { name: "Open", exact: true }).element()).toBeDisabled();
+    expect(
+      page.getByRole("button", { name: "Open in Cursor", exact: true }).element(),
+    ).toBeDisabled();
     await openFileOptions();
     expect(fileManagerMenuItem().element()).toBeDisabled();
     await page.getByText("Copy relative path", { exact: true }).click();
@@ -243,7 +245,9 @@ describe("EditedFileRow", () => {
       { container: host },
     );
     try {
-      expect(page.getByRole("button", { name: "Open", exact: true }).element()).toBeDisabled();
+      expect(
+        page.getByRole("button", { name: "Open in Cursor", exact: true }).element(),
+      ).toBeDisabled();
       expect(openFile).not.toHaveBeenCalled();
 
       const row = screen.container.querySelector<HTMLElement>("[data-edited-file-row='true']");
@@ -326,6 +330,44 @@ describe("EditedFileRow", () => {
       await expect
         .element(page.getByRole("button", { name: "打开 index.js 的选项", exact: true }))
         .toBeVisible();
+    } finally {
+      await screen.unmount();
+      uninstallZhCnUiLocalization();
+      document.documentElement.lang = "en";
+      delete document.documentElement.dataset.mossLocale;
+    }
+  });
+
+  it("names the ↗ button 「在 Cursor 中打开」 in Chinese, on the shared tooltip (walk N13-4)", async () => {
+    // WALK-13 N13-4: the ↗ beside an edited file had an English native tooltip,
+    // title="Open in Cursor", and no Chinese name for a screen reader.
+    document.documentElement.lang = "zh-CN";
+    document.documentElement.dataset.mossLocale = "zh-CN";
+    installZhCnUiLocalization();
+    mockOpenInEditor();
+    const screen = await render(
+      <MossLocaleScope locale="zh-CN">
+        {editedFileRow({
+          openFile: vi.fn(() => true),
+          filePath: "index.js",
+          workspaceRoot: WORKSPACE_ROOT,
+        })}
+      </MossLocaleScope>,
+    );
+    try {
+      const open = page.getByRole("button", { name: "在 Cursor 中打开", exact: true });
+      await expect.element(open).toBeVisible();
+      expect(open.element().hasAttribute("title")).toBe(false);
+      await userEvent.hover(open.element());
+      await expect
+        .poll(() =>
+          [...document.querySelectorAll<HTMLElement>('[data-slot="tooltip-popup"]')].map((popup) =>
+            popup.textContent?.trim(),
+          ),
+        )
+        .toEqual(["在 Cursor 中打开"]);
+      const tooltip = document.querySelector<HTMLElement>('[data-slot="tooltip-popup"]')!;
+      expect(tooltip.getBoundingClientRect().width).toBeGreaterThan(0);
     } finally {
       await screen.unmount();
       uninstallZhCnUiLocalization();

@@ -7,9 +7,9 @@
 
 import type { EditorId, ResolvedKeybindingsConfig } from "@moss/contracts";
 
-import { useEditorLaunchers } from "~/hooks/useEditorLaunchers";
+import { formatOpenInEditorLabel, useEditorLaunchers } from "~/hooks/useEditorLaunchers";
 import { EditorViewIcon } from "~/lib/icons";
-import { formatMossNameTranslation, useTranslation } from "~/localization";
+import { useTranslation } from "~/localization";
 
 import { ComposerPickerMenuPopup } from "../ComposerPickerMenuPopup";
 import { Menu, MenuRadioGroup, MenuRadioItem, MenuShortcut, MenuTrigger } from "../../ui/menu";
@@ -40,7 +40,7 @@ export function EnvironmentEditorSection({
    */
   bare?: boolean;
 }) {
-  const { locale, t } = useTranslation();
+  const { locale } = useTranslation();
   const {
     options,
     preferredEditor,
@@ -89,14 +89,7 @@ export function EnvironmentEditorSection({
                 ) : null
               }
               label={
-                activeOption
-                  ? formatMossNameTranslation(locale, "chat.editor.openIn", {
-                      editor:
-                        activeOption.value === "terminal"
-                          ? t("chat.editor.terminal")
-                          : activeOption.label,
-                    })
-                  : "Open in editor"
+                activeOption ? formatOpenInEditorLabel(locale, activeOption) : "Open in editor"
               }
               trailing={<EnvironmentRowChevron />}
             />
