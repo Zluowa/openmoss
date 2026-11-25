@@ -15,6 +15,8 @@ import {
 } from "~/lib/icons";
 import { Button } from "../../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../../ui/dialog";
+import { Input } from "../../ui/input";
+import { Textarea } from "../../ui/textarea";
 
 export interface NewDeckSourcePage {
   readonly id: string;
@@ -30,16 +32,16 @@ function Start(props: {
 }) {
   const Icon = props.icon;
   return (
-    <button
-      type="button"
+    <Button
+      variant="outline"
       disabled={props.disabled}
       onClick={props.onClick}
-      className="flex flex-col items-start gap-1.5 rounded-card border border-border bg-card p-3 text-left transition-colors hover:bg-accent disabled:opacity-50"
+      className="h-auto flex-col items-start justify-start gap-1.5 rounded-card bg-card p-3 text-left font-normal whitespace-normal"
     >
       <Icon className="size-4 text-muted-foreground" aria-hidden />
       <span className="text-ui font-medium">{props.label}</span>
       <span className="text-ui-xs text-muted-foreground">{props.hint}</span>
-    </button>
+    </Button>
   );
 }
 
@@ -78,26 +80,27 @@ export function NewDeckDialog(props: {
           <DialogTitle>{picking ? "选择资料空间内容" : "新建幻灯片"}</DialogTitle>
           {picking ? (
             <div className="flex flex-col gap-2" data-new-deck-pages>
-              <input
+              <Input
                 autoFocus
+                size="sm"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索页面"
                 aria-label="搜索页面"
-                className="h-8 rounded-control border border-input bg-background px-2.5 text-ui-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
               <div className="flex max-h-72 flex-col overflow-y-auto">
                 {matches.length ? (
                   matches.map((page) => (
-                    <button
+                    <Button
                       key={page.id}
-                      type="button"
+                      variant="ghost"
+                      size="sm"
                       disabled={props.busy}
                       onClick={() => props.onFromPage(page)}
-                      className="truncate rounded-[6px] px-2.5 py-1.5 text-left text-ui-sm hover:bg-accent"
+                      className="w-full justify-start truncate text-left font-normal"
                     >
                       {page.title || "未命名文档"}
-                    </button>
+                    </Button>
                   ))
                 ) : (
                   <p className="px-2.5 py-3 text-ui-sm text-muted-foreground">没有可用的页面。</p>
@@ -154,8 +157,9 @@ export function NewDeckDialog(props: {
                 <label className="text-ui-sm text-muted-foreground" htmlFor="new-deck-prompt">
                   或者描述你要的演示文稿，让 Moss 生成
                 </label>
-                <textarea
+                <Textarea
                   id="new-deck-prompt"
+                  size="sm"
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
                   onKeyDown={(event) => {
@@ -168,7 +172,6 @@ export function NewDeckDialog(props: {
                   rows={3}
                   maxLength={4_000}
                   placeholder="例如：给团队做一份 8 页的 Q4 复盘，包含目标完成情况、关键数据和下季度重点"
-                  className="rounded-control border border-input bg-background px-2.5 py-2 text-ui-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
                 <Button type="submit" disabled={props.busy || !prompt.trim()}>
                   让 Moss 生成

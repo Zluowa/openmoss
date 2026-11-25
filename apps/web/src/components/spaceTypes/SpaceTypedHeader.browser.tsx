@@ -6,6 +6,7 @@
 import "../../index.css";
 
 import { PageId, type NativeApi, type Page } from "@moss/contracts";
+import { createSlidesDeck } from "@moss/shared/spaceItems/slidesDeck";
 import { BUILT_IN_TEMPLATES } from "@moss/shared/spaceItems/templates";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -28,6 +29,7 @@ import { SpaceTypedItemView } from "./SpaceTypedItemView";
 
 const DASHBOARD_DATA =
   BUILT_IN_TEMPLATES.find((entry) => entry.id === "builtin:sales-dashboard")?.data ?? "";
+const SLIDES_DATA = JSON.stringify(createSlidesDeck("季度复盘"));
 
 const dashPage: Page = {
   id: PageId.makeUnsafe("dash-1"),
@@ -47,6 +49,14 @@ const dashPage: Page = {
   revision: 1,
 };
 
+const slidesPage: Page = {
+  ...dashPage,
+  id: PageId.makeUnsafe("slides-1"),
+  rootPageId: PageId.makeUnsafe("slides-1"),
+  title: "季度复盘",
+  kind: "slides",
+};
+
 describe("typed editor header", () => {
   let previousApi: NativeApi | undefined;
   beforeEach(async () => {
@@ -55,12 +65,11 @@ describe("typed editor header", () => {
     const fixture = createDataSpaceFixture();
     Object.assign(fixture.api, {
       pageTypes: {
-        read: vi.fn(async () => ({
-          kind: "app",
-          page: dashPage,
-          data: DASHBOARD_DATA,
-          dataRevision: 1,
-        })),
+        read: vi.fn(async ({ pageId }: { pageId: string }) =>
+          pageId === slidesPage.id
+            ? { kind: "slides", page: slidesPage, data: SLIDES_DATA, dataRevision: 1 }
+            : { kind: "app", page: dashPage, data: DASHBOARD_DATA, dataRevision: 1 },
+        ),
         create: vi.fn(),
         save: vi.fn(),
         dashboard: { report: vi.fn(async () => undefined), query: vi.fn() },
@@ -158,5 +167,60 @@ describe("typed editor header", () => {
 
     await userEvent.click(page.getByRole("menuitem", { name: "版本历史", exact: true }));
     await expect.element(page.getByTestId("dashboard-history-panel")).toBeVisible();
+  });
+
+  it("shows slides icon, unified title menu and exports in SpaceUnifiedTopChrome", async () => {
+    const Slides = spaceKindMeta("slides").icon;
+    const Screen = () => (
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <MossLocaleScope locale="zh-CN">
+          <TooltipProvider>
+            <BrowserThemeFixture>
+              <span data-testid="slides-sidebar-icon">
+                <Slides aria-hidden className="size-4" />
+              </span>
+              <div style={{ width: 1200, height: 700, display: "flex", flexDirection: "column" }}>
+                <SpaceTypedItemView
+                  account="acct"
+                  scopeSpaceId={null}
+                  pageId={slidesPage.id}
+                  onTrash={vi.fn()}
+                />
+              </div>
+            </BrowserThemeFixture>
+          </TooltipProvider>
+        </MossLocaleScope>
+      </QueryClientProvider>
+    );
+    const router = createRouter({
+      routeTree: createRootRoute({ component: Screen }),
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    await render(<RouterProvider router={router} />);
+    const pill = await vi.waitFor(() => {
+      const found = document.querySelector<HTMLElement>("[data-space-title-pill]");
+      expect(found?.textContent).toContain("季度复盘");
+      return found!;
+    });
+    const glyph = (element: Element | null | undefined) => {
+      const copy = element!.cloneNode(true) as Element;
+      copy.removeAttribute("class");
+      return copy.outerHTML;
+    };
+    const expected = glyph(
+      document.querySelector("[data-testid='slides-sidebar-icon']")?.firstElementChild,
+    );
+    expect(glyph(pill.firstElementChild)).toBe(expected);
+
+    await userEvent.click(page.getByRole("button", { name: "季度复盘 菜单", exact: true }));
+    await expect.element(page.getByRole("menuitem", { name: "重命名", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "复制", exact: true })).toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "导出", exact: true })).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "存为模板", exact: true }))
+      .toBeVisible();
+    await expect.element(page.getByRole("menuitem", { name: "删除", exact: true })).toBeVisible();
   });
 });

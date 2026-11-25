@@ -16,7 +16,23 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { DeckTarget, DeckViewContext } from "~/lib/deckEditorChannel";
 import { cn } from "~/lib/utils";
+import {
+  ComposerPickerMenuPopup,
+  ComposerPickerMenuSubPopup,
+} from "../../chat/ComposerPickerMenuPopup";
 import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
+import {
+  Menu,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuSub,
+  MenuSubTrigger,
+  MenuTrigger,
+} from "../../ui/menu";
 import type { DeckDraftView, DeckRun } from "./DeckEditorHost";
 import { SlideView } from "./SlideView";
 
@@ -56,7 +72,6 @@ export function DeckViewer(props: {
   const [current, setCurrent] = useState(deck.slides[0]?.id ?? null);
   const [preview, setPreview] = useState<string | null>(null);
   const [instruction, setInstruction] = useState("");
-  const [downloadOpen, setDownloadOpen] = useState(false);
   const [includeNotes, setIncludeNotes] = useState(false);
   const [range, setRange] = useState<"all" | "current">("all");
   const stage = useRef<HTMLDivElement>(null);
@@ -141,70 +156,61 @@ export function DeckViewer(props: {
         >
           演讲者视图
         </Button>
-        <span className="relative">
-          <Button
-            size="xs"
-            variant="ghost"
-            aria-expanded={downloadOpen}
-            onClick={() => setDownloadOpen((open) => !open)}
-          >
-            下载
-          </Button>
-          {downloadOpen ? (
-            <div
-              role="menu"
-              data-download-menu
-              className="absolute top-full right-0 z-20 mt-1 flex w-56 flex-col gap-0.5 rounded-popover border border-border bg-popover p-1 text-ui-sm shadow-md"
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button size="xs" variant="ghost">
+                下载
+              </Button>
+            }
+          />
+          <ComposerPickerMenuPopup align="end" className="w-56" data-download-menu>
+            {(
+              [
+                ["pdf", "PDF"],
+                ["pptx", "PowerPoint (.pptx)"],
+                ["png", "当前幻灯片 (PNG)"],
+              ] as const
+            ).map(([format, label]) => (
+              <MenuItem
+                key={format}
+                onClick={() => {
+                  props.onExport(format, {
+                    ...(format === "png" && slide ? { slideId: slide.id } : {}),
+                    ...(format !== "png" && range === "current" && slide
+                      ? { slideIds: [slide.id] }
+                      : {}),
+                    includeNotes,
+                  });
+                }}
+              >
+                {label}
+              </MenuItem>
+            ))}
+            <MenuSeparator />
+            <MenuCheckboxItem
+              variant="checkbox"
+              checked={includeNotes}
+              onCheckedChange={setIncludeNotes}
             >
-              {(
-                [
-                  ["pdf", "PDF"],
-                  ["pptx", "PowerPoint (.pptx)"],
-                  ["png", "当前幻灯片 (PNG)"],
-                ] as const
-              ).map(([format, label]) => (
-                <button
-                  key={format}
-                  type="button"
-                  role="menuitem"
-                  className="rounded-[6px] px-2.5 py-1.5 text-left hover:bg-accent"
-                  onClick={() => {
-                    setDownloadOpen(false);
-                    props.onExport(format, {
-                      ...(format === "png" && slide ? { slideId: slide.id } : {}),
-                      ...(format !== "png" && range === "current" && slide
-                        ? { slideIds: [slide.id] }
-                        : {}),
-                      includeNotes,
-                    });
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-              <div className="my-1 h-px bg-border" />
-              <label className="flex items-center gap-2 px-2.5 py-1 text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={includeNotes}
-                  onChange={(event) => setIncludeNotes(event.target.checked)}
-                />
-                包含备注
-              </label>
-              <label className="flex items-center gap-2 px-2.5 py-1 text-muted-foreground">
-                范围
-                <select
+              包含备注
+            </MenuCheckboxItem>
+            <MenuSub>
+              <MenuSubTrigger>
+                范围：{range === "current" ? "当前幻灯片" : "全部幻灯片"}
+              </MenuSubTrigger>
+              <ComposerPickerMenuSubPopup>
+                <MenuRadioGroup
                   value={range}
-                  onChange={(event) => setRange(event.target.value as "all" | "current")}
-                  className="ml-auto rounded-[6px] border border-input bg-background px-1.5 py-0.5"
+                  onValueChange={(value) => setRange(value as "all" | "current")}
                 >
-                  <option value="all">全部幻灯片</option>
-                  <option value="current">当前幻灯片</option>
-                </select>
-              </label>
-            </div>
-          ) : null}
-        </span>
+                  <MenuRadioItem value="all">全部幻灯片</MenuRadioItem>
+                  <MenuRadioItem value="current">当前幻灯片</MenuRadioItem>
+                </MenuRadioGroup>
+              </ComposerPickerMenuSubPopup>
+            </MenuSub>
+          </ComposerPickerMenuPopup>
+        </Menu>
         <Button size="xs" variant="outline" onClick={props.onShare}>
           分享
         </Button>
@@ -216,13 +222,14 @@ export function DeckViewer(props: {
         >
           <span className="text-ui-xs text-muted-foreground">{shown.slides.length} 张幻灯片</span>
           {shown.slides.map((item, i) => (
-            <button
+            <Button
               key={item.id}
-              type="button"
+              variant="ghost"
+              size="xs"
               aria-current={item.id === slide?.id}
               onClick={() => setCurrent(item.id)}
               className={cn(
-                "flex items-start gap-1.5 rounded-control p-1 text-left",
+                "h-auto w-full items-start justify-start gap-1.5 rounded-control p-1 text-left font-normal",
                 item.id === slide?.id ? "bg-accent" : "hover:bg-accent/60",
                 item.hidden && "opacity-50",
               )}
@@ -233,7 +240,7 @@ export function DeckViewer(props: {
               <span className="overflow-hidden rounded-inline border border-border">
                 <SlideView slide={item} theme={shown.theme} width={120} />
               </span>
-            </button>
+            </Button>
           ))}
         </nav>
         <div className="flex min-w-0 flex-1 flex-col">
@@ -350,12 +357,13 @@ export function DeckViewer(props: {
                   send(instruction);
                 }}
               >
-                <input
+                <Input
+                  size="sm"
                   aria-label="描述修改或提问"
                   value={instruction}
                   onChange={(event) => setInstruction(event.target.value)}
                   placeholder={`描述对第 ${index + 1} 张的修改，或提问`}
-                  className="h-8 min-w-0 flex-1 rounded-control border border-input bg-background px-2.5 text-ui-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-w-0 flex-1"
                 />
                 <Button size="sm" type="submit" disabled={!instruction.trim()}>
                   提出修改请求

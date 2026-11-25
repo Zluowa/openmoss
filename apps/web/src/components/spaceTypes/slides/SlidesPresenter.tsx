@@ -1,10 +1,10 @@
 // FILE: SlidesPresenter.tsx
-// Purpose: 演示. The show fills the screen (from the current slide); "presenter" also opens a
-//          separate speaker-notes window (clock, elapsed time with pause, the slide on screen,
-//          the next slide's title and the notes); when that window is blocked the notes show
-//          under the slide instead. Keys: ←/→, PgUp/PgDn, Space, Home/End, 1–9 (+Enter for
-//          more digits), F full screen, Esc to end. Hidden slides are skipped. A control bar
-//          (上一张 · 第 N 张，共 M 张 · 下一张 · 结束) appears when the pointer moves.
+// Purpose: 演示. The show fills the screen (from the current slide); "presenter" docks speaker
+//          notes directly below the slide (resizable split starting at 50%, slide counter, next
+//          slide title, elapsed timer with pause/reset), matching Claude's presenter layout, with
+//          an optional pop-out button for a second screen. Keys: ←/→, PgUp/PgDn, Space, Home/End,
+//          1–9 (+Enter for more digits), B/. black screen, W/, white screen, Shift+P notes, F
+//          full screen, Esc to end. Hidden slides are skipped.
 // Layer: 资料空间 幻灯片
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -18,6 +18,8 @@ import {
   type SlidesDeck,
 } from "@moss/shared/spaceItems/slidesDeck";
 
+import { cn } from "~/lib/utils";
+import { Button } from "../../ui/button";
 import { BUILD_KEYFRAMES, buildSteps, SlideView } from "./SlideView";
 
 const NEXT_KEYS = new Set(["ArrowRight", "ArrowDown", "PageDown", " ", "n", "N"]);
@@ -91,7 +93,7 @@ function FittedSlide(props: {
   );
 }
 
-/** The speaker-notes window (or the panel under the slide when pop-ups are blocked). */
+/** The speaker-notes panel (docked below the slide, or popped out to a second screen). */
 function NotesView(props: {
   deck: SlidesDeck;
   current: Slide | undefined;
@@ -104,94 +106,95 @@ function NotesView(props: {
   onReset: () => void;
   onGo: (step: number) => void;
   onEnd: () => void;
-  compact?: boolean;
+  onPopout?: (() => void) | undefined;
+  compact?: boolean | undefined;
 }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-  const button = "rounded-[6px] bg-white/10 px-3 py-1 text-ui text-white/90 hover:bg-white/20";
+  const button = "text-white/90 hover:bg-white/15 hover:text-white";
   return (
     <div
       data-speaker-notes
-      style={{
-        display: "flex",
-        flexDirection: props.compact ? "row" : "column",
-        gap: 16,
-        padding: props.compact ? "12px 20px" : 24,
-        height: "100%",
-        boxSizing: "border-box",
-        background: "#141414",
-        color: "#fff",
-        fontFamily:
-          '"Inter Variable", Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif',
-      }}
+      className={cn(
+        "font-system-ui flex h-full flex-col bg-neutral-950 text-white",
+        props.compact ? "gap-2 px-5 py-3" : "gap-4 p-6",
+      )}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        <span style={{ fontSize: 28, fontWeight: 600 }}>
-          {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </span>
-        <span style={{ fontSize: 20, color: "rgba(255,255,255,.7)" }}>{clock(props.elapsed)}</span>
-        <button type="button" className={button} onClick={props.onPause}>
-          {props.paused ? "继续计时" : "暂停计时"}
-        </button>
-        <button type="button" className={button} onClick={props.onReset}>
-          重新计时
-        </button>
-        <span style={{ marginLeft: "auto", color: "rgba(255,255,255,.7)" }}>
-          第 {props.position + 1} 张，共 {props.count} 张
-        </span>
+      <div className="flex flex-wrap items-center gap-2 tabular-nums">
+        {props.compact ? (
+          <>
+            <span className="text-ui-sm font-medium">
+              演讲备注 · 第 {props.position + 1} / {props.count} 张
+            </span>
+            <span className="min-w-0 truncate text-ui-sm text-white/70">
+              下一张：{props.next ? slideTitle(props.next) || "（无标题）" : "已是最后一张"}
+            </span>
+          </>
+        ) : (
+          <span className="text-xl font-medium">
+            {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+        <div className={cn("flex items-center gap-1.5", props.compact ? "ml-auto" : "")}>
+          {props.compact ? (
+            <span className="text-ui-xs text-white/60">
+              {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          ) : null}
+          <span className="text-ui-sm text-white/80">用时 {clock(props.elapsed)}</span>
+          <Button size="xs" variant="ghost" className={button} onClick={props.onPause}>
+            {props.paused ? "继续计时" : "暂停计时"}
+          </Button>
+          <Button size="xs" variant="ghost" className={button} onClick={props.onReset}>
+            重新计时
+          </Button>
+          {props.compact && props.onPopout ? (
+            <Button size="xs" variant="ghost" className={button} onClick={props.onPopout}>
+              独立窗口
+            </Button>
+          ) : null}
+        </div>
+        {props.compact ? null : (
+          <span className="ml-auto text-ui-sm text-white/70">
+            第 {props.position + 1} 张，共 {props.count} 张
+          </span>
+        )}
       </div>
       {props.compact ? null : (
-        <div style={{ display: "flex", gap: 16, minHeight: 0 }}>
-          <div
-            style={{
-              borderRadius: 8,
-              overflow: "hidden",
-              border: "1px solid rgba(255,255,255,.12)",
-            }}
-          >
+        <div className="flex min-h-0 gap-4">
+          <div className="overflow-hidden rounded-card border border-white/15">
             {props.current ? (
               <SlideView slide={props.current} theme={props.deck.theme} width={420} />
             ) : null}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-            <span style={{ fontSize: 13, color: "rgba(255,255,255,.6)" }}>下一张</span>
-            <span style={{ fontSize: 15 }}>
+          <div className="flex min-w-0 flex-col gap-2">
+            <span className="text-ui-xs text-white/60">下一张</span>
+            <span className="text-ui">
               {props.next ? slideTitle(props.next) || "（无标题）" : "已是最后一张"}
             </span>
-            <div style={{ display: "flex", gap: 8, marginTop: "auto" }}>
-              <button type="button" className={button} onClick={() => props.onGo(-1)}>
+            <div className="mt-auto flex gap-2">
+              <Button size="xs" variant="ghost" className={button} onClick={() => props.onGo(-1)}>
                 上一张
-              </button>
-              <button type="button" className={button} onClick={() => props.onGo(1)}>
+              </Button>
+              <Button size="xs" variant="ghost" className={button} onClick={() => props.onGo(1)}>
                 下一张
-              </button>
-              <button type="button" className={button} onClick={props.onEnd}>
+              </Button>
+              <Button size="xs" variant="ghost" className={button} onClick={props.onEnd}>
                 结束演示
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
       <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          overflow: "auto",
-          fontSize: props.compact ? 16 : 22,
-          lineHeight: 1.5,
-          whiteSpace: "pre-wrap",
-          color: props.current?.notes ? "#fff" : "rgba(255,255,255,.5)",
-        }}
+        className={cn(
+          "min-h-0 flex-1 overflow-auto leading-relaxed whitespace-pre-wrap",
+          props.compact ? "text-ui" : "text-lg",
+          props.current?.notes ? "text-white" : "text-white/50",
+        )}
       >
         {props.current?.notes || "这张幻灯片没有备注。"}
       </div>
@@ -203,12 +206,16 @@ export function SlidesPresenter(props: {
   deck: SlidesDeck;
   /** Index into deck.slides. */
   startIndex: number;
-  /** "presenter" also opens the speaker-notes window. */
+  /** "presenter" docks speaker notes below the slide (with optional second-screen popout). */
   surface?: "fullscreen" | "presenter" | "window";
   onClose: () => void;
 }) {
   const { deck, onClose } = props;
-  const withNotes = props.surface === "presenter" || props.surface === "window";
+  const [showNotes, setShowNotes] = useState(
+    props.surface === "presenter" || props.surface === "window",
+  );
+  const [split, setSplit] = useState(0.5);
+  const [blank, setBlank] = useState<"black" | "white" | null>(null);
   // Hidden (skipped) slides are left out of the show.
   const order = deck.slides.filter((slide) => !slide.hidden);
   const shown = order.length ? order : deck.slides;
@@ -229,6 +236,7 @@ export function SlidesPresenter(props: {
     (next: number) => {
       setPosition(Math.max(0, Math.min(last, next)));
       setRevealed(0);
+      setBlank(null);
     },
     [last],
   );
@@ -236,10 +244,12 @@ export function SlidesPresenter(props: {
   const steps = useMemo(() => (currentSlide ? buildSteps(currentSlide) : []), [currentSlide]);
   const step = revealed > 0 ? (steps[revealed - 1] ?? 0) : 0;
   const forward = () => {
+    setBlank(null);
     if (revealed < steps.length) setRevealed(revealed + 1);
     else go(position + 1);
   };
   const back = () => {
+    setBlank(null);
     if (revealed > 0) setRevealed(revealed - 1);
     else go(position - 1);
   };
@@ -279,21 +289,19 @@ export function SlidesPresenter(props: {
     setRunningSince(Date.now());
   };
 
-  // The speaker-notes window; blocked → notes under the slide.
+  // Optional second-screen speaker-notes window; default stays docked below the slide.
   const [notesRoot, setNotesRoot] = useState<HTMLElement | null>(null);
   const [notesWindow, setNotesWindow] = useState<Window | null>(null);
-  const [notesBlocked, setNotesBlocked] = useState(false);
-  useLayoutEffect(() => {
-    if (!withNotes) return;
-    const opened = window.open("", "moss-speaker-notes", "popup,width=960,height=640");
-    if (!opened) {
-      setNotesBlocked(true);
+  const openNotesWindow = useCallback(() => {
+    if (notesWindow && !notesWindow.closed) {
+      notesWindow.focus();
       return;
     }
+    const opened = window.open("", "moss-speaker-notes", "popup,width=960,height=640");
+    if (!opened) return;
     opened.document.title = "演讲者备注";
     opened.document.body.style.margin = "0";
-    opened.document.body.style.background = "#141414";
-    // Copy this window's styles so buttons in the notes window look like Moss.
+    opened.document.body.className = "bg-neutral-950 text-white";
     for (const node of document.querySelectorAll('link[rel="stylesheet"], style'))
       opened.document.head.appendChild(node.cloneNode(true));
     const mount = opened.document.createElement("div");
@@ -301,12 +309,12 @@ export function SlidesPresenter(props: {
     opened.document.body.replaceChildren(mount);
     setNotesWindow(opened);
     setNotesRoot(mount);
+  }, [notesWindow]);
+  useEffect(() => {
     return () => {
-      if (!opened.closed) opened.close();
+      if (notesWindow && !notesWindow.closed) notesWindow.close();
     };
-    // Once per show.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [withNotes]);
+  }, [notesWindow]);
 
   // Full screen for the show.
   useLayoutEffect(() => {
@@ -331,6 +339,11 @@ export function SlidesPresenter(props: {
         go(Number(digits.current) - 1);
         digits.current = "";
       } else if (event.key === "Escape") onClose();
+      else if (event.key === "P" && event.shiftKey) setShowNotes((value) => !value);
+      else if (event.key === "b" || event.key === "B" || event.key === ".")
+        setBlank((currentBlank) => (currentBlank === "black" ? null : "black"));
+      else if (event.key === "w" || event.key === "W" || event.key === ",")
+        setBlank((currentBlank) => (currentBlank === "white" ? null : "white"));
       else if (NEXT_KEYS.has(event.key) || event.key === "Enter") forward();
       else if (PREVIOUS_KEYS.has(event.key)) back();
       else if (event.key === "Home") go(0);
@@ -358,15 +371,21 @@ export function SlidesPresenter(props: {
   useEffect(() => {
     if (!notesWindow) return;
     const timer = setInterval(() => {
-      if (notesWindow.closed) setNotesWindow(null);
+      if (notesWindow.closed) {
+        setNotesWindow(null);
+        setNotesRoot(null);
+      }
     }, 500);
     return () => clearInterval(timer);
   }, [notesWindow]);
 
   const current = shown[position];
   const next = shown[position + 1];
-  const notesBelow = withNotes && notesBlocked;
-  const notesHeight = notesBelow ? Math.round(viewport.height * 0.22) : 0;
+  const notesBelow = showNotes && !notesWindow;
+  const stageHeight = notesBelow
+    ? Math.max(120, Math.round(viewport.height * split))
+    : viewport.height;
+  const notesHeight = notesBelow ? Math.max(120, viewport.height - stageHeight) : 0;
   const notes = (compact: boolean) => (
     <NotesView
       deck={deck}
@@ -380,10 +399,11 @@ export function SlidesPresenter(props: {
       onReset={resetTimer}
       onGo={(delta) => (delta < 0 ? back() : forward())}
       onEnd={onClose}
+      onPopout={compact ? openNotesWindow : undefined}
       compact={compact}
     />
   );
-  const button = "rounded-[6px] px-2.5 py-1 text-ui text-white/90 hover:bg-white/15";
+  const button = "text-white/90 hover:bg-white/15 hover:text-white";
   return (
     <div
       ref={root}
@@ -392,7 +412,7 @@ export function SlidesPresenter(props: {
       aria-label="幻灯片演示"
       className="fixed inset-0 z-[1000] flex flex-col bg-black"
       data-slides-presenter={
-        withNotes ? (notesBlocked ? "notes-below" : "notes-window") : "fullscreen"
+        notesWindow ? "notes-window" : notesBelow ? "notes-below" : "fullscreen"
       }
       onMouseMove={() => {
         setControls(true);
@@ -401,35 +421,79 @@ export function SlidesPresenter(props: {
       }}
     >
       <div
-        className="flex min-h-0 flex-1 cursor-interaction items-center justify-center"
+        className="relative flex min-h-0 flex-1 cursor-interaction items-center justify-center"
         onClick={(event) => (event.clientX < window.innerWidth / 4 ? back() : forward())}
       >
         <FittedSlide
           deck={deck}
           slide={current}
           width={viewport.width}
-          height={viewport.height - notesHeight}
+          height={stageHeight}
           step={step}
         />
+        {blank ? (
+          <div
+            className={cn(
+              "pointer-events-none absolute inset-0",
+              blank === "black" ? "bg-black" : "bg-white",
+            )}
+            data-present-blank={blank}
+          />
+        ) : null}
       </div>
-      {notesBelow ? <div style={{ height: notesHeight }}>{notes(true)}</div> : null}
+      {notesBelow ? (
+        <div
+          className="flex shrink-0 flex-col border-t border-white/15"
+          style={{ height: notesHeight }}
+        >
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="调整备注区高度"
+            className="h-1.5 shrink-0 cursor-row-resize bg-white/5 hover:bg-white/20"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              const move = (ev: PointerEvent) =>
+                setSplit(
+                  Math.max(0.25, Math.min(0.8, ev.clientY / Math.max(1, window.innerHeight))),
+                );
+              const up = () => {
+                window.removeEventListener("pointermove", move);
+                window.removeEventListener("pointerup", up);
+              };
+              window.addEventListener("pointermove", move);
+              window.addEventListener("pointerup", up);
+            }}
+          />
+          <div className="min-h-0 flex-1">{notes(true)}</div>
+        </div>
+      ) : null}
       <div
         className="absolute bottom-4 left-4 flex items-center gap-1 rounded-card bg-black/70 p-1 tabular-nums transition-opacity"
         style={{ opacity: controls ? 1 : 0, bottom: notesHeight + 16 }}
         data-present-controls
       >
-        <button type="button" className={button} onClick={back} aria-label="上一张">
+        <Button size="xs" variant="ghost" className={button} onClick={back} aria-label="上一张">
           ‹
-        </button>
+        </Button>
         <span className="px-1 text-ui text-white/80">
           第 {position + 1} 张，共 {shown.length} 张
         </span>
-        <button type="button" className={button} onClick={forward} aria-label="下一张">
+        <Button size="xs" variant="ghost" className={button} onClick={forward} aria-label="下一张">
           ›
-        </button>
-        <button type="button" className={button} onClick={onClose}>
+        </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          className={button}
+          aria-pressed={showNotes}
+          onClick={() => setShowNotes((value) => !value)}
+        >
+          备注
+        </Button>
+        <Button size="xs" variant="ghost" className={button} onClick={onClose}>
           结束
-        </button>
+        </Button>
       </div>
       {notesRoot && notesWindow ? createPortal(notes(false), notesRoot) : null}
     </div>
