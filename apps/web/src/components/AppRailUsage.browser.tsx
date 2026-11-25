@@ -352,15 +352,25 @@ describe("AppRailUsage", () => {
     ).toBe(32);
   });
 
-  it("never borrows a sibling's usage when the selected account has no matching snapshot", async () => {
-    settings.railUsageInstanceIds = ["claudeAgent"];
-    await renderAccounts(
+  it("keeps a selected account visible without borrowing a sibling's usage", async () => {
+    settings.railUsageInstanceIds = [];
+    const { rerender } = await renderAccounts(
       claudeSnapshots.filter((snapshot) => snapshot.instanceId === "claude_work"),
       claudeSettings,
+      true,
     );
-    await expect
-      .element(page.getByRole("button", { name: /Claude.*usage:/ }))
-      .not.toBeInTheDocument();
+    await page
+      .getByRole("switch", {
+        name: "Show Claude · Local account usage at the bottom of the sidebar",
+      })
+      .click();
+    await rerender();
+    const button = page.getByRole("button", {
+      name: "Claude · Local account usage: No data. Show usage",
+    });
+    await expect.element(button).toBeVisible();
+    expect(button.element().querySelectorAll("circle[stroke-dasharray]")).toHaveLength(0);
+    expect(button.element().querySelectorAll("circle")).toHaveLength(1);
   });
 
   it("keeps the model picker's neutral marker for an additional account without an accent", async () => {
@@ -504,6 +514,20 @@ describe("AppRailUsage", () => {
     const fills = button.element().querySelectorAll("circle[stroke-dasharray]");
     expect(fills).toHaveLength(1);
     expect(fills[0]?.getAttribute("stroke-dasharray")).toBe("100 100");
+  });
+
+  it("keeps a selected Moss ring visible while quota data is unavailable", async () => {
+    settings.railUsageInstanceIds = [];
+    const { rerender } = await renderAccounts([], DEFAULT_SERVER_SETTINGS_VIEW, true);
+    await page
+      .getByRole("switch", { name: "Show Moss usage at the bottom of the sidebar" })
+      .click();
+    await rerender();
+
+    const button = page.getByRole("button", { name: "Moss. Show usage" });
+    await expect.element(button).toBeVisible();
+    expect(button.element().querySelectorAll("circle[stroke-dasharray]")).toHaveLength(0);
+    expect(button.element().querySelectorAll("circle")).toHaveLength(1);
   });
 
   it("preserves the single-ring fallback for providers with other limit windows", async () => {

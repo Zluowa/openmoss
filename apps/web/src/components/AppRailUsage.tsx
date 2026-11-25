@@ -181,13 +181,12 @@ function AppRailUsageRing({
     providerSnapshot: snapshot ?? null,
   });
 
-  // A failed fetch keeps a dimmed, empty ring (its card says why) so a chosen provider does
-  // not vanish on a network blip. Otherwise nothing displayable (still loading, signed out,
-  // or no usage source) means no ring.
+  // Keep a selected account visible even before its first usage snapshot arrives. The old
+  // behavior dropped the ring while loading or when the provider had no usage source, which
+  // made the Settings toggle look broken. The empty track is intentionally neutral; it fills
+  // as soon as the live snapshot becomes available and never borrows a sibling account's data.
+  const noData = model.rows.length === 0 && model.usageLines.length === 0;
   const unavailable = snapshot?.status === "error";
-  if (!unavailable && model.rows.length === 0 && model.usageLines.length === 0) {
-    return null;
-  }
 
   const summary = resolveEnvironmentProviderUsageSummary({
     providerName: label,
@@ -264,7 +263,7 @@ function AppRailUsageRing({
         <span className={cn("absolute flex", ring.iconClassName)}>
           <ProviderIcon
             provider={provider}
-            className={cn("size-full", unavailable && "opacity-50")}
+            className={cn("size-full", (unavailable || noData) && "opacity-50")}
           />
           <ProviderAccountDot
             accentColor={instance.raw.accentColor}
@@ -328,13 +327,16 @@ function AppRailMossUsageRing({
   const catalogQuery = useQuery(
     serverMossPayCatalogQueryOptions({ enabled: accountIdentity !== null }),
   );
-  if (
-    !quotaSummary.signedIn ||
-    (quotaSummary.remainingPercent === null && !quotaSummary.unlimited)
-  ) {
-    return null;
-  }
-  const remainingPercent = quotaSummary.unlimited ? 100 : (quotaSummary.remainingPercent ?? 0);
+  const hasQuota =
+    quotaSummary.signedIn && (quotaSummary.remainingPercent !== null || quotaSummary.unlimited);
+  // Keep the selected Moss ring visible while account/quota data is loading or unavailable.
+  // This gives the Settings toggle an immediate, neutral visual result without inventing a
+  // remaining percentage; the arc is added once the real quota arrives.
+  const remainingPercent = hasQuota
+    ? quotaSummary.unlimited
+      ? 100
+      : (quotaSummary.remainingPercent ?? 0)
+    : 0;
   const tone = RING_TONE_CLASS_NAME[railUsageRingTone(remainingPercent)];
   const ring = compact ? COMPACT_SINGLE_RING : SINGLE_RING;
   const radius = (ring.size - ring.stroke) / 2;
@@ -394,7 +396,7 @@ function AppRailMossUsageRing({
           ) : null}
         </svg>
         <span className={cn("absolute flex", ring.iconClassName)}>
-          <MossLogo className="size-full" />
+          <MossLogo className={cn("size-full", !hasQuota && "opacity-50")} />
         </span>
       </PopoverTrigger>
       <PopoverPopup
