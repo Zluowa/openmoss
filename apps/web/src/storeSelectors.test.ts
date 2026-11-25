@@ -288,6 +288,27 @@ describe("sidebar thread visibility", () => {
     expect(isSidebarThreadVisible(sent)).toBe(true);
   });
 
+  it("lists a new chat whose 画布 holds something, and not one whose 画布 was only opened (WALK-7 N7-1)", () => {
+    // Opening 画布 in a new chat creates it marked, as an item panel's chat is (N7-1).
+    const openedOnly = {
+      ...summaryA,
+      latestTurn: null,
+      latestUserMessageAt: null,
+      listedAfterFirstSend: true,
+      canvasEditedAt: null,
+    };
+    const drawn = { ...openedOnly, canvasEditedAt: "2026-01-01T00:02:00.000Z" };
+    expect(isSidebarThreadVisible(openedOnly)).toBe(false);
+    expect(isSidebarThreadVisible(drawn)).toBe(true);
+    const state = makeState({
+      threadIds: [threadIdA],
+      sidebarThreadSummaryById: { [threadIdA]: drawn },
+    });
+    expect(createSidebarTreeThreadsSelector()(state).map((thread) => thread.id)).toEqual([
+      threadIdA,
+    ]);
+  });
+
   it("keeps listing a terminal-first chat and a chat named before its first send", () => {
     // Both are server threads with no turn and no mark, as on main (#863 review).
     const terminalFirst = { ...summaryA, title: "New terminal", latestTurn: null };

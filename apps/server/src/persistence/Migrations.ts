@@ -234,6 +234,7 @@ import Migration0169 from "./Migrations/169_PageDocStyleAndTextComments.ts";
 import Migration0170 from "./Migrations/170_ProjectionThreadsPullRequestLinks.ts";
 import Migration0171 from "./Migrations/171_PageAssistantThread.ts";
 import Migration0172 from "./Migrations/172_ProjectionThreadsListedAfterFirstSend.ts";
+import Migration0173 from "./Migrations/173_ProjectionThreadsCanvasEditedAt.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -420,6 +421,7 @@ export const migrationEntries = [
   [170, "ProjectionThreadsPullRequestLinks", Migration0170],
   [171, "PageAssistantThread", Migration0171],
   [172, "ProjectionThreadsListedAfterFirstSend", Migration0172],
+  [173, "ProjectionThreadsCanvasEditedAt", Migration0173],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -482,6 +484,10 @@ export const MIGRATIONS_OLDER_READERS_MAY_IGNORE: ReadonlyArray<readonly [number
   // `thread.created` as an optional field older decoders drop; older builds upsert threads by
   // named columns and never touch it, and the newer upsert keeps the value set at creation.
   [172, "ProjectionThreadsListedAfterFirstSend"],
+  // A new nullable `canvas_edited_at`, no backfill (null: no 画布 with content). It rides on
+  // `thread.meta-updated` as an optional field older decoders drop; older builds upsert threads
+  // by named columns and never touch it, and the newer upsert keeps the first value.
+  [173, "ProjectionThreadsCanvasEditedAt"],
 ];
 
 /**

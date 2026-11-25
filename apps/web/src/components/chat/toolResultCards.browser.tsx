@@ -41,6 +41,12 @@ function expectStandardCard(card: HTMLElement) {
   expect(style.boxShadow).toBe("none");
 }
 
+/** The command shell once its disclosure has opened; it mounts inert for one frame first. */
+function openCommandShell(): HTMLElement | null {
+  const shell = document.querySelector<HTMLElement>("[data-command-shell]");
+  return shell && !shell.closest("[inert]") ? shell : null;
+}
+
 function Stage(props: { locale: MossLocaleCode; children: React.ReactNode }) {
   return (
     <BrowserThemeFixture>
@@ -89,8 +95,27 @@ describe.each(CASES)("tool results ($theme, $locale)", ({ theme, locale }) => {
     await userEvent.click(
       page.elementLocator(document.querySelector('[data-tool-detail-trigger="true"]')!),
     );
-    await expect.poll(() => document.querySelector("[data-command-shell]")).not.toBeNull();
-    const shell = document.querySelector<HTMLElement>("[data-command-shell]")!;
+    // The body mounts closed (inert), opens on the next frame and drifts 4 px into place over
+    // 220 ms. A person reads the card at rest, so it is measured once that motion has ended:
+    // mid-drift its boxes come back through the transform with float rounding (24.0000076).
+    // Wait only on the DisclosureRegion shell and content wrappers themselves (not subtree: true,
+    // which can include unrelated animations inside the card).
+    await expect.poll(openCommandShell).not.toBeNull();
+    const shell = openCommandShell()!;
+    const body = shell.closest<HTMLElement>('[data-tool-detail-body="true"]')!;
+    const disclosureContent = body.parentElement!;
+    const disclosureShell = disclosureContent.parentElement!;
+    await expect
+      .poll(() => {
+        const translate = getComputedStyle(disclosureContent).translate;
+        return (
+          (translate === "none" || translate === "0px" || translate === "0px 0px") &&
+          getComputedStyle(disclosureContent).transform === "none" &&
+          disclosureContent.getAnimations().length === 0 &&
+          disclosureShell.getAnimations().length === 0
+        );
+      })
+      .toBe(true);
     expect(shell.getAttribute("data-slot")).toBe("card");
     expectStandardCard(shell);
     const command = shell.querySelector<HTMLElement>("[data-shell-command]")!;

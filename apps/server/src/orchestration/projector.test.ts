@@ -243,6 +243,7 @@ describe("orchestration projector", () => {
         sidechatContext: null,
         sidechatLastActivityAt: null,
         sidechatExpiredAt: null,
+        canvasEditedAt: null,
         lastKnownPr: null,
         pullRequests: [],
         latestTurn: null,

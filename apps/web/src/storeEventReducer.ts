@@ -1163,6 +1163,7 @@ function applyOrchestrationEvent(
               (event.payload.subagentNickname ?? null) === (thread.subagentNickname ?? null)) &&
             (event.payload.subagentRole === undefined ||
               (event.payload.subagentRole ?? null) === (thread.subagentRole ?? null)) &&
+            (event.payload.canvasEditedAt === undefined || thread.canvasEditedAt != null) &&
             (event.payload.lastKnownPr === undefined ||
               deepEqualJson(event.payload.lastKnownPr ?? null, thread.lastKnownPr ?? null)) &&
             (pullRequests === undefined ||
@@ -1221,6 +1222,10 @@ function applyOrchestrationEvent(
               : {}),
             ...(event.payload.subagentRole !== undefined
               ? { subagentRole: event.payload.subagentRole }
+              : {}),
+            // Set once: the first record wins (WALK-7 N7-1).
+            ...(event.payload.canvasEditedAt !== undefined && thread.canvasEditedAt == null
+              ? { canvasEditedAt: event.payload.canvasEditedAt }
               : {}),
             ...(event.payload.lastKnownPr !== undefined
               ? { lastKnownPr: event.payload.lastKnownPr }

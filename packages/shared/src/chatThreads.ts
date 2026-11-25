@@ -7,18 +7,22 @@ export const GENERIC_CHAT_THREAD_TITLE = "New thread";
 
 /**
  * Whether a chat is listed (desktop sidebar, search, recents, the phone's list). A chat made
- * before anything was sent so its agent could warm up (an item's 问 Moss panel) carries
- * `listedAfterFirstSend` and shows nowhere until something is sent in it (WALK-1 S-6). Every
- * other chat, including a terminal-first one or a new chat named before its first send, is
- * listed as before. Nothing is deleted; the rule only decides what is listed.
+ * before anything was sent (an item's 问 Moss panel warming its agent up, or a new chat whose
+ * 画布 was opened) carries `listedAfterFirstSend` and shows nowhere until something is sent in it
+ * (WALK-1 S-6) or its 画布 holds something (WALK-7 N7-1). Every other chat, including a
+ * terminal-first one or a new chat named before its first send, is listed as before. Nothing is
+ * deleted; the rule only decides what is listed.
  */
 export function chatThreadIsListed(thread: {
   readonly latestTurn: unknown;
   readonly latestUserMessageAt?: string | null | undefined;
   readonly listedAfterFirstSend?: boolean | null | undefined;
+  readonly canvasEditedAt?: string | null | undefined;
 }): boolean {
   if (thread.listedAfterFirstSend !== true) return true;
-  return thread.latestTurn != null || thread.latestUserMessageAt != null;
+  return (
+    thread.latestTurn != null || thread.latestUserMessageAt != null || thread.canvasEditedAt != null
+  );
 }
 const MAX_CHAT_THREAD_TITLE_LENGTH = 60;
 export const THREAD_TITLE_CONTEXT_MAX_CHARS = 8_000;

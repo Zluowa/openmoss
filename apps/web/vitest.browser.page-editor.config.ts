@@ -3,6 +3,7 @@ import { createReadStream, existsSync, mkdtempSync, rmSync, statSync } from "nod
 import { tmpdir } from "node:os";
 import { extname, isAbsolute, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { Effect, Option, Schema } from "effect";
 import { configDefaults, defineConfig, type ViteUserConfig } from "vitest/config";
 
 import stableConfig, { PAGE_EDITOR_BROWSER_SPECS } from "./vitest.browser.stable.config";
@@ -74,6 +75,134 @@ const canvasStaticPlugin: CanvasServerPlugin = {
   },
 };
 
+type OrchestrationThreadRecord = { readonly id: string; readonly canvasEditedAt?: string | null };
+type OrchestrationReadModelRecord = {
+  readonly snapshotSequence: number;
+  readonly threads: ReadonlyArray<OrchestrationThreadRecord>;
+};
+type OrchestrationEventRecord = { readonly sequence: number; readonly type: string };
+type ServerEffect<A> = Effect.Effect<A, unknown, never>;
+type TestOrchestration = {
+  readonly knows: (threadId: string) => boolean;
+  readonly request: (method: string, input: Record<string, unknown>) => Promise<unknown>;
+  readonly recordCanvasWrite: (
+    threadId: string,
+    method: string,
+    input: Record<string, unknown>,
+  ) => Promise<void>;
+};
+
+/**
+ * The server's orchestration in memory, for tests that follow a chat into the lists (WALK-7
+ * N7-1). A window's command is decoded with the server's client command schema, then decided and
+ * projected by the server's own decider and projector (apps/server/src/orchestration), as its
+ * engine does, without SQL. A Canvas storage write records the 画布's first content through the
+ * server's own recordMossCanvasEdited (mossCanvasEdited.ts), as the real storage route does.
+ */
+async function createTestOrchestration(server: {
+  readonly ssrLoadModule: (url: string) => Promise<Record<string, unknown>>;
+}): Promise<TestOrchestration> {
+  const load = (path: string) => server.ssrLoadModule(resolve(repoRoot, path));
+  const [contracts, decider, projector, engineService, queryService, edited] = await Promise.all([
+    load("packages/contracts/src/orchestration.ts"),
+    load("apps/server/src/orchestration/decider.ts"),
+    load("apps/server/src/orchestration/projector.ts"),
+    load("apps/server/src/orchestration/Services/OrchestrationEngine.ts"),
+    load("apps/server/src/orchestration/Services/ProjectionSnapshotQuery.ts"),
+    load("apps/server/src/mossCanvasEdited.ts"),
+  ]);
+  const decodeClientCommand = Schema.decodeUnknownSync(
+    contracts.ClientOrchestrationCommand as Schema.Codec<unknown, unknown, never, never>,
+  );
+  const decide = decider.decideOrchestrationCommand as (input: {
+    command: unknown;
+    readModel: OrchestrationReadModelRecord;
+  }) => ServerEffect<unknown>;
+  const projectEvent = projector.projectEvent as (
+    model: OrchestrationReadModelRecord,
+    event: OrchestrationEventRecord,
+  ) => ServerEffect<OrchestrationReadModelRecord>;
+  const createEmptyReadModel = projector.createEmptyReadModel as (
+    now: string,
+  ) => OrchestrationReadModelRecord;
+  const isCanvasContentWrite = edited.isCanvasContentWrite as (
+    method: unknown,
+    input: Record<string, unknown>,
+  ) => boolean;
+  const recordMossCanvasEdited = edited.recordMossCanvasEdited as (
+    threadId: string,
+  ) => Effect.Effect<void, never, unknown>;
+  const resetRecorded = edited.resetMossCanvasEditedForTests as () => void;
+
+  let readModel = createEmptyReadModel(new Date().toISOString());
+  let events: OrchestrationEventRecord[] = [];
+  let sequence = 0;
+  // One command at a time, as the engine's queue runs them.
+  let queue: Promise<unknown> = Promise.resolve();
+  const dispatch = (command: unknown) => {
+    const run = queue.then(async () => {
+      const decided = await Effect.runPromise(decide({ command, readModel }));
+      const decidedEvents = Array.isArray(decided)
+        ? decided
+        : decided && typeof decided === "object" && "type" in decided
+          ? [decided]
+          : [];
+      for (const event of decidedEvents as Array<Omit<OrchestrationEventRecord, "sequence">>) {
+        sequence += 1;
+        const stored = { ...event, sequence };
+        readModel = await Effect.runPromise(projectEvent(readModel, stored));
+        events.push(stored);
+      }
+      return { sequence };
+    });
+    queue = run.catch(() => undefined);
+    return run;
+  };
+  const knows = (threadId: string) => readModel.threads.some((thread) => thread.id === threadId);
+
+  return {
+    knows,
+    request: async (method, input) => {
+      if (method === "reset") {
+        readModel = createEmptyReadModel(new Date().toISOString());
+        events = [];
+        sequence = 0;
+        resetRecorded();
+        return null;
+      }
+      if (method === "dispatch") return dispatch(decodeClientCommand(input.command));
+      if (method === "readModel") return readModel;
+      if (method === "events") {
+        const after = typeof input.after === "number" ? input.after : 0;
+        return events.filter((event) => event.sequence > after);
+      }
+      throw new Error(`unknown test orchestration method ${method}`);
+    },
+    recordCanvasWrite: async (threadId, method, input) => {
+      if (!knows(threadId) || !isCanvasContentWrite(method, input)) return;
+      await Effect.runPromise(
+        recordMossCanvasEdited(threadId).pipe(
+          Effect.provideService(
+            queryService.ProjectionSnapshotQuery as never,
+            {
+              getThreadShellById: (id: string) => {
+                const thread = readModel.threads.find((entry) => entry.id === id);
+                return Effect.succeed(thread ? Option.some(thread) : Option.none());
+              },
+            } as never,
+          ),
+          Effect.provideService(
+            engineService.OrchestrationEngineService as never,
+            {
+              dispatch: (command: unknown) => Effect.promise(() => dispatch(command)),
+            } as never,
+          ),
+        ) as ServerEffect<void>,
+      );
+    },
+  };
+}
+
 type HostedStorageHandle = {
   request: (method: string, input?: Record<string, unknown>) => Promise<unknown>;
   close: () => void;
@@ -83,6 +212,10 @@ const canvasBoardApiPlugin: CanvasServerPlugin = {
   name: "moss-page-editor-canvas-board-api",
   configureServer(server) {
     let storageStateDir: string | null = null;
+    // Made on first use: only the tests that follow a chat into the lists load the server's
+    // orchestration (`/api/moss/test/orchestration`).
+    let orchestration: Promise<TestOrchestration> | null = null;
+    const getOrchestration = () => (orchestration ??= createTestOrchestration(server));
     let storagePromise: Promise<HostedStorageHandle> | null = null;
     const getStorage = async (): Promise<HostedStorageHandle> => {
       if (!storagePromise) {
@@ -121,6 +254,32 @@ const canvasBoardApiPlugin: CanvasServerPlugin = {
 
     server.middlewares.use((request, response, next) => {
       const url = new URL(request.url ?? "/", "http://canvas.invalid");
+      if (request.method === "POST" && url.pathname === "/api/moss/test/orchestration") {
+        void (async () => {
+          const chunks: Buffer[] = [];
+          for await (const chunk of request) {
+            chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+          }
+          const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as {
+            method?: string;
+            input?: Record<string, unknown>;
+          };
+          const result = await (
+            await getOrchestration()
+          ).request(parsed.method ?? "", parsed.input ?? {});
+          response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+          response.end(JSON.stringify({ result }));
+        })().catch((error: unknown) => {
+          // Like the real server, a command its decider rejects fails the window's dispatch.
+          response.writeHead(400, { "content-type": "application/json; charset=utf-8" });
+          response.end(
+            JSON.stringify({
+              error: { message: error instanceof Error ? error.message : String(error) },
+            }),
+          );
+        });
+        return;
+      }
       if (
         !url.pathname.startsWith("/api/moss/media/canvas/") &&
         url.pathname !== "/api/moss/media/jobs"
@@ -153,21 +312,33 @@ const canvasBoardApiPlugin: CanvasServerPlugin = {
 
       if (request.method === "GET" && url.pathname === "/api/moss/media/canvas/account") {
         const canvasThread = url.searchParams.get("canvasThread");
-        sendJson(200, {
-          authenticated: true,
-          ...(boardScope ? { boardScope } : {}),
-          ...(canvasThread
-            ? {
-                workspace: {
-                  threadId: canvasThread,
-                  fingerprint: createHash("sha256").update(canvasThread).digest("hex"),
-                },
-              }
-            : {}),
-          authority: "moss-desktop-database",
-          realm: "cn",
-          user: { id: "account-a", name: "Moss 用户", phone: "+8613800000000" },
-        });
+        void (async () => {
+          // Like the real server (resolveMossCanvasWorkspace): a conversation the server does not
+          // know (a new chat nothing was sent in) has no Canvas. A `draft-…` thread is known once
+          // its thread.create reached the server's orchestration.
+          if (
+            canvasThread?.startsWith("draft-") &&
+            !(await getOrchestration()).knows(canvasThread)
+          ) {
+            sendJson(404, { error: { code: "canvas_thread_not_found" } });
+            return;
+          }
+          sendJson(200, {
+            authenticated: true,
+            ...(boardScope ? { boardScope } : {}),
+            ...(canvasThread
+              ? {
+                  workspace: {
+                    threadId: canvasThread,
+                    fingerprint: createHash("sha256").update(canvasThread).digest("hex"),
+                  },
+                }
+              : {}),
+            authority: "moss-desktop-database",
+            realm: "cn",
+            user: { id: "account-a", name: "Moss 用户", phone: "+8613800000000" },
+          });
+        })().catch(() => sendJson(500, { error: { code: "canvas_account_failed" } }));
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/moss/media/jobs") {
@@ -278,6 +449,14 @@ const canvasBoardApiPlugin: CanvasServerPlugin = {
             return;
           }
           const result = await storage.request(method, parsed.input ?? {});
+          // Like the real storage route (mossMediaJobsRoute.ts): a conversation's 画布 saved with
+          // content is recorded, before the answer, by the server's own recordMossCanvasEdited.
+          const writtenThread = url.searchParams.get("canvasThread");
+          if (writtenThread && orchestration) {
+            await (
+              await orchestration
+            ).recordCanvasWrite(writtenThread, method, parsed.input ?? {});
+          }
           sendJson(200, { result, ...(boardScope ? { boardScope } : {}) });
         })().catch((error: unknown) => {
           const code =

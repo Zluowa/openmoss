@@ -91,6 +91,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json,
           sidechat_last_activity_at,
           sidechat_expired_at,
+          canvas_edited_at,
           listed_after_first_send,
           last_known_pr_json,
           pull_requests_json,
@@ -147,6 +148,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.sidechatContext == null ? null : JSON.stringify(row.sidechatContext)},
           ${row.sidechatLastActivityAt ?? null},
           ${row.sidechatExpiredAt ?? null},
+          ${row.canvasEditedAt ?? null},
           ${row.listedAfterFirstSend == null ? null : row.listedAfterFirstSend ? 1 : 0},
           ${row.lastKnownPr === null ? null : JSON.stringify(row.lastKnownPr)},
           ${row.pullRequests == null ? null : JSON.stringify(row.pullRequests)},
@@ -203,6 +205,8 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json = excluded.sidechat_context_json,
           sidechat_last_activity_at = excluded.sidechat_last_activity_at,
           sidechat_expired_at = excluded.sidechat_expired_at,
+          -- Set once: an upsert never clears or moves it (an older build's row carries none).
+          canvas_edited_at = COALESCE(projection_threads.canvas_edited_at, excluded.canvas_edited_at),
           -- Set at creation only: an upsert never clears it (an older build's row carries none).
           listed_after_first_send = COALESCE(
             projection_threads.listed_after_first_send,
@@ -281,6 +285,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json AS "sidechatContext",
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
+          canvas_edited_at AS "canvasEditedAt",
           listed_after_first_send AS "listedAfterFirstSend",
           last_known_pr_json AS "lastKnownPr",
           pull_requests_json AS "pullRequests",
@@ -346,6 +351,7 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           sidechat_context_json AS "sidechatContext",
           sidechat_last_activity_at AS "sidechatLastActivityAt",
           sidechat_expired_at AS "sidechatExpiredAt",
+          canvas_edited_at AS "canvasEditedAt",
           listed_after_first_send AS "listedAfterFirstSend",
           last_known_pr_json AS "lastKnownPr",
           pull_requests_json AS "pullRequests",

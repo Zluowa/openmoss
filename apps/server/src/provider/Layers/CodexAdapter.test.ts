@@ -35,6 +35,7 @@ import { issueCodexCredentialFence, readCodexCredentialFence } from "../../codex
 import { CodexSessionStartError } from "../../codexErrorClassification.ts";
 import { resolveCodexGeneratedImagesRoots } from "../../codexGeneratedImages.ts";
 import { projectProviderRuntimeActivities } from "../../orchestration/providerRuntimeActivityProjection.ts";
+import { splitPosixQuotedArgv } from "@moss/shared/shellCommandShape";
 import { ProviderAdapterValidationError } from "../Errors.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
@@ -2730,6 +2731,67 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
       }
       assert.equal(firstEvent.value.payload.requestType, "command_execution_approval");
     }),
+  );
+
+  it.effect(
+    "WALK-13 N13-2: a Windows command approval names the program Codex starts with one backslash per backslash",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+        // The walker's Codex 0.166 request on Windows: `command` is one line, the program and
+        // its arguments joined with POSIX quoting, so every backslash of the path is doubled.
+        const powershell = [
+          "C:",
+          "Windows",
+          "System32",
+          "WindowsPowerShell",
+          "v1.0",
+          "powershell.exe",
+        ].join("\\");
+        const codexLine = `"${powershell.replaceAll("\\", "\\\\")}" -Command 'Get-ChildItem -Name'`;
+
+        lifecycleManager.emit("event", {
+          id: asEventId("evt-n13-2-command-approval"),
+          kind: "request",
+          provider: "codex",
+          threadId: asThreadId("thread-1"),
+          createdAt: new Date().toISOString(),
+          method: "item/commandExecution/requestApproval",
+          turnId: asTurnId("turn-1"),
+          itemId: asItemId("call_4"),
+          requestId: ApprovalRequestId.makeUnsafe("req-n13-2"),
+          requestKind: "command",
+          payload: {
+            threadId: "provider-thread-1",
+            turnId: "provider-turn-1",
+            itemId: "call_4",
+            reason: null,
+            command: codexLine,
+            cwd: ["C:", "Users", "person", "code"].join("\\"),
+            commandActions: [{ type: "unknown", command: "Get-ChildItem -Name" }],
+            proposedExecpolicyAmendment: ["Get-ChildItem", "-Name"],
+          },
+        } satisfies ProviderEvent);
+
+        const firstEvent = yield* Fiber.join(firstEventFiber);
+        assert.equal(firstEvent._tag, "Some");
+        if (firstEvent._tag !== "Some" || firstEvent.value.type !== "request.opened") return;
+        const [activity] = projectProviderRuntimeActivities(firstEvent.value);
+        const shown = (activity?.payload as { detail?: unknown } | undefined)?.detail;
+        // What the card shows (its body is this detail, verbatim).
+        assert.equal(shown, `"${powershell}" -Command 'Get-ChildItem -Name'`);
+        assert.equal(String(shown).includes("\\\\"), false);
+        // Still the same program and arguments Codex sent.
+        assert.deepEqual(splitPosixQuotedArgv(String(shown)), splitPosixQuotedArgv(codexLine));
+        assert.deepEqual(splitPosixQuotedArgv(String(shown)), [
+          powershell,
+          "-Command",
+          "Get-ChildItem -Name",
+        ]);
+        // The request itself is kept as Codex sent it.
+        assert.equal((firstEvent.value.payload.args as { command?: unknown }).command, codexLine);
+      }),
   );
 
   it.effect("maps permission-profile approval requests to the canonical permission kind", () =>

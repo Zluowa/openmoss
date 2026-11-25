@@ -124,6 +124,12 @@ export interface SpaceArtifactAssistantTarget {
   readonly revision?: number | null | undefined;
 }
 
+/**
+ * 图像 and 资料空间 prepare their chat bare. The right dock's 画布 in a new chat passes
+ * `listedAfterFirstSend`: that chat is listed once something is sent or drawn in it (N7-1).
+ */
+type CanvasThreadPreparation = { readonly listedAfterFirstSend?: true };
+
 // Coordinator hand-off threads never mint through this hook, so every caller
 // here is a user-initiated surface: a fresh chat draft minted inside a group
 // container seeds from the group's workerRouting via the same helper the
@@ -1458,38 +1464,47 @@ export function useHandleNewThread() {
 
   // Images needs the same durable conversation/folder identity as the composer,
   // but opening it must not send the unsent prompt or start a paid model turn.
-  const prepareActiveThreadForCanvas = useCallback(async (): Promise<ThreadId | null> => {
-    if (activeThread) return activeThread.id;
-    if (!activeDraftThread || !routeThreadId) return null;
-    const api = readNativeApi();
-    if (!api) throw new LocalizedError("newThread.error.canvasUnavailable");
-    const project = projects.find((entry) => entry.id === activeDraftThread.projectId);
-    if (!project) throw new LocalizedError("newThread.error.folderNotReadyRetry");
-    const creation = resolveTerminalThreadCreationState({
+  const prepareActiveThreadForCanvas = useCallback(
+    async (options?: CanvasThreadPreparation): Promise<ThreadId | null> => {
+      if (activeThread) return activeThread.id;
+      if (!activeDraftThread || !routeThreadId) return null;
+      const api = readNativeApi();
+      if (!api) throw new LocalizedError("newThread.error.canvasUnavailable");
+      const project = projects.find((entry) => entry.id === activeDraftThread.projectId);
+      if (!project) throw new LocalizedError("newThread.error.folderNotReadyRetry");
+      const creation = resolveTerminalThreadCreationState({
+        activeDraftThread,
+        activeThread: null,
+        draftThread: activeDraftThread,
+        draftComposerState:
+          useComposerDraftStore.getState().draftsByThreadId[routeThreadId] ?? null,
+        defaultProvider: settings.defaultProvider,
+        projectId: activeDraftThread.projectId,
+        options: undefined,
+        resolveProviderForInstanceId: (id) =>
+          providerInstances.find((instance) => instance.instanceId === id)?.provider ?? null,
+        defaultInstanceIdForProvider: (provider) =>
+          newChatProviderInstanceIdFrom(providerInstances, provider),
+      });
+      return promoteCanvasDraftThread(
+        {
+          threadId: routeThreadId,
+          projectId: activeDraftThread.projectId,
+          creation,
+          ...(options?.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
+        },
+        api,
+      );
+    },
+    [
+      activeThread,
       activeDraftThread,
-      activeThread: null,
-      draftThread: activeDraftThread,
-      draftComposerState: useComposerDraftStore.getState().draftsByThreadId[routeThreadId] ?? null,
-      defaultProvider: settings.defaultProvider,
-      projectId: activeDraftThread.projectId,
-      options: undefined,
-      resolveProviderForInstanceId: (id) =>
-        providerInstances.find((instance) => instance.instanceId === id)?.provider ?? null,
-      defaultInstanceIdForProvider: (provider) =>
-        newChatProviderInstanceIdFrom(providerInstances, provider),
-    });
-    return promoteCanvasDraftThread(
-      { threadId: routeThreadId, projectId: activeDraftThread.projectId, creation },
-      api,
-    );
-  }, [
-    activeThread,
-    activeDraftThread,
-    routeThreadId,
-    projects,
-    providerInstances,
-    settings.defaultProvider,
-  ]);
+      routeThreadId,
+      projects,
+      providerInstances,
+      settings.defaultProvider,
+    ],
+  );
 
   return {
     startPageConversation,

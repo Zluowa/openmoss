@@ -146,6 +146,7 @@ import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { ensureMossBundledSkills, mossSkillsDir } from "../skillsCatalog.ts";
 import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
+import { codexCommandText } from "../codexCommandText.ts";
 import { assignDerivedProviderRuntimeEventIds } from "../providerRuntimeEventIdentity.ts";
 import {
   compactProviderRuntimeEventForIngress,
@@ -3116,8 +3117,13 @@ function mapToRuntimeEvents(
       ];
     }
 
+    // A command reads as the program and arguments Codex will start, not in the POSIX
+    // quoting Codex sends them in (WALK-13 N13-2).
+    const command = asString(payload?.command);
     const detail =
-      asString(payload?.command) ??
+      (command !== undefined && event.method === "item/commandExecution/requestApproval"
+        ? codexCommandText(command)
+        : command) ??
       asString(payload?.reason) ??
       asString(payload?.prompt) ??
       asString(payload?.message);

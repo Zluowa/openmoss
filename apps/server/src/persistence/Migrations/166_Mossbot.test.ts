@@ -58,6 +58,7 @@ it.layer(NodeSqliteClient.layerMemory())(
             [170, "ProjectionThreadsPullRequestLinks"],
             [171, "PageAssistantThread"],
             [172, "ProjectionThreadsListedAfterFirstSend"],
+            [173, "ProjectionThreadsCanvasEditedAt"],
           ],
         );
         const after = yield* snapshot;
@@ -66,7 +67,7 @@ it.layer(NodeSqliteClient.layerMemory())(
           before.configs.map((row) => ({ ...row, agent_kind: "hub" })),
         );
         assert.deepStrictEqual(after.projects, before.projects);
-        // 170 and 172 add empty columns (pull request links, the warm-up mark); nothing else on a
+        // 170, 172 and 173 add empty columns (pull request links, the warm-up mark, the 画布 mark); nothing else on a
         // thread changes.
         assert.deepStrictEqual(
           after.threads,
@@ -74,12 +75,14 @@ it.layer(NodeSqliteClient.layerMemory())(
             ...row,
             pull_requests_json: null,
             listed_after_first_send: null,
+            canvas_edited_at: null,
           })),
         );
         assert.deepStrictEqual(after.messages, before.messages);
         assert.deepStrictEqual(
-          yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 7`,
+          yield* sql`SELECT migration_id, name FROM effect_sql_migrations ORDER BY migration_id DESC LIMIT 8`,
           [
+            { migration_id: 173, name: "ProjectionThreadsCanvasEditedAt" },
             { migration_id: 172, name: "ProjectionThreadsListedAfterFirstSend" },
             { migration_id: 171, name: "PageAssistantThread" },
             { migration_id: 170, name: "ProjectionThreadsPullRequestLinks" },
@@ -112,7 +115,7 @@ it.layer(NodeSqliteClient.layerMemory())(
           const executed = yield* runMigrations();
           assert.deepStrictEqual(
             executed.map(([id]) => id),
-            [166, 167, 168, 169, 170, 171, 172],
+            [166, 167, 168, 169, 170, 171, 172, 173],
           );
           assert.deepStrictEqual(yield* snapshot, before);
           assert.deepStrictEqual(

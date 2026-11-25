@@ -746,6 +746,10 @@ const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
               ...(event.payload.subagentRole !== undefined
                 ? { subagentRole: event.payload.subagentRole }
                 : {}),
+              // Set once: the first record wins (WALK-7 N7-1).
+              ...(event.payload.canvasEditedAt !== undefined && thread.canvasEditedAt == null
+                ? { canvasEditedAt: event.payload.canvasEditedAt }
+                : {}),
               ...(pullRequests !== undefined
                 ? { pullRequests, lastKnownPr: resolveCurrentPullRequest(pullRequests) }
                 : event.payload.lastKnownPr !== undefined

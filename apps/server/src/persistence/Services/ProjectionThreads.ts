@@ -82,6 +82,10 @@ export const ProjectionThread = Schema.Struct({
   sidechatExpiredAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
     Schema.withDecodingDefault(() => null),
   ),
+  // When the conversation's 画布 first held content; set once (migration 173, WALK-7 N7-1).
+  canvasEditedAt: Schema.optional(Schema.NullOr(IsoDateTime)).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   // An item panel's warm-up chat, listed only after its first send (migration 172, WALK-1 S-6).
   listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)).pipe(
     Schema.withDecodingDefault(() => null),

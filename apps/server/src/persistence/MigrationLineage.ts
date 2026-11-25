@@ -310,6 +310,7 @@ export const MOSS_RELEASED_DESCRIPTOR: ReadonlyArray<readonly [number, string]> 
   [170, "ProjectionThreadsPullRequestLinks"],
   [171, "PageAssistantThread"],
   [172, "ProjectionThreadsListedAfterFirstSend"],
+  [173, "ProjectionThreadsCanvasEditedAt"],
 ]);
 
 export const UPSTREAM_3CEFD5A_DESCRIPTOR: ReadonlyArray<readonly [number, string]> = Object.freeze([

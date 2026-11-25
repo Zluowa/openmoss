@@ -206,6 +206,7 @@ export function threadShellsEqual(left: ThreadShell | undefined, right: ThreadSh
     (left.sidechatContext?.url ?? null) === (right.sidechatContext?.url ?? null) &&
     (left.sidechatLastActivityAt ?? null) === (right.sidechatLastActivityAt ?? null) &&
     (left.sidechatExpiredAt ?? null) === (right.sidechatExpiredAt ?? null) &&
+    (left.canvasEditedAt ?? null) === (right.canvasEditedAt ?? null) &&
     (left.listedAfterFirstSend ?? null) === (right.listedAfterFirstSend ?? null) &&
     deepEqualJson(left.lastKnownPr ?? null, right.lastKnownPr ?? null) &&
     deepEqualJson(left.pullRequests ?? [], right.pullRequests ?? []) &&
@@ -1971,6 +1972,7 @@ export function normalizeThreadFromReadModel(
     (previous.sidechatContext?.url ?? null) === (incoming.sidechatContext?.url ?? null) &&
     (previous.sidechatLastActivityAt ?? null) === (incoming.sidechatLastActivityAt ?? null) &&
     (previous.sidechatExpiredAt ?? null) === (incoming.sidechatExpiredAt ?? null) &&
+    (previous.canvasEditedAt ?? null) === (incoming.canvasEditedAt ?? null) &&
     (previous.listedAfterFirstSend ?? null) === (incoming.listedAfterFirstSend ?? null) &&
     deepEqualJson(previous.lastKnownPr ?? null, lastKnownPr) &&
     (previous.handoff ?? null) === handoff &&
@@ -2034,6 +2036,7 @@ export function normalizeThreadFromReadModel(
     sidechatContext: incoming.sidechatContext ?? null,
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: incoming.sidechatExpiredAt ?? null,
+    canvasEditedAt: incoming.canvasEditedAt ?? null,
     ...(incoming.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     lastKnownPr,
     pullRequests,
@@ -2192,6 +2195,7 @@ export function normalizeThreadShellSnapshot(
     sidechatContext: incoming.sidechatContext ?? null,
     sidechatLastActivityAt: incoming.sidechatLastActivityAt ?? null,
     sidechatExpiredAt: incoming.sidechatExpiredAt ?? null,
+    canvasEditedAt: incoming.canvasEditedAt ?? null,
     ...(incoming.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     lastKnownPr,
     pullRequests,

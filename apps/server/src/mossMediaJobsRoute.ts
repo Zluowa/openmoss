@@ -36,6 +36,7 @@ import {
 import { join } from "node:path";
 import { mossCanvasTextModels, relayMossCanvasText } from "./mossCanvasText";
 import { mossCanvasWorkspaceFingerprint, resolveMossCanvasWorkspace } from "./mossCanvasWorkspace";
+import { isCanvasContentWrite, recordMossCanvasEdited } from "./mossCanvasEdited";
 import { createLogger } from "./logger";
 import type { MossLocalAccountAuthority } from "./account/mossLocalAccountAuthority";
 import { promoteMossCanvasOwnedMediaAsset } from "./mossCanvasMediaPromotion";
@@ -718,6 +719,9 @@ export const mossMediaJobsEffectRouteLayer = HttpRouter.add(
             ),
         });
         yield* currentAccount();
+        // A conversation's 画布 saved with content: its chat is listed from now on (WALK-7 N7-1).
+        if (canvasWorkspace && isCanvasContentWrite(input.method, args))
+          yield* recordMossCanvasEdited(canvasWorkspace.threadId);
         return json(200, { result: output, ...(boardScope ? { boardScope } : {}) });
       }
       const segmentJob = url.pathname.match(

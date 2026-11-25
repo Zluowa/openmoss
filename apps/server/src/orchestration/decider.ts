@@ -1907,6 +1907,28 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.canvas-edited.record": {
+      // Server only (the Canvas storage route): the conversation's 画布 got its first content.
+      // Set once and never cleared; a later write records nothing (WALK-7 N7-1).
+      const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
+      if (thread.canvasEditedAt != null) return [];
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.editedAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.meta-updated",
+        payload: {
+          threadId: command.threadId,
+          canvasEditedAt: command.editedAt,
+          // Recording the 画布 does not move the chat in recency lists.
+          updatedAt: thread.updatedAt ?? thread.createdAt,
+        },
+      };
+    }
+
     case "thread.sidechat.expire": {
       const thread = yield* requireThread({ readModel, command, threadId: command.threadId });
       if (!isSidechatThread(thread)) {

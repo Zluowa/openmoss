@@ -44,9 +44,23 @@ describe("Canvas draft conversation promotion", () => {
       }),
       native,
     );
+    // 图像 and 资料空间 make a chat that is listed at once, as on main (WALK-7 N7-1 scope).
+    expect(vi.mocked(promoteThreadCreate).mock.calls[0]![0]).not.toHaveProperty(
+      "listedAfterFirstSend",
+    );
     expect(native.orchestration.dispatchCommand).not.toHaveBeenCalled();
     expect(native.orchestration.getShellSnapshot).toHaveBeenCalledTimes(1);
     expect(useStore.getState()).toHaveProperty("syncServerShellSnapshot");
+  });
+  it("marks the chat only when the right dock's 画布 asks for it (WALK-7 N7-1)", async () => {
+    vi.mocked(promoteThreadCreate).mockResolvedValue("created");
+    const native = api();
+    await promoteCanvasDraftThread({ ...input, listedAfterFirstSend: true }, native);
+    // Listed once something is sent or drawn in it.
+    expect(vi.mocked(promoteThreadCreate).mock.calls[0]![0]).toHaveProperty(
+      "listedAfterFirstSend",
+      true,
+    );
   });
   it("keeps a pending worktree from silently using a different folder", async () => {
     await expect(

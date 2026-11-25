@@ -1438,6 +1438,11 @@ export const OrchestrationThread = Schema.Struct({
   sidechatContext: SidechatContextField,
   sidechatLastActivityAt: SidechatLifecycleTimestamp,
   sidechatExpiredAt: SidechatLifecycleTimestamp,
+  /**
+   * When the conversation's 画布 first held content (set once, by the server's Canvas storage).
+   * A chat nothing was sent in is listed once its 画布 has something on it (WALK-7 N7-1).
+   */
+  canvasEditedAt: SidechatLifecycleTimestamp,
   /** Made before anything was sent (an item panel's warm-up): listed only after the first send. */
   listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)),
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
@@ -1565,6 +1570,11 @@ export const OrchestrationThreadShell = Schema.Struct({
   sidechatContext: SidechatContextField,
   sidechatLastActivityAt: SidechatLifecycleTimestamp,
   sidechatExpiredAt: SidechatLifecycleTimestamp,
+  /**
+   * When the conversation's 画布 first held content (set once, by the server's Canvas storage).
+   * A chat nothing was sent in is listed once its 画布 has something on it (WALK-7 N7-1).
+   */
+  canvasEditedAt: SidechatLifecycleTimestamp,
   /** Made before anything was sent (an item panel's warm-up): listed only after the first send. */
   listedAfterFirstSend: Schema.optional(Schema.NullOr(Schema.Boolean)),
   lastKnownPr: Schema.optional(Schema.NullOr(OrchestrationThreadPullRequest)).pipe(
@@ -2843,6 +2853,17 @@ const ThreadSidechatActivityRecordCommand = Schema.Struct({
   activityAt: IsoDateTime,
 });
 
+/**
+ * Server only (not in the client command unions): the conversation's 画布 got its first content,
+ * from the Canvas storage route. Recorded as an optional field on `thread.meta-updated`.
+ */
+const ThreadCanvasEditedRecordCommand = Schema.Struct({
+  type: Schema.Literal("thread.canvas-edited.record"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  editedAt: IsoDateTime,
+});
+
 const ThreadSidechatExpireCommand = Schema.Struct({
   type: Schema.Literal("thread.sidechat.expire"),
   commandId: CommandId,
@@ -2871,6 +2892,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadDispatchQueuedTurnCommand,
   ThreadSidechatActivityRecordCommand,
   ThreadSidechatExpireCommand,
+  ThreadCanvasEditedRecordCommand,
   ThreadPullRequestSyncCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
@@ -3281,6 +3303,11 @@ export const ThreadMetaUpdatedPayload = Schema.Struct({
   goalPausedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   goalAchievements: Schema.optional(ThreadGoalAchievements),
   providerHandoff: Schema.optional(ThreadProviderHandoff),
+  /**
+   * Set once, by the server only (`thread.canvas-edited.record`), when the conversation's 画布
+   * first held content. An optional field older decoders drop (WALK-7 N7-1).
+   */
+  canvasEditedAt: Schema.optional(IsoDateTime),
   updatedAt: IsoDateTime,
 });
 
@@ -3851,6 +3878,7 @@ export const OrchestrationEvent = Schema.Union([
     type: Schema.Literal("thread.sidechat-expired"),
     payload: ThreadSidechatExpiredPayload,
   }),
+
   Schema.Struct({
     ...EventBaseFields,
     type: Schema.Literal("thread.marker-added"),

@@ -174,4 +174,12 @@ describe("chatThreadIsListed", () => {
     expect(chatThreadIsListed({ latestTurn: null, listedAfterFirstSend: null })).toBe(true);
     expect(chatThreadIsListed({ latestTurn: null, listedAfterFirstSend: false })).toBe(true);
   });
+
+  it("lists a new chat nothing was sent in once its 画布 holds something (WALK-7 N7-1)", () => {
+    // Opening 画布 in a new chat creates it marked, like an item panel's warm-up chat.
+    const opened = { latestTurn: null, latestUserMessageAt: null, listedAfterFirstSend: true };
+    expect(chatThreadIsListed({ ...opened, canvasEditedAt: "2026-11-24T00:00:00Z" })).toBe(true);
+    // Opened and closed without drawing: nothing recorded, not listed.
+    expect(chatThreadIsListed({ ...opened, canvasEditedAt: null })).toBe(false);
+  });
 });

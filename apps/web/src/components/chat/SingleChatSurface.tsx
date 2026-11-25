@@ -77,6 +77,7 @@ import {
   createProjectSelector,
   createSidebarThreadSummariesSelector,
   createSidechatSummariesForSourceSelector,
+  createThreadExistsSelector,
   createThreadWorkspaceMetadataSelector,
 } from "../../storeSelectors";
 import { requestComposerFocus } from "../../composerFocusRequestStore";
@@ -414,7 +415,19 @@ export function SingleChatSurface(props: {
   const projects = useStore((store) => store.projects);
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const { settings: appSettings } = useAppSettings();
-  const { handleNewThread } = useHandleNewThread();
+  const { handleNewThread, prepareActiveThreadForCanvas } = useHandleNewThread();
+  // In a new chat nothing was sent in, the server knows no conversation yet: the 画布 creates
+  // the chat before it loads, listed once something is sent or drawn in it (WALK-7 N7-1). Once
+  // the server knows it, the 画布 opens that conversation like any other: the draft can stay
+  // until the first send, and its preparation must not reload the board meanwhile.
+  const serverThreadExists = useStore(
+    useMemo(() => createThreadExistsSelector(props.threadId), [props.threadId]),
+  );
+  const canvasCreatesThread = isBrandNewDraftThread && !serverThreadExists;
+  const prepareCanvasThread = useCallback(async () => {
+    const id = await prepareActiveThreadForCanvas({ listedAfterFirstSend: true });
+    return id === props.threadId ? id : null;
+  }, [prepareActiveThreadForCanvas, props.threadId]);
   const queryClient = useQueryClient();
   const lastAppliedRoutePanelSearchKeyRef = useRef<string | null>(null);
   const [editorExpandedDirectories, setEditorExpandedDirectories] = useState<ReadonlySet<string>>(
@@ -1295,6 +1308,7 @@ export function SingleChatSurface(props: {
             canvasOnly={pane.kind === "canvas"}
             {...(pane.canvasImage ? { imageFocus: pane.canvasImage } : {})}
             threadId={props.threadId}
+            {...(canvasCreatesThread ? { prepareThread: prepareCanvasThread } : {})}
             visible={context.isVisible}
             pane={pane}
             fullWidth={effectiveRightDockFullWidth}

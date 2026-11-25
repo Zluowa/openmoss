@@ -6,7 +6,16 @@ import { newCommandId } from "./utils";
 import { useStore } from "../store";
 
 export async function promoteCanvasDraftThread(
-  input: { threadId: ThreadId; projectId: ProjectId; creation: TerminalThreadCreationState },
+  input: {
+    threadId: ThreadId;
+    projectId: ProjectId;
+    creation: TerminalThreadCreationState;
+    /**
+     * Only the right dock's 画布 in a new chat sets it: that chat is listed once something is
+     * sent in it or its 画布 holds something (WALK-7 N7-1). 图像 and 资料空间 leave it unset.
+     */
+    listedAfterFirstSend?: true;
+  },
   api: NativeApi,
 ): Promise<ThreadId> {
   if (input.creation.envMode === "worktree" && !input.creation.worktreePath)
@@ -20,6 +29,7 @@ export async function promoteCanvasDraftThread(
       title: "New thread",
       ...input.creation,
       createdAt: new Date().toISOString(),
+      ...(input.listedAfterFirstSend ? { listedAfterFirstSend: true } : {}),
     },
     api,
   );

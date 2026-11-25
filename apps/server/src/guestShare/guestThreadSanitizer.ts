@@ -145,6 +145,7 @@ export const GUEST_THREAD_FIELD_DECISIONS = {
   sidechatContext: "kept",
   sidechatLastActivityAt: "kept",
   sidechatExpiredAt: "kept",
+  canvasEditedAt: "kept",
   listedAfterFirstSend: "kept",
   latestTurn: "kept",
   latestUserMessageAt: "kept",

@@ -11,6 +11,7 @@ import * as canvasStorage from "./mossCanvasStorage";
 import { PageTypesService, type PageTypesServiceShape } from "./pages/types/PageTypesService";
 import { PagesServiceError } from "./pages/Services/PagesService";
 import * as canvasWorkspace from "./mossCanvasWorkspace";
+import * as canvasEdited from "./mossCanvasEdited";
 import * as mediaPromotion from "./mossCanvasMediaPromotion";
 import { MossPhoneAccountService } from "./account/Services/MossPhoneAccountService";
 import { MossCloudAccountService } from "./account/Services/MossCloudAccountService";
@@ -1334,6 +1335,52 @@ describe("Moss media HTTP route", () => {
     expect(app.state.quotaReads).toBe(1);
     expect(app.fetchMock).not.toHaveBeenCalled();
     expect(app.state.submissions).toBe(0);
+  });
+
+  it("records a conversation's 画布 as having content on a save with a shape, only then (WALK-7 N7-1)", async () => {
+    const app = harness();
+    const workspace = {
+      threadId: "thread-new-chat",
+      cwd: "/fixture/new-chat",
+      title: "New thread",
+    };
+    vi.spyOn(canvasWorkspace, "resolveMossCanvasWorkspace").mockReturnValue(
+      Effect.succeed(workspace),
+    );
+    const recorded = vi
+      .spyOn(canvasEdited, "recordMossCanvasEdited")
+      .mockImplementation(() => Effect.void);
+    const store = canvasStore();
+    vi.spyOn(canvasStorage, "mossCanvasStorageFor").mockResolvedValue(store);
+    const account = await app.request(
+      "/api/moss/media/canvas/account?canvasThread=thread-new-chat",
+    );
+    const identity = (await account.json()) as {
+      workspace: { threadId: string; fingerprint: string };
+    };
+    const save = (method: string, store: Record<string, unknown>) =>
+      app.request("/api/moss/media/canvas/storage?canvasThread=thread-new-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          method,
+          input: {
+            relativePath: "conversation.tldr",
+            snapshot: { document: { store, schema: {} }, session: {} },
+          },
+          expectedAccount: { id: "account-a", realm: "memfire-phone" },
+          expectedWorkspace: identity.workspace,
+        }),
+      });
+    const page = { "page:page": { id: "page:page", typeName: "page" } };
+    // Opened and closed without drawing: the board saved has no shape, nothing is recorded.
+    expect((await save("projects.write", page)).status).toBe(200);
+    expect(recorded).not.toHaveBeenCalled();
+    // The person drew: the save holds a shape.
+    const drawn = { ...page, "shape:a": { id: "shape:a", typeName: "shape", type: "text" } };
+    expect((await save("projects.write", drawn)).status).toBe(200);
+    expect(recorded).toHaveBeenCalledWith("thread-new-chat");
+    expect(recorded).toHaveBeenCalledOnce();
   });
 
   it("withholds local Canvas identity after the account changes during its read", async () => {

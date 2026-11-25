@@ -1824,6 +1824,10 @@ export function projectEvent(
                 ? { subagentNickname: payload.subagentNickname }
                 : {}),
               ...(payload.subagentRole !== undefined ? { subagentRole: payload.subagentRole } : {}),
+              // Set once: the first record wins.
+              ...(payload.canvasEditedAt !== undefined && existingThread?.canvasEditedAt == null
+                ? { canvasEditedAt: payload.canvasEditedAt }
+                : {}),
               ...(payload.lastKnownPr !== undefined ? { lastKnownPr: payload.lastKnownPr } : {}),
               ...pullRequestLinksPatch(payload, existingThread?.pullRequests),
               ...(payload.handoff !== undefined ? { handoff: payload.handoff } : {}),

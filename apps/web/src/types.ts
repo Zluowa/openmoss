@@ -272,6 +272,8 @@ export interface Thread extends ThreadWorkspaceState {
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
   sidechatExpiredAt?: string | null;
+  /** When its 画布 first held content (listed though nothing was sent in it). */
+  canvasEditedAt?: string | null;
   /** An item panel's chat made before anything was sent: listed only after its first send. */
   listedAfterFirstSend?: boolean | null;
   handoff?: ThreadHandoff | null;
@@ -334,6 +336,8 @@ export interface ThreadShell extends ThreadWorkspaceState {
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
   sidechatExpiredAt?: string | null;
+  /** When its 画布 first held content (listed though nothing was sent in it). */
+  canvasEditedAt?: string | null;
   /** An item panel's chat made before anything was sent: listed only after its first send. */
   listedAfterFirstSend?: boolean | null;
   handoff?: ThreadHandoff | null;
@@ -404,6 +408,8 @@ export interface SidebarThreadSummary {
   sidechatContext?: ThreadSidechatContext | null;
   sidechatLastActivityAt?: string | null;
   sidechatExpiredAt?: string | null;
+  /** When its 画布 first held content (listed though nothing was sent in it). */
+  canvasEditedAt?: string | null;
   /** An item panel's chat made before anything was sent: listed only after its first send. */
   listedAfterFirstSend?: boolean | null;
   handoff?: ThreadHandoff | null;

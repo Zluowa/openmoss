@@ -63,6 +63,11 @@ export function ConversationImageWorkspace(props: {
   readonly onActiveImageChange: (id: string) => void;
   readonly onRequestFullWidth: (value: boolean) => void;
   readonly onClose: () => void;
+  /**
+   * A chat nothing was sent in yet has no conversation for the 画布 to belong to: opening the
+   * 画布 creates it first, the way sending does, then loads the board (WALK-7 N7-1).
+   */
+  readonly prepareThread?: (() => Promise<string | null>) | undefined;
 }) {
   const preview = props.pane.imagePreview;
   const boundary = useMossImagesAccountBoundary();
@@ -542,7 +547,8 @@ export function ConversationImageWorkspace(props: {
           canvas && canvasRuntime.loaded ? (
             <MossCanvasWebSurface
               embedded
-              threadId={props.threadId}
+              threadId={props.prepareThread ? null : props.threadId}
+              {...(props.prepareThread ? { prepareThread: props.prepareThread } : {})}
               {...(localImages ? { localImages } : {})}
               {...(props.imageFocus ? { image: props.imageFocus } : {})}
               onSelectionChange={onSelection}
