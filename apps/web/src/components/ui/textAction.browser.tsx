@@ -27,16 +27,28 @@ afterEach(async () => {
 
 it("is the shared ghost Button at 13 px, the normal weight and the muted ink", async () => {
   const onClick = vi.fn();
-  await render(<TextAction onClick={onClick}>清除</TextAction>);
+  await render(
+    <div>
+      <div data-testid="away" style={{ width: 20, height: 20 }} />
+      <div style={{ padding: 80 }}>
+        <TextAction onClick={onClick}>清除</TextAction>
+      </div>
+    </div>,
+  );
   const action = page.getByRole("button", { name: "清除", exact: true });
   await expect.element(action).toBeVisible();
+  // Park the shared browser pointer away from the button so an earlier test file's
+  // pointer position cannot leave :hover active on mount.
+  await userEvent.hover(page.getByTestId("away"));
   const element = action.element() as HTMLElement;
   expect(element.getAttribute("data-slot")).toBe("button");
   expect(element.hasAttribute("data-text-action")).toBe(true);
   const style = getComputedStyle(element);
   expect(style.fontSize).toBe("13px");
   expect(style.fontWeight).toBe(probe("font-normal", "fontWeight"));
-  expect(style.color).toBe(probe("text-muted-foreground", "color"));
+  await expect
+    .poll(() => getComputedStyle(element).color)
+    .toBe(probe("text-muted-foreground", "color"));
   await userEvent.hover(action);
   await expect.poll(() => getComputedStyle(element).color).toBe(probe("text-foreground", "color"));
   await action.click();
