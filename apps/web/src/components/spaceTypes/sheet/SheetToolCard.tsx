@@ -81,6 +81,7 @@ import {
 } from "../../chat/ComposerPickerMenuPopup";
 import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
+import { Input } from "../../ui/input";
 import {
   Menu,
   MenuGroup,
@@ -92,6 +93,7 @@ import {
   MenuTrigger,
 } from "../../ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "../../ui/popover";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { SpaceToolbarButton, SpaceToolbarDivider } from "../shared/SpaceEditorChrome";
 
 export type SheetBorderEdges =
@@ -313,33 +315,37 @@ function ColorPicker(props: {
           </Button>
           <div className="grid grid-cols-8 gap-1" role="group" aria-label="中性色">
             {neutrals.map((hex) => (
-              <Button
+              <IconButton
                 key={hex}
                 type="button"
                 size="icon-xs"
                 variant="ghost"
-                aria-label={hex}
-                title={hex}
+                label={hex}
+                tooltip={hex}
                 className="size-6 rounded-inline border border-border"
                 style={{ background: hex }}
                 onClick={() => pick(hex)}
-              />
+              >
+                <span aria-hidden />
+              </IconButton>
             ))}
           </div>
           <div className="grid grid-cols-6 gap-1" role="group" aria-label="颜色">
             {SHEET_HUES.filter((hue) => hue !== "gray").flatMap((hue) =>
               SHEET_SHADES.map((shade) => (
-                <Button
+                <IconButton
                   key={`${hue}-${shade}`}
                   type="button"
                   size="icon-xs"
                   variant="ghost"
-                  aria-label={`${HUE_NAMES[hue]} ${shade}`}
-                  title={`${HUE_NAMES[hue]} ${shade}`}
+                  label={`${HUE_NAMES[hue]} ${shade}`}
+                  tooltip={`${HUE_NAMES[hue]} ${shade}`}
                   className="h-6 w-full rounded-inline border border-transparent hover:border-border"
                   style={{ background: SHEET_PALETTE[hue][shade] }}
                   onClick={() => pick(SHEET_PALETTE[hue][shade])}
-                />
+                >
+                  <span aria-hidden />
+                </IconButton>
               )),
             )}
           </div>
@@ -506,15 +512,22 @@ export function SheetToolCard(props: {
         >
           <div className="grid grid-cols-5 gap-1 p-1" role="group" aria-label="边框位置">
             {BORDER_EDGES.map((edge) => (
-              <MenuItem
-                key={edge.edges}
-                aria-label={edge.label}
-                title={edge.label}
-                className="justify-center px-0"
-                onClick={() => a.borders(edge.edges, borderStyle, null)}
-              >
-                <edge.icon aria-hidden />
-              </MenuItem>
+              <Tooltip key={edge.edges}>
+                <TooltipTrigger
+                  render={
+                    <MenuItem
+                      aria-label={edge.label}
+                      className="justify-center px-0"
+                      onClick={() => a.borders(edge.edges, borderStyle, null)}
+                    />
+                  }
+                >
+                  <edge.icon aria-hidden />
+                </TooltipTrigger>
+                <TooltipPopup>
+                  <p>{edge.label}</p>
+                </TooltipPopup>
+              </Tooltip>
             ))}
           </div>
           <MenuSeparator />
@@ -751,23 +764,31 @@ export function SheetToolCard(props: {
         </ToolMenu>
         {s.commentAvailable || (!s.dockAvailable && s.mossLabel) ? <SpaceToolbarDivider /> : null}
         {s.commentAvailable && a.onToggleComments ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            aria-pressed={Boolean(s.commentActive)}
-            aria-label={commentLabel}
-            title={s.commentActive ? "退出评论 (Esc)" : "评论单元格"}
-            data-testid="sheet-comments"
-            className={cn(
-              "shrink-0 gap-1 tabular-nums",
-              s.commentActive ? "bg-accent text-foreground" : "text-muted-foreground",
-            )}
-            onClick={() => a.onToggleComments?.()}
-          >
-            <PageCommentIcon aria-hidden />
-            {commentCount ? commentCount : null}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  aria-pressed={Boolean(s.commentActive)}
+                  aria-label={commentLabel}
+                  data-testid="sheet-comments"
+                  className={cn(
+                    "shrink-0 gap-1 tabular-nums",
+                    s.commentActive ? "bg-accent text-foreground" : "text-muted-foreground",
+                  )}
+                  onClick={() => a.onToggleComments?.()}
+                />
+              }
+            >
+              <PageCommentIcon aria-hidden />
+              {commentCount ? commentCount : null}
+            </TooltipTrigger>
+            <TooltipPopup>
+              <p>{s.commentActive ? "退出评论 (Esc)" : "评论单元格"}</p>
+            </TooltipPopup>
+          </Tooltip>
         ) : null}
         {s.dockAvailable ? null : s.mossLabel ? (
           <form
@@ -777,7 +798,9 @@ export function SheetToolCard(props: {
               send();
             }}
           >
-            <input
+            <Input
+              unstyled
+              nativeInput
               aria-label="让 Moss 修改"
               data-testid="sheet-ask-moss"
               value={ask}
@@ -789,7 +812,7 @@ export function SheetToolCard(props: {
                 event.stopPropagation();
                 if (isImeComposingKeyEvent(event)) return;
               }}
-              className="min-w-0 flex-1 bg-transparent text-ui-sm outline-none placeholder:text-muted-foreground"
+              className="min-w-0 flex-1 [&_input]:px-0 [&_input]:py-0 [&_input]:text-ui-sm"
             />
           </form>
         ) : null}

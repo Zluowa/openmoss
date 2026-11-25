@@ -740,4 +740,29 @@ describe("电子表格 editor", () => {
     expect(onChange).not.toHaveBeenCalled();
     window.localStorage.removeItem("moss.sheet.readerFilters:reader-test");
   });
+
+  it("renames a sheet tab with ui/input and opens border & rules controls cleanly", async () => {
+    await page.viewport(1200, 760);
+    const onReplace = vi.fn<(next: SheetWorkbook) => void>();
+    await mount(undefined, onReplace);
+    await page.getByRole("button", { name: "预算 的更多选项", exact: true }).click();
+    await page.getByRole("menuitem", { name: "重命名", exact: true }).click();
+    const renameInput = page.getByRole("textbox", { name: "工作表名称" });
+    await expect.element(renameInput).toBeVisible();
+    expect(renameInput.element().getAttribute("data-slot")).toBe("input");
+    await renameInput.fill("Q4预算");
+    await renameInput
+      .element()
+      .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await vi.waitFor(() => {
+      expect(onReplace.mock.lastCall?.[0].sheets[0]?.name).toBe("Q4预算");
+    });
+
+    await page.getByRole("button", { name: "更多", exact: true }).click();
+    await page.getByTestId("sheet-tool-rules").click();
+    await page.getByTestId("sheet-rule-new").click();
+    const preset = page.getByRole("button", { name: "浅红底，深红字" });
+    await expect.element(preset).toBeVisible();
+    expect(preset.element().getAttribute("title")).toBeNull();
+  });
 });

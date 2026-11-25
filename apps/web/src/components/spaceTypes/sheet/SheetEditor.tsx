@@ -100,6 +100,8 @@ import { toastManager } from "../../ui/toast";
 import { Dialog, DialogPopup, DialogTitle } from "../../ui/dialog";
 import { IconButton } from "../../ui/icon-button";
 import { Input } from "../../ui/input";
+import { Textarea } from "../../ui/textarea";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import {
   Menu,
   MenuGroup,
@@ -2486,31 +2488,39 @@ export function SheetEditor(props: {
         </span>
       ) : null}
       {commentsOn && readOnly ? (
-        <Button
-          size="xs"
-          variant="ghost"
-          aria-pressed={commenting}
-          aria-label={
-            commentThreads.size
-              ? `评论，${commentThreads.size} 条未解决`
-              : commenting
-                ? "退出评论"
-                : "评论"
-          }
-          title={commenting ? "退出评论 (Esc)" : "评论单元格"}
-          data-testid="sheet-comments"
-          className={cn(
-            "gap-1 tabular-nums",
-            commenting ? "bg-accent text-foreground" : "text-muted-foreground",
-          )}
-          onClick={() => {
-            setCommenting((on) => !on);
-            setCommentOpen(null);
-          }}
-        >
-          <PageCommentIcon aria-hidden />
-          {commentThreads.size ? commentThreads.size : null}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-pressed={commenting}
+                aria-label={
+                  commentThreads.size
+                    ? `评论，${commentThreads.size} 条未解决`
+                    : commenting
+                      ? "退出评论"
+                      : "评论"
+                }
+                data-testid="sheet-comments"
+                className={cn(
+                  "gap-1 tabular-nums",
+                  commenting ? "bg-accent text-foreground" : "text-muted-foreground",
+                )}
+                onClick={() => {
+                  setCommenting((on) => !on);
+                  setCommentOpen(null);
+                }}
+              />
+            }
+          >
+            <PageCommentIcon aria-hidden />
+            {commentThreads.size ? commentThreads.size : null}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom">
+            <p>{commenting ? "退出评论 (Esc)" : "评论单元格"}</p>
+          </TooltipPopup>
+        </Tooltip>
       ) : null}
       <Menu>
         <MenuTrigger
@@ -2805,7 +2815,9 @@ export function SheetEditor(props: {
         >
           <SheetFunctionIcon className="size-4" />
         </span>
-        <input
+        <Input
+          unstyled
+          nativeInput
           aria-label="编辑栏"
           data-testid="sheet-formula-field"
           value={shownInField}
@@ -2837,7 +2849,7 @@ export function SheetEditor(props: {
               (event.target as HTMLInputElement).blur();
             }
           }}
-          className="h-full min-w-0 flex-1 bg-transparent px-1.5 font-[inherit] text-ui outline-none placeholder:text-muted-foreground"
+          className="h-full min-w-0 flex-1 font-[inherit] [&_input]:px-1.5 [&_input]:py-0 [&_input]:text-ui"
         />
         {busy ? (
           <span role="status" className="px-2 text-ui-sm text-muted-foreground">
@@ -3694,13 +3706,13 @@ function DropdownDialog(props: {
           <p className="text-ui-sm text-muted-foreground">
             每行一个选项。所选单元格和下面 10 行都会用这个下拉菜单。
           </p>
-          <textarea
+          <Textarea
+            size="sm"
             aria-label="下拉菜单选项"
             value={text}
             rows={5}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => event.stopPropagation()}
-            className="rounded-control border border-input bg-background px-2.5 py-2 text-ui-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => props.onOpenChange(false)}>

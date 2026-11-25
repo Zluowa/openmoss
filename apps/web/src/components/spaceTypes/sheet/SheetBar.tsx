@@ -17,6 +17,7 @@ import { DOCK_HEADER_ICON_BUTTON_CLASS } from "../../chat/chatHeaderControls";
 import { ComposerPickerMenuPopup } from "../../chat/ComposerPickerMenuPopup";
 import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
+import { Input } from "../../ui/input";
 import { Menu, MenuGroup, MenuItem, MenuSeparator, MenuTrigger } from "../../ui/menu";
 
 export interface SelectionFigures {
@@ -190,8 +191,10 @@ export function SheetBar(props: {
           if (renaming === sheet.id)
             return (
               <div key={sheet.id} className="flex shrink-0 flex-col">
-                <input
+                <Input
                   ref={input}
+                  nativeInput
+                  size="sm"
                   aria-label="工作表名称"
                   value={draft}
                   maxLength={100}
@@ -206,10 +209,7 @@ export function SheetBar(props: {
                       setRenaming(null);
                     }
                   }}
-                  className={cn(
-                    "h-7 w-36 rounded-control border bg-background px-2 text-ui-sm outline-none",
-                    error ? "border-destructive" : "border-primary",
-                  )}
+                  className={cn("h-7 w-36", error ? "border-destructive" : "border-primary")}
                 />
                 {error ? (
                   <span

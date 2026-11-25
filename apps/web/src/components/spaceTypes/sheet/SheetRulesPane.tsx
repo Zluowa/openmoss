@@ -24,6 +24,7 @@ import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
 import { Input } from "../../ui/input";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { SpaceSidePanel } from "../shared/SpaceEditorChrome";
 import { Choice } from "./sheetControls";
 import {
@@ -314,24 +315,31 @@ function FormatEditor(props: {
             effect: { kind: "formatWhere", allOf: [], format: preset.format },
           });
           return (
-            <Button
-              key={preset.label}
-              type="button"
-              size="xs"
-              variant="outline"
-              title={preset.label}
-              aria-label={preset.label}
-              className="h-7 px-2"
-              style={{
-                background: look.fill ?? undefined,
-                color: look.color ?? undefined,
-                fontWeight: look.bold ? 600 : undefined,
-                textDecoration: look.strike ? "line-through" : undefined,
-              }}
-              onClick={() => props.onChange(preset.format)}
-            >
-              123
-            </Button>
+            <Tooltip key={preset.label}>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    aria-label={preset.label}
+                    className="h-7 px-2"
+                    style={{
+                      background: look.fill ?? undefined,
+                      color: look.color ?? undefined,
+                      fontWeight: look.bold ? 600 : undefined,
+                      textDecoration: look.strike ? "line-through" : undefined,
+                    }}
+                    onClick={() => props.onChange(preset.format)}
+                  />
+                }
+              >
+                123
+              </TooltipTrigger>
+              <TooltipPopup>
+                <p>{preset.label}</p>
+              </TooltipPopup>
+            </Tooltip>
           );
         })}
       </div>
