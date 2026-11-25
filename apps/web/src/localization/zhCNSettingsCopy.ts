@@ -868,7 +868,6 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Show pinned messages.": "显示置顶消息。",
   "Show the project's instructions.": "显示项目说明。",
   "Show the chat's notepad.": "显示对话记事本。",
-  "The icon in the dock or taskbar.": "程序坞或任务栏中的图标。",
   "Lighter, crisper text.": "更轻、更清晰的文字。",
   "A reached limit still shows when this is off.": "关闭后，达到上限时仍会提示。",
   "Closing a tab clears its history.": "关闭标签会清除它的历史。",

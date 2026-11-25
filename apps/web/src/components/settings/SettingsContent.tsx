@@ -1032,7 +1032,6 @@ export function SettingsContent({
         <SettingsSection title="App">
           <SettingsRow
             title="App icon"
-            description="The icon in the dock or taskbar."
             resetAction={
               settings.desktopAppIcon !== defaultDesktopAppIcon ? (
                 <SettingResetButton
