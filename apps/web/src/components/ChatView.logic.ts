@@ -54,6 +54,7 @@ import {
   type TerminalContextDraft,
 } from "../lib/terminalContext";
 import { filterPastedTextsWithText, type PastedTextDraft } from "../lib/composerPastedText";
+import { isMossCanvasSelectionChipId } from "../lib/mossCanvasSelection";
 import { isProviderDurablyUnavailable } from "../lib/providerAvailability";
 import {
   normalizePullRequestContexts,
@@ -1983,6 +1984,8 @@ export function buildSuggestedWorktreeName(input: {
 export function deriveComposerSendState(options: {
   prompt: string;
   imageCount: number;
+  /** Passive reference images synced from a workspace (e.g. Canvas selection); not sendable on their own. */
+  passiveImageCount?: number;
   fileCount: number;
   assistantSelectionCount: number;
   /** Quotes that carry the reader's own reply ("With reply"): those are a message. */
@@ -1999,12 +2002,12 @@ export function deriveComposerSendState(options: {
   sendablePastedTexts: PastedTextDraft[];
   sendablePullRequestContexts: PullRequestContextDraft[];
   /**
-   * The reader wrote something or attached something besides quotes. A quote alone
-   * (assistant selections, no text) is not a message (desktop chat): Enter and Send
-   * do nothing until the reader adds their own words.
+   * The reader wrote something or attached something besides quotes or passive
+   * workspace selections. A quote or canvas selection alone is not a message:
+   * Enter and Send do nothing until the reader adds their own words or attachments.
    */
   hasSendableContent: boolean;
-  /** Anything at all in the composer, quotes included. */
+  /** Anything at all the reader authored or quoted in the composer. */
   hasDraftContent: boolean;
 } {
   const trimmedPrompt = stripInlineTerminalContextPlaceholders(options.prompt).trim();
@@ -2012,16 +2015,20 @@ export function deriveComposerSendState(options: {
   const expiredTerminalContextCount =
     options.terminalContexts.length - sendableTerminalContexts.length;
   const sendablePastedTexts = filterPastedTextsWithText(options.pastedTexts);
+  const ownedImageCount = Math.max(0, options.imageCount - (options.passiveImageCount ?? 0));
+  const hasOwnedPastedText = sendablePastedTexts.some(
+    (pasted) => !isMossCanvasSelectionChipId(pasted.id),
+  );
   const sendablePullRequestContexts = normalizePullRequestContexts(options.pullRequestContexts);
   const hasSendableContent =
     trimmedPrompt.length > 0 ||
     (options.assistantSelectionReplyCount ?? 0) > 0 ||
-    options.imageCount > 0 ||
+    ownedImageCount > 0 ||
     options.fileCount > 0 ||
     options.browserAnnotationCount > 0 ||
     options.fileCommentCount > 0 ||
     sendableTerminalContexts.length > 0 ||
-    sendablePastedTexts.length > 0 ||
+    hasOwnedPastedText ||
     sendablePullRequestContexts.length > 0;
   return {
     trimmedPrompt,

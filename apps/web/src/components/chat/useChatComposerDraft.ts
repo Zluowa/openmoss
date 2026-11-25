@@ -17,6 +17,7 @@ import {
   type RestoredComposerSourceProposedPlan,
 } from "../../composerDraftStore";
 import { type PastedTextDraft } from "../../lib/composerPastedText";
+import { isMossCanvasReferenceImageId } from "../../lib/mossCanvasReferenceImages";
 import { type FileCommentDraft } from "../../lib/fileComments";
 import { type PullRequestContextDraft } from "../../lib/pullRequestContext";
 import {
@@ -52,11 +53,15 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
   const composerAssistantSelectionReplyCount = composerAssistantSelections.filter(
     (selection) => (selection.comment ?? "").trim().length > 0,
   ).length;
+  const passiveCanvasImageCount = composerImages.filter((image) =>
+    isMossCanvasReferenceImageId(image.id),
+  ).length;
   const composerSendState = useMemo(
     () =>
       deriveComposerSendState({
         prompt,
         imageCount: composerImages.length,
+        passiveImageCount: passiveCanvasImageCount,
         fileCount: composerFiles.length,
         assistantSelectionCount: composerAssistantSelections.length,
         assistantSelectionReplyCount: composerAssistantSelectionReplyCount,
@@ -73,6 +78,7 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
       composerFileComments.length,
       composerFiles.length,
       composerImages.length,
+      passiveCanvasImageCount,
       composerTerminalContexts,
       composerPastedTexts,
       composerPullRequestContexts,

@@ -43,6 +43,7 @@ import {
   stageUploadComposerAttachments,
 } from "../../lib/composerSend";
 import { appendFileCommentsToPrompt } from "../../lib/fileComments";
+import { isMossCanvasReferenceImageId } from "../../lib/mossCanvasReferenceImages";
 import { appendPullRequestContextsToPrompt } from "../../lib/pullRequestContext";
 import { prepareQueuedComposerResumeAfterSend } from "../../lib/queuedComposerDrain";
 import {
@@ -646,6 +647,9 @@ export function useChatTurnSubmission({
       } = deriveComposerSendState({
         prompt: promptForSend,
         imageCount: composerImagesForSend.length,
+        passiveImageCount: composerImagesForSend.filter((image) =>
+          isMossCanvasReferenceImageId(image.id),
+        ).length,
         fileCount: composerFilesForSend.length,
         assistantSelectionCount: composerAssistantSelectionsForSend.length,
         assistantSelectionReplyCount: composerAssistantSelectionsForSend.filter(

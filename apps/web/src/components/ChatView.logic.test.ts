@@ -14,6 +14,8 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { QueuedComposerChatTurn } from "../composerDraftStore";
+import { createPastedTextDraft } from "../lib/composerPastedText";
+import { mossCanvasSelectionChipId } from "../lib/mossCanvasSelection";
 import type { WorkLogEntry } from "../session-logic";
 import type { ThreadSession } from "../types";
 
@@ -1815,6 +1817,58 @@ describe("deriveComposerSendState", () => {
     expect(quoteState({ prompt: "Why?" }).hasSendableContent).toBe(true);
     expect(quoteState({ imageCount: 1 }).hasSendableContent).toBe(true);
     expect(quoteState({ fileCount: 1 }).hasSendableContent).toBe(true);
+  });
+
+  it("does not enable sending for passive canvas selections alone, while keeping them sendable once the user writes", () => {
+    const canvasSelection = createPastedTextDraft({
+      id: mossCanvasSelectionChipId("pane-canvas"),
+      createdAt: "2026-11-25T00:00:00.000Z",
+      text: "画布上选中的内容\n- 文字：走查手写",
+    });
+    const textOnlyState = deriveComposerSendState({
+      prompt: "",
+      imageCount: 0,
+      fileCount: 0,
+      assistantSelectionCount: 0,
+      browserAnnotationCount: 0,
+      fileCommentCount: 0,
+      terminalContexts: [],
+      pastedTexts: [canvasSelection],
+      pullRequestContexts: [],
+    });
+    expect(textOnlyState.hasSendableContent).toBe(false);
+    expect(textOnlyState.hasDraftContent).toBe(false);
+    expect(textOnlyState.sendablePastedTexts).toEqual([canvasSelection]);
+
+    const passiveImageOnlyState = deriveComposerSendState({
+      prompt: "",
+      imageCount: 1,
+      passiveImageCount: 1,
+      fileCount: 0,
+      assistantSelectionCount: 0,
+      browserAnnotationCount: 0,
+      fileCommentCount: 0,
+      terminalContexts: [],
+      pastedTexts: [],
+      pullRequestContexts: [],
+    });
+    expect(passiveImageOnlyState.hasSendableContent).toBe(false);
+    expect(passiveImageOnlyState.hasDraftContent).toBe(false);
+
+    const withUserPrompt = deriveComposerSendState({
+      prompt: "解释一下",
+      imageCount: 1,
+      passiveImageCount: 1,
+      fileCount: 0,
+      assistantSelectionCount: 0,
+      browserAnnotationCount: 0,
+      fileCommentCount: 0,
+      terminalContexts: [],
+      pastedTexts: [canvasSelection],
+      pullRequestContexts: [],
+    });
+    expect(withUserPrompt.hasSendableContent).toBe(true);
+    expect(withUserPrompt.sendablePastedTexts).toEqual([canvasSelection]);
   });
 });
 

@@ -40,6 +40,18 @@ const CONTENT_KIND_LABELS: Readonly<Record<string, string>> = {
   card: "卡片",
 };
 
+export const MOSS_CANVAS_SELECTION_CHIP_PREFIX = "canvas-selection:";
+
+export function mossCanvasSelectionChipId(paneId: string): string {
+  return `${MOSS_CANVAS_SELECTION_CHIP_PREFIX}${paneId}`;
+}
+
+export function isMossCanvasSelectionChipId(id: string): boolean {
+  return id.startsWith(MOSS_CANVAS_SELECTION_CHIP_PREFIX);
+}
+
+const MOSS_CANVAS_SELECTION_HEADER = "画布上选中的内容";
+
 /**
  * The composer chip for the selected text and shapes: plain lines the agent
  * reads as context. Null when nothing but images (or nothing) is selected.
@@ -52,7 +64,23 @@ export function formatMossCanvasSelectionContext(
     const label = CONTENT_KIND_LABELS[item.kind] ?? "形状";
     return item.text ? `- ${label}：${item.text.replace(/\s+/gu, " ")}` : `- ${label}（无文字）`;
   });
-  return ["画布上选中的内容", ...lines].join("\n");
+  return [MOSS_CANVAS_SELECTION_HEADER, ...lines].join("\n");
+}
+
+export function formatMossCanvasSelectionChipLabel(text: string): string {
+  const itemLines = text
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== MOSS_CANVAS_SELECTION_HEADER)
+    .map((line) => line.replace(/^-\s+/u, ""));
+  if (itemLines.length === 0) {
+    return MOSS_CANVAS_SELECTION_HEADER;
+  }
+  const first = itemLines[0]!;
+  const truncated = first.length > 24 ? `${first.slice(0, 23)}…` : first;
+  return itemLines.length === 1
+    ? `画布选中：${truncated}`
+    : `画布选中：${truncated} 等 ${itemLines.length} 项`;
 }
 
 export interface MossCanvasContextRegion {

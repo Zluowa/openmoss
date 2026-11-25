@@ -24,6 +24,7 @@ import {
 import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
 import { composerDraftHasAttachments } from "../../composerDraftDomain";
 import { withoutMossCanvasReferenceImages } from "../../lib/mossCanvasReferenceImages";
+import { isMossCanvasSelectionChipId } from "../../lib/mossCanvasSelection";
 import { normalizeAssistantSelectionText } from "../../lib/assistantSelections";
 import { currentUiLocale, isChineseLocale } from "../../lib/timeFormat";
 import type { ComposerThreadDraftState } from "../../composerDraftStore";
@@ -118,7 +119,9 @@ export function buildKanbanComposerDraftSnapshot(
     prompt: draft.prompt,
     hasAttachments:
       composerDraftHasAttachments(owned) ||
-      draft.pastedTexts.some((pasted) => pasted.text.trim().length > 0),
+      draft.pastedTexts.some(
+        (pasted) => !isMossCanvasSelectionChipId(pasted.id) && pasted.text.trim().length > 0,
+      ),
     attachmentTitle: resolveDraftAttachmentTitle(draft),
     providerInstanceId: draft.activeProvider,
     provider: draft.activeProvider

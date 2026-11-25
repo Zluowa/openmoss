@@ -24,10 +24,11 @@ import {
   type MossCanvasBinding,
 } from "~/lib/mossCanvasClient";
 import type { MossCanvasImageFocus } from "~/lib/mossCanvasBridge";
-import type {
-  MossCanvasImageOpen,
-  MossCanvasSelection,
-  MossCanvasSelectionItem,
+import {
+  mossCanvasSelectionChipId,
+  type MossCanvasImageOpen,
+  type MossCanvasSelection,
+  type MossCanvasSelectionItem,
 } from "~/lib/mossCanvasSelection";
 import { requestComposerImagePreview } from "~/lib/composerImagePreviewRequest";
 import { buildLocalImageUrl } from "~/lib/localImageUrls";
@@ -148,7 +149,7 @@ export function ConversationImageWorkspace(props: {
     ]))
       store.removeImage(props.threadId, id);
     if (ownedContextId.current) store.removePastedText(props.threadId, ownedContextId.current);
-    store.removePastedText(props.threadId, `canvas-selection:${props.pane.id}`);
+    store.removePastedText(props.threadId, mossCanvasSelectionChipId(props.pane.id));
     ownedContextId.current = null;
     ownedAttachments.current = [];
     setSelectedCanvasImage(null);
@@ -258,7 +259,7 @@ export function ConversationImageWorkspace(props: {
     if (!props.visible) selectionVersion.current += 1;
   }, [props.visible]);
 
-  const selectionChipId = `canvas-selection:${props.pane.id}`;
+  const selectionChipId = mossCanvasSelectionChipId(props.pane.id);
   const onSelection = useCallback(
     (selection: MossCanvasSelection, binding: MossCanvasBinding) => {
       if (!visibleRef.current) return;

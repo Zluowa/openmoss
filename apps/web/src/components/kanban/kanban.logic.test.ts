@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { ProjectId, ThreadId } from "@moss/contracts";
 import { makeImage } from "../../composerDraftStoreTestFixtures";
+import { createPastedTextDraft } from "../../lib/composerPastedText";
 import { mossCanvasReferenceImageId } from "../../lib/mossCanvasReferenceImages";
+import { mossCanvasSelectionChipId } from "../../lib/mossCanvasSelection";
 import { DEFAULT_INTERACTION_MODE } from "../../types";
 import type { SidebarThreadSummary, ThreadSession } from "../../types";
 import {
@@ -874,6 +876,19 @@ describe("buildKanbanComposerDraftSnapshot", () => {
         makeDraftSource({ images: [canvasImage], prompt: "改成水彩" }),
       )?.prompt,
     ).toBe("改成水彩");
+    expect(
+      buildKanbanComposerDraftSnapshot(
+        makeDraftSource({
+          pastedTexts: [
+            createPastedTextDraft({
+              id: mossCanvasSelectionChipId("pane-canvas"),
+              createdAt: T0,
+              text: "画布上选中的内容\n- 文字：走查手写",
+            }),
+          ],
+        }),
+      )?.hasAttachments,
+    ).toBe(false);
   });
 
   it("ignores terminal contexts whose text is not available anymore", () => {

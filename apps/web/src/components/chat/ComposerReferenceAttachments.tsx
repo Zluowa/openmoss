@@ -31,11 +31,19 @@ import { FileAttachmentChip } from "./FileAttachmentChip";
 import { ComposerPastedTextCard } from "./PastedTextChip";
 import { ComposerPullRequestContextCard } from "./PullRequestContextCard";
 import { FileCommentsSummaryChip } from "./FileCommentsSummaryChip";
+import { AttachmentSummaryChip } from "./AttachmentSummaryChip";
+import { spaceKindMeta } from "../space/spaceKinds";
+import {
+  formatMossCanvasSelectionChipLabel,
+  isMossCanvasSelectionChipId,
+} from "../../lib/mossCanvasSelection";
 import { BrowserAnnotationStrip } from "./BrowserAnnotationStrip";
 import {
   ComposerAttachmentPreview,
   type ComposerAttachmentPreviewTarget,
 } from "./ComposerAttachmentPreview";
+
+const CANVAS_SELECTION_ICON = spaceKindMeta("board").icon;
 
 interface ComposerReferenceAttachmentsProps {
   assistantSelections: ReadonlyArray<ChatAssistantSelectionAttachment>;
@@ -196,15 +204,33 @@ export function ComposerReferenceAttachments({
             comments={fileComments}
             onRemove={fileComments.length > 0 ? onRemoveFileComments : undefined}
           />
-          {pastedTexts.map((pasted) => (
-            <ComposerPastedTextCard
-              key={pasted.id}
-              text={pasted.text}
-              metrics={{ lineCount: pasted.lineCount, charCount: pasted.charCount }}
-              onShowInTextField={() => onShowPastedTextInField?.(pasted.id)}
-              onRemove={() => onRemovePastedText?.(pasted.id)}
-            />
-          ))}
+          {pastedTexts.map((pasted) =>
+            isMossCanvasSelectionChipId(pasted.id) ? (
+              <AttachmentSummaryChip
+                key={pasted.id}
+                icon={CANVAS_SELECTION_ICON}
+                label={formatMossCanvasSelectionChipLabel(pasted.text)}
+                removeLabel="移除画布选中内容"
+                onRemove={onRemovePastedText ? () => onRemovePastedText(pasted.id) : undefined}
+                tooltip={
+                  <p
+                    className="text-ui leading-relaxed whitespace-pre-wrap"
+                    data-translation-skip="true"
+                  >
+                    {pasted.text}
+                  </p>
+                }
+              />
+            ) : (
+              <ComposerPastedTextCard
+                key={pasted.id}
+                text={pasted.text}
+                metrics={{ lineCount: pasted.lineCount, charCount: pasted.charCount }}
+                onShowInTextField={() => onShowPastedTextInField?.(pasted.id)}
+                onRemove={() => onRemovePastedText?.(pasted.id)}
+              />
+            ),
+          )}
           {pullRequestContexts.map((context) => (
             <ComposerPullRequestContextCard
               key={context.id}

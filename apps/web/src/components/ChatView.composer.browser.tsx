@@ -27,6 +27,9 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../lib/terminalContext";
 import { extractTrailingBrowserAnnotations } from "../lib/browserAnnotations";
+import { syncMossCanvasSelectionChip } from "../lib/mossCanvasClient";
+import { mossCanvasReferenceImageId } from "../lib/mossCanvasReferenceImages";
+import { mossCanvasSelectionChipId } from "../lib/mossCanvasSelection";
 import { isMacNavigatorPlatform } from "../lib/utils";
 import { STARRED_MODELS_STORAGE_KEY } from "../lib/starredModels";
 import { readNativeApi } from "../nativeApi";
@@ -4851,6 +4854,79 @@ describe("ChatView transcript geometry (full app)", () => {
         Reflect.deleteProperty(window, "desktopBridge");
       }
       document.documentElement.classList.remove("dark");
+    }
+  });
+
+  it("WALK-7 N7-5: selecting text or an image on 画布 shows a chip with no explaining sub-line, keeps Send disabled, and includes the selection when asked", async () => {
+    const restoreNativeApi = installDeterministicSendNativeApi();
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: MessageId.makeUnsafe("msg-user-n7-5"),
+        targetText: "canvas selection baseline",
+      }),
+    });
+    const turnStarts = () =>
+      wsRequests
+        .map(readDispatchedCommand)
+        .filter((command) => command?.type === "thread.turn.start");
+    try {
+      const composerEditor = await waitForComposerEditor();
+      await waitForLayout();
+      wsRequests.length = 0;
+
+      // Selecting text on the 画布 adds a compact chip without activating Send.
+      syncMossCanvasSelectionChip(THREAD_ID, mossCanvasSelectionChipId("pane-canvas"), [
+        { shapeId: "shape:text-1", kind: "text", text: "走查手写" },
+      ]);
+      await expect
+        .element(page.getByText("画布选中：文字：走查手写", { exact: true }), { timeout: 10_000 })
+        .toBeVisible();
+      expect(document.body.textContent).not.toContain("在文本输入框中显示");
+      expect(document.body.textContent).not.toContain("Show in text field");
+      expect((await waitForSendButton()).disabled).toBe(true);
+
+      composerEditor.focus();
+      await userEvent.keyboard("{Enter}");
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
+      expect(turnStarts()).toHaveLength(0);
+
+      // Selecting an image on the 画布 alone does not activate Send either.
+      const canvasImg = createComposerImage({
+        id: mossCanvasReferenceImageId("canvas-img-1"),
+        name: "canvas-img.png",
+        previewUrl: "data:image/png;base64,iVBORw0KGgo=",
+      });
+      useComposerDraftStore.getState().addImages(THREAD_ID, [canvasImg]);
+      await expect.element(page.getByAltText("canvas-img.png"), { timeout: 10_000 }).toBeVisible();
+      expect((await waitForSendButton()).disabled).toBe(true);
+      composerEditor.focus();
+      await userEvent.keyboard("{Enter}");
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 400));
+      expect(turnStarts()).toHaveLength(0);
+      useComposerDraftStore.getState().removeImage(THREAD_ID, canvasImg.id);
+
+      // Once the person writes their own question, Send enables and carries the selection.
+      composerEditor.focus();
+      await userEvent.keyboard("解释一下");
+      await vi.waitFor(async () => expect((await waitForSendButton()).disabled).toBe(false));
+      await userEvent.keyboard("{Enter}");
+      await vi.waitFor(
+        () => {
+          const sends = turnStarts();
+          expect(sends).toHaveLength(1);
+          const text = String((sends[0]?.message as { text?: string } | undefined)?.text ?? "");
+          expect(text).toContain("解释一下");
+          expect(text).toContain("画布上选中的内容");
+          expect(text).toContain("- 文字：走查手写");
+        },
+        { timeout: 15_000 },
+      );
+    } finally {
+      await mounted.cleanup();
+      restoreNativeApi();
+      localStorage.removeItem(APP_SETTINGS_STORAGE_KEY);
     }
   });
 });

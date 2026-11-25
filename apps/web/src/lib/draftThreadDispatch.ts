@@ -30,6 +30,8 @@ import {
   filterPastedTextsWithText,
   pastedTextTitle,
 } from "./composerPastedText";
+import { withoutMossCanvasReferenceImages } from "./mossCanvasReferenceImages";
+import { isMossCanvasSelectionChipId } from "./mossCanvasSelection";
 import { buildPromptThreadTitleFallback } from "@moss/shared/chatThreads";
 import { isPendingThreadWorktree } from "@moss/shared/threadEnvironment";
 import { newChatProviderInstanceIdFrom, type ProviderInstanceOption } from "../appSettings";
@@ -348,13 +350,18 @@ async function dispatchDraftThreadOnce(
   // whatever the caller last saw, and a stale prompt must never be dispatched.
   const composerStore = useComposerDraftStore.getState();
   const draftComposerState = composerStore.draftsByThreadId[threadId] ?? null;
+  const ownedComposerState = draftComposerState
+    ? withoutMossCanvasReferenceImages(draftComposerState)
+    : null;
   const draftPrompt = draftComposerState?.prompt ?? "";
   const prompt = draftPrompt.trim();
   if (
     prompt.length === 0 &&
-    (draftComposerState === null ||
-      (!composerDraftHasAttachments(draftComposerState) &&
-        !draftComposerState.pastedTexts.some((pasted) => pasted.text.trim().length > 0)))
+    (ownedComposerState === null ||
+      (!composerDraftHasAttachments(ownedComposerState) &&
+        !ownedComposerState.pastedTexts.some(
+          (pasted) => !isMossCanvasSelectionChipId(pasted.id) && pasted.text.trim().length > 0,
+        )))
   ) {
     return { kind: "open-thread", reason: "empty" };
   }

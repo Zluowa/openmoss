@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatMossCanvasSelectionChipLabel,
   formatMossCanvasSelectionContext,
+  isMossCanvasSelectionChipId,
+  mossCanvasSelectionChipId,
   parseMossCanvasComposeContext,
   parseMossCanvasImageOpen,
   parseMossCanvasSelection,
@@ -261,5 +264,22 @@ describe("Canvas compose context protocol", () => {
     expect(parse([item(0, 17, 0, "a".repeat(500))])).toBeNull();
     expect(parse(Array.from({ length: 9 }, (_, index) => item(index, 1)))).toBeNull();
     expect(parse(Array.from({ length: 8 }, (_, index) => item(index, 1)))?.items).toHaveLength(8);
+  });
+
+  it("identifies canvas selection chip ids and summarizes selection labels", () => {
+    const chipId = mossCanvasSelectionChipId("pane-canvas");
+    expect(isMossCanvasSelectionChipId(chipId)).toBe(true);
+    expect(isMossCanvasSelectionChipId("pasted-1")).toBe(false);
+
+    const single = formatMossCanvasSelectionContext([
+      { shapeId: "shape:t1", kind: "text", text: "走查手写" },
+    ])!;
+    expect(formatMossCanvasSelectionChipLabel(single)).toBe("画布选中：文字：走查手写");
+
+    const multi = formatMossCanvasSelectionContext([
+      { shapeId: "shape:t1", kind: "text", text: "第一段" },
+      { shapeId: "shape:n1", kind: "note", text: "第二段" },
+    ])!;
+    expect(formatMossCanvasSelectionChipLabel(multi)).toBe("画布选中：文字：第一段 等 2 项");
   });
 });
