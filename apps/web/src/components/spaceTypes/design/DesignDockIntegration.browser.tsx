@@ -234,5 +234,45 @@ describe("DesignEditor dock & floating pill", () => {
     expect(document.querySelector("[data-design-topbar]")).not.toBeNull();
     await page.getByTestId("design-ask").click();
     expect(document.querySelector("[data-design-ask]")).not.toBeNull();
+    const askPrompt = page.getByRole("textbox", { name: "告诉 Moss 要怎么改", exact: true });
+    await expect.element(askPrompt).toBeVisible();
+    expect(askPrompt.element().closest('[data-slot="textarea-control"]')).not.toBeNull();
+  });
+
+  it("renders empty-canvas prompt with ui/textarea", async () => {
+    await page.viewport(1360, 840);
+    const fixture = createDataSpaceFixture();
+    window.nativeApi = fixture.api;
+    const emptyCanvas = { ...fixtureCanvas, boards: [] };
+    const doc = pageDocument("design-page-empty", "空白设计", "");
+    const item: PageTypedItem = {
+      page: { ...doc.page, kind: "design" },
+      kind: "design",
+      data: JSON.stringify(emptyCanvas),
+      dataRevision: 1,
+    };
+
+    await mountWithProviders(
+      <div style={{ width: 1200, height: 760, display: "flex" }}>
+        <DesignEditor
+          account={fixture.state.account}
+          scopeSpaceId={null}
+          item={item}
+          canvas={emptyCanvas}
+          title="空白设计"
+          readOnly={false}
+          epoch={0}
+          onChange={() => {}}
+          flush={async () => true}
+          revision={() => 1}
+          dock={createDock(false)}
+          hostChrome={{ hideTopBar: true }}
+        />
+      </div>,
+    );
+
+    const prompt = page.getByRole("textbox", { name: "描述你想要的设计", exact: true });
+    await expect.element(prompt).toBeVisible();
+    expect(prompt.element().closest('[data-slot="textarea-control"]')).not.toBeNull();
   });
 });

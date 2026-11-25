@@ -77,7 +77,9 @@ import {
   MenuShortcut,
   MenuTrigger,
 } from "../../ui/menu";
+import { Textarea } from "../../ui/textarea";
 import { toastManager } from "../../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import {
   SpaceSidePanel,
   type SpaceTitleMenuHostCapabilities,
@@ -1804,26 +1806,33 @@ export function DesignEditor(props: {
         {others.length ? (
           <span className="flex items-center -space-x-1" data-design-peers={others.length}>
             {others.slice(0, 4).map((peer) => (
-              <Button
-                key={peer.id}
-                size="icon-xs"
-                variant="ghost"
-                aria-label={follow === peer.id ? `停止跟随${peer.name}` : `跟随${peer.name}`}
-                title={
-                  follow === peer.id
-                    ? `正在跟随${peer.name}（点击停止）`
-                    : `${peer.name} · 点击跟随`
-                }
-                aria-pressed={follow === peer.id}
-                className={cn(
-                  "size-6 rounded-full border-2 border-background p-0 text-ui-xs text-white",
-                  follow === peer.id && "ring-2 ring-[var(--color-text-accent)]",
-                )}
-                style={{ background: peer.color }}
-                onClick={() => chromeRef.current.toggleFollow(peer.id)}
-              >
-                {peer.name.slice(0, 1)}
-              </Button>
+              <Tooltip key={peer.id}>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      aria-label={follow === peer.id ? `停止跟随${peer.name}` : `跟随${peer.name}`}
+                      aria-pressed={follow === peer.id}
+                      className={cn(
+                        "size-6 rounded-full border-2 border-background p-0 text-ui-xs text-white",
+                        follow === peer.id && "ring-2 ring-[var(--color-text-accent)]",
+                      )}
+                      style={{ background: peer.color }}
+                      onClick={() => chromeRef.current.toggleFollow(peer.id)}
+                    />
+                  }
+                >
+                  {peer.name.slice(0, 1)}
+                </TooltipTrigger>
+                <TooltipPopup>
+                  <p>
+                    {follow === peer.id
+                      ? `正在跟随${peer.name}（点击停止）`
+                      : `${peer.name} · 点击跟随`}
+                  </p>
+                </TooltipPopup>
+              </Tooltip>
             ))}
             {others.length > 4 ? (
               <span className="pl-2 text-ui-xs text-muted-foreground">+{others.length - 4}</span>
@@ -2244,7 +2253,8 @@ export function DesignEditor(props: {
                         海报 1080×1350
                       </Button>
                     </div>
-                    <textarea
+                    <Textarea
+                      size="sm"
                       aria-label="描述你想要的设计"
                       rows={3}
                       value={generateText}
@@ -2254,7 +2264,6 @@ export function DesignEditor(props: {
                           ? "比如：一个咖啡店的手机点餐应用，三屏，温暖的配色"
                           : "这个资料空间还没有可用的 Moss 智能体"
                       }
-                      className="w-full resize-none rounded-control border border-border bg-transparent p-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]"
                       onChange={(event) => setGenerateText(event.target.value)}
                       onKeyDown={(event) => {
                         event.stopPropagation();
@@ -2297,13 +2306,14 @@ export function DesignEditor(props: {
                       ? `针对选中的 ${selection.boards.length} 个画板`
                       : "针对你现在看到的画板"}
                 </span>
-                <textarea
+                <Textarea
+                  size="sm"
                   autoFocus
                   aria-label="告诉 Moss 要怎么改"
                   rows={3}
                   value={askText}
                   placeholder="比如：把按钮改成圆角，主色换成深绿"
-                  className="w-full resize-none rounded-control border border-border bg-transparent p-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]"
+                  className="w-full [&_textarea]:resize-none"
                   onChange={(event) => setAskText(event.target.value)}
                   onKeyDown={(event) => {
                     event.stopPropagation();

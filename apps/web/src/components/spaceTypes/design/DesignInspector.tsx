@@ -34,9 +34,12 @@ import { EyeIcon, EyeSlashIcon, FlipHorizontalIcon, ChevronRightIcon } from "~/l
 import { ensureNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
 import { PillTabs } from "../../ui/pill-tabs";
 import { Switch } from "../../ui/switch";
+import { Textarea } from "../../ui/textarea";
 import { toastManager } from "../../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { NOTE_FILLS } from "./DesignCanvasView";
 import { textContrast } from "./designColor";
 import { COMPONENT_ATTR, instanceRoot } from "./designComponents";
@@ -122,12 +125,17 @@ function TextField(props: {
     if (value !== props.value) props.onCommit(value);
   };
   return (
-    <input
+    <Input
+      size="sm"
+      nativeInput
       aria-label={props.label}
       value={draft}
       placeholder={props.placeholder}
       disabled={props.disabled}
-      className={cn(FIELD_CLASS, "w-full", props.className)}
+      className={cn(
+        "h-6 min-h-6 w-full [&_input]:h-6 [&_input]:px-1.5 [&_input]:py-0 [&_input]:text-ui-sm",
+        props.className,
+      )}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={() => commit(draft)}
       onKeyDown={(event) => {
@@ -222,23 +230,32 @@ function ColorField(props: {
       {props.tokens?.colors.length ? (
         <span className="flex flex-wrap gap-1">
           {props.tokens.colors.slice(0, 16).map((token) => (
-            <Button
-              key={token.name}
-              size="icon-xs"
-              variant="ghost"
-              aria-label={`${props.label}：${token.label}`}
-              title={`${token.label}（--ds-${token.name}）`}
-              className={cn(
-                "size-5 rounded-full border border-border p-0",
-                props.value === `var(--ds-${token.name})` &&
-                  "ring-2 ring-[var(--color-text-accent)]",
-              )}
-              style={{
-                background: `var(--ds-${token.name}, ${token.light})`,
-                backgroundColor: token.light,
-              }}
-              onClick={() => props.onChange(`var(--ds-${token.name})`)}
-            />
+            <Tooltip key={token.name}>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`${props.label}：${token.label}`}
+                    className={cn(
+                      "size-5 rounded-full border border-border p-0",
+                      props.value === `var(--ds-${token.name})` &&
+                        "ring-2 ring-[var(--color-text-accent)]",
+                    )}
+                    style={{
+                      background: `var(--ds-${token.name}, ${token.light})`,
+                      backgroundColor: token.light,
+                    }}
+                    onClick={() => props.onChange(`var(--ds-${token.name})`)}
+                  />
+                }
+              >
+                <span aria-hidden />
+              </TooltipTrigger>
+              <TooltipPopup>
+                <p>{`${token.label}（--ds-${token.name}）`}</p>
+              </TooltipPopup>
+            </Tooltip>
           ))}
         </span>
       ) : null}
@@ -2140,11 +2157,13 @@ function LayerRow(props: {
         />
       </Button>
       {renaming ? (
-        <input
+        <Input
+          size="sm"
+          nativeInput
           autoFocus
           aria-label="图层名称"
           defaultValue={props.label}
-          className={cn(FIELD_CLASS, "flex-1")}
+          className="h-6 min-h-6 flex-1 [&_input]:h-6 [&_input]:px-1.5 [&_input]:py-0 [&_input]:text-ui-sm"
           onKeyDown={(event) => {
             event.stopPropagation();
             if (isImeComposingKeyEvent(event)) return;
@@ -2243,12 +2262,13 @@ function ElementCode(props: { editor: DesignEditorState; boardId: string; elemen
   return (
     <div className="flex flex-col gap-3 p-3">
       <Section title="样式">
-        <textarea
+        <Textarea
+          size="sm"
           aria-label="元素样式"
           spellCheck={false}
           value={draft}
           rows={Math.min(16, Math.max(4, draft.split("\n").length + 1))}
-          className="w-full resize-y rounded-control-xs border border-border bg-transparent p-2 font-mono text-ui-xs text-foreground outline-none focus:border-[var(--color-text-accent)]"
+          className="font-mono [&_textarea]:resize-y [&_textarea]:p-2 [&_textarea]:text-ui-xs"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             event.stopPropagation();
@@ -2266,12 +2286,13 @@ function ElementCode(props: { editor: DesignEditorState; boardId: string; elemen
           </Button>
         }
       >
-        <textarea
+        <Textarea
+          size="sm"
           aria-label="元素 HTML"
           spellCheck={false}
           value={markup}
           rows={10}
-          className="w-full resize-y rounded-control-xs border border-border bg-transparent p-2 font-mono text-ui-xs text-foreground outline-none focus:border-[var(--color-text-accent)]"
+          className="font-mono [&_textarea]:resize-y [&_textarea]:p-2 [&_textarea]:text-ui-xs"
           onChange={(event) => setMarkup(event.target.value)}
           onKeyDown={(event) => {
             event.stopPropagation();
@@ -2305,12 +2326,13 @@ function BoardCode(props: { editor: DesignEditorState; board: DesignBoard }) {
           </Button>
         }
       >
-        <textarea
+        <Textarea
+          size="sm"
           aria-label="画板 HTML"
           spellCheck={false}
           value={draft}
           rows={24}
-          className="w-full resize-y rounded-control-xs border border-border bg-transparent p-2 font-mono text-ui-xs text-foreground outline-none focus:border-[var(--color-text-accent)]"
+          className="font-mono [&_textarea]:resize-y [&_textarea]:p-2 [&_textarea]:text-ui-xs"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => event.stopPropagation()}
         />
@@ -2575,23 +2597,32 @@ function ThemeTab(props: {
           >
             <div className="grid grid-cols-2 gap-1">
               {system.tokens.colors.map((token) => (
-                <Button
-                  key={token.name}
-                  variant="ghost"
-                  size="xs"
-                  className="h-8 justify-start gap-2 px-1 font-normal"
-                  title={token.usage ?? token.label}
-                  onClick={() => applyToken(`var(--ds-${token.name})`, use)}
-                >
-                  <span
-                    className="size-5 shrink-0 rounded-full border border-border"
-                    style={{
-                      background:
-                        editor.canvas.theme === "dark" ? (token.dark ?? token.light) : token.light,
-                    }}
-                  />
-                  <span className="min-w-0 truncate">{token.label}</span>
-                </Button>
+                <Tooltip key={token.name}>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="h-8 justify-start gap-2 px-1 font-normal"
+                        onClick={() => applyToken(`var(--ds-${token.name})`, use)}
+                      />
+                    }
+                  >
+                    <span
+                      className="size-5 shrink-0 rounded-full border border-border"
+                      style={{
+                        background:
+                          editor.canvas.theme === "dark"
+                            ? (token.dark ?? token.light)
+                            : token.light,
+                      }}
+                    />
+                    <span className="min-w-0 truncate">{token.label}</span>
+                  </TooltipTrigger>
+                  <TooltipPopup>
+                    <p>{token.usage ?? token.label}</p>
+                  </TooltipPopup>
+                </Tooltip>
               ))}
             </div>
           </Section>

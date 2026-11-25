@@ -14,10 +14,8 @@ import { SPACE_PAGE_LINK_PREFIX } from "~/lib/spacePageLink";
 import { ensureNativeApi } from "~/nativeApi";
 import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
+import { Input } from "../../ui/input";
 import { toastManager } from "../../ui/toast";
-
-const FIELD =
-  "h-7 w-full min-w-0 rounded-control-xs border border-border bg-transparent px-2 text-ui text-foreground outline-none focus:border-[var(--color-text-accent)]";
 
 const KIND_LABELS: Record<string, string> = {
   page: "文档",
@@ -76,12 +74,14 @@ export function DesignLinkDialog(props: {
       }}
     >
       <span className="text-ui-sm font-medium text-foreground">添加链接卡片</span>
-      <input
+      <Input
+        size="sm"
+        nativeInput
         autoFocus
         aria-label="搜索资料空间"
         value={query}
         placeholder="搜索资料空间里的条目"
-        className={FIELD}
+        className="h-7 min-h-7 w-full [&_input]:h-7 [&_input]:px-2 [&_input]:py-0 [&_input]:text-ui"
         onChange={(event) => setQuery(event.target.value)}
       />
       <div className="flex max-h-56 flex-col overflow-y-auto" data-design-scrollable="">
@@ -113,11 +113,13 @@ export function DesignLinkDialog(props: {
         )}
       </div>
       <div className="flex items-center gap-1">
-        <input
+        <Input
+          size="sm"
+          nativeInput
           aria-label="网址"
           value={url}
           placeholder="或者填一个网址 https://…"
-          className={FIELD}
+          className="h-7 min-h-7 min-w-0 flex-1 [&_input]:h-7 [&_input]:px-2 [&_input]:py-0 [&_input]:text-ui"
           onChange={(event) => setUrl(event.target.value)}
           onKeyDown={(event) => {
             if (isImeComposingKeyEvent(event)) return;

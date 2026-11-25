@@ -40,6 +40,8 @@ import { PlayIcon, StopIcon } from "~/lib/icons";
 import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
 import { IconButton } from "../../ui/icon-button";
+import { Input } from "../../ui/input";
+import { Textarea } from "../../ui/textarea";
 import { toastManager } from "../../ui/toast";
 import { DesignBoardFrame } from "./DesignBoardFrame";
 import { elementAt, elementPath, layerKind, type DesignElementPath } from "./designDocument";
@@ -1870,12 +1872,13 @@ export function DesignCanvasView(props: {
               {note.kind === "link" ? (
                 <CanvasLinkCard note={note} />
               ) : editing ? (
-                <textarea
+                <Textarea
+                  unstyled
                   autoFocus
                   aria-label="形状里的文字"
                   defaultValue={note.text}
                   maxLength={4_000}
-                  className="block size-full resize-none bg-transparent p-2 text-center text-ui text-foreground outline-none"
+                  className="block size-full [&_textarea]:h-full [&_textarea]:min-h-0 [&_textarea]:p-2 [&_textarea]:text-center [&_textarea]:text-ui [&_textarea]:text-foreground"
                   onPointerDown={(event) => event.stopPropagation()}
                   onKeyDown={(event) => {
                     event.stopPropagation();
@@ -1967,13 +1970,13 @@ export function DesignCanvasView(props: {
               }}
             >
               {editing ? (
-                <textarea
+                <Textarea
+                  unstyled
                   autoFocus
                   aria-label={note.kind === "title" ? "标题文字" : "便签文字"}
                   defaultValue={note.text}
                   maxLength={4_000}
-                  className="block h-full min-h-20 w-full resize-none bg-transparent outline-none"
-                  style={{ font: "inherit", color: "inherit" }}
+                  className="block h-full min-h-20 w-full [&_textarea]:min-h-20 [&_textarea]:p-0 [&_textarea]:[font:inherit] [&_textarea]:[color:inherit]"
                   onPointerDown={(event) => event.stopPropagation()}
                   onKeyDown={(event) => {
                     event.stopPropagation();
@@ -2046,12 +2049,14 @@ export function DesignCanvasView(props: {
                 }}
               >
                 {renaming === board.id ? (
-                  <input
+                  <Input
+                    unstyled
+                    nativeInput
                     autoFocus
                     aria-label="画板名称"
                     defaultValue={board.name}
                     maxLength={120}
-                    className="h-5 min-w-24 rounded-control-xs border border-border bg-background px-1 text-ui-xs text-foreground outline-none"
+                    className="h-5 min-w-24 rounded-control-xs border border-border bg-background [&_input]:h-5 [&_input]:px-1 [&_input]:py-0 [&_input]:text-ui-xs [&_input]:text-foreground"
                     onPointerDown={(event) => event.stopPropagation()}
                     onKeyDown={(event) => {
                       event.stopPropagation();

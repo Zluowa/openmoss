@@ -321,4 +321,32 @@ describe("设计 editor core", () => {
     expect(text.match(/\/Type \/Page /gu)?.length).toBe(2);
     expect(text).toContain("/MediaBox [0 0 300 225]");
   });
+
+  it("renders inspector fields, code editor, and theme token swatches with ui primitives", async () => {
+    await mount();
+    const strip = document.querySelector<HTMLElement>('[data-design-strip="home"]')!;
+    const box = strip.getBoundingClientRect();
+    const at = {
+      bubbles: true,
+      clientX: box.left + 4,
+      clientY: box.top + 4,
+      button: 0,
+      pointerId: 3,
+    };
+    strip.dispatchEvent(new PointerEvent("pointerdown", at));
+    strip.dispatchEvent(new PointerEvent("pointerup", at));
+    const nameField = page.getByRole("textbox", { name: "画板名称", exact: true });
+    await expect.element(nameField).toBeVisible();
+    expect(nameField.element().getAttribute("data-slot")).toBe("input");
+
+    await page.getByRole("tab", { name: "代码", exact: true }).click();
+    const htmlField = page.getByRole("textbox", { name: "画板 HTML", exact: true });
+    await expect.element(htmlField).toBeVisible();
+    expect(htmlField.element().closest('[data-slot="textarea-control"]')).not.toBeNull();
+
+    await page.getByRole("tab", { name: "主题", exact: true }).click();
+    const tokenBtn = page.getByRole("button", { name: fixture.system!.tokens.colors[0]!.label });
+    await expect.element(tokenBtn).toBeVisible();
+    expect(tokenBtn.element().getAttribute("title")).toBeNull();
+  });
 });
