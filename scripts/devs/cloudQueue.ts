@@ -364,6 +364,71 @@ export function createCloudDevsQueue(options: {
     const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? "";
     if (path.startsWith("/worker/") && !equal(bearer, options.workerToken))
       return json({ error: "Unauthorized" }, 401);
+    if (path === "/worker/list" && request.method === "GET") {
+      return options.store.transaction(async (store) => {
+        const ids = (await store.get<string[]>("index")) ?? [];
+        const today = await budget(store);
+        const counts: Record<CloudJob["status"], number> = {
+          queued: 0,
+          running: 0,
+          "pull-request": 0,
+          failed: 0,
+        };
+        const jobs = [];
+        for (const id of ids) {
+          const job = await store.get<CloudJob>(`job:${id}`);
+          if (!job) continue;
+          counts[job.status] = (counts[job.status] ?? 0) + 1;
+          jobs.push({
+            id: job.id,
+            engine: job.engine,
+            status: job.status,
+            resolution: job.resolution ?? null,
+            expired: job.status === "running" && !job.resolution && (job.expiresAt ?? 0) < now(),
+            description: job.description,
+            context: job.context,
+            message: job.message,
+            pullRequestUrl: job.pullRequestUrl,
+            createdAt: job.createdAt,
+            expiresAt: job.expiresAt ?? null,
+            attachments: (job.attachments ?? []).map((attachment, index) => ({
+              index,
+              ...attachment,
+            })),
+            history: job.history ?? [],
+          });
+        }
+        return json({
+          day: today.day,
+          budget: {
+            accepted: today.accepted,
+            claimed: today.claimed,
+            reportLimit,
+            jobLimit,
+            installLimit,
+          },
+          total: jobs.length,
+          counts,
+          jobs,
+        });
+      });
+    }
+    const readAttachment = /^\/worker\/([^/]+)\/attachment\/(\d)$/.exec(path);
+    if (readAttachment && request.method === "GET" && uuid(readAttachment[1])) {
+      const index = Number(readAttachment[2]);
+      return options.store.transaction(async (store) => {
+        const job = await store.get<CloudJob>(`job:${readAttachment[1]}`);
+        const attachment = job?.attachments?.[index];
+        const bytes =
+          job && attachment?.stored
+            ? await store.get<Uint8Array<ArrayBuffer>>(attachmentKey(job.id, index))
+            : undefined;
+        if (!attachment || !bytes) return json({ error: "Attachment not found" }, 404);
+        return new Response(bytes, {
+          headers: { "content-type": attachment.mimeType, "cache-control": "no-store" },
+        });
+      });
+    }
     if (path === "/worker/claim" && request.method === "POST") {
       const input = await body(request);
       const engines = input && (Array.isArray(input.engines) ? input.engines : [input.engine]);
@@ -485,7 +550,7 @@ export function createCloudDevsQueue(options: {
         // A repeat of the same resolution changes nothing.
         if (job.resolution === resolution && job.pullRequestUrl === pullRequestUrl)
           return json(receipt(job));
-        if (job.status === "queued")
+        if (job.status === "queued" && resolution !== "in-progress")
           return json({ error: "The report has not been worked on yet" }, 409);
         if (resolution === "fixed" && !pullRequestUrl)
           return json({ error: "A fixed report needs its pull request" }, 400);

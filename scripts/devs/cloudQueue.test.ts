@@ -248,9 +248,26 @@ describe("production developer report queue", () => {
     // Only the private worker credential resolves, and only a worked-on report.
     expect((await resolve({ status: "fixed", pullRequestUrl: pr }, readToken)).status).toBe(401);
     expect((await resolve({ status: "fixed", pullRequestUrl: pr })).status).toBe(409);
+    // A maintainer can pick up a queued report directly as in-progress without waiting for a worker claim.
+    const queuedPickup = report();
+    await handle(call("/reports", readToken, queuedPickup));
+    const pickedUp = await (
+      await handle(
+        call(`/worker/${queuedPickup.id}/resolve`, workerToken, {
+          status: "in-progress",
+          note: "triaged by lead",
+        }),
+      )
+    ).json();
+    expect(pickedUp).toMatchObject({
+      id: queuedPickup.id,
+      status: "running",
+      resolution: "in-progress",
+    });
     const first = await (
       await handle(call("/worker/claim", workerToken, { claimId: randomUUID(), engine: "codex" }))
     ).json();
+    expect(first.report.id).toBe(input.id);
     advance(120_001);
     // The report the owner saw: the worker disconnected and the repair was handed over.
     expect((await (await handle(call(`/reports/${input.id}`))).json()).status).toBe("failed");
@@ -555,5 +572,66 @@ describe("分享反馈 feedback", () => {
     expect((await handle(postFeedback(feedback()))).status).toBe(429);
     expect((await handle(postFeedback(feedback(), "198.51.100.9"))).status).toBe(202);
     expect((await handle(call("/reports", readToken, report()))).status).toBe(429);
+  });
+});
+
+describe("worker queue read-only inspection", () => {
+  it("lists jobs and downloads stored attachments without mutating state or leaking secrets", async () => {
+    const { handle, store } = fixture({
+      dailyReportLimit: 10,
+      dailyJobLimit: 10,
+      installDailyLimit: 5,
+    });
+    const image = png(128);
+    const queuedFeedback = feedback({
+      attachments: [
+        { name: "D:\\shots\\screen.png", mimeType: "image/png", dataBase64: base64(image) },
+      ],
+    });
+    expect((await handle(postFeedback(queuedFeedback))).status).toBe(202);
+    const otherReport = report();
+    expect((await handle(call("/reports", readToken, otherReport))).status).toBe(202);
+
+    expect((await handle(call("/worker/list", readToken))).status).toBe(401);
+    expect(
+      (await handle(call(`/worker/${queuedFeedback.id}/attachment/0`, readToken))).status,
+    ).toBe(401);
+
+    const snapshotBefore = JSON.stringify([...store.data.entries()]);
+    const listResponse = await handle(call("/worker/list", workerToken));
+    expect(listResponse.status).toBe(200);
+    const list = await listResponse.json();
+    expect(list.total).toBe(2);
+    expect(list.counts).toEqual({
+      queued: 2,
+      running: 0,
+      "pull-request": 0,
+      failed: 0,
+    });
+    expect(list.budget).toMatchObject({ accepted: 2, claimed: 0 });
+    const listedFeedback = list.jobs.find((job: any) => job.id === queuedFeedback.id);
+    expect(listedFeedback).toMatchObject({
+      id: queuedFeedback.id,
+      status: "queued",
+      resolution: null,
+      expired: false,
+      attachments: [{ index: 0, name: "screen.png", mimeType: "image/png", stored: true }],
+    });
+    expect(listedFeedback).not.toHaveProperty("readHash");
+    expect(listedFeedback).not.toHaveProperty("lease");
+    expect(listedFeedback).not.toHaveProperty("claimId");
+
+    const attResponse = await handle(
+      call(`/worker/${queuedFeedback.id}/attachment/0`, workerToken),
+    );
+    expect(attResponse.status).toBe(200);
+    expect(attResponse.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await attResponse.arrayBuffer())).toEqual(image);
+    expect(
+      (await handle(call(`/worker/${queuedFeedback.id}/attachment/1`, workerToken))).status,
+    ).toBe(404);
+
+    // Listing and reading attachments never mutates store keys or consumes the job.
+    expect(JSON.stringify([...store.data.entries()])).toBe(snapshotBefore);
   });
 });
