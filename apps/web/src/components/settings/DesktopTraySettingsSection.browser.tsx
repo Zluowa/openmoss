@@ -58,10 +58,14 @@ describe("DesktopTraySettingsSection", () => {
     });
     const screen = await render(<DesktopTraySettingsSection />);
     try {
-      const closeSwitch = page.getByRole("switch", { name: "Close to system tray" });
+      const closeSwitch = page.getByRole("switch", {
+        name: "Close to system tray and keep running",
+      });
       const loginSwitch = page.getByRole("switch", { name: "Launch at login" });
       await expect.element(closeSwitch).toHaveAttribute("aria-checked", "true");
       await expect.element(loginSwitch).toHaveAttribute("aria-checked", "false");
+      expect(document.body.textContent).not.toContain("Keep running in the background");
+      expect(document.body.textContent).not.toContain("Open Moss automatically");
 
       await closeSwitch.click();
       await expect.element(closeSwitch).toHaveAttribute("aria-checked", "false");
@@ -85,7 +89,7 @@ describe("DesktopTraySettingsSection", () => {
     const screen = await render(<DesktopTraySettingsSection />);
     try {
       await expect
-        .element(page.getByRole("switch", { name: "Close to system tray" }))
+        .element(page.getByRole("switch", { name: "Close to system tray and keep running" }))
         .not.toBeInTheDocument();
       await expect
         .element(page.getByRole("switch", { name: "Launch at login" }))
@@ -105,7 +109,7 @@ describe("DesktopTraySettingsSection", () => {
     const screen = await render(<DesktopTraySettingsSection />);
     try {
       await expect
-        .element(page.getByRole("switch", { name: "Close to system tray" }))
+        .element(page.getByRole("switch", { name: "Close to system tray and keep running" }))
         .toHaveAttribute("aria-checked", "true");
       await expect
         .element(page.getByRole("switch", { name: "Launch at login" }))

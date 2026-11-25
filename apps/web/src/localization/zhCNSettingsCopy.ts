@@ -830,7 +830,7 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Where new chats work": "新对话的工作位置",
   Replay: "重新播放",
   "Repair local data": "修复本地数据",
-  "Use this if your chats don't show up. Your chats stay.": "对话不显示时使用，不会删除对话。",
+  "Your chats stay.": "不会删除对话。",
   "Repairing…": "正在修复…",
   "Sign out and close this browser's connection.": "退出登录并断开此浏览器的连接。",
   "Local data repaired": "本地数据已修复",
@@ -884,10 +884,8 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
   "Send a report when Moss hits an error. Chats, code and keys are never included.":
     "Moss 出错时发送报告，不含对话、代码和密钥。",
   Desktop: "桌面",
-  "Close to system tray": "关闭时收入托盘",
-  "Keep running in the background when you close the window.": "点击关闭后留在后台继续运行",
+  "Close to system tray and keep running": "关闭时收入托盘并继续运行",
   "Launch at login": "开机自动启动",
-  "Open Moss automatically when you sign in.": "登录系统时自动打开 Moss",
 };
 
 const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExecArray) => string]> =

@@ -113,7 +113,7 @@ export function AboutSettingsSection() {
       {shouldOfferRecoveryTools ? (
         <SettingsRow
           title="Repair local data"
-          description="Use this if your chats don't show up. Your chats stay."
+          description="Your chats stay."
           control={
             <Button
               size="xs"

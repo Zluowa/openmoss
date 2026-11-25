@@ -79,8 +79,7 @@ export function DesktopTraySettingsSection() {
     <SettingsSection title="Desktop">
       {state.closeToTraySupported ? (
         <SettingsRow
-          title="Close to system tray"
-          description="Keep running in the background when you close the window."
+          title="Close to system tray and keep running"
           control={
             <Switch
               checked={state.closeToTray}
@@ -88,7 +87,7 @@ export function DesktopTraySettingsSection() {
               onCheckedChange={(checked) => {
                 void handleToggle("closeToTray", checked);
               }}
-              aria-label="Close to system tray"
+              aria-label="Close to system tray and keep running"
             />
           }
         />
@@ -96,7 +95,6 @@ export function DesktopTraySettingsSection() {
       {state.openAtLoginSupported ? (
         <SettingsRow
           title="Launch at login"
-          description="Open Moss automatically when you sign in."
           control={
             <Switch
               checked={state.openAtLogin}
