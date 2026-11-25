@@ -1048,6 +1048,70 @@ function slide(raw: unknown, index: number, theme: DeckTheme, sectionIds: Set<st
   });
 }
 
+function synthesizeV1TextElements(
+  slideRecord: Record<string, unknown>,
+  layout: SlideLayout,
+): SlideElement[] {
+  const out: SlideElement[] = [];
+  const rawTitle = slideRecord.title ?? slideRecord.heading;
+  const titleText = typeof rawTitle === "string" ? rawTitle.trim() : "";
+  const subtitleText = typeof slideRecord.subtitle === "string" ? slideRecord.subtitle.trim() : "";
+  const rawBody = slideRecord.body ?? slideRecord.content ?? slideRecord.text;
+  const proseText = typeof rawBody === "string" ? rawBody.trim() : "";
+  const bulletItems = Array.isArray(slideRecord.bullets)
+    ? slideRecord.bullets
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+
+  const isTitleSlide = layout === "title" || layout === "section" || layout === "closing";
+  if (titleText) {
+    out.push({
+      id: newSlideId("e"),
+      type: "text",
+      role: "title",
+      x: 160,
+      y: isTitleSlide ? 360 : 96,
+      w: 1600,
+      h: isTitleSlide ? 200 : 120,
+      body: makeTextBody(
+        titleText,
+        isTitleSlide ? "display" : "heading",
+        isTitleSlide ? { vAlign: "bottom" } : {},
+      ),
+    });
+  }
+  if (subtitleText) {
+    out.push({
+      id: newSlideId("e"),
+      type: "text",
+      role: "subtitle",
+      x: 160,
+      y: isTitleSlide ? 590 : 230,
+      w: 1600,
+      h: 80,
+      body: makeTextBody(subtitleText, "subheading"),
+    });
+  }
+  const bodyLines = [proseText, ...bulletItems.map((line) => `- ${line}`)]
+    .filter(Boolean)
+    .join("\n");
+  if (bodyLines) {
+    out.push({
+      id: newSlideId("e"),
+      type: "text",
+      role: "body",
+      x: 160,
+      y: subtitleText ? 330 : titleText ? 240 : 120,
+      w: 1600,
+      h: 640,
+      body: makeTextBody(bodyLines, "body"),
+    });
+  }
+  return out;
+}
+
 /** #378's v1 deck (1280×720, plain-text boxes) as v2 JSON on the 1920×1080 stage. */
 export function migrateDeckV1(value: Record<string, unknown>): Record<string, unknown> {
   const k = SLIDE_WIDTH / 1280;
@@ -1071,9 +1135,15 @@ export function migrateDeckV1(value: Record<string, unknown>): Record<string, un
   const layoutMap: Record<string, SlideLayout> = {
     title: "title",
     "title-content": "title-body",
+    "title-body": "title-body",
+    bullets: "bullets",
     "two-column": "two-columns",
+    "two-columns": "two-columns",
     section: "section",
+    table: "table",
+    quote: "quote",
     "image-caption": "image-caption",
+    closing: "closing",
     blank: "blank",
   };
   const scale = (n: unknown) => (typeof n === "number" ? Math.round(n * k * 100) / 100 : n);
@@ -1084,11 +1154,26 @@ export function migrateDeckV1(value: Record<string, unknown>): Record<string, un
     sections: [],
     slides: slides.map((raw) => {
       const s = (raw ?? {}) as Record<string, unknown>;
+      const resolvedLayout = layoutMap[String(s.layout)] ?? "blank";
       const elements = Array.isArray(s.elements) ? s.elements : [];
+      if (elements.length === 0) {
+        const synthesized = synthesizeV1TextElements(s, resolvedLayout);
+        if (synthesized.length > 0) {
+          return {
+            id: s.id,
+            sectionId: null,
+            layout: resolvedLayout,
+            background: s.background,
+            transition: "none",
+            notes: s.notes ?? "",
+            elements: synthesized,
+          };
+        }
+      }
       return {
         id: s.id,
         sectionId: null,
-        layout: layoutMap[String(s.layout)] ?? "blank",
+        layout: resolvedLayout,
         background: s.background,
         transition: "none",
         notes: s.notes ?? "",

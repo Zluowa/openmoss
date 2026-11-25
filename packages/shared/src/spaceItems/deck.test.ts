@@ -127,6 +127,39 @@ describe("deck v2 model", () => {
     expect(arrow.type === "shape" && arrow.shape).toBe("arrowRight");
   });
 
+  it("synthesizes v2 text elements when v1 slides use shorthand title/subtitle/bullets without elements", () => {
+    const deck = parseSlidesDeck({
+      version: 1,
+      slides: [
+        {
+          id: "s1",
+          layout: "title",
+          title: "第四季度移动走查",
+          subtitle: "全模块功能与视觉验收",
+          notes: "封面备注",
+        },
+        {
+          id: "s2",
+          layout: "bullets",
+          title: "走查清单",
+          bullets: ["对话流与工具折叠", "审批卡片放行与拒绝"],
+          notes: "重点核查暗黑模式对比度",
+        },
+      ],
+    });
+    expect(deck.slides.map((s) => s.layout)).toEqual(["title", "bullets"]);
+    expect(deck.slides[0]?.elements).toHaveLength(2);
+    expect(bodyText((deck.slides[0]?.elements[0] as TextElement).body)).toBe("第四季度移动走查");
+    expect(bodyText((deck.slides[0]?.elements[1] as TextElement).body)).toBe(
+      "全模块功能与视觉验收",
+    );
+    expect(deck.slides[1]?.elements).toHaveLength(2);
+    const bulletsBody = (deck.slides[1]?.elements[1] as TextElement).body;
+    expect(bulletsBody.paragraphs.every((p) => p.list === "bullet")).toBe(true);
+    expect(projectSlidesDeck(deck)).toContain("第四季度移动走查");
+    expect(projectSlidesDeck(deck)).toContain("对话流与工具折叠");
+  });
+
   it("applies ordered deck ops and re-validates the result", () => {
     const deck = createSlidesDeck("封面");
     const added = applyDeckOps(deck, [
