@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { DevsReportState, ThreadId } from "@moss/contracts";
 import { useTranslation } from "../../localization";
 import { readNativeApi } from "../../nativeApi";
-import { DEVS_REPORT_CHANGED } from "./handleDevsReportSend";
+import { DEVS_REPORT_CHANGED, getLocalDevsReportIds } from "./handleDevsReportSend";
 
 /**
  * The card says what is true now: still sending, received, Codex working, fix submitted, a
@@ -46,8 +46,25 @@ export function DevsReportStatus({ threadId }: { threadId: ThreadId }) {
       if (!list) return;
       pending = true;
       try {
-        const result = await list({ threadId });
-        if (!disposed) setReports(result.reports);
+        const localIds = getLocalDevsReportIds(threadId);
+        const [threadResult, localResult] = await Promise.all([
+          list({ threadId }),
+          localIds.length > 0 ? list({ reportIds: localIds }) : Promise.resolve(null),
+        ]);
+        if (!disposed) {
+          if (!localResult || localResult.reports.length === 0) {
+            setReports(threadResult.reports);
+          } else {
+            const merged = new Map<string, DevsReportState>();
+            for (const item of threadResult.reports) merged.set(item.id, item);
+            for (const item of localResult.reports) merged.set(item.id, item);
+            setReports(
+              [...merged.values()].sort(
+                (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt),
+              ),
+            );
+          }
+        }
       } catch {
         /* Retain the last receipt while disconnected. */
       } finally {

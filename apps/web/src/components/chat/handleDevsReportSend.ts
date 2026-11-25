@@ -1,5 +1,11 @@
-import type { DevsReportPreview, NativeApi, ThreadId } from "@moss/contracts";
+import type {
+  DevsReportPreview,
+  DevsReportSubmitInput,
+  NativeApi,
+  ThreadId,
+} from "@moss/contracts";
 import { DEVS_CONSENT_REQUIRED_MESSAGE, parseDevsInvocation } from "@moss/shared/devsReport";
+import { APP_VERSION } from "../../branding";
 import { translateMoss } from "../../localization";
 import type { MossLocaleCode } from "../../uiLocale";
 import type { MutableRefObject } from "react";
@@ -12,6 +18,23 @@ import { prepareDevsReportAttachments, type DevsAttachmentSource } from "./devsR
 
 export const DEVS_REPORT_CHANGED = "moss:devs-report-changed";
 const inFlight = new Set<string>();
+const localDevsReportIdsByThreadId = new Map<ThreadId, string[]>();
+
+/** Tracks report IDs submitted from unsent draft chats so their status card renders in place. */
+export function recordLocalDevsReportId(threadId: ThreadId, reportId: string): void {
+  const current = localDevsReportIdsByThreadId.get(threadId) ?? [];
+  if (!current.includes(reportId)) {
+    localDevsReportIdsByThreadId.set(threadId, [...current, reportId]);
+  }
+}
+
+export function getLocalDevsReportIds(threadId: ThreadId): readonly string[] {
+  return localDevsReportIdsByThreadId.get(threadId) ?? [];
+}
+
+export function clearLocalDevsReportIdsForTests(): void {
+  localDevsReportIdsByThreadId.clear();
+}
 
 type DevsReportCopy = (
   key:
@@ -49,6 +72,8 @@ export async function handleDevsReportSend(input: {
   locale: MossLocaleCode;
   text: string;
   threadId: ThreadId;
+  isServerThread?: boolean;
+  feedbackContext?: DevsReportSubmitInput["feedbackContext"];
   api: NativeApi | null | undefined;
   requestRef: MutableRefObject<{
     text: string;
@@ -89,12 +114,31 @@ export async function handleDevsReportSend(input: {
     const server = input.api?.server;
     if (!server?.prepareDevsReport || !server.submitDevsReport)
       throw new Error(t("devs.unsupported"));
-    const request = {
-      threadId: input.threadId,
-      id: input.requestRef.current.id,
-      text: input.text,
-      ...(invocation.engine ? { engine: invocation.engine } : {}),
-    };
+    const isDraftChat = input.isServerThread === false;
+    const reportId = input.requestRef.current.id;
+    const request: DevsReportSubmitInput = isDraftChat
+      ? {
+          id: reportId,
+          text: `@devs ${invocation.description}`,
+          ...(invocation.engine ? { engine: invocation.engine } : {}),
+          feedbackContext: input.feedbackContext ?? {
+            appVersion: APP_VERSION,
+            platform:
+              typeof navigator !== "undefined" && navigator.platform
+                ? navigator.platform
+                : "desktop",
+            language: input.locale,
+            category: "bug",
+            provider: null,
+            model: null,
+          },
+        }
+      : {
+          threadId: input.threadId,
+          id: reportId,
+          text: input.text,
+          ...(invocation.engine ? { engine: invocation.engine } : {}),
+        };
     const prepared = await prepareDevsReportAttachments(input.images ?? [], input.files ?? []);
     const preview = await server.prepareDevsReport({
       ...request,
@@ -117,6 +161,7 @@ export async function handleDevsReportSend(input: {
     if (!(await (input.confirm ?? requestDevsReportConfirmation)(preview, local))) return false;
     // Submit sends exactly what prepare kept for this ID; the bytes are not sent again.
     await server.submitDevsReport(request);
+    if (isDraftChat) recordLocalDevsReportId(input.threadId, reportId);
     input.clear(preview.attachments?.length ? prepared.sentIds : []);
     input.requestRef.current = null;
     announceDevsReportSent(t);

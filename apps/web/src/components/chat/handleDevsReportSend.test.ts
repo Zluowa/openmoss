@@ -10,7 +10,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ toast: vi.fn() }));
 vi.mock("../ui/toast", () => ({ toastManager: { add: mocks.toast } }));
 
-import { handleDevsReportSend } from "./handleDevsReportSend";
+import {
+  clearLocalDevsReportIdsForTests,
+  getLocalDevsReportIds,
+  handleDevsReportSend,
+} from "./handleDevsReportSend";
 
 const threadId = ThreadId.makeUnsafe("chat");
 const preview: DevsReportPreview = {
@@ -44,6 +48,7 @@ beforeEach(() => {
   vi.stubGlobal("window", { dispatchEvent: vi.fn() });
 });
 afterEach(() => {
+  clearLocalDevsReportIdsForTests();
   vi.unstubAllGlobals();
   mocks.toast.mockReset();
 });
@@ -82,5 +87,48 @@ describe("sending a developer report", () => {
     expect(mocks.toast).toHaveBeenCalledWith(
       expect.objectContaining({ description: expect.stringContaining("Send error reports") }),
     );
+  });
+  it("submits via feedbackContext without threadId from an unsent draft chat and records its receipt", async () => {
+    const { prepareDevsReport, submitDevsReport, clear } = setup(true);
+    const confirm = vi.fn(async () => true);
+    const api = { server: { prepareDevsReport, submitDevsReport } } as unknown as NativeApi;
+    const result = await handleDevsReportSend({
+      locale: "zh-CN",
+      text: "@devs claude cannot submit in new chat",
+      threadId,
+      isServerThread: false,
+      feedbackContext: {
+        appVersion: "1.0.14",
+        platform: "Win32",
+        language: "zh-CN",
+        category: "bug",
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      api,
+      requestRef: { current: null },
+      clear,
+      confirm,
+    });
+    expect(result).toBe(true);
+    expect(prepareDevsReport).toHaveBeenCalledTimes(1);
+    const prepared = prepareDevsReport.mock.calls[0]![0];
+    const sent = submitDevsReport.mock.calls[0]![0];
+    expect(sent.threadId).toBeUndefined();
+    expect(sent).toEqual(prepared);
+    expect(sent).toMatchObject({
+      text: "@devs cannot submit in new chat",
+      engine: "claude",
+      feedbackContext: {
+        appVersion: "1.0.14",
+        platform: "Win32",
+        language: "zh-CN",
+        category: "bug",
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+    });
+    expect(getLocalDevsReportIds(threadId)).toEqual([prepared.id]);
+    expect(clear).toHaveBeenCalledTimes(1);
   });
 });

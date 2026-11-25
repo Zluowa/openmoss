@@ -1,5 +1,6 @@
 import { handleDevsReportSend } from "./handleDevsReportSend";
 import { MOSS_DEVS_REPORTS_ENABLED } from "@moss/shared/devsReport";
+import { APP_VERSION } from "../../branding";
 import type {
   MessageId,
   ProviderKind,
@@ -1448,6 +1449,22 @@ export function useChatTurnSubmission({
         const handled = await handleDevsReportSend({
           text: liveGatePrompt,
           threadId,
+          isServerThread,
+          ...(isServerThread
+            ? {}
+            : {
+                feedbackContext: {
+                  appVersion: APP_VERSION,
+                  platform:
+                    typeof navigator !== "undefined" && navigator.platform
+                      ? navigator.platform
+                      : "desktop",
+                  language: locale,
+                  category: "bug" as const,
+                  provider: selectedProvider || null,
+                  model: selectedModel || null,
+                },
+              }),
           locale,
           api: readNativeApi(),
           requestRef: devsSendRef,
@@ -1533,6 +1550,9 @@ export function useChatTurnSubmission({
     },
     [
       threadId,
+      isServerThread,
+      selectedProvider,
+      selectedModel,
       performComposerSend,
       resetLocalDispatch,
       setComposerDraftPrompt,

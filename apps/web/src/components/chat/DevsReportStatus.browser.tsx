@@ -12,7 +12,12 @@ import { MossLocaleScope } from "../../localization";
 import { DevsReportConfirmDialog } from "./DevsReportConfirmDialog";
 import { DevsReportStatus } from "./DevsReportStatus";
 import { requestDevsReportConfirmation } from "./devsReportConfirmStore";
-import { DEVS_REPORT_CHANGED, handleDevsReportSend } from "./handleDevsReportSend";
+import {
+  clearLocalDevsReportIdsForTests,
+  DEVS_REPORT_CHANGED,
+  handleDevsReportSend,
+  recordLocalDevsReportId,
+} from "./handleDevsReportSend";
 import { prepareDevsReportAttachments } from "./devsReportAttachments";
 
 const threadId = ThreadId.makeUnsafe("devs-chat");
@@ -37,6 +42,7 @@ const preview: DevsReportPreview = {
 const prepare = vi.fn(async () => preview);
 const confirm = async () => true;
 afterEach(async () => {
+  clearLocalDevsReportIdsForTests();
   await cleanup();
   vi.unstubAllGlobals();
 });
@@ -347,4 +353,39 @@ it("shows the real state as a report moves from sent to fixed or to a developer"
     .toHaveTextContent("已附带 3 个截图或文件");
   // The stale line the owner saw after delivery is gone.
   expect(document.body.textContent).not.toContain("服务断线时会自动重试发送");
+});
+
+it("displays the status card in an unsent draft chat using recorded local report IDs", async () => {
+  const draftThreadId = ThreadId.makeUnsafe("draft-chat-local");
+  const draftReport: DevsReportState = {
+    ...report,
+    id: "2fe199a0-63b3-4f71-8613-99ae20098b4e",
+    threadId: null,
+    description: "无法在新会话页面内进行问题报告",
+    delivered: true,
+    attachments: { count: 1, delivered: 1, missed: false },
+  };
+  recordLocalDevsReportId(draftThreadId, draftReport.id);
+  const listDevsReports = vi.fn(
+    async (input?: { threadId?: ThreadId; reportIds?: readonly string[] }) => ({
+      configured: true,
+      reports: input?.reportIds?.includes(draftReport.id) ? [draftReport] : [],
+    }),
+  );
+  vi.stubGlobal("nativeApi", {
+    server: { listDevsReports },
+  } as unknown as NativeApi);
+  const screen = await render(
+    <MossLocaleScope locale="zh-CN">
+      <div style={{ width: 760, paddingTop: 12 }}>
+        <DevsReportStatus threadId={draftThreadId} />
+      </div>
+    </MossLocaleScope>,
+  );
+  await expect.element(screen.getByText("@devs · Codex · 已收到", { exact: true })).toBeVisible();
+  await expect
+    .element(screen.getByText("无法在新会话页面内进行问题报告", { exact: true }))
+    .toBeVisible();
+  expect(listDevsReports).toHaveBeenCalledWith({ threadId: draftThreadId });
+  expect(listDevsReports).toHaveBeenCalledWith({ reportIds: [draftReport.id] });
 });
