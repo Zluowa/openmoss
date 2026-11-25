@@ -59,6 +59,9 @@ function harness(
     sessionGate?: (read: number) => Promise<void>;
     authorityUnavailable?: boolean;
     desktopToken?: boolean;
+    mode?: "web" | "desktop";
+    devUrl?: URL;
+    enterpriseSignedIn?: boolean;
     remote?: boolean;
     role?: "owner" | "client";
     webNoAuth?: boolean;
@@ -147,8 +150,9 @@ function harness(
     Layer.succeed(ServerConfig, {
       stateDir: directory,
       host: options.remote ? "0.0.0.0" : "127.0.0.1",
-      mode: options.webNoAuth ? "web" : "desktop",
+      mode: options.webNoAuth ? "web" : (options.mode ?? "desktop"),
       authToken: options.webNoAuth ? undefined : "desktop-startup-secret",
+      ...(options.devUrl ? { devUrl: options.devUrl } : {}),
     } as ServiceMap.Service.Shape<typeof ServerConfig>),
     Layer.succeed(ServerAuth, {
       authenticateHttpRequest: (request: AuthRequest) =>
@@ -203,7 +207,19 @@ function harness(
         }),
     } as unknown as ServiceMap.Service.Shape<typeof MossPhoneAccountService>),
     Layer.succeed(MossEnterpriseKeyAccount, {
-      getActiveAuthorityCredential: () => Effect.succeed(null),
+      getActiveAuthorityCredential: () =>
+        Effect.succeed(
+          options.enterpriseSignedIn && !state.signedOut
+            ? {
+                realm: "moss-enterprise-key" as const,
+                issuer: "moss-enterprise-key" as const,
+                accessToken: "moss_sk_synthetic_test_token",
+                gatewayBaseUrl: state.gateway,
+                realtimeRelayUrl: "",
+                accountId: "enterprise-account-a",
+              }
+            : null,
+        ),
     } as unknown as ServiceMap.Service.Shape<typeof MossEnterpriseKeyAccount>),
     Layer.succeed(MossCloudAccountService, {
       getState: () => Effect.succeed({ authenticated: false, account: null }),
@@ -544,6 +560,37 @@ describe("Moss media HTTP route", () => {
 
     const remote = harness({ webNoAuth: true, remote: true });
     expect((await remote.request("/api/moss/media/canvas/account")).status).toBe(401);
+  });
+
+  it("authenticates enterprise-key image history on a loopback web host when MOSS_AUTH_TOKEN is paired", async () => {
+    const app = harness({
+      mode: "web",
+      devUrl: new URL("http://localhost:47831"),
+      desktopToken: true,
+      enterpriseSignedIn: true,
+    });
+    const origin = "http://localhost:47831";
+    expect((await app.request("/api/moss/media/history?limit=24&kind=image")).status).toBe(401);
+
+    const authed = await app.request(
+      "/api/moss/media/history?limit=24&kind=image&token=desktop-startup-secret",
+      { headers: { origin } },
+    );
+    expect(authed.status).toBe(200);
+    expect(await authed.json()).toEqual({
+      account: { id: "enterprise-account-a", realm: "moss-enterprise-key" },
+      jobs: [],
+      nextCursor: null,
+    });
+    expect(app.fetchMock).not.toHaveBeenCalled();
+
+    app.state.signedOut = true;
+    const signedOut = await app.request(
+      "/api/moss/media/history?limit=24&kind=image&token=desktop-startup-secret",
+      { headers: { origin } },
+    );
+    expect(signedOut.status).toBe(401);
+    expect(await signedOut.json()).toMatchObject({ error: { code: "authentication_required" } });
   });
 
   it("keeps the startup bearer local and rejects untrusted browser origins", async () => {

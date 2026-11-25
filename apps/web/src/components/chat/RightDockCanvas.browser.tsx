@@ -345,7 +345,7 @@ describe("右栏 画布: one click, usable, and kept", () => {
       await shot(`right-dock-canvas-note-${theme}`);
 
       // Close the pane from its tab, then open 画布 again from the launcher.
-      await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
+      await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
       await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
       await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
       await waitForCanvasReady();
@@ -409,7 +409,7 @@ describe("右栏 画布: one click, usable, and kept", () => {
 
     // Close and reopen the 画布: the choice is kept with the board.
     await userEvent.keyboard("{Escape}");
-    await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
     await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
     await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
     await waitForCanvasReady();
@@ -463,7 +463,7 @@ describe("右栏 画布: one click, usable, and kept", () => {
     await shot("right-dock-canvas-agent-edit-light");
 
     // Saved together: close the 画布 and open it again.
-    await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
     await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
     await userEvent.click(page.getByTestId("right-dock-empty-action-canvas"));
     await waitForCanvasReady();
@@ -998,7 +998,7 @@ describe("WALK-7 N7-1: 画布 in a new chat nothing was sent in", () => {
       expect(document.body.textContent).not.toContain("正在加载画布…");
 
       // Close the pane from its tab, then open 画布 again: the drawing is there.
-      await userEvent.click(page.getByRole("button", { name: "关闭 画布", exact: true }));
+      await userEvent.click(page.getByRole("button", { name: "关闭画布", exact: true }));
       await expect.poll(() => document.querySelector('iframe[title="Moss Canvas"]')).toBeNull();
       // Closing its last pane closes the dock; the person opens the dock again, then 画布.
       await vi.waitFor(() =>

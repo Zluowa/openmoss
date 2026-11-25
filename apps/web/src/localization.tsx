@@ -7218,7 +7218,7 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "rightDock.addPanel": "添加面板",
   "rightDock.tabs": "面板",
   "surfaceTabs.openThreads": "打开的对话",
-  "surfaceTabs.close": "关闭 {title}",
+  "surfaceTabs.close": "关闭{title}",
   "surfaceTabs.moreOne": "还有 1 个标签页",
   "surfaceTabs.more": "还有 {count} 个标签页",
   "surfaceTabs.showHidden": "显示其余标签页",

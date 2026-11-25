@@ -678,4 +678,14 @@ describe("translateMoss", () => {
     expect(translateMoss("zh-CN", "codeReview.agent.send")).toBe("发送给智能体");
     expect(translateMoss("zh-CN", "codeReview.group.pinned")).toBe("已固定");
   });
+
+  it("formats surface tab close labels in Chinese without an extra space", () => {
+    expect(formatMossTranslation("en", "surfaceTabs.close", { title: "Canvas" })).toBe(
+      "Close Canvas",
+    );
+    expect(formatMossTranslation("zh-CN", "surfaceTabs.close", { title: "画布" })).toBe("关闭画布");
+    expect(formatMossTranslation("zh-CN", "rightDock.closePane", { label: "画布" })).toBe(
+      "关闭画布",
+    );
+  });
 });
