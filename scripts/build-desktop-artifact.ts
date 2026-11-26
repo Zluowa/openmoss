@@ -163,6 +163,10 @@ import {
   DESKTOP_STAGE_LOCK_DIRECTORY,
 } from "./lib/desktop-stage-lock.ts";
 import {
+  isDesktopClientPrecompressedSidecar,
+  preserveDependencyDiagnostics,
+} from "./lib/desktop-bundle-files.ts";
+import {
   AUTH_CALLBACK_PROTOCOL_CONFIG,
   createDesktopPlatformBuildConfig,
   MAC_APPSNAP_HELPER_STAGE_PATH,
@@ -3848,6 +3852,7 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     target,
     signed,
     macBuildOnlyPostPackagingSign,
+    diagnostics: preserveDependencyDiagnostics(process.env),
     ...(windowsSslComSignOptions ? { windowsSslComSignOptions } : {}),
   } as const;
 
@@ -5133,6 +5138,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
           try: () =>
             copyTreeFast(distDirs.serverDist, path.join(stageAppDir, "apps/server/dist"), {
               mode: "hardlink",
+              skip: isDesktopClientPrecompressedSidecar,
             }),
           catch: (cause) =>
             new BuildScriptError({

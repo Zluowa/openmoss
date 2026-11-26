@@ -8,6 +8,8 @@ import * as Path from "node:path";
 export interface CopyTreeFastOptions {
   readonly mode?: "hardlink" | "copy";
   readonly concurrency?: number;
+  /** Optional predicate receiving POSIX-style paths relative to `sourceDir`; returning true skips the entry. */
+  readonly skip?: (relativePath: string) => boolean;
 }
 
 export interface CopyTreeFastResult {
@@ -89,11 +91,12 @@ export async function copyTreeFast(
   const files: Array<{ readonly src: string; readonly dst: string }> = [];
   const symlinks: Array<{ readonly src: string; readonly dst: string }> = [];
 
-  let currentLevel: Array<{ readonly src: string; readonly dst: string }> = [
-    { src: sourceDir, dst: destinationDir },
+  let currentLevel: Array<{ readonly src: string; readonly dst: string; readonly rel: string }> = [
+    { src: sourceDir, dst: destinationDir, rel: "" },
   ];
   while (currentLevel.length > 0) {
-    const nextLevel: Array<{ readonly src: string; readonly dst: string }> = [];
+    const nextLevel: Array<{ readonly src: string; readonly dst: string; readonly rel: string }> =
+      [];
     const nextLevelDsts: string[] = [];
     for (let start = 0; start < currentLevel.length; start += concurrency) {
       const batch = currentLevel.slice(start, start + concurrency);
@@ -105,11 +108,13 @@ export async function copyTreeFast(
       );
       for (const { dir, entries } of listings) {
         for (const entry of entries) {
+          const rel = dir.rel ? `${dir.rel}/${entry.name}` : entry.name;
+          if (options.skip?.(rel)) continue;
           const src = Path.join(dir.src, entry.name);
           const dst = Path.join(dir.dst, entry.name);
           if (entry.isDirectory()) {
             nextLevelDsts.push(dst);
-            nextLevel.push({ src, dst });
+            nextLevel.push({ src, dst, rel });
           } else if (entry.isSymbolicLink()) {
             symlinks.push({ src, dst });
           } else if (entry.isFile()) {
@@ -118,7 +123,7 @@ export async function copyTreeFast(
             const st = await lstat(src);
             if (st.isDirectory()) {
               nextLevelDsts.push(dst);
-              nextLevel.push({ src, dst });
+              nextLevel.push({ src, dst, rel });
             } else if (st.isSymbolicLink()) {
               symlinks.push({ src, dst });
             } else {

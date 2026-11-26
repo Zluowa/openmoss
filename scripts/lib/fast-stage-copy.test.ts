@@ -66,4 +66,27 @@ describe("fast-stage-copy", () => {
     expect(result.hardlinked).toBe(0);
     expect(readFileSync(Path.join(dst, "item.txt"), "utf8")).toBe("v2");
   });
+
+  it("skips entries matched by the skip predicate without touching the source tree", async () => {
+    const dir = freshDir();
+    const src = Path.join(dir, "src");
+    const dst = Path.join(dir, "dst");
+    mkdirSync(Path.join(src, "client/assets"), { recursive: true });
+    writeFileSync(Path.join(src, "client/index.html"), "<html>");
+    writeFileSync(Path.join(src, "client/index.html.gz"), "gz-bytes");
+    writeFileSync(Path.join(src, "client/assets/app.js"), "console.log(1)");
+    writeFileSync(Path.join(src, "client/assets/app.js.br"), "br-bytes");
+
+    const result = await copyTreeFast(src, dst, {
+      mode: "hardlink",
+      skip: (rel) => rel.startsWith("client/") && /\.(?:gz|br)$/u.test(rel),
+    });
+
+    expect(result.files).toBe(2);
+    expect(readFileSync(Path.join(dst, "client/index.html"), "utf8")).toBe("<html>");
+    expect(readFileSync(Path.join(dst, "client/assets/app.js"), "utf8")).toBe("console.log(1)");
+    expect(() => readFileSync(Path.join(dst, "client/index.html.gz"))).toThrow();
+    expect(() => readFileSync(Path.join(dst, "client/assets/app.js.br"))).toThrow();
+    expect(readFileSync(Path.join(src, "client/index.html.gz"), "utf8")).toBe("gz-bytes");
+  });
 });

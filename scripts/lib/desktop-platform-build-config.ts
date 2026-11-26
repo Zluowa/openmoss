@@ -10,6 +10,7 @@ import { BUNDLED_CLAUDE_RUNTIME_DIR } from "./bundled-claude-runtime.ts";
 import { BUNDLED_CODEX_RUNTIME_DIR } from "./bundled-codex-runtime.ts";
 import { BUNDLED_CUA_DRIVER_DIR } from "./bundled-cua-driver.ts";
 import { MOSS_CANVAS_BUNDLE_DIR } from "./bundled-moss-canvas.ts";
+import { createDesktopBundleFileExclusions } from "./desktop-bundle-files.ts";
 import { WINDOWS_JOB_LAUNCHER_ASAR_EXCLUSION } from "./windows-native-job-launcher.ts";
 
 export const MICROPHONE_USAGE_DESCRIPTION =
@@ -80,12 +81,27 @@ export const AUTH_CALLBACK_PROTOCOL_CONFIG = {
   name: "Moss authentication callback",
   schemes: [MOSS_DESKTOP_SCHEME],
 } as const;
+// Preserve Simplified Chinese (zh-CN), Traditional Chinese (zh-TW), and English
+// (en / en-US / en-GB) across macOS (.lproj, underscore-delimited) and
+// Windows/Linux (.pak, hyphen-delimited) Electron locale layouts.
+export const DESKTOP_ELECTRON_LANGUAGES = [
+  "en",
+  "en-US",
+  "en_US",
+  "en-GB",
+  "en_GB",
+  "zh-CN",
+  "zh_CN",
+  "zh-TW",
+  "zh_TW",
+] as const;
 
 export interface DesktopPlatformBuildConfig {
   readonly afterPack?: string;
   readonly afterSign?: string;
   readonly asarUnpack?: ReadonlyArray<string>;
   readonly dmg?: Record<string, unknown>;
+  readonly electronLanguages?: ReadonlyArray<string>;
   readonly extraFiles?: ReadonlyArray<Record<string, string>>;
   readonly files?: ReadonlyArray<string>;
   readonly protocols?: ReadonlyArray<{
@@ -105,6 +121,7 @@ export interface CreateDesktopPlatformBuildConfigInput {
   readonly target: string;
   readonly signed?: boolean;
   readonly macBuildOnlyPostPackagingSign?: boolean;
+  readonly diagnostics?: boolean;
   readonly windowsAzureSignOptions?: Record<string, string>;
   readonly windowsSslComSignOptions?: {
     readonly publisherName: string;
@@ -165,9 +182,17 @@ export function createDesktopPlatformBuildConfig(
 
   const nativePackaging = {
     asarUnpack: [...NODE_PTY_ASAR_UNPACK_GLOBS],
+    electronLanguages: [...DESKTOP_ELECTRON_LANGUAGES],
     protocols: [AUTH_CALLBACK_PROTOCOL_CONFIG, CONNECTOR_OAUTH_PROTOCOL_CONFIG],
   };
-  const applicationFiles = ["**/*", ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS];
+  const applicationFiles = [
+    "**/*",
+    ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
+    ...createDesktopBundleFileExclusions(
+      input.platform,
+      input.diagnostics === undefined ? {} : { diagnostics: input.diagnostics },
+    ),
+  ];
 
   if (input.platform === "mac") {
     const mac = {

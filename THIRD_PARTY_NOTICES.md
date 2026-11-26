@@ -308,6 +308,43 @@ plus the shared parse of settled transcript markdown, from PR #2215 (commit 1a36
 Moss keeps messages with markers out of the shared parse. The benchmark suite and the
 desktop permessage-deflate opt-out of PR #2215 are not included.
 
+## Synara v1.5.4–v1.6.8 performance optimizations (absorbed)
+
+Additional startup, runtime, SQLite, UI, and desktop-packaging performance optimizations
+from Synara (https://github.com/Emanuele-web04/synara, MIT) are adapted with their tests:
+
+- Conservative SQLite free-page incremental reclamation and legacy shutdown compaction from
+  PR #1974 (commit db648fd9c), plus verified offline SQLite database compaction from PR #2035
+  (commit 21a0e7d51). Moss keeps its existing SQLite pragmas and migration lineage.
+- Connecting the desktop window when its backend is ready (`desktop:when-backend-ready`) from
+  PR #2136 (commit 5e0d4040a), and desktop cold-start / memory optimizations (version-scoped
+  backend Node compile cache with deferred flush, concurrent browser session restore,
+  background Cua orphan sweep, fast-skip Claude usage scans with shutdown abort, and server
+  Effect bundling) from PR #2156 (commit 4e67c54c0).
+- Lazy chat attachment thumbnails from PR #2224, and delivering Claude steers without waiting
+  for foreground tasks from PR #2308 (commit dcebe13d3).
+- Server hot paths (workspace search, single-flight Git status, immutable static asset cache,
+  batched projection cursors), acyclic web cold-boot chunk bands and heavy dependency lazy
+  loading (`@pierre/diffs`, `@xterm/xterm`, release notes, side panels), event-driven glass
+  overlay cutouts, selector/persistence churn reductions, and boot snapshot deduplication
+  from PR #2266 (commit 8447b5312), together with audit leak, SQL N+1, and safe `finally`
+  fixes from PR #2294 (commit 2da50bce4) and server startup / fast WebSocket reconnect
+  improvements from PR #2298 (commit bb25ad068).
+- Desktop installer and installed app size reductions from PR #2288 (commit 75a5a9a0a):
+  server and desktop bundle minification, Vite asset pruning, macOS `cua-driver` symbol
+  stripping, Electron locale pruning (retaining `en`, `en-US`, `en_US`, `en-GB`, `en_GB`,
+  `zh-CN`, `zh_CN`, `zh-TW`, and `zh_TW` for Moss's Chinese and English UI), excluding
+  precompressed `.gz`/`.br` web client sidecars from desktop `app.asar` (while retaining them
+  in CLI and SSH runtime packs), and pruning verified unused `node_modules` payloads and
+  non-runtime diagnostics from `app.asar`.
+
+Moss-only adaptations and items not carried over: Moss keeps its own brand, account lanes,
+CN/Global gateway, Canvas and Space routes, bundled Codex/Claude/Canvas/SSH runtimes, and
+Windows native payload audit. Synara Remote transport and pairing changes, dithered
+empty-chat backdrop changes (#2145, #2312), the desktop WebSocket `permessage-deflate`
+opt-out (#2215), upstream's desktop performance benchmark suite, and uncalibrated release
+bundle-size budget ceilings are not included.
+
 ## Synara Antigravity ACP runtime (absorbed)
 
 Driving Antigravity through `agy acp` (CLI 1.5.0+) on the shared ACP runtime is adapted with its

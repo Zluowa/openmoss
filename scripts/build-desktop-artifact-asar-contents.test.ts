@@ -51,6 +51,11 @@ const STAGED_FILES = [
   SSH_RUNTIME_STAGE_PATH,
   "apps/server/dist/bin.mjs",
   "apps/server/dist/client/index.html",
+  "apps/server/dist/client/index.html.gz",
+  "apps/server/dist/client/index.html.br",
+  "apps/server/dist/client/assets/app.js",
+  "apps/server/dist/client/assets/app.js.gz",
+  "apps/server/dist/client/assets/app.js.br",
   "third-party-licenses/openai-codex/LICENSE",
   `${BUNDLED_CODEX_RUNTIME_DIR}/codex.exe`,
   `${BUNDLED_CLAUDE_RUNTIME_DIR}/claude.exe`,
@@ -62,6 +67,7 @@ const APP_CODE = [
   "apps/desktop/dist-electron/main.cjs",
   "apps/server/dist/bin.mjs",
   "apps/server/dist/client/index.html",
+  "apps/server/dist/client/assets/app.js",
 ] as const;
 
 const roots: string[] = [];
@@ -176,6 +182,11 @@ describe("app.asar contents", () => {
         [],
       );
       expect(asarFiles).not.toContain("apps/desktop/ssh-runtime.tar.gz");
+      expect(
+        asarFiles.filter(
+          (entry) => entry.startsWith("apps/server/dist/client/") && /\.(?:gz|br)$/u.test(entry),
+        ),
+      ).toEqual([]);
     });
   }
 });

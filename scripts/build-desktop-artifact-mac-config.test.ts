@@ -6,6 +6,7 @@ import {
   BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
   CONNECTOR_OAUTH_PROTOCOL_CONFIG,
   createDesktopPlatformBuildConfig,
+  DESKTOP_ELECTRON_LANGUAGES,
   MAC_APPSNAP_HELPER_ASAR_EXCLUSION,
   MAC_APPSNAP_HELPER_BUNDLE_PATH,
   MAC_APPSNAP_HELPER_STAGE_PATH,
@@ -32,6 +33,7 @@ import {
   WINDOWS_NATIVE_AUDIT_AFTER_SIGN_MODULE_PATH,
 } from "./lib/desktop-platform-build-config.ts";
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
+import { createDesktopBundleFileExclusions } from "./lib/desktop-bundle-files.ts";
 import {
   MOSS_BETA_DESKTOP_SCHEME,
   MOSS_CANARY_DESKTOP_SCHEME,
@@ -39,6 +41,19 @@ import {
   MOSS_CUA_DESKTOP_SCHEME,
   MOSS_DESKTOP_SCHEME,
 } from "@moss/shared/desktopIdentity";
+
+// Mirrors app-builder-lib ElectronFramework.removeUnusedLanguagesIfNeeded matching.
+function isWantedElectronLocale(languageStem: string, configured: ReadonlyArray<string>): boolean {
+  const language = languageStem.toLowerCase();
+  return configured
+    .map((entry) => entry.trim().toLowerCase())
+    .some(
+      (wanted) =>
+        wanted === language ||
+        wanted.startsWith(`${language}-`) ||
+        wanted.startsWith(`${language}_`),
+    );
+}
 
 describe("createDesktopPlatformBuildConfig", () => {
   const expectedDesktopProtocols = [
@@ -104,9 +119,11 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual(config.files, [
       "**/*",
       ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
+      ...createDesktopBundleFileExclusions("mac"),
       MAC_APPSNAP_HELPER_ASAR_EXCLUSION,
       MAC_CANONICAL_FILESYSTEM_HELPER_ASAR_EXCLUSION,
     ]);
+    assert.deepStrictEqual(config.electronLanguages, [...DESKTOP_ELECTRON_LANGUAGES]);
     assert.deepStrictEqual(config.extraFiles, [
       {
         from: "apps/desktop/native/appsnap/build/moss-appsnap-helper",
@@ -213,7 +230,12 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.equal(linux.mac, undefined);
     assert.equal(linux.extraFiles, undefined);
     assert.equal(linux.npmRebuild, false);
-    assert.deepStrictEqual(linux.files, ["**/*", ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS]);
+    assert.deepStrictEqual(linux.files, [
+      "**/*",
+      ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
+      ...createDesktopBundleFileExclusions("linux"),
+    ]);
+    assert.deepStrictEqual(linux.electronLanguages, [...DESKTOP_ELECTRON_LANGUAGES]);
     assert.deepStrictEqual(linux.asarUnpack, ["node_modules/node-pty/**"]);
     assert.deepStrictEqual(linux.protocols, expectedDesktopProtocols);
     assert.deepStrictEqual(linux.linux, {
@@ -234,8 +256,10 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual(win.files, [
       "**/*",
       ...BUNDLED_RUNTIME_ASAR_EXCLUSIONS,
+      ...createDesktopBundleFileExclusions("win"),
       "!apps/server/native/moss-job-launch/**",
     ]);
+    assert.deepStrictEqual(win.electronLanguages, [...DESKTOP_ELECTRON_LANGUAGES]);
     assert.deepStrictEqual(win.asarUnpack, ["node_modules/node-pty/**"]);
     assert.equal(win.afterPack, WINDOWS_NATIVE_AUDIT_AFTER_PACK_MODULE_PATH);
     assert.equal(win.afterSign, undefined);
@@ -574,5 +598,62 @@ describe("createDesktopPlatformBuildConfig", () => {
   it("uses the reviewed white-backed Moss icon for every macOS icon path", () => {
     assert.equal(BRAND_ASSET_PATHS.productionMacIconPng, "apps/desktop/resources/icon.png");
     assert.equal(BRAND_ASSET_PATHS.productionMacLegacyIconPng, "apps/desktop/resources/icon.png");
+  });
+
+  it("prunes unused Electron locales while preserving Chinese and English across platforms", () => {
+    for (const [platform, target] of [
+      ["mac", "dmg"],
+      ["linux", "AppImage"],
+      ["win", "nsis"],
+    ] as const) {
+      const config = createDesktopPlatformBuildConfig({
+        hostPlatform: platform === "mac" ? "darwin" : platform === "win" ? "win32" : "linux",
+        platform,
+        target,
+      });
+      const languages = config.electronLanguages ?? [];
+      assert.deepStrictEqual(languages, [
+        "en",
+        "en-US",
+        "en_US",
+        "en-GB",
+        "en_GB",
+        "zh-CN",
+        "zh_CN",
+        "zh-TW",
+        "zh_TW",
+      ]);
+
+      // macOS .lproj directory stems
+      for (const keptMacLocale of ["en", "en_US", "en_GB", "zh_CN", "zh_TW"]) {
+        assert.equal(isWantedElectronLocale(keptMacLocale, languages), true, keptMacLocale);
+      }
+      // Windows/Linux .pak file stems
+      for (const keptPakLocale of ["en-US", "en-GB", "zh-CN", "zh-TW"]) {
+        assert.equal(isWantedElectronLocale(keptPakLocale, languages), true, keptPakLocale);
+      }
+      // Unused locales are pruned on every platform
+      for (const prunedLocale of ["de", "es", "fr", "ja", "ko", "pt-BR", "ru", "vi"]) {
+        assert.equal(isWantedElectronLocale(prunedLocale, languages), false, prunedLocale);
+      }
+    }
+  });
+
+  it("preserves dependency diagnostics in config.files only when diagnostics is enabled", () => {
+    const releaseConfig = createDesktopPlatformBuildConfig({
+      hostPlatform: "darwin",
+      platform: "mac",
+      target: "dmg",
+    });
+    const diagnosticConfig = createDesktopPlatformBuildConfig({
+      hostPlatform: "darwin",
+      platform: "mac",
+      target: "dmg",
+      diagnostics: true,
+    });
+
+    assert.ok(releaseConfig.files?.includes("!node_modules/effect/src/**/*.ts"));
+    assert.equal(diagnosticConfig.files?.includes("!node_modules/effect/src/**/*.ts"), false);
+    assert.ok(diagnosticConfig.files?.includes("!apps/server/dist/client/**/*.{gz,br}"));
   });
 });
