@@ -306,10 +306,17 @@ export const listProviderUsage = Effect.fn(function* (
   const selectedProviderOptions = requestedInstance
     ? providerStartOptionsFromInstance(requestedInstance)
     : undefined;
+  const defaultCodexInstance = !requestedInstance
+    ? resolveProviderInstance(settings, { provider: "codex" })
+    : undefined;
   const selectedClaudeOptions =
     requestedInstance?.driver === "claudeAgent" ? selectedProviderOptions?.claudeAgent : undefined;
   const selectedCodexOptions =
-    requestedInstance?.driver === "codex" ? selectedProviderOptions?.codex : undefined;
+    requestedInstance?.driver === "codex"
+      ? selectedProviderOptions?.codex
+      : defaultCodexInstance?.driver === "codex"
+        ? providerStartOptionsFromInstance(defaultCodexInstance)?.codex
+        : undefined;
   const selectedProviderDriver =
     requestedInstance?.driver === "kilo" ? "opencode" : requestedInstance?.driver;
   const selectedProviderEnvironment = (
@@ -338,6 +345,7 @@ export const listProviderUsage = Effect.fn(function* (
           homeDir: serverConfig.homeDir,
           claudeBinaryPath:
             selectedClaudeOptions?.binaryPath ?? settings.providers.claudeAgent.binaryPath,
+          codexBinaryPath: selectedCodexOptions?.binaryPath ?? settings.providers.codex.binaryPath,
           ...(selectedClaudeOptions?.homePath?.trim() ||
           settings.providers.claudeAgent.homePath.trim()
             ? {
@@ -346,9 +354,12 @@ export const listProviderUsage = Effect.fn(function* (
                   settings.providers.claudeAgent.homePath.trim(),
               }
             : {}),
-          ...(selectedCodexOptions?.homePath?.trim() || settings.providers.codex.homePath.trim()
+          ...(selectedCodexOptions?.shadowHomePath?.trim() ||
+          selectedCodexOptions?.homePath?.trim() ||
+          settings.providers.codex.homePath.trim()
             ? {
                 codexHomePath:
+                  selectedCodexOptions?.shadowHomePath?.trim() ||
                   selectedCodexOptions?.homePath?.trim() ||
                   settings.providers.codex.homePath.trim(),
               }

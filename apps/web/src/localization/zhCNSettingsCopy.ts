@@ -519,6 +519,18 @@ const SETTINGS_COPY: Readonly<Record<string, string>> = {
     "用量通过各服务商 CLI 在本地保存的凭据读取，并直接从服务商获取。列表跟随你已登录的账号；未登录的服务商会一直显示，直到连接了任意账号后才隐藏。短期 token 通过服务商自己的 CLI 或官方 token 端点刷新。",
   "Codex account usage requires a compatible app-server runtime.":
     "查看 Codex 账号用量需要兼容的 app-server 运行时。",
+  "OpenAI's network edge temporarily blocked the usage check (HTTP 403). Your Codex login is fine; retrying shortly.":
+    "OpenAI 网络边缘暂时拦截了用量检查（HTTP 403）。你的 Codex 登录状态正常，稍后会自动重试。",
+  "Codex API-key auth has no usage endpoint. Sign in with ChatGPT to see usage.":
+    "Codex API 密钥认证没有用量查询接口。请使用 ChatGPT 登录以查看用量。",
+  "Could not reach the Codex usage endpoint.": "无法连接到 Codex 用量接口。",
+  "Sign in with the provider CLI to see usage.": "请先通过服务商 CLI 登录以查看用量。",
+  "This Codex runtime does not expose account usage.": "当前 Codex 运行时不支持读取账号用量。",
+  "Codex account usage is currently unavailable.": "Codex 账号用量暂时不可用。",
+  "Live usage is not available for this provider configuration.":
+    "当前服务商配置不支持查看实时用量。",
+  "Usage is currently unavailable.": "用量暂时不可用。",
+  "Usage fetch failed unexpectedly.": "获取用量时发生意外错误。",
   Free: "免费版",
   Enterprise: "企业版",
   Account: "账号",
@@ -894,6 +906,14 @@ const SETTINGS_COPY_PATTERNS: ReadonlyArray<readonly [RegExp, (match: RegExpExec
     [
       /^(.+) is not authenticated\. Run `([^`]+)` and try again\.$/,
       (match) => `${match[1]} 尚未登录。请运行 \`${match[2]}\` 后重试。`,
+    ],
+    [
+      /^Sign in with `([^`]+)` to see usage\.$/,
+      (match) => `请运行 \`${match[1]}\` 登录以查看用量。`,
+    ],
+    [
+      /^Codex usage request failed \((\d+)\)\.$/,
+      (match) => `Codex 用量请求失败（HTTP ${match[1]}）。`,
     ],
     [/^(.+) is not installed or not on PATH\.$/, (match) => `${match[1]} 未安装，或不在 PATH 中。`],
     // dnd-kit's screen reader instructions keep the line breaks of its source.

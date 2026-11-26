@@ -16,6 +16,7 @@ import nodePath from "node:path";
 import type { ServerProviderUsageLimit, ServerProviderUsageLine } from "@moss/contracts";
 
 import { createLogger } from "../../logger";
+import { expandProviderAccountHomePath } from "../../providerAccountHomePath";
 import { fetchCodexResetCredits } from "../codexResetCredits";
 import {
   credentialFingerprint,
@@ -27,7 +28,7 @@ import {
   writeJsonFileAtomic,
   type OAuthRefreshResult,
 } from "../credentials";
-import { fetchJson, isAuthFailureStatus } from "../http";
+import { fetchJson, isAuthFailureStatus, isEdgeBlockedResponse } from "../http";
 import { createRefreshLock } from "./refreshLock";
 import {
   asFiniteNumber,
@@ -96,7 +97,18 @@ function readAppServerUsage(ctx: ProviderUsageContext) {
   return pending;
 }
 
+function configuredCodexHomePath(ctx: ProviderUsageContext): string | undefined {
+  const configuredHome = ctx.codexHomePath?.trim();
+  return configuredHome ? expandProviderAccountHomePath(configuredHome, ctx.homeDir) : undefined;
+}
+
 function authFilePaths(ctx: ProviderUsageContext): string[] {
+  const configuredHome = configuredCodexHomePath(ctx);
+  if (configuredHome) {
+    // An explicit codexHomePath is a strict account isolation boundary: never fall back to
+    // ambient CODEX_HOME, XDG config, or default ~/.codex credentials of another account.
+    return [nodePath.join(configuredHome, "auth.json")];
+  }
   const paths: string[] = [];
   const push = (value: string) => {
     if (!paths.includes(value)) paths.push(value);
@@ -157,6 +169,7 @@ async function reloadCodexAuth(
 }
 
 async function resolveCodexAuth(ctx: ProviderUsageContext): Promise<CodexAuth | null> {
+  const configuredHome = configuredCodexHomePath(ctx);
   let sawApiKeyOnly = false;
 
   for (const path of authFilePaths(ctx)) {
@@ -167,6 +180,10 @@ async function resolveCodexAuth(ctx: ProviderUsageContext): Promise<CodexAuth | 
     if (parsed === "api-key-only") {
       sawApiKeyOnly = true;
     }
+  }
+
+  if (configuredHome) {
+    return sawApiKeyOnly ? { kind: "api-key" } : null;
   }
 
   const keychainAccount = ctx.env.CODEX_KEYCHAIN_ACCOUNT?.trim();
@@ -194,14 +211,18 @@ async function resolveCodexAuth(ctx: ProviderUsageContext): Promise<CodexAuth | 
 }
 
 function codexAuthCacheKey(ctx: ProviderUsageContext, auth: CodexAuth | null): string {
+  const scope = [
+    ctx.providerInstanceId ?? "codex",
+    configuredCodexHomePath(ctx) ?? ctx.homeDir,
+  ].join(":");
   if (!auth) {
-    return `${ctx.homeDir}:none`;
+    return `${scope}:none`;
   }
   if (auth.kind === "api-key") {
-    return `${ctx.homeDir}:api-key`;
+    return `${scope}:api-key`;
   }
   const stableIdentity = auth.accountId ?? auth.refreshToken ?? auth.accessToken;
-  return `${ctx.homeDir}:${credentialFingerprint(stableIdentity)}`;
+  return `${scope}:${credentialFingerprint(stableIdentity)}`;
 }
 
 /** Prefer the access token's own JWT `exp`; fall back to `last_refresh` wall-clock age only when
@@ -544,10 +565,13 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
       const account = await readAppServerUsage(ctx);
       return `${ctx.providerInstanceId ?? "codex"}:${account.accountRef}`;
     }
-    if (!ctx.allowLegacyCodexHttpUsage) return null;
     return codexAuthCacheKey(ctx, await resolveCodexAuth(ctx));
   },
   async fetch(ctx) {
+    const withInstance = <T extends object>(snapshot: T) => ({
+      ...snapshot,
+      ...(ctx.providerInstanceId ? { providerInstanceId: ctx.providerInstanceId } : {}),
+    });
     if (ctx.readCodexAccountUsage) {
       try {
         const account = await readAppServerUsage(ctx);
@@ -563,48 +587,37 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
           message.includes("unknown method") ||
           message.includes("not supported")
         ) {
-          return {
-            ...unsupportedSnapshot(
+          return withInstance(
+            unsupportedSnapshot(
               "codex",
               ctx.nowMs,
               "codex-app-server-account",
               "This Codex runtime does not expose account usage.",
             ),
-            ...(ctx.providerInstanceId ? { providerInstanceId: ctx.providerInstanceId } : {}),
-          };
+          );
         }
-        return {
-          ...errorSnapshot(
+        return withInstance(
+          errorSnapshot(
             "codex",
             ctx.nowMs,
             "codex-app-server-account",
             "Codex account usage is currently unavailable.",
           ),
-          ...(ctx.providerInstanceId ? { providerInstanceId: ctx.providerInstanceId } : {}),
-        };
+        );
       }
-    }
-    if (!ctx.allowLegacyCodexHttpUsage) {
-      return {
-        ...unsupportedSnapshot(
-          "codex",
-          ctx.nowMs,
-          "codex-app-server-account",
-          "Codex account usage requires a compatible app-server runtime.",
-        ),
-        ...(ctx.providerInstanceId ? { providerInstanceId: ctx.providerInstanceId } : {}),
-      };
     }
     const auth = await resolveCodexAuth(ctx);
     if (!auth) {
-      return needsAuthSnapshot("codex", ctx.nowMs, SOURCE);
+      return withInstance(needsAuthSnapshot("codex", ctx.nowMs, SOURCE));
     }
     if (auth.kind === "api-key") {
-      return unsupportedSnapshot(
-        "codex",
-        ctx.nowMs,
-        SOURCE,
-        "Codex API-key auth has no usage endpoint. Sign in with ChatGPT to see usage.",
+      return withInstance(
+        unsupportedSnapshot(
+          "codex",
+          ctx.nowMs,
+          SOURCE,
+          "Codex API-key auth has no usage endpoint. Sign in with ChatGPT to see usage.",
+        ),
       );
     }
 
@@ -616,7 +629,7 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
     if (codexAuthNeedsRefresh(state, ctx.nowMs)) {
       const outcome = await refreshCodexAuth(ctx, state, { allowRedeem });
       if (outcome.kind === "needs-auth") {
-        return needsAuthSnapshot("codex", ctx.nowMs, SOURCE);
+        return withInstance(needsAuthSnapshot("codex", ctx.nowMs, SOURCE));
       }
       if (outcome.kind === "updated") {
         allowRedeem = allowRedeem && !outcome.redeemed;
@@ -626,7 +639,7 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
 
     try {
       let result = await fetchCodexUsage(state);
-      if (isAuthFailureStatus(result.status)) {
+      if (!isEdgeBlockedResponse(result) && isAuthFailureStatus(result.status)) {
         // The stored expiry can lag reality (revocation, clock skew): refresh/re-read and retry
         // once with a genuinely different token.
         const outcome = await refreshCodexAuth(ctx, state, { allowRedeem });
@@ -635,17 +648,32 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
           result = await fetchCodexUsage(state);
         }
       }
+      if (isEdgeBlockedResponse(result)) {
+        // Not a token problem: refreshing would only rotate the refresh token for nothing. An error
+        // snapshot lets the usage cache keep the last healthy values and retry on the short TTL.
+        log.warn("codex usage request blocked by Cloudflare edge", { status: result.status });
+        return withInstance(
+          errorSnapshot(
+            "codex",
+            ctx.nowMs,
+            SOURCE,
+            "OpenAI's network edge temporarily blocked the usage check (HTTP 403). Your Codex login is fine; retrying shortly.",
+          ),
+        );
+      }
       if (isAuthFailureStatus(result.status)) {
         log.warn("codex usage request unauthorized after refresh", { status: result.status });
-        return needsAuthSnapshot("codex", ctx.nowMs, SOURCE);
+        return withInstance(needsAuthSnapshot("codex", ctx.nowMs, SOURCE));
       }
       if (!result.ok) {
         log.warn("codex usage request failed", { status: result.status });
-        return errorSnapshot(
-          "codex",
-          ctx.nowMs,
-          SOURCE,
-          `Codex usage request failed (${result.status}).`,
+        return withInstance(
+          errorSnapshot(
+            "codex",
+            ctx.nowMs,
+            SOURCE,
+            `Codex usage request failed (${result.status}).`,
+          ),
         );
       }
       const snapshot = parseCodexUsage({
@@ -655,18 +683,21 @@ export const codexUsageFetcher: ProviderUsageFetcher = {
       });
       // Banked resets live behind `codex app-server`, not wham/usage. The probe rides the
       // same snapshot cache TTL, never throws, and resolves to "not reported" when absent.
+      const configuredHome = configuredCodexHomePath(ctx);
       const resetCredits = await fetchCodexResetCredits({
         binaryPath: ctx.codexBinaryPath,
         expectedAccountId: state.accountId,
-        env: ctx.env,
+        env: configuredHome ? { ...ctx.env, CODEX_HOME: configuredHome } : ctx.env,
         cwd: ctx.homeDir,
       });
-      return resetCredits ? { ...snapshot, resetCredits } : snapshot;
+      return withInstance(resetCredits ? { ...snapshot, resetCredits } : snapshot);
     } catch (cause) {
       log.warn("codex usage endpoint unreachable", {
         message: cause instanceof Error ? cause.message : String(cause),
       });
-      return errorSnapshot("codex", ctx.nowMs, SOURCE, "Could not reach the Codex usage endpoint.");
+      return withInstance(
+        errorSnapshot("codex", ctx.nowMs, SOURCE, "Could not reach the Codex usage endpoint."),
+      );
     }
   },
 };

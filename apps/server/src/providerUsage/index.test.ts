@@ -247,4 +247,49 @@ describe("collectProviderUsageSnapshots caching", () => {
     expect(result.reenabled).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("prefers shadowHomePath ahead of homePath for shadow-home Codex accounts", async () => {
+    fetchMock.mockImplementation(async (ctx) => okSnapshot(ctx.nowMs));
+    const configLayer = ServerConfig.layerTest(process.cwd(), process.cwd()).pipe(
+      Layer.provide(NodeServices.layer),
+    );
+    const layer = Layer.mergeAll(
+      NodeServices.layer,
+      configLayer,
+      ServerSettingsService.layerTest(),
+    );
+
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        const serverSettings = yield* ServerSettingsService;
+        yield* serverSettings.updateSettings({
+          providers: {
+            codex: {
+              accounts: [
+                {
+                  id: "work",
+                  label: "Work",
+                  homePath: "/tmp/shared-codex",
+                  shadowHomePath: "/tmp/shadow-work",
+                },
+              ],
+            },
+          },
+        });
+        return yield* listProviderUsage({
+          provider: "codex",
+          providerInstanceId: "codex_work",
+        });
+      }).pipe(Effect.provide(layer), Effect.scoped),
+    );
+
+    expect(result).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexHomePath: "/tmp/shadow-work",
+        providerInstanceId: "codex_work",
+      }),
+    );
+  });
 });

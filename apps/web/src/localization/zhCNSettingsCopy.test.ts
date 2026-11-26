@@ -164,3 +164,32 @@ describe("desktop tray and autostart settings copy in zh-CN", () => {
     expect(translateZhCnPresentationText(english)).toBe(chinese);
   });
 });
+
+describe("Codex usage detail copy in zh-CN", () => {
+  it.each([
+    [
+      "OpenAI's network edge temporarily blocked the usage check (HTTP 403). Your Codex login is fine; retrying shortly.",
+      "OpenAI 网络边缘暂时拦截了用量检查（HTTP 403）。你的 Codex 登录状态正常，稍后会自动重试。",
+    ],
+    [
+      "Codex API-key auth has no usage endpoint. Sign in with ChatGPT to see usage.",
+      "Codex API 密钥认证没有用量查询接口。请使用 ChatGPT 登录以查看用量。",
+    ],
+    ["Could not reach the Codex usage endpoint.", "无法连接到 Codex 用量接口。"],
+    ["Sign in with `codex login` to see usage.", "请运行 `codex login` 登录以查看用量。"],
+    ["Sign in with `claude` to see usage.", "请运行 `claude` 登录以查看用量。"],
+    ["Sign in with the provider CLI to see usage.", "请先通过服务商 CLI 登录以查看用量。"],
+    ["Codex usage request failed (500).", "Codex 用量请求失败（HTTP 500）。"],
+    ["Codex usage request failed (429).", "Codex 用量请求失败（HTTP 429）。"],
+    ["This Codex runtime does not expose account usage.", "当前 Codex 运行时不支持读取账号用量。"],
+    ["Codex account usage is currently unavailable.", "Codex 账号用量暂时不可用。"],
+    [
+      "Live usage is not available for this provider configuration.",
+      "当前服务商配置不支持查看实时用量。",
+    ],
+    ["Usage is currently unavailable.", "用量暂时不可用。"],
+    ["Usage fetch failed unexpectedly.", "获取用量时发生意外错误。"],
+  ])("translates %s", (english, chinese) => {
+    expect(translateZhCnPresentationText(english)).toBe(chinese);
+  });
+});

@@ -12,12 +12,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { outboundHttp } from "@moss/shared/outboundHttp";
 import { codexUsageFetcher, parseCodexAppServerUsage } from "./codex";
 
-const { readKeychainPasswordMock } = vi.hoisted(() => ({
+const { fetchCodexResetCreditsMock, readKeychainPasswordMock } = vi.hoisted(() => ({
+  fetchCodexResetCreditsMock: vi.fn().mockResolvedValue(undefined),
   readKeychainPasswordMock: vi.fn(),
 }));
 
 vi.mock("../codexResetCredits", () => ({
-  fetchCodexResetCredits: vi.fn().mockResolvedValue(undefined),
+  fetchCodexResetCredits: fetchCodexResetCreditsMock,
 }));
 
 vi.mock("../credentials", async (importOriginal) => ({
@@ -94,6 +95,8 @@ const USAGE_BODY = {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  fetchCodexResetCreditsMock.mockReset();
+  fetchCodexResetCreditsMock.mockResolvedValue(undefined);
   readKeychainPasswordMock.mockReset();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
@@ -194,16 +197,87 @@ describe("codexUsageFetcher", () => {
     expect(serialized).not.toContain("upstream-account-id");
   });
 
-  it("does not fall back to the private HTTP usage endpoint in production mode", async () => {
-    const request = vi.spyOn(outboundHttp, "request");
+  it("fetches Codex OAuth usage in standard mode without requiring app-server override", async () => {
+    const freshJwt = makeJwt(NOW_MS + 60 * 60 * 1000);
+    const { codexHome } = makeCodexHome({
+      tokens: {
+        access_token: freshJwt,
+        refresh_token: "valid-refresh-token",
+        account_id: "acct-standard",
+      },
+    });
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      expect(String(url)).toBe("https://chatgpt.com/backend-api/wham/usage");
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.Authorization).toBe(`Bearer ${freshJwt}`);
+      expect(headers["ChatGPT-Account-Id"]).toBe("acct-standard");
+      return jsonResponse(USAGE_BODY);
+    });
+    stubOutboundFetch(fetchMock);
+
     const snapshot = await codexUsageFetcher.fetch({
-      homeDir: "/unused",
+      homeDir: nodePath.join(codexHome, "no-home"),
+      env: {},
+      codexHomePath: codexHome,
+      platform: "win32",
+      nowMs: NOW_MS,
+      providerInstanceId: "codex",
+    });
+
+    expect(snapshot.status).toBe("ok");
+    expect(snapshot.providerInstanceId).toBe("codex");
+    expect(snapshot.planName).toBe("Plus");
+    expect(snapshot.limits.find((limit) => limit.window === "5h")?.usedPercent).toBe(41);
+    expect(snapshot.limits.find((limit) => limit.window === "Weekly")?.usedPercent).toBe(12);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns needs-auth when no Codex credentials exist in standard mode", async () => {
+    const emptyHome = mkdtempSync(nodePath.join(os.tmpdir(), "moss-codex-empty-"));
+    tempDirs.push(emptyHome);
+    const request = vi.spyOn(outboundHttp, "request");
+
+    const snapshot = await codexUsageFetcher.fetch({
+      homeDir: emptyHome,
       env: {},
       platform: "linux",
       nowMs: NOW_MS,
     });
-    expect(snapshot.status).toBe("unsupported");
+
+    expect(snapshot.status).toBe("needs-auth");
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it("treats a Cloudflare HTML 403 as a transient error without refreshing or signing out", async () => {
+    const freshJwt = makeJwt(NOW_MS + 60 * 60 * 1000);
+    const { codexHome } = makeCodexHome({
+      tokens: {
+        access_token: freshJwt,
+        refresh_token: "keep-refresh-token",
+        account_id: "acct-cf",
+      },
+    });
+    const fetchMock = vi.fn(async () => {
+      return new Response("<html><body>Just a moment...</body></html>", {
+        status: 403,
+        headers: {
+          "Content-Type": "text/html; charset=UTF-8",
+          "cf-mitigated": "challenge",
+        },
+      });
+    });
+    stubOutboundFetch(fetchMock);
+
+    const snapshot = await codexUsageFetcher.fetch({
+      homeDir: nodePath.join(codexHome, "no-home"),
+      env: { CODEX_HOME: codexHome },
+      platform: "win32",
+      nowMs: NOW_MS,
+    });
+
+    expect(snapshot.status).toBe("error");
+    expect(snapshot.detail).toContain("403");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("tries a still-valid keychain token when read-only refresh cannot rotate it", async () => {
@@ -417,5 +491,206 @@ describe("codexUsageFetcher", () => {
     const tokens = readAuthFile(authPath).tokens as Record<string, unknown>;
     expect(tokens.access_token).toBe(freshJwt);
     expect(tokens.refresh_token).toBe("rotated-refresh-token");
+  });
+
+  it("does not fall back from an empty codexHomePath to ~/.codex, CODEX_HOME, XDG config, or Keychain", async () => {
+    const isolatedHome = mkdtempSync(nodePath.join(os.tmpdir(), "moss-codex-isolated-empty-"));
+    const defaultHomeDir = mkdtempSync(nodePath.join(os.tmpdir(), "moss-codex-default-home-"));
+    const xdgConfigHome = mkdtempSync(nodePath.join(os.tmpdir(), "moss-codex-xdg-"));
+    tempDirs.push(isolatedHome, defaultHomeDir, xdgConfigHome);
+
+    const defaultAuthDir = nodePath.join(defaultHomeDir, ".codex");
+    mkdirSync(defaultAuthDir, { recursive: true });
+    const defaultAuthPath = nodePath.join(defaultAuthDir, "auth.json");
+    const defaultAuthRecord = {
+      tokens: {
+        access_token: makeJwt(NOW_MS - 60_000),
+        refresh_token: "default-personal-refresh-token",
+        account_id: "acct-default",
+      },
+    };
+    writeFileSync(defaultAuthPath, JSON.stringify(defaultAuthRecord), "utf8");
+
+    const defaultXdgDir = nodePath.join(defaultHomeDir, ".config", "codex");
+    mkdirSync(defaultXdgDir, { recursive: true });
+    writeFileSync(
+      nodePath.join(defaultXdgDir, "auth.json"),
+      JSON.stringify({
+        tokens: { access_token: makeJwt(NOW_MS + 60 * 60 * 1000), account_id: "acct-default-xdg" },
+      }),
+      "utf8",
+    );
+
+    const customXdgDir = nodePath.join(xdgConfigHome, "codex");
+    mkdirSync(customXdgDir, { recursive: true });
+    writeFileSync(
+      nodePath.join(customXdgDir, "auth.json"),
+      JSON.stringify({
+        tokens: { access_token: makeJwt(NOW_MS + 60 * 60 * 1000), account_id: "acct-xdg" },
+      }),
+      "utf8",
+    );
+
+    const { codexHome: ambientCodexHome } = makeCodexHome({
+      tokens: {
+        access_token: makeJwt(NOW_MS + 60 * 60 * 1000),
+        refresh_token: "ambient-refresh-token",
+        account_id: "acct-ambient",
+      },
+    });
+    readKeychainPasswordMock.mockResolvedValue(
+      JSON.stringify({
+        tokens: {
+          access_token: makeJwt(NOW_MS + 60 * 60 * 1000),
+          account_id: "acct-keychain",
+        },
+      }),
+    );
+
+    const request = vi.spyOn(outboundHttp, "request");
+    const ctx = {
+      homeDir: defaultHomeDir,
+      codexHomePath: isolatedHome,
+      providerInstanceId: "codex_work" as const,
+      env: {
+        CODEX_HOME: ambientCodexHome,
+        XDG_CONFIG_HOME: xdgConfigHome,
+        CODEX_KEYCHAIN_ACCOUNT: "default-keychain-account",
+      },
+      platform: "darwin" as const,
+      nowMs: NOW_MS,
+    };
+
+    const cacheKey = await codexUsageFetcher.cacheKey?.(ctx);
+    const snapshot = await codexUsageFetcher.fetch(ctx);
+
+    expect(cacheKey).toBe(`codex_work:${isolatedHome}:none`);
+    expect(snapshot.status).toBe("needs-auth");
+    expect(snapshot.providerInstanceId).toBe("codex_work");
+    expect(request).not.toHaveBeenCalled();
+    expect(readKeychainPasswordMock).not.toHaveBeenCalled();
+    expect(readAuthFile(defaultAuthPath)).toEqual(defaultAuthRecord);
+  });
+
+  it("returns API-key-only status for an API-key-only codexHomePath without falling back to ~/.codex or CODEX_HOME", async () => {
+    const { codexHome: isolatedHome } = makeCodexHome({
+      OPENAI_API_KEY: ["test", "api", "key", "only"].join("-"),
+    });
+    const defaultHomeDir = mkdtempSync(nodePath.join(os.tmpdir(), "moss-codex-byok-default-"));
+    tempDirs.push(defaultHomeDir);
+
+    const defaultAuthDir = nodePath.join(defaultHomeDir, ".codex");
+    mkdirSync(defaultAuthDir, { recursive: true });
+    const defaultAuthPath = nodePath.join(defaultAuthDir, "auth.json");
+    const defaultAuthRecord = {
+      tokens: {
+        access_token: makeJwt(NOW_MS - 60_000),
+        refresh_token: "default-refresh-must-not-rotate",
+        account_id: "acct-default",
+      },
+    };
+    writeFileSync(defaultAuthPath, JSON.stringify(defaultAuthRecord), "utf8");
+
+    const { codexHome: ambientCodexHome } = makeCodexHome({
+      tokens: {
+        access_token: makeJwt(NOW_MS + 60 * 60 * 1000),
+        account_id: "acct-ambient",
+      },
+    });
+    readKeychainPasswordMock.mockResolvedValue(
+      JSON.stringify({
+        tokens: {
+          access_token: makeJwt(NOW_MS + 60 * 60 * 1000),
+          account_id: "acct-keychain",
+        },
+      }),
+    );
+
+    const request = vi.spyOn(outboundHttp, "request");
+    const ctx = {
+      homeDir: defaultHomeDir,
+      codexHomePath: isolatedHome,
+      providerInstanceId: "codex_byok" as const,
+      env: {
+        CODEX_HOME: ambientCodexHome,
+        CODEX_KEYCHAIN_ACCOUNT: "default-keychain-account",
+      },
+      platform: "darwin" as const,
+      nowMs: NOW_MS,
+    };
+
+    const cacheKey = await codexUsageFetcher.cacheKey?.(ctx);
+    const snapshot = await codexUsageFetcher.fetch(ctx);
+
+    expect(cacheKey).toBe(`codex_byok:${isolatedHome}:api-key`);
+    expect(snapshot.status).toBe("unsupported");
+    expect(snapshot.providerInstanceId).toBe("codex_byok");
+    expect(snapshot.detail).toBe(
+      "Codex API-key auth has no usage endpoint. Sign in with ChatGPT to see usage.",
+    );
+    expect(request).not.toHaveBeenCalled();
+    expect(readKeychainPasswordMock).not.toHaveBeenCalled();
+    expect(readAuthFile(defaultAuthPath)).toEqual(defaultAuthRecord);
+  });
+
+  it("uses a populated codexHomePath ahead of CODEX_HOME and ~/.codex and scopes reset-credit probing", async () => {
+    const isolatedJwt = makeJwt(NOW_MS + 60 * 60 * 1000);
+    const { codexHome: isolatedHome } = makeCodexHome({
+      tokens: {
+        access_token: isolatedJwt,
+        refresh_token: "isolated-refresh-token",
+        account_id: "acct-isolated",
+      },
+    });
+    const { codexHome: ambientCodexHome } = makeCodexHome({
+      tokens: {
+        access_token: makeJwt(NOW_MS + 60 * 60 * 1000),
+        refresh_token: "ambient-refresh-token",
+        account_id: "acct-ambient",
+      },
+    });
+    const defaultHomeDir = mkdtempSync(nodePath.join(os.tmpdir(), "moss-codex-override-default-"));
+    tempDirs.push(defaultHomeDir);
+    const defaultAuthDir = nodePath.join(defaultHomeDir, ".codex");
+    mkdirSync(defaultAuthDir, { recursive: true });
+    writeFileSync(
+      nodePath.join(defaultAuthDir, "auth.json"),
+      JSON.stringify({
+        tokens: {
+          access_token: makeJwt(NOW_MS + 60 * 60 * 1000),
+          refresh_token: "default-refresh-token",
+          account_id: "acct-default",
+        },
+      }),
+      "utf8",
+    );
+
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string>;
+      expect(headers.Authorization).toBe(`Bearer ${isolatedJwt}`);
+      expect(headers["ChatGPT-Account-Id"]).toBe("acct-isolated");
+      return jsonResponse(USAGE_BODY);
+    });
+    stubOutboundFetch(fetchMock);
+
+    const snapshot = await codexUsageFetcher.fetch({
+      homeDir: defaultHomeDir,
+      codexHomePath: isolatedHome,
+      providerInstanceId: "codex_work",
+      env: { CODEX_HOME: ambientCodexHome },
+      platform: "win32",
+      nowMs: NOW_MS,
+    });
+
+    expect(snapshot.status).toBe("ok");
+    expect(snapshot.providerInstanceId).toBe("codex_work");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchCodexResetCreditsMock).toHaveBeenCalledTimes(1);
+    expect(fetchCodexResetCreditsMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedAccountId: "acct-isolated",
+        env: expect.objectContaining({ CODEX_HOME: isolatedHome }),
+      }),
+    );
   });
 });
