@@ -54,6 +54,7 @@ import { useGalleryLocalStore } from "./space/gallery/galleryLocalStore";
 import { fileIntoSpaces, type GalleryFolder } from "./space/gallery/galleryModel";
 import { GalleryImageViewer } from "./space/gallery/GalleryImageViewer";
 import {
+  WELCOME_FOLDER_TITLE,
   isBlankSpace,
   markWelcomeOffered,
   seedWelcomeSpace,
@@ -110,6 +111,7 @@ type Open =
 
 /** Kinds stored as page rows whose editor is the rich page editor. */
 const PAGE_EDITOR_KINDS = new Set(["page"]);
+const EMPTY_SPACES: readonly PageSpace[] = [];
 
 /**
  * What opening a stored page shows: the rich editor for plain pages, the typed view
@@ -293,7 +295,7 @@ function DataSpaceWorkspace({
   });
   const allPages = useMemo(() => listQuery.data?.pages ?? [], [listQuery.data]);
   const libraryFolders = useMemo(() => libraryQuery.data?.folders ?? [], [libraryQuery.data]);
-  const spaces = spacesQuery.data?.spaces ?? [];
+  const spaces = useMemo(() => spacesQuery.data?.spaces ?? EMPTY_SPACES, [spacesQuery.data]);
   // Pictures in a 资料库 folder named like a 资料空间 live in that space, beside its pages.
   const items = useMemo(
     () =>
@@ -304,17 +306,10 @@ function DataSpaceWorkspace({
           outputs: outputsQuery.data?.outputs ?? [],
           library: libraryQuery.data?.items ?? [],
         }),
-        spaces: spacesQuery.data?.spaces ?? [],
+        spaces,
         libraryFolders,
       }),
-    [
-      allPages,
-      appsQuery.data,
-      outputsQuery.data,
-      libraryQuery.data,
-      spacesQuery.data,
-      libraryFolders,
-    ],
+    [allPages, appsQuery.data, outputsQuery.data, libraryQuery.data, spaces, libraryFolders],
   );
   const refresh = useCallback(
     () => client.invalidateQueries({ queryKey: pagesQueryKeys.scope(account, scopeSpaceId) }),
@@ -324,6 +319,10 @@ function DataSpaceWorkspace({
   // A first visit to an empty 资料空间 gets the 示例资料, once per account on this device.
   const welcomeStarted = useRef(false);
   const addTag = useGalleryLocalStore((state) => state.addTag);
+  const hasWelcomeSpace = useMemo(
+    () => spaces.some((space) => space.trashedAt === null && space.title === WELCOME_FOLDER_TITLE),
+    [spaces],
+  );
   useEffect(() => {
     if (welcomeStarted.current || welcomeOffered(account)) return;
     if (
@@ -345,7 +344,6 @@ function DataSpaceWorkspace({
     )
       return;
     welcomeStarted.current = true;
-    markWelcomeOffered(account);
     void seedWelcomeSpace({
       api: ensureNativeApi(),
       scopeSpaceId,
@@ -354,7 +352,11 @@ function DataSpaceWorkspace({
         for (const tag of tags) addTag(key, tag);
       },
     })
+      .then(() => {
+        markWelcomeOffered(account);
+      })
       .catch((cause: unknown) => {
+        welcomeStarted.current = false;
         if (isCurrent()) setNotice(cause instanceof Error ? cause.message : "示例资料没有放好。");
       })
       .finally(() => void refresh());
@@ -522,6 +524,23 @@ function DataSpaceWorkspace({
     return () => window.removeEventListener("moss:space-template-launch", handleTemplateLaunch);
   }, []);
 
+  const loadWelcomeSamples = () =>
+    run("加载示例资料", async () => {
+      try {
+        await seedWelcomeSpace({
+          api: ensureNativeApi(),
+          scopeSpaceId,
+          upload: uploadLibraryFiles,
+          onTags: (key, tags) => {
+            for (const tag of tags) addTag(key, tag);
+          },
+        });
+        markWelcomeOffered(account);
+      } catch (cause) {
+        await refresh();
+        throw cause;
+      }
+    });
   const run = async (label: string, task: () => Promise<void>) => {
     if (busy || !isCurrent()) return;
     setBusy(true);
@@ -983,6 +1002,9 @@ function DataSpaceWorkspace({
           }}
           onClose={libraryProps.onClose}
           onSearch={() => setSearchOpen(true)}
+          onLoadWelcome={
+            !spacesQuery.isLoading && !hasWelcomeSpace ? () => void loadWelcomeSamples() : undefined
+          }
         />
       )}
       <div ref={workspaceHostRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1350,6 +1372,17 @@ function DataSpaceWorkspace({
     </div>
   );
 
+  const openItemRef = useRef(openItem);
+  openItemRef.current = openItem;
+  const goToPlaceRef = useRef(goToPlace);
+  goToPlaceRef.current = goToPlace;
+  const handleGalleryOpenItem = useCallback((item: SpaceItem) => {
+    void openItemRef.current(item);
+  }, []);
+  const handleGalleryPlace = useCallback((place: GalleryPlace) => {
+    goToPlaceRef.current(place);
+  }, []);
+
   return (
     <GalleryProvider
       account={account}
@@ -1358,8 +1391,8 @@ function DataSpaceWorkspace({
       spaces={spaces}
       libraryFolders={libraryFolders}
       loading={listQuery.isLoading || spacesQuery.isLoading}
-      onOpenItem={(item) => void openItem(item)}
-      onPlace={goToPlace}
+      onOpenItem={handleGalleryOpenItem}
+      onPlace={handleGalleryPlace}
     >
       {body}
     </GalleryProvider>

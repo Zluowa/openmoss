@@ -89,6 +89,8 @@ export function SpaceItemCard(
     }
   }, [item.key, item.kind, isDashboard]);
 
+  const resolvedImageSrc = useGalleryImageSrc(item);
+
   if (props.view === "list") {
     return (
       <div
@@ -141,7 +143,6 @@ export function SpaceItemCard(
   }
 
   const galleryKind = galleryClassOf(item);
-  const resolvedImageSrc = useGalleryImageSrc(item);
   const imageSrc = galleryKind === "image" ? resolvedImageSrc : null;
   if (galleryKind === "note" || galleryKind === "image") {
     // Notes show their own text and pictures their own shape: they are what they hold.

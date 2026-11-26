@@ -25,6 +25,8 @@ import { GalleryPicture } from "./GalleryCards";
 import { useGallery, useGalleryImageSrc } from "./GalleryContext";
 import { useGalleryLocalStore } from "./galleryLocalStore";
 
+const EMPTY_TAGS: readonly string[] = [];
+
 export function GalleryImageViewer(props: {
   item: SpaceItem;
   onBack: () => void;
@@ -181,7 +183,7 @@ function Description(props: { itemKey: string }) {
 
 function TagEditor(props: { item: SpaceItem }) {
   const gallery = useGallery();
-  const own = useGalleryLocalStore((state) => state.tags[props.item.key] ?? []);
+  const own = useGalleryLocalStore((state) => state.tags[props.item.key] ?? EMPTY_TAGS);
   const addTag = useGalleryLocalStore((state) => state.addTag);
   const removeTag = useGalleryLocalStore((state) => state.removeTag);
   const [draft, setDraft] = useState("");

@@ -32,12 +32,12 @@ import { readMossImagesAccountIdentity } from "~/lib/mossImagesAccountBoundary";
 import { MossLocalizationProvider } from "~/localization";
 import { serverQueryKeys } from "~/lib/serverReactQuery";
 import { BrowserThemeFixture, installBrowserFixtureTheme } from "~/test/browserThemeFixture";
-import { createDataSpaceFixture } from "~/test/mossDataSpaceFixture";
+import { createDataSpaceFixture, pageDocument } from "~/test/mossDataSpaceFixture";
 
 import { mossServerQueryKeys } from "../../auth/mossServerReactQuery";
 import { MossDataSpaceDestination } from "../../MossDataSpaceDestination";
 import { TooltipProvider } from "../../ui/tooltip";
-import { markWelcomeOffered } from "../welcome/spaceWelcome";
+import { markWelcomeOffered, welcomeOffered } from "../welcome/spaceWelcome";
 import { useGalleryLocalStore } from "./galleryLocalStore";
 
 // A folder inside the repository (Vite serves and writes only there), e.g. node_modules/.cache/….
@@ -489,7 +489,12 @@ const welcomeFolders: LibraryFolder[] = [];
 
 async function mount(
   theme: "light" | "dark" = "light",
-  options: { empty?: boolean; firstRun?: boolean } = {},
+  options: {
+    empty?: boolean;
+    firstRun?: boolean;
+    failFirstCreateSpace?: boolean;
+    existingNote?: boolean;
+  } = {},
 ) {
   const full = buildData();
   // An empty 资料空间: what a person sees on their first visit.
@@ -506,19 +511,27 @@ async function mount(
   const fixture = createDataSpaceFixture();
   // Typed items (slides, sheets…) made from templates during the first run.
   const typed: Array<{ page: Page; data: string | null }> = [];
-  if (options.firstRun) {
+  if (options.firstRun || options.existingNote) {
     welcomeLibrary.length = 0;
     welcomeFolders.length = 0;
+    if (options.existingNote) {
+      fixture.put(pageDocument("existing-note", "已有笔记", "保留已有笔记内容"));
+    }
     // The fixture dates every page alike; stamp each with when it was made, as a server would.
     const madeAt = new Map<string, string>();
     const listPages = fixture.api.pages.list;
     const mutatePages = fixture.api.pages.mutate;
+    let shouldFailCreateSpace = Boolean(options.failFirstCreateSpace);
     const stamp = (entry: Page): Page => {
       const when = madeAt.get(entry.id);
       return when ? { ...entry, createdAt: when, updatedAt: when } : entry;
     };
     Object.assign(fixture.api.pages, {
       mutate: vi.fn(async (input: Parameters<typeof mutatePages>[0]) => {
+        if (shouldFailCreateSpace && input.op === "create-space") {
+          shouldFailCreateSpace = false;
+          throw new Error("Network glitch");
+        }
         const result = await mutatePages(input);
         if (input.op === "create" || input.op === "create-space")
           madeAt.set(result.page.id, tick());
@@ -662,8 +675,16 @@ async function mount(
   });
   await router.load();
   await render(<RouterProvider router={router} />);
+  if (options.failFirstCreateSpace) {
+    await expect.element(page.getByText("Network glitch", { exact: true })).toBeVisible();
+    return;
+  }
   if (options.firstRun) {
     await expect.element(page.getByRole("button", { name: /^文件夹 苔，/u })).toBeVisible();
+    return;
+  }
+  if (options.existingNote) {
+    await expect.element(page.getByText("已有笔记", { exact: true }).first()).toBeVisible();
     return;
   }
   if (options.empty) {
@@ -863,5 +884,59 @@ describe("资料空间", () => {
       .element(page.getByRole("dialog").getByRole("button", { name: /^标签 苔，/u }))
       .toBeVisible();
     await shot("34-first-run-search");
+  });
+
+  it("opens an untagged image in GalleryImageViewer without Error #185 and adds a tag", async () => {
+    await mount();
+    useGalleryLocalStore.getState().replaceAll({ tags: {} });
+    const home = content();
+    await page.getByRole("button", { name: /^文件夹 品牌方向/u }).click();
+    await home.getByRole("button", { name: "图片 logo-dark@2x" }).click();
+    const inspector = page.getByRole("complementary", { name: "图片信息" });
+    await expect.element(inspector).toBeVisible();
+    await expect.element(inspector.getByText("PNG", { exact: true })).toBeVisible();
+    await inspector.getByRole("button", { name: "添加标签" }).click();
+    await inspector.getByRole("textbox", { name: "添加标签" }).fill("无标签回归");
+    await userEvent.keyboard("{Enter}");
+    await expect
+      .element(inspector.getByRole("button", { name: "标签 无标签回归", exact: true }))
+      .toBeVisible();
+  });
+
+  it("toggles cleanly between grid and list views on SpaceItemCard", async () => {
+    await mount();
+    const home = content();
+    await expect.element(home.getByText("定下应用图标，这次真的定")).toBeVisible();
+    await home.getByRole("button", { name: "列表视图", exact: true }).click();
+    await expect.element(home.getByRole("grid", { name: "条目列表", exact: true })).toBeVisible();
+    await expect
+      .element(home.getByRole("gridcell", { name: "这周要做的事", exact: true }))
+      .toBeVisible();
+    await home.getByRole("button", { name: "网格视图", exact: true }).click();
+    await expect.element(home.getByText("定下应用图标，这次真的定")).toBeVisible();
+  });
+
+  it("does not poison welcomeOffered on failure and lets 「加载示例资料「苔」」 seed non-blank spaces", async () => {
+    await mount("light", { firstRun: true, failFirstCreateSpace: true });
+    const accountId = readMossImagesAccountIdentity(client);
+    expect(welcomeOffered(accountId)).toBe(false);
+    await cleanup();
+    client.clear();
+
+    await mount("light", { existingNote: true });
+    const home = content();
+    expect(document.querySelector('[data-gallery-key^="space:"]')).toBeNull();
+    await sidebar().getByRole("button", { name: "创建", exact: true }).click();
+    await page.getByRole("menuitem", { name: "加载示例资料「苔」", exact: true }).click();
+    await expect.element(page.getByRole("button", { name: /^文件夹 苔，/u })).toBeVisible();
+    await expect.element(home.getByText("先试试这几件事")).toBeVisible();
+    expect(welcomeOffered(readMossImagesAccountIdentity(client))).toBe(true);
+
+    // Once 「苔」 exists, the menu item is hidden so duplicates cannot be seeded from the menu.
+    await sidebar().getByRole("button", { name: "创建", exact: true }).click();
+    await expect.element(page.getByRole("menuitem", { name: /幻灯片/u })).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: "加载示例资料「苔」", exact: true }))
+      .not.toBeInTheDocument();
   });
 });

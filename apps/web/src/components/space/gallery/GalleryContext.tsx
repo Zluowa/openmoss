@@ -81,6 +81,19 @@ export function useGallery(): GalleryData {
 
 /** Notes read for cards and search; past this the rest load when opened. */
 const NOTE_READ_LIMIT = 300;
+const EMPTY_TAGS: readonly string[] = [];
+
+function combineNoteContents(
+  results: readonly { readonly data?: PagesReadResult | undefined }[],
+): (string | null)[] {
+  return results.map((result) => result.data?.content ?? null);
+}
+
+function combinePreviewGrants(
+  results: readonly { readonly data?: { readonly grant?: string | null } | undefined }[],
+): (string | null)[] {
+  return results.map((result) => result.data?.grant ?? null);
+}
 
 export function GalleryProvider(
   props: GalleryActions & {
@@ -114,18 +127,23 @@ export function GalleryProvider(
         .slice(0, NOTE_READ_LIMIT),
     [items],
   );
+  const noteQueries = useMemo(
+    () =>
+      notes.map((item) => {
+        const pageId = (item.source as { page: { id: PageId } }).page.id;
+        return {
+          queryKey: pagesQueryKeys.read(account, scopeSpaceId, pageId),
+          queryFn: (): Promise<PagesReadResult> =>
+            ensureNativeApi().pages.read({ scopeSpaceId, pageId }),
+          staleTime: 30_000,
+        };
+      }),
+    [notes, account, scopeSpaceId],
+  );
   // `combine` output is structurally shared, so this array only changes when a note does.
   const contents = useQueries({
-    queries: notes.map((item) => {
-      const pageId = (item.source as { page: { id: PageId } }).page.id;
-      return {
-        queryKey: pagesQueryKeys.read(account, scopeSpaceId, pageId),
-        queryFn: (): Promise<PagesReadResult> =>
-          ensureNativeApi().pages.read({ scopeSpaceId, pageId }),
-        staleTime: 30_000,
-      };
-    }),
-    combine: (results) => results.map((result) => result.data?.content ?? null),
+    queries: noteQueries,
+    combine: combineNoteContents,
   });
   const markdownByKey = useMemo(() => {
     const map = new Map<string, string>();
@@ -147,11 +165,16 @@ export function GalleryProvider(
   const canGrant =
     !hasLocalImageUrlResolver() &&
     typeof ensureNativeApi().projects?.createLocalFilePreviewGrant === "function";
+  const grantQueries = useMemo(
+    () =>
+      localImagePaths.map((path) =>
+        projectLocalPreviewGrantQueryOptions({ path, enabled: canGrant }),
+      ),
+    [localImagePaths, canGrant],
+  );
   const grantResults = useQueries({
-    queries: localImagePaths.map((path) =>
-      projectLocalPreviewGrantQueryOptions({ path, enabled: canGrant }),
-    ),
-    combine: (results) => results.map((result) => result.data?.grant ?? null),
+    queries: grantQueries,
+    combine: combinePreviewGrants,
   });
   const grantByPath = useMemo(() => {
     const map = new Map<string, string>();
@@ -178,7 +201,7 @@ export function GalleryProvider(
   }, [tree]);
   const tagsOf = useCallback(
     (item: SpaceItem): readonly string[] => {
-      const own = localTags[item.key] ?? [];
+      const own = localTags[item.key] ?? EMPTY_TAGS;
       const markdown = markdownByKey.get(item.key);
       const written = markdown ? noteHashtags(markdown) : [];
       return [...new Set([...own.map(normalizeTag), ...written])];

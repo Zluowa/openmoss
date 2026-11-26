@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   PageId,
   PageSpaceId,
   ThreadId,
   type LibraryItem,
+  type NativeApi,
   type Page,
+  type PageSpace,
   type SpaceOutput,
 } from "@moss/contracts";
 
@@ -18,6 +20,7 @@ import {
   spaceMossMediaPath,
 } from "./spaceItems";
 import type { SpacePageApp } from "~/lib/spacePageApps";
+import { WELCOME_FOLDER_TITLE, seedWelcomeSpace, welcomePictureUrl } from "./welcome/spaceWelcome";
 
 const at = (day: number) => `2026-11-${String(day).padStart(2, "0")}T08:00:00.000Z`;
 
@@ -243,5 +246,81 @@ describe("资料空间 lists images and videos made in a chat", () => {
     expect(
       spaceMossMediaPath({ ...media("x", "image", "x.png"), mediaJobId: "../escape" }),
     ).toBeNull();
+  });
+});
+
+describe("spaceWelcome", () => {
+  it("resolves welcome picture URLs for web, Electron moss://app, and test fallback", () => {
+    expect(welcomePictureUrl("light-1", "moss://app")).toBe(
+      "moss://app/images/space-welcome/light-1.webp",
+    );
+    expect(welcomePictureUrl("light-1", "http://localhost:5733")).toBe(
+      "http://localhost:5733/images/space-welcome/light-1.webp",
+    );
+    expect(welcomePictureUrl("light-1", "null")).toBe("/images/space-welcome/light-1.webp");
+    expect(welcomePictureUrl("light-1", undefined)).toBe("/images/space-welcome/light-1.webp");
+  });
+
+  it("reuses an existing 「苔」 space and folder instead of creating duplicates", async () => {
+    const existingSpace: PageSpace = {
+      id: PageSpaceId.makeUnsafe("space-moss"),
+      scopeSpaceId: null,
+      rootPageId: PageId.makeUnsafe("root-moss"),
+      title: WELCOME_FOLDER_TITLE,
+      revision: 1,
+      trashedAt: null,
+      createdAt: at(1),
+      updatedAt: at(1),
+    };
+    const pagesList: Page[] = [
+      page("root-moss", { spaceId: existingSpace.id }),
+      page("note-1", {
+        title: "鹿柴",
+        spaceId: existingSpace.id,
+        parentPageId: existingSpace.rootPageId,
+        rootPageId: existingSpace.rootPageId,
+      }),
+    ];
+    const mutate = vi.fn(async (input: { op: string; title?: string }) => ({
+      page: page(`created-${mutate.mock.calls.length}`, { title: input.title ?? "created" }),
+    }));
+    const createFolder = vi.fn();
+    const api = {
+      pages: {
+        spaces: vi.fn(async () => ({ spaces: [existingSpace] })),
+        list: vi.fn(async () => ({ pages: pagesList })),
+        mutate,
+      },
+      library: {
+        list: vi.fn(async () => ({
+          items: [],
+          folders: [
+            { id: "folder-moss", title: WELCOME_FOLDER_TITLE, createdAt: at(1), updatedAt: at(1) },
+          ],
+        })),
+        createFolder,
+        move: vi.fn(async () => ({ items: [] })),
+      },
+      pageTypes: {
+        create: vi.fn(async () => ({
+          page: page("typed-1"),
+          kind: "slides",
+          data: null,
+          dataRevision: 1,
+        })),
+      },
+    } as unknown as NativeApi;
+
+    await seedWelcomeSpace({
+      api,
+      scopeSpaceId: null,
+      upload: vi.fn(async () => ({ items: [], imported: 0, skipped: 0 })),
+      onTags: vi.fn(),
+      loadPicture: vi.fn(async () => new Blob(["x"], { type: "image/webp" })),
+    });
+
+    expect(mutate.mock.calls.some(([input]) => input.op === "create-space")).toBe(false);
+    expect(mutate.mock.calls.some(([input]) => input.title === "鹿柴")).toBe(false);
+    expect(createFolder).not.toHaveBeenCalled();
   });
 });

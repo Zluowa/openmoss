@@ -118,6 +118,36 @@ const parseDocStyle = (raw: string): unknown => {
     return null;
   }
 };
+const parseStringArrayJson = (raw: string | null | undefined): string[] => {
+  if (typeof raw !== "string") return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+const decodeRowsSafely = <R, A>(
+  rows: readonly R[],
+  decodeRow: (row: R) => A,
+  label: string,
+  idOf: (row: R) => string,
+): Effect.Effect<A[]> =>
+  Effect.gen(function* () {
+    const decoded: A[] = [];
+    for (const row of rows) {
+      try {
+        decoded.push(decodeRow(row));
+      } catch {
+        yield* Effect.logWarning(`Skipping malformed ${label} record`, {
+          id: idOf(row),
+        });
+      }
+    }
+    return decoded;
+  });
 const pageFromRow = (row: DocumentRow) =>
   Schema.decodeUnknownSync(Page)({
     id: row.page_id,
@@ -134,8 +164,8 @@ const pageFromRow = (row: DocumentRow) =>
     pinned: row.pinned !== 0,
     trashedAt: row.trashed_at,
     sourceThreadId: row.source_thread_id,
-    assetIds: JSON.parse(row.asset_ids_json),
-    automationIds: JSON.parse(row.automation_ids_json),
+    assetIds: parseStringArrayJson(row.asset_ids_json),
+    automationIds: parseStringArrayJson(row.automation_ids_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
@@ -452,7 +482,9 @@ export const makePagesServiceShape = (
           yield* authorize(input.scopeSpaceId, principal);
           const rows =
             yield* sql<SpaceRow>`SELECT * FROM pages_spaces WHERE scope_key = ${scopeKey(input.scopeSpaceId)} ORDER BY created_at, space_id`;
-          return { spaces: rows.map(spaceFromRow) };
+          return {
+            spaces: yield* decodeRowsSafely(rows, spaceFromRow, "space", (row) => row.space_id),
+          };
         }),
       );
     const list: PagesServiceShape["list"] = (raw, principal) =>
@@ -464,7 +496,9 @@ export const makePagesServiceShape = (
           const rows = input.includeTrashed
             ? yield* sql<DocumentRow>`SELECT * FROM pages_documents WHERE scope_key = ${scopeKey(input.scopeSpaceId)} ORDER BY pinned DESC, updated_at DESC, page_id`
             : yield* sql<DocumentRow>`SELECT * FROM pages_documents WHERE scope_key = ${scopeKey(input.scopeSpaceId)} AND trashed_at IS NULL ORDER BY pinned DESC, updated_at DESC, page_id`;
-          return { pages: rows.map(pageFromRow) };
+          return {
+            pages: yield* decodeRowsSafely(rows, pageFromRow, "page", (row) => row.page_id),
+          };
         }),
       );
     const read: PagesServiceShape["read"] = (raw, principal) =>

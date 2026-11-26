@@ -323,30 +323,84 @@ export interface WelcomeDeps {
 /** Puts the samples in place. Each part stands alone: a failed part leaves the others. */
 export async function seedWelcomeSpace(deps: WelcomeDeps): Promise<void> {
   const { api, scopeSpaceId } = deps;
-  const created = await api.pages.mutate({
-    op: "create-space",
-    requestId: crypto.randomUUID(),
-    scopeSpaceId,
-    title: WELCOME_FOLDER_TITLE,
-  });
-  const space = created.space;
+  const existingSpaces =
+    typeof api.pages.spaces === "function"
+      ? await api.pages
+          .spaces({ scopeSpaceId })
+          .then((result) => result.spaces)
+          .catch(() => [] as readonly PageSpace[])
+      : [];
+  let space = existingSpaces.find(
+    (entry) => entry.trashedAt === null && entry.title === WELCOME_FOLDER_TITLE,
+  );
+  if (!space) {
+    const created = await api.pages.mutate({
+      op: "create-space",
+      requestId: crypto.randomUUID(),
+      scopeSpaceId,
+      title: WELCOME_FOLDER_TITLE,
+    });
+    space = created.space;
+  }
   if (!space) throw new Error("示例资料没有建好。");
   const spaceId: PageSpaceId = space.id;
+  const existingPages =
+    typeof api.pages.list === "function"
+      ? await api.pages
+          .list({ scopeSpaceId, includeTrashed: false })
+          .then((result) => result.pages.filter((page) => page.trashedAt === null))
+          .catch(() => [] as readonly Page[])
+      : [];
+  const existingLibrary =
+    typeof api.library.list === "function"
+      ? await api.library
+          .list({ includeTrashed: false })
+          .catch(() => ({ items: [] as readonly LibraryItem[], folders: [] as const }))
+      : { items: [] as readonly LibraryItem[], folders: [] as const };
+  const existingSpaceNotes = new Set(
+    existingPages
+      .filter(
+        (page) =>
+          page.spaceId === spaceId &&
+          page.id !== space.rootPageId &&
+          (page.kind ?? "page") === "page",
+      )
+      .map((page) => page.title),
+  );
+  const existingSpaceTyped = new Set(
+    existingPages
+      .filter((page) => page.spaceId === spaceId && page.kind && page.kind !== "page")
+      .map((page) => `${page.kind}:${page.title}`),
+  );
+  const hasWelcomeNote = existingPages.some(
+    (page) => page.spaceId === null && page.title === WELCOME_NOTE.title,
+  );
   const loadPicture = deps.loadPicture ?? fetchPicture;
   const failures = new Set<string>();
-  let folderId: string | null = null;
-  try {
-    const id = crypto.randomUUID();
-    await api.library.createFolder({ id, title: WELCOME_FOLDER_TITLE });
-    folderId = id;
-  } catch {
-    failures.add("图片");
+  let folderId: string | null =
+    existingLibrary.folders.find((folder) => folder.title === WELCOME_FOLDER_TITLE)?.id ?? null;
+  if (!folderId) {
+    try {
+      const id = crypto.randomUUID();
+      await api.library.createFolder({ id, title: WELCOME_FOLDER_TITLE });
+      folderId = id;
+    } catch {
+      failures.add("图片");
+    }
   }
+  const existingPictureTitles = new Set(
+    folderId
+      ? existingLibrary.items
+          .filter((item) => item.trashedAt === null && item.folderId === folderId)
+          .map((item) => item.title)
+      : [],
+  );
 
   for (const step of SEQUENCE.toReversed()) {
     try {
       if ("note" in step) {
         const note = NOTES[step.note];
+        if (existingSpaceNotes.has(note.title)) continue;
         await api.pages.mutate({
           op: "create",
           requestId: crypto.randomUUID(),
@@ -356,8 +410,11 @@ export async function seedWelcomeSpace(deps: WelcomeDeps): Promise<void> {
           spaceId,
           parentPageId: space.rootPageId,
         });
+        existingSpaceNotes.add(note.title);
       } else if ("typed" in step) {
         const item = TYPED[step.typed];
+        const typedKey = `${item.kind}:${item.title}`;
+        if (existingSpaceTyped.has(typedKey)) continue;
         await createSpaceItem(api, {
           scopeSpaceId,
           kind: item.kind,
@@ -366,11 +423,15 @@ export async function seedWelcomeSpace(deps: WelcomeDeps): Promise<void> {
           spaceId,
           parentPageId: space.rootPageId,
         });
+        existingSpaceTyped.add(typedKey);
       } else if (folderId) {
         const picture = PICTURES[step.picture];
+        const fileName = `${picture.name}.webp`;
+        if (existingPictureTitles.has(fileName) || existingPictureTitles.has(picture.name))
+          continue;
         const result = await deps.upload([
           {
-            name: `${picture.name}.webp`,
+            name: fileName,
             mimeType: "image/webp",
             data: await loadPicture(step.picture),
           },
@@ -378,6 +439,7 @@ export async function seedWelcomeSpace(deps: WelcomeDeps): Promise<void> {
         const ids = result.items.map((item) => item.id);
         if (ids.length) await api.library.move({ ids, folderId });
         for (const id of ids) deps.onTags(`library:${id}`, picture.tags);
+        existingPictureTitles.add(fileName);
       }
     } catch {
       failures.add(
@@ -390,21 +452,38 @@ export async function seedWelcomeSpace(deps: WelcomeDeps): Promise<void> {
     }
   }
 
-  // Last, so it is the newest thing on the home.
-  await api.pages.mutate({
-    op: "create",
-    requestId: crypto.randomUUID(),
-    scopeSpaceId,
-    title: WELCOME_NOTE.title,
-    content: WELCOME_NOTE.content,
-    spaceId: null,
-    parentPageId: null,
-  });
+  if (!hasWelcomeNote) {
+    // Last, so it is the newest thing on the home.
+    try {
+      await api.pages.mutate({
+        op: "create",
+        requestId: crypto.randomUUID(),
+        scopeSpaceId,
+        title: WELCOME_NOTE.title,
+        content: WELCOME_NOTE.content,
+        spaceId: null,
+        parentPageId: null,
+      });
+    } catch {
+      failures.add(WELCOME_NOTE.title);
+    }
+  }
   if (failures.size) throw new Error(`示例资料里的${[...failures].join("、")}没有放好。`);
 }
 
+export function welcomePictureUrl(
+  id: string,
+  origin = typeof window !== "undefined" ? window.location?.origin : undefined,
+): string {
+  const path = `/images/space-welcome/${id}.webp`;
+  if (origin && origin !== "null" && /^(https?|moss(?:-canary)?):\/\//u.test(origin)) {
+    return new URL(path, origin).toString();
+  }
+  return path;
+}
+
 async function fetchPicture(id: string): Promise<Blob> {
-  const response = await fetch(`/images/space-welcome/${id}.webp`);
+  const response = await fetch(welcomePictureUrl(id));
   if (!response.ok) throw new Error(`${id} ${response.status}`);
   return response.blob();
 }

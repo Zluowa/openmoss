@@ -12,6 +12,7 @@ import {
   PageTextIcon,
   PaletteIcon,
   SlidesIcon,
+  SparklesIcon,
   TableIcon,
   TemplateIcon,
   WindowAppIcon,
@@ -66,6 +67,7 @@ export function SpaceCreateMenu(props: {
   /** The element that opens the menu; it receives the trigger props. */
   trigger: ReactElement;
   onCreate: (action: SpaceCreateAction) => void;
+  onLoadWelcome?: (() => void) | undefined;
   align?: "start" | "end";
 }) {
   return (
@@ -97,6 +99,17 @@ export function SpaceCreateMenu(props: {
             </MenuGroup>
           </div>
         ))}
+        {props.onLoadWelcome ? (
+          <div>
+            <MenuSeparator />
+            <MenuGroup>
+              <MenuItem data-space-load-welcome onClick={props.onLoadWelcome}>
+                <SparklesIcon aria-hidden className="size-4 shrink-0" />
+                <span className="truncate">加载示例资料「苔」</span>
+              </MenuItem>
+            </MenuGroup>
+          </div>
+        ) : null}
       </ComposerPickerMenuPopup>
     </Menu>
   );

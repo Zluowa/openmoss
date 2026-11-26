@@ -854,4 +854,50 @@ tests("Pages durable local documents", (it) => {
         assert.strictEqual(safe.richContent, '[{"type":"p","children":[]}]');
       }),
   );
+
+  it.effect(
+    "tolerates malformed asset_ids_json/automation_ids_json and skips dirty rows in list and spaces",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness;
+        const createdSpace = yield* h.service.mutate(
+          {
+            op: "create-space",
+            requestId: requestId(),
+            scopeSpaceId: h.scopeSpaceId,
+            title: "Healthy space",
+          },
+          user,
+        );
+        const healthyPage = yield* h.create("Healthy page", {
+          spaceId: createdSpace.space!.id,
+        });
+        yield* h.sql`UPDATE pages_documents
+          SET asset_ids_json = '{not-valid-json', automation_ids_json = '{"not":"an-array"}'
+          WHERE page_id = ${healthyPage.page.id}`;
+
+        const scope = `project-space:${h.scopeSpaceId}`;
+        yield* h.sql`INSERT INTO pages_documents
+          (page_id, scope_key, space_id, parent_page_id, root_page_id, title, revision, pinned, trashed_at, trash_batch, source_thread_id, asset_ids_json, automation_ids_json, created_at, updated_at)
+          VALUES ('dirty-page', ${scope}, NULL, NULL, 'dirty-page', '', 1, 0, NULL, NULL, NULL, '[]', '[]', 'not-an-iso-date', 'not-an-iso-date')`;
+        yield* h.sql`INSERT INTO pages_spaces
+          (space_id, scope_key, root_page_id, title, revision, trashed_at, created_at, updated_at)
+          VALUES ('dirty-space', ${scope}, 'dirty-root', '', 1, NULL, 'not-an-iso-date', 'not-an-iso-date')`;
+
+        const listed = yield* h.service.list({ scopeSpaceId: h.scopeSpaceId }, user);
+        assert.deepStrictEqual(
+          listed.pages.map((entry) => entry.id).toSorted(),
+          [healthyPage.page.id, createdSpace.page.id].toSorted(),
+        );
+        const recoveredPage = listed.pages.find((entry) => entry.id === healthyPage.page.id);
+        assert.deepStrictEqual(recoveredPage?.assetIds, []);
+        assert.deepStrictEqual(recoveredPage?.automationIds, []);
+
+        const listedSpaces = yield* h.service.spaces({ scopeSpaceId: h.scopeSpaceId }, user);
+        assert.deepStrictEqual(
+          listedSpaces.spaces.map((entry) => entry.id),
+          [createdSpace.space!.id],
+        );
+      }),
+  );
 });

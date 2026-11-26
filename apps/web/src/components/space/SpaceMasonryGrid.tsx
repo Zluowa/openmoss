@@ -40,14 +40,26 @@ function MasonryCell(props: { children: ReactNode }) {
   useLayoutEffect(() => {
     const cell = ref.current;
     if (!cell) return;
+    let rafId: number | null = null;
     const measure = () => {
       const height = cell.firstElementChild?.getBoundingClientRect().height ?? 0;
-      setSpan(Math.max(1, Math.ceil((height + GAP_PX) / ROW_PX)));
+      const next = Math.max(1, Math.ceil((height + GAP_PX) / ROW_PX));
+      setSpan((prev) => (prev === next ? prev : next));
+    };
+    const scheduleMeasure = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        measure();
+      });
     };
     measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(scheduleMeasure);
     if (cell.firstElementChild) observer.observe(cell.firstElementChild);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, []);
   return (
     <div ref={ref} className="min-w-0" style={{ gridRowEnd: `span ${span}` }}>

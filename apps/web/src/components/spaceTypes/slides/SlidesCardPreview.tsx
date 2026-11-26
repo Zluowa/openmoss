@@ -30,9 +30,25 @@ export function SlidesCardPreview(props: { page: Page }) {
   useLayoutEffect(() => {
     const element = frame.current;
     if (!element) return;
-    const observer = new ResizeObserver(() => setWidth(element.clientWidth));
+    let rafId: number | null = null;
+    const updateWidth = () => {
+      const next = element.clientWidth;
+      setWidth((prev) => (prev === next ? prev : next));
+    };
+    const scheduleUpdate = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        updateWidth();
+      });
+    };
+    updateWidth();
+    const observer = new ResizeObserver(scheduleUpdate);
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, []);
   const deck = query.data;
   const slide = deck ? coverSlide(deck) : null;

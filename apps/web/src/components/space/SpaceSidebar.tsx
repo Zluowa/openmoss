@@ -133,6 +133,8 @@ export function SpaceSidebar(props: {
   onClose: () => void;
   /** ⌘K: search titles, note text and tags. */
   onSearch?: () => void;
+  /** Offers loading the 「苔」 welcome samples when no non-trashed 「苔」 space exists. */
+  onLoadWelcome?: (() => void) | undefined;
   /** Every live item, for the pictures filed into each 资料空间. */
   items?: readonly SpaceItem[];
   /** 资料库 folders with no 资料空间 of the same name. */
@@ -263,6 +265,7 @@ export function SpaceSidebar(props: {
             <SidebarMenuItem>
               <SpaceCreateMenu
                 onCreate={props.onCreate}
+                onLoadWelcome={props.onLoadWelcome}
                 trigger={
                   <button
                     type="button"

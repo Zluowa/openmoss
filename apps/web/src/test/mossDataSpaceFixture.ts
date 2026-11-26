@@ -280,7 +280,9 @@ export function createDataSpaceFixture() {
   });
   const api = {
     pages: {
-      spaces: vi.fn(async () => ({ spaces: state.account === "account-a" ? spaces : [] })),
+      spaces: vi.fn(async () => ({
+        spaces: state.account === "account-a" ? structuredClone(spaces) : [],
+      })),
       list: vi.fn(async () => ({
         pages: [...ownedDocuments().values()].map((entry) => structuredClone(entry.page)),
       })),
