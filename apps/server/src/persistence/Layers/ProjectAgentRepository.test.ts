@@ -684,4 +684,74 @@ layer("ProjectAgentRepository", (it) => {
       assert.equal(Option.isNone(missing), true);
     }),
   );
+
+  it.effect("listConfigs loads linked project ids in a single batch query", () =>
+    Effect.gen(function* () {
+      const baseSql = yield* SqlClient.SqlClient;
+      let linkedProjectsQueries = 0;
+      const countingSql = new Proxy(baseSql, {
+        apply(target, thisArg, argArray) {
+          const strings = argArray[0];
+          if (
+            Array.isArray(strings) &&
+            strings.join(" ").includes("project_agent_linked_projects")
+          ) {
+            linkedProjectsQueries += 1;
+          }
+          return Reflect.apply(target, thisArg, argArray);
+        },
+      });
+      const repository = yield* Effect.gen(function* () {
+        return yield* ProjectAgentRepository;
+      }).pipe(
+        Effect.provide(
+          Layer.fresh(ProjectAgentRepositoryLive).pipe(
+            Layer.provide(Layer.succeed(SqlClient.SqlClient, countingSql)),
+          ),
+        ),
+      );
+
+      const firstId = ProjectId.makeUnsafe("project-batch-1");
+      const secondId = ProjectId.makeUnsafe("project-batch-2");
+      const thirdId = ProjectId.makeUnsafe("project-batch-3");
+      const linkedA = ProjectId.makeUnsafe("project-linked-a");
+      const linkedB = ProjectId.makeUnsafe("project-linked-b");
+
+      for (const [id, threadName, linkedProjectIds] of [
+        [firstId, "thread-batch-1", [linkedA, linkedB]],
+        [secondId, "thread-batch-2", [linkedB]],
+        [thirdId, "thread-batch-3", []],
+      ] as const) {
+        yield* repository.saveConfig(
+          {
+            projectId: id,
+            coordinatorThreadId: ThreadId.makeUnsafe(threadName),
+            coordinatorName: `Coordinator ${id}`,
+            coordinatorModelSelection: { provider: "codex" as const, model: "gpt-5-codex" },
+            limits,
+            captureEnabled: true,
+            enabled: true,
+            automationId: null,
+            revision: 1,
+            createdAt: now,
+            updatedAt: now,
+            disabledAt: null,
+          },
+          null,
+        );
+        for (const linkedProjectId of linkedProjectIds) {
+          yield* repository.linkProject({ projectId: id, linkedProjectId, createdAt: now });
+        }
+      }
+
+      linkedProjectsQueries = 0;
+      const configs = yield* repository.listConfigs();
+      assert.equal(linkedProjectsQueries, 1);
+
+      const byId = new Map(configs.map((entry) => [entry.projectId, entry]));
+      assert.deepEqual([...(byId.get(firstId)?.linkedProjectIds ?? [])].sort(), [linkedA, linkedB]);
+      assert.deepEqual(byId.get(secondId)?.linkedProjectIds, [linkedB]);
+      assert.deepEqual(byId.get(thirdId)?.linkedProjectIds, []);
+    }),
+  );
 });

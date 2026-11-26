@@ -5143,6 +5143,119 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("keeps projector cursors monotonic when an older event is projected again", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.makeUnsafe("project-monotonic-cursor");
+      const threadId = ThreadId.makeUnsafe("thread-monotonic-cursor");
+      const now = "2026-04-01T10:00:00.000Z";
+      const readCursors = sql<{
+        readonly projector: string;
+        readonly lastAppliedSequence: number;
+      }>`
+        SELECT projector, last_applied_sequence AS "lastAppliedSequence"
+        FROM projection_state
+        ORDER BY projector
+      `;
+
+      yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-monotonic-project"),
+        aggregateKind: "project",
+        aggregateId: projectId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-monotonic-project"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-monotonic-project"),
+        metadata: {},
+        payload: {
+          projectId,
+          title: "Monotonic",
+          workspaceRoot: "/tmp/project-monotonic-cursor",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-monotonic-thread"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-monotonic-thread"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-monotonic-thread"),
+        metadata: {},
+        payload: {
+          threadId,
+          projectId,
+          title: "Monotonic",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      const olderEvent = yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-monotonic-message-1"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-monotonic-message-1"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-monotonic-message-1"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-monotonic-1"),
+          role: "assistant",
+          text: "first",
+          turnId: null,
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      yield* eventStore.append({
+        type: "thread.message-sent",
+        eventId: EventId.makeUnsafe("evt-monotonic-message-2"),
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: CommandId.makeUnsafe("cmd-monotonic-message-2"),
+        causationEventId: null,
+        correlationId: CorrelationId.makeUnsafe("cmd-monotonic-message-2"),
+        metadata: {},
+        payload: {
+          threadId,
+          messageId: MessageId.makeUnsafe("message-monotonic-2"),
+          role: "assistant",
+          text: "second",
+          turnId: null,
+          streaming: false,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      yield* projectionPipeline.bootstrap;
+      const cursorsBefore = yield* readCursors;
+      assert.isAbove(cursorsBefore.length, 1);
+
+      // A journal retry or startup rebuild can hand an already-projected event
+      // back to the pipeline; cursors that are ahead of it must stay put.
+      yield* projectionPipeline.projectEvent(olderEvent);
+
+      assert.deepEqual(yield* readCursors, cursorsBefore);
+    }),
+  );
+
   it.effect(
     "resolves turn-count conflicts when checkpoint completion rewrites provisional turns",
     () =>

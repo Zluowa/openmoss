@@ -636,6 +636,7 @@ describe("searchWorkspaceContent", () => {
       "export const a = 1;\nexport function findMe() {\n  return true;\n}\n",
     );
     writeFile(cwd, "src/other.ts", "const FINDME = 'x';\n");
+    writeFile(cwd, "src/unicode.ts", `${"İ".repeat(16)}\nfindMe\nunrelated line\n`);
     writeFile(cwd, "README.md", "not a match\n");
 
     const result = await searchWorkspaceContent({ cwd, query: "findme" });
@@ -644,6 +645,7 @@ describe("searchWorkspaceContent", () => {
     expect(result.matches).toEqual([
       { path: "src/index.ts", lineNumber: 2, lineText: "export function findMe() {" },
       { path: "src/other.ts", lineNumber: 1, lineText: "const FINDME = 'x';" },
+      { path: "src/unicode.ts", lineNumber: 2, lineText: "findMe" },
     ]);
   });
 
@@ -711,7 +713,9 @@ describe("searchWorkspaceContent", () => {
     expect(result.truncated).toBe(true);
   });
 
-  it.each([1, 17])(
+  // 49 files exceeds the 24-worker read wave while staying below the 50-match default limit,
+  // so only the deadline can leave files unscanned and trigger truncation.
+  it.each([1, 49])(
     "marks truncation only when the deadline leaves files unscanned (%s files)",
     async (fileCount) => {
       const cwd = makeTempDir("moss-content-search-deadline-");
