@@ -19,7 +19,7 @@ const MAX_FRAME_BYTES = 8 * 1024 * 1024;
 
 const roomsByService = new WeakMap<PageTypesServiceShape, BoardRooms>();
 
-export function getBoardRoomsForService(service: PageTypesServiceShape): BoardRooms {
+function getBoardRoomsForService(service: PageTypesServiceShape): BoardRooms {
   const existing = roomsByService.get(service);
   if (existing) return existing;
   const readBoard = (id: string, space: string | null) =>
@@ -84,8 +84,6 @@ export function makeBoardRoomRouteLayer<R = never>(options: {
           const pageId = url?.searchParams.get("pageId") ?? "";
           const scope = url?.searchParams.get("scope") || null;
           const sessionId = url?.searchParams.get("sessionId") ?? "";
-          const peerName = url?.searchParams.get("name")?.trim() || undefined;
-          const peerColor = url?.searchParams.get("color")?.trim() || undefined;
           if (
             !SAFE_PARAM.test(pageId) ||
             (scope !== null && !SAFE_PARAM.test(scope)) ||
@@ -127,8 +125,6 @@ export function makeBoardRoomRouteLayer<R = never>(options: {
             rooms.join(pageId, scope, {
               sessionId,
               readOnly,
-              ...(peerName ? { name: peerName } : {}),
-              ...(peerColor ? { color: peerColor } : {}),
               send: (data) => write(data),
               close: () => write(new Socket.CloseEvent(1000, "closed")),
             }),

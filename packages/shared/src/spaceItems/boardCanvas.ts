@@ -36,15 +36,6 @@ export const BOARD_GEOS = [
 ] as const;
 export type BoardGeo = (typeof BOARD_GEOS)[number];
 
-export const BOARD_ARROW_DASHES = ["solid", "dashed", "dotted"] as const;
-export type BoardArrowDash = (typeof BOARD_ARROW_DASHES)[number];
-
-export const BOARD_ARROWHEADS = ["none", "arrow", "dot"] as const;
-export type BoardArrowhead = (typeof BOARD_ARROWHEADS)[number];
-
-export const BOARD_PEN_HEADS = ["none", "arrow"] as const;
-export type BoardPenHead = (typeof BOARD_PEN_HEADS)[number];
-
 export const BOARD_LIMITS = { shapes: 5_000, opsPerEdit: 200, text: 2_000 } as const;
 export const BOARD_PAGE_ID = "page:page";
 
@@ -53,34 +44,19 @@ export const BOARD_OP_KINDS = [
   "addFrame",
   "addText",
   "addShape",
-  "addDrawing",
-  "addTable",
-  "addPen",
   "connect",
   "update",
   "delete",
   "arrange",
   "timeline",
-  "undo",
-  "redo",
 ] as const;
 export type BoardOpKind = (typeof BOARD_OP_KINDS)[number];
 
 /** A shape reference: an existing shape id or a `key` assigned earlier in the same op list. */
 type Ref = string;
 
-/** Optional placement relative to an existing shape or earlier key in the same ask. */
-export interface BoardRelativePlace {
-  readonly rightOf?: Ref;
-  readonly leftOf?: Ref;
-  readonly below?: Ref;
-  readonly above?: Ref;
-  readonly gap?: number;
-  readonly align?: "start" | "center" | "end";
-}
-
 export type BoardOp =
-  | ({
+  | {
       readonly op: "addNote";
       readonly key?: string;
       readonly text: string;
@@ -88,8 +64,8 @@ export type BoardOp =
       readonly frame?: Ref;
       readonly x?: number;
       readonly y?: number;
-    } & BoardRelativePlace)
-  | ({
+    }
+  | {
       readonly op: "addFrame";
       readonly key?: string;
       readonly name: string;
@@ -98,8 +74,8 @@ export type BoardOp =
       readonly y?: number;
       readonly w?: number;
       readonly h?: number;
-    } & BoardRelativePlace)
-  | ({
+    }
+  | {
       readonly op: "addText";
       readonly key?: string;
       readonly text: string;
@@ -107,54 +83,18 @@ export type BoardOp =
       readonly frame?: Ref;
       readonly x?: number;
       readonly y?: number;
-      readonly w?: number;
-    } & BoardRelativePlace)
-  | ({
+    }
+  | {
       readonly op: "addShape";
       readonly key?: string;
       readonly geo: BoardGeo;
       readonly text?: string;
       readonly color?: BoardColor;
-      readonly hollow?: boolean;
       readonly frame?: Ref;
       readonly x?: number;
       readonly y?: number;
       readonly w?: number;
       readonly h?: number;
-    } & BoardRelativePlace)
-  | ({
-      readonly op: "addDrawing";
-      readonly key?: string;
-      readonly svg: string;
-      readonly alt?: string;
-      readonly look?: "marker" | "clean";
-      readonly frame?: Ref;
-      readonly x?: number;
-      readonly y?: number;
-      readonly w?: number;
-      readonly h?: number;
-    } & BoardRelativePlace)
-  | ({
-      readonly op: "addTable";
-      readonly key?: string;
-      readonly headers: readonly string[];
-      readonly rows: readonly (readonly string[])[];
-      readonly color?: BoardColor;
-      readonly frame?: Ref;
-      readonly x?: number;
-      readonly y?: number;
-      readonly w?: number;
-    } & BoardRelativePlace)
-  | {
-      readonly op: "addPen";
-      readonly key?: string;
-      readonly points: readonly (readonly [number, number])[];
-      readonly color?: BoardColor;
-      readonly width?: number;
-      readonly head?: BoardPenHead;
-      readonly frame?: Ref;
-      readonly x?: number;
-      readonly y?: number;
     }
   | {
       readonly op: "connect";
@@ -163,24 +103,14 @@ export type BoardOp =
       readonly to: Ref;
       readonly text?: string;
       readonly color?: BoardColor;
-      readonly dash?: BoardArrowDash;
-      readonly arrowheadStart?: BoardArrowhead;
-      readonly arrowheadEnd?: BoardArrowhead;
-      readonly bend?: number;
     }
   | {
       readonly op: "update";
       readonly id: Ref;
       readonly text?: string;
       readonly color?: BoardColor;
-      readonly hollow?: boolean;
-      readonly frame?: Ref | null;
       readonly x?: number;
       readonly y?: number;
-      readonly w?: number;
-      readonly h?: number;
-      readonly svg?: string;
-      readonly look?: "marker" | "clean";
     }
   | { readonly op: "delete"; readonly ids: readonly Ref[] }
   | {
@@ -202,9 +132,7 @@ export type BoardOp =
         readonly owner?: string;
         readonly color?: BoardColor;
       }[];
-    }
-  | { readonly op: "undo"; readonly steps?: number }
-  | { readonly op: "redo"; readonly steps?: number };
+    };
 
 export interface BoardShapeSummary {
   readonly id: string;
@@ -221,8 +149,6 @@ export interface BoardShapeSummary {
   /** For a connector: the shapes it joins. */
   readonly from?: string | undefined;
   readonly to?: string | undefined;
-  /** 1-based index matching an attached vision image in the same ask. */
-  readonly picture?: number;
 }
 
 export interface BoardCanvasRecord {
@@ -266,18 +192,6 @@ export function isBoardGeo(value: unknown): value is BoardGeo {
   return typeof value === "string" && (BOARD_GEOS as readonly string[]).includes(value);
 }
 
-function isBoardArrowDash(value: unknown): value is BoardArrowDash {
-  return typeof value === "string" && (BOARD_ARROW_DASHES as readonly string[]).includes(value);
-}
-
-function isBoardArrowhead(value: unknown): value is BoardArrowhead {
-  return typeof value === "string" && (BOARD_ARROWHEADS as readonly string[]).includes(value);
-}
-
-function isBoardPenHead(value: unknown): value is BoardPenHead {
-  return typeof value === "string" && (BOARD_PEN_HEADS as readonly string[]).includes(value);
-}
-
 export function isBoardOp(value: unknown): value is BoardOp {
   if (!isRecord(value) || typeof value.op !== "string") return false;
   if (!(BOARD_OP_KINDS as readonly string[]).includes(value.op)) return false;
@@ -289,66 +203,16 @@ export function isBoardOp(value: unknown): value is BoardOp {
       return typeof value.name === "string";
     case "addShape":
       return isBoardGeo(value.geo);
-    case "addDrawing":
-      return typeof value.svg === "string" && value.svg.trim().length > 0;
-    case "addTable":
-      return (
-        Array.isArray(value.headers) &&
-        value.headers.length >= 1 &&
-        value.headers.length <= 20 &&
-        value.headers.every((cell) => typeof cell === "string") &&
-        Array.isArray(value.rows) &&
-        value.rows.length <= 100 &&
-        value.rows.every(
-          (row) =>
-            Array.isArray(row) && row.length <= 20 && row.every((cell) => typeof cell === "string"),
-        )
-      );
-    case "addPen":
-      return (
-        Array.isArray(value.points) &&
-        value.points.length >= 2 &&
-        value.points.length <= 500 &&
-        value.points.every(
-          (point) =>
-            Array.isArray(point) &&
-            point.length === 2 &&
-            isFiniteNumber(point[0]) &&
-            isFiniteNumber(point[1]),
-        ) &&
-        (value.width === undefined || (isFiniteNumber(value.width) && value.width > 0)) &&
-        (value.head === undefined || isBoardPenHead(value.head))
-      );
     case "connect":
-      return (
-        typeof value.from === "string" &&
-        typeof value.to === "string" &&
-        (value.dash === undefined || isBoardArrowDash(value.dash)) &&
-        (value.arrowheadStart === undefined || isBoardArrowhead(value.arrowheadStart)) &&
-        (value.arrowheadEnd === undefined || isBoardArrowhead(value.arrowheadEnd)) &&
-        (value.bend === undefined || isFiniteNumber(value.bend))
-      );
+      return typeof value.from === "string" && typeof value.to === "string";
     case "update":
-      return (
-        typeof value.id === "string" &&
-        (value.hollow === undefined || typeof value.hollow === "boolean") &&
-        (value.frame === undefined || value.frame === null || typeof value.frame === "string")
-      );
+      return typeof value.id === "string";
     case "delete":
       return Array.isArray(value.ids) && value.ids.every((id) => typeof id === "string");
     case "arrange":
       return Array.isArray(value.groups);
     case "timeline":
       return Array.isArray(value.items);
-    case "undo":
-    case "redo":
-      return (
-        value.steps === undefined ||
-        (isFiniteNumber(value.steps) &&
-          Number.isInteger(value.steps) &&
-          value.steps >= 1 &&
-          value.steps <= 20)
-      );
     default:
       return false;
   }
@@ -472,7 +336,7 @@ export function summarizeBoardCanvas(
   );
   const allShapes = allRecords
     .filter((record) => record.typeName === "shape")
-    .toSorted((a, b) => {
+    .sort((a, b) => {
       const ia = typeof a.index === "string" ? a.index : "";
       const ib = typeof b.index === "string" ? b.index : "";
       return ia < ib ? -1 : ia > ib ? 1 : a.id.localeCompare(b.id);
@@ -497,32 +361,19 @@ export function summarizeBoardCanvas(
         : (shape.type ?? "unknown");
     const from = shape.type === "arrow" ? terminalTarget("start") : undefined;
     const to = shape.type === "arrow" ? terminalTarget("end") : undefined;
-    const summary: {
-      id: string;
-      type: string;
-      text?: string;
-      color?: string;
-      x: number;
-      y: number;
-      w: number;
-      h: number;
-      frame?: string;
-      from?: string;
-      to?: string;
-    } = {
+    return {
       id: shape.id,
       type: shapeType,
+      ...(text ? { text: text.slice(0, 500) } : {}),
+      ...(color ? { color } : {}),
       x: Math.round(point.x),
       y: Math.round(point.y),
       w: Math.round(size.w),
       h: Math.round(size.h),
+      ...(parent?.typeName === "shape" && parent.type === "frame" ? { frame: parent.id } : {}),
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
     };
-    if (text) summary.text = text.slice(0, 500);
-    if (color) summary.color = color;
-    if (parent?.typeName === "shape" && parent.type === "frame") summary.frame = parent.id;
-    if (from) summary.from = from;
-    if (to) summary.to = to;
-    return summary;
   });
   return { shapes, truncated: allShapes.length > limit };
 }

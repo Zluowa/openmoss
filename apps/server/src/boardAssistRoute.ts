@@ -12,8 +12,8 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { AuthError, ServerAuth } from "./auth/Services/ServerAuth";
 import { authErrorResponse, makeEffectAuthRequest } from "./auth/effectHttp";
 import {
+  BOARD_ASSIST_FAST_MODELS,
   BOARD_ASSIST_MESSAGES,
-  BOARD_ASSIST_TIER_MODELS,
   cachedBoardAssistCredential,
   cachedBoardAssistModels,
   readBoardAssistBody,
@@ -173,7 +173,7 @@ const boardAssistEffectHandler = Effect.gen(function* () {
   }
 
   const body = yield* request.json.pipe(
-    Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(4 * 1024 * 1024)),
+    Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(512 * 1024)),
     Effect.catch(() => Effect.succeed(null)),
   );
   const input = readBoardAssistBody(body);
@@ -215,7 +215,7 @@ const boardAssistEffectHandler = Effect.gen(function* () {
 
   const gateway = makePageAppAiGateway({
     fast: true,
-    preferModels: BOARD_ASSIST_TIER_MODELS,
+    preferModels: BOARD_ASSIST_FAST_MODELS,
     resolveEndpoint: async () => {
       if (stub) return stub;
       const current = credentialResult!.success;

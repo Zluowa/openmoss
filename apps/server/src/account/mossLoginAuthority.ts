@@ -1,6 +1,5 @@
 // FILE: mossLoginAuthority.ts
-// Purpose: Resolve the phone/global login Apps uses: the account the account menu shows as
-//          current, never another saved one.
+// Purpose: Resolve the login (phone/global session, or active enterprise API key) Apps uses.
 // Layer: Server account authority for Apps; reuses the existing account protocol.
 import { Effect } from "effect";
 import type { MossCloudAccountServiceShape } from "./Services/MossCloudAccountService";
@@ -24,8 +23,13 @@ export class MossLoginAuthorityError extends Error {
   }
 }
 
+export type MossAppsAuthorityRealm =
+  | "memfire-phone"
+  | "supabase-google"
+  | "moss-enterprise-key";
+
 export interface MossLoginCredential {
-  readonly realm: "memfire-phone" | "supabase-google";
+  readonly realm: MossAppsAuthorityRealm;
   readonly accessToken: string;
   readonly gatewayBaseUrl: string;
   /**
@@ -33,7 +37,7 @@ export interface MossLoginCredential {
    * to use next (the same one when there is no other). Only regions with several entries.
    */
   readonly reportGatewayConnectionFailure?: (gatewayBaseUrl: string) => Promise<string>;
-  readonly account: { readonly id: string; readonly realm: "memfire-phone" | "supabase-google" };
+  readonly account: { readonly id: string; readonly realm: MossAppsAuthorityRealm };
 }
 
 export const resolveMossLoginCredential = (input: {

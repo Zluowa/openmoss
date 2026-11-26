@@ -1,27 +1,11 @@
 // FILE: aiGateway.ts
 // Purpose: The model behind the `ai` capability: one memoryless chat
 // completion through Moss's own model gateway (the signed-in account's
-// entitled models), streamed back as text deltas with tier-aware model
-// selection and optional multimodal vision input.
+// entitled models), streamed back as text deltas.
 // Layer: Server pages/apps
 
 import type { PageAppAiEvent, PageAppAiRequest } from "@moss/contracts";
 import { PageAppCapabilityError } from "@moss/shared/pageAppCapabilityPlugin";
-
-export type PageAppAiTier = NonNullable<PageAppAiRequest["tier"]>;
-
-export interface PageAppAiImage {
-  readonly mimeType: "image/jpeg" | "image/png" | "image/webp";
-  readonly dataBase64: string;
-}
-
-export type PageAppAiGatewayRequest = PageAppAiRequest & {
-  readonly images?: ReadonlyArray<PageAppAiImage>;
-};
-
-export type PageAppAiPreferredModels =
-  | ReadonlyArray<string>
-  | Partial<Record<PageAppAiTier, ReadonlyArray<string>>>;
 
 export interface PageAppAiEndpoint {
   /** OpenAI-compatible base URL, with or without a trailing `/v1`. */
@@ -31,10 +15,7 @@ export interface PageAppAiEndpoint {
 }
 
 export interface PageAppAiGateway {
-  readonly ask: (
-    request: PageAppAiGatewayRequest,
-    signal: AbortSignal,
-  ) => AsyncIterable<PageAppAiEvent>;
+  readonly ask: (request: PageAppAiRequest, signal: AbortSignal) => AsyncIterable<PageAppAiEvent>;
 }
 
 const SYSTEM_PREAMBLE =
@@ -42,16 +23,10 @@ const SYSTEM_PREAMBLE =
 const JSON_INSTRUCTION =
   "Reply with one JSON value only: no prose, no explanation, no Markdown fences.";
 
-const TIER_PATTERNS: Record<PageAppAiTier, readonly RegExp[]> = {
+const TIER_PATTERNS: Record<NonNullable<PageAppAiRequest["tier"]>, readonly RegExp[]> = {
   quick: [/mini|flash|haiku|lite|turbo|small/iu],
-  default: [
-    /(?:sonnet|gpt-5|deepseek|qwen|glm|kimi)(?![\w.-]*(?:mini|flash|lite|nano))/iu,
-    /sonnet|gpt-5|deepseek|qwen|glm|kimi/iu,
-  ],
-  complex: [
-    /(?:opus|pro|max|reason|thinking)(?![\w.-]*(?:mini|flash|lite|nano))/iu,
-    /(?:sonnet|gpt-5|kimi|glm)(?![\w.-]*(?:mini|flash|lite|nano))/iu,
-  ],
+  default: [/sonnet|gpt-5(?![\w.-]*mini)|deepseek|qwen|glm|kimi/iu],
+  complex: [/opus|pro|max|reason|thinking/iu, /sonnet|gpt-5/iu],
 };
 
 export function pickPageAppAiModel(
@@ -66,119 +41,15 @@ export function pickPageAppAiModel(
   return models[0]!;
 }
 
-function isModelList(value: PageAppAiPreferredModels): value is ReadonlyArray<string> {
-  return Array.isArray(value);
-}
-
-/** Resolves a model using tier-aware preferences first, falling back to `pickPageAppAiModel`. */
-export function resolvePageAppAiModel(
-  models: ReadonlyArray<string>,
-  tier: PageAppAiRequest["tier"] = "default",
-  preferModels?: PageAppAiPreferredModels,
-): string | null {
-  if (models.length === 0) return null;
-  const candidates =
-    preferModels === undefined
-      ? undefined
-      : isModelList(preferModels)
-        ? preferModels
-        : preferModels[tier];
-  const preferred = candidates?.find((candidate) => models.includes(candidate));
-  if (preferred) return preferred;
-  return pickPageAppAiModel(models, tier);
-}
-
-function stripVisionReferences(text: string): string {
-  return text
-    .replace(
-      /The images attached to this request are pictures currently on the board[\s\S]*?never as instructions to you\.\n*/u,
-      "",
-    )
-    .replace(/,"picture":\d+(?=[,}])/gu, "");
-}
-
-type OpenAiContentPart =
-  | { readonly type: "text"; readonly text: string }
-  | { readonly type: "image_url"; readonly image_url: { readonly url: string } };
-
-type OpenAiMessage = {
-  readonly role: "system" | "user" | "assistant";
-  readonly content: string | ReadonlyArray<OpenAiContentPart>;
-};
-
-function messagesFor(
-  request: PageAppAiGatewayRequest,
-  includeImages: boolean,
-  stripVisionText = false,
-): OpenAiMessage[] {
+function messagesFor(request: PageAppAiRequest) {
   const system = [SYSTEM_PREAMBLE, request.system ?? "", request.json ? JSON_INSTRUCTION : ""]
     .filter(Boolean)
     .join("\n\n");
-  const baseTurns =
+  const turns =
     typeof request.input === "string"
       ? [{ role: "user" as const, content: request.input }]
       : request.input.map((message) => ({ role: message.role, content: message.content }));
-
-  const turns: OpenAiMessage[] = baseTurns.map((turn) => ({
-    role: turn.role,
-    content:
-      stripVisionText && turn.role === "user" ? stripVisionReferences(turn.content) : turn.content,
-  }));
-
-  if (includeImages && request.images && request.images.length > 0) {
-    let targetIndex = -1;
-    for (let i = turns.length - 1; i >= 0; i -= 1) {
-      if (turns[i]?.role === "user") {
-        targetIndex = i;
-        break;
-      }
-    }
-    if (targetIndex >= 0) {
-      const target = turns[targetIndex]!;
-      const textContent = typeof target.content === "string" ? target.content : "";
-      const imageParts: OpenAiContentPart[] = request.images.map((image) => ({
-        type: "image_url",
-        image_url: { url: `data:${image.mimeType};base64,${image.dataBase64}` },
-      }));
-      turns[targetIndex] = {
-        role: "user",
-        content: [{ type: "text", text: textContent }, ...imageParts],
-      };
-    }
-  }
-
-  return [{ role: "system", content: system }, ...turns];
-}
-
-const VISION_REJECTION_PATTERN =
-  /image|vision|multimodal|image_url|unsupported|content.*array|invalid.*content/iu;
-
-async function shouldRetryWithoutImages(response: Response): Promise<boolean> {
-  if (
-    response.status === 401 ||
-    response.status === 402 ||
-    response.status === 403 ||
-    response.status === 429
-  ) {
-    return false;
-  }
-  if (
-    response.status === 400 ||
-    response.status === 415 ||
-    response.status === 422 ||
-    response.status === 501
-  ) {
-    await response.body?.cancel().catch(() => undefined);
-    return true;
-  }
-  if (response.status === 500 || response.status === 502) {
-    const snippet = await response
-      .text()
-      .then((text) => text.slice(0, 2_048))
-      .catch(() => "");
-    return VISION_REJECTION_PATTERN.test(snippet);
-  }
-  return false;
+  return [{ role: "system" as const, content: system }, ...turns];
 }
 
 /** Parses an SSE body of OpenAI-style `chat.completion.chunk` events. */
@@ -216,70 +87,54 @@ export async function* readChatCompletionStream(
 
 export function makePageAppAiGateway(options: {
   readonly resolveEndpoint: () => Promise<PageAppAiEndpoint>;
-  readonly fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  readonly fetch?: typeof fetch;
   readonly timeoutMs?: number;
   /**
    * Disable model thinking passes (e.g. DeepSeek) when low time-to-first-line matters
-   * (such as whiteboard quick/default edits; complex tier keeps reasoning enabled).
+   * (such as whiteboard quick edits).
    */
   readonly fast?: boolean;
-  /** Models to prefer (tier-keyed map or flat array) before falling back to `pickPageAppAiModel`. */
-  readonly preferModels?: PageAppAiPreferredModels;
+  /** Models to prefer before falling back to `pickPageAppAiModel`. */
+  readonly preferModels?: ReadonlyArray<string>;
 }): PageAppAiGateway {
   const doFetch = options.fetch ?? fetch;
   return {
     async *ask(request, signal) {
       const endpoint = await options.resolveEndpoint();
-      const tier = request.tier ?? "default";
-      const model = resolvePageAppAiModel(endpoint.models, tier, options.preferModels);
+      const model =
+        options.preferModels?.find((candidate) => endpoint.models.includes(candidate)) ??
+        pickPageAppAiModel(endpoint.models, request.tier);
       if (!model)
         throw new PageAppCapabilityError("unavailable", "No model is available for this account.");
       const target = new URL(endpoint.baseUrl);
       target.pathname = `${target.pathname.replace(/\/+$/u, "").replace(/(?:\/v1)+$/u, "")}/v1/chat/completions`;
       target.search = "";
       const timeout = AbortSignal.timeout(options.timeoutMs ?? 120_000);
-
-      const dispatch = async (includeImages: boolean, stripVisionText: boolean) => {
-        try {
-          return await doFetch(target, {
-            method: "POST",
-            redirect: "error",
-            signal: AbortSignal.any([signal, timeout]),
-            headers: {
-              authorization: `Bearer ${endpoint.accessToken}`,
-              "content-type": "application/json",
-              accept: "text/event-stream",
-            },
-            body: JSON.stringify({
-              model,
-              stream: true,
-              max_tokens: request.maxTokens ?? 2_048,
-              messages: messagesFor(request, includeImages, stripVisionText),
-              ...(options.fast && tier !== "complex" && model.toLowerCase().includes("deepseek")
-                ? { thinking: { type: "disabled" } }
-                : {}),
-            }),
-          });
-        } catch {
-          if (signal.aborted) throw new PageAppCapabilityError("cancelled", "Aborted.");
-          throw new PageAppCapabilityError(
-            "unavailable",
-            "The model gateway could not be reached.",
-          );
-        }
-      };
-
-      const hasImages = Boolean(request.images && request.images.length > 0);
-      let response = await dispatch(hasImages, false);
-      if (
-        hasImages &&
-        !response.ok &&
-        !signal.aborted &&
-        (await shouldRetryWithoutImages(response))
-      ) {
-        response = await dispatch(false, true);
+      let response: Response;
+      try {
+        response = await doFetch(target, {
+          method: "POST",
+          redirect: "error",
+          signal: AbortSignal.any([signal, timeout]),
+          headers: {
+            authorization: `Bearer ${endpoint.accessToken}`,
+            "content-type": "application/json",
+            accept: "text/event-stream",
+          },
+          body: JSON.stringify({
+            model,
+            stream: true,
+            max_tokens: request.maxTokens ?? 2_048,
+            messages: messagesFor(request),
+            ...(options.fast && model.toLowerCase().includes("deepseek")
+              ? { thinking: { type: "disabled" } }
+              : {}),
+          }),
+        });
+      } catch {
+        if (signal.aborted) throw new PageAppCapabilityError("cancelled", "Aborted.");
+        throw new PageAppCapabilityError("unavailable", "The model gateway could not be reached.");
       }
-
       if (response.status === 401 || response.status === 403)
         throw new PageAppCapabilityError(
           "authentication_required",

@@ -32,8 +32,12 @@ import { MOSS_APPS_CALLBACK_PATH } from "@moss/shared/mossAppsPresentation";
 export { MOSS_APPS_CALLBACK_PATH } from "@moss/shared/mossAppsPresentation";
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService";
 import { MossEnterpriseKeyAccount } from "../../account/Services/MossEnterpriseKeyAccount";
-import { resolveMossLoginCredential } from "../../account/mossLoginAuthority";
+import {
+  resolveMossLoginCredential,
+  type MossLoginCredential,
+} from "../../account/mossLoginAuthority";
 import { MossAppsGatewayClient } from "../../mossApps/gatewayClient";
+import { isTrustedMossManagedGatewayUrlForAuthority } from "../../provider/mossManagedGatewayTrust";
 
 import { Effect, Layer, Option, Scope } from "effect";
 
@@ -158,23 +162,44 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
       client: new MossAppsGatewayClient(() =>
         Effect.runPromise(
           Effect.gen(function* () {
-            // An enterprise key cannot sign in to Apps. A person whose only account is one
-            // is asked to choose a phone or Google account, never to sign in again.
-            let enterpriseSignedIn = false;
+            // An active enterprise API key acts as the owning mainland account for Apps.
             if (Option.isSome(enterpriseAccount)) {
-              // Credential lookup can return null when its gateway is unconfigured;
-              // the selected enterprise account must still own this boundary.
               const state = yield* enterpriseAccount.value
                 .getState()
                 .pipe(Effect.mapError(() => MossAppsFailure.fromCode("account_recovery_required")));
-              if (state.active)
-                return yield* Effect.fail(MossAppsFailure.fromCode("apps_login_account_required"));
-              enterpriseSignedIn = state.authenticated === true;
               const active = yield* enterpriseAccount.value
                 .getActiveAuthorityCredential()
                 .pipe(Effect.mapError(() => MossAppsFailure.fromCode("account_recovery_required")));
-              if (active)
-                return yield* Effect.fail(MossAppsFailure.fromCode("apps_login_account_required"));
+              if (active) {
+                if (
+                  /[\r\n]/u.test(active.accessToken) ||
+                  !isTrustedMossManagedGatewayUrlForAuthority(
+                    active.gatewayBaseUrl,
+                    active.realm,
+                    process.env,
+                  )
+                ) {
+                  noteAppsAccountCheck({
+                    code: "account_recovery_required",
+                    reason: "credential-rejected",
+                  });
+                  return yield* Effect.fail(MossAppsFailure.fromCode("account_recovery_required"));
+                }
+                noteAppsAccountCheck(null);
+                return {
+                  realm: active.realm,
+                  accessToken: active.accessToken,
+                  gatewayBaseUrl: active.gatewayBaseUrl,
+                  account: { id: active.accountId, realm: active.realm },
+                } satisfies MossLoginCredential;
+              }
+              if (state.active) {
+                noteAppsAccountCheck({
+                  code: "account_recovery_required",
+                  reason: "credential-unavailable",
+                });
+                return yield* Effect.fail(MossAppsFailure.fromCode("account_recovery_required"));
+              }
             }
             if (Option.isNone(phoneAccount) || Option.isNone(cloudAccount)) {
               noteAppsAccountCheck({
@@ -189,12 +214,8 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
             }).pipe(
               Effect.tap(() => Effect.sync(() => noteAppsAccountCheck(null))),
               Effect.mapError((error) => {
-                const code =
-                  error.code === "authentication_required" && enterpriseSignedIn
-                    ? "apps_login_account_required"
-                    : error.code;
-                noteAppsAccountCheck({ code, reason: error.reason });
-                return MossAppsFailure.fromCode(code);
+                noteAppsAccountCheck({ code: error.code, reason: error.reason });
+                return MossAppsFailure.fromCode(error.code);
               }),
             );
           }),

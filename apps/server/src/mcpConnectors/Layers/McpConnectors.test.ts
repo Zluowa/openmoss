@@ -48,7 +48,7 @@ it("does not borrow a phone login when the active enterprise gateway is unconfig
     ),
   );
   expect(await Effect.runPromise(service.mossApps.status())).toEqual({
-    availability: "login-account-required",
+    availability: "unavailable",
     agentAccess: false,
   });
   expect(phoneRead).not.toHaveBeenCalled();
