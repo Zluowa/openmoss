@@ -69,10 +69,17 @@ describe("Moss Apps real outboundHttp proxy routing", () => {
         gatewayBaseUrl: "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1",
         account: { id: "gl-1", realm: "supabase-google" },
       };
+      const enterpriseCred: MossLoginCredential = {
+        realm: "moss-enterprise-key",
+        accessToken: "moss_sk_fake_enterprise_token",
+        gatewayBaseUrl: "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1",
+        account: { id: "ent-1", realm: "moss-enterprise-key" },
+      };
       const client = new MossAppsGatewayClient(async () => cnCred);
 
       await expect(client.status(cnCred, new AbortController().signal)).rejects.toThrow();
       await expect(client.status(globalCred, new AbortController().signal)).rejects.toThrow();
+      await expect(client.status(enterpriseCred, new AbortController().signal)).rejects.toThrow();
       const mcpResult = await forwardMcpConnectorRequest(
         {
           url: "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1/apps/mcp",
@@ -86,6 +93,7 @@ describe("Moss Apps real outboundHttp proxy routing", () => {
       expect(proxy.connectTargets).toEqual([
         "moss-cn-models.inkcomicai.com:443",
         "api.mossbotai.com:443",
+        "moss-cn-models.inkcomicai.com:443",
         "moss-cn-models.inkcomicai.com:443",
       ]);
     } finally {

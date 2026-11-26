@@ -8,7 +8,10 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { MossCloudAccountService } from "../../account/Services/MossCloudAccountService";
-import { MossEnterpriseKeyAccount } from "../../account/Services/MossEnterpriseKeyAccount";
+import {
+  MossEnterpriseKeyAccount,
+  type MossEnterpriseKeyAuthorityCredential,
+} from "../../account/Services/MossEnterpriseKeyAccount";
 import { MossPhoneAccountService } from "../../account/Services/MossPhoneAccountService";
 import {
   AgentGatewayCredentials,
@@ -16,6 +19,8 @@ import {
 } from "../../agentGateway/Services/AgentGatewayCredentials";
 import { ServerConfig, type ServerConfigShape } from "../../config";
 import { ServerSecretStore } from "../../auth/Services/ServerSecretStore";
+import { MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY } from "../../provider/mossManagedGatewayTrust";
+import { MossAppsGatewayClient } from "../../mossApps/gatewayClient";
 import { makeMcpConnectors } from "./McpConnectors";
 
 let baseDir = "";
@@ -23,6 +28,7 @@ beforeEach(async () => {
   baseDir = await fs.mkdtemp(nodePath.join(os.tmpdir(), "moss-apps-account-"));
 });
 afterEach(async () => {
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
   await fs.rm(baseDir, { recursive: true, force: true });
 });
@@ -34,6 +40,7 @@ const signedOut = {
 
 function makeService(input: {
   readonly enterprise: { readonly authenticated: boolean; readonly active: boolean };
+  readonly enterpriseCredential?: MossEnterpriseKeyAuthorityCredential | null;
 }) {
   const secrets = new Map<string, Uint8Array>();
   return Effect.runPromise(
@@ -58,21 +65,44 @@ function makeService(input: {
       } as never),
       Effect.provideService(MossEnterpriseKeyAccount, {
         getState: () => Effect.succeed(input.enterprise),
-        getActiveAuthorityCredential: () => Effect.succeed(null),
+        getActiveAuthorityCredential: () => Effect.succeed(input.enterpriseCredential ?? null),
       } as never),
     ),
   );
 }
 
-it("asks a person signed in with an enterprise key only to choose an account, not to sign in", async () => {
-  const service = await makeService({ enterprise: { authenticated: true, active: false } });
+it("passes the active enterprise key credential on a trusted CN gateway to Moss Apps", async () => {
+  const gatewayUrl = "https://api.mossbotai.com/functions/v1/moss-model-gateway/v1";
+  const enterpriseKey = `moss_sk_${"e".repeat(43)}`;
+  vi.stubEnv(MOSS_MEMFIRE_PHONE_MODEL_GATEWAY_URL_ENV_KEY, gatewayUrl);
+  const statusSpy = vi.spyOn(MossAppsGatewayClient.prototype, "status").mockResolvedValue("ready");
+
+  const service = await makeService({
+    enterprise: { authenticated: true, active: true },
+    enterpriseCredential: {
+      realm: "moss-enterprise-key",
+      issuer: "moss-enterprise-key",
+      accessToken: enterpriseKey,
+      gatewayBaseUrl: gatewayUrl,
+      realtimeRelayUrl: "",
+      accountId: "ent-owner-1",
+    },
+  });
+
   expect(await Effect.runPromise(service.mossApps.status())).toEqual({
-    availability: "login-account-required",
+    availability: "ready",
     agentAccess: false,
+  });
+  expect(statusSpy).toHaveBeenCalledOnce();
+  expect(statusSpy.mock.calls[0]?.[0]).toEqual({
+    realm: "moss-enterprise-key",
+    accessToken: enterpriseKey,
+    gatewayBaseUrl: gatewayUrl,
+    account: { id: "ent-owner-1", realm: "moss-enterprise-key" },
   });
 });
 
-it("asks for a login when nobody is signed in, and says once in the log why", async () => {
+it("asks for a login when nobody is signed in, including non-active enterprise state", async () => {
   const warnings: string[] = [];
   vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
     warnings.push(args.map(String).join(" "));
