@@ -196,4 +196,163 @@ describe("frame runtime", () => {
       true,
     );
   });
+
+  it("relays media, chat, and mossbot capabilities and enriches media asset URLs", async () => {
+    const listeners: ((event: unknown) => void)[] = [];
+    const posted: Posted[] = [];
+    const parent = {
+      postMessage: (message: Posted) => posted.push(structuredClone(message)),
+    };
+    const window: Record<string, unknown> = {
+      parent,
+      addEventListener: (type: string, listener: (event: unknown) => void) => {
+        if (type === "message") listeners.push(listener);
+      },
+    };
+    window.window = window;
+    const context = {
+      window,
+      location: { origin: "http://app-1.moss-app.localhost:3000", search: "?t=tok123" },
+      document: {
+        readyState: "complete",
+        documentElement: { scrollHeight: 10 },
+        body: { scrollHeight: 10 },
+      },
+      setTimeout,
+      crypto: webcrypto,
+      Promise,
+      Map,
+      Object,
+      JSON,
+      Math,
+      Uint8Array,
+      Array,
+      String,
+      TypeError,
+      URLSearchParams,
+    };
+    runInNewContext(buildPageAppFrameRuntime({ parentOrigin: PARENT }), context);
+    const moss = window.moss as { use: (name: string) => Promise<Record<string, any> | null> };
+    const deliver = (data: unknown) => {
+      for (const listener of listeners) listener({ data, origin: PARENT, source: parent });
+    };
+    deliver({
+      protocol: "moss-app/1",
+      kind: "init",
+      served: ["media", "chat", "mossbot", "voice"],
+    });
+
+    const media = (await moss.use("media"))!;
+    const chat = (await moss.use("chat"))!;
+    const mossbot = (await moss.use("mossbot"))!;
+    const voice = (await moss.use("voice"))!;
+    expect(media).not.toBeNull();
+    expect(chat).not.toBeNull();
+    expect(mossbot).not.toBeNull();
+    expect(voice).not.toBeNull();
+
+    const imgPromise = media.generateImage({ prompt: "a misty pine mountain" });
+    await flush();
+    const imgCall = posted.at(-1)!;
+    expect(imgCall).toMatchObject({ kind: "call", capability: "media", method: "generateImage" });
+    deliver({
+      protocol: "moss-app/1",
+      kind: "result",
+      id: imgCall.id,
+      ok: true,
+      value: {
+        jobId: "moss_1",
+        kind: "image",
+        modelId: "gpt-image-2.5-flare",
+        prompt: "a misty pine mountain",
+        status: "succeeded",
+        url: null,
+        urls: [],
+        assetPaths: ["/__moss_app/asset/a1"],
+        createdAt: "2026-11-27T00:00:00Z",
+      },
+    });
+    const imgRes = await imgPromise;
+    expect(imgRes.url).toBe("http://app-1.moss-app.localhost:3000/__moss_app/asset/a1?t=tok123");
+
+    const askPromise = chat.ask({ prompt: "Explain", selectionText: "quoted passage" });
+    await flush();
+    const askWatch = posted.at(-1)!;
+    expect(askWatch).toMatchObject({ kind: "watch", capability: "chat", method: "ask" });
+    deliver({
+      protocol: "moss-app/1",
+      kind: "event",
+      id: askWatch.id,
+      value: { type: "done", text: "Explained.", model: "gpt-5" },
+    });
+    expect(await askPromise).toEqual({
+      text: "Explained.",
+      model: "gpt-5",
+      selectionText: "quoted passage",
+    });
+
+    const joinPromise = mossbot.joinMeeting({ meetingId: "m-1", title: "Weekly Sync" });
+    await flush();
+    const joinCall = posted.at(-1)!;
+    expect(joinCall).toMatchObject({
+      kind: "call",
+      capability: "mossbot",
+      method: "joinMeeting",
+    });
+    deliver({
+      protocol: "moss-app/1",
+      kind: "result",
+      id: joinCall.id,
+      ok: true,
+      value: {
+        meetingId: "m-1",
+        roomId: null,
+        title: "Weekly Sync",
+        joined: true,
+        bots: [],
+        notesCount: 0,
+      },
+    });
+    expect(await joinPromise).toMatchObject({ meetingId: "m-1", joined: true });
+
+    const events: unknown[] = [];
+    const offTranscript = voice.onTranscript((ev: unknown) => events.push(ev));
+    await flush();
+    const watchReq = posted.at(-1)!;
+    expect(watchReq).toMatchObject({ kind: "watch", capability: "voice", method: "events" });
+    deliver({
+      protocol: "moss-app/1",
+      kind: "event",
+      id: watchReq.id,
+      value: { type: "transcript", role: "user", text: "你好 Moss", isFinal: true },
+    });
+    deliver({
+      protocol: "moss-app/1",
+      kind: "event",
+      id: watchReq.id,
+      value: { type: "state", phase: "active" },
+    });
+    expect(events).toEqual([
+      { type: "transcript", role: "user", text: "你好 Moss", isFinal: true },
+    ]);
+    offTranscript();
+
+    const speakPromise = voice.speak("欢迎来到 Moss");
+    await flush();
+    const speakCall = posted.at(-1)!;
+    expect(speakCall).toMatchObject({
+      kind: "call",
+      capability: "voice",
+      method: "speak",
+      args: { text: "欢迎来到 Moss" },
+    });
+    deliver({
+      protocol: "moss-app/1",
+      kind: "result",
+      id: speakCall.id,
+      ok: true,
+      value: { spoken: true, source: "moss", voice: "breeze" },
+    });
+    expect(await speakPromise).toMatchObject({ spoken: true, source: "moss" });
+  });
 });

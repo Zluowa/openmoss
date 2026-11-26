@@ -361,6 +361,9 @@ export function makeServerRuntimeServicesLayer(
     Layer.provide(mossCloudAccountLayer),
     // 应用页 `mcp` calls the owner's connectors and Moss 应用 through the same proxy.
     Layer.provide(mcpConnectorsLayer),
+    Layer.provide(projectAgentServiceLayer),
+    Layer.provide(mossbotRoomsLayer),
+    Layer.provide(realtimeVoiceLayer),
   );
   const agentGatewayLayer = AgentGatewayLive.pipe(
     Layer.provideMerge(

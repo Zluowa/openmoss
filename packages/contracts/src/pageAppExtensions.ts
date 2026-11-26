@@ -15,6 +15,10 @@ export const PAGE_APP_EXTENSION_CAPABILITIES = [
   "assets",
   "room",
   "comments",
+  "media",
+  "chat",
+  "mossbot",
+  "voice",
 ] as const;
 
 /** Error codes these capabilities add to `PAGE_APP_ERROR_CODES`. */
@@ -272,4 +276,311 @@ export interface PageAppComment {
   readonly resolvedAt: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// media
+// ---------------------------------------------------------------------------
+
+export const PAGE_APP_MEDIA_MAX_PROMPT_CHARS = 4_000;
+export const PAGE_APP_MEDIA_MAX_REF_IMAGES = 4;
+
+export type PageAppMediaKind = "image" | "video";
+
+export type PageAppMediaJobStatus =
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "failed_terminal"
+  | "reconciliation_required";
+
+export interface PageAppMediaGenerateImageInput {
+  readonly prompt: string;
+  readonly modelId?: string;
+  readonly aspectRatio?: string;
+  readonly resolution?: string;
+  readonly background?: "auto" | "opaque" | "transparent";
+  readonly outputFormat?: "png" | "jpeg" | "webp";
+  readonly referenceImages?: readonly string[];
+  readonly idempotencyKey?: string;
+  readonly waitMs?: number;
+}
+
+export interface PageAppMediaGenerateVideoInput {
+  readonly prompt: string;
+  readonly modelId?: string;
+  readonly aspectRatio?: string;
+  readonly resolution?: string;
+  readonly duration?: number;
+  readonly generateAudio?: boolean;
+  readonly startFrameUrl?: string;
+  readonly endFrameUrl?: string;
+  readonly referenceImages?: readonly string[];
+  readonly idempotencyKey?: string;
+  readonly waitMs?: number;
+}
+
+export interface PageAppMediaJobResult {
+  readonly jobId: string;
+  readonly kind: PageAppMediaKind;
+  readonly modelId: string;
+  readonly prompt: string;
+  readonly status: PageAppMediaJobStatus;
+  readonly url: string | null;
+  readonly urls: readonly string[];
+  readonly assetIds?: readonly string[];
+  readonly assetPaths?: readonly string[];
+  readonly dataUrls?: readonly string[];
+  readonly errorCode?: string;
+  readonly errorMessage?: string;
+  readonly createdAt: string;
+}
+
+export interface PageAppMediaModelInfo {
+  readonly id: string;
+  readonly label: string;
+  readonly kind: PageAppMediaKind;
+  readonly available: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// chat
+// ---------------------------------------------------------------------------
+
+export const PAGE_APP_CHAT_MAX_PROMPT_CHARS = 32_000;
+export const PAGE_APP_CHAT_MAX_SELECTION_CHARS = 16_000;
+
+export interface PageAppChatOpenSidechatInput {
+  readonly prompt?: string;
+  readonly selectionText?: string;
+  readonly context?: string;
+  readonly appTitle?: string;
+}
+
+export interface PageAppChatOpenSidechatResult {
+  readonly opened: boolean;
+  readonly mode: "sidechat" | "inline";
+  readonly threadId?: string | null;
+  readonly answer?: string | null;
+  readonly model?: string | null;
+}
+
+export interface PageAppChatAskInput {
+  readonly prompt: string;
+  readonly selectionText?: string;
+  readonly context?: string;
+  readonly appTitle?: string;
+  readonly system?: string;
+  readonly maxTokens?: number;
+  readonly tier?: "default" | "quick" | "complex";
+}
+
+export interface PageAppChatAskResult {
+  readonly text: string;
+  readonly model: string;
+  readonly selectionText?: string | null;
+}
+
+export interface PageAppChatSummonInput extends PageAppChatOpenSidechatInput {
+  readonly action?: "ask" | "sidechat";
+}
+
+// ---------------------------------------------------------------------------
+// mossbot
+// ---------------------------------------------------------------------------
+
+export const PAGE_APP_MOSSBOT_MAX_NOTE_CHARS = 16_000;
+export const PAGE_APP_MOSSBOT_MAX_TRANSCRIPT_CHARS = 100_000;
+
+export interface PageAppMossbotInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly icon?: string | null;
+  readonly color?: string | null;
+}
+
+export interface PageAppMossbotJoinMeetingInput {
+  readonly meetingId?: string;
+  readonly title?: string;
+  readonly topic?: string;
+  readonly botId?: string;
+  readonly participants?: readonly string[];
+}
+
+export interface PageAppMossbotJoinMeetingResult {
+  readonly meetingId: string;
+  readonly roomId: string | null;
+  readonly title: string;
+  readonly joined: boolean;
+  readonly bots: readonly PageAppMossbotInfo[];
+  readonly notesCount: number;
+}
+
+export interface PageAppMossbotPostNoteInput {
+  readonly meetingId: string;
+  readonly author?: string;
+  readonly text: string;
+  readonly kind?: "note" | "transcript" | "decision" | "action";
+}
+
+export interface PageAppMossbotPostNoteResult {
+  readonly meetingId: string;
+  readonly noteId: string;
+  readonly notesCount: number;
+}
+
+export interface PageAppMossbotSummarizeMeetingInput {
+  readonly meetingId: string;
+  readonly prompt?: string;
+  readonly transcript?: string;
+  readonly focus?: string;
+}
+
+export interface PageAppMossbotSummarizeMeetingResult {
+  readonly meetingId: string;
+  readonly summary: string;
+  readonly keyPoints: readonly string[];
+  readonly actionItems: readonly string[];
+  readonly decisions: readonly string[];
+  readonly model?: string | null;
+  readonly botName?: string | null;
+}
+
+export interface PageAppMossbotAskInMeetingInput {
+  readonly meetingId: string;
+  readonly question: string;
+  readonly transcript?: string;
+  readonly botId?: string;
+}
+
+export interface PageAppMossbotAskInMeetingResult {
+  readonly meetingId: string;
+  readonly answer: string;
+  readonly model?: string | null;
+  readonly botName?: string | null;
+  readonly roomId?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// voice
+// ---------------------------------------------------------------------------
+
+export const PAGE_APP_VOICE_MAX_AUDIO_BASE64_CHARS = 14_000_000;
+export const PAGE_APP_VOICE_MAX_SPEAK_CHARS = 4_000;
+export const PAGE_APP_VOICE_MAX_INSTRUCTIONS_CHARS = 8_000;
+
+export interface PageAppVoiceDescriptor {
+  readonly id: string;
+  readonly displayName: string;
+  readonly description: string;
+}
+
+export interface PageAppVoiceListVoicesResult {
+  readonly defaultVoice: string;
+  readonly preferredTransport: "webrtc" | "websocket-pcm16";
+  readonly voices: readonly PageAppVoiceDescriptor[];
+}
+
+export interface PageAppVoiceTranscribeInput {
+  readonly audioBase64: string;
+  readonly mimeType?: string;
+  readonly sampleRateHz?: number;
+  readonly durationMs?: number;
+  readonly language?: string;
+}
+
+export interface PageAppVoiceTranscribeResult {
+  readonly text: string;
+  readonly language?: string | null;
+}
+
+export interface PageAppVoiceListenOptions {
+  readonly language?: string;
+  readonly maxDurationMs?: number;
+  readonly autoTranscribe?: boolean;
+}
+
+export interface PageAppVoiceStartListeningResult {
+  readonly listeningId: string;
+  readonly mimeType: string;
+  readonly sampleRateHz: number;
+}
+
+export interface PageAppVoiceStopListeningOptions {
+  readonly listeningId?: string;
+  readonly autoTranscribe?: boolean;
+  readonly language?: string;
+}
+
+export interface PageAppVoiceStopListeningResult {
+  readonly listeningId: string;
+  readonly audioBase64: string;
+  readonly mimeType: string;
+  readonly sampleRateHz: number;
+  readonly durationMs: number;
+  readonly text?: string | null;
+}
+
+export interface PageAppVoiceSpeakInput {
+  readonly text: string;
+  readonly voice?: string;
+  readonly rate?: number;
+  readonly pitch?: number;
+  readonly format?: "mp3" | "wav" | "opus";
+}
+
+export interface PageAppVoiceSpeakResult {
+  readonly spoken: boolean;
+  readonly source: "moss" | "browser";
+  readonly voice?: string | null;
+  readonly durationMs?: number | null;
+}
+
+export interface PageAppVoiceSynthesizeResult {
+  readonly audioBase64: string;
+  readonly mimeType: string;
+  readonly voice: string;
+}
+
+export interface PageAppVoiceStartRealtimeInput {
+  readonly threadId?: string;
+  readonly voice?: string;
+  readonly instructions?: string;
+  readonly language?: string;
+  readonly outputModality?: "audio" | "text";
+  readonly sdp?: string;
+}
+
+export interface PageAppVoiceStartRealtimeResult {
+  readonly sessionId: string;
+  readonly threadId: string;
+  readonly voice: string;
+  readonly transport: "webrtc" | "websocket-pcm16" | "server-bridge";
+  readonly status: "active" | "ready";
+  readonly controlPath?: string | null;
+  readonly answerSdp?: string | null;
+  readonly relayUrl?: string | null;
+  readonly ticket?: string | null;
+  readonly expiresAt?: string | null;
+}
+
+export interface PageAppVoiceStopRealtimeInput {
+  readonly sessionId?: string;
+  readonly reason?: string;
+}
+
+export interface PageAppVoiceStopRealtimeResult {
+  readonly stopped: boolean;
+  readonly sessionId: string | null;
+}
+
+export interface PageAppVoiceRealtimeEvent {
+  readonly type: "state" | "transcript" | "error";
+  readonly sessionId?: string | null;
+  readonly phase?: string;
+  readonly activity?: string | null;
+  readonly role?: "user" | "assistant";
+  readonly text?: string;
+  readonly isFinal?: boolean;
+  readonly error?: string | null;
 }

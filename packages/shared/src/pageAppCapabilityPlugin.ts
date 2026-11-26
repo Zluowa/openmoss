@@ -16,6 +16,8 @@
 import type {
   PageAppCallError,
   PageAppCapabilities,
+  PageAppChatOpenSidechatInput,
+  PageAppChatOpenSidechatResult,
   PageAppFrameMode,
   PageAppPermissionState,
   PageAppViewer,
@@ -91,6 +93,10 @@ export interface PageAppShellContext {
   ) => Promise<Record<string, PageAppPermissionState>>;
   /** Open the page's permissions panel; resolves when it closes. */
   readonly managePermissions: () => Promise<void>;
+  /** Open Moss's native sidechat pane with context from the running page app. */
+  readonly openSidechat?: (
+    input: PageAppChatOpenSidechatInput,
+  ) => Promise<PageAppChatOpenSidechatResult>;
   /** Aborted when the frame unloads or the shell unmounts. */
   readonly signal: AbortSignal;
 }

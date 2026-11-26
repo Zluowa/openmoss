@@ -19,13 +19,19 @@ An 应用页 is one self-contained HTML document that Moss stores in the user's 
 
 ## Declaring capabilities
 Pass capabilities to moss_app_publish (they are also written into the page as <script type="application/json" id="moss-app-manifest">). Only declared capabilities are served:
-  { "db": {}, "ai": {}, "downloads": {}, "user": {}, "page": {} }
-The first use of db or ai asks the viewer once per page; downloads asks on every save. "permissions" is always available.
+  { "db": {}, "ai": {}, "media": {}, "chat": {}, "mossbot": {}, "voice": {}, "downloads": {}, "user": {}, "page": {}, "desktop": {}, "mcp": {}, "files": {}, "assets": {}, "room": {}, "comments": {} }
+Standing capabilities (db, ai, media, chat, mossbot, voice, mcp, files, room) ask the viewer once per page; downloads asks on every save; desktop permissions ask per capability. "permissions" is always available.
+
+## UI components (moss-ui-kit)
+Default to Moss's pluggable UI library \`moss-ui-kit\` instead of hand-rolling rough HTML/CSS chrome, buttons, dialogs, drawers, or voice/chat bars.
+- Core UI: \`MossButton\`, \`MossCard\`, \`MossTabs\`, \`MossDrawer\`, \`MossDialog\`, \`MossBadge\`, \`MossToast\`, \`MossMarkdown\`.
+- Native capability widgets: \`MossSelectionAsk\` (selection Q&A), \`MossCompanionDrawer\` (contextual sidechat/companion), \`MossbotMeetingBar\` (Mossbot meeting bar), \`MossVoiceButton\` (push-to-talk & dictation), \`MossRealtimeVoiceBar\` (live Moss Realtime Voice), \`MossMediaTrigger\` (image/video generation trigger).
+Use \`moss-ui-kit\` components by default for consistent Moss typography, dark/light tokens, and accessibility; only add custom CSS for page-specific domain layouts.
 
 ## moss.use(name)
   const db = await moss.use("db");   // namespace, or null when not available here
 Always design for null: render the page without the capability, then light features up. use() never prompts; the first call does. Calls reject with { code, message }; branch on code:
-  invalid_argument, not_declared, not_granted, unavailable, resource_exhausted, quota_exceeded, revoked, authentication_required, upstream_error, cancelled.
+  invalid_argument, not_declared, not_granted, unavailable, resource_exhausted, quota_exceeded, revoked, authentication_required, upstream_error, cancelled, consent_required, confirmation_required, declined, tool_error, policy_blocked, too_large, changed.
 
 ## db — documents shared by everyone who opens the page
 - Paths alternate collection/document: db.collection("tasks"), db.doc("tasks/t1"), db.doc("boards/b1").collection("cards").
@@ -57,6 +63,52 @@ Moss shows the file name and size and asks first; saved is false when they cance
 
 ## page — the page itself
   const page = await moss.use("page");  await page.metadata() → {id, title, revision, ...}; await page.publish(fullHtml) saves a new version after the viewer confirms.
+
+## media — image and video generation through the viewer's Moss account
+  const media = await moss.use("media");
+  const img = await media.generateImage({ prompt: "Warm editorial book cover", aspectRatio: "3:4" }); // → { jobId, status, url, urls, assetPaths, dataUrls }
+  const vid = await media.generateVideo({ prompt: "Gentle morning rain on window", duration: 5 });
+  const job = await media.getJob(vid.jobId);
+  const models = await media.listModels();
+Prefer img.url / vid.url (already CSP-safe on the page's own origin or data: URI). Generate on explicit user action, never on load.
+
+## chat — contextual Q&A, passage selection ask, and Moss sidechat
+  const chat = await moss.use("chat");
+  const res = await chat.ask({ prompt: "Summarize this quote", selectionText, context, appTitle, onText: (delta, full) => show(full) }); // → { text, model, selectionText }
+  await chat.openSidechat({ prompt, selectionText, context, appTitle }); // opens native Moss sidechat when available, else answers inline
+  await chat.summon({ prompt, selectionText, context, appTitle });
+
+## mossbot — invite Mossbot assistants into meetings and collaborative apps
+  const mossbot = await moss.use("mossbot");
+  const bots = await mossbot.listBots();
+  const meeting = await mossbot.joinMeeting({ meetingId: "m1", title: "Weekly Review", topic: "Q4 Roadmap" });
+  await mossbot.postNote({ meetingId: "m1", author: "Alice", text: "Ship v2 on Friday", kind: "decision" });
+  const summary = await mossbot.summarizeMeeting({ meetingId: "m1", transcript, focus: "action items" }); // → { summary, keyPoints, actionItems, decisions }
+  const reply = await mossbot.askInMeeting({ meetingId: "m1", question: "Who owns the launch?" });
+
+## voice — speech-to-text, speech playback, and Moss Realtime Voice
+  const voice = await moss.use("voice");
+  const voices = await voice.listVoices(); // → { defaultVoice, preferredTransport, voices }
+  const { listeningId } = await voice.startListening({ language: "zh" }); // uses Moss host microphone bridge
+  const { text, audioBase64, durationMs } = await voice.stopListening({ autoTranscribe: true });
+  const transcribed = await voice.transcribe({ audioBase64, mimeType: "audio/wav", sampleRateHz: 24000, durationMs });
+  await voice.speak({ text: "已完成分析", voice: "breeze" }); // Moss TTS with browser speechSynthesis fallback
+  await voice.stopSpeaking();
+  const rt = await voice.startRealtimeSession({ voice: "breeze", instructions: "Help review notes" });
+  const off = voice.onTranscript((ev) => showTranscript(ev.text));
+  await voice.stopRealtimeSession({ sessionId: rt.sessionId });
+Never call navigator.mediaDevices.getUserMedia directly inside the iframe (blocked by Permissions-Policy); always use moss.use("voice") or MossVoiceButton / MossRealtimeVoiceBar from moss-ui-kit.
+
+## mcp — viewer's connected MCP tools & Moss apps
+Declare { "mcp": { "servers": [{ "server": "moss_apps", "tools": ["..."] }] } }.
+  const mcp = await moss.use("mcp");  await mcp.list();  await mcp.call(server, tool, args, { cache });
+
+## files, assets, room, comments & desktop
+- **files**: read-only access to the linked Moss project files: files.list(path?), files.read(path), files.download(path).
+- **assets**: page-owned media/files served on 'self': assets.list(), assets.upload(blob, { mimeType, name }), assets.url(assetOrId), assets.delete(id).
+- **room**: live multi-viewer presence & pub/sub: const r = moss.use("room") -> r.join({ state }), r.publish(topic, data), r.subscribe(topic, cb).
+- **comments**: anchored discussion threads: comments.list(), comments.add(anchor, body), comments.resolve(id).
+- **desktop**: when running in Moss Desktop standalone/embedded apps with { "desktop": { "permissions": ["notifications","shortcuts","overlay","menu-bar","full-access"] } }, moss.use("desktop") gives window, Menu, tray, notification, globalShortcut, screen, os, fs, shell, childProcess, pty, install, permissions.
 
 ## Checklist
 - One complete <!doctype html> file with <title>, viewport meta, readable empty/loading/error states and both light and dark friendly colors.

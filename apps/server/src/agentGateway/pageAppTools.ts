@@ -100,7 +100,7 @@ export function makePageAppTools({
       definition: {
         name: "moss_app_guide",
         description:
-          "Read before writing your first 应用页 (runnable HTML page kept in the user's 资料空间): the sandbox rules and the moss.use() runtime API (db, ai, downloads, user, permissions, page).",
+          "Read before writing your first 应用页 (runnable HTML page kept in the user's 资料空间): the sandbox rules, moss-ui-kit default components, and the moss.use() runtime API (db, ai, media, chat, mossbot, voice, downloads, user, permissions, page, desktop, mcp, files, assets, room, comments).",
         inputSchema: { type: "object", properties: {} },
         annotations: READ_ONLY_TOOL_ANNOTATIONS,
       },
@@ -176,7 +176,7 @@ export function makePageAppTools({
             capabilities: {
               type: "object",
               description:
-                'Keys among db, ai, downloads, user, page; values are each capability\'s config, {} for none. db may carry {"rules":[...]}.',
+                'Keys among db, ai, media, chat, mossbot, voice, downloads, user, page, desktop, mcp, files, assets, room, comments, permissions; values are each capability\'s config, {} for none. db may carry {"rules":[...]}, mcp may carry {"servers":[...]}, room may carry {"topics":{...}}, desktop may carry {"permissions":[...]}.',
               additionalProperties: { type: "object" },
             },
             spaceId: {

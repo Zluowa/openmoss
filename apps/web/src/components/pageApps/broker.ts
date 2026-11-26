@@ -12,6 +12,8 @@ import {
   PageAppFrameMessage,
   type PageAppCallError,
   type PageAppCapabilities,
+  type PageAppChatOpenSidechatInput,
+  type PageAppChatOpenSidechatResult,
   type PageAppFrameMode,
   type PageAppId,
   type PageAppPermissionState,
@@ -73,6 +75,9 @@ export interface PageAppBrokerDeps {
   readonly confirmChoice?: (request: PageAppConfirmRequest) => Promise<PageAppConfirmResult>;
   readonly frameElement?: () => PageAppFrameElement | null;
   readonly openPermissions: () => Promise<void>;
+  readonly onOpenSidechat?: (
+    input: PageAppChatOpenSidechatInput,
+  ) => Promise<PageAppChatOpenSidechatResult>;
   readonly onResize?: (height: number) => void;
   readonly onConsentChange?: (consent: Readonly<Record<string, PageAppStoredConsent>>) => void;
   readonly desktopHost?: boolean;
@@ -86,7 +91,7 @@ const MAX_MESSAGE_CHARS = 60 * 1024 * 1024;
 const decodeFrameMessage = Schema.decodeUnknownExit(PageAppFrameMessage);
 
 /** Capabilities a mode serves; guests never get ones that reach Moss's account. */
-const GUEST_EXCLUDED = new Set(["ai", "page"]);
+const GUEST_EXCLUDED = new Set(["ai", "page", "media", "chat", "mossbot", "voice"]);
 
 export class PageAppBroker {
   private session: PageAppBrokerSession;
@@ -260,6 +265,7 @@ export class PageAppBroker {
       permissionStates: () => this.permissionStates(),
       requestPermissions: (names) => this.requestPermissions(names),
       managePermissions: () => this.deps.openPermissions(),
+      ...(this.deps.onOpenSidechat ? { openSidechat: this.deps.onOpenSidechat } : {}),
       signal: this.controller.signal,
     };
   }

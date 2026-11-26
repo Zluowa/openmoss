@@ -6,10 +6,14 @@
 import type { PageAppShellPlugin } from "@moss/shared/pageAppCapabilityPlugin";
 
 import { assetsShellPlugin } from "./assets";
+import { chatShellPlugin } from "./chat";
 import { commentsShellPlugin } from "./comments";
 import { filesShellPlugin } from "./files";
 import { mcpShellPlugin } from "./mcp";
+import { mediaShellPlugin } from "./media";
+import { mossbotShellPlugin } from "./mossbot";
 import { roomShellPlugin } from "./room";
+import { voiceShellPlugin } from "./voice";
 
 export const EXTENSION_SHELL_PLUGINS: ReadonlyArray<PageAppShellPlugin> = [
   mcpShellPlugin,
@@ -17,4 +21,8 @@ export const EXTENSION_SHELL_PLUGINS: ReadonlyArray<PageAppShellPlugin> = [
   assetsShellPlugin,
   roomShellPlugin,
   commentsShellPlugin,
+  mediaShellPlugin,
+  chatShellPlugin,
+  mossbotShellPlugin,
+  voiceShellPlugin,
 ];

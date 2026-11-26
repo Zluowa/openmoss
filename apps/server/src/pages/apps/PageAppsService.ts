@@ -41,6 +41,9 @@ import { stableGatewayDigest } from "../../agentGateway/creationUtils";
 import type { PagesPrincipal } from "../Services/PagesService";
 import type { PageAppAiGateway } from "./aiGateway";
 import { makePageAppServerCapabilities } from "./capabilities";
+import type { PageAppMediaGateway } from "./capabilities/media";
+import type { PageAppMossbotGateway } from "./capabilities/mossbot";
+import type { PageAppVoiceGateway } from "./capabilities/voice";
 import type { PageAppExtensionDeps } from "./extensions";
 import type { PageAppServerCapability, PageAppServerCallContext } from "./capabilities/types";
 import { makePageAppDbStore, type PageAppDbStore } from "./PageAppDbStore";
@@ -223,6 +226,9 @@ export interface PageAppsServiceDeps {
   readonly id?: () => string;
   readonly tokenSecret?: Buffer;
   readonly extensions?: PageAppExtensionDeps | null;
+  readonly media?: PageAppMediaGateway | null;
+  readonly mossbot?: PageAppMossbotGateway | null;
+  readonly voice?: PageAppVoiceGateway | null;
 }
 
 export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
@@ -236,6 +242,9 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
       db,
       ai: deps.ai,
       extensions: deps.extensions ?? null,
+      media: deps.media ?? null,
+      mossbot: deps.mossbot ?? null,
+      voice: deps.voice ?? null,
       now,
       // A page republishing itself acts as the local owner, like an edit in Moss.
       republish: (ctx, html) =>
