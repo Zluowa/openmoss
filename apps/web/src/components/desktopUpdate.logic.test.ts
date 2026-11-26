@@ -45,7 +45,7 @@ describe("desktop update button state", () => {
     expect(getDesktopUpdateButtonTooltip(baseState)).toBe("Check for updates");
   });
 
-  it("shows a download action when an update is available", () => {
+  it("shows an actionable download button when an update is available (no auto-download)", () => {
     const state: DesktopUpdateState = {
       ...baseState,
       status: "available",
@@ -53,7 +53,10 @@ describe("desktop update button state", () => {
     };
     expect(shouldShowDesktopUpdateButton(state)).toBe(true);
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
-    expect(isDesktopUpdateButtonDisabled(state)).toBe(true);
+    expect(isDesktopUpdateButtonDisabled(state)).toBe(false);
+    expect(getDesktopUpdateButtonTooltip(state)).toBe(
+      "Update 1.1.0 is available. Click to download.",
+    );
   });
 
   it("announces a version a Mac build cannot install, as a clickable notice with no install", () => {
@@ -462,5 +465,34 @@ describe("desktop update UI helpers", () => {
     expect(shouldShowArm64IntelBuildWarning(state)).toBe(true);
     expect(getArm64IntelBuildWarningDescription(state)).toContain("Apple Silicon");
     expect(getArm64IntelBuildWarningDescription(state)).toContain("Intel build");
+    expect(
+      getArm64IntelBuildWarningDescription({
+        ...state,
+        status: "available",
+        availableVersion: "1.1.0",
+      }),
+    ).toBe(
+      "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Click Update to download the native Apple Silicon update.",
+    );
+    expect(
+      getArm64IntelBuildWarningDescription({
+        ...state,
+        status: "downloading",
+        availableVersion: "1.1.0",
+        downloadPercent: 45,
+      }),
+    ).toBe(
+      "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Moss is preparing the native Apple Silicon update.",
+    );
+    expect(
+      getArm64IntelBuildWarningDescription({
+        ...state,
+        status: "downloaded",
+        availableVersion: "1.1.0",
+        downloadedVersion: "1.1.0",
+      }),
+    ).toBe(
+      "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Click Update to restart into the native Apple Silicon build.",
+    );
   });
 });

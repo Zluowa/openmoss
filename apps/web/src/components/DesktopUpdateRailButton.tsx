@@ -35,11 +35,7 @@ export function DesktopUpdateRailButton({
   const percent = getDesktopUpdateDownloadPercent(state);
   const readyToInstall = resolveDesktopUpdateButtonAction(state) === "install";
   const preparing =
-    !installing &&
-    percent === null &&
-    !state.manualDownloadUrl &&
-    ((state.status === "available" && state.errorContext !== "download") ||
-      state.status === "downloading");
+    !installing && percent === null && !state.manualDownloadUrl && state.status === "downloading";
   return (
     <SidebarIconButton
       icon={UpdateDownloadIcon}

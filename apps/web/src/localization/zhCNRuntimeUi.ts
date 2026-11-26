@@ -434,6 +434,8 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "This install is using the correct architecture.": "当前安装使用了正确的系统架构。",
   "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Moss is preparing the native Apple Silicon update.":
     "这台 Mac 使用 Apple 芯片，但 Moss 仍在 Rosetta 下运行 Intel 版本。Moss 正在准备原生 Apple 芯片更新。",
+  "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Click Update to download the native Apple Silicon update.":
+    "这台 Mac 使用 Apple 芯片，但 Moss 仍在 Rosetta 下运行 Intel 版本。点击“更新”即可下载原生 Apple 芯片更新。",
   "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Click Update to restart into the native Apple Silicon build.":
     "这台 Mac 使用 Apple 芯片，但 Moss 仍在 Rosetta 下运行 Intel 版本。点击“更新”可重启并切换到原生 Apple 芯片版本。",
   "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. The next app update will replace it with the native Apple Silicon build.":
@@ -596,6 +598,11 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   ],
   [/^Preparing update \((\d+)%\)$/, (match) => `正在准备更新（${match[1]}%）`],
   [/^Preparing update ([^\r\n]+)$/, (match) => `正在准备更新 ${match[1]}`],
+  [
+    /^Update ([^\r\n]+) is available\. Click to download\.$/,
+    (match) => `发现新版本 ${match[1]}。点击开始下载。`,
+  ],
+  [/^Update available\. Click to download\.$/, () => "发现新版本。点击开始下载。"],
   [
     /^Update ([^\r\n]+) is ready\. Click to restart and install\.$/,
     (match) => `${match[1]} 更新已就绪。点击可重启并安装。`,

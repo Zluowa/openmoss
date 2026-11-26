@@ -61,6 +61,9 @@ vi.mock("~/store", () => ({
     }),
 }));
 
+import { APP_VERSION } from "~/branding";
+import { mossReleasesUpTo } from "~/whatsNew/mossReleases";
+
 import { AboutSettingsSection, KeybindingsFileRow } from "./AdvancedSettingsPanel";
 
 describe("AboutSettingsSection (System tools folded into General)", () => {
@@ -122,7 +125,9 @@ describe("AboutSettingsSection (System tools folded into General)", () => {
     const versions = [...document.querySelectorAll("[data-moss-release]")].map((row) =>
       row.getAttribute("data-moss-release"),
     );
-    expect(versions[0]).toBe("1.0.14");
+    const newestVersion = mossReleasesUpTo(APP_VERSION)[0]?.version;
+    expect(newestVersion).toBeTruthy();
+    expect(versions[0]).toBe(newestVersion);
     expect(versions).toContain("1.0.2");
     // Not the upstream history this app grew from.
     expect(versions).not.toContain("1.0.2-beta.1");
@@ -130,7 +135,7 @@ describe("AboutSettingsSection (System tools folded into General)", () => {
     // Older versions start folded.
     expect(page.getByText("Each canvas keeps its own drawing").elements()).toHaveLength(0);
     // The newest row starts open with its changes visible.
-    const newest = document.querySelector('[data-moss-release="1.0.14"]') as HTMLElement;
+    const newest = document.querySelector(`[data-moss-release="${newestVersion}"]`) as HTMLElement;
     expect(newest.getBoundingClientRect().height).toBeGreaterThan(60);
     await page.getByRole("button", { name: "Hide", exact: true }).click();
     // Folded away: the region collapses to no height and is hidden from assistive tech.

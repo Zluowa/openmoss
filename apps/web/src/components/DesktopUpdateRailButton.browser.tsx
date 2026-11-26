@@ -309,9 +309,14 @@ describe("desktop update rail control", () => {
           onClick={onClick}
         />,
       );
-      await expect
-        .element(page.getByRole("button", { name: "Preparing update 0.9.3", exact: true }))
-        .toBeDisabled();
+      const available = page.getByRole("button", {
+        name: "Update 0.9.3 is available. Click to download.",
+        exact: true,
+      });
+      await expect.element(available).toBeEnabled();
+      expect(available.element().querySelector("[data-rail-progress-ring]")).toBeNull();
+      await available.click();
+      expect(onClick).toHaveBeenCalledTimes(3);
       await screen.rerender(
         <DesktopUpdateRailButton
           state={{ ...initial, status: "available", errorContext: "download" }}
@@ -324,7 +329,7 @@ describe("desktop update rail control", () => {
         exact: true,
       });
       await downloadRetry.click();
-      expect(onClick).toHaveBeenCalledTimes(3);
+      expect(onClick).toHaveBeenCalledTimes(4);
       await screen.rerender(
         <DesktopUpdateRailButton
           state={{ ...initial, downloadPercent: null }}

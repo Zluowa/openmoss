@@ -50,6 +50,7 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { MossLogo } from "../MossLogo";
+import { WhatsNewHeaderButton } from "../WhatsNewHeaderButton";
 import { ComposerPickerMenuPopup, ComposerPickerMenuSubPopup } from "./ComposerPickerMenuPopup";
 import { isMossManagedSourceInstanceId } from "./providerAccountSources";
 import { OpenInPicker } from "./OpenInPicker";
@@ -763,6 +764,7 @@ export function ChatHeader({
           compactAssistantHeader && "max-md:hidden",
         )}
       >
+        {!isSplitPane && !editorChatControls ? <WhatsNewHeaderButton /> : null}
         {!minimalChrome ? (
           <GuestShareHeaderButton threadId={activeThreadId} compact={compact} />
         ) : null}

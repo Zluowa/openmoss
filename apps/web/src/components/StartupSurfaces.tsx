@@ -4,8 +4,14 @@
 //          from its setup button.
 // Layer: Root web overlay
 
+import { MossWhatsNewDialogHost } from "./MossWhatsNewDialog";
 import { SafariAccessOnboarding } from "./SafariAccessOnboarding";
 
 export function StartupSurfaces() {
-  return <SafariAccessOnboarding />;
+  return (
+    <>
+      <SafariAccessOnboarding />
+      <MossWhatsNewDialogHost />
+    </>
+  );
 }

@@ -1601,7 +1601,7 @@ let updateCheckInFlight = false;
 let updateDownloadInFlight = false;
 let activeUpdateCheck: Promise<void> | null = null;
 let settleActiveUpdateCheck: (() => void) | null = null;
-let activeUpdatePreparation: Promise<void> | null = null;
+let activeUpdateDownload: Promise<{ accepted: boolean; completed: boolean }> | null = null;
 let updaterConfigured = false;
 // A Mac build without a Developer ID only announces new versions (macUpdateNotice.ts).
 let macUpdateNoticeOnly = false;
@@ -2889,14 +2889,32 @@ async function checkForUpdatesFromMenu(): Promise<void> {
       .then(({ response }) => {
         if (response === 0) void shell.openExternal(downloadUrl);
       });
-  } else if (updateState.status === "downloading" || updateState.status === "available") {
+  } else if (updateState.status === "available") {
+    const version = updateState.availableVersion ?? "";
+    void dialog
+      .showMessageBox({
+        type: "info",
+        title: nativeText("Update found", "发现更新"),
+        message: nativeText(
+          version ? `Moss ${version} is available.` : "A Moss update is available.",
+          version ? `发现 Moss ${version} 新版本。` : "发现 Moss 新版本。",
+        ),
+        detail: nativeText(
+          "Click Download update or use the update button in the sidebar to start downloading.",
+          "点击“立即下载”或侧边栏左下角的更新按钮即可开始下载。",
+        ),
+        buttons: [nativeText("Download update", "立即下载"), nativeText("Later", "稍后")],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (response === 0) void downloadAvailableUpdate();
+      });
+  } else if (updateState.status === "downloading") {
     void dialog.showMessageBox({
       type: "info",
       title: nativeText("Update found", "发现更新"),
-      message: nativeText(
-        "Moss is preparing the update in the background.",
-        "Moss 正在后台准备更新。",
-      ),
+      message: nativeText("Moss is downloading the update.", "Moss 正在下载更新。"),
       buttons: [nativeText("OK", "好")],
     });
   } else if (updateState.status === "downloaded") {
@@ -5542,12 +5560,24 @@ async function checkForMacUpdateNotice(reason: string): Promise<void> {
   }
 }
 
-async function checkForUpdates(reason: string): Promise<void> {
+async function checkForUpdates(
+  reason: string,
+  options?: { readonly allowDuringActiveDownload?: boolean },
+): Promise<void> {
   if (macUpdateNoticeOnly) {
     await checkForMacUpdateNotice(reason);
     return;
   }
   if (isQuitting || isUpdaterInstallPreparing || !updaterConfigured || updateCheckInFlight) return;
+  if (
+    !options?.allowDuringActiveDownload &&
+    (updateDownloadInFlight || activeUpdateDownload !== null)
+  ) {
+    console.info(
+      `[desktop-updater] Skipping update check (${reason}) while download is in flight.`,
+    );
+    return;
+  }
   if (automaticUpdateActivitySuppressed) {
     if (!isExplicitUpdateCheckReason(reason)) {
       console.info(
@@ -5605,23 +5635,67 @@ async function downloadAvailableUpdate(): Promise<{
   accepted: boolean;
   completed: boolean;
 }> {
-  const { failedOnMirror, ...result } = await downloadAvailableUpdateFromActiveFeed();
-  if (!failedOnMirror) {
-    return result;
+  if (activeUpdateDownload !== null) {
+    return activeUpdateDownload;
   }
-  // Skips that mirror for a while: the check below starts at the next mirror, and reaches the
-  // official feed only once every mirror has failed.
-  updateFeedRouter.suspendActiveMirror();
-  console.warn("[desktop-updater] Mirror download failed; retrying through the next feed.");
-  const preparationBeforeRetry = activeUpdatePreparation;
-  await checkForUpdates(UPDATE_CHECK_REASON_MIRROR_DOWNLOAD_FALLBACK);
-  // The check starts its own download when it finds the update. This download may itself be
-  // running as the earlier preparation, and waiting on that would never finish.
-  const retry = activeUpdatePreparation;
-  if (retry !== null && retry !== preparationBeforeRetry) {
-    await retry;
+  const task = runDownloadAvailableUpdate().finally(() => {
+    if (activeUpdateDownload === task) {
+      activeUpdateDownload = null;
+    }
+  });
+  activeUpdateDownload = task;
+  return task;
+}
+
+function isInstallFailureRequiringRecheck(state: DesktopUpdateState): boolean {
+  return (
+    state.status === "error" &&
+    state.errorContext === "install" &&
+    state.downloadedVersion === null &&
+    state.availableVersion !== null
+  );
+}
+
+async function runDownloadAvailableUpdate(): Promise<{
+  accepted: boolean;
+  completed: boolean;
+}> {
+  let retriedInstallCheck = false;
+  if (updaterConfigured && isInstallFailureRequiringRecheck(updateState)) {
+    retriedInstallCheck = true;
+    const inFlightCheck = activeUpdateCheck;
+    if (inFlightCheck !== null) {
+      await inFlightCheck;
+    }
+    await checkForUpdates("renderer", { allowDuringActiveDownload: true });
+    if (updateState.status !== "available") {
+      return { accepted: true, completed: downloadedUpdateArtifact !== null };
+    }
   }
-  return { accepted: true, completed: downloadedUpdateArtifact !== null };
+  let result = await downloadAvailableUpdateFromActiveFeed();
+  let mirrorFallbackAttempts = 0;
+  while (result.failedOnMirror && mirrorFallbackAttempts < 3) {
+    mirrorFallbackAttempts += 1;
+    // Skips that mirror for a while: the check below starts at the next mirror, and reaches the
+    // official feed only once every mirror has failed.
+    updateFeedRouter.suspendActiveMirror();
+    console.warn("[desktop-updater] Mirror download failed; retrying through the next feed.");
+    const inFlightCheck = activeUpdateCheck;
+    if (inFlightCheck !== null) {
+      await inFlightCheck;
+    }
+    await checkForUpdates(UPDATE_CHECK_REASON_MIRROR_DOWNLOAD_FALLBACK, {
+      allowDuringActiveDownload: true,
+    });
+    if (updateState.status !== "available") {
+      return { accepted: true, completed: downloadedUpdateArtifact !== null };
+    }
+    result = await downloadAvailableUpdateFromActiveFeed();
+  }
+  return {
+    accepted: result.accepted || retriedInstallCheck || mirrorFallbackAttempts > 0,
+    completed: result.completed || downloadedUpdateArtifact !== null,
+  };
 }
 
 async function downloadAvailableUpdateFromActiveFeed(): Promise<{
@@ -5629,16 +5703,6 @@ async function downloadAvailableUpdateFromActiveFeed(): Promise<{
   completed: boolean;
   failedOnMirror?: boolean;
 }> {
-  if (
-    updaterConfigured &&
-    updateState.status === "error" &&
-    updateState.errorContext === "install" &&
-    updateState.downloadedVersion === null &&
-    updateState.availableVersion !== null
-  ) {
-    await checkForUpdates("renderer");
-    return { accepted: true, completed: false };
-  }
   if (!updaterConfigured || updateDownloadInFlight || updateState.status !== "available") {
     return { accepted: false, completed: false };
   }
@@ -5730,34 +5794,6 @@ async function downloadAvailableUpdateFromActiveFeed(): Promise<{
   }
 }
 
-// Starts the automatic prepare step after a successful update check; install
-// stays user-controlled so active agent work is not interrupted by a restart.
-function prepareAvailableUpdateInBackground(reason: string): void {
-  if (updateDownloadInFlight || updateState.status !== "available") {
-    return;
-  }
-  const preparation = downloadAvailableUpdate()
-    .then((result) => {
-      if (result.accepted && result.completed) {
-        console.info(`[desktop-updater] Background update download completed (${reason}).`);
-      }
-    })
-    .catch((error) => {
-      console.error(
-        `[desktop-updater] Background update download crashed (${reason}): ${formatErrorMessage(error)}`,
-      );
-    })
-    .finally(() => {
-      if (activeUpdatePreparation === preparation) {
-        activeUpdatePreparation = null;
-      }
-    });
-  // Published so a caller that needs the download finished — migration
-  // recovery — can await this one instead of racing a second download
-  // against it.
-  activeUpdatePreparation = preparation;
-}
-
 /**
  * Whether the recovery prompt can offer an in-place update.
  *
@@ -5784,6 +5820,13 @@ async function installLatestUpdateForMigrationRecovery(): Promise<string | null>
   }
 
   if (updateState.status !== "downloaded") {
+    const inFlightDownload = activeUpdateDownload;
+    if (inFlightDownload !== null) {
+      await inFlightDownload;
+    }
+  }
+
+  if (updateState.status !== "downloaded") {
     // The automatic startup check is armed before this prompt appears, so one
     // may already be running. Joining it is what gets a real answer: starting a
     // second check here would return without doing anything and leave the
@@ -5794,12 +5837,7 @@ async function installLatestUpdateForMigrationRecovery(): Promise<string | null>
     } else {
       await inFlightCheck;
     }
-    // A successful check starts the download itself; await that one rather
-    // than starting a competing transfer.
-    const preparation = activeUpdatePreparation;
-    if (preparation !== null) {
-      await preparation;
-    } else if (updateState.status === "available") {
+    if (updateState.status === "available") {
       await downloadAvailableUpdate();
     }
   }
@@ -6120,9 +6158,8 @@ function configureAutoUpdater(): void {
     });
     lastLoggedDownloadMilestone = -1;
     console.info(
-      `[desktop-updater] Update available from ${describeUpdateFeed(activeFeed)}: ${info.version}`,
+      `[desktop-updater] Update available from ${describeUpdateFeed(activeFeed)}: ${info.version} (waiting for user to start download)`,
     );
-    prepareAvailableUpdateInBackground(`available ${info.version}`);
   });
   autoUpdater.on("update-not-available", () => {
     clearUpdateCheckTimeoutTimer();

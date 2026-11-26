@@ -262,8 +262,7 @@ export function RailUpdateControl({
               }),
               percent: desktopDownloadPercent,
             }
-          : (desktopState.status === "available" && desktopState.errorContext !== "download") ||
-              desktopState.status === "downloading"
+          : desktopState.status === "downloading"
             ? {
                 key: `${desktopState.availableVersion ?? "app"}:preparing`,
                 phase: "preparing" as const,

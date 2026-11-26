@@ -162,8 +162,10 @@ export function useDesktopUpdate() {
           if (nextState.status === "available") {
             toastManager.add({
               type: "info",
-              title: "Preparing update",
-              description: `Moss is preparing version ${nextState.availableVersion ?? "available"} in the background.`,
+              title: "Update available",
+              description: nextState.availableVersion
+                ? `Version ${nextState.availableVersion} is available. Click the update button to download it.`
+                : "A new version is available. Click the update button to download it.",
             });
             return;
           }

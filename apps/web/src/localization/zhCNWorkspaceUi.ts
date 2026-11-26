@@ -669,6 +669,8 @@ const EXACT_TRANSLATIONS: Readonly<Record<string, string>> = {
   "Couldn’t finish updating": "无法完成更新",
   "Couldn’t download the update": "无法下载更新",
   "Update available": "有可用更新",
+  "A new version is available. Click the update button to download it.":
+    "发现新版本，点击更新按钮即可开始下载。",
   "Preparing update": "正在准备更新",
   "Moss is downloading the update in the background.": "Moss 正在后台下载更新。",
   "Update ready": "更新已就绪",
@@ -1246,6 +1248,10 @@ const DYNAMIC_TRANSLATIONS: ReadonlyArray<DynamicTranslation> = [
   [
     /^Moss is preparing version (.+) in the background\.$/,
     (match) => `Moss 正在后台准备版本 ${match[1]}。`,
+  ],
+  [
+    /^Version (.+) is available\. Click the update button to download it\.$/,
+    (match) => `发现新版本 ${match[1]}，点击更新按钮即可开始下载。`,
   ],
   [/^Moss (.+) is already the newest version\.$/, (match) => `Moss ${match[1]} 已是最新版本。`],
 

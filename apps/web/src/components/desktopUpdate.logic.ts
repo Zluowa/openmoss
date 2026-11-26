@@ -133,11 +133,7 @@ export function shouldShowArm64IntelBuildWarning(state: DesktopUpdateState | nul
 
 export function isDesktopUpdateButtonDisabled(state: DesktopUpdateState | null): boolean {
   if (isDesktopUpdateDownloadNotice(state)) return false;
-  return (
-    state?.status === "downloading" ||
-    state?.status === "checking" ||
-    (state?.status === "available" && state.errorContext !== "download")
-  );
+  return state?.status === "downloading" || state?.status === "checking";
 }
 
 /**
@@ -157,9 +153,13 @@ export function getArm64IntelBuildWarningDescription(state: DesktopUpdateState):
     return "This install is using the correct architecture.";
   }
 
+  if (state.status === "downloading") {
+    return "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Moss is preparing the native Apple Silicon update.";
+  }
+
   const action = resolveDesktopUpdateButtonAction(state);
   if (action === "download") {
-    return "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Moss is preparing the native Apple Silicon update.";
+    return "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Click Update to download the native Apple Silicon update.";
   }
   if (action === "install") {
     return "This Mac has Apple Silicon, but Moss is still running the Intel build under Rosetta. Click Update to restart into the native Apple Silicon build.";
@@ -196,7 +196,9 @@ export function getDesktopUpdateButtonTooltip(
     return `Could not install update ${state.downloadedVersion ?? state.availableVersion}. Click to retry.`;
   }
   if (state.status === "available") {
-    return `Preparing update ${state.availableVersion ?? ""}`.trim();
+    return state.availableVersion
+      ? `Update ${state.availableVersion} is available. Click to download.`
+      : "Update available. Click to download.";
   }
   if (state.status === "downloading") {
     const progress =
