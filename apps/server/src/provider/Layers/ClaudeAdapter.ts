@@ -288,7 +288,17 @@ interface ClaudeResumeState {
 interface ClaudeTurnState {
   readonly turnId: TurnId;
   readonly startedAt: string;
+  readonly startedAtMs: number;
   readonly interactionMode: ProviderInteractionMode;
+  // True once the turn has emitted any non-empty assistant text output
+  // (excluding thinking blocks). Used to decide whether a mid-turn steer
+  // should interrupt immediately (`priority: "now"`) or wait for the current
+  // non-subagent tool (`priority: "next"`).
+  hasAssistantTextOutput: boolean;
+  // Set when at least one mid-turn steer message was injected into this turn so
+  // intermediate `aborted_streaming` / `aborted_tools` SDK results are absorbed
+  // cleanly without surfacing a false turn failure or closing the turn early.
+  steered: boolean;
   // True for auto-started turns that wrap assistant output arriving without an
   // active turn (background agent/subagent responses between user prompts).
   // Synthetic turns are never steered: a sendTurn auto-closes them, and a
@@ -570,6 +580,10 @@ interface ClaudeSessionContext {
   // call or subagent would hold the steer until it returns, often minutes.
   // While one is pending, that foreground work moves to the background.
   readonly pendingSteers: Map<string, TurnId>;
+  // Root only. In-flight `backgroundTasks` request keys (`"*"` for all
+  // foreground tasks, or a specific `tool_use_id`) so burst steers do not fire
+  // redundant concurrent stdio RPCs while the first request is still settling.
+  readonly pendingSteerBackgroundKeys: Set<string>;
   // Final status per tool-use id whose task already settled (terminal
   // task_updated or task_notification). Late messages still tagged with them
   // must not resurrect a scoped run: the synthetic turn that would start on
@@ -1703,13 +1717,43 @@ function buildPromptText(
   });
 }
 
+export const CLAUDE_EARLY_STEER_NOW_WINDOW_MS = 5_000;
+
+export type ClaudeUserMessagePriority = "next" | "now";
+
+export function isClaudeActiveSteeringAbortResult(result: SDKResultMessage): boolean {
+  const terminalReason = (result as { readonly terminal_reason?: unknown }).terminal_reason;
+  return terminalReason === "aborted_streaming" || terminalReason === "aborted_tools";
+}
+
+export function resolveClaudeSteerPriority(input: {
+  readonly elapsedMs: number;
+  readonly hasAssistantTextOutput: boolean;
+  readonly hasFileMutationInFlightTool: boolean;
+}): ClaudeUserMessagePriority {
+  // Align with Claude Desktop: prefer immediate `priority: "now"` redirection
+  // across thinking, streaming, reads, searches, and commands so mid-run steers
+  // take effect without waiting on slow tools. Only defer to `"next"` when an
+  // active file edit/write is mid-flight after the early window.
+  if (
+    !input.hasAssistantTextOutput ||
+    input.elapsedMs < CLAUDE_EARLY_STEER_NOW_WINDOW_MS ||
+    !input.hasFileMutationInFlightTool
+  ) {
+    return "now";
+  }
+  return "next";
+}
+
 function buildUserMessage(input: {
   readonly sdkContent: Array<Record<string, unknown>>;
+  readonly priority?: ClaudeUserMessagePriority | undefined;
 }): SDKUserMessage {
   return {
     type: "user",
     session_id: "",
     parent_tool_use_id: null,
+    ...(input.priority !== undefined ? { priority: input.priority } : {}),
     message: {
       role: "user",
       content: input.sdkContent,
@@ -1737,6 +1781,7 @@ function buildUserMessageEffect(
     readonly fileSystem: FileSystem.FileSystem;
     readonly attachmentsDir: string;
     readonly nativeCommandNames?: ReadonlySet<string> | undefined;
+    readonly priority?: ClaudeUserMessagePriority | undefined;
   },
 ): Effect.Effect<SDKUserMessage, ProviderAdapterRequestError> {
   return Effect.gen(function* () {
@@ -1799,13 +1844,19 @@ function buildUserMessageEffect(
       sdkContent.push({ type: "text", text: fileBlock });
     }
 
-    return buildUserMessage({ sdkContent });
+    return buildUserMessage({
+      sdkContent,
+      ...(dependencies.priority !== undefined ? { priority: dependencies.priority } : {}),
+    });
   });
 }
 
 function turnStatusFromResult(result: SDKResultMessage): ProviderRuntimeTurnStatus {
   if (result.subtype === "success") {
     return "completed";
+  }
+  if (isClaudeActiveSteeringAbortResult(result)) {
+    return "interrupted";
   }
 
   const errors = resultErrorsText(result);
@@ -4156,6 +4207,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           terminalTaskIds: new Set(),
           foregroundTasks: new Map(),
           pendingSteers: new Map(),
+          pendingSteerBackgroundKeys: new Set(),
           settledSubagentToolUseIds: new Map(),
           subagentToolOwners: new Map(),
           subagentRunHistory: new Map(),
@@ -4431,6 +4483,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           if (event.delta.type === "text_delta" && context.turnState) {
             const deltaText = event.delta.text;
             if (deltaText.length === 0) return;
+            context.turnState.hasAssistantTextOutput = true;
             const streamKind = "assistant_text" as const;
             const assistantBlockEntry = yield* ensureAssistantTextBlock(context, event.index);
             if (assistantBlockEntry?.block) {
@@ -5001,7 +5054,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         context.turnState = {
           turnId,
           startedAt,
+          startedAtMs: Date.now(),
           interactionMode: "default",
+          hasAssistantTextOutput: false,
+          steered: false,
           synthetic: true,
           assistantTextBlocks: new Map(),
           reasoningBlocks: new Map(),
@@ -5114,7 +5170,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               id?: unknown;
               name?: unknown;
               input?: unknown;
+              text?: unknown;
             };
+            if (
+              toolUse.type === "text" &&
+              typeof toolUse.text === "string" &&
+              toolUse.text.length > 0 &&
+              context.turnState
+            ) {
+              context.turnState.hasAssistantTextOutput = true;
+            }
             const isToolUseBlock =
               toolUse.type === "tool_use" ||
               toolUse.type === "server_tool_use" ||
@@ -5304,6 +5369,34 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
         if (message.uuid && context.lastResultUuid === message.uuid) return;
         context.lastResultUuid = message.uuid;
+
+        // A mid-turn steer with `priority: "now"` can abort the current API
+        // stream or tool batch (`aborted_streaming` / `aborted_tools`) before
+        // Claude continues inside the same turn with the steered message. Keep
+        // the turn open and suppress false error/failure emission until the
+        // post-steer result settles the turn.
+        if (
+          !hasPendingUserInterrupt(context) &&
+          context.turnState?.steered === true &&
+          isClaudeActiveSteeringAbortResult(message)
+        ) {
+          for (const block of context.turnState.assistantTextBlockOrder) {
+            if (!block.completionEmitted) {
+              yield* completeAssistantTextBlock(context, block, {
+                force: true,
+                rawMethod: "claude/result",
+                rawPayload: message,
+              });
+            }
+          }
+          // Clear any transient assistant error attached to the aborted stream
+          // so the subsequent post-steer `success` result is not falsely failed.
+          if (context.turnState.assistantError !== undefined) {
+            const { assistantError: _cleared, ...withoutAssistantError } = context.turnState;
+            context.turnState = withoutAssistantError;
+          }
+          return;
+        }
 
         const assistantError = context.turnState?.assistantError;
         let status: ProviderRuntimeTurnStatus;
@@ -5532,25 +5625,47 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
     // Moves foreground work (a Bash call or a subagent) to the background so the
     // CLI reaches its next model request, where it reads the queued steer. The
     // work keeps running and reports through task_notification. Without a tool
-    // use id every foreground task moves (the CLI's Ctrl+B). Forked: the steer
-    // is already queued, and a failure only means it waits for the work instead.
+    // use id every foreground task moves (the CLI's Ctrl+B). Forked and
+    // deduplicated per in-flight key: the steer is already queued, so burst
+    // steers never pile up redundant stdio RPCs and a failure only means the
+    // steer waits for the work instead.
     const releaseForegroundWorkForSteer = (
       context: ClaudeSessionContext,
       toolUseId?: string,
-    ): Effect.Effect<void> =>
-      Effect.tryPromise(() => context.query.backgroundTasks(toolUseId)).pipe(
+    ): Effect.Effect<void> => {
+      const root = subagentRootContext(context);
+      const dedupeKey = toolUseId ?? "*";
+      if (root.pendingSteerBackgroundKeys.has(dedupeKey)) {
+        return Effect.void;
+      }
+      root.pendingSteerBackgroundKeys.add(dedupeKey);
+      return Effect.tryPromise(() => root.query.backgroundTasks(toolUseId)).pipe(
+        Effect.tap((backgrounded) =>
+          Effect.sync(() => {
+            if (backgrounded && toolUseId !== undefined) {
+              const run = root.subagentRuns.get(toolUseId);
+              if (run) run.background = true;
+            }
+          }),
+        ),
         Effect.timeoutOption(CLAUDE_STEER_BACKGROUND_TIMEOUT),
         Effect.catch((error) =>
           Effect.logWarning("claude.steer.background_failed", {
-            threadId: context.session.threadId,
+            threadId: root.session.threadId,
             ...(toolUseId !== undefined ? { toolUseId } : {}),
             detail: toMessage(error, "Claude could not move foreground work to the background."),
+          }),
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            root.pendingSteerBackgroundKeys.delete(dedupeKey);
           }),
         ),
         Effect.asVoid,
         Effect.forkIn(adapterScope),
         Effect.asVoid,
       );
+    };
 
     const handleSystemMessage = (
       context: ClaudeSessionContext,
@@ -6647,6 +6762,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         context.knownBackgroundTaskIds.clear();
         context.foregroundTasks.clear();
         context.pendingSteers.clear();
+        context.pendingSteerBackgroundKeys.clear();
         context.taskTurnIds.clear();
 
         const updatedAt = yield* nowIso;
@@ -7721,6 +7837,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             terminalTaskIds: new Set(),
             foregroundTasks: new Map(),
             pendingSteers: new Map(),
+            pendingSteerBackgroundKeys: new Set(),
             settledSubagentToolUseIds: new Map(),
             subagentToolOwners: new Map(),
             subagentRunHistory: new Map(),
@@ -8202,7 +8319,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         const turnState: ClaudeTurnState = {
           turnId,
           startedAt: yield* nowIso,
+          startedAtMs: Date.now(),
           interactionMode: effectiveInteractionMode,
+          hasAssistantTextOutput: false,
+          steered: false,
           ...(isCompaction
             ? {
                 explicitCompaction: {
@@ -8436,13 +8556,12 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       });
 
     // A steer rides the live SDK agent loop: the message is pushed into the
-    // session's streaming prompt input and the work continues as the same
-    // turn — no interrupt, no new turn boundary. The CLI delivers it when it
-    // builds the next API request, so a steer parked behind long-running
-    // tools is read only once they return (inherent to the agent loop; the
-    // interactive Claude Code CLI behaves the same). Only a real user turn
-    // can be steered; with no live turn (or only a synthetic one wrapping
-    // background agent output) the message dispatches as a normal turn.
+    // session's streaming prompt input with `priority: "now" | "next"` and a
+    // `command_uuid` so the CLI reports `command_lifecycle` when it reads the
+    // steer, while any blocking foreground work (Bash or subagents) moves to
+    // the background non-blockingly — no restart, no new turn boundary.
+    // Only a real user turn can be steered; with no live turn (or if the turn
+    // settles while preparing the steer) the message dispatches as a normal turn.
     const steerTurn: ClaudeAdapterShape["steerTurn"] = (input, options) => {
       if (isCompactionCommandText(input.input)) return sendTurn(input, options);
       return withPendingDispatch(input, () =>
@@ -8453,26 +8572,60 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             return yield* sendTurn(input);
           }
 
-          // Steering across an interaction-mode change (e.g. a plan follow-up
-          // that starts implementing) must flip the CLI's permission mode even
-          // though no new turn starts.
-          const effectiveInteractionMode = yield* applyInteractionModePermission(
-            context,
-            input.threadId,
-            input.interactionMode,
+          const hasFileMutationInFlightTool = Array.from(context.inFlightTools.values()).some(
+            (tool) => tool.itemType === "file_change",
           );
-          if (effectiveInteractionMode !== liveTurnState.interactionMode) {
-            context.turnState = {
-              ...liveTurnState,
-              interactionMode: effectiveInteractionMode,
-            };
+          const priority = resolveClaudeSteerPriority({
+            elapsedMs: Math.max(0, Date.now() - liveTurnState.startedAtMs),
+            hasAssistantTextOutput: liveTurnState.hasAssistantTextOutput,
+            hasFileMutationInFlightTool,
+          });
+
+          // Claude Desktop speed optimization: skip the blocking stdio
+          // `setPermissionMode` round-trip when interactionMode is unchanged,
+          // and prepare the steer prompt concurrently with any mode update.
+          const requestedInteractionMode = input.interactionMode ?? liveTurnState.interactionMode;
+          const [effectiveInteractionMode, message] = yield* Effect.all(
+            [
+              requestedInteractionMode !== liveTurnState.interactionMode
+                ? applyInteractionModePermission(context, input.threadId, requestedInteractionMode)
+                : Effect.succeed(liveTurnState.interactionMode),
+              Effect.gen(function* () {
+                const nativeCommandNames = yield* resolveNativeCommandNames(context, input.input);
+                return yield* buildUserMessageEffect(input, {
+                  fileSystem,
+                  attachmentsDir: serverConfig.attachmentsDir,
+                  nativeCommandNames,
+                  priority,
+                });
+              }),
+            ],
+            { concurrency: "unbounded" },
+          );
+
+          // The live turn may have settled while we prepared attachments or
+          // updated permissions; if so, dispatch cleanly as a new turn instead
+          // of injecting into a dead turn.
+          const currentTurnState = context.turnState;
+          if (
+            context.stopped ||
+            currentTurnState === undefined ||
+            currentTurnState.turnId !== liveTurnState.turnId ||
+            currentTurnState.synthetic === true
+          ) {
+            return yield* sendTurn(input);
           }
 
-          const message = yield* buildUserMessageEffect(input, {
-            fileSystem,
-            attachmentsDir: serverConfig.attachmentsDir,
-            nativeCommandNames: yield* resolveNativeCommandNames(context, input.input),
-          });
+          if (effectiveInteractionMode !== currentTurnState.interactionMode) {
+            context.turnState = {
+              ...currentTurnState,
+              interactionMode: effectiveInteractionMode,
+              steered: true,
+            };
+          } else {
+            currentTurnState.steered = true;
+          }
+
           // The uuid makes the CLI report when the model reads the steer.
           const commandUuid = yield* Random.nextUUIDv4;
           const steerMessage = { ...message, uuid: commandUuid } as SDKUserMessage;
@@ -8491,9 +8644,20 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               new Error("Claude's prompt queue is closed."),
             );
           }
+
           // Foreground work already running would hold the steer until it returns.
-          if (hasPendingSteer(context) && context.foregroundTasks.size > 0) {
-            yield* releaseForegroundWorkForSteer(context);
+          // Forked asynchronously after enqueue so steerTurn never blocks on stdio.
+          if (hasPendingSteer(context)) {
+            if (context.foregroundTasks.size > 0) {
+              yield* releaseForegroundWorkForSteer(context);
+            } else if (priority === "now") {
+              const root = subagentRootContext(context);
+              for (const run of root.subagentRuns.values()) {
+                if (!run.background) {
+                  yield* releaseForegroundWorkForSteer(root, run.toolUseId);
+                }
+              }
+            }
           }
 
           const steerText = input.input?.trim();

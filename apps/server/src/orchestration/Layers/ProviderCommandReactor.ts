@@ -1,4 +1,5 @@
 import { appendAppSnapPromptContext } from "../../provider/appSnapPromptContext.ts";
+import { isCodexNoActiveTurnSteerError } from "../../codexAppServerManager.ts";
 import { isServerBetaFeatureEnabled } from "../../betaFeatureGate";
 import { computerActivationMetadata } from "../../computer/computerActivation.ts";
 import { parseComputerInvocation } from "@moss/shared/computerInvocation";
@@ -2832,6 +2833,8 @@ const make = Effect.gen(function* () {
        */
       readonly providerInstanceHandoff?: boolean;
       readonly sharedAccountSwitch?: SharedAccountSwitch;
+      /** True while dispatching a mid-turn native steer onto an active session. */
+      readonly isSteer?: boolean;
     },
   ) {
     const thread = yield* resolveThreadShell(threadId);
@@ -3303,6 +3306,25 @@ const make = Effect.gen(function* () {
             ? "Wait for the active turn to finish before switching accounts."
             : "Wait for Claude's active turn to finish before changing session settings.",
         });
+      }
+
+      // A mid-turn native steer must never tear down or restart a live running
+      // session (aligned with Claude Desktop, Codex Desktop, and T3 V2). Any
+      // pending model/runtime/options change waits for the next turn boundary.
+      if (
+        options?.isSteer === true &&
+        !sharedSwitch &&
+        (reusableSession.activeTurnId != null || reusableSession.status === "running")
+      ) {
+        return {
+          activeSessionBeforeEnsure,
+          activeSession: reusableSession,
+          nativeResumeSucceeded: false,
+          nativeResumeFailed: false,
+          nativeSessionRestarted: false,
+          computerControlRestartDeferred: computerControlChanged,
+          forkComputerControl: undefined,
+        };
       }
 
       // A computer-control-only restart keeps the resume cursor: provisioning is
@@ -3800,6 +3822,246 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+    // Ultra-fast native steer path (aligned with Codex Desktop's lightweight
+    // `"steer"` preparation vs heavy `"start"` preparation): when steering a
+    // genuinely live non-subagent turn on the same provider & account, skip
+    // full thread history hydration, session reconfiguration/settings probes,
+    // prior-transcript bootstrap, and unused skill/mention/attachment queries.
+    // If the turn has already settled or switches account/provider, fall
+    // through cleanly to the full preparation path below.
+    if (
+      input.dispatchMode === "steer" &&
+      input.reviewTarget === undefined &&
+      input.turnKind !== "goal-continuation" &&
+      input.claudeCompactionCancellation === undefined &&
+      !isCompactionCommandText(input.messageText) &&
+      !computerActivationMetadata(input).enableComputerControl &&
+      parseComputerInvocation(input.messageText) === null
+    ) {
+      const threadShell = yield* resolveThreadShell(input.threadId);
+      if (
+        threadShell &&
+        threadShell.parentThreadId === null &&
+        threadShell.sidechatSourceThreadId === null &&
+        threadShell.sidechatContext == null
+      ) {
+        const liveSession = (yield* providerService.listSessions()).find(
+          (session) =>
+            session.threadId === input.threadId &&
+            session.status !== "closed" &&
+            (session.activeTurnId != null || session.status === "running"),
+        );
+        const liveInstanceId = liveSession?.providerInstanceId ?? liveSession?.provider;
+        const desiredFastModelSelection = input.modelSelection ?? threadShell.modelSelection;
+        const desiredFastInstanceId =
+          desiredFastModelSelection !== undefined
+            ? (desiredFastModelSelection.instanceId ?? desiredFastModelSelection.provider)
+            : undefined;
+        const sameProviderAndAccount =
+          liveSession !== undefined &&
+          (desiredFastModelSelection === undefined ||
+            (desiredFastModelSelection.provider === liveSession.provider &&
+              desiredFastInstanceId === liveInstanceId));
+        const desiredFastRuntimeMode = input.runtimeMode ?? threadShell.runtimeMode;
+        const hasPendingClaudeSpawnChange =
+          liveSession?.provider === "claudeAgent" &&
+          (desiredFastRuntimeMode !== liveSession.runtimeMode ||
+            input.providerOptions !== undefined ||
+            claudeSelectionRequiresRestart(
+              threadSessionModelSelections.get(input.threadId) ?? threadShell.modelSelection,
+              desiredFastModelSelection,
+            ));
+        if (
+          liveSession &&
+          sameProviderAndAccount &&
+          !hasPendingClaudeSpawnChange &&
+          providerSupportsNativeTurnSteering(liveSession.provider)
+        ) {
+          const fastProvider = liveSession.provider as ProviderKind;
+          const projectContextPacket = Option.isSome(projectAgentService)
+            ? yield* projectAgentService.value
+                .formatContextPacketForTurn(input.threadId)
+                .pipe(Effect.catch(() => Effect.succeed("")))
+            : "";
+          const debugPromptOverheadChars = debugModePromptOverheadChars(input.interactionMode);
+          const goalPromptOverheadChars = providerGoalPromptOverheadChars(
+            activeThreadGoal(threadShell),
+          );
+          const providerPromptOverheadChars = debugPromptOverheadChars + goalPromptOverheadChars;
+          const computerInvocation =
+            input.dispatchOrigin === undefined || input.dispatchOrigin === "user"
+              ? parseComputerInvocation(input.messageText)
+              : null;
+          const authoredMessageText = computerInvocation
+            ? computerInvocation.prompt || "Use Moss Computer for this task."
+            : input.messageText;
+          const resolveTypedSkills =
+            input.dispatchOrigin !== "agent" &&
+            extractPromptSkillTokenNames(authoredMessageText).length > 0;
+          const hasSkills = resolveTypedSkills || (input.skills?.length ?? 0) > 0;
+          const projectContextPrefix =
+            projectContextPacket.trim().length > 0 ? `${projectContextPacket}\n\n` : "";
+          const promptWithProjectContext = `${projectContextPrefix}${authoredMessageText}`;
+          const connectorMentionProjection = projectConnectorMentions({
+            mentions: input.mentions,
+            enabled: isServerBetaFeatureEnabled(MCP_CONNECTORS_BETA_FEATURE),
+          });
+          const threadMentionProjection =
+            (connectorMentionProjection.otherMentions?.length ?? 0) > 0
+              ? yield* resolveThreadMentionPromptProjection({
+                  mentions: connectorMentionProjection.otherMentions,
+                  snapshotQuery: projectionSnapshotQuery,
+                  maxTotalContextChars: availableThreadMentionContextChars(
+                    promptWithProjectContext,
+                    providerPromptOverheadChars +
+                      threadMentionContextSuffix(connectorMentionProjection.contextBlocks).length,
+                  ),
+                })
+              : { contextBlocks: [] as ReadonlyArray<string>, providerMentions: undefined };
+          const mentionContextBlocks = [
+            ...threadMentionProjection.contextBlocks,
+            ...connectorMentionProjection.contextBlocks,
+          ];
+          const promptWithMentions = appendThreadMentionContextBlocks({
+            text: promptWithProjectContext,
+            contextBlocks: mentionContextBlocks,
+          });
+          if (
+            providerPromptOverheadChars > 0 &&
+            withProviderThreadStatePrompts({
+              interactionMode: input.interactionMode,
+              goal: activeThreadGoal(threadShell),
+              text: promptWithMentions,
+            }).length > PROVIDER_SEND_TURN_MAX_INPUT_CHARS
+          ) {
+            return yield* new ProviderAdapterValidationError({
+              provider: fastProvider,
+              operation: "thread.turn.start",
+              issue: providerPromptOverflowIssue(goalPromptOverheadChars),
+            });
+          }
+          const providerWorkspaceCwd =
+            liveSession.cwd ?? (yield* resolveProjectedThreadWorkspaceCwd(threadShell));
+          let turnSkills: ReadonlyArray<ProviderSkillReference> | undefined;
+          let claudeConfigDir: string | undefined;
+          let skillInlineText = "";
+          if (hasSkills) {
+            claudeConfigDir =
+              fastProvider === "claudeAgent"
+                ? yield* resolveClaudeSkillConfigDir(
+                    liveSession.threadId,
+                    liveSession.providerInstanceId,
+                  )
+                : undefined;
+            turnSkills = yield* resolveTurnSkills({
+              provider: fastProvider,
+              threadId: liveSession.threadId,
+              instanceId: liveSession.providerInstanceId,
+              claudeConfigDir,
+              cwd: providerWorkspaceCwd,
+              messageText: authoredMessageText,
+              attached: input.skills,
+              resolveTypedSkills,
+            });
+            if (turnSkills !== undefined && turnSkills.length > 0) {
+              const inlineSkillBlocks = yield* Effect.tryPromise(() =>
+                loadInlineSkillBlocks(
+                  selectSkillsToInline({
+                    provider: fastProvider,
+                    skills: turnSkills!,
+                  }),
+                ),
+              ).pipe(Effect.catch(() => Effect.succeed(new Map<string, string>())));
+              const promptWithoutSkills = withProviderThreadStatePrompts({
+                interactionMode: input.interactionMode,
+                goal: activeThreadGoal(threadShell),
+                text: promptWithMentions,
+              });
+              skillInlineText = formatInlineSkillInstructions({
+                skills: selectSkillsToInline({
+                  provider: fastProvider,
+                  skills: turnSkills,
+                  claudeConfigDir,
+                }),
+                blocks: inlineSkillBlocks,
+                maxChars: Math.max(
+                  0,
+                  PROVIDER_SEND_TURN_MAX_INPUT_CHARS -
+                    promptWithoutSkills.length -
+                    PROVIDER_INPUT_SAFETY_MARGIN_CHARS,
+                ),
+              });
+            }
+          }
+          const withSkills = skillInlineText
+            ? `${promptWithMentions}\n\n${skillInlineText}`
+            : promptWithMentions;
+          const normalizedInput = toNonEmptyProviderInput(
+            withProviderThreadStatePrompts({
+              interactionMode: input.interactionMode,
+              goal: activeThreadGoal(threadShell),
+              text: normalizeSkillMentionTextForProvider({
+                provider: fastProvider,
+                messageText: appendAppSnapPromptContext(
+                  withSkills,
+                  input.attachments,
+                  PROVIDER_SEND_TURN_MAX_INPUT_CHARS - providerPromptOverheadChars,
+                ),
+                skills: turnSkills,
+                claudeConfigDir,
+              }),
+            }),
+          );
+          const normalizedAttachments =
+            (input.attachments?.length ?? 0) > 0
+              ? yield* resolveProviderDispatchAttachments({
+                  attachments: input.attachments,
+                  attachmentsDir: serverConfig.attachmentsDir,
+                  repository: managedAttachments,
+                  threadId: input.threadId,
+                  messageId: input.messageId,
+                  provider: fastProvider,
+                  operation: "thread.turn.start",
+                })
+              : [];
+          if (input.modelSelection !== undefined) {
+            threadSessionModelSelections.set(input.threadId, input.modelSelection);
+          }
+          const requestedModelSelection =
+            input.modelSelection ??
+            threadSessionModelSelections.get(input.threadId) ??
+            threadShell.modelSelection;
+          const turnInput = {
+            threadId: input.threadId,
+            ...(normalizedInput ? { input: normalizedInput } : {}),
+            ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
+            ...(turnSkills !== undefined ? { skills: turnSkills } : {}),
+            ...(threadMentionProjection.providerMentions !== undefined
+              ? { mentions: threadMentionProjection.providerMentions }
+              : {}),
+            ...(requestedModelSelection !== undefined
+              ? { modelSelection: requestedModelSelection }
+              : {}),
+            ...(input.interactionMode !== undefined
+              ? { interactionMode: input.interactionMode }
+              : {}),
+          };
+          const dispatchFastSteer = Effect.gen(function* () {
+            yield* markProviderTurnDispatched(input);
+            return yield* providerService.steerTurn(turnInput);
+          });
+          return yield* providerWorkspaceCwd
+            ? withCancelableClaudeCompactionLease(
+                input.threadId,
+                dispatchFastSteer,
+                undefined,
+                providerWorkspaceCwd,
+              )
+            : dispatchFastSteer;
+        }
+      }
+    }
+
     const thread = yield* resolveThread(input.threadId);
     if (!thread) {
       return;
@@ -4047,7 +4309,7 @@ const make = Effect.gen(function* () {
       ensureSessionForThread(input.threadId, input.createdAt, {
         ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
         ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        ...(input.dispatchMode === "steer" ? {} : { enableComputerControl }),
+        ...(input.dispatchMode === "steer" ? { isSteer: true } : { enableComputerControl }),
         ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
         ...(registerPriorTranscriptBootstrapOnFreshStart
           ? { registerPriorTranscriptBootstrapOnFreshStart: true }
@@ -5649,10 +5911,11 @@ const make = Effect.gen(function* () {
         providerSupportsNativeTurnSteering(providerName) &&
         hasLiveTurn &&
         !requiresComputerProfile;
-      if (event.payload.dispatchMode === "steer") {
-        // The decider records its projected decision on the message immediately,
-        // then this runtime check corrects either race direction before delivery:
-        // only a genuinely live native steer continues the current turn.
+      if (event.payload.dispatchMode === "steer" && message.startsNewTurn !== !isNativeSteer) {
+        // The decider records its projected decision on the message immediately;
+        // only dispatch a boundary correction when runtime liveness diverged
+        // from the projected decision, avoiding a redundant SQLite write on
+        // the happy steer hot path.
         yield* orchestrationEngine.dispatch({
           type: "thread.message.user.set-turn-boundary",
           commandId: CommandId.makeUnsafe(
@@ -5716,38 +5979,43 @@ const make = Effect.gen(function* () {
         });
       }
 
-      const resolvedAttachments = yield* resolveProviderDispatchAttachments({
-        attachments: message.attachments,
-        attachmentsDir: serverConfig.attachmentsDir,
-        repository: managedAttachments,
-        threadId: event.payload.threadId,
-        messageId: message.id,
-        provider: providerName as ProviderKind,
-        operation: "thread.turn.start",
-      });
+      const resolvedAttachments =
+        (message.attachments?.length ?? 0) > 0
+          ? yield* resolveProviderDispatchAttachments({
+              attachments: message.attachments,
+              attachmentsDir: serverConfig.attachmentsDir,
+              repository: managedAttachments,
+              threadId: event.payload.threadId,
+              messageId: message.id,
+              provider: providerName as ProviderKind,
+              operation: "thread.turn.start",
+            })
+          : [];
 
-      yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
-        threadId: event.payload.threadId,
-        sourceEventSequence: event.sequence,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        messageId: message.id,
-        messageText: message.text,
-        ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
-      }).pipe(Effect.forkScoped);
-      yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
-        threadId: event.payload.threadId,
-        sourceEventSequence: event.sequence,
-        messageId: message.id,
-        messageText: message.text,
-        ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
-        ...(event.payload.modelSelection !== undefined
-          ? { modelSelection: event.payload.modelSelection }
-          : {}),
-        ...(event.payload.providerOptions !== undefined
-          ? { providerOptions: event.payload.providerOptions }
-          : {}),
-      }).pipe(Effect.forkScoped);
+      if (!isNativeSteer) {
+        yield* maybeGenerateAndRenameWorktreeBranchForFirstTurn({
+          threadId: event.payload.threadId,
+          sourceEventSequence: event.sequence,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          messageId: message.id,
+          messageText: message.text,
+          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
+        }).pipe(Effect.forkScoped);
+        yield* maybeGenerateAndRenameThreadTitleForFirstTurn({
+          threadId: event.payload.threadId,
+          sourceEventSequence: event.sequence,
+          messageId: message.id,
+          messageText: message.text,
+          ...(message.attachments !== undefined ? { attachments: resolvedAttachments } : {}),
+          ...(event.payload.modelSelection !== undefined
+            ? { modelSelection: event.payload.modelSelection }
+            : {}),
+          ...(event.payload.providerOptions !== undefined
+            ? { providerOptions: event.payload.providerOptions }
+            : {}),
+        }).pipe(Effect.forkScoped);
+      }
       // Only a native steer against a genuinely live turn keeps steer
       // semantics; anything else that reaches direct dispatch runs as a
       // normal queued turn (with its turn-start checkpoint).
@@ -5756,8 +6024,23 @@ const make = Effect.gen(function* () {
           ? "queue"
           : event.payload.dispatchMode;
       const editResendKey = editResendTurnStartKey(event.payload.threadId, event.payload.messageId);
-
-      const startedTurn = yield* dispatchTurnForThread({
+      const isSteerTurnAlreadyEndedCause = (cause: Cause.Cause<unknown>): boolean => {
+        const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
+        if (
+          failure !== undefined &&
+          typeof failure === "object" &&
+          failure !== null &&
+          "reason" in failure &&
+          (failure as { readonly reason?: unknown }).reason === "active-turn-unavailable"
+        ) {
+          return true;
+        }
+        return (
+          isCodexNoActiveTurnSteerError(failure) ||
+          isCodexNoActiveTurnSteerError(Cause.pretty(cause))
+        );
+      };
+      const buildDispatchInput = (dispatchMode: "queue" | "steer") => ({
         cacheReviewSource: event,
         sourceEventSequence: event.sequence,
         completionEventSequence: deliveryEventSequence ?? event.sequence,
@@ -5789,133 +6072,173 @@ const make = Effect.gen(function* () {
           ? { reviewTarget: event.payload.reviewTarget }
           : {}),
         interactionMode: event.payload.interactionMode,
-        dispatchMode: immediateDispatchMode,
+        dispatchMode,
         createdAt: event.payload.createdAt,
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.failCause(cause)
-            : Effect.gen(function* () {
-                const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
-                const cancelledCompaction =
-                  failure instanceof ProviderAdapterValidationError &&
-                  failure.operation === "startClaudeCompaction.cancelled";
-                // Nothing was spawned or sent: say so in Moss's words, so the chat
-                // offers to send again now (the raw cause is logged on rejection).
-                const previousRuntimeNotStopped =
-                  cause.reasons.length === 1 &&
-                  failure instanceof ProviderAdapterProcessError &&
-                  failure.reason === "previous-runtime-not-stopped";
-                const detail = previousRuntimeNotStopped
-                  ? PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL
-                  : Cause.pretty(cause);
-                if (event.payload.initialGoalStartedAt !== undefined) {
-                  yield* pauseActiveThreadGoal({
-                    threadId: event.payload.threadId,
-                    expectedGoalStartedAt: event.payload.initialGoalStartedAt,
-                  });
-                }
-                if (!cancelledCompaction) {
-                  const sendFailureCause = previousRuntimeNotStopped
-                    ? undefined
-                    : yield* resolveSendFailureCause({
-                        modelSelection: event.payload.modelSelection ?? thread.modelSelection,
-                        failure,
-                      });
-                  yield* appendProviderFailureActivity({
-                    threadId: event.payload.threadId,
-                    kind: "provider.turn.start.failed",
-                    summary: "Provider turn start failed",
-                    detail,
-                    turnId: null,
-                    createdAt: event.payload.createdAt,
-                    ...(sendFailureCause ? { cause: sendFailureCause } : {}),
-                    messageId: event.payload.messageId,
-                    provider: (event.payload.modelSelection ?? thread.modelSelection).provider,
-                  });
-                }
-                // Restore the runtime's state after a refused reconfiguration or
-                // cancelled native control. An optimistic starting row must not
-                // make the ordered interrupt tear down an established runtime.
-                if (
-                  failure instanceof ProviderAdapterValidationError &&
-                  (failure.operation === "session/reconfigure" || cancelledCompaction)
-                ) {
-                  const optimisticSession = cancelledCompaction
-                    ? (yield* resolveThreadShell(event.payload.threadId))?.session
-                    : (turnStartSession ?? thread.session);
-                  const runtime = (yield* providerService.listSessions()).find(
-                    (session) => session.threadId === event.payload.threadId,
-                  );
-                  if (
-                    optimisticSession?.status === "starting" &&
-                    runtime &&
-                    runtime.activeTurnId == null
-                  ) {
-                    yield* setThreadSession({
-                      threadId: event.payload.threadId,
-                      session: {
-                        threadId: event.payload.threadId,
-                        providerName: runtime.provider,
-                        runtimeMode: runtime.runtimeMode,
-                        status:
-                          runtime.status === "closed"
-                            ? "stopped"
-                            : runtime.status === "connecting"
-                              ? "starting"
-                              : runtime.status,
-                        activeTurnId: null,
-                        // The refused message never reached the provider, and its
-                        // turn-less failure activity stays out of the transcript.
-                        // The banner is the only place the user learns why.
-                        lastError: cancelledCompaction
-                          ? (runtime.lastError ?? null)
-                          : `Your message was not sent. ${failure.issue}`,
-                        updatedAt: runtime.updatedAt,
-                      },
-                      expectedSession: {
-                        status: optimisticSession.status,
-                        updatedAt: optimisticSession.updatedAt,
-                      },
-                      createdAt: event.payload.createdAt,
-                    }).pipe(
-                      Effect.catchTag("OrchestrationCommandInvariantError", (error) =>
-                        cancelledCompaction &&
-                        error.detail ===
-                          `Thread '${event.payload.threadId}' session changed before the conditional update.`
-                          ? Effect.void
-                          : Effect.fail(error),
-                      ),
-                    );
-                  }
-                  if (isPendingQueuedDispatch) yield* clearPendingQueuedDispatch;
-                  if (event.payload.initialGoalStartedAt !== undefined) return;
-                  return yield* Effect.failCause(cause);
-                }
-                yield* setThreadSessionError({
+      });
+
+      const handleDispatchFailure = (cause: Cause.Cause<unknown>) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.gen(function* () {
+              const failure = Option.getOrUndefined(Cause.findErrorOption(cause));
+              const cancelledCompaction =
+                failure instanceof ProviderAdapterValidationError &&
+                failure.operation === "startClaudeCompaction.cancelled";
+              // Nothing was spawned or sent: say so in Moss's words, so the chat
+              // offers to send again now (the raw cause is logged on rejection).
+              const previousRuntimeNotStopped =
+                cause.reasons.length === 1 &&
+                failure instanceof ProviderAdapterProcessError &&
+                failure.reason === "previous-runtime-not-stopped";
+              const detail = previousRuntimeNotStopped
+                ? PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL
+                : Cause.pretty(cause);
+              if (event.payload.initialGoalStartedAt !== undefined) {
+                yield* pauseActiveThreadGoal({
                   threadId: event.payload.threadId,
-                  runtimeMode: event.payload.runtimeMode,
-                  ...(event.payload.modelSelection !== undefined
-                    ? { modelSelection: event.payload.modelSelection }
-                    : {}),
-                  detail,
-                  createdAt: event.payload.createdAt,
+                  expectedGoalStartedAt: event.payload.initialGoalStartedAt,
                 });
-                // A direct start has no provider turn and therefore cannot emit a
-                // terminal runtime event. Recover every queue sharing this
-                // provider session now; otherwise follow-ups queued before the
-                // failure remain stranded indefinitely (including child threads
-                // multiplexed onto their parent's provider session).
-                if (isPendingQueuedDispatch) {
-                  yield* clearPendingQueuedDispatch;
+              }
+              if (!cancelledCompaction) {
+                const sendFailureCause = previousRuntimeNotStopped
+                  ? undefined
+                  : yield* resolveSendFailureCause({
+                      modelSelection: event.payload.modelSelection ?? thread.modelSelection,
+                      failure,
+                    });
+                yield* appendProviderFailureActivity({
+                  threadId: event.payload.threadId,
+                  kind: "provider.turn.start.failed",
+                  summary: "Provider turn start failed",
+                  detail,
+                  turnId: null,
+                  createdAt: event.payload.createdAt,
+                  ...(sendFailureCause ? { cause: sendFailureCause } : {}),
+                  messageId: event.payload.messageId,
+                  provider: (event.payload.modelSelection ?? thread.modelSelection).provider,
+                });
+              }
+              // Restore the runtime's state after a refused reconfiguration or
+              // cancelled native control. An optimistic starting row must not
+              // make the ordered interrupt tear down an established runtime.
+              if (
+                failure instanceof ProviderAdapterValidationError &&
+                (failure.operation === "session/reconfigure" || cancelledCompaction)
+              ) {
+                const optimisticSession = cancelledCompaction
+                  ? (yield* resolveThreadShell(event.payload.threadId))?.session
+                  : (turnStartSession ?? thread.session);
+                const runtime = (yield* providerService.listSessions()).find(
+                  (session) => session.threadId === event.payload.threadId,
+                );
+                if (
+                  optimisticSession?.status === "starting" &&
+                  runtime &&
+                  runtime.activeTurnId == null
+                ) {
+                  yield* setThreadSession({
+                    threadId: event.payload.threadId,
+                    session: {
+                      threadId: event.payload.threadId,
+                      providerName: runtime.provider,
+                      runtimeMode: runtime.runtimeMode,
+                      status:
+                        runtime.status === "closed"
+                          ? "stopped"
+                          : runtime.status === "connecting"
+                            ? "starting"
+                            : runtime.status,
+                      activeTurnId: null,
+                      // The refused message never reached the provider, and its
+                      // turn-less failure activity stays out of the transcript.
+                      // The banner is the only place the user learns why.
+                      lastError: cancelledCompaction
+                        ? (runtime.lastError ?? null)
+                        : `Your message was not sent. ${failure.issue}`,
+                      updatedAt: runtime.updatedAt,
+                    },
+                    expectedSession: {
+                      status: optimisticSession.status,
+                      updatedAt: optimisticSession.updatedAt,
+                    },
+                    createdAt: event.payload.createdAt,
+                  }).pipe(
+                    Effect.catchTag("OrchestrationCommandInvariantError", (error) =>
+                      cancelledCompaction &&
+                      error.detail ===
+                        `Thread '${event.payload.threadId}' session changed before the conditional update.`
+                        ? Effect.void
+                        : Effect.fail(error),
+                    ),
+                  );
                 }
-                yield* drainQueuedTurnsForSession(event.payload.threadId);
-                // A failed autonomous start pauses once; it must not quarantine
-                // the thread and prevent the user's explicit resume.
+                if (isPendingQueuedDispatch) yield* clearPendingQueuedDispatch;
                 if (event.payload.initialGoalStartedAt !== undefined) return;
                 return yield* Effect.failCause(cause);
-              }),
-        ),
+              }
+              yield* setThreadSessionError({
+                threadId: event.payload.threadId,
+                runtimeMode: event.payload.runtimeMode,
+                ...(event.payload.modelSelection !== undefined
+                  ? { modelSelection: event.payload.modelSelection }
+                  : {}),
+                detail,
+                createdAt: event.payload.createdAt,
+              });
+              // A direct start has no provider turn and therefore cannot emit a
+              // terminal runtime event. Recover every queue sharing this
+              // provider session now; otherwise follow-ups queued before the
+              // failure remain stranded indefinitely (including child threads
+              // multiplexed onto their parent's provider session).
+              if (isPendingQueuedDispatch) {
+                yield* clearPendingQueuedDispatch;
+              }
+              yield* drainQueuedTurnsForSession(event.payload.threadId);
+              // A failed autonomous start pauses once; it must not quarantine
+              // the thread and prevent the user's explicit resume.
+              if (event.payload.initialGoalStartedAt !== undefined) return;
+              return yield* Effect.failCause(cause);
+            });
+
+      let steerFellBackToNewTurn = false;
+      const startedTurn = yield* dispatchTurnForThread(
+        buildDispatchInput(immediateDispatchMode),
+      ).pipe(
+        Effect.catchCause((cause) => {
+          if (
+            !Cause.hasInterruptsOnly(cause) &&
+            immediateDispatchMode === "steer" &&
+            isSteerTurnAlreadyEndedCause(cause)
+          ) {
+            return Effect.gen(function* () {
+              // Race self-healing (aligned with Codex Desktop & T3 V2): the
+              // live turn ended between our liveness check and the provider's
+              // steer RPC. Seamlessly start a new turn with the same messageId
+              // (or enqueue behind any concurrent new turn) with zero error.
+              steerFellBackToNewTurn = true;
+              yield* orchestrationEngine.dispatch({
+                type: "thread.message.user.set-turn-boundary",
+                commandId: CommandId.makeUnsafe(
+                  `server:message-turn-boundary:${event.eventId}:steer-fallback-new-turn`,
+                ),
+                threadId: event.payload.threadId,
+                messageId: message.id,
+                startsNewTurn: true,
+                createdAt: event.payload.createdAt,
+              });
+              const concurrentLiveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
+              if (concurrentLiveTurnId !== undefined) {
+                yield* enqueueQueuedTurnStart(event);
+                yield* bindPendingQueuedDispatchToTurn(concurrentLiveTurnId);
+                return undefined;
+              }
+              return yield* dispatchTurnForThread(buildDispatchInput("queue")).pipe(
+                Effect.catchCause((fallbackCause) => handleDispatchFailure(fallbackCause)),
+              );
+            });
+          }
+          return handleDispatchFailure(cause);
+        }),
         Effect.ensuring(Effect.sync(() => editResendTurnStartKeys.delete(editResendKey))),
       );
       if (
@@ -5938,13 +6261,34 @@ const make = Effect.gen(function* () {
         blockedGoalContinuations.delete(event.payload.threadId);
       }
       // A requested steer can still become a separate queued turn (for
-      // providers without native steering, or if the live turn already
-      // settled). Persist that effective boundary while leaving native steer
+      // providers without native steering, if the live turn settled before
+      // steer RPC, or if an adapter fell back internally to starting a fresh
+      // turn). Persist that effective boundary while leaving true native steer
       // continuations unbound to a new turn.
+      const adapterFellBackToNewTurn =
+        isNativeSteer &&
+        !steerFellBackToNewTurn &&
+        startedTurn !== undefined &&
+        providerName !== "codex" &&
+        liveTurnId !== undefined &&
+        startedTurn.turnId !== liveTurnId;
+      if (adapterFellBackToNewTurn) {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.message.user.set-turn-boundary",
+          commandId: CommandId.makeUnsafe(
+            `server:message-turn-boundary:${event.eventId}:adapter-fallback-new-turn`,
+          ),
+          threadId: event.payload.threadId,
+          messageId: message.id,
+          startsNewTurn: true,
+          createdAt: event.payload.createdAt,
+        });
+      }
       if (
         startedTurn &&
         (event.payload.initialGoalStartedAt !== undefined ||
-          (event.payload.dispatchMode === "steer" && !isNativeSteer))
+          (event.payload.dispatchMode === "steer" &&
+            (!isNativeSteer || steerFellBackToNewTurn || adapterFellBackToNewTurn)))
       ) {
         yield* orchestrationEngine.dispatch({
           type: "thread.message.user.bind-turn",
@@ -7037,6 +7381,17 @@ const make = Effect.gen(function* () {
     });
   });
 
+  // Prefer the 3-point-lookup thread shell on the interrupt hot path (including
+  // non-native steer interrupts), falling back to the full detail read only
+  // when a mock/fixture leaves the shell missing while detail is readable.
+  const resolveThreadForInterrupt = Effect.fnUntraced(function* (threadId: ThreadId) {
+    const shell = yield* resolveThreadShell(threadId);
+    if (shell !== undefined) {
+      return shell;
+    }
+    return yield* resolveThread(threadId);
+  });
+
   const interruptProviderTurn = Effect.fnUntraced(function* (input: {
     readonly controlRequestId: string;
     readonly preserveQueuedWork?: boolean;
@@ -7045,9 +7400,7 @@ const make = Effect.gen(function* () {
     readonly createdAt: string;
     readonly intentionalQuit?: boolean;
   }) {
-    // Kept on the detail read: the owner-FIFO tests model a thread whose shell
-    // is missing while its detail is readable, and interrupts are rare.
-    const thread = yield* resolveThread(input.threadId);
+    const thread = yield* resolveThreadForInterrupt(input.threadId);
     const providerThread = yield* resolveProviderSessionThread(input.threadId);
     if (!thread) {
       return;
@@ -7224,7 +7577,7 @@ const make = Effect.gen(function* () {
         createdAt: input.createdAt,
       });
     }
-    const current = yield* resolveThread(input.threadId);
+    const current = yield* resolveThreadForInterrupt(input.threadId);
     const currentRuntimeTarget = yield* readRuntimeStopTarget(input);
     const currentRuntime = currentRuntimeTarget.session ?? undefined;
     const currentTurnId = current?.latestTurn?.turnId;
@@ -7313,13 +7666,34 @@ const make = Effect.gen(function* () {
     // silently and leave the stop button looking dead; surface them on the
     // thread and settle locally, since the provider never accepted the request.
     if (result.outcome._tag === "rejected") {
-      yield* reportInterruptFailure(result.outcome.detail);
-      if (
+      const staleControl =
         isStaleProviderControl(result.cause, "ProviderService.interruptTurn") ||
-        isStaleProviderControl(result.cause, "ProviderService.stopRuntimeSession")
-      )
-        return;
+        isStaleProviderControl(result.cause, "ProviderService.stopRuntimeSession");
       const failure = Option.getOrUndefined(Cause.findErrorOption(result.cause));
+      const steerInterruptAlreadySettled =
+        input.preserveQueuedWork === true &&
+        !hasLiveProviderWork(currentRuntime) &&
+        (staleControl ||
+          (failure?._tag === "ProviderValidationError" &&
+            failure.operation === "ProviderService.interruptTurn" &&
+            failure.reason === "active-turn-unavailable") ||
+          isCodexNoActiveTurnSteerError(failure));
+      if (steerInterruptAlreadySettled) {
+        if (
+          current?.session &&
+          (current.session.activeTurnId !== null || current.session.status === "running")
+        ) {
+          yield* settleInterruptedProviderTurn({
+            threadId: input.threadId,
+            createdAt: input.createdAt,
+            expectedSession: current.session,
+          });
+        }
+        yield* drainQueueAfterTurnEnded({ threadId: input.threadId, turnId });
+        return;
+      }
+      yield* reportInterruptFailure(result.outcome.detail);
+      if (staleControl) return;
       if (
         providerThreadId === undefined &&
         observedRuntime.session?.status === "running" &&
@@ -7355,27 +7729,27 @@ const make = Effect.gen(function* () {
   const processTurnInterruptRequested = Effect.fnUntraced(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.turn-interrupt-requested" }>,
   ) {
-    // Both generated steer interrupts and direct Stop's goal-pause event have
-    // a cause. Resolve the exact preceding event in the decider's atomic batch;
-    // only a queued steer grants interrupt-only queue semantics.
-    const cause =
-      event.causationEventId !== null
-        ? Option.getOrUndefined(
-            yield* orchestrationEngine
-              .readThreadEventsThrough(
-                event.payload.threadId,
-                Math.max(0, event.sequence - 2),
-                event.sequence - 1,
-                undefined,
-                1,
-              )
-              .pipe(Stream.runHead),
+    // Steer interrupts explicitly carry `requestedBy: "steer"`, avoiding a
+    // SQLite causation lookup on the hot interrupt path; historical events
+    // without `requestedBy` keep the preceding-event fallback.
+    let preservesQueuedSteer = event.payload.requestedBy === "steer";
+    if (!preservesQueuedSteer && event.causationEventId !== null) {
+      const cause = Option.getOrUndefined(
+        yield* orchestrationEngine
+          .readThreadEventsThrough(
+            event.payload.threadId,
+            Math.max(0, event.sequence - 2),
+            event.sequence - 1,
+            undefined,
+            1,
           )
-        : undefined;
-    const preservesQueuedSteer =
-      cause?.eventId === event.causationEventId &&
-      cause?.type === "thread.turn-queued" &&
-      cause.payload.dispatchMode === "steer";
+          .pipe(Stream.runHead),
+      );
+      preservesQueuedSteer =
+        cause?.eventId === event.causationEventId &&
+        cause?.type === "thread.turn-queued" &&
+        cause.payload.dispatchMode === "steer";
+    }
     yield* interruptProviderTurn({
       controlRequestId: turnStartKeyForEvent(event),
       preserveQueuedWork: preservesQueuedSteer,

@@ -518,6 +518,17 @@ describe("PiAdapter turns", () => {
       await waitFor(() =>
         expect(pi().commandsOf("prompt").at(-1)).toMatchObject({ streamingBehavior: "steer" }),
       );
+      await waitFor(() =>
+        expect(
+          events.find(
+            (event) =>
+              event.type === "turn.steered" &&
+              event.turnId === started.turnId &&
+              event.payload.message === "Go left" &&
+              event.payload.target === "turn",
+          ),
+        ).toBeDefined(),
+      );
       pi().finishRun();
       await waitFor(() => expect(completions(events)).toHaveLength(1));
     });

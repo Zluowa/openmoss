@@ -72,8 +72,10 @@ import {
   classifyCodexStderrLine,
   classifyCodexStderrLines,
   discoveryStderrLogLine,
+  extractCodexActiveTurnIdFromSteerError,
   formatCodexPendingStartup,
   formatCodexThreadResumeError,
+  isCodexNoActiveTurnSteerError,
   isRecoverableThreadResumeError,
   isUnsupportedCodexMethodError,
   normalizeCodexModelSlug,
@@ -4628,6 +4630,106 @@ describe("steerTurn", () => {
         input: "Keep going",
       }),
     ).rejects.toThrow("turn/steer response did not include a turn id.");
+  });
+
+  it("retries turn/steer once when Codex reports turnId drift", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_stale";
+    sendRequest
+      .mockRejectedValueOnce(
+        new Error("expectedTurnId mismatch: expected turn_stale, actual turn_drifted_2"),
+      )
+      .mockResolvedValueOnce({
+        turnId: "turn_drifted_2",
+      });
+
+    const result = await manager.steerTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Use the drifted turn id",
+    });
+
+    expect(result).toEqual({
+      threadId: "thread_1",
+      turnId: "turn_drifted_2",
+      resumeCursor: { threadId: "thread_1" },
+    });
+    expect(sendRequest).toHaveBeenCalledTimes(2);
+    expect(sendRequest).toHaveBeenNthCalledWith(1, context, "turn/steer", {
+      threadId: "thread_1",
+      input: [{ type: "text", text: "Use the drifted turn id", text_elements: [] }],
+      expectedTurnId: "turn_stale",
+    });
+    expect(sendRequest).toHaveBeenNthCalledWith(2, context, "turn/steer", {
+      threadId: "thread_1",
+      input: [{ type: "text", text: "Use the drifted turn id", text_elements: [] }],
+      expectedTurnId: "turn_drifted_2",
+    });
+    expect(updateSession).toHaveBeenCalledWith(context, {
+      status: "running",
+      activeTurnId: "turn_drifted_2",
+      resumeCursor: { threadId: "thread_1" },
+    });
+  });
+
+  it("handles two consecutive turnId drifts within the bounded retry limit", async () => {
+    const { manager, context, sendRequest } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_1";
+    sendRequest
+      .mockRejectedValueOnce(new Error("expectedTurnId mismatch: expected turn_1, actual turn_2"))
+      .mockRejectedValueOnce(new Error("expectedTurnId mismatch: expected turn_2, actual turn_3"))
+      .mockResolvedValueOnce({
+        turnId: "turn_3",
+      });
+
+    const result = await manager.steerTurn({
+      threadId: asThreadId("thread_1"),
+      input: "Rapid double drift",
+    });
+
+    expect(result).toEqual({
+      threadId: "thread_1",
+      turnId: "turn_3",
+      resumeCursor: { threadId: "thread_1" },
+    });
+    expect(sendRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it("clears stale activeTurnId when turn/steer reports no active turn", async () => {
+    const { manager, context, sendRequest, updateSession } = createSendTurnHarness();
+    context.session.status = "running";
+    context.session.activeTurnId = "turn_finished";
+    sendRequest.mockRejectedValueOnce(new Error("no active turn to steer"));
+
+    await expect(
+      manager.steerTurn({
+        threadId: asThreadId("thread_1"),
+        input: "Late steer",
+      }),
+    ).rejects.toThrow("no active turn to steer");
+    expect(updateSession).toHaveBeenCalledWith(context, {
+      status: "ready",
+      activeTurnId: undefined,
+      resumeCursor: { threadId: "thread_1" },
+    });
+  });
+
+  it("extracts drifted turn ids and classifies no-active-turn steer errors", () => {
+    expect(
+      extractCodexActiveTurnIdFromSteerError({
+        message: "expectedTurnId mismatch",
+        data: { activeTurnId: "turn_from_data" },
+      }),
+    ).toBe("turn_from_data");
+    expect(
+      extractCodexActiveTurnIdFromSteerError(new Error("active turn is turn_from_text.")),
+    ).toBe("turn_from_text");
+    expect(isCodexNoActiveTurnSteerError(new Error("no active turn to steer"))).toBe(true);
+    expect(isCodexNoActiveTurnSteerError(new Error("active turn has already completed"))).toBe(
+      true,
+    );
+    expect(isCodexNoActiveTurnSteerError(new Error("network connection reset"))).toBe(false);
   });
 });
 

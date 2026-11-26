@@ -10517,5 +10517,189 @@ describe("ProviderRuntimeIngestion", () => {
       expect(await projectedMessage(harness, "assistant:empty-item")).toBeUndefined();
       expect(await engineMessage(harness, "assistant:empty-item")).toBeUndefined();
     });
+
+    it("suppresses false runtime.error and failed turn.completed noise when a turn was interrupted by a steer", async () => {
+      const harness = await createHarness();
+      const threadId = asThreadId("thread-1");
+      const turnId = asTurnId("turn-steered-out");
+      const now = new Date().toISOString();
+
+      await startTurn(harness, turnId, "streaming");
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.interrupt",
+          commandId: CommandId.makeUnsafe("cmd-steer-interrupt-ingestion"),
+          threadId,
+          turnId,
+          requestedBy: "steer",
+          createdAt: now,
+        }),
+      );
+      await harness.drain();
+
+      // Provider emits noisy cancellation error + failed completion after being
+      // interrupted by the steer — both must settle neutrally as interrupted.
+      harness.emit({
+        type: "runtime.error",
+        eventId: asEventId("evt-steer-cancel-runtime-error"),
+        provider: "antigravity",
+        createdAt: now,
+        threadId,
+        turnId,
+        payload: { message: "The provider could not complete this request. Try again." },
+      });
+      harness.emit({
+        type: "turn.completed",
+        eventId: asEventId("evt-steer-cancel-turn-completed"),
+        provider: "antigravity",
+        createdAt: now,
+        threadId,
+        turnId,
+        payload: {
+          state: "failed",
+          errorMessage: "The provider could not complete this request. Try again.",
+        },
+      });
+      await harness.drain();
+
+      const thread = await harness.readProjectedThread();
+      expect(thread?.session?.status).toBe("interrupted");
+      expect(thread?.session?.lastError).toBeNull();
+      expect(thread?.activities.filter((a) => a.kind === "runtime.error")).toHaveLength(0);
+      const completedActivity = thread?.activities.find(
+        (a) => a.kind === "turn.completed" && a.turnId === turnId,
+      );
+      expect(completedActivity?.tone).not.toBe("error");
+      expect((completedActivity?.payload as Record<string, unknown> | undefined)?.state).toBe(
+        "interrupted",
+      );
+    });
+
+    it("surfaces genuine errors on the immediately following steered turn even after a steer-interrupted runtime.error or untargeted steer interrupt", async () => {
+      const harness = await createHarness();
+      const threadId = asThreadId("thread-1");
+      const firstTurnId = asTurnId("turn-steered-out-1");
+      const secondTurnId = asTurnId("turn-replacement-2");
+      const thirdTurnId = asTurnId("turn-replacement-3");
+      const now = new Date().toISOString();
+
+      // Case 1: turn-1 is steer-interrupted with known turnId and ends via
+      // runtime.error without turn.completed. A genuine turn-less runtime.error
+      // on the next turn must still surface as status="error" with lastError.
+      await startTurn(harness, firstTurnId, "streaming");
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.interrupt",
+          commandId: CommandId.makeUnsafe("cmd-steer-interrupt-known-turn"),
+          threadId,
+          turnId: firstTurnId,
+          requestedBy: "steer",
+          createdAt: now,
+        }),
+      );
+      await harness.drain();
+
+      harness.emit({
+        type: "runtime.error",
+        eventId: asEventId("evt-steer-cancel-turn-1"),
+        provider: "antigravity",
+        createdAt: now,
+        threadId,
+        turnId: firstTurnId,
+        payload: { message: "Cancelled by steer" },
+      });
+      await harness.drain();
+      expect((await harness.readProjectedThread())?.session?.status).toBe("interrupted");
+
+      await startTurn(harness, secondTurnId, "streaming");
+      harness.emit({
+        type: "runtime.error",
+        eventId: asEventId("evt-real-turnless-error-after-steer"),
+        provider: "antigravity",
+        createdAt: now,
+        threadId,
+        payload: { message: "Upstream quota exceeded" },
+      });
+      await harness.drain();
+
+      const afterCase1 = await harness.readProjectedThread();
+      expect(afterCase1?.session?.status).toBe("error");
+      expect(afterCase1?.session?.lastError).toBe("Upstream quota exceeded");
+      expect(
+        afterCase1?.activities.some(
+          (activity) =>
+            activity.kind === "runtime.error" &&
+            (activity.payload as Record<string, unknown> | undefined)?.message ===
+              "Upstream quota exceeded",
+        ),
+      ).toBe(true);
+
+      // Case 2: steer interrupt arrives before activeTurnId projects (untargeted).
+      // Once the replacement turn emits turn.started, its real failure must NOT be
+      // coerced into "interrupted".
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.makeUnsafe("cmd-session-no-active-turn"),
+          threadId,
+          session: {
+            threadId,
+            status: "starting",
+            providerName: "antigravity",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: now,
+          },
+          createdAt: now,
+        }),
+      );
+      await Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.interrupt",
+          commandId: CommandId.makeUnsafe("cmd-steer-interrupt-untargeted"),
+          threadId,
+          requestedBy: "steer",
+          createdAt: now,
+        }),
+      );
+      await harness.drain();
+
+      await startTurn(harness, thirdTurnId, "streaming");
+      harness.emit({
+        type: "runtime.error",
+        eventId: asEventId("evt-real-error-turn-3"),
+        provider: "antigravity",
+        createdAt: now,
+        threadId,
+        turnId: thirdTurnId,
+        payload: { message: "Real provider failure on turn 3" },
+      });
+      harness.emit({
+        type: "turn.completed",
+        eventId: asEventId("evt-real-failed-turn-3"),
+        provider: "antigravity",
+        createdAt: now,
+        threadId,
+        turnId: thirdTurnId,
+        payload: { state: "failed", errorMessage: "Real provider failure on turn 3" },
+      });
+      await harness.drain();
+
+      const afterCase2 = await harness.readProjectedThread();
+      expect(afterCase2?.session?.status).toBe("error");
+      expect(afterCase2?.session?.lastError).toBe("Real provider failure on turn 3");
+      expect(
+        afterCase2?.activities.some(
+          (activity) => activity.kind === "runtime.error" && activity.turnId === thirdTurnId,
+        ),
+      ).toBe(true);
+      const completedTurn3 = afterCase2?.activities.find(
+        (activity) => activity.kind === "turn.completed" && activity.turnId === thirdTurnId,
+      );
+      expect((completedTurn3?.payload as Record<string, unknown> | undefined)?.state).toBe(
+        "failed",
+      );
+    });
   });
 });

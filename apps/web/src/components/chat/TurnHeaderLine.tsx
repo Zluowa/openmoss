@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import type { TimestampFormat } from "../../appSettings";
 import { useTranslation } from "../../localization";
+import { translateZhCnPresentationText } from "../../localization/zhCN";
 import { localizeCodexDurationUnits } from "../../session-logic";
 import { formatProviderModelOptionName } from "../../providerModelOptions";
 import { cn } from "~/lib/utils";
@@ -110,11 +111,15 @@ export function TurnHeaderLine(
   const elapsedText = header.elapsed
     ? localizeCodexDurationUnits(header.elapsed, locale)
     : header.elapsed;
-  const settledLabel =
+  const rawSettledLabel =
     props.labelOverride ??
     (header.outcome === "completed" && elapsedText && (header.resumedBy?.length ?? 0) === 0
       ? format("localConversation.workedFor", { time: elapsedText })
       : formatTurnHeaderLabel({ ...header, elapsed: elapsedText }));
+  const settledLabel =
+    locale === "zh-CN" && props.labelOverride == null
+      ? translateZhCnPresentationText(rawSettledLabel)
+      : rawSettledLabel;
   const content = (
     <span className="inline-flex min-w-0 items-center gap-1">
       <span>{settledLabel}</span>

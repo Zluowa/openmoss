@@ -7459,4 +7459,88 @@ describe("OpenCode background subagent tasks", () => {
       payload: { taskId: "child-session-1", status: "stopped" },
     });
   });
+
+  it("supports native steerTurn on a live turn without opening a duplicate turn", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime();
+
+    const result = await runWithAdapter(runtime, eventQueue, (adapter, threadId) =>
+      Effect.gen(function* () {
+        expect(adapter.capabilities.supportsTurnSteering).toBe(true);
+        const eventsFiber = yield* Stream.runCollect(
+          Stream.take(
+            Stream.filter(
+              adapter.streamEvents,
+              (event) => event.type === "turn.started" || event.type === "turn.steered",
+            ),
+            2,
+          ),
+        ).pipe(Effect.forkChild);
+
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const firstTurn = yield* adapter.sendTurn({
+          threadId,
+          input: "Start working on the plan",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.4" },
+        });
+        const steered = yield* adapter.steerTurn!({
+          threadId,
+          input: "Focus on tests first",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.4" },
+        });
+
+        const collected = Array.from(yield* Fiber.join(eventsFiber));
+        eventQueue.close();
+        return { firstTurn, steered, collected };
+      }),
+    );
+
+    expect(result.steered.turnId).toBe(result.firstTurn.turnId);
+    expect(result.collected.map((event) => event.type)).toEqual(["turn.started", "turn.steered"]);
+    expect(result.collected[1]).toMatchObject({
+      type: "turn.steered",
+      turnId: result.firstTurn.turnId,
+      payload: { message: "Focus on tests first", target: "turn" },
+    });
+  });
+
+  it("falls back to starting a normal turn when steerTurn runs while idle", async () => {
+    const eventQueue = createSubscribedEventQueue();
+    const runtime = createMockOpenCodeRuntime();
+
+    const result = await runWithAdapter(runtime, eventQueue, (adapter, threadId) =>
+      Effect.gen(function* () {
+        const startedFiber = yield* Stream.runCollect(
+          Stream.take(
+            Stream.filter(adapter.streamEvents, (event) => event.type === "turn.started"),
+            1,
+          ),
+        ).pipe(Effect.forkChild);
+
+        yield* adapter.startSession({
+          provider: "opencode",
+          threadId,
+          runtimeMode: "full-access",
+        });
+        const steered = yield* adapter.steerTurn!({
+          threadId,
+          input: "Idle steer starts a fresh turn",
+          attachments: [],
+          modelSelection: { provider: "opencode", model: "openai/gpt-5.4" },
+        });
+        const started = Array.from(yield* Fiber.join(startedFiber));
+        eventQueue.close();
+        return { steered, started };
+      }),
+    );
+
+    expect(result.started).toHaveLength(1);
+    expect(result.started[0]?.turnId).toBe(result.steered.turnId);
+  });
 });

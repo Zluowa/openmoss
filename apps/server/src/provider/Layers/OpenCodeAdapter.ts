@@ -2213,6 +2213,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         input: {
           readonly turnId: TurnId;
           readonly promptInput: Parameters<OpencodeClient["session"]["promptAsync"]>[0];
+          readonly isSteer?: boolean;
         },
       ) {
         const settled = yield* Deferred.make<ProviderAdapterRequestError | null, never>();
@@ -2226,6 +2227,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           Effect.as(null),
           Effect.catch((requestError) =>
             Effect.gen(function* () {
+              if (input.isSteer === true) {
+                return requestError;
+              }
               if (yield* Ref.get(context.stopped)) {
                 return requestError;
               }
@@ -4452,6 +4456,135 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
         );
       };
 
+      const steerTurn: NonNullable<OpenCodeAdapterShape["steerTurn"]> = Effect.fn("steerTurn")(
+        function* (input) {
+          const context = ensureAdapterSessionContext(input.threadId);
+          const activeTurnId = context.activeTurnId;
+          if (!activeTurnId) {
+            return yield* sendTurn(input);
+          }
+          if (isOpenCodeV2Client(context.client)) {
+            yield* Deferred.await(context.eventsReady).pipe(
+              Effect.timeout("10 seconds"),
+              Effect.mapError((cause) =>
+                toAdapterRequestError(
+                  new OpenCodeRuntimeError({
+                    operation: "event.subscribe",
+                    detail:
+                      "OpenCode event subscription is not ready. Retry when the connection recovers.",
+                    cause,
+                  }),
+                ),
+              ),
+            );
+          }
+
+          const modelSelection =
+            input.modelSelection ??
+            (context.session.model ? { provider, model: context.session.model } : undefined);
+          const parsedModel = parseOpenCodeModelSlug(modelSelection?.model);
+          if (!parsedModel) {
+            return yield* new ProviderAdapterValidationError({
+              provider,
+              operation: "steerTurn",
+              issue: `${adapterConfig.displayName} model selection must use the 'provider/model' format.`,
+            });
+          }
+
+          const baseText = withProviderPlanModePrompt({
+            text: input.input?.trim() ?? "",
+            interactionMode: input.interactionMode,
+          }).trim();
+          const text =
+            appendFileAttachmentsPromptBlock({
+              text: baseText,
+              attachments: input.attachments,
+              attachmentsDir: serverConfig.attachmentsDir,
+              include: "all-files",
+            })?.trim() ?? "";
+          const fileParts = toOpenCodeFileParts({
+            attachments: input.attachments,
+            resolveAttachmentPath: (attachment) =>
+              resolveProviderAttachmentPath({
+                attachmentsDir: serverConfig.attachmentsDir,
+                attachment,
+              }),
+          });
+          if ((!text || text.length === 0) && fileParts.length === 0) {
+            return yield* new ProviderAdapterValidationError({
+              provider,
+              operation: "steerTurn",
+              issue: `${adapterConfig.displayName} turns require text input or at least one attachment.`,
+            });
+          }
+
+          const requestedAgent =
+            input.modelSelection?.provider === provider
+              ? input.modelSelection.options?.agent
+              : undefined;
+          const variant =
+            input.modelSelection?.provider === provider
+              ? input.modelSelection.options?.variant
+              : undefined;
+          const interactionMode =
+            input.interactionMode ?? context.activeInteractionMode ?? "default";
+          const permissionInteractionMode = interactionMode === "plan" ? "plan" : "default";
+          yield* applyPermissionInteractionMode(context, permissionInteractionMode);
+
+          // If the live turn finished while preparing attachments/permissions,
+          // start a clean new turn instead of injecting into a settled turn.
+          if (context.activeTurnId !== activeTurnId) {
+            return yield* sendTurn(input);
+          }
+
+          context.activeTurnSawFinalAssistant = false;
+          context.activeInteractionMode = interactionMode;
+          const modePinnedAgent =
+            interactionMode === "plan" ? adapterConfig.planAgent : adapterConfig.defaultAgent;
+          context.activeAgent =
+            interactionMode !== "plan" && requestedAgent === adapterConfig.planAgent
+              ? adapterConfig.defaultAgent
+              : (requestedAgent ?? modePinnedAgent);
+          context.activeVariant = variant;
+
+          yield* submitOpenCodePromptAsync(context, {
+            turnId: activeTurnId,
+            isSteer: true,
+            promptInput: {
+              sessionID: context.openCodeSessionId,
+              model: parsedModel,
+              ...(context.activeAgent ? { agent: context.activeAgent } : {}),
+              ...(context.activeVariant ? { variant: context.activeVariant } : {}),
+              parts: [...(text ? [{ type: "text" as const, text }] : []), ...fileParts],
+            },
+          });
+
+          const steerText = input.input?.trim();
+          if (steerText) {
+            yield* emit(context, {
+              ...buildEventBase({ threadId: input.threadId, turnId: activeTurnId }),
+              type: "turn.steered",
+              payload: {
+                message: steerText,
+                target: "turn",
+              },
+            });
+          }
+
+          return {
+            threadId: input.threadId,
+            turnId: activeTurnId,
+            resumeCursor: buildOpenCodeResumeCursor({
+              openCodeSessionId: context.openCodeSessionId,
+              cwd: context.directory,
+              ...(context.harnessPolicyDelivered ? { harnessPolicyDelivered: true } : {}),
+              gatewayControlAvailable: context.gatewayControlAvailable,
+              enableComputerControl: context.enableComputerControl === true,
+            }),
+          };
+        },
+      );
+
       const interruptTurn: OpenCodeAdapterShape["interruptTurn"] = Effect.fn("interruptTurn")(
         function* (threadId, turnId) {
           const context = ensureAdapterSessionContext(threadId);
@@ -5296,10 +5429,12 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           sessionModelSwitch: "in-session",
           supportsRuntimeModelList: true,
           supportsNativeSlashCommandDiscovery: true,
+          supportsTurnSteering: true,
         },
         startSession,
         didResumeSession,
         sendTurn,
+        steerTurn,
         interruptTurn,
         respondToRequest,
         respondToUserInput,

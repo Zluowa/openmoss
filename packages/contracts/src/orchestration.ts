@@ -2440,7 +2440,7 @@ const ThreadClaudeCacheCompactedCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const TurnInterruptRequestedBy = Schema.Literals(["user", "agent", "system"]);
+const TurnInterruptRequestedBy = Schema.Literals(["user", "agent", "system", "steer"]);
 
 const ThreadTurnInterruptCommand = Schema.Struct({
   type: Schema.Literal("thread.turn.interrupt"),

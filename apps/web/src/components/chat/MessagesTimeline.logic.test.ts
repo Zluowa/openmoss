@@ -2546,6 +2546,57 @@ describe("deriveMessagesTimelineRows", () => {
         }),
       ).toBe("Interrupted after 141ms");
     });
+
+    it("omits any interruption divider when a turn was cut off by a steer", () => {
+      const work = workEntry("w1", "2026-01-01T00:00:01Z", "running tool");
+      if (work.kind !== "work") throw new Error("Expected work");
+      work.entry.turnId = TurnId.makeUnsafe("t1");
+      const steerActivities = [
+        turnActivity("start-1", "t1", "turn.started", {}, "2026-01-01T00:00:00Z"),
+        turnActivity(
+          "steer-stop-1",
+          "t1",
+          "turn.stop-requested",
+          { requestedBy: "steer" },
+          "2026-01-01T00:00:03Z",
+        ),
+        turnActivity(
+          "done-1",
+          "t1",
+          "turn.completed",
+          { state: "interrupted" },
+          "2026-01-01T00:00:04Z",
+        ),
+      ];
+      const rows = deriveMessagesTimelineRows({
+        ...baseInput,
+        timelineEntries: [
+          userEntry("u1", "2026-01-01T00:00:00Z"),
+          work,
+          {
+            id: "u2",
+            kind: "message",
+            createdAt: "2026-01-01T00:00:03Z",
+            message: {
+              id: MessageId.makeUnsafe("u2"),
+              role: "user",
+              text: "redirecting work",
+              dispatchMode: "steer",
+              startsNewTurn: true,
+              createdAt: "2026-01-01T00:00:03Z",
+              streaming: false,
+            },
+          },
+        ],
+        turnTimingByTurnId: deriveTurnTimingByTurnId({
+          turnDiffSummaries: [],
+          latestTurn: null,
+          activities: steerActivities,
+        }),
+      });
+      const marker = rows.find((row) => row.kind === "work")?.turnEndMarker;
+      expect(marker).toBeUndefined();
+    });
   });
 
   it("keeps the live turn expanded instead of collapsing while it streams", () => {

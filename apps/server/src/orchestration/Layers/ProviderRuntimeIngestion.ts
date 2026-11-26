@@ -242,7 +242,11 @@ export function nextRuntimeJournalSafetyPollDelayMs(
 type RuntimeIngestionDomainEvent = Extract<
   OrchestrationEvent,
   {
-    type: "thread.turn-start-requested" | "thread.reverted" | "thread.conversation-rolled-back";
+    type:
+      | "thread.turn-start-requested"
+      | "thread.turn-interrupt-requested"
+      | "thread.reverted"
+      | "thread.conversation-rolled-back";
   }
 >;
 
@@ -960,6 +964,84 @@ const make = Effect.gen(function* () {
       const next = new Map(state);
       next.delete(threadId);
       return next;
+    });
+
+  // Tracks turns explicitly interrupted by a mid-run steer (`requestedBy: "steer"`)
+  // so cancellation noise emitted by non-native providers (`runtime.error` or
+  // `turn.completed(failed)`) settles cleanly as `"interrupted"` with no red
+  // error banner.
+  const STEER_INTERRUPT_MATCH_WINDOW_MS = 30_000;
+  const steerInterruptedTurnsByThread = new Map<ThreadId, Set<TurnId>>();
+  const steerInterruptedAnyTurnAtByThread = new Map<ThreadId, number>();
+
+  const recordSteerInterruptedTurn = (threadId: ThreadId, turnId: TurnId | undefined) =>
+    Effect.sync(() => {
+      if (turnId !== undefined) {
+        let turns = steerInterruptedTurnsByThread.get(threadId);
+        if (!turns) {
+          turns = new Set();
+          steerInterruptedTurnsByThread.set(threadId, turns);
+        }
+        turns.add(turnId);
+        return;
+      }
+      // Only use the bounded untargeted window when the steer interrupt arrived
+      // before `activeTurnId` projected; once a new turn starts or any terminal
+      // error/completion settles, this window is cleared immediately.
+      steerInterruptedAnyTurnAtByThread.set(threadId, Date.now());
+    });
+
+  const clearSteerInterruptedAnyTurn = (threadId: ThreadId) =>
+    Effect.sync(() => {
+      steerInterruptedAnyTurnAtByThread.delete(threadId);
+    });
+
+  const clearSteerInterruptedTurn = (threadId: ThreadId, turnId?: TurnId | undefined) =>
+    Effect.sync(() => {
+      if (turnId === undefined) {
+        steerInterruptedTurnsByThread.delete(threadId);
+        steerInterruptedAnyTurnAtByThread.delete(threadId);
+        return;
+      }
+      const turns = steerInterruptedTurnsByThread.get(threadId);
+      if (turns) {
+        turns.delete(turnId);
+        if (turns.size === 0) steerInterruptedTurnsByThread.delete(threadId);
+      }
+      steerInterruptedAnyTurnAtByThread.delete(threadId);
+    });
+
+  const isSteerInterruptedTurn = (
+    threadId: ThreadId,
+    turnId: TurnId | undefined,
+  ): Effect.Effect<boolean> =>
+    Effect.gen(function* () {
+      if (turnId !== undefined && steerInterruptedTurnsByThread.get(threadId)?.has(turnId)) {
+        return true;
+      }
+      const anyTurnAt = steerInterruptedAnyTurnAtByThread.get(threadId);
+      if (
+        anyTurnAt !== undefined &&
+        Date.now() - anyTurnAt <= STEER_INTERRUPT_MATCH_WINDOW_MS &&
+        (turnId === undefined || (steerInterruptedTurnsByThread.get(threadId)?.size ?? 0) === 0)
+      ) {
+        return true;
+      }
+      // Authoritative fallback: the command read model records
+      // `turn.stop-requested` ({ requestedBy: "steer" }) synchronously when
+      // the decider commits the steer interrupt — before the reactor sends
+      // interruptTurn to the provider — eliminating stream ordering races and
+      // surviving restarts.
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const threadSnapshot = readModel.threads.find((candidate) => candidate.id === threadId);
+      if (!threadSnapshot) return false;
+      return threadSnapshot.activities.some((activity) => {
+        if (activity.kind !== "turn.stop-requested") return false;
+        const payload = asObject(activity.payload);
+        if (payload?.requestedBy !== "steer") return false;
+        if (turnId !== undefined) return activity.turnId === turnId;
+        return activity.turnId !== null && activity.turnId === threadSnapshot.session?.activeTurnId;
+      });
     });
 
   // Match request modes and provider turn ids from either arrival direction.
@@ -2808,8 +2890,13 @@ const make = Effect.gen(function* () {
       // proves no particular turn ended. It must not fall back to the active
       // turn for any turn-scoped cleanup (messages, reasoning, tool rows).
       const isAmbiguousTerminal = terminalApplicability?.reason === "ambiguous-missing-turn-id";
-      if (event.type === "turn.started" && rawEventTurnId) {
-        yield* Cache.set(finalizedTurnKeys, providerTurnKey(thread.id, rawEventTurnId), false);
+      if (event.type === "turn.started") {
+        // Once a replacement turn starts, an untargeted steer-interrupt window
+        // from the prior turn must never swallow genuine errors on the new turn.
+        yield* clearSteerInterruptedAnyTurn(thread.id);
+        if (rawEventTurnId) {
+          yield* Cache.set(finalizedTurnKeys, providerTurnKey(thread.id, rawEventTurnId), false);
+        }
       }
 
       const shouldApplyThreadLifecycle =
@@ -2947,6 +3034,13 @@ const make = Effect.gen(function* () {
         yield* settleUnanswerablePendingInteractions(thread.id, event, now);
       }
 
+      const candidateSteerErrorTurnId = eventTurnId ?? activeTurnId ?? undefined;
+      const isSteerInterruptedFailure =
+        event.type === "runtime.error" ||
+        (event.type === "turn.completed" && runtimeTurnState(event) === "failed")
+          ? yield* isSteerInterruptedTurn(thread.id, candidateSteerErrorTurnId)
+          : false;
+
       if (
         event.type === "session.started" ||
         event.type === "session.state.changed" ||
@@ -2998,7 +3092,9 @@ const make = Effect.gen(function* () {
               return "stopped";
             case "turn.completed": {
               const turnState = runtimeTurnState(event);
-              if (turnState === "failed") return "error";
+              if (turnState === "failed") {
+                return isSteerInterruptedFailure ? "interrupted" : "error";
+              }
               if (turnState === "interrupted" || turnState === "cancelled") {
                 return "interrupted";
               }
@@ -3644,15 +3740,15 @@ const make = Effect.gen(function* () {
             threadId: thread.id,
             session: {
               threadId: thread.id,
-              status: "error",
+              status: isSteerInterruptedFailure ? "interrupted" : "error",
               providerName: event.provider,
               providerInstanceId:
                 event.providerInstanceId ??
                 thread.session?.providerInstanceId ??
                 readModelSelectionProviderInstanceId(thread.modelSelection),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
-              activeTurnId: eventTurnId ?? null,
-              lastError: runtimeErrorMessage,
+              activeTurnId: isSteerInterruptedFailure ? null : (eventTurnId ?? null),
+              lastError: isSteerInterruptedFailure ? null : runtimeErrorMessage,
               updatedAt: now,
             },
             createdAt: now,
@@ -3660,6 +3756,7 @@ const make = Effect.gen(function* () {
           // The old turn was technically cancelled, so only the failed
           // recovery can now pause its goal. Never pause a different turn.
           if (
+            !isSteerInterruptedFailure &&
             event.provider === "devin" &&
             asObject(event.payload.detail)?.reason === "moss.devin.wedge-recovery" &&
             eventTurnId !== undefined &&
@@ -3831,12 +3928,26 @@ const make = Effect.gen(function* () {
       }
 
       const snapshotKey = providerRuntimeProgressKey(event);
-      const activities = projectProviderRuntimeActivities(
-        scopedActivityEvent,
-        event.provider === "claudeAgent"
-          ? (completedReasoning?.sequence ?? runtimeSequence)
-          : runtimeSequence,
-      );
+      const effectiveActivityEvent =
+        isSteerInterruptedFailure && scopedActivityEvent.type === "turn.completed"
+          ? {
+              ...scopedActivityEvent,
+              payload: {
+                ...scopedActivityEvent.payload,
+                state: "interrupted" as const,
+                errorMessage: undefined,
+              },
+            }
+          : scopedActivityEvent;
+      const activities =
+        isSteerInterruptedFailure && event.type === "runtime.error"
+          ? []
+          : projectProviderRuntimeActivities(
+              effectiveActivityEvent,
+              event.provider === "claudeAgent"
+                ? (completedReasoning?.sequence ?? runtimeSequence)
+                : runtimeSequence,
+            );
       if (rebuildAcceptedProgress && snapshotKey !== undefined) {
         // Acknowledgement also covers suppressed snapshots. Only restore a
         // fingerprint when this activity was actually projected; otherwise a
@@ -3878,10 +3989,24 @@ const make = Effect.gen(function* () {
       // the two sides can be matched.
       if (isTerminalTurnEvent && eventTurnId) {
         yield* settleAssistantDeliveryModes(thread.id, eventTurnId);
+        yield* clearSteerInterruptedTurn(thread.id, eventTurnId);
+      } else if (isTerminalTurnEvent) {
+        yield* clearSteerInterruptedTurn(thread.id);
       } else if (event.type === "session.exited") {
         yield* settleAssistantDeliveryModes(thread.id);
+        yield* clearSteerInterruptedTurn(thread.id);
       } else if (event.type === "runtime.error") {
         yield* settleAssistantDeliveryModes(thread.id, eventTurnId ?? activeTurnId ?? undefined);
+        if (isSteerInterruptedFailure) {
+          // Consume any untargeted steer-interrupt window on the first settled
+          // cancellation error; if the error carried a concrete turnId, bind
+          // only that turnId so a trailing `turn.completed(failed)` for the
+          // same cancelled turn still settles neutrally without masking later turns.
+          yield* clearSteerInterruptedAnyTurn(thread.id);
+          if (eventTurnId !== undefined) {
+            yield* recordSteerInterruptedTurn(thread.id, eventTurnId);
+          }
+        }
       }
       if (event.type === "session.exited" || event.type === "runtime.error") {
         yield* clearAssistantDeliveryModeBindingsForThread(thread.id);
@@ -3896,6 +4021,17 @@ const make = Effect.gen(function* () {
         yield* clearTurnStateForSession(event.payload.threadId);
         yield* settleAssistantDeliveryModes(event.payload.threadId);
         yield* clearOutstandingTurns(event.payload.threadId);
+        yield* clearSteerInterruptedTurn(event.payload.threadId);
+        return;
+      }
+      if (event.type === "thread.turn-interrupt-requested") {
+        if (event.payload.requestedBy === "steer") {
+          const thread = Option.getOrUndefined(
+            yield* projectionSnapshotQuery.getThreadShellById(event.payload.threadId),
+          );
+          const targetTurnId = event.payload.turnId ?? thread?.session?.activeTurnId ?? undefined;
+          yield* recordSteerInterruptedTurn(event.payload.threadId, targetTurnId);
+        }
         return;
       }
       const nextAssistantDeliveryMode =
@@ -4452,6 +4588,7 @@ const make = Effect.gen(function* () {
         Stream.runForEach(orchestrationEngine.streamDomainEvents, (event) => {
           if (
             event.type !== "thread.turn-start-requested" &&
+            event.type !== "thread.turn-interrupt-requested" &&
             event.type !== "thread.reverted" &&
             event.type !== "thread.conversation-rolled-back"
           ) {

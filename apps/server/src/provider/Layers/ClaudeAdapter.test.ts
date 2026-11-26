@@ -61,8 +61,11 @@ import {
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
 import {
   buildEmbeddedClaudeSystemPromptAppend,
+  CLAUDE_EARLY_STEER_NOW_WINDOW_MS,
   claudeAssistantErrorMessage,
   claudeHomeEnvironment,
+  isClaudeActiveSteeringAbortResult,
+  resolveClaudeSteerPriority,
   makeClaudeAdapterLive as makeClaudeAdapterLiveBase,
   type ClaudeAdapterLiveOptions,
   type ClaudeOwnedProcess,
@@ -2180,6 +2183,186 @@ describe("ClaudeAdapterLive", () => {
       Effect.provide(harness.layer),
     );
   });
+
+  it("computes Claude steer priority (now vs next) like Claude Desktop / T3 V2", () => {
+    // Thinking-only / before assistant text output -> immediate interrupt ("now")
+    assert.equal(
+      resolveClaudeSteerPriority({
+        elapsedMs: 12_000,
+        hasAssistantTextOutput: false,
+        hasFileMutationInFlightTool: true,
+      }),
+      "now",
+    );
+    // Early steer within the 5s window -> immediate interrupt ("now")
+    assert.equal(
+      resolveClaudeSteerPriority({
+        elapsedMs: CLAUDE_EARLY_STEER_NOW_WINDOW_MS - 1,
+        hasAssistantTextOutput: true,
+        hasFileMutationInFlightTool: true,
+      }),
+      "now",
+    );
+    // Streaming text or read/search/command tools -> immediate interrupt ("now")
+    assert.equal(
+      resolveClaudeSteerPriority({
+        elapsedMs: 15_000,
+        hasAssistantTextOutput: true,
+        hasFileMutationInFlightTool: false,
+      }),
+      "now",
+    );
+    // Late steer while an active file edit/write is mid-flight -> wait for edit ("next")
+    assert.equal(
+      resolveClaudeSteerPriority({
+        elapsedMs: CLAUDE_EARLY_STEER_NOW_WINDOW_MS + 1_000,
+        hasAssistantTextOutput: true,
+        hasFileMutationInFlightTool: true,
+      }),
+      "next",
+    );
+  });
+
+  it.effect(
+    "skips redundant setPermissionMode stdio RPC when steering with unchanged interactionMode",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "Start working",
+          attachments: [],
+        });
+        const callsBeforeSteer = harness.query.setPermissionModeCalls.length;
+        yield* adapter.steerTurn({
+          threadId: session.threadId,
+          input: "Steer quickly in same mode",
+          attachments: [],
+        });
+        // Zero extra stdio permission-mode RPCs on same-mode steer.
+        assert.equal(harness.query.setPermissionModeCalls.length, callsBeforeSteer);
+
+        // Switching to plan mode during a steer STILL sends setPermissionMode("plan").
+        yield* adapter.steerTurn({
+          threadId: session.threadId,
+          input: "Switch to plan mode",
+          interactionMode: "plan",
+          attachments: [],
+        });
+        assert.equal(harness.query.setPermissionModeCalls.length, callsBeforeSteer + 1);
+        assert.equal(harness.query.setPermissionModeCalls.at(-1), "plan");
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect(
+    "attaches priority: 'now' on steer and absorbs aborted_streaming / aborted_tools without closing or failing the turn",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const collectorFiber = yield* adapter.streamEvents.pipe(
+          Stream.takeUntil((event) => event.type === "turn.completed"),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        const turn = yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "Build the dashboard",
+          attachments: [],
+        });
+
+        // Steer immediately -> should send priority: "now"
+        const steered = yield* adapter.steerTurn({
+          threadId: session.threadId,
+          input: "Switch to minimalist style",
+          attachments: [],
+        });
+        assert.equal(String(steered.turnId), String(turn.turnId));
+
+        const createInput = harness.getLastCreateQueryInput();
+        const iterator = createInput?.prompt[Symbol.asyncIterator]();
+        const firstPrompt = yield* Effect.promise(() => iterator!.next());
+        const secondPrompt = yield* Effect.promise(() => iterator!.next());
+        assert.equal(firstPrompt.done, false);
+        assert.equal(secondPrompt.done, false);
+        assert.equal((secondPrompt.value as unknown as { priority?: unknown }).priority, "now");
+
+        // Emit a transient assistant error followed by intermediate
+        // aborted_streaming and aborted_tools results as Claude interrupts the
+        // old stream/tools to handle the steer inside the same turn.
+        harness.query.emit({
+          type: "assistant",
+          uuid: "assistant-transient-abort-error-1",
+          session_id: "claude-session-steer",
+          error: "unknown",
+          message: {
+            id: "msg-transient-abort-error-1",
+            role: "assistant",
+            content: [],
+          },
+        } as unknown as SDKMessage);
+        const abortedStreaming = {
+          type: "result",
+          subtype: "error_during_execution",
+          terminal_reason: "aborted_streaming",
+          uuid: "res-aborted-streaming-1",
+          session_id: "claude-session-steer",
+          errors: ["Request interrupted"],
+        } as unknown as SDKMessage;
+        const abortedTools = {
+          type: "result",
+          subtype: "error_during_execution",
+          terminal_reason: "aborted_tools",
+          uuid: "res-aborted-tools-1",
+          session_id: "claude-session-steer",
+          errors: ["Tool batch aborted"],
+        } as unknown as SDKMessage;
+        assert.equal(isClaudeActiveSteeringAbortResult(abortedStreaming as never), true);
+        assert.equal(isClaudeActiveSteeringAbortResult(abortedTools as never), true);
+
+        harness.query.emit(abortedStreaming);
+        harness.query.emit(abortedTools);
+        // Now emit final post-steer success result.
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          uuid: "res-final-success-1",
+          session_id: "claude-session-steer",
+          result: "Done with minimalist style",
+        } as unknown as SDKMessage);
+
+        const collectedEvents = Array.from(yield* Fiber.join(collectorFiber));
+        const runtimeErrors = collectedEvents.filter((event) => event.type === "runtime.error");
+        const completedEvents = collectedEvents.filter((event) => event.type === "turn.completed");
+        assert.equal(runtimeErrors.length, 0);
+        assert.equal(completedEvents.length, 1);
+        assert.equal(
+          completedEvents[0]?.type === "turn.completed" ? completedEvents[0].payload.state : null,
+          "completed",
+        );
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
 
   it.effect("sends setPermissionMode on each turn of a plan then default sequence", () => {
     const harness = makeHarness();
@@ -16491,6 +16674,51 @@ describe("Claude subagent tracking", () => {
         yield* emitAndSettle(harness, foregroundBash(0, "toolu_next_turn", "task-next-turn"));
         yield* yieldUntil(() => harness.query.backgroundTasksCalls.length > 0, 200);
         assert.deepEqual(harness.query.backgroundTasksCalls, []);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    });
+
+    it.effect("deduplicates in-flight backgroundTasks RPCs across rapid burst steers", () => {
+      const harness = makeHarness();
+      let resolveBackground!: (value: boolean) => void;
+      const inFlightBackground = new Promise<boolean>((resolve) => {
+        resolveBackground = resolve;
+      });
+      (
+        harness.query as unknown as {
+          backgroundTasks: (toolUseId?: string) => Promise<boolean>;
+        }
+      ).backgroundTasks = async (toolUseId?: string) => {
+        harness.query.backgroundTasksCalls.push(toolUseId);
+        return inFlightBackground;
+      };
+      return Effect.gen(function* () {
+        const adapter = yield* ClaudeAdapter;
+        const session = yield* startTrackingSession(adapter);
+        yield* emitAndSettle(harness, foregroundBash(0, "toolu_burst_bash", "task-burst"));
+
+        yield* adapter.steerTurn({
+          threadId: session.threadId,
+          input: "Steer 1",
+          attachments: [],
+        });
+        yield* adapter.steerTurn({
+          threadId: session.threadId,
+          input: "Steer 2",
+          attachments: [],
+        });
+        yield* adapter.steerTurn({
+          threadId: session.threadId,
+          input: "Steer 3",
+          attachments: [],
+        });
+        yield* yieldUntil(() => harness.query.backgroundTasksCalls.length > 0);
+        // Yield extra ticks to ensure no duplicate forked calls sneak in.
+        yield* yieldUntil(() => harness.query.backgroundTasksCalls.length > 1, 100);
+        assert.deepEqual(harness.query.backgroundTasksCalls, [undefined]);
+        resolveBackground(true);
       }).pipe(
         Effect.provideService(Random.Random, makeDeterministicRandomService()),
         Effect.provide(harness.layer),

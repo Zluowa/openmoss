@@ -15,9 +15,10 @@ export interface ProviderDescriptor {
   /**
    * True when the provider runtime can inject a user message into a live turn
    * without interrupting it (Codex `turn/steer`, Pi `session.steer`, Claude
-   * streaming-input prompt queue). Mirrors the adapter's
-   * `supportsTurnSteering` capability so the pure decider and the web client
-   * can route steers without a runtime round-trip; keep the two in sync.
+   * streaming-input prompt queue, OpenCode `prompt_async` native steering).
+   * Mirrors the adapter's `supportsTurnSteering` capability so the pure decider
+   * and the web client can route steers without a runtime round-trip; keep the
+   * two in sync.
    */
   readonly supportsNativeTurnSteering: boolean;
   readonly usage: {
@@ -90,7 +91,7 @@ export const PROVIDER_DESCRIPTORS = defineProviderDescriptors([
     displayName: PROVIDER_DISPLAY_NAMES.opencode,
     available: true,
     setupDocsHref: "https://opencode.ai/docs/",
-    supportsNativeTurnSteering: false,
+    supportsNativeTurnSteering: true,
     usage: {
       signInCommand: "opencode auth login",
     },

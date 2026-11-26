@@ -4672,11 +4672,47 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       throw new Error("Session is missing provider resume thread id.");
     }
 
-    const response = await this.sendRequest(context, "turn/steer", {
-      threadId: providerThreadId,
-      input: turnInput,
-      expectedTurnId: activeTurnId,
-    });
+    const requestSteer = (expectedTurnId: TurnId) =>
+      this.sendRequest(context, "turn/steer", {
+        threadId: providerThreadId,
+        input: turnInput,
+        expectedTurnId,
+      });
+
+    // Align with Codex Desktop: if the app-server reports that a different
+    // active turn id is currently running (turnId drift across rapid steers or
+    // server-side rewrites), sync activeTurnId and retry turn/steer up to 2
+    // bounded times before giving up.
+    const MAX_STEER_DRIFT_RETRIES = 2;
+    let expectedTurnId = activeTurnId;
+    let response: unknown;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await requestSteer(expectedTurnId);
+        break;
+      } catch (error) {
+        const actualTurnId = extractCodexActiveTurnIdFromSteerError(error);
+        if (
+          attempt < MAX_STEER_DRIFT_RETRIES &&
+          actualTurnId !== undefined &&
+          actualTurnId !== expectedTurnId
+        ) {
+          this.updateSession(context, {
+            status: "running",
+            activeTurnId: actualTurnId,
+            ...(context.session.resumeCursor !== undefined
+              ? { resumeCursor: context.session.resumeCursor }
+              : {}),
+          });
+          expectedTurnId = actualTurnId;
+          continue;
+        }
+        if (isCodexNoActiveTurnSteerError(error)) {
+          this.clearStaleActiveTurnOnSteerMiss(context, expectedTurnId);
+        }
+        throw error;
+      }
+    }
 
     const turnIdRaw = this.readString(this.readObject(response), "turnId");
     if (!turnIdRaw) {
@@ -4699,6 +4735,21 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? { resumeCursor: context.session.resumeCursor }
         : {}),
     };
+  }
+
+  private clearStaleActiveTurnOnSteerMiss(
+    context: CodexSessionContext,
+    expectedTurnId: TurnId,
+  ): void {
+    if (context.session.activeTurnId === expectedTurnId) {
+      this.updateSession(context, {
+        status: "ready",
+        activeTurnId: undefined,
+        ...(context.session.resumeCursor !== undefined
+          ? { resumeCursor: context.session.resumeCursor }
+          : {}),
+      });
+    }
   }
 
   async startReview(input: ProviderStartReviewInput): Promise<ProviderTurnStartResult> {
@@ -9877,6 +9928,95 @@ export function readResumeCursorThreadId(resumeCursor: unknown): string | undefi
 
 function readResumeThreadId(input: { readonly resumeCursor?: unknown }): string | undefined {
   return readResumeCursorThreadId(input.resumeCursor);
+}
+
+function readSteerErrorMessageAndData(error: unknown): {
+  readonly message: string;
+  readonly records: ReadonlyArray<Record<string, unknown>>;
+} {
+  const parts: string[] = [];
+  const records: Array<Record<string, unknown>> = [];
+  const seen = new Set<unknown>();
+  const visit = (value: unknown, depth: number): void => {
+    if (value == null || depth > 4 || seen.has(value)) return;
+    if (typeof value === "string") {
+      if (value.trim().length > 0) parts.push(value);
+      return;
+    }
+    if (typeof value !== "object") return;
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    records.push(record);
+    if (typeof record.message === "string" && record.message.trim().length > 0) {
+      parts.push(record.message);
+    }
+    if (typeof record.detail === "string" && record.detail.trim().length > 0) {
+      parts.push(record.detail);
+    }
+    if ("data" in record) visit(record.data, depth + 1);
+    if ("error" in record) visit(record.error, depth + 1);
+    if ("cause" in record) visit(record.cause, depth + 1);
+  };
+  visit(error, 0);
+  return { message: parts.join("\n"), records };
+}
+
+const CODEX_STEER_ACTUAL_TURN_ID_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:actual|active|current)[ _-]?turn(?:[ _-]?id)?\s*(?:is|=|:)\s*["'`]?([A-Za-z0-9._:-]+)["'`]?/i,
+  /\bexpected(?:\s+turn(?:\s+id)?)?\s+["'`]?[A-Za-z0-9._:-]+["'`]?[,;\s]+(?:got|actual|found|active(?:\s+is)?)\s*[:=]?\s*["'`]?([A-Za-z0-9._:-]+)["'`]?/i,
+];
+
+const CODEX_STEER_NO_ACTIVE_TURN_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bno active turn\b/i,
+  /\bno turn in progress\b/i,
+  /\bactive turn (?:has )?already (?:ended|completed|finished)\b/i,
+  /\bturn (?:has )?already (?:ended|completed|finished)\b/i,
+  /\bturn is not (?:active|running)\b/i,
+  /\bcannot steer\b.*\bnot running\b/i,
+];
+
+/**
+ * Extracts the server-reported active turn id when Codex `turn/steer` fails
+ * due to an `expectedTurnId` mismatch (turnId drift across rapid steers).
+ */
+export function extractCodexActiveTurnIdFromSteerError(error: unknown): TurnId | undefined {
+  const { message, records } = readSteerErrorMessageAndData(error);
+  for (const record of records) {
+    for (const key of [
+      "activeTurnId",
+      "actualTurnId",
+      "currentTurnId",
+      "active_turn_id",
+      "actual_turn_id",
+    ]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return toTurnId(value.trim());
+      }
+    }
+  }
+  for (const pattern of CODEX_STEER_ACTUAL_TURN_ID_PATTERNS) {
+    const match = pattern.exec(message);
+    const candidate = match?.[1]?.replace(/[.,;)]+$/, "").trim();
+    if (
+      candidate &&
+      candidate.length > 0 &&
+      !/^(?:none|null|undefined|missing)$/i.test(candidate)
+    ) {
+      return toTurnId(candidate);
+    }
+  }
+  return undefined;
+}
+
+/**
+ * True when a Codex `turn/steer` failure means the live turn settled before
+ * the steer arrived, so the caller should seamlessly dispatch as a new turn.
+ */
+export function isCodexNoActiveTurnSteerError(error: unknown): boolean {
+  const { message } = readSteerErrorMessageAndData(error);
+  if (message.length === 0) return false;
+  return CODEX_STEER_NO_ACTIVE_TURN_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 function toTurnId(value: string | undefined): TurnId | undefined {

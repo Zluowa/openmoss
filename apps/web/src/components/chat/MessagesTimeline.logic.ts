@@ -557,6 +557,8 @@ export interface TurnTiming {
   readonly interrupted: boolean;
   /** A Stop request for this turn preceded its interrupted outcome. */
   readonly stoppedByUser?: boolean;
+  /** A mid-run steer interrupted this turn to start a new turn next. */
+  readonly steeredOut?: boolean;
   /** The provider ended the turn early (error, usage limit, crash). */
   readonly failed?: boolean;
   /** Short reason for a provider-side interruption, when known. */
@@ -641,12 +643,18 @@ export function deriveTurnTimingByTurnId(input: {
   const settledStateByTurnId = new Map<TurnId, unknown>();
   const authoritativeModelTurnIds = new Set<TurnId>();
   const stopRequestedAtByTurnId = new Map<TurnId, string>();
+  const steerRequestedAtByTurnId = new Map<TurnId, string>();
   for (const activity of input.activities) {
     if (activity.turnId === null) continue;
     const payload = activityPayloadRecord(activity);
     if (activity.kind === "turn.stop-requested" && payload?.requestedBy === "user") {
       if (!stopRequestedAtByTurnId.has(activity.turnId))
         stopRequestedAtByTurnId.set(activity.turnId, activity.createdAt);
+      continue;
+    }
+    if (activity.kind === "turn.stop-requested" && payload?.requestedBy === "steer") {
+      if (!steerRequestedAtByTurnId.has(activity.turnId))
+        steerRequestedAtByTurnId.set(activity.turnId, activity.createdAt);
       continue;
     }
     if (activity.kind === "turn.started") {
@@ -728,6 +736,11 @@ export function deriveTurnTimingByTurnId(input: {
       Date.parse(requestedAt) <= Date.parse(timing.completedAt)
     ) {
       timings.set(turnId, { ...timing, stoppedByUser: true });
+      continue;
+    }
+    const steerRequestedAt = steerRequestedAtByTurnId.get(turnId);
+    if (timing.interrupted && !timing.failed && steerRequestedAt) {
+      timings.set(turnId, { ...timing, steeredOut: true });
     }
   }
   applyAwaitingUserPauses(timings, input.activities, latestTurn?.turnId ?? null);
@@ -2522,6 +2535,18 @@ function markInterruptedTurnsWithoutHeader(
       timing.completedAt,
       timing.pausedIntervals,
     );
+    const nextRow = rows[index + 1];
+    const followedBySteerRestart =
+      nextRow?.kind === "message" &&
+      nextRow.message.role === "user" &&
+      nextRow.message.dispatchMode === "steer" &&
+      nextRow.message.startsNewTurn === true;
+    // A turn cut off by the user's own steer needs no extra interruption
+    // divider (matching Claude Desktop & Codex Desktop): the steered bubble
+    // right below already explains the transition.
+    if ((timing.steeredOut || followedBySteerRestart) && !timing.failed && !timing.stoppedByUser) {
+      continue;
+    }
     row.turnEndMarker = {
       elapsed:
         activeElapsedMs !== null
@@ -2545,6 +2570,15 @@ function markInterruptedTurnsWithoutHeader(
       timing.completedAt,
       timing.pausedIntervals,
     );
+    const nextRow = rows[index + 1];
+    const followedBySteerRestart =
+      nextRow?.kind === "message" &&
+      nextRow.message.role === "user" &&
+      nextRow.message.dispatchMode === "steer" &&
+      nextRow.message.startsNewTurn === true;
+    if ((timing.steeredOut || followedBySteerRestart) && !timing.failed && !timing.stoppedByUser) {
+      continue;
+    }
     row.turnHeader = {
       elapsed:
         activeElapsedMs !== null
@@ -2955,6 +2989,8 @@ function collapseSettledTurns(
         ((timing?.startedAt &&
           Date.parse(timing.startedAt) >= Date.parse(nextResponseBoundaryAt)) ||
           (timing?.completedAt &&
+            !timing.steeredOut &&
+            !timing.stoppedByUser &&
             Date.parse(timing.completedAt) >= Date.parse(nextResponseBoundaryAt)))
       )
         return undefined;
@@ -3019,9 +3055,11 @@ function collapseSettledTurns(
           ? "completed"
           : responseTiming?.stoppedByUser
             ? "stopped"
-            : responseTiming?.interrupted
-              ? "interrupted"
-              : "completed",
+            : responseTiming?.steeredOut
+              ? "completed"
+              : responseTiming?.interrupted
+                ? "interrupted"
+                : "completed",
       reason: responseTiming?.failureReason ?? null,
       modelChange: null,
       resumedBy,

@@ -18971,6 +18971,157 @@ describe("ProviderCommandReactor", () => {
     ]);
   });
 
+  it("self-heals a native steer that races turn completion into a clean new turn with zero errors", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    harness.setRuntimeSessionTurnState({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId: asTurnId("turn-ending"),
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-running-steer-race"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "full-access",
+          activeTurnId: asTurnId("turn-ending"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.sendTurn.mockClear();
+    harness.steerTurn.mockReset();
+    harness.steerTurn.mockImplementationOnce(() => {
+      // Simulate Codex turn settling right before turn/steer hits the server.
+      harness.setRuntimeSessionTurnState({ threadId: "thread-1", status: "ready" });
+      return Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "codex",
+          method: "turn/steer",
+          detail: "no active turn to steer",
+        }),
+      );
+    });
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-steer-race-heal"),
+        threadId,
+        message: {
+          messageId: asMessageId("msg-steer-race-heal"),
+          role: "user",
+          text: "Continue on the next step",
+          attachments: [],
+        },
+        dispatchMode: "steer",
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.steerTurn).toHaveBeenCalledTimes(1);
+    expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+    expect(harness.sendTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId,
+      input: "Continue on the next step",
+    });
+
+    const thread = (await Effect.runPromise(harness.engine.getReadModel())).threads[0]!;
+    expect(thread.session?.lastError).toBeNull();
+    expect(
+      thread.activities.filter((activity) => activity.kind === "provider.turn.start.failed"),
+    ).toHaveLength(0);
+    const userMessage = thread.messages.find((entry) => entry.id === "msg-steer-race-heal");
+    expect(userMessage).toMatchObject({
+      dispatchMode: "steer",
+      startsNewTurn: true,
+      turnId: "turn-1",
+    });
+  });
+
+  it("never restarts a live codex session during a mid-turn native steer even when runtimeMode changed", async () => {
+    const harness = await createHarness({
+      threadModelSelection: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+    });
+    const now = new Date().toISOString();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+
+    harness.setRuntimeSessionTurnState({
+      threadId: "thread-1",
+      status: "running",
+      activeTurnId: asTurnId("turn-live-codex"),
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-running-steer-no-restart"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-live-codex"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.startSession.mockClear();
+    harness.stopSession.mockClear();
+    harness.steerTurn.mockClear();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-steer-codex-preserve-session"),
+        threadId,
+        message: {
+          messageId: asMessageId("msg-steer-preserve-session"),
+          role: "user",
+          text: "Steer without killing session",
+          attachments: [],
+        },
+        dispatchMode: "steer",
+        runtimeMode: "full-access",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    await harness.drain();
+
+    expect(harness.stopSession).not.toHaveBeenCalled();
+    expect(harness.startSession).not.toHaveBeenCalled();
+    expect(harness.steerTurn).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards codex model options through session start and turn send", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -27526,6 +27677,192 @@ describe("ProviderCommandReactor", () => {
     );
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("enforces sidechat boundary, account rebind, and model-selection cache parity on the fast native steer path", async () => {
+    const harness = await createHarness();
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const sidechatThreadId = ThreadId.makeUnsafe("thread-sidechat-steer");
+    const activeTurnId = asTurnId("turn-fast-guard-1");
+    const now = new Date().toISOString();
+
+    // 1. Start a live Codex session on thread-1 and verify an in-session model
+    // switch during a fast steer updates cached session model selection.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-start"),
+        threadId,
+        modelSelection: { provider: "codex", model: "gpt-5.4" },
+        message: {
+          messageId: asMessageId("msg-fast-guard-1"),
+          role: "user",
+          text: "initial turn",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    harness.setRuntimeSessionTurnState({
+      threadId,
+      status: "running",
+      activeTurnId,
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-running"),
+        threadId,
+        session: {
+          threadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    harness.steerTurn.mockClear();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-model-steer"),
+        threadId,
+        dispatchMode: "steer",
+        modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+        message: {
+          messageId: asMessageId("msg-fast-guard-steer-1"),
+          role: "user",
+          text: "switch model while steering",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    expect(harness.steerTurn.mock.calls[0]?.[0]).toMatchObject({
+      threadId,
+      modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+    });
+
+    // Follow-up steer omitting modelSelection must inherit the updated in-session model.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-inherit-steer"),
+        threadId,
+        dispatchMode: "steer",
+        message: {
+          messageId: asMessageId("msg-fast-guard-steer-2"),
+          role: "user",
+          text: "continue with switched model",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.steerTurn.mock.calls.length === 2);
+    expect(harness.steerTurn.mock.calls[1]?.[0]).toMatchObject({
+      threadId,
+      modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+    });
+
+    // 2. Sidechat threads bypass the fast steer shortcut so <sidechat_boundary>
+    // instructions are preserved on steer prompts.
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-sidechat-create"),
+        threadId: sidechatThreadId,
+        projectId: asProjectId("project-1"),
+        title: "Sidechat steer",
+        modelSelection: { provider: "codex", model: "gpt-5.4" },
+        runtimeMode: "approval-required",
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        branch: null,
+        worktreePath: null,
+        sidechatContext: {
+          kind: "github-item",
+          itemKind: "pullRequest",
+          repository: "Zluowa/moss-synara",
+          number: 1043,
+          url: "https://github.com/Zluowa/moss-synara/pull/1043",
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-sidechat-start"),
+        threadId: sidechatThreadId,
+        message: {
+          messageId: asMessageId("msg-sidechat-1"),
+          role: "user",
+          text: "check this PR",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    harness.setRuntimeSessionTurnState({
+      threadId: sidechatThreadId,
+      status: "running",
+      activeTurnId: asTurnId("turn-sidechat-1"),
+    });
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-sidechat-running"),
+        threadId: sidechatThreadId,
+        session: {
+          threadId: sidechatThreadId,
+          status: "running",
+          providerName: "codex",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-sidechat-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    harness.steerTurn.mockClear();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-fast-guard-sidechat-steer"),
+        threadId: sidechatThreadId,
+        dispatchMode: "steer",
+        message: {
+          messageId: asMessageId("msg-sidechat-steer-1"),
+          role: "user",
+          text: "focus on error handling",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await waitFor(() => harness.steerTurn.mock.calls.length === 1);
+    expect(String(harness.steerTurn.mock.calls[0]?.[0]?.input ?? "")).toContain(
+      "<sidechat_boundary>",
+    );
   });
 });
 

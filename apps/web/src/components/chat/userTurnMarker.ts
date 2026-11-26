@@ -5,7 +5,8 @@
 
 // Server-dispatched turns (automation runs, agent gateway tools) take
 // precedence over the steer marker so the origin stays visible even for
-// steered dispatches.
+// steered dispatches. Keep one quiet, uniform steer marker across native and
+// non-native providers (matching Claude Desktop & Codex Desktop simplicity).
 export type UserTurnMarkerKind = "automation" | "agent" | "steer";
 
 export function resolveUserTurnMarker(message: {

@@ -3123,6 +3123,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             payload: {
               threadId: command.threadId,
               turnId: targetThread.session?.activeTurnId ?? undefined,
+              requestedBy: "steer",
               createdAt: command.createdAt,
             },
           },

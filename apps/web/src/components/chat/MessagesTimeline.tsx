@@ -86,6 +86,7 @@ import {
 } from "~/lib/icons";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { translateZhCnPresentationText } from "~/localization/zhCN";
 import { mapsEqual, setsEqual, useStableValue } from "~/hooks/useStableValue";
 import { Button } from "../ui/button";
 import { composerOverlayScrollFadeVars } from "./composerOverlay";
@@ -368,12 +369,14 @@ function UserDispatchModeChip({
   dispatchOrigin: TimelineMessage["dispatchOrigin"];
   hasLeadingMedia: boolean;
 }) {
+  const { locale } = useTranslation();
   const markerKind = resolveUserTurnMarker({ dispatchMode, dispatchOrigin });
   if (!markerKind) {
     return null;
   }
 
   const { Icon, label } = USER_TURN_MARKER_PRESENTATION[markerKind];
+  const localizedLabel = locale === "zh-CN" ? translateZhCnPresentationText(label) : label;
   return (
     <div
       className={cn(
@@ -382,7 +385,7 @@ function UserDispatchModeChip({
       )}
     >
       <Icon className="size-3 shrink-0 text-muted-foreground/75" />
-      <span>{label}</span>
+      <span>{localizedLabel}</span>
     </div>
   );
 }
@@ -4058,13 +4061,16 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               ) : (
                 <CircleAlertIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-300/90" />
               )}
-              {formatTurnHeaderLabel({
-                ...row.turnEndMarker,
-                elapsed: row.turnEndMarker.elapsed
-                  ? localizeCodexDurationUnits(row.turnEndMarker.elapsed, locale)
-                  : row.turnEndMarker.elapsed,
-                resumedBy: null,
-              })}
+              {(() => {
+                const label = formatTurnHeaderLabel({
+                  ...row.turnEndMarker,
+                  elapsed: row.turnEndMarker.elapsed
+                    ? localizeCodexDurationUnits(row.turnEndMarker.elapsed, locale)
+                    : row.turnEndMarker.elapsed,
+                  resumedBy: null,
+                });
+                return locale === "zh-CN" ? translateZhCnPresentationText(label) : label;
+              })()}
             </span>
             <div aria-hidden className="h-px flex-1 bg-border" />
           </div>

@@ -2214,6 +2214,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           const joinedTurnId = context.activeTurnId;
           if (joinedTurnId !== undefined) {
             sendPiPrompt(context, joinedTurnId, providerText, payload.images, "steer");
+            const steerText = input.input?.trim();
+            if (steerText) {
+              offerRuntimeEvent({
+                ...makeEventBase(context),
+                turnId: joinedTurnId,
+                type: "turn.steered",
+                payload: { message: steerText, target: "turn" },
+              });
+            }
             return dispatchResult(context, joinedTurnId);
           }
           const turnId = beginTurn(context);
