@@ -17,6 +17,7 @@ import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig, type Plugin, type PluginOption } from "vite";
 import pkg from "./package.json" with { type: "json" };
+import { bootChunkGroups } from "./scripts/boot-chunk-groups";
 import { listFiles, pruneProductionIcons } from "./scripts/production-assets";
 import { compressCacheFromEnv } from "./scripts/production-assets-compress-cache";
 import {
@@ -108,6 +109,62 @@ function inputOtpReactInteropPlugin(): Plugin {
         (_match, binding: string) => `import ${binding} from "react"`,
       );
       return transformed === code ? null : { code: transformed, map: null };
+    },
+  };
+}
+
+const USED_SHIKI_THEMES = new Set(["github-light", "github-dark"]);
+const PRUNED_SHIKI_THEME_ID = "\0moss-pruned-shiki-theme";
+
+// Moss renders all code/diff highlighting via DIFF_THEME_NAMES (github-light,
+// github-dark) and @pierre/theme defaults (pierre-light/pierre-dark). Stub out
+// the other 60+ Shiki theme chunks that @pierre/theming and shiki reference
+// behind dynamic imports so they are not emitted into dist/assets.
+function pruneUnusedShikiThemesPlugin(): Plugin {
+  return {
+    name: "moss-prune-unused-shiki-themes",
+    apply: "build",
+    enforce: "pre",
+    resolveId: {
+      filter: { id: /^(?:@shikijs\/themes|shiki\/themes)\// },
+      handler(source) {
+        const match = /^(?:@shikijs\/themes|shiki\/themes)\/([^/]+)$/.exec(source);
+        if (match?.[1] && !USED_SHIKI_THEMES.has(match[1])) {
+          return PRUNED_SHIKI_THEME_ID;
+        }
+        return null;
+      },
+    },
+    load: {
+      filter: { id: /^\0moss-pruned-shiki-theme$/ },
+      handler() {
+        return "export default undefined;";
+      },
+    },
+  };
+}
+
+// Electron Chromium and all supported browsers load woff2 natively; strip
+// legacy woff and truetype fallbacks from KaTeX CSS so Vite does not emit
+// 40 unused .woff/.ttf font files (~0.8 MB).
+function katexWoff2OnlyPlugin(): Plugin {
+  return {
+    name: "moss-katex-woff2-only",
+    apply: "build",
+    enforce: "pre",
+    transform: {
+      filter: { id: /katex(?:\.min)?\.css/ },
+      handler(code, id) {
+        const normalized = id.replaceAll("\\", "/").split("?")[0] ?? "";
+        if (!/\/katex\/dist\/katex(?:\.min)?\.css$/.test(normalized)) {
+          return null;
+        }
+        const next = code.replace(
+          /,url\(fonts\/KaTeX_[^)]+\.woff\)\s*format\("woff"\),url\(fonts\/KaTeX_[^)]+\.ttf\)\s*format\("truetype"\)/g,
+          "",
+        );
+        return next === code ? null : { code: next, map: null };
+      },
     },
   };
 }
@@ -420,6 +477,16 @@ export const reactCompilerPlugin: PluginOption & { apply: "build" } = Object.ass
   { apply: "build" as const },
 );
 
+// Cold-boot steps after the entry, in load order: bootstrap.ts imports main.tsx once
+// connected, every route renders inside the _chat layout, and usePreloadRouteChunks
+// warms the thread route. The build fails if a root leaves the module graph, so a
+// rename cannot silently drop a step.
+const BOOT_STEPS = [
+  { name: "boot-main", root: "src/main.tsx" },
+  { name: "boot-chat", root: "src/routes/_chat.tsx?tsr-split=component" },
+  { name: "boot-thread", root: "src/routes/_chat.$threadId.tsx?tsr-split=component" },
+] as const;
+
 export default defineConfig({
   plugins: [
     tanstackRouter({
@@ -430,6 +497,8 @@ export default defineConfig({
     react(),
     reactCompilerPlugin,
     tailwindcss(),
+    katexWoff2OnlyPlugin(),
+    pruneUnusedShikiThemesPlugin(),
     centralIconPrunePlugin(),
     precompressPlugin(),
     // The Sentry bundler plugin is explicitly build-only. Keeping it in the
@@ -440,6 +509,9 @@ export default defineConfig({
     // unit lane and, through the configs that extend this one, to every browser lane.
     testQuarantine(),
   ],
+  worker: {
+    plugins: () => [pruneUnusedShikiThemesPlugin()],
+  },
   optimizeDeps: {
     // Let the dev server serve the HTML and transform the app while Rolldown
     // finishes dependency discovery in the background. Vite 8 defaults this
@@ -454,7 +526,6 @@ export default defineConfig({
       "react",
       "react-dom",
       "react-dom/client",
-      "react-icons/gr",
       "zustand/vanilla",
     ],
     exclude: ["input-otp"],
@@ -517,13 +588,53 @@ export default defineConfig({
     // precompressPlugin already emits .gz/.br sidecars in parallel; skipping
     // Vite's single-threaded gzip size report avoids compressing 1,100+ chunks twice.
     reportCompressedSize: false,
-    // The largest chunks are intentionally lazy-loaded editor grammars,
-    // terminal runtime code, and the chat route—not initial-load bundles.
+    // Above the limit: the lazy Monaco editor and CSS worker.
     chunkSizeWarningLimit: 850,
     rolldownOptions: {
       checks: {
         // React Compiler is expected to dominate transform time in this app.
         pluginTimings: false,
+      },
+      output: {
+        // Automatic chunking spreads a cold boot over ~300 small shared chunks, one
+        // per mix of lazy routes and components that also use a module; over HTTP/1.1
+        // they queue on six connections. These groups load it in about 30 files
+        // without growing what the entry evaluates before DOMContentLoaded:
+        // - The entry's static closure (rolldown's `$initial` tag) goes first, in three
+        //   chunks that download and compile in parallel. A broader group that took
+        //   one of these modules would make the entry import, and evaluate, the rest
+        //   of that group. Dependencies first: the last group holds the entry module,
+        //   and a group takes its modules' dependencies with it.
+        // - Each boot step is cut into acyclic bands of about 1 MB of source
+        //   (bootChunkGroups). One file per step would be fewer requests, but on a
+        //   slow CPU a 2 MB script adds a long main-thread task when it arrives.
+        // Everything else (other routes, dialogs, xterm, KaTeX, @pierre/diffs,
+        // locales) keeps automatic chunking and loads only when used.
+        codeSplitting: {
+          groups: [
+            {
+              name: "boot-vendor",
+              tags: ["$initial"],
+              test: /[\\/]node_modules[\\/]/,
+              priority: 1003,
+            },
+            {
+              name: "boot-shared",
+              tags: ["$initial"],
+              test: /[\\/]packages[\\/]/,
+              priority: 1002,
+            },
+            { name: "boot", tags: ["$initial"], priority: 1001 },
+            ...bootChunkGroups({
+              root: import.meta.dirname,
+              entry: "src/bootstrap.ts",
+              steps: BOOT_STEPS,
+              bandBytes: 1_000_000,
+              maxBandsPerStep: 40,
+              priority: 1000,
+            }),
+          ],
+        },
       },
     },
   },

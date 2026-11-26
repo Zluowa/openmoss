@@ -24,6 +24,7 @@
   "include": [
     "src",
     "perf",
+    "scripts/boot-chunk-groups*.ts",
     "scripts/production-assets*.ts",
     "vite.config.ts",
     "../../tools/test-quarantine/vitest.ts",

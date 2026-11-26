@@ -104,7 +104,7 @@ import { ShownVisualToolResult } from "./ShownVisualToolResult";
 import { shownVisualFromWorkEntry } from "./shownVisualToolResult.logic";
 import { ToolCallDetailsContent } from "./ToolCallDetailsDialog";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
-import { fileDiffStatsByPath, resolveFileDiffStatByChangedPath } from "~/lib/diffRendering";
+import { fileDiffStatsByPath, resolveFileDiffStatByChangedPath } from "~/lib/diffTheme";
 import {
   extractToolArgumentField,
   isPrefixedToolArgumentSummary,

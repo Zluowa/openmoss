@@ -36,7 +36,6 @@ import {
 } from "@moss/contracts";
 import { readInlineVisualEmbedId } from "@moss/shared/inlineVisual";
 import { isLocalAbsolutePath } from "@moss/shared/path";
-import "katex/dist/katex.min.css";
 import { matchWikiLinkAt, remarkWikiLinks } from "../lib/remarkWikiLinks";
 import { remarkGithubAlerts, type GithubAlertKind } from "../lib/remarkGithubAlerts";
 import { MARKDOWN_ALERTS, type MarkdownAlertTone } from "@moss/shared/markdownAlerts";
@@ -67,14 +66,10 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import { useQuery } from "@tanstack/react-query";
 import { defaultUrlTransform } from "react-markdown";
-import rehypeKatex from "rehype-katex";
-import rehypeRaw from "rehype-raw";
-import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
 import { copyTextToClipboard, useCopyToClipboard } from "../hooks/useCopyToClipboard";
-import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffRendering";
+import { resolveDiffThemeName, type DiffThemeName } from "../lib/diffTheme";
 import { LRUCache } from "../lib/lruCache";
 import { dedentCode, parseCodeFenceInfo, type CodeFenceInfo } from "../lib/codeFence";
 import { MAX_SYNTAX_HIGHLIGHT_INPUT_CHARS } from "../lib/syntaxHighlightingLimits";
@@ -485,9 +480,113 @@ const ParsedMarkdown = memo(function ParsedMarkdown({
   return <>{children}</>;
 });
 
-const MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [
+const CHAT_FIND_TEXT_TAG_NAME = "chat-find-text";
+const CHAT_FIND_TEXT_START_ATTRIBUTE = "data-chat-find-text-start";
+
+// Lazy-load KaTeX (~280 KB JS + 28 KB CSS + fonts) and authored-HTML plugins
+// (`rehype-raw` + `rehype-sanitize`) in production so the default chat chunk
+// avoids downloading and parsing them until a message actually uses math (`$`)
+// or authored HTML preview (`parseHtml`). In test mode, keep them loaded upfront
+// so synchronous unit/browser assertions stay deterministic.
+type MathPluginsBundle = {
+  readonly remarkMath: MarkdownRemarkPlugins[number];
+  readonly rehypeKatex: MarkdownRehypePlugins[number];
+};
+type AuthoredHtmlPluginsBundle = {
+  readonly plugins: MarkdownRehypePlugins;
+};
+
+let cachedMathPlugins: MathPluginsBundle | null = null;
+let mathPluginsPromise: Promise<MathPluginsBundle> | null = null;
+let cachedAuthoredHtmlPlugins: AuthoredHtmlPluginsBundle | null = null;
+let authoredHtmlPluginsPromise: Promise<AuthoredHtmlPluginsBundle> | null = null;
+
+type RehypeSanitizeSchema = (typeof import("rehype-sanitize"))["defaultSchema"];
+
+function buildAuthoredHtmlPlugins(
+  rehypeRawPlugin: unknown,
+  rehypeSanitizePlugin: unknown,
+  defaultSchema: RehypeSanitizeSchema,
+): AuthoredHtmlPluginsBundle {
+  // Keep the renderer's generated metadata through the authored-HTML sanitizer.
+  // KaTeX runs afterward so its generated MathML/styles do not widen this allowlist.
+  const AUTHORED_HTML_SCHEMA = {
+    ...defaultSchema,
+    tagNames: [...(defaultSchema.tagNames ?? []), CHAT_FIND_TEXT_TAG_NAME],
+    attributes: {
+      ...defaultSchema.attributes,
+      [CHAT_FIND_TEXT_TAG_NAME]: ["dataChatFindTextStart"],
+      blockquote: [
+        ...(defaultSchema.attributes?.blockquote ?? []),
+        ["dataGithubAlert", "note", "tip", "important", "warning", "caution"],
+      ],
+      span: [
+        ...(defaultSchema.attributes?.span ?? []),
+        ["className", MARKDOWN_IMAGE_ROW_CLASS_NAME],
+      ],
+    },
+    protocols: {
+      ...defaultSchema.protocols,
+      // Historical conversation links remain readable; new product links use moss.
+      href: [...(defaultSchema.protocols?.href ?? []), "file", "thread", "moss", "synara"],
+    },
+  };
+  return {
+    plugins: [
+      rehypeRawPlugin as MarkdownRehypePlugins[number],
+      [rehypeSanitizePlugin, AUTHORED_HTML_SCHEMA] as MarkdownRehypePlugins[number],
+    ],
+  };
+}
+
+function loadMathPlugins(): Promise<MathPluginsBundle> {
+  if (cachedMathPlugins) return Promise.resolve(cachedMathPlugins);
+  if (!mathPluginsPromise) {
+    mathPluginsPromise = Promise.all([
+      import("remark-math"),
+      import("rehype-katex"),
+      import("katex/dist/katex.min.css"),
+    ]).then(([remarkMathMod, rehypeKatexMod]) => {
+      cachedMathPlugins = {
+        remarkMath: [
+          remarkMathMod.default,
+          { singleDollarTextMath: MARKDOWN_MATH.singleDollarText },
+        ],
+        rehypeKatex: [
+          rehypeKatexMod.default,
+          { output: "htmlAndMathml", strict: false, throwOnError: false },
+        ],
+      };
+      return cachedMathPlugins;
+    });
+  }
+  return mathPluginsPromise;
+}
+
+function loadAuthoredHtmlPlugins(): Promise<AuthoredHtmlPluginsBundle> {
+  if (cachedAuthoredHtmlPlugins) return Promise.resolve(cachedAuthoredHtmlPlugins);
+  if (!authoredHtmlPluginsPromise) {
+    authoredHtmlPluginsPromise = Promise.all([
+      import("rehype-raw"),
+      import("rehype-sanitize"),
+    ]).then(([rehypeRawMod, rehypeSanitizeMod]) => {
+      cachedAuthoredHtmlPlugins = buildAuthoredHtmlPlugins(
+        rehypeRawMod.default,
+        rehypeSanitizeMod.default,
+        rehypeSanitizeMod.defaultSchema,
+      );
+      return cachedAuthoredHtmlPlugins;
+    });
+  }
+  return authoredHtmlPluginsPromise;
+}
+
+if (import.meta.env.MODE === "test") {
+  await Promise.all([loadMathPlugins(), loadAuthoredHtmlPlugins()]);
+}
+
+const BASE_MARKDOWN_REMARK_PLUGINS: MarkdownRemarkPlugins = [
   remarkGfm,
-  [remarkMath, { singleDollarTextMath: MARKDOWN_MATH.singleDollarText }],
   remarkGithubAlerts,
   remarkHtmlBreaks,
   remarkImageRows,
@@ -594,10 +693,9 @@ function rehypeRestoreLiteralDollars() {
   };
 }
 
-const MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [
+const BASE_MARKDOWN_REHYPE_PLUGINS: MarkdownRehypePlugins = [
   // Classify table columns by their shown text (literal dollars restored) before KaTeX runs.
   [rehypeTableLayout, restoreLiteralDollarPlaceholders],
-  [rehypeKatex, { output: "htmlAndMathml", strict: false, throwOnError: false }],
   rehypeRestoreLiteralDollars,
   // Credentials in a message read "Redacted <kind>" until the reader reveals them.
   rehypeRedactSecrets,
@@ -673,8 +771,6 @@ type MarkdownParentNode = {
   children?: MarkdownNode[];
 };
 type MarkdownNode = MarkdownTextNode | MarkdownParentNode | Record<string, unknown>;
-const CHAT_FIND_TEXT_TAG_NAME = "chat-find-text";
-const CHAT_FIND_TEXT_START_ATTRIBUTE = "data-chat-find-text-start";
 type TextRangeFragmentContinuity = {
   readonly continuesBefore: boolean;
   readonly continuesAfter: boolean;
@@ -796,26 +892,6 @@ function remarkTextRangeDecorations(options: { decorations: readonly MarkdownRan
   };
 }
 
-// Keep the renderer's generated metadata through the authored-HTML sanitizer.
-// KaTeX runs afterward so its generated MathML/styles do not widen this allowlist.
-const AUTHORED_HTML_SCHEMA = {
-  ...defaultSchema,
-  tagNames: [...(defaultSchema.tagNames ?? []), CHAT_FIND_TEXT_TAG_NAME],
-  attributes: {
-    ...defaultSchema.attributes,
-    [CHAT_FIND_TEXT_TAG_NAME]: ["dataChatFindTextStart"],
-    blockquote: [
-      ...(defaultSchema.attributes?.blockquote ?? []),
-      ["dataGithubAlert", "note", "tip", "important", "warning", "caution"],
-    ],
-    span: [...(defaultSchema.attributes?.span ?? []), ["className", MARKDOWN_IMAGE_ROW_CLASS_NAME]],
-  },
-  protocols: {
-    ...defaultSchema.protocols,
-    // Historical conversation links remain readable; new product links use moss.
-    href: [...(defaultSchema.protocols?.href ?? []), "file", "thread", "moss", "synara"],
-  },
-};
 function remarkFindableText() {
   return (tree: MarkdownNode) => wrapFindableTextNodes(tree);
 }
@@ -1084,7 +1160,7 @@ function findInlineCodeEndIndex(value: string, index: number, length: number): n
     cursor = markerEnd;
   }
 
-  return value.length;
+  return -1;
 }
 
 function looksLikeInlineMath(content: string): boolean {
@@ -1339,8 +1415,12 @@ function findInlineMarkdownLinkEnd(value: string, index: number): number {
 }
 
 // Tighten single-dollar math so currency and escaped dollars stay literal without touching code spans.
-function protectLiteralMarkdownDollars(value: string): string {
+function protectLiteralMarkdownDollars(value: string): {
+  readonly text: string;
+  readonly hasMath: boolean;
+} {
   let result = "";
+  let hasMath = false;
   let cursor = 0;
 
   while (cursor < value.length) {
@@ -1363,6 +1443,12 @@ function protectLiteralMarkdownDollars(value: string): string {
         markerEnd += 1;
       }
       const inlineCodeEndIndex = findInlineCodeEndIndex(value, cursor, markerEnd - cursor);
+      if (inlineCodeEndIndex === -1) {
+        // An unmatched backtick is ordinary Markdown text. Preserve the raw
+        // tail and let remark-math interpret any delimiters there.
+        const remainder = value.slice(cursor);
+        return { text: result + remainder, hasMath: hasMath || remainder.includes("$") };
+      }
       result += value.slice(cursor, inlineCodeEndIndex);
       cursor = inlineCodeEndIndex;
       continue;
@@ -1376,11 +1462,13 @@ function protectLiteralMarkdownDollars(value: string): string {
       nextCodeIndex += 1;
     }
 
-    result += protectLiteralDollarsInMarkdownLinks(value.slice(cursor, nextCodeIndex));
+    const prose = protectLiteralDollarsInMarkdownLinks(value.slice(cursor, nextCodeIndex));
+    hasMath ||= prose.includes("$");
+    result += prose;
     cursor = nextCodeIndex;
   }
 
-  return result;
+  return { text: result, hasMath };
 }
 
 // Returns the raw fence info string (the token after ```), e.g. "ts" or the
@@ -2878,25 +2966,35 @@ function ChatMarkdown({
   // variant has no math, so its text must stay byte-for-byte what was typed.
   // Table repair runs first so find offsets use the same normalized text.
   const sourceText = useMemo(
-    () => (isUserVariant ? text : repairMarkdownTableDelimiters(text)),
+    () => (isUserVariant || !text.includes("|") ? text : repairMarkdownTableDelimiters(text)),
     [isUserVariant, text],
   );
-  const normalizedText = useMemo(() => {
-    if (isUserVariant) return smoothedText;
+  const normalizedMarkdown = useMemo(() => {
+    if (isUserVariant) return { text: smoothedText, hasMath: false };
     // A last line that is only "-", "##" or "```" waits for its first real character.
     const revealedText = isStreaming ? holdBackPartialBlockMarker(smoothedText) : smoothedText;
     // Once the reveal has caught up (and always outside streaming) the smoothed
     // text is the raw text, whose repair is already done above.
     const repairedText =
-      revealedText === text ? sourceText : repairMarkdownTableDelimiters(revealedText);
-    return protectLiteralMarkdownDollars(repairedText);
+      revealedText === text
+        ? sourceText
+        : revealedText.includes("|")
+          ? repairMarkdownTableDelimiters(revealedText)
+          : revealedText;
+    return repairedText.includes("$") ||
+      repairedText.includes("\\(") ||
+      repairedText.includes("\\[")
+      ? protectLiteralMarkdownDollars(repairedText)
+      : { text: repairedText, hasMath: false };
   }, [isStreaming, isUserVariant, smoothedText, text, sourceText]);
   // While streaming, let React deprioritize and coalesce the markdown re-parse so a
   // fast token stream (one flush per ~100ms) doesn't re-render the full ReactMarkdown
   // tree on every flush. The deferred value always converges to the latest text, and
   // completed messages render the exact current text immediately (no visual change).
-  const deferredNormalizedText = useDeferredValue(normalizedText);
-  const renderedText = isStreaming ? deferredNormalizedText : normalizedText;
+  const deferredMarkdown = useDeferredValue(normalizedMarkdown);
+  const { text: renderedText, hasMath: needsMathPlugins } = isStreaming
+    ? deferredMarkdown
+    : normalizedMarkdown;
   // Marker offsets are applied against mdast positions, which come from the
   // repaired text — validate them against the same string. A marker recorded
   // after a repaired delimiter row fails its `selectedText` check and is
@@ -2911,10 +3009,35 @@ function ChatMarkdown({
   // Only streaming assistant markdown is split; authored HTML previews go
   // through rehype-raw, which re-parses positions, and are never streamed.
   const splitBlocks = isStreaming && !isUserVariant && !parseHtml;
+  const [mathPlugins, setMathPlugins] = useState<MathPluginsBundle | null>(() => cachedMathPlugins);
+  const [authoredHtmlPlugins, setAuthoredHtmlPlugins] = useState<AuthoredHtmlPluginsBundle | null>(
+    () => cachedAuthoredHtmlPlugins,
+  );
+  useEffect(() => {
+    if (!needsMathPlugins || mathPlugins !== null) return;
+    let cancelled = false;
+    void loadMathPlugins().then((loaded) => {
+      if (!cancelled) setMathPlugins(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [needsMathPlugins, mathPlugins]);
+  useEffect(() => {
+    if (!parseHtml || isUserVariant || authoredHtmlPlugins !== null) return;
+    let cancelled = false;
+    void loadAuthoredHtmlPlugins().then((loaded) => {
+      if (!cancelled) setAuthoredHtmlPlugins(loaded);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [parseHtml, isUserVariant, authoredHtmlPlugins]);
   const animateStreamingText = isStreaming && !isUserVariant && typeof window !== "undefined";
   // Find ranges are empty without a query; keep the provider's value stable
   // then instead of recomputing it (and every text node) per streamed token.
-  const findSourceText = normalizeFindQuery(findQuery).length > 0 ? sourceText : "";
+  const normalizedFindQuery = normalizeFindQuery(findQuery);
+  const findSourceText = normalizedFindQuery.length > 0 ? sourceText : "";
   const readSourceText = useStableCallback(() => sourceText);
   const composerChipsRemarkPlugin = useMemo(
     () =>
@@ -2929,6 +3052,7 @@ function ChatMarkdown({
         : null,
     [isUserVariant, mentionReferences, terminalContexts],
   );
+  const activeMathPlugin = needsMathPlugins ? mathPlugins : null;
   const remarkPlugins = useMemo<MarkdownRemarkPlugins>(() => {
     if (composerChipsRemarkPlugin) {
       return [
@@ -2939,7 +3063,15 @@ function ChatMarkdown({
       ];
     }
     return [
-      ...MARKDOWN_REMARK_PLUGINS,
+      ...(activeMathPlugin
+        ? [
+            remarkGfm,
+            activeMathPlugin.remarkMath,
+            remarkGithubAlerts,
+            remarkHtmlBreaks,
+            remarkImageRows,
+          ]
+        : BASE_MARKDOWN_REMARK_PLUGINS),
       [remarkWikiLinks, { root: wikiLinkRoot ?? cwd }],
       ...(renderInlineVisualizations
         ? [remarkInlineVisualizationDirectives, remarkOpenUIDirectives]
@@ -2949,24 +3081,36 @@ function ChatMarkdown({
     ];
   }, [
     composerChipsRemarkPlugin,
+    activeMathPlugin,
     rangeDecorationRemarkPlugin,
     renderInlineVisualizations,
     wikiLinkRoot,
     cwd,
   ]);
+  const activeAuthoredHtmlPlugins =
+    !isUserVariant && parseHtml ? (authoredHtmlPlugins?.plugins ?? null) : null;
   const rehypePlugins = useMemo<MarkdownRehypePlugins>(() => {
+    // Raw HTML is only enabled for authored local-file previews. Sanitize
+    // immediately after parsing so scripts, event handlers, and unsafe URL
+    // schemes never reach React's renderer.
+    const mathAndLiteralRehype: MarkdownRehypePlugins = activeMathPlugin
+      ? [
+          [rehypeTableLayout, restoreLiteralDollarPlaceholders],
+          activeMathPlugin.rehypeKatex,
+          rehypeRestoreLiteralDollars,
+          rehypeRedactSecrets,
+          rehypeZonedTimes,
+        ]
+      : BASE_MARKDOWN_REHYPE_PLUGINS;
     const basePlugins: MarkdownRehypePlugins = isUserVariant
       ? USER_MARKDOWN_REHYPE_PLUGINS
-      : parseHtml
-        ? // Raw HTML is only enabled for authored local-file previews. Sanitize
-          // immediately after parsing so scripts, event handlers, and unsafe URL
-          // schemes never reach React's renderer.
-          [rehypeRaw, [rehypeSanitize, AUTHORED_HTML_SCHEMA], ...MARKDOWN_REHYPE_PLUGINS]
-        : MARKDOWN_REHYPE_PLUGINS;
+      : activeAuthoredHtmlPlugins
+        ? [...activeAuthoredHtmlPlugins, ...mathAndLiteralRehype]
+        : mathAndLiteralRehype;
     return usesAutomaticBlockDirection
       ? ([...basePlugins, rehypeBidiBlockDirection] as MarkdownRehypePlugins)
       : basePlugins;
-  }, [isUserVariant, parseHtml, usesAutomaticBlockDirection]);
+  }, [isUserVariant, activeAuthoredHtmlPlugins, activeMathPlugin, usesAutomaticBlockDirection]);
   // The parse depends on the text plus exactly these inputs (see remarkPlugins and
   // rehypePlugins above). User messages carry per-message chip plugins and a message with
   // markers carries its own range decorations, so neither is shared. Only opted-in callers
@@ -2974,11 +3118,15 @@ function ChatMarkdown({
   const parseCacheScope =
     !shareParseProp || isStreaming || composerChipsRemarkPlugin || markers?.length
       ? null
-      : `${parseHtml ? 1 : 0}${usesAutomaticBlockDirection ? 1 : 0}${renderInlineVisualizations ? 1 : 0}:${wikiLinkRoot ?? cwd ?? ""}`;
+      : `${activeAuthoredHtmlPlugins ? 1 : 0}${activeMathPlugin ? 1 : 0}${usesAutomaticBlockDirection ? 1 : 0}${renderInlineVisualizations ? 1 : 0}:${wikiLinkRoot ?? cwd ?? ""}`;
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const hadFindHighlightRef = useRef(false);
   useLayoutEffect(() => {
+    const hasFind = normalizedFindQuery.length > 0 || findActiveRange !== null;
+    if (!hasFind && !hadFindHighlightRef.current) return;
+    hadFindHighlightRef.current = hasFind;
     applyActiveChatFindMatch(rootRef.current, findActiveRange);
-  }, [findActiveRange, findQuery, renderedText]);
+  }, [findActiveRange, normalizedFindQuery, renderedText]);
   const renderContext = useMemo<MarkdownRenderContextValue>(
     () => ({
       isInsideLink: false,

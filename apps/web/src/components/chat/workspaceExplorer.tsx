@@ -23,7 +23,7 @@ import {
   formatChatFileReference,
   type ChatFileReference,
 } from "~/lib/chatReferences";
-import { splitRepoRelativePath } from "~/lib/diffRendering";
+import { splitRepoRelativePath } from "~/lib/diffTheme";
 import { showFileReferenceContextMenu } from "~/lib/fileReferenceContextMenu";
 import {
   projectListDirectoriesQueryOptions,

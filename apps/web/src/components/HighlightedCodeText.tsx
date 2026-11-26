@@ -2,7 +2,7 @@
 // selectable while the shared highlighter loads, or when content is too large.
 import { useEffect, useRef, useState } from "react";
 import { useTheme } from "../hooks/useTheme";
-import { resolveDiffThemeName } from "../lib/diffRendering";
+import { resolveDiffThemeName } from "../lib/diffTheme";
 import { MAX_SYNTAX_HIGHLIGHT_INPUT_CHARS } from "../lib/syntaxHighlighting.constants";
 
 export function HighlightedCodeText({ code, language }: { code: string; language: string }) {

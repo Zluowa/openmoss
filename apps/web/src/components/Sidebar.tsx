@@ -325,10 +325,10 @@ import { RelocateProjectDialog } from "./RelocateProjectDialog";
 import { RenameThreadDialog } from "./RenameThreadDialog";
 import { SnoozeUntilDialog } from "./SnoozeUntilDialog";
 import { SNOOZE_PRESETS } from "../lib/threadSnooze";
-import ReleaseHistoryDialog from "./ReleaseHistoryDialog";
 import { INBOX_ON, isBetaFeatureOn } from "../betaFeatures";
-import { WHATS_NEW_ENTRIES } from "../whatsNew/entries";
-import { sortEntriesByVersionDesc } from "../whatsNew/logic";
+import { sortEntriesByVersionDesc, type WhatsNewEntry } from "../whatsNew/logic";
+
+const LazyReleaseHistoryDialog = lazy(() => import("./ReleaseHistoryDialog"));
 import { SidebarSearchPalette, type SidebarSearchPaletteMode } from "./SidebarSearchPalette";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -940,9 +940,15 @@ function ProjectSortMenu({
 // Docs wait for Moss's help site; the help menu leaves the entry out until then.
 const helpSiteUrl = MOSS_HELP_SITE_URL;
 
-// Latest curated releases surfaced directly in the help menu. Static data, so
-// computed once at module scope rather than per render.
-const HELP_MENU_RELEASE_ENTRIES = sortEntriesByVersionDesc(WHATS_NEW_ENTRIES).slice(0, 3);
+// Cached once the user opens the Help menu; keeps the 365 KB changelog out of initial boot.
+let cachedHelpMenuReleaseEntries: readonly WhatsNewEntry[] | null = null;
+function loadHelpMenuReleaseEntries(): Promise<readonly WhatsNewEntry[]> {
+  if (cachedHelpMenuReleaseEntries) return Promise.resolve(cachedHelpMenuReleaseEntries);
+  return import("../whatsNew/entries").then(({ WHATS_NEW_ENTRIES }) => {
+    cachedHelpMenuReleaseEntries = sortEntriesByVersionDesc(WHATS_NEW_ENTRIES).slice(0, 3);
+    return cachedHelpMenuReleaseEntries;
+  });
+}
 
 // Footer help menu; swapped out for the desktop-update pill while an update is
 // available (see SidebarFooter).
@@ -991,6 +997,9 @@ export function SidebarHelpMenu({
 }) {
   const { t } = useTranslation();
   const inRail = inRailProp ?? false;
+  const [releaseEntries, setReleaseEntries] = useState<readonly WhatsNewEntry[]>(
+    () => cachedHelpMenuReleaseEntries ?? [],
+  );
   // `openCount` keys the dialog so each open remounts the accordion — its rows
   // capture `defaultOpen` in mount state, so a stale mount would ignore a
   // newly selected version.
@@ -1004,13 +1013,19 @@ export function SidebarHelpMenu({
     setReleaseHistory((prev) => ({ open: true, version, openCount: prev.openCount + 1 }));
   };
 
+  const handleHelpMenuOpenChange = (open: boolean) => {
+    if (open && releaseEntries.length === 0) {
+      void loadHelpMenuReleaseEntries().then(setReleaseEntries);
+    }
+  };
+
   const content = (
     <>
       <MenuGroup>
         <div className="px-2 py-1 sm:text-ui leading-snug font-medium text-muted-foreground">
           {t("sidebar.helpMenu.whatsNew")}
         </div>
-        {HELP_MENU_RELEASE_ENTRIES.map((entry) => (
+        {releaseEntries.map((entry) => (
           <MenuItem
             key={entry.version}
             className={SIDEBAR_CONTEXT_MENU_ITEM_CLASS_NAME}
@@ -1065,7 +1080,7 @@ export function SidebarHelpMenu({
     <>
       {renderMenu ? (
         renderMenu(
-          <MenuSub>
+          <MenuSub onOpenChange={handleHelpMenuOpenChange}>
             <MenuSubTrigger className="font-normal">
               <CircleQuestionIcon className="size-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">{t("sidebar.more.help")}</span>
@@ -1076,7 +1091,7 @@ export function SidebarHelpMenu({
           </MenuSub>,
         )
       ) : (
-        <Menu>
+        <Menu onOpenChange={handleHelpMenuOpenChange}>
           <SidebarIconButton
             render={<MenuTrigger />}
             icon={CircleQuestionIcon}
@@ -1099,14 +1114,18 @@ export function SidebarHelpMenu({
           </ComposerPickerMenuPopup>
         </Menu>
       )}
-      <ReleaseHistoryDialog
-        key={releaseHistory.openCount}
-        open={releaseHistory.open}
-        onOpenChange={(open) => {
-          setReleaseHistory((prev) => ({ ...prev, open }));
-        }}
-        defaultExpandedVersion={releaseHistory.version}
-      />
+      {releaseHistory.open ? (
+        <Suspense fallback={null}>
+          <LazyReleaseHistoryDialog
+            key={releaseHistory.openCount}
+            open={releaseHistory.open}
+            onOpenChange={(open) => {
+              setReleaseHistory((prev) => ({ ...prev, open }));
+            }}
+            defaultExpandedVersion={releaseHistory.version}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

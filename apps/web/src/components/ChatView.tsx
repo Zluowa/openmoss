@@ -382,7 +382,7 @@ import {
 } from "./ChatView.logic";
 import { createThreadLineageSelector, localSubagentThreadId } from "./ChatView.selectors";
 import { ComposerPromptEditor } from "./ComposerPromptEditor";
-import PlanSidebar from "./PlanSidebar";
+const PlanSidebar = lazy(() => import("./PlanSidebar"));
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { RenameThreadDialog } from "./RenameThreadDialog";
 import { hasUnseenSnoozeReturn } from "./Sidebar.logic";
@@ -533,7 +533,11 @@ import {
   visibleCoordinatorSuggestionChips,
 } from "./chat/project/coordinatorSuggestions.logic";
 import { ProjectPanel } from "./chat/project/ProjectPanel";
-import { LibraryPanel } from "./chat/group/LibraryPanel";
+const LibraryPanel = lazy(() =>
+  import("./chat/group/LibraryPanel").then((module) => ({
+    default: module.LibraryPanel,
+  })),
+);
 import { useHubWorkItems } from "./chat/project/useHubWorkItems";
 import { hubWorkItemsBySourceMessage } from "./chat/project/hubWorkItems";
 import { useProjectAgentSummaries } from "./chat/project/useProjectAgentSummaries";
@@ -939,34 +943,38 @@ export default function ChatView({
     serverThread?.creationSource && serverThread.sourceThreadId
       ? serverThread.sourceThreadId
       : null;
-  const crossTaskSourceThread = useStore(
-    useMemo(() => createThreadSelector(crossTaskSourceThreadId), [crossTaskSourceThreadId]),
+  const crossTaskSourceThread = useStore((state) =>
+    crossTaskSourceThreadId ? (state.threadShellById?.[crossTaskSourceThreadId] ?? null) : null,
   );
+  // Read outside the memo: React Compiler infers `crossTaskSourceThread?.modelSelection`
+  // for an in-memo read, which no longer matches the dependency list and makes it skip
+  // optimizing this whole component.
+  const crossTaskSourceProvider = crossTaskSourceThread?.modelSelection.provider ?? null;
   const crossTaskOrigin = useMemo(
     () =>
       crossTaskSourceThreadId
         ? {
             sourceThreadId: crossTaskSourceThreadId,
-            sourceProvider: crossTaskSourceThread?.modelSelection.provider ?? null,
+            sourceProvider: crossTaskSourceProvider,
           }
         : null,
-    [crossTaskSourceThread?.modelSelection.provider, crossTaskSourceThreadId],
+    [crossTaskSourceProvider, crossTaskSourceThreadId],
   );
   const forkSourceThreadId = serverThread?.sidechatSourceThreadId
     ? null
     : (serverThread?.forkSourceThreadId ?? null);
-  const forkSourceThread = useStore(
-    useMemo(() => createThreadSelector(forkSourceThreadId), [forkSourceThreadId]),
+  const forkSourceTitle = useStore((state) =>
+    forkSourceThreadId ? (state.threadShellById?.[forkSourceThreadId]?.title ?? null) : null,
   );
   const forkSource = useMemo(
     () =>
       forkSourceThreadId
         ? {
             sourceThreadId: forkSourceThreadId,
-            sourceTitle: forkSourceThread?.title ?? "chat",
+            sourceTitle: forkSourceTitle ?? "chat",
           }
         : null,
-    [forkSourceThread?.title, forkSourceThreadId],
+    [forkSourceTitle, forkSourceThreadId],
   );
   const draftFallbackModelSelection = useMemo<ModelSelection>(
     () => resolveDraftFallbackModelSelection({ settingsDefaultProvider: settings.defaultProvider }),
@@ -3398,6 +3406,10 @@ export default function ChatView({
       }
     },
     [dismissEffortPreview, setIsModelPickerOpen, setIsTraitsPickerOpen],
+  );
+  const handleOpenRecoveryModelPicker = useCallback(
+    () => handleModelPickerOpenChange(true),
+    [handleModelPickerOpenChange],
   );
   const handleTraitsPickerOpenChange = useCallback(
     (open: boolean) => {
@@ -6746,6 +6758,10 @@ export default function ChatView({
   // Terminal surfaces always float so opening Environment never resizes the terminal workspace.
   const projectPanelVisible = projectPanelEnabled && auxiliarySurface === "project";
   const libraryPanelVisible = projectPanelEnabled && auxiliarySurface === "library";
+  const [hasOpenedLibrary, setHasOpenedLibrary] = useState(false);
+  useEffect(() => {
+    if (libraryPanelVisible) setHasOpenedLibrary(true);
+  }, [libraryPanelVisible]);
   const environmentPanelVisibleEffective =
     environmentPanelVisible && auxiliarySurface !== "project" && auxiliarySurface !== "library";
   const environmentAppliesContentInset =
@@ -8631,7 +8647,7 @@ export default function ChatView({
                               pendingUserInputs.length > 0
                             }
                             onContinueFailedTurn={onContinueFailedTurn}
-                            onChangeRecoveryModel={() => handleModelPickerOpenChange(true)}
+                            onChangeRecoveryModel={handleOpenRecoveryModelPicker}
                             unblockingThread={unblockingActiveThread}
                             onDismissThreadError={dismissActiveThreadError}
                             {...(canRetryActiveThreadStart
@@ -8881,13 +8897,16 @@ export default function ChatView({
                 }}
               />
             ) : null}
-            {projectPanelEnabled ? (
-              <LibraryPanel
-                open={libraryPanelVisible}
-                variant={environmentOverlayVariant}
-                projectId={activeProjectId}
-                onClose={() => setLibraryFromAuxiliary(false)}
-              />
+            {/* Load on first open and retain the panel's state and close transition. */}
+            {projectPanelEnabled && (libraryPanelVisible || hasOpenedLibrary) ? (
+              <Suspense fallback={null}>
+                <LibraryPanel
+                  open={libraryPanelVisible}
+                  variant={environmentOverlayVariant}
+                  projectId={activeProjectId}
+                  onClose={() => setLibraryFromAuxiliary(false)}
+                />
+              </Suspense>
             ) : null}
           </div>
           {/* end chat column */}
@@ -8903,21 +8922,23 @@ export default function ChatView({
 
           {/* Plan sidebar */}
           {planSidebarOpen && !isQuickChat ? (
-            <PlanSidebar
-              activeTaskList={activeTaskList}
-              activeProposedPlan={sidebarProposedPlan}
-              markdownCwd={threadWorkspaceCwd ?? undefined}
-              workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
-              timestampFormat={timestampFormat}
-              onClose={() => {
-                setPlanSidebarOpen(false);
-                // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
-                const turnKey = activeTaskList?.turnId ?? sidebarProposedPlan?.turnId ?? null;
-                if (turnKey) {
-                  planSidebarDismissedForTurnRef.current = turnKey;
-                }
-              }}
-            />
+            <Suspense fallback={null}>
+              <PlanSidebar
+                activeTaskList={activeTaskList}
+                activeProposedPlan={sidebarProposedPlan}
+                markdownCwd={threadWorkspaceCwd ?? undefined}
+                workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
+                timestampFormat={timestampFormat}
+                onClose={() => {
+                  setPlanSidebarOpen(false);
+                  // Track that the user explicitly dismissed for this turn so auto-open won't fight them.
+                  const turnKey = activeTaskList?.turnId ?? sidebarProposedPlan?.turnId ?? null;
+                  if (turnKey) {
+                    planSidebarDismissedForTurnRef.current = turnKey;
+                  }
+                }}
+              />
+            </Suspense>
           ) : null}
         </div>
         {/* end horizontal flex container */}
