@@ -32,11 +32,12 @@ import {
 import { cn } from "~/lib/utils";
 import { Button } from "../../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../../ui/dialog";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { ReadonlyAppItemFrame } from "../app/ReadonlyAppItemFrame";
 import { DesignThumbnail } from "../design/DesignThumbnail";
 import { DashboardThumbnail } from "../dashboard/DashboardPanels";
 import { coverSlide, SlideView } from "../slides/SlideView";
-import { createSpaceItem, pageTypesQueryKeys, TEMPLATE_KIND_LABELS } from "../spaceItemTypes";
+import { createSpaceItem, pageTypesQueryKeys } from "../spaceItemTypes";
 
 // Template thumbnails are fixed-scale miniatures (like the slide cover beside them), so their text
 // keeps a fixed size instead of following the UI text size from Settings.
@@ -350,27 +351,34 @@ export function TemplatePickerDialog(props: {
     <div className="grid grid-cols-[repeat(auto-fill,minmax(232px,1fr))] gap-3">
       {items.map((template) => {
         const Icon = KIND_ICONS[template.kind];
+        const cardButton = (
+          <button
+            type="button"
+            data-template-id={template.id}
+            disabled={busy !== null}
+            onClick={() => void pick(template)}
+            className="flex w-full flex-col gap-2 rounded-card border border-border p-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+          >
+            <TemplatePreview template={template} />
+            <span className="flex items-center gap-1.5 px-1">
+              <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              <span className="truncate text-ui font-medium">{template.title}</span>
+              {busy === template.id ? (
+                <span className="ml-auto text-ui-xs text-muted-foreground">正在创建…</span>
+              ) : null}
+            </span>
+          </button>
+        );
         return (
           <div key={template.id} className="group relative">
-            <button
-              type="button"
-              data-template-id={template.id}
-              disabled={busy !== null}
-              onClick={() => void pick(template)}
-              className="flex w-full flex-col gap-2 rounded-card border border-border p-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-            >
-              <TemplatePreview template={template} />
-              <span className="flex items-center gap-1.5 px-1">
-                <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="truncate text-ui font-medium">{template.title}</span>
-                {busy === template.id ? (
-                  <span className="ml-auto text-ui-xs text-muted-foreground">正在创建…</span>
-                ) : null}
-              </span>
-              <span className="line-clamp-1 px-1 pb-0.5 text-ui-xs text-muted-foreground">
-                {template.description || TEMPLATE_KIND_LABELS[template.kind]}
-              </span>
-            </button>
+            {template.description ? (
+              <Tooltip>
+                <TooltipTrigger render={cardButton} />
+                <TooltipPopup>{template.description}</TooltipPopup>
+              </Tooltip>
+            ) : (
+              cardButton
+            )}
             {template.builtIn ? null : (
               <Button
                 size="icon-xs"
@@ -426,14 +434,15 @@ export function TemplatePickerDialog(props: {
             ) : null}
             {builtIn.length ? (
               <section className="space-y-2">
-                <h3 className="text-ui-sm font-medium text-muted-foreground">Moss 模板</h3>
+                {/* Only worth naming when the person has templates of their own above. */}
+                {personal.length ? (
+                  <h3 className="text-ui-sm font-medium text-muted-foreground">Moss 模板</h3>
+                ) : null}
                 {grid(builtIn)}
               </section>
             ) : null}
             {!query.isLoading && templates.length === 0 ? (
-              <p className="text-ui-sm text-muted-foreground">
-                这一类还没有模板。打开任意条目，选“存为模板”即可添加。
-              </p>
+              <p className="text-ui-sm text-muted-foreground">这一类还没有模板</p>
             ) : null}
           </div>
         </div>

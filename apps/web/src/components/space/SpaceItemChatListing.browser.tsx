@@ -58,7 +58,7 @@ vi.mock("../chat/SidechatDockPane", () => ({
   ),
 }));
 
-const NOW = "2026-11-24T08:00:00.000Z";
+const NOW = new Date().toISOString();
 const PROJECT_ID = ProjectId.makeUnsafe("project-s6-home");
 const STARTED_CHAT = ThreadId.makeUnsafe("thread-s6-started");
 const ACCOUNT = "acct-s6";

@@ -31,7 +31,9 @@ import {
 } from "../spaceTypes/templates/TemplatePickerDialog";
 import { Button } from "../ui/button";
 import { SpaceHome } from "./SpaceHome";
+import { SpaceItemCard } from "./SpaceItemCard";
 import { SpaceSidebar } from "./SpaceSidebar";
+import { GalleryProvider } from "./gallery/GalleryContext";
 import {
   buildSpaceItems,
   recentItems,
@@ -164,9 +166,8 @@ describe("SpaceGallery V2", () => {
       />,
     );
 
-    await expect.element(page.getByRole("tab", { name: "全部", exact: true })).toBeVisible();
-    await expect.element(page.getByRole("tab", { name: "你的条目", exact: true })).toBeVisible();
-    await expect.element(page.getByRole("tab", { name: "与你共享", exact: true })).toBeVisible();
+    // A young 资料空间 (fewer than six items) still offers 新建 and 快速开始.
+    await expect.element(page.getByRole("region", { name: "新建", exact: true })).toBeVisible();
 
     const tiles = [...document.querySelectorAll<HTMLElement>("[data-space-create-tile]")];
     expect(tiles.map((el) => el.getAttribute("data-space-create-tile"))).toEqual([
@@ -181,10 +182,9 @@ describe("SpaceGallery V2", () => {
     expect(Math.round(rect.width)).toBe(136);
     expect(Math.round(rect.height)).toBe(96);
 
-    expect(tiles[2]!.textContent).toContain("电子表格");
-    expect(tiles[2]!.textContent).toContain("Beta");
-    expect(tiles[5]!.textContent).toContain("画布");
-    expect(tiles[5]!.textContent).toContain("Beta");
+    // Tiles are just the kind: no corner badges (the 创建 menu notes what is Beta).
+    expect(tiles[2]!.textContent).toBe("电子表格");
+    expect(tiles[5]!.textContent).toBe("画布");
     await userEvent.click(tiles[5]!);
     expect(onCreate).toHaveBeenCalledWith("board");
 
@@ -198,12 +198,9 @@ describe("SpaceGallery V2", () => {
       "核心目标",
     );
     expect(document.querySelector('[data-space-card-preview="sheet"] table')).not.toBeNull();
-
-    await userEvent.click(page.getByRole("tab", { name: "与你共享", exact: true }));
-    await expect.element(page.getByText("别人与你共享的条目会显示在这里")).toBeVisible();
   });
 
-  it("persists 新建 & 快速开始 dismissals, restores them from 筛选, and emits keepItemOpen on starter launch", async () => {
+  it("offers 新建 & 快速开始 while young, hides them once the space fills, and emits keepItemOpen on starter launch", async () => {
     const fixture = createDataSpaceFixture();
     const createdPage = makePage("meeting-1", { title: "会议纪要", kind: "page" });
     const createdItem: PageTypedItem = {
@@ -265,27 +262,36 @@ describe("SpaceGallery V2", () => {
       expect(launches[0]!.prefillPrompt).toBe(launches[0]!.starterPrompt);
       expect(windowEvents[0]?.keepItemOpen).toBe(true);
 
-      await userEvent.click(page.getByRole("button", { name: "收起新建卡片", exact: true }));
-      await userEvent.click(page.getByRole("button", { name: "收起快速开始", exact: true }));
+      await cleanup();
+      const full = buildSpaceItems({
+        pages: Array.from({ length: 6 }, (_, index) => makePage(`full-${index}`)),
+        apps: [],
+        outputs: [],
+      });
+      await renderInHarness(
+        <SpaceHome
+          section={{ type: "all" }}
+          title="资料空间"
+          description=""
+          items={full}
+          loading={false}
+          error={null}
+          onRetry={() => {}}
+          onCreate={() => {}}
+          onOpen={() => {}}
+          placeOf={() => "个人"}
+          emptyCreate="page"
+        />,
+      );
+      await expect.element(page.getByRole("heading", { name: "资料空间" })).toBeVisible();
       expect(document.querySelector("[data-space-create-tiles]")).toBeNull();
       expect(document.querySelector("[data-space-quick-start]")).toBeNull();
-      expect(window.localStorage.getItem("moss:space:hide-create-tiles")).toBe("1");
-      expect(window.localStorage.getItem("moss:space:hide-quick-start")).toBe("1");
-
-      await userEvent.click(page.getByRole("button", { name: "筛选：全部类型", exact: true }));
-      await userEvent.click(
-        page.getByRole("menuitem", { name: "显示新建与快速开始", exact: true }),
-      );
-      await vi.waitFor(() => {
-        expect(document.querySelector("[data-space-create-tiles]")).not.toBeNull();
-        expect(document.querySelector("[data-space-quick-start]")).not.toBeNull();
-      });
     } finally {
       window.removeEventListener(SPACE_TEMPLATE_LAUNCH_EVENT, listener);
     }
   });
 
-  it("syncs all 8 active kinds from SpaceSidebar to SpaceHome and enforces clean SpaceCreateMenu", async () => {
+  it("syncs all 8 active kinds from SpaceSidebar to SpaceHome and keeps SpaceCreateMenu to what can be made", async () => {
     const fixture = createDataSpaceFixture();
     const docPage = makePage("doc-1", { title: "文档条目", kind: "page" });
     const sheetPage = makePage("sheet-1", { title: "电子表格条目", kind: "sheet" });
@@ -349,6 +355,11 @@ describe("SpaceGallery V2", () => {
     await renderInHarness(<Shell />);
 
     const nav = page.getByRole("navigation", { name: "条目", exact: true });
+    // Kinds fold away under 类型 until asked for.
+    await expect
+      .element(nav.getByRole("button", { name: "类型", exact: true }))
+      .toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(nav.getByRole("button", { name: "类型", exact: true }));
     for (const label of [
       "全部",
       "文档",
@@ -391,6 +402,7 @@ describe("SpaceGallery V2", () => {
       "upload",
     ]);
     expect(rows.filter((row) => row.getAttribute("aria-disabled") === "true")).toEqual([]);
+    expect(document.querySelector('[data-space-create="sheet"]')?.textContent).toContain("Beta");
   });
 
   it("emits keepItemOpen & starterPrompt metadata from TemplatePickerDialog", async () => {
@@ -498,5 +510,109 @@ describe("SpaceGallery V2", () => {
     await expect.element(page.getByRole("grid", { name: "条目列表", exact: true })).toBeVisible();
     await userEvent.click(page.getByRole("button", { name: "网格视图", exact: true }));
     expect(document.querySelector("[data-space-grid]")).not.toBeNull();
+  });
+
+  it("loads local library image cards with a preview grant instead of firing ungranted /api/local-image requests", async () => {
+    const fixture = createDataSpaceFixture();
+    let resolveGrant!: (value: { grant: string; expiresAt: string }) => void;
+    const createGrant = vi.fn(
+      () =>
+        new Promise<{ grant: string; expiresAt: string }>((resolve) => {
+          resolveGrant = resolve;
+        }),
+    );
+    Object.assign(fixture.api, {
+      projects: { createLocalFilePreviewGrant: createGrant },
+    });
+    window.nativeApi = fixture.api;
+
+    const observedSrcs: string[] = [];
+    const recordImages = () => {
+      for (const img of document.querySelectorAll<HTMLImageElement>(
+        '[data-space-item="library:lib-moss-1"] img',
+      )) {
+        const src = img.getAttribute("src");
+        if (src) observedSrcs.push(src);
+      }
+    };
+    const observer = new MutationObserver(recordImages);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["src"],
+    });
+
+    try {
+      const items = buildSpaceItems({
+        pages: [],
+        apps: [],
+        outputs: [],
+        library: [
+          {
+            id: "lib-moss-1",
+            title: "苔花如米.webp",
+            kind: "image",
+            source: "user:import",
+            sourceCli: "moss",
+            path: "D:/moss-home/library/imports/苔花如米.webp",
+            mimeType: "image/webp",
+            size: 43000,
+            favorite: false,
+            folderId: null,
+            trashedAt: null,
+            originationThreadId: null,
+            createdAt: "2026-11-26T00:00:00.000Z",
+            updatedAt: "2026-11-26T00:00:00.000Z",
+          },
+        ],
+      });
+
+      await renderInHarness(
+        <GalleryProvider
+          account="local"
+          scopeSpaceId={null}
+          items={items}
+          spaces={[]}
+          libraryFolders={[]}
+          loading={false}
+          onOpenItem={() => {}}
+          onPlace={() => {}}
+        >
+          <SpaceItemCard
+            item={items[0]!}
+            view="grid"
+            place="资料库"
+            now={Date.now()}
+            onOpen={() => {}}
+          />
+        </GalleryProvider>,
+      );
+
+      await vi.waitFor(() => {
+        expect(createGrant).toHaveBeenCalledWith({
+          path: "D:/moss-home/library/imports/苔花如米.webp",
+        });
+      });
+      // Before the grant resolves, no ungranted /api/local-image <img> may mount.
+      recordImages();
+      expect(observedSrcs).toEqual([]);
+
+      resolveGrant({
+        grant: "grant-moss-1",
+        expiresAt: "2026-12-01T00:00:00.000Z",
+      });
+
+      await vi.waitFor(() => {
+        recordImages();
+        expect(
+          observedSrcs.some(
+            (src) => src.includes("/api/local-image") && src.includes("grant=grant-moss-1"),
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      observer.disconnect();
+    }
   });
 });

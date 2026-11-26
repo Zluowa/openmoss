@@ -69,6 +69,10 @@ export function setLocalImageUrlResolver(resolver: ((src: string) => string) | n
   localImageUrlResolver = resolver;
 }
 
+export function hasLocalImageUrlResolver(): boolean {
+  return localImageUrlResolver !== null;
+}
+
 const mediaAssetRoute =
   /^\/api\/moss\/media\/assets\/moss_[A-Za-z0-9_-]{1,128}\/(\d{1,2})\?accountScope=[a-f0-9]{64}$/u;
 

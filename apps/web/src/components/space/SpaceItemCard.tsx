@@ -1,7 +1,8 @@
 // FILE: SpaceItemCard.tsx
-// Purpose: One 资料空间 item as a masonry card (grid view) or a row (list view): kind glyph,
-//          title, a preview when the item has one, where it lives and when it changed, plus a
-//          small actions menu.
+// Purpose: One 资料空间 item as a masonry card (grid view) or a row (list view). A note card
+//          is its title and text, a picture card is the picture (its name on hover), other
+//          cards a preview, title and kind. Where it lives and when it changed are in the list
+//          view. The actions menu appears on hover.
 // Layer: Space UI
 
 import { parseSheetWorkbook, readSheetRange } from "@moss/shared/spaceItems/sheetWorkbook";
@@ -20,6 +21,14 @@ import { DashboardThumbnail } from "../spaceTypes/dashboard/DashboardPanels";
 import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
 import { DesignCardPreview } from "../spaceTypes/design/DesignThumbnail";
 import { SlidesCardPreview } from "../spaceTypes/slides/SlidesCardPreview";
+import {
+  CARD_MARKED_CLASS_NAME,
+  GalleryPicture,
+  NoteBlocks,
+  SpaceCardButton,
+} from "./gallery/GalleryCards";
+import { useGalleryImageSrc, useOptionalGallery } from "./gallery/GalleryContext";
+import { galleryClassOf, noteBlocks } from "./gallery/galleryModel";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import {
   formatRelativeTime,
@@ -53,6 +62,8 @@ export function SpaceItemCard(
     /** Where the item lives ("个人", a space name, or its chat). */
     place: string;
     now: number;
+    /** Outlined: the item the person just came back from. */
+    marked?: boolean | undefined;
   },
 ) {
   const { item } = props;
@@ -129,9 +140,42 @@ export function SpaceItemCard(
     );
   }
 
+  const galleryKind = galleryClassOf(item);
+  const resolvedImageSrc = useGalleryImageSrc(item);
+  const imageSrc = galleryKind === "image" ? resolvedImageSrc : null;
+  if (galleryKind === "note" || galleryKind === "image") {
+    // Notes show their own text and pictures their own shape: they are what they hold.
+    return (
+      <div className="group/space-item relative" data-space-item={item.key}>
+        {galleryKind === "note" ? (
+          <NoteCard item={item} marked={props.marked === true} onOpen={props.onOpen} />
+        ) : (
+          <SpaceCardButton
+            className={cn("border-transparent bg-muted/40", props.marked && CARD_MARKED_CLASS_NAME)}
+            aria-label={`图片 ${spaceItemDisplayTitle(item)}`}
+            onClick={() => props.onOpen(item)}
+          >
+            <span data-space-card-preview="image" className="block">
+              <GalleryPicture item={item} src={imageSrc} className="w-full" />
+            </span>
+            <span className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col bg-black/60 px-3 py-2 text-white opacity-0 transition-opacity group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100">
+              <span className="truncate text-ui-sm font-medium">{spaceItemDisplayTitle(item)}</span>
+            </span>
+          </SpaceCardButton>
+        )}
+        <span className="absolute top-2 right-2 rounded-control bg-card/90 backdrop-blur-sm opacity-0 group-hover/space-item:opacity-100 group-focus-within/space-item:opacity-100 has-[[data-popup-open]]:opacity-100">
+          {actions}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="group/space-item relative flex flex-col overflow-hidden rounded-panel border border-border/80 bg-card shadow-xs transition-[box-shadow,border-color] hover:border-border hover:shadow-md"
+      className={cn(
+        "group/space-item relative flex flex-col overflow-hidden rounded-panel border border-border/80 bg-card shadow-xs transition-[box-shadow,border-color] hover:border-border hover:shadow-md",
+        props.marked && CARD_MARKED_CLASS_NAME,
+      )}
       data-space-item={item.key}
     >
       {renameField ? (
@@ -162,10 +206,7 @@ export function SpaceItemCard(
                 />
               ) : null}
             </span>
-            <span className="truncate text-ui-sm text-muted-foreground">
-              {meta.label} · {time}
-              {props.place && props.place !== "个人" ? ` · ${props.place}` : ""}
-            </span>
+            <span className="truncate text-ui-sm text-muted-foreground">{meta.label}</span>
           </span>
         </button>
       )}
@@ -174,6 +215,57 @@ export function SpaceItemCard(
       </span>
     </div>
   );
+}
+
+/** A note as a card: its title, then its own text (headings, tasks, lists, pictures). */
+function NoteCard(props: { item: SpaceItem; marked: boolean; onOpen: (item: SpaceItem) => void }) {
+  const markdown = useNoteMarkdown(props.item);
+  const blocks = markdown === null ? null : noteBlocks(markdown, 12);
+  return (
+    <SpaceCardButton
+      className={cn("max-h-96 gap-2 px-3.5 pt-3 pb-3", props.marked && CARD_MARKED_CLASS_NAME)}
+      onClick={() => props.onOpen(props.item)}
+    >
+      <span className="flex min-w-0 items-center gap-1.5 pe-7">
+        <span className="min-w-0 flex-1 truncate text-ui font-medium">
+          {spaceItemDisplayTitle(props.item)}
+        </span>
+        {props.item.pinned ? (
+          <PinFilledIcon aria-label="已收藏" className="size-3 shrink-0 text-muted-foreground" />
+        ) : null}
+      </span>
+      <span data-space-card-preview="page" className="relative block min-h-0 overflow-hidden">
+        {blocks === null ? (
+          <span className="flex flex-col gap-1.5" aria-hidden>
+            <span className="h-2 w-full rounded-full bg-foreground/6" />
+            <span className="h-2 w-4/5 rounded-full bg-foreground/6" />
+          </span>
+        ) : (
+          <NoteBlocks blocks={blocks} />
+        )}
+      </span>
+    </SpaceCardButton>
+  );
+}
+
+/** A note's text: from the 资料空间's shared reads when there are any, else read here. */
+function useNoteMarkdown(item: SpaceItem): string | null {
+  const gallery = useOptionalGallery();
+  const shared = gallery?.noteMarkdown(item) ?? null;
+  const page = item.source.type === "page" ? item.source.page : null;
+  const api = ensureNativeApi();
+  const query = useQuery({
+    queryKey: ["space-card-page", page?.scopeSpaceId ?? "local", page?.id, page?.revision],
+    queryFn: async () =>
+      page
+        ? ((await api.pages.read({ scopeSpaceId: page.scopeSpaceId, pageId: page.id })).content ??
+          "")
+        : "",
+    enabled: shared === null && page !== null && typeof api.pages?.read === "function",
+    staleTime: Infinity,
+    retry: false,
+  });
+  return shared ?? query.data ?? null;
 }
 
 function PreviewFrame(props: { kind: string; className?: string; children: ReactNode }) {

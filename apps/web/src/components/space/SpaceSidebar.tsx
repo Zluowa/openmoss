@@ -5,7 +5,7 @@
 // Geometry: the shared sidebar tokens (32px rows 2px apart, 16px glyphs, section labels at
 //           footnote size), so this panel reads like every other rail destination's.
 
-import { type ReactNode, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   SPACE_ICON_NAMES,
   type Page,
@@ -19,14 +19,19 @@ import {
   ChevronRightIcon,
   DataDashboardIcon,
   EllipsisIcon,
+  FolderIcon,
   FoldersIcon,
   GlobeIcon,
+  ImageIcon,
   ImagesIcon,
+  LayersIcon,
   LayoutGridIcon,
   PageTextIcon,
   PaletteIcon,
+  SearchIcon,
   SlidesIcon,
   TableIcon,
+  TagIcon,
   TrashCanIcon,
   WindowAppIcon,
   XIcon,
@@ -51,15 +56,22 @@ import { SidebarPanelTitle } from "../SidebarPanelTitle";
 import { SpaceIcon, SPACE_ICON_OPTIONS } from "../SpaceIcon";
 import { DisclosureRegion } from "../ui/DisclosureRegion";
 import { SidebarMenu, SidebarMenuItem } from "../ui/sidebar";
+import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
 import { SpaceCreateMenu, type SpaceCreateAction } from "./SpaceCreateMenu";
 import { useSpaceItemMeta } from "../spaceTypes/dashboard/useDashboardItemMeta";
 import { spaceKindMeta } from "./spaceKinds";
 import { SpaceSyncMenuItem } from "./SpaceSyncMenuItem";
+import { useOptionalGallery } from "./gallery/GalleryContext";
+import {
+  countTags,
+  type GalleryCollection,
+  type GalleryFolder,
+  type TagCount,
+} from "./gallery/galleryModel";
 import {
   formatRelativeTime,
   getSyncedSpaceHomeKind,
-  groupRecentItems,
   setSyncedSpaceHomeKind,
   spaceItemDisplayTitle,
   subscribeSyncedSpaceHomeKind,
@@ -119,8 +131,31 @@ export function SpaceSidebar(props: {
   onSpaceIcon: (space: PageSpace, icon: string | null) => void;
   onTrashSpace: (space: PageSpace) => void;
   onClose: () => void;
+  /** ⌘K: search titles, note text and tags. */
+  onSearch?: () => void;
+  /** Every live item, for the pictures filed into each 资料空间. */
+  items?: readonly SpaceItem[];
+  /** 资料库 folders with no 资料空间 of the same name. */
+  folders?: readonly GalleryFolder[];
+  collections?: readonly GalleryCollection[];
+  tags?: readonly TagCount[];
 }) {
+  // Folders, tags and 合集 come from the 资料空间's shared data unless given (tests, stories).
+  const gallery = useOptionalGallery();
+  const allItems = props.items ?? gallery?.items;
+  const libraryOnlyFolders =
+    props.folders ?? gallery?.tree.folders.filter((folder) => folder.spaceId === null);
+  const collections = props.collections ?? gallery?.collections;
+  const tags = useMemo(
+    () => props.tags ?? (gallery ? countTags(gallery.items, gallery.tagsOf) : undefined),
+    [props.tags, gallery],
+  );
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  // Opening a space from anywhere (a folder card, search) unfolds it here too.
+  const openSpaceId = props.section.type === "space" ? props.section.spaceId : null;
+  useEffect(() => {
+    if (openSpaceId) setExpanded((previous) => new Set(previous).add(openSpaceId));
+  }, [openSpaceId]);
   const syncedKind = useSyncExternalStore(subscribeSyncedSpaceHomeKind, getSyncedSpaceHomeKind);
   const toggle = (id: string) =>
     setExpanded((previous) => {
@@ -132,11 +167,20 @@ export function SpaceSidebar(props: {
   const isSection = (section: SpaceSection) =>
     props.openKey === null && sameSection(props.section, section);
   const livePages = props.pages.filter((page) => page.trashedAt === null);
-  const recentGroups = groupRecentItems(
-    props.recent,
-    Date.now(),
-    Math.max(12, props.recent.length),
-  );
+  const recent = props.recent.slice(0, RECENT_LIMIT);
+  // Kinds and tags fold away; each opens on its own when what it holds is the current view.
+  const kindActive =
+    (props.section.type === "kind" || (props.section.type === "all" && syncedKind !== "any")) &&
+    props.openKey === null;
+  const tagActive = props.section.type === "tag" && props.openKey === null;
+  const [kindsOpen, setKindsOpen] = useState(kindActive);
+  const [tagsOpen, setTagsOpen] = useState(tagActive);
+  useEffect(() => {
+    if (kindActive) setKindsOpen(true);
+  }, [kindActive]);
+  useEffect(() => {
+    if (tagActive) setTagsOpen(true);
+  }, [tagActive]);
 
   const renderPage = (page: Page, depth: number, seen: ReadonlySet<PageId>): ReactNode => {
     if (seen.has(page.id) || depth > 32) return null;
@@ -237,6 +281,15 @@ export function SpaceSidebar(props: {
                 }
               />
             </SidebarMenuItem>
+            {props.onSearch ? (
+              <NavRow
+                icon={SearchIcon}
+                label="搜索"
+                detail="⌘K"
+                active={false}
+                onClick={props.onSearch}
+              />
+            ) : null}
             <NavRow
               icon={LayoutGridIcon}
               label="全部"
@@ -246,6 +299,8 @@ export function SpaceSidebar(props: {
                 props.onSection({ type: "all" });
               }}
             />
+          </SidebarMenu>
+          <Fold label="类型" open={kindsOpen} onToggle={() => setKindsOpen((open) => !open)}>
             {KIND_ROWS.map((row) => (
               <NavRow
                 key={row.kind}
@@ -267,41 +322,8 @@ export function SpaceSidebar(props: {
                 }}
               />
             ))}
-          </SidebarMenu>
+          </Fold>
         </nav>
-
-        {recentGroups.length ? (
-          <section className="mt-4" aria-label="最近">
-            <h3 className={cn("flex h-7 items-center px-2.5", SIDEBAR_SECTION_LABEL_CLASS_NAME)}>
-              最近
-            </h3>
-            <div className="flex flex-col gap-2">
-              {recentGroups.map((group) => (
-                <div key={group.id}>
-                  <p className="px-2.5 py-0.5 text-ui-xs text-muted-foreground">{group.label}</p>
-                  <SidebarMenu className="gap-0.5">
-                    {group.items.map((item) => {
-                      const untitled = item.title.trim() === "";
-                      return (
-                        <RecentRow
-                          key={item.key}
-                          item={item}
-                          label={spaceItemDisplayTitle(item)}
-                          // An untitled row also says when it was made, so two of them differ.
-                          detail={
-                            untitled ? formatRelativeTime(item.updatedAt, Date.now()) : undefined
-                          }
-                          active={props.openKey === item.key}
-                          onClick={() => props.onOpen(item)}
-                        />
-                      );
-                    })}
-                  </SidebarMenu>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
 
         <section className="mt-4" aria-label="资料空间列表">
           <div className="flex h-7 items-center justify-between pr-0.5 pl-2.5">
@@ -316,7 +338,14 @@ export function SpaceSidebar(props: {
             {props.spaces
               .filter((space) => space.trashedAt === null)
               .map((space) => {
-                const children = livePages.filter((page) => page.parentPageId === space.rootPageId);
+                // Newest first, as the space's own view lists them.
+                const children = livePages
+                  .filter((page) => page.parentPageId === space.rootPageId)
+                  .toSorted((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+                const pictures = (allItems ?? []).filter(
+                  (item) =>
+                    item.spaceId === space.id && item.kind === "image" && item.trashedAt === null,
+                );
                 const open = expanded.has(space.id);
                 const active = isSection({ type: "space", spaceId: space.id });
                 return (
@@ -362,6 +391,8 @@ export function SpaceSidebar(props: {
                         aria-current={active ? "page" : undefined}
                         onClick={() => {
                           setSyncedSpaceHomeKind("any");
+                          // One click opens the space and unfolds what is in it.
+                          setExpanded((previous) => new Set(previous).add(space.id));
                           props.onSection({ type: "space", spaceId: space.id });
                         }}
                       >
@@ -379,8 +410,21 @@ export function SpaceSidebar(props: {
                     </div>
                     <DisclosureRegion open={open}>
                       <div className={cn("flex flex-col", SIDEBAR_NESTED_LIST_GAP_CLASS_NAME)}>
-                        {children.length ? (
-                          children.map((page) => renderPage(page, 1, new Set()))
+                        {children.length || pictures.length ? (
+                          <>
+                            {children.map((page) => renderPage(page, 1, new Set()))}
+                            <SidebarMenu className="gap-0.5 ps-4">
+                              {pictures.map((item) => (
+                                <NavRow
+                                  key={item.key}
+                                  icon={ImageIcon}
+                                  label={spaceItemDisplayTitle(item)}
+                                  active={props.openKey === item.key}
+                                  onClick={() => props.onOpen(item)}
+                                />
+                              ))}
+                            </SidebarMenu>
+                          </>
                         ) : (
                           <p className="py-1.5 ps-9 text-ui-sm text-muted-foreground">没有页面</p>
                         )}
@@ -389,8 +433,95 @@ export function SpaceSidebar(props: {
                   </div>
                 );
               })}
+            {libraryOnlyFolders?.length ? (
+              <SidebarMenu className="gap-0.5">
+                {libraryOnlyFolders.map((folder) => {
+                  const folderId = folder.libraryFolderIds[0] ?? "";
+                  return (
+                    <NavRow
+                      key={folder.key}
+                      icon={FolderIcon}
+                      label={folder.title}
+                      detail={folder.items.length ? String(folder.items.length) : undefined}
+                      active={isSection({ type: "folder", folderId })}
+                      onClick={() => {
+                        setSyncedSpaceHomeKind("any");
+                        props.onSection({ type: "folder", folderId });
+                      }}
+                    />
+                  );
+                })}
+              </SidebarMenu>
+            ) : null}
           </div>
         </section>
+
+        {collections?.length ? (
+          <section className="mt-4" aria-label="合集">
+            <h3 className={cn("flex h-7 items-center px-2.5", SIDEBAR_SECTION_LABEL_CLASS_NAME)}>
+              合集
+            </h3>
+            <SidebarMenu className="gap-0.5">
+              {collections.map((collection) => (
+                <NavRow
+                  key={collection.id}
+                  icon={LayersIcon}
+                  label={collection.title}
+                  active={isSection({
+                    type: "collection",
+                    id: collection.id,
+                    tags: collection.tags,
+                  })}
+                  onClick={() =>
+                    props.onSection({
+                      type: "collection",
+                      id: collection.id,
+                      tags: collection.tags,
+                    })
+                  }
+                />
+              ))}
+            </SidebarMenu>
+          </section>
+        ) : null}
+
+        {tags?.length ? (
+          <Fold label="标签" open={tagsOpen} onToggle={() => setTagsOpen((open) => !open)}>
+            {tags.slice(0, SIDEBAR_TAG_LIMIT).map((entry) => (
+              <NavRow
+                key={entry.tag}
+                icon={TagIcon}
+                label={entry.tag}
+                detail={String(entry.count)}
+                active={isSection({ type: "tag", tag: entry.tag })}
+                onClick={() => props.onSection({ type: "tag", tag: entry.tag })}
+              />
+            ))}
+          </Fold>
+        ) : null}
+        {recent.length ? (
+          <section className="mt-4" aria-label="最近">
+            <h3 className={cn("flex h-7 items-center px-2.5", SIDEBAR_SECTION_LABEL_CLASS_NAME)}>
+              最近
+            </h3>
+            <SidebarMenu className="gap-0.5">
+              {recent.map((item) => {
+                const untitled = item.title.trim() === "";
+                return (
+                  <RecentRow
+                    key={item.key}
+                    item={item}
+                    label={spaceItemDisplayTitle(item)}
+                    // An untitled row also says when it was made, so two of them differ.
+                    detail={untitled ? formatRelativeTime(item.updatedAt, Date.now()) : undefined}
+                    active={props.openKey === item.key}
+                    onClick={() => props.onOpen(item)}
+                  />
+                );
+              })}
+            </SidebarMenu>
+          </section>
+        ) : null}
       </div>
       <div className="border-t border-[color:var(--app-rail-inset-border,var(--border))] px-1.5 py-1.5">
         <SidebarMenu>
@@ -486,5 +617,40 @@ function sameSection(a: SpaceSection, b: SpaceSection): boolean {
   if (a.type !== b.type) return false;
   if (a.type === "kind" && b.type === "kind") return a.kind === b.kind;
   if (a.type === "space" && b.type === "space") return a.spaceId === b.spaceId;
+  if (a.type === "folder" && b.type === "folder") return a.folderId === b.folderId;
+  if (a.type === "tag" && b.type === "tag") return a.tag === b.tag;
+  if (a.type === "collection" && b.type === "collection") return a.id === b.id;
   return true;
+}
+
+/** Tags listed in the sidebar; the rest are a ⌘K away. */
+const SIDEBAR_TAG_LIMIT = 12;
+/** Recent items in the sidebar; the 全部 view lists the rest, newest first. */
+const RECENT_LIMIT = 5;
+
+/** A sidebar group that folds away until it is wanted: its label is the toggle. */
+function Fold(props: { label: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <section className="mt-4" aria-label={props.label}>
+      <Button
+        size="xs"
+        variant="ghost"
+        aria-expanded={props.open}
+        className={cn(
+          "h-7 w-full justify-start gap-1 px-2.5 hover:bg-transparent",
+          SIDEBAR_SECTION_LABEL_CLASS_NAME,
+        )}
+        onClick={props.onToggle}
+      >
+        {props.label}
+        <ChevronRightIcon
+          aria-hidden
+          className={cn("size-3 transition-transform", props.open && "rotate-90")}
+        />
+      </Button>
+      <DisclosureRegion open={props.open}>
+        <SidebarMenu className="gap-0.5">{props.children}</SidebarMenu>
+      </DisclosureRegion>
+    </section>
+  );
 }

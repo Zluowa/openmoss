@@ -13,6 +13,7 @@ import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
 
 import { MossDataSpaceDestination } from "./MossDataSpaceDestination";
+import { markWelcomeOffered } from "./space/welcome/spaceWelcome";
 import { TooltipProvider } from "./ui/tooltip";
 import { ToastProvider } from "./ui/toast";
 import { MossLocalizationProvider } from "~/localization";
@@ -44,6 +45,7 @@ async function mount() {
   });
   client.setQueryData(serverQueryKeys.settings(), DEFAULT_SERVER_SETTINGS_VIEW);
   account(fixture.state.account);
+  markWelcomeOffered(readMossImagesAccountIdentity(client));
   const route = createRootRoute({
     component: () => (
       <QueryClientProvider client={client}>

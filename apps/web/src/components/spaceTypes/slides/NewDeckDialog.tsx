@@ -1,18 +1,12 @@
 // FILE: NewDeckDialog.tsx
-// Purpose: 新建幻灯片 quick start: four ways in (空白开始 · 从文件导入 · 用资料空间内容生成 ·
-//          从模板开始) and, under them, "describe the deck and let Moss make it".
+// Purpose: 新建幻灯片: describe the deck and Moss makes it; under the box, the other ways in
+//          (空白 · 导入 PPT · 用页面生成 · 模板) as one quiet row.
 // Layer: 资料空间 幻灯片
 
 import { useMemo, useState } from "react";
 import { isImeComposingKeyEvent } from "~/lib/imeKeyEvent";
 
-import {
-  CloudUploadIcon,
-  FoldersIcon,
-  SlidesIcon,
-  TemplateIcon,
-  type LucideIcon,
-} from "~/lib/icons";
+import { CloudUploadIcon, FoldersIcon, SlidesIcon, TemplateIcon } from "~/lib/icons";
 import { Button } from "../../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../../ui/dialog";
 import { Input } from "../../ui/input";
@@ -21,28 +15,6 @@ import { Textarea } from "../../ui/textarea";
 export interface NewDeckSourcePage {
   readonly id: string;
   readonly title: string;
-}
-
-function Start(props: {
-  icon: LucideIcon;
-  label: string;
-  hint: string;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  const Icon = props.icon;
-  return (
-    <Button
-      variant="outline"
-      disabled={props.disabled}
-      onClick={props.onClick}
-      className="h-auto flex-col items-start justify-start gap-1.5 rounded-card bg-card p-3 text-left font-normal whitespace-normal"
-    >
-      <Icon className="size-4 text-muted-foreground" aria-hidden />
-      <span className="text-ui font-medium">{props.label}</span>
-      <span className="text-ui-xs text-muted-foreground">{props.hint}</span>
-    </Button>
-  );
 }
 
 export function NewDeckDialog(props: {
@@ -116,68 +88,62 @@ export function NewDeckDialog(props: {
               </Button>
             </div>
           ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <Start
-                  icon={SlidesIcon}
-                  label="空白开始"
-                  hint="一张封面，自己往下写"
-                  disabled={props.busy}
-                  onClick={props.onBlank}
-                />
-                <Start
-                  icon={CloudUploadIcon}
-                  label="从文件导入"
-                  hint="PowerPoint 转成可编辑的幻灯片"
-                  disabled={props.busy}
-                  onClick={props.onImport}
-                />
-                <Start
-                  icon={FoldersIcon}
-                  label="用资料空间内容生成"
-                  hint="选一个页面，Moss 把它做成演示"
-                  disabled={props.busy}
-                  onClick={() => setPicking(true)}
-                />
-                <Start
-                  icon={TemplateIcon}
-                  label="从模板开始"
-                  hint="周报、提案、复盘等现成结构"
-                  disabled={props.busy}
-                  onClick={props.onTemplate}
-                />
-              </div>
-              <form
-                className="flex flex-col gap-2"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  if (prompt.trim()) props.onGenerate(prompt.trim());
+            // Say what the deck is about and Moss makes it; the other ways in sit below it.
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (prompt.trim()) props.onGenerate(prompt.trim());
+              }}
+            >
+              <Textarea
+                autoFocus
+                aria-label="描述这份演示"
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (isImeComposingKeyEvent(event)) return;
+                  if (event.key === "Enter" && !event.shiftKey && prompt.trim()) {
+                    event.preventDefault();
+                    props.onGenerate(prompt.trim());
+                  }
                 }}
-              >
-                <label className="text-ui-sm text-muted-foreground" htmlFor="new-deck-prompt">
-                  或者描述你要的演示文稿，让 Moss 生成
-                </label>
-                <Textarea
-                  id="new-deck-prompt"
+                rows={4}
+                maxLength={4_000}
+                placeholder="描述这份演示，Moss 来做。比如：8 页的 Q4 复盘"
+              />
+              <div className="flex flex-wrap items-center gap-1">
+                {(
+                  [
+                    [SlidesIcon, "空白", props.onBlank],
+                    [CloudUploadIcon, "导入 PPT", props.onImport],
+                    [FoldersIcon, "用页面生成", () => setPicking(true)],
+                    [TemplateIcon, "模板", props.onTemplate],
+                  ] as const
+                ).map(([Icon, label, onClick]) => (
+                  <Button
+                    key={label}
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-muted-foreground"
+                    disabled={props.busy}
+                    onClick={onClick}
+                  >
+                    <Icon aria-hidden />
+                    {label}
+                  </Button>
+                ))}
+                <Button
+                  type="submit"
                   size="sm"
-                  value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (isImeComposingKeyEvent(event)) return;
-                    if (event.key === "Enter" && !event.shiftKey && prompt.trim()) {
-                      event.preventDefault();
-                      props.onGenerate(prompt.trim());
-                    }
-                  }}
-                  rows={3}
-                  maxLength={4_000}
-                  placeholder="例如：给团队做一份 8 页的 Q4 复盘，包含目标完成情况、关键数据和下季度重点"
-                />
-                <Button type="submit" disabled={props.busy || !prompt.trim()}>
-                  让 Moss 生成
+                  className="ms-auto"
+                  disabled={props.busy || !prompt.trim()}
+                >
+                  生成
                 </Button>
-              </form>
-            </>
+              </div>
+            </form>
           )}
         </div>
       </DialogPopup>

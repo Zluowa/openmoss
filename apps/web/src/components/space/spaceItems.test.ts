@@ -189,6 +189,10 @@ describe("spaceItemDisplayTitle", () => {
     expect(spaceItemDisplayTitle({ title: "会议纪要", kind: "page" })).toBe("会议纪要");
     expect(spaceItemDisplayTitle({ title: "  ", kind: "page" })).toBe("未命名文档");
     expect(spaceItemDisplayTitle({ title: "", kind: "slides" })).toBe("未命名");
+    expect(spaceItemDisplayTitle({ title: "海边的蓝调时刻.webp", kind: "image" })).toBe(
+      "海边的蓝调时刻",
+    );
+    expect(spaceItemDisplayTitle({ title: "报告.pdf", kind: "file" })).toBe("报告.pdf");
   });
 });
 

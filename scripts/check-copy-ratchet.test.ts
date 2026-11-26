@@ -152,4 +152,14 @@ describe("release notes", () => {
     );
     expect([...countCopy(root).byFile.keys()]).toEqual(["whatsNew/FeatureSection.tsx"]);
   });
+
+  it("leaves out spaceWelcome sample content data", () => {
+    root = mkdtempSync(join(tmpdir(), "copy-ratchet-"));
+    mkdirSync(join(root, "components", "space", "welcome"), { recursive: true });
+    writeFileSync(
+      join(root, "components", "space", "welcome", "spaceWelcome.ts"),
+      'export const poem = "返景入深林，复照青苔上。";\n',
+    );
+    expect([...countCopy(root).byFile.keys()]).toEqual([]);
+  });
 });

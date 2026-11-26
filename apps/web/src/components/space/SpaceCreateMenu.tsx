@@ -36,8 +36,7 @@ export type SpaceCreateAction =
   | "image"
   | "space"
   | "template"
-  | "upload"
-  | "plugin";
+  | "upload";
 
 interface SpaceCreateMenuEntry {
   readonly id: SpaceCreateAction;

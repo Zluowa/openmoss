@@ -136,12 +136,12 @@ describe("slides host parity & controls", () => {
       </Harness>,
     );
 
-    const prompt = page.getByLabelText("或者描述你要的演示文稿，让 Moss 生成");
+    const prompt = page.getByLabelText("描述这份演示");
     await userEvent.fill(prompt, "做一份 8 页复盘");
-    await userEvent.click(page.getByRole("button", { name: "让 Moss 生成", exact: true }));
+    await userEvent.click(page.getByRole("button", { name: "生成", exact: true }));
     expect(onGenerate).toHaveBeenCalledWith("做一份 8 页复盘");
 
-    await userEvent.click(page.getByRole("button", { name: /用资料空间内容生成/ }));
+    await userEvent.click(page.getByRole("button", { name: "用页面生成", exact: true }));
     await userEvent.fill(page.getByRole("textbox", { name: "搜索页面" }), "周报");
     await userEvent.click(page.getByRole("button", { name: "产品周报", exact: true }));
     expect(onFromPage).toHaveBeenCalledWith({ id: "p-2", title: "产品周报" });

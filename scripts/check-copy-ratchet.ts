@@ -50,9 +50,9 @@ function isScanned(path: string): boolean {
   if (!/\.(tsx|ts)$/.test(path) || /\.d\.ts$/.test(path)) return false;
   if (/\.(test|browser|stories)\.tsx?$/.test(path)) return false;
   if (/[\\/](test|tests|__tests__|__screenshots__|fixtures)[\\/]/.test(path)) return false;
-  // Release notes and agent prompts are not interface copy (section 4, "Limits"). Release notes
-  // are the data files of whatsNew/ (entries, release lists); its .tsx components still count.
+  // Release notes, welcome sample book data and agent prompts are not interface copy (section 4, "Limits").
   if (/zhCNWhatsNew\.ts$/.test(path) || /[\\/]whatsNew[\\/][^\\/]+\.ts$/.test(path)) return false;
+  if (/[\\/]welcome[\\/]spaceWelcome\.ts$/.test(path)) return false;
   if (/prompt/i.test(path.split(/[\\/]/).pop() ?? "")) return false;
   return true;
 }

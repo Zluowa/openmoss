@@ -1,7 +1,8 @@
 // FILE: SpaceHome.tsx
-// Purpose: The 资料空间's item views: 全部 (tabs 全部 / 你的条目 / 与你共享, pastel 新建 tiles,
-//          dismissible 快速开始 template strip, search, kind/owner/sort filter, 3-col grid or
-//          list), one item family (页面, 幻灯片…) and one 资料空间's pages.
+// Purpose: The 资料空间's item views: 全部 (folder cards, then notes, pictures and the rest; 新建
+//          tiles and 快速开始 while the space is young), one item family (页面, 幻灯片…), one
+//          资料空间, a folder, a tag or a 合集 — as a grid, a list or a canvas. One header row:
+//          the title, the filter (an icon until a filter is on) and the view.
 // Layer: Space UI
 
 import type { PageTypedItem, SpaceId, SpaceTemplateKind } from "@moss/contracts";
@@ -22,17 +23,13 @@ import {
   SlidesIcon,
   SparklesIcon,
   TableIcon,
-  XIcon,
+  WhiteboardIcon,
   type LucideIcon,
 } from "~/lib/icons";
 import { useTheme } from "~/hooks/useTheme";
 import { cn } from "~/lib/utils";
 import { ensureNativeApi } from "~/nativeApi";
-import {
-  PAGE_TITLE_CLASS_NAME,
-  TAB_IDLE_SURFACE_CLASS_NAME,
-  TAB_SELECTED_SURFACE_CLASS_NAME,
-} from "~/surfaceStyles";
+import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 
 import { ComposerPickerMenuPopup } from "../chat/ComposerPickerMenuPopup";
 import { createSpaceItem } from "../spaceTypes/spaceItemTypes";
@@ -41,11 +38,19 @@ import {
   getTemplateLaunchMetadata,
   type SpaceTemplateLaunchMetadata,
 } from "../spaceTypes/templates/TemplatePickerDialog";
-import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger } from "../ui/menu";
-import { SearchInput } from "../ui/search-input";
+import { GalleryCanvas } from "./gallery/GalleryCanvas";
+import { SpaceFolderCard } from "./gallery/GalleryCards";
+import { useOptionalGallery } from "./gallery/GalleryContext";
+import {
+  galleryClassOf,
+  sortForGallery,
+  type CanvasGroup,
+  type GalleryFolder,
+} from "./gallery/galleryModel";
 import type { SpaceCreateAction } from "./SpaceCreateMenu";
+import { SpaceMasonryGrid } from "./SpaceMasonryGrid";
 import { SpaceItemCard, SpaceListHeader, type SpaceItemActions } from "./SpaceItemCard";
 import {
   getSpaceDashboardRegistryVersion,
@@ -54,7 +59,6 @@ import {
   pageItem,
   setSyncedSpaceHomeKind,
   SPACE_KIND_FILTERS,
-  SPACE_TABS,
   subscribeSpaceDashboardRegistry,
   subscribeSyncedSpaceHomeKind,
   type SpaceItem,
@@ -62,13 +66,12 @@ import {
   type SpaceOwnerFilter,
   type SpaceSection,
   type SpaceSortOrder,
-  type SpaceTab,
 } from "./spaceItems";
 import { spaceKindMeta } from "./spaceKinds";
 
 const VIEW_STORAGE_KEY = "moss:space:view";
-const HIDE_CREATE_TILES_KEY = "moss:space:hide-create-tiles";
-const HIDE_QUICK_START_KEY = "moss:space:hide-quick-start";
+/** Below this many items the home still offers 新建 and 快速开始. */
+const YOUNG_SPACE_ITEMS = 6;
 
 const OWNER_FILTERS: ReadonlyArray<{ id: SpaceOwnerFilter; label: string }> = [
   { id: "any", label: "全部来源" },
@@ -144,28 +147,14 @@ function pickQuickStartTemplates(): readonly SpaceTemplateDefinition[] {
 
 const QUICK_START_TEMPLATES = pickQuickStartTemplates();
 
-function readStoredView(): "grid" | "list" {
+type SpaceView = "grid" | "list" | "canvas";
+
+function readStoredView(): SpaceView {
   try {
-    return window.localStorage.getItem(VIEW_STORAGE_KEY) === "list" ? "list" : "grid";
+    const stored = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    return stored === "list" || stored === "canvas" ? stored : "grid";
   } catch {
     return "grid";
-  }
-}
-
-function readStoredFlag(key: string): boolean {
-  try {
-    return window.localStorage.getItem(key) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeStoredFlag(key: string, value: boolean): void {
-  try {
-    if (value) window.localStorage.setItem(key, "1");
-    else window.localStorage.removeItem(key);
-  } catch {
-    // Storage convenience; state still updates cleanly in memory.
   }
 }
 
@@ -209,20 +198,22 @@ export function SpaceHome(
       launch: SpaceTemplateLaunchMetadata;
     }) => void;
     onBrowseTemplates?: () => void;
+    /** Folders shown above the items on the 全部 home: 资料空间 and 资料库 folders. */
+    folders?: readonly GalleryFolder[];
+    onOpenFolder?: (folder: GalleryFolder) => void;
+    /** The card to outline: the folder or item the person just came back from. */
+    marked?: string | null;
   },
 ) {
-  const [tab, setTab] = useState<SpaceTab>("all");
   const dark = useTheme().resolvedTheme === "dark";
   const kind = useSyncExternalStore(subscribeSyncedSpaceHomeKind, getSyncedSpaceHomeKind);
   useSyncExternalStore(subscribeSpaceDashboardRegistry, getSpaceDashboardRegistryVersion);
   const [owner, setOwner] = useState<SpaceOwnerFilter>("any");
   const [sort, setSort] = useState<SpaceSortOrder>("updated");
-  const [query, setQuery] = useState("");
-  const [view, setView] = useState<"grid" | "list">(readStoredView);
-  const [hideCreateTiles, setHideCreateTiles] = useState(() =>
-    readStoredFlag(HIDE_CREATE_TILES_KEY),
-  );
-  const [hideQuickStart, setHideQuickStart] = useState(() => readStoredFlag(HIDE_QUICK_START_KEY));
+  const gallery = useOptionalGallery();
+  const [storedView, setView] = useState<SpaceView>(readStoredView);
+  // The canvas needs the shared note reads; without them (a card shown on its own) it is a grid.
+  const view: SpaceView = storedView === "canvas" && gallery === null ? "grid" : storedView;
   const [launchingTemplateId, setLaunchingTemplateId] = useState<string | null>(null);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -232,23 +223,13 @@ export function SpaceHome(
     return () => window.clearInterval(timer);
   }, []);
 
-  const changeView = (next: "grid" | "list") => {
+  const changeView = (next: SpaceView) => {
     setView(next);
     try {
       window.localStorage.setItem(VIEW_STORAGE_KEY, next);
     } catch {
       // A remembered view is a convenience; the toggle still works without storage.
     }
-  };
-
-  const dismissCreateTiles = (hidden: boolean) => {
-    setHideCreateTiles(hidden);
-    writeStoredFlag(HIDE_CREATE_TILES_KEY, hidden);
-  };
-
-  const dismissQuickStart = (hidden: boolean) => {
-    setHideQuickStart(hidden);
-    writeStoredFlag(HIDE_QUICK_START_KEY, hidden);
   };
 
   const launchStarterTemplate = async (template: SpaceTemplateDefinition) => {
@@ -284,187 +265,150 @@ export function SpaceHome(
   const isAll = props.section.type === "all";
   const effectiveKind = isAll ? kind : "any";
   const visible = itemsForSection(props.items, props.section, {
-    tab,
+    tab: "all",
     kind: effectiveKind,
-    query,
+    query: "",
     owner,
     sort,
+    tagsOf: gallery?.tagsOf,
   });
   const kindLabel = SPACE_KIND_FILTERS.find((entry) => entry.id === kind)?.label ?? "全部类型";
   const hasActiveFilter = (isAll && kind !== "any") || owner !== "any" || sort !== "updated";
-  const showHomeStarters = isAll && kind === "any" && query.trim() === "";
+  const showHomeStarters = isAll && kind === "any";
+  // 新建 and 快速开始 help a 资料空间 get started; once it holds a few things they step aside
+  // (创建 in the sidebar keeps every kind and template). The canvas is the whole wall.
+  const young = props.items.filter((item) => item.trashedAt === null).length < YOUNG_SPACE_ITEMS;
+  const showStarterRows = showHomeStarters && young && view !== "canvas";
   const effectiveTitle =
     isAll && kind !== "any"
       ? (SPACE_KIND_FILTERS.find((e) => e.id === kind)?.label ?? props.title)
       : props.title;
+  const folders = props.folders ?? gallery?.tree.folders ?? [];
+  const showFolders = showHomeStarters && folders.length > 0 && props.onOpenFolder;
+  // On the home, foldered items live in their folder cards; the grid lists the rest.
+  const folderedKeys = new Set(
+    showFolders ? folders.flatMap((folder) => folder.items.map((item) => item.key)) : [],
+  );
+  const gridItems = showFolders ? visible.filter((item) => !folderedKeys.has(item.key)) : visible;
+  const canvasGroups: CanvasGroup[] = showFolders
+    ? [
+        ...folders
+          .filter((folder) => folder.items.length > 0)
+          .map((folder) => ({
+            id: folder.key,
+            label: folder.title,
+            items: sortForGallery(folder.items),
+          })),
+        ...(gridItems.length ? [{ id: "loose", label: "未归入文件夹", items: gridItems }] : []),
+      ]
+    : groupByClass(visible);
   const emptyCreateAction = isAll
     ? filterEmptyCreateAction(kind, props.emptyCreate)
     : props.emptyCreate;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-space-home={props.section.type}>
-      <header className="flex flex-col gap-3 px-6 pt-6 pb-3 md:px-10 md:pt-8">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className={PAGE_TITLE_CLASS_NAME}>{effectiveTitle}</h1>
-            {props.description ? (
-              <p className="mt-1 text-ui-sm text-muted-foreground">{props.description}</p>
-            ) : null}
-          </div>
-          {props.headerAction ? (
-            <div className="flex flex-wrap items-center gap-2">{props.headerAction}</div>
+      {/* One quiet row: the title, then only what changes this view. */}
+      <header className="flex items-center gap-1.5 px-6 pt-6 pb-4 md:px-10 md:pt-8">
+        <div className="min-w-0 flex-1">
+          <h1 className={cn(PAGE_TITLE_CLASS_NAME, "truncate")}>{effectiveTitle}</h1>
+          {props.description ? (
+            <p className="mt-1 truncate text-ui-sm text-muted-foreground">{props.description}</p>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {isAll ? (
-            <div role="tablist" aria-label="条目分类" className="flex items-center gap-1">
-              {SPACE_TABS.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === entry.id}
-                  className={cn(
-                    "h-7 rounded-control px-2.5 text-ui",
-                    tab === entry.id
-                      ? TAB_SELECTED_SURFACE_CLASS_NAME
-                      : TAB_IDLE_SURFACE_CLASS_NAME,
-                  )}
-                  onClick={() => setTab(entry.id)}
-                >
-                  {entry.label}
-                </button>
+        {props.headerAction}
+        <Menu>
+          <MenuTrigger
+            render={
+              <Button
+                size={hasActiveFilter ? "sm" : "icon-sm"}
+                variant="ghost"
+                aria-label={isAll ? `筛选：${kindLabel}` : "排序与筛选"}
+                data-pressed={hasActiveFilter ? "" : undefined}
+              >
+                <FilterIcon aria-hidden className="size-4" />
+                {hasActiveFilter ? (isAll && kind !== "any" ? kindLabel : "已筛选") : null}
+              </Button>
+            }
+          />
+          <ComposerPickerMenuPopup align="end" className="w-48 min-w-48">
+            <MenuGroup>
+              <MenuGroupLabel>排序方式</MenuGroupLabel>
+              {SORT_OPTIONS.map((entry) => (
+                <MenuItem key={entry.id} onClick={() => setSort(entry.id)}>
+                  <span className="flex-1">{entry.label}</span>
+                  {sort === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
+                </MenuItem>
               ))}
-            </div>
-          ) : null}
-          <div className="ms-auto flex flex-wrap items-center gap-1.5">
-            <div className="w-56 max-sm:w-40">
-              <SearchInput
-                size="sm"
-                aria-label="搜索条目"
-                placeholder="搜索"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
-            <Menu>
-              <MenuTrigger
-                render={
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label={isAll ? `筛选：${kindLabel}` : "排序与筛选"}
-                    data-pressed={hasActiveFilter ? "" : undefined}
-                  >
-                    <FilterIcon aria-hidden className="size-4" />
-                    {isAll && kind !== "any" ? kindLabel : "筛选"}
-                  </Button>
-                }
-              />
-              <ComposerPickerMenuPopup align="end" className="w-48 min-w-48">
-                <MenuGroup>
-                  <MenuGroupLabel>排序方式</MenuGroupLabel>
-                  {SORT_OPTIONS.map((entry) => (
-                    <MenuItem key={entry.id} onClick={() => setSort(entry.id)}>
-                      <span className="flex-1">{entry.label}</span>
-                      {sort === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
-                    </MenuItem>
-                  ))}
-                </MenuGroup>
+            </MenuGroup>
+            <MenuSeparator />
+            <MenuGroup>
+              <MenuGroupLabel>创建来源</MenuGroupLabel>
+              {OWNER_FILTERS.map((entry) => (
+                <MenuItem key={entry.id} onClick={() => setOwner(entry.id)}>
+                  <span className="flex-1">{entry.label}</span>
+                  {owner === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
+                </MenuItem>
+              ))}
+            </MenuGroup>
+            {isAll ? (
+              <>
                 <MenuSeparator />
                 <MenuGroup>
-                  <MenuGroupLabel>创建来源</MenuGroupLabel>
-                  {OWNER_FILTERS.map((entry) => (
-                    <MenuItem key={entry.id} onClick={() => setOwner(entry.id)}>
+                  <MenuGroupLabel>条目类型</MenuGroupLabel>
+                  {SPACE_KIND_FILTERS.map((entry) => (
+                    <MenuItem key={entry.id} onClick={() => setSyncedSpaceHomeKind(entry.id)}>
                       <span className="flex-1">{entry.label}</span>
-                      {owner === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
+                      {kind === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
                     </MenuItem>
                   ))}
                 </MenuGroup>
-                {isAll ? (
-                  <>
-                    <MenuSeparator />
-                    <MenuGroup>
-                      <MenuGroupLabel>条目类型</MenuGroupLabel>
-                      {SPACE_KIND_FILTERS.map((entry) => (
-                        <MenuItem key={entry.id} onClick={() => setSyncedSpaceHomeKind(entry.id)}>
-                          <span className="flex-1">{entry.label}</span>
-                          {kind === entry.id ? <CheckIcon aria-hidden className="size-4" /> : null}
-                        </MenuItem>
-                      ))}
-                    </MenuGroup>
-                  </>
-                ) : null}
-                {hasActiveFilter || (isAll && (hideCreateTiles || hideQuickStart)) ? (
-                  <>
-                    <MenuSeparator />
-                    {hasActiveFilter ? (
-                      <MenuItem
-                        onClick={() => {
-                          setSort("updated");
-                          setOwner("any");
-                          if (isAll) setSyncedSpaceHomeKind("any");
-                        }}
-                      >
-                        重置筛选条件
-                      </MenuItem>
-                    ) : null}
-                    {isAll && (hideCreateTiles || hideQuickStart) ? (
-                      <MenuItem
-                        onClick={() => {
-                          dismissCreateTiles(false);
-                          dismissQuickStart(false);
-                        }}
-                      >
-                        显示新建与快速开始
-                      </MenuItem>
-                    ) : null}
-                  </>
-                ) : null}
-              </ComposerPickerMenuPopup>
-            </Menu>
-            <div className="flex items-center rounded-control bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-0.5">
-              {(
-                [
-                  ["grid", "网格视图", LayoutGridIcon],
-                  ["list", "列表视图", ListBulletsIcon],
-                ] as const
-              ).map(([id, label, Icon]) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-label={label}
-                  aria-pressed={view === id}
-                  title={label}
-                  className={cn(
-                    "flex size-6 items-center justify-center rounded-inline text-muted-foreground",
-                    view === id
-                      ? "bg-background text-foreground shadow-xs"
-                      : "hover:text-foreground",
-                  )}
-                  onClick={() => changeView(id)}
+              </>
+            ) : null}
+            {hasActiveFilter ? (
+              <>
+                <MenuSeparator />
+                <MenuItem
+                  onClick={() => {
+                    setSort("updated");
+                    setOwner("any");
+                    if (isAll) setSyncedSpaceHomeKind("any");
+                  }}
                 >
-                  <Icon aria-hidden className="size-4" />
-                </button>
-              ))}
-            </div>
-          </div>
+                  重置筛选条件
+                </MenuItem>
+              </>
+            ) : null}
+          </ComposerPickerMenuPopup>
+        </Menu>
+        <div className="flex items-center rounded-control bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] p-0.5">
+          {(
+            [
+              ["grid", "网格视图", LayoutGridIcon],
+              ["list", "列表视图", ListBulletsIcon],
+              ...(gallery ? ([["canvas", "画布视图", WhiteboardIcon]] as const) : []),
+            ] as const
+          ).map(([id, label, Icon]) => (
+            <button
+              key={id}
+              type="button"
+              aria-label={label}
+              aria-pressed={view === id}
+              title={label}
+              className={cn(
+                "flex size-6 items-center justify-center rounded-inline text-muted-foreground",
+                view === id ? "bg-background text-foreground shadow-xs" : "hover:text-foreground",
+              )}
+              onClick={() => changeView(id)}
+            >
+              <Icon aria-hidden className="size-4" />
+            </button>
+          ))}
         </div>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 md:px-10">
-        {showHomeStarters && !hideCreateTiles ? (
-          <section className="mb-6" aria-label="新建" data-space-create-tiles>
-            <div className="mb-2.5 flex items-center justify-between gap-2">
-              <h2 className="text-ui-sm font-medium text-muted-foreground">新建</h2>
-              <Button
-                size="icon-xs"
-                variant="ghost"
-                aria-label="收起新建卡片"
-                onClick={() => dismissCreateTiles(true)}
-              >
-                <XIcon aria-hidden className="size-3.5" />
-              </Button>
-            </div>
+        {showStarterRows ? (
+          <section className="mb-4" aria-label="新建" data-space-create-tiles>
             <div className="flex flex-wrap gap-3">
               {CREATION_TILES.map((tile) => {
                 const Icon = tile.icon;
@@ -481,11 +425,6 @@ export function SpaceHome(
                     }}
                     onClick={() => props.onCreate(tile.action)}
                   >
-                    {tile.beta ? (
-                      <Badge variant="secondary" size="sm" className="absolute top-1.5 right-1.5">
-                        Beta
-                      </Badge>
-                    ) : null}
                     <Icon
                       aria-hidden
                       className="size-5 shrink-0"
@@ -505,70 +444,47 @@ export function SpaceHome(
           </section>
         ) : null}
 
-        {showHomeStarters && !hideQuickStart && QUICK_START_TEMPLATES.length > 0 ? (
-          <section className="mb-6" aria-label="快速开始" data-space-quick-start>
-            <div className="mb-2.5 flex items-center justify-between gap-2">
-              <h2 className="flex items-center gap-1.5 text-ui-sm font-medium text-muted-foreground">
-                <SparklesIcon aria-hidden className="size-3.5" />
-                快速开始
-              </h2>
-              <div className="flex items-center gap-1">
+        {showStarterRows && QUICK_START_TEMPLATES.length > 0 ? (
+          // 快速开始: a few templates Moss fills in for you, one line of chips.
+          <section
+            className="mb-6 flex flex-wrap items-center gap-1.5"
+            aria-label="快速开始"
+            data-space-quick-start
+          >
+            <SparklesIcon aria-hidden className="me-1 size-3.5 text-muted-foreground" />
+            {QUICK_START_TEMPLATES.map((template) => {
+              const Icon = spaceKindMeta(template.kind).icon;
+              return (
                 <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() =>
-                    props.onBrowseTemplates ? props.onBrowseTemplates() : props.onCreate("template")
-                  }
+                  key={template.id}
+                  size="sm"
+                  variant="outline"
+                  disabled={launchingTemplateId !== null}
+                  data-space-quick-start-template={template.id}
+                  title={template.description || undefined}
+                  className="rounded-full"
+                  onClick={() => void launchStarterTemplate(template)}
                 >
-                  浏览全部模板
+                  <Icon aria-hidden className="text-muted-foreground" />
+                  {launchingTemplateId === template.id ? "创建中…" : template.title}
                 </Button>
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label="收起快速开始"
-                  onClick={() => dismissQuickStart(true)}
-                >
-                  <XIcon aria-hidden className="size-3.5" />
-                </Button>
-              </div>
-            </div>
+              );
+            })}
+            <Button
+              size="sm"
+              variant="ghost"
+              className="rounded-full text-muted-foreground"
+              onClick={() =>
+                props.onBrowseTemplates ? props.onBrowseTemplates() : props.onCreate("template")
+              }
+            >
+              更多模板
+            </Button>
             {launchError ? (
-              <p role="alert" className="mb-2 text-ui-sm text-destructive">
+              <p role="alert" className="w-full text-ui-sm text-destructive">
                 {launchError}
               </p>
             ) : null}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {QUICK_START_TEMPLATES.map((template) => {
-                const kindMeta = spaceKindMeta(template.kind);
-                const Icon = kindMeta.icon;
-                const launchMeta = getTemplateLaunchMetadata(template, { autoRun: true });
-                const isBusy = launchingTemplateId === template.id;
-                return (
-                  <Button
-                    key={template.id}
-                    variant="outline"
-                    disabled={launchingTemplateId !== null}
-                    data-space-quick-start-template={template.id}
-                    className="@container flex h-auto min-h-0 flex-col items-start justify-between gap-1.5 rounded-panel border-border/70 bg-card px-3.5 py-3 text-left shadow-2xs transition-[box-shadow,border-color] hover:border-border hover:shadow-sm"
-                    onClick={() => void launchStarterTemplate(template)}
-                  >
-                    <span className="flex w-full items-center gap-1.5">
-                      <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate text-ui font-medium text-foreground">
-                        {template.title}
-                      </span>
-                      {/* On a narrow card the title wins: the kind tag gives way first. */}
-                      <Badge variant="secondary" size="sm" className="shrink-0 @max-[10rem]:hidden">
-                        {isBusy ? "创建中…" : kindMeta.label}
-                      </Badge>
-                    </span>
-                    <span className="line-clamp-2 w-full whitespace-normal text-ui-xs font-normal text-muted-foreground">
-                      {template.description || launchMeta.starterPrompt}
-                    </span>
-                  </Button>
-                );
-              })}
-            </div>
           </section>
         ) : null}
 
@@ -583,32 +499,51 @@ export function SpaceHome(
           <p role="status" className="py-6 text-ui text-muted-foreground">
             正在加载…
           </p>
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && showStarterRows ? null : visible.length === 0 &&
+          !showFolders ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16 text-center text-ui text-muted-foreground">
-            <p>{emptyMessage(props.section, tab, query, effectiveKind)}</p>
-            {/* Creating lives in the sidebar and the 新建 tiles; an empty kind list offers its own. */}
-            {query === "" && tab !== "shared" && !(showHomeStarters && !hideCreateTiles) ? (
-              <Button size="sm" variant="outline" onClick={() => props.onCreate(emptyCreateAction)}>
-                创建
-              </Button>
-            ) : null}
+            <p>{emptyMessage(props.section, effectiveKind)}</p>
+            <Button size="sm" variant="outline" onClick={() => props.onCreate(emptyCreateAction)}>
+              创建
+            </Button>
+          </div>
+        ) : view === "canvas" ? (
+          <div className="-mx-6 flex h-[max(28rem,calc(100vh-16rem))] md:-mx-10" data-space-canvas>
+            <GalleryCanvas
+              container={`${props.section.type}:${sectionKey(props.section)}:${effectiveKind}`}
+              groups={canvasGroups}
+            />
           </div>
         ) : view === "grid" ? (
-          <div
-            className="grid gap-6 [grid-template-columns:repeat(auto-fill,minmax(min(100%,max(15rem,30%)),1fr))]"
-            data-space-grid
-          >
-            {visible.map((item) => (
-              <SpaceItemCard
-                key={item.key}
-                {...props}
-                item={item}
-                view="grid"
-                place={props.placeOf(item)}
-                now={now}
-              />
-            ))}
-          </div>
+          <SpaceMasonryGrid data-space-grid>
+            {[
+              ...(showFolders
+                ? folders.map((folder) => ({
+                    key: folder.key,
+                    node: (
+                      <SpaceFolderCard
+                        folder={folder}
+                        marked={props.marked === folder.key}
+                        onOpen={(entry) => props.onOpenFolder?.(entry)}
+                      />
+                    ),
+                  }))
+                : []),
+              ...gridItems.map((item) => ({
+                key: item.key,
+                node: (
+                  <SpaceItemCard
+                    {...props}
+                    item={item}
+                    view="grid"
+                    place={props.placeOf(item)}
+                    now={now}
+                    marked={props.marked === item.key}
+                  />
+                ),
+              })),
+            ]}
+          </SpaceMasonryGrid>
         ) : (
           <div role="grid" aria-label="条目列表" data-space-list>
             <SpaceListHeader />
@@ -621,6 +556,7 @@ export function SpaceHome(
                   view="list"
                   place={props.placeOf(item)}
                   now={now}
+                  marked={props.marked === item.key}
                 />
               ))}
             </div>
@@ -631,23 +567,39 @@ export function SpaceHome(
   );
 }
 
-function emptyMessage(
-  section: SpaceSection,
-  tab: SpaceTab,
-  query: string,
-  kind: SpaceKindFilter,
-): string {
-  if (query) return "没有匹配的条目";
+/** On the canvas outside the home, notes and documents in one cluster, pictures in another. */
+function groupByClass(items: readonly SpaceItem[]): CanvasGroup[] {
+  const pictures = items.filter((item) => galleryClassOf(item) === "image");
+  const rest = items.filter((item) => galleryClassOf(item) !== "image");
+  return [
+    ...(rest.length ? [{ id: "documents", label: "笔记和文档", items: rest }] : []),
+    ...(pictures.length ? [{ id: "pictures", label: "图片", items: pictures }] : []),
+  ];
+}
+
+function sectionKey(section: SpaceSection): string {
+  switch (section.type) {
+    case "kind":
+      return section.kind;
+    case "space":
+      return section.spaceId;
+    case "folder":
+      return section.folderId;
+    case "tag":
+      return section.tag;
+    case "collection":
+      return section.id;
+    default:
+      return "";
+  }
+}
+
+function emptyMessage(section: SpaceSection, kind: SpaceKindFilter): string {
   if (section.type === "space") return "这个资料空间还没有页面";
+  if (section.type === "folder") return "这个文件夹还是空的";
+  if (section.type === "tag" || section.type === "collection") return "还没有带这些标签的条目";
   if (section.type === "kind" || (section.type === "all" && kind !== "any")) {
     return "这里还没有内容";
   }
-  switch (tab) {
-    case "favorites":
-      return "收藏的条目会显示在这里";
-    case "shared":
-      return "别人与你共享的条目会显示在这里";
-    default:
-      return "这里还没有内容";
-  }
+  return "还没有条目";
 }

@@ -135,8 +135,9 @@ describe("资料空间 home, as a person sees it", () => {
         expect(found.length).toBe(6);
         return found;
       });
+      const firstItem = document.querySelector<HTMLElement>("[data-space-item]")!;
       const card = channels(
-        getComputedStyle(document.querySelector("[data-space-item]")!).backgroundColor,
+        getComputedStyle(firstItem.querySelector("button") ?? firstItem).backgroundColor,
       );
       for (const tile of tiles) {
         const style = getComputedStyle(tile);
@@ -169,7 +170,7 @@ describe("资料空间 home, as a person sees it", () => {
     await page.viewport(1280, 900);
     await renderHome(1280);
     await vi.waitFor(() =>
-      expect(document.querySelector('[data-space-card-preview="page"]')?.textContent).toContain(
+      expect(document.querySelector('[data-space-item="page:doc-1"]')?.textContent).toContain(
         "季度计划",
       ),
     );
@@ -188,36 +189,35 @@ describe("资料空间 home, as a person sees it", () => {
     window.getSelection()?.removeAllRanges();
   });
 
-  it("keeps quick-start titles whole on a narrow window; the kind tags give way", async () => {
+  it("keeps quick-start titles whole on a narrow window", async () => {
     await page.viewport(854, 900);
     await renderHome(854);
-    const cards = await vi.waitFor(() => {
+    const chips = await vi.waitFor(() => {
       const found = [
         ...document.querySelectorAll<HTMLElement>("[data-space-quick-start-template]"),
       ];
       expect(found.length).toBe(3);
       return found;
     });
-    for (const card of cards) {
-      const title = card.querySelector<HTMLElement>(".truncate")!;
-      expect(title.scrollWidth, title.textContent ?? "").toBeLessThanOrEqual(title.clientWidth);
-      const tag = card.querySelector<HTMLElement>("[data-slot='badge']");
-      if (tag) expect(tag.getBoundingClientRect().width).toBe(0);
+    for (const chip of chips) {
+      expect(chip.scrollWidth, chip.textContent ?? "").toBeLessThanOrEqual(chip.clientWidth + 1);
+      expect(chip.textContent?.trim().length).toBeGreaterThan(0);
     }
   });
 
-  it("shows the kind tags on quick-start cards at a normal width", async () => {
+  it("shows all quick-start chips unclipped at a normal width", async () => {
     await page.viewport(1440, 900);
     await renderHome(1440);
-    const tags = await vi.waitFor(() => {
+    const chips = await vi.waitFor(() => {
       const found = [
-        ...document.querySelectorAll<HTMLElement>(
-          "[data-space-quick-start-template] [data-slot='badge']",
-        ),
+        ...document.querySelectorAll<HTMLElement>("[data-space-quick-start-template]"),
       ];
       expect(found.length).toBe(3);
       return found;
     });
-    for (const tag of tags) expect(tag.getBoundingClientRect().width).toBeGreaterThan(0);
+    for (const chip of chips) {
+      expect(chip.getBoundingClientRect().width).toBeGreaterThan(0);
+      expect(chip.scrollWidth, chip.textContent ?? "").toBeLessThanOrEqual(chip.clientWidth + 1);
+    }
   });
 });

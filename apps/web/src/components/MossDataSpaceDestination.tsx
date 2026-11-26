@@ -21,7 +21,7 @@ import {
 } from "@moss/contracts";
 
 import { ensureNativeApi } from "~/nativeApi";
-import { uploadPickedLibraryFiles } from "~/lib/libraryUpload";
+import { uploadLibraryFiles, uploadPickedLibraryFiles } from "~/lib/libraryUpload";
 import { cn } from "~/lib/utils";
 import { isMossCanvasAccountSignedOut, MOSS_CANVAS_SIGN_IN_MESSAGE } from "~/lib/mossCanvasClient";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
@@ -37,6 +37,7 @@ import { SpaceHome } from "./space/SpaceHome";
 import {
   buildSpaceItems,
   recentItems,
+  setSyncedSpaceHomeKind,
   spaceTitle,
   type SpaceItem,
   type SpaceSection,
@@ -48,6 +49,17 @@ import {
   readOutputText,
 } from "./space/SpaceItemViewers";
 import { AccountPageRecovery } from "./space/AccountPageRecovery";
+import { GalleryProvider, type GalleryPlace } from "./space/gallery/GalleryContext";
+import { useGalleryLocalStore } from "./space/gallery/galleryLocalStore";
+import { fileIntoSpaces, type GalleryFolder } from "./space/gallery/galleryModel";
+import { GalleryImageViewer } from "./space/gallery/GalleryImageViewer";
+import {
+  isBlankSpace,
+  markWelcomeOffered,
+  seedWelcomeSpace,
+  welcomeOffered,
+} from "./space/welcome/spaceWelcome";
+import { GallerySearchDialog } from "./space/gallery/GallerySearchDialog";
 import {
   type SpaceCanvasActiveArtifact,
   SpaceCanvasChatDockHost,
@@ -115,6 +127,13 @@ function openPageState(page: {
 
 export { SPACE_PAGE_HASH_PREFIX };
 
+/** The folder card a section came from, to outline it on the way back. */
+function folderKeyOfSection(section: SpaceSection): string | null {
+  if (section.type === "space") return `space:${section.spaceId}`;
+  if (section.type === "folder") return `folder:${section.folderId}`;
+  return null;
+}
+
 /** Data spaces own Pages; the existing Library remains the file/asset surface. */
 export function MossDataSpaceDestination(props: Props) {
   const boundary = useMossImagesAccountBoundary();
@@ -145,6 +164,15 @@ function DataSpaceWorkspace({
   const navigate = useNavigate();
   const [section, setSection] = useState<SpaceSection>({ type: "all" });
   const [open, setOpen] = useState<Open | null>(null);
+  /** The card to outline after coming back: the folder or item just left. */
+  const [marked, setMarked] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const collections = useGalleryLocalStore((state) => state.collections);
+  const removeCollection = useGalleryLocalStore((state) => state.removeCollection);
+  const openedCollection =
+    section.type === "collection"
+      ? (collections.find((entry) => entry.id === section.id) ?? null)
+      : null;
   const dialogNameInputId = useId();
   const [createIntent] = useState(
     () =>
@@ -264,21 +292,85 @@ function DataSpaceWorkspace({
     refetchInterval: 15_000,
   });
   const allPages = useMemo(() => listQuery.data?.pages ?? [], [listQuery.data]);
+  const libraryFolders = useMemo(() => libraryQuery.data?.folders ?? [], [libraryQuery.data]);
   const spaces = spacesQuery.data?.spaces ?? [];
+  // Pictures in a 资料库 folder named like a 资料空间 live in that space, beside its pages.
   const items = useMemo(
     () =>
-      buildSpaceItems({
-        pages: allPages,
-        apps: appsQuery.data ?? [],
-        outputs: outputsQuery.data?.outputs ?? [],
-        library: libraryQuery.data?.items ?? [],
+      fileIntoSpaces({
+        items: buildSpaceItems({
+          pages: allPages,
+          apps: appsQuery.data ?? [],
+          outputs: outputsQuery.data?.outputs ?? [],
+          library: libraryQuery.data?.items ?? [],
+        }),
+        spaces: spacesQuery.data?.spaces ?? [],
+        libraryFolders,
       }),
-    [allPages, appsQuery.data, outputsQuery.data, libraryQuery.data],
+    [
+      allPages,
+      appsQuery.data,
+      outputsQuery.data,
+      libraryQuery.data,
+      spacesQuery.data,
+      libraryFolders,
+    ],
   );
   const refresh = useCallback(
     () => client.invalidateQueries({ queryKey: pagesQueryKeys.scope(account, scopeSpaceId) }),
     [account, client, scopeSpaceId],
   );
+
+  // A first visit to an empty 资料空间 gets the 示例资料, once per account on this device.
+  const welcomeStarted = useRef(false);
+  const addTag = useGalleryLocalStore((state) => state.addTag);
+  useEffect(() => {
+    if (welcomeStarted.current || welcomeOffered(account)) return;
+    if (
+      !listQuery.data ||
+      !spacesQuery.data ||
+      !outputsQuery.data ||
+      !libraryQuery.data ||
+      appsQuery.isLoading
+    )
+      return;
+    if (
+      !isBlankSpace({
+        pages: listQuery.data.pages,
+        spaces: spacesQuery.data.spaces,
+        apps: appsQuery.data ?? [],
+        outputs: outputsQuery.data.outputs,
+        library: libraryQuery.data.items,
+      })
+    )
+      return;
+    welcomeStarted.current = true;
+    markWelcomeOffered(account);
+    void seedWelcomeSpace({
+      api: ensureNativeApi(),
+      scopeSpaceId,
+      upload: uploadLibraryFiles,
+      onTags: (key, tags) => {
+        for (const tag of tags) addTag(key, tag);
+      },
+    })
+      .catch((cause: unknown) => {
+        if (isCurrent()) setNotice(cause instanceof Error ? cause.message : "示例资料没有放好。");
+      })
+      .finally(() => void refresh());
+  }, [
+    account,
+    scopeSpaceId,
+    listQuery.data,
+    spacesQuery.data,
+    outputsQuery.data,
+    libraryQuery.data,
+    appsQuery.data,
+    appsQuery.isLoading,
+    addTag,
+    isCurrent,
+    refresh,
+  ]);
   const leave = async () =>
     (await (leaveGuard.current?.() ?? Promise.resolve(true))) && isCurrent();
   const leaveRef = useRef(leave);
@@ -292,6 +384,10 @@ function DataSpaceWorkspace({
 
   const showSection = async (next: SpaceSection) => {
     if (!(await leave())) return;
+    // Coming back outlines where the person was: the item just closed, else the folder left.
+    const closing =
+      open?.type === "page" ? `page:${open.pageId}` : open?.type === "item" ? open.key : null;
+    setMarked(closing ?? folderKeyOfSection(section));
     setOpen(null);
     setSection(next);
   };
@@ -782,6 +878,17 @@ function DataSpaceWorkspace({
         const space = spaces.find((entry) => entry.id === section.spaceId);
         return { title: space?.title ?? "资料空间", description: "" };
       }
+      case "folder": {
+        const folder = libraryFolders.find((entry) => entry.id === section.folderId);
+        return { title: folder?.title ?? "文件夹", description: "" };
+      }
+      case "tag":
+        return { title: `#${section.tag}`, description: "" };
+      case "collection":
+        return {
+          title: openedCollection?.title ?? "合集",
+          description: section.tags.map((tag) => `#${tag}`).join(" "),
+        };
       default:
         return { title: "回收站", description: "" };
     }
@@ -789,7 +896,51 @@ function DataSpaceWorkspace({
   const openKey =
     open?.type === "page" ? `page:${open.pageId}` : open?.type === "item" ? open.key : null;
 
-  return (
+  useEffect(() => {
+    // ⌘K / Ctrl+K searches the 资料空间 while it is open, before the app-wide palette sees it.
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "k") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setSearchOpen(true);
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, []);
+  const sectionOfFolder = (folder: GalleryFolder): SpaceSection =>
+    folder.spaceId
+      ? { type: "space", spaceId: folder.spaceId as PageSpace["id"] }
+      : { type: "folder", folderId: folder.libraryFolderIds[0] ?? "" };
+  const goToPlace = (place: GalleryPlace) => {
+    setSyncedSpaceHomeKind("any");
+    switch (place.type) {
+      case "home":
+        return void showSection({ type: "all" });
+      case "folder":
+        return void showSection(
+          place.key.startsWith("space:")
+            ? { type: "space", spaceId: place.key.slice(6) as PageSpace["id"] }
+            : { type: "folder", folderId: place.key.slice(7) },
+        );
+      case "tag":
+        return void showSection({ type: "tag", tag: place.tag });
+      default: {
+        // Read the store, not this render: a 合集 saved a moment ago is not in it yet.
+        const collection = useGalleryLocalStore
+          .getState()
+          .collections.find((entry) => entry.id === place.id);
+        if (collection)
+          void showSection({ type: "collection", id: collection.id, tags: collection.tags });
+      }
+    }
+  };
+  // Pictures open beside their details; videos and other files keep the file viewer.
+  const openedImage =
+    openedItem && openedItem.kind === "image" && openedItem.source.type !== "page"
+      ? openedItem
+      : null;
+
+  const body = (
     <div className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden" data-moss-data-spaces>
       {sidebarVisible === false ? null : (
         <SpaceSidebar
@@ -821,11 +972,17 @@ function DataSpaceWorkspace({
             if (root)
               void run("移到回收站", async () => {
                 await pageMutation(root, { op: "trash-space" });
+                // Its pictures (the 资料库 folder of the same name) are the same folder here.
+                const pictures = items
+                  .filter((item) => item.spaceId === space.id && item.source.type === "library")
+                  .map((item) => item.key.slice("library:".length));
+                if (pictures.length) await ensureNativeApi().library.trash({ ids: pictures });
                 if (section.type === "space" && section.spaceId === space.id)
                   setSection({ type: "all" });
               });
           }}
           onClose={libraryProps.onClose}
+          onSearch={() => setSearchOpen(true)}
         />
       )}
       <div ref={workspaceHostRef} className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -898,6 +1055,18 @@ function DataSpaceWorkspace({
                         : undefined
                     }
                   />
+                ) : openedImage ? (
+                  <GalleryImageViewer
+                    key={openedImage.key}
+                    item={openedImage}
+                    onBack={() => {
+                      setMarked(openedImage.key);
+                      setOpen(null);
+                    }}
+                    onContinueInChat={(item) => void continueInChat(item)}
+                    onTogglePin={(item) => void togglePin(item)}
+                    onTrash={(item) => void trashItem(item).then(() => setOpen(null))}
+                  />
                 ) : openedItem ? (
                   openedItem.source.type === "output" || openedItem.source.type === "library" ? (
                     <SpaceOutputViewer
@@ -967,6 +1136,9 @@ function DataSpaceWorkspace({
                   />
                 ) : (
                   <SpaceHome
+                    key={`${section.type}:${folderKeyOfSection(section) ?? ""}`}
+                    marked={marked}
+                    onOpenFolder={(folder) => void showSection(sectionOfFolder(folder))}
                     headerAction={
                       scopeSpaceId === null && section.type === "all" ? (
                         <AccountPageRecovery
@@ -976,6 +1148,17 @@ function DataSpaceWorkspace({
                             void refresh();
                           }}
                         />
+                      ) : openedCollection ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            removeCollection(openedCollection.id);
+                            void showSection({ type: "all" });
+                          }}
+                        >
+                          删除合集
+                        </Button>
                       ) : undefined
                     }
                     section={section}
@@ -1156,7 +1339,30 @@ function DataSpaceWorkspace({
           </form>
         </DialogPopup>
       </Dialog>
+      <GallerySearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        placeOf={placeOf}
+        onContinueInChat={(item) => void continueInChat(item)}
+        onTogglePin={(item) => void togglePin(item)}
+        onTrash={(item) => void trashItem(item)}
+      />
     </div>
+  );
+
+  return (
+    <GalleryProvider
+      account={account}
+      scopeSpaceId={scopeSpaceId}
+      items={items}
+      spaces={spaces}
+      libraryFolders={libraryFolders}
+      loading={listQuery.isLoading || spacesQuery.isLoading}
+      onOpenItem={(item) => void openItem(item)}
+      onPlace={goToPlace}
+    >
+      {body}
+    </GalleryProvider>
   );
 }
 

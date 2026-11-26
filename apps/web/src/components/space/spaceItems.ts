@@ -138,6 +138,12 @@ export type SpaceSection =
   | { readonly type: "all" }
   | { readonly type: "kind"; readonly kind: SpaceKindSection }
   | { readonly type: "space"; readonly spaceId: PageSpaceId }
+  /** A 资料库 folder with no 资料空间 of the same name (one with a name match is that space). */
+  | { readonly type: "folder"; readonly folderId: string }
+  /** Everything carrying one tag: a note's #标签 or a tag added to a picture. */
+  | { readonly type: "tag"; readonly tag: string }
+  /** A saved search: everything carrying all of its tags. */
+  | { readonly type: "collection"; readonly id: string; readonly tags: readonly string[] }
   | { readonly type: "trash" };
 
 export type SpaceKindSection = "page" | "slides" | "site" | "image" | "app";
@@ -260,6 +266,8 @@ export function itemsForSection(
     query: string;
     owner?: SpaceOwnerFilter;
     sort?: SpaceSortOrder;
+    /** Tags of an item, for the tag and 合集 views. */
+    tagsOf?: ((item: SpaceItem) => readonly string[]) | undefined;
   },
 ): SpaceItem[] {
   const query = options.query.trim().toLocaleLowerCase();
@@ -283,6 +291,25 @@ export function itemsForSection(
   if (section.type === "space") {
     return sortSpaceItems(
       live.filter((item) => item.spaceId === section.spaceId && (query !== "" || isListed(item))),
+      options.sort,
+    );
+  }
+  if (section.type === "folder") {
+    return sortSpaceItems(
+      live.filter(
+        (item) => item.source.type === "library" && item.source.item.folderId === section.folderId,
+      ),
+      options.sort,
+    );
+  }
+  if (section.type === "tag" || section.type === "collection") {
+    const wanted = section.type === "tag" ? [section.tag] : section.tags;
+    const tagsOf = options.tagsOf ?? (() => []);
+    return sortSpaceItems(
+      live.filter((item) => {
+        const own = tagsOf(item);
+        return wanted.length > 0 && wanted.every((tag) => own.includes(tag));
+      }),
       options.sort,
     );
   }
@@ -368,6 +395,10 @@ function isTrashRoot(item: SpaceItem, items: readonly SpaceItem[]): boolean {
  */
 export function spaceItemDisplayTitle(item: Pick<SpaceItem, "title" | "kind">): string {
   const title = item.title.trim();
+  // A picture reads by its name, as Finder shows it; the format is in its details.
+  if (title && item.kind === "image") {
+    return title.replace(/\.(?:png|jpe?g|webp|gif|avif|heic|bmp|svg)$/iu, "") || title;
+  }
   if (title) return title;
   return item.kind === "page" ? "未命名文档" : "未命名";
 }
