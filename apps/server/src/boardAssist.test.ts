@@ -5,12 +5,13 @@ import { PageAppCapabilityError } from "@moss/shared/pageAppCapabilityPlugin";
 import { describe, expect, it } from "vitest";
 
 import {
+  BOARD_ASSIST_TIER_MODELS,
   parseBoardAssistModel,
   readBoardAssistBody,
   streamBoardAssist,
   streamBoardAssistViaCli,
 } from "./boardAssist";
-import type { PageAppAiGateway } from "./pages/apps/aiGateway";
+import type { PageAppAiGateway, PageAppAiGatewayRequest } from "./pages/apps/aiGateway";
 
 const body = {
   board: {
@@ -43,6 +44,24 @@ describe("board assist server", () => {
     expect(input.expectedBoard).toEqual(body.expectedBoard);
     expect(readBoardAssistBody({ ask: { text: "", via: "comment" } })).toBeNull();
     expect(readBoardAssistBody({ ask: { text: "hi", via: "chat" } })).toBeNull();
+
+    const rich = readBoardAssistBody({
+      board: { shapes: [], truncated: false },
+      ask: {
+        text: "画个小狗",
+        via: "comment",
+        pin: { x: 100, y: 200, w: 400, h: 500, kind: "region" },
+        capabilities: ["drawing", "relativePlace", "unknown-cap", "drawing"],
+        theme: "dark",
+      },
+    })!;
+    expect(rich.ask).toEqual({
+      text: "画个小狗",
+      via: "comment",
+      pin: { x: 100, y: 200, w: 400, h: 500, kind: "region" },
+      capabilities: ["drawing", "relativePlace"],
+      theme: "dark",
+    });
   });
 
   it("streams model text deltas with the computed tier", async () => {
@@ -109,5 +128,117 @@ describe("board assist server", () => {
       { type: "text", delta: '{"op":"addNote","text":"一"}\n{"say":"好了"}\n' },
       { type: "done", model: "codex/gpt-5.6-mini" },
     ]);
+  });
+
+  it("validates tierOverride, new capabilities, issues, history, 40KB attachments, images, and correction", () => {
+    const rich = readBoardAssistBody({
+      board: {
+        shapes: [
+          { id: "shape:img1", type: "image", x: 0, y: 0, w: 300, h: 200, picture: 1 },
+          { id: "shape:img2", type: "image", x: 0, y: 0, w: 300, h: 200, picture: 99 },
+        ],
+        truncated: false,
+      },
+      ask: {
+        text: "根据附件和图片整理流程",
+        via: "composer",
+        tierOverride: "complex",
+        capabilities: [
+          "drawing",
+          "relativePlace",
+          "table",
+          "pen",
+          "offer",
+          "show",
+          "handoff",
+          "undo",
+          "bogus",
+        ],
+        issues: [
+          { kind: "words_covered", ids: ["shape:a"], detail: "blocked" },
+          { kind: "unknown_kind", ids: ["shape:b"] },
+        ],
+        history: Array.from({ length: 10 }, (_, idx) => ({
+          said: `ask ${idx}`,
+          did: `did ${idx}`,
+          ...(idx === 9 ? { undone: true } : {}),
+        })),
+        attachments: [
+          { name: "a.md", text: "A".repeat(30_000) },
+          { name: "b.md", text: "B".repeat(20_000) },
+        ],
+        images: [
+          { shapeId: "shape:img1", mimeType: "image/jpeg", dataBase64: "AQID" },
+          { shapeId: "shape:bad", mimeType: "image/gif", dataBase64: "AQID" },
+          { shapeId: "shape:bad2", mimeType: "image/png", dataBase64: "not valid!!" },
+        ],
+        correction: {
+          issues: [{ kind: "overlap", ids: ["shape:a", "k1"], detail: "overlap" }],
+          placed: [{ id: "k1", x: 10, y: 20, w: 180, h: 90, text: "节点" }],
+        },
+      },
+    })!;
+
+    expect(rich.board.shapes[0]?.picture).toBe(1);
+    expect(rich.board.shapes[1]?.picture).toBeUndefined();
+    expect(rich.ask.tierOverride).toBe("complex");
+    expect(rich.ask.capabilities).toEqual([
+      "drawing",
+      "relativePlace",
+      "table",
+      "pen",
+      "offer",
+      "show",
+      "handoff",
+      "undo",
+    ]);
+    expect(rich.ask.issues).toEqual([
+      { kind: "words_covered", ids: ["shape:a"], detail: "blocked" },
+    ]);
+    expect(rich.ask.history).toHaveLength(8);
+    expect(rich.ask.history?.[0]?.said).toBe("ask 2");
+    expect(rich.ask.history?.[7]?.undone).toBe(true);
+    expect(rich.ask.attachments?.[0]?.text).toHaveLength(30_000);
+    expect(rich.ask.attachments?.[1]?.text).toHaveLength(40 * 1024 - 30_000);
+    expect(rich.ask.images).toEqual([
+      { shapeId: "shape:img1", mimeType: "image/jpeg", dataBase64: "AQID" },
+    ]);
+    expect(rich.ask.correction).toEqual({
+      issues: [{ kind: "overlap", ids: ["shape:a", "k1"], detail: "overlap" }],
+      placed: [{ id: "k1", x: 10, y: 20, w: 180, h: 90, text: "节点" }],
+    });
+  });
+
+  it("forwards vision images and tierOverride to the AI gateway and keeps tier model lists separated", async () => {
+    expect(BOARD_ASSIST_TIER_MODELS.default).not.toContain("glm-5.3-flash");
+    expect(BOARD_ASSIST_TIER_MODELS.complex).not.toContain("glm-5.3-flash");
+
+    let captured: PageAppAiGatewayRequest | undefined;
+    const gateway: PageAppAiGateway = {
+      async *ask(request) {
+        captured = request;
+        yield { type: "text", delta: '{"say":"已识别图片"}\n' };
+        yield { type: "done", text: "", model: "kimi-k3" };
+      },
+    };
+    const parsed = readBoardAssistBody({
+      board: {
+        shapes: [{ id: "shape:img1", type: "image", x: 0, y: 0, w: 300, h: 200, picture: 1 }],
+        truncated: false,
+      },
+      ask: {
+        text: "总结图片内容",
+        via: "comment",
+        tierOverride: "complex",
+        images: [{ shapeId: "shape:img1", mimeType: "image/webp", dataBase64: "UklGRg==" }],
+      },
+    })!;
+    const events = [];
+    for await (const event of streamBoardAssist(gateway, parsed, new AbortController().signal)) {
+      events.push(event);
+    }
+    expect(events[0]).toEqual({ type: "start", tier: "complex" });
+    expect(captured?.tier).toBe("complex");
+    expect(captured?.images).toEqual([{ mimeType: "image/webp", dataBase64: "UklGRg==" }]);
   });
 });

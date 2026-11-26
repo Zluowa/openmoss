@@ -275,4 +275,83 @@ describe("POST /api/moss/board/assist", () => {
       { kind: "say", text: "已添加路线图便签" },
     ]);
   });
+
+  it("accepts payloads >512KB with vision images and attachments, respects tierOverride, and retries text-only if upstream rejects vision", async () => {
+    const receivedBodies: Array<Record<string, unknown>> = [];
+    let attempt = 0;
+    const server = http.createServer(async (req, res) => {
+      if (req.method !== "POST") {
+        res.writeHead(405).end();
+        return;
+      }
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      receivedBodies.push(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      attempt += 1;
+      if (attempt === 1) {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "vision unsupported" }));
+        return;
+      }
+      res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+      res.write(
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: '{"say":"已回退文本模式完成"}\n' } }],
+        })}\n\n`,
+      );
+      res.write("data: [DONE]\n\n");
+      res.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Failed to bind stub server");
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    vi.stubEnv(
+      "MOSS_PAGE_APPS_AI_STUB_URL",
+      `http://127.0.0.1:${address.port}/v1/chat/completions`,
+    );
+
+    const h = await createRouteHarness();
+    // 600KB base64 image (> old 512KB limit, well under new 4MiB limit)
+    const largeBase64 = "A".repeat(600_000);
+    const response = await h.web.handler(
+      new Request(`http://127.0.0.1:3000${MOSS_BOARD_ASSIST_ROUTE_PATH}`, {
+        method: "POST",
+        headers: {
+          authorization: "Bearer owner-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          board: {
+            shapes: [{ id: "shape:img1", type: "image", x: 0, y: 0, w: 400, h: 300, picture: 1 }],
+            truncated: false,
+          },
+          ask: {
+            text: "结合截图和附件整理要点",
+            via: "composer",
+            tierOverride: "complex",
+            capabilities: ["drawing", "table", "pen", "offer", "show", "handoff", "undo"],
+            attachments: [{ name: "brief.md", text: "核心目标与里程碑" }],
+            images: [{ shapeId: "shape:img1", mimeType: "image/jpeg", dataBase64: largeBase64 }],
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const sseText = await response.text();
+    const events = sseText
+      .split("\n\n")
+      .map((chunk) => chunk.trim())
+      .filter((chunk) => chunk.startsWith("data:"))
+      .map((chunk) => JSON.parse(chunk.slice(5).trim()) as { type: string; tier?: string });
+    expect(events[0]).toEqual({ type: "start", tier: "complex" });
+    expect(receivedBodies).toHaveLength(2);
+    const firstUser = (receivedBodies[0]?.messages as Array<{ content: unknown }> | undefined)?.[1];
+    const secondUser = (
+      receivedBodies[1]?.messages as Array<{ content: unknown }> | undefined
+    )?.[1];
+    expect(Array.isArray(firstUser?.content)).toBe(true);
+    expect(typeof secondUser?.content).toBe("string");
+  });
 });
