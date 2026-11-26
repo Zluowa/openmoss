@@ -849,6 +849,18 @@
       "types": "./src/pageAppManifest.ts",
       "import": "./src/pageAppManifest.ts"
     },
+    "./pageAppUiKit": {
+      "types": "./src/pageAppUiKit/index.ts",
+      "import": "./src/pageAppUiKit/index.ts"
+    },
+    "./pageAppUiKitTokens": {
+      "types": "./src/pageAppUiKit/tokens.ts",
+      "import": "./src/pageAppUiKit/tokens.ts"
+    },
+    "./pageAppUiKitHandbook": {
+      "types": "./src/pageAppUiKit/handbook.ts",
+      "import": "./src/pageAppUiKit/handbook.ts"
+    },
     "./pageRichContent": {
       "types": "./src/pageRichContent.ts",
       "import": "./src/pageRichContent.ts"

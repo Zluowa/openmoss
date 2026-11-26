@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 
 import { blankHtmlNonMarkup } from "@moss/shared/htmlMarkup";
+import { MOSS_UI_KIT_CLASSIC_URLS, MOSS_UI_KIT_VERSION } from "@moss/shared/pageAppUiKitTokens";
 
 import { hasUnknownVisualizationDependency } from "../../inlineVisualization";
 import { hasExternalPageAppCssResource, preparePageAppFonts } from "./localFontLibraries";
@@ -39,6 +40,14 @@ export const PAGE_APP_LOCAL_LIBRARIES = [
       "https://unpkg.com/chart.js@4.5.1/dist/chart.umd.min.js",
       "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.1/chart.umd.min.js",
     ],
+  },
+  {
+    name: "Moss UI Kit",
+    version: MOSS_UI_KIT_VERSION,
+    asset: "moss-ui-kit.umd.js",
+    license: "MIT",
+    sha256: "caeb6742623bb6c7162153f21b0be2e1905e985cb47c7632f311242eca16aef8",
+    urls: MOSS_UI_KIT_CLASSIC_URLS,
   },
 ] as const;
 

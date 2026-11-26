@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 
 import { blankHtmlNonMarkup } from "@moss/shared/htmlMarkup";
+import { MOSS_UI_KIT_MODULE_URLS } from "@moss/shared/pageAppUiKitTokens";
 
 import type { PageAppLibraryReader } from "./localLibraries";
 import { APP_SCRIPT, pageAppScriptAttributes } from "./localLibraryHtml";
@@ -28,6 +29,11 @@ export const PAGE_APP_LOCAL_MODULES = [
       "https://cdn.jsdelivr.net/npm/three@0.182.0/build/three.module.js",
       "https://unpkg.com/three@0.182.0/build/three.module.js",
     ],
+  },
+  {
+    asset: "moss-ui-kit.esm.js",
+    sha256: "70d375710ed68ad0127adad9c71fa90e5d12e603cf4aedcb814049e3c3bd9adb",
+    urls: MOSS_UI_KIT_MODULE_URLS,
   },
 ] as const;
 const CORE = {
