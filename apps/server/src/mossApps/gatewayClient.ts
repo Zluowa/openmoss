@@ -9,7 +9,12 @@ import {
   MossAppsListToolkitsResult,
   type MossAppsListToolkitsInput,
 } from "@moss/contracts";
-import { OutboundHttpError, outboundHttp } from "@moss/shared/outboundHttp";
+import {
+  OutboundHttpError,
+  outboundHttp,
+  resolveOutboundProxyUrl,
+} from "@moss/shared/outboundHttp";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 import type { MossLoginCredential } from "../account/mossLoginAuthority";
 import { isMossConnectionLevelFailure } from "../account/mossServiceEntries";
 import { forwardMcpConnectorRequest } from "../mcpConnectors/proxy";
@@ -17,7 +22,8 @@ import type { McpConnectorForwardRequest } from "../mcpConnectors/runtime";
 
 const messages: Readonly<Record<string, string>> = {
   authentication_required: "Sign in to Moss to connect your apps.",
-  apps_login_account_required: "Switch to your phone or Google account to use Moss Apps.",
+  apps_login_account_required:
+    "Enterprise API keys don't support connecting external apps yet. Sign in with your phone or Google account to use Moss Apps.",
   account_recovery_required: "Sign in to Moss again to use your apps.",
   apps_unconfigured: "Moss Apps isn't available yet.",
   apps_credentials_required: "Enter the details this app asks for.",
@@ -120,17 +126,20 @@ export class MossAppsGatewayClient {
     signal: AbortSignal,
   ): Promise<unknown> {
     const url = mossAppsGatewayUrl(gatewayBaseUrl, route);
+    const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(process.env));
     const response = await outboundHttp.request({
       policy: {
         service: "moss-apps-gateway",
         allowedOrigins: [new URL(url).origin],
         timeoutMs: 60_000,
         maxRequestBytes: 64 * 1024,
-        maxResponseBytes: 4 * 1024 * 1024,
+        maxResponseBytes: 16 * 1024 * 1024,
         maxRedirects: 0,
         maxConcurrent: 4,
         maxQueued: 16,
         requirePublicAddress: true,
+        ...(proxyUrl ? { proxyUrl } : {}),
+        allowBenchmarkAddressRange: true,
       },
       url,
       method: body === undefined ? "GET" : "POST",

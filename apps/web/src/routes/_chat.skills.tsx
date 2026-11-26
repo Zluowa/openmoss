@@ -23,7 +23,7 @@ function MossCustomizeDestinationShell() {
   return (
     <div
       data-moss-customize-destination
-      className="flex h-svh min-h-0 min-w-0 flex-1 bg-[#f7f7f8] text-[#1f1f1f] dark:bg-[#0d0d0d] dark:text-white"
+      className="flex h-full min-h-0 min-w-0 flex-1 bg-[var(--app-rail-shell-background)] text-foreground"
     >
       <MossCustomizeSecondarySidebar
         activeTab={activeTab}

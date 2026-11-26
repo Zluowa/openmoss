@@ -150,7 +150,41 @@ describe("forwardMcpConnectorRequest", () => {
       allowedOrigins: ["https://mcp.example.com"],
       maxRedirects: 0,
       requirePublicAddress: true,
+      allowBenchmarkAddressRange: true,
     });
+  });
+
+  it("forwards HTTPS_PROXY to outboundHttp for connector and Apps MCP requests", async () => {
+    const previousHttpsProxy = process.env.HTTPS_PROXY;
+    const previoushttpsProxy = process.env.https_proxy;
+    const previousNoProxy = process.env.NO_PROXY;
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7897";
+    delete process.env.https_proxy;
+    delete process.env.NO_PROXY;
+    try {
+      const spy = mockOutbound({
+        status: 200,
+        headers: { "content-type": "application/json" },
+        chunks: ['{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}'],
+      });
+      await forwardMcpConnectorRequest(
+        {
+          url: "https://moss-cn-models.inkcomicai.com/functions/v1/moss-model-gateway/v1/apps/mcp",
+          method: "POST",
+          body: call,
+        },
+        "Moss Apps",
+      );
+      expect(spy.mock.calls[0]?.[0].policy.proxyUrl).toBe("http://127.0.0.1:7897/");
+      expect(spy.mock.calls[0]?.[0].policy.allowBenchmarkAddressRange).toBe(true);
+    } finally {
+      if (previousHttpsProxy === undefined) delete process.env.HTTPS_PROXY;
+      else process.env.HTTPS_PROXY = previousHttpsProxy;
+      if (previoushttpsProxy === undefined) delete process.env.https_proxy;
+      else process.env.https_proxy = previoushttpsProxy;
+      if (previousNoProxy === undefined) delete process.env.NO_PROXY;
+      else process.env.NO_PROXY = previousNoProxy;
+    }
   });
 
   it("passes JSON answers and statuses through", async () => {

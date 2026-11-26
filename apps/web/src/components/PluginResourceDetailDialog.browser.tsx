@@ -137,7 +137,7 @@ describe("PluginResourceDetailPage signed geometry", () => {
       )!;
       const appRow = document.querySelector<HTMLElement>('[data-testid="plugin-detail-app-row"]')!;
 
-      expect(breadcrumb.getBoundingClientRect().height).toBeCloseTo(46, 3);
+      expect(breadcrumb.getBoundingClientRect().height).toBeCloseTo(44, 3);
       // text-ui-lg: the comfortable heading role, 15px at base 14.
       expect(getComputedStyle(breadcrumb.querySelector("button")!).fontSize).toBe("15px");
       expect(getComputedStyle(breadcrumb.querySelector("button")!).fontWeight).toBe("445");

@@ -14,7 +14,8 @@ import {
   SIDEBAR_ROW_IDLE_TEXT_CLASS_NAME,
   SIDEBAR_SECTION_LABEL_CLASS_NAME,
 } from "~/sidebarRowStyles";
-import { SIDEBAR_PANEL_TITLE_CLASS_NAME } from "./SidebarPanelTitle";
+import { SidebarPanelTitle } from "./SidebarPanelTitle";
+import { Button } from "./ui/button";
 import { useTranslation } from "~/localization";
 import type { ReactNode } from "react";
 
@@ -107,16 +108,17 @@ export function MossCustomizeSecondarySidebar({
       data-moss-customize-secondary-sidebar
       aria-label={t("plugins.customize.title")}
       className={cn(
-        "flex h-svh w-70 shrink-0 flex-col border-r border-[color:var(--app-rail-inset-border,var(--border))] bg-[var(--app-rail-panel-background,var(--sidebar))] pt-[46px] text-foreground",
+        "app-rail-panel mt-[var(--app-top-strip-height,0px)] flex h-[calc(100%-var(--app-top-strip-height,0px)-var(--app-rail-inset-gap,0px))] w-70 shrink-0 flex-col text-foreground",
         className,
       )}
     >
-      <div className="flex h-12 shrink-0 items-center justify-between px-4">
-        <h2 className={SIDEBAR_PANEL_TITLE_CLASS_NAME}>{t("plugins.customize.title")}</h2>
-        <button
+      <SidebarPanelTitle title={t("plugins.customize.title")}>
+        <Button
           type="button"
+          size="icon-sm"
+          variant="ghost"
           className={cn(
-            "inline-flex size-7 items-center justify-center rounded-control text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-40",
+            "text-muted-foreground hover:text-foreground",
             SIDEBAR_ROW_HOVER_CLASS_NAME,
           )}
           aria-label={t("plugins.customize.searchAria")}
@@ -135,8 +137,8 @@ export function MossCustomizeSecondarySidebar({
           }}
         >
           <SearchIcon className="size-4" />
-        </button>
-      </div>
+        </Button>
+      </SidebarPanelTitle>
 
       <nav aria-label={t("plugins.customize.title")} className="flex flex-col gap-0 px-2">
         {tabs.map(({ id, label, Icon }) => (

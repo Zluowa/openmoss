@@ -20,6 +20,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
 import { Badge } from "./ui/badge";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from "./ui/menu";
+import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import {
   mcpTransportLabel,
@@ -54,6 +55,7 @@ import { Skeleton } from "./ui/skeleton";
 import { Spinner } from "./ui/spinner";
 import { ensureNativeApi } from "~/nativeApi";
 import { skillFilePath, skillMarkdownBody } from "~/lib/skillContent";
+import { cn } from "~/lib/utils";
 
 const SkillMarkdown = lazy(() => import("./ChatMarkdown"));
 
@@ -1250,9 +1252,13 @@ export function PluginResourceDetailPage({
       data-plugin-id={effectiveDetail.kind === "plugin" ? effectiveDetail.plugin.id : undefined}
     >
       <div
-        className="drag-region flex h-[46px] shrink-0 items-center gap-1 px-2"
+        className={cn(
+          "app-top-bar drag-region relative flex shrink-0 items-center gap-1 px-4 sm:px-6",
+          CHAT_SURFACE_HEADER_HEIGHT_CLASS,
+        )}
         data-testid="plugin-detail-breadcrumb"
       >
+        <div className="app-rail-header-divider" aria-hidden="true" />
         <Button
           variant="ghost"
           size="sm"

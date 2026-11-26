@@ -36,6 +36,21 @@ export interface MossAppConnectTarget {
 }
 
 type ConnectStage = "intro" | "waiting" | "failed";
+type FailureAccountAction = "login" | "account";
+
+function resolveFailureAccountAction(cause: unknown): FailureAccountAction | null {
+  const code =
+    typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+      ? cause.code
+      : "";
+  if (code === "authentication_required") return "login";
+  if (code === "apps_login_account_required") return "account";
+  if (cause instanceof Error) {
+    if (cause.message.includes("Sign in to Moss to connect")) return "login";
+    if (cause.message.includes("phone or Google account")) return "account";
+  }
+  return null;
+}
 
 /** A sign-in left open longer than this is treated as abandoned. */
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000;
@@ -67,10 +82,12 @@ export function MossAppConnectDialog({
   target,
   onOpenChange,
   onConnected,
+  onAccountRequired,
 }: {
   readonly target: MossAppConnectTarget | null;
   readonly onOpenChange: (open: boolean) => void;
   readonly onConnected?: ((slug: string) => void) | undefined;
+  readonly onAccountRequired?: ((action: FailureAccountAction) => void) | undefined;
 }) {
   const { format, t, locale } = useTranslation();
   const account = useMossImagesAccountBoundary();
@@ -79,6 +96,9 @@ export function MossAppConnectDialog({
   const [stage, setStage] = useState<ConnectStage>("intro");
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
+  const [failureAccountAction, setFailureAccountAction] = useState<FailureAccountAction | null>(
+    null,
+  );
   const [values, setValues] = useState<Readonly<Record<string, string>>>({});
   const startedAt = useRef(0);
   const slug = target?.slug ?? null;
@@ -92,6 +112,7 @@ export function MossAppConnectDialog({
     setStage("intro");
     setSignInUrl(null);
     setFailure(null);
+    setFailureAccountAction(null);
     setValues({});
   }, [slug]);
 
@@ -101,6 +122,7 @@ export function MossAppConnectDialog({
     setValues({});
     setSignInUrl(null);
     setFailure(null);
+    setFailureAccountAction(null);
     setStage("intro");
     if (target) onOpenChange(false);
   }, [account.key, target, onOpenChange]);
@@ -189,11 +211,14 @@ export function MossAppConnectDialog({
       )
         return;
       setStage("failed");
+      setFailureAccountAction(resolveFailureAccountAction(cause));
       setFailure(mossAppsErrorMessage(cause, locale));
     },
   });
 
   if (!target) return null;
+  const formAccountAction = form.isError ? resolveFailureAccountAction(form.error) : null;
+  const activeAccountAction = failureAccountAction ?? formAccountAction;
   const fields = form.data?.fields ?? [];
   const missingRequired = fields.some((field) => field.required && !values[field.name]?.trim());
   const canContinue =
@@ -363,6 +388,20 @@ export function MossAppConnectDialog({
               <span className="inline-flex h-8 items-center px-2" role="status">
                 <Spinner className="size-4 text-muted-foreground" />
               </span>
+            ) : activeAccountAction && onAccountRequired ? (
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 rounded-control px-3.5 text-ui-lg font-medium sm:h-8"
+                onClick={() => onAccountRequired(activeAccountAction)}
+                data-testid="moss-app-connect-account-action"
+              >
+                {t(
+                  activeAccountAction === "login"
+                    ? "sidebar.accountMenu.signIn"
+                    : "sidebar.accountMenu.chooseAccount",
+                )}
+              </Button>
             ) : needsSetup ? null : (
               <Button
                 type="submit"

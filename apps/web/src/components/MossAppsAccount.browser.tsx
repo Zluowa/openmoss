@@ -83,7 +83,13 @@ describe("Moss Apps account UI", () => {
         await vi.waitFor(() =>
           expect(document.documentElement.getAttribute("data-theme-variant")).toBe(theme),
         );
-        await expect.element(page.getByText("请切换到手机或 Google 账号使用应用。")).toBeVisible();
+        await expect
+          .element(
+            page.getByText(
+              "企业 API Key 暂不支持连接外部应用，请改用手机或 Google 账号登录 Moss。",
+            ),
+          )
+          .toBeVisible();
         await expect.element(page.getByText("暂时无法连接应用，请稍后重试。")).toBeVisible();
         // Not offered yet (also a gateway without the Apps module): a calm line, no button.
         await expect.element(page.getByText("Moss 应用暂未开放。")).toBeVisible();

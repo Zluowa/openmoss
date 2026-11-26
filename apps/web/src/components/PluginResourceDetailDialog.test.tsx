@@ -144,7 +144,7 @@ describe("PluginResourceDetailPage", () => {
 
     expect(markup).toContain('data-plugin-detail-state="settled"');
     expect(markup).toContain('data-testid="plugin-detail-breadcrumb"');
-    expect(markup).toContain("h-[46px]");
+    expect(markup).toContain("h-[44px]");
     expect(markup).toContain("text-ui-lg");
     expect(markup).toContain("font-[445]");
     expect(markup).toContain('data-testid="plugin-detail-content"');

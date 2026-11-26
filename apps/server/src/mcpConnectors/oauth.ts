@@ -14,7 +14,8 @@ import type {
   OAuthClientMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/sdk/shared/auth.js";
-import { outboundHttp } from "@moss/shared/outboundHttp";
+import { outboundHttp, resolveOutboundProxyUrl } from "@moss/shared/outboundHttp";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 
 export const MOSS_OAUTH_CLIENT_NAME = "Moss";
 export const MOSS_OAUTH_CLIENT_URI = MOSS_OFFICIAL_SITE_URL;
@@ -52,6 +53,7 @@ export async function connectorOAuthFetch(
   const method = (init?.method ?? "GET").toUpperCase();
   if (!OUTBOUND_METHODS.has(method)) throw new Error(`Unsupported OAuth method ${method}.`);
   const body = requestBodyText(init?.body);
+  const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(process.env));
   const response = await outboundHttp.request({
     policy: {
       service: "mcp-connector-oauth",
@@ -63,6 +65,8 @@ export async function connectorOAuthFetch(
       maxConcurrent: 4,
       maxQueued: 32,
       requirePublicAddress: true,
+      ...(proxyUrl ? { proxyUrl } : {}),
+      allowBenchmarkAddressRange: true,
     },
     url,
     method: method as OutboundMethod,

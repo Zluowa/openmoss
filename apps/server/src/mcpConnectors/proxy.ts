@@ -8,9 +8,11 @@
 import {
   OutboundHttpError,
   outboundHttp,
+  resolveOutboundProxyUrl,
   type OutboundHttpPolicy,
   type OutboundHttpResponse,
 } from "@moss/shared/outboundHttp";
+import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 
 import { SseJsonRpcCollector, jsonRpcRequestIds } from "@moss/shared/mcpJsonRpc";
 export { SseJsonRpcCollector, jsonRpcRequestIds } from "@moss/shared/mcpJsonRpc";
@@ -85,6 +87,7 @@ export function jsonRpcErrorResult(
 // connector (or the Settings probe) behind its long-running tool calls.
 function proxyPolicy(url: string): OutboundHttpPolicy {
   const origin = new URL(url).origin;
+  const proxyUrl = resolveOutboundProxyUrl(url, withOutboundProxyEnv(process.env));
   return {
     service: `mcp-connector-proxy:${origin}`,
     allowedOrigins: [origin],
@@ -95,6 +98,8 @@ function proxyPolicy(url: string): OutboundHttpPolicy {
     maxConcurrent: 8,
     maxQueued: 64,
     requirePublicAddress: true,
+    ...(proxyUrl ? { proxyUrl } : {}),
+    allowBenchmarkAddressRange: true,
   };
 }
 

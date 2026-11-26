@@ -2608,7 +2608,8 @@ const EN_TRANSLATIONS = {
   "plugins.origin.fromMarketplace": "From {name}",
   "plugins.detail.byDeveloper": "By {developer}",
   "apps.error.login": "Sign in to Moss to connect your apps.",
-  "apps.error.loginAccount": "Switch to your phone or Google account to use Moss Apps.",
+  "apps.error.loginAccount":
+    "Enterprise API keys don't support connecting external apps yet. Sign in with your phone or Google account to use Moss Apps.",
   "apps.error.recovery": "Sign in to Moss again to use your apps.",
   "apps.error.unconfigured": "Moss Apps isn't available yet.",
   "apps.error.credentialsRequired": "Enter the details this app asks for.",
@@ -7451,7 +7452,8 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "plugins.origin.fromMarketplace": "来自 {name}",
   "plugins.detail.byDeveloper": "由 {developer} 提供",
   "apps.error.login": "登录 Moss 后即可连接你的应用。",
-  "apps.error.loginAccount": "请切换到手机或 Google 账号使用应用。",
+  "apps.error.loginAccount":
+    "企业 API Key 暂不支持连接外部应用，请改用手机或 Google 账号登录 Moss。",
   "apps.error.recovery": "请重新登录 Moss 后使用应用。",
   "apps.error.unconfigured": "Moss 应用暂未开放。",
   "apps.error.credentialsRequired": "请填写此应用需要的信息。",

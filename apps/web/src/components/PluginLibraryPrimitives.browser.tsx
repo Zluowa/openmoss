@@ -15,6 +15,7 @@ import {
   PluginLibraryDetailIconBox,
   PluginLibraryHeader,
   PluginLibraryOneLineDescription,
+  PluginLibraryPillTabs,
   PluginLibrarySearchInput,
   PluginLibraryTwoColumnGrid,
   canShowPluginRequestAction,
@@ -276,7 +277,7 @@ describe("frozen Codex geometry", () => {
     document.body.innerHTML = "";
   });
 
-  it("freezes the 46px header, 36px card icon, 60px detail icon, and one-line clamp", async () => {
+  it("unifies the 44px header, 36px card icon, 60px detail icon, and one-line clamp", async () => {
     const screen = await render(
       <div>
         <PluginLibraryHeader
@@ -297,7 +298,7 @@ describe("frozen Codex geometry", () => {
     try {
       expect(
         page.getByTestId("plugin-library-header").element().getBoundingClientRect().height,
-      ).toBe(46);
+      ).toBe(44);
       const card = page.getByTestId("plugin-library-card-icon").element().getBoundingClientRect();
       expect([card.width, card.height]).toEqual([36, 36]);
       const detail = page
@@ -393,4 +394,65 @@ describe("PluginLibraryTwoColumnGrid", () => {
       }
     });
   }
+});
+
+describe("PluginLibraryPillTabs horizontal overflow", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("scrolls overflowing category pills cleanly with fade and scroll controls without clipping", async () => {
+    const categories = [
+      { id: "all", label: "全部" },
+      { id: "official", label: "Moss 官方" },
+      { id: "dev", label: "开发者工具" },
+      { id: "business", label: "企业与运营" },
+      { id: "collab", label: "协同办公" },
+      { id: "productivity", label: "效率工具" },
+      { id: "communication", label: "沟通协作" },
+      { id: "design", label: "设计创意" },
+      { id: "finance", label: "财务与法务" },
+      { id: "security", label: "安全" },
+    ];
+    function OverflowHarness() {
+      const [selected, setSelected] = useState("all");
+      return (
+        <div style={{ width: 420 }}>
+          <PluginLibraryPillTabs
+            ariaLabel="插件分类"
+            testId="plugin-category-tabs"
+            tabs={categories}
+            selected={selected}
+            onSelect={setSelected}
+          />
+        </div>
+      );
+    }
+    const screen = await render(<OverflowHarness />);
+    try {
+      const tablist = page.getByTestId("plugin-category-tabs").element();
+      expect(tablist.className).toContain("scroll-fade-x");
+      expect(tablist.scrollWidth).toBeGreaterThan(tablist.clientWidth);
+
+      const scrollRight = page.getByTestId("plugin-category-tabs-scroll-right");
+      await expect.element(scrollRight).toBeVisible();
+      await expect
+        .element(page.getByTestId("plugin-category-tabs-scroll-left"))
+        .not.toBeInTheDocument();
+
+      // Selecting the last pill scrolls it cleanly into the visible viewport.
+      await userEvent.click(page.getByRole("tab", { name: "安全" }));
+      await vi.waitFor(() => {
+        const lastTabRect = page
+          .getByRole("tab", { name: "安全" })
+          .element()
+          .getBoundingClientRect();
+        const stripRect = tablist.getBoundingClientRect();
+        expect(lastTabRect.right).toBeLessThanOrEqual(stripRect.right + 1);
+      });
+      await expect.element(page.getByTestId("plugin-category-tabs-scroll-left")).toBeVisible();
+    } finally {
+      await screen.unmount();
+    }
+  });
 });

@@ -35,11 +35,11 @@ import {
 } from "~/lib/icons";
 import { useTranslation } from "~/localization";
 import { cn } from "~/lib/utils";
-import { PAGE_TITLE_CLASS_NAME } from "~/surfaceStyles";
 import { ComposerPickerMenuPopup } from "./chat/ComposerPickerMenuPopup";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuItem, DropdownMenuTrigger } from "./ui/menu";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "./ui/input-group";
+import { PageHeader } from "./ui/page-header";
 
 export type PluginLibraryBrowseTab = "plugins" | "skills";
 export type PluginLibraryHeaderMode = "browse" | "manage";
@@ -604,10 +604,7 @@ export function PluginLibraryPageHeader({
 }) {
   return (
     <header className="flex flex-col gap-2" data-testid="plugin-library-page-header">
-      <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-4 gap-y-3">
-        <h1 className={PAGE_TITLE_CLASS_NAME}>{title}</h1>
-        {actions}
-      </div>
+      <PageHeader title={title} actions={actions} className="pt-0 pb-0" />
       {subtitle ? <p className="text-ui-lg leading-5 text-muted-foreground">{subtitle}</p> : null}
     </header>
   );

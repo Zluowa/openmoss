@@ -35,8 +35,33 @@ describe("Apps gateway desktop transport", () => {
     expect(request.policy).toMatchObject({
       maxRedirects: 0,
       requirePublicAddress: true,
+      allowBenchmarkAddressRange: true,
       allowedOrigins: ["https://fake.supabase.co"],
     });
+  });
+
+  it("forwards configured HTTPS_PROXY to outboundHttp for CN and Global gateway requests", async () => {
+    const previousHttpsProxy = process.env.HTTPS_PROXY;
+    const previoushttpsProxy = process.env.https_proxy;
+    const previousNoProxy = process.env.NO_PROXY;
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7897";
+    delete process.env.https_proxy;
+    delete process.env.NO_PROXY;
+    try {
+      vi.mocked(outboundHttp.request).mockResolvedValue(reply({ availability: "ready" }));
+      const client = new MossAppsGatewayClient(async () => credential);
+      expect(await client.status(credential, signal())).toBe("ready");
+      const request = vi.mocked(outboundHttp.request).mock.calls[0]![0];
+      expect(request.policy.proxyUrl).toBe("http://127.0.0.1:7897/");
+      expect(request.policy.allowBenchmarkAddressRange).toBe(true);
+    } finally {
+      if (previousHttpsProxy === undefined) delete process.env.HTTPS_PROXY;
+      else process.env.HTTPS_PROXY = previousHttpsProxy;
+      if (previoushttpsProxy === undefined) delete process.env.https_proxy;
+      else process.env.https_proxy = previoushttpsProxy;
+      if (previousNoProxy === undefined) delete process.env.NO_PROXY;
+      else process.env.NO_PROXY = previousNoProxy;
+    }
   });
   it("does not include a desktop-selected owner or return provider diagnostics", async () => {
     vi.mocked(outboundHttp.request).mockResolvedValue(

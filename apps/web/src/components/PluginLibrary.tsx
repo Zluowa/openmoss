@@ -150,6 +150,7 @@ import { closeSettings, openSettings, type PluginSettingsTab } from "~/settingsD
 import type { MossBuiltInAppId } from "@moss/shared/mossBuiltInApps";
 import { openMossBuiltInAppPanel } from "~/lib/mossBuiltInAppPanels";
 import { mossBuiltInAppViews } from "./settings/mossBuiltInAppsPresentation";
+import { CHAT_SURFACE_HEADER_HEIGHT_CLASS } from "./chat/chatHeaderControls";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import {
   useDesktopTopBarTrafficLightGutterClassName,
@@ -3956,11 +3957,13 @@ export function PluginLibrary({
             {embedded || showSettingsManagement ? null : (
               <div
                 className={cn(
-                  "drag-region flex h-[46px] shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6",
+                  "app-top-bar drag-region relative flex shrink-0 items-center gap-3 px-4 sm:px-6",
+                  CHAT_SURFACE_HEADER_HEIGHT_CLASS,
                   desktopTopBarTrafficLightGutterClassName,
                   desktopTopBarWindowControlsGutterClassName,
                 )}
               >
+                <div className="app-rail-header-divider" aria-hidden="true" />
                 <PluginLibraryHeader
                   mode={showManagement ? "manage" : "browse"}
                   leading={
@@ -4177,7 +4180,7 @@ export function PluginLibrary({
                 className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]"
               >
                 <div className="flex min-h-full w-full flex-col">
-                  <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6 pt-8 pb-12">
+                  <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col px-6 pt-6 pb-12">
                     <div className="flex min-h-0 flex-1 flex-col gap-6">
                       <div className="flex flex-col gap-5">
                         <PluginLibraryPageHeader
@@ -4482,6 +4485,10 @@ export function PluginLibrary({
         target={mossAppConnectTarget}
         onOpenChange={(open) => {
           if (!open) setMossAppConnectTarget(null);
+        }}
+        onAccountRequired={(action) => {
+          setMossAppConnectTarget(null);
+          void navigate({ to: action === "login" ? "/login" : "/account" });
         }}
       />
 
