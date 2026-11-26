@@ -74,7 +74,7 @@ import {
 import { cn } from "~/lib/utils";
 import { closeSettings } from "~/settingsDialogStore";
 import { useStore } from "~/store";
-import { createAllThreadsSelector } from "~/storeSelectors";
+import { createAccountRateLimitThreadsSelector } from "~/storeSelectors";
 
 const PILL_CLASS_NAME = "shrink-0 rounded-full px-2 py-1 text-ui-xs font-medium leading-none";
 
@@ -498,7 +498,7 @@ export function ProviderUsageSettingsPanel({
   const queryClient = useQueryClient();
   const { settings, updateSettings } = useAppSettings();
   const codexHomePath = settings.codexHomePath || null;
-  const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
+  const threads = useStore(useMemo(() => createAccountRateLimitThreadsSelector(), []));
   // Account/thread fallback rows are shared by every provider card; derive them once per panel.
   const threadRateLimits = deriveAccountRateLimits(threads);
   const serverSettingsQuery = useQuery(serverSettingsQueryOptions());

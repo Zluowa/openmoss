@@ -4,7 +4,6 @@ import type { RightDockHtmlDocument } from "~/rightDockStore.logic";
 import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 
 import ChatView from "../ChatView";
-import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
 import {
   DiffPanelHeaderSkeleton,
   DiffPanelLoadingState,
@@ -20,6 +19,11 @@ import { cn } from "~/lib/utils";
 import { scheduleDeferredChatMount } from "./deferredChatMount";
 
 const DiffPanel = lazy(() => import("../DiffPanel"));
+const LazyDiffWorkerPoolProvider = lazy(() =>
+  import("../DiffWorkerPoolProvider").then((module) => ({
+    default: module.DiffWorkerPoolProvider,
+  })),
+);
 export const LazyBrowserPanel = lazy(() => import("../BrowserPanel"));
 export const LazyDevicePanel = lazy(() => import("../DevicePanel"));
 
@@ -53,15 +57,15 @@ export function LazyDiffPanel(props: {
   onEditFile?: (request: DiffFileEditRequest) => void;
 }) {
   return (
-    <DiffWorkerPoolProvider>
-      <Suspense
-        fallback={
-          <DiffLoadingFallback
-            mode={props.mode}
-            {...(props.hideHeader !== undefined ? { hideHeader: props.hideHeader } : {})}
-          />
-        }
-      >
+    <Suspense
+      fallback={
+        <DiffLoadingFallback
+          mode={props.mode}
+          {...(props.hideHeader !== undefined ? { hideHeader: props.hideHeader } : {})}
+        />
+      }
+    >
+      <LazyDiffWorkerPoolProvider>
         <DiffPanel
           mode={props.mode}
           {...(props.threadId !== undefined ? { threadId: props.threadId } : {})}
@@ -82,8 +86,8 @@ export function LazyDiffPanel(props: {
             : {})}
           {...(props.onVisibleFileChange ? { onVisibleFileChange: props.onVisibleFileChange } : {})}
         />
-      </Suspense>
-    </DiffWorkerPoolProvider>
+      </LazyDiffWorkerPoolProvider>
+    </Suspense>
   );
 }
 

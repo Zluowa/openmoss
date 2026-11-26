@@ -1,6 +1,5 @@
 import path from "node:path";
 import { lstat, mkdtemp, readdir, realpath, rename, rm } from "node:fs/promises";
-import { parseDocument } from "yaml";
 import { readRegularFileNoFollow } from "../workspaceImport/safeFile";
 import { ensureMossManagedHome, writeMossManagedFile } from "./mossManagedRelayInstance";
 import {
@@ -30,6 +29,7 @@ export async function readMossHermesPluginConfiguration(homePath: string) {
   if (!bytes) return { enabled: [MOSS_HERMES_PROBE_PLUGIN_NAME] };
   let configuration: unknown;
   try {
+    const { parseDocument } = await import("yaml");
     const document = parseDocument(bytes.toString("utf8"));
     if (document.errors.length) throw new Error("Invalid YAML");
     configuration = document.toJS({ maxAliasCount: 0 });

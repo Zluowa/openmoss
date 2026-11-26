@@ -6,7 +6,19 @@
 // Exports: FrontmatterValue, parseScalarFrontmatter, parseSkillFrontmatter,
 //          readStringField, readBooleanField
 
-import YAML from "yaml";
+import { createRequire } from "node:module";
+
+let cachedYaml: typeof import("yaml") | undefined;
+function loadYamlSync(): typeof import("yaml") {
+  if (!cachedYaml) {
+    const loader = typeof require === "function" ? require : createRequire(import.meta.url);
+    const mod = loader("yaml") as
+      | typeof import("yaml")
+      | { readonly default: typeof import("yaml") };
+    cachedYaml = "parse" in mod ? mod : mod.default;
+  }
+  return cachedYaml;
+}
 
 export type FrontmatterValue = string | boolean;
 
@@ -75,7 +87,7 @@ export function parseScalarFrontmatter(markdown: string): Record<string, Frontma
     // Frontmatter may come from untrusted repositories: `uniqueKeys: false` skips
     // the quadratic duplicate-key check, and `logLevel: "error"` avoids warnings
     // from unusual YAML tags reaching process output.
-    const parsed: unknown = YAML.parse(block, { uniqueKeys: false, logLevel: "error" });
+    const parsed: unknown = loadYamlSync().parse(block, { uniqueKeys: false, logLevel: "error" });
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       return {};
     }

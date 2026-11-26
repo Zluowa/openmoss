@@ -42,6 +42,7 @@ const BUNDLED_RUNTIME_PACKAGES = [
   "mime",
   "multipasta",
   "pure-rand",
+  "smol-toml",
   "toml",
   "uuid",
   // Inline @pierre/diffs (only parsePatchFiles is used; Shiki is tree-shaken away)
