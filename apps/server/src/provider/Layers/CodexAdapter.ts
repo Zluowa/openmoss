@@ -146,6 +146,7 @@ import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
 import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { ensureMossBundledSkills, mossSkillsDir } from "../skillsCatalog.ts";
+import { isMossDeveloperPluginInstalled } from "@moss/shared/mossDeveloperPlugin";
 import { isMossGuidePluginInstalled } from "@moss/shared/mossGuidePlugin";
 import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
 import { codexCommandText } from "../codexCommandText.ts";
@@ -3999,6 +4000,11 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
                   readMossGuideInstalled: () =>
                     Effect.runPromise(serverSettings.getSettings).then(
                       (settings) => isMossGuidePluginInstalled(settings),
+                      () => true,
+                    ),
+                  readMossDeveloperInstalled: () =>
+                    Effect.runPromise(serverSettings.getSettings).then(
+                      (settings) => isMossDeveloperPluginInstalled(settings),
                       () => true,
                     ),
                 }

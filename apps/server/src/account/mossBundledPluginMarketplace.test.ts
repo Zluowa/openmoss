@@ -15,12 +15,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { supportsPosixPermissions } from "@moss/shared/filesystemPlatform";
 
 import {
+  MOSS_DEVELOPER_HANDBOOK_REFERENCES,
+  MOSS_DEVELOPER_PLUGIN_NAME,
+} from "@moss/shared/mossDeveloperPlugin";
+import {
   MOSS_IMAGE_MODEL_IDS,
   MOSS_MEDIA_PLUGINS,
   MOSS_VIDEO_MODEL_IDS,
 } from "@moss/shared/mossMediaPlugins";
 import {
   MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
+  MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
   MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME,
   MOSS_BUNDLED_WEB_BUILDER_PLUGIN_NAME,
   materializeMossBundledPluginMarketplace,
@@ -93,6 +98,7 @@ describe("Moss bundled plugin marketplace", () => {
       ...MOSS_MEDIA_PLUGINS.map((plugin) => plugin.name),
       MOSS_BUNDLED_WEB_BUILDER_PLUGIN_NAME,
       "moss-plugin-creator",
+      MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
     ]);
     expect(names).not.toContain("moss-nano-banana-2");
     const installation = (name: string) =>
@@ -208,7 +214,49 @@ describe("Moss bundled plugin marketplace", () => {
     expect(skill).toContain("name: moss-canvas");
     expect(skill).toContain("画布不是「资料空间」");
     expect(skill).toContain("`moss_canvas_open`");
-    expect(skill).toContain("`moss_canvas_read`");
+    expect(
+      readFileSync(
+        path.join(canvasRoot, "skills", MOSS_BUNDLED_CANVAS_PLUGIN_NAME, "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("`moss_canvas_read`");
+  });
+
+  it("ships Moss Developer (moss-developer) installed by default for Codex & Claude with handbook references", () => {
+    const result = materializeMossBundledPluginMarketplace(makeManagedHome());
+    const marketplace = JSON.parse(readFileSync(result.manifestPath, "utf8"));
+    expect(
+      marketplace.plugins.find(
+        (plugin: { name: string }) => plugin.name === MOSS_DEVELOPER_PLUGIN_NAME,
+      ),
+    ).toMatchObject({
+      policy: { installation: "INSTALLED_BY_DEFAULT", authentication: "ON_USE" },
+      category: "Developer Tools",
+    });
+
+    const devRoot = path.join(result.root, "plugins", MOSS_DEVELOPER_PLUGIN_NAME);
+    for (const format of [".codex-plugin", ".claude-plugin"]) {
+      expect(
+        JSON.parse(readFileSync(path.join(devRoot, format, "plugin.json"), "utf8")),
+      ).toMatchObject({
+        name: MOSS_DEVELOPER_PLUGIN_NAME,
+        interface: { displayName: "Moss Developer", developerName: "Moss" },
+      });
+    }
+    const skill = readFileSync(
+      path.join(devRoot, "skills", MOSS_DEVELOPER_PLUGIN_NAME, "SKILL.md"),
+      "utf8",
+    );
+    expect(skill).toContain("name: moss-developer");
+    expect(skill).toContain("moss-ui-kit");
+    expect(skill).toContain("`voice`");
+    for (const ref of MOSS_DEVELOPER_HANDBOOK_REFERENCES) {
+      const refContent = readFileSync(
+        path.join(devRoot, "skills", MOSS_DEVELOPER_PLUGIN_NAME, ...ref.relativePath.split("/")),
+        "utf8",
+      );
+      expect(refContent.length).toBeGreaterThan(100);
+    }
   });
 
   it("is byte-idempotent and refuses a symlinked Moss-owned root", () => {

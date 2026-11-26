@@ -13,6 +13,10 @@ import {
   MOSS_DEFAULT_VIDEO_MODEL_ID,
 } from "@moss/shared/mossMediaPlugins";
 import {
+  isMossDeveloperPluginInstalled,
+  MOSS_DEVELOPER_HARNESS_DIRECTIVE,
+} from "@moss/shared/mossDeveloperPlugin";
+import {
   isMossGuidePluginInstalled,
   MOSS_GUIDE_HARNESS_DIRECTIVE,
 } from "@moss/shared/mossGuidePlugin";
@@ -37,6 +41,8 @@ export interface MossHarnessCapabilities {
   readonly inlineVisuals?: boolean | undefined;
   /** The uninstallable `moss-guide` official plugin is installed. */
   readonly mossGuideInstalled?: boolean | undefined;
+  /** The uninstallable `moss-developer` official plugin is installed. */
+  readonly mossDeveloperInstalled?: boolean | undefined;
   /** Human-readable names of currently connected external apps/connectors. */
   readonly connectedApps?: ReadonlyArray<string> | undefined;
 }
@@ -107,6 +113,9 @@ export function renderMossHarnessPolicy(capabilities: MossHarnessCapabilities): 
     ...(capabilities.gatewayControlAvailable && capabilities.enableComputerControl === true
       ? [computerToolInstructions()]
       : []),
+    ...(capabilities.gatewayControlAvailable && capabilities.mossDeveloperInstalled === true
+      ? [MOSS_DEVELOPER_HARNESS_DIRECTIVE]
+      : []),
     ...(capabilities.gatewayControlAvailable && capabilities.mossGuideInstalled === true
       ? [
           MOSS_GUIDE_HARNESS_DIRECTIVE,
@@ -176,6 +185,7 @@ export function takeMossHarnessPolicyForProviderSession(
     readonly provider: ProviderKind;
     readonly scopedGatewayConnectionAvailable: boolean;
     readonly mossGuideInstalled?: boolean | undefined;
+    readonly mossDeveloperInstalled?: boolean | undefined;
     readonly connectedApps?: ReadonlyArray<string> | undefined;
   },
 ): string | null {
@@ -184,6 +194,7 @@ export function takeMossHarnessPolicyForProviderSession(
     enableComputerControl: state.enableComputerControl === true,
     inlineVisuals: INLINE_VISUALS_ENABLED,
     ...(input.mossGuideInstalled === true ? { mossGuideInstalled: true } : {}),
+    ...(input.mossDeveloperInstalled === true ? { mossDeveloperInstalled: true } : {}),
     ...(input.connectedApps !== undefined ? { connectedApps: input.connectedApps } : {}),
   });
 }
@@ -206,6 +217,36 @@ export function readMossGuideInstalled(
     : Effect.succeed(false);
 }
 
+export function readMossOfficialPluginFlags(
+  serverSettings:
+    | {
+        readonly getSettings: Effect.Effect<
+          { readonly officialPlugins?: { readonly uninstalled?: ReadonlyArray<string> } },
+          unknown
+        >;
+      }
+    | undefined,
+): Effect.Effect<{
+  readonly mossGuideInstalled: boolean;
+  readonly mossDeveloperInstalled: boolean;
+}> {
+  return serverSettings
+    ? serverSettings.getSettings.pipe(
+        Effect.map((settings) => ({
+          mossGuideInstalled: isMossGuidePluginInstalled(settings),
+          mossDeveloperInstalled: isMossDeveloperPluginInstalled(settings),
+        })),
+        Effect.orElseSucceed(() => ({
+          mossGuideInstalled: true,
+          mossDeveloperInstalled: true,
+        })),
+      )
+    : Effect.succeed({
+        mossGuideInstalled: false,
+        mossDeveloperInstalled: false,
+      });
+}
+
 export function readConnectedAppNames(
   credentials:
     | { readonly connectedAppNames?: (() => ReadonlyArray<string>) | undefined }
@@ -220,6 +261,7 @@ export function takeMossHarnessPolicyTextPartForProviderSession(
     readonly provider: ProviderKind;
     readonly scopedGatewayConnectionAvailable: boolean;
     readonly mossGuideInstalled?: boolean | undefined;
+    readonly mossDeveloperInstalled?: boolean | undefined;
     readonly connectedApps?: ReadonlyArray<string> | undefined;
   },
 ): { readonly type: "text"; readonly text: string } | null {

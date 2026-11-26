@@ -14,6 +14,10 @@ import {
   type ThreadId,
 } from "@moss/contracts";
 import { findMcpConnectorPreset } from "@moss/shared/mcpConnectors";
+import {
+  MOSS_DEVELOPER_PLUGIN_ID,
+  isMossDeveloperPluginInstalled,
+} from "@moss/shared/mossDeveloperPlugin";
 import { upsertDismissedPluginSuggestion } from "@moss/shared/mossGuidePlugin";
 import { findMossServicePlugin, mossServicePluginInfo } from "@moss/shared/mossServicePlugins";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -46,11 +50,13 @@ import {
   MOSS_APP_CONNECTIONS_QUERY_KEY,
   mossAppConnectionsQueryOptions,
 } from "~/lib/mossAppsReactQuery";
+import { nextOfficialPluginsUninstalled } from "~/lib/mossGuidePluginPresentation";
 import { useMossImagesAccountBoundary } from "~/lib/mossImagesAccountBoundary";
 import {
   providerDiscoveryQueryKeys,
   providerPluginsQueryOptions,
 } from "~/lib/providerDiscoveryReactQuery";
+import { serverQueryKeys, serverSettingsQueryOptions } from "~/lib/serverReactQuery";
 import { resolveResourceIcon } from "~/lib/resourceIcon";
 import { useTranslation } from "~/localization";
 import { ensureNativeApi, isNativeApiDetached } from "~/nativeApi";
@@ -183,6 +189,9 @@ export function PluginSuggestionCard({
   const hasProviderPlugin = payload.suggestions.some(
     (item) => item.sourceKind === "moss-catalog" || item.sourceKind === "moss-bundled",
   );
+  const hasOfficialDeveloperPlugin = payload.suggestions.some(
+    (item) => item.pluginId === MOSS_DEVELOPER_PLUGIN_ID,
+  );
   const effectiveCwd = cwd ?? resolveFallbackWorkspaceCwd();
 
   const [mossAppTarget, setMossAppTarget] = useState<MossAppConnectTarget | null>(null);
@@ -240,6 +249,23 @@ export function PluginSuggestionCard({
     retry: false,
   });
 
+  const serverSettingsQuery = useQuery({
+    ...serverSettingsQueryOptions(),
+    enabled: !detached && hasOfficialDeveloperPlugin,
+  });
+
+  const installedOfficialPluginIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (
+      hasOfficialDeveloperPlugin &&
+      serverSettingsQuery.data &&
+      isMossDeveloperPluginInstalled(serverSettingsQuery.data)
+    ) {
+      ids.add(MOSS_DEVELOPER_PLUGIN_ID);
+    }
+    return ids;
+  }, [hasOfficialDeveloperPlugin, serverSettingsQuery.data]);
+
   const connectedToolkitSlugs = useMemo(() => {
     const slugs = new Set<string>();
     for (const connection of mossAppConnectionsQuery.data?.connections ?? []) {
@@ -278,6 +304,7 @@ export function PluginSuggestionCard({
     connectedConnectorPresetIds,
     installedServicePluginIds,
     installedProviderPluginIds: hasProviderPlugin ? installedProviderPluginIds : EMPTY_SET,
+    installedOfficialPluginIds: hasOfficialDeveloperPlugin ? installedOfficialPluginIds : EMPTY_SET,
     locallyInstalledPluginIds,
   };
 
@@ -405,6 +432,65 @@ export function PluginSuggestionCard({
         });
         markLocallyInstalled(item.pluginId);
         await queryClient.invalidateQueries({ queryKey: MCP_CONNECTORS_QUERY_KEY });
+        toastManager.add({
+          type: "success",
+          title: format("plugins.install.success", { pluginName: item.displayName }),
+        });
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: t("chat.pluginSuggestion.installFailed"),
+          description: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setInstallingPluginId((current) => (current === item.pluginId ? null : current));
+      }
+      return;
+    }
+
+    if (item.pluginId === MOSS_DEVELOPER_PLUGIN_ID) {
+      setInstallingPluginId(item.pluginId);
+      try {
+        const api = ensureNativeApi();
+        const currentSettings =
+          serverSettingsQuery.data ?? (await api.server.getSettings().catch(() => null));
+        const uninstalled = nextOfficialPluginsUninstalled(
+          currentSettings?.officialPlugins?.uninstalled,
+          MOSS_DEVELOPER_PLUGIN_ID,
+          true,
+        );
+        const nextSettings = await api.server.updateSettings({
+          officialPlugins: { uninstalled },
+        });
+        queryClient.setQueryData(serverQueryKeys.settings(), nextSettings);
+        if (effectiveCwd) {
+          const listing =
+            providerPluginsQuery.data ??
+            (await api.provider
+              .listPlugins({
+                provider: activeProvider,
+                cwd: effectiveCwd,
+              })
+              .catch(() => null));
+          const selector = listing
+            ? resolveProviderInstallMarketplaceSelector(item, listing.marketplaces)
+            : null;
+          if (selector) {
+            await api.provider
+              .installPlugin({
+                provider: activeProvider,
+                cwd: effectiveCwd,
+                pluginName: item.pluginName ?? "moss-developer",
+                ...selector,
+              })
+              .catch(() => {});
+          }
+        }
+        markLocallyInstalled(item.pluginId);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() }),
+          queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),
+        ]);
         toastManager.add({
           type: "success",
           title: format("plugins.install.success", { pluginName: item.displayName }),

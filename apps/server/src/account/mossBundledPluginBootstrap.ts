@@ -5,6 +5,7 @@ import path from "node:path";
 import { readRegularFileNoFollow } from "../workspaceImport/safeFile.ts";
 import {
   MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
+  MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
   MOSS_BUNDLED_IMAGEGEN_PLUGIN_NAME,
   MOSS_BUNDLED_PLUGIN_CREATOR_NAME,
   MOSS_BUNDLED_VIDEOGEN_PLUGIN_NAME,
@@ -33,6 +34,11 @@ const DEFAULT_PLUGINS = [
     name: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
     marker: ".moss-canvas-bootstrap-v1",
     content: "moss-bundled-canvas-v1\n",
+  },
+  {
+    name: MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
+    marker: ".moss-developer-bootstrap-v1",
+    content: "moss-bundled-developer-v1\n",
   },
 ] as const;
 const MANAGED_OWNERSHIP_PATTERN =

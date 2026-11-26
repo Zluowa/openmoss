@@ -4,6 +4,7 @@
 //          skills list show them. The manifests stay English for the English UI.
 // Layer: Pure localization data, from the same entries the server writes the plugins from.
 
+import { MOSS_DEVELOPER_ZH_CN_COPY } from "@moss/shared/mossDeveloperPlugin";
 import { MOSS_MEDIA_PLUGIN_ZH_CN_COPY } from "@moss/shared/mossMediaPlugins";
 
 import { lookupPhrase, phraseTranslator } from "./zhCNPhraseTable";
@@ -21,12 +22,14 @@ const LEGACY_MOSS_MEDIA_PLUGIN_COPY: Readonly<Record<string, string>> = {
 export const translateZhCnMossMediaPluginsText = phraseTranslator({
   ...LEGACY_MOSS_MEDIA_PLUGIN_COPY,
   ...MOSS_MEDIA_PLUGIN_ZH_CN_COPY,
+  ...MOSS_DEVELOPER_ZH_CN_COPY,
 });
 
-/** A Moss media plugin's example prompt, in the language the person reads the UI in. */
+/** A Moss media/developer plugin's example prompt, in the language the person reads the UI in. */
 export function localizeMossMediaPluginPrompt(prompt: string, locale: "en" | "zh-CN"): string {
   if (locale !== "zh-CN") return prompt;
   return (
+    lookupPhrase(MOSS_DEVELOPER_ZH_CN_COPY, prompt.trim()) ??
     lookupPhrase(MOSS_MEDIA_PLUGIN_ZH_CN_COPY, prompt.trim()) ??
     lookupPhrase(LEGACY_MOSS_MEDIA_PLUGIN_COPY, prompt.trim()) ??
     prompt

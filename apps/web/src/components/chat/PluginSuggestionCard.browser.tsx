@@ -1,5 +1,6 @@
 import "../../index.css";
 
+import { MOSS_DEVELOPER_PLUGIN_ID } from "@moss/shared/mossDeveloperPlugin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   DEFAULT_SERVER_SETTINGS,
@@ -21,12 +22,23 @@ function installNativeApiMock(
   options: {
     connectedSlugs?: string[];
     serviceInstalled?: string[];
+    uninstalledOfficial?: string[];
     connectError?: Error;
   } = {},
 ) {
   const connected = new Set(options.connectedSlugs ?? []);
   const installedService = new Set(options.serviceInstalled ?? []);
-  let serverSettings = { ...DEFAULT_SERVER_SETTINGS };
+  let serverSettings = {
+    ...DEFAULT_SERVER_SETTINGS,
+    ...(options.uninstalledOfficial
+      ? {
+          officialPlugins: {
+            uninstalled: [...options.uninstalledOfficial],
+            dismissedSuggestions: [],
+          },
+        }
+      : {}),
+  };
 
   const server = {
     getSettings: vi.fn(async () => serverSettings),
@@ -305,5 +317,41 @@ describe("PluginSuggestionCard", () => {
 
     await screen.getByRole("button", { name: "安装" }).click();
     await expect.element(screen.getByRole("dialog")).toBeVisible();
+  });
+
+  it("installs Moss 开发者 (moss-developer@moss-bundled) via officialPlugins without needing a workspace", async () => {
+    const { server, getSettingsSnapshot } = installNativeApiMock({
+      uninstalledOfficial: [MOSS_DEVELOPER_PLUGIN_ID],
+    });
+    const onSendPromptTurn = vi.fn(async () => true);
+    const { screen } = await mountCard(
+      {
+        suggestionId: "sugg-moss-dev-1",
+        suggestions: [
+          {
+            pluginId: MOSS_DEVELOPER_PLUGIN_ID,
+            sourceKind: "moss-bundled",
+            displayName: "Moss 开发者",
+            developerName: "Moss",
+            shortDescription: "一句话零外部密钥打造 Moss 原生应用页与 AI 小工具",
+            iconUrl: null,
+            marketplaceName: "moss-bundled",
+            pluginName: "moss-developer",
+            requiresAuth: false,
+          },
+        ],
+      },
+      { provider: "claudeAgent", onSendPromptTurn },
+    );
+
+    await expect.element(screen.getByText("Moss 开发者")).toBeVisible();
+    await screen.getByRole("button", { name: "安装" }).click();
+    await expect
+      .poll(() => getSettingsSnapshot().officialPlugins?.uninstalled ?? [], { timeout: 3_000 })
+      .not.toContain(MOSS_DEVELOPER_PLUGIN_ID);
+    expect(server.updateSettings).toHaveBeenCalled();
+    await expect.element(screen.getByText("已安装")).toBeVisible();
+    await screen.getByRole("button", { name: "继续任务" }).click();
+    expect(onSendPromptTurn).toHaveBeenCalledWith(expect.stringContaining("Moss 开发者"));
   });
 });

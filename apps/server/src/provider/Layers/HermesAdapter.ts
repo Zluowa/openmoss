@@ -43,7 +43,7 @@ import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -155,11 +155,13 @@ export const takeHermesMossHarnessPolicyTextPart = (
   scopedGatewayConnectionAvailable: boolean,
   mossGuideInstalled = false,
   connectedApps?: ReadonlyArray<string>,
+  mossDeveloperInstalled = false,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
     mossGuideInstalled,
+    mossDeveloperInstalled,
     ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 const HERMES_RESUME_VERSION = 1 as const;
@@ -1246,12 +1248,14 @@ export function makeHermesAdapter(
             issue: "Turn requires non-empty text or attachments.",
           });
         }
-        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+        const { mossGuideInstalled, mossDeveloperInstalled } =
+          yield* readMossOfficialPluginFlags(serverSettings);
         const harnessPolicy = takeHermesMossHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
           mossGuideInstalled,
           readConnectedAppNames(agentGatewayCredentials),
+          mossDeveloperInstalled,
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

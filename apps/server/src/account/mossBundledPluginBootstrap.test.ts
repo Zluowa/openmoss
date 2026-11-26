@@ -52,12 +52,13 @@ describe("managed image plugin bootstrap", () => {
       ),
       pluginName: "moss-plugin-creator",
     });
-    // Canvas and the general video skill are defaults too, so chat can reach them at once.
+    // Canvas, video, and Moss Developer are defaults too, so chat can reach them at once.
     expect(install.mock.calls.map((call) => call[0].pluginName)).toEqual([
       "moss-imagegen",
       "moss-plugin-creator",
       "moss-videogen",
       "moss-canvas",
+      "moss-developer",
     ]);
     const afterUninstall = vi.fn(
       async (_input: { marketplacePath: string; pluginName: string }) => undefined,
@@ -87,8 +88,8 @@ describe("managed image plugin bootstrap", () => {
       bootstrapMossBundledPlugins({ ...inputFor(home), install }),
       bootstrapMossBundledPlugins({ ...inputFor(home), install }),
     ]);
-    // Image, Plugin Creator, video and Canvas: each once, despite two sessions.
-    expect(install).toHaveBeenCalledTimes(4);
+    // Image, Plugin Creator, video, Canvas, and Moss Developer: each once, despite two sessions.
+    expect(install).toHaveBeenCalledTimes(5);
   });
 
   it("never bootstraps personal or shadow homes", async () => {

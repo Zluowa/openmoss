@@ -8,6 +8,7 @@
 //          resolveSuggestionInstallState, formatPluginSuggestionMeta,
 //          resolveProviderInstallMarketplaceSelector
 
+import { MOSS_DEVELOPER_PLUGIN_ID } from "@moss/shared/mossDeveloperPlugin";
 import type { PluginSuggestionItem, ProviderListPluginsResult } from "@moss/contracts";
 
 export const DISMISS_STORAGE_PREFIX = "moss:plugin-suggestion:dismissed:v1";
@@ -19,6 +20,7 @@ export interface SuggestionInstallContext {
   readonly connectedConnectorPresetIds?: ReadonlySet<string>;
   readonly installedServicePluginIds?: ReadonlySet<string>;
   readonly installedProviderPluginIds?: ReadonlySet<string>;
+  readonly installedOfficialPluginIds?: ReadonlySet<string>;
   readonly locallyInstalledPluginIds?: ReadonlySet<string>;
 }
 
@@ -103,7 +105,14 @@ export function resolveSuggestionInstallState(
       }
       return "available";
     case "moss-catalog":
+      return context.installedProviderPluginIds?.has(item.pluginId) ? "installed" : "available";
     case "moss-bundled":
+      if (item.pluginId === MOSS_DEVELOPER_PLUGIN_ID) {
+        return context.installedOfficialPluginIds?.has(item.pluginId) ||
+          context.installedProviderPluginIds?.has(item.pluginId)
+          ? "installed"
+          : "available";
+      }
       return context.installedProviderPluginIds?.has(item.pluginId) ? "installed" : "available";
   }
 }

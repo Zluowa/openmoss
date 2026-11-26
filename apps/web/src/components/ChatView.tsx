@@ -178,6 +178,10 @@ import {
 } from "../lib/mossAppsReactQuery";
 import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
 import {
+  isMossDeveloperPluginInstalled,
+  MOSS_DEVELOPER_STARTER_PROMPTS,
+} from "@moss/shared/mossDeveloperPlugin";
+import {
   isMossGuidePluginInstalled,
   MOSS_GUIDE_STARTER_PROMPTS,
 } from "@moss/shared/mossGuidePlugin";
@@ -5382,6 +5386,7 @@ export default function ChatView({
 
   const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
   const mossGuideInstalled = isMossGuidePluginInstalled(serverSettingsQuery.data);
+  const mossDeveloperInstalled = isMossDeveloperPluginInstalled(serverSettingsQuery.data);
   const mossGuideStarters = useMemo(
     () =>
       mossGuideInstalled
@@ -5395,6 +5400,20 @@ export default function ChatView({
           })
         : [],
     [locale, mossGuideInstalled],
+  );
+  const mossDeveloperStarters = useMemo(
+    () =>
+      mossDeveloperInstalled
+        ? MOSS_DEVELOPER_STARTER_PROMPTS.map((starter) => {
+            const lang = locale.startsWith("zh") ? "zhCN" : "en";
+            return {
+              id: starter.id,
+              label: starter.label[lang],
+              prompt: starter.prompt[lang],
+            };
+          })
+        : [],
+    [locale, mossDeveloperInstalled],
   );
   const mossQuotaManagedSelection = isServerConfiguredMossDefaultManagedProvider(
     serverSettingsQuery.data,
@@ -7986,6 +8005,7 @@ export default function ChatView({
                           onInsertGoal={insertGoalSlashCommandInComposer}
                           onOpenPlugins={() => void navigate({ to: "/plugins" })}
                           mossGuideStarters={mossGuideStarters}
+                          mossDeveloperStarters={mossDeveloperStarters}
                           onSelectStarterPrompt={(starterPrompt) => {
                             if (isSendBusy) {
                               setPromptFromTraits(starterPrompt);

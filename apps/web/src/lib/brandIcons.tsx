@@ -171,6 +171,7 @@ const MOSS_MEDIA_ARTWORK: Record<string, BrandArtwork> = Object.fromEntries([
 /** Keyed by {@link normalizeBrandKey} of the brand or product name. */
 export const KNOWN_BRAND_ARTWORK: Record<string, BrandArtwork> = {
   ...MOSS_MEDIA_ARTWORK,
+  mossdeveloper: { icon: centralGlyph("window-app"), color: MOSS_LOGO_COLOR },
   mosswebbuilder: { icon: centralGlyph("globe"), color: MOSS_LOGO_COLOR },
   airtable: { icon: SiAirtable, color: BRAND_COLORS.airtable },
   asana: { icon: SiAsana, color: BRAND_COLORS.asana },

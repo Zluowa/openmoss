@@ -69,4 +69,20 @@ describe("Moss media plugin presentation", () => {
     const user = skill("moss-imagegen", "C:/Users/me/.agents/skills/moss-imagegen/SKILL.md");
     expect(localizeMossMediaSkill(user, "zh-CN")).toEqual(user);
   });
+
+  it("localizes Moss Developer plugin and skill in zh-CN UI", () => {
+    expect(localizeMossMediaPlugin(plugin("moss-developer"), "zh-CN").interface).toMatchObject({
+      displayName: "Moss 开发者",
+      shortDescription: "一句话零外部密钥打造 Moss 原生应用页、AI 小工具、阅读器与智能会议应用",
+    });
+    const bundledDevSkill = localizeMossMediaSkill(
+      skill(
+        "moss-developer:moss-developer",
+        "C:/home/plugins/cache/moss-bundled/moss-developer/skills/moss-developer/SKILL.md",
+      ),
+      "zh-CN",
+    );
+    expect(bundledDevSkill.interface?.displayName).toBe("Moss 开发者");
+    expect(bundledDevSkill.description).toContain("一句话零外部密钥打造 Moss 应用页");
+  });
 });

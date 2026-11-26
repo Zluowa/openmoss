@@ -20,6 +20,14 @@ import {
 import path from "node:path";
 import { syncDirectoryEntrySync } from "@moss/shared/filesystemPlatform";
 import {
+  MOSS_DEVELOPER_HANDBOOK_REFERENCES,
+  MOSS_DEVELOPER_PLUGIN_COPY,
+  MOSS_DEVELOPER_PLUGIN_NAME,
+  MOSS_DEVELOPER_SKILLS,
+  MOSS_DEVELOPER_SKILL_NAME,
+  mossDeveloperSkillMarkdown,
+} from "@moss/shared/mossDeveloperPlugin";
+import {
   MOSS_CANVAS_PLUGIN_NAME,
   MOSS_CANVAS_SKILL_DESCRIPTION,
   MOSS_MEDIA_PLUGINS,
@@ -44,6 +52,7 @@ export {
 export const MOSS_BUNDLED_PLUGIN_MARKETPLACE_NAME = "moss-bundled";
 export const MOSS_BUNDLED_WEB_BUILDER_PLUGIN_NAME = "moss-web-builder";
 export const MOSS_BUNDLED_CANVAS_PLUGIN_NAME = MOSS_CANVAS_PLUGIN_NAME;
+export const MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME = MOSS_DEVELOPER_PLUGIN_NAME;
 
 const MARKETPLACE_DIRECTORY_NAME = "moss-bundled-marketplace-v1";
 const MARKETPLACE_MANIFEST_RELATIVE_PATH = path.join(".agents", "plugins", "marketplace.json");
@@ -80,6 +89,12 @@ const MARKETPLACE_MANIFEST = {
     {
       name: MOSS_BUNDLED_PLUGIN_CREATOR_NAME,
       source: { source: "local", path: `./plugins/${MOSS_BUNDLED_PLUGIN_CREATOR_NAME}` },
+      policy: { installation: "INSTALLED_BY_DEFAULT", authentication: "ON_USE" },
+      category: "Developer Tools",
+    },
+    {
+      name: MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
+      source: { source: "local", path: `./plugins/${MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME}` },
       policy: { installation: "INSTALLED_BY_DEFAULT", authentication: "ON_USE" },
       category: "Developer Tools",
     },
@@ -139,6 +154,34 @@ const PLUGIN_CREATOR_MANIFEST = {
     developerName: "Moss",
     category: "Developer Tools",
     defaultPrompt: ["Help me create a plugin."],
+  },
+} as const;
+
+const DEVELOPER_MANIFEST = {
+  name: MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
+  version: "1.0.0",
+  description: MOSS_DEVELOPER_PLUGIN_COPY.en.longDescription,
+  author: { name: "Moss" },
+  license: "MIT",
+  keywords: [
+    "moss",
+    "developer",
+    "app-builder",
+    "page-app",
+    "ai-studio",
+    "moss-ui-kit",
+    "voice",
+    "zero-key",
+  ],
+  skills: "./skills/",
+  interface: {
+    displayName: MOSS_DEVELOPER_PLUGIN_COPY.en.displayName,
+    shortDescription: MOSS_DEVELOPER_PLUGIN_COPY.en.shortDescription,
+    longDescription: MOSS_DEVELOPER_PLUGIN_COPY.en.longDescription,
+    developerName: MOSS_DEVELOPER_PLUGIN_COPY.en.developerName,
+    category: MOSS_DEVELOPER_PLUGIN_COPY.en.category,
+    capabilities: [...MOSS_DEVELOPER_PLUGIN_COPY.en.capabilities],
+    defaultPrompt: [...MOSS_DEVELOPER_PLUGIN_COPY.en.defaultPrompt],
   },
 } as const;
 
@@ -254,6 +297,7 @@ interface BundledPluginFiles {
   readonly manifestDirectories: ReadonlyArray<".codex-plugin" | ".claude-plugin">;
   readonly skillName: string;
   readonly skill: string;
+  readonly references?: ReadonlyArray<{ readonly relativePath: string; readonly contents: string }>;
 }
 
 const BUNDLED_PLUGIN_FILES: ReadonlyArray<BundledPluginFiles> = [
@@ -272,6 +316,17 @@ const BUNDLED_PLUGIN_FILES: ReadonlyArray<BundledPluginFiles> = [
     skill: MOSS_PLUGIN_CREATOR_SKILL,
   },
   {
+    name: MOSS_BUNDLED_DEVELOPER_PLUGIN_NAME,
+    manifest: DEVELOPER_MANIFEST,
+    manifestDirectories: [".codex-plugin", ".claude-plugin"],
+    skillName: MOSS_DEVELOPER_SKILL_NAME,
+    skill: mossDeveloperSkillMarkdown(MOSS_DEVELOPER_SKILLS[0]!),
+    references: MOSS_DEVELOPER_HANDBOOK_REFERENCES.map((ref) => ({
+      relativePath: ref.relativePath,
+      contents: `${ref.body.trim()}\n`,
+    })),
+  },
+  {
     name: MOSS_BUNDLED_CANVAS_PLUGIN_NAME,
     manifest: pluginManifest(mossMediaPlugin(MOSS_BUNDLED_CANVAS_PLUGIN_NAME)!),
     manifestDirectories: [".codex-plugin", ".claude-plugin"],
@@ -287,7 +342,7 @@ const BUNDLED_PLUGIN_FILES: ReadonlyArray<BundledPluginFiles> = [
   })),
 ];
 
-/** Writes one Moss-owned plugin: its manifest for each CLI format and its one skill. */
+/** Writes one Moss-owned plugin: its manifest for each CLI format and its skill(s). */
 function writeBundledPlugin(root: string, plugin: BundledPluginFiles): void {
   const pluginRoot = path.join(root, "plugins", plugin.name);
   const skillRoot = path.join(pluginRoot, "skills", plugin.skillName);
@@ -304,6 +359,18 @@ function writeBundledPlugin(root: string, plugin: BundledPluginFiles): void {
     writePrivateFileAtomically(path.join(pluginRoot, directory, "plugin.json"), manifest);
   }
   writePrivateFileAtomically(path.join(skillRoot, "SKILL.md"), plugin.skill);
+  for (const ref of plugin.references ?? []) {
+    const segments = ref.relativePath.split("/").filter((part) => part.length > 0);
+    if (segments.some((part) => part === "." || part === "..")) {
+      throw new Error(`Invalid bundled reference path: ${ref.relativePath}`);
+    }
+    let dirCursor = skillRoot;
+    for (const dirSeg of segments.slice(0, -1)) {
+      dirCursor = path.join(dirCursor, dirSeg);
+      ensureDirectory(dirCursor, `The Moss bundled plugin reference directory for ${plugin.name}`);
+    }
+    writePrivateFileAtomically(path.join(skillRoot, ...segments), ref.contents);
+  }
 }
 
 export function mossBundledPluginMarketplaceRoot(managedHomePath: string): string {

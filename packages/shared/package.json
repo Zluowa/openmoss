@@ -865,6 +865,10 @@
       "types": "./src/mossGuidePlugin.ts",
       "import": "./src/mossGuidePlugin.ts"
     },
+    "./mossDeveloperPlugin": {
+      "types": "./src/mossDeveloperPlugin.ts",
+      "import": "./src/mossDeveloperPlugin.ts"
+    },
     "./spaceItems/boardAssist": {
       "types": "./src/spaceItems/boardAssist.ts",
       "import": "./src/spaceItems/boardAssist.ts"

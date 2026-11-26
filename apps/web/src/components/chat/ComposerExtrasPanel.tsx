@@ -97,6 +97,8 @@ export function ComposerExtrasPanel(props: {
   onOpenPlugins?: (() => void) | undefined;
   /** Curated Moss Guide starter workflows exposed when `moss-guide` is installed. */
   mossGuideStarters?: ReadonlyArray<ComposerExtrasStarterItem> | undefined;
+  /** Curated Moss Developer one-sentence app starters exposed when `moss-developer` is installed. */
+  mossDeveloperStarters?: ReadonlyArray<ComposerExtrasStarterItem> | undefined;
   /** Sends or prefills a chosen starter prompt. */
   onSelectStarterPrompt?: ((prompt: string) => void) | undefined;
   onClose: () => void;
@@ -142,6 +144,8 @@ export function ComposerExtrasPanel(props: {
   };
 
   const starterItems = props.mossGuideStarters ?? [];
+  const developerStarterItems = props.mossDeveloperStarters ?? [];
+  const hasDiscoverEntries = starterItems.length > 0 || developerStarterItems.length > 0;
   const groups: ComposerMenuPanelGroup[] =
     view === "windows"
       ? [
@@ -177,6 +181,19 @@ export function ComposerExtrasPanel(props: {
                   : []),
               ],
             },
+            ...(developerStarterItems.length > 0
+              ? [
+                  {
+                    id: "discover-developer",
+                    label: t("composer.extras.mossDeveloperSection"),
+                    rows: developerStarterItems.map((starter) => ({
+                      id: `${STARTER_ROW_PREFIX}${starter.id}`,
+                      icon: <SparklesIcon className={GLYPH} />,
+                      title: starter.label,
+                    })),
+                  },
+                ]
+              : []),
           ]
         : [
             {
@@ -228,7 +245,7 @@ export function ComposerExtrasPanel(props: {
                   icon: <GoalIcon className={GLYPH} />,
                   title: "Goal",
                 },
-                ...(starterItems.length > 0
+                ...(hasDiscoverEntries
                   ? [
                       {
                         id: ROW_DISCOVER,

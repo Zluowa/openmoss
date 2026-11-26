@@ -16,6 +16,8 @@ describe("formatComposerSkillChipLabel", () => {
     expect(formatComposerSkillChipLabel("plugin-creator")).toBe("插件创建器");
     expect(formatComposerSkillChipLabel("skill-creator")).toBe("技能创建器");
     expect(formatComposerSkillChipLabel("moss-plugin-creator:plugin-creator")).toBe("插件创建器");
+    expect(formatComposerSkillChipLabel("moss-developer")).toBe("Moss 开发者");
+    expect(formatComposerSkillChipLabel("moss-developer:moss-developer")).toBe("Moss 开发者");
     // A user's own skill keeps the label made from its id.
     expect(formatComposerSkillChipLabel("check-code")).toBe("Check Code");
   });
@@ -24,10 +26,12 @@ describe("formatComposerSkillChipLabel", () => {
     document.documentElement.dataset.mossLocale = "en";
     expect(formatComposerSkillChipLabel("plugin-creator")).toBe("Plugin Creator");
     expect(formatComposerSkillChipLabel("skill-creator")).toBe("Skill Creator");
+    expect(formatComposerSkillChipLabel("moss-developer")).toBe("Moss Developer");
   });
 
-  it("translates the creator plugin's own row text", () => {
+  it("translates the creator and developer plugins' row text", () => {
     expect(translateZhCnPresentationText("Plugin Creator")).toBe("插件创建器");
     expect(translateZhCnPresentationText("Create and edit plugins")).toBe("创建和编辑插件");
+    expect(translateZhCnPresentationText("Moss Developer")).toBe("Moss 开发者");
   });
 });

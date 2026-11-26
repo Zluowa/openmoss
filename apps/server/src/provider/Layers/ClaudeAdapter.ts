@@ -123,7 +123,7 @@ import {
 import { buildClaudeMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   renderMossHarnessPolicy,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -1618,6 +1618,7 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
   enableComputerControl = false,
   mossGuideInstalled = false,
   connectedApps?: ReadonlyArray<string>,
+  mossDeveloperInstalled = false,
 ) =>
   [
     "You are running inside Moss, a coding app that embeds the Claude Agent SDK.",
@@ -1632,6 +1633,7 @@ export const buildEmbeddedClaudeSystemPromptAppend = (
       enableComputerControl,
       automationAuthoring: "tool-descriptions",
       ...(mossGuideInstalled ? { mossGuideInstalled: true } : {}),
+      ...(mossDeveloperInstalled ? { mossDeveloperInstalled: true } : {}),
       ...(connectedApps !== undefined ? { connectedApps } : {}),
     }),
   ].join("\n");
@@ -7589,7 +7591,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           PROVIDER,
           input,
         );
-        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+        const { mossGuideInstalled, mossDeveloperInstalled } =
+          yield* readMossOfficialPluginFlags(serverSettings);
         const queryOptions: ClaudeQueryOptions = {
           ...(input.cwd ? { cwd: input.cwd } : {}),
           // Model identity and the spawn-fixed compaction override are separate settings.
@@ -7604,6 +7607,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               input.enableComputerControl === true,
               mossGuideInstalled,
               readConnectedAppNames(agentGatewayCredentials),
+              mossDeveloperInstalled,
             ),
             // Strip per-user dynamic sections (working directory, auto-memory
             // path) into the first user message so the cached system-prompt

@@ -103,6 +103,19 @@ describe("PluginSuggestionCard.logic", () => {
         context,
       ),
     ).toBe("available");
+
+    expect(
+      resolveSuggestionInstallState(
+        {
+          pluginId: "moss-developer@moss-bundled",
+          sourceKind: "moss-bundled",
+        },
+        {
+          ...context,
+          installedOfficialPluginIds: new Set(["moss-developer@moss-bundled"]),
+        },
+      ),
+    ).toBe("installed");
   });
 
   it("persists dismissals per thread and suggestion", () => {

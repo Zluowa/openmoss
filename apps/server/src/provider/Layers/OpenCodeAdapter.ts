@@ -51,7 +51,7 @@ import {
 import {
   MOSS_HARNESS_POLICY_VERSION,
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   takeMossHarnessPolicyForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -4327,7 +4327,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             issue: `${adapterConfig.displayName} turns require text input or at least one attachment.`,
           });
         }
-        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+        const { mossGuideInstalled, mossDeveloperInstalled } =
+          yield* readMossOfficialPluginFlags(serverSettings);
         const harnessPolicy = takeMossHarnessPolicyForProviderSession(
           {
             ...(context.harnessPolicyDelivered ? { harnessPolicyDelivered: true } : {}),
@@ -4337,6 +4338,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             provider,
             scopedGatewayConnectionAvailable: context.gatewayControlAvailable,
             mossGuideInstalled,
+            mossDeveloperInstalled,
             connectedApps: readConnectedAppNames(agentGatewayCredentials),
           },
         );

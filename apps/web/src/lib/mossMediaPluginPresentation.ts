@@ -13,6 +13,12 @@ import type {
   ProviderSkillDescriptor,
 } from "@moss/contracts";
 import {
+  MOSS_DEVELOPER_PLUGIN_COPY,
+  MOSS_DEVELOPER_PLUGIN_NAME,
+  MOSS_DEVELOPER_SKILLS,
+  MOSS_DEVELOPER_SKILL_NAME,
+} from "@moss/shared/mossDeveloperPlugin";
+import {
   MOSS_CANVAS_SKILL_DESCRIPTION,
   mossMediaPlugin,
   mossMediaSkillDescription,
@@ -31,6 +37,20 @@ export function localizeMossMediaPlugin(
   locale: MossLocaleCode,
 ): ProviderPluginDescriptor {
   if (locale !== "zh-CN" || !plugin.interface || !isMossBundledPlugin(plugin)) return plugin;
+  if (plugin.name === MOSS_DEVELOPER_PLUGIN_NAME) {
+    const copy = MOSS_DEVELOPER_PLUGIN_COPY.zhCN;
+    return {
+      ...plugin,
+      interface: {
+        ...plugin.interface,
+        displayName: copy.displayName,
+        shortDescription: copy.shortDescription,
+        longDescription: copy.longDescription,
+        capabilities: [...copy.capabilities],
+        defaultPrompt: [...copy.defaultPrompt],
+      },
+    };
+  }
   const spec = mossMediaPlugin(plugin.name);
   if (!spec) return plugin;
   return {
@@ -45,16 +65,36 @@ export function localizeMossMediaPlugin(
   };
 }
 
-/** A Moss media skill as Codex lists it: `moss-imagegen` or `moss-imagegen:moss-imagegen`. */
+/** A Moss media/official bundled skill as Codex lists it: `moss-imagegen` or `moss-imagegen:moss-imagegen`. */
 export function localizeMossMediaSkill(
   skill: ProviderSkillDescriptor,
   locale: MossLocaleCode,
 ): ProviderSkillDescriptor {
   if (locale !== "zh-CN") return skill;
   const [pluginName = "", skillName = pluginName] = skill.name.split(":");
+  const normalizedPath = skill.path.replaceAll("\\", "/");
+  if (pluginName === MOSS_DEVELOPER_PLUGIN_NAME && skillName === MOSS_DEVELOPER_SKILL_NAME) {
+    const devSkill = MOSS_DEVELOPER_SKILLS[0];
+    if (
+      !devSkill ||
+      (!normalizedPath.includes(MOSS_BUNDLED_MARKETPLACE) &&
+        !normalizedPath.includes(`/.moss/skills/${MOSS_DEVELOPER_SKILL_NAME}`))
+    ) {
+      return skill;
+    }
+    return {
+      ...skill,
+      description: devSkill.shortDescription.zhCN,
+      interface: {
+        ...skill.interface,
+        displayName: devSkill.displayName.zhCN,
+        shortDescription: devSkill.shortDescription.zhCN,
+      },
+    };
+  }
   const spec = pluginName === skillName ? mossMediaPlugin(pluginName) : undefined;
   // Only the copy Moss wrote from its own marketplace, never a same-named user skill.
-  if (!spec || !skill.path.replaceAll("\\", "/").includes(MOSS_BUNDLED_MARKETPLACE)) return skill;
+  if (!spec || !normalizedPath.includes(MOSS_BUNDLED_MARKETPLACE)) return skill;
   return {
     ...skill,
     description:

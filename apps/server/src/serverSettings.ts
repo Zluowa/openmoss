@@ -31,6 +31,7 @@ import {
   applyServerSettingsPatch,
   normalizeRetiredTextGenerationSelection,
 } from "@moss/shared/serverSettings";
+import { isMossDeveloperPluginInstalled } from "@moss/shared/mossDeveloperPlugin";
 import { isMossGuidePluginInstalled } from "@moss/shared/mossGuidePlugin";
 import {
   Cause,
@@ -62,7 +63,7 @@ import {
 } from "./providerCredentials";
 import { isProviderCredentialKey } from "./providerChildEnvironment.ts";
 import { initialProviderSettings } from "./provider/initialProviderSettings.ts";
-import { syncMossGuideSkills } from "./mossOfficialPlugins/guideSkills.ts";
+import { syncMossDeveloperSkills, syncMossGuideSkills } from "./mossOfficialPlugins/guideSkills.ts";
 import { invalidateSkillsCatalogCache, mossSkillsDir } from "./provider/skillsCatalog.ts";
 
 export interface ServerSettingsShape {
@@ -1327,11 +1328,20 @@ const makeServerSettings = Effect.gen(function* () {
       }
       if (baseDir !== "<memory>") {
         yield* Effect.tryPromise(() =>
-          syncMossGuideSkills(mossSkillsDir(baseDir), isMossGuidePluginInstalled(loaded.settings)),
+          Promise.all([
+            syncMossGuideSkills(
+              mossSkillsDir(baseDir),
+              isMossGuidePluginInstalled(loaded.settings),
+            ),
+            syncMossDeveloperSkills(
+              mossSkillsDir(baseDir),
+              isMossDeveloperPluginInstalled(loaded.settings),
+            ),
+          ]),
         ).pipe(
           Effect.tap(() => Effect.sync(() => invalidateSkillsCatalogCache())),
           Effect.catch((error) =>
-            Effect.logWarning("failed to sync Moss Guide skills on startup", { error }),
+            Effect.logWarning("failed to sync Moss official plugin skills on startup", { error }),
           ),
         );
       }
@@ -1431,16 +1441,23 @@ const makeServerSettings = Effect.gen(function* () {
         yield* Ref.set(revisionRef, nextRevision);
         if (
           baseDir !== "<memory>" &&
-          isMossGuidePluginInstalled(next) !== isMossGuidePluginInstalled(current)
+          (isMossGuidePluginInstalled(next) !== isMossGuidePluginInstalled(current) ||
+            isMossDeveloperPluginInstalled(next) !== isMossDeveloperPluginInstalled(current))
         ) {
           yield* Effect.tryPromise(() =>
-            syncMossGuideSkills(mossSkillsDir(baseDir), isMossGuidePluginInstalled(next)),
+            Promise.all([
+              syncMossGuideSkills(mossSkillsDir(baseDir), isMossGuidePluginInstalled(next)),
+              syncMossDeveloperSkills(mossSkillsDir(baseDir), isMossDeveloperPluginInstalled(next)),
+            ]),
           ).pipe(
             Effect.tap(() => Effect.sync(() => invalidateSkillsCatalogCache())),
             Effect.catch((error) =>
-              Effect.logWarning("failed to sync Moss Guide skills after settings update", {
-                error,
-              }),
+              Effect.logWarning(
+                "failed to sync Moss official plugin skills after settings update",
+                {
+                  error,
+                },
+              ),
             ),
           );
         }

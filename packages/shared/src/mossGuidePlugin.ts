@@ -191,6 +191,7 @@ export const MOSS_GUIDE_SKILLS: readonly MossGuidePluginSkillSpec[] = [
 
 如果环境中存在以下便携技能（\`~/.moss/skills\` 或内置插件），按场景直接遵循：
 - \`moss-imagegen\` / \`moss-videogen\` / \`moss-canvas\`：图像、视频生成与画布操作规范。
+- \`moss-developer\`：一句话零外部密钥打造 Moss 应用页、AI 小工具、阅读器与智能会议应用（默认复用 \`moss-ui-kit\` 与原生 \`db\` / \`ai\` / \`media\` / \`voice\` / \`chat\` / \`mossbot\` / \`desktop\` / \`files\` / \`downloads\`）。
 - \`moss-web-builder\`：前端页面开发与浏览器端到端验收。
 - \`plugin-creator\` / \`skill-creator\`：帮助用户把常见工作流沉淀成新插件或技能。
 - \`moss-plugin-discovery\`：当任务需要外部账号/服务/工具时，主动搜索并推荐可一键授权绑定的插件。

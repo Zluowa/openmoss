@@ -9,6 +9,7 @@ import {
   type MossAppToolkit,
   type OrchestrationCommand,
 } from "@moss/contracts";
+import { MOSS_DEVELOPER_PLUGIN_ID } from "@moss/shared/mossDeveloperPlugin";
 import { MOSS_GUIDE_PLUGIN_ID } from "@moss/shared/mossGuidePlugin";
 
 import {
@@ -455,5 +456,53 @@ describe("moss_search_plugins & moss_suggest_plugins", () => {
     const allowed = parseResult(await callSuggest({ pluginIds: ["lark@moss-apps"] }));
     expect(allowed.suggested).toHaveLength(1);
     expect(dispatched).toHaveLength(1);
+  });
+
+  it("discovers Moss Developer for app/reader/meeting prompts and suggests it only when uninstalled", async () => {
+    const defaultSetup = setup();
+    for (const query of ["做个阅读器", "会议工具", "智能会议工具", "moss-developer"]) {
+      const search = parseResult(await defaultSetup.callSearch({ query }));
+      expect(search.results[0]).toMatchObject({
+        pluginId: MOSS_DEVELOPER_PLUGIN_ID,
+        sourceKind: "moss-bundled",
+        installed: true,
+      });
+    }
+    const already = parseResult(
+      await defaultSetup.callSuggest({ pluginIds: [MOSS_DEVELOPER_PLUGIN_ID] }),
+    );
+    expect(already.alreadyInstalled).toEqual([MOSS_DEVELOPER_PLUGIN_ID]);
+    expect(defaultSetup.dispatched).toHaveLength(0);
+
+    const uninstalledSetup = setup({
+      uninstalledOfficial: [MOSS_DEVELOPER_PLUGIN_ID],
+    });
+    const searchWhenUninstalled = parseResult(
+      await uninstalledSetup.callSearch({ query: "做一个AI阅读器应用" }),
+    );
+    expect(searchWhenUninstalled.results[0]).toMatchObject({
+      pluginId: MOSS_DEVELOPER_PLUGIN_ID,
+      sourceKind: "moss-bundled",
+      installed: false,
+    });
+    const suggest = await uninstalledSetup.callSuggest({ pluginIds: [MOSS_DEVELOPER_PLUGIN_ID] });
+    expect(suggest.isError).not.toBe(true);
+    expect(uninstalledSetup.dispatched).toHaveLength(1);
+    expect(uninstalledSetup.dispatched[0]).toMatchObject({
+      type: "thread.activity.append",
+      activity: {
+        kind: PLUGIN_SUGGESTION_ACTIVITY_KIND,
+        payload: {
+          suggestions: [
+            {
+              pluginId: MOSS_DEVELOPER_PLUGIN_ID,
+              sourceKind: "moss-bundled",
+              displayName: "Moss 开发者",
+              requiresAuth: false,
+            },
+          ],
+        },
+      },
+    });
   });
 });

@@ -1615,6 +1615,7 @@ export function buildCodexCollaborationMode(input: {
   readonly mossManagedAccount?: boolean;
   readonly enableComputerControl?: boolean;
   readonly mossGuideInstalled?: boolean;
+  readonly mossDeveloperInstalled?: boolean;
   readonly connectedApps?: ReadonlyArray<string>;
   readonly interactionMode?: ProviderInteractionMode;
   readonly model?: string;
@@ -1644,7 +1645,9 @@ export function buildCodexCollaborationMode(input: {
       model,
       reasoning_effort: input.effort ?? "medium",
       developer_instructions:
-        input.enableComputerControl === true || input.mossGuideInstalled === true
+        input.enableComputerControl === true ||
+        input.mossGuideInstalled === true ||
+        input.mossDeveloperInstalled === true
           ? instructions.replace(
               PERSONAL_CODEX_GATEWAY_HARNESS_POLICY,
               renderMossHarnessPolicy({
@@ -1652,6 +1655,7 @@ export function buildCodexCollaborationMode(input: {
                 enableComputerControl: input.enableComputerControl === true,
                 personalCodex: input.mossManagedAccount !== true,
                 ...(input.mossGuideInstalled === true ? { mossGuideInstalled: true } : {}),
+                ...(input.mossDeveloperInstalled === true ? { mossDeveloperInstalled: true } : {}),
                 ...(input.connectedApps !== undefined
                   ? { connectedApps: input.connectedApps }
                   : {}),
@@ -2244,6 +2248,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     | (() => Promise<MossDownloadSourceOrder>)
     | undefined;
   private readonly readMossGuideInstalled: (() => Promise<boolean>) | undefined;
+  private readonly readMossDeveloperInstalled: (() => Promise<boolean>) | undefined;
   private readonly readConnectedApps: (() => ReadonlyArray<string> | undefined) | undefined;
   private readonly readManagedHomeAuthority:
     | ((
@@ -2311,6 +2316,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       /** The account's download source order for catalog packages (COS or R2 first). */
       readonly resolveMossPluginCatalogSourceOrder?: () => Promise<MossDownloadSourceOrder>;
       readonly readMossGuideInstalled?: () => Promise<boolean>;
+      readonly readMossDeveloperInstalled?: () => Promise<boolean>;
       readonly readConnectedApps?: () => ReadonlyArray<string> | undefined;
       readonly readManagedHomeAuthority?: (
         options: CodexDiscoveryOptions | undefined,
@@ -2339,6 +2345,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.mossPluginCatalogRoot = options?.mossPluginCatalogRoot;
     this.resolveMossPluginCatalogSourceOrder = options?.resolveMossPluginCatalogSourceOrder;
     this.readMossGuideInstalled = options?.readMossGuideInstalled;
+    this.readMossDeveloperInstalled = options?.readMossDeveloperInstalled;
     this.readConnectedApps = options?.readConnectedApps;
     this.readManagedHomeAuthority = options?.readManagedHomeAuthority;
     this.agentGatewayMcp = options?.agentGatewayMcp;
@@ -4625,11 +4632,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     const mossGuideInstalled = this.readMossGuideInstalled
       ? await this.readMossGuideInstalled().catch(() => true)
       : false;
+    const mossDeveloperInstalled = this.readMossDeveloperInstalled
+      ? await this.readMossDeveloperInstalled().catch(() => true)
+      : false;
     const connectedApps = mossGuideInstalled ? this.readConnectedApps?.() : undefined;
     const collaborationMode = buildCodexCollaborationMode({
       mossManagedAccount: context.codexOptions?.accountId === "moss",
       enableComputerControl: context.enableComputerControl === true,
       ...(mossGuideInstalled ? { mossGuideInstalled: true } : {}),
+      ...(mossDeveloperInstalled ? { mossDeveloperInstalled: true } : {}),
       ...(connectedApps !== undefined ? { connectedApps } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),

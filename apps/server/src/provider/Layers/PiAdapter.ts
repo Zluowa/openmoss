@@ -38,7 +38,7 @@ import { Effect, FileSystem, Layer, Option, Queue, Stream } from "effect";
 import {
   type MossHarnessPolicyDeliveryState,
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   takeMossHarnessPolicyForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -171,6 +171,7 @@ export function buildPiTurnPrompt(
     readonly text: string;
     readonly gatewayControlAvailable: boolean;
     readonly mossGuideInstalled?: boolean | undefined;
+    readonly mossDeveloperInstalled?: boolean | undefined;
     readonly connectedApps?: ReadonlyArray<string> | undefined;
   },
 ): string {
@@ -178,6 +179,7 @@ export function buildPiTurnPrompt(
     provider: PROVIDER,
     scopedGatewayConnectionAvailable: input.gatewayControlAvailable,
     ...(input.mossGuideInstalled === true ? { mossGuideInstalled: true } : {}),
+    ...(input.mossDeveloperInstalled === true ? { mossDeveloperInstalled: true } : {}),
     ...(input.connectedApps !== undefined ? { connectedApps: input.connectedApps } : {}),
   });
   return [harnessPolicy, input.text].filter(Boolean).join("\n\n");
@@ -1795,15 +1797,16 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const buildProviderText = (
       context: PiSessionContext,
       text: string,
-      mossGuideInstalled: boolean,
+      flags: { readonly mossGuideInstalled: boolean; readonly mossDeveloperInstalled: boolean },
     ) => {
-      const connectedApps = mossGuideInstalled
+      const connectedApps = flags.mossGuideInstalled
         ? readConnectedAppNames(agentGatewayCredentials)
         : undefined;
       return buildPiTurnPrompt(context, {
         text,
         gatewayControlAvailable: context.gatewayControlAvailable,
-        mossGuideInstalled,
+        mossGuideInstalled: flags.mossGuideInstalled,
+        mossDeveloperInstalled: flags.mossDeveloperInstalled,
         ...(connectedApps !== undefined ? { connectedApps } : {}),
       });
     };
@@ -2185,7 +2188,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               threadId: input.threadId,
             });
           }
-          const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+          const officialFlags = yield* readMossOfficialPluginFlags(serverSettings);
           const isReload = payload.images.length === 0 && isPiReloadCommand(payload.text);
           const liveTurnId = context.activeTurnId;
           if (liveTurnId !== undefined) {
@@ -2196,7 +2199,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             sendPiPrompt(
               context,
               liveTurnId,
-              buildProviderText(context, payload.text, mossGuideInstalled),
+              buildProviderText(context, payload.text, officialFlags),
               payload.images,
               "followUp",
             );
@@ -2210,7 +2213,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           sendPiPrompt(
             context,
             turnId,
-            buildProviderText(context, payload.text, mossGuideInstalled),
+            buildProviderText(context, payload.text, officialFlags),
             payload.images,
           );
           return dispatchResult(context, turnId);
@@ -2239,8 +2242,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               threadId: input.threadId,
             });
           }
-          const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
-          const providerText = buildProviderText(context, payload.text, mossGuideInstalled);
+          const officialFlags = yield* readMossOfficialPluginFlags(serverSettings);
+          const providerText = buildProviderText(context, payload.text, officialFlags);
           const joinedTurnId = context.activeTurnId;
           if (joinedTurnId !== undefined) {
             sendPiPrompt(context, joinedTurnId, providerText, payload.images, "steer");

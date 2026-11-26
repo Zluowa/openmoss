@@ -140,6 +140,9 @@ const EN_TRANSLATIONS = {
   "chat.pluginSuggestion.detached": "Plugin installation is only available in your own Moss app.",
   "plugins.official.mossGuide.tryPrompt":
     "Show me what you can do inside Moss with a few practical examples",
+  "plugins.official.mossDeveloper.tryPrompt":
+    "Build a zero-key Moss Page App for me right now (e.g., an AI companion reader or smart meeting room)",
+  "composer.extras.mossDeveloperSection": "Moss Developer",
   "attachments.remove": "Remove {name}",
   "attachments.preview": "Preview {name}",
   "attachments.quotes.one": "1 selection",
@@ -5160,6 +5163,9 @@ const ZH_TRANSLATIONS: Record<TranslationKey, string> = {
   "chat.pluginSuggestion.detached": "仅可在你自己的 Moss 客户端中安装插件。",
   "plugins.official.mossGuide.tryPrompt":
     "介绍一下你在 Moss 里能帮我做哪些事，给我举几个实用的例子",
+  "plugins.official.mossDeveloper.tryPrompt":
+    "一句话帮我做一个零外部密钥的 Moss 应用页（比如 AI 伴读阅读器或智能会议室）",
+  "composer.extras.mossDeveloperSection": "Moss 开发者",
   "attachments.remove": "移除 {name}",
   "attachments.preview": "预览 {name}",
   "attachments.quotes.one": "1 段引用",

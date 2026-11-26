@@ -232,6 +232,7 @@ export async function writeMossManagedPluginConfig(input: {
           ".moss-plugin-creator-bootstrap-v1",
           ".moss-videogen-bootstrap-v1",
           ".moss-canvas-bootstrap-v1",
+          ".moss-developer-bootstrap-v1",
         ]) {
           const exists = await lstat(path.join(home, entry)).catch(
             (cause: NodeJS.ErrnoException) => {

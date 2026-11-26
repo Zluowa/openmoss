@@ -125,6 +125,7 @@ describe("managed native plugin config", () => {
             "moss-plugin-creator",
             "moss-videogen",
             "moss-canvas",
+            "moss-developer",
           ]);
           const config = parse(await readFile(configPath, "utf8"));
           expect(config.model).toBe("kept");

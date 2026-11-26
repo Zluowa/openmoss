@@ -254,10 +254,14 @@ import {
   mossAppPluginId,
   mossAppSlugFromPluginId,
 } from "~/lib/mossAppsPlugins";
+import { isMossDeveloperPluginInstalled } from "@moss/shared/mossDeveloperPlugin";
 import { isMossGuidePluginInstalled } from "@moss/shared/mossGuidePlugin";
 import {
+  isMossDeveloperPlugin,
   isMossOfficialFallbackBuiltinPlugin,
+  isMossOfficialManagedPlugin,
   isMossOfficialPlugin,
+  mossDeveloperPluginDescriptor,
   mossGuidePluginDescriptor,
   mossGuidePluginDetail,
   mossGuidePluginDirectoryEntry,
@@ -1899,6 +1903,7 @@ export function PluginLibrary({
   const refreshServicePlugins = () =>
     queryClient.invalidateQueries({ queryKey: MCP_CONNECTORS_QUERY_KEY });
   const mossGuideInstalled = isMossGuidePluginInstalled(serverSettingsQuery.data);
+  const mossDeveloperInstalled = isMossDeveloperPluginInstalled(serverSettingsQuery.data);
   const [connectorConnectTarget, setConnectorConnectTarget] = useState<McpConnectorTarget | null>(
     null,
   );
@@ -1926,7 +1931,12 @@ export function PluginLibrary({
     if (isMossOfficialPlugin(detail.plugin)) {
       return mossGuidePluginDetail(mossGuideInstalled, locale);
     }
-    const officialFallbackDetail = mossOfficialFallbackPluginDetail(detail.plugin, locale);
+    const officialFallbackDetail = mossOfficialFallbackPluginDetail(
+      isMossDeveloperPlugin(detail.plugin)
+        ? { ...detail.plugin, installed: mossDeveloperInstalled, enabled: mossDeveloperInstalled }
+        : detail.plugin,
+      locale,
+    );
     if (officialFallbackDetail) {
       return officialFallbackDetail;
     }
@@ -1950,6 +1960,7 @@ export function PluginLibrary({
     locale,
     mossAppConnections,
     mossAppToolkits,
+    mossDeveloperInstalled,
     mossGuideInstalled,
   ]);
   const nativePluginDetail = pluginDetailQuery.data?.plugin;
@@ -2095,9 +2106,11 @@ export function PluginLibrary({
   const mossOfficialBuiltInFallback = useMemo<PluginEntry[]>(
     () =>
       showMossGuideInDirectory
-        ? mossOfficialDefaultPluginFallbackEntries(locale, nativePluginIdSet)
+        ? mossOfficialDefaultPluginFallbackEntries(locale, nativePluginIdSet, {
+            mossDeveloperInstalled,
+          })
         : [],
-    [locale, nativePluginIdSet, showMossGuideInDirectory],
+    [locale, mossDeveloperInstalled, nativePluginIdSet, showMossGuideInDirectory],
   );
   const pluginEntries = useMemo<PluginEntry[]>(
     () =>
@@ -3169,7 +3182,15 @@ export function PluginLibrary({
       resource.kind === "plugin"
         ? isMossOfficialPlugin(resource.plugin)
           ? (discoveredSkills.find((skill) => skill.name === "moss-guide") ?? null)
-          : mossServicePluginSkillReference(resource.plugin, servicePluginsQuery.data?.skills ?? [])
+          : isMossDeveloperPlugin(resource.plugin)
+            ? (discoveredSkills.find(
+                (skill) =>
+                  skill.name === "moss-developer:moss-developer" || skill.name === "moss-developer",
+              ) ?? null)
+            : mossServicePluginSkillReference(
+                resource.plugin,
+                servicePluginsQuery.data?.skills ?? [],
+              )
         : null;
     void resourceActions.tryInChat(resource, prompt, { serviceSkill }).then((started) => {
       if (!started) {
@@ -3320,15 +3341,18 @@ export function PluginLibrary({
 
   const handleInstallPlugin = (resource: ResourceDetail) => {
     if (resource.kind !== "plugin") return;
-    if (isMossOfficialPlugin(resource.plugin)) {
+    if (isMossOfficialManagedPlugin(resource.plugin)) {
       const key = pluginResourceKey(resource);
       if (installingPluginKeysRef.current.has(key)) return;
       installingPluginKeysRef.current.add(key);
       setInstallingPluginKeys(new Set(installingPluginKeysRef.current));
       void setOfficialPluginInstalled(resource.plugin, true)
         .then(() => {
+          const nextPlugin = isMossDeveloperPlugin(resource.plugin)
+            ? mossDeveloperPluginDescriptor(true, locale)
+            : mossGuidePluginDescriptor(true, locale);
           showPluginInstallSuccess(
-            { ...resource, plugin: mossGuidePluginDescriptor(true, locale) },
+            { ...resource, plugin: nextPlugin },
             resourceActions.resourceName(resource),
           );
         })
@@ -3408,6 +3432,9 @@ export function PluginLibrary({
             return;
           }
         }
+        if (isMossDeveloperPlugin(resource.plugin)) {
+          void setOfficialPluginInstalled(resource.plugin, true).catch(() => {});
+        }
         showPluginInstallSuccess(resource, resourceName);
       })
       .catch((error: unknown) => {
@@ -3428,7 +3455,7 @@ export function PluginLibrary({
   };
 
   const updatePluginEnabled = (entry: ManagedPlugin, enabled: boolean): Promise<boolean> => {
-    if (isMossOfficialPlugin(entry.plugin)) {
+    if (isMossOfficialManagedPlugin(entry.plugin)) {
       if (enabled) {
         return setOfficialPluginInstalled(entry.plugin, true).then(() => {
           const name = entry.plugin.interface?.displayName ?? entry.plugin.name;
@@ -3537,7 +3564,7 @@ export function PluginLibrary({
     uninstallingRef.current = true;
     setUninstalling(true);
     const mossApp = resource.kind === "plugin" && isMossManagedAppPlugin(resource.plugin);
-    const mossOfficial = resource.kind === "plugin" && isMossOfficialPlugin(resource.plugin);
+    const mossOfficial = resource.kind === "plugin" && isMossOfficialManagedPlugin(resource.plugin);
     const mutation =
       resource.kind === "plugin" && mossOfficial
         ? setOfficialPluginInstalled(resource.plugin, false)
@@ -3556,6 +3583,13 @@ export function PluginLibrary({
     void mutation
       .then((result) => {
         if (result?.removed) {
+          if (
+            resource.kind === "plugin" &&
+            isMossDeveloperPlugin(resource.plugin) &&
+            !mossOfficial
+          ) {
+            void setOfficialPluginInstalled(resource.plugin, false).catch(() => {});
+          }
           toastManager.add({
             type: "success",
             title: format(mossApp ? "apps.toast.disconnected" : "plugins.toast.uninstalled", {

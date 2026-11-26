@@ -164,7 +164,7 @@ export function buildTryInChatSeed(
       // chip variant (`resolveMentionChipKind`) instead of a plain path chip. The
       // plugin's defaultPrompt trails the chip (`[@name](uri) ${defaultPrompt}`).
       const mentionToken = formatComposerMentionToken(resource.plugin.name);
-      // A Moss media plugin's example prompt follows the UI language, so the
+      // A Moss media/developer plugin's example prompt follows the UI language, so the
       // agent answers a Chinese person in Chinese.
       const locale = options.locale ?? documentMossLocale();
       const defaultPrompt = resource.plugin.interface?.defaultPrompt?.map((prompt) =>
@@ -173,6 +173,16 @@ export function buildTryInChatSeed(
       const trailing =
         promptOverride ??
         (defaultPrompt && defaultPrompt.length > 0 ? defaultPrompt.join("\n") : "");
+      if (options.serviceSkill) {
+        const skill = options.serviceSkill;
+        return {
+          prompt: trailing
+            ? `${skillMentionPrefix(provider)}${skill.name} ${trailing}`
+            : `${skillMentionPrefix(provider)}${skill.name} `,
+          skills: [{ name: skill.name, path: skill.path }],
+          mentions: [],
+        };
+      }
       return {
         prompt: trailing ? `${mentionToken} ${trailing}` : `${mentionToken} `,
         skills: [],

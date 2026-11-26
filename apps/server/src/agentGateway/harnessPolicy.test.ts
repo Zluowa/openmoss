@@ -323,3 +323,25 @@ it("appends the Moss Guide proactive directive only when gateway control is avai
   });
   assert.notInclude(noGateway, "### Moss Guide (`moss-guide` active)");
 });
+
+it("appends the Moss Developer directive only when gateway control is available and moss-developer is installed", () => {
+  const installed = renderMossHarnessPolicy({
+    gatewayControlAvailable: true,
+    mossDeveloperInstalled: true,
+  });
+  assert.include(installed, "### Moss Developer (`moss-developer` active)");
+  assert.include(installed, "moss-ui-kit");
+  assert.include(installed, "moss_app_publish");
+
+  const uninstalled = renderMossHarnessPolicy({
+    gatewayControlAvailable: true,
+    mossDeveloperInstalled: false,
+  });
+  assert.notInclude(uninstalled, "### Moss Developer (`moss-developer` active)");
+
+  const noGateway = renderMossHarnessPolicy({
+    gatewayControlAvailable: false,
+    mossDeveloperInstalled: true,
+  });
+  assert.notInclude(noGateway, "### Moss Developer (`moss-developer` active)");
+});

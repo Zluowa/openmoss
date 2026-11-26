@@ -62,7 +62,7 @@ import type * as Acp from "@agentclientprotocol/sdk";
 import {
   type MossHarnessPolicyDeliveryState,
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -170,11 +170,13 @@ export const takeDevinMossHarnessPolicyTextPart = (
   scopedGatewayConnectionAvailable: boolean,
   mossGuideInstalled = false,
   connectedApps?: ReadonlyArray<string>,
+  mossDeveloperInstalled = false,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
     mossGuideInstalled,
+    mossDeveloperInstalled,
     ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 
@@ -3097,12 +3099,14 @@ export function makeDevinAdapter(
           });
         }
 
-        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+        const { mossGuideInstalled, mossDeveloperInstalled } =
+          yield* readMossOfficialPluginFlags(serverSettings);
         const harnessPolicy = takeDevinMossHarnessPolicyTextPart(
           ctx,
           ctx.devinSessionConfig?.installed === true,
           mossGuideInstalled,
           readConnectedAppNames(agentGatewayCredentials),
+          mossDeveloperInstalled,
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

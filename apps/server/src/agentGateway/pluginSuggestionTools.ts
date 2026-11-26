@@ -28,6 +28,13 @@ import {
 } from "@moss/shared/mcpConnectors";
 import type { MossAppToolkit } from "@moss/contracts";
 import {
+  MOSS_DEVELOPER_MARKETPLACE_NAME,
+  MOSS_DEVELOPER_PLUGIN_COPY,
+  MOSS_DEVELOPER_PLUGIN_ID,
+  MOSS_DEVELOPER_PLUGIN_NAME,
+  isMossDeveloperPluginInstalled,
+} from "@moss/shared/mossDeveloperPlugin";
+import {
   activeDismissedSuggestionPluginIds,
   isMossGuidePluginInstalled,
   type DismissedPluginSuggestionRecord,
@@ -107,6 +114,10 @@ const BILINGUAL_QUERY_ALIASES: ReadonlyArray<readonly [RegExp, readonly string[]
   [/论文|文献|引用|bibtex|科研|paper/iu, ["zotero"]],
   [/游戏|game/iu, ["game-studio"]],
   [/网页|前端|网站|ui|web/iu, ["build-web-apps"]],
+  [
+    /做个?应用|建个?应用|小应用|应用页|小程序|阅读器|微信阅读|伴读|会议工具|智能会议|ai\s*小工具|moss\s*developer|moss\s*开发者|page\s*app|mini[- ]?app|app\s*builder|reader|meeting\s*tool/iu,
+    ["moss-developer", "moss 开发者"],
+  ],
   [/安卓|android|模拟器/iu, ["test-android-apps"]],
   [/苹果|ios|swift/iu, ["build-ios-apps"]],
   [/mac|macos/iu, ["build-macos-apps"]],
@@ -123,6 +134,7 @@ const BILINGUAL_QUERY_ALIASES: ReadonlyArray<readonly [RegExp, readonly string[]
 
 /** Everyday personal/office connectors boosted above niche/marketing tools on broad queries. */
 const POPULAR_CORE_APP_TOKENS: ReadonlySet<string> = new Set([
+  "moss-developer",
   "gmail",
   "outlook",
   "googlecalendar",
@@ -244,7 +256,7 @@ function buildUnifiedPluginCatalog(
   deps: Pick<
     PluginSuggestionToolsDeps,
     "mcpConnectors" | "readAccountRegion" | "readInstalledNativePluginIds"
-  >,
+  > & { readonly mossDeveloperInstalled?: boolean },
 ): Effect.Effect<UnifiedCatalogSnapshot> {
   return Effect.gen(function* () {
     const region: McpConnectorRegion = deps.readAccountRegion
@@ -289,6 +301,49 @@ function buildUnifiedPluginCatalog(
 
     const records: CatalogEntryRecord[] = [];
     const servicePresetIds = new Set<string>();
+
+    // 0. Official uninstallable Moss Developer plugin (`moss-developer@moss-bundled`)
+    const developerCopy = MOSS_DEVELOPER_PLUGIN_COPY.zhCN;
+    const developerInstalled =
+      deps.mossDeveloperInstalled !== false &&
+      (deps.readInstalledNativePluginIds === undefined ||
+        installedNative.size === 0 ||
+        installedNative.has(MOSS_DEVELOPER_PLUGIN_ID) ||
+        deps.mossDeveloperInstalled === true);
+    records.push({
+      installed: developerInstalled,
+      item: {
+        pluginId: MOSS_DEVELOPER_PLUGIN_ID,
+        sourceKind: "moss-bundled",
+        displayName: developerCopy.displayName,
+        developerName: developerCopy.developerName,
+        shortDescription: trimDescription(
+          developerCopy.shortDescription,
+          developerCopy.displayName,
+        ),
+        iconUrl: null,
+        marketplaceName: MOSS_DEVELOPER_MARKETPLACE_NAME,
+        pluginName: MOSS_DEVELOPER_PLUGIN_NAME,
+        requiresAuth: false,
+      },
+      primaryTokens: [
+        MOSS_DEVELOPER_PLUGIN_NAME,
+        MOSS_DEVELOPER_PLUGIN_COPY.en.displayName.toLowerCase(),
+        MOSS_DEVELOPER_PLUGIN_COPY.zhCN.displayName.toLowerCase(),
+      ],
+      searchText: [
+        MOSS_DEVELOPER_PLUGIN_ID,
+        MOSS_DEVELOPER_PLUGIN_NAME,
+        MOSS_DEVELOPER_PLUGIN_COPY.en.displayName,
+        MOSS_DEVELOPER_PLUGIN_COPY.zhCN.displayName,
+        MOSS_DEVELOPER_PLUGIN_COPY.en.shortDescription,
+        MOSS_DEVELOPER_PLUGIN_COPY.zhCN.shortDescription,
+        "app builder page app mini-app reader meeting moss-ui-kit voice media chat mossbot developer api",
+      ]
+        .join(" ")
+        .toLowerCase(),
+      popularityRank: 0,
+    });
 
     // 1. Moss service plugins (CN daily-life services + bundled skill/MCP)
     for (const plugin of MOSS_SERVICE_PLUGINS) {
@@ -513,7 +568,10 @@ export function makeAgentGatewayPluginSuggestionTools(
           return mcpToolResultError('Argument "query" must be a non-empty keyword string.');
         }
         const rawLimit = typeof args.limit === "number" ? args.limit : DEFAULT_SEARCH_LIMIT;
-        const snapshot = yield* buildUnifiedPluginCatalog(deps);
+        const snapshot = yield* buildUnifiedPluginCatalog({
+          ...deps,
+          mossDeveloperInstalled: isMossDeveloperPluginInstalled(settings),
+        });
         let catalog = snapshot.records;
         let results = searchMossPluginsCatalog(catalog, query, rawLimit, dismissedIds);
 
@@ -615,7 +673,10 @@ export function makeAgentGatewayPluginSuggestionTools(
           return mcpToolResultError('Argument "pluginIds" must contain 1 to 3 valid plugin IDs.');
         }
 
-        const snapshot = yield* buildUnifiedPluginCatalog(deps);
+        const snapshot = yield* buildUnifiedPluginCatalog({
+          ...deps,
+          mossDeveloperInstalled: isMossDeveloperPluginInstalled(settings),
+        });
         const byId = new Map(snapshot.records.map((entry) => [entry.item.pluginId, entry]));
 
         // Resolve any @moss-apps ID that came from targeted search if not present in the cached full catalog.

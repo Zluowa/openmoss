@@ -47,7 +47,7 @@ import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -177,11 +177,13 @@ export const takeAntigravityMossHarnessPolicyTextPart = (
   scopedGatewayConnectionAvailable: boolean,
   mossGuideInstalled = false,
   connectedApps?: ReadonlyArray<string>,
+  mossDeveloperInstalled = false,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
     mossGuideInstalled,
+    mossDeveloperInstalled,
     ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 
@@ -1429,12 +1431,14 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
         const model = turnModelSelection?.model ?? ctx.session.model;
 
         const promptParts = yield* buildPromptParts(input, "sendTurn");
-        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+        const { mossGuideInstalled, mossDeveloperInstalled } =
+          yield* readMossOfficialPluginFlags(serverSettings);
         const harnessPolicy = takeAntigravityMossHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
           mossGuideInstalled,
           readConnectedAppNames(agentGatewayCredentials),
+          mossDeveloperInstalled,
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

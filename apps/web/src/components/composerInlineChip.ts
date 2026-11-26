@@ -176,7 +176,11 @@ function formatComposerInlineTokenLabel(name: string): string {
 // Moss's own creator skills carry a translated name; every other skill keeps the label
 // made from its id. The chip lives in the composer's editable text, which the page-wide
 // translation skips, so the chip translates itself.
-const BUILT_IN_SKILL_CHIP_NAMES: ReadonlySet<string> = new Set(["skill-creator", "plugin-creator"]);
+const BUILT_IN_SKILL_CHIP_NAMES: ReadonlySet<string> = new Set([
+  "skill-creator",
+  "plugin-creator",
+  "moss-developer",
+]);
 
 function currentUiLocale(): string | undefined {
   return typeof document === "undefined" ? undefined : document.documentElement.dataset.mossLocale;

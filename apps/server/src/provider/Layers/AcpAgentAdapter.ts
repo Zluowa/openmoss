@@ -41,7 +41,7 @@ import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
   readConnectedAppNames,
-  readMossGuideInstalled,
+  readMossOfficialPluginFlags,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -1081,11 +1081,13 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
           });
         }
         const harnessPolicyState: MossHarnessPolicyDeliveryState = ctx;
-        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+        const { mossGuideInstalled, mossDeveloperInstalled } =
+          yield* readMossOfficialPluginFlags(serverSettings);
         const harnessPolicy = takeMossHarnessPolicyTextPartForProviderSession(harnessPolicyState, {
           provider: PROVIDER,
           scopedGatewayConnectionAvailable: agentGatewayCredentials !== undefined,
           mossGuideInstalled,
+          mossDeveloperInstalled,
           connectedApps: readConnectedAppNames(agentGatewayCredentials),
         });
         if (harnessPolicy) {
