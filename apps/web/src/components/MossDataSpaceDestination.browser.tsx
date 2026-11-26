@@ -175,7 +175,7 @@ async function replaceEditorText(
 }
 
 async function createPageSchedule() {
-  const create = page.getByRole("button", { name: "Create", exact: true });
+  const create = page.getByRole("dialog").getByRole("button", { name: /^(?:Create|创建)$/ });
   await expect.element(create).toBeDisabled();
   const localCheckoutConsent = page.getByRole("checkbox", {
     name: /^Auto fallback may use local checkout/,
