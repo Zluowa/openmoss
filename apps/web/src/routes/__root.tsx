@@ -51,8 +51,12 @@ import { useOnboarding } from "../onboarding/useOnboarding";
 import { useProjectImportDialogStore } from "../projectImport/projectImportDialogStore";
 import { StartupSurfaces } from "../components/StartupSurfaces";
 import { QueuedComposerDrainCoordinator } from "../components/QueuedComposerDrainCoordinator";
-import { FeedbackDialog } from "../components/FeedbackDialog";
-import ShortcutsDialog from "../components/ShortcutsDialog";
+const FeedbackDialog = lazy(() =>
+  import("../components/FeedbackDialog").then((module) => ({
+    default: module.FeedbackDialog,
+  })),
+);
+const ShortcutsDialog = lazy(() => import("../components/ShortcutsDialog"));
 import { shouldRenderTerminalWorkspace } from "../components/ChatView.logic";
 import { RealtimeVoiceControllerProvider } from "../components/chat/RealtimeVoiceControllerProvider";
 import { DesktopPluginDeepLinkRouter } from "../components/DesktopPluginDeepLinkRouter";
@@ -67,8 +71,11 @@ import { useFocusedChatContext } from "../focusedChatContext";
 import { useFeedbackDialogStore } from "../feedbackDialogStore";
 import type { FeedbackThreadContext } from "../feedback";
 import { isTerminalFocused } from "../lib/terminalFocus";
+import { getServerBootSnapshotSource } from "../lib/serverBootSnapshots";
 import {
   invalidateProviderUsageQueries,
+  markServerConfigHydrated,
+  markServerSettingsHydrated,
   reconcileServerProviderStatuses,
   refreshServerConfigAfterTransportOpen,
   serverConfigQueryOptions,
@@ -82,9 +89,9 @@ import {
   markPromotedDraftThreads,
   useComposerDraftStore,
 } from "../composerDraftStore";
-import { useStore } from "../store";
+import { useStore, type AppState } from "../store";
 import { EMPTY_THREAD_IDS } from "../storeState";
-import { createAllThreadsSelector, createThreadSelector } from "../storeSelectors";
+import { createThreadSelector } from "../storeSelectors";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { terminalActivityFromEvent } from "../terminalActivity";
 import {
@@ -561,19 +568,28 @@ function GlobalShortcutsDialog() {
     };
   }, []);
 
+  const [hasOpened, setHasOpened] = useState(false);
+  useEffect(() => {
+    if (open) setHasOpened(true);
+  }, [open]);
+
+  if (!hasOpened) return null;
+
   return (
-    <ShortcutsDialog
-      open={open}
-      onOpenChange={setOpen}
-      keybindings={keybindings}
-      projectScripts={activeProject?.kind === "project" ? activeProject.scripts : []}
-      platform={platform}
-      context={{
-        terminalFocus: isTerminalFocused(),
-        terminalOpen,
-        terminalWorkspaceOpen,
-      }}
-    />
+    <Suspense fallback={null}>
+      <ShortcutsDialog
+        open={open}
+        onOpenChange={setOpen}
+        keybindings={keybindings}
+        projectScripts={activeProject?.kind === "project" ? activeProject.scripts : []}
+        platform={platform}
+        context={{
+          terminalFocus: isTerminalFocused(),
+          terminalOpen,
+          terminalWorkspaceOpen,
+        }}
+      />
+    </Suspense>
   );
 }
 
@@ -603,7 +619,18 @@ function GlobalFeedbackDialog() {
     hasThreadError: Boolean(activeThread?.error),
   };
 
-  return <FeedbackDialog open={isOpen} context={context} onOpenChange={setOpen} />;
+  const [hasOpened, setHasOpened] = useState(false);
+  useEffect(() => {
+    if (isOpen) setHasOpened(true);
+  }, [isOpen]);
+
+  if (!hasOpened) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <FeedbackDialog open={isOpen} context={context} onOpenChange={setOpen} />
+    </Suspense>
+  );
 }
 
 // The dialog pulls in the provider sign-in terminal (xterm and addons), so it stays out
@@ -1577,7 +1604,14 @@ function EventRouter() {
     let transportOpen = false;
     const unsubTransportOpenCount = addWsTransportStateListener(
       (state) => {
-        if (state === "open" && !transportOpen) transportOpenCount += 1;
+        if (state === "open" && !transportOpen) {
+          transportOpenCount += 1;
+          // Boot hydrates from subscribeConfig. A reconnect must replace any
+          // config left in React Query from the previous socket.
+          if (transportOpenCount > 1) {
+            void refreshServerConfigAfterTransportOpen(queryClient).catch(() => undefined);
+          }
+        }
         transportOpen = state === "open";
       },
       { replayCurrent: true },
@@ -1984,30 +2018,30 @@ function EventRouter() {
           if (threadProjectionReconcilePendingById.get(threadId) === subscriptionGeneration) {
             threadProjectionReconcilePendingById.delete(threadId);
             void reconcileThreadProjection(threadId).catch(() => undefined);
-            return;
-          }
-          if (projectionAttemptFailed) {
-            // A failed reconcile is not evidence of a quiet healthy stream.
-            // Retry it at the base cadence, while preserving backoff when the
-            // snapshot was merely superseded by newer live events.
-            resolveThreadCatchupBackoff(threadId).reconcileNoopStreak = 0;
-          }
-          // Never retire the fence on a still-running snapshot or one taken at
-          // the exact session-set sequence before buffered assistant finals land.
-          if (projectionConfirmed && projectionSatisfiesTerminalFence) {
-            clearThreadProjectionTerminalFence(threadId);
-          }
-          if (
-            threadProjectionTerminalFencePending.has(threadId) ||
-            shouldReconcileThreadProjection(threadId) ||
-            isDraftThreadAwaitingProjection(threadId)
-          ) {
-            nextThreadProjectionReconcileAtById.set(
-              threadId,
-              Date.now() + nextThreadProjectionReconcileDelayMs(threadId),
-            );
           } else {
-            nextThreadProjectionReconcileAtById.delete(threadId);
+            if (projectionAttemptFailed) {
+              // A failed reconcile is not evidence of a quiet healthy stream.
+              // Retry it at the base cadence, while preserving backoff when the
+              // snapshot was merely superseded by newer live events.
+              resolveThreadCatchupBackoff(threadId).reconcileNoopStreak = 0;
+            }
+            // Never retire the fence on a still-running snapshot or one taken at
+            // the exact session-set sequence before buffered assistant finals land.
+            if (projectionConfirmed && projectionSatisfiesTerminalFence) {
+              clearThreadProjectionTerminalFence(threadId);
+            }
+            if (
+              threadProjectionTerminalFencePending.has(threadId) ||
+              shouldReconcileThreadProjection(threadId) ||
+              isDraftThreadAwaitingProjection(threadId)
+            ) {
+              nextThreadProjectionReconcileAtById.set(
+                threadId,
+                Date.now() + nextThreadProjectionReconcileDelayMs(threadId),
+              );
+            } else {
+              nextThreadProjectionReconcileAtById.delete(threadId);
+            }
           }
         }
       }
@@ -2051,6 +2085,10 @@ function EventRouter() {
       }
       shellSnapshotSequence = item.sequence;
       toastManager.close("stream-overflow:shell");
+      const previousSessionStatus =
+        item.kind === "thread-upserted"
+          ? (useStore.getState().threadSessionById?.[item.thread.id]?.status ?? null)
+          : null;
       applyShellEvent(item);
       if (item.kind === "thread-upserted") {
         reconcilePromotedDraftsFromShellThreads([item.thread]);
@@ -2069,7 +2107,12 @@ function EventRouter() {
         item.thread.session !== null &&
         isTerminalThreadSessionStatus(item.thread.session.status)
       ) {
-        armThreadProjectionTerminalFence(item.thread.id, item.sequence);
+        if (
+          previousSessionStatus === null ||
+          !isTerminalThreadSessionStatus(previousSessionStatus)
+        ) {
+          armThreadProjectionTerminalFence(item.thread.id, item.sequence);
+        }
       } else if (
         item.kind === "thread-upserted" &&
         subscribedThreadIds.has(item.thread.id) &&
@@ -2445,9 +2488,18 @@ function EventRouter() {
     // onServerConfigUpdated replays the latest cached value synchronously
     // during subscribe. Skip the toast for that replay so effect re-runs
     // don't produce duplicate toasts.
+    const bootSnapshots = getServerBootSnapshotSource(api);
     let subscribed = false;
     const unsubServerConfigUpdated = onServerConfigUpdated((payload) => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+      const streamSnapshot = bootSnapshots?.readLatestServerConfigSnapshot() ?? null;
+      if (streamSnapshot !== null) {
+        queryClient.setQueryData<ServerConfig>(serverQueryKeys.config(), (current) =>
+          current ? { ...streamSnapshot, providers: current.providers } : streamSnapshot,
+        );
+        markServerConfigHydrated(queryClient);
+      } else {
+        void queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
+      }
       if (!subscribed) return;
       const issue = payload.issues.find((entry) => entry.kind.startsWith("keybindings."));
       if (!issue) {
@@ -2515,20 +2567,14 @@ function EventRouter() {
         });
       }
     });
-    const unsubWsTransportState = addWsTransportStateListener(
-      (state) => {
-        if (state !== "open") return;
-        // Reopening the socket is a projection boundary. React Query otherwise
-        // keeps the previous infinite-stale config and can strand "Checking".
-        void refreshServerConfigAfterTransportOpen(queryClient).catch(() => undefined);
-      },
-      { replayCurrent: true },
-    );
     const unsubServerSettingsUpdated = onServerSettingsUpdated((payload) => {
       const previousSettings = queryClient.getQueryData<ServerSettingsView>(
         serverQueryKeys.settings(),
       );
-      queryClient.setQueryData(serverQueryKeys.settings(), payload.settings);
+      if (bootSnapshots !== null) {
+        queryClient.setQueryData(serverQueryKeys.settings(), payload.settings);
+        markServerSettingsHydrated(queryClient);
+      }
       if (didProviderEnablementChange(previousSettings, payload.settings)) {
         void queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
         void invalidateProviderUsageQueries(queryClient);
@@ -2536,9 +2582,17 @@ function EventRouter() {
         // Another window toggled it; the local patch path already invalidates its own.
         void queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all });
       }
-      void queryClient.invalidateQueries({
-        queryKey: serverSettingsQueryOptions().queryKey,
-      });
+      // Initial hydration (`previousSettings === undefined`) on the active WS
+      // transport already placed the authoritative server snapshot in cache via
+      // `setQueryData`, so skip a redundant boot `server.getSettings` refetch.
+      if (
+        bootSnapshots === null ||
+        (previousSettings !== undefined && previousSettings !== payload.settings)
+      ) {
+        void queryClient.invalidateQueries({
+          queryKey: serverSettingsQueryOptions().queryKey,
+        });
+      }
     });
     subscribed = true;
     void ensureScopedSubscriptions();
@@ -2683,7 +2737,6 @@ function EventRouter() {
       unsubWelcome();
       unsubServerConfigUpdated();
       unsubProviderStatusesUpdated();
-      unsubWsTransportState();
       unsubTransportOpenCount();
       unsubServerSettingsUpdated();
     };
@@ -2710,11 +2763,32 @@ function EventRouter() {
   return null;
 }
 
+function selectNeedsDesktopProjectRecovery(state: AppState): boolean {
+  if (!state.threadsHydrated) return false;
+  if (state.projects.length === 0) return true;
+  const projectIds = new Set<string>();
+  for (let i = 0; i < state.projects.length; i += 1) {
+    projectIds.add(state.projects[i]!.id);
+  }
+  const threadIds = state.threadIds ?? [];
+  const threadShellById = state.threadShellById;
+  if (!threadShellById) return false;
+  for (let i = 0; i < threadIds.length; i += 1) {
+    const shell = threadShellById[threadIds[i]!];
+    if (shell && !projectIds.has(shell.projectId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function DesktopProjectBootstrap() {
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
-  const projects = useStore((store) => store.projects);
-  const threads = useStore(selectAllThreads);
-  const threadsHydrated = useStore((store) => store.threadsHydrated);
+  const needsRecovery = useStore(selectNeedsDesktopProjectRecovery);
+  // Project inventory and thread membership can unblock a previously failed
+  // recovery without changing the missing-project predicate or rerunning for deltas.
+  const projects = useStore((store) => (needsRecovery ? store.projects : null));
+  const threadIds = useStore((store) => (needsRecovery ? store.threadIds : null));
   const recoveryAttemptGateRef = useRef<ReturnType<
     typeof createDesktopProjectRecoveryAttemptGate
   > | null>(null);
@@ -2726,13 +2800,7 @@ function DesktopProjectBootstrap() {
   useEffect(() => {
     let disposed = false;
     const api = readNativeApi();
-    if (!api || !threadsHydrated) {
-      return;
-    }
-
-    const projectIds = new Set(projects.map((project) => project.id));
-    const hasThreadWithoutProject = threads.some((thread) => !projectIds.has(thread.projectId));
-    if (projects.length > 0 && !hasThreadWithoutProject) {
+    if (!api || !needsRecovery) {
       return;
     }
 
@@ -2766,9 +2834,8 @@ function DesktopProjectBootstrap() {
       disposed = true;
       attempt.release();
     };
-  }, [projects, recoveryAttemptGate, syncServerReadModel, threads, threadsHydrated]);
+  }, [needsRecovery, projects, recoveryAttemptGate, syncServerReadModel, threadIds]);
 
   // Desktop hydration normally runs through EventRouter project + orchestration sync.
   return null;
 }
-const selectAllThreads = createAllThreadsSelector();

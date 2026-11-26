@@ -55,6 +55,8 @@ function resetRememberedProjectState(): void {
   persistedProjectNamesByCwd.clear();
   persistedProjectAppearanceByCwd.clear();
   persistedExpandedProjectCwdsDefined = false;
+  lastPersistedProjectsRef = null;
+  lastPersistedProjectsPayload = null;
 }
 
 /**
@@ -196,8 +198,12 @@ export function readPersistedState(initialState: AppState): AppState {
   }
 }
 
+let lastPersistedProjectsRef: AppState["projects"] | null = null;
+let lastPersistedProjectsPayload: string | null = null;
+
 export function persistState(state: AppState): void {
   if (typeof window === "undefined" || !state.threadsHydrated) return;
+  if (state.projects === lastPersistedProjectsRef) return;
   try {
     const projectNamesByCwd: Record<string, string> = {};
     const projectAppearanceByCwd: Record<string, ProjectAppearance> = {};
@@ -210,17 +216,19 @@ export function persistState(state: AppState): void {
         projectAppearanceByCwd[projectCwdKey(project.cwd)] = project.appearance;
       }
     }
-    window.localStorage.setItem(
-      PERSISTED_STATE_KEY,
-      JSON.stringify({
-        expandedProjectCwds: state.projects
-          .filter((project) => project.expanded)
-          .map((project) => projectCwdKey(project.cwd)),
-        projectOrderCwds: state.projects.map((project) => projectCwdKey(project.cwd)),
-        projectNamesByCwd,
-        projectAppearanceByCwd,
-      }),
-    );
+    const payload = JSON.stringify({
+      expandedProjectCwds: state.projects
+        .filter((project) => project.expanded)
+        .map((project) => projectCwdKey(project.cwd)),
+      projectOrderCwds: state.projects.map((project) => projectCwdKey(project.cwd)),
+      projectNamesByCwd,
+      projectAppearanceByCwd,
+    });
+    if (payload !== lastPersistedProjectsPayload) {
+      window.localStorage.setItem(PERSISTED_STATE_KEY, payload);
+      lastPersistedProjectsPayload = payload;
+    }
+    lastPersistedProjectsRef = state.projects;
   } catch (error) {
     // Quota/private-mode storage failures are not actionable in the UI; log at
     // debug level so they are observable in devtools without breaking chat UX.

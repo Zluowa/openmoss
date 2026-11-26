@@ -254,4 +254,34 @@ describe("glass overlay content cutouts", () => {
     expect(getComputedStyle(inPage).backgroundImage).toBe("none");
     expect(getComputedStyle(inPage).backgroundColor).toBe("color(srgb 1 1 1 / 0.96)");
   });
+
+  it("stops the rAF loop once an open overlay settles and wakes on resize", async () => {
+    const root = glassRoot();
+    const popup = portal(50, 50, 120, 100);
+    // Drive size from a root CSS custom property so the post-settle resize mutates
+    // neither `popup`'s attributes (containerObserver) nor data-window-* (materialObserver).
+    popup.style.width = "var(--test-cutout-width, 120px)";
+    try {
+      await frames();
+      expect(document.elementFromPoint(80, 80)).not.toBe(root);
+      // Advance past the 30-frame settle window using explicit animation frames.
+      await frames(34);
+      const nextRealFrame = window.requestAnimationFrame.bind(window);
+      const requestFrame = vi.spyOn(window, "requestAnimationFrame");
+      try {
+        for (let i = 0; i < 4; i++) {
+          await new Promise<number>(nextRealFrame);
+        }
+        expect(requestFrame).not.toHaveBeenCalled();
+        document.documentElement.style.setProperty("--test-cutout-width", "220px");
+        await expect.poll(() => requestFrame.mock.calls.length).toBeGreaterThan(0);
+      } finally {
+        requestFrame.mockRestore();
+      }
+      await frames();
+      expect(document.elementFromPoint(240, 80)).not.toBe(root);
+    } finally {
+      document.documentElement.style.removeProperty("--test-cutout-width");
+    }
+  });
 });

@@ -8,6 +8,7 @@ import { ensureThreadHistoryLoaded, useThreadHistory } from "../../threadHistory
 import { type MessageId, ThreadId, type TurnId } from "@moss/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -181,7 +182,7 @@ interface ChatTranscriptPaneProps {
   findHighlightStore?: ThreadFindHighlightStore | null;
 }
 
-export function ChatTranscriptPane({
+export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   activeThreadId,
   activeTurnId,
   activeTurnInProgress,
@@ -704,4 +705,4 @@ export function ChatTranscriptPane({
       </div>
     </div>
   );
-}
+});

@@ -1959,8 +1959,13 @@ export const worker = setupWorker(
         }
         return;
       }
+      if (method === WS_METHODS.subscribeServerSettings) {
+        sendEffectRpcChunk(client, parsed.request.id, {
+          settings: fixture.serverSettings,
+        });
+        return;
+      }
       if (
-        method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeServerKeepAwake ||
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||
@@ -2373,10 +2378,20 @@ export async function setEmptyLandingEnvMode(mode: "local" | "worktree"): Promis
   );
 }
 
+// The config subscription opens with a full snapshot that seeds the client
+// cache at boot, so a separate `server.getConfig` request is not guaranteed.
+function hasRequestedServerConfig(): boolean {
+  return wsRequests.some(
+    (request) =>
+      request._tag === WS_METHODS.serverGetConfig ||
+      request._tag === WS_METHODS.subscribeServerConfig,
+  );
+}
+
 export async function waitForServerConfigToApply(): Promise<void> {
   await vi.waitFor(
     () => {
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.serverGetConfig)).toBe(true);
+      expect(hasRequestedServerConfig()).toBe(true);
     },
     { timeout: 8_000, interval: 16 },
   );
@@ -2695,10 +2710,7 @@ export async function waitForMountedChatReady(options: {
       options.host.querySelector("[data-chat-composer-form='true']"),
       "Chat composer did not mount.",
     ).toBeTruthy();
-    expect(
-      wsRequests.some((request) => request._tag === WS_METHODS.serverGetConfig),
-      "Browser RPC configuration did not load.",
-    ).toBe(true);
+    expect(hasRequestedServerConfig(), "Browser RPC configuration did not load.").toBe(true);
 
     if (!expectedThread) return;
     const state = useStore.getState();

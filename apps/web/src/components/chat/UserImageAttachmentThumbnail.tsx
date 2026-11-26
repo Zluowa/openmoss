@@ -35,6 +35,8 @@ export const UserImageAttachmentThumbnail = memo(function UserImageAttachmentThu
         <img
           src={props.image.previewUrl}
           alt={props.image.name}
+          loading="lazy"
+          decoding="async"
           className="size-full object-cover"
           onLoad={props.onTimelineImageLoad}
           onError={props.onTimelineImageLoad}

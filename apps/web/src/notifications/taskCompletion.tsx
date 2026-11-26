@@ -18,7 +18,7 @@ import { useQuickChatVisibilityStore } from "../quickChatVisibilityStore";
 import { useStore } from "../store";
 import {
   collectSnoozedThreadIds,
-  createAllThreadsSelector,
+  createNotificationThreadsSelector,
   createSidebarThreadSummariesSelector,
 } from "../storeSelectors";
 import { useTerminalStateStore } from "../terminalStateStore";
@@ -197,8 +197,8 @@ export function TaskCompletionNotifications() {
   const rightDockState = useRightDockStore(
     useMemo(() => selectRightDockState(activeThreadId), [activeThreadId]),
   );
-  const [allThreadsSelector] = useState(() => createAllThreadsSelector());
-  const threads = useStore(allThreadsSelector);
+  const [notificationThreadsSelector] = useState(() => createNotificationThreadsSelector());
+  const threads = useStore(notificationThreadsSelector);
   const [sidebarSummariesSelector] = useState(() => createSidebarThreadSummariesSelector());
   const sidebarSummaries = useStore(sidebarSummariesSelector);
   const snoozedThreadIds = useMemo(

@@ -245,6 +245,12 @@ const worker = setupWorker(
         });
         return;
       }
+      if (method === WS_METHODS.subscribeServerSettings) {
+        sendEffectRpcChunk(client, parsed.request.id, {
+          settings: createBrowserTestServerSettings(NOW_ISO),
+        });
+        return;
+      }
       if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
         sendEffectRpcChunk(client, parsed.request.id, {
           kind: "snapshot",
@@ -265,7 +271,6 @@ const worker = setupWorker(
       }
       if (
         method === WS_METHODS.subscribeServerProviderStatuses ||
-        method === WS_METHODS.subscribeServerSettings ||
         method === WS_METHODS.subscribeServerKeepAwake ||
         method === WS_METHODS.subscribeTerminalEvents ||
         method === WS_METHODS.subscribeOrchestrationDomainEvents ||

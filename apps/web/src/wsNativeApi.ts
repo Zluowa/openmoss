@@ -90,6 +90,7 @@ import { showConfirmDialogFallback } from "./confirmDialogFallback";
 import { TASKS_OFFERED_BY_BUILD } from "./tasksSurface";
 import { showContextMenuFallback } from "./contextMenuFallback";
 import { requireHttpExternalUrl } from "./lib/externalUrl";
+import { registerServerBootSnapshotSource } from "./lib/serverBootSnapshots";
 import { withNativeMenuIcons } from "./lib/nativeMenuIcons";
 import { isMacNavigatorPlatform } from "./lib/utils";
 import { WsTransport, type WsThreadStreamFailure, type WsShellStreamFailure } from "./wsTransport";
@@ -492,6 +493,22 @@ export function onServerWelcome(listener: (payload: WsWelcomePayload) => void): 
  * Subscribe to server config update events. Replays the latest update for
  * late subscribers to avoid missing config validation feedback.
  */
+export function readLatestServerConfigSnapshot() {
+  return instance?.transport.getLatestServerConfigSnapshot() ?? null;
+}
+
+export function waitForInitialServerConfigSnapshot(timeoutMs?: number) {
+  return instance?.transport.waitForInitialServerConfigSnapshot(timeoutMs) ?? null;
+}
+
+export function readLatestServerSettingsSnapshot() {
+  return instance?.transport.getLatestServerSettingsSnapshot() ?? null;
+}
+
+export function waitForInitialServerSettingsSnapshot(timeoutMs?: number) {
+  return instance?.transport.waitForInitialServerSettingsSnapshot(timeoutMs) ?? null;
+}
+
 export function onServerConfigUpdated(
   listener: (payload: ServerConfigUpdatedPayload) => void,
 ): () => void {
@@ -1664,6 +1681,14 @@ export function createWsNativeApi(): WsNativeApi {
     },
   };
 
+  registerServerBootSnapshotSource(api, {
+    readLatestServerConfigSnapshot: () => transport.getLatestServerConfigSnapshot(),
+    waitForInitialServerConfigSnapshot: (timeoutMs) =>
+      transport.waitForInitialServerConfigSnapshot(timeoutMs),
+    readLatestServerSettingsSnapshot: () => transport.getLatestServerSettingsSnapshot(),
+    waitForInitialServerSettingsSnapshot: (timeoutMs) =>
+      transport.waitForInitialServerSettingsSnapshot(timeoutMs),
+  });
   instance = { api, transport };
   return api;
 }

@@ -69,6 +69,7 @@ import {
   type RealtimeVoiceEvent,
   type ProjectFileChangeEvent,
   type ProjectWatchFileInput,
+  type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleStreamEvent,
   type ServerProviderStatusesUpdatedPayload,
@@ -314,7 +315,7 @@ const STREAM_BACKED_REQUEST_METHODS: ReadonlySet<string> = new Set([
   WS_METHODS.gitCreateDetachedWorktree,
   WS_METHODS.projectsProvisionFromGitHub,
 ]);
-const INITIAL_RECONNECT_RETRY_MS = 500;
+const INITIAL_RECONNECT_RETRY_MS = 100;
 const MAX_RECONNECT_RETRY_MS = 5_000;
 
 /** Keeps outages gentle on the backend while still recovering promptly. */
@@ -455,6 +456,9 @@ const SOCKET_OPEN_TIMEOUT_MS = 90_000;
 const SOCKET_SILENCE_TIMEOUT_MS = 180_000;
 const FEATURE_CONNECTION_PROBE_TIMEOUT_MS = 180_000;
 const MAX_STREAM_OVERFLOW_RETRIES = 8;
+// How long a config subscription's opening snapshot may answer in place of a
+// `server.getConfig` round trip. It only needs to cover boot.
+const SERVER_CONFIG_BOOT_SNAPSHOT_MAX_AGE_MS = 10_000;
 
 function makeProtocolLayer(
   url: string,
@@ -995,6 +999,93 @@ export class WsTransport {
     (failure: WsThreadStreamFailure) => void
   >();
   private readonly latestPushByChannel = new Map<string, WsPush>();
+  // The config subscription's opening snapshot. It stands in for the boot
+  // `server.getConfig` only: it is the server's state at subscribe time, so it
+  // stops being offered once a later stream event or its age makes it stale.
+  private latestServerConfigSnapshot: ServerConfig | null = null;
+  private latestServerConfigSnapshotAtMs = 0;
+  // True once this session's config stream delivered its first event. After
+  // that no opening snapshot is still on its way, so nothing may wait for one.
+  private serverConfigStreamSettled = false;
+  private latestServerSettingsSnapshot: ServerSettingsUpdatedPayload["settings"] | null = null;
+  private readonly initialServerConfigWaiters = new Set<(config: ServerConfig | null) => void>();
+  private readonly initialServerSettingsWaiters = new Set<
+    (settings: ServerSettingsUpdatedPayload["settings"] | null) => void
+  >();
+
+  private resolveInitialServerConfigWaiters(config: ServerConfig | null): void {
+    if (!this.initialServerConfigWaiters || this.initialServerConfigWaiters.size === 0) return;
+    for (const resolve of this.initialServerConfigWaiters) {
+      resolve(config);
+    }
+    this.initialServerConfigWaiters.clear();
+  }
+
+  private resolveInitialServerSettingsWaiters(
+    settings: ServerSettingsUpdatedPayload["settings"] | null,
+  ): void {
+    if (!this.initialServerSettingsWaiters || this.initialServerSettingsWaiters.size === 0) return;
+    for (const resolve of this.initialServerSettingsWaiters) {
+      resolve(settings);
+    }
+    this.initialServerSettingsWaiters.clear();
+  }
+
+  getLatestServerConfigSnapshot(): ServerConfig | null {
+    if (this.latestServerConfigSnapshot === null) return null;
+    if (Date.now() - this.latestServerConfigSnapshotAtMs > SERVER_CONFIG_BOOT_SNAPSHOT_MAX_AGE_MS) {
+      this.latestServerConfigSnapshot = null;
+      return null;
+    }
+    return this.latestServerConfigSnapshot;
+  }
+
+  getLatestServerSettingsSnapshot(): ServerSettingsUpdatedPayload["settings"] | null {
+    return this.latestServerSettingsSnapshot;
+  }
+
+  waitForInitialServerConfigSnapshot(timeoutMs = 1500): Promise<ServerConfig | null> | null {
+    const snapshot = this.getLatestServerConfigSnapshot();
+    if (snapshot !== null) {
+      return Promise.resolve(snapshot);
+    }
+    if (
+      this.disposed ||
+      this.serverConfigStreamSettled ||
+      !this.listeners.has(WS_CHANNELS.serverConfigUpdated)
+    ) {
+      return null;
+    }
+    return new Promise((resolve) => {
+      const finish = (config: ServerConfig | null) => {
+        window.clearTimeout(timer);
+        this.initialServerConfigWaiters.delete(finish);
+        resolve(config);
+      };
+      const timer = window.setTimeout(() => finish(null), timeoutMs);
+      this.initialServerConfigWaiters.add(finish);
+    });
+  }
+
+  waitForInitialServerSettingsSnapshot(
+    timeoutMs = 1500,
+  ): Promise<ServerSettingsUpdatedPayload["settings"] | null> | null {
+    if (this.latestServerSettingsSnapshot !== null) {
+      return Promise.resolve(this.latestServerSettingsSnapshot);
+    }
+    if (this.disposed || !this.listeners.has(WS_CHANNELS.serverSettingsUpdated)) {
+      return null;
+    }
+    return new Promise((resolve) => {
+      const finish = (settings: ServerSettingsUpdatedPayload["settings"] | null) => {
+        window.clearTimeout(timer);
+        this.initialServerSettingsWaiters.delete(finish);
+        resolve(settings);
+      };
+      const timer = window.setTimeout(() => finish(null), timeoutMs);
+      this.initialServerSettingsWaiters.add(finish);
+    });
+  }
   private sequence = 0;
   private sessionVersion = 0;
   private state: WsTransportState = "connecting";
@@ -1061,11 +1152,40 @@ export class WsTransport {
     });
   };
 
+  private reconnectWakeController: AbortController | null = null;
+  private readonly cleanupEnvironmentListeners: () => void;
+
   constructor(url?: string) {
     this.explicitUrl = url ?? null;
-    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    // React immediately when the network comes back or the app/tab returns to
+    // the foreground instead of sitting through the rest of a backoff timer.
+    const wakeReconnect = () => {
+      if (this.disposed) return;
+      if (this.reconnectWakeController && !this.reconnectWakeController.signal.aborted) {
+        this.reconnectFailures = 0;
+        this.reconnectWakeController.abort();
+      }
+    };
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        wakeReconnect();
+      }
+    };
+    const hasWindowEvents =
+      typeof window !== "undefined" && typeof window.addEventListener === "function";
+    const hasDocumentEvents =
+      typeof document !== "undefined" && typeof document.addEventListener === "function";
+    if (hasWindowEvents) {
       window.addEventListener(SIDEBAR_ORDER_REHYDRATE_EVENT, this.sidebarOrderRehydrateListener);
+      window.addEventListener("online", wakeReconnect);
     }
+    if (hasDocumentEvents) {
+      document.addEventListener("visibilitychange", onVisibilityChange);
+    }
+    this.cleanupEnvironmentListeners = () => {
+      if (hasWindowEvents) window.removeEventListener("online", wakeReconnect);
+      if (hasDocumentEvents) document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
     // The desktop opens its window before its backend listens. Connecting
     // earlier only fails and then waits out a backoff step.
     this.backendReady =
@@ -1652,6 +1772,8 @@ export class WsTransport {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.cleanupEnvironmentListeners?.();
+    this.reconnectWakeController = null;
     this.sessionVersion += 1;
     this.unaryRequestQueue.close(new Error("Transport disposed"));
     // Abort pending startup waits and negotiation before either can create
@@ -1678,6 +1800,11 @@ export class WsTransport {
     this.projectAgentSubscriptions.clear();
     this.threadStreamFailureListeners.clear();
     this.shellStreamFailureListeners.clear();
+    this.latestServerConfigSnapshot = null;
+    this.serverConfigStreamSettled = false;
+    this.latestServerSettingsSnapshot = null;
+    this.resolveInitialServerConfigWaiters(null);
+    this.resolveInitialServerSettingsWaiters(null);
     // Dispose can race with initial connection or reconnect promises. Mark them
     // handled before closing the runtime so test/browser teardown stays quiet.
     void this.clientPromise.catch(() => undefined);
@@ -1781,6 +1908,11 @@ export class WsTransport {
   }
 
   private createSession() {
+    this.latestServerConfigSnapshot = null;
+    this.serverConfigStreamSettled = false;
+    this.latestServerSettingsSnapshot = null;
+    this.resolveInitialServerConfigWaiters(null);
+    this.resolveInitialServerSettingsWaiters(null);
     const sessionVersion = ++this.sessionVersion;
     // A new socket has a new server-side admission ledger.
     resetRetainedThreadStreamBudget();
@@ -2083,7 +2215,21 @@ export class WsTransport {
         transportReconnectMaxDelayMs(resolveTransportLink(this.explicitUrl)),
       );
       this.reconnectFailures += 1;
-      await delayWithAbort(delayMs, this.lifetime.signal);
+      const wakeController = new AbortController();
+      this.reconnectWakeController = wakeController;
+      try {
+        await delayWithAbort(
+          delayMs,
+          AbortSignal.any([this.lifetime.signal, wakeController.signal]),
+        );
+      } catch (error) {
+        if (this.lifetime.signal.aborted) throw error;
+        // Woken early by an online/foreground event; proceed immediately.
+      } finally {
+        if (this.reconnectWakeController === wakeController) {
+          this.reconnectWakeController = null;
+        }
+      }
 
       const session = this.createSession();
       this.clientPromise = session.clientPromise;
@@ -2142,7 +2288,15 @@ export class WsTransport {
       channel,
       data,
     } as WsPush;
-    this.latestPushByChannel.set(channel, message);
+    // Never pin multi-MB orchestration shell/thread snapshot payloads in the
+    // replay map; orchestration streams manage their own cursor/snapshot flow.
+    if (
+      channel !== ORCHESTRATION_WS_CHANNELS.shellEvent &&
+      channel !== ORCHESTRATION_WS_CHANNELS.threadEvent &&
+      channel !== ORCHESTRATION_WS_CHANNELS.domainEvent
+    ) {
+      this.latestPushByChannel.set(channel, message);
+    }
     const listeners = this.listeners.get(channel);
     if (!listeners) return;
     for (const listener of listeners) {
@@ -2180,11 +2334,18 @@ export class WsTransport {
             client[WS_METHODS.subscribeServerConfig]({}),
             (event: ServerConfigStreamEvent) => {
               if (event.type === "snapshot") {
+                this.serverConfigStreamSettled = true;
+                this.latestServerConfigSnapshot = event.config;
+                this.latestServerConfigSnapshotAtMs = Date.now();
+                this.resolveInitialServerConfigWaiters(event.config);
                 this.emit(WS_CHANNELS.serverConfigUpdated, {
                   issues: event.config.issues,
                   providers: event.config.providers,
                 });
               } else if (event.type === "configUpdated") {
+                this.serverConfigStreamSettled = true;
+                this.latestServerConfigSnapshot = null;
+                this.resolveInitialServerConfigWaiters(null);
                 this.emit(WS_CHANNELS.serverConfigUpdated, event.payload);
               }
             },
@@ -2204,8 +2365,11 @@ export class WsTransport {
             client,
             "server.settings",
             client[WS_METHODS.subscribeServerSettings]({}),
-            (payload: ServerSettingsUpdatedPayload) =>
-              this.emit(WS_CHANNELS.serverSettingsUpdated, payload),
+            (payload: ServerSettingsUpdatedPayload) => {
+              this.latestServerSettingsSnapshot = payload.settings;
+              this.resolveInitialServerSettingsWaiters(payload.settings);
+              this.emit(WS_CHANNELS.serverSettingsUpdated, payload);
+            },
             restartChannel,
           );
         } else if (channel === WS_CHANNELS.serverKeepAwakeUpdated) {

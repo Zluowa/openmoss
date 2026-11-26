@@ -2703,13 +2703,60 @@ describe("WsTransport", () => {
   });
 
   it("uses bounded exponential reconnect backoff", () => {
-    expect(getReconnectRetryDelayMs(0)).toBe(500);
-    expect(getReconnectRetryDelayMs(1)).toBe(1_000);
-    expect(getReconnectRetryDelayMs(3)).toBe(4_000);
-    expect(getReconnectRetryDelayMs(4)).toBe(5_000);
+    expect(getReconnectRetryDelayMs(0)).toBe(100);
+    expect(getReconnectRetryDelayMs(1)).toBe(200);
+    expect(getReconnectRetryDelayMs(3)).toBe(800);
+    expect(getReconnectRetryDelayMs(6)).toBe(5_000);
     expect(getReconnectRetryDelayMs(100)).toBe(5_000);
-    expect(getReconnectRetryDelayMs(0, 1_000)).toBe(500);
+    expect(getReconnectRetryDelayMs(0, 1_000)).toBe(100);
     expect(getReconnectRetryDelayMs(100, 1_000)).toBe(1_000);
+  });
+
+  it("offers the config boot snapshot only while it is recent", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-07-26T10:00:00.000Z"));
+      const { transport, internals } = makeBareTransport();
+      const config = { issues: [], providers: [] };
+      Object.assign(internals, {
+        latestServerConfigSnapshot: config,
+        latestServerConfigSnapshotAtMs: Date.now(),
+      });
+
+      expect(transport.getLatestServerConfigSnapshot()).toBe(config);
+      vi.setSystemTime(new Date("2026-07-26T10:00:11.000Z"));
+      // Past boot the snapshot is the server's state at subscribe time, not now.
+      expect(transport.getLatestServerConfigSnapshot()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for the config snapshot only until the config stream has spoken", async () => {
+    vi.useFakeTimers();
+    bindWindowTimersToCurrentGlobals();
+    try {
+      const { transport, internals } = makeBareTransport();
+      Object.assign(internals, {
+        listeners: new Map([[WS_CHANNELS.serverConfigUpdated, new Set([() => undefined])]]),
+        initialServerConfigWaiters: new Set(),
+        latestServerConfigSnapshot: null,
+        serverConfigStreamSettled: false,
+      });
+
+      // Boot: the opening snapshot is still on its way.
+      const pending = transport.waitForInitialServerConfigSnapshot(1_500);
+      expect(pending).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(1_500);
+      await expect(pending).resolves.toBeNull();
+
+      // After a configUpdated event no snapshot is coming: callers must not
+      // sit out the timeout before asking the server.
+      Object.assign(internals, { serverConfigStreamSettled: true });
+      expect(transport.waitForInitialServerConfigSnapshot(1_500)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails a send as not sent when its deadline passes waiting for a connection", async () => {
@@ -2892,6 +2939,98 @@ describe("WsTransport", () => {
       expect(createSession).not.toHaveBeenCalled();
       expect(vi.getTimerCount()).toBe(0);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("wakes a pending reconnect immediately on online or foreground visibility and cleans up listeners", async () => {
+    vi.useFakeTimers();
+    const windowListeners = new Map<string, Set<EventListener>>();
+    const documentListeners = new Map<string, Set<EventListener>>();
+    const prevDocument = globalThis.document;
+    const prevAddWindow = window.addEventListener;
+    const prevRemoveWindow = window.removeEventListener;
+    let visibilityState: DocumentVisibilityState = "hidden";
+    Object.assign(window, {
+      addEventListener: (type: string, listener: EventListener) => {
+        const set = windowListeners.get(type) ?? new Set();
+        set.add(listener);
+        windowListeners.set(type, set);
+      },
+      removeEventListener: (type: string, listener: EventListener) => {
+        windowListeners.get(type)?.delete(listener);
+      },
+    });
+    vi.stubGlobal("document", {
+      get visibilityState() {
+        return visibilityState;
+      },
+      addEventListener: (type: string, listener: EventListener) => {
+        const set = documentListeners.get(type) ?? new Set();
+        set.add(listener);
+        documentListeners.set(type, set);
+      },
+      removeEventListener: (type: string, listener: EventListener) => {
+        documentListeners.get(type)?.delete(listener);
+      },
+    });
+    bindWindowTimersToCurrentGlobals();
+    try {
+      const client = { connected: true };
+      const createSessionSpy = vi
+        .spyOn(
+          WsTransport.prototype as unknown as {
+            createSession: () => { clientPromise: Promise<unknown> };
+          },
+          "createSession",
+        )
+        .mockImplementationOnce(() => ({ clientPromise: new Promise(() => undefined) }))
+        .mockImplementationOnce(() => ({ clientPromise: Promise.reject(new Error("offline-1")) }))
+        .mockImplementationOnce(() => ({ clientPromise: Promise.resolve(client) }));
+
+      const transport = new WsTransport("ws://127.0.0.1:4321/ws");
+      const internals = transport as unknown as WsTransportInternals & {
+        reconnectFailures: number;
+      };
+      try {
+        internals.reconnectFailures = 6; // 5_000ms backoff
+        const recovery = internals.openReconnectSession();
+        // Flush microtasks so openReconnectSession enters delayWithAbort.
+        await Promise.resolve();
+        expect(createSessionSpy).toHaveBeenCalledTimes(1);
+
+        // Online event wakes the 5s backoff immediately without advancing timers.
+        for (const listener of windowListeners.get("online") ?? []) {
+          listener(new Event("online"));
+        }
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(createSessionSpy).toHaveBeenCalledTimes(2);
+
+        // Next backoff wakes on visibilitychange -> visible.
+        visibilityState = "visible";
+        for (const listener of documentListeners.get("visibilitychange") ?? []) {
+          listener(new Event("visibilitychange"));
+        }
+        await expect(recovery).resolves.toBe(client);
+        expect(createSessionSpy).toHaveBeenCalledTimes(3);
+      } finally {
+        await transport.dispose();
+        createSessionSpy.mockRestore();
+      }
+      expect(windowListeners.get("online")?.size ?? 0).toBe(0);
+      expect(documentListeners.get("visibilitychange")?.size ?? 0).toBe(0);
+    } finally {
+      Object.assign(window, {
+        addEventListener: prevAddWindow,
+        removeEventListener: prevRemoveWindow,
+      });
+      if (prevDocument === undefined) {
+        vi.unstubAllGlobals();
+      } else {
+        vi.stubGlobal("document", prevDocument);
+      }
       vi.useRealTimers();
     }
   });
