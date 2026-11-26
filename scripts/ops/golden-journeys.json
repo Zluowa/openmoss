@@ -1,0 +1,503 @@
+{
+  "version": "2.0.0",
+  "journeys": [
+    {
+      "id": "GJ-01",
+      "title": "New chat & unsent draft tab persistence",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/ChatView.newChat.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-02",
+      "title": "In-flight turn steering without false error banners",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/ChatView.steering.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-03",
+      "title": "Approval card layout reservation & verbatim commands",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/chat/MessagesTimeline.approvalReserve.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-04",
+      "title": "Work elapsed timer pauses while awaiting user approval",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/chat/MessagesTimeline.approvalPause.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-05",
+      "title": "Markdown rendering, narrow code blocks & read-only inline paths",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "--cwd", "apps/web", "test", "src/components/ChatMarkdown.test.tsx"],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-06",
+      "title": "Produced file cards & generated image previews in timeline",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/chat/MessagesTimeline.producedFiles.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-07",
+      "title": "Streaming flush re-renders only the active transcript row",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser:compiler",
+          "src/components/chat/MessagesTimeline.renderScope.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-08",
+      "title": "Simplified Chinese & English dynamic localization boundaries",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test",
+          "src/components/DynamicTranslationBoundaries.test.tsx"
+        ],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-09",
+      "title": "Right-dock Canvas host bundle & toolbar fit",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-canvas-space.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser:page-editor",
+          "src/components/chat/RightDockCanvas.browser.tsx"
+        ],
+        "timeoutMs": 240000
+      }
+    },
+    {
+      "id": "GJ-10",
+      "title": "Data Space destination & board stability",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-canvas-space.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser:page-editor",
+          "src/components/MossDataSpaceDestination.browser.tsx"
+        ],
+        "timeoutMs": 240000
+      }
+    },
+    {
+      "id": "GJ-11",
+      "title": "App page readonly frame readiness",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-canvas-space.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/spaceTypes/app/ReadonlyAppItemFrame.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-12",
+      "title": "Unified plugin marketplace & account state surface",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/web",
+          "test:browser",
+          "src/components/MossAppsAccount.browser.tsx"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-13",
+      "title": "Desktop backend shutdown leaves zero orphaned processes",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/desktop",
+          "test:vitest",
+          "src/backendShutdown.windows.integration.test.ts"
+        ],
+        "timeoutMs": 180000
+      }
+    },
+    {
+      "id": "GJ-14",
+      "title": "Desktop auto-update signature & resumable download",
+      "domain": "desktop",
+      "owner": "moss-release-bot",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "--cwd", "apps/desktop", "test:vitest", "src/codeUpdateClient.test.ts"],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-15",
+      "title": "SQLite migration lineage & replay compatibility",
+      "domain": "desktop",
+      "owner": "moss-desktop-core",
+      "featureMap": ".agents/feature-map/desktop-chat.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": [
+          "run",
+          "--cwd",
+          "apps/server",
+          "test",
+          "src/persistence/Migrations/MigrationReplay.test.ts"
+        ],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-16",
+      "title": "Mobile single-source assets, theme & icons parity",
+      "domain": "mobile",
+      "owner": "moss-mobile-owner",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "command",
+        "command": "node",
+        "args": ["apps/mobile/scripts/sync-moss-assets.mjs", "--check"],
+        "timeoutMs": 30000
+      }
+    },
+    {
+      "id": "GJ-17",
+      "title": "Shared tool labels present in zh-CN & en for desktop and mobile",
+      "domain": "mobile",
+      "owner": "moss-mobile-owner",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "--cwd", "packages/shared", "test", "src/mossToolPresentation.test.ts"],
+        "timeoutMs": 60000
+      }
+    },
+    {
+      "id": "GJ-18",
+      "title": "Mobile approval cards & interaction rules",
+      "domain": "mobile",
+      "owner": "moss-mobile-owner",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "mobile:test", "apps/mobile/tests/approvals.test.ts"],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-19",
+      "title": "Mobile /apps plugin marketplace & fallback artwork",
+      "domain": "mobile",
+      "owner": "moss-mobile-owner",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "mobile:test", "apps/mobile/tests/appsMarketplace.test.ts"],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-20",
+      "title": "Mobile account & enterprise API key usage overview",
+      "domain": "mobile",
+      "owner": "moss-mobile-owner",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "mobile:test", "apps/mobile/tests/accountUsage.test.tsx"],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-21",
+      "title": "Mobile TypeScript contracts & static type safety",
+      "domain": "mobile",
+      "owner": "moss-mobile-owner",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": false,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "mobile:typecheck"],
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "GJ-22",
+      "title": "Mobile single-source boundary & version alignment check",
+      "domain": "mobile",
+      "owner": "moss-launch-compliance",
+      "featureMap": ".agents/feature-map/mobile-core.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "command",
+        "command": "node",
+        "args": ["scripts/check-module-boundaries.ts"],
+        "timeoutMs": 30000
+      }
+    },
+    {
+      "id": "GJ-23",
+      "title": "CN Model Gateway live health endpoint",
+      "domain": "online",
+      "owner": "moss-ops-voice",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "http",
+        "url": "https://api.mossbotai.com/healthz",
+        "expectedStatuses": [200],
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "GJ-24",
+      "title": "CN Pay Gateway live health endpoint",
+      "domain": "online",
+      "owner": "moss-ops-voice",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "http",
+        "url": "https://pay.mossbotai.com/functions/v1/moss-pay/healthz",
+        "expectedStatuses": [200],
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "GJ-25",
+      "title": "Share Relay live health endpoint",
+      "domain": "online",
+      "owner": "moss-ops-voice",
+      "featureMap": ".agents/feature-map/desktop-canvas-space.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "http",
+        "url": "https://share.mossbotai.com/healthz",
+        "expectedStatuses": [200],
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "GJ-26",
+      "title": "CN Realtime Voice Relay readiness endpoint",
+      "domain": "online",
+      "owner": "moss-ops-voice",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "http",
+        "url": "https://rt.mossbotai.com/readyz",
+        "expectedStatuses": [200],
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "GJ-27",
+      "title": "Global Realtime Voice Relay readiness endpoint",
+      "domain": "online",
+      "owner": "moss-ops-voice",
+      "featureMap": ".agents/feature-map/desktop-voice-plugins.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "http",
+        "url": "https://rt-global.mossbotai.com/readyz",
+        "expectedStatuses": [200],
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "GJ-28",
+      "title": "Public download page live reachability",
+      "domain": "online",
+      "owner": "moss-release-bot",
+      "featureMap": ".agents/feature-map/README.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "http",
+        "url": "https://mossbotai.com/download",
+        "expectedStatuses": [200],
+        "timeoutMs": 15000
+      }
+    },
+    {
+      "id": "GJ-29",
+      "title": "Full static lint, design, brand, copy, skills & boundary gates",
+      "domain": "online",
+      "owner": "moss-infra",
+      "featureMap": ".agents/feature-map/README.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "lint"],
+        "timeoutMs": 90000
+      }
+    },
+    {
+      "id": "GJ-30",
+      "title": "Auto-merge train gate & escalation filter contract",
+      "domain": "online",
+      "owner": "moss-train",
+      "featureMap": ".agents/feature-map/README.md",
+      "smokeSafe": true,
+      "check": {
+        "kind": "command",
+        "command": "bun",
+        "args": ["run", "--cwd", "scripts", "test", "ops/auto-merge-train.test.ts"],
+        "timeoutMs": 60000
+      }
+    }
+  ]
+}
