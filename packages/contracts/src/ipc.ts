@@ -1668,6 +1668,8 @@ export interface DesktopBridge {
     revealApp: () => Promise<boolean>;
   };
   getWsUrl: () => string | null;
+  /** Resolves once the desktop has seen its backend become ready, or stop trying. */
+  whenBackendReady?: () => Promise<void>;
   /** Lets main log one line per drop of the link to its backend, with reason and duration. */
   reportBackendLink?: (event: DesktopBackendLinkEvent) => void;
   /**

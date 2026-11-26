@@ -3099,6 +3099,59 @@ describe("WsTransport", () => {
     await expect(negotiation).resolves.toBeNull();
   });
 
+  it("rejects a deadline-free request when disposed while waiting for desktop readiness", async () => {
+    const whenBackendReady = vi.fn(() => new Promise<void>(() => {}));
+    Object.assign(window, {
+      desktopBridge: { whenBackendReady, getWsUrl: () => "ws://127.0.0.1:53036" },
+    });
+    const transport = new WsTransport();
+    const pending = transport.request(
+      ORCHESTRATION_WS_METHODS.subscribeShell,
+      {},
+      {
+        timeoutMs: null,
+      },
+    );
+    const rejected = vi.fn();
+    void pending.catch(rejected);
+
+    await transport.dispose();
+
+    await vi.waitFor(() => expect(rejected).toHaveBeenCalledWith(new Error("Transport disposed")));
+    expect(whenBackendReady).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sockets).toHaveLength(0);
+  });
+
+  it("waits for desktop backend readiness before initial compatibility negotiation", async () => {
+    let resolveBackendReady!: () => void;
+    const whenBackendReady = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveBackendReady = resolve;
+        }),
+    );
+    const fetchMock = vi.fn((_input: string | URL | Request) =>
+      Promise.resolve(jsonResponse(200, NEGOTIATION_RESULT)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    Object.assign(window, {
+      desktopBridge: { whenBackendReady, getWsUrl: () => "ws://127.0.0.1:53036" },
+    });
+
+    const transport = new WsTransport();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(whenBackendReady).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sockets).toHaveLength(0);
+
+    resolveBackendReady();
+    await waitForSockets(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await transport.dispose();
+  });
+
   it("does not create a bootstrap socket when disposed during negotiation", async () => {
     // dispose() captures a null runtime and returns while the HTTP request is
     // still pending; the transport must not build one afterwards.

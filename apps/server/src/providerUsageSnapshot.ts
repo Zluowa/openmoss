@@ -1,13 +1,7 @@
 // FILE: providerUsageSnapshot.ts
 // Purpose: Read provider-specific local usage archives for recent usage snapshots.
 
-import {
-  constants as fsConstants,
-  createReadStream,
-  type Dir,
-  type Dirent,
-  type Stats,
-} from "node:fs";
+import { constants as fsConstants, type Dir, type Dirent, type Stats } from "node:fs";
 import fs from "node:fs/promises";
 import nodePath from "node:path";
 
@@ -30,6 +24,16 @@ const LOOKBACK_7D_MS = 7 * ONE_DAY_MS;
 const LOOKBACK_30D_MS = LOOKBACK_DAYS * ONE_DAY_MS;
 const USAGE_CACHE_TTL_MS = 5 * 60_000;
 const MAX_CLAUDE_TRANSCRIPT_LINE_BYTES = 1024 * 1024;
+// Reads reuse one buffer of this size per transcript. A month of transcripts can be
+// gigabytes, and a fresh buffer per read left that much garbage behind each snapshot.
+const CLAUDE_TRANSCRIPT_READ_CHUNK_BYTES = 64 * 1024;
+// Both Claude samplers read a `usage` object (`message.usage` or `toolUseResult.usage`).
+// Claude Code writes transcripts with JSON.stringify, which emits that key verbatim, so
+// a record without these bytes yields no sample. Most transcript bytes are tool output
+// and prompts (over 90% of a measured 4 GB month). Testing the raw bytes first spares
+// decoding and parsing them only to discard the result, which was most of the backend's
+// allocation in the first minute after launch.
+const CLAUDE_USAGE_KEY_BYTES = Buffer.from('"usage"');
 const DEFAULT_ARCHIVE_SCAN_LIMITS = {
   // Discovery and stat work are independently bounded; opendir iteration stops
   // before the process materializes an unbounded directory listing.
@@ -156,6 +160,7 @@ interface ArchiveScanContext {
   readonly diagnostics: ArchiveScanDiagnostics;
   readonly startedAtMs: number;
   readonly deadlineAtMs: number;
+  readonly signal?: AbortSignal | undefined;
   activeFileReads: number;
 }
 
@@ -190,6 +195,28 @@ export interface ProviderUsageArchiveScanTestResult {
 const usageSnapshotCache = new Map<string, CachedUsageSnapshot>();
 const fileSummaryIndex = new Map<string, IndexedArchiveFileResult>();
 let providerUsageArchiveScanRuns = 0;
+// Archive reads are plain promises that outlive the request that started them. A first
+// snapshot on a heavy user's machine reads for several seconds, and those reads kept a
+// backend that was asked to quit alive until they finished.
+let usageScanController = new AbortController();
+
+/**
+ * Server shutdown: abandons in-flight usage archive reads and refuses new ones. Their
+ * partial results are neither cached nor returned. The controller stays aborted on
+ * purpose: a usage request that reaches the server while it is shutting down would
+ * otherwise start a fresh multi-second read that holds the process open, which is what
+ * the cancellation exists to prevent.
+ */
+export function stopProviderUsageScans(): void {
+  usageScanController.abort();
+}
+
+/** Server start: allows reads again in a process where an earlier server stopped them. */
+export function resumeProviderUsageScans(): void {
+  if (usageScanController.signal.aborted) {
+    usageScanController = new AbortController();
+  }
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -260,6 +287,7 @@ export async function mapWithConcurrency<T, R>(
   items: ReadonlyArray<T>,
   concurrency: number,
   mapper: (item: T) => Promise<R>,
+  signal?: AbortSignal,
 ): Promise<R[]> {
   const results: Array<{ index: number; value: R }> = [];
   let nextIndex = 0;
@@ -268,6 +296,7 @@ export async function mapWithConcurrency<T, R>(
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (true) {
+        signal?.throwIfAborted();
         const index = nextIndex;
         nextIndex += 1;
         if (index >= items.length) {
@@ -357,6 +386,7 @@ async function resolveApprovedArchiveRootIdentity(input: {
   path: string;
   context?: ArchiveScanContext;
 }): Promise<ApprovedArchiveRootIdentity | null> {
+  input.context?.signal?.throwIfAborted();
   if (input.context && archiveScanDeadlineExceeded(input.context)) {
     return null;
   }
@@ -365,7 +395,9 @@ async function resolveApprovedArchiveRootIdentity(input: {
     // symlink. Resolve it once, then perform all discovery from the canonical
     // target without walking or listing any of its parent directories.
     const canonicalPath = await fs.realpath(input.path);
+    input.context?.signal?.throwIfAborted();
     const stats = await fs.lstat(canonicalPath);
+    input.context?.signal?.throwIfAborted();
     if (
       (input.context && archiveScanDeadlineExceeded(input.context)) ||
       stats.isSymbolicLink() ||
@@ -380,7 +412,10 @@ async function resolveApprovedArchiveRootIdentity(input: {
       dev: stats.dev,
       ino: stats.ino,
     });
-  } catch {
+  } catch (error) {
+    if (input.context?.signal?.aborted) {
+      throw input.context.signal.reason ?? error;
+    }
     return null;
   }
 }
@@ -389,6 +424,7 @@ async function validateApprovedArchiveRootIdentity(input: {
   approvedRoot: ApprovedArchiveRootIdentity;
   context: ArchiveScanContext;
 }): Promise<boolean> {
+  input.context.signal?.throwIfAborted();
   if (archiveScanDeadlineExceeded(input.context)) {
     return false;
   }
@@ -396,7 +432,9 @@ async function validateApprovedArchiveRootIdentity(input: {
     // Never re-resolve the configured lexical path here. The canonical target
     // selected for this scan also owns its cache and pending single-flight key.
     const canonicalPath = await fs.realpath(input.approvedRoot.canonicalPath);
+    input.context.signal?.throwIfAborted();
     const stats = await fs.lstat(input.approvedRoot.canonicalPath);
+    input.context.signal?.throwIfAborted();
     return (
       !archiveScanDeadlineExceeded(input.context) &&
       canonicalPath === input.approvedRoot.canonicalPath &&
@@ -405,7 +443,10 @@ async function validateApprovedArchiveRootIdentity(input: {
       stats.dev === input.approvedRoot.dev &&
       stats.ino === input.approvedRoot.ino
     );
-  } catch {
+  } catch (error) {
+    if (input.context.signal?.aborted) {
+      throw input.context.signal.reason ?? error;
+    }
     return false;
   }
 }
@@ -415,6 +456,7 @@ async function validateArchiveDirectoryPath(input: {
   path: string;
   context: ArchiveScanContext;
 }): Promise<ArchiveDirectoryValidationResult> {
+  input.context.signal?.throwIfAborted();
   if (
     archiveScanDeadlineExceeded(input.context) ||
     !isPathContainedByRoot(input.approvedRoot.canonicalPath, input.path)
@@ -423,11 +465,14 @@ async function validateArchiveDirectoryPath(input: {
   }
   try {
     const before = await fs.lstat(input.path);
+    input.context.signal?.throwIfAborted();
     if (before.isSymbolicLink() || !before.isDirectory()) {
       return { directory: null, incomplete: true };
     }
     const realPath = await fs.realpath(input.path);
+    input.context.signal?.throwIfAborted();
     const after = await fs.lstat(input.path);
+    input.context.signal?.throwIfAborted();
     if (
       archiveScanDeadlineExceeded(input.context) ||
       after.isSymbolicLink() ||
@@ -448,6 +493,9 @@ async function validateArchiveDirectoryPath(input: {
       incomplete: false,
     };
   } catch (error) {
+    if (input.context.signal?.aborted) {
+      throw input.context.signal.reason ?? error;
+    }
     return { directory: null, incomplete: !isMissingPathError(error) };
   }
 }
@@ -526,17 +574,20 @@ async function collectBoundedDirectoryEntries(input: {
   context: ArchiveScanContext;
   visit: (entry: Dirent) => boolean | void | Promise<boolean | void>;
 }): Promise<{ opened: boolean; incomplete: boolean }> {
+  input.context.signal?.throwIfAborted();
   if (archiveScanDeadlineExceeded(input.context)) {
     return { opened: false, incomplete: true };
   }
   const directory = await safeOpenDir(input.path);
   if (!directory) {
+    input.context.signal?.throwIfAborted();
     return { opened: false, incomplete: false };
   }
 
   let incomplete = false;
   try {
     while (true) {
+      input.context.signal?.throwIfAborted();
       if (archiveScanDeadlineExceeded(input.context)) {
         incomplete = true;
         break;
@@ -551,6 +602,7 @@ async function collectBoundedDirectoryEntries(input: {
         break;
       }
       const next = await directory.read();
+      input.context.signal?.throwIfAborted();
       if (!next) {
         break;
       }
@@ -560,7 +612,10 @@ async function collectBoundedDirectoryEntries(input: {
         break;
       }
     }
-  } catch {
+  } catch (error) {
+    if (input.context.signal?.aborted) {
+      throw input.context.signal.reason ?? error;
+    }
     incomplete = true;
   } finally {
     await closeDirQuietly(directory);
@@ -576,10 +631,12 @@ async function statAndSortRecentCandidates(input: {
     input.paths,
     input.context.limits.concurrency,
     async (candidatePath): Promise<ArchiveFileCandidate | null> => {
+      input.context.signal?.throwIfAborted();
       if (archiveScanDeadlineExceeded(input.context)) {
         return null;
       }
       const value = await safeLstat(candidatePath.path);
+      input.context.signal?.throwIfAborted();
       if (!value || !value.isFile()) {
         return null;
       }
@@ -592,7 +649,9 @@ async function statAndSortRecentCandidates(input: {
         ino: value.ino,
       };
     },
+    input.context.signal,
   );
+  input.context.signal?.throwIfAborted();
   const candidates = stats
     .filter((candidate): candidate is ArchiveFileCandidate => candidate !== null)
     .toSorted((left, right) => right.mtimeMs - left.mtimeMs || left.path.localeCompare(right.path));
@@ -826,6 +885,7 @@ async function readBoundedFileTail(input: {
   byteBudget: number;
   context: ArchiveScanContext;
 }): Promise<BoundedTailRead | null> {
+  input.context.signal?.throwIfAborted();
   if (archiveScanDeadlineExceeded(input.context)) {
     return null;
   }
@@ -843,7 +903,9 @@ async function readBoundedFileTail(input: {
   try {
     handle = await fs.open(input.candidate.path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     input.context.diagnostics.filesOpened += 1;
+    input.context.signal?.throwIfAborted();
     const initialStats = await handle.stat();
+    input.context.signal?.throwIfAborted();
     if (
       !initialStats.isFile() ||
       initialStats.dev !== input.candidate.dev ||
@@ -858,6 +920,7 @@ async function readBoundedFileTail(input: {
     let totalRead = 0;
     let budgetExhausted = false;
     while (totalRead < bytesToRead) {
+      input.context.signal?.throwIfAborted();
       if (archiveScanDeadlineExceeded(input.context)) {
         budgetExhausted = true;
         break;
@@ -869,6 +932,7 @@ async function readBoundedFileTail(input: {
         requestedBytes,
         startedAtByte + totalRead,
       );
+      input.context.signal?.throwIfAborted();
       if (bytesRead <= 0) {
         break;
       }
@@ -886,6 +950,7 @@ async function readBoundedFileTail(input: {
       totalRead,
     );
     const finalStats = await handle.stat();
+    input.context.signal?.throwIfAborted();
     budgetExhausted ||= archiveScanDeadlineExceeded(input.context);
     return {
       text: target.subarray(0, totalRead).toString("utf8"),
@@ -900,7 +965,10 @@ async function readBoundedFileTail(input: {
         finalStats.mtimeMs === input.candidate.mtimeMs,
       budgetExhausted,
     };
-  } catch {
+  } catch (error) {
+    if (input.context.signal?.aborted) {
+      throw input.context.signal.reason ?? error;
+    }
     return null;
   } finally {
     await handle?.close().catch(() => undefined);
@@ -919,6 +987,7 @@ function completeJsonlLines(tail: BoundedTailRead): string[] {
 }
 
 async function claimRecordWork(context: ArchiveScanContext): Promise<boolean> {
+  context.signal?.throwIfAborted();
   if (
     archiveScanDeadlineExceeded(context) ||
     context.diagnostics.recordsInspected >= context.limits.maxRecords
@@ -930,6 +999,7 @@ async function claimRecordWork(context: ArchiveScanContext): Promise<boolean> {
     context.diagnostics.recordsInspected % context.limits.yieldEveryRecords === 0
   ) {
     await cooperativeArchiveScanYield(context);
+    context.signal?.throwIfAborted();
     if (
       archiveScanDeadlineExceeded(context) ||
       context.diagnostics.recordsInspected >= context.limits.maxRecords
@@ -1354,24 +1424,25 @@ async function discoverRecentClaudeTranscriptFiles(input: {
 }
 
 /**
- * Stream a complete Claude transcript without materializing the file in memory.
- * This helper backs focused regression tests and callers that intentionally need
- * the whole file; the snapshot scanner below additionally enforces global byte,
- * record, elapsed-time, and candidate budgets.
+ * Read a complete Claude transcript in fixed-size chunks into one reused buffer
+ * without materializing the file in memory. This helper backs focused regression
+ * tests and callers that intentionally need the whole file; the snapshot scanner
+ * below additionally enforces global byte, record, elapsed-time, and candidate budgets.
  */
 export async function readClaudeUsageSamples(
-  path: string,
+  filePath: string,
+  signal?: AbortSignal,
 ): Promise<ReadonlyArray<ClaudeUsageSample>> {
+  signal?.throwIfAborted();
   const samples: ClaudeUsageSample[] = [];
   const seenKeys = new Set<string>();
-  const stream = createReadStream(path);
   let lineChunks: Buffer[] = [];
   let lineBytes = 0;
   let lineIndex = 0;
   let skippingOversizedLine = false;
 
   const collectLine = (line: Buffer, index: number): void => {
-    if (line.length === 0) return;
+    if (line.length === 0 || line.indexOf(CLAUDE_USAGE_KEY_BYTES) === -1) return;
     const contents = line.toString("utf8");
     if (!contents.trim()) return;
 
@@ -1384,7 +1455,7 @@ export async function readClaudeUsageSamples(
     const record = asRecord(parsed);
     if (!record) return;
 
-    const fallbackKey = `${path}:${index}`;
+    const fallbackKey = `${filePath}:${index}`;
     const assistantSample = readClaudeAssistantSample({ record, fallbackKey });
     if (assistantSample && !seenKeys.has(assistantSample.dedupeKey)) {
       seenKeys.add(assistantSample.dedupeKey);
@@ -1397,7 +1468,9 @@ export async function readClaudeUsageSamples(
     }
   };
 
-  const appendLineChunk = (chunk: Buffer): void => {
+  // `retain` copies a piece that must outlive the read buffer: the unfinished record at
+  // the end of a read, which the next read overwrites.
+  const appendLineChunk = (chunk: Buffer, retain = false): void => {
     if (skippingOversizedLine || chunk.length === 0) return;
     if (lineBytes + chunk.length > MAX_CLAUDE_TRANSCRIPT_LINE_BYTES) {
       lineChunks = [];
@@ -1405,13 +1478,18 @@ export async function readClaudeUsageSamples(
       skippingOversizedLine = true;
       return;
     }
-    lineChunks.push(chunk);
+    lineChunks.push(retain ? Buffer.from(chunk) : chunk);
     lineBytes += chunk.length;
   };
 
   const finishLine = (): void => {
     if (!skippingOversizedLine) {
-      collectLine(Buffer.concat(lineChunks, lineBytes), lineIndex);
+      // collectLine reads the bytes synchronously, so a line inside one read chunk
+      // can be a view of that chunk instead of a copy.
+      collectLine(
+        lineChunks.length === 1 ? lineChunks[0]! : Buffer.concat(lineChunks, lineBytes),
+        lineIndex,
+      );
     }
     lineChunks = [];
     lineBytes = 0;
@@ -1419,26 +1497,51 @@ export async function readClaudeUsageSamples(
     skippingOversizedLine = false;
   };
 
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
   try {
-    for await (const chunk of stream) {
-      let lineStart = 0;
-      for (let index = 0; index < chunk.length; index += 1) {
-        if (chunk[index] !== 0x0a) continue;
-        appendLineChunk(chunk.subarray(lineStart, index));
-        finishLine();
-        lineStart = index + 1;
+    handle = await fs.open(filePath, "r");
+    signal?.throwIfAborted();
+    const { size: end } = await handle.stat();
+    if (end > 0) {
+      const buffer = Buffer.allocUnsafe(Math.min(CLAUDE_TRANSCRIPT_READ_CHUNK_BYTES, end));
+      let position = 0;
+      while (position < end) {
+        if (signal?.aborted) break;
+        const { bytesRead } = await handle.read(
+          buffer,
+          0,
+          Math.min(buffer.length, end - position),
+          position,
+        );
+        if (bytesRead === 0) break;
+        const chunk = buffer.subarray(0, bytesRead);
+        let lineStart = 0;
+        for (let index = 0; index < chunk.length; index += 1) {
+          if (chunk[index] !== 0x0a) continue;
+          appendLineChunk(chunk.subarray(lineStart, index));
+          finishLine();
+          lineStart = index + 1;
+        }
+        appendLineChunk(chunk.subarray(lineStart), true);
+        position += bytesRead;
       }
-      appendLineChunk(chunk.subarray(lineStart));
+      if (!signal?.aborted && lineBytes > 0 && !skippingOversizedLine) {
+        collectLine(
+          lineChunks.length === 1 ? lineChunks[0]! : Buffer.concat(lineChunks, lineBytes),
+          lineIndex,
+        );
+      }
     }
-    if (lineBytes > 0 && !skippingOversizedLine) {
-      collectLine(Buffer.concat(lineChunks, lineBytes), lineIndex);
+  } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason ?? error;
     }
-  } catch {
     // A transcript that vanishes or fails partway through yields the complete
     // records read before the failure, like a truncated archive.
   } finally {
-    stream.destroy();
+    await handle?.close().catch(() => undefined);
   }
+  signal?.throwIfAborted();
 
   return samples;
 }
@@ -1493,6 +1596,7 @@ async function readClaudeUsageSamplesFromCandidate(input: {
       workBudgetExhausted = true;
       break;
     }
+    if (!line.includes('"usage"')) continue;
 
     let parsed: unknown;
     try {
@@ -1627,7 +1731,10 @@ async function loadCodexUsageSnapshot(input: {
     })),
     input.context.limits.concurrency,
     async (file) => readCodexSessionSummaryCandidate({ ...file, context: input.context }),
+    input.context.signal,
   );
+  // A cancelled read is partial: report nothing rather than undercount.
+  input.context.signal?.throwIfAborted();
   const archiveScan = archiveScanCoverage({
     discovery,
     selectedCount: selected.length,
@@ -1718,7 +1825,10 @@ async function loadClaudeUsageSnapshot(input: {
     })),
     input.context.limits.concurrency,
     async (file) => readClaudeUsageSamplesFromCandidate({ ...file, context: input.context }),
+    input.context.signal,
   );
+  // A cancelled read is partial: report nothing rather than undercount.
+  input.context.signal?.throwIfAborted();
   const archiveScan = archiveScanCoverage({
     discovery,
     selectedCount: selected.length,
@@ -1771,7 +1881,9 @@ async function scanProviderUsageSnapshot(input: {
   nowMs: number;
   limits: ProviderUsageArchiveScanLimits;
   pinnedApprovedRoot?: { identity: ApprovedArchiveRootIdentity | null };
+  signal?: AbortSignal;
 }): Promise<ProviderUsageArchiveScanTestResult> {
+  input.signal?.throwIfAborted();
   providerUsageArchiveScanRuns += 1;
   const limits = normalizeArchiveScanLimits(input.limits);
   const startedAtMs = performance.now();
@@ -1780,6 +1892,7 @@ async function scanProviderUsageSnapshot(input: {
     diagnostics: createArchiveScanDiagnostics(),
     startedAtMs,
     deadlineAtMs: startedAtMs + limits.maxElapsedMs,
+    signal: input.signal,
     activeFileReads: 0,
   };
   try {
@@ -1836,6 +1949,7 @@ async function loadProviderUsageSnapshot(input: {
   homePath?: string;
   nowMs?: number;
   approvedRoot: ApprovedArchiveRootIdentity | null;
+  signal: AbortSignal;
 }): Promise<ServerGetProviderUsageSnapshotResult> {
   const result = await scanProviderUsageSnapshot({
     provider: input.provider,
@@ -1844,6 +1958,7 @@ async function loadProviderUsageSnapshot(input: {
     nowMs: input.nowMs ?? Date.now(),
     limits: DEFAULT_ARCHIVE_SCAN_LIMITS,
     pinnedApprovedRoot: { identity: input.approvedRoot },
+    signal: input.signal,
   });
   return result.snapshot;
 }
@@ -1888,6 +2003,11 @@ async function getCachedProviderUsageSnapshot(input: {
   forceRefresh?: boolean;
   afterArchiveRootResolvedForTests?: () => void | Promise<void>;
 }): Promise<ServerGetProviderUsageSnapshotResult> {
+  const { signal } = usageScanController;
+  if (signal.aborted) {
+    // The server is shutting down: start nothing and touch no archive directories.
+    return null;
+  }
   const { cacheKey, approvedRoot } = await resolveArchiveCacheRoot(input);
   const nowMs = input.nowMs ?? Date.now();
   const existing = usageSnapshotCache.get(cacheKey);
@@ -1898,20 +2018,38 @@ async function getCachedProviderUsageSnapshot(input: {
   if (!input.forceRefresh && existing && existing.expiresAtMs > nowMs) {
     return existing.value;
   }
+  if (signal.aborted) {
+    // The server started shutting down while resolving the archive root:
+    // answer from what is cached and start nothing.
+    return existing?.value ?? null;
+  }
 
-  const pending = Promise.resolve()
+  const pending: Promise<ServerGetProviderUsageSnapshotResult> = Promise.resolve()
     .then(async () => {
       await input.afterArchiveRootResolvedForTests?.();
+      signal.throwIfAborted();
       return loadProviderUsageSnapshot({
         provider: input.provider,
         homeDir: input.homeDir,
         ...(input.homePath ? { homePath: input.homePath } : {}),
         nowMs,
         approvedRoot,
+        signal,
       });
     })
     .catch(() => null)
     .then((value) => {
+      if (signal.aborted) {
+        // Keep what was cached before this read instead of a partial result.
+        if (usageSnapshotCache.get(cacheKey)?.pending === pending) {
+          usageSnapshotCache.set(cacheKey, {
+            expiresAtMs: existing?.expiresAtMs ?? 0,
+            value: existing?.value ?? null,
+            pending: null,
+          });
+        }
+        return existing?.value ?? null;
+      }
       usageSnapshotCache.set(cacheKey, {
         expiresAtMs: nowMs + USAGE_CACHE_TTL_MS,
         value,
@@ -1977,6 +2115,7 @@ export async function __scanProviderUsageSnapshotForTests(input: {
   homePath?: string;
   nowMs: number;
   limits: ProviderUsageArchiveScanLimits;
+  signal?: AbortSignal;
 }): Promise<ProviderUsageArchiveScanTestResult> {
   return scanProviderUsageSnapshot(input);
 }
@@ -1998,6 +2137,7 @@ export function __resetProviderUsageSnapshotStateForTests(): void {
   usageSnapshotCache.clear();
   fileSummaryIndex.clear();
   providerUsageArchiveScanRuns = 0;
+  resumeProviderUsageScans();
 }
 
 /** Test-only: exposes counts, never archive paths or contents. */

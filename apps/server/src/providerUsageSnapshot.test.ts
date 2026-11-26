@@ -19,8 +19,11 @@ import {
   __resetProviderUsageSnapshotStateForTests,
   __scanProviderUsageSnapshotForTests,
   getProviderUsageSnapshot,
+  loadLocalProviderUsageSnapshot,
   readClaudeUsageSamples,
   readCodexSessionSummary,
+  resumeProviderUsageScans,
+  stopProviderUsageScans,
   type ProviderUsageArchiveScanLimits,
 } from "./providerUsageSnapshot";
 import { ServerSettingsService } from "./serverSettings";
@@ -1100,6 +1103,91 @@ describe("readClaudeUsageSamples", () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
+  it("parses only the records that carry a usage key", async () => {
+    const file = await makeSessionFile(
+      [
+        JSON.stringify({
+          type: "user",
+          timestamp: "2026-08-14T09:00:00.000Z",
+          message: { content: "x".repeat(64 * 1024) },
+        }),
+        assistantLine({ timestamp: "2026-08-14T10:00:00.000Z", totalTokens: 40 }),
+        JSON.stringify({
+          type: "user",
+          timestamp: "2026-08-14T10:30:00.000Z",
+          toolUseResult: { usage: { input_tokens: 5, output_tokens: 7 } },
+        }),
+      ].join("\n"),
+      "transcript.jsonl",
+    );
+    const parse = vi.spyOn(JSON, "parse");
+
+    await expect(readClaudeUsageSamples(file)).resolves.toEqual([
+      {
+        sessionId: `${file}:1`,
+        timestampMs: Date.parse("2026-08-14T10:00:00.000Z"),
+        totalTokens: 40,
+        model: "claude-opus-4-5",
+      },
+      {
+        sessionId: `${file}:2`,
+        timestampMs: Date.parse("2026-08-14T10:30:00.000Z"),
+        totalTokens: 12,
+        model: null,
+      },
+    ]);
+    // The 64 KiB prompt record has no usage key, so it is never decoded or parsed.
+    const transcriptParses = parse.mock.calls.filter(
+      ([text]) => typeof text === "string" && text.includes("2026-08-14T"),
+    );
+    expect(transcriptParses).toHaveLength(2);
+  });
+
+  it("parses records that span reads of the shared read buffer", async () => {
+    // The first record ends just before the 64 KiB read boundary, so each assistant
+    // record that follows starts in one read and ends in the next.
+    const filler = JSON.stringify({ type: "user", message: { content: "" } });
+    const first = filler.replace('""', `"${"x".repeat(65_500 - filler.length)}"`);
+    const assistant = (index: number) =>
+      assistantLine({
+        timestamp: "2026-08-14T10:00:00.000Z",
+        totalTokens: 10 + index,
+        sessionId: "session-a",
+        messageId: `message-${index}`,
+      });
+    const records = [first, ...Array.from({ length: 800 }, (_, index) => assistant(index))];
+    const file = await makeSessionFile(records.join("\n"), "transcript.jsonl");
+
+    const samples = await readClaudeUsageSamples(file);
+    expect(samples).toHaveLength(800);
+    expect(samples.map((sample) => sample.totalTokens)).toEqual(
+      Array.from({ length: 800 }, (_, index) => 10 + index),
+    );
+  });
+
+  it("stops a cancelled read when its abort signal fires", async () => {
+    const records = Array.from({ length: 2_000 }, (_, index) =>
+      assistantLine({
+        timestamp: "2026-08-14T10:00:00.000Z",
+        totalTokens: 1,
+        sessionId: "session-a",
+        messageId: `m${index}`,
+      }),
+    ).join("\n");
+    const file = await makeSessionFile(records, "transcript.jsonl");
+    const controller = new AbortController();
+    const open = fs.open.bind(fs);
+    vi.spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      const handle = await open(...args);
+      controller.abort();
+      return handle;
+    });
+
+    await expect(readClaudeUsageSamples(file, controller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+  });
+
   it("returns no samples for a missing transcript", async () => {
     const file = await makeSessionFile("", "transcript.jsonl");
 
@@ -1139,5 +1227,71 @@ describe("readClaudeUsageSamples", () => {
         model: "claude-opus-4-5",
       },
     ]);
+  });
+});
+
+describe("usage reads around server shutdown", () => {
+  afterEach(() => {
+    resumeProviderUsageScans();
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses a read that arrives after shutdown and reads again once a server starts", async () => {
+    vi.stubEnv("CLAUDE_CONFIG_DIR", "");
+    const homeDir = await makeTemporaryRoot();
+    const projectDir = path.join(homeDir, ".claude", "projects", "project-a");
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(
+      path.join(projectDir, "a.jsonl"),
+      claudeUsageLine({
+        totalTokens: 7,
+        suffix: "m1",
+        timestamp: new Date(Date.now() - 1_000).toISOString(),
+      }),
+    );
+
+    stopProviderUsageScans();
+    const open = vi.spyOn(fs, "open");
+    const opendir = vi.spyOn(fs, "opendir");
+    expect(await loadLocalProviderUsageSnapshot({ provider: "claudeAgent", homeDir })).toBeNull();
+    expect(open).not.toHaveBeenCalled();
+    expect(opendir).not.toHaveBeenCalled();
+
+    // Nothing was cached for the refused read, so a restarted server reads the archive.
+    resumeProviderUsageScans();
+    const snapshot = await loadLocalProviderUsageSnapshot({ provider: "claudeAgent", homeDir });
+    expect(snapshot?.usageLines.length).toBeGreaterThan(0);
+    expect(open).toHaveBeenCalled();
+  });
+
+  it("stops an in-flight bounded scan at shutdown without caching its partial result", async () => {
+    vi.stubEnv("CLAUDE_CONFIG_DIR", "");
+    const homeDir = await makeTemporaryRoot();
+    const projectDir = path.join(homeDir, ".claude", "projects", "project-a");
+    await mkdir(projectDir, { recursive: true });
+    const nowTimestamp = new Date(Date.now() - 1_000).toISOString();
+    const records = Array.from({ length: 500 }, (_, index) =>
+      claudeUsageLine({ totalTokens: 1, suffix: `m${index}`, timestamp: nowTimestamp }),
+    ).join("");
+    await writeFile(path.join(projectDir, "a.jsonl"), records);
+
+    const open = fs.open.bind(fs);
+    vi.spyOn(fs, "open").mockImplementation(async (...args: Parameters<typeof fs.open>) => {
+      const handle = await open(...args);
+      stopProviderUsageScans();
+      return handle;
+    });
+
+    await expect(
+      loadLocalProviderUsageSnapshot({ provider: "claudeAgent", homeDir }),
+    ).resolves.toBeNull();
+
+    // Neither the snapshot cache nor the per-file summary index cached the aborted read.
+    vi.restoreAllMocks();
+    resumeProviderUsageScans();
+    const reopen = vi.spyOn(fs, "open");
+    const snapshot = await loadLocalProviderUsageSnapshot({ provider: "claudeAgent", homeDir });
+    expect(snapshot?.usageLines[0]?.value).toBe("500 tokens");
+    expect(reopen).toHaveBeenCalledTimes(1);
   });
 });

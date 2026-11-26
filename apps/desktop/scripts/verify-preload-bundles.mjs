@@ -18,13 +18,14 @@ const entries = ["preload.js", "sshWorkspacePreload.js", "guestPreload.js", "mcp
 
 for (const entry of entries) {
   const source = readFileSync(path.join(directory, entry), "utf8");
-  const imports = [...source.matchAll(/\brequire\s*\(\s*["']([^"']+)["']\s*\)/gu)];
-  for (const [, module] of imports) {
+  // Minified bundles may emit static template literals (`require(`electron`)`).
+  const imports = [...source.matchAll(/\brequire\s*\(\s*(["'`])((?:(?!\1).)+)\1\s*\)/gu)];
+  for (const [, , module] of imports) {
     if (!sandboxModules.has(module)) {
       throw new Error(`Sandbox preload ${entry} requires unsupported module ${module}`);
     }
   }
-  if (imports.length === 0 || !imports.some(([, module]) => module === "electron")) {
+  if (imports.length === 0 || !imports.some(([, , module]) => module === "electron")) {
     throw new Error(`Sandbox preload ${entry} has no Electron bridge import`);
   }
   console.log(`Verified self-contained sandbox preload: ${entry}`);

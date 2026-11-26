@@ -1012,6 +1012,7 @@ export class WsTransport {
   private clientPromise: Promise<RpcClientInstance>;
   private reconnectPromise: Promise<RpcClientInstance> | null = null;
   private reconnectFailures = 0;
+  private readonly backendReady: Promise<void> | null;
   private dropReason: DesktopBackendLinkDropReason | null = null;
   private readonly streamCleanups = new Map<string, () => void>();
   private readonly streamSettled = new Map<string, Promise<void>>();
@@ -1065,6 +1066,12 @@ export class WsTransport {
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
       window.addEventListener(SIDEBAR_ORDER_REHYDRATE_EVENT, this.sidebarOrderRehydrateListener);
     }
+    // The desktop opens its window before its backend listens. Connecting
+    // earlier only fails and then waits out a backoff step.
+    this.backendReady =
+      url === undefined && typeof window !== "undefined" && !window.mossRemoteWorkspace?.getWsUrl()
+        ? (window.desktopBridge?.whenBackendReady?.().catch(() => undefined) ?? null)
+        : null;
     this.clientPromise = this.createSession().clientPromise;
     void this.clientPromise.catch((error) => {
       if (this.disposed || isTerminalCompatibilityFailure(error)) return;
@@ -1647,8 +1654,8 @@ export class WsTransport {
     this.disposed = true;
     this.sessionVersion += 1;
     this.unaryRequestQueue.close(new Error("Transport disposed"));
-    // Abort before anything else: a pending negotiate must fail now rather
-    // than resolve later and build a runtime this teardown will not see.
+    // Abort pending startup waits and negotiation before either can create
+    // a runtime this teardown will not see.
     this.lifetime.abort(new Error("Transport disposed"));
     this.setState("disposed");
     this.shellSubscribed = false;
@@ -1781,6 +1788,10 @@ export class WsTransport {
     // unchanged, so a reconnect costs exactly one WebSocket handshake.
     const cachedCompatibility = this.compatibility;
     const clientPromise = (async () => {
+      if (this.backendReady) {
+        await awaitWithAbort(this.backendReady, this.lifetime.signal);
+        if (this.disposed) throw new Error("Transport disposed");
+      }
       const compatibility = cachedCompatibility ?? (await this.negotiateCompatibility());
       if (this.disposed || this.sessionVersion !== sessionVersion) {
         throw new Error("WebSocket session superseded during compatibility negotiation.");

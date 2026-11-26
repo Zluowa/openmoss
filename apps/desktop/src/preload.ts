@@ -240,6 +240,7 @@ const desktopBridge = {
   ...(betaDiagnosticsBridge ? { betaDiagnostics: betaDiagnosticsBridge } : {}),
   ...(selfReportBridge ? { selfReport: selfReportBridge } : {}),
   getWsUrl: getDesktopWsUrl,
+  whenBackendReady: () => ipcRenderer.invoke(IPC.backendReady),
   remoteComputers: {
     list: () => ipcRenderer.invoke(IPC.remoteComputers.list),
     pair: (input) => ipcRenderer.invoke(IPC.remoteComputers.pair, input),

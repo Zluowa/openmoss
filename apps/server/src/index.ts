@@ -15,6 +15,10 @@ import { ServerLive } from "./effectServer";
 import { NetService } from "@moss/shared/Net";
 import { FetchHttpClient } from "effect/unstable/http";
 import { consumeDesktopParentInput, withDesktopParentLifetime } from "./desktopParentLifetime";
+import {
+  releaseBackendCompileCacheEnvironment,
+  scheduleBackendCompileCacheFlush,
+} from "./backendCompileCache";
 import { exitDesktopBackend } from "./desktopFatalExit";
 import { hydrateWindowsUserEnvironment } from "./os-jank";
 import { installWindowsProviderProcessGuard } from "./platform/windowsProviderProcessGuard";
@@ -56,6 +60,8 @@ export function mossServerProgram(options: MossServerLayerOptions = {}) {
 }
 
 if (import.meta.main) {
+  // First, before anything can start a child process.
+  scheduleBackendCompileCacheFlush(releaseBackendCompileCacheEnvironment(process.env));
   // Before any layer resolves a provider home (account import, health probes).
   if (process.platform === "win32") {
     hydrateWindowsUserEnvironment();

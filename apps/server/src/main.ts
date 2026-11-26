@@ -61,6 +61,8 @@ import { ProviderRuntimeEventRepositoryLive } from "./persistence/Layers/Provide
 import { makeServerApplicationLayers } from "./serverLayers";
 import type { AccountRecoveryAuthorityProvision } from "./pages/realtime/cloud/control/accountRecoveryAuthorityRuntime";
 import { startServerMemoryDiagnostics } from "./memoryDiagnostics";
+import { resumeProviderUsageScans, stopProviderUsageScans } from "./providerUsageSnapshot";
+import { resumeProviderUsageReads, stopProviderUsageReads } from "./providerUsage/http";
 import {
   claudeCredentialKeepaliveTargets,
   createClaudeCredentialKeepaliveController,
@@ -465,6 +467,20 @@ const makeServerProgram = (input: CliInput, options: MossServerLayerOptions = {}
       }
     });
     yield* Effect.sync(() => startServerMemoryDiagnostics({ mode: config.mode }));
+    // Usage snapshots read local archives, and live usage reads call the provider, in
+    // promises that no request owns. Stop them on shutdown, and refuse new ones from then
+    // on, so they do not hold the process open after the server has closed.
+    yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        resumeProviderUsageScans();
+        resumeProviderUsageReads();
+      }),
+      () =>
+        Effect.sync(() => {
+          stopProviderUsageScans();
+          stopProviderUsageReads();
+        }),
+    );
 
     if (!config.devUrl && !config.staticDir) {
       yield* Effect.logWarning(

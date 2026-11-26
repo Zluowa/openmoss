@@ -17,7 +17,12 @@ import { defaultAgentRuntimeStoreRoot } from "@moss/shared/agentRuntimeStore";
 import { MOSS_AGENT_RUNTIMES_PENDING_ENV_KEY } from "@moss/shared/codexRuntime";
 import { ensureDownloadDirectories } from "./downloadDirectories";
 import { BackendIssueDetector } from "./backendIssueDetector";
-import { CuaDriverHost, sweepOrphanedCuaDrivers } from "./cuaDriverHost";
+import { CuaDriverHost, sweepOrphanedCuaDriversInBackground } from "./cuaDriverHost";
+import {
+  backendCompileCacheEnv,
+  pruneBackendCompileCaches,
+  resolveBackendCompileCacheDir,
+} from "./backendCompileCache";
 import { createLinuxCuaDriverHost } from "./linuxCuaDriverHost";
 import { LinuxEscapeKillSwitchMonitor, linuxEscapeSession } from "./linuxEscapeKillSwitchMonitor";
 import { ComputerFrameTap } from "./computerFrameTap";
@@ -1106,12 +1111,13 @@ function startBrowserPerformanceLogging(): void {
   browserPerfInterval.unref();
 }
 
-async function ensureBrowserHostPipeServer(): Promise<void> {
+async function ensureBrowserHostPipeServer(browserSessionReady?: Promise<void>): Promise<void> {
   if (browserHostPipeServer || !MOSS_BROWSER_HOST_PIPE_PATH) {
     return;
   }
   const server = new BrowserHostPipeServer(browserManager, {
     capability: DESKTOP_BROWSER_HOST_CAPABILITY,
+    ...(browserSessionReady ? { browserSessionReady } : {}),
     requestOpenPanel: (threadId) => {
       if (!threadId) return;
       mainWindow?.webContents.send(IPC.browser.requestOpenPanel, { threadId });
@@ -6209,6 +6215,11 @@ function scheduleStartupUpdateChecks(): void {
 
   scheduleUpdatePoll();
 }
+
+function backendCompileCacheDir(): string {
+  return resolveBackendCompileCacheDir(STATE_DIR, app.getVersion());
+}
+
 // Builds process-local Node args so provider/tool children do not inherit Moss's heap guard.
 function backendNodeArgs(): string[] {
   const configuredMaxOldSpaceMb =
@@ -6427,7 +6438,6 @@ async function attachCuaHost(host: CuaDriverHost): Promise<void> {
 
 async function startCuaHost(): Promise<void> {
   if (cuaDriverHost) return;
-  sweepOrphanedCuaDrivers();
   if (process.platform === "linux") {
     linuxEscapeKillSwitchMonitor ??= new LinuxEscapeKillSwitchMonitor({
       shortcutRegistry: globalShortcut,
@@ -7521,6 +7531,8 @@ function startBackend(trigger: BackendStartTrigger = "lifecycle"): void {
     // Run the child in Node mode so this backend process does not become a GUI app instance.
     env: {
       ...backendEnv(),
+      // Most of a backend boot is compiling its modules; Node keeps the result on disk.
+      ...backendCompileCacheEnv(process.env, backendCompileCacheDir()),
       ELECTRON_RUN_AS_NODE: "1",
       MOSS_DESKTOP_PARENT_STDIN: "1",
       MOSS_SERVER_ENTRY: backendEntry,
@@ -8248,6 +8260,11 @@ function registerIpcHandlers(): void {
     // live URL instead of trusting build-time or inherited renderer env.
     event.returnValue =
       normalizeDesktopWsUrl(backendWsUrl) ?? resolveDesktopWsUrlFromEnv(process.env);
+  });
+
+  ipcMain.removeHandler(IPC.backendReady);
+  ipcMain.handle(IPC.backendReady, async () => {
+    await backendInitialWindowOpenInFlight;
   });
 
   ipcMain.removeAllListeners(IPC.backendLink);
@@ -10120,6 +10137,31 @@ if (!hasSingleInstanceLock || mossAuthProtocolRelay) {
   });
 }
 
+// Restores the imported browser session's cookies. Never rejects: a failure or timeout
+// leaves the browser without saved cookies, as before.
+async function restoreBrowserSession(restore: BrowserSessionRestore): Promise<void> {
+  try {
+    let restoreTimer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        restore.initialize().finally(() => clearTimeout(restoreTimer)),
+        new Promise<never>((_, reject) => {
+          restoreTimer = setTimeout(
+            () => reject(new Error("Browser session restoration timed out.")),
+            BROWSER_SESSION_RESTORE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(restoreTimer);
+    }
+  } catch {
+    console.warn(
+      "[Moss browser] Secure session restoration is unavailable; no saved session cookies were restored.",
+    );
+  }
+}
+
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
   logCodeUpdateBoot();
@@ -10171,26 +10213,10 @@ async function bootstrap(): Promise<void> {
     createCookieSessionBackend(BROWSER_SESSION_PARTITION),
     browserOsKeyStore,
   );
-  try {
-    let restoreTimer: NodeJS.Timeout | undefined;
-    try {
-      await Promise.race([
-        browserSessionRestore.initialize().finally(() => clearTimeout(restoreTimer)),
-        new Promise<never>((_, reject) => {
-          restoreTimer = setTimeout(
-            () => reject(new Error("Browser session restoration timed out.")),
-            BROWSER_SESSION_RESTORE_TIMEOUT_MS,
-          );
-        }),
-      ]);
-    } finally {
-      clearTimeout(restoreTimer);
-    }
-  } catch {
-    console.warn(
-      "[Moss browser] Secure session restoration is unavailable; no saved session cookies were restored.",
-    );
-  }
+  // Saved cookies feed neither the backend nor the window, so they are restored while the
+  // backend starts. Browser tools and the first window wait for them below, so no page in
+  // the browser partition loads before they are back.
+  const browserSessionRestored = restoreBrowserSession(browserSessionRestore);
 
   registerIpcHandlers();
   mcpAppSandboxRuntime.registerIpcHandlers();
@@ -10208,13 +10234,23 @@ async function bootstrap(): Promise<void> {
   }
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   try {
-    await ensureBrowserHostPipeServer();
+    await ensureBrowserHostPipeServer(browserSessionRestored);
   } catch (error) {
     console.warn("[Moss browser] Failed to start browser host pipe", error);
   }
   await startCuaHost();
   startBackend();
   writeDesktopLogHeader("bootstrap backend start requested");
+  void pruneBackendCompileCaches(backendCompileCacheDir());
+  if (process.platform === "darwin" || process.platform === "linux") {
+    // Reaps drivers left by a host that died. It feeds nothing above, so it no longer
+    // holds the backend's start behind a synchronous process listing.
+    void sweepOrphanedCuaDriversInBackground();
+  }
+
+  // The window's webviews are browser-partition pages: they must not load before saved
+  // cookies are restored.
+  await browserSessionRestored;
 
   if (isDevelopment) {
     void waitForBackendWindowReady(backendHttpUrl)
