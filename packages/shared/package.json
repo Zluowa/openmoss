@@ -1020,6 +1020,10 @@
     "./markdownRendering": {
       "types": "./src/markdownRendering.ts",
       "import": "./src/markdownRendering.ts"
+    },
+    "./scheduledTaskTemplates": {
+      "types": "./src/scheduledTaskTemplates.ts",
+      "import": "./src/scheduledTaskTemplates.ts"
     }
   },
   "scripts": {

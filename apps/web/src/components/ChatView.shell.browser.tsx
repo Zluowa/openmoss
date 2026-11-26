@@ -1783,10 +1783,14 @@ describe("ChatView transcript geometry (full app)", () => {
       await expect.poll(() => mounted.router.state.location.pathname).toBe("/automations");
       // location changes before the route commits. Home reads the committed
       // section, so finish opening Scheduled before asking it to return.
-      // The panel has its own New automation; the page's empty state adds the second one.
+      // The sidebar panel keeps its own "New automation" button while the redesigned
+      // /automations page renders the "New task" split trigger.
       await expect
         .poll(() => page.getByRole("button", { name: "New automation", exact: true }).all().length)
-        .toBeGreaterThanOrEqual(2);
+        .toBeGreaterThanOrEqual(1);
+      await expect
+        .poll(() => page.getByRole("button", { name: /New task|新建任务/ }).all().length)
+        .toBeGreaterThanOrEqual(1);
       await expect.poll(() => mounted.router.state.isLoading).toBe(false);
       await rail.getByRole("button", { name: "Home", exact: true }).click();
       await expect.poll(() => mounted.router.state.location.pathname).toBe(initialPath);
