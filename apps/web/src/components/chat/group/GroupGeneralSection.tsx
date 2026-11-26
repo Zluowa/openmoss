@@ -1,4 +1,5 @@
 import { MossbotAvatarPicker } from "~/components/mossbot/MossbotAvatar";
+import { MOSSBOT_DEFAULT_AVATAR_KEY } from "~/components/mossbot/mossbot.logic";
 import { DEFAULT_PROJECT_AGENT_LIMITS, type ModelSelection } from "@moss/contracts";
 
 import { Input } from "~/components/ui/input";
@@ -79,7 +80,7 @@ export function GroupGeneralSection(props: {
             </div>
             {props.personal ? (
               <MossbotAvatarPicker
-                value={draft.coordinatorIcon || "mossbot-pebble"}
+                value={draft.coordinatorIcon || MOSSBOT_DEFAULT_AVATAR_KEY}
                 color={draft.coordinatorColor}
                 onChange={(coordinatorIcon) => onChange({ coordinatorIcon })}
               />

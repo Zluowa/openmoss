@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "~/components/ui/dialog";
 import { GroupModelRow } from "~/components/chat/group/GroupModelEffortRow";
-import { MOSSBOT_TEMPLATES } from "./mossbot.logic";
+import { MOSSBOT_DEFAULT_AVATAR_KEY, MOSSBOT_TEMPLATES } from "./mossbot.logic";
 import { useMossbotCreation } from "./useMossbotCreation";
 
 export function MossbotCreateDialog(props: {
@@ -30,8 +30,8 @@ export function MossbotCreateDialog(props: {
     MOSSBOT_TEMPLATES.find((item) => item.id === props.templateId) ?? MOSSBOT_TEMPLATES[0];
   const [name, setName] = useState<string>(template.id === "personal" ? "Moss" : t(template.name));
   const [instructions, setInstructions] = useState<string>(t(template.instructions));
-  const [avatar, setAvatar] = useState("mossbot-pebble");
-  // Templates wear the companion in their own colour; the colour can be changed later in settings.
+  const [avatar, setAvatar] = useState(MOSSBOT_DEFAULT_AVATAR_KEY);
+  // Templates wear the kid in their own colour; the colour can be changed later in settings.
   const color = template.id === "research" ? "green" : template.id === "projects" ? "amber" : "";
   const [model, setModel] = useState(props.defaultModelSelection);
   const { busy, error, create: createAssistant, abandon } = useMossbotCreation(props.onCreated);

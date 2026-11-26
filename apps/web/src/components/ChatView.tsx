@@ -1,4 +1,5 @@
 import { MossbotConversationIdentity } from "./mossbot/MossbotConversationIdentity";
+import { WorkingCompanionContext } from "./chat/transcript/workingCompanionContext";
 import {
   CONVERSATION_PANEL_REQUEST,
   type ConversationPanelRequest,
@@ -2164,6 +2165,14 @@ export default function ChatView({
     return derivePromptHistoryFromMessages([...activeMessages, ...pendingOptimisticMessages]);
   }, [activeThread?.messages, optimisticUserMessages]);
   const activeGroupSummary = isCoordinatorConversation ? summaryFor(activeThread?.projectId) : null;
+  // In a Mossbot's own conversation the working line shows the assistant's companion (its pinwheel kid).
+  const workingCompanion =
+    activeGroupSummary?.agentKind === "mossbot"
+      ? {
+          icon: activeGroupSummary.coordinatorIcon ?? null,
+          color: activeGroupSummary.coordinatorColor ?? null,
+        }
+      : null;
   const hubWorkItems = useHubWorkItems(
     isCoordinatorConversation ? (activeThread?.projectId ?? null) : null,
   );
@@ -8534,166 +8543,173 @@ export default function ChatView({
                   <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
                     <CodeRunContext.Provider value={codeRunActions}>
                       <TranscriptMarkdownContext.Provider value>
-                        <ChatTranscriptPane
-                          activeThreadId={activeThread.id}
-                          activeTurnId={activeTurnIdForTranscript}
-                          agentActivityDetail={openAgentActivityDetail}
-                          hasMessages={timelineEntries.length > 0}
-                          isWorking={isWorking}
-                          // While the turn waits on the person's approval, of any kind, only
-                          // 等待批准 shows (WALK-12 N12-11: an edit approval also said 思考中…).
-                          suppressWorkingIndicator={activePendingApproval !== null}
-                          awaitingUser={
-                            activePendingApproval !== null || pendingUserInputs.length > 0
-                          }
-                          workingLabel={resolveWorkingLabel({
-                            accountServiceUnavailable: mossAccountOutage.unavailable,
-                            isSettlingTurnDispatch,
-                            isSendBusy,
-                            turnTakenOver,
-                            isConnecting: isSessionConnecting,
-                            isWarmSession: isWarmProviderSession,
-                            providerName: providerDisplayName,
-                            ...(providerRetryLabel ? { retryLabel: providerRetryLabel } : {}),
-                          })}
-                          worktreeSetup={activeWorktreeSetup}
-                          worktreeSetupPendingAction={worktreeSetupPendingAction}
-                          onResolveWorktreeSetup={onResolveWorktreeSetup}
-                          activeTurnInProgress={activeTurnInProgress}
-                          subagentsRunning={hasRunningSubagents}
-                          subagentRun={subagentRunContext}
-                          runningSubagentRun={runningSubagentRun}
-                          subagentThread={subagentThread}
-                          collapseFinishedTurns={settings.collapseFinishedTurns}
-                          activeTurnStartedAt={activeWorkStartedAt}
-                          listRef={legendListRef}
-                          timelineControllerRef={timelineControllerRef}
-                          findHighlightStore={threadFindHighlightStore}
-                          pinnedMessageIds={pinnedMessageIds}
-                          pinnedMessageTitles={pinnedMessageTitles}
-                          onRenamePinnedMessage={handleRenamePinnedMessage}
-                          canPinMessage={canPinMessage}
-                          onTogglePinMessage={handleTogglePinMessageGuarded}
-                          onForkFromMessage={handleForkFromMessage}
-                          onSendPromptTurn={onSendPromptTurn}
-                          goalAchievements={goalAchievements}
-                          enteringUserMessageIds={enteringUserMessageIds}
-                          tailAnchorMessageId={
-                            settings.anchorSentMessagesToTop &&
-                            tailAnchor !== null &&
-                            tailAnchor.threadId === activeThread.id
-                              ? tailAnchor.messageId
-                              : null
-                          }
-                          tailAnchorScrollInFlightRef={tailAnchorScrollInFlightRef}
-                          crossTaskOrigin={resolvedCrossTaskOrigin}
-                          forkSource={forkSource}
-                          isTemporaryThread={isThreadTemporary}
-                          isLocalDraft={isLocalDraftThread}
-                          isProjectImport={activeThread.isProjectImport === true}
-                          timelineEntries={timelineEntries}
-                          messageChangeSignal={timelineMessages}
-                          turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                          turnTimingByTurnId={turnTimingByTurnId}
-                          conversationOnly={
-                            isCoordinatorConversation && activeGroupSummary?.agentKind !== "mossbot"
-                          }
-                          hubWorkItemsByMessageId={hubWorkItemsByMessageId}
-                          threadError={
-                            usageLimitStop === null
-                              ? resolveAccountOutageThreadError(
-                                  activeThread?.error ?? localThreadError,
-                                  mossAccountOutage.unavailable,
-                                )
-                              : null
-                          }
-                          recoverableTurnId={recoverableFailedTurnId}
-                          accountServiceUnavailable={mossAccountOutage.unavailable}
-                          sendFailureContext={sendFailureContext}
-                          turnRecoveryDisabled={
-                            isSendBusy ||
-                            isConnecting ||
-                            isWorking ||
-                            pendingApprovals.length > 0 ||
-                            pendingUserInputs.length > 0
-                          }
-                          onContinueFailedTurn={onContinueFailedTurn}
-                          onChangeRecoveryModel={() => handleModelPickerOpenChange(true)}
-                          unblockingThread={unblockingActiveThread}
-                          onDismissThreadError={dismissActiveThreadError}
-                          {...(canRetryActiveThreadStart
-                            ? { onRetryThreadError: retryActiveThreadStart }
-                            : {})}
-                          onUnblockThread={unblockThread}
-                          onOpenTurnDiff={onOpenTurnDiff}
-                          {...(onOpenHtmlDocument ? { onOpenHtmlDocument } : {})}
-                          onOpenThread={onNavigateToThread}
-                          onOpenAutomation={onOpenAutomation}
-                          {...(threadDetailSyncState === "cached" ? {} : { onStopBackgroundTask })}
-                          computerControlEnabled={enableComputerControl}
-                          onEnableComputerControl={handleEnableComputerControlFromDenial}
-                          revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
-                          onRevertUserMessage={onRevertUserMessage}
-                          forksBySourceMessageId={forksBySourceMessageId}
-                          rewindMarkerAfterMessageId={
-                            rewindMarker?.threadId === threadId
-                              ? rewindMarker.afterMessageId
-                              : undefined
-                          }
-                          onUndoTurnFiles={onUndoTurnFiles}
-                          onEditUserMessage={onEditUserMessage}
-                          onRespondToAsyncUserInput={onRespondToAsyncUserInput}
-                          editableUserMessageId={editableUserMessageId}
-                          isRevertingCheckpoint={isRevertingCheckpoint}
-                          onExpandTimelineImage={onExpandTimelineImage}
-                          followLiveOutput={!isUserScrollDetached}
-                          animateTailAnchorSlide={!hasStreamingAssistantText}
-                          onIsAtEndChange={onIsAtEndChange}
-                          onNavigate={onTranscriptNavigate}
-                          markdownCwd={threadWorkspaceCwd ?? undefined}
-                          resolvedTheme={resolvedTheme}
-                          chatFontSizePx={settings.chatFontSizePx}
-                          timestampFormat={timestampFormat}
-                          messageTrailAudioSource={settings.messageTrailAudioSource}
-                          messageTrailMicrophoneId={settings.messageTrailMicrophoneId}
-                          workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
-                          keybindings={keybindings}
-                          availableEditors={availableEditors}
-                          // An active voice session owns the empty transcript surface: instead
-                          // of the old empty-thread heading it shows the voice status, the live
-                          // transcript as it arrives and, the first time, how voice chat works.
-                          emptyStateContent={
-                            realtimeVoice.isMainThreadPresentationVisible ? (
-                              <RealtimeVoiceEmptyState
-                                state={realtimeVoice.state}
-                                transcript={realtimeVoice.transcript}
-                              />
-                            ) : (
-                              transcriptEmptyStateContent
-                            )
-                          }
-                          emptyStateProjectName={activeProjectDisplayName}
-                          terminalWorkspaceTerminalTabActive={terminalWorkspaceTerminalTabActive}
-                          onMessagesScroll={onMessagesScroll}
-                          onMessagesClickCapture={onMessagesClickCapture}
-                          onMessagesMouseUp={onMessagesMouseUp}
-                          onMessagesWheel={onMessagesWheel}
-                          onEmbeddedScrollIntent={onEmbeddedScrollIntent}
-                          onSendVisualChoice={onSendVisualChoice}
-                          onMessagesPointerDown={onMessagesPointerDown}
-                          onMessagesPointerUp={onMessagesPointerUp}
-                          onMessagesPointerCancel={onMessagesPointerCancel}
-                          onMessagesTouchStart={onMessagesTouchStart}
-                          onMessagesTouchMove={onMessagesTouchMove}
-                          onMessagesTouchEnd={onMessagesTouchEnd}
-                          onOpenAgentActivity={setOpenAgentActivityId}
-                          onCloseAgentActivityDetail={closeAgentActivityDetail}
-                          scrollButtonVisible={showScrollToBottom}
-                          onScrollToBottom={onScrollToBottom}
-                          contentInsetRightPx={contentInsetRightPx}
-                          contentInsetBottomPx={composerTranscriptInsetPx}
-                          contentInsetBottomClearancePx={composerOverlayBottomClearancePx}
-                        />
+                        <WorkingCompanionContext.Provider value={workingCompanion}>
+                          <ChatTranscriptPane
+                            activeThreadId={activeThread.id}
+                            activeTurnId={activeTurnIdForTranscript}
+                            agentActivityDetail={openAgentActivityDetail}
+                            hasMessages={timelineEntries.length > 0}
+                            isWorking={isWorking}
+                            // While the turn waits on the person's approval, of any kind, only
+                            // 等待批准 shows (WALK-12 N12-11: an edit approval also said 思考中…).
+                            suppressWorkingIndicator={activePendingApproval !== null}
+                            awaitingUser={
+                              activePendingApproval !== null || pendingUserInputs.length > 0
+                            }
+                            workingLabel={resolveWorkingLabel({
+                              accountServiceUnavailable: mossAccountOutage.unavailable,
+                              isSettlingTurnDispatch,
+                              isSendBusy,
+                              turnTakenOver,
+                              isConnecting: isSessionConnecting,
+                              isWarmSession: isWarmProviderSession,
+                              providerName: providerDisplayName,
+                              ...(providerRetryLabel ? { retryLabel: providerRetryLabel } : {}),
+                            })}
+                            worktreeSetup={activeWorktreeSetup}
+                            worktreeSetupPendingAction={worktreeSetupPendingAction}
+                            onResolveWorktreeSetup={onResolveWorktreeSetup}
+                            activeTurnInProgress={activeTurnInProgress}
+                            subagentsRunning={hasRunningSubagents}
+                            subagentRun={subagentRunContext}
+                            runningSubagentRun={runningSubagentRun}
+                            subagentThread={subagentThread}
+                            collapseFinishedTurns={settings.collapseFinishedTurns}
+                            activeTurnStartedAt={activeWorkStartedAt}
+                            listRef={legendListRef}
+                            timelineControllerRef={timelineControllerRef}
+                            findHighlightStore={threadFindHighlightStore}
+                            pinnedMessageIds={pinnedMessageIds}
+                            pinnedMessageTitles={pinnedMessageTitles}
+                            onRenamePinnedMessage={handleRenamePinnedMessage}
+                            canPinMessage={canPinMessage}
+                            onTogglePinMessage={handleTogglePinMessageGuarded}
+                            onForkFromMessage={handleForkFromMessage}
+                            onSendPromptTurn={onSendPromptTurn}
+                            goalAchievements={goalAchievements}
+                            enteringUserMessageIds={enteringUserMessageIds}
+                            tailAnchorMessageId={
+                              settings.anchorSentMessagesToTop &&
+                              tailAnchor !== null &&
+                              tailAnchor.threadId === activeThread.id
+                                ? tailAnchor.messageId
+                                : null
+                            }
+                            tailAnchorScrollInFlightRef={tailAnchorScrollInFlightRef}
+                            crossTaskOrigin={resolvedCrossTaskOrigin}
+                            forkSource={forkSource}
+                            isTemporaryThread={isThreadTemporary}
+                            isLocalDraft={isLocalDraftThread}
+                            isProjectImport={activeThread.isProjectImport === true}
+                            timelineEntries={timelineEntries}
+                            messageChangeSignal={timelineMessages}
+                            turnDiffSummaryByAssistantMessageId={
+                              turnDiffSummaryByAssistantMessageId
+                            }
+                            turnTimingByTurnId={turnTimingByTurnId}
+                            conversationOnly={
+                              isCoordinatorConversation &&
+                              activeGroupSummary?.agentKind !== "mossbot"
+                            }
+                            hubWorkItemsByMessageId={hubWorkItemsByMessageId}
+                            threadError={
+                              usageLimitStop === null
+                                ? resolveAccountOutageThreadError(
+                                    activeThread?.error ?? localThreadError,
+                                    mossAccountOutage.unavailable,
+                                  )
+                                : null
+                            }
+                            recoverableTurnId={recoverableFailedTurnId}
+                            accountServiceUnavailable={mossAccountOutage.unavailable}
+                            sendFailureContext={sendFailureContext}
+                            turnRecoveryDisabled={
+                              isSendBusy ||
+                              isConnecting ||
+                              isWorking ||
+                              pendingApprovals.length > 0 ||
+                              pendingUserInputs.length > 0
+                            }
+                            onContinueFailedTurn={onContinueFailedTurn}
+                            onChangeRecoveryModel={() => handleModelPickerOpenChange(true)}
+                            unblockingThread={unblockingActiveThread}
+                            onDismissThreadError={dismissActiveThreadError}
+                            {...(canRetryActiveThreadStart
+                              ? { onRetryThreadError: retryActiveThreadStart }
+                              : {})}
+                            onUnblockThread={unblockThread}
+                            onOpenTurnDiff={onOpenTurnDiff}
+                            {...(onOpenHtmlDocument ? { onOpenHtmlDocument } : {})}
+                            onOpenThread={onNavigateToThread}
+                            onOpenAutomation={onOpenAutomation}
+                            {...(threadDetailSyncState === "cached"
+                              ? {}
+                              : { onStopBackgroundTask })}
+                            computerControlEnabled={enableComputerControl}
+                            onEnableComputerControl={handleEnableComputerControlFromDenial}
+                            revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
+                            onRevertUserMessage={onRevertUserMessage}
+                            forksBySourceMessageId={forksBySourceMessageId}
+                            rewindMarkerAfterMessageId={
+                              rewindMarker?.threadId === threadId
+                                ? rewindMarker.afterMessageId
+                                : undefined
+                            }
+                            onUndoTurnFiles={onUndoTurnFiles}
+                            onEditUserMessage={onEditUserMessage}
+                            onRespondToAsyncUserInput={onRespondToAsyncUserInput}
+                            editableUserMessageId={editableUserMessageId}
+                            isRevertingCheckpoint={isRevertingCheckpoint}
+                            onExpandTimelineImage={onExpandTimelineImage}
+                            followLiveOutput={!isUserScrollDetached}
+                            animateTailAnchorSlide={!hasStreamingAssistantText}
+                            onIsAtEndChange={onIsAtEndChange}
+                            onNavigate={onTranscriptNavigate}
+                            markdownCwd={threadWorkspaceCwd ?? undefined}
+                            resolvedTheme={resolvedTheme}
+                            chatFontSizePx={settings.chatFontSizePx}
+                            timestampFormat={timestampFormat}
+                            messageTrailAudioSource={settings.messageTrailAudioSource}
+                            messageTrailMicrophoneId={settings.messageTrailMicrophoneId}
+                            workspaceRoot={threadArtifactWorkspaceRoot ?? undefined}
+                            keybindings={keybindings}
+                            availableEditors={availableEditors}
+                            // An active voice session owns the empty transcript surface: instead
+                            // of the old empty-thread heading it shows the voice status, the live
+                            // transcript as it arrives and, the first time, how voice chat works.
+                            emptyStateContent={
+                              realtimeVoice.isMainThreadPresentationVisible ? (
+                                <RealtimeVoiceEmptyState
+                                  state={realtimeVoice.state}
+                                  transcript={realtimeVoice.transcript}
+                                />
+                              ) : (
+                                transcriptEmptyStateContent
+                              )
+                            }
+                            emptyStateProjectName={activeProjectDisplayName}
+                            terminalWorkspaceTerminalTabActive={terminalWorkspaceTerminalTabActive}
+                            onMessagesScroll={onMessagesScroll}
+                            onMessagesClickCapture={onMessagesClickCapture}
+                            onMessagesMouseUp={onMessagesMouseUp}
+                            onMessagesWheel={onMessagesWheel}
+                            onEmbeddedScrollIntent={onEmbeddedScrollIntent}
+                            onSendVisualChoice={onSendVisualChoice}
+                            onMessagesPointerDown={onMessagesPointerDown}
+                            onMessagesPointerUp={onMessagesPointerUp}
+                            onMessagesPointerCancel={onMessagesPointerCancel}
+                            onMessagesTouchStart={onMessagesTouchStart}
+                            onMessagesTouchMove={onMessagesTouchMove}
+                            onMessagesTouchEnd={onMessagesTouchEnd}
+                            onOpenAgentActivity={setOpenAgentActivityId}
+                            onCloseAgentActivityDetail={closeAgentActivityDetail}
+                            scrollButtonVisible={showScrollToBottom}
+                            onScrollToBottom={onScrollToBottom}
+                            contentInsetRightPx={contentInsetRightPx}
+                            contentInsetBottomPx={composerTranscriptInsetPx}
+                            contentInsetBottomClearancePx={composerOverlayBottomClearancePx}
+                          />
+                        </WorkingCompanionContext.Provider>
                       </TranscriptMarkdownContext.Provider>
                     </CodeRunContext.Provider>
                     {/* The composer floats `bottom-full` over this trailing                      block, so the last in-flow element must reserve the

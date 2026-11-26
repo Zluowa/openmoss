@@ -2,6 +2,7 @@ import "~/index.css";
 import { render } from "vitest-browser-react";
 import { describe, expect, it } from "vitest";
 import { MOSSBOT_COMPANION_EYE, MOSSBOT_COMPANION_TONES } from "~/theme/mossbotCompanion";
+import { MOSSBOT_KID_TONES } from "~/theme/mossbotKid";
 import { MossbotCompanion } from "./MossbotCompanion";
 import { MossbotAvatar } from "./MossbotAvatar";
 
@@ -112,10 +113,43 @@ describe("MossbotAvatar", () => {
     expect(await colourAt(svg, 0.5, 0.78)).toBe(rgb(MOSSBOT_COMPANION_TONES.slate.body));
   });
 
-  it("keeps a face an assistant already chose", async () => {
+  it("shows the pinwheel kid in coral when no face was chosen", async () => {
+    const screen = await render(<MossbotAvatar icon="" className="size-16" />);
+    const root = screen.container.querySelector<HTMLElement>("[data-mossbot-avatar]")!;
+    expect(root.dataset.mossbotKid).toBe("still");
+    // A body pixel of the block kid, clear of its eyes.
+    expect(await colourAt(root.querySelector("svg")!, 0.34, 0.82)).toBe(
+      rgb(MOSSBOT_KID_TONES.coral.body),
+    );
+  });
+
+  it("shows a retired pixel face as the default kid", async () => {
     const screen = await render(<MossbotAvatar icon="mossbot-fox" className="size-16" />);
     const root = screen.container.querySelector<HTMLElement>("[data-mossbot-avatar]")!;
-    expect(root.tagName.toLowerCase()).toBe("svg");
-    expect(root.matches(".mossbot-companion")).toBe(false);
+    expect(root.matches(".mossbot-kid")).toBe(true);
+  });
+
+  it("wears the assistant colour on the chosen body", async () => {
+    const screen = await render(
+      <MossbotAvatar icon="mossbot-kid-dog" color="blue" className="size-16" />,
+    );
+    const root = screen.container.querySelector<HTMLElement>("[data-mossbot-avatar]")!;
+    expect(await colourAt(root.querySelector("svg")!, 0.34, 0.82)).toBe(
+      rgb(MOSSBOT_KID_TONES.slate.body),
+    );
+  });
+
+  it("plays the kid on a canvas when live and stops when it goes away", async () => {
+    const screen = await render(
+      <MossbotAvatar icon="mossbot-kid-block" state="working" live className="size-16" />,
+    );
+    const root = screen.container.querySelector<HTMLElement>("[data-mossbot-avatar]")!;
+    expect(root.dataset.mossbotKid).toBe("live");
+    const canvas = root.querySelector("canvas")!;
+    await nextFrames(4);
+    const pixels = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
+    expect(pixels.some((value, index) => index % 4 === 3 && value > 0)).toBe(true);
+    await screen.unmount();
+    expect(document.querySelector(".mossbot-kid-canvas")).toBeNull();
   });
 });

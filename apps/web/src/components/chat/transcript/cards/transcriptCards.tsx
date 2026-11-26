@@ -14,7 +14,6 @@ import React, {
   type CSSProperties,
   type ReactNode,
   useContext,
-  useEffect,
   useState,
 } from "react";
 
@@ -41,7 +40,11 @@ import { TimelineSystemErrorRow } from "../../TimelineSystemErrorRow";
 import { TimelineTodoPlanRow } from "../../TimelineTodoPlanRow";
 import type { TimelineWorkEntryRow } from "../../TimelineWorkEntryRow";
 import { TurnHeaderLine } from "../../TurnHeaderLine";
-import { startingProviderName, workingStatusKey } from "../workingStatus";
+import { startingProviderName, workingStatusKey, type WorkingMarkSignal } from "../workingStatus";
+import { WorkingCompanionContext } from "../workingCompanionContext";
+import { MossbotKid } from "~/components/mossbot/kid/MossbotKid";
+import { mossbotKidSceneFor } from "~/components/mossbot/kid/mossbotKidClips";
+import { mossbotKidAppearance } from "~/components/mossbot/MossbotAvatar";
 import { WorkingMarkContext } from "../workingMarkContext";
 import { resolveSilentTurnNotice } from "../../silentTurnNotice";
 import {
@@ -118,6 +121,34 @@ function ConversationBody(props: { row: MessagesTimelineRow; env: TranscriptCard
   return <>{props.env.renderConversationBody(props.row)}</>;
 }
 
+/**
+ * The working line's mark. In a Mossbot conversation whose assistant wears the pinwheel kid, the kid acts out the live
+ * turn (thinking, replying, the tool it is running, waiting for you), moving from one scene to the next; elsewhere it
+ * is the Moss mark.
+ */
+function WorkingLineMark(props: { signal: WorkingMarkSignal }) {
+  const companion = useContext(WorkingCompanionContext);
+  const kid = companion ? mossbotKidAppearance(companion.icon, companion.color) : null;
+  if (!kid) {
+    return (
+      <MossLogoMark
+        activity={props.signal.activity}
+        progress={props.signal.progress}
+        className={MESSAGE_ACTION_ICON_CLASS_NAME}
+      />
+    );
+  }
+  return (
+    <MossbotKid
+      data-working-kid
+      form={kid.form}
+      tone={kid.tone}
+      scene={mossbotKidSceneFor(props.signal.activity, props.signal.tool)}
+      live
+      className="size-10"
+    />
+  );
+}
 function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
   const { t, format } = useTranslation();
   const { row, env } = props;
@@ -167,11 +198,7 @@ function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
         style={{ fontSize: `${env.typography.chatPx}px` }}
         data-silent-turn-notice={silent.turnId}
       >
-        <MossLogoMark
-          activity={workingMark.activity}
-          progress={workingMark.progress}
-          className={MESSAGE_ACTION_ICON_CLASS_NAME}
-        />
+        <WorkingLineMark signal={workingMark} />
         <span role="status">
           {format(
             silent.openToolCall ? "transcript.silent.noticeOpenTool" : "transcript.silent.notice",
@@ -210,11 +237,7 @@ function WorkingBody(props: { row: RowOf<"working">; env: TranscriptCardEnv }) {
       )}
       style={{ fontSize: `${env.typography.chatPx}px` }}
     >
-      <MossLogoMark
-        activity={workingMark.activity}
-        progress={workingMark.progress}
-        className={MESSAGE_ACTION_ICON_CLASS_NAME}
-      />
+      <WorkingLineMark signal={workingMark} />
       {finished ? null : (
         <span ref={syncAnimationsToTimelineOrigin} className="shimmer-group">
           {startingProvider

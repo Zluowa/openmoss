@@ -13,6 +13,7 @@ import {
 import { Button } from "~/components/ui/button";
 import { readNativeApi } from "~/nativeApi";
 import { useMossbotCopy } from "./mossbot.copy";
+import { MOSSBOT_DEFAULT_AVATAR_KEY } from "./mossbot.logic";
 
 export function MossbotShareTemplate({
   assistant,
@@ -39,7 +40,7 @@ export function MossbotShareTemplate({
         {
           version: 1,
           name: assistant.coordinatorName,
-          avatar: assistant.coordinatorIcon ?? "mossbot-pebble",
+          avatar: assistant.coordinatorIcon || MOSSBOT_DEFAULT_AVATAR_KEY,
           instructions: document.document.content,
         },
         null,

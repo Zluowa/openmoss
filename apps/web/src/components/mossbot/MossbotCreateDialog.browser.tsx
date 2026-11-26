@@ -99,13 +99,25 @@ beforeEach(() => {
   mocks.deleteGroup.mockResolvedValue({ deletedProjectId: "personal-1" });
 });
 
-it("saves an original avatar with the chosen CLI without changing the persona", async () => {
+it("starts a new assistant as the block-shaped pinwheel kid", async () => {
   setup();
-  await page.getByRole("button", { name: "Orbit", exact: true }).click();
+  await expect
+    .element(page.getByRole("button", { name: "Block kid", exact: true }))
+    .toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Create assistant", exact: true }).click();
   await expect.poll(() => mocks.configure.mock.calls.length).toBe(1);
   expect(mocks.configure.mock.calls[0]?.[0]).toMatchObject({
-    coordinatorIcon: "mossbot-orbit",
+    coordinatorIcon: "mossbot-kid-block",
+  });
+});
+
+it("saves the chosen body with the chosen CLI without changing the persona", async () => {
+  setup();
+  await page.getByRole("button", { name: "Robot kid", exact: true }).click();
+  await page.getByRole("button", { name: "Create assistant", exact: true }).click();
+  await expect.poll(() => mocks.configure.mock.calls.length).toBe(1);
+  expect(mocks.configure.mock.calls[0]?.[0]).toMatchObject({
+    coordinatorIcon: "mossbot-kid-robot",
     coordinatorModelSelection: {
       provider: "hermes",
       instanceId: "hermes-private",

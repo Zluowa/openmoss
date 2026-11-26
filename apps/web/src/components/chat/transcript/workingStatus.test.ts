@@ -73,6 +73,27 @@ describe("workingMarkSignal", () => {
     expect(signal("Thinking", [ask, tool("completed")]).activity).toBe("thinking");
   });
 
+  it("names the running tool, so a Mossbot's kid can act it out", () => {
+    const ask = message("user", "hi");
+    const command = {
+      id: "tool-command",
+      kind: "work",
+      createdAt: "2026-11-12T00:00:00.000Z",
+      entry: {
+        toolStatus: "running",
+        itemType: "command_execution",
+        label: "Ran command",
+        command: "bun run test",
+      },
+    } as unknown as TimelineEntry;
+    expect(signal("Thinking", [ask, command]).tool).toMatchObject({
+      itemType: "command_execution",
+      command: "bun run test",
+      hasSubagents: false,
+    });
+    expect(signal("Thinking", [ask, tool("completed")]).tool).toBeUndefined();
+  });
+
   it("lets a finished turn and a pending question override everything else", () => {
     const live = [message("user", "hi"), message("assistant", "Hel", true)];
     expect(signal("Thinking", live, { awaitingUser: true }).activity).toBe("waiting");

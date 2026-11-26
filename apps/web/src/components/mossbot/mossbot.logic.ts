@@ -12,6 +12,9 @@ import {
 } from "../chat/group/groupSettingsDialog.logic";
 import type { TurnFileWindow } from "../../lib/threadOutputFileTimes";
 
+/** New assistants start as the original pinwheel kid (风车娃) in its block form. */
+export const MOSSBOT_DEFAULT_AVATAR_KEY = "mossbot-kid-block";
+
 export const MOSSBOT_TEMPLATES = [
   {
     id: "personal",
@@ -93,7 +96,7 @@ export function buildMossbotConfigureInput(input: {
       draft: {
         ...baseline.draft,
         name,
-        coordinatorIcon: input.avatar ?? "mossbot-pebble",
+        coordinatorIcon: input.avatar ?? MOSSBOT_DEFAULT_AVATAR_KEY,
         ...(input.color ? { coordinatorColor: input.color } : {}),
         coordinatorModelSelection: input.modelSelection,
         workerModelSelection: input.modelSelection,

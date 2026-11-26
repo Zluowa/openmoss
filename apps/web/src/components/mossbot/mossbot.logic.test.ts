@@ -31,7 +31,7 @@ describe("Mossbot provider selection", () => {
     expect(input.workerRouting?.modelSelection).toEqual(selection);
     expect(input.agentKind).toBe("mossbot");
     expect(input.coordinatorName).toBe("My assistant");
-    expect(input.coordinatorIcon).toBe("mossbot-pebble");
+    expect(input.coordinatorIcon).toBe("mossbot-kid-block");
     expect(input.autoMemoryEnabled).toBe(true);
     expect(input.workerRouting?.environment).toBe("local");
     expect(input.workerRouting?.runtimeMode).not.toBe("full-access");
@@ -62,10 +62,10 @@ describe("Mossbot provider selection", () => {
       name: "Atlas",
       instructions: "Help me plan.",
       modelSelection: selection,
-      avatar: "mossbot-orbit",
+      avatar: "mossbot-kid-robot",
     });
     expect(input.coordinatorModelSelection).toEqual(selection);
-    expect(input.coordinatorIcon).toBe("mossbot-orbit");
+    expect(input.coordinatorIcon).toBe("mossbot-kid-robot");
     expect(input.workerRouting?.modelSelection).toEqual(selection);
   });
 

@@ -46,6 +46,19 @@ export interface WorkingMarkSignal {
   readonly activity: MossMarkActivity;
   /** Grows with every streamed character and every new transcript entry of the live turn. */
   readonly progress: number;
+  /** The tool the agent is running, while the activity is "working". */
+  readonly tool?: WorkingTool | undefined;
+}
+
+/** The running tool as the work log describes it; a Mossbot's pinwheel kid acts it out. */
+export interface WorkingTool {
+  readonly itemType?: string | undefined;
+  readonly requestKind?: string | undefined;
+  readonly toolName?: string | undefined;
+  readonly toolTitle?: string | undefined;
+  readonly label?: string | undefined;
+  readonly command?: string | undefined;
+  readonly hasSubagents?: boolean | undefined;
 }
 
 function isRunningTool(entry: WorkLogEntry): boolean {
@@ -94,6 +107,20 @@ export function workingMarkSignal(input: {
     if (last.kind === "work" && isRunningTool(last.entry)) return "working";
     return "thinking";
   })();
+  const last = entries.at(-1);
+  if (activity === "working" && last?.kind === "work") {
+    const entry = last.entry;
+    const tool: WorkingTool = {
+      itemType: entry.itemType,
+      requestKind: entry.requestKind,
+      toolName: entry.toolName,
+      toolTitle: entry.toolTitle,
+      label: entry.label,
+      command: entry.command,
+      hasSubagents: (entry.subagents?.length ?? 0) > 0,
+    };
+    return { activity, progress, tool };
+  }
   return { activity, progress };
 }
 

@@ -7,6 +7,12 @@ import { useTranslation } from "~/localization";
 import { translateZhCnPresentationText } from "~/localization/zhCN";
 
 const ASSISTANT_COPY: Record<string, string> = {
+  "Block kid": "方块风车娃",
+  "Cat kid": "猫猫风车娃",
+  "Robot kid": "机器人风车娃",
+  "Dog kid": "狗狗风车娃",
+  "Chick kid": "小鸡风车娃",
+  "Penguin kid": "企鹅风车娃",
   Pin: "置顶",
   Unpin: "取消置顶",
   Pinned: "已置顶",
