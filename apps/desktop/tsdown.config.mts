@@ -51,7 +51,7 @@ export default defineConfig([
     inlineOnly: false,
     // Electron exposes this builtin only at runtime; keeping it external avoids
     // asking Rolldown to resolve a package that intentionally does not exist.
-    external: ["original-fs"],
+    external: ["original-fs", "node-pty"],
     define: {
       __MOSS_WINDOWS_UPDATER_PUBLISHER__: JSON.stringify(windowsUpdaterPublisher),
       __MOSS_MIGRATION_RUNTIME_SOURCE_DIGEST__: JSON.stringify(migrationRuntimeSourceDigest),
@@ -78,6 +78,11 @@ export default defineConfig([
   {
     ...shared,
     entry: { mcpSandboxPreload: "src/mcpAppSandbox/guestPreload.ts" },
+  },
+  {
+    ...shared,
+    entry: { pageAppWindowPreload: "src/pageApps/windowPreload.ts" },
+    noExternal: bundlePreloadDependencies,
   },
   {
     ...shared,

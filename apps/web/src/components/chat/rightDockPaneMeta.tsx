@@ -21,6 +21,7 @@ import {
   MessageCircleIcon,
   SlideDeckIcon,
   TerminalIcon,
+  WindowAppIcon,
 } from "~/lib/icons";
 import { type RightDockPane, type RightDockPaneKind } from "~/rightDockStore.logic";
 import { CHAT_SURFACE_CHIP_ICON_CLASS_NAME, SurfaceChipIcon } from "./chatHeaderControls";
@@ -59,6 +60,7 @@ export const RIGHT_DOCK_PANE_META: Record<RightDockPaneKind, RightDockPaneMetaDe
   // The one 画布 draws the 资料空间 画布 type's icon (one entry, spaceKinds.ts).
   canvas: { labelKey: "rightDock.pane.canvas", Icon: spaceKindMeta("board").icon },
   deck: { labelKey: "rightDock.pane.deck", Icon: SlideDeckIcon },
+  pageApp: { labelKey: "rightDock.pane.pageApp", Icon: WindowAppIcon },
   terminal: { labelKey: "rightDock.pane.terminal", Icon: TerminalIcon },
   sidechat: { labelKey: "rightDock.launcher.sideChats", Icon: MessageCircleIcon },
   subagents: { labelKey: "rightDock.pane.subagents", Icon: BotIcon },
@@ -153,6 +155,7 @@ const RIGHT_DOCK_PANE_LABEL_KEYS: Record<RightDockPaneKind, TranslationKey> = {
   imagePreview: "rightDock.pane.imagePreview",
   canvas: "rightDock.pane.canvas",
   deck: "rightDock.pane.deck",
+  pageApp: "rightDock.pane.pageApp",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.pane.sideTask",
   subagents: "rightDock.pane.subagents",
@@ -228,6 +231,8 @@ export function buildRightDockPaneLabelOverrides(
       overrides[pane.id] = pane.htmlDocument.title;
     } else if (pane.kind === "deck" && pane.deck) {
       overrides[pane.id] = pane.deck.title;
+    } else if (pane.kind === "pageApp" && pane.pageApp) {
+      overrides[pane.id] = pane.pageApp.title;
     } else if (pane.kind === "pullRequest" && pane.pullRequestNumber !== null) {
       overrides[pane.id] = pullRequestPaneTabLabel(pane.pullRequestNumber);
     } else if (pane.kind === "sidechat" && pane.threadId) {

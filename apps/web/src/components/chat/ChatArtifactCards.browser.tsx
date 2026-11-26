@@ -30,6 +30,19 @@ const artifacts: TurnChatArtifact[] = [
     },
   },
   {
+    id: "page-app-activity",
+    artifact: {
+      kind: "pageApp",
+      pageApp: {
+        appId: "app-wechat-read",
+        title: "微信阅读",
+        description: "沉浸式中文书架阅读",
+        revision: 1,
+        change: "created",
+      },
+    },
+  },
+  {
     id: "file-activity",
     artifact: {
       kind: "file",
@@ -115,6 +128,18 @@ describe("chat deck and file cards", () => {
       expect(dock?.open).toBe(true);
       expect(dock?.panes.map((pane) => [pane.kind, pane.deck])).toEqual([
         ["deck", { pageId: "page-1", scopeSpaceId: null, title: "2026 第三季度回顾" }],
+      ]);
+
+      const pageAppCard = page.getByRole("button", {
+        name: "在侧边栏打开 微信阅读",
+        exact: true,
+      });
+      await expect.element(pageAppCard).toHaveTextContent("应用 · v1 · 沉浸式中文书架阅读");
+      await pageAppCard.click();
+      const updatedDock = useRightDockStore.getState().dockStateByThreadId[THREAD];
+      expect(updatedDock?.panes.map((pane) => [pane.kind, pane.pageApp])).toEqual([
+        ["deck", undefined],
+        ["pageApp", { appId: "app-wechat-read", title: "微信阅读" }],
       ]);
 
       await page

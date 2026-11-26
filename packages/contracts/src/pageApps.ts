@@ -60,6 +60,7 @@ export const PAGE_APP_BUILTIN_CAPABILITIES = [
   "user",
   "permissions",
   "page",
+  "desktop",
   ...PAGE_APP_EXTENSION_CAPABILITIES,
 ] as const;
 

@@ -1,7 +1,8 @@
 // FILE: httpRoute.ts
 // Purpose: HTTP surface of 应用页.
 //   /api/page-apps/<op>   JSON for the Moss shell (owner session); `watch`
-//                         answers as Server-Sent Events.
+//                         answers as Server-Sent Events and `watch-ws`
+//                         multiplexes subscriptions over one WebSocket.
 //   /__moss_app/frame     the page's HTML on its own `*.moss-app.localhost`
 //                         origin, behind a frame token and a strict CSP.
 //   /__moss_app/isolated  the same on an opaque origin (non-loopback servers).
@@ -21,8 +22,9 @@ import {
   buildPageAppFrameRuntime,
   injectPageAppFrameRuntime,
 } from "@moss/shared/pageAppFrameRuntime";
-import { Effect, FileSystem, Layer, Schema, Stream } from "effect";
+import { Effect, Fiber, FileSystem, Layer, Schema, Stream } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import * as Socket from "effect/unstable/socket/Socket";
 
 import { authErrorResponse, makeEffectAuthRequest } from "../../auth/effectHttp";
 import { ServerAuth } from "../../auth/Services/ServerAuth";
@@ -48,7 +50,142 @@ import { preparePageAppLibraries } from "./localLibraries";
 
 const API_PREFIX = "/api/page-apps/";
 const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_WATCH_WS_SUBSCRIPTIONS = 64;
+const MAX_WATCH_WS_FRAME_BYTES = 1024 * 1024;
 const LOCAL_PRINCIPAL = { kind: "local-user" } as const;
+
+type PageAppsServiceShape = typeof PageAppsService.Service;
+
+const handleWatchSocket = (
+  request: HttpServerRequest.HttpServerRequest,
+  service: PageAppsServiceShape,
+  viewer: PageAppViewer,
+) =>
+  Effect.gen(function* () {
+    const socket = yield* request.upgrade;
+    const writer = yield* socket.writer;
+    const scope = yield* Effect.scope;
+    let open = true;
+    let writeQueue: Promise<void> = Promise.resolve();
+    const sendChunk = (chunk: Uint8Array | string | Socket.CloseEvent) => {
+      if (!open) return;
+      if (Socket.isCloseEvent(chunk)) open = false;
+      writeQueue = writeQueue.then(() => Effect.runPromise(writer(chunk)).catch(() => undefined));
+    };
+    const sendJson = (payload: unknown) => {
+      if (!open) return;
+      sendChunk(JSON.stringify(payload));
+    };
+
+    const subscriptions = new Map<string, Fiber.Fiber<void, never>>();
+    const decoder = new TextDecoder();
+
+    yield* Effect.addFinalizer(() =>
+      Effect.gen(function* () {
+        open = false;
+        const active = Array.from(subscriptions.values());
+        subscriptions.clear();
+        for (const fiber of active) {
+          yield* Fiber.interrupt(fiber);
+        }
+      }),
+    );
+
+    yield* socket.runRaw((rawMessage) =>
+      Effect.gen(function* () {
+        const size =
+          typeof rawMessage === "string" ? Buffer.byteLength(rawMessage) : rawMessage.byteLength;
+        if (size > MAX_WATCH_WS_FRAME_BYTES) {
+          sendChunk(new Socket.CloseEvent(1009, "frame too large"));
+          return;
+        }
+        const text = typeof rawMessage === "string" ? rawMessage : decoder.decode(rawMessage);
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          return;
+        }
+        if (!parsed || typeof parsed !== "object") return;
+        const message = parsed as { type?: unknown; id?: unknown; input?: unknown };
+        const id =
+          typeof message.id === "string" && message.id.length > 0 && message.id.length <= 256
+            ? message.id
+            : null;
+        if (!id) return;
+
+        if (message.type === "unwatch") {
+          const existing = subscriptions.get(id);
+          if (existing) {
+            subscriptions.delete(id);
+            yield* Fiber.interrupt(existing);
+          }
+          return;
+        }
+
+        if (message.type !== "watch") return;
+
+        const existing = subscriptions.get(id);
+        if (existing) {
+          subscriptions.delete(id);
+          yield* Fiber.interrupt(existing);
+        }
+
+        if (subscriptions.size >= MAX_WATCH_WS_SUBSCRIPTIONS) {
+          sendJson({
+            type: "error",
+            id,
+            error: {
+              code: "resource_exhausted",
+              message: "Too many active watch subscriptions on this socket.",
+            },
+          });
+          return;
+        }
+
+        let settled = false;
+        let self: Fiber.Fiber<void, never> | undefined;
+        self = yield* service.watch(message.input as never, LOCAL_PRINCIPAL, viewer).pipe(
+          Stream.runForEach((event) =>
+            Effect.sync(() => {
+              sendJson({ type: "event", id, value: event.value });
+            }),
+          ),
+          Effect.asVoid,
+          Effect.andThen(
+            Effect.sync(() => {
+              sendJson({ type: "end", id });
+            }),
+          ),
+          Effect.catch((error: PageAppsServiceError) =>
+            Effect.sync(() => {
+              sendJson({ type: "error", id, ...errorBody(error) });
+            }),
+          ),
+          Effect.ensuring(
+            Effect.sync(() => {
+              settled = true;
+              if (self && subscriptions.get(id) === self) {
+                subscriptions.delete(id);
+              }
+            }),
+          ),
+          Effect.forkIn(scope),
+        );
+        if (!settled) {
+          subscriptions.set(id, self);
+        }
+      }),
+    );
+    return HttpServerResponse.empty();
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.as(
+        Effect.logDebug("page apps watch socket closed", { cause: String(cause) }),
+        HttpServerResponse.empty(),
+      ),
+    ),
+  );
 
 const STATUS: Record<string, number> = {
   invalid_argument: 400,
@@ -106,18 +243,22 @@ export const pageAppsApiRouteLayer = HttpRouter.add(
     };
     const json = (status: number, body: unknown) =>
       HttpServerResponse.jsonUnsafe(body, { status, headers });
+    const op = url.pathname.slice(API_PREFIX.length);
+    const isWatchWs = op === "watch-ws";
     if (request.method === "OPTIONS")
       return trustedOrigin
         ? HttpServerResponse.empty({
             status: 204,
             headers: {
               ...headers,
-              "Access-Control-Allow-Methods": "POST, OPTIONS",
+              "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
               "Access-Control-Allow-Headers": "authorization, content-type",
             },
           })
         : json(403, { error: { code: "trusted_origin_required" } });
-    if (request.method !== "POST") return json(405, { error: { code: "invalid_argument" } });
+    if (isWatchWs ? request.method !== "GET" : request.method !== "POST") {
+      return json(405, { error: { code: "invalid_argument" } });
+    }
 
     const auth = yield* ServerAuth;
     const startupBearer = request.headers.authorization?.startsWith("Bearer ")
@@ -157,14 +298,15 @@ export const pageAppsApiRouteLayer = HttpRouter.add(
         ? LOCAL_OWNER_VIEWER
         : { id: `client:${session.sessionId}`, name: "访客", level: "view", isOwner: false };
 
+    const service = yield* PageAppsService;
+    if (isWatchWs) return yield* handleWatchSocket(request, service, viewer);
+
     const body: unknown = yield* request.json.pipe(
       Effect.provideService(HttpServerRequest.MaxBodySize, FileSystem.Size(MAX_BODY_BYTES)),
       Effect.catch(() => Effect.succeed(undefined)),
     );
     if (body === undefined)
       return json(400, { error: { code: "invalid_argument", message: "Body must be JSON." } });
-    const service = yield* PageAppsService;
-    const op = url.pathname.slice(API_PREFIX.length);
     const respond = <A>(effect: Effect.Effect<A, PageAppsServiceError>) =>
       effect.pipe(
         Effect.map((value) => json(200, value)),

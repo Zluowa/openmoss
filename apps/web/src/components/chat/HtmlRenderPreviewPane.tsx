@@ -7,7 +7,6 @@
 //   its right dock instead of a full-screen dialog. See THIRD_PARTY_NOTICES.md.
 
 import { htmlRenderFileName } from "@moss/shared/htmlRender";
-import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useResidentRuntime } from "~/lib/dockRuntimeResidency";
@@ -35,6 +34,7 @@ import { promoteHtmlToPageApp } from "../pageApps/promoteHtmlToPageApp";
 import { Button } from "../ui/button";
 import { Menu, MenuItem, MenuTrigger } from "../ui/menu";
 
+import { openPageAppInSidePanel } from "./ChatArtifactCards";
 import { ComposerPickerMenuPopup } from "./ComposerPickerMenuPopup";
 import { PageCommentsLayer } from "./pageComments/PageComments";
 
@@ -424,7 +424,6 @@ function PromoteToPageAppButton(props: {
   readonly resolveSourceUrl: () => Promise<string | null>;
   readonly onError: (message: string | null) => void;
 }) {
-  const navigate = useNavigate();
   const [promoting, setPromoting] = useState(false);
   const { resolveSourceUrl, onError, title, threadId } = props;
   const promote = useCallback(async () => {
@@ -440,13 +439,13 @@ function PromoteToPageAppButton(props: {
         title,
         threadId,
       });
-      void navigate({ to: "/apps/$appId", params: { appId: app.id } });
+      openPageAppInSidePanel(threadId, { appId: app.id, title: app.title });
     } catch (cause) {
       onError(cause instanceof Error ? cause.message : "无法存为应用页。");
     } finally {
       setPromoting(false);
     }
-  }, [navigate, onError, resolveSourceUrl, threadId, title]);
+  }, [onError, resolveSourceUrl, threadId, title]);
   return (
     <Button
       aria-label="存为应用页"

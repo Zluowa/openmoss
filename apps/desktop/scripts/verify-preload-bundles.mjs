@@ -14,7 +14,13 @@ const sandboxModules = new Set([
   "node:url",
 ]);
 const directory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist-electron");
-const entries = ["preload.js", "sshWorkspacePreload.js", "guestPreload.js", "mcpSandboxPreload.js"];
+const entries = [
+  "preload.js",
+  "sshWorkspacePreload.js",
+  "guestPreload.js",
+  "mcpSandboxPreload.js",
+  "pageAppWindowPreload.js",
+];
 
 for (const entry of entries) {
   const source = readFileSync(path.join(directory, entry), "utf8");

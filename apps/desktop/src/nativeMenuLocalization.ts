@@ -165,6 +165,11 @@ const NATIVE_MENU_LABELS: readonly NativeMenuLabelDefinition[] = [
   { en: "Delete threads", zh: "删除对话" },
   { en: "Delete draft", zh: "删除草稿" },
   { en: "Return to single chat", zh: "返回单对话" },
+  { en: "Apps", zh: "应用" },
+  { en: "Open", zh: "打开" },
+  { en: "Permissions…", zh: "权限…" },
+  { en: "Report Page App…", zh: "报告应用页…" },
+  { en: "Uninstall…", zh: "卸载…" },
 ];
 
 const CANONICAL_BY_LABEL = new Map<string, string>();

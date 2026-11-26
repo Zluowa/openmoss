@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { PAGE_APP_ACTIVITY_KIND, pageAppFromActivity } from "@moss/shared/chatArtifactActivity";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -46,11 +47,15 @@ tests("应用页 agent tools", (it) => {
         VALUES (${projectId}, 'P', '/fixture', '[]', ${null}, ${timestamp}, ${timestamp})`;
       yield* sql`INSERT INTO projection_threads (thread_id, project_id, title, created_at, updated_at)
         VALUES (${threadId}, ${projectId}, 'T', ${timestamp}, ${timestamp})`;
+      const recorded: Array<{ kind: string; summary: string; payload: unknown }> = [];
       const tools = new Map(
-        makePageAppTools({ apps: yield* PageAppsService }).map((tool) => [
-          tool.definition.name,
-          tool,
-        ]),
+        makePageAppTools({
+          apps: yield* PageAppsService,
+          recordActivity: (_ctx, activity) =>
+            Effect.sync(() => {
+              recorded.push(activity);
+            }),
+        }).map((tool) => [tool.definition.name, tool]),
       );
       const context = contextFor(threadId);
       assert.deepEqual(
@@ -126,6 +131,22 @@ tests("应用页 agent tools", (it) => {
         yield* tools.get("moss_app_read")!.handler({ appId: created.appId }, context),
       );
       assert.include(html.html, "moss-app-manifest");
+      assert.equal(recorded.length, 2);
+      assert.equal(recorded[0]!.kind, PAGE_APP_ACTIVITY_KIND);
+      assert.deepEqual(pageAppFromActivity(recorded[0]!), {
+        appId: created.appId,
+        title: "Votes",
+        description: null,
+        revision: 1,
+        change: "created",
+      });
+      assert.deepEqual(pageAppFromActivity(recorded[1]!), {
+        appId: created.appId,
+        title: "Votes v2",
+        description: null,
+        revision: 2,
+        change: "edited",
+      });
     }),
   );
 });

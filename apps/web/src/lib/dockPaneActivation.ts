@@ -120,6 +120,7 @@ const KEEP_MOUNTED_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set<RightDoc
   "imagePreview",
   "deck",
   "htmlRender",
+  "pageApp",
 ]);
 
 export function dockPaneActivationKey(input: {

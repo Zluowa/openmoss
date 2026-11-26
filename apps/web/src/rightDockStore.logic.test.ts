@@ -745,3 +745,51 @@ describe("terminal panes", () => {
     expect(state.activePaneId).toBe("terminal-b");
   });
 });
+
+describe("pageApp panes", () => {
+  it("opens multiple apps, deduplicates by appId, updates title, and persists across restore", () => {
+    const first = openPaneInState(createDefaultRightDockState(), {
+      paneId: "app-pane-1",
+      kind: "pageApp",
+      pageApp: { appId: "app-1", title: "微信阅读" },
+    });
+    expect(first.open).toBe(true);
+    expect(first.activePaneId).toBe("app-pane-1");
+
+    const second = openPaneInState(first, {
+      paneId: "app-pane-2",
+      kind: "pageApp",
+      pageApp: { appId: "app-2", title: "番茄钟" },
+    });
+    expect(second.panes).toHaveLength(2);
+    expect(second.activePaneId).toBe("app-pane-2");
+
+    // Reopening the same appId focuses the existing pane and syncs title changes.
+    const refocused = openPaneInState(second, {
+      paneId: "app-pane-dup",
+      kind: "pageApp",
+      pageApp: { appId: "app-1", title: "微信阅读 Pro" },
+    });
+    expect(refocused.panes).toHaveLength(2);
+    expect(refocused.activePaneId).toBe("app-pane-1");
+    expect(refocused.panes[0]?.pageApp).toEqual({ appId: "app-1", title: "微信阅读 Pro" });
+
+    const renamed = updatePaneInState(refocused, "app-pane-1", {
+      pageApp: { appId: "app-1", title: "微信阅读 v2" },
+    });
+    expect(renamed.panes[0]?.pageApp?.title).toBe("微信阅读 v2");
+
+    const restored = sanitizeRightDockThreadState(renamed);
+    expect(restored.panes).toHaveLength(2);
+    expect(restored.panes[0]?.pageApp).toEqual({ appId: "app-1", title: "微信阅读 v2" });
+
+    // Malformed pageApp pane is dropped safely on rehydrate.
+    const dropped = sanitizeRightDockThreadState({
+      open: true,
+      activePaneId: "bad",
+      panes: [{ id: "bad", kind: "pageApp", pageApp: { appId: "../bad", title: "x" } }],
+    });
+    expect(dropped.panes).toHaveLength(0);
+    expect(dropped.activePaneId).toBeNull();
+  });
+});

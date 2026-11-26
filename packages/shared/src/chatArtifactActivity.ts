@@ -11,8 +11,20 @@
 
 import { THREAD_OUTPUT_ROUTE } from "./threadWorkspace";
 
+export const PAGE_APP_ACTIVITY_KIND = "page-app.updated";
 export const SLIDES_DECK_ACTIVITY_KIND = "slides.deck.updated";
 export const THREAD_OUTPUT_FILE_ACTIVITY_KIND = "thread-output.published";
+
+/** What the agent did to the 应用页 in this call. */
+export type PageAppChange = "created" | "edited";
+
+export interface PageAppArtifact {
+  readonly appId: string;
+  readonly title: string;
+  readonly description: string | null;
+  readonly revision: number;
+  readonly change: PageAppChange;
+}
 
 /** What the agent did to the deck in this call. */
 export type SlidesDeckChange = "created" | "edited" | "proposed";
@@ -67,6 +79,47 @@ export function slidesCoverText(lines: ReadonlyArray<string>): string | null {
     .join(" · ");
   if (joined.length === 0) return null;
   return joined.length > MAX_COVER_TEXT ? `${joined.slice(0, MAX_COVER_TEXT - 1)}…` : joined;
+}
+
+export function pageAppActivityPayload(app: PageAppArtifact) {
+  return {
+    pageApp: {
+      appId: app.appId,
+      title: app.title.slice(0, MAX_TITLE),
+      description: app.description ? app.description.slice(0, MAX_COVER_TEXT) : null,
+      revision: app.revision,
+      change: app.change,
+    },
+  };
+}
+
+export function pageAppFromActivity(activity: {
+  readonly kind: string;
+  readonly payload: unknown;
+}): PageAppArtifact | undefined {
+  if (activity.kind !== PAGE_APP_ACTIVITY_KIND) return undefined;
+  const pageApp = record(record(activity.payload)?.pageApp);
+  const appId = text(pageApp?.appId, 256);
+  const title = text(pageApp?.title, MAX_TITLE);
+  const revision = count(pageApp?.revision);
+  const change = pageApp?.change;
+  if (
+    !pageApp ||
+    appId === null ||
+    title === null ||
+    revision === null ||
+    revision < 1 ||
+    (change !== "created" && change !== "edited")
+  ) {
+    return undefined;
+  }
+  return {
+    appId,
+    title,
+    description: text(pageApp.description, MAX_COVER_TEXT + 1),
+    revision,
+    change,
+  };
 }
 
 export function slidesDeckActivityPayload(deck: SlidesDeckArtifact) {

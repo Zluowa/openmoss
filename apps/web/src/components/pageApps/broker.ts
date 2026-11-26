@@ -30,8 +30,18 @@ import {
 } from "@moss/shared/pageAppCapabilityPlugin";
 import { Schema } from "effect";
 
+import {
+  getDesktopNativeGlobal,
+  getDesktopNativePane,
+  getDesktopPageAppsBridge,
+} from "./capabilities/desktop";
 import type { PageAppsClient } from "./pageAppsClient";
 import { TokenBucket } from "./rateLimit";
+
+function hasDesktopHostRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(getDesktopPageAppsBridge() || getDesktopNativeGlobal() || getDesktopNativePane());
+}
 
 export interface PageAppBrokerSession {
   readonly appId: PageAppId;
@@ -65,6 +75,7 @@ export interface PageAppBrokerDeps {
   readonly openPermissions: () => Promise<void>;
   readonly onResize?: (height: number) => void;
   readonly onConsentChange?: (consent: Readonly<Record<string, PageAppStoredConsent>>) => void;
+  readonly desktopHost?: boolean;
   readonly now?: () => number;
 }
 
@@ -98,13 +109,21 @@ export class PageAppBroker {
     this.pluginsByName = new Map(deps.plugins.map((plugin) => [plugin.name, plugin]));
   }
 
-  /** declared ∩ shipped ∩ allowed in this mode; `permissions` is always served. */
+  /** declared ∩ shipped ∩ allowed in this mode; `permissions` is always served, and `desktop` is served in desktop host mode. */
   served(): string[] {
+    const desktopAvailable = this.deps.desktopHost ?? hasDesktopHostRuntime();
     const names: string[] = [];
     for (const plugin of this.deps.plugins) {
       if (!plugin.modes.includes(this.session.mode)) continue;
       if (this.session.mode === "guest" && GUEST_EXCLUDED.has(plugin.name)) continue;
-      if (plugin.name !== "permissions" && !(plugin.name in this.session.capabilities)) continue;
+      const desktopImplicit = plugin.name === "desktop" && desktopAvailable;
+      if (
+        plugin.name !== "permissions" &&
+        !desktopImplicit &&
+        !(plugin.name in this.session.capabilities)
+      ) {
+        continue;
+      }
       names.push(plugin.name);
     }
     return names;

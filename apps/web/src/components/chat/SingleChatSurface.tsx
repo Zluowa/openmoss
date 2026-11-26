@@ -109,6 +109,7 @@ import {
 } from "~/lib/mcpAppDockRegistry";
 import { ConversationImageWorkspace } from "./ConversationImageWorkspace";
 import { DeckDockPane, useAgentDeckAutoOpen } from "./DeckDockPane";
+import { PageAppDockPane, useAgentPageAppAutoOpen } from "./PageAppDockPane";
 import { useAgentCanvasOpenCatchUp } from "./agentCanvasOpen";
 import { flushConversationImageEditors } from "~/lib/conversationImageComposer";
 import { HtmlRenderPreviewPane } from "./HtmlRenderPreviewPane";
@@ -502,8 +503,9 @@ export function SingleChatSurface(props: {
   }, [dismissFloatingBrowserForThread, props.threadId]);
 
   const activePane = resolveActivePane(dockState);
-  // A deck the agent has just created opens beside the chat, like the Canvas.
+  // A deck or 应用页 the agent has just created opens beside the chat, like the Canvas.
   useAgentDeckAutoOpen(props.threadId);
+  useAgentPageAppAutoOpen(props.threadId);
   // The agent's open-canvas request reaches the chat on screen even when the live event was lost.
   useAgentCanvasOpenCatchUp(props.threadId);
   // A single-image preview fills the window. The 画布 never does on its own (owner,
@@ -1337,6 +1339,23 @@ export function SingleChatSurface(props: {
           />
         ) : (
           <RightDockPanePlaceholder kind="deck" />
+        );
+      case "pageApp":
+        return pane.pageApp ? (
+          <PageAppDockPane
+            threadId={props.threadId}
+            pageApp={pane.pageApp}
+            residency={{ key: `pageApp:${props.threadId}:${pane.id}`, visible: context.isVisible }}
+            onTitleChange={(title) => {
+              if (!pane.pageApp || pane.pageApp.title === title) return;
+              updatePane(props.threadId, pane.id, {
+                pageApp: { appId: pane.pageApp.appId, title },
+              });
+            }}
+            onClose={() => closePane(props.threadId, pane.id)}
+          />
+        ) : (
+          <RightDockPanePlaceholder kind="pageApp" />
         );
       case "sidechat":
         return (

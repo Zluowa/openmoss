@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  PAGE_APP_ACTIVITY_KIND,
+  pageAppActivityPayload,
+  pageAppFromActivity,
   readThreadOutputHref,
   slidesCoverText,
   threadOutputFileFromActivity,
@@ -34,5 +37,33 @@ describe("chat artifact activities", () => {
         payload: { threadOutput: { file: "a.zip", name: "a.zip", bytes: 3, sha256: "not-hex" } },
       }),
     ).toEqual({ file: "a.zip", name: "a.zip", path: null, bytes: 3, sha256: null });
+  });
+
+  it("serializes and parses page-app activities", () => {
+    const payload = pageAppActivityPayload({
+      appId: "app-1",
+      title: "微信阅读",
+      description: "沉浸式中文书架阅读",
+      revision: 2,
+      change: "created",
+    });
+    expect(
+      pageAppFromActivity({
+        kind: PAGE_APP_ACTIVITY_KIND,
+        payload,
+      }),
+    ).toEqual({
+      appId: "app-1",
+      title: "微信阅读",
+      description: "沉浸式中文书架阅读",
+      revision: 2,
+      change: "created",
+    });
+    expect(
+      pageAppFromActivity({
+        kind: PAGE_APP_ACTIVITY_KIND,
+        payload: { pageApp: { appId: "app-1", title: "x", revision: 0, change: "created" } },
+      }),
+    ).toBeUndefined();
   });
 });

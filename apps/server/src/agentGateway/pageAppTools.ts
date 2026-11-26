@@ -10,6 +10,7 @@ import {
   ThreadId,
   type PageAppCapabilities,
 } from "@moss/contracts";
+import { PAGE_APP_ACTIVITY_KIND, pageAppActivityPayload } from "@moss/shared/chatArtifactActivity";
 import { Effect, Schema } from "effect";
 
 import {
@@ -20,7 +21,12 @@ import {
 import { PAGE_APP_AUTHOR_GUIDE } from "./pageAppAuthorGuide";
 import { mcpToolResultError, mcpToolResultJson } from "./protocol";
 import { errorText, ToolInputError } from "./toolInput";
-import { READ_ONLY_TOOL_ANNOTATIONS, WRITE_TOOL_ANNOTATIONS, type ToolEntry } from "./toolRuntime";
+import {
+  READ_ONLY_TOOL_ANNOTATIONS,
+  type ToolContext,
+  WRITE_TOOL_ANNOTATIONS,
+  type ToolEntry,
+} from "./toolRuntime";
 
 const scopeProperty = {
   anyOf: [{ type: "string" }, { type: "null" }],
@@ -46,10 +52,22 @@ const DbArgs = Schema.Struct({
   query: Schema.optional(Schema.Unknown),
 });
 
+/** A thread activity the chat draws as a card and opens in the side panel. */
+export interface PageAppToolActivity {
+  readonly kind: typeof PAGE_APP_ACTIVITY_KIND;
+  readonly summary: string;
+  readonly payload: ReturnType<typeof pageAppActivityPayload>;
+}
+
 export function makePageAppTools({
   apps,
+  recordActivity,
 }: {
   readonly apps: PageAppsServiceShape;
+  readonly recordActivity?: (
+    context: ToolContext,
+    activity: PageAppToolActivity,
+  ) => Effect.Effect<void, unknown>;
 }): ReadonlyArray<ToolEntry> {
   const agent = (threadId: string) => ({
     kind: "agent" as const,
@@ -199,6 +217,19 @@ export function makePageAppTools({
                 };
           const decoded = yield* decode(PageAppsMutateInput, mutation);
           const result = yield* apps.mutate(decoded, agent(context.callerThreadId));
+          if (recordActivity) {
+            yield* recordActivity(context, {
+              kind: PAGE_APP_ACTIVITY_KIND,
+              summary: result.app.title,
+              payload: pageAppActivityPayload({
+                appId: result.app.id,
+                title: result.app.title,
+                description: result.app.description ?? null,
+                revision: result.app.revision,
+                change: typeof input.appId === "string" ? "edited" : "created",
+              }),
+            }).pipe(Effect.catch(() => Effect.void));
+          }
           return mcpToolResultJson(summary(result.app));
         }).pipe(Effect.catch((error) => Effect.succeed(errorResult(error)))),
     },

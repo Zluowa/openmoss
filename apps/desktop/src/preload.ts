@@ -5,9 +5,14 @@ import type {
   DesktopAgentCursorStyle,
   DesktopBridge,
   DesktopComputerPreviewFrame,
+  DesktopPageAppNodeApiEvent,
+  DesktopPageAppPermissionsSummary,
+  DesktopPageAppPickedInMenuEvent,
   DesktopRealtimeVoiceOverlayBridge,
   DesktopRealtimeVoiceOverlayPresentation,
   DesktopDiagnosticActivity,
+  InstalledDesktopPageApp,
+  PageAppId,
 } from "@moss/contracts";
 import { normalizeDesktopWsUrl, resolveDesktopWsUrlFromEnv } from "./desktopWsBridge";
 import { DESKTOP_IPC_CHANNELS } from "./ipcChannels";
@@ -732,6 +737,72 @@ const desktopBridge = {
       ipcRenderer.invoke(IPC.mcpApps.requestPermissions, sandboxId, permissions),
     openExternal: (url) => ipcRenderer.invoke(IPC.mcpApps.openExternal, url),
     saveDownload: (input) => ipcRenderer.invoke(IPC.mcpApps.saveDownload, input),
+  },
+  pageApps: {
+    isAvailable: () => ipcRenderer.invoke(IPC.pageApps.isAvailable),
+    getPolicyState: () => ipcRenderer.invoke(IPC.pageApps.getPolicyState),
+    installFromPage: (input) => ipcRenderer.invoke(IPC.pageApps.installFromPage, input),
+    requestInstall: (input) => ipcRenderer.invoke(IPC.pageApps.requestInstall, input),
+    isInstalled: (appId) => ipcRenderer.invoke(IPC.pageApps.isInstalled, appId),
+    getInstalled: (appId) => ipcRenderer.invoke(IPC.pageApps.getInstalled, appId),
+    listInstalled: () => ipcRenderer.invoke(IPC.pageApps.listInstalled),
+    openInstalled: (input) => ipcRenderer.invoke(IPC.pageApps.openInstalled, input),
+    uninstall: (input) => ipcRenderer.invoke(IPC.pageApps.uninstall, input),
+    showInFolder: (input) => ipcRenderer.invoke(IPC.pageApps.showInFolder, input),
+    openPermissions: (input) => ipcRenderer.invoke(IPC.pageApps.openPermissions, input),
+    getPermissions: (input) => ipcRenderer.invoke(IPC.pageApps.getPermissions, input),
+    requestPermissions: (input) => ipcRenderer.invoke(IPC.pageApps.requestPermissions, input),
+    setPermission: (input) => ipcRenderer.invoke(IPC.pageApps.setPermission, input),
+    syncAppVersion: (input) => ipcRenderer.invoke(IPC.pageApps.syncAppVersion, input),
+    reportAppGone: (input) => ipcRenderer.invoke(IPC.pageApps.reportAppGone, input),
+    offerInMenu: (offers) => ipcRenderer.invoke(IPC.pageApps.offerInMenu, offers),
+    onPickedInMenu: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (!payload || typeof payload !== "object") return;
+        const record = payload as { appId?: unknown };
+        if (typeof record.appId === "string") {
+          listener(payload as DesktopPageAppPickedInMenuEvent);
+        }
+      };
+      ipcRenderer.on(IPC.pageApps.pickedInMenu, wrappedListener);
+      return () => ipcRenderer.removeListener(IPC.pageApps.pickedInMenu, wrappedListener);
+    },
+    onInstalledChanged: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, apps: unknown) => {
+        if (Array.isArray(apps)) {
+          listener(apps as readonly InstalledDesktopPageApp[]);
+        }
+      };
+      ipcRenderer.on(IPC.pageApps.installedChanged, wrappedListener);
+      return () => ipcRenderer.removeListener(IPC.pageApps.installedChanged, wrappedListener);
+    },
+    onPermissionsChanged: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (!payload || typeof payload !== "object") return;
+        const record = payload as { appId?: unknown; permissions?: unknown };
+        if (
+          typeof record.appId === "string" &&
+          record.permissions &&
+          typeof record.permissions === "object"
+        ) {
+          listener({
+            appId: record.appId as PageAppId,
+            permissions: record.permissions as DesktopPageAppPermissionsSummary,
+          });
+        }
+      };
+      ipcRenderer.on(IPC.pageApps.permissionsChanged, wrappedListener);
+      return () => ipcRenderer.removeListener(IPC.pageApps.permissionsChanged, wrappedListener);
+    },
+    invokeDesktopApi: (input) => ipcRenderer.invoke(IPC.pageApps.invokeDesktopApi, input),
+    onDesktopApiEvent: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, payload: unknown) => {
+        if (!payload || typeof payload !== "object") return;
+        listener(payload as DesktopPageAppNodeApiEvent);
+      };
+      ipcRenderer.on(IPC.pageApps.desktopApiEvent, wrappedListener);
+      return () => ipcRenderer.removeListener(IPC.pageApps.desktopApiEvent, wrappedListener);
+    },
   },
 } satisfies DesktopBridge;
 

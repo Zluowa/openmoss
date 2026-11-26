@@ -72,6 +72,7 @@ export * from "./pageSharing";
 export * from "./pagesRealtime";
 export * from "./pageDrafts";
 export * from "./pageApps";
+export * from "./pageAppDesktop";
 export * from "./pageAppExtensions";
 export * from "./codexReference";
 export * from "./computerHistory";

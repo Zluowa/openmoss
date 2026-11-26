@@ -815,7 +815,7 @@ export const makePageAppsServiceShape = (deps: PageAppsServiceDeps) =>
   });
 
 /** Capabilities answered entirely by the shell (no server half). */
-const SHELL_ONLY = new Set(["downloads", "user"]);
+const SHELL_ONLY = new Set(["downloads", "user", "desktop"]);
 
 export const PAGE_APP_FRAME_TOKEN_TTL = PAGE_APP_FRAME_TOKEN_TTL_MS;
 

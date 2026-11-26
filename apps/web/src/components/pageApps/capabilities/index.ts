@@ -8,6 +8,7 @@ import type { PageAppShellPlugin } from "@moss/shared/pageAppCapabilityPlugin";
 import { aiShellPlugin } from "./ai";
 import { EXTENSION_SHELL_PLUGINS } from "./extensions";
 import { dbShellPlugin } from "./db";
+import { desktopShellPlugin } from "./desktop";
 import { downloadsShellPlugin } from "./downloads";
 import { pageShellPlugin } from "./page";
 import { permissionsShellPlugin } from "./permissions";
@@ -20,5 +21,6 @@ export const PAGE_APP_SHELL_PLUGINS: ReadonlyArray<PageAppShellPlugin> = [
   userShellPlugin,
   permissionsShellPlugin,
   pageShellPlugin,
+  desktopShellPlugin,
   ...EXTENSION_SHELL_PLUGINS,
 ];

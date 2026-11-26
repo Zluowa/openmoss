@@ -82,6 +82,7 @@ import type {
   ExternalMcpRevokeIntegrationInput,
 } from "./externalMcp";
 import type { McpAppSandboxDesktopBridge } from "./mcpAppSandbox";
+import type { DesktopPageAppsBridge } from "./pageAppDesktop";
 import type {
   McpConnector,
   McpConnectorConnectInput,
@@ -1963,6 +1964,8 @@ export interface DesktopBridge {
   };
   /** Narrow host registration surface for isolated MCP App guests. */
   mcpApps?: McpAppSandboxDesktopBridge;
+  /** Desktop page apps installation, independent windows, and 3-tier permissions. */
+  pageApps?: DesktopPageAppsBridge;
 }
 
 export interface NativeApi {

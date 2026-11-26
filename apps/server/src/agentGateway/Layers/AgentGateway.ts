@@ -2131,7 +2131,32 @@ export const makeAgentGateway = Effect.gen(function* () {
           realtime: pageRealtimeService,
         })
       : []),
-    ...(pageAppsService ? makePageAppTools({ apps: pageAppsService }) : []),
+    ...(pageAppsService
+      ? makePageAppTools({
+          apps: pageAppsService,
+          recordActivity: (context, activity) => {
+            const id = `agent:${randomUUID()}:page-app`;
+            const createdAt = isoNow();
+            return orchestrationEngine
+              .dispatch({
+                type: "thread.activity.append",
+                commandId: CommandId.makeUnsafe(id),
+                threadId: ThreadId.makeUnsafe(context.callerThreadId),
+                createdAt,
+                activity: {
+                  id: EventId.makeUnsafe(id),
+                  tone: "info",
+                  kind: activity.kind,
+                  summary: activity.summary,
+                  payload: activity.payload,
+                  turnId: context.callerTurnId ? TurnId.makeUnsafe(context.callerTurnId) : null,
+                  createdAt,
+                },
+              })
+              .pipe(Effect.asVoid);
+          },
+        })
+      : []),
     ...(pagesService && pageAppsService && pageDraftsService
       ? [
           makePageVisualizeTool({

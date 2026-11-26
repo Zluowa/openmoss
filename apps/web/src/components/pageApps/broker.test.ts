@@ -16,6 +16,7 @@ function setup(
     allow?: boolean;
     mode?: "full" | "embed" | "guest";
     plugins?: readonly PageAppShellPlugin[];
+    desktopHost?: boolean;
   } = {},
 ) {
   const posted: PageAppShellMessage[] = [];
@@ -47,6 +48,7 @@ function setup(
     askConsent,
     confirm: vi.fn(async () => true),
     openPermissions: vi.fn(async () => undefined),
+    ...(options.desktopHost !== undefined ? { desktopHost: options.desktopHost } : {}),
   };
   const session: PageAppBrokerSession = {
     appId: "app-1" as PageAppId,
@@ -210,6 +212,32 @@ describe("PageAppBroker", () => {
     expect(result(1)).toMatchObject({ ok: true });
     expect(result(2)).toMatchObject({ ok: true });
     expect(result(3)).toMatchObject({ ok: false, error: { code: "resource_exhausted" } });
+  });
+
+  it("exposes desktop capability by default in desktopHost full/embed modes even when undeclared, but never in guest mode", () => {
+    const full = setup({ capabilities: { db: {} }, mode: "full", desktopHost: true });
+    full.send({ kind: "hello" });
+    expect(full.posted[0]).toEqual({
+      protocol: P,
+      kind: "init",
+      served: ["db", "permissions", "desktop"],
+    });
+
+    const embed = setup({ capabilities: {}, mode: "embed", desktopHost: true });
+    embed.send({ kind: "hello" });
+    expect(embed.posted[0]).toEqual({
+      protocol: P,
+      kind: "init",
+      served: ["permissions", "desktop"],
+    });
+
+    const guest = setup({ capabilities: { desktop: {} }, mode: "guest", desktopHost: true });
+    guest.send({ kind: "hello" });
+    expect(guest.posted[0]).toEqual({
+      protocol: P,
+      kind: "init",
+      served: ["permissions"],
+    });
   });
 });
 

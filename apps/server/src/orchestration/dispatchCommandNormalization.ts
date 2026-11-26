@@ -1,5 +1,6 @@
 import type { ClientOrchestrationCommand, OrchestrationCommand, ProjectId } from "@moss/contracts";
 import {
+  PAGE_APP_ACTIVITY_KIND,
   SLIDES_DECK_ACTIVITY_KIND,
   THREAD_OUTPUT_FILE_ACTIVITY_KIND,
 } from "@moss/shared/chatArtifactActivity";
@@ -299,10 +300,11 @@ export function makeDispatchCommandNormalizer<E>(options: DispatchCommandNormali
     ) {
       return yield* Effect.fail(new Error("HTML render activities are published by html_render."));
     }
-    // Deck and exported-file cards come only from the agent's moss_slides_* tools.
+    // Deck, page-app, and exported-file cards come only from Moss's tools.
     if (
       input.command.type === "thread.activity.append" &&
-      (input.command.activity.kind === SLIDES_DECK_ACTIVITY_KIND ||
+      (input.command.activity.kind === PAGE_APP_ACTIVITY_KIND ||
+        input.command.activity.kind === SLIDES_DECK_ACTIVITY_KIND ||
         input.command.activity.kind === THREAD_OUTPUT_FILE_ACTIVITY_KIND)
     ) {
       return yield* Effect.fail(new Error("Deck and file cards are published by Moss's tools."));

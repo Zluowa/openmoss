@@ -192,6 +192,11 @@ import {
 } from "./betaDiagnostics";
 import { attachBetaRendererDiagnostics } from "./betaRendererDiagnostics";
 import { showDesktopConfirmDialog } from "./confirmDialog";
+import { DesktopPageAppsManager } from "./pageApps/manager";
+import {
+  applyPageAppPermissionsPolicyHeaders,
+  shouldStandInForQuit,
+} from "./pageApps/windowManager";
 import { DesktopUiLocalePersistenceCoordinator } from "./desktopUiLocalePersistence";
 import {
   buildContextMenuTemplate,
@@ -1010,6 +1015,45 @@ const browserManager = new DesktopBrowserManager({
 let browserHostPipeServer: BrowserHostPipeServer | null = null;
 let appSnapManager: DesktopAppSnapManager | null = null;
 let appSnapCaptureOverlay: DesktopAppSnapCaptureOverlay | null = null;
+let desktopPageAppsManager: DesktopPageAppsManager | null = null;
+
+function resolvePageAppRouteUrl(appId: string): string {
+  const base = resolveRendererAppEntryUrl();
+  try {
+    const url = new URL(base);
+    url.hash = `/apps/${encodeURIComponent(appId)}`;
+    return url.toString();
+  } catch {
+    return `${base}#/apps/${encodeURIComponent(appId)}`;
+  }
+}
+
+function resolvePageAppFrameOrigin(appId: string): string {
+  const label = appId.toLowerCase();
+  try {
+    const serverUrl = new URL(backendHttpUrl || "http://127.0.0.1");
+    const port = serverUrl.port ? `:${serverUrl.port}` : "";
+    return `http://${label}.moss-app.localhost${port}`;
+  } catch {
+    return `http://${label}.moss-app.localhost`;
+  }
+}
+
+function getDesktopPageAppsManager(): DesktopPageAppsManager {
+  if (!desktopPageAppsManager) {
+    desktopPageAppsManager = new DesktopPageAppsManager({
+      userDataDir: userDataPath,
+      stateDir: STATE_DIR,
+      executablePath: process.execPath,
+      resolveAppRouteUrl: resolvePageAppRouteUrl,
+      resolveFrameOrigin: resolvePageAppFrameOrigin,
+      getMainWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+      onApplicationMenuRefresh: () => configureApplicationMenu(),
+      onQuitAfterStandIn: () => void confirmRunningChatsThenQuit("page-apps-stand-in-complete"),
+    });
+  }
+  return desktopPageAppsManager;
+}
 let realtimeVoiceShortcutManager: DesktopRealtimeVoiceShortcutManager | null = null;
 let realtimeVoiceOverlayWindow: BrowserWindow | null = null;
 let realtimeVoiceOverlayRendererReady = false;
@@ -2999,6 +3043,8 @@ function configureApplicationMenu(): void {
     });
   }
 
+  const fileAppsMenu = desktopPageAppsManager?.buildFileAppsMenu(desktopUiLocale) ?? null;
+
   template.push(
     {
       label: "File",
@@ -3014,6 +3060,7 @@ function configureApplicationMenu(): void {
               },
               { type: "separator" as const },
             ]),
+        ...(fileAppsMenu ? [fileAppsMenu, { type: "separator" as const }] : []),
         { role: process.platform === "darwin" ? "close" : "quit" },
       ],
     },
@@ -4282,6 +4329,7 @@ function registerMossAuthCallbackProtocolClient(): void {
 // Reuse the existing desktop window when the app is launched again so users
 // don't end up with multiple packaged instances racing the same local state.
 function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
+  desktopPageAppsManager?.windowManager.leaveStandInForQuit();
   if (!mainWindow || mainWindow.isDestroyed()) {
     mainWindow = null;
     if (staticSnapshotProgressWindow) {
@@ -4289,6 +4337,9 @@ function focusMainWindow(options: { stealAppFocus?: boolean } = {}): void {
       staticSnapshotProgressWindow.focus();
     }
     return;
+  }
+  if (process.platform === "win32") {
+    mainWindow.setSkipTaskbar(false);
   }
   if (mainWindow.isMinimized()) {
     mainWindow.restore();
@@ -7915,6 +7966,8 @@ async function shutdownDesktopRuntime(reason: string): Promise<void> {
       appSnapManager = null;
       appSnapCaptureOverlay?.dispose();
       appSnapCaptureOverlay = null;
+      desktopPageAppsManager?.dispose();
+      desktopPageAppsManager = null;
       realtimeVoiceShortcutManager?.dispose();
       realtimeVoiceShortcutManager = null;
       screen.removeListener("display-added", repositionRealtimeVoiceOverlayAfterDisplayChange);
@@ -8025,6 +8078,8 @@ async function confirmRunningChatsThenQuit(reason: string): Promise<void> {
     // app quits without flashing a hidden window.
     onPrompt: () => {
       if (!window || window.isDestroyed()) return;
+      desktopPageAppsManager?.windowManager.leaveStandInForQuit();
+      if (process.platform === "win32") window.setSkipTaskbar(false);
       showDesktopQuitConfirmationWindow(window, {
         background: isBackgroundDesktopLaunch(process.argv),
       });
@@ -9669,6 +9724,30 @@ function createWindow(
 
     const menuTemplate: MenuItemConstructorOptions[] = [];
 
+    const menuOffers = desktopPageAppsManager?.getMenuOffers() ?? [];
+    if (menuOffers.length > 0) {
+      const topOffer = menuOffers[0]!;
+      const offerInstalled = desktopPageAppsManager?.isInstalled(topOffer.appId) ?? false;
+      menuTemplate.push(
+        {
+          label: offerInstalled
+            ? desktopUiLocale === "zh-CN"
+              ? `打开 “${topOffer.title}”`
+              : `Open “${topOffer.title}”`
+            : desktopUiLocale === "zh-CN"
+              ? `将 “${topOffer.title}” 安装为应用…`
+              : `Install “${topOffer.title}” as App…`,
+          click: () => {
+            desktopPageAppsManager?.emitPickedInMenu(
+              topOffer.appId,
+              offerInstalled ? "open" : "install",
+            );
+          },
+        },
+        { type: "separator" },
+      );
+    }
+
     if (params.misspelledWord) {
       for (const suggestion of params.dictionarySuggestions.slice(0, 5)) {
         menuTemplate.push({
@@ -10174,6 +10253,9 @@ if (!hasSingleInstanceLock || mossAuthProtocolRelay) {
   // second-instance argv. Ordinary launches retain refocus; an explicit
   // --background launch only queues callbacks and leaves the foreground alone.
   app.on("second-instance", (_event, argv) => {
+    if (getDesktopPageAppsManager().handleSecondInstanceArgv(argv)) {
+      return;
+    }
     handleDesktopSecondInstance(argv, {
       queueAuthCallback: queueMossAuthCallbackFromArgv,
       focusWindow: focusMainWindow,
@@ -10210,6 +10292,8 @@ async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
   logCodeUpdateBoot();
   const background = isBackgroundDesktopLaunch(process.argv);
+  const pageApps = getDesktopPageAppsManager();
+  const coldStartPageApp = pageApps.inspectInitialArgv(process.argv) !== null;
   if (!(await requireCurrentDesktopMigrationBundle())) {
     return;
   }
@@ -10264,6 +10348,7 @@ async function bootstrap(): Promise<void> {
 
   registerIpcHandlers();
   mcpAppSandboxRuntime.registerIpcHandlers();
+  getDesktopPageAppsManager().registerIpcHandlers();
   if (selfReportPolicy.enabled) {
     registerSelfReportIpc({
       ipcMain,
@@ -10300,6 +10385,10 @@ async function bootstrap(): Promise<void> {
     void waitForBackendWindowReady(backendHttpUrl)
       .then((source) => {
         writeDesktopLogHeader(`bootstrap backend ready source=${source}`);
+        if (coldStartPageApp && pageApps.launchPendingColdStartApp()) {
+          writeDesktopLogHeader("bootstrap standalone page app launched");
+          return;
+        }
         if (!mainWindow) {
           mainWindow = createWindow({ background });
           writeDesktopLogHeader("bootstrap main window created");
@@ -10313,10 +10402,26 @@ async function bootstrap(): Promise<void> {
           `bootstrap backend readiness warning message=${formatErrorMessage(error)}`,
         );
         console.warn("[desktop] backend readiness check timed out during dev bootstrap", error);
+        if (coldStartPageApp && pageApps.launchPendingColdStartApp()) {
+          return;
+        }
         if (!mainWindow) {
           mainWindow = createWindow({ background });
           writeDesktopLogHeader("bootstrap main window created after readiness warning");
         }
+      });
+    return;
+  }
+
+  if (coldStartPageApp) {
+    void waitForBackendWindowReady(backendHttpUrl)
+      .then(() => {
+        if (!pageApps.launchPendingColdStartApp()) {
+          ensureInitialBackendWindowOpen(backendHttpUrl, { background });
+        }
+      })
+      .catch(() => {
+        ensureInitialBackendWindowOpen(backendHttpUrl, { background });
       });
     return;
   }
@@ -10375,6 +10480,21 @@ app.on("before-quit", (event) => {
     // Keep user/system quits from preempting the pending updater install with a plain app.quit().
     deferDesktopQuitUntilUpdaterSettles("before-quit");
     event.preventDefault();
+    return;
+  }
+
+  if (
+    !runningChatsQuitGuard.hasPendingAsk() &&
+    shouldStandInForQuit({
+      openStandaloneCount: desktopPageAppsManager?.windowManager.getInstalledOpenCount() ?? 0,
+      updaterQuitAndInstall: isUpdaterQuitAndInstallInFlight,
+      desktopShutdownComplete,
+    })
+  ) {
+    event.preventDefault();
+    desktopPageAppsManager?.windowManager.enterStandInForQuit();
+    hideDesktopWindowForImmediateQuit();
+    writeDesktopLogHeader("Moss quit with standalone page apps open; staying alive out of sight");
     return;
   }
 
@@ -10442,11 +10562,17 @@ if (hasSingleInstanceLock) {
       refreshMacIconCacheOnVersionChange();
       configureMediaPermissions();
       configureRealtimeVoiceMediaRequests();
+      session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const nextHeaders = applyPageAppPermissionsPolicyHeaders(details);
+        callback(nextHeaders ? { responseHeaders: nextHeaders } : {});
+      });
       initializeDesktopAppSnap();
       initializeRealtimeVoiceShortcut();
       screen.on("display-added", repositionRealtimeVoiceOverlayAfterDisplayChange);
       screen.on("display-removed", repositionRealtimeVoiceOverlayAfterDisplayChange);
       screen.on("display-metrics-changed", repositionRealtimeVoiceOverlayAfterDisplayChange);
+      getDesktopPageAppsManager().pruneStaleInstalled();
+      getDesktopPageAppsManager().startPolicyPolling();
       configureApplicationMenu();
       if (isCloseToTraySupported(process.platform)) {
         initializeDesktopTray();

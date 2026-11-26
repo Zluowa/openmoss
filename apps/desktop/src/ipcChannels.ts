@@ -2,6 +2,8 @@
 // Purpose: Defines the data-only IPC channel contract shared by Electron main and preload.
 // Layer: Desktop IPC contract
 
+import type { PAGE_APP_DESKTOP_IPC_CHANNELS } from "@moss/contracts";
+
 export const DESKTOP_IPC_CHANNELS = {
   remoteComputers: {
     list: "desktop:remote-computers-list",
@@ -247,6 +249,30 @@ export const DESKTOP_IPC_CHANNELS = {
     openExternal: "moss_desktop:mcp-app-open-external",
     saveDownload: "moss_desktop:mcp-app-save-download",
   },
+  pageApps: {
+    isAvailable: "desktop:page-apps-is-available",
+    getPolicyState: "desktop:page-apps-get-policy-state",
+    installFromPage: "desktop:page-apps-install-from-page",
+    requestInstall: "desktop:page-apps-request-install",
+    isInstalled: "desktop:page-apps-is-installed",
+    getInstalled: "desktop:page-apps-get-installed",
+    listInstalled: "desktop:page-apps-list-installed",
+    openInstalled: "desktop:page-apps-open-installed",
+    uninstall: "desktop:page-apps-uninstall",
+    showInFolder: "desktop:page-apps-show-in-folder",
+    openPermissions: "desktop:page-apps-open-permissions",
+    getPermissions: "desktop:page-apps-get-permissions",
+    requestPermissions: "desktop:page-apps-request-permissions",
+    setPermission: "desktop:page-apps-set-permission",
+    syncAppVersion: "desktop:page-apps-sync-app-version",
+    reportAppGone: "desktop:page-apps-report-app-gone",
+    offerInMenu: "desktop:page-apps-offer-in-menu",
+    pickedInMenu: "desktop:page-apps-picked-in-menu",
+    installedChanged: "desktop:page-apps-installed-changed",
+    permissionsChanged: "desktop:page-apps-permissions-changed",
+    invokeDesktopApi: "desktop:page-apps-invoke-desktop-api",
+    desktopApiEvent: "desktop:page-apps-desktop-api-event",
+  } satisfies typeof PAGE_APP_DESKTOP_IPC_CHANNELS,
 } as const;
 
 export const BROWSER_IPC_CHANNELS = DESKTOP_IPC_CHANNELS.browser;

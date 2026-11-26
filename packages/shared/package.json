@@ -837,6 +837,10 @@
       "types": "./src/pageAppFrameRuntime.ts",
       "import": "./src/pageAppFrameRuntime.ts"
     },
+    "./pageAppFramePlugins/desktop": {
+      "types": "./src/pageAppFramePlugins/desktop.ts",
+      "import": "./src/pageAppFramePlugins/desktop.ts"
+    },
     "./pageAppDbRules": {
       "types": "./src/pageAppDbRules.ts",
       "import": "./src/pageAppDbRules.ts"

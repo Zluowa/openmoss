@@ -12,6 +12,7 @@ import { PAGE_APP_ERROR_SCREEN_SCRIPT, runPageScriptsAfterBody } from "./pageApp
 import type { PageAppFramePlugin } from "./pageAppCapabilityPlugin";
 import { aiFramePlugin } from "./pageAppFramePlugins/ai";
 import { dbFramePlugin } from "./pageAppFramePlugins/db";
+import { desktopFramePlugin } from "./pageAppFramePlugins/desktop";
 import { PAGE_APP_EXTENSION_FRAME_PLUGINS } from "./pageAppFramePlugins/extensions";
 import { downloadsFramePlugin } from "./pageAppFramePlugins/downloads";
 import { pageFramePlugin } from "./pageAppFramePlugins/page";
@@ -35,6 +36,7 @@ export const PAGE_APP_FRAME_PLUGINS: readonly PageAppFramePlugin[] = [
   userFramePlugin,
   permissionsFramePlugin,
   pageFramePlugin,
+  desktopFramePlugin,
   ...PAGE_APP_EXTENSION_FRAME_PLUGINS,
 ];
 
@@ -69,7 +71,32 @@ ${factories}
 };
 var host = window.parent;
 if (!host || host === window) {
-  Object.defineProperty(window, "moss", { value: Object.freeze({ use: function () { return Promise.resolve(null); } }) });
+  var hasStandaloneDesktop = !!(window.mossDesktop || window.mossApps);
+  var standaloneMemo = new Map();
+  Object.defineProperty(window, "moss", {
+    value: Object.freeze({
+      use: function (name) {
+        if (name !== "desktop" || !hasStandaloneDesktop || !Object.prototype.hasOwnProperty.call(FACTORIES, "desktop")) {
+          return Promise.resolve(null);
+        }
+        if (standaloneMemo.has("desktop")) return standaloneMemo.get("desktop");
+        var localBridge = Object.freeze({
+          call: function () { return Promise.reject(makeError("unavailable", "No parent shell.")); },
+          watch: function () { return function () {}; },
+          error: makeError,
+          use: function (n) { return window.moss.use(n); },
+        });
+        var p;
+        try { p = Promise.resolve(deepFreeze(FACTORIES.desktop(localBridge))); }
+        catch (e) { p = Promise.resolve(null); }
+        standaloneMemo.set("desktop", p);
+        return p;
+      },
+    }),
+    writable: false,
+    configurable: false,
+    enumerable: true,
+  });
   return;
 }
 var nextId = 1;

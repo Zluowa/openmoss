@@ -52,6 +52,7 @@ interface RightDockStore {
         | "diffFilePath"
         | "filePath"
         | "htmlDocument"
+        | "pageApp"
         | "imagePreview"
         | "threadId"
         | "subagentsSourceThreadId"

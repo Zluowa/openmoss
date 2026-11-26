@@ -16,8 +16,13 @@ import {
 } from "~/lib/spacePageLink";
 import { ChatDeckCardPagesContext, openSpacePageFromChat } from "~/lib/chatSpacePageLink";
 import { ensureNativeApi } from "~/nativeApi";
-import { ChatOutputFileCard, openDeckInSidePanel } from "./chat/ChatArtifactCards";
+import {
+  ChatOutputFileCard,
+  openDeckInSidePanel,
+  openPageAppInSidePanel,
+} from "./chat/ChatArtifactCards";
 import { resolveWsHttpUrl } from "~/lib/wsHttpUrl";
+import { Button } from "./ui/button";
 import { toastManager } from "./ui/toast";
 import {
   CheckIcon,
@@ -2421,6 +2426,26 @@ const MARKDOWN_COMPONENTS: Components = {
         >
           {linkedChildren}
         </button>
+      );
+    }
+    const pageAppHrefMatch = restoredHref
+      ? /^\/apps\/([a-z\d][a-z\d._:-]{0,255})\/?$/iu.exec(restoredHref)
+      : null;
+    if (pageAppHrefMatch && context.threadId && !sharedViewer) {
+      const appId = pageAppHrefMatch[1]!;
+      const chatThreadId = context.threadId;
+      const appTitle = nodeToPlainText(children).trim() || t("rightDock.pane.pageApp");
+      return (
+        <Button
+          type="button"
+          variant="link"
+          size="xs"
+          data-page-app-link={appId}
+          className="inline h-auto min-h-0 border-0 p-0 align-baseline text-inherit font-normal underline decoration-foreground/30 underline-offset-2 hover:decoration-foreground/70"
+          onClick={() => openPageAppInSidePanel(chatThreadId, { appId, title: appTitle })}
+        >
+          {linkedChildren}
+        </Button>
       );
     }
     if (threadHref && onOpenThread) {

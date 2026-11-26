@@ -5,15 +5,16 @@
 // Layer: Chat transcript UI
 // Exports: ChatArtifactCards, ChatDeckCard, ChatOutputFileCard, openDeckInSidePanel
 
-import type { SlidesDeckArtifact } from "@moss/shared/chatArtifactActivity";
+import type { PageAppArtifact, SlidesDeckArtifact } from "@moss/shared/chatArtifactActivity";
 import { formatBytes } from "@moss/shared/formatBytes";
 import { threadOutputHref } from "@moss/shared/threadWorkspace";
 import type { ThreadId } from "@moss/contracts";
+import type { ReactNode } from "react";
 
 import { basenameOfPath } from "~/file-icons";
 import { downloadUrlAsBlob } from "~/lib/browserDownload";
 import { visibleChatArtifacts, type TurnChatArtifact } from "~/lib/chatArtifacts";
-import { SlideDeckIcon } from "~/lib/icons";
+import { SlideDeckIcon, WindowAppIcon } from "~/lib/icons";
 import { useIsSharedViewer } from "~/lib/sharedViewer";
 import { cn } from "~/lib/utils";
 import { openWorkspaceFileReference, useWorkspaceFileOpener } from "~/lib/workspaceFileOpener";
@@ -43,32 +44,42 @@ export function openDeckInSidePanel(
   });
 }
 
-export function ChatDeckCard(props: { deck: SlidesDeckArtifact; threadId: string | undefined }) {
-  const { t, format } = useTranslation();
-  const sharedViewer = useIsSharedViewer();
-  const { deck } = props;
-  const detail = [
-    t("chat.artifact.deck.kind"),
-    format("chat.artifact.deck.slideCount", { count: deck.slideCount }),
-    deck.change === "proposed" ? t("chat.artifact.deck.proposed") : deck.coverText,
-  ]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
+/** Shows an 应用页 in the right-hand side panel beside the chat. */
+export function openPageAppInSidePanel(
+  threadId: string,
+  pageApp: Pick<PageAppArtifact, "appId" | "title">,
+): void {
+  useRightDockStore.getState().openPane(threadId as ThreadId, {
+    kind: "pageApp",
+    pageApp: { appId: pageApp.appId, title: pageApp.title },
+  });
+}
+
+function ChatSidePanelArtifactCard(props: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  threadId: string | undefined;
+  sharedViewer: boolean;
+  ariaLabel: string;
+  openLabel: string;
+  dataAttributes: Record<string, string>;
+  onOpen: () => void;
+}) {
   const body = (
     <>
       <span className={TILE_CLASS_NAME} aria-hidden>
-        <SlideDeckIcon className="size-4" />
+        {props.icon}
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 leading-tight">
-        <span className={NAME_CLASS_NAME}>{deck.title}</span>
-        <span className={DETAIL_CLASS_NAME}>{detail}</span>
+        <span className={NAME_CLASS_NAME}>{props.title}</span>
+        <span className={DETAIL_CLASS_NAME}>{props.detail}</span>
       </span>
     </>
   );
-  const threadId = props.threadId;
-  if (sharedViewer || !threadId) {
+  if (props.sharedViewer || !props.threadId) {
     return (
-      <span className={CARD_CLASS_NAME} data-chat-deck-card={deck.pageId}>
+      <span className={CARD_CLASS_NAME} {...props.dataAttributes}>
         {body}
       </span>
     );
@@ -80,18 +91,70 @@ export function ChatDeckCard(props: { deck: SlidesDeckArtifact; threadId: string
         CARD_CLASS_NAME,
         "group/deck-card cursor-interaction transition-colors duration-150 hover:bg-[color-mix(in_srgb,var(--color-text-foreground)_3.5%,var(--color-background-elevated-primary))] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/60",
       )}
-      data-chat-deck-card={deck.pageId}
-      aria-label={format("chat.artifact.deck.openLabel", { title: deck.title })}
-      onClick={() => openDeckInSidePanel(threadId, deck)}
+      {...props.dataAttributes}
+      aria-label={props.ariaLabel}
+      onClick={props.onOpen}
     >
       {body}
       <span
         aria-hidden
         className="inline-flex h-6 shrink-0 items-center rounded-control bg-[color-mix(in_srgb,var(--color-text-foreground)_5%,transparent)] px-2 text-ui font-medium text-foreground group-hover/deck-card:bg-[color-mix(in_srgb,var(--color-text-foreground)_10%,transparent)]"
       >
-        {t("chat.artifact.deck.open")}
+        {props.openLabel}
       </span>
     </button>
+  );
+}
+
+export function ChatPageAppCard(props: { pageApp: PageAppArtifact; threadId: string | undefined }) {
+  const { t, format } = useTranslation();
+  const sharedViewer = useIsSharedViewer();
+  const { pageApp } = props;
+  const detail = [t("chat.artifact.pageApp.kind"), `v${pageApp.revision}`, pageApp.description]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  return (
+    <ChatSidePanelArtifactCard
+      icon={<WindowAppIcon className="size-4" />}
+      title={pageApp.title}
+      detail={detail}
+      threadId={props.threadId}
+      sharedViewer={sharedViewer}
+      ariaLabel={format("chat.artifact.pageApp.openLabel", { title: pageApp.title })}
+      openLabel={t("chat.artifact.pageApp.open")}
+      dataAttributes={{ "data-chat-page-app-card": pageApp.appId }}
+      onOpen={() => {
+        if (props.threadId) openPageAppInSidePanel(props.threadId, pageApp);
+      }}
+    />
+  );
+}
+
+export function ChatDeckCard(props: { deck: SlidesDeckArtifact; threadId: string | undefined }) {
+  const { t, format } = useTranslation();
+  const sharedViewer = useIsSharedViewer();
+  const { deck } = props;
+  const detail = [
+    t("chat.artifact.deck.kind"),
+    format("chat.artifact.deck.slideCount", { count: deck.slideCount }),
+    deck.change === "proposed" ? t("chat.artifact.deck.proposed") : deck.coverText,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  return (
+    <ChatSidePanelArtifactCard
+      icon={<SlideDeckIcon className="size-4" />}
+      title={deck.title}
+      detail={detail}
+      threadId={props.threadId}
+      sharedViewer={sharedViewer}
+      ariaLabel={format("chat.artifact.deck.openLabel", { title: deck.title })}
+      openLabel={t("chat.artifact.deck.open")}
+      dataAttributes={{ "data-chat-deck-card": deck.pageId }}
+      onOpen={() => {
+        if (props.threadId) openDeckInSidePanel(props.threadId, deck);
+      }}
+    />
   );
 }
 
@@ -199,6 +262,8 @@ export function ChatArtifactCards(props: {
       {visible.map(({ id, artifact }) =>
         artifact.kind === "deck" ? (
           <ChatDeckCard key={id} deck={artifact.deck} threadId={props.threadId} />
+        ) : artifact.kind === "pageApp" ? (
+          <ChatPageAppCard key={id} pageApp={artifact.pageApp} threadId={props.threadId} />
         ) : props.threadId ? (
           <ChatOutputFileCard
             key={id}

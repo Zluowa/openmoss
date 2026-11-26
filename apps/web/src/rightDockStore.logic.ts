@@ -24,6 +24,7 @@ export const RIGHT_DOCK_PANE_KINDS = [
   "imagePreview",
   "canvas",
   "deck",
+  "pageApp",
   "terminal",
   "sidechat",
   "subagents",
@@ -78,10 +79,18 @@ export interface RightDockDeckReference {
   readonly title: string;
 }
 
+/** An 应用页 shown inside the right dock beside the chat. */
+export interface RightDockPageAppReference {
+  readonly appId: string;
+  readonly title: string;
+}
+
 export interface RightDockPane {
   canvasImage?: MossCanvasImageFocus;
   /** deck panes: the slides deck the editor shows. */
   deck?: RightDockDeckReference;
+  /** pageApp panes: the 应用页 opened beside the chat. */
+  pageApp?: RightDockPageAppReference;
   id: string;
   kind: RightDockPaneKind;
   // sidechat panes point at the embedded thread.
@@ -122,10 +131,11 @@ export interface RightDockThreadState {
   activePaneId: string | null;
 }
 
-// Terminals and file previews have independent tabs. Side chats share one destination.
+// Terminals, file previews, HTML renders, and 应用页 have independent tabs. Side chats share one destination.
 const MULTI_INSTANCE_PANE_KINDS: ReadonlySet<RightDockPaneKind> = new Set([
   "file",
   "htmlRender",
+  "pageApp",
   "terminal",
 ]);
 
@@ -291,6 +301,20 @@ export function sanitizeRightDockDeckReference(value: unknown): RightDockDeckRef
   return { pageId, scopeSpaceId, title };
 }
 
+export function sanitizeRightDockPageAppReference(
+  value: unknown,
+): RightDockPageAppReference | null {
+  if (!isPlainObject(value)) return null;
+  const appId = typeof value.appId === "string" ? value.appId.trim() : "";
+  if (!DECK_ID_PATTERN.test(appId)) return null;
+  const rawTitle = typeof value.title === "string" ? value.title.trim() : "";
+  const title =
+    rawTitle.length > 0 && rawTitle.length <= 256 && !rawTitle.includes("\u0000")
+      ? rawTitle
+      : "应用";
+  return { appId, title };
+}
+
 export function sanitizeRightDockImagePreviewState(
   value: unknown,
 ): RightDockImagePreviewState | null {
@@ -373,6 +397,9 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
   if (candidate.kind === "htmlRender" && htmlDocument === null) return null;
   const deck = candidate.kind === "deck" ? sanitizeRightDockDeckReference(candidate.deck) : null;
   if (candidate.kind === "deck" && deck === null) return null;
+  const pageApp =
+    candidate.kind === "pageApp" ? sanitizeRightDockPageAppReference(candidate.pageApp) : null;
+  if (candidate.kind === "pageApp" && pageApp === null) return null;
   const imagePreviewField: { imagePreview?: RightDockImagePreviewState | null } =
     (candidate.kind === "imagePreview" && imagePreview !== undefined) ||
     (candidate.kind === "canvas" && imagePreview)
@@ -389,6 +416,7 @@ function sanitizePersistedPane(value: unknown): RightDockPane | null {
       ? { canvasImage: sanitizeMossCanvasImageFocus(candidate.canvasImage)! }
       : {}),
     ...(deck ? { deck } : {}),
+    ...(pageApp ? { pageApp } : {}),
     threadId: typeof candidate.threadId === "string" ? (candidate.threadId as ThreadId) : null,
     subagentsSourceThreadId:
       typeof candidate.subagentsSourceThreadId === "string"
@@ -480,6 +508,7 @@ export function sanitizeRightDockStateByThreadId(
 export interface OpenPaneInput {
   canvasImage?: MossCanvasImageFocus;
   deck?: RightDockDeckReference;
+  pageApp?: RightDockPageAppReference;
   paneId: string;
   kind: RightDockPaneKind;
   threadId?: ThreadId | null;
@@ -501,8 +530,12 @@ export interface OpenPaneInput {
 function createPane(input: OpenPaneInput): RightDockPane | null {
   const deck = input.kind === "deck" ? sanitizeRightDockDeckReference(input.deck) : null;
   if (input.kind === "deck" && deck === null) return null;
+  const pageApp =
+    input.kind === "pageApp" ? sanitizeRightDockPageAppReference(input.pageApp) : null;
+  if (input.kind === "pageApp" && pageApp === null) return null;
   const basePane = {
     ...(deck ? { deck } : {}),
+    ...(pageApp ? { pageApp } : {}),
     id: input.paneId,
     kind: input.kind,
     ...(input.kind === "canvas" && sanitizeMossCanvasImageFocus(input.canvasImage)
@@ -634,6 +667,12 @@ function findMatchingMultiInstancePane(
         )
       : undefined;
   }
+  if (input.kind === "pageApp") {
+    const appId = input.pageApp?.appId;
+    return appId
+      ? state.panes.find((pane) => pane.kind === "pageApp" && pane.pageApp?.appId === appId)
+      : undefined;
+  }
   return undefined;
 }
 
@@ -706,6 +745,12 @@ export function openPaneInState(
     const existing = findMatchingMultiInstancePane(state, input);
     if (existing) {
       const focused = { open: true, panes: state.panes, activePaneId: existing.id };
+      if (input.kind === "pageApp" && input.pageApp) {
+        const sanitizedApp = sanitizeRightDockPageAppReference(input.pageApp);
+        if (sanitizedApp && existing.pageApp?.title !== sanitizedApp.title) {
+          return updatePaneInState(focused, existing.id, { pageApp: sanitizedApp });
+        }
+      }
       // A surface's pane shows the version the reader opened.
       const requested = input.kind === "htmlRender" ? input.htmlDocument : undefined;
       return requested?.kind === "html-render" &&
@@ -806,6 +851,7 @@ export function updatePaneInState(
       | "diffFilePath"
       | "filePath"
       | "htmlDocument"
+      | "pageApp"
       | "imagePreview"
       | "threadId"
       | "subagentsSourceThreadId"
@@ -844,12 +890,24 @@ export function updatePaneInState(
         normalizedPatch = { ...normalizedPatch, htmlDocument };
       }
     }
+    if (Object.hasOwn(normalizedPatch, "pageApp")) {
+      const pageApp = sanitizeRightDockPageAppReference(normalizedPatch.pageApp);
+      if (pageApp === null) {
+        const patchWithoutPageApp = { ...normalizedPatch };
+        Reflect.deleteProperty(patchWithoutPageApp, "pageApp");
+        normalizedPatch = patchWithoutPageApp;
+      } else {
+        normalizedPatch = { ...normalizedPatch, pageApp };
+      }
+    }
     const nextPane = { ...pane, ...normalizedPatch };
     if (
       nextPane.diffTurnId !== pane.diffTurnId ||
       nextPane.diffFilePath !== pane.diffFilePath ||
       nextPane.filePath !== pane.filePath ||
       nextPane.htmlDocument !== pane.htmlDocument ||
+      nextPane.pageApp?.appId !== pane.pageApp?.appId ||
+      nextPane.pageApp?.title !== pane.pageApp?.title ||
       nextPane.imagePreview !== pane.imagePreview ||
       nextPane.threadId !== pane.threadId ||
       nextPane.subagentsSourceThreadId !== pane.subagentsSourceThreadId ||

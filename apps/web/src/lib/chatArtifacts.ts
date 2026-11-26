@@ -6,15 +6,18 @@
 //          visibleChatArtifacts, chatArtifactsEqual
 
 import {
+  pageAppFromActivity,
   slidesDeckFromActivity,
   threadOutputFileFromActivity,
   threadOutputFilesLinkedIn,
+  type PageAppArtifact,
   type SlidesDeckArtifact,
   type ThreadOutputFileArtifact,
 } from "@moss/shared/chatArtifactActivity";
 
 export type ChatArtifact =
   | { readonly kind: "deck"; readonly deck: SlidesDeckArtifact }
+  | { readonly kind: "pageApp"; readonly pageApp: PageAppArtifact }
   | { readonly kind: "file"; readonly file: ThreadOutputFileArtifact };
 
 export interface TurnChatArtifact {
@@ -29,14 +32,20 @@ export function chatArtifactFromActivity(activity: {
 }): ChatArtifact | undefined {
   const deck = slidesDeckFromActivity(activity);
   if (deck) return { kind: "deck", deck };
+  const pageApp = pageAppFromActivity(activity);
+  if (pageApp) return { kind: "pageApp", pageApp };
   const file = threadOutputFileFromActivity(activity);
   return file ? { kind: "file", file } : undefined;
 }
 
 function artifactKey(artifact: ChatArtifact): string {
-  return artifact.kind === "deck"
-    ? `deck:${artifact.deck.scopeSpaceId ?? ""}:${artifact.deck.pageId}`
-    : `file:${artifact.file.file}`;
+  if (artifact.kind === "deck") {
+    return `deck:${artifact.deck.scopeSpaceId ?? ""}:${artifact.deck.pageId}`;
+  }
+  if (artifact.kind === "pageApp") {
+    return `pageApp:${artifact.pageApp.appId}`;
+  }
+  return `file:${artifact.file.file}`;
 }
 
 /**
@@ -68,7 +77,11 @@ export function collectTurnChatArtifacts(
         previous.artifact.kind === "deck" &&
         previous.artifact.deck.change === "created"
           ? { kind: "deck", deck: { ...artifact.deck, change: "created" } }
-          : artifact;
+          : artifact.kind === "pageApp" &&
+              previous.artifact.kind === "pageApp" &&
+              previous.artifact.pageApp.change === "created"
+            ? { kind: "pageApp", pageApp: { ...artifact.pageApp, change: "created" } }
+            : artifact;
       list[index] = { id: previous.id, artifact: merged };
     }
     byTurn.set(turnId, list);
@@ -99,6 +112,17 @@ function artifactsEqual(left: ChatArtifact, right: ChatArtifact): boolean {
       a.title === b.title &&
       a.slideCount === b.slideCount &&
       a.coverText === b.coverText &&
+      a.change === b.change
+    );
+  }
+  if (left.kind === "pageApp" && right.kind === "pageApp") {
+    const a = left.pageApp;
+    const b = right.pageApp;
+    return (
+      a.appId === b.appId &&
+      a.title === b.title &&
+      a.description === b.description &&
+      a.revision === b.revision &&
       a.change === b.change
     );
   }

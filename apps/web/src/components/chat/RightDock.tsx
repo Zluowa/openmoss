@@ -85,6 +85,7 @@ const RIGHT_DOCK_LABEL_KEY_BY_KIND = {
   imagePreview: "rightDock.pane.imagePreview",
   canvas: "rightDock.pane.canvas",
   deck: "rightDock.pane.deck",
+  pageApp: "rightDock.pane.pageApp",
   terminal: "rightDock.pane.terminal",
   sidechat: "rightDock.launcher.sideChats",
   subagents: "rightDock.pane.subagents",
