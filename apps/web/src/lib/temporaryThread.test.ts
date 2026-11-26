@@ -4,6 +4,7 @@
 
 import { ProjectId, ThreadId } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
+import { createEmptyThreadDraft } from "../composerDraftDomain";
 import { resolveTemporaryThreadIdToDelete } from "./temporaryThread";
 
 const PROJECT_ID = ProjectId.makeUnsafe("project-temporary");
@@ -83,6 +84,66 @@ describe("resolveTemporaryThreadIdToDelete", () => {
         nextThreadId: THREAD_B,
         previousThreadWasTemporary: true,
         draftThreadsByThreadId: {},
+      }),
+    ).toBe(THREAD_A);
+  });
+
+  it("preserves an unsent temporary draft that holds typed text when switching away", () => {
+    expect(
+      resolveTemporaryThreadIdToDelete({
+        previousThreadId: THREAD_A,
+        nextThreadId: THREAD_B,
+        previousThreadWasTemporary: true,
+        previousThreadHasServerThread: false,
+        draftThreadsByThreadId: {
+          [THREAD_A]: {
+            projectId: PROJECT_ID,
+            createdAt: "2026-04-07T10:00:00.000Z",
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            entryPoint: "chat",
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+            isTemporary: true,
+          },
+        },
+        draftsByThreadId: {
+          [THREAD_A]: {
+            ...createEmptyThreadDraft(),
+            prompt: "unsent temporary draft text",
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("deletes a sent temporary thread even if composer draft text exists", () => {
+    expect(
+      resolveTemporaryThreadIdToDelete({
+        previousThreadId: THREAD_A,
+        nextThreadId: THREAD_B,
+        previousThreadWasTemporary: true,
+        previousThreadHasServerThread: true,
+        draftThreadsByThreadId: {
+          [THREAD_A]: {
+            projectId: PROJECT_ID,
+            createdAt: "2026-04-07T10:00:00.000Z",
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            entryPoint: "chat",
+            branch: null,
+            worktreePath: null,
+            envMode: "local",
+            isTemporary: true,
+          },
+        },
+        draftsByThreadId: {
+          [THREAD_A]: {
+            ...createEmptyThreadDraft(),
+            prompt: "follow-up draft",
+          },
+        },
       }),
     ).toBe(THREAD_A);
   });

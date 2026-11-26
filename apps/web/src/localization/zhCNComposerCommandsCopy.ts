@@ -83,12 +83,22 @@ const COMPOSER_COMMANDS_COPY: Readonly<Record<string, string>> = {
   "Fast mode is paused after a rate limit. Requests run at standard speed for now.":
     "因达到速率限制，快速模式已暂停。请求暂时以标准速度运行。",
   "Fast unavailable": "快速模式不可用",
-  "Could not restore saved images. Open the chat to retry or remove them before sending.":
-    "无法恢复已保存的图片。请打开对话重试，或在发送前移除它们。",
+  "Could not restore saved files": "无法恢复已保存的文件",
+  "Retry or remove them before sending.": "请重试，或在发送前移除。",
   "Image optimization failed.": "图片优化失败。",
+};
+
+const SAVED_ATTACHMENT_KIND_LABELS: Readonly<Record<string, string>> = {
+  images: "图片",
+  files: "文件",
 };
 
 export const translateZhCnComposerCommandsCopyText = phraseTranslator(COMPOSER_COMMANDS_COPY, [
   [/^Keep the goal within ([\d,]+) characters\.$/, "目标不能超过 $1 个字符。"],
   [/^(.+) is unavailable for Side$/, "$1 无法用于侧边对话"],
+  [
+    /^Could not restore saved (images|files)\. Open the chat to retry or remove them before sending\.$/,
+    (match) =>
+      `无法恢复已保存的${SAVED_ATTACHMENT_KIND_LABELS[match[1] ?? ""] ?? match[1]}。请打开对话重试，或在发送前移除它们。`,
+  ],
 ]);

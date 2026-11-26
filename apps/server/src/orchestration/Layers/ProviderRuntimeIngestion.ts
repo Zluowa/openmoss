@@ -3145,6 +3145,13 @@ const make = Effect.gen(function* () {
             );
           }
 
+          const negotiatedSteering =
+            event.type === "turn.started" && event.provider === "antigravity"
+              ? event.payload.supportsNativeTurnSteering
+              : event.type !== "session.exited" && thread.session?.providerName === event.provider
+                ? thread.session.supportsNativeTurnSteering
+                : undefined;
+
           yield* orchestrationEngine.dispatch({
             type: "thread.session.set",
             commandId: providerCommandId(event, "thread-session-set", thread.id),
@@ -3158,6 +3165,9 @@ const make = Effect.gen(function* () {
                 thread.session?.providerInstanceId ??
                 readModelSelectionProviderInstanceId(thread.modelSelection),
               runtimeMode: thread.session?.runtimeMode ?? "full-access",
+              ...(negotiatedSteering !== undefined
+                ? { supportsNativeTurnSteering: negotiatedSteering }
+                : {}),
               activeTurnId: nextActiveTurnId,
               lastError,
               updatedAt: now,
@@ -4046,7 +4056,10 @@ const make = Effect.gen(function* () {
       const isNativeSteer =
         event.payload.dispatchMode === "steer" &&
         steerProvider !== undefined &&
-        providerSupportsNativeTurnSteering(steerProvider);
+        providerSupportsNativeTurnSteering(
+          steerProvider,
+          thread?.session?.supportsNativeTurnSteering,
+        );
       let deliveryTurnId: TurnId | undefined;
       if (isNativeSteer) {
         let activeTurnId = thread?.session?.activeTurnId ?? undefined;

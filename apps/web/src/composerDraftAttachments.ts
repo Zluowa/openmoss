@@ -16,9 +16,11 @@ import {
   type ComposerImageAttachment,
   type ComposerPromptHistorySavedDraft,
   type ComposerThreadDraftState,
+  type PersistedComposerFileAttachment,
   type QueuedComposerTurn,
 } from "./composerDraftDomain";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
+import { deleteComposerFileBlob } from "./lib/composerFileBlobStore";
 import { deleteComposerImageBlob } from "./lib/composerImageBlobStore";
 import {
   normalizeComposerImageSource,
@@ -221,6 +223,100 @@ export function deleteDraftComposerImageBlobs(
       getDraftsByThreadId,
     );
   }
+}
+
+export function isComposerFileBlobReferenced(
+  draftsByThreadId: Readonly<Record<string, ComposerThreadDraftState | undefined>>,
+  blobKey: string,
+): boolean {
+  if (blobKey.length === 0) return false;
+  for (const draft of Object.values(draftsByThreadId)) {
+    if (!draft) continue;
+    if ((draft.persistedFiles ?? []).some((file) => file.blobKey === blobKey)) {
+      return true;
+    }
+    if (
+      (draft.promptHistorySavedDraft?.persistedFiles ?? []).some((file) => file.blobKey === blobKey)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function findSupersededComposerFileBlobAttachments(
+  previousFiles: ReadonlyArray<PersistedComposerFileAttachment>,
+  nextFiles: ReadonlyArray<PersistedComposerFileAttachment>,
+): PersistedComposerFileAttachment[] {
+  const nextBlobKeys = new Set(nextFiles.map((file) => file.blobKey));
+  return previousFiles.filter((file) => file.blobKey.length > 0 && !nextBlobKeys.has(file.blobKey));
+}
+
+export function deletePersistedComposerFileBlobs(
+  files: ReadonlyArray<PersistedComposerFileAttachment>,
+  getDraftsByThreadId: () => ComposerDraftStoreState["draftsByThreadId"],
+): void {
+  const candidateBlobKeys = new Set(
+    files.flatMap((file) => (file.blobKey.length > 0 ? [file.blobKey] : [])),
+  );
+  if (candidateBlobKeys.size === 0) return;
+
+  Promise.resolve().then(() => {
+    const draftsByThreadId = getDraftsByThreadId();
+    for (const blobKey of candidateBlobKeys) {
+      if (isComposerFileBlobReferenced(draftsByThreadId, blobKey)) continue;
+      void deleteComposerFileBlob(blobKey).catch((error) => {
+        console.warn("[composer-files] Could not delete persisted file blob", error);
+      });
+    }
+  });
+}
+
+export function deleteDraftComposerFileBlobs(
+  draft: ComposerThreadDraftState | undefined,
+  getDraftsByThreadId: () => ComposerDraftStoreState["draftsByThreadId"],
+): void {
+  if (!draft) return;
+  deletePersistedComposerFileBlobs(draft.persistedFiles ?? [], getDraftsByThreadId);
+  if (draft.promptHistorySavedDraft) {
+    deletePersistedComposerFileBlobs(
+      draft.promptHistorySavedDraft.persistedFiles ?? [],
+      getDraftsByThreadId,
+    );
+  }
+}
+
+export function normalizePersistedFileAttachment(
+  value: unknown,
+): PersistedComposerFileAttachment | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  const id = candidate.id;
+  const name = candidate.name;
+  const mimeType = candidate.mimeType;
+  const sizeBytes = candidate.sizeBytes;
+  const blobKey = candidate.blobKey;
+  if (
+    typeof id !== "string" ||
+    typeof name !== "string" ||
+    typeof mimeType !== "string" ||
+    typeof sizeBytes !== "number" ||
+    !Number.isFinite(sizeBytes) ||
+    typeof blobKey !== "string" ||
+    id.length === 0 ||
+    blobKey.length === 0
+  ) {
+    return null;
+  }
+  return {
+    id,
+    name,
+    mimeType,
+    sizeBytes,
+    blobKey,
+  };
 }
 
 export function normalizePersistedAttachment(

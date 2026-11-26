@@ -38,8 +38,12 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
   const prompt = composerDraft.prompt;
   const composerPromptHistorySavedDraft = composerDraft.promptHistorySavedDraft;
   const composerPromptHistorySavedDraftImages = composerPromptHistorySavedDraft?.images ?? null;
+  const composerPromptHistorySavedDraftFiles = composerPromptHistorySavedDraft?.files ?? null;
+  const composerPromptHistorySavedDraftPersistedFiles =
+    composerPromptHistorySavedDraft?.persistedFiles ?? null;
   const composerImages = composerDraft.images;
   const composerFiles = composerDraft.files;
+  const composerPersistedFiles = composerDraft.persistedFiles ?? [];
   const composerAssistantSelections = composerDraft.assistantSelections;
   const composerBrowserAnnotations = composerDraft.browserAnnotations;
   const composerFileComments = composerDraft.fileComments;
@@ -487,6 +491,10 @@ export function useChatComposerDraft({ threadId }: ChatComposerDraftInput) {
     threadId,
     composerImages,
     composerPromptHistorySavedDraftImages,
+    composerFiles,
+    composerPersistedFiles,
+    composerPromptHistorySavedDraftFiles,
+    composerPromptHistorySavedDraftPersistedFiles,
   });
   return {
     composerDraft,

@@ -4097,7 +4097,7 @@ describe("ChatView transcript geometry (full app)", () => {
     }
   });
 
-  it("parks a home-chat draft and opens an empty one when chat.newChat is reused after a thread switch", async () => {
+  it("returns to the existing home-chat draft when chat.newChat is reused after a thread switch", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: withActiveHomeChatThread(
@@ -4193,19 +4193,13 @@ describe("ChatView transcript geometry (full app)", () => {
       const returnedPath = await triggerThreadShortcutUntilPath(
         mounted.router,
         dispatchNewChatShortcut,
-        (path) => UUID_ROUTE_RE.test(path) && path !== newThreadPath,
-        "chat.newChat should open a fresh draft thread UUID, not the unsent one.",
+        (path) => path === newThreadPath,
+        "chat.newChat should return to the existing unsent draft thread.",
       );
-      const freshThreadId = returnedPath.slice(1) as ThreadId;
+      expect(returnedPath).toBe(newThreadPath);
       await waitForLayout();
-      expect(useComposerDraftStore.getState().draftsByThreadId[freshThreadId]?.prompt ?? "").toBe(
-        "",
-      );
-      expect((await waitForComposerEditor()).textContent ?? "").not.toContain(prompt);
-
-      // The unsent draft is parked on its own thread with its text.
-      expect(useComposerDraftStore.getState().getDraftThread(newThreadId)).not.toBeNull();
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]?.prompt).toBe(prompt);
+      expect((await waitForComposerEditor()).textContent ?? "").toContain(prompt);
     } finally {
       await mounted.cleanup();
     }

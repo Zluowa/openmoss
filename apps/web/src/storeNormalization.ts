@@ -120,6 +120,7 @@ export function threadSessionsEqual(
   if (left == null || right == null) return false;
   return (
     left.provider === right.provider &&
+    left.supportsNativeTurnSteering === right.supportsNativeTurnSteering &&
     left.status === right.status &&
     left.orchestrationStatus === right.orchestrationStatus &&
     left.runtimeMode === right.runtimeMode &&
@@ -967,6 +968,9 @@ function readModelSessionFromThreadSession(
       previousThread?.runtimeMode ??
       incomingSession?.runtimeMode ??
       "full-access",
+    ...(previousSession.supportsNativeTurnSteering !== undefined
+      ? { supportsNativeTurnSteering: previousSession.supportsNativeTurnSteering }
+      : {}),
     activeTurnId: previousSession.activeTurnId ?? null,
     lastError: previousSession.lastError ?? null,
     updatedAt: previousSession.updatedAt,
@@ -1003,6 +1007,11 @@ function mergeReadModelSessionWithLiveHotPath(
         ? { providerInstanceId: incomingSession.providerInstanceId }
         : previousSession.providerInstanceId !== undefined
           ? { providerInstanceId: previousSession.providerInstanceId }
+          : {}),
+      ...(incomingSession.supportsNativeTurnSteering !== undefined
+        ? { supportsNativeTurnSteering: incomingSession.supportsNativeTurnSteering }
+        : previousSession.supportsNativeTurnSteering !== undefined
+          ? { supportsNativeTurnSteering: previousSession.supportsNativeTurnSteering }
           : {}),
       runtimeMode: incomingSession.runtimeMode,
       activeTurnId: previousSession.activeTurnId ?? incomingSession.activeTurnId,
@@ -1728,6 +1737,9 @@ export function normalizeThreadSession(
     status: toLegacySessionStatus(incoming.status),
     orchestrationStatus: incoming.status,
     runtimeMode: incoming.runtimeMode,
+    ...(incoming.supportsNativeTurnSteering !== undefined
+      ? { supportsNativeTurnSteering: incoming.supportsNativeTurnSteering }
+      : {}),
     activeTurnId: incoming.activeTurnId ?? undefined,
     createdAt: incoming.updatedAt,
     updatedAt: incoming.updatedAt,
@@ -1740,6 +1752,7 @@ export function normalizeThreadSession(
     previous.status === nextSession.status &&
     previous.orchestrationStatus === nextSession.orchestrationStatus &&
     previous.runtimeMode === nextSession.runtimeMode &&
+    previous.supportsNativeTurnSteering === nextSession.supportsNativeTurnSteering &&
     previous.activeTurnId === nextSession.activeTurnId &&
     previous.createdAt === nextSession.createdAt &&
     previous.updatedAt === nextSession.updatedAt &&

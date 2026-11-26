@@ -3239,11 +3239,17 @@ describe("persistModelSelectionBeforeRuntimeMode", () => {
 describe("steering into a live turn", () => {
   const liveTurnId = TurnId.makeUnsafe("turn-live");
   const threadWith = (
-    provider: "codex" | "grok",
+    provider: "codex" | "grok" | "antigravity",
     compactionPayload?: Record<string, unknown>,
+    supportsNativeTurnSteering?: boolean,
   ): Parameters<typeof steerInterruptsLiveTurn>[0] =>
     ({
-      session: { provider, status: "running", activeTurnId: liveTurnId },
+      session: {
+        provider,
+        status: "running",
+        activeTurnId: liveTurnId,
+        ...(supportsNativeTurnSteering !== undefined ? { supportsNativeTurnSteering } : {}),
+      },
       activities: compactionPayload
         ? [
             {
@@ -3284,6 +3290,16 @@ describe("steering into a live turn", () => {
   it("interrupts on providers without native steering", () => {
     expect(steerInterruptsLiveTurn(threadWith("grok"), "codex")).toBe(true);
     expect(steerInterruptsLiveTurn(undefined, "grok")).toBe(true);
+  });
+
+  it("steers Antigravity natively only when the live session negotiated support", () => {
+    expect(steerInterruptsLiveTurn(threadWith("antigravity", undefined, true), "antigravity")).toBe(
+      false,
+    );
+    expect(
+      steerInterruptsLiveTurn(threadWith("antigravity", undefined, false), "antigravity"),
+    ).toBe(true);
+    expect(steerInterruptsLiveTurn(threadWith("antigravity"), "antigravity")).toBe(true);
   });
 });
 

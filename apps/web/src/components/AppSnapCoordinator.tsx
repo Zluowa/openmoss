@@ -33,12 +33,14 @@ import { sourceWithCachedIcon } from "../appSnapIntake";
 import {
   type ComposerImageAttachment,
   type PersistedComposerImageAttachment,
+  isComposerFileBlobReferenced,
   isComposerImageBlobReferenced,
   useComposerDraftStore,
 } from "../composerDraftStore";
 import { requestComposerFocus } from "../composerFocusRequestStore";
 import { useFocusedChatContext } from "../focusedChatContext";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
+import { deleteOrphanedComposerFileBlobs } from "../lib/composerFileBlobStore";
 import {
   deleteOrphanedComposerImageBlobs,
   readComposerImageBlob,
@@ -244,6 +246,12 @@ export function AppSnapCoordinator() {
           isComposerImageBlobReferenced(useComposerDraftStore.getState().draftsByThreadId, blobKey),
       }).catch((error) =>
         console.warn("[appsnap] Could not sweep orphaned composer images", error),
+      );
+      void deleteOrphanedComposerFileBlobs({
+        isReferenced: (blobKey) =>
+          isComposerFileBlobReferenced(useComposerDraftStore.getState().draftsByThreadId, blobKey),
+      }).catch((error) =>
+        console.warn("[composer-files] Could not sweep orphaned composer files", error),
       );
     });
     const unsubscribe = useComposerDraftStore.subscribe((state, previousState) => {

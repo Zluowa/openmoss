@@ -10,28 +10,36 @@ interface AttachmentIdCarrier {
 
 export interface ComposerAttachmentCountDraft {
   readonly images?: ReadonlyArray<AttachmentIdCarrier> | undefined;
-  readonly files?: ReadonlyArray<unknown> | undefined;
+  readonly files?: ReadonlyArray<{ readonly id?: string | undefined }> | undefined;
   readonly assistantSelections?: ReadonlyArray<unknown> | undefined;
   readonly persistedAttachments?: ReadonlyArray<AttachmentIdCarrier> | undefined;
+  readonly persistedFiles?: ReadonlyArray<AttachmentIdCarrier> | undefined;
 }
 
 /**
- * Counts live references plus persisted images that have not hydrated yet.
- * Hydrating an image with the same id therefore consumes no additional slot.
+ * Counts live references plus persisted images/files that have not hydrated yet.
+ * Hydrating an attachment with the same id therefore consumes no additional slot.
  */
 export function effectiveComposerAttachmentCount(
   draft: ComposerAttachmentCountDraft | undefined,
 ): number {
   if (!draft) return 0;
   const hydratedImageIds = new Set((draft.images ?? []).map((image) => image.id));
-  const pendingPersistedCount = (draft.persistedAttachments ?? []).filter(
+  const pendingPersistedImageCount = (draft.persistedAttachments ?? []).filter(
     (attachment) => !hydratedImageIds.has(attachment.id),
+  ).length;
+  const hydratedFileIds = new Set(
+    (draft.files ?? []).flatMap((file) => (typeof file.id === "string" ? [file.id] : [])),
+  );
+  const pendingPersistedFileCount = (draft.persistedFiles ?? []).filter(
+    (file) => !hydratedFileIds.has(file.id),
   ).length;
   return (
     (draft.images?.length ?? 0) +
     (draft.files?.length ?? 0) +
     (draft.assistantSelections?.length ?? 0) +
-    pendingPersistedCount
+    pendingPersistedImageCount +
+    pendingPersistedFileCount
   );
 }
 
@@ -46,4 +54,11 @@ export function composerImageConsumesAttachmentSlot(
   imageId: string,
 ): boolean {
   return !(draft.persistedAttachments ?? []).some((attachment) => attachment.id === imageId);
+}
+
+export function composerFileConsumesAttachmentSlot(
+  draft: ComposerAttachmentCountDraft,
+  fileId: string,
+): boolean {
+  return !(draft.persistedFiles ?? []).some((file) => file.id === fileId);
 }

@@ -37,7 +37,12 @@ import {
   resolvePreferredComposerModelSelection,
   useComposerDraftStore,
 } from "../composerDraftStore";
-import { composerDraftHasUnsentContent } from "../composerDraftDomain";
+import {
+  composerDraftHasUnsentContent,
+  composerThreadDraftIsPending,
+  type ProjectDraftThread,
+} from "../composerDraftDomain";
+import { useOpenThreadTabsStore } from "../openThreadTabsStore";
 import {
   applyGroupWorkerRoutingDefaults,
   resolveGroupContainerThreadDefaults,
@@ -1144,33 +1149,57 @@ export function useHandleNewThread() {
       setModelSelection,
     } = useComposerDraftStore.getState();
     const shouldForceFreshThread = options?.fresh === true;
-    // A new chat always opens on an empty composer (as in Claude desktop). A chat draft that
-    // still holds unsent text or attachments is never reopened here, or new typing would merge
-    // into it and Enter would send both; it is parked instead and stays on the Tasks board.
-    const holdsUnsentChatContent = (threadId: ThreadId | null | undefined): boolean => {
-      if (entryPoint !== "chat" || options?.resumeUnsentDraft === true || !threadId) return false;
-      const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-      return draft !== undefined && composerDraftHasUnsentContent(draft);
+    // Match Claude desktop's single-draft New chat flow: clicking New chat returns to
+    // the project's existing chat draft (preserving typed text, attachments, and selected
+    // toggles/models) rather than spawning duplicate empty drafts. Explicit fresh flows
+    // (options.fresh === true) still mint a new draft and park the previous one.
+    const findReusableOpenUnsentChatDraft = (): ProjectDraftThread | null => {
+      if (entryPoint !== "chat") return null;
+      const draftState = useComposerDraftStore.getState();
+      const openTabIds = useOpenThreadTabsStore.getState().threadIds;
+      for (const tabThreadId of openTabIds) {
+        if (hasActiveComposerSend(tabThreadId)) continue;
+        const candidate = draftState.draftThreadsByThreadId[tabThreadId];
+        if (
+          !candidate ||
+          candidate.projectId !== projectId ||
+          candidate.entryPoint !== "chat" ||
+          candidate.promotedTo !== undefined
+        ) {
+          continue;
+        }
+        const composerDraft = draftState.draftsByThreadId[tabThreadId];
+        if (composerDraft && composerThreadDraftIsPending(composerDraft)) {
+          return { threadId: tabThreadId, ...candidate };
+        }
+      }
+      return null;
     };
 
-    const storedDraftThreadCandidate = getDraftThreadByProjectId(projectId, entryPoint);
+    const primaryStoredDraftCandidate = getDraftThreadByProjectId(projectId, entryPoint);
+    const primaryStoredDraftComposer = primaryStoredDraftCandidate
+      ? useComposerDraftStore.getState().draftsByThreadId[primaryStoredDraftCandidate.threadId]
+      : undefined;
+    const primaryStoredDraftHasContent =
+      primaryStoredDraftComposer !== undefined &&
+      composerDraftHasUnsentContent(primaryStoredDraftComposer);
+    const storedDraftThreadCandidate =
+      entryPoint === "chat" && !primaryStoredDraftHasContent
+        ? (findReusableOpenUnsentChatDraft() ?? primaryStoredDraftCandidate)
+        : primaryStoredDraftCandidate;
     const latestActiveDraftThreadCandidate: DraftThreadState | null = focusedThreadId
       ? getDraftThread(focusedThreadId)
       : null;
     const storedDraftThread =
       !shouldForceFreshThread &&
       !wantsTemporaryThread &&
-      !(storedDraftThreadCandidate && hasActiveComposerSend(storedDraftThreadCandidate.threadId)) &&
-      !holdsUnsentChatContent(storedDraftThreadCandidate?.threadId) &&
-      storedDraftThreadCandidate?.isTemporary !== true
+      !(storedDraftThreadCandidate && hasActiveComposerSend(storedDraftThreadCandidate.threadId))
         ? storedDraftThreadCandidate
         : null;
     const latestActiveDraftThread: DraftThreadState | null =
       !shouldForceFreshThread &&
       !wantsTemporaryThread &&
-      !(focusedThreadId && hasActiveComposerSend(focusedThreadId)) &&
-      !holdsUnsentChatContent(focusedThreadId) &&
-      latestActiveDraftThreadCandidate?.isTemporary !== true
+      !(focusedThreadId && hasActiveComposerSend(focusedThreadId))
         ? latestActiveDraftThreadCandidate
         : null;
     const bootstrapPlan = resolveThreadBootstrapPlan({
@@ -1285,16 +1314,24 @@ export function useHandleNewThread() {
         let resolvedStoredDraftThread: DraftThreadState | null = bootstrapPlan.draftThread;
         const shouldPreserveStoredTerminalContext =
           entryPoint === "terminal" && bootstrapPlan.draftThread.entryPoint === "terminal";
-        const draftContextPatch = shouldPreserveStoredTerminalContext
-          ? null
-          : buildDraftThreadContextPatch(entryPoint, options);
+        const shouldPreserveUnsentChatContext =
+          entryPoint === "chat" &&
+          preservedComposerDraft !== null &&
+          composerDraftHasUnsentContent(preservedComposerDraft);
+        const draftContextPatch =
+          shouldPreserveStoredTerminalContext || shouldPreserveUnsentChatContext
+            ? null
+            : buildDraftThreadContextPatch(entryPoint, options);
         const creationOptions = shouldPreserveStoredTerminalContext ? undefined : options;
         if (draftContextPatch) {
           setDraftThreadContext(bootstrapPlan.threadId, draftContextPatch);
           resolvedStoredDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        setProjectDraftThreadId(projectId, bootstrapPlan.threadId, { entryPoint });
+        setProjectDraftThreadId(projectId, bootstrapPlan.threadId, {
+          entryPoint,
+          ...(entryPoint === "chat" ? { preservePreviousDraft: true } : {}),
+        });
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (focusedThreadId === bootstrapPlan.threadId || shouldSkipNavigation) {
@@ -1339,13 +1376,22 @@ export function useHandleNewThread() {
         const preservedComposerDraft =
           useComposerDraftStore.getState().draftsByThreadId[bootstrapPlan.threadId] ?? null;
         let resolvedActiveDraftThread: DraftThreadState | null = bootstrapPlan.draftThread;
-        const draftContextPatch = buildDraftThreadContextPatch(entryPoint, options);
+        const shouldPreserveUnsentChatContext =
+          entryPoint === "chat" &&
+          preservedComposerDraft !== null &&
+          composerDraftHasUnsentContent(preservedComposerDraft);
+        const draftContextPatch = shouldPreserveUnsentChatContext
+          ? null
+          : buildDraftThreadContextPatch(entryPoint, options);
         if (draftContextPatch) {
           setDraftThreadContext(bootstrapPlan.threadId, draftContextPatch);
           resolvedActiveDraftThread = getDraftThread(bootstrapPlan.threadId);
         }
         applyProviderOverride(bootstrapPlan.threadId);
-        setProjectDraftThreadId(projectId, bootstrapPlan.threadId, { entryPoint });
+        setProjectDraftThreadId(projectId, bootstrapPlan.threadId, {
+          entryPoint,
+          ...(entryPoint === "chat" ? { preservePreviousDraft: true } : {}),
+        });
         restoreComposerDraft(bootstrapPlan.threadId, preservedComposerDraft);
         activateThreadEntryPoint(bootstrapPlan.threadId);
         if (entryPoint === "terminal") {

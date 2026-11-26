@@ -6,6 +6,7 @@ import { parseSessionUpdateEvent } from "./AcpRuntimeModel.ts";
 import { loadAcpSessionNotificationValidator } from "./AcpSdk.ts";
 import {
   antigravityInteractionQuestion,
+  antigravitySupportsTurnSteering,
   buildAntigravityAcpSpawnInput,
   chooseAntigravityAcpModel,
   normalizeAntigravityToolCallUpdate,
@@ -243,5 +244,21 @@ describe("Antigravity ACP support", () => {
     ).toBe("gemini-api-key");
     const exit = Effect.runSyncExit(resolveAntigravityAcpAuthMethodId(initialize, {}));
     expect(Exit.isFailure(exit)).toBe(true);
+  });
+
+  it("enables native turn steering only for Antigravity CLI 1.5.0+", () => {
+    const init = (name?: string, version?: string) =>
+      ({
+        protocolVersion: 1,
+        ...(name || version ? { agentInfo: { name: name ?? "", version: version ?? "" } } : {}),
+      }) as Acp.InitializeResponse;
+
+    expect(antigravitySupportsTurnSteering(init("agy", "1.5.0"))).toBe(true);
+    expect(antigravitySupportsTurnSteering(init("Antigravity CLI", "v1.5.18+build.1"))).toBe(true);
+    expect(antigravitySupportsTurnSteering(init("agy", "2.0.0"))).toBe(true);
+    expect(antigravitySupportsTurnSteering(init("agy", "1.4.9"))).toBe(false);
+    expect(antigravitySupportsTurnSteering(init("agy", "1.5.0-beta.1"))).toBe(false);
+    expect(antigravitySupportsTurnSteering(init("other-agent", "1.5.0"))).toBe(false);
+    expect(antigravitySupportsTurnSteering(init())).toBe(false);
   });
 });

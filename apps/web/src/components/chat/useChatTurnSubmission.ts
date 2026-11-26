@@ -38,8 +38,10 @@ import { appendBrowserAnnotationsToPrompt } from "../../lib/browserAnnotations";
 import { appendPastedTextsToPrompt } from "../../lib/composerPastedText";
 import {
   findPendingBlobComposerAttachments,
+  findPendingBlobComposerFiles,
   formatOutgoingComposerPrompt,
   hydratePendingBlobComposerAttachments,
+  hydratePendingBlobComposerFiles,
   readFileAsDataUrl,
   stageUploadComposerAttachments,
 } from "../../lib/composerSend";
@@ -463,7 +465,9 @@ export function useChatTurnSubmission({
           (composerEditorRef.current?.readSnapshot().value ?? promptRef.current).trim().length >
             0 ||
           composerImages.length > 0 ||
-          composerFiles.length > 0,
+          composerFiles.length > 0 ||
+          (useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.persistedFiles
+            ?.length ?? 0) > 0,
       });
       if (sendDecision.kind === "refuse") {
         if (sendDecision.reason !== null) {
@@ -607,7 +611,35 @@ export function useChatTurnSubmission({
           }
         }
       }
-      const composerFilesForSend = queuedChatTurn?.files ?? composerFiles;
+      let composerFilesForSend =
+        queuedChatTurn?.files ??
+        useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.files ??
+        composerFiles;
+      // Persisted composer files also live in IndexedDB and hydrate asynchronously
+      // after reload. Hydrate any still-pending entries before sending, and abort
+      // without clearing the draft if a blob cannot be restored.
+      if (queuedChatTurn === null) {
+        const pendingBlobFiles = findPendingBlobComposerFiles({
+          persistedFiles:
+            useComposerDraftStore.getState().draftsByThreadId[activeThread.id]?.persistedFiles ??
+            [],
+          files: composerFilesForSend,
+        });
+        if (pendingBlobFiles.length > 0) {
+          const hydratedPendingFiles = await hydratePendingBlobComposerFiles(pendingBlobFiles);
+          if (hydratedPendingFiles.length !== pendingBlobFiles.length) {
+            toastManager.add({
+              type: "error",
+              title: "Could not restore saved files",
+              description: "Retry or remove them before sending.",
+            });
+            return false;
+          }
+          if (hydratedPendingFiles.length > 0) {
+            composerFilesForSend = [...composerFilesForSend, ...hydratedPendingFiles];
+          }
+        }
+      }
       if (hasPendingCacheReview()) return false;
       const composerAssistantSelectionsForSend =
         queuedChatTurn?.assistantSelections ?? composerAssistantSelections;

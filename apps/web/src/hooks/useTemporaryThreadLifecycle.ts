@@ -40,7 +40,12 @@ export function useTemporaryThreadLifecycle(activeThreadId: ThreadId | null): vo
 
   useEffect(() => {
     const previousThreadState = previousThreadStateRef.current;
-    const draftThreadsByThreadId = useComposerDraftStore.getState().draftThreadsByThreadId;
+    const composerDraftState = useComposerDraftStore.getState();
+    const draftThreadsByThreadId = composerDraftState.draftThreadsByThreadId;
+    const storeState = useStore.getState();
+    const previousThreadHasServerThread = previousThreadState.threadId
+      ? Boolean(getThreadFromState(storeState, previousThreadState.threadId))
+      : false;
     previousThreadStateRef.current = {
       threadId: activeThreadId,
       wasTemporary: activeThreadId
@@ -53,7 +58,11 @@ export function useTemporaryThreadLifecycle(activeThreadId: ThreadId | null): vo
       previousThreadId: previousThreadState.threadId,
       nextThreadId: activeThreadId,
       previousThreadWasTemporary: previousThreadState.wasTemporary,
+      previousThreadHasServerThread,
       draftThreadsByThreadId,
+      ...(composerDraftState.draftsByThreadId
+        ? { draftsByThreadId: composerDraftState.draftsByThreadId }
+        : {}),
     });
     if (!temporaryThreadId || disposingThreadIdsRef.current.has(temporaryThreadId)) {
       return;

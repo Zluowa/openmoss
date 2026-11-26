@@ -235,6 +235,7 @@ import Migration0170 from "./Migrations/170_ProjectionThreadsPullRequestLinks.ts
 import Migration0171 from "./Migrations/171_PageAssistantThread.ts";
 import Migration0172 from "./Migrations/172_ProjectionThreadsListedAfterFirstSend.ts";
 import Migration0173 from "./Migrations/173_ProjectionThreadsCanvasEditedAt.ts";
+import Migration0174 from "./Migrations/174_ProjectionThreadSessionSteering.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -422,6 +423,7 @@ export const migrationEntries = [
   [171, "PageAssistantThread", Migration0171],
   [172, "ProjectionThreadsListedAfterFirstSend", Migration0172],
   [173, "ProjectionThreadsCanvasEditedAt", Migration0173],
+  [174, "ProjectionThreadSessionSteering", Migration0174],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
@@ -488,6 +490,10 @@ export const MIGRATIONS_OLDER_READERS_MAY_IGNORE: ReadonlyArray<readonly [number
   // `thread.meta-updated` as an optional field older decoders drop; older builds upsert threads
   // by named columns and never touch it, and the newer upsert keeps the first value.
   [173, "ProjectionThreadsCanvasEditedAt"],
+  // A new nullable `supports_native_turn_steering`, no backfill (null: unknown/fallback). It
+  // rides on `thread.session-set` as an optional field older decoders drop; older builds upsert
+  // sessions by named columns and never touch it, and newer live sessions re-negotiate on start.
+  [174, "ProjectionThreadSessionSteering"],
 ];
 
 /**

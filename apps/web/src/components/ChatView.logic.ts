@@ -1819,8 +1819,10 @@ export function steerInterruptsLiveTurn(
   requestedProvider: ProviderKind,
 ): boolean {
   return (
-    !providerSupportsNativeTurnSteering(thread?.session?.provider ?? requestedProvider) ||
-    steerSkipsLiveCompaction(thread)
+    !providerSupportsNativeTurnSteering(
+      thread?.session?.provider ?? requestedProvider,
+      thread?.session?.supportsNativeTurnSteering,
+    ) || steerSkipsLiveCompaction(thread)
   );
 }
 

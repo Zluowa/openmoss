@@ -26,8 +26,11 @@ import {
   DRAFT_ATTACHMENT_SLOT,
   PROMPT_HISTORY_ATTACHMENT_SLOT,
   composerFileDedupKey,
+  deleteDraftComposerFileBlobs,
   deleteDraftComposerImageBlobs,
+  deletePersistedComposerFileBlobs,
   deletePersistedComposerImageBlobs,
+  findSupersededComposerFileBlobAttachments,
   mergeComposerImages,
   revokeDraftComposerImagePreviewUrls,
   revokeDraftPreviewUrls,
@@ -42,6 +45,7 @@ import {
   type ComposerImageAttachment,
   type ComposerThreadDraftState,
   type DraftThreadState,
+  type PersistedComposerFileAttachment,
   type PersistedComposerImageAttachment,
   assistantSelectionDedupKey,
   buildDraftThreadState,
@@ -86,11 +90,32 @@ import {
 import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
 import {
   availableComposerAttachmentSlots,
+  composerFileConsumesAttachmentSlot,
   composerImageConsumesAttachmentSlot,
   effectiveComposerAttachmentCount,
 } from "./lib/composerAttachmentCapacity";
 import { buildModelSelection } from "./providerModelOptions";
 import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
+
+function arePersistedFilesEqual(
+  left: readonly PersistedComposerFileAttachment[],
+  right: readonly PersistedComposerFileAttachment[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((file, index) => {
+      const other = right[index];
+      return (
+        other !== undefined &&
+        file.id === other.id &&
+        file.name === other.name &&
+        file.mimeType === other.mimeType &&
+        file.sizeBytes === other.sizeBytes &&
+        file.blobKey === other.blobKey
+      );
+    })
+  );
+}
 
 function removeDraftThreadIfUnmapped(input: {
   threadId: ThreadId | undefined;
@@ -126,6 +151,7 @@ function removeDraftThreadIfUnmapped(input: {
 
   revokeDraftPreviewUrls(removedDraft);
   deleteDraftComposerImageBlobs(removedDraft, input.getDraftsByThreadId);
+  deleteDraftComposerFileBlobs(removedDraft, input.getDraftsByThreadId);
   const nextDraftsByThreadId = { ...input.draftsByThreadId };
   delete nextDraftsByThreadId[input.threadId];
   return {
@@ -506,6 +532,7 @@ export const createComposerDraftStoreState =
       const removedDraft = get().draftsByThreadId[threadId];
       revokeDraftPreviewUrls(removedDraft);
       deleteDraftComposerImageBlobs(removedDraft, () => get().draftsByThreadId);
+      deleteDraftComposerFileBlobs(removedDraft, () => get().draftsByThreadId);
       set((state) => {
         const hasDraftThread = state.draftThreadsByThreadId[threadId] !== undefined;
         const hasProjectMapping = Object.values(state.projectDraftThreadIdByProjectId).includes(
@@ -647,6 +674,10 @@ export const createComposerDraftStoreState =
               existing.promptHistorySavedDraft.persistedAttachments,
               () => get().draftsByThreadId,
             );
+            deletePersistedComposerFileBlobs(
+              existing.promptHistorySavedDraft.persistedFiles ?? [],
+              () => get().draftsByThreadId,
+            );
           }
         }
         const nextDraft: ComposerThreadDraftState = {
@@ -658,6 +689,7 @@ export const createComposerDraftStoreState =
                 files: [],
                 nonPersistedImageIds: [],
                 persistedAttachments: [],
+                persistedFiles: [],
                 assistantSelections: [],
                 browserAnnotations: [],
                 terminalContexts: [],
@@ -702,6 +734,7 @@ export const createComposerDraftStoreState =
           files: [...savedDraft.files],
           nonPersistedImageIds: [...savedDraft.nonPersistedImageIds],
           persistedAttachments: [...savedDraft.persistedAttachments],
+          persistedFiles: [...(savedDraft.persistedFiles ?? [])],
           assistantSelections: normalizeAssistantSelections(savedDraft.assistantSelections),
           browserAnnotations: normalizeBrowserAnnotations(savedDraft.browserAnnotations),
           terminalContexts: normalizeTerminalContextsForThread(
@@ -768,6 +801,94 @@ export const createComposerDraftStoreState =
         PROMPT_HISTORY_ATTACHMENT_SLOT,
         flushPersistStorage,
       ),
+    addPromptHistorySavedDraftFiles: (threadId, files) => {
+      if (threadId.length === 0 || files.length === 0) {
+        return 0;
+      }
+      let insertedCount = 0;
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const savedDraft = current?.promptHistorySavedDraft ?? null;
+        if (!current || !savedDraft) {
+          return state;
+        }
+        let availableSlots = availableComposerAttachmentSlots(savedDraft);
+        const existingIds = new Set(savedDraft.files.map((file) => file.id));
+        const existingDedupKeys = new Set(
+          savedDraft.files.map((file) => composerFileDedupKey(file)),
+        );
+        const dedupedIncoming: ComposerFileAttachment[] = [];
+        for (const file of files) {
+          const dedupKey = composerFileDedupKey(file);
+          if (existingIds.has(file.id) || existingDedupKeys.has(dedupKey)) {
+            continue;
+          }
+          const consumesSlot = composerFileConsumesAttachmentSlot(savedDraft, file.id);
+          if (consumesSlot && availableSlots === 0) {
+            continue;
+          }
+          dedupedIncoming.push(file);
+          if (consumesSlot) {
+            availableSlots -= 1;
+          }
+          existingIds.add(file.id);
+          existingDedupKeys.add(dedupKey);
+        }
+        if (dedupedIncoming.length === 0) {
+          return state;
+        }
+        insertedCount = dedupedIncoming.length;
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: {
+              ...current,
+              promptHistorySavedDraft: {
+                ...savedDraft,
+                files: [...savedDraft.files, ...dedupedIncoming],
+              },
+            },
+          },
+        };
+      });
+      return insertedCount;
+    },
+    syncPromptHistorySavedDraftPersistedFiles: (threadId, files) => {
+      if (threadId.length === 0) {
+        return;
+      }
+      const existing = get().draftsByThreadId[threadId]?.promptHistorySavedDraft;
+      if (!existing) {
+        return;
+      }
+      const previousFiles = existing.persistedFiles ?? [];
+      if (arePersistedFilesEqual(previousFiles, files)) {
+        return;
+      }
+      const supersededFiles = findSupersededComposerFileBlobAttachments(previousFiles, files);
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        const savedDraft = current?.promptHistorySavedDraft ?? null;
+        if (!current || !savedDraft) {
+          return state;
+        }
+        const nextDraft: ComposerThreadDraftState = {
+          ...current,
+          promptHistorySavedDraft: {
+            ...savedDraft,
+            persistedFiles: files,
+          },
+        };
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) {
+          delete nextDraftsByThreadId[threadId];
+        } else {
+          nextDraftsByThreadId[threadId] = nextDraft;
+        }
+        return { draftsByThreadId: nextDraftsByThreadId };
+      });
+      deletePersistedComposerFileBlobs(supersededFiles, () => get().draftsByThreadId);
+    },
     setTerminalContexts: (threadId, contexts) => {
       if (threadId.length === 0) {
         return;
@@ -1550,13 +1671,18 @@ export const createComposerDraftStoreState =
         const existingDedupKeys = new Set(existing.files.map((file) => composerFileDedupKey(file)));
         const dedupedIncoming: ComposerFileAttachment[] = [];
         for (const file of files) {
-          if (availableSlots === 0) break;
           const dedupKey = composerFileDedupKey(file);
           if (existingIds.has(file.id) || existingDedupKeys.has(dedupKey)) {
             continue;
           }
+          const consumesSlot = composerFileConsumesAttachmentSlot(existing, file.id);
+          if (consumesSlot && availableSlots === 0) {
+            continue;
+          }
           dedupedIncoming.push(file);
-          availableSlots -= 1;
+          if (consumesSlot) {
+            availableSlots -= 1;
+          }
           existingIds.add(file.id);
           existingDedupKeys.add(dedupKey);
         }
@@ -1580,6 +1706,13 @@ export const createComposerDraftStoreState =
       if (threadId.length === 0) {
         return;
       }
+      const existing = get().draftsByThreadId[threadId];
+      const removedPersistedFile = (existing?.persistedFiles ?? []).find(
+        (file) => file.id === fileId,
+      );
+      if (removedPersistedFile) {
+        deletePersistedComposerFileBlobs([removedPersistedFile], () => get().draftsByThreadId);
+      }
       set((state) => {
         const current = state.draftsByThreadId[threadId];
         if (!current) {
@@ -1588,6 +1721,7 @@ export const createComposerDraftStoreState =
         const nextDraft: ComposerThreadDraftState = {
           ...current,
           files: current.files.filter((file) => file.id !== fileId),
+          persistedFiles: (current.persistedFiles ?? []).filter((file) => file.id !== fileId),
         };
         const nextDraftsByThreadId = { ...state.draftsByThreadId };
         if (shouldRemoveDraft(nextDraft)) {
@@ -2184,6 +2318,67 @@ export const createComposerDraftStoreState =
         DRAFT_ATTACHMENT_SLOT,
         flushPersistStorage,
       ),
+    clearPersistedFiles: (threadId) => {
+      if (threadId.length === 0) {
+        return;
+      }
+      const existing = get().draftsByThreadId[threadId];
+      if (existing) {
+        deletePersistedComposerFileBlobs(
+          existing.persistedFiles ?? [],
+          () => get().draftsByThreadId,
+        );
+      }
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        if (!current) {
+          return state;
+        }
+        const nextDraft: ComposerThreadDraftState = {
+          ...current,
+          persistedFiles: [],
+        };
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) {
+          delete nextDraftsByThreadId[threadId];
+        } else {
+          nextDraftsByThreadId[threadId] = nextDraft;
+        }
+        return { draftsByThreadId: nextDraftsByThreadId };
+      });
+    },
+    syncPersistedFiles: (threadId, files) => {
+      if (threadId.length === 0) {
+        return;
+      }
+      const existing = get().draftsByThreadId[threadId];
+      if (!existing) {
+        return;
+      }
+      const previousFiles = existing.persistedFiles ?? [];
+      if (arePersistedFilesEqual(previousFiles, files)) {
+        return;
+      }
+      const supersededFiles = findSupersededComposerFileBlobAttachments(previousFiles, files);
+      set((state) => {
+        const current = state.draftsByThreadId[threadId];
+        if (!current) {
+          return state;
+        }
+        const nextDraft: ComposerThreadDraftState = {
+          ...current,
+          persistedFiles: files,
+        };
+        const nextDraftsByThreadId = { ...state.draftsByThreadId };
+        if (shouldRemoveDraft(nextDraft)) {
+          delete nextDraftsByThreadId[threadId];
+        } else {
+          nextDraftsByThreadId[threadId] = nextDraft;
+        }
+        return { draftsByThreadId: nextDraftsByThreadId };
+      });
+      deletePersistedComposerFileBlobs(supersededFiles, () => get().draftsByThreadId);
+    },
     copyTransferableComposerState: (sourceThreadId, targetThreadId) => {
       if (sourceThreadId.length === 0 || targetThreadId.length === 0) {
         return;
@@ -2236,6 +2431,7 @@ export const createComposerDraftStoreState =
       }
       const clearedDraft = get().draftsByThreadId[threadId];
       deleteDraftComposerImageBlobs(clearedDraft, () => get().draftsByThreadId);
+      deleteDraftComposerFileBlobs(clearedDraft, () => get().draftsByThreadId);
       if (options?.preservePreviewUrls !== true) {
         revokeDraftComposerImagePreviewUrls(clearedDraft);
       }
@@ -2252,6 +2448,7 @@ export const createComposerDraftStoreState =
           files: [],
           nonPersistedImageIds: [],
           persistedAttachments: [],
+          persistedFiles: [],
           assistantSelections: [],
           browserAnnotations: [],
           terminalContexts: [],

@@ -427,6 +427,7 @@ export type ThreadRealtimeClosedPayload = typeof ThreadRealtimeClosedPayload.Typ
 const TurnStartedPayload = Schema.Struct({
   model: Schema.optional(TrimmedNonEmptyStringSchema),
   effort: Schema.optional(TrimmedNonEmptyStringSchema),
+  supportsNativeTurnSteering: Schema.optional(Schema.Boolean),
 });
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 

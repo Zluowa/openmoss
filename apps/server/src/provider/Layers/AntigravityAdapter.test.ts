@@ -4,6 +4,7 @@ import {
   ApprovalRequestId,
   PROVIDER_CLI_DEFAULT_MODEL,
   ThreadId,
+  TurnId,
   type ProviderRuntimeEvent,
 } from "@moss/contracts";
 import { Deferred, Effect, Fiber, Layer, Queue, Stream } from "effect";
@@ -14,7 +15,8 @@ import {
   AgentGatewayCredentials,
   type AgentGatewayCredentialsShape,
 } from "../../agentGateway/Services/AgentGatewayCredentials";
-import type * as AcpErrors from "../acp/AcpErrors";
+import * as AcpErrors from "../acp/AcpErrors";
+import { ProviderAdapterValidationError } from "../Errors";
 import type { AcpParsedSessionEvent, AcpToolCallState } from "../acp/AcpRuntimeModel";
 import type { AntigravityAcpRuntimeInput } from "../acp/AntigravityAcpSupport";
 import { EMPTY_ANTIGRAVITY_CHILD_ACTIVITY } from "../acp/AntigravityChildWork";
@@ -45,6 +47,7 @@ const MODELS = {
 function makeControllableRuntime(
   options: {
     readonly sessionSetupMethod?: "new" | "load" | "resume";
+    readonly agentVersion?: string;
     readonly onCancel?: (emit: (event: AcpParsedSessionEvent) => void) => void;
   } = {},
 ) {
@@ -52,10 +55,11 @@ function makeControllableRuntime(
   const exited = Effect.runSync(Deferred.make<void>());
   const requests: Array<{ readonly method: string; readonly payload: unknown }> = [];
   const prompts: Array<ReadonlyArray<Acp.ContentBlock>> = [];
+  const promptOptions: Array<{ readonly continueActiveTurn?: boolean } | undefined> = [];
   const runtimeInputs: AntigravityAcpRuntimeInput[] = [];
+  const pendingPrompts: Array<Deferred.Deferred<Acp.PromptResponse, AcpErrors.AcpError>> = [];
   let enqueued = 0;
   let cancels = 0;
-  let pendingPrompt: Deferred.Deferred<Acp.PromptResponse, AcpErrors.AcpError> | undefined;
   let permissionHandler:
     | ((
         params: Acp.RequestPermissionRequest,
@@ -66,8 +70,15 @@ function makeControllableRuntime(
     enqueued += 1;
     Effect.runSync(Queue.offer(events, event));
   };
-  const finishPrompt = (stopReason: Acp.StopReason) =>
-    Effect.runSync(Deferred.succeed(pendingPrompt!, { stopReason }));
+  const finishPrompt = (stopReason: Acp.StopReason, index = pendingPrompts.length - 1) =>
+    Effect.runSync(Deferred.succeed(pendingPrompts[index]!, { stopReason }));
+  const rejectPrompt = (index: number, errorMessage = "Steering was rejected") =>
+    Effect.runSync(
+      Deferred.fail(
+        pendingPrompts[index]!,
+        new AcpErrors.AcpRequestError({ code: -32602, errorMessage }),
+      ),
+    );
 
   const runtime = {
     ...makeFakeAcpSessionRuntime({ sessionId: SESSION_ID }),
@@ -83,24 +94,35 @@ function makeControllableRuntime(
     start: () =>
       Effect.succeed({
         sessionId: SESSION_ID,
-        initializeResult: { protocolVersion: 1 } as Acp.InitializeResponse,
+        initializeResult: {
+          protocolVersion: 1,
+          ...(options.agentVersion
+            ? { agentInfo: { name: "agy", version: options.agentVersion } }
+            : {}),
+        } as Acp.InitializeResponse,
         sessionSetupResult: { sessionId: SESSION_ID, models: MODELS } as Acp.NewSessionResponse,
         modelConfigId: "model",
         sessionSetupMethod: options.sessionSetupMethod ?? "new",
       }),
     getEvents: () => Stream.fromQueue(events),
     sessionUpdatesEnqueuedCount: Effect.sync(() => enqueued),
-    prompt: (payload: { readonly prompt: ReadonlyArray<Acp.ContentBlock> }) =>
+    prompt: (
+      payload: { readonly prompt: ReadonlyArray<Acp.ContentBlock> },
+      opts?: { readonly continueActiveTurn?: boolean },
+    ) =>
       Effect.gen(function* () {
         prompts.push(payload.prompt);
-        pendingPrompt = yield* Deferred.make<Acp.PromptResponse, AcpErrors.AcpError>();
+        promptOptions.push(opts);
+        const pendingPrompt = yield* Deferred.make<Acp.PromptResponse, AcpErrors.AcpError>();
+        pendingPrompts.push(pendingPrompt);
         return yield* Deferred.await(pendingPrompt);
       }),
     cancel: Effect.sync(() => {
       cancels += 1;
       options.onCancel?.(emit);
-      if (pendingPrompt)
+      for (const pendingPrompt of pendingPrompts) {
         Effect.runSync(Deferred.succeed(pendingPrompt, { stopReason: "cancelled" }));
+      }
     }),
     request: (method: string, payload: unknown) =>
       Effect.sync(() => {
@@ -118,10 +140,12 @@ function makeControllableRuntime(
     makeRuntime,
     emit,
     finishPrompt,
+    rejectPrompt,
     triggerExit: () => Effect.runSync(Deferred.succeed(exited, undefined)),
     requestPermission: (params: Acp.RequestPermissionRequest) => permissionHandler!(params),
     requests,
     prompts,
+    promptOptions,
     runtimeInputs,
     cancels: () => cancels,
   };
@@ -131,7 +155,7 @@ const toolCall = (
   toolCallId: string,
   status: NonNullable<AcpToolCallState["status"]>,
   rawInput: Record<string, unknown> = { CommandLine: "sleep 8; echo bgdone" },
-): AcpParsedSessionEvent => ({
+): Extract<AcpParsedSessionEvent, { _tag: "ToolCallUpdated" }> => ({
   _tag: "ToolCallUpdated",
   toolCall: {
     toolCallId,
@@ -439,6 +463,200 @@ describe("Antigravity ACP adapter", () => {
         .pipe(Effect.flip),
     );
     expect(String((failure as Error).message)).toContain("could not resume");
+  });
+
+  it("steers a live agy 1.5+ turn with a second session/prompt without calling session/cancel", async () => {
+    const fake = makeControllableRuntime({ agentVersion: "1.5.1" });
+    const events = await runWithAdapter({ makeRuntime: fake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-steer-live");
+        const session = yield* adapter.startSession(startInput(threadId));
+        expect(session.supportsNativeTurnSteering).toBe(true);
+        const collector = yield* collectTurn(adapter);
+        // Let the forked PubSub subscriber attach before sendTurn emits turn.started.
+        yield* Effect.sleep("20 millis");
+        const turn = yield* adapter.sendTurn({ threadId, input: "Initial task", attachments: [] });
+        yield* Effect.sleep("20 millis");
+        expect(fake.prompts).toHaveLength(1);
+
+        const steered = yield* adapter.steerTurn!(
+          { threadId, input: "Also check the tests", attachments: [] },
+          { expectedTurnId: turn.turnId },
+        );
+        expect(steered.turnId).toBe(turn.turnId);
+        expect(fake.prompts).toHaveLength(2);
+        expect(fake.promptOptions[1]).toEqual({ continueActiveTurn: true });
+        expect(fake.cancels()).toBe(0);
+
+        // Even when the original prompt returns end_turn first, the turn stays
+        // open until the in-flight steer prompt settles.
+        fake.finishPrompt("end_turn", 0);
+        yield* Effect.sleep("80 millis");
+        fake.emit(assistantText("Checked the tests."));
+        fake.finishPrompt("end_turn", 1);
+        return yield* Fiber.join(collector).pipe(Effect.timeout("3 seconds"));
+      }),
+    );
+
+    const turnStarted = events.find((event) => event.type === "turn.started");
+    expect(turnStarted?.payload).toMatchObject({ supportsNativeTurnSteering: true });
+    expect(events.at(-1)).toMatchObject({
+      type: "turn.completed",
+      payload: { state: "completed", stopReason: "end_turn" },
+    });
+    expect(fake.cancels()).toBe(0);
+  });
+
+  it.each([
+    { state: "cancelled", toolError: undefined },
+    { state: "failed", toolError: "The steered build failed." },
+  ] as const)(
+    "preserves steer prompt terminal outcome during background wait (state=$state)",
+    async ({ state, toolError }) => {
+      const fake = makeControllableRuntime({ agentVersion: "1.5.1" });
+      const { events, turnId } = await runWithAdapter(
+        { makeRuntime: fake.makeRuntime },
+        (adapter) =>
+          Effect.gen(function* () {
+            const threadId = ThreadId.makeUnsafe(`thread-agy-steer-bg-${state}`);
+            yield* adapter.startSession(startInput(threadId));
+            const collector = yield* collectTurn(adapter);
+            const turn = yield* adapter.sendTurn({
+              threadId,
+              input: "start background build",
+              attachments: [],
+            });
+            fake.emit(toolCall("call-bg", "inProgress"));
+            yield* Effect.sleep("30 millis");
+            fake.finishPrompt("end_turn", 0);
+            yield* Effect.sleep("80 millis");
+
+            yield* adapter.steerTurn!(
+              { threadId, input: "Check the build", attachments: [] },
+              { expectedTurnId: turn.turnId },
+            );
+            const tool = toolCall("call-bg", toolError ? "failed" : "completed");
+            fake.emit({
+              ...tool,
+              toolCall: { ...tool.toolCall, ...(toolError ? { detail: toolError } : {}) },
+            });
+            fake.finishPrompt("cancelled", 1);
+            const collected = yield* Fiber.join(collector).pipe(Effect.timeout("3 seconds"));
+            return { events: collected, turnId: turn.turnId };
+          }),
+      );
+
+      expect(events.at(-1)).toMatchObject({
+        type: "turn.completed",
+        turnId,
+        payload: {
+          state,
+          stopReason: "cancelled",
+          ...(toolError ? { errorMessage: toolError } : {}),
+        },
+      });
+    },
+  );
+
+  it("rejects steerTurn with turn/steer.stale on <1.5.0 sessions or mismatched turn ids", async () => {
+    const oldFake = makeControllableRuntime({ agentVersion: "1.4.9" });
+    await runWithAdapter({ makeRuntime: oldFake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-steer-old");
+        const session = yield* adapter.startSession(startInput(threadId));
+        expect(session.supportsNativeTurnSteering).toBe(false);
+        const turn = yield* adapter.sendTurn({ threadId, input: "Run", attachments: [] });
+        yield* Effect.sleep("20 millis");
+        const error = yield* adapter.steerTurn!(
+          { threadId, input: "Steer", attachments: [] },
+          { expectedTurnId: turn.turnId },
+        ).pipe(Effect.flip);
+        expect(error).toBeInstanceOf(ProviderAdapterValidationError);
+        expect((error as ProviderAdapterValidationError).operation).toBe("turn/steer.stale");
+        oldFake.finishPrompt("end_turn", 0);
+      }),
+    );
+
+    const newFake = makeControllableRuntime({ agentVersion: "1.5.1" });
+    await runWithAdapter({ makeRuntime: newFake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-steer-stale");
+        yield* adapter.startSession(startInput(threadId));
+        yield* adapter.sendTurn({ threadId, input: "Run", attachments: [] });
+        yield* Effect.sleep("20 millis");
+        const error = yield* adapter.steerTurn!(
+          { threadId, input: "Steer", attachments: [] },
+          { expectedTurnId: TurnId.makeUnsafe("wrong-turn-id") },
+        ).pipe(Effect.flip);
+        expect(error).toBeInstanceOf(ProviderAdapterValidationError);
+        expect((error as ProviderAdapterValidationError).operation).toBe("turn/steer.stale");
+        newFake.finishPrompt("end_turn", 0);
+      }),
+    );
+  });
+
+  it("reports a rejected steer prompt via onSteerDeliveryFailure without failing the active turn", async () => {
+    const fake = makeControllableRuntime({ agentVersion: "1.5.1" });
+    const reportedFailures: string[] = [];
+    const events = await runWithAdapter({ makeRuntime: fake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-steer-reject");
+        yield* adapter.startSession(startInput(threadId));
+        const collector = yield* collectTurn(adapter);
+        const turn = yield* adapter.sendTurn({ threadId, input: "First", attachments: [] });
+        yield* Effect.sleep("20 millis");
+
+        yield* adapter.steerTurn!(
+          { threadId, input: "Steer", attachments: [] },
+          {
+            expectedTurnId: turn.turnId,
+            onSteerDeliveryFailure: (detail) =>
+              Effect.sync(() => {
+                reportedFailures.push(detail);
+              }),
+          },
+        );
+        fake.rejectPrompt(1, "Steering was rejected");
+        yield* Effect.sleep("30 millis");
+        fake.finishPrompt("end_turn", 0);
+        return yield* Fiber.join(collector).pipe(Effect.timeout("3 seconds"));
+      }),
+    );
+
+    expect(reportedFailures).toEqual([expect.stringContaining("Steering was rejected")]);
+    expect(events.at(-1)).toMatchObject({
+      type: "turn.completed",
+      payload: { state: "completed", stopReason: "end_turn" },
+    });
+  });
+
+  it("cancels an active steer when interruptTurn stops a background-waiting turn", async () => {
+    const fake = makeControllableRuntime({ agentVersion: "1.5.1" });
+    const events = await runWithAdapter({ makeRuntime: fake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-steer-cancel");
+        yield* adapter.startSession(startInput(threadId));
+        const collector = yield* collectTurn(adapter);
+        const turn = yield* adapter.sendTurn({ threadId, input: "build", attachments: [] });
+        fake.emit(toolCall("call-build", "inProgress", { CommandLine: "npm run build" }));
+        yield* Effect.sleep("30 millis");
+        fake.finishPrompt("end_turn", 0);
+        yield* Effect.sleep("80 millis");
+
+        yield* adapter.steerTurn!(
+          { threadId, input: "focus on tests", attachments: [] },
+          { expectedTurnId: turn.turnId },
+        );
+        yield* adapter.interruptTurn(threadId, turn.turnId);
+        return yield* Fiber.join(collector).pipe(Effect.timeout("2 seconds"));
+      }),
+    );
+
+    expect(events.at(-1)).toMatchObject({
+      type: "turn.completed",
+      payload: { state: "cancelled" },
+    });
+    expect(fake.cancels()).toBe(1);
   });
 
   it("settles a user interrupt as cancelled even when agy fails an aborted command", async () => {

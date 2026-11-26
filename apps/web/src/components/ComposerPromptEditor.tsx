@@ -984,6 +984,7 @@ function ComposerPromptEditorInner({
     terminalContextIds: terminalContexts.map((context) => context.id),
   });
   const isApplyingControlledUpdateRef = useRef(false);
+  const controlledUpdateTokenRef = useRef(0);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -1040,20 +1041,30 @@ function ComposerPromptEditorInner({
       return;
     }
 
+    const updateToken = ++controlledUpdateTokenRef.current;
     isApplyingControlledUpdateRef.current = true;
-    editor.update(() => {
-      const shouldRewriteEditorState =
-        previousSnapshot.value !== value || contextsChanged || mentionsChanged;
-      if (shouldRewriteEditorState) {
-        $setComposerEditorPrompt(value, terminalContexts, mentionReferences);
+    let cleared = false;
+    const clearControlledUpdate = () => {
+      if (cleared) return;
+      cleared = true;
+      if (controlledUpdateTokenRef.current === updateToken) {
+        isApplyingControlledUpdateRef.current = false;
       }
-      if (shouldRewriteEditorState || isFocused) {
-        $setSelectionAtComposerOffset(normalizedCursor);
-      }
-    });
-    queueMicrotask(() => {
-      isApplyingControlledUpdateRef.current = false;
-    });
+    };
+    editor.update(
+      () => {
+        const shouldRewriteEditorState =
+          previousSnapshot.value !== value || contextsChanged || mentionsChanged;
+        if (shouldRewriteEditorState) {
+          $setComposerEditorPrompt(value, terminalContexts, mentionReferences);
+        }
+        if (shouldRewriteEditorState || isFocused) {
+          $setSelectionAtComposerOffset(normalizedCursor);
+        }
+      },
+      { onUpdate: clearControlledUpdate },
+    );
+    queueMicrotask(clearControlledUpdate);
   }, [
     cursor,
     editor,

@@ -6136,7 +6136,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
             const routed = yield* resolveRoutableSession({
               threadId: input.threadId,
               operation: "ProviderService.steerTurn",
-              allowRecovery: true,
+              allowRecovery: options?.expectedTurnId === undefined,
             });
             if (
               !routed.adapter.steerTurn ||

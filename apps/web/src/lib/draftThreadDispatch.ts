@@ -53,7 +53,9 @@ import {
 import {
   stageUploadComposerAttachments,
   findPendingBlobComposerAttachments,
+  findPendingBlobComposerFiles,
   hydratePendingBlobComposerAttachments,
+  hydratePendingBlobComposerFiles,
   formatOutgoingComposerPrompt,
   resolvePromptEffortFromModelSelection,
 } from "./composerSend";
@@ -415,7 +417,20 @@ async function dispatchDraftThreadOnce(
   }
   const composerImages = [...liveComposerImages, ...hydratedPendingImages];
 
-  const composerFiles = draftComposerState?.files ?? [];
+  const liveComposerFiles = draftComposerState?.files ?? [];
+  const pendingFiles = findPendingBlobComposerFiles({
+    persistedFiles: draftComposerState?.persistedFiles ?? [],
+    files: liveComposerFiles,
+  });
+  const hydratedPendingFiles = await hydratePendingBlobComposerFiles(pendingFiles);
+  if (hydratedPendingFiles.length !== pendingFiles.length) {
+    return {
+      kind: "error",
+      message:
+        "Could not restore saved files. Open the chat to retry or remove them before sending.",
+    };
+  }
+  const composerFiles = [...liveComposerFiles, ...hydratedPendingFiles];
   const composerAssistantSelections = draftComposerState?.assistantSelections ?? [];
   const composerBrowserAnnotations = draftComposerState?.browserAnnotations ?? [];
   const composerFileComments = draftComposerState?.fileComments ?? [];

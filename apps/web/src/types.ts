@@ -436,6 +436,7 @@ export interface ThreadSession {
   /** Mode the live provider process was started with. The thread's runtimeMode can move ahead of it. */
   runtimeMode?: RuntimeMode;
   providerInstanceId?: ProviderInstanceId;
+  supportsNativeTurnSteering?: boolean;
   status: SessionPhase | "error" | "closed";
   activeTurnId?: TurnId | undefined;
   createdAt: string;

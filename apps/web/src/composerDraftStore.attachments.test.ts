@@ -1165,4 +1165,68 @@ describe("composerDraftStore syncPersistedAttachments", () => {
       persistedState.draftsByThreadId?.[threadId]?.attachments?.[0]?.source,
     ).not.toHaveProperty("appIconDataUrl");
   });
+
+  it("persists, rehydrates, and cleans up non-image composer file attachment metadata", () => {
+    const file = new File(["report body"], "report.txt", { type: "text/plain" });
+    useComposerDraftStore.getState().addFiles(threadId, [
+      {
+        type: "file",
+        id: "file-1",
+        name: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: file.size,
+        file,
+      },
+    ]);
+    useComposerDraftStore.getState().syncPersistedFiles(threadId, [
+      {
+        id: "file-1",
+        name: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: file.size,
+        blobKey: `${threadId}:file-1`,
+      },
+    ]);
+
+    const persistedState = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    expect(persistedState.draftsByThreadId[threadId]?.files).toEqual([
+      {
+        id: "file-1",
+        name: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: file.size,
+        blobKey: `${threadId}:file-1`,
+      },
+    ]);
+
+    const persistApi = (
+      useComposerDraftStore as unknown as {
+        persist: {
+          getOptions: () => {
+            merge: (
+              persisted: unknown,
+              current: ReturnType<typeof useComposerDraftStore.getInitialState>,
+            ) => ReturnType<typeof useComposerDraftStore.getInitialState>;
+          };
+        };
+      }
+    ).persist;
+    const mergedState = persistApi
+      .getOptions()
+      .merge(persistedState, useComposerDraftStore.getInitialState());
+
+    expect(mergedState.draftsByThreadId[threadId]?.files).toEqual([]);
+    expect(mergedState.draftsByThreadId[threadId]?.persistedFiles).toEqual([
+      {
+        id: "file-1",
+        name: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: file.size,
+        blobKey: `${threadId}:file-1`,
+      },
+    ]);
+
+    useComposerDraftStore.getState().removeFile(threadId, "file-1");
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
 });

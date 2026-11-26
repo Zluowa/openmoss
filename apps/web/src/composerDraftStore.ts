@@ -43,7 +43,9 @@ import {
 } from "./lib/storage";
 
 export {
+  findSupersededComposerFileBlobAttachments,
   findSupersededComposerImageBlobAttachments,
+  isComposerFileBlobReferenced,
   isComposerImageBlobReferenced,
 } from "./composerDraftAttachments";
 export {
@@ -51,6 +53,7 @@ export {
   composerThreadDraftIsPending,
   COMPOSER_DRAFT_STORAGE_KEY,
   COMPOSER_DRAFT_STORAGE_VERSION,
+  PersistedComposerFileAttachment,
   PersistedComposerImageAttachment,
 } from "./composerDraftDomain";
 export type {

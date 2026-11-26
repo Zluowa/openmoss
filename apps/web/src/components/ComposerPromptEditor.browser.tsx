@@ -1,6 +1,7 @@
 import "../index.css";
 
 import { createRef, useRef, useState, type ComponentProps } from "react";
+import { flushSync } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 import { cleanup, render } from "vitest-browser-react";
@@ -456,5 +457,94 @@ describe("composer prediction ghost", () => {
         expect(mounted.editor.getAttribute("aria-placeholder")).toBe(longSuggestion);
       },
     );
+  });
+});
+
+describe("rapid controlled thread switches", () => {
+  it("does not echo stale onChange onto a newly switched thread and stays editable", async () => {
+    type ThreadKey = "threadA" | "threadB" | "threadC";
+    const drafts: Record<ThreadKey, string> = {
+      threadA: "Draft for thread A",
+      threadB: "Draft for thread B",
+      threadC: "Draft for thread C",
+    };
+    const changes: Array<{ thread: ThreadKey; value: string }> = [];
+    let currentThread: ThreadKey = "threadA";
+    let setActiveThreadExternal!: (next: ThreadKey) => void;
+
+    function MultiThreadHarness() {
+      const [activeThread, setActiveThread] = useState<ThreadKey>("threadA");
+      const [values, setValues] = useState<Record<ThreadKey, string>>({ ...drafts });
+      const activeThreadRef = useRef<ThreadKey>(activeThread);
+      activeThreadRef.current = activeThread;
+      currentThread = activeThread;
+      setActiveThreadExternal = (next: ThreadKey) => {
+        activeThreadRef.current = next;
+        currentThread = next;
+        setActiveThread(next);
+      };
+      return (
+        <ComposerPromptEditor
+          value={values[activeThread]}
+          cursor={values[activeThread].length}
+          terminalContexts={[]}
+          disabled={false}
+          placeholder="Prompt"
+          onRemoveTerminalContext={() => {}}
+          onPaste={() => {}}
+          onChange={(nextValue) => {
+            const target = activeThreadRef.current;
+            changes.push({ thread: target, value: nextValue });
+            drafts[target] = nextValue;
+            setValues((prev) => ({ ...prev, [target]: nextValue }));
+          }}
+        />
+      );
+    }
+
+    await render(<MultiThreadHarness />);
+    const editorElement = page.getByTestId("composer-editor").element() as HTMLElement;
+    await expect.poll(() => editorElement.textContent).toBe("Draft for thread A");
+
+    // Focus the editor and rapidly switch controlled values within the same tick
+    // and across immediate microtasks — mirroring rapid sidebar thread switching.
+    editorElement.focus();
+    changes.length = 0;
+
+    flushSync(() => setActiveThreadExternal("threadB"));
+    flushSync(() => setActiveThreadExternal("threadC"));
+    flushSync(() => setActiveThreadExternal("threadA"));
+    flushSync(() => setActiveThreadExternal("threadB"));
+    await Promise.resolve();
+    flushSync(() => setActiveThreadExternal("threadC"));
+    await nextFrame();
+    await nextFrame();
+
+    expect(currentThread).toBe("threadC");
+    expect(changes).toEqual([]);
+    expect(drafts).toEqual({
+      threadA: "Draft for thread A",
+      threadB: "Draft for thread B",
+      threadC: "Draft for thread C",
+    });
+    await expect.poll(() => editorElement.textContent).toBe("Draft for thread C");
+
+    // Switching immediately after a pending native paste in the same tick must
+    // never echo the previous thread's text into the newly selected thread.
+    paste(" stale-paste");
+    flushSync(() => setActiveThreadExternal("threadA"));
+    await nextFrame();
+    await nextFrame();
+
+    expect(currentThread).toBe("threadA");
+    expect(drafts.threadA).toBe("Draft for thread A");
+    await expect.poll(() => editorElement.textContent).toBe("Draft for thread A");
+
+    // Controlled-update suppression must cleanly unlock so typing still calls onChange.
+    await page.getByTestId("composer-editor").click();
+    await userEvent.keyboard("!");
+    await expect.poll(() => drafts.threadA).toBe("Draft for thread A!");
+    expect(drafts.threadB).toBe("Draft for thread B");
+    expect(drafts.threadC).toBe("Draft for thread C");
   });
 });

@@ -6730,9 +6730,7 @@ export default function ChatView({
         activeThread,
         activeDraftThread:
           draftThread ??
-          (pendingProjectDraft &&
-          pendingProjectDraft.isTemporary !== true &&
-          !hasActiveComposerSend(pendingProjectDraft.threadId)
+          (pendingProjectDraft && !hasActiveComposerSend(pendingProjectDraft.threadId)
             ? pendingProjectDraft
             : null),
       }),

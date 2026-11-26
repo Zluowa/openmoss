@@ -95,6 +95,16 @@ export const PersistedComposerImageAttachment = Schema.Struct({
 
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
+export const PersistedComposerFileAttachment = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  mimeType: Schema.String,
+  sizeBytes: Schema.Finite,
+  blobKey: Schema.String,
+});
+
+export type PersistedComposerFileAttachment = typeof PersistedComposerFileAttachment.Type;
+
 export type ComposerAttachmentPersistenceResult = "persisted" | "rejected" | "unverified";
 
 export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
@@ -113,6 +123,7 @@ export interface ComposerPromptHistorySavedDraft {
   files: ComposerFileAttachment[];
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
+  persistedFiles?: PersistedComposerFileAttachment[];
   assistantSelections: ComposerAssistantSelectionAttachment[];
   browserAnnotations: BrowserAnnotationDraft[];
   terminalContexts: TerminalContextDraft[];
@@ -195,6 +206,7 @@ export interface ComposerThreadDraftState {
   files: ComposerFileAttachment[];
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
+  persistedFiles?: PersistedComposerFileAttachment[];
   assistantSelections: ComposerAssistantSelectionAttachment[];
   browserAnnotations: BrowserAnnotationDraft[];
   terminalContexts: TerminalContextDraft[];
@@ -341,10 +353,15 @@ export interface ComposerDraftStoreState {
   ) => void;
   restorePromptHistorySavedDraft: (threadId: ThreadId) => void;
   addPromptHistorySavedDraftImage: (threadId: ThreadId, image: ComposerImageAttachment) => boolean;
+  addPromptHistorySavedDraftFiles: (threadId: ThreadId, files: ComposerFileAttachment[]) => number;
   syncPromptHistorySavedDraftPersistedAttachments: (
     threadId: ThreadId,
     attachments: PersistedComposerImageAttachment[],
   ) => Promise<ComposerAttachmentPersistenceResult>;
+  syncPromptHistorySavedDraftPersistedFiles: (
+    threadId: ThreadId,
+    files: PersistedComposerFileAttachment[],
+  ) => void;
   setTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
   setSkills: (threadId: ThreadId, skills: ProviderSkillReference[]) => void;
   setMentions: (threadId: ThreadId, mentions: ProviderMentionReference[]) => void;
@@ -447,6 +464,8 @@ export interface ComposerDraftStoreState {
     threadId: ThreadId,
     attachments: PersistedComposerImageAttachment[],
   ) => Promise<ComposerAttachmentPersistenceResult>;
+  clearPersistedFiles: (threadId: ThreadId) => void;
+  syncPersistedFiles: (threadId: ThreadId, files: PersistedComposerFileAttachment[]) => void;
   copyTransferableComposerState: (sourceThreadId: ThreadId, targetThreadId: ThreadId) => void;
   setRestoredSourceProposedPlan: (
     threadId: ThreadId,
@@ -604,6 +623,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     files: [],
     nonPersistedImageIds: [],
     persistedAttachments: [],
+    persistedFiles: [],
     assistantSelections: [],
     browserAnnotations: [],
     terminalContexts: [],
@@ -824,6 +844,7 @@ export function captureComposerPromptHistorySavedDraft(input: {
     files: [...draft.files],
     nonPersistedImageIds: [...draft.nonPersistedImageIds],
     persistedAttachments: [...draft.persistedAttachments],
+    persistedFiles: [...(draft.persistedFiles ?? [])],
     assistantSelections: normalizeAssistantSelections(draft.assistantSelections),
     browserAnnotations: normalizeBrowserAnnotations(draft.browserAnnotations),
     terminalContexts: normalizeTerminalContextsForThread(threadId, draft.terminalContexts),
@@ -853,6 +874,7 @@ export function buildTransferredComposerDraft(input: {
     files: [...sourceDraft.files],
     nonPersistedImageIds: [...sourceDraft.nonPersistedImageIds],
     persistedAttachments: [...sourceDraft.persistedAttachments],
+    persistedFiles: [...(sourceDraft.persistedFiles ?? [])],
     assistantSelections: normalizeAssistantSelections(sourceDraft.assistantSelections),
     browserAnnotations: normalizeBrowserAnnotations(sourceDraft.browserAnnotations),
     terminalContexts: normalizeTerminalContextsForThread(
@@ -901,6 +923,7 @@ function clonePromptHistorySavedDraft(
     files: [...savedDraft.files],
     nonPersistedImageIds: [...savedDraft.nonPersistedImageIds],
     persistedAttachments: [...savedDraft.persistedAttachments],
+    persistedFiles: [...(savedDraft.persistedFiles ?? [])],
     assistantSelections: normalizeAssistantSelections(savedDraft.assistantSelections),
     browserAnnotations: normalizeBrowserAnnotations(savedDraft.browserAnnotations),
     terminalContexts: normalizeTerminalContextsForThread(
@@ -923,6 +946,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.images.length === 0 &&
     draft.files.length === 0 &&
     draft.persistedAttachments.length === 0 &&
+    (draft.persistedFiles?.length ?? 0) === 0 &&
     draft.assistantSelections.length === 0 &&
     draft.browserAnnotations.length === 0 &&
     draft.terminalContexts.length === 0 &&
@@ -945,7 +969,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
   );
 }
 
-/** Compare cleanup ownership without treating image persistence bookkeeping as an edit. */
+/** Compare cleanup ownership without treating image/file persistence bookkeeping as an edit. */
 export function composerDraftsMatchForCleanup(
   current: ComposerThreadDraftState | null | undefined,
   captured: ComposerThreadDraftState | null | undefined,
@@ -954,23 +978,32 @@ export function composerDraftsMatchForCleanup(
   if (!current || !captured) return false;
   const {
     persistedAttachments: currentPersisted,
+    persistedFiles: currentPersistedFiles = [],
     nonPersistedImageIds: _currentIds,
     ...currentState
   } = current;
   const {
     persistedAttachments: capturedPersisted,
+    persistedFiles: capturedPersistedFiles = [],
     nonPersistedImageIds: _capturedIds,
     ...capturedState
   } = captured;
   // Keep identities for every actual content field, including File objects, and for
   // model/runtime/queue changes: failed-create rollback removes the whole draft.
   if (!shallow(currentState, capturedState)) return false;
-  // Persisted-only images are still recoverable content before hydration. Ignore
-  // metadata churn only for images already represented by the identical live array.
+  // Persisted-only images and files are still recoverable content before hydration. Ignore
+  // metadata churn only for attachments already represented by the identical live arrays.
   const liveImageIds = new Set(captured.images.map((image) => image.id));
-  return shallow(
-    currentPersisted.filter((attachment) => !liveImageIds.has(attachment.id)),
-    capturedPersisted.filter((attachment) => !liveImageIds.has(attachment.id)),
+  const liveFileIds = new Set(captured.files.map((file) => file.id));
+  return (
+    shallow(
+      currentPersisted.filter((attachment) => !liveImageIds.has(attachment.id)),
+      capturedPersisted.filter((attachment) => !liveImageIds.has(attachment.id)),
+    ) &&
+    shallow(
+      currentPersistedFiles.filter((file) => !liveFileIds.has(file.id)),
+      capturedPersistedFiles.filter((file) => !liveFileIds.has(file.id)),
+    )
   );
 }
 
@@ -985,12 +1018,13 @@ export function composerDraftHasAttachments(
     | "assistantSelections"
     | "fileComments"
   > &
-    Partial<Pick<ComposerThreadDraftState, "browserAnnotations">>,
+    Partial<Pick<ComposerThreadDraftState, "browserAnnotations" | "persistedFiles">>,
 ): boolean {
   return (
     draft.images.length > 0 ||
     draft.files.length > 0 ||
     draft.persistedAttachments.length > 0 ||
+    (draft.persistedFiles?.length ?? 0) > 0 ||
     draft.terminalContexts.some((context) => context.text.trim().length > 0) ||
     draft.assistantSelections.length > 0 ||
     (draft.browserAnnotations?.length ?? 0) > 0 ||
@@ -1067,6 +1101,7 @@ const EMPTY_IMAGES: ComposerImageAttachment[] = [];
 const EMPTY_FILES: ComposerFileAttachment[] = [];
 const EMPTY_IDS: string[] = [];
 const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
+const EMPTY_PERSISTED_FILES: PersistedComposerFileAttachment[] = [];
 const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
 const EMPTY_BROWSER_ANNOTATIONS: BrowserAnnotationDraft[] = [];
 const EMPTY_PASTED_TEXTS: PastedTextDraft[] = [];
@@ -1078,6 +1113,7 @@ Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_FILES);
 Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
+Object.freeze(EMPTY_PERSISTED_FILES);
 Object.freeze(EMPTY_TERMINAL_CONTEXTS);
 Object.freeze(EMPTY_BROWSER_ANNOTATIONS);
 Object.freeze(EMPTY_PASTED_TEXTS);
@@ -1094,6 +1130,7 @@ const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   files: EMPTY_FILES,
   nonPersistedImageIds: EMPTY_IDS,
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
+  persistedFiles: EMPTY_PERSISTED_FILES,
   assistantSelections: [],
   browserAnnotations: EMPTY_BROWSER_ANNOTATIONS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,

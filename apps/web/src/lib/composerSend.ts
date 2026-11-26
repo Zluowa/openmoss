@@ -26,8 +26,10 @@ import {
   type ComposerAssistantSelectionAttachment,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
+  type PersistedComposerFileAttachment,
   type PersistedComposerImageAttachment,
 } from "../composerDraftDomain";
+import { readComposerFileBlob } from "./composerFileBlobStore";
 import { readComposerImageBlob } from "./composerImageBlobStore";
 import {
   ComposerImagePreparationError,
@@ -458,4 +460,44 @@ export async function hydratePendingBlobComposerAttachments(
     }),
   );
   return hydrated.filter((image): image is ComposerImageAttachment => image !== null);
+}
+
+/**
+ * Persisted file attachments that back an IndexedDB blob but have not yet
+ * hydrated into the live `files` array.
+ */
+export function findPendingBlobComposerFiles(input: {
+  persistedFiles: ReadonlyArray<PersistedComposerFileAttachment>;
+  files: ReadonlyArray<ComposerFileAttachment>;
+}): PersistedComposerFileAttachment[] {
+  const hydratedFileIds = new Set(input.files.map((file) => file.id));
+  return input.persistedFiles.filter(
+    (file) => file.blobKey.length > 0 && !hydratedFileIds.has(file.id),
+  );
+}
+
+export async function hydratePendingBlobComposerFiles(
+  pending: ReadonlyArray<PersistedComposerFileAttachment>,
+): Promise<ComposerFileAttachment[]> {
+  const hydrated = await Promise.all(
+    pending.map(async (attachment): Promise<ComposerFileAttachment | null> => {
+      if (!attachment.blobKey) return null;
+      try {
+        const file = await readComposerFileBlob(attachment.blobKey);
+        if (!file) return null;
+        return {
+          type: "file",
+          id: attachment.id,
+          name: attachment.name,
+          mimeType: attachment.mimeType,
+          sizeBytes: attachment.sizeBytes,
+          file,
+        };
+      } catch (error) {
+        console.warn("[composer-send] Could not hydrate a pending file before send", error);
+        return null;
+      }
+    }),
+  );
+  return hydrated.filter((file): file is ComposerFileAttachment => file !== null);
 }

@@ -12,9 +12,14 @@ import {
 } from "../pendingTurnDispatch";
 import { runComposerSendOnce } from "./composerSendOwnership";
 import { waitForDraftThreadDispatchToSettle } from "./draftThreadDispatch";
+import * as composerFileBlobStore from "./composerFileBlobStore";
 import * as composerImageBlobStore from "./composerImageBlobStore";
 import { createEmptyThreadDraft } from "../composerDraftDomain";
-import type { PersistedComposerImageAttachment } from "../composerDraftStore";
+import type {
+  PersistedComposerFileAttachment,
+  PersistedComposerImageAttachment,
+} from "../composerDraftStore";
+import { translateZhCnPresentationText } from "../localization/zhCN";
 import type { SidebarThreadSummary } from "../types";
 import { dispatchKanbanDraftThread, dispatchKanbanDraftThreadAsGoal } from "./kanbanDispatch";
 
@@ -394,6 +399,102 @@ describe("kanbanDispatch persisted image attachments", () => {
       expect(stagedImages).toHaveLength(1);
       expect(stagedImages?.[0]?.id).toBe("appsnap-saved-1");
       expect(stagedImages?.[0]?.file).toBe(blobFile);
+    },
+  );
+});
+
+describe("kanbanDispatch persisted file attachments", () => {
+  beforeEach(() => {
+    resetComposerDraftStore();
+    nativeApiMocks.dispatchCommand.mockReset();
+    nativeApiMocks.stagedUploads.length = 0;
+    nativeApiMocks.runWithDispatch.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each(["accepted", "refused", "unreadable"] as const)(
+    "hydrates saved files or returns a localized error when dispatch is %s",
+    async (outcome) => {
+      const threadId = ThreadId.makeUnsafe("thread-persisted-file");
+      const projectId = ProjectId.makeUnsafe("project-persisted-file");
+      useComposerDraftStore.getState().setPrompt(threadId, "Prompt with saved files");
+      const persistedFirst: PersistedComposerFileAttachment = {
+        id: "saved-file-1",
+        name: "spec.txt",
+        mimeType: "text/plain",
+        sizeBytes: 5,
+        blobKey: "thread-persisted-file:saved-file-1",
+      };
+      const persistedSecond: PersistedComposerFileAttachment = {
+        id: "saved-file-2",
+        name: "notes.md",
+        mimeType: "text/markdown",
+        sizeBytes: 6,
+        blobKey: "thread-persisted-file:saved-file-2",
+      };
+      useComposerDraftStore.setState((state) => {
+        const draft = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+        return {
+          draftsByThreadId: {
+            ...state.draftsByThreadId,
+            [threadId]: { ...draft, persistedFiles: [persistedFirst, persistedSecond] },
+          },
+        };
+      });
+      const firstFile = new File(["hello"], "spec.txt", { type: "text/plain" });
+      const secondFile = new File(["second"], "notes.md", { type: "text/markdown" });
+      vi.spyOn(composerFileBlobStore, "readComposerFileBlob").mockImplementation(async (key) => {
+        if (key === persistedFirst.blobKey) return firstFile;
+        if (key === persistedSecond.blobKey) return outcome === "unreadable" ? null : secondFile;
+        return null;
+      });
+
+      if (outcome === "refused") {
+        nativeApiMocks.dispatchCommand.mockRejectedValue(new Error("Turn refused"));
+      }
+      const result = await dispatchKanbanDraftThread({
+        threadId,
+        projectId,
+        thread: { id: threadId, projectId } as unknown as SidebarThreadSummary,
+        defaultProvider: "codex",
+        assistantDeliveryMode: "buffered",
+      });
+
+      expect(result.kind).toBe(outcome === "accepted" ? "dispatched" : "error");
+      if (outcome === "unreadable") {
+        expect(result).toEqual({
+          kind: "error",
+          message:
+            "Could not restore saved files. Open the chat to retry or remove them before sending.",
+        });
+        expect(translateZhCnPresentationText(result.kind === "error" ? result.message : "")).toBe(
+          "无法恢复已保存的文件。请打开对话重试，或在发送前移除它们。",
+        );
+        expect(
+          translateZhCnPresentationText(
+            "Could not restore saved images. Open the chat to retry or remove them before sending.",
+          ),
+        ).toBe("无法恢复已保存的图片。请打开对话重试，或在发送前移除它们。");
+        expect(nativeApiMocks.dispatchCommand).not.toHaveBeenCalled();
+        expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.persistedFiles).toEqual(
+          [persistedFirst, persistedSecond],
+        );
+        expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
+          "Prompt with saved files",
+        );
+        return;
+      }
+      const stagedFiles = nativeApiMocks.stagedUploads.at(-1)?.files as
+        | ReadonlyArray<{ id: string; file: File }>
+        | undefined;
+      expect(stagedFiles).toHaveLength(2);
+      expect(stagedFiles?.map((entry) => [entry.id, entry.file])).toEqual([
+        ["saved-file-1", firstFile],
+        ["saved-file-2", secondFile],
+      ]);
     },
   );
 });

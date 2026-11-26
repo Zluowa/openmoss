@@ -3139,6 +3139,9 @@ const make = Effect.gen(function* () {
                 : session.status,
           providerName: session.provider,
           providerInstanceId: session.providerInstanceId ?? desiredProviderInstanceId,
+          ...(session.supportsNativeTurnSteering !== undefined
+            ? { supportsNativeTurnSteering: session.supportsNativeTurnSteering }
+            : {}),
           runtimeMode: desiredRuntimeMode,
           // Provider turn ids are not orchestration turn ids.
           activeTurnId: null,
@@ -3802,6 +3805,7 @@ const make = Effect.gen(function* () {
     readonly runtimeMode?: RuntimeMode;
     readonly interactionMode?: ProviderInteractionMode;
     readonly dispatchMode?: "queue" | "steer";
+    readonly antigravitySteeringSession?: ProviderSession;
     readonly turnKind?: "user" | "goal-continuation";
     readonly createdAt: string;
     readonly cacheReviewSource?: Extract<
@@ -3822,6 +3826,31 @@ const make = Effect.gen(function* () {
         }),
       ),
     );
+    // An Antigravity steer owns the existing process and model until the active turn settles.
+    const antigravitySteer = input.antigravitySteeringSession;
+    const antigravitySteerOptions = (expectedTurnId: TurnId) => ({
+      expectedTurnId,
+      onSteerDeliveryFailure: (detail: string) =>
+        appendProviderFailureActivity({
+          threadId: input.threadId,
+          kind: "provider.turn.start.failed",
+          summary: "Antigravity could not deliver the steering message.",
+          detail,
+          turnId: null,
+          messageId: MessageId.makeUnsafe(input.messageId),
+          provider: "antigravity",
+          createdAt: new Date().toISOString(),
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("could not record Antigravity steering delivery failure", {
+              threadId: input.threadId,
+              messageId: input.messageId,
+              cause,
+            }),
+          ),
+          Effect.asVoid,
+        ),
+    });
     // Ultra-fast native steer path (aligned with Codex Desktop's lightweight
     // `"steer"` preparation vs heavy `"start"` preparation): when steering a
     // genuinely live non-subagent turn on the same provider & account, skip
@@ -3875,7 +3904,11 @@ const make = Effect.gen(function* () {
           liveSession &&
           sameProviderAndAccount &&
           !hasPendingClaudeSpawnChange &&
-          providerSupportsNativeTurnSteering(liveSession.provider)
+          (!antigravitySteer || liveSession.provider === "antigravity") &&
+          providerSupportsNativeTurnSteering(
+            liveSession.provider,
+            liveSession.supportsNativeTurnSteering,
+          )
         ) {
           const fastProvider = liveSession.provider as ProviderKind;
           const projectContextPacket = Option.isSome(projectAgentService)
@@ -4024,7 +4057,7 @@ const make = Effect.gen(function* () {
                   operation: "thread.turn.start",
                 })
               : [];
-          if (input.modelSelection !== undefined) {
+          if (input.modelSelection !== undefined && !antigravitySteer) {
             threadSessionModelSelections.set(input.threadId, input.modelSelection);
           }
           const requestedModelSelection =
@@ -4039,16 +4072,24 @@ const make = Effect.gen(function* () {
             ...(threadMentionProjection.providerMentions !== undefined
               ? { mentions: threadMentionProjection.providerMentions }
               : {}),
-            ...(requestedModelSelection !== undefined
+            ...(requestedModelSelection !== undefined && !antigravitySteer
               ? { modelSelection: requestedModelSelection }
               : {}),
             ...(input.interactionMode !== undefined
               ? { interactionMode: input.interactionMode }
               : {}),
           };
+          const antigravityExpectedTurnId =
+            antigravitySteer?.activeTurnId ??
+            (fastProvider === "antigravity" ? liveSession.activeTurnId : undefined);
           const dispatchFastSteer = Effect.gen(function* () {
             yield* markProviderTurnDispatched(input);
-            return yield* providerService.steerTurn(turnInput);
+            return yield* antigravityExpectedTurnId !== undefined
+              ? providerService.steerTurn(
+                  turnInput,
+                  antigravitySteerOptions(antigravityExpectedTurnId),
+                )
+              : providerService.steerTurn(turnInput);
           });
           return yield* providerWorkspaceCwd
             ? withCancelableClaudeCompactionLease(
@@ -4305,18 +4346,30 @@ const make = Effect.gen(function* () {
       nativeSessionRestarted,
       computerControlRestartDeferred,
       forkComputerControl,
-    } = yield* awaitClaudeCompactionPreparation(
-      ensureSessionForThread(input.threadId, input.createdAt, {
-        ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
-        ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
-        ...(input.dispatchMode === "steer" ? { isSteer: true } : { enableComputerControl }),
-        ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
-        ...(registerPriorTranscriptBootstrapOnFreshStart
-          ? { registerPriorTranscriptBootstrapOnFreshStart: true }
-          : {}),
-      }),
-      input.claudeCompactionCancellation,
-    );
+    } = antigravitySteer
+      ? {
+          activeSessionBeforeEnsure: antigravitySteer,
+          activeSession: antigravitySteer,
+          nativeResumeSucceeded: false,
+          nativeResumeFailed: false,
+          nativeSessionRestarted: false,
+          computerControlRestartDeferred: false,
+          forkComputerControl: undefined,
+        }
+      : yield* awaitClaudeCompactionPreparation(
+          ensureSessionForThread(input.threadId, input.createdAt, {
+            ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
+            ...(input.providerOptions !== undefined
+              ? { providerOptions: input.providerOptions }
+              : {}),
+            ...(input.dispatchMode === "steer" ? { isSteer: true } : { enableComputerControl }),
+            ...(input.runtimeMode !== undefined ? { runtimeMode: input.runtimeMode } : {}),
+            ...(registerPriorTranscriptBootstrapOnFreshStart
+              ? { registerPriorTranscriptBootstrapOnFreshStart: true }
+              : {}),
+          }),
+          input.claudeCompactionCancellation,
+        );
     // The session returned by ensureSessionForThread is authoritative. A
     // stopped projected session can still name the old provider after a model
     // switch until the projection catches up with the newly started session.
@@ -4811,7 +4864,7 @@ const make = Effect.gen(function* () {
       ...(normalizedAttachments.length > 0 ? { attachments: normalizedAttachments } : {}),
       ...(turnSkills !== undefined ? { skills: turnSkills } : {}),
       ...(providerMentions !== undefined ? { mentions: providerMentions } : {}),
-      ...(modelForTurn !== undefined ? { modelSelection: modelForTurn } : {}),
+      ...(modelForTurn !== undefined && !antigravitySteer ? { modelSelection: modelForTurn } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
     };
     // Baseline capture may time out, but provider execution must never bypass
@@ -5078,7 +5131,12 @@ const make = Effect.gen(function* () {
             ? providerService.steerTurn(turnInput, {
                 claudeCompactionCancellation: input.claudeCompactionCancellation,
               })
-            : providerService.steerTurn(turnInput);
+            : antigravitySteer?.activeTurnId
+              ? providerService.steerTurn(
+                  turnInput,
+                  antigravitySteerOptions(antigravitySteer.activeTurnId),
+                )
+              : providerService.steerTurn(turnInput);
         }),
       );
     } else {
@@ -5881,7 +5939,8 @@ const make = Effect.gen(function* () {
       // live provider turn. Steer-capable providers ride the live turn natively;
       // everything else re-queues and is promoted when the live turn settles.
       const providerName = thread.session?.providerName ?? thread.modelSelection.provider;
-      const liveTurnId = yield* resolveLiveProviderTurnId(event.payload.threadId);
+      const liveSession = yield* resolveLiveProviderSession(event.payload.threadId);
+      const liveTurnId = liveSession?.status === "running" ? liveSession.activeTurnId : undefined;
       const hasLiveTurn = liveTurnId !== undefined;
       // Steering is only meaningful against a live turn. The projection can
       // lag the runtime in the other direction too (turn already settled but
@@ -5908,7 +5967,10 @@ const make = Effect.gen(function* () {
       // gain tools merely because the composer consumed its activation chip.
       const isNativeSteer =
         event.payload.dispatchMode === "steer" &&
-        providerSupportsNativeTurnSteering(providerName) &&
+        providerSupportsNativeTurnSteering(
+          liveSession?.provider ?? providerName,
+          liveSession?.supportsNativeTurnSteering,
+        ) &&
         hasLiveTurn &&
         !requiresComputerProfile;
       if (event.payload.dispatchMode === "steer" && message.startsNewTurn !== !isNativeSteer) {
@@ -6042,6 +6104,9 @@ const make = Effect.gen(function* () {
       };
       const buildDispatchInput = (dispatchMode: "queue" | "steer") => ({
         cacheReviewSource: event,
+        ...(dispatchMode === "steer" && isNativeSteer && liveSession?.provider === "antigravity"
+          ? { antigravitySteeringSession: liveSession }
+          : {}),
         sourceEventSequence: event.sequence,
         completionEventSequence: deliveryEventSequence ?? event.sequence,
         ...(acceptedCacheReview ? { acceptedCacheReview } : {}),
@@ -6076,6 +6141,7 @@ const make = Effect.gen(function* () {
         createdAt: event.payload.createdAt,
       });
 
+      let steerFellBackToNewTurn = false;
       const handleDispatchFailure = (cause: Cause.Cause<unknown>) =>
         Cause.hasInterruptsOnly(cause)
           ? Effect.failCause(cause)
@@ -6090,6 +6156,8 @@ const make = Effect.gen(function* () {
                 cause.reasons.length === 1 &&
                 failure instanceof ProviderAdapterProcessError &&
                 failure.reason === "previous-runtime-not-stopped";
+              const failedAntigravitySteer =
+                isNativeSteer && !steerFellBackToNewTurn && liveSession?.provider === "antigravity";
               const detail = previousRuntimeNotStopped
                 ? PREVIOUS_RUNTIME_NOT_STOPPED_DETAIL
                 : Cause.pretty(cause);
@@ -6109,7 +6177,9 @@ const make = Effect.gen(function* () {
                 yield* appendProviderFailureActivity({
                   threadId: event.payload.threadId,
                   kind: "provider.turn.start.failed",
-                  summary: "Provider turn start failed",
+                  summary: failedAntigravitySteer
+                    ? "Antigravity could not deliver the steering message."
+                    : "Provider turn start failed",
                   detail,
                   turnId: null,
                   createdAt: event.payload.createdAt,
@@ -6117,6 +6187,18 @@ const make = Effect.gen(function* () {
                   messageId: event.payload.messageId,
                   provider: (event.payload.modelSelection ?? thread.modelSelection).provider,
                 });
+              }
+              // This request never entered the prompt queue. Its original turn already
+              // settled or was replaced; preserve that newer state instead of setting
+              // the session into error.
+              if (
+                failedAntigravitySteer ||
+                (failure instanceof ProviderAdapterValidationError &&
+                  failure.operation === "turn/steer.stale")
+              ) {
+                if (isPendingQueuedDispatch) yield* clearPendingQueuedDispatch;
+                if (event.payload.initialGoalStartedAt !== undefined) return;
+                return yield* Effect.failCause(cause);
               }
               // Restore the runtime's state after a refused reconfiguration or
               // cancelled native control. An optimistic starting row must not
@@ -6200,7 +6282,6 @@ const make = Effect.gen(function* () {
               return yield* Effect.failCause(cause);
             });
 
-      let steerFellBackToNewTurn = false;
       const startedTurn = yield* dispatchTurnForThread(
         buildDispatchInput(immediateDispatchMode),
       ).pipe(

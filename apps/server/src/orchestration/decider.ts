@@ -2976,7 +2976,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       // A manual compaction turn takes no steering input on any provider, so a
       // steer skips the compaction the same way.
       const steersLiveTurnNatively =
-        providerSupportsNativeTurnSteering(activeProvider) &&
+        providerSupportsNativeTurnSteering(
+          activeProvider,
+          targetThread.session?.supportsNativeTurnSteering,
+        ) &&
         !isManualCompactionTurnActive({
           activeTurnId: targetThread.session?.activeTurnId,
           activities: targetThread.activities,

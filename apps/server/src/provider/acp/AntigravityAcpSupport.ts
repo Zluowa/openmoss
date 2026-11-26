@@ -48,6 +48,15 @@ export interface AntigravityAcpModel {
 const ANTIGRAVITY_API_KEY_AUTH_METHOD_ID = "gemini-api-key";
 const ANTIGRAVITY_API_KEY_ENV_KEYS = ["GEMINI_API_KEY"] as const;
 
+/** 1.5.0 introduced live prompt injection. Unknown and prerelease versions use the fallback. */
+export function antigravitySupportsTurnSteering(initialize: Acp.InitializeResponse): boolean {
+  if (!/antigravity|\bagy\b/iu.test(initialize.agentInfo?.name ?? "")) return false;
+  const version = initialize.agentInfo?.version?.match(/^v?(\d+)\.(\d+)\.(\d+)(?:\+[\w.-]+)?$/u);
+  if (!version) return false;
+  const major = Number(version[1]);
+  return major > 1 || (major === 1 && Number(version[2]) >= 5);
+}
+
 export function buildAntigravityAcpSpawnInput(
   settings: AntigravityAcpRuntimeSettings | null | undefined,
   cwd: string,

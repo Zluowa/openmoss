@@ -2,7 +2,7 @@
 // Purpose: Prevents broken same-origin setup paths from reaching native external navigation.
 // Layer: Shared presentation metadata tests
 import { describe, expect, it } from "vitest";
-import { PROVIDER_DESCRIPTORS } from "./providerMetadata";
+import { PROVIDER_DESCRIPTORS, providerSupportsNativeTurnSteering } from "./providerMetadata";
 
 describe("agent setup guides", () => {
   it.each(PROVIDER_DESCRIPTORS)("gives $displayName an absolute HTTPS setup page", (provider) => {
@@ -16,5 +16,15 @@ describe("agent setup guides", () => {
     expect(PROVIDER_DESCRIPTORS.find((provider) => provider.kind === "cursor")?.setupDocsHref).toBe(
       "https://cursor.com/docs/cli/overview",
     );
+  });
+});
+
+describe("providerSupportsNativeTurnSteering", () => {
+  it("gates Antigravity native turn steering on the negotiated session capability", () => {
+    expect(providerSupportsNativeTurnSteering("antigravity")).toBe(false);
+    expect(providerSupportsNativeTurnSteering("antigravity", false)).toBe(false);
+    expect(providerSupportsNativeTurnSteering("antigravity", true)).toBe(true);
+    expect(providerSupportsNativeTurnSteering("codex")).toBe(true);
+    expect(providerSupportsNativeTurnSteering("grok")).toBe(false);
   });
 });
