@@ -620,19 +620,13 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
   const { toasts } = Toast.useToastManager<ThreadToastData>();
   const visibleThreadIds = useVisibleThreadIdsFromRoute();
   const isTop = position.startsWith("top");
-  const visibleToasts = (() => {
-    const routeVisibleToasts = toasts.filter((toast) =>
-      shouldRenderForActiveThread(toast.data, visibleThreadIds),
-    );
-    const activeToasts = routeVisibleToasts.filter((toast) => toast.transitionStatus !== "ending");
-    const endingToasts = routeVisibleToasts.filter((toast) => toast.transitionStatus === "ending");
-    // Base UI manager state is already newest-first. Keep that order for live
-    // toasts so the frontmost stacked card stays the newest actionable item,
-    // and only move ending toasts behind the live stack so exit animation
-    // remnants cannot steal the accessible/actionable front card.
-    return [...activeToasts, ...endingToasts];
-  })();
-  const visibleToastLayout = buildVisibleToastLayout(visibleToasts);
+  const routeVisibleToasts = toasts.filter((toast) =>
+    shouldRenderForActiveThread(toast.data, visibleThreadIds),
+  );
+  const activeToasts = routeVisibleToasts.filter((toast) => toast.transitionStatus !== "ending");
+  const activeLayout = buildVisibleToastLayout(activeToasts);
+  const activeLayoutById = new Map(activeLayout.items.map((item) => [item.toast.id, item]));
+  const activeToastCount = activeToasts.length;
 
   useEffect(() => {
     const activeToastIds = new Set(toasts.map((toast) => toast.id));
@@ -666,19 +660,28 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
         data-slot="toast-viewport"
         style={
           {
-            "--toast-frontmost-height": `${visibleToastLayout.frontmostHeight}px`,
+            "--toast-frontmost-height": `${activeLayout.frontmostHeight}px`,
           } as CSSProperties
         }
       >
-        {visibleToastLayout.items.map(({ toast, visibleIndex, offsetY }) => {
-          const hideCollapsedContent = shouldHideCollapsedToastContent(
-            visibleIndex,
-            visibleToastLayout.items.length,
-          );
+        {routeVisibleToasts.map((toast) => {
+          // Keep DOM child order stable across active->ending transitions so React never
+          // moves an exiting Toast.Root while Base UI's animation cleanup removes it; stack
+          // order is driven by z-index and layout indices computed over active toasts only.
+          const isEnding = toast.transitionStatus === "ending";
+          const layoutItem = activeLayoutById.get(toast.id);
+          const visibleIndex = layoutItem?.visibleIndex ?? activeToastCount;
+          const offsetY = layoutItem?.offsetY ?? 0;
+          const hideCollapsedContent = isEnding
+            ? false
+            : shouldHideCollapsedToastContent(visibleIndex, activeToastCount);
           const compact = shouldUseCompactToast(toast);
           const archiveUndoToast = isArchiveUndoToast(toast);
           const actionableAccessibilityProps =
-            toast.priority === "high" && hasAccessibleToastActions(toast) && !hideCollapsedContent
+            !isEnding &&
+            toast.priority === "high" &&
+            hasAccessibleToastActions(toast) &&
+            !hideCollapsedContent
               ? ({ "aria-hidden": false } as const)
               : {};
 
@@ -686,7 +689,8 @@ function Toasts({ position: positionProp }: { position: ToastPosition }) {
             <Toast.Root
               {...actionableAccessibilityProps}
               className={cn(
-                "absolute z-[calc(9999-var(--toast-index))] h-(--toast-calc-height) select-none [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                "absolute h-(--toast-calc-height) select-none [transition:transform_.5s_cubic-bezier(.22,1,.36,1),opacity_.5s,height_.15s]",
+                isEnding ? "z-0" : "z-[calc(9999-var(--toast-index))]",
                 archiveUndoToast
                   ? cn(
                       ARCHIVE_UNDO_TOAST_SURFACE_CLASS_NAME,

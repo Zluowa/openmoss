@@ -96,11 +96,21 @@ function ThreadErrorBannerContent({
   useLayoutEffect(() => {
     const node = textRef.current;
     if (!node || expanded) return;
+    let rafId: number | null = null;
     const measure = () => setClamped(node.scrollHeight > node.clientHeight + 1);
     measure();
-    const observer = new ResizeObserver(measure);
+    const observer = new ResizeObserver(() => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        measure();
+      });
+    });
     observer.observe(node);
-    return () => observer.disconnect();
+    return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
   }, [error, expanded]);
   const canUnblock = onUnblock !== undefined && isProviderDeliveryBlockDetail(error);
   const presentation = resolveThreadErrorPresentation(error, locale);

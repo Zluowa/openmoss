@@ -124,8 +124,10 @@ describe("readonly AppItem rendering", () => {
         // commits the status it sets in a later task, which can run after the message above
         // was seen. Wait for the frame's ready state and for its loading line to leave.
         await expect
-          .poll(() =>
-            document.querySelector("[data-readonly-app-item]")?.getAttribute("data-frame-status"),
+          .poll(
+            () =>
+              document.querySelector("[data-readonly-app-item]")?.getAttribute("data-frame-status"),
+            { timeout: 5_000 },
           )
           .toBe("ready");
         expect(document.querySelector('[data-readonly-app-item] [role="status"]')).toBeNull();

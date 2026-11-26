@@ -162,7 +162,9 @@ async function serve(feed: string, options: ServeOptions = {}) {
       ...(match ? { "Content-Range": `bytes ${start}-${body.length - 1}/${body.length}` } : {}),
     });
     if (isPackage && options.cutPackageAfter !== undefined && packageRequests++ === 0) {
-      response.write(slice.subarray(0, options.cutPackageAfter), () => request.socket.destroy());
+      // End with TCP FIN rather than RST (socket.destroy) so loopback delivers the
+      // flushed prefix reliably before premature EOF instead of discarding unread chunks.
+      response.write(slice.subarray(0, options.cutPackageAfter), () => request.socket.end());
       return;
     }
     response.end(slice);

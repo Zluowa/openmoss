@@ -479,9 +479,19 @@ export function MessageTrail({
     };
     updateBounds();
     if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateBounds);
+    let pendingBoundsRaf: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (pendingBoundsRaf !== null) return;
+      pendingBoundsRaf = requestAnimationFrame(() => {
+        pendingBoundsRaf = null;
+        updateBounds();
+      });
+    });
     observer.observe(viewport);
-    return () => observer.disconnect();
+    return () => {
+      if (pendingBoundsRaf !== null) cancelAnimationFrame(pendingBoundsRaf);
+      observer.disconnect();
+    };
   }, []);
 
   useLayoutEffect(() => {

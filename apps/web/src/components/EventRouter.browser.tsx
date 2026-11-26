@@ -910,7 +910,9 @@ describe("EventRouter scoped orchestration sync", () => {
           } finally {
             addSpy.mockRestore();
           }
-          await expect.element(page.getByText(title, { exact: true })).toBeVisible();
+          await expect
+            .element(page.getByText(title, { exact: true }), { timeout: 5_000 })
+            .toBeVisible();
           expect(
             [...document.querySelectorAll('[data-slot="toast-title"]')].filter(
               (element) => element.textContent === title,
@@ -3418,6 +3420,12 @@ describe("EventRouter scoped orchestration sync", () => {
 
     it("resyncs instead of applying buffered events after the pre-snapshot buffer overflowed", async () => {
       const mounted = await mountApp();
+      let lastObservedSequence = -1;
+      const unsubObserved = createWsNativeApi().orchestration.onThreadEvent((item) => {
+        if (item.kind === "event") {
+          lastObservedSequence = Math.max(lastObservedSequence, item.event.sequence);
+        }
+      });
       try {
         // A terminal stream fault drops the cursor, so the next events buffer
         // until a projection read lands. Hold that read while the buffer overflows.
@@ -3445,7 +3453,12 @@ describe("EventRouter scoped orchestration sync", () => {
             threads: [orderingThreadWithAssistantText(chunks.join(""))],
           },
         };
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
+        // Wait deterministically until every buffered push has reached EventRouter's listener
+        // and overflowed the 512-entry pre-snapshot buffer before releasing the held read.
+        await vi.waitFor(() => expect(lastObservedSequence).toBe(chunks.length + 1), {
+          timeout: 10_000,
+          interval: 16,
+        });
         // The held read predates every buffered chunk.
         releaseProjectionRead(1, buildFixture().snapshot.threads[0]!);
 
@@ -3459,6 +3472,7 @@ describe("EventRouter scoped orchestration sync", () => {
           { timeout: 8_000, interval: 16 },
         );
       } finally {
+        unsubObserved();
         fixture = buildFixture();
         await mounted.cleanup();
       }

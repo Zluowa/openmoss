@@ -23,6 +23,7 @@ export function useMeasuredElementHeight<T extends HTMLElement = HTMLDivElement>
   const [measuredHeight, setMeasuredHeight] = useState(0);
   const measuredHeightRef = useRef(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const rafIdRef = useRef<number | null>(null);
 
   const setNormalizedHeight = useCallback((nextHeight: number) => {
     if (!Number.isFinite(nextHeight)) return;
@@ -36,6 +37,10 @@ export function useMeasuredElementHeight<T extends HTMLElement = HTMLDivElement>
     (element: T | null) => {
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
+      if (rafIdRef.current !== null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       if (!element) return;
 
       // Seed the target synchronously before Motion starts the first open.
@@ -44,7 +49,16 @@ export function useMeasuredElementHeight<T extends HTMLElement = HTMLDivElement>
 
       const observer = new ResizeObserver(([entry]) => {
         if (!entry) return;
-        setNormalizedHeight(borderBoxBlockSize(entry) ?? entry.contentRect.height);
+        const height = borderBoxBlockSize(entry) ?? entry.contentRect.height;
+        if (typeof requestAnimationFrame !== "function") {
+          setNormalizedHeight(height);
+          return;
+        }
+        if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null;
+          setNormalizedHeight(height);
+        });
       });
       observer.observe(element);
       resizeObserverRef.current = observer;
@@ -54,6 +68,10 @@ export function useMeasuredElementHeight<T extends HTMLElement = HTMLDivElement>
 
   useEffect(
     () => () => {
+      if (rafIdRef.current !== null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
     },

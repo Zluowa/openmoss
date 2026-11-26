@@ -137,9 +137,14 @@ export function useComposerOverlayHeight(): {
     overlayBottomClearancePx: COMPOSER_OVERLAY_BOTTOM_CLEARANCE_PX,
   });
   const observerRef = useRef<ResizeObserver | null>(null);
+  const rafRef = useRef<number | null>(null);
   const overlayRef = useCallback((node: HTMLElement | null) => {
     observerRef.current?.disconnect();
     observerRef.current = null;
+    if (rafRef.current !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
     if (!node) {
       setMeasurement({
         overlayHeightPx: 0,
@@ -174,9 +179,17 @@ export function useComposerOverlayHeight(): {
     }
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
-      if (entry) {
-        commit(entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height);
+      if (!entry) return;
+      const height = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+      if (typeof requestAnimationFrame !== "function") {
+        commit(height);
+        return;
       }
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        commit(height);
+      });
     });
     observer.observe(node);
     observerRef.current = observer;

@@ -4098,18 +4098,24 @@ export default function ChatView({
     syncComposerFooterLayout();
     if (typeof ResizeObserver === "undefined") return;
 
+    let footerRafId: number | null = null;
     const observer = new ResizeObserver((entries) => {
       const [entry] = entries;
       if (!entry) return;
 
-      syncComposerFooterLayout();
-
       const nextHeight = entry.contentRect.height;
       composerFormHeightRef.current = nextHeight;
+
+      if (footerRafId !== null) return;
+      footerRafId = requestAnimationFrame(() => {
+        footerRafId = null;
+        syncComposerFooterLayout();
+      });
     });
 
     observer.observe(composerForm);
     return () => {
+      if (footerRafId !== null) cancelAnimationFrame(footerRafId);
       observer.disconnect();
     };
   }, [

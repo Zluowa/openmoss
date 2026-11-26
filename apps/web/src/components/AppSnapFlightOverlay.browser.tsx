@@ -95,6 +95,12 @@ describe("AppSnapFlightOverlay + ComposerImageAttachmentChip browser motion", ()
     );
     expect(targetChip).not.toBeNull();
     const initialBox = targetChip!.getBoundingClientRect();
+    const initialLayout = {
+      left: targetChip!.offsetLeft,
+      top: targetChip!.offsetTop,
+      width: targetChip!.offsetWidth,
+      height: targetChip!.offsetHeight,
+    };
     expect(initialBox.width).toBeGreaterThan(180);
     expect(initialBox.height).toBeGreaterThan(100);
 
@@ -121,7 +127,7 @@ describe("AppSnapFlightOverlay + ComposerImageAttachmentChip browser motion", ()
     });
 
     // Complete flight -> overlay unmounts, chip becomes visible with settle micro-motion,
-    // and layout box does not shift by even 1px.
+    // and layout box does not shift (appsnap-chip-settle only applies a centered scale).
     completeAppSnapFlight(captureId);
     await vi.waitFor(() => {
       expect(screen.container.querySelector('[data-testid="appsnap-flight-card"]')).toBeNull();
@@ -130,16 +136,29 @@ describe("AppSnapFlightOverlay + ComposerImageAttachmentChip browser motion", ()
       expect(getComputedStyle(targetChip!).animationName).toBe("appsnap-chip-settle");
     });
 
+    expect({
+      left: targetChip!.offsetLeft,
+      top: targetChip!.offsetTop,
+      width: targetChip!.offsetWidth,
+      height: targetChip!.offsetHeight,
+    }).toEqual(initialLayout);
     const settledBox = targetChip!.getBoundingClientRect();
-    expect(Math.abs(settledBox.left - initialBox.left)).toBeLessThanOrEqual(2);
-    expect(Math.abs(settledBox.top - initialBox.top)).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(settledBox.left + settledBox.width / 2 - (initialBox.left + initialBox.width / 2)),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(settledBox.top + settledBox.height / 2 - (initialBox.top + initialBox.height / 2)),
+    ).toBeLessThanOrEqual(1);
 
-    // Wait for settle window to clear cleanly back to idle.
+    // Wait for settle window to clear cleanly back to idle, then verify exact resting rect.
     await new Promise((resolve) => setTimeout(resolve, APP_SNAP_SETTLE_DURATION_MS + 90));
     await vi.waitFor(() => {
       expect(targetChip!.getAttribute("data-appsnap-motion")).toBeNull();
       expect(targetChip!.getAttribute("data-appsnap-entering")).toBeNull();
     });
+    const finalBox = targetChip!.getBoundingClientRect();
+    expect(Math.abs(finalBox.left - initialBox.left)).toBeLessThanOrEqual(1);
+    expect(Math.abs(finalBox.top - initialBox.top)).toBeLessThanOrEqual(1);
   });
 
   it("suppresses flight and chip animations under prefers-reduced-motion: reduce", async () => {
