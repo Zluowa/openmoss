@@ -254,6 +254,19 @@ import {
   mossAppPluginId,
   mossAppSlugFromPluginId,
 } from "~/lib/mossAppsPlugins";
+import { isMossGuidePluginInstalled } from "@moss/shared/mossGuidePlugin";
+import {
+  isMossOfficialFallbackBuiltinPlugin,
+  isMossOfficialPlugin,
+  mossGuidePluginDescriptor,
+  mossGuidePluginDetail,
+  mossGuidePluginDirectoryEntry,
+  mossOfficialDefaultPluginFallbackEntries,
+  mossOfficialFallbackPluginDetail,
+  mossOfficialSkillPreview,
+  nextOfficialPluginsUninstalled,
+} from "~/lib/mossGuidePluginPresentation";
+import { MossLogo } from "./MossLogo";
 import { PluginLibraryImportDialog } from "./PluginLibraryImportDialog";
 import {
   resolvePluginDetailRouteViewState,
@@ -629,6 +642,12 @@ const NO_MCP_CONNECTORS: readonly McpConnector[] = [];
 const isMossManagedAppPlugin = (plugin: Pick<ProviderPluginDescriptor, "id">) =>
   isMossAppPlugin(plugin) || isMossServicePlugin(plugin);
 
+/** Plugins whose lifecycle Moss itself owns (hosted apps, connectors, and official plug-and-play plugins). */
+const isMossHostManagedPlugin = (plugin: Pick<ProviderPluginDescriptor, "id" | "source">) =>
+  isMossManagedAppPlugin(plugin) ||
+  isMossOfficialPlugin(plugin) ||
+  isMossOfficialFallbackBuiltinPlugin(plugin);
+
 const PRIMARY_PLUGIN_MARKETPLACE_KINDS = [
   "local",
 ] as const satisfies readonly ProviderPluginMarketplaceKind[];
@@ -836,6 +855,10 @@ function PluginGlyph({
         {artwork}
       </PluginLibraryCardIconBox>
     );
+
+  if (isMossOfficialPlugin(plugin)) {
+    return wrapArtwork(<MossLogo className="size-6" />);
+  }
 
   const fallbackArtwork = brand
     ? (() => {
@@ -1875,6 +1898,7 @@ export function PluginLibrary({
   // The service plugin list sits under the Connectors key, so this refreshes both.
   const refreshServicePlugins = () =>
     queryClient.invalidateQueries({ queryKey: MCP_CONNECTORS_QUERY_KEY });
+  const mossGuideInstalled = isMossGuidePluginInstalled(serverSettingsQuery.data);
   const [connectorConnectTarget, setConnectorConnectTarget] = useState<McpConnectorTarget | null>(
     null,
   );
@@ -1893,12 +1917,19 @@ export function PluginLibrary({
       enabled:
         detailOpen &&
         detail?.kind === "plugin" &&
-        !isMossManagedAppPlugin(detail.plugin) &&
+        !isMossHostManagedPlugin(detail.plugin) &&
         canQueryPrimaryPlugins,
     }),
   );
   const mossAppDetail = useMemo(() => {
     if (detail?.kind !== "plugin") return null;
+    if (isMossOfficialPlugin(detail.plugin)) {
+      return mossGuidePluginDetail(mossGuideInstalled, locale);
+    }
+    const officialFallbackDetail = mossOfficialFallbackPluginDetail(detail.plugin, locale);
+    if (officialFallbackDetail) {
+      return officialFallbackDetail;
+    }
     const servicePlugin = mossServicePluginFromPluginId(detail.plugin.id);
     if (servicePlugin) {
       return mossServicePluginDetail(
@@ -1912,7 +1943,15 @@ export function PluginLibrary({
     return toolkit
       ? mossAppPluginDetail(toolkit, activeMossAppConnection(mossAppConnections, toolkit.slug))
       : null;
-  }, [connectorCopy, detail, installedServicePlugins, mossAppConnections, mossAppToolkits]);
+  }, [
+    connectorCopy,
+    detail,
+    installedServicePlugins,
+    locale,
+    mossAppConnections,
+    mossAppToolkits,
+    mossGuideInstalled,
+  ]);
   const nativePluginDetail = pluginDetailQuery.data?.plugin;
   const activePluginDetail = useMemo(() => {
     if (mossAppDetail) return mossAppDetail;
@@ -2042,9 +2081,31 @@ export function PluginLibrary({
         : [],
     [canListNativePlugins, listsMossPluginCatalogInNative, locale, signedOutOfMoss],
   );
+  const hasOtherPluginDirectoryEntries =
+    nativePluginEntries.length > 0 ||
+    mossCatalogFallback.length > 0 ||
+    remoteMarketplaceEntries.length > 0 ||
+    mossAppToolkits.length > 0 ||
+    connectorRegion === "cn";
+  const showMossGuideInDirectory = !signedOutOfMoss && hasOtherPluginDirectoryEntries;
+  const nativePluginIdSet = useMemo(
+    () => new Set(nativePluginEntries.map((entry) => entry.plugin.id)),
+    [nativePluginEntries],
+  );
+  const mossOfficialBuiltInFallback = useMemo<PluginEntry[]>(
+    () =>
+      showMossGuideInDirectory
+        ? mossOfficialDefaultPluginFallbackEntries(locale, nativePluginIdSet)
+        : [],
+    [locale, nativePluginIdSet, showMossGuideInDirectory],
+  );
   const pluginEntries = useMemo<PluginEntry[]>(
     () =>
       uniquePluginEntries([
+        ...(showMossGuideInDirectory
+          ? [mossGuidePluginDirectoryEntry(mossGuideInstalled, locale)]
+          : []),
+        ...mossOfficialBuiltInFallback,
         ...nativePluginEntries,
         ...mossCatalogFallback,
         ...remoteMarketplaceEntries,
@@ -2062,11 +2123,15 @@ export function PluginLibrary({
       connectorCopy,
       connectorRegion,
       installedServicePlugins,
+      locale,
       mossAppConnections,
       mossAppToolkits,
       mossCatalogFallback,
+      mossGuideInstalled,
+      mossOfficialBuiltInFallback,
       nativePluginEntries,
       remoteMarketplaceEntries,
+      showMossGuideInDirectory,
     ],
   );
   // Moss's plugin catalog features its own picks wherever listed or surfaced by fallback.
@@ -2981,9 +3046,11 @@ export function PluginLibrary({
 
   const loadSkillContent = useCallback(
     async (skill: ProviderSkillDescriptor) => {
-      // A service plugin's skill is Moss's own text, shown whether or not it is installed.
+      // A service plugin's or official plugin's skill is Moss's own text, shown whether or not it is installed.
       const servicePreview = mossServiceSkillPreview(skill.path);
       if (servicePreview) return servicePreview;
+      const officialPreview = mossOfficialSkillPreview(skill.path);
+      if (officialPreview) return officialPreview;
       if (!discoveryCwd) throw new Error("No workspace available for skill discovery");
       return ensureNativeApi().provider.readSkill({
         provider: selectedProvider,
@@ -3097,10 +3164,12 @@ export function PluginLibrary({
       (resource.kind === "plugin" && isMossManagedAppPlugin(resource.plugin)
         ? format("apps.tryPrompt", { name: resourceActions.resourceName(resource) })
         : undefined);
-    // A service plugin brings its skill along, so Claude and the other CLIs get it too.
+    // A service plugin or official plugin brings its skill along, so Claude and the other CLIs get it too.
     const serviceSkill =
       resource.kind === "plugin"
-        ? mossServicePluginSkillReference(resource.plugin, servicePluginsQuery.data?.skills ?? [])
+        ? isMossOfficialPlugin(resource.plugin)
+          ? (discoveredSkills.find((skill) => skill.name === "moss-guide") ?? null)
+          : mossServicePluginSkillReference(resource.plugin, servicePluginsQuery.data?.skills ?? [])
         : null;
     void resourceActions.tryInChat(resource, prompt, { serviceSkill }).then((started) => {
       if (!started) {
@@ -3226,8 +3295,56 @@ export function PluginLibrary({
     return { removed: result.disconnected };
   };
 
+  const setOfficialPluginInstalled = async (
+    plugin: ProviderPluginDescriptor,
+    installed: boolean,
+  ): Promise<{ readonly removed: boolean }> => {
+    const currentSettings =
+      queryClient.getQueryData<ServerSettings>(serverQueryKeys.settings()) ??
+      serverSettingsQuery.data;
+    const uninstalled = nextOfficialPluginsUninstalled(
+      currentSettings?.officialPlugins?.uninstalled,
+      plugin.id,
+      installed,
+    );
+    const nextSettings = await ensureNativeApi().server.updateSettings({
+      officialPlugins: { uninstalled },
+    });
+    queryClient.setQueryData(serverQueryKeys.settings(), nextSettings);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: serverQueryKeys.settings() }),
+      queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),
+    ]);
+    return { removed: !installed };
+  };
+
   const handleInstallPlugin = (resource: ResourceDetail) => {
     if (resource.kind !== "plugin") return;
+    if (isMossOfficialPlugin(resource.plugin)) {
+      const key = pluginResourceKey(resource);
+      if (installingPluginKeysRef.current.has(key)) return;
+      installingPluginKeysRef.current.add(key);
+      setInstallingPluginKeys(new Set(installingPluginKeysRef.current));
+      void setOfficialPluginInstalled(resource.plugin, true)
+        .then(() => {
+          showPluginInstallSuccess(
+            { ...resource, plugin: mossGuidePluginDescriptor(true, locale) },
+            resourceActions.resourceName(resource),
+          );
+        })
+        .catch((error: unknown) => {
+          toastManager.add({
+            type: "error",
+            title: t("plugins.toast.installFailedTitle"),
+            description: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          installingPluginKeysRef.current.delete(key);
+          setInstallingPluginKeys(new Set(installingPluginKeysRef.current));
+        });
+      return;
+    }
     if (isMossManagedAppPlugin(resource.plugin)) {
       openMossAppConnect(resource.plugin);
       return;
@@ -3311,6 +3428,20 @@ export function PluginLibrary({
   };
 
   const updatePluginEnabled = (entry: ManagedPlugin, enabled: boolean): Promise<boolean> => {
+    if (isMossOfficialPlugin(entry.plugin)) {
+      if (enabled) {
+        return setOfficialPluginInstalled(entry.plugin, true).then(() => {
+          const name = entry.plugin.interface?.displayName ?? entry.plugin.name;
+          toastManager.add({
+            type: "success",
+            title: format("plugins.toast.enabled", { name }),
+          });
+          return true;
+        });
+      }
+      setConfirmUninstall({ kind: "plugin", ...entry });
+      return Promise.resolve(false);
+    }
     if (isMossManagedAppPlugin(entry.plugin)) {
       if (enabled) openMossAppConnect(entry.plugin);
       else setConfirmUninstall({ kind: "plugin", ...entry });
@@ -3406,18 +3537,22 @@ export function PluginLibrary({
     uninstallingRef.current = true;
     setUninstalling(true);
     const mossApp = resource.kind === "plugin" && isMossManagedAppPlugin(resource.plugin);
+    const mossOfficial = resource.kind === "plugin" && isMossOfficialPlugin(resource.plugin);
     const mutation =
-      resource.kind === "plugin" && mossApp
-        ? disconnectMossApp(resource.plugin)
-        : resource.kind === "plugin"
-          ? runPluginMutationWithAuthoritativeRead({
-              mutate: () => resourceActions.uninstall(resource),
-              reRead: reReadPlugins,
-              isSettled: (snapshot, result) =>
-                result?.removed === true && isPluginUninstallSettled(snapshot, resource.plugin.id),
-              failureMessage: t("plugins.toast.notSettled"),
-            })
-          : resourceActions.uninstall(resource);
+      resource.kind === "plugin" && mossOfficial
+        ? setOfficialPluginInstalled(resource.plugin, false)
+        : resource.kind === "plugin" && mossApp
+          ? disconnectMossApp(resource.plugin)
+          : resource.kind === "plugin"
+            ? runPluginMutationWithAuthoritativeRead({
+                mutate: () => resourceActions.uninstall(resource),
+                reRead: reReadPlugins,
+                isSettled: (snapshot, result) =>
+                  result?.removed === true &&
+                  isPluginUninstallSettled(snapshot, resource.plugin.id),
+                failureMessage: t("plugins.toast.notSettled"),
+              })
+            : resourceActions.uninstall(resource);
     void mutation
       .then((result) => {
         if (result?.removed) {

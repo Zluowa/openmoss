@@ -189,6 +189,8 @@ import { makeAgentGatewayTodoTools } from "../todoTools.ts";
 import { makeAgentGatewaySecretRequestTools } from "../secretRequestTools.ts";
 import { makeAgentGatewayAgentFeedbackTool } from "../agentFeedbackTool.ts";
 import { makeAgentGatewayDevsReportDraftTool } from "../devsReportDraftTool.ts";
+import { makeAgentGatewayPluginSuggestionTools } from "../pluginSuggestionTools.ts";
+import { McpConnectors } from "../../mcpConnectors/Services/McpConnectors.ts";
 import { AgentFeedback } from "../../agentFeedback/Services/AgentFeedback.ts";
 import { SecretRequests } from "../../secretRequests/Services/SecretRequests.ts";
 import { TodoService } from "../../todo/Services/TodoService.ts";
@@ -262,6 +264,7 @@ export const makeAgentGateway = Effect.gen(function* () {
   const pageAppsService = Option.getOrUndefined(yield* Effect.serviceOption(PageAppsService));
   // Interactive connectors: widget context for the model, and `moss` widgets' own calls.
   const mcpApps = Option.getOrUndefined(yield* Effect.serviceOption(McpAppService));
+  const mcpConnectors = Option.getOrUndefined(yield* Effect.serviceOption(McpConnectors));
   // Optional like pages: a host without the secret store offers no moss_request_secret.
   const secretRequests = Option.getOrUndefined(yield* Effect.serviceOption(SecretRequests));
   // Optional like secret requests: a host without the feedback store offers no moss_report_friction.
@@ -2224,6 +2227,12 @@ export const makeAgentGateway = Effect.gen(function* () {
     ...(MOSS_DEVS_REPORTS_ENABLED
       ? [makeAgentGatewayDevsReportDraftTool({ orchestrationEngine })]
       : []),
+    ...makeAgentGatewayPluginSuggestionTools({
+      mcpConnectors,
+      orchestrationEngine,
+      serverSettings,
+      readAccountRegion: () => accountLane(mediaPhoneAccount),
+    }),
     ...(deviceService?.supported === true
       ? makeAgentGatewayDeviceTools({
           manager: deviceService.manager,

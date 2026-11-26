@@ -252,6 +252,7 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
   const config = yield* ServerConfig;
   const sessionRegistry = yield* AgentGatewaySessionRegistry;
   const inFlightRequests = makeAgentGatewayInFlightRequestRegistry();
+  let connectedAppNamesState: ReadonlyArray<string> = [];
 
   const endpoint = makeAgentGatewayEndpoint(config.host, config.port);
   const stdioProxyScriptPath = yield* ensureAgentGatewayStdioProxyScript(config.stateDir);
@@ -375,6 +376,10 @@ export const makeAgentGatewayCredentials = Effect.gen(function* () {
       args: [stdioProxyScriptPath],
     },
     setConnectorServers: connectors.set,
+    setConnectedAppNames: (names) => {
+      connectedAppNamesState = [...names];
+    },
+    connectedAppNames: () => connectedAppNamesState,
     canUseConnector: connectors.canUse,
     connectorAuthorityKey: connectors.authorityKey,
   } satisfies AgentGatewayCredentialsShape;

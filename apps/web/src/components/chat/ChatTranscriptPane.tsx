@@ -5,7 +5,7 @@ import { ensureThreadHistoryLoaded, useThreadHistory } from "../../threadHistory
 // Layer: Chat transcript shell
 // Depends on: MessagesTimeline and ChatView's list-owned scroll contract.
 
-import { type MessageId, ThreadId, type TurnId } from "@moss/contracts";
+import { type MessageId, type ProviderKind, ThreadId, type TurnId } from "@moss/contracts";
 import { type LegendListRef } from "@legendapp/list/react";
 import {
   memo,
@@ -110,6 +110,8 @@ interface ChatTranscriptPaneProps {
   crossTaskOrigin?: ComponentProps<typeof MessagesTimeline>["crossTaskOrigin"];
   forkSource?: ComponentProps<typeof MessagesTimeline>["forkSource"];
   markdownCwd: string | undefined;
+  provider?: ProviderKind | undefined;
+  onPluginSuggestionAccountRequired?: ((action: "login" | "account") => void) | undefined;
   onExpandTimelineImage: (preview: ExpandedImagePreview) => void;
   onMessagesClickCapture: MouseEventHandler<HTMLDivElement>;
   onMessagesMouseUp: MouseEventHandler<HTMLDivElement>;
@@ -227,6 +229,8 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   crossTaskOrigin,
   forkSource,
   markdownCwd,
+  provider,
+  onPluginSuggestionAccountRequired,
   onExpandTimelineImage,
   onMessagesClickCapture,
   onMessagesMouseUp,
@@ -579,6 +583,8 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
               onMessagesTouchMove={onMessagesTouchMove}
               onMessagesTouchEnd={onMessagesTouchEnd}
               markdownCwd={markdownCwd}
+              {...(provider ? { provider } : {})}
+              {...(onPluginSuggestionAccountRequired ? { onPluginSuggestionAccountRequired } : {})}
               resolvedTheme={resolvedTheme}
               chatFontSizePx={chatFontSizePx}
               timestampFormat={timestampFormat}

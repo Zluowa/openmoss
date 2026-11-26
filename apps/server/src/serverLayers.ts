@@ -380,6 +380,7 @@ export function makeServerRuntimeServicesLayer(
         secretRequestsLayer,
         agentFeedbackLayer,
         mossbotRoomsLayer,
+        mcpConnectorsLayer,
       ),
     ),
     Layer.provideMerge(QueuedTurnPromotionRepositoryLive),

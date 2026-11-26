@@ -28,7 +28,9 @@ import {
   resolvePluginPrimaryAction,
 } from "~/lib/pluginLibraryModel";
 import { resolvePluginArtworkUrl } from "~/lib/localImageUrls";
+import { isMossOfficialPlugin } from "~/lib/mossGuidePluginPresentation";
 import { localizePluginCategory } from "~/lib/pluginCategoryLabel";
+import { MossLogo } from "./MossLogo";
 import { MCP_FALLBACK_ICON, resolveResourceIcon, SKILL_FALLBACK_ICON } from "~/lib/resourceIcon";
 import {
   ArrowRightIcon,
@@ -1289,7 +1291,13 @@ export function PluginResourceDetailPage({
         >
           <header className="flex flex-col gap-4 px-2" data-testid="plugin-detail-header">
             <div className="flex" data-testid="plugin-detail-artwork">
-              <PluginDetailArtwork logo={pluginLogo} title={title} FallbackIcon={Icon} />
+              {effectiveDetail.kind === "plugin" && isMossOfficialPlugin(effectiveDetail.plugin) ? (
+                <PluginLibraryDetailIconBox>
+                  <MossLogo className="size-8" />
+                </PluginLibraryDetailIconBox>
+              ) : (
+                <PluginDetailArtwork logo={pluginLogo} title={title} FallbackIcon={Icon} />
+              )}
             </div>
             <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
               <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">

@@ -35,6 +35,9 @@ import {
   SecretRequestActivityPayload,
   DEVS_REPORT_DRAFT_ACTIVITY_KIND,
   DevsReportDraftActivityPayload,
+  PLUGIN_SUGGESTION_ACTIVITY_KIND,
+  decodePluginSuggestionPayload,
+  type PluginSuggestionActivityPayload,
 } from "@moss/contracts";
 import { Option, Schema } from "effect";
 import { INLINE_VISUALS_ON } from "./betaFeatures";
@@ -254,6 +257,8 @@ export interface WorkLogEntry {
   secretRequest?: SecretRequestActivityPayload;
   // A report an agent drafted for the Moss developers; the person reviews and sends it.
   devsReportDraft?: DevsReportDraftActivityPayload;
+  // Proactive inline plugin suggestions; the person can dismiss or install/connect directly.
+  pluginSuggestion?: PluginSuggestionActivityPayload;
   providerContextLifecycle?: ProviderContextLifecycleInfo;
   providerHandoff?: ProviderHandoffInfo;
   /** Durable terminal feedback; session readiness never clears a failed turn. */
@@ -1704,6 +1709,10 @@ function shouldKeepActivityForWorkLog(
   if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
     return true;
   }
+  // A plugin suggestion card sits inline for the user to dismiss or authorize.
+  if (activity.kind === PLUGIN_SUGGESTION_ACTIVITY_KIND) {
+    return true;
+  }
 
   // Coordinator monitor rows are posted server-side with no turn id; a
   // coordinator conversation is all turns, so the turn filter would hide every
@@ -2811,6 +2820,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (activity.kind === DEVS_REPORT_DRAFT_ACTIVITY_KIND) {
     const devsReportDraft = Option.getOrUndefined(decodeDevsReportDraftPayload(activity.payload));
     if (devsReportDraft) entry.devsReportDraft = devsReportDraft;
+  }
+  if (activity.kind === PLUGIN_SUGGESTION_ACTIVITY_KIND) {
+    const pluginSuggestion = Option.getOrUndefined(decodePluginSuggestionPayload(activity.payload));
+    if (pluginSuggestion) entry.pluginSuggestion = pluginSuggestion;
   }
   if (activity.kind === PROVIDER_CONTEXT_LIFECYCLE_ACTIVITY_KIND) {
     const providerContextLifecycle = extractProviderContextLifecycleInfo(payload);

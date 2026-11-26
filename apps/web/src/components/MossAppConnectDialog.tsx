@@ -19,6 +19,8 @@ import {
   mossAppConnectionsQueryOptions,
 } from "~/lib/mossAppsReactQuery";
 import { PluginIcon } from "~/lib/icons";
+import { readableBrandColor, resolveBrandArtwork } from "~/lib/brandIcons";
+import { resolveResourceIcon } from "~/lib/resourceIcon";
 import { useTranslation } from "~/localization";
 import { ensureNativeApi } from "~/nativeApi";
 import { MossLogo } from "./MossLogo";
@@ -64,16 +66,28 @@ function LogoTile({ children }: { readonly children: React.ReactNode }) {
 }
 
 function AppLogo({ target }: { readonly target: MossAppConnectTarget }) {
-  const [failed, setFailed] = useState(false);
-  if (!target.logoUrl || failed) {
-    return <PluginIcon aria-hidden="true" className="size-7 text-muted-foreground" />;
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (!target.logoUrl || failedUrl === target.logoUrl) {
+    const brand = resolveBrandArtwork([target.slug, target.name]);
+    if (brand) {
+      const BrandIcon = brand.icon;
+      return (
+        <BrandIcon
+          aria-hidden="true"
+          className="size-8"
+          style={{ color: readableBrandColor(brand.color) ?? "var(--foreground)" }}
+        />
+      );
+    }
+    const FallbackIcon = resolveResourceIcon(target.name, undefined, PluginIcon);
+    return <FallbackIcon aria-hidden="true" className="size-7 text-muted-foreground" />;
   }
   return (
     <img
       src={target.logoUrl}
       alt=""
       className="size-9 object-contain"
-      onError={() => setFailed(true)}
+      onError={() => setFailedUrl(target.logoUrl)}
     />
   );
 }

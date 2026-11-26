@@ -37,8 +37,11 @@ import { Effect, FileSystem, Layer, Option, Queue, Stream } from "effect";
 
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   callAgentGatewayMcpTool,
   listAgentGatewayMcpTools,
@@ -164,11 +167,18 @@ const PI_BOOKKEEPING_TIMEOUT_MS = 15_000;
 
 export function buildPiTurnPrompt(
   state: MossHarnessPolicyDeliveryState,
-  input: { readonly text: string; readonly gatewayControlAvailable: boolean },
+  input: {
+    readonly text: string;
+    readonly gatewayControlAvailable: boolean;
+    readonly mossGuideInstalled?: boolean | undefined;
+    readonly connectedApps?: ReadonlyArray<string> | undefined;
+  },
 ): string {
   const harnessPolicy = takeMossHarnessPolicyForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable: input.gatewayControlAvailable,
+    ...(input.mossGuideInstalled === true ? { mossGuideInstalled: true } : {}),
+    ...(input.connectedApps !== undefined ? { connectedApps: input.connectedApps } : {}),
   });
   return [harnessPolicy, input.text].filter(Boolean).join("\n\n");
 }
@@ -483,6 +493,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const fileSystem = yield* FileSystem.FileSystem;
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
     const runtimeEventQueue = yield* Queue.bounded<ProviderRuntimeEvent>(
       PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -1779,11 +1792,21 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         };
       });
 
-    const buildProviderText = (context: PiSessionContext, text: string) =>
-      buildPiTurnPrompt(context, {
+    const buildProviderText = (
+      context: PiSessionContext,
+      text: string,
+      mossGuideInstalled: boolean,
+    ) => {
+      const connectedApps = mossGuideInstalled
+        ? readConnectedAppNames(agentGatewayCredentials)
+        : undefined;
+      return buildPiTurnPrompt(context, {
         text,
         gatewayControlAvailable: context.gatewayControlAvailable,
+        mossGuideInstalled,
+        ...(connectedApps !== undefined ? { connectedApps } : {}),
       });
+    };
 
     const busyError = (operation: string) =>
       new ProviderAdapterValidationError({
@@ -2162,6 +2185,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               threadId: input.threadId,
             });
           }
+          const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
           const isReload = payload.images.length === 0 && isPiReloadCommand(payload.text);
           const liveTurnId = context.activeTurnId;
           if (liveTurnId !== undefined) {
@@ -2172,7 +2196,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             sendPiPrompt(
               context,
               liveTurnId,
-              buildProviderText(context, payload.text),
+              buildProviderText(context, payload.text, mossGuideInstalled),
               payload.images,
               "followUp",
             );
@@ -2183,7 +2207,12 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             yield* runPiReload(context, turnId, payload.text);
             return dispatchResult(context, turnId);
           }
-          sendPiPrompt(context, turnId, buildProviderText(context, payload.text), payload.images);
+          sendPiPrompt(
+            context,
+            turnId,
+            buildProviderText(context, payload.text, mossGuideInstalled),
+            payload.images,
+          );
           return dispatchResult(context, turnId);
         }),
       );
@@ -2210,7 +2239,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               threadId: input.threadId,
             });
           }
-          const providerText = buildProviderText(context, payload.text);
+          const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
+          const providerText = buildProviderText(context, payload.text, mossGuideInstalled);
           const joinedTurnId = context.activeTurnId;
           if (joinedTurnId !== undefined) {
             sendPiPrompt(context, joinedTurnId, providerText, payload.images, "steer");

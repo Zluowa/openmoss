@@ -5,7 +5,7 @@
 
 import { conversationDisclosureStyle } from "~/lib/disclosureMotion";
 import { ConversationShimmer } from "./ConversationShimmer";
-import { ThreadId, type ModelSelection, type TurnId } from "@moss/contracts";
+import { ThreadId, type ModelSelection, type ProviderKind, type TurnId } from "@moss/contracts";
 import { PROVIDER_DESCRIPTORS } from "@moss/shared/providerMetadata";
 import {
   isFileReadToolWord,
@@ -92,6 +92,7 @@ import type { InlineSubagentStatus } from "./inlineSubagentActivity.logic";
 import { ConnectedComputerSetupRequiredCard } from "./ComputerSetupRequiredCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { DevsReportDraftCard } from "./DevsReportDraftCard";
+import { PluginSuggestionCard } from "./PluginSuggestionCard";
 import { ComputerControlDeniedCard } from "./ComputerControlDeniedCard";
 import ChatMarkdown from "../ChatMarkdown";
 import { DiffStatLabel } from "./DiffStatLabel";
@@ -803,6 +804,9 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
   onOpenAutomation?: (automationId: string) => void;
   /** Current conversation id used only for the authenticated MCP App resource read. */
   threadId?: string;
+  provider?: ProviderKind;
+  onSendPromptTurn?: ((prompt: string) => Promise<boolean>) | undefined;
+  onPluginSuggestionAccountRequired?: ((action: "login" | "account") => void) | undefined;
   theme?: "light" | "dark";
   computerControlEnabled?: boolean;
   onEnableComputerControl?: () => void;
@@ -1069,6 +1073,24 @@ export const TimelineWorkEntryRow = memo(function TimelineWorkEntryRow(props: {
         <DevsReportDraftCard
           draft={workEntry.devsReportDraft}
           threadId={threadId ? ThreadId.makeUnsafe(threadId) : undefined}
+          textFontSizePx={textFontSizePx}
+          metaFontSizePx={chatMetaFontSizePx}
+        />
+      </div>
+    );
+  }
+
+  // Proactive inline plugin suggestions: shown outside collapsed work rows for 1-click install/auth.
+  if (workEntry.pluginSuggestion) {
+    return (
+      <div className={cn(compact ? "py-0.5" : "py-1")}>
+        <PluginSuggestionCard
+          payload={workEntry.pluginSuggestion}
+          threadId={threadId ? ThreadId.makeUnsafe(threadId) : undefined}
+          cwd={markdownCwd}
+          provider={props.provider}
+          onSendPromptTurn={props.onSendPromptTurn}
+          onAccountRequired={props.onPluginSuggestionAccountRequired}
           textFontSizePx={textFontSizePx}
           metaFontSizePx={chatMetaFontSizePx}
         />

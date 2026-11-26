@@ -46,8 +46,11 @@ import type * as Acp from "@agentclientprotocol/sdk";
 import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -171,10 +174,14 @@ const ANTIGRAVITY_BACKGROUND_MAX_WAIT_MS = 30 * 60_000;
 export const takeAntigravityMossHarnessPolicyTextPart = (
   state: MossHarnessPolicyDeliveryState,
   scopedGatewayConnectionAvailable: boolean,
+  mossGuideInstalled = false,
+  connectedApps?: ReadonlyArray<string>,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
+    mossGuideInstalled,
+    ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 
 export interface AntigravityAdapterDependencies {
@@ -306,6 +313,9 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
     const serverConfig = yield* Effect.service(ServerConfig);
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
     const makeRuntime = dependencies.makeRuntime ?? makeAntigravityAcpRuntime;
     const runHelper = dependencies.runHelper ?? runAntigravityHelperProcess;
@@ -1382,9 +1392,12 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             issue: "Turn requires non-empty text or attachments.",
           });
         }
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeAntigravityMossHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
+          mossGuideInstalled,
+          readConnectedAppNames(agentGatewayCredentials),
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

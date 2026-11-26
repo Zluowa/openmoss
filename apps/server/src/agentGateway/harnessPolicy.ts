@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { SUPPORTED_PROVIDER_KINDS, type ProviderKind } from "@moss/contracts";
 import { EXPLICIT_BROWSER_ENVIRONMENT_GUIDANCE } from "@moss/shared/browserAutomationCatalogue";
 import { INLINE_VISUALS_BETA_FEATURE } from "@moss/shared/betaFeatures";
@@ -11,6 +12,10 @@ import {
   MOSS_DEFAULT_IMAGE_MODEL_ID,
   MOSS_DEFAULT_VIDEO_MODEL_ID,
 } from "@moss/shared/mossMediaPlugins";
+import {
+  isMossGuidePluginInstalled,
+  MOSS_GUIDE_HARNESS_DIRECTIVE,
+} from "@moss/shared/mossGuidePlugin";
 
 /** Canonical, versioned host policy delivered to every supported provider. */
 export const MOSS_HARNESS_POLICY_VERSION = "2026-11-18.1";
@@ -30,6 +35,10 @@ export interface MossHarnessCapabilities {
   readonly enableComputerControl?: boolean | undefined;
   /** The `moss_show_visual` tool is offered by this session. */
   readonly inlineVisuals?: boolean | undefined;
+  /** The uninstallable `moss-guide` official plugin is installed. */
+  readonly mossGuideInstalled?: boolean | undefined;
+  /** Human-readable names of currently connected external apps/connectors. */
+  readonly connectedApps?: ReadonlyArray<string> | undefined;
 }
 
 /** Whether this server offers inline visuals; the gateway catalog uses the same gate. */
@@ -98,6 +107,20 @@ export function renderMossHarnessPolicy(capabilities: MossHarnessCapabilities): 
     ...(capabilities.gatewayControlAvailable && capabilities.enableComputerControl === true
       ? [computerToolInstructions()]
       : []),
+    ...(capabilities.gatewayControlAvailable && capabilities.mossGuideInstalled === true
+      ? [
+          MOSS_GUIDE_HARNESS_DIRECTIVE,
+          ...(capabilities.connectedApps !== undefined
+            ? [
+                `Connected external apps: ${
+                  capabilities.connectedApps.length > 0
+                    ? capabilities.connectedApps.slice(0, 20).join(", ")
+                    : "none"
+                }`,
+              ]
+            : []),
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -152,13 +175,43 @@ export function takeMossHarnessPolicyForProviderSession(
   input: {
     readonly provider: ProviderKind;
     readonly scopedGatewayConnectionAvailable: boolean;
+    readonly mossGuideInstalled?: boolean | undefined;
+    readonly connectedApps?: ReadonlyArray<string> | undefined;
   },
 ): string | null {
   return takeMossHarnessPolicyForSession(state, {
     gatewayControlAvailable: providerHasMossGatewayControl(input),
     enableComputerControl: state.enableComputerControl === true,
     inlineVisuals: INLINE_VISUALS_ENABLED,
+    ...(input.mossGuideInstalled === true ? { mossGuideInstalled: true } : {}),
+    ...(input.connectedApps !== undefined ? { connectedApps: input.connectedApps } : {}),
   });
+}
+
+export function readMossGuideInstalled(
+  serverSettings:
+    | {
+        readonly getSettings: Effect.Effect<
+          { readonly officialPlugins?: { readonly uninstalled?: ReadonlyArray<string> } },
+          unknown
+        >;
+      }
+    | undefined,
+): Effect.Effect<boolean> {
+  return serverSettings
+    ? serverSettings.getSettings.pipe(
+        Effect.map((settings) => isMossGuidePluginInstalled(settings)),
+        Effect.orElseSucceed(() => true),
+      )
+    : Effect.succeed(false);
+}
+
+export function readConnectedAppNames(
+  credentials:
+    | { readonly connectedAppNames?: (() => ReadonlyArray<string>) | undefined }
+    | undefined,
+): ReadonlyArray<string> | undefined {
+  return credentials?.connectedAppNames ? credentials.connectedAppNames() : undefined;
 }
 
 export function takeMossHarnessPolicyTextPartForProviderSession(
@@ -166,6 +219,8 @@ export function takeMossHarnessPolicyTextPartForProviderSession(
   input: {
     readonly provider: ProviderKind;
     readonly scopedGatewayConnectionAvailable: boolean;
+    readonly mossGuideInstalled?: boolean | undefined;
+    readonly connectedApps?: ReadonlyArray<string> | undefined;
   },
 ): { readonly type: "text"; readonly text: string } | null {
   const text = takeMossHarnessPolicyForProviderSession(state, input);

@@ -19,6 +19,8 @@ import {
   GoalIcon,
   ListTodoIcon,
   PaperclipIcon,
+  PluginIcon,
+  SparklesIcon,
   WindowIcon,
 } from "~/lib/icons";
 import { cn } from "~/lib/utils";
@@ -39,11 +41,15 @@ const GLYPH = COMPOSER_MENU_PANEL_GLYPH_CLASS_NAME;
 const ROW_FILES = "extras:files";
 const ROW_WINDOW = "extras:window";
 const ROW_GOAL = "extras:goal";
+const ROW_PLUGINS = "extras:plugins";
+const ROW_DISCOVER = "extras:discover";
 const ROW_PLAN = "extras:mode:plan";
 const ROW_DEBUG = "extras:mode:debug";
 const ROW_FAST = "extras:fast";
 const ROW_BACK = "extras:back";
 const WINDOW_ROW_PREFIX = "extras:window:";
+const STARTER_ROW_PREFIX = "extras:starter:";
+const ROW_DISCOVER_PLUGINS = "extras:discover-plugins";
 
 const CHECK = <CheckIcon className="size-4 text-foreground/70" />;
 
@@ -71,6 +77,12 @@ function formatComposerAppSnapName(entry: DesktopAppSnapWindowEntry): string | n
   return stripped.length > 0 ? stripped : null;
 }
 
+export interface ComposerExtrasStarterItem {
+  readonly id: string;
+  readonly label: string;
+  readonly prompt: string;
+}
+
 export function ComposerExtrasPanel(props: {
   interactionMode: ProviderInteractionMode;
   supportsFastMode: boolean;
@@ -81,6 +93,12 @@ export function ComposerExtrasPanel(props: {
   onInteractionModeChange: (mode: ProviderInteractionMode) => void;
   /** Turns the draft into a `/goal` command so the goal chip flow is the same as typing it. */
   onInsertGoal: () => void;
+  /** Opens Moss's unified Plugins & Apps marketplace. */
+  onOpenPlugins?: (() => void) | undefined;
+  /** Curated Moss Guide starter workflows exposed when `moss-guide` is installed. */
+  mossGuideStarters?: ReadonlyArray<ComposerExtrasStarterItem> | undefined;
+  /** Sends or prefills a chosen starter prompt. */
+  onSelectStarterPrompt?: ((prompt: string) => void) | undefined;
   onClose: () => void;
   panelId: string;
 }) {
@@ -88,7 +106,7 @@ export function ComposerExtrasPanel(props: {
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [view, setView] = useState<"root" | "windows">("root");
+  const [view, setView] = useState<"root" | "windows" | "discover">("root");
   const [activeRowId, setActiveRowId] = useState<string | null>(ROW_FILES);
 
   // Listed while the panel is open (not only in the window view) so the root row can
@@ -112,11 +130,18 @@ export function ComposerExtrasPanel(props: {
     setView("windows");
     setActiveRowId(ROW_BACK);
   };
+  const openDiscover = () => {
+    setView("discover");
+    setActiveRowId(ROW_BACK);
+  };
   const goBack = () => {
+    const returnRowId =
+      view === "discover" ? ROW_DISCOVER : appSnap.available ? ROW_WINDOW : ROW_FILES;
     setView("root");
-    setActiveRowId(ROW_WINDOW);
+    setActiveRowId(returnRowId);
   };
 
+  const starterItems = props.mossGuideStarters ?? [];
   const groups: ComposerMenuPanelGroup[] =
     view === "windows"
       ? [
@@ -129,81 +154,124 @@ export function ComposerExtrasPanel(props: {
             ],
           },
         ]
-      : [
-          {
-            id: "add",
-            label: "Add",
-            rows: [
-              {
-                id: ROW_FILES,
-                icon: <PaperclipIcon className={GLYPH} />,
-                title: "Files and folders",
-              },
-              ...(appSnap.available
-                ? [
-                    frontmostWindow
-                      ? {
-                          id: ROW_WINDOW,
-                          icon: windowGlyph(frontmostWindow),
-                          title: format("composer.extras.attachApp", {
-                            app: frontmostAppName || t("composer.extras.windowFallback"),
-                          }),
-                          disabled: appSnap.busy,
-                          trailing: (
-                            <button
-                              type="button"
-                              aria-label="Choose another window"
-                              className={cn(
-                                "-mr-1 flex size-5 items-center justify-center rounded-control text-muted-foreground/60 transition-colors",
-                                "hover:bg-[var(--color-background-button-secondary)] hover:text-foreground/80",
-                              )}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openWindows();
-                              }}
-                            >
-                              <ChevronRightIcon className="size-4" />
-                            </button>
-                          ),
-                        }
-                      : {
-                          id: ROW_WINDOW,
-                          icon: <WindowIcon className={GLYPH} />,
-                          title: "Attach window",
-                          trailing: <ChevronRightIcon className="size-4" />,
-                        },
-                  ]
-                : []),
-              {
-                id: ROW_GOAL,
-                icon: <GoalIcon className={GLYPH} />,
-                title: "Goal",
-              },
-              {
-                id: ROW_PLAN,
-                icon: <ListTodoIcon className={GLYPH} />,
-                title: "Plan mode",
-                trailing: props.interactionMode === "plan" ? CHECK : null,
-              },
-              {
-                id: ROW_DEBUG,
-                icon: <BugIcon className={GLYPH} />,
-                title: "Debug mode",
-                trailing: props.interactionMode === "debug" ? CHECK : null,
-              },
-              ...(props.supportsFastMode
-                ? [
-                    {
-                      id: ROW_FAST,
-                      icon: <FastModeIcon className={GLYPH} />,
-                      title: "Fast mode",
-                      trailing: props.fastModeEnabled ? CHECK : null,
-                    },
-                  ]
-                : []),
-            ],
-          },
-        ];
+      : view === "discover"
+        ? [
+            {
+              id: "discover",
+              label: t("composer.extras.discoverMoss"),
+              rows: [
+                { id: ROW_BACK, icon: <ArrowLeftIcon className={GLYPH} />, title: "Back" },
+                ...starterItems.map((starter) => ({
+                  id: `${STARTER_ROW_PREFIX}${starter.id}`,
+                  icon: <SparklesIcon className={GLYPH} />,
+                  title: starter.label,
+                })),
+                ...(props.onOpenPlugins
+                  ? [
+                      {
+                        id: ROW_DISCOVER_PLUGINS,
+                        icon: <PluginIcon className={GLYPH} />,
+                        title: t("composer.extras.browsePlugins"),
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ]
+        : [
+            {
+              id: "add",
+              label: "Add",
+              rows: [
+                {
+                  id: ROW_FILES,
+                  icon: <PaperclipIcon className={GLYPH} />,
+                  title: "Files and folders",
+                },
+                ...(appSnap.available
+                  ? [
+                      frontmostWindow
+                        ? {
+                            id: ROW_WINDOW,
+                            icon: windowGlyph(frontmostWindow),
+                            title: format("composer.extras.attachApp", {
+                              app: frontmostAppName || t("composer.extras.windowFallback"),
+                            }),
+                            disabled: appSnap.busy,
+                            trailing: (
+                              <button
+                                type="button"
+                                aria-label="Choose another window"
+                                className={cn(
+                                  "-mr-1 flex size-5 items-center justify-center rounded-control text-muted-foreground/60 transition-colors",
+                                  "hover:bg-[var(--color-background-button-secondary)] hover:text-foreground/80",
+                                )}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openWindows();
+                                }}
+                              >
+                                <ChevronRightIcon className="size-4" />
+                              </button>
+                            ),
+                          }
+                        : {
+                            id: ROW_WINDOW,
+                            icon: <WindowIcon className={GLYPH} />,
+                            title: "Attach window",
+                            trailing: <ChevronRightIcon className="size-4" />,
+                          },
+                    ]
+                  : []),
+                {
+                  id: ROW_GOAL,
+                  icon: <GoalIcon className={GLYPH} />,
+                  title: "Goal",
+                },
+                ...(starterItems.length > 0
+                  ? [
+                      {
+                        id: ROW_DISCOVER,
+                        icon: <SparklesIcon className={GLYPH} />,
+                        title: t("composer.extras.discoverMoss"),
+                        trailing: <ChevronRightIcon className="size-4" />,
+                      },
+                    ]
+                  : []),
+                ...(props.onOpenPlugins
+                  ? [
+                      {
+                        id: ROW_PLUGINS,
+                        icon: <PluginIcon className={GLYPH} />,
+                        title: t("composer.extras.appsAndPlugins"),
+                      },
+                    ]
+                  : []),
+                {
+                  id: ROW_PLAN,
+                  icon: <ListTodoIcon className={GLYPH} />,
+                  title: "Plan mode",
+                  trailing: props.interactionMode === "plan" ? CHECK : null,
+                },
+                {
+                  id: ROW_DEBUG,
+                  icon: <BugIcon className={GLYPH} />,
+                  title: "Debug mode",
+                  trailing: props.interactionMode === "debug" ? CHECK : null,
+                },
+                ...(props.supportsFastMode
+                  ? [
+                      {
+                        id: ROW_FAST,
+                        icon: <FastModeIcon className={GLYPH} />,
+                        title: "Fast mode",
+                        trailing: props.fastModeEnabled ? CHECK : null,
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ];
 
   const selectableRowIds = groups.flatMap((group) =>
     group.rows.filter((row) => !row.disabled).map((row) => row.id),
@@ -237,6 +305,24 @@ export function ComposerExtrasPanel(props: {
       props.onClose();
       return;
     }
+    if (rowId === ROW_DISCOVER) {
+      openDiscover();
+      return;
+    }
+    if (rowId === ROW_PLUGINS || rowId === ROW_DISCOVER_PLUGINS) {
+      props.onOpenPlugins?.();
+      props.onClose();
+      return;
+    }
+    if (rowId.startsWith(STARTER_ROW_PREFIX)) {
+      const starterId = rowId.slice(STARTER_ROW_PREFIX.length);
+      const starter = starterItems.find((entry) => entry.id === starterId);
+      if (starter) {
+        props.onSelectStarterPrompt?.(starter.prompt);
+      }
+      props.onClose();
+      return;
+    }
     if (rowId === ROW_PLAN || rowId === ROW_DEBUG) {
       const mode: ProviderInteractionMode = rowId === ROW_PLAN ? "plan" : "debug";
       props.onInteractionModeChange(props.interactionMode === mode ? "default" : mode);
@@ -265,10 +351,18 @@ export function ComposerExtrasPanel(props: {
       if (isImeComposingKeyEvent(event)) return;
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
 
+      if (event.key === "Enter" || event.key === "Tab") {
+        if (!highlightedRowId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        selectRow(highlightedRowId);
+        return;
+      }
+
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        if (view === "windows") {
+        if (view === "windows" || view === "discover") {
           goBack();
         } else {
           props.onClose();
@@ -276,13 +370,21 @@ export function ComposerExtrasPanel(props: {
         return;
       }
 
-      if (event.key === "ArrowRight" && view === "root" && highlightedRowId === ROW_WINDOW) {
-        event.preventDefault();
-        event.stopPropagation();
-        openWindows();
-        return;
+      if (event.key === "ArrowRight" && view === "root") {
+        if (highlightedRowId === ROW_WINDOW) {
+          event.preventDefault();
+          event.stopPropagation();
+          openWindows();
+          return;
+        }
+        if (highlightedRowId === ROW_DISCOVER) {
+          event.preventDefault();
+          event.stopPropagation();
+          openDiscover();
+          return;
+        }
       }
-      if (event.key === "ArrowLeft" && view === "windows") {
+      if (event.key === "ArrowLeft" && (view === "windows" || view === "discover")) {
         event.preventDefault();
         event.stopPropagation();
         goBack();
@@ -298,14 +400,6 @@ export function ComposerExtrasPanel(props: {
         const nextIndex =
           (currentIndex + offset + selectableRowIds.length) % selectableRowIds.length;
         setActiveRowId(selectableRowIds[nextIndex] ?? null);
-        return;
-      }
-
-      if (event.key === "Enter" || event.key === "Tab") {
-        if (!highlightedRowId) return;
-        event.preventDefault();
-        event.stopPropagation();
-        selectRow(highlightedRowId);
       }
     };
 

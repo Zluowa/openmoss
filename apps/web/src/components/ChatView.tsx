@@ -172,6 +172,15 @@ import {
 } from "../appSettings";
 import { MCP_CONNECTORS_ON } from "../betaFeatures";
 import { mcpConnectorsQueryOptions } from "../lib/mcpConnectorsReactQuery";
+import {
+  mossAppCatalogQueryOptions,
+  mossAppConnectionsQueryOptions,
+} from "../lib/mossAppsReactQuery";
+import { useMossImagesAccountBoundary } from "../lib/mossImagesAccountBoundary";
+import {
+  isMossGuidePluginInstalled,
+  MOSS_GUIDE_STARTER_PROMPTS,
+} from "@moss/shared/mossGuidePlugin";
 import { providerSupportsMcpConnectors } from "@moss/shared/mcpConnectors";
 import {
   collapseExpandedComposerCursor,
@@ -2823,10 +2832,46 @@ export default function ChatView({
   // Connectors are mentionable only where the session receives them.
   const connectorsMentionable =
     MCP_CONNECTORS_ON && providerSupportsMcpConnectors(selectedProvider);
+  const appsAccount = useMossImagesAccountBoundary();
   const connectorsQuery = useQuery({
     ...mcpConnectorsQueryOptions(),
     enabled: connectorsMentionable,
   });
+  const mossAppConnectionsQuery = useQuery(
+    mossAppConnectionsQueryOptions({
+      enabled: connectorsMentionable && !appsAccount.transitioning,
+      polling: false,
+      accountKey: appsAccount.key,
+    }),
+  );
+  const hasActiveMossApps = (mossAppConnectionsQuery.data?.connections ?? []).some(
+    (connection) => connection.status === "active",
+  );
+  const mossAppCatalogQuery = useQuery(
+    mossAppCatalogQueryOptions({
+      enabled: connectorsMentionable && !appsAccount.transitioning && hasActiveMossApps,
+    }),
+  );
+  const connectedMossApps = useMemo(() => {
+    if (!connectorsMentionable) return [];
+    const active = (mossAppConnectionsQuery.data?.connections ?? []).filter(
+      (connection) => connection.status === "active",
+    );
+    if (active.length === 0) return [];
+    const toolkitNames = new Map(
+      (mossAppCatalogQuery.data?.toolkits ?? []).map((toolkit) => [toolkit.slug, toolkit.name]),
+    );
+    return active.map((connection) => ({
+      slug: connection.toolkitSlug,
+      name:
+        toolkitNames.get(connection.toolkitSlug) ??
+        connection.toolkitSlug.charAt(0).toUpperCase() + connection.toolkitSlug.slice(1),
+    }));
+  }, [
+    connectorsMentionable,
+    mossAppCatalogQuery.data?.toolkits,
+    mossAppConnectionsQuery.data?.connections,
+  ]);
   const mentionableConnectors = useMemo(
     () =>
       connectorsMentionable
@@ -2860,6 +2905,8 @@ export default function ChatView({
       currentThreadId: threadId,
     },
     connectors: mentionableConnectors,
+    connectedMossApps,
+    locale,
     offerDevsReport: true,
   });
   const composerMenuItems = useMemo(() => {
@@ -5328,6 +5375,21 @@ export default function ChatView({
   );
 
   const serverSettingsQuery = useQuery(serverSettingsQueryOptions());
+  const mossGuideInstalled = isMossGuidePluginInstalled(serverSettingsQuery.data);
+  const mossGuideStarters = useMemo(
+    () =>
+      mossGuideInstalled
+        ? MOSS_GUIDE_STARTER_PROMPTS.map((starter) => {
+            const lang = locale.startsWith("zh") ? "zhCN" : "en";
+            return {
+              id: starter.id,
+              label: starter.label[lang],
+              prompt: starter.prompt[lang],
+            };
+          })
+        : [],
+    [locale, mossGuideInstalled],
+  );
   const mossQuotaManagedSelection = isServerConfiguredMossDefaultManagedProvider(
     serverSettingsQuery.data,
     selectedModelSelection.instanceId,
@@ -7918,6 +7980,17 @@ export default function ChatView({
                           onToggleFastMode={toggleFastMode}
                           onInteractionModeChange={handleInteractionModeChange}
                           onInsertGoal={insertGoalSlashCommandInComposer}
+                          onOpenPlugins={() => void navigate({ to: "/plugins" })}
+                          mossGuideStarters={mossGuideStarters}
+                          onSelectStarterPrompt={(starterPrompt) => {
+                            if (isSendBusy) {
+                              setPromptFromTraits(starterPrompt);
+                              return;
+                            }
+                            void onSendPromptTurn(starterPrompt).then((sent) => {
+                              if (!sent) setPromptFromTraits(starterPrompt);
+                            });
+                          }}
                           onClose={() => {
                             setIsComposerExtrasPanelOpen(false);
                             scheduleComposerFocus();
@@ -8544,6 +8617,32 @@ export default function ChatView({
                           </>
                         )}
                       </h2>
+                      {isEmptyChatLanding &&
+                      mossGuideStarters.length > 0 &&
+                      prompt.trim().length === 0 ? (
+                        <div
+                          data-testid="moss-guide-starter-chips"
+                          className="mt-2 flex max-w-xl flex-wrap items-center justify-center gap-2 select-auto"
+                        >
+                          {mossGuideStarters.map((starter) => (
+                            <Button
+                              key={starter.id}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={isSendBusy}
+                              className="h-auto rounded-full px-3 py-1.5 text-ui-sm font-normal text-muted-foreground hover:text-foreground"
+                              onClick={() => {
+                                void onSendPromptTurn(starter.prompt).then((sent) => {
+                                  if (!sent) setPromptFromTraits(starter.prompt);
+                                });
+                              }}
+                            >
+                              {starter.label}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <div className="relative w-full shrink-0 pb-3 sm:pb-4">
@@ -8682,6 +8781,10 @@ export default function ChatView({
                             onIsAtEndChange={onIsAtEndChange}
                             onNavigate={onTranscriptNavigate}
                             markdownCwd={threadWorkspaceCwd ?? undefined}
+                            provider={selectedProvider}
+                            onPluginSuggestionAccountRequired={(action) => {
+                              void navigate({ to: action === "login" ? "/login" : "/account" });
+                            }}
                             resolvedTheme={resolvedTheme}
                             chatFontSizePx={settings.chatFontSizePx}
                             timestampFormat={timestampFormat}

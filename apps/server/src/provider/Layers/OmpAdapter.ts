@@ -42,8 +42,11 @@ import { makeEffectProcessCommand } from "../../platform/effectProcessRuntime.ts
 import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -137,10 +140,14 @@ const log = createLogger(PROVIDER);
 export const takeOmpMossHarnessPolicyTextPart = (
   state: MossHarnessPolicyDeliveryState,
   scopedGatewayConnectionAvailable: boolean,
+  mossGuideInstalled = false,
+  connectedApps?: ReadonlyArray<string>,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
+    mossGuideInstalled,
+    ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 const OMP_RESUME_VERSION = 1 as const;
 const OMP_ACP_TRANSPORT_DEBUG_MARKER = "omp-acp-meta-stripper-v2";
@@ -369,6 +376,9 @@ export function makeOmpAdapter(
     const serverConfig = yield* Effect.service(ServerConfig);
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -1663,9 +1673,12 @@ export function makeOmpAdapter(
             issue: "Turn requires non-empty text or attachments.",
           });
         }
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeOmpMossHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
+          mossGuideInstalled,
+          readConnectedAppNames(agentGatewayCredentials),
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

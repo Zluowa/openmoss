@@ -77,6 +77,18 @@ export function applyServerSettingsPatch(
     ...(patch.mossCliModelAuthDisabledProviders !== undefined
       ? { mossCliModelAuthDisabledProviders: patch.mossCliModelAuthDisabledProviders }
       : {}),
+    ...(patch.officialPlugins !== undefined
+      ? {
+          officialPlugins: {
+            uninstalled:
+              patch.officialPlugins.uninstalled ?? current.officialPlugins?.uninstalled ?? [],
+            dismissedSuggestions:
+              patch.officialPlugins.dismissedSuggestions ??
+              current.officialPlugins?.dismissedSuggestions ??
+              [],
+          },
+        }
+      : {}),
     ...(patch.agentTheme !== undefined ? { agentTheme: patch.agentTheme } : {}),
   };
   if (!selectionPatch) {

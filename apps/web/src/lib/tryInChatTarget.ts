@@ -19,6 +19,10 @@ import type {
 import type { ResourceDetail } from "~/components/PluginResourceDetailDialog";
 import { localizeMossMediaPluginPrompt } from "~/localization/zhCNMossMediaPluginsCopy";
 import { documentMossLocale, type MossLocaleCode } from "~/uiLocale";
+import {
+  MOSS_GUIDE_PLUGIN_COPY,
+  MOSS_OFFICIAL_MARKETPLACE_NAME,
+} from "@moss/shared/mossGuidePlugin";
 import { formatComposerMentionToken, skillMentionPrefix } from "./composerMentions";
 import { MOSS_APPS_MARKETPLACE_NAME } from "./mossAppsPlugins";
 import { MOSS_SERVICE_PLUGINS_MARKETPLACE_NAME } from "./mossServicePlugins";
@@ -116,6 +120,23 @@ export function buildTryInChatSeed(
         mentions: [],
       };
     case "plugin": {
+      if (resource.marketplaceName === MOSS_OFFICIAL_MARKETPLACE_NAME) {
+        const locale = options.locale ?? documentMossLocale();
+        const copy = locale === "zh-CN" ? MOSS_GUIDE_PLUGIN_COPY.zhCN : MOSS_GUIDE_PLUGIN_COPY.en;
+        const text =
+          promptOverride?.trim() ||
+          resource.plugin.interface?.defaultPrompt?.[0] ||
+          copy.defaultPrompt[0] ||
+          "";
+        const skill = options.serviceSkill;
+        return skill
+          ? {
+              prompt: `${skillMentionPrefix(provider)}${skill.name} ${text}`,
+              skills: [{ name: skill.name, path: skill.path }],
+              mentions: [],
+            }
+          : { prompt: text, skills: [], mentions: [] };
+      }
       // A Moss app (hosted or a service plugin) is no CLI plugin a mention
       // could resolve; its tools reach every agent through a Moss connector,
       // so the prompt names it. A service plugin's skill rides along as a

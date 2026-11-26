@@ -45,8 +45,11 @@ import type * as Acp from "@agentclientprotocol/sdk";
 import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -188,10 +191,14 @@ export function stampCursorTerminalEventInstance(
 export const takeCursorMossHarnessPolicyTextPart = (
   state: MossHarnessPolicyDeliveryState,
   scopedGatewayConnectionAvailable: boolean,
+  mossGuideInstalled = false,
+  connectedApps?: ReadonlyArray<string>,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
+    mossGuideInstalled,
+    ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 const CURSOR_RESUME_VERSION = 1 as const;
 const CURSOR_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
@@ -504,6 +511,9 @@ export function makeCursorAdapter(
     // present, every session gets the moss_* MCP tools.
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -1413,9 +1423,12 @@ export function makeCursorAdapter(
             issue: "Turn requires non-empty text or attachments.",
           });
         }
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeCursorMossHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
+          mossGuideInstalled,
+          readConnectedAppNames(agentGatewayCredentials),
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

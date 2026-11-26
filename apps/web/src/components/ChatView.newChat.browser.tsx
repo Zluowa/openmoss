@@ -5,6 +5,7 @@
 
 import { installZhCnUiLocalization, uninstallZhCnUiLocalization } from "../localization/zhCN";
 import { translateMoss } from "../localization";
+import { MOSS_GUIDE_PLUGIN_ID, MOSS_GUIDE_STARTER_PROMPTS } from "@moss/shared/mossGuidePlugin";
 import {
   EventId,
   MessageId,
@@ -4963,6 +4964,107 @@ describe("ChatView transcript geometry (full app)", () => {
       uninstallZhCnUiLocalization();
       pageAssistantThreads.forget(documentKey);
       useRightDockStore.setState({ dockStateByThreadId: {} });
+      await mounted.cleanup();
+    }
+  });
+
+  it("shows moss-guide-starter-chips on empty home when Moss 使用手册 is installed and sends the clicked starter", async () => {
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: HOME_PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          entryPoint: "chat",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: { [HOME_PROJECT_ID]: THREAD_ID },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withHomeChatProject(createDraftOnlySnapshot()),
+      configureFixture: (nextFixture) => {
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          homeDir: "/Users/tester",
+          chatWorkspaceRoot: "/Users/tester/Documents/Moss",
+        };
+      },
+    });
+    try {
+      await expect.element(page.getByTestId("empty-landing-heading")).toBeVisible();
+      const chipsContainer = page.getByTestId("moss-guide-starter-chips");
+      await expect.element(chipsContainer).toBeVisible();
+      for (const starter of MOSS_GUIDE_STARTER_PROMPTS) {
+        await expect
+          .element(page.getByRole("button", { name: starter.label.zhCN, exact: true }))
+          .toBeVisible();
+      }
+
+      const firstStarter = MOSS_GUIDE_STARTER_PROMPTS[0]!;
+      await page.getByRole("button", { name: firstStarter.label.zhCN, exact: true }).click();
+      await vi.waitFor(
+        () => {
+          const turnStart = wsRequests
+            .map(readDispatchedCommand)
+            .find((command) => command?.type === "thread.turn.start");
+          expect(turnStart).toMatchObject({
+            type: "thread.turn.start",
+            message: { text: firstStarter.prompt.zhCN },
+          });
+        },
+        { timeout: 8_000, interval: 25 },
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("hides moss-guide-starter-chips on empty home when Moss 使用手册 is uninstalled", async () => {
+    localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify({ localeOverride: "zh-CN" }));
+    useComposerDraftStore.setState({
+      draftThreadsByThreadId: {
+        [THREAD_ID]: {
+          projectId: HOME_PROJECT_ID,
+          createdAt: NOW_ISO,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          entryPoint: "chat",
+          branch: null,
+          worktreePath: null,
+          envMode: "local",
+        },
+      },
+      projectDraftThreadIdByProjectId: { [HOME_PROJECT_ID]: THREAD_ID },
+    });
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: withHomeChatProject(createDraftOnlySnapshot()),
+      configureFixture: (nextFixture) => {
+        nextFixture.welcome = {
+          ...nextFixture.welcome,
+          homeDir: "/Users/tester",
+          chatWorkspaceRoot: "/Users/tester/Documents/Moss",
+        };
+        nextFixture.serverSettings = {
+          ...nextFixture.serverSettings,
+          officialPlugins: {
+            uninstalled: [MOSS_GUIDE_PLUGIN_ID],
+            dismissedSuggestions: [],
+          },
+        };
+      },
+    });
+    try {
+      await expect.element(page.getByTestId("empty-landing-heading")).toBeVisible();
+      await waitForLayout();
+      expect(document.querySelector('[data-testid="moss-guide-starter-chips"]')).toBeNull();
+    } finally {
       await mounted.cleanup();
     }
   });

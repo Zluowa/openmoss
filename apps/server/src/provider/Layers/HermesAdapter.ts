@@ -42,8 +42,11 @@ import type * as Acp from "@agentclientprotocol/sdk";
 import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import { PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY } from "../Services/ProviderAdapter.ts";
 import {
@@ -150,10 +153,14 @@ export function classifyHermesPromptTurnCompletion(input: {
 export const takeHermesMossHarnessPolicyTextPart = (
   state: MossHarnessPolicyDeliveryState,
   scopedGatewayConnectionAvailable: boolean,
+  mossGuideInstalled = false,
+  connectedApps?: ReadonlyArray<string>,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
+    mossGuideInstalled,
+    ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 const HERMES_RESUME_VERSION = 1 as const;
 // Forking a dead source session must first resume it, which may replay
@@ -430,6 +437,9 @@ export function makeHermesAdapter(
     // present, every session gets the moss_* MCP tools.
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -1236,9 +1246,12 @@ export function makeHermesAdapter(
             issue: "Turn requires non-empty text or attachments.",
           });
         }
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeHermesMossHarnessPolicyTextPart(
           ctx,
           agentGatewayCredentials !== undefined,
+          mossGuideInstalled,
+          readConnectedAppNames(agentGatewayCredentials),
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

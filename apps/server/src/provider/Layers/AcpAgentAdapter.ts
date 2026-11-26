@@ -40,8 +40,11 @@ import type * as Acp from "@agentclientprotocol/sdk";
 import { buildAcpMossMcpServers } from "../../agentGateway/mcpInjection.ts";
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   PROVIDER_ADAPTER_RUNTIME_EVENT_BUFFER_CAPACITY,
@@ -294,6 +297,9 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
     // present, every session gets the moss_* MCP tools.
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
     const makeRuntime = options?.makeRuntime ?? makeAcpAgentRuntime;
     const nativeEventLogger =
@@ -1075,9 +1081,12 @@ export function makeAcpAgentAdapter<Kind extends AcpAgentKind>(
           });
         }
         const harnessPolicyState: MossHarnessPolicyDeliveryState = ctx;
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeMossHarnessPolicyTextPartForProviderSession(harnessPolicyState, {
           provider: PROVIDER,
           scopedGatewayConnectionAvailable: agentGatewayCredentials !== undefined,
+          mossGuideInstalled,
+          connectedApps: readConnectedAppNames(agentGatewayCredentials),
         });
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

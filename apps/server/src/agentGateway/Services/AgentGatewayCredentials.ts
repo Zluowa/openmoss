@@ -135,13 +135,14 @@ export interface AgentGatewayCredentialsShape {
   ) => AgentGatewayMcpConnection;
   /** Spawn spec for the stdio->HTTP proxy used by stdio-only MCP clients. */
   readonly stdioProxy: AgentGatewayStdioProxySpawn;
-  /**
-   * Replace the connectors that new provider sessions receive. Sessions keep
-   * the set they started with; the proxy refuses connectors removed since.
-   */
+  /** Replace the connectors that new provider sessions receive. */
   readonly setConnectorServers?: (
     registrations: ReadonlyArray<AgentGatewayConnectorRegistration>,
   ) => void;
+  /** Replace human-readable names of currently connected external apps/connectors. */
+  readonly setConnectedAppNames?: (names: ReadonlyArray<string>) => void;
+  /** Snapshot of currently connected external app/connector names for turn-1 host context. */
+  readonly connectedAppNames?: () => ReadonlyArray<string>;
   /**
    * Whether this live bearer was issued with the connector. A session may
    * only call connectors it received at start (or at its latest renewal).

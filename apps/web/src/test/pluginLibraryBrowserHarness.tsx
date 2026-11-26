@@ -646,6 +646,21 @@ export class PluginLibraryNativeFixture {
               skills: { ...this.serverSettings.skills, disabled: [...input.skills.disabled] },
             };
           }
+          if (input.officialPlugins) {
+            this.serverSettings = {
+              ...this.serverSettings,
+              officialPlugins: {
+                uninstalled:
+                  input.officialPlugins.uninstalled ??
+                  this.serverSettings.officialPlugins?.uninstalled ??
+                  [],
+                dismissedSuggestions:
+                  input.officialPlugins.dismissedSuggestions ??
+                  this.serverSettings.officialPlugins?.dismissedSuggestions ??
+                  [],
+              },
+            };
+          }
           return this.serverSettings;
         },
         getMossAppsStatus: async () => ({

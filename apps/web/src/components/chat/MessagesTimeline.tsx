@@ -9,6 +9,7 @@ import {
   type EditorId,
   type HubWorkItem,
   type MessageId,
+  type ProviderKind,
   type ProviderMentionReference,
   type ProviderTurnTrigger,
   type ResolvedKeybindingsConfig,
@@ -614,6 +615,8 @@ interface MessagesTimelineProps {
   markdownCwd: string | undefined;
   /** Active conversation id used by the desktop-only MCP App enhancement. */
   threadId?: string;
+  provider?: ProviderKind;
+  onPluginSuggestionAccountRequired?: ((action: "login" | "account") => void) | undefined;
   /** Opens a visual reply in the thread-scoped right-side document panel. */
   onOpenHtmlDocument?: (document: RightDockHtmlDocument) => void;
   resolvedTheme: "light" | "dark";
@@ -805,6 +808,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onSendVisualChoice,
   markdownCwd,
   threadId,
+  provider,
+  onPluginSuggestionAccountRequired,
   onOpenHtmlDocument,
   resolvedTheme,
   chatFontSizePx: chatFontSizePxProp,
@@ -2144,6 +2149,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               markdownCwd={markdownCwd}
               onImageExpand={onImageExpand}
               {...(threadId ? { threadId } : {})}
+              {...(provider ? { provider } : {})}
+              {...(onSendPromptTurn ? { onSendPromptTurn } : {})}
+              {...(onPluginSuggestionAccountRequired ? { onPluginSuggestionAccountRequired } : {})}
               theme={resolvedTheme}
               timestampFormat={timestampFormat}
               {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
@@ -2189,6 +2197,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               !workEntry.computerSetupRequired &&
               !workEntry.secretRequest &&
               !workEntry.devsReportDraft &&
+              !workEntry.pluginSuggestion &&
               !workEntry.subagentRun,
           });
           const renderChunks = cappedRenderPlan.chunks;
@@ -2955,6 +2964,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 markdownCwd={markdownCwd}
                 onImageExpand={onImageExpand}
                 {...(threadId ? { threadId } : {})}
+                {...(provider ? { provider } : {})}
+                {...(onSendPromptTurn ? { onSendPromptTurn } : {})}
+                {...(onPluginSuggestionAccountRequired
+                  ? { onPluginSuggestionAccountRequired }
+                  : {})}
                 theme={resolvedTheme}
                 onOpenTurnDiff={onOpenTurnDiff}
                 timestampFormat={timestampFormat}
@@ -3116,6 +3130,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         markdownCwd={markdownCwd}
                         onImageExpand={onImageExpand}
                         {...(threadId ? { threadId } : {})}
+                        {...(provider ? { provider } : {})}
+                        {...(onSendPromptTurn ? { onSendPromptTurn } : {})}
+                        {...(onPluginSuggestionAccountRequired
+                          ? { onPluginSuggestionAccountRequired }
+                          : {})}
                         theme={resolvedTheme}
                         timestampFormat={timestampFormat}
                         {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}
@@ -3164,6 +3183,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   markdownCwd={markdownCwd}
                   onImageExpand={onImageExpand}
                   {...(threadId ? { threadId } : {})}
+                  {...(provider ? { provider } : {})}
+                  {...(onSendPromptTurn ? { onSendPromptTurn } : {})}
+                  {...(onPluginSuggestionAccountRequired
+                    ? { onPluginSuggestionAccountRequired }
+                    : {})}
                   theme={resolvedTheme}
                   timestampFormat={timestampFormat}
                   {...(onOpenAgentActivity ? { onOpenAgentActivity } : {})}

@@ -1614,6 +1614,8 @@ function codexInProgressSourceError(cause: unknown): Error {
 export function buildCodexCollaborationMode(input: {
   readonly mossManagedAccount?: boolean;
   readonly enableComputerControl?: boolean;
+  readonly mossGuideInstalled?: boolean;
+  readonly connectedApps?: ReadonlyArray<string>;
   readonly interactionMode?: ProviderInteractionMode;
   readonly model?: string;
   readonly effort?: string;
@@ -1642,13 +1644,17 @@ export function buildCodexCollaborationMode(input: {
       model,
       reasoning_effort: input.effort ?? "medium",
       developer_instructions:
-        input.enableComputerControl === true
+        input.enableComputerControl === true || input.mossGuideInstalled === true
           ? instructions.replace(
               PERSONAL_CODEX_GATEWAY_HARNESS_POLICY,
               renderMossHarnessPolicy({
                 gatewayControlAvailable: true,
-                enableComputerControl: true,
+                enableComputerControl: input.enableComputerControl === true,
                 personalCodex: input.mossManagedAccount !== true,
+                ...(input.mossGuideInstalled === true ? { mossGuideInstalled: true } : {}),
+                ...(input.connectedApps !== undefined
+                  ? { connectedApps: input.connectedApps }
+                  : {}),
               }),
             )
           : input.mossManagedAccount
@@ -2237,6 +2243,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   private readonly resolveMossPluginCatalogSourceOrder:
     | (() => Promise<MossDownloadSourceOrder>)
     | undefined;
+  private readonly readMossGuideInstalled: (() => Promise<boolean>) | undefined;
+  private readonly readConnectedApps: (() => ReadonlyArray<string> | undefined) | undefined;
   private readonly readManagedHomeAuthority:
     | ((
         options: CodexDiscoveryOptions | undefined,
@@ -2302,6 +2310,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       readonly mossPluginCatalogRoot?: string;
       /** The account's download source order for catalog packages (COS or R2 first). */
       readonly resolveMossPluginCatalogSourceOrder?: () => Promise<MossDownloadSourceOrder>;
+      readonly readMossGuideInstalled?: () => Promise<boolean>;
+      readonly readConnectedApps?: () => ReadonlyArray<string> | undefined;
       readonly readManagedHomeAuthority?: (
         options: CodexDiscoveryOptions | undefined,
       ) => Promise<ManagedCodexHomeAuthority | undefined>;
@@ -2328,6 +2338,8 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     this.managedCodexHomePath = options?.managedCodexHomePath;
     this.mossPluginCatalogRoot = options?.mossPluginCatalogRoot;
     this.resolveMossPluginCatalogSourceOrder = options?.resolveMossPluginCatalogSourceOrder;
+    this.readMossGuideInstalled = options?.readMossGuideInstalled;
+    this.readConnectedApps = options?.readConnectedApps;
     this.readManagedHomeAuthority = options?.readManagedHomeAuthority;
     this.agentGatewayMcp = options?.agentGatewayMcp;
     const spawnAppServer = options?.spawnAppServer ?? spawnCodexAppServer;
@@ -4610,9 +4622,15 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     if (input.effort) {
       turnStartParams.effort = input.effort;
     }
+    const mossGuideInstalled = this.readMossGuideInstalled
+      ? await this.readMossGuideInstalled().catch(() => true)
+      : false;
+    const connectedApps = mossGuideInstalled ? this.readConnectedApps?.() : undefined;
     const collaborationMode = buildCodexCollaborationMode({
       mossManagedAccount: context.codexOptions?.accountId === "moss",
       enableComputerControl: context.enableComputerControl === true,
+      ...(mossGuideInstalled ? { mossGuideInstalled: true } : {}),
+      ...(connectedApps !== undefined ? { connectedApps } : {}),
       ...(input.interactionMode !== undefined ? { interactionMode: input.interactionMode } : {}),
       ...(normalizedModel !== undefined ? { model: normalizedModel } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),

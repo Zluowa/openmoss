@@ -282,3 +282,44 @@ it("keeps retired driver history decodable without granting new gateway authorit
     assert.notInclude(policy, "## Moss computer use");
   }
 });
+
+it("appends the Moss Guide proactive directive only when gateway control is available and moss-guide is installed", () => {
+  const installed = renderMossHarnessPolicy({
+    gatewayControlAvailable: true,
+    mossGuideInstalled: true,
+  });
+  assert.include(installed, "### Moss Guide (`moss-guide` active)");
+  assert.include(installed, "moss_search_plugins");
+  assert.include(installed, "moss_suggest_plugins");
+
+  const withConnectedApps = renderMossHarnessPolicy({
+    gatewayControlAvailable: true,
+    mossGuideInstalled: true,
+    connectedApps: ["Outlook", "Notion"],
+  });
+  assert.include(withConnectedApps, "Connected external apps: Outlook, Notion");
+
+  const withNoConnectedApps = renderMossHarnessPolicy({
+    gatewayControlAvailable: true,
+    mossGuideInstalled: true,
+    connectedApps: [],
+  });
+  assert.include(withNoConnectedApps, "Connected external apps: none");
+
+  const uninstalled = renderMossHarnessPolicy({
+    gatewayControlAvailable: true,
+    mossGuideInstalled: false,
+    connectedApps: ["Outlook"],
+  });
+  assert.notInclude(uninstalled, "### Moss Guide (`moss-guide` active)");
+  assert.notInclude(uninstalled, "Connected external apps:");
+
+  const omitted = renderMossHarnessPolicy({ gatewayControlAvailable: true });
+  assert.notInclude(omitted, "### Moss Guide (`moss-guide` active)");
+
+  const noGateway = renderMossHarnessPolicy({
+    gatewayControlAvailable: false,
+    mossGuideInstalled: true,
+  });
+  assert.notInclude(noGateway, "### Moss Guide (`moss-guide` active)");
+});

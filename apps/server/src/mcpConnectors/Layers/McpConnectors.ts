@@ -141,10 +141,44 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
     // User connectors and Moss Apps share one registration in the gateway.
     let userRegistrations: ReadonlyArray<AgentGatewayConnectorRegistration> = [];
     let appsRegistration: AgentGatewayConnectorRegistration | null = null;
-    const publishAll = () =>
+    let activeMossAppNames: ReadonlyArray<string> = [];
+    const publishConnectedAppNames = () => {
+      if (!credentials.setConnectedAppNames) return;
+      const seen = new Set<string>();
+      const names: string[] = [];
+      const addName = (raw: string) => {
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) return;
+        seen.add(key);
+        names.push(trimmed);
+      };
+      for (const connector of runtime.list()) {
+        if (connector.status === "connected") addName(connector.name);
+      }
+      for (const appName of activeMossAppNames) {
+        addName(appName);
+      }
+      credentials.setConnectedAppNames(names.slice(0, 20));
+    };
+    const updateActiveMossAppNames = (
+      connections: ReadonlyArray<{ toolkitSlug: string; status: string }>,
+    ) => {
+      activeMossAppNames = connections
+        .filter((connection) => connection.status === "active")
+        .map(
+          (connection) =>
+            apps.cachedToolkit(connection.toolkitSlug)?.name ?? connection.toolkitSlug,
+        );
+      publishConnectedAppNames();
+    };
+    const publishAll = () => {
       credentials.setConnectorServers?.(
         appsRegistration ? [...userRegistrations, appsRegistration] : userRegistrations,
       );
+      publishConnectedAppNames();
+    };
 
     // Why the last account check failed, so a change is logged once instead of every poll.
     let lastAppsAccountFailure: string | null = null;
@@ -366,21 +400,48 @@ export const makeMcpConnectors = (options: { readonly enabled?: boolean } = {}) 
         listToolkits: (input) =>
           appsCall(() => apps.listToolkits(input), "Moss could not load apps."),
         listConnections: () =>
-          appsCall(() => apps.listConnections(), "Moss could not load your connected apps."),
+          appsCall(async () => {
+            const connections = await apps.listConnections();
+            updateActiveMossAppNames(connections);
+            return connections;
+          }, "Moss could not load your connected apps."),
         connectFields: (toolkitSlug) =>
           appsCall(
             () => apps.connectFields(toolkitSlug),
             "Moss could not load this app's sign-in.",
           ),
         connect: (toolkitSlug, credentials) =>
-          appsCall(
-            () => apps.connect(toolkitSlug, credentials),
-            "Moss could not connect this app.",
-          ),
+          appsCall(async () => {
+            const result = await apps.connect(toolkitSlug, credentials);
+            if (result.connection.status === "active") {
+              void apps
+                .listConnections({ fresh: true })
+                .then(updateActiveMossAppNames)
+                .catch(() => {});
+            }
+            return result;
+          }, "Moss could not connect this app."),
         disconnect: (connectionId) =>
-          appsCall(() => apps.disconnect(connectionId), "Moss could not disconnect this app."),
+          appsCall(async () => {
+            const removed = await apps.disconnect(connectionId);
+            void apps
+              .listConnections({ fresh: true })
+              .then(updateActiveMossAppNames)
+              .catch(() => {});
+            return removed;
+          }, "Moss could not disconnect this app."),
         cachedToolkit: (toolkitSlug) => apps.cachedToolkit(toolkitSlug),
-        completeAuthorization: (query) => Effect.promise(() => apps.completeAuthorization(query)),
+        completeAuthorization: (query) =>
+          Effect.promise(async () => {
+            const ok = await apps.completeAuthorization(query);
+            if (ok) {
+              void apps
+                .listConnections({ fresh: true })
+                .then(updateActiveMossAppNames)
+                .catch(() => {});
+            }
+            return ok;
+          }),
       },
       servicePlugins: {
         list: () =>

@@ -1,3 +1,4 @@
+import type { McpConnector } from "@moss/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ComposerThreadMentionSource, Project } from "../types";
@@ -311,5 +312,93 @@ describe("devsReportMenuItems", () => {
     for (const query of ["devin", "devsx", "doc", "x"]) {
       expect(devsReportMenuItems(query)).toEqual([]);
     }
+  });
+});
+
+describe("useComposerCommandMenuItems connectedMossApps", () => {
+  function mentionItems(input: {
+    query?: string;
+    locale?: "en" | "zh-CN";
+    connectors?: readonly McpConnector[];
+    connectedMossApps?: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
+  }) {
+    const query = input.query ?? "";
+    return useComposerCommandMenuItems({
+      composerTrigger: { kind: "mention", query, rangeStart: 0, rangeEnd: query.length + 1 },
+      provider: "codex",
+      providerPlugins: [],
+      providerNativeCommands: [],
+      providerSkills: [],
+      workspaceEntries: [],
+      searchableModelOptions: [],
+      supportsFastSlashCommand: false,
+      canOfferCompactCommand: false,
+      canOfferReviewCommand: false,
+      canOfferForkCommand: false,
+      canOfferSideCommand: false,
+      canOfferExportCommand: false,
+      dynamicAgents: [],
+      ...(input.connectors !== undefined ? { connectors: input.connectors } : {}),
+      ...(input.connectedMossApps !== undefined
+        ? { connectedMossApps: input.connectedMossApps }
+        : {}),
+      ...(input.locale !== undefined ? { locale: input.locale } : {}),
+    });
+  }
+
+  it("localizes connected Moss App descriptions for zh-CN and en", () => {
+    const connectedMossApps = [
+      { slug: "gmail", name: "Gmail" },
+      { slug: "notion", name: "Notion" },
+    ];
+
+    const zhItems = mentionItems({ locale: "zh-CN", connectedMossApps }).filter((item) =>
+      item.id.startsWith("moss-app:"),
+    );
+    expect(zhItems).toMatchObject([
+      {
+        id: "moss-app:gmail",
+        type: "connector",
+        label: "Gmail",
+        description: "Moss 应用",
+        mention: { name: "Gmail", path: "connector://moss_apps" },
+      },
+      {
+        id: "moss-app:notion",
+        type: "connector",
+        label: "Notion",
+        description: "Moss 应用",
+        mention: { name: "Notion", path: "connector://moss_apps" },
+      },
+    ]);
+
+    const enItems = mentionItems({ locale: "en", connectedMossApps }).filter((item) =>
+      item.id.startsWith("moss-app:"),
+    );
+    expect(enItems.map((item) => item.description)).toEqual(["Moss App", "Moss App"]);
+  });
+
+  it("deduplicates against connected MCP connectors and filters by query", () => {
+    const existingConnector = {
+      connectorId: "conn-1",
+      name: "Notion",
+      presetId: "notion",
+      serverName: "notion",
+      url: "https://mcp.notion.so/sse",
+      status: "connected",
+    } as unknown as McpConnector;
+
+    const items = mentionItems({
+      query: "gm",
+      locale: "zh-CN",
+      connectors: [existingConnector],
+      connectedMossApps: [
+        { slug: "notion", name: "Notion" },
+        { slug: "gmail", name: "Gmail" },
+      ],
+    }).filter((item) => item.id.startsWith("moss-app:"));
+
+    expect(items.map((item) => item.id)).toEqual(["moss-app:gmail"]);
+    expect(items[0]?.description).toBe("Moss 应用");
   });
 });

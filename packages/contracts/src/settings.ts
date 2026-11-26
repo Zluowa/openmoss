@@ -205,6 +205,25 @@ export const AppsServerSettings = Schema.Struct({
 });
 export type AppsServerSettings = typeof AppsServerSettings.Type;
 
+// Official Moss plugins (such as `moss-guide`) installed by default that the user
+// can uninstall and reinstall anytime without modifying any CLI binary.
+const UninstalledOfficialPluginNames = Schema.Array(
+  Schema.String.check(Schema.isMaxLength(128)),
+).pipe(Schema.withDecodingDefault(() => []));
+export const DismissedPluginSuggestion = Schema.Struct({
+  pluginId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+  dismissedAt: IsoDateTime,
+});
+export type DismissedPluginSuggestion = typeof DismissedPluginSuggestion.Type;
+const DismissedPluginSuggestions = Schema.Array(DismissedPluginSuggestion)
+  .check(Schema.isMaxLength(200))
+  .pipe(Schema.withDecodingDefault(() => []));
+export const OfficialPluginsServerSettings = Schema.Struct({
+  uninstalled: UninstalledOfficialPluginNames,
+  dismissedSuggestions: DismissedPluginSuggestions,
+});
+export type OfficialPluginsServerSettings = typeof OfficialPluginsServerSettings.Type;
+
 // Settings › Computer use per-app choices. Apps are stored by the name (or
 // bundle id) the desktop reports; matching is case-insensitive on the server.
 // `blockedApps` are refused for every agent action; `alwaysAllowedApps` skip
@@ -333,6 +352,7 @@ export const ServerSettings = Schema.Struct({
   ),
   skills: SkillsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   apps: AppsServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  officialPlugins: Schema.optionalKey(OfficialPluginsServerSettings),
   computer: ComputerServerSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   // The theme an agent last published; absent or null when there is none.
   agentTheme: Schema.optionalKey(Schema.NullOr(MossPublishedTheme)),
@@ -522,6 +542,14 @@ export const ServerSettingsPatch = Schema.Struct({
   apps: Schema.optionalKey(
     Schema.Struct({
       disabled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(128)))),
+    }),
+  ),
+  officialPlugins: Schema.optionalKey(
+    Schema.Struct({
+      uninstalled: Schema.optionalKey(Schema.Array(Schema.String.check(Schema.isMaxLength(128)))),
+      dismissedSuggestions: Schema.optionalKey(
+        Schema.Array(DismissedPluginSuggestion).check(Schema.isMaxLength(200)),
+      ),
     }),
   ),
   // Replaced whole, never merged. Clients may only send `null`.

@@ -424,6 +424,8 @@ export const MOSS_MCP_TOOL_PRESENTATIONS = {
     "drafting a report for the Moss developers",
     "drafted a report for the Moss developers",
   ),
+  moss_search_plugins: presentMossTool("searching plugins", "searched plugins"),
+  moss_suggest_plugins: presentMossTool("suggesting plugins", "suggested plugins"),
   html_render: {
     running: "Rendering an HTML page",
     completed: "Rendered an HTML page",
@@ -586,6 +588,8 @@ export const ZH_CN_MOSS_TOOL_PRESENTATIONS: Readonly<
     "已起草给 Moss 开发者的问题报告",
     "无法起草给 Moss 开发者的问题报告",
   ],
+  moss_search_plugins: ["正在搜索可用插件", "已搜索可用插件", "无法搜索插件"],
+  moss_suggest_plugins: ["正在推荐插件", "已推荐插件", "无法推荐插件"],
   ...ZH_CN_COMPUTER_TOOL_PRESENTATIONS,
 };
 

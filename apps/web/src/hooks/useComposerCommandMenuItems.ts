@@ -34,6 +34,7 @@ import {
   shouldHideProviderNativeCommandFromComposerMenu,
 } from "../composerSlashCommands";
 import { mcpConnectorMentionPath } from "@moss/shared/mcpConnectors";
+import { MOSS_APPS_SERVER_NAME } from "@moss/shared/mossAppsPresentation";
 import { MOSS_DEVS_REPORTS_ENABLED } from "@moss/shared/devsReport";
 import { threadMentionPathForThreadId } from "@moss/shared/threadMentions";
 import { providerPluginSourceLabel } from "../lib/providerDiscovery";
@@ -43,8 +44,10 @@ import type { ComposerCommandItem } from "../components/chat/ComposerCommandMenu
 import { orderSlashCommandItemsByGroup } from "../components/chat/composerCommandGroups";
 import type { ProviderModelOption } from "../providerModelOptions";
 import { getClaudeArtifactCommandNotice } from "../lib/claudeArtifactCommands";
+import { translateMoss } from "../localization";
 import { compareProvidersByOrder } from "../providerOrdering";
 import type { ComposerThreadMentionSource, Project } from "../types";
+import type { MossLocaleCode } from "../uiLocale";
 
 const DEVS_REPORT_MENTION = "devs";
 
@@ -334,6 +337,10 @@ export function useComposerCommandMenuItems(input: {
   };
   /** Connected connectors this provider's sessions receive. */
   connectors?: readonly McpConnector[];
+  /** Connected Moss Apps (Gmail, Notion, Outlook, etc.) available for @ mention. */
+  connectedMossApps?: ReadonlyArray<{ readonly slug: string; readonly name: string }>;
+  /** UI locale for localized mention descriptions (defaults to "en"). */
+  locale?: MossLocaleCode;
   /** Chat composers offer `@devs` (a problem report); task composers do not. */
   offerDevsReport?: boolean;
 }): ComposerCommandItem[] {
@@ -356,6 +363,8 @@ export function useComposerCommandMenuItems(input: {
     dynamicAgents,
     threadMentionSources,
     connectors,
+    connectedMossApps,
+    locale,
     offerDevsReport,
   } = input;
 
@@ -409,6 +418,30 @@ export function useComposerCommandMenuItems(input: {
       // Host only: some servers keep an API key in the URL path.
       description: new URL(connector.url).host,
     }));
+    const existingConnectorKeys = new Set(
+      (connectors ?? []).flatMap((connector) =>
+        [connector.name.toLowerCase(), connector.presetId?.toLowerCase()].filter(
+          (value): value is string => Boolean(value),
+        ),
+      ),
+    );
+    const mossAppItems = rankProviderDiscoveryItems(
+      (connectedMossApps ?? []).filter(
+        (app) =>
+          !existingConnectorKeys.has(app.slug.toLowerCase()) &&
+          !existingConnectorKeys.has(app.name.toLowerCase()),
+      ),
+      query,
+      (app) => [{ value: app.name }, { value: app.slug, weight: 200 }],
+    ).map((app) => ({
+      id: `moss-app:${app.slug}`,
+      type: "connector" as const,
+      connectorName: app.name,
+      mention: { name: app.name, path: mcpConnectorMentionPath(MOSS_APPS_SERVER_NAME) },
+      label: app.name,
+      description: translateMoss(locale ?? "en", "composer.mention.mossApp"),
+    }));
+    const allConnectorItems = [...connectorItems, ...mossAppItems];
     const pluginItems = rankProviderDiscoveryItems(
       providerPlugins.filter(({ plugin }) => isInstalledProviderPlugin(plugin)),
       query,
@@ -450,7 +483,7 @@ export function useComposerCommandMenuItems(input: {
     // and chats first, then local context, then subagent delegation targets.
     return [
       ...(offerDevsReport ? devsReportMenuItems(composerTrigger.query) : []),
-      ...connectorItems,
+      ...allConnectorItems,
       ...pluginItems,
       ...threadItems,
       ...localRootItems,

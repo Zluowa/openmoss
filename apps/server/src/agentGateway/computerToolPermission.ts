@@ -254,6 +254,9 @@ const MOSS_GATEWAY_OWNED_TOOL_NAMES = [
   "moss_report_friction",
   // Developer report draft (devsReportDraftTool.ts): shows a card in the chat, sends nothing.
   "moss_draft_devs_report",
+  // Plugin discovery & in-chat install suggestions (pluginSuggestionTools.ts): gated by moss-guide.
+  "moss_search_plugins",
+  "moss_suggest_plugins",
   // Moss's own theme (themeTools.ts). The set tool checks a full-access caller itself.
   "moss_theme_read",
   "moss_theme_set",

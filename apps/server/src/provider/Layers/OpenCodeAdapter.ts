@@ -50,8 +50,11 @@ import {
 } from "../Errors.ts";
 import {
   MOSS_HARNESS_POLICY_VERSION,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import {
   isMossGatewayToolCall,
   shouldAllowMossComputerProviderTool,
@@ -1487,6 +1490,9 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
       const openCodeRuntime = yield* OpenCodeRuntime;
       const agentGatewayCredentials = Option.getOrUndefined(
         yield* Effect.serviceOption(AgentGatewayCredentials),
+      );
+      const serverSettings = Option.getOrUndefined(
+        yield* Effect.serviceOption(ServerSettingsService),
       );
       const provider = adapterConfig.provider;
       const buildEventBase = (
@@ -4321,6 +4327,7 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
             issue: `${adapterConfig.displayName} turns require text input or at least one attachment.`,
           });
         }
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeMossHarnessPolicyForProviderSession(
           {
             ...(context.harnessPolicyDelivered ? { harnessPolicyDelivered: true } : {}),
@@ -4329,6 +4336,8 @@ export function makeOpenCodeAdapterLive(options?: OpenCodeAdapterLiveOptions) {
           {
             provider,
             scopedGatewayConnectionAvailable: context.gatewayControlAvailable,
+            mossGuideInstalled,
+            connectedApps: readConnectedAppNames(agentGatewayCredentials),
           },
         );
         const nativeV2 = isOpenCodeV2Client(context.client);

@@ -61,8 +61,11 @@ import type * as Acp from "@agentclientprotocol/sdk";
 
 import {
   type MossHarnessPolicyDeliveryState,
+  readConnectedAppNames,
+  readMossGuideInstalled,
   takeMossHarnessPolicyTextPartForProviderSession,
 } from "../../agentGateway/harnessPolicy.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AgentGatewayCredentials } from "../../agentGateway/Services/AgentGatewayCredentials.ts";
 import {
   acquireAgentGatewaySessionLease,
@@ -165,10 +168,14 @@ const PROVIDER = "devin" as const;
 export const takeDevinMossHarnessPolicyTextPart = (
   state: MossHarnessPolicyDeliveryState,
   scopedGatewayConnectionAvailable: boolean,
+  mossGuideInstalled = false,
+  connectedApps?: ReadonlyArray<string>,
 ) =>
   takeMossHarnessPolicyTextPartForProviderSession(state, {
     provider: PROVIDER,
     scopedGatewayConnectionAvailable,
+    mossGuideInstalled,
+    ...(connectedApps !== undefined ? { connectedApps } : {}),
   });
 
 const DEVIN_RESUME_VERSION = 1 as const;
@@ -1500,6 +1507,9 @@ export function makeDevinAdapter(
     const createAcpRuntime = options?.makeAcpRuntime ?? makeDevinAcpRuntime;
     const agentGatewayCredentials = Option.getOrUndefined(
       yield* Effect.serviceOption(AgentGatewayCredentials),
+    );
+    const serverSettings = Option.getOrUndefined(
+      yield* Effect.serviceOption(ServerSettingsService),
     );
 
     let nativeEventLogger = options?.nativeEventLogger;
@@ -3087,9 +3097,12 @@ export function makeDevinAdapter(
           });
         }
 
+        const mossGuideInstalled = yield* readMossGuideInstalled(serverSettings);
         const harnessPolicy = takeDevinMossHarnessPolicyTextPart(
           ctx,
           ctx.devinSessionConfig?.installed === true,
+          mossGuideInstalled,
+          readConnectedAppNames(agentGatewayCredentials),
         );
         if (harnessPolicy) {
           promptParts.unshift(harnessPolicy);

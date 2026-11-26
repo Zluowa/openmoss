@@ -1,4 +1,5 @@
 export * from "./devsReport";
+export * from "./pluginSuggestion";
 export * from "./auth";
 export * from "./automation";
 export * from "./baseSchemas";

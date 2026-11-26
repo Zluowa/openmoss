@@ -31,6 +31,7 @@ import {
   applyServerSettingsPatch,
   normalizeRetiredTextGenerationSelection,
 } from "@moss/shared/serverSettings";
+import { isMossGuidePluginInstalled } from "@moss/shared/mossGuidePlugin";
 import {
   Cause,
   Deferred,
@@ -61,6 +62,8 @@ import {
 } from "./providerCredentials";
 import { isProviderCredentialKey } from "./providerChildEnvironment.ts";
 import { initialProviderSettings } from "./provider/initialProviderSettings.ts";
+import { syncMossGuideSkills } from "./mossOfficialPlugins/guideSkills.ts";
+import { invalidateSkillsCatalogCache, mossSkillsDir } from "./provider/skillsCatalog.ts";
 
 export interface ServerSettingsShape {
   readonly start: Effect.Effect<void, ServerSettingsError>;
@@ -1322,6 +1325,16 @@ const makeServerSettings = Effect.gen(function* () {
       if (obsoleteSecretNames) {
         yield* runObsoleteSecretCleanup(obsoleteSecretNames);
       }
+      if (baseDir !== "<memory>") {
+        yield* Effect.tryPromise(() =>
+          syncMossGuideSkills(mossSkillsDir(baseDir), isMossGuidePluginInstalled(loaded.settings)),
+        ).pipe(
+          Effect.tap(() => Effect.sync(() => invalidateSkillsCatalogCache())),
+          Effect.catch((error) =>
+            Effect.logWarning("failed to sync Moss Guide skills on startup", { error }),
+          ),
+        );
+      }
     });
 
     const startupExit = yield* Effect.exit(startup);
@@ -1401,7 +1414,7 @@ const makeServerSettings = Effect.gen(function* () {
               settings: persistedSettings,
             });
             markLiveSecrets(liveSecretNames);
-            return { next, nextRevision, obsoleteSecretNames };
+            return { current, next, nextRevision, obsoleteSecretNames };
           }),
         );
         if (updateExit._tag === "Failure") {
@@ -1413,9 +1426,24 @@ const makeServerSettings = Effect.gen(function* () {
         if ("revisionMismatch" in value) {
           return undefined;
         }
-        const { next, nextRevision, obsoleteSecretNames } = value;
+        const { current, next, nextRevision, obsoleteSecretNames } = value;
         yield* SubscriptionRef.set(settingsRef, next);
         yield* Ref.set(revisionRef, nextRevision);
+        if (
+          baseDir !== "<memory>" &&
+          isMossGuidePluginInstalled(next) !== isMossGuidePluginInstalled(current)
+        ) {
+          yield* Effect.tryPromise(() =>
+            syncMossGuideSkills(mossSkillsDir(baseDir), isMossGuidePluginInstalled(next)),
+          ).pipe(
+            Effect.tap(() => Effect.sync(() => invalidateSkillsCatalogCache())),
+            Effect.catch((error) =>
+              Effect.logWarning("failed to sync Moss Guide skills after settings update", {
+                error,
+              }),
+            ),
+          );
+        }
         yield* emitChange(next);
         yield* runObsoleteSecretCleanup(obsoleteSecretNames);
         return projectSettings(next);

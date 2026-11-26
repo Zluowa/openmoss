@@ -30,7 +30,7 @@ vi.mock("~/components/ui/toast", () => ({
 
 import { MossLocaleScope } from "~/localization";
 import { composeChineseWithEnter } from "../../test/imeComposition";
-import { ComposerExtrasPanel } from "./ComposerExtrasPanel";
+import { ComposerExtrasPanel, type ComposerExtrasStarterItem } from "./ComposerExtrasPanel";
 
 const threadId = "thread-1" as ThreadId;
 
@@ -126,6 +126,10 @@ async function mountMenu(props?: {
   interactionMode?: ProviderInteractionMode;
   supportsFastMode?: boolean;
   threadId?: ThreadId;
+  locale?: "en" | "zh-CN";
+  onOpenPlugins?: () => void;
+  mossGuideStarters?: ReadonlyArray<ComposerExtrasStarterItem>;
+  onSelectStarterPrompt?: (prompt: string) => void;
 }) {
   const onAddAttachments = vi.fn();
   const onToggleFastMode = vi.fn();
@@ -134,19 +138,29 @@ async function mountMenu(props?: {
   const onClose = vi.fn();
   const host = document.createElement("div");
   document.body.append(host);
-  const screen = await render(
+  const panel = (
     <ComposerExtrasPanel
       panelId="composer-extras-panel"
       interactionMode={props?.interactionMode ?? "default"}
       supportsFastMode={props?.supportsFastMode ?? true}
       fastModeEnabled={props?.fastModeEnabled ?? false}
       {...(props?.threadId !== undefined ? { threadId: props.threadId } : {})}
+      {...(props?.onOpenPlugins !== undefined ? { onOpenPlugins: props.onOpenPlugins } : {})}
+      {...(props?.mossGuideStarters !== undefined
+        ? { mossGuideStarters: props.mossGuideStarters }
+        : {})}
+      {...(props?.onSelectStarterPrompt !== undefined
+        ? { onSelectStarterPrompt: props.onSelectStarterPrompt }
+        : {})}
       onAddAttachments={onAddAttachments}
       onToggleFastMode={onToggleFastMode}
       onInteractionModeChange={onInteractionModeChange}
       onInsertGoal={onInsertGoal}
       onClose={onClose}
-    />,
+    />
+  );
+  const screen = await render(
+    props?.locale ? <MossLocaleScope locale={props.locale}>{panel}</MossLocaleScope> : panel,
     { container: host },
   );
 
@@ -615,5 +629,98 @@ describe("ComposerExtrasPanel", () => {
     } finally {
       await screen.unmount();
     }
+  });
+
+  it("renders Discover Moss and Apps & plugins in zh-CN, restores ROW_DISCOVER on goBack, and triggers actions", async () => {
+    const onOpenPlugins = vi.fn();
+    const onSelectStarterPrompt = vi.fn();
+    const starters: ComposerExtrasStarterItem[] = [
+      { id: "visual-compare", label: "做个可视化方案对比", prompt: "帮我做一张可视化对比卡片" },
+      { id: "connect-apps", label: "连接我的邮箱与日历", prompt: "帮我看看可以连接哪些外部应用" },
+    ];
+
+    await using menu = await mountMenu({
+      locale: "zh-CN",
+      onOpenPlugins,
+      mossGuideStarters: starters,
+      onSelectStarterPrompt,
+    });
+
+    await expect.element(page.getByText("探索 Moss 能力", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("应用与插件", { exact: true })).toBeVisible();
+
+    // Without desktop bridge, root order is: Files (0) -> Goal (1) -> Discover Moss (2).
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    await expect.element(page.getByText("做个可视化方案对比", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("打开插件市场", { exact: true })).toBeVisible();
+
+    // Returning from "discover" via ArrowLeft restores keyboard highlight to ROW_DISCOVER,
+    // so pressing ArrowRight immediately re-enters "discover".
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(page.getByText("探索 Moss 能力", { exact: true })).toBeVisible();
+    expect(document.body.textContent ?? "").not.toContain("做个可视化方案对比");
+
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(page.getByText("做个可视化方案对比", { exact: true })).toBeVisible();
+
+    // Escape from "discover" also returns to root and restores ROW_DISCOVER instead of closing.
+    await userEvent.keyboard("{Escape}");
+    expect(menu.onClose).not.toHaveBeenCalled();
+    await expect.element(page.getByText("探索 Moss 能力", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(page.getByText("做个可视化方案对比", { exact: true })).toBeVisible();
+
+    await page.getByText("做个可视化方案对比", { exact: true }).click();
+    expect(onSelectStarterPrompt).toHaveBeenCalledWith("帮我做一张可视化对比卡片");
+    expect(menu.onClose).toHaveBeenCalledTimes(1);
+    await menu.cleanup();
+
+    // Clicking "应用与插件" from root opens the plugins marketplace and closes.
+    await using pluginsMenu = await mountMenu({
+      locale: "zh-CN",
+      onOpenPlugins,
+      mossGuideStarters: starters,
+      onSelectStarterPrompt,
+    });
+    await page.getByText("应用与插件", { exact: true }).click();
+    expect(onOpenPlugins).toHaveBeenCalledTimes(1);
+    expect(pluginsMenu.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores ROW_WINDOW from windows and ROW_DISCOVER from discover when AppSnap is available", async () => {
+    setDesktopBridge(appSnapBridge({}));
+    const starters: ComposerExtrasStarterItem[] = [
+      { id: "capability-tour", label: "看看 Moss 都能做什么", prompt: "介绍一下 Moss 能力" },
+    ];
+    await using _ = await mountMenu({
+      threadId,
+      locale: "zh-CN",
+      mossGuideStarters: starters,
+      onOpenPlugins: vi.fn(),
+      onSelectStarterPrompt: vi.fn(),
+    });
+
+    await expect.element(page.getByText("附加 Ghostty", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("探索 Moss 能力", { exact: true })).toBeVisible();
+
+    // Root order with AppSnap: Files (0) -> Window (1) -> Goal (2) -> Discover (3).
+    await userEvent.keyboard("{ArrowDown}{ArrowRight}");
+    await expect.element(page.getByText("Finder", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(page.getByText("附加 Ghostty", { exact: true })).toBeVisible();
+    // Highlight is back on ROW_WINDOW, so ArrowRight re-enters windows immediately.
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(page.getByText("Finder", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(page.getByText("附加 Ghostty", { exact: true })).toBeVisible();
+
+    // Move two rows down from ROW_WINDOW (1) -> Goal (2) -> ROW_DISCOVER (3) and enter discover.
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}{ArrowRight}");
+    await expect.element(page.getByText("看看 Moss 都能做什么", { exact: true })).toBeVisible();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect.element(page.getByText("探索 Moss 能力", { exact: true })).toBeVisible();
+    // Highlight is back on ROW_DISCOVER (not ROW_WINDOW), so ArrowRight re-enters discover.
+    await userEvent.keyboard("{ArrowRight}");
+    await expect.element(page.getByText("看看 Moss 都能做什么", { exact: true })).toBeVisible();
   });
 });

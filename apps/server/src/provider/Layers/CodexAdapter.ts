@@ -146,6 +146,7 @@ import { makeRuntimeTaskListItem } from "../runtimeTaskList.ts";
 import { extractProposedPlanMarkdown } from "../planMode.ts";
 import { appendFileAttachmentsPromptBlock } from "../attachmentProjection.ts";
 import { ensureMossBundledSkills, mossSkillsDir } from "../skillsCatalog.ts";
+import { isMossGuidePluginInstalled } from "@moss/shared/mossGuidePlugin";
 import { makeBoundedCallbackIngress } from "../boundedCallbackIngress.ts";
 import { codexCommandText } from "../codexCommandText.ts";
 import { assignDerivedProviderRuntimeEventIds } from "../providerRuntimeEventIdentity.ts";
@@ -3995,7 +3996,15 @@ const makeCodexAdapter = (options?: CodexAdapterLiveOptions) =>
                     Effect.runPromise(serverSettings.getSettings).then((settings) =>
                       mossPluginCatalogSourceOrder(settings.providerInstances),
                     ),
+                  readMossGuideInstalled: () =>
+                    Effect.runPromise(serverSettings.getSettings).then(
+                      (settings) => isMossGuidePluginInstalled(settings),
+                      () => true,
+                    ),
                 }
+              : {}),
+            ...(agentGatewayCredentials?.connectedAppNames
+              ? { readConnectedApps: () => agentGatewayCredentials.connectedAppNames?.() }
               : {}),
             readManagedHomeAuthority: (codexOptions) =>
               serverSettings

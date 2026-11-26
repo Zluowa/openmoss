@@ -1742,6 +1742,7 @@ export function isStandaloneWorkEntry(
     | "turnFailure"
     | "sendFailure"
     | "subagentRun"
+    | "pluginSuggestion"
     | "activityKind"
     | "nativeEventType"
     | "turnId"
@@ -1753,6 +1754,7 @@ export function isStandaloneWorkEntry(
     entry.turnFailure ||
     entry.sendFailure ||
     entry.subagentRun ||
+    entry.pluginSuggestion ||
     (entry.activityKind === "runtime.warning" &&
       entry.turnId == null &&
       isCodexRuntimeWarningType(entry.nativeEventType)),
@@ -3284,6 +3286,18 @@ function workLogAutomationsEqual(a: WorkLogEntry["automation"], b: WorkLogEntry[
   );
 }
 
+function workLogPluginSuggestionsEqual(
+  a: WorkLogEntry["pluginSuggestion"],
+  b: WorkLogEntry["pluginSuggestion"],
+) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.suggestionId === b.suggestionId &&
+    JSON.stringify(a.suggestions) === JSON.stringify(b.suggestions)
+  );
+}
+
 function workLogMossThreadCreationsEqual(
   a: WorkLogEntry["mossThreadCreation"],
   b: WorkLogEntry["mossThreadCreation"],
@@ -3453,6 +3467,7 @@ function workLogEntryContentEqual(a: WorkLogEntry, b: WorkLogEntry): boolean {
     workLogSubagentsEqual(a.subagents, b.subagents) &&
     workLogSubagentRunsEqual(a.subagentRun, b.subagentRun) &&
     workLogAutomationsEqual(a.automation, b.automation) &&
+    workLogPluginSuggestionsEqual(a.pluginSuggestion, b.pluginSuggestion) &&
     workLogMossThreadCreationsEqual(a.mossThreadCreation, b.mossThreadCreation) &&
     workLogLiveActivitiesEqual(a.liveActivity, b.liveActivity) &&
     workLogToolDetailsEqual(a.toolDetails, b.toolDetails) &&
