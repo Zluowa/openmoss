@@ -141,6 +141,7 @@ const AGENT_PROCESS_EXIT_PATTERN = new RegExp(
     String.raw`\bserver exited unexpectedly \(`,
     String.raw`\bPi exited \(`,
     String.raw`\bAntigravity CLI exited (?:with code|without a complete result)`,
+    String.raw`\bAntigravity ACP exited\b`,
     String.raw`\b(?:ACP|agent) connection closed\b`,
   ].join("|"),
   "iu",
@@ -204,6 +205,9 @@ const PROVIDER_ADAPTER_REQUEST_FAILED_PREFIX =
   /^Provider adapter request failed \([^)]+\) for [^:]+:\s*/u;
 const TASK_INTERRUPTED_PROVIDER_ERROR_PREFIX =
   /^The task was interrupted by a provider error\. Work remains incomplete\.\s*/u;
+// Codex and ACP adapters emit this backstop sentence when a turn goes completely silent.
+const PROVIDER_TURN_IDLE_TIMEOUT_PATTERN =
+  /^[A-Za-z][A-Za-z0-9 .-]{0,30} stopped responding \(no activity for \d+s\); the turn was (?:aborted|timed out)\.$/u;
 // A Codex ChatGPT sign-in the service no longer accepts: Codex reports it as
 // "workspace routing discovery unauthorized (401)" or the token-refresh verdict.
 // Retrying cannot fix it, so the card says what will: signing in again. Other
@@ -233,6 +237,7 @@ export function isExplainedProviderFailure(error: string): boolean {
   return (
     MOSS_GATEWAY_REPEAT_REFUSED_PATTERN.test(error) ||
     STREAM_DROPPED_PATTERN.test(error) ||
+    PROVIDER_TURN_IDLE_TIMEOUT_PATTERN.test(error.trim()) ||
     MOSS_MANAGED_RUNTIME_MISSING_PATTERN.test(error) ||
     PI_MODEL_SIGN_IN_MISSING_PATTERN.test(error) ||
     KNOWN_FAILURE_SENTENCES.some((sentence) => error.includes(sentence)) ||
@@ -469,6 +474,9 @@ export function resolveThreadErrorPresentation(
       (locale === "zh-CN" ? HERMES_COMPATIBILITY_STATUS[knownFailureSentence] : undefined) ??
       localizeProviderRuntimeMessage(knownFailureSentence, locale);
     changeModelFirst = MODEL_BOUND_FAILURE_SENTENCES.has(knownFailureSentence);
+  } else if (PROVIDER_TURN_IDLE_TIMEOUT_PATTERN.test(raw)) {
+    safeText = localizeProviderRuntimeMessage(raw, locale);
+    retryable = true;
   } else if (piModelSignInMissing) {
     safeText = localizeProviderRuntimeMessage(piModelSignInMissing[0], locale);
     changeModelFirst = true;

@@ -1,6 +1,11 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type * as Acp from "@agentclientprotocol/sdk";
-import { PROVIDER_CLI_DEFAULT_MODEL, ThreadId, type ProviderRuntimeEvent } from "@moss/contracts";
+import {
+  ApprovalRequestId,
+  PROVIDER_CLI_DEFAULT_MODEL,
+  ThreadId,
+  type ProviderRuntimeEvent,
+} from "@moss/contracts";
 import { Deferred, Effect, Fiber, Layer, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
@@ -12,6 +17,7 @@ import {
 import type * as AcpErrors from "../acp/AcpErrors";
 import type { AcpParsedSessionEvent, AcpToolCallState } from "../acp/AcpRuntimeModel";
 import type { AntigravityAcpRuntimeInput } from "../acp/AntigravityAcpSupport";
+import { EMPTY_ANTIGRAVITY_CHILD_ACTIVITY } from "../acp/AntigravityChildWork";
 import { makeFakeAcpSessionRuntime } from "../acp/testing/fakeAcpSessionRuntime";
 import {
   createBoundedProcessOutput,
@@ -37,15 +43,24 @@ const MODELS = {
 
 /** A fake `agy acp` session whose updates and prompt results the test drives. */
 function makeControllableRuntime(
-  options: { readonly sessionSetupMethod?: "new" | "load" | "resume" } = {},
+  options: {
+    readonly sessionSetupMethod?: "new" | "load" | "resume";
+    readonly onCancel?: (emit: (event: AcpParsedSessionEvent) => void) => void;
+  } = {},
 ) {
   const events = Effect.runSync(Queue.unbounded<AcpParsedSessionEvent>());
+  const exited = Effect.runSync(Deferred.make<void>());
   const requests: Array<{ readonly method: string; readonly payload: unknown }> = [];
   const prompts: Array<ReadonlyArray<Acp.ContentBlock>> = [];
   const runtimeInputs: AntigravityAcpRuntimeInput[] = [];
   let enqueued = 0;
   let cancels = 0;
   let pendingPrompt: Deferred.Deferred<Acp.PromptResponse, AcpErrors.AcpError> | undefined;
+  let permissionHandler:
+    | ((
+        params: Acp.RequestPermissionRequest,
+      ) => Effect.Effect<Acp.RequestPermissionResponse, AcpErrors.AcpError>)
+    | undefined;
 
   const emit = (event: AcpParsedSessionEvent) => {
     enqueued += 1;
@@ -56,6 +71,15 @@ function makeControllableRuntime(
 
   const runtime = {
     ...makeFakeAcpSessionRuntime({ sessionId: SESSION_ID }),
+    awaitExit: Deferred.await(exited),
+    handleRequestPermission: (
+      handler: (
+        params: Acp.RequestPermissionRequest,
+      ) => Effect.Effect<Acp.RequestPermissionResponse, AcpErrors.AcpError>,
+    ) =>
+      Effect.sync(() => {
+        permissionHandler = handler;
+      }),
     start: () =>
       Effect.succeed({
         sessionId: SESSION_ID,
@@ -74,6 +98,7 @@ function makeControllableRuntime(
       }),
     cancel: Effect.sync(() => {
       cancels += 1;
+      options.onCancel?.(emit);
       if (pendingPrompt)
         Effect.runSync(Deferred.succeed(pendingPrompt, { stopReason: "cancelled" }));
     }),
@@ -93,6 +118,8 @@ function makeControllableRuntime(
     makeRuntime,
     emit,
     finishPrompt,
+    triggerExit: () => Effect.runSync(Deferred.succeed(exited, undefined)),
+    requestPermission: (params: Acp.RequestPermissionRequest) => permissionHandler!(params),
     requests,
     prompts,
     runtimeInputs,
@@ -412,6 +439,292 @@ describe("Antigravity ACP adapter", () => {
         .pipe(Effect.flip),
     );
     expect(String((failure as Error).message)).toContain("could not resume");
+  });
+
+  it("settles a user interrupt as cancelled even when agy fails an aborted command", async () => {
+    const fake = makeControllableRuntime({
+      onCancel: (emit) => {
+        emit({
+          _tag: "ToolCallUpdated",
+          toolCall: {
+            toolCallId: "call-run",
+            kind: "execute",
+            title: "Ran command",
+            status: "failed",
+            command: "bun run test --filter slow",
+            detail: "bun run test --filter slow",
+            data: { toolCallId: "call-run", kind: "execute" },
+          },
+          rawPayload: {},
+        });
+      },
+    });
+    const events = await runWithAdapter({ makeRuntime: fake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-user-stop");
+        yield* adapter.startSession(startInput(threadId));
+        const collector = yield* collectTurn(adapter);
+        const turn = yield* adapter.sendTurn({ threadId, input: "run tests", attachments: [] });
+        fake.emit(
+          toolCall("call-run", "inProgress", { CommandLine: "bun run test --filter slow" }),
+        );
+        yield* Effect.sleep("25 millis");
+        yield* adapter.interruptTurn(threadId, turn.turnId);
+        return yield* Fiber.join(collector).pipe(Effect.timeout("2 seconds"));
+      }),
+    );
+    const completion = events.at(-1) as Extract<ProviderRuntimeEvent, { type: "turn.completed" }>;
+    expect(completion.type).toBe("turn.completed");
+    expect(completion.payload.state).toBe("cancelled");
+    expect(completion.payload.errorMessage).toBeUndefined();
+  });
+
+  it("pauses the idle watchdog while tools or /swarm workers are active and times out once truly silent", async () => {
+    const fake = makeControllableRuntime();
+    let swarmWorkersActive = 2;
+    const events = await runWithAdapter(
+      {
+        makeRuntime: fake.makeRuntime,
+        turnIdleTimeoutMs: 40,
+        turnWatchdogIntervalMs: 10,
+        readChildActivity: () =>
+          Effect.sync(() => ({
+            activeSwarmWorkers: swarmWorkersActive,
+            activeSubagents: 0,
+            hasPendingWake: false,
+            hasActiveWork: swarmWorkersActive > 0,
+          })),
+      },
+      (adapter) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.makeUnsafe("thread-agy-watchdog-swarm");
+          yield* adapter.startSession(startInput(threadId));
+          const collector = yield* collectTurn(adapter);
+          yield* adapter.sendTurn({ threadId, input: "/swarm build it", attachments: [] });
+          // Open tool pauses the watchdog even past the 40ms threshold.
+          fake.emit(toolCall("call-long", "inProgress"));
+          yield* Effect.sleep("90 millis");
+          // Tool finishes, but 2 swarm workers remain active on disk.
+          fake.emit(toolCall("call-long", "completed"));
+          yield* Effect.sleep("90 millis");
+          // Still active — verify the collector has not settled yet.
+          expect(collector.pollUnsafe()).toBeUndefined();
+          // Workers park while the prompt stays silent; the backstop now fires.
+          swarmWorkersActive = 0;
+          return yield* Fiber.join(collector).pipe(Effect.timeout("2 seconds"));
+        }),
+    );
+    const completion = events.at(-1) as Extract<ProviderRuntimeEvent, { type: "turn.completed" }>;
+    expect(completion.type).toBe("turn.completed");
+    expect(completion.payload.state).toBe("failed");
+    expect(completion.payload.errorMessage).toMatch(
+      /^Antigravity stopped responding \(no activity for \d+s\); the turn was timed out\.$/u,
+    );
+  });
+
+  it("holds a settled prompt open while /swarm workers are active on disk until they finish", async () => {
+    const fake = makeControllableRuntime();
+    let swarmWorkersActive = 2;
+    const events = await runWithAdapter(
+      {
+        makeRuntime: fake.makeRuntime,
+        backgroundQuietMs: 30,
+        backgroundPollMs: 15,
+        readChildActivity: () =>
+          Effect.sync(() => ({
+            activeSwarmWorkers: swarmWorkersActive,
+            activeSubagents: 0,
+            hasPendingWake: false,
+            hasActiveWork: swarmWorkersActive > 0,
+          })),
+      },
+      (adapter) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.makeUnsafe("thread-agy-post-settle-swarm");
+          yield* adapter.startSession(startInput(threadId));
+          const collector = yield* collectTurn(adapter);
+          yield* adapter.sendTurn({ threadId, input: "/swarm work", attachments: [] });
+          fake.emit(assistantText("Swarm workers started."));
+          yield* Effect.sleep("20 millis");
+          fake.finishPrompt("end_turn");
+          // Prompt ended with 0 running parent tools, but swarm workers are active.
+          yield* Effect.sleep("80 millis");
+          expect(collector.pollUnsafe()).toBeUndefined();
+          swarmWorkersActive = 0;
+          fake.emit(assistantText(" All workers finished."));
+          return yield* Fiber.join(collector).pipe(Effect.timeout("2 seconds"));
+        }),
+    );
+    const completion = events.at(-1) as Extract<ProviderRuntimeEvent, { type: "turn.completed" }>;
+    expect(completion.payload.state).toBe("completed");
+    expect(
+      events.some(
+        (event) =>
+          event.type === "content.delta" && event.payload.delta === " All workers finished.",
+      ),
+    ).toBe(true);
+  });
+
+  it("expires a silent stuck background command at backgroundMaxWaitMs even while the idle watchdog ticks", async () => {
+    const fake = makeControllableRuntime();
+    const result = await runWithAdapter(
+      {
+        makeRuntime: fake.makeRuntime,
+        backgroundQuietMs: 30,
+        backgroundPollMs: 15,
+        backgroundMaxWaitMs: 120,
+        turnIdleTimeoutMs: 1_500,
+        turnWatchdogIntervalMs: 10,
+        readChildActivity: () => Effect.succeed(EMPTY_ANTIGRAVITY_CHILD_ACTIVITY),
+      },
+      (adapter) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.makeUnsafe("thread-agy-bg-max-wait");
+          yield* adapter.startSession(startInput(threadId));
+          const collector = yield* collectTurn(adapter);
+          yield* adapter.sendTurn({
+            threadId,
+            input: "run stuck background command",
+            attachments: [],
+          });
+          fake.emit(toolCall("call-stuck-bg", "inProgress", { CommandLine: "sleep 9999" }));
+          yield* Effect.sleep("25 millis");
+          const promptFinishedAt = Date.now();
+          fake.finishPrompt("end_turn");
+          // The command stays inProgress with no ACP updates or child work; the
+          // watchdog ticks every 10ms and must not keep resetting commandQuietSince.
+          const events = yield* Fiber.join(collector).pipe(Effect.timeout("1500 millis"));
+          const elapsedMs = Date.now() - promptFinishedAt;
+          const hasSessionAfterExpiry = yield* adapter.hasSession(threadId);
+          return { events, elapsedMs, hasSessionAfterExpiry };
+        }),
+    );
+    const completion = result.events.at(-1) as Extract<
+      ProviderRuntimeEvent,
+      { type: "turn.completed" }
+    >;
+    expect(completion.type).toBe("turn.completed");
+    expect(completion.payload.state).toBe("completed");
+    expect(completion.payload.stopReason).toBe("end_turn");
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(100);
+    expect(result.hasSessionAfterExpiry).toBe(true);
+  });
+
+  it("fails a background-waiting turn and tears down the session when acp.awaitExit resolves", async () => {
+    const fake = makeControllableRuntime();
+    const result = await runWithAdapter(
+      {
+        makeRuntime: fake.makeRuntime,
+        backgroundQuietMs: 30,
+        backgroundPollMs: 15,
+        backgroundMaxWaitMs: 5_000,
+        readChildActivity: () => Effect.succeed(EMPTY_ANTIGRAVITY_CHILD_ACTIVITY),
+      },
+      (adapter) =>
+        Effect.gen(function* () {
+          const threadId = ThreadId.makeUnsafe("thread-agy-bg-exit");
+          yield* adapter.startSession(startInput(threadId));
+          const eventsFiber = yield* adapter.streamEvents.pipe(
+            Stream.takeUntil((event) => event.type === "session.exited"),
+            Stream.runCollect,
+            Effect.map((events) => Array.from(events)),
+            Effect.forkChild,
+          );
+          const turn = yield* adapter.sendTurn({
+            threadId,
+            input: "run background task",
+            attachments: [],
+          });
+          fake.emit(toolCall("call-bg-exit", "inProgress"));
+          yield* Effect.sleep("25 millis");
+          fake.finishPrompt("end_turn");
+          // Allow the turn to enter post-settle background wait before agy exits.
+          yield* Effect.sleep("40 millis");
+          fake.triggerExit();
+          const events = yield* Fiber.join(eventsFiber).pipe(Effect.timeout("2 seconds"));
+          const hasSessionAfterExit = yield* adapter.hasSession(threadId);
+          return { turnId: turn.turnId, events, hasSessionAfterExit };
+        }),
+    );
+    const turnCompletedEvents = result.events.filter(
+      (event): event is Extract<ProviderRuntimeEvent, { type: "turn.completed" }> =>
+        event.type === "turn.completed",
+    );
+    expect(turnCompletedEvents).toHaveLength(1);
+    expect(turnCompletedEvents[0]).toMatchObject({
+      type: "turn.completed",
+      turnId: result.turnId,
+      payload: {
+        state: "failed",
+        stopReason: null,
+        errorMessage: "Antigravity ACP exited while the session was open.",
+      },
+    });
+    const sessionExited = result.events.find(
+      (event): event is Extract<ProviderRuntimeEvent, { type: "session.exited" }> =>
+        event.type === "session.exited",
+    );
+    expect(sessionExited?.payload).toEqual({
+      exitKind: "error",
+      reason: "Antigravity ACP exited while the session was open.",
+    });
+    expect(result.hasSessionAfterExit).toBe(false);
+  });
+
+  it("honors full-access permissions and routes interaction_* questions through user input", async () => {
+    const fake = makeControllableRuntime();
+    await runWithAdapter({ makeRuntime: fake.makeRuntime }, (adapter) =>
+      Effect.gen(function* () {
+        const threadId = ThreadId.makeUnsafe("thread-agy-permissions");
+        yield* adapter.startSession(startInput(threadId));
+        const userInputRequested = yield* Deferred.make<{
+          readonly requestId: ApprovalRequestId;
+          readonly question: string;
+        }>();
+        const watcher = yield* adapter.streamEvents.pipe(
+          Stream.runForEach((event) =>
+            event.type === "user-input.requested"
+              ? Deferred.succeed(userInputRequested, {
+                  requestId: ApprovalRequestId.makeUnsafe(event.requestId!),
+                  question: event.payload.questions[0]?.question ?? "",
+                }).pipe(Effect.asVoid)
+              : Effect.void,
+          ),
+          Effect.forkChild,
+        );
+        yield* adapter.sendTurn({ threadId, input: "help", attachments: [] });
+
+        // Regular tool permission in full-access must select allow_once, never cancel.
+        const granted = yield* fake.requestPermission({
+          sessionId: SESSION_ID,
+          toolCall: { toolCallId: "call-perm", kind: "execute", title: "Run ls" },
+          options: [{ optionId: "allow-1", name: "Allow once", kind: "allow_once" }],
+        });
+        expect(granted).toEqual({ outcome: { outcome: "selected", optionId: "allow-1" } });
+
+        // Native interaction_* request must prompt via user-input and return the chosen option.
+        const questionFiber = yield* fake
+          .requestPermission({
+            sessionId: SESSION_ID,
+            toolCall: { toolCallId: "interaction_42", title: "Pick an environment" },
+            options: [
+              { optionId: "env_staging", name: "Staging", kind: "allow_once" },
+              { optionId: "env_prod", name: "Production", kind: "allow_once" },
+            ],
+          })
+          .pipe(Effect.forkChild);
+        const prompt = yield* Deferred.await(userInputRequested).pipe(Effect.timeout("1 second"));
+        expect(prompt.question).toBe("Pick an environment");
+        yield* adapter.respondToUserInput(threadId, prompt.requestId, {
+          interaction_42: "Staging",
+        });
+        const answered = yield* Fiber.join(questionFiber).pipe(Effect.timeout("1 second"));
+        expect(answered).toEqual({ outcome: { outcome: "selected", optionId: "env_staging" } });
+
+        fake.finishPrompt("end_turn");
+        yield* Fiber.interrupt(watcher);
+      }),
+    );
   });
 });
 

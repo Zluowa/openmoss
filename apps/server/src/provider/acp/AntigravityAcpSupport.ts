@@ -11,6 +11,7 @@
 import { Effect, Layer, Scope, ServiceMap } from "effect";
 import type * as Acp from "@agentclientprotocol/sdk";
 import { ChildProcessSpawner } from "effect/unstable/process";
+import type { ProviderUserInputAnswers, UserInputQuestion } from "@moss/contracts";
 import { withOutboundProxyEnv } from "@moss/shared/outboundProxy";
 
 import { buildProviderChildEnvironment } from "../../providerChildEnvironment.ts";
@@ -156,7 +157,11 @@ export function normalizeAntigravityToolCallUpdate(
     Array.isArray(update.locations) &&
     update.locations.length > 0
   ) {
-    title = undefined;
+    // ACP `tool_call` requires `title: string`; omitting it fails SDK schema
+    // validation (-32602 Invalid params) and drops the tool notification.
+    // An empty string satisfies the wire schema while AcpRuntimeModel derives
+    // "Reading"/"Edited" with the file path.
+    title = update.sessionUpdate === "tool_call" ? "" : undefined;
   }
   const commandLine = stringField(rawInput, "CommandLine");
   return {
@@ -304,4 +309,59 @@ export function setAntigravityAcpModel(
   modelId: string,
 ): Effect.Effect<void, AcpErrors.AcpError> {
   return runtime.request("session/set_model", { sessionId, modelId }).pipe(Effect.asVoid);
+}
+
+const ANTIGRAVITY_QUESTION_TEXT_LIMIT = 8_000;
+const ANTIGRAVITY_QUESTION_LABEL_LIMIT = 512;
+
+function antigravityInteractionOptionLabel(option: Acp.PermissionOption): string {
+  return (option.name.trim() || option.optionId.trim()).slice(0, ANTIGRAVITY_QUESTION_LABEL_LIMIT);
+}
+
+/**
+ * Antigravity sends native user questions through `session/request_permission`
+ * with `interaction_*` toolCallIds instead of tool approvals.
+ */
+export function antigravityInteractionQuestion(
+  params: Acp.RequestPermissionRequest,
+): UserInputQuestion | undefined {
+  if (!params.toolCall.toolCallId.startsWith("interaction_") || params.options.length === 0) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const options: Array<{ readonly label: string; readonly description: string }> = [];
+  for (const option of params.options) {
+    const id = option.optionId.trim();
+    if (!id || seen.has(id)) return undefined;
+    seen.add(id);
+    const label = antigravityInteractionOptionLabel(option);
+    options.push({ label, description: label });
+  }
+  const question = (params.toolCall.title?.trim() || "Choose an option.").slice(
+    0,
+    ANTIGRAVITY_QUESTION_TEXT_LIMIT,
+  );
+  return {
+    id: params.toolCall.toolCallId,
+    header: "Question",
+    question,
+    options,
+    multiSelect: false,
+  };
+}
+
+/** Resolves a user's answer for an `interaction_*` question back to its ACP optionId. */
+export function resolveAntigravityInteractionOptionId(
+  params: Acp.RequestPermissionRequest,
+  answers: ProviderUserInputAnswers,
+): string | undefined {
+  const raw = answers[params.toolCall.toolCallId];
+  const answer = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
+  if (typeof answer !== "string" || !answer.trim()) return undefined;
+  const exact = params.options.find((option) => option.optionId === answer);
+  if (exact) return exact.optionId;
+  const byLabel = params.options.filter(
+    (option) => antigravityInteractionOptionLabel(option) === answer,
+  );
+  return byLabel.length === 1 ? byLabel[0]?.optionId : undefined;
 }

@@ -239,8 +239,9 @@ const ZH_CN_TEMPLATE_MESSAGES: readonly ProviderRuntimeTemplate[] = [
     localize: (match) => `服务商出错，${match[3]} 秒后重试（第 ${match[1]}/${match[2]} 次）。`,
   },
   {
-    pattern: /^Codex stopped responding \(no activity for (\d+)s\); the turn was aborted\.$/u,
-    localize: (match) => `Codex 已停止响应（${match[1]} 秒没有活动），本次对话已中止。`,
+    pattern:
+      /^([A-Za-z][A-Za-z0-9 .-]{0,30}) stopped responding \(no activity for (\d+)s\); the turn was (?:aborted|timed out)\.$/u,
+    localize: (match) => `${match[1]} 已停止响应（${match[2]} 秒没有活动），本次对话已中止。`,
   },
   {
     // "Summary: 2 messages omitted; 1 message shortened. <notice>"

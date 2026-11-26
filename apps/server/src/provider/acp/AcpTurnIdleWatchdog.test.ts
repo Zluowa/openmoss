@@ -2,6 +2,7 @@ import { Deferred, Effect, Exit, Scope } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
+  didHostSleepDuringWatchdogTick,
   evaluateAcpTurnIdleTick,
   forkAcpTurnIdleWatchdog,
   isAcpTurnProgressEventTag,
@@ -35,11 +36,20 @@ describe("evaluateAcpTurnIdleTick", () => {
     ).toBe("stop");
   });
 
-  it("refreshes the clock while the turn is legitimately blocked on a human", () => {
+  it("refreshes the clock while the turn is legitimately blocked on a human or paused for an active tool", () => {
     expect(
       evaluateAcpTurnIdleTick({
         isTurnActive: true,
         isAwaitingHuman: true,
+        idleMs: 10_000_000,
+        idleTimeoutMs: 1,
+      }),
+    ).toBe("touch");
+    expect(
+      evaluateAcpTurnIdleTick({
+        isTurnActive: true,
+        isAwaitingHuman: false,
+        isPaused: true,
         idleMs: 10_000_000,
         idleTimeoutMs: 1,
       }),
@@ -203,6 +213,64 @@ describe("forkAcpTurnIdleWatchdog", () => {
     await expect(Effect.runPromise(program)).resolves.toEqual({
       fired: true,
       stayedAliveDuringNestedWork: true,
+    });
+  });
+
+  it("distinguishes normal tick jitter from host sleep overrun", () => {
+    expect(
+      didHostSleepDuringWatchdogTick({
+        elapsedMs: 15_500,
+        checkIntervalMs: 15_000,
+      }),
+    ).toBe(false);
+    expect(
+      didHostSleepDuringWatchdogTick({
+        elapsedMs: 45_000,
+        checkIntervalMs: 15_000,
+      }),
+    ).toBe(true);
+  });
+
+  it("pauses for active tools and async child/swarm liveness probes before timing out", async () => {
+    const program = Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      let toolRunning = true;
+      let swarmActive = true;
+      let lastActivity = Date.now() - 1_000;
+      const fired = yield* Deferred.make<number>();
+
+      yield* forkAcpTurnIdleWatchdog({
+        idleTimeoutMs: 20,
+        checkIntervalMs: 5,
+        scope,
+        isTurnActive: () => true,
+        isAwaitingHuman: () => false,
+        isPaused: () => toolRunning,
+        isWorkActive: () => Effect.sync(() => swarmActive),
+        lastActivityAt: () => lastActivity,
+        touchActivity: () => {
+          lastActivity = Date.now();
+        },
+        onIdleTimeout: (idleMs) => Deferred.succeed(fired, idleMs).pipe(Effect.asVoid),
+      });
+
+      yield* Effect.sleep(40);
+      const aliveWhileToolRuns = !(yield* Deferred.isDone(fired));
+
+      toolRunning = false;
+      yield* Effect.sleep(50);
+      const aliveWhileSwarmRuns = !(yield* Deferred.isDone(fired));
+
+      swarmActive = false;
+      const idleMs = yield* Deferred.await(fired).pipe(Effect.timeout("1 second"));
+      yield* Scope.close(scope, Exit.void);
+      return { aliveWhileToolRuns, aliveWhileSwarmRuns, timedOutAfterIdle: idleMs > 0 };
+    });
+
+    await expect(Effect.runPromise(program)).resolves.toEqual({
+      aliveWhileToolRuns: true,
+      aliveWhileSwarmRuns: true,
+      timedOutAfterIdle: true,
     });
   });
 });

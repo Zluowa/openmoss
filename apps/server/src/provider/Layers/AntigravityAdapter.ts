@@ -14,6 +14,7 @@ import {
   EventId,
   type ProviderApprovalDecision,
   type ProviderComposerCapabilities,
+  type ProviderInteractionMode,
   type ProviderListModelsResult,
   type ProviderRuntimeEvent,
   type ProviderSession,
@@ -21,6 +22,7 @@ import {
   RuntimeRequestId,
   type ThreadId,
   TurnId,
+  type UserInputQuestion,
 } from "@moss/contracts";
 import { isProviderCliDefaultModel } from "@moss/shared/model";
 import {
@@ -80,6 +82,7 @@ import {
   makeAcpThreadLock,
   recordAcpSessionCost,
   resolveAcpSessionCwd,
+  resolveAcpTurnInteractionMode,
   scopeAcpRuntimeItemIdForTurn,
   scopeAcpToolCallStateForTurn,
   settleAcpPendingApprovalsAsCancelled,
@@ -106,12 +109,20 @@ import {
 import { findSelectConfig, flattenConfigOptions } from "../acp/AcpConfigOptions.ts";
 import {
   type AntigravityAcpModel,
+  antigravityInteractionQuestion,
+  buildAntigravityAcpSpawnInput,
   chooseAntigravityAcpModel,
   makeAntigravityAcpRuntime,
   readAntigravityAcpModels,
+  resolveAntigravityInteractionOptionId,
   setAntigravityAcpModel,
   withAntigravityToolSummary,
 } from "../acp/AntigravityAcpSupport.ts";
+import {
+  EMPTY_ANTIGRAVITY_CHILD_ACTIVITY,
+  readAntigravityChildActivity,
+  resolveAntigravityProfileDir,
+} from "../acp/AntigravityChildWork.ts";
 import {
   elicitationQuestionsFromRequest,
   elicitationResponseFromAnswers,
@@ -142,16 +153,19 @@ const ANTIGRAVITY_TURN_SETTLE_DRAIN_POLL_MS = 25;
 const ANTIGRAVITY_CANCEL_GRACE_MS = 5_000;
 const ANTIGRAVITY_TURN_WATCHDOG_INTERVAL_MS = 15_000;
 // Backstop for an alive-but-silent agy child: force-fail a turn with no ACP
-// activity for this long instead of showing "Working" forever.
+// activity (and no open tool, active swarm/subagent, or pending human request)
+// for this long instead of showing "Working" forever.
 const ANTIGRAVITY_TURN_IDLE_TIMEOUT_MS = resolveAcpTurnIdleTimeoutMs({
   envVar: "MOSS_ANTIGRAVITY_TURN_IDLE_TIMEOUT_MS",
-  defaultMs: 600_000,
+  defaultMs: 900_000,
 });
-// `agy acp` keeps working after `end_turn` when a command it sent to the
-// background finishes: it reports the command's completion and replies again.
-// The turn stays open until those commands settle and the agent goes quiet.
+// `agy acp` keeps working after `end_turn` when a background command, detached
+// subagent, or /swarm worker finishes: it reports completion and replies again.
+// The turn stays open until that work settles and the agent goes quiet.
 const ANTIGRAVITY_BACKGROUND_QUIET_MS = 2_500;
 const ANTIGRAVITY_BACKGROUND_POLL_MS = 250;
+const ANTIGRAVITY_CHILD_ACTIVITY_SCAN_INTERVAL_MS = 1_000;
+const ANTIGRAVITY_CHILD_ACTIVITY_TIMEOUT_MS = 1_000;
 const ANTIGRAVITY_BACKGROUND_MAX_WAIT_MS = 30 * 60_000;
 
 export const takeAntigravityMossHarnessPolicyTextPart = (
@@ -169,6 +183,16 @@ export interface AntigravityAdapterDependencies {
   readonly nativeEventLogger?: EventNdjsonLogger;
   /** Quiet period before a turn waiting on background commands settles. */
   readonly backgroundQuietMs?: number;
+  /** Poll cadence while waiting for post-settle background work (test seam). */
+  readonly backgroundPollMs?: number;
+  /** Max silent wait for post-settle background commands (test seam). */
+  readonly backgroundMaxWaitMs?: number;
+  /** Idle watchdog timeout override (test seam). */
+  readonly turnIdleTimeoutMs?: number;
+  /** Idle watchdog tick cadence override (test seam). */
+  readonly turnWatchdogIntervalMs?: number;
+  /** Child/swarm disk probe override (test seam). */
+  readonly readChildActivity?: typeof readAntigravityChildActivity;
 }
 
 interface PendingApproval {
@@ -190,6 +214,7 @@ interface AntigravitySessionContext {
   readonly scope: Scope.Closeable;
   readonly acp: AcpSessionRuntimeShape;
   readonly acpSessionId: string;
+  readonly antigravityProfileDir: string;
   readonly availableModels: ReadonlyArray<AntigravityAcpModel>;
   appliedModelId: string | undefined;
   notificationFiber: Fiber.Fiber<void, never> | undefined;
@@ -197,13 +222,14 @@ interface AntigravitySessionContext {
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
   lastPlanFingerprint: string | undefined;
-  activeInteractionMode: undefined;
+  activeInteractionMode: ProviderInteractionMode | undefined;
   activeTurnId: TurnId | undefined;
   activeTurnHadAssistantContent: boolean;
   readonly activeAssistantItemsWithContent: Set<string>;
   activeTurnFailedToolDetail: string | undefined;
   activePromptFiber: Fiber.Fiber<void, never> | undefined;
   lastTurnActivityAt: number | undefined;
+  finishingTurnId: TurnId | undefined;
   /** Recent tool calls and outstanding calls that can still report after their turn ends. */
   readonly toolCallOwners: Map<string, { readonly turnId: TurnId; readonly settled: boolean }>;
   /** Non-daemon tool calls of the active turn that have not settled yet. */
@@ -284,7 +310,23 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
     const makeRuntime = dependencies.makeRuntime ?? makeAntigravityAcpRuntime;
     const runHelper = dependencies.runHelper ?? runAntigravityHelperProcess;
     const backgroundQuietMs = dependencies.backgroundQuietMs ?? ANTIGRAVITY_BACKGROUND_QUIET_MS;
+    const backgroundPollMs = dependencies.backgroundPollMs ?? ANTIGRAVITY_BACKGROUND_POLL_MS;
+    const backgroundMaxWaitMs =
+      dependencies.backgroundMaxWaitMs ?? ANTIGRAVITY_BACKGROUND_MAX_WAIT_MS;
+    const turnIdleTimeoutMs = dependencies.turnIdleTimeoutMs ?? ANTIGRAVITY_TURN_IDLE_TIMEOUT_MS;
+    const turnWatchdogIntervalMs =
+      dependencies.turnWatchdogIntervalMs ?? ANTIGRAVITY_TURN_WATCHDOG_INTERVAL_MS;
+    const readChildActivity = dependencies.readChildActivity ?? readAntigravityChildActivity;
     const nativeEventLogger = dependencies.nativeEventLogger;
+
+    const probeChildActivity = (ctx: AntigravitySessionContext) =>
+      readChildActivity({
+        profileDir: ctx.antigravityProfileDir,
+        sessionId: ctx.acpSessionId,
+      }).pipe(
+        Effect.timeoutOption(ANTIGRAVITY_CHILD_ACTIVITY_TIMEOUT_MS),
+        Effect.map((result) => Option.getOrElse(result, () => EMPTY_ANTIGRAVITY_CHILD_ACTIVITY)),
+      );
 
     const sessions = new Map<ThreadId, AntigravitySessionContext>();
     const sessionTeardownGate = makeSessionTeardownGate();
@@ -495,45 +537,62 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
 
     /** Emits the single terminal turn.completed for `turnId`; idempotent. */
     const settleTurn = (ctx: AntigravitySessionContext, turnId: TurnId, outcome: TurnOutcome) =>
-      Effect.gen(function* () {
-        if (ctx.activeTurnId !== turnId) return false;
-        yield* cancelAgentGatewayTurn(ctx.gatewaySessionLease, turnId);
-        if (!clearAcpActiveTurn(ctx, turnId)) return false;
-        ctx.backgroundWaitTurnId = undefined;
-        ctx.runningToolCallIds.clear();
-        const completedCost = finalizeAcpActiveTurnCost(ctx);
-        ctx.turns.push({ id: turnId, items: [outcome.item] });
-        const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
-        const updatedAt = yield* nowIso;
-        ctx.session =
-          outcome.state === "failed"
-            ? {
-                ...sessionWithoutLastError,
-                status: "error",
-                updatedAt,
-                ...(outcome.errorMessage ? { lastError: outcome.errorMessage } : {}),
-              }
-            : { ...sessionWithoutLastError, status: "ready", updatedAt };
-        yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
-          type: "turn.completed",
-          ...(yield* makeEventStamp()),
-          provider: PROVIDER,
-          threadId: ctx.threadId,
-          turnId,
-          payload: {
-            state: outcome.state,
-            stopReason: outcome.stopReason,
-            ...(outcome.errorMessage !== undefined ? { errorMessage: outcome.errorMessage } : {}),
-            ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
-            ...completedCost,
-          },
-        } as ProviderRuntimeEvent);
-        return true;
+      Effect.suspend(() => {
+        if (ctx.activeTurnId !== turnId || ctx.finishingTurnId === turnId) {
+          return Effect.succeed(false);
+        }
+        ctx.finishingTurnId = turnId;
+        return Effect.gen(function* () {
+          yield* cancelAgentGatewayTurn(ctx.gatewaySessionLease, turnId);
+          yield* settleAcpPendingApprovalsAsCancelled(ctx.pendingApprovals);
+          yield* settleAcpPendingUserInputsAsEmptyAnswers(ctx.pendingUserInputs);
+          if (!clearAcpActiveTurn(ctx, turnId)) return false;
+          ctx.backgroundWaitTurnId = undefined;
+          ctx.pendingTurnInterrupted = false;
+          ctx.runningToolCallIds.clear();
+          const completedCost = finalizeAcpActiveTurnCost(ctx);
+          ctx.turns.push({ id: turnId, items: [outcome.item] });
+          const { lastError: _lastError, ...sessionWithoutLastError } = ctx.session;
+          const updatedAt = yield* nowIso;
+          ctx.session =
+            outcome.state === "failed"
+              ? {
+                  ...sessionWithoutLastError,
+                  status: "error",
+                  updatedAt,
+                  ...(outcome.errorMessage ? { lastError: outcome.errorMessage } : {}),
+                }
+              : { ...sessionWithoutLastError, status: "ready", updatedAt };
+          const stamp = yield* makeEventStamp();
+          ctx.finishingTurnId = undefined;
+          yield* offerRuntimeEvent(ctx.lifecycleGeneration, {
+            type: "turn.completed",
+            ...stamp,
+            provider: PROVIDER,
+            threadId: ctx.threadId,
+            turnId,
+            payload: {
+              state: outcome.state,
+              stopReason: outcome.stopReason,
+              ...(outcome.errorMessage !== undefined ? { errorMessage: outcome.errorMessage } : {}),
+              ...(outcome.usage !== undefined ? { usage: outcome.usage } : {}),
+              ...completedCost,
+            },
+          } as ProviderRuntimeEvent);
+          return true;
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (ctx.finishingTurnId === turnId) ctx.finishingTurnId = undefined;
+            }),
+          ),
+        );
       });
 
     /**
-     * Keeps a turn whose prompt returned open while its background commands
-     * run, then settles it once they finish and the agent stops reporting.
+     * Keeps a turn whose prompt returned open while its background commands,
+     * detached subagents, or /swarm workers run, then settles it once they
+     * finish and the agent goes quiet.
      */
     const awaitBackgroundCommands = (
       ctx: AntigravitySessionContext,
@@ -543,10 +602,61 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
       Effect.gen(function* () {
         ctx.backgroundWaitTurnId = turnId;
         const startedAt = Date.now();
+        let commandQuietSince = startedAt;
+        let nextChildScanAt = startedAt;
+        let childWorkActive = false;
+        const childScanIntervalMs =
+          dependencies.backgroundPollMs !== undefined
+            ? Math.max(backgroundPollMs, 15)
+            : ANTIGRAVITY_CHILD_ACTIVITY_SCAN_INTERVAL_MS;
         while (ctx.activeTurnId === turnId && !ctx.stopped) {
-          const quietFor = Date.now() - (ctx.lastTurnActivityAt ?? startedAt);
-          if (ctx.runningToolCallIds.size === 0 && quietFor >= backgroundQuietMs) break;
-          if (Date.now() - startedAt >= ANTIGRAVITY_BACKGROUND_MAX_WAIT_MS) {
+          if (ctx.pendingTurnInterrupted) return;
+          const now = Date.now();
+          if (now >= nextChildScanAt) {
+            const observed = yield* probeChildActivity(ctx);
+            nextChildScanAt = Date.now() + childScanIntervalMs;
+            if (ctx.activeTurnId !== turnId || ctx.stopped || ctx.pendingTurnInterrupted) return;
+            childWorkActive = observed.hasActiveWork;
+            if (childWorkActive) {
+              ctx.lastTurnActivityAt = Date.now();
+              commandQuietSince = ctx.lastTurnActivityAt;
+            }
+          }
+          if (ctx.pendingUserInputs.size > 0 || ctx.pendingApprovals.size > 0) {
+            commandQuietSince = Date.now();
+            yield* Effect.sleep(backgroundPollMs);
+            continue;
+          }
+          const lastActivityAt = ctx.lastTurnActivityAt ?? startedAt;
+          commandQuietSince = Math.max(commandQuietSince, lastActivityAt);
+          const quietFor = Date.now() - lastActivityAt;
+          if (
+            !childWorkActive &&
+            ctx.runningToolCallIds.size === 0 &&
+            quietFor >= backgroundQuietMs
+          ) {
+            yield* waitForQueuedTurnEventsDrained(ctx);
+            if (ctx.activeTurnId !== turnId || ctx.stopped || ctx.pendingTurnInterrupted) return;
+            const finalProbe = yield* probeChildActivity(ctx);
+            childWorkActive = finalProbe.hasActiveWork;
+            if (childWorkActive) {
+              ctx.lastTurnActivityAt = Date.now();
+              commandQuietSince = ctx.lastTurnActivityAt;
+              continue;
+            }
+            if (
+              !ctx.pendingTurnInterrupted &&
+              ctx.runningToolCallIds.size === 0 &&
+              ctx.pendingUserInputs.size === 0 &&
+              ctx.pendingApprovals.size === 0 &&
+              Date.now() - (ctx.lastTurnActivityAt ?? startedAt) >= backgroundQuietMs
+            ) {
+              yield* settleTurn(ctx, turnId, outcome);
+              return;
+            }
+            continue;
+          }
+          if (!childWorkActive && Date.now() - commandQuietSince >= backgroundMaxWaitMs) {
             yield* Effect.logWarning("antigravity.acp.background_wait_expired", {
               threadId: ctx.threadId,
               turnId,
@@ -554,9 +664,11 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             });
             break;
           }
-          yield* Effect.sleep(ANTIGRAVITY_BACKGROUND_POLL_MS);
+          yield* Effect.sleep(backgroundPollMs);
         }
+        if (ctx.pendingTurnInterrupted) return;
         yield* waitForQueuedTurnEventsDrained(ctx);
+        if (ctx.pendingTurnInterrupted) return;
         yield* settleTurn(ctx, turnId, outcome);
       });
 
@@ -615,13 +727,60 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
           );
           let ctx!: AntigravitySessionContext;
 
+          // Capture turn ownership at open so a late resolution cannot attach to a later turn.
+          const requestUserInput = (
+            questions: ReadonlyArray<UserInputQuestion>,
+            method: string,
+            params: unknown,
+          ) =>
+            Effect.uninterruptibleMask((restore) =>
+              Effect.gen(function* () {
+                const turnId = ctx?.activeTurnId;
+                const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
+                const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
+                const answers = yield* Deferred.make<ProviderUserInputAnswers>();
+                if (
+                  ctx?.stopped ||
+                  ctx?.pendingTurnInterrupted ||
+                  ctx?.finishingTurnId !== undefined
+                ) {
+                  return {};
+                }
+                pendingUserInputs.set(requestId, { answers });
+                yield* offerRuntimeEvent(input.lifecycleGeneration, {
+                  type: "user-input.requested",
+                  ...(yield* makeEventStamp()),
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  turnId,
+                  requestId: runtimeRequestId,
+                  payload: { questions },
+                  raw: { source: "acp.jsonrpc", method, payload: params },
+                });
+                const result = yield* Effect.exit(restore(Deferred.await(answers)));
+                const resolved = Exit.isSuccess(result) ? result.value : {};
+                pendingUserInputs.delete(requestId);
+                yield* offerRuntimeEvent(input.lifecycleGeneration, {
+                  type: "user-input.resolved",
+                  ...(yield* makeEventStamp()),
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  turnId,
+                  requestId: runtimeRequestId,
+                  payload: { answers: resolved },
+                });
+                return resolved;
+              }),
+            );
+
           const resumeSessionId = readAntigravityResumeSessionId(input.resumeCursor);
           const providerOptions = input.providerOptions?.antigravity;
+          const antigravitySettings = {
+            ...(providerOptions?.binaryPath ? { binaryPath: providerOptions.binaryPath } : {}),
+            ...(providerOptions?.environment ? { environment: providerOptions.environment } : {}),
+          };
           const acp = yield* makeRuntime({
-            antigravitySettings: {
-              ...(providerOptions?.binaryPath ? { binaryPath: providerOptions.binaryPath } : {}),
-              ...(providerOptions?.environment ? { environment: providerOptions.environment } : {}),
-            },
+            antigravitySettings,
             childProcessSpawner,
             cwd,
             ...(resumeSessionId ? { resumeSessionId } : {}),
@@ -658,10 +817,40 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
 
           yield* acp.handleRequestPermission((params) =>
             Effect.gen(function* () {
+              const cancelled = { outcome: { outcome: "cancelled" as const } };
+              const turnId = ctx?.activeTurnId;
+              if (turnId === undefined || params.sessionId !== ctx.acpSessionId) return cancelled;
+              const ownsTurn = () => {
+                const toolOwner = ctx.toolCallOwners.get(params.toolCall.toolCallId);
+                return (
+                  ctx.activeTurnId === turnId &&
+                  (toolOwner === undefined || toolOwner.turnId === turnId) &&
+                  !ctx.pendingTurnInterrupted &&
+                  ctx.finishingTurnId === undefined &&
+                  !ctx.stopped
+                );
+              };
+              if (!ownsTurn()) return cancelled;
               yield* logNative(input.threadId, "session/request_permission", params);
+              if (!ownsTurn()) return cancelled;
+              if (params.toolCall.toolCallId.startsWith("interaction_")) {
+                const question = antigravityInteractionQuestion(params);
+                if (!question) return cancelled;
+                ctx.lastTurnActivityAt = Date.now();
+                const answers = yield* requestUserInput(
+                  [question],
+                  "session/request_permission",
+                  params,
+                );
+                ctx.lastTurnActivityAt = Date.now();
+                const optionId = resolveAntigravityInteractionOptionId(params, answers);
+                return ownsTurn() && optionId !== undefined
+                  ? { outcome: { outcome: "selected" as const, optionId } }
+                  : cancelled;
+              }
               const policyOutcome = resolveAcpPermissionPolicy({
                 runtimeMode: input.runtimeMode,
-                interactionMode: undefined,
+                interactionMode: ctx.activeInteractionMode,
                 options: params.options,
                 computerControlEnabled: ctx?.enableComputerControl === true,
                 activeTurn: ctx?.activeTurnId !== undefined,
@@ -681,47 +870,47 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
               const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
               const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
               const decision = yield* Deferred.make<ProviderApprovalDecision>();
+              if (!ownsTurn()) return cancelled;
               pendingApprovals.set(requestId, { decision, kind: permissionRequest.kind });
-              yield* offerRuntimeEvent(
-                input.lifecycleGeneration,
-                makeAcpRequestOpenedEvent({
-                  stamp: yield* makeEventStamp(),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId: ctx?.activeTurnId,
-                  requestId: runtimeRequestId,
-                  permissionRequest,
-                  detail: permissionRequest.detail ?? JSON.stringify(params).slice(0, 2000),
-                  args: params,
-                  source: "acp.jsonrpc",
-                  method: "session/request_permission",
-                  rawPayload: params,
-                }),
-              );
-              const resolved = yield* Deferred.await(decision);
-              pendingApprovals.delete(requestId);
-              yield* offerRuntimeEvent(
-                input.lifecycleGeneration,
-                makeAcpRequestResolvedEvent({
-                  stamp: yield* makeEventStamp(),
-                  provider: PROVIDER,
-                  threadId: input.threadId,
-                  turnId: ctx?.activeTurnId,
-                  requestId: runtimeRequestId,
-                  permissionRequest,
-                  decision: resolved,
-                }),
-              );
-              const selectedOptionId =
-                resolved === "cancel"
-                  ? undefined
-                  : selectAcpPermissionOptionId(resolved, params.options);
-              return {
-                outcome:
-                  selectedOptionId === undefined
-                    ? ({ outcome: "cancelled" } as const)
-                    : ({ outcome: "selected", optionId: selectedOptionId } as const),
-              };
+              return yield* Effect.gen(function* () {
+                yield* offerRuntimeEvent(
+                  input.lifecycleGeneration,
+                  makeAcpRequestOpenedEvent({
+                    stamp: yield* makeEventStamp(),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    turnId,
+                    requestId: runtimeRequestId,
+                    permissionRequest,
+                    detail: permissionRequest.detail ?? JSON.stringify(params).slice(0, 2000),
+                    args: params,
+                    source: "acp.jsonrpc",
+                    method: "session/request_permission",
+                    rawPayload: params,
+                  }),
+                );
+                const resolved = yield* Deferred.await(decision);
+                const effectiveDecision = ownsTurn() ? resolved : "cancel";
+                const selectedOptionId =
+                  effectiveDecision === "cancel"
+                    ? undefined
+                    : selectAcpPermissionOptionId(effectiveDecision, params.options);
+                yield* offerRuntimeEvent(
+                  input.lifecycleGeneration,
+                  makeAcpRequestResolvedEvent({
+                    stamp: yield* makeEventStamp(),
+                    provider: PROVIDER,
+                    threadId: input.threadId,
+                    turnId,
+                    requestId: runtimeRequestId,
+                    permissionRequest,
+                    decision: selectedOptionId === undefined ? "cancel" : effectiveDecision,
+                  }),
+                );
+                return selectedOptionId === undefined || !ownsTurn()
+                  ? cancelled
+                  : { outcome: { outcome: "selected" as const, optionId: selectedOptionId } };
+              }).pipe(Effect.ensuring(Effect.sync(() => void pendingApprovals.delete(requestId))));
             }),
           );
 
@@ -735,31 +924,7 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
               if (questions.length === 0) {
                 return { action: "decline" as const };
               }
-              const requestId = ApprovalRequestId.makeUnsafe(crypto.randomUUID());
-              const runtimeRequestId = RuntimeRequestId.makeUnsafe(requestId);
-              const answers = yield* Deferred.make<ProviderUserInputAnswers>();
-              pendingUserInputs.set(requestId, { answers });
-              yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                type: "user-input.requested",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: input.threadId,
-                turnId: ctx?.activeTurnId,
-                requestId: runtimeRequestId,
-                payload: { questions },
-                raw: { source: "acp.jsonrpc", method: "session/elicitation", payload: params },
-              });
-              const resolved = yield* Deferred.await(answers);
-              pendingUserInputs.delete(requestId);
-              yield* offerRuntimeEvent(input.lifecycleGeneration, {
-                type: "user-input.resolved",
-                ...(yield* makeEventStamp()),
-                provider: PROVIDER,
-                threadId: input.threadId,
-                turnId: ctx?.activeTurnId,
-                requestId: runtimeRequestId,
-                payload: { answers: resolved },
-              });
+              const resolved = yield* requestUserInput(questions, "session/elicitation", params);
               return elicitationResponseFromAnswers(params, resolved);
             }),
           );
@@ -818,6 +983,10 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             scope: sessionScope,
             acp,
             acpSessionId: started.sessionId,
+            antigravityProfileDir: resolveAntigravityProfileDir(
+              cwd,
+              buildAntigravityAcpSpawnInput(antigravitySettings, cwd).env ?? {},
+            ),
             availableModels: models.availableModels,
             appliedModelId: models.currentModelId,
             notificationFiber: undefined,
@@ -832,6 +1001,7 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             activeTurnFailedToolDetail: undefined,
             activePromptFiber: undefined,
             lastTurnActivityAt: undefined,
+            finishingTurnId: undefined,
             toolCallOwners: new Map(),
             runningToolCallIds: new Set(),
             backgroundWaitTurnId: undefined,
@@ -943,7 +1113,9 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
                     ctx.runningToolCallIds.add(toolCall.toolCallId);
                   }
                   yield* logNative(ctx.threadId, "session/update", event.rawPayload);
-                  const failedToolDetail = readAcpFailedToolDetail(toolCall);
+                  const failedToolDetail = ctx.pendingTurnInterrupted
+                    ? undefined
+                    : readAcpFailedToolDetail(toolCall);
                   if (failedToolDetail !== undefined) {
                     ctx.activeTurnFailedToolDetail = failedToolDetail;
                   }
@@ -1077,6 +1249,37 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             ),
           );
 
+          // Once a prompt has returned, no pending prompt RPC will announce a lost ACP process.
+          yield* acp.awaitExit.pipe(
+            Effect.andThen(
+              Effect.gen(function* () {
+                if (
+                  ctx.stopped ||
+                  (ctx.activeTurnId !== undefined &&
+                    (ctx.pendingTurnInterrupted || ctx.backgroundWaitTurnId === undefined))
+                ) {
+                  return;
+                }
+                const turnId = ctx.backgroundWaitTurnId;
+                const reason = "Antigravity ACP exited while the session was open.";
+                if (turnId !== undefined) {
+                  yield* settleTurn(ctx, turnId, {
+                    state: "failed",
+                    stopReason: null,
+                    errorMessage: reason,
+                    item: { prompt: turnId, exited: true },
+                  });
+                }
+                yield* stopSessionInternal(ctx, {
+                  exitKind: "error",
+                  reason,
+                  awaitTermination: false,
+                });
+              }),
+            ),
+            Effect.forkIn(sessionScope),
+          );
+
           return session;
         }).pipe(Effect.scoped),
       );
@@ -1195,6 +1398,7 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
 
         const turnId = TurnId.makeUnsafe(crypto.randomUUID());
         ctx.activeTurnId = turnId;
+        ctx.activeInteractionMode = resolveAcpTurnInteractionMode(input.interactionMode);
         ctx.activeTurnHadAssistantContent = false;
         ctx.activeAssistantItemsWithContent.clear();
         ctx.activeTurnFailedToolDetail = undefined;
@@ -1233,6 +1437,7 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             onFailure: (error) =>
               Effect.gen(function* () {
                 yield* waitForQueuedTurnEventsDrained(ctx);
+                if (ctx.pendingTurnInterrupted) return;
                 const settled = yield* settleTurn(ctx, turnId, {
                   state: "failed",
                   stopReason: null,
@@ -1252,7 +1457,7 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
             onSuccess: (result) =>
               Effect.gen(function* () {
                 yield* waitForQueuedTurnEventsDrained(ctx);
-                if (ctx.activeTurnId !== turnId) return;
+                if (ctx.activeTurnId !== turnId || ctx.pendingTurnInterrupted) return;
                 const completion = classifyAcpPromptTurnCompletion({
                   stopReason: result.stopReason,
                   ...(ctx.activeTurnFailedToolDetail !== undefined
@@ -1268,9 +1473,19 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
                   ...(result.usage ? { usage: result.usage } : {}),
                   item: { prompt: promptParts, result },
                 };
-                if (completion.state === "completed" && ctx.runningToolCallIds.size > 0) {
-                  yield* awaitBackgroundCommands(ctx, turnId, outcome);
-                  return;
+                if (completion.state === "completed") {
+                  const hasForegroundHold =
+                    ctx.runningToolCallIds.size > 0 ||
+                    ctx.pendingApprovals.size > 0 ||
+                    ctx.pendingUserInputs.size > 0;
+                  const hasChildWork = hasForegroundHold
+                    ? true
+                    : (yield* probeChildActivity(ctx)).hasActiveWork;
+                  if (ctx.activeTurnId !== turnId || ctx.pendingTurnInterrupted) return;
+                  if (hasChildWork) {
+                    yield* awaitBackgroundCommands(ctx, turnId, outcome);
+                    return;
+                  }
                 }
                 yield* settleTurn(ctx, turnId, outcome);
               }),
@@ -1289,13 +1504,18 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
         yield* forkAcpAdapterTurnIdleWatchdog({
           context: ctx,
           turnId,
-          idleTimeoutMs: ANTIGRAVITY_TURN_IDLE_TIMEOUT_MS,
+          idleTimeoutMs: turnIdleTimeoutMs,
           // Background commands are quiet by nature; their own cap bounds the wait.
           currentIdleTimeoutMs: () =>
             ctx.backgroundWaitTurnId === turnId
-              ? ANTIGRAVITY_BACKGROUND_MAX_WAIT_MS + ANTIGRAVITY_TURN_IDLE_TIMEOUT_MS
-              : ANTIGRAVITY_TURN_IDLE_TIMEOUT_MS,
-          checkIntervalMs: ANTIGRAVITY_TURN_WATCHDOG_INTERVAL_MS,
+              ? backgroundMaxWaitMs + turnIdleTimeoutMs
+              : turnIdleTimeoutMs,
+          // Pause while an active prompt runs a non-daemon tool, but let post-settle
+          // background wait age out at backgroundMaxWaitMs if commands go silent.
+          isPaused: () => ctx.backgroundWaitTurnId !== turnId && ctx.runningToolCallIds.size > 0,
+          isWorkActive: () =>
+            probeChildActivity(ctx).pipe(Effect.map((activity) => activity.hasActiveWork)),
+          checkIntervalMs: turnWatchdogIntervalMs,
           onIdleTimeout: (idleMs) => failTurnAsTimedOut(ctx, turnId, idleMs),
         });
 
@@ -1311,7 +1531,11 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
     const sendTurn: AntigravityAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(input.threadId);
-        if (ctx.turnStarting) {
+        if (
+          ctx.turnStarting ||
+          ctx.finishingTurnId !== undefined ||
+          (ctx.activeTurnId !== undefined && ctx.pendingTurnInterrupted)
+        ) {
           return yield* new ProviderAdapterValidationError({
             provider: PROVIDER,
             operation: "sendTurn",
@@ -1333,11 +1557,10 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
         if (turnId !== undefined && turnId !== ctx.activeTurnId) return;
+        if (ctx.finishingTurnId !== undefined) return;
         if (!ctx.turnStarting && ctx.activeTurnId === undefined) return;
         const activeTurnId = turnId ?? ctx.activeTurnId;
-        if (ctx.turnStarting && ctx.activePromptFiber === undefined) {
-          ctx.pendingTurnInterrupted = true;
-        }
+        ctx.pendingTurnInterrupted = true;
         yield* withAgentGatewayTurnCancellation(
           ctx.gatewaySessionLease,
           activeTurnId,
@@ -1375,7 +1598,7 @@ export function makeAntigravityAdapter(dependencies: AntigravityAdapterDependenc
                 item: { prompt: activeTurnId, interrupted: true },
               });
             }
-            if (result.prompt === "timedOut") {
+            if (result.prompt === "timedOut" || result.cancelRequest !== "sent") {
               yield* stopSessionInternal(ctx, {
                 exitKind: "error",
                 reason: "Antigravity did not stop the turn after cancellation.",

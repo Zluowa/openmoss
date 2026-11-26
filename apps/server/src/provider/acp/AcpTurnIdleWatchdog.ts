@@ -53,6 +53,22 @@ export interface AcpTurnIdleWatchdogParams {
   readonly isTurnActive: () => boolean;
   /** True while the turn is legitimately blocked on a human (pending approval / elicitation). */
   readonly isAwaitingHuman: () => boolean;
+  /**
+   * Optional synchronous pause predicate (e.g. an open non-daemon tool call
+   * running under the turn) that keeps the activity clock fresh every tick.
+   */
+  readonly isPaused?: () => boolean;
+  /**
+   * Optional async liveness check invoked right before firing a timeout (e.g.
+   * inspecting provider-owned child/swarm work on disk). Returning `true`
+   * refreshes activity and continues watching instead of killing live work.
+   */
+  readonly isWorkActive?: () => Effect.Effect<boolean>;
+  /**
+   * Extra wall-clock overrun beyond `checkIntervalMs` treated as host sleep
+   * rather than agent silence. Defaults to `Math.max(10_000, checkIntervalMs)`.
+   */
+  readonly hostSleepToleranceMs?: number;
   /** Epoch-ms timestamp of the last inbound activity observed for the turn. */
   readonly lastActivityAt: () => number;
   /** Reset the activity clock to "now" (used while awaiting human input). */
@@ -65,23 +81,37 @@ export interface AcpTurnIdleWatchdogParams {
 export type AcpTurnIdleTickDecision = "stop" | "touch" | "timeout" | "continue";
 
 /**
+ * Host sleep is not agent silence: timers either fire late on wake (macOS,
+ * Windows) or pause while the wall clock jumps (Linux), overrunning a tick.
+ */
+export function didHostSleepDuringWatchdogTick(input: {
+  readonly elapsedMs: number;
+  readonly checkIntervalMs: number;
+  readonly hostSleepToleranceMs?: number;
+}): boolean {
+  const tolerance = input.hostSleepToleranceMs ?? Math.max(10_000, input.checkIntervalMs);
+  return input.elapsedMs > input.checkIntervalMs + tolerance;
+}
+
+/**
  * Pure decision for one watchdog tick — extracted so the reliability-critical
  * logic is unit-testable without a clock or fibers:
  *  - `stop`:     the turn is no longer active; the watchdog should exit.
- *  - `touch`:    the turn is legitimately blocked on a human; refresh the clock.
+ *  - `touch`:    the turn is legitimately blocked on a human or active tool; refresh the clock.
  *  - `timeout`:  the turn has been silent past the threshold; force-fail it.
  *  - `continue`: still within budget; keep watching.
  */
 export function evaluateAcpTurnIdleTick(input: {
   readonly isTurnActive: boolean;
   readonly isAwaitingHuman: boolean;
+  readonly isPaused?: boolean;
   readonly idleMs: number;
   readonly idleTimeoutMs: number;
 }): AcpTurnIdleTickDecision {
   if (!input.isTurnActive) {
     return "stop";
   }
-  if (input.isAwaitingHuman) {
+  if (input.isAwaitingHuman || input.isPaused === true) {
     return "touch";
   }
   return input.idleMs >= input.idleTimeoutMs ? "timeout" : "continue";
@@ -125,12 +155,30 @@ export const forkAcpTurnIdleWatchdog = (
   Effect.gen(function* () {
     const loop = Effect.gen(function* () {
       while (true) {
+        const sleepStartedAt = Date.now();
         yield* Effect.sleep(params.checkIntervalMs);
-        const idleMs = Date.now() - params.lastActivityAt();
+        const now = Date.now();
+        if (!params.isTurnActive()) {
+          return;
+        }
+        if (
+          didHostSleepDuringWatchdogTick({
+            elapsedMs: now - sleepStartedAt,
+            checkIntervalMs: params.checkIntervalMs,
+            ...(params.hostSleepToleranceMs !== undefined
+              ? { hostSleepToleranceMs: params.hostSleepToleranceMs }
+              : {}),
+          })
+        ) {
+          params.touchActivity();
+          continue;
+        }
+        const idleMs = now - params.lastActivityAt();
         const currentIdleTimeoutMs = params.currentIdleTimeoutMs?.() ?? params.idleTimeoutMs;
         const decision = evaluateAcpTurnIdleTick({
           isTurnActive: params.isTurnActive(),
           isAwaitingHuman: params.isAwaitingHuman(),
+          isPaused: params.isPaused?.() ?? false,
           idleMs,
           idleTimeoutMs: currentIdleTimeoutMs,
         });
@@ -138,12 +186,32 @@ export const forkAcpTurnIdleWatchdog = (
           return;
         }
         if (decision === "touch") {
-          // The agent is blocked on a human decision, not hung: keep the clock
-          // fresh so the turn cannot trip the watchdog the instant it resumes.
+          // The agent is blocked on a human decision or active tool, not hung:
+          // keep the clock fresh so the turn cannot trip the watchdog when it resumes.
           params.touchActivity();
           continue;
         }
         if (decision === "timeout") {
+          if (params.isWorkActive !== undefined) {
+            const active = yield* params.isWorkActive();
+            if (!params.isTurnActive()) {
+              return;
+            }
+            if (active) {
+              params.touchActivity();
+              continue;
+            }
+            // Re-check activity after the async probe in case inbound events arrived.
+            const updatedIdleMs = Date.now() - params.lastActivityAt();
+            const updatedTimeoutMs = params.currentIdleTimeoutMs?.() ?? params.idleTimeoutMs;
+            if (
+              params.isAwaitingHuman() ||
+              params.isPaused?.() === true ||
+              updatedIdleMs < updatedTimeoutMs
+            ) {
+              continue;
+            }
+          }
           yield* params.onIdleTimeout(idleMs);
           return;
         }

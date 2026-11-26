@@ -53,6 +53,21 @@ import {
 } from "./threadErrorPresentation";
 
 describe("resolveThreadErrorPresentation", () => {
+  it("shows ACP and Codex idle turn timeouts plainly with a retry option instead of a generic error", () => {
+    const raw = "Antigravity stopped responding (no activity for 615s); the turn was timed out.";
+    for (const context of ["thread", "turn-failure"] as const) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN", context)).toMatchObject({
+        title: "Antigravity 已停止响应（615 秒没有活动），本次对话已中止。",
+        retryable: true,
+      });
+      expect(resolveThreadErrorPresentation(raw, "en", context)).toMatchObject({
+        title: raw,
+        retryable: true,
+      });
+    }
+    expect(isExplainedProviderFailure(raw)).toBe(true);
+  });
+
   // WALK-H1 H-11: a gateway 500 after the agent's retries ended the turn in English.
   it("says an overloaded gateway in Moss's words and offers to continue", () => {
     const raw = "We’re currently experiencing high demand, which may cause temporary errors.";
@@ -668,15 +683,18 @@ describe("resolveThreadErrorPresentation", () => {
     ["OpenCode", "OpenCode server exited unexpectedly (1)."],
     ["Pi", "Pi exited (code 1): fatal error"],
     ["Antigravity", "Antigravity CLI exited with code 1."],
+    ["Antigravity ACP", "Antigravity ACP exited while the session was open."],
     ["ACP agents", "Provider adapter request failed (kimi) for thread t: ACP connection closed"],
   ])("says in Moss's words that the %s agent process quit mid-turn", (_adapter, raw) => {
-    expect(resolveThreadErrorPresentation(raw, "zh-CN")).toMatchObject({
-      title: "智能体进程意外退出，这一轮没有完成。可以继续任务。",
-      copyText: "智能体进程意外退出，这一轮没有完成。可以继续任务。",
-    });
-    expect(resolveThreadErrorPresentation(raw, "en").title).toBe(
-      "The agent process quit unexpectedly, so this turn didn't finish. You can continue the task.",
-    );
+    for (const context of ["thread", "turn-failure"] as const) {
+      expect(resolveThreadErrorPresentation(raw, "zh-CN", context)).toMatchObject({
+        title: "智能体进程意外退出，这一轮没有完成。可以继续任务。",
+        copyText: "智能体进程意外退出，这一轮没有完成。可以继续任务。",
+      });
+      expect(resolveThreadErrorPresentation(raw, "en", context).title).toBe(
+        "The agent process quit unexpectedly, so this turn didn't finish. You can continue the task.",
+      );
+    }
   });
 
   it("names Codex's own thread-start timeout in plain words and allows a retry", () => {

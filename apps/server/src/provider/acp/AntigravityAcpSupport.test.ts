@@ -2,13 +2,17 @@ import type * as Acp from "@agentclientprotocol/sdk";
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { parseSessionUpdateEvent } from "./AcpRuntimeModel.ts";
+import { loadAcpSessionNotificationValidator } from "./AcpSdk.ts";
 import {
+  antigravityInteractionQuestion,
   buildAntigravityAcpSpawnInput,
   chooseAntigravityAcpModel,
   normalizeAntigravityToolCallUpdate,
   readAntigravityAcpModels,
   resolveAntigravityAcpAuthMethodId,
   resolveAntigravityAcpModelId,
+  resolveAntigravityInteractionOptionId,
   withAntigravityToolSummary,
 } from "./AntigravityAcpSupport.ts";
 
@@ -77,7 +81,8 @@ describe("Antigravity ACP support", () => {
     expect(moss.rawInput).toEqual({ _toolName: "mcp__moss__computer_click" });
   });
 
-  it("exposes run_command lines and drops 'File' titles on located calls", () => {
+  it("exposes run_command lines and keeps 'File' tool_call notifications schema-valid", async () => {
+    const isSessionNotification = await loadAcpSessionNotificationValidator();
     const command = updateOf(
       normalizeAntigravityToolCallUpdate(
         toolUpdate({
@@ -92,22 +97,81 @@ describe("Antigravity ACP support", () => {
     );
     expect(command.title).toBe("ls -la");
     expect(command.rawInput).toMatchObject({ CommandLine: "ls -la", command: "ls -la" });
-    const read = updateOf(
-      normalizeAntigravityToolCallUpdate(
-        toolUpdate({
-          sessionUpdate: "tool_call",
-          toolCallId: "call-5",
-          name: "read_file",
-          kind: "read",
-          title: "File README.md",
-          locations: [{ path: "/repo/README.md" }],
-          rawInput: { Path: "/repo/README.md" },
-        }),
-      ),
-    );
-    expect(read).not.toHaveProperty("title");
+    const normalizedRead = normalizeAntigravityToolCallUpdate(
+      toolUpdate({
+        sessionUpdate: "tool_call",
+        toolCallId: "call-5",
+        name: "read_file",
+        kind: "read",
+        title: "File README.md",
+        locations: [{ path: "/repo/README.md" }],
+        rawInput: { Path: "/repo/README.md" },
+      }),
+    ) as { params: Acp.SessionNotification };
+    // ACP `tool_call` requires `title: string`; omitting it triggers -32602 Invalid params.
+    expect(normalizedRead.params.update).toMatchObject({ title: "" });
+    expect(isSessionNotification(normalizedRead.params)).toBe(true);
+    const parsedRead = parseSessionUpdateEvent(normalizedRead.params);
+    expect(parsedRead.events[0]).toMatchObject({
+      _tag: "ToolCallUpdated",
+      toolCall: { kind: "read", title: "Reading", detail: "/repo/README.md" },
+    });
+
+    const normalizedReadUpdate = normalizeAntigravityToolCallUpdate(
+      toolUpdate({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "call-5",
+        name: "read_file",
+        kind: "read",
+        status: "completed",
+        title: "File README.md",
+        locations: [{ path: "/repo/README.md" }],
+      }),
+    ) as { params: Acp.SessionNotification };
+    expect(normalizedReadUpdate.params.update).not.toHaveProperty("title");
+    expect(isSessionNotification(normalizedReadUpdate.params)).toBe(true);
+
     const chunk = toolUpdate({ sessionUpdate: "agent_message_chunk", content: { text: "hi" } });
     expect(normalizeAntigravityToolCallUpdate(chunk)).toBe(chunk);
+  });
+
+  it("extracts native interaction_* questions and resolves answers by id or label", () => {
+    const request: Acp.RequestPermissionRequest = {
+      sessionId: "s1",
+      toolCall: {
+        toolCallId: "interaction_1",
+        title: "Which package manager should I use?",
+      },
+      options: [
+        { optionId: "opt_bun", name: "Bun", kind: "allow_once" },
+        { optionId: "opt_pnpm", name: "pnpm", kind: "allow_once" },
+      ],
+    };
+    expect(antigravityInteractionQuestion(request)).toEqual({
+      id: "interaction_1",
+      header: "Question",
+      question: "Which package manager should I use?",
+      options: [
+        { label: "Bun", description: "Bun" },
+        { label: "pnpm", description: "pnpm" },
+      ],
+      multiSelect: false,
+    });
+    expect(resolveAntigravityInteractionOptionId(request, { interaction_1: "opt_bun" })).toBe(
+      "opt_bun",
+    );
+    expect(resolveAntigravityInteractionOptionId(request, { interaction_1: "pnpm" })).toBe(
+      "opt_pnpm",
+    );
+    expect(
+      resolveAntigravityInteractionOptionId(request, { interaction_1: "npm" }),
+    ).toBeUndefined();
+    expect(
+      antigravityInteractionQuestion({
+        ...request,
+        toolCall: { toolCallId: "call-regular", title: "Run ls" },
+      }),
+    ).toBeUndefined();
   });
 
   it("previews a call with its toolSummary only when nothing better exists", () => {

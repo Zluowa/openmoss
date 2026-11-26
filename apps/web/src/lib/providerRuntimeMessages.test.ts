@@ -229,6 +229,18 @@ describe("localizeProviderRuntimeMessage", () => {
         "zh-CN",
       ),
     ).toBe("Codex 已停止响应（900 秒没有活动），本次对话已中止。");
+    expect(
+      localizeProviderRuntimeMessage(
+        "Antigravity stopped responding (no activity for 615s); the turn was timed out.",
+        "zh-CN",
+      ),
+    ).toBe("Antigravity 已停止响应（615 秒没有活动），本次对话已中止。");
+    expect(
+      localizeProviderRuntimeMessage(
+        "Grok stopped responding (no activity for 600s); the turn was timed out.",
+        "zh-CN",
+      ),
+    ).toBe("Grok 已停止响应（600 秒没有活动），本次对话已中止。");
     expect(localizeProviderRuntimeMessage("OpenCode retrying", "zh-CN")).toBe("OpenCode 正在重试");
     expect(
       localizeProviderRuntimeMessage("Request retry 3/10 in 3s (connection error).", "en"),

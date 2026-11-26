@@ -221,6 +221,9 @@ export function forkAcpAdapterTurnIdleWatchdog(input: {
   readonly turnId: TurnId;
   readonly idleTimeoutMs: number;
   readonly currentIdleTimeoutMs?: () => number;
+  readonly isPaused?: () => boolean;
+  readonly isWorkActive?: () => Effect.Effect<boolean>;
+  readonly hostSleepToleranceMs?: number;
   readonly checkIntervalMs: number;
   readonly onIdleTimeout: (idleMs: number) => Effect.Effect<void>;
 }) {
@@ -228,6 +231,11 @@ export function forkAcpAdapterTurnIdleWatchdog(input: {
   return forkAcpTurnIdleWatchdog({
     idleTimeoutMs: input.idleTimeoutMs,
     ...(input.currentIdleTimeoutMs ? { currentIdleTimeoutMs: input.currentIdleTimeoutMs } : {}),
+    ...(input.isPaused ? { isPaused: input.isPaused } : {}),
+    ...(input.isWorkActive ? { isWorkActive: input.isWorkActive } : {}),
+    ...(input.hostSleepToleranceMs !== undefined
+      ? { hostSleepToleranceMs: input.hostSleepToleranceMs }
+      : {}),
     checkIntervalMs: input.checkIntervalMs,
     scope: context.scope,
     isTurnActive: () => context.activeTurnId === input.turnId && !context.stopped,
