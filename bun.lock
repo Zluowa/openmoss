@@ -47,6 +47,7 @@
       "version": "1.0.17",
       "bin": {
         "moss": "dist/index.mjs",
+        "moss-compact-database": "dist/compactDatabase.mjs",
         "moss-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
       },
       "dependencies": {

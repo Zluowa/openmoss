@@ -209,6 +209,7 @@ const stageDistributionPackage = Effect.fn("stageDistributionPackage")(function*
   for (const relPath of [
     "dist/index.mjs",
     "dist/restoreMigrationBackup.mjs",
+    "dist/compactDatabase.mjs",
     "dist/client/index.html",
   ]) {
     const abs = path.join(serverDir, relPath);

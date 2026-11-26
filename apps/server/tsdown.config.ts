@@ -56,7 +56,7 @@ const shared = {
 export default defineConfig([
   {
     ...shared,
-    entry: ["src/index.ts", "src/restoreMigrationBackup.ts"],
+    entry: ["src/index.ts", "src/restoreMigrationBackup.ts", "src/compactDatabase.ts"],
     clean: true,
   },
   {

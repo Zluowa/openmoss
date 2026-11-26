@@ -1444,6 +1444,7 @@ export function assertCanonicalCliBinaryIdentity(serverPackage: CanonicalCliPack
   }
   const expectedBinaries: Readonly<Record<string, string>> = {
     moss: "dist/index.mjs",
+    "moss-compact-database": "dist/compactDatabase.mjs",
     "moss-restore-migration-backup": "dist/restoreMigrationBackup.mjs",
   };
   const binaries = serverPackage.bin;
@@ -1459,7 +1460,7 @@ export function assertCanonicalCliBinaryIdentity(serverPackage: CanonicalCliPack
     );
   if (!hasExactBinaryContract) {
     throw new Error(
-      "Expected the native Moss CLI binary contract: moss must be the primary dist/index.mjs entry and moss-restore-migration-backup must be the only recovery binary at dist/restoreMigrationBackup.mjs.",
+      "Expected the native Moss CLI binary contract: moss must be the primary dist/index.mjs entry and moss-compact-database / moss-restore-migration-backup must be the only database maintenance binaries.",
     );
   }
 }

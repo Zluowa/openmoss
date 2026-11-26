@@ -559,6 +559,17 @@ interface ClaudeSessionContext {
   // are cancelled only on this evidence (or whole-session stop), never merely
   // because their parent foreground turn completed.
   readonly terminalTaskIds: Set<string>;
+  // Root only. Main-conversation tasks registered in the foreground (task id ->
+  // the subagent's Task tool_use_id, if any) that have not published terminal
+  // evidence. While a steer is pending, foreground work is moved to the
+  // background so the CLI reaches its next model request promptly.
+  readonly foregroundTasks: Map<string, string | undefined>;
+  // Root only. Steers queued into a live turn that the CLI has not started
+  // reading yet (command uuid -> steered turn id). The CLI reads a queued
+  // message only when it builds its next model request, so a foreground Bash
+  // call or subagent would hold the steer until it returns, often minutes.
+  // While one is pending, that foreground work moves to the background.
+  readonly pendingSteers: Map<string, TurnId>;
   // Final status per tool-use id whose task already settled (terminal
   // task_updated or task_notification). Late messages still tagged with them
   // must not resurrect a scoped run: the synthetic turn that would start on
@@ -1580,6 +1591,9 @@ const CLAUDE_CONTEXT_USAGE_TIMEOUT_MS = 1_000;
 // The SDK's interrupt resolves only once the CLI acknowledges it; a wedged CLI
 // would otherwise stall the caller (and the provider command reactor) forever.
 const CLAUDE_INTERRUPT_TIMEOUT = Duration.seconds(10);
+// Moving foreground work aside for a steer is best effort: the steer is already
+// queued, so a wedged CLI must not hold the stream handler that requested it.
+const CLAUDE_STEER_BACKGROUND_TIMEOUT = Duration.seconds(10);
 export const buildEmbeddedClaudeSystemPromptAppend = (
   gatewayControlAvailable: boolean,
   enableComputerControl = false,
@@ -1825,6 +1839,26 @@ function nativeProviderRefs(
       ? { providerItemId: ProviderItemId.makeUnsafe(options.providerItemId) }
       : {}),
   };
+}
+
+// True while a steer queued into the live turn has not reached the model.
+function hasPendingSteer(context: ClaudeSessionContext): boolean {
+  const liveTurnId = context.turnState?.turnId;
+  if (liveTurnId === undefined) return false;
+  for (const steeredTurnId of context.pendingSteers.values()) {
+    if (steeredTurnId === liveTurnId) return true;
+  }
+  return false;
+}
+
+// The CLI reports a queued command's progress by the uuid it was sent with.
+// Once it leaves "queued" the model has the steer (or the CLI dropped it).
+function handleCommandLifecycleMessage(
+  context: ClaudeSessionContext,
+  message: { readonly command_uuid?: unknown; readonly state?: unknown },
+): void {
+  if (typeof message.command_uuid !== "string" || message.state === "queued") return;
+  context.pendingSteers.delete(message.command_uuid);
 }
 
 function extractAssistantTextBlocks(message: SDKMessage): Array<string> {
@@ -3625,6 +3659,17 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
       result?: SDKResultMessage,
     ): Effect.Effect<void> =>
       Effect.gen(function* () {
+        // Only the live turn owns steers. One the CLI still holds runs as its
+        // own next turn, where foreground work no longer delays it.
+        context.pendingSteers.clear();
+        // Auto-closing a stale synthetic turn (completed, no result) does not
+        // end the CLI's own turn, so its foreground tasks may still be running.
+        if (
+          context.subagentRoot === undefined &&
+          (result !== undefined || status !== "completed")
+        ) {
+          context.foregroundTasks.clear();
+        }
         // A terminal foreground turn cannot retain its root callbacks once the
         // UI can no longer answer them. Agent callbacks remain actionable until
         // their own task has provider-terminal evidence or the session stops;
@@ -4109,6 +4154,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           knownBackgroundTaskIds: new Set(),
           taskTurnIds: new Map(),
           terminalTaskIds: new Set(),
+          foregroundTasks: new Map(),
+          pendingSteers: new Map(),
           settledSubagentToolUseIds: new Map(),
           subagentToolOwners: new Map(),
           subagentRunHistory: new Map(),
@@ -4756,6 +4803,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             : undefined;
         if (launchStatus === "async_launched" || launchStatus === "remote_launched") {
           run.background = true;
+          if (run.taskId !== undefined) root.foregroundTasks.delete(run.taskId);
           return;
         }
         if (root.subagentRuns.get(run.toolUseId) !== run || run.background) {
@@ -5481,6 +5529,29 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         yield* Fiber.interrupt(fiber);
       });
 
+    // Moves foreground work (a Bash call or a subagent) to the background so the
+    // CLI reaches its next model request, where it reads the queued steer. The
+    // work keeps running and reports through task_notification. Without a tool
+    // use id every foreground task moves (the CLI's Ctrl+B). Forked: the steer
+    // is already queued, and a failure only means it waits for the work instead.
+    const releaseForegroundWorkForSteer = (
+      context: ClaudeSessionContext,
+      toolUseId?: string,
+    ): Effect.Effect<void> =>
+      Effect.tryPromise(() => context.query.backgroundTasks(toolUseId)).pipe(
+        Effect.timeoutOption(CLAUDE_STEER_BACKGROUND_TIMEOUT),
+        Effect.catch((error) =>
+          Effect.logWarning("claude.steer.background_failed", {
+            threadId: context.session.threadId,
+            ...(toolUseId !== undefined ? { toolUseId } : {}),
+            detail: toMessage(error, "Claude could not move foreground work to the background."),
+          }),
+        ),
+        Effect.asVoid,
+        Effect.forkIn(adapterScope),
+        Effect.asVoid,
+      );
+
     const handleSystemMessage = (
       context: ClaudeSessionContext,
       message: SDKMessage,
@@ -5531,6 +5602,10 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             context.terminalTaskIds.add(message.task_id);
             yield* settlePendingHumanInteractionsForAgent(context, message.task_id);
           }
+          // Terminal or backgrounded work no longer blocks steers in its turn.
+          if (isTerminalStatus || isBackgrounded === true) {
+            context.foregroundTasks.delete(message.task_id);
+          }
           // A foreground/terminal patch can safely evict an id from the last
           // background snapshot. Do not add on `true`: that patch may arrive
           // before the aggregate snapshot whose newly-backgrounded notice we
@@ -5549,6 +5624,16 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             run.background = true;
           }
           const owner = resolveTaskEventOwner(context, message.task_id);
+          if (
+            isBackgrounded === false &&
+            !isTerminalStatus &&
+            !context.terminalTaskIds.has(message.task_id) &&
+            owner.target === context &&
+            context.subagentRoot === undefined &&
+            context.turnState !== undefined
+          ) {
+            context.foregroundTasks.set(message.task_id, owner.run?.toolUseId);
+          }
           const error = nonEmptyTrimmed(patch?.error);
           const raw = {
             source: "claude.sdk.message" as const,
@@ -5795,6 +5880,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             return;
           case "task_started": {
             context.terminalTaskIds.delete(message.task_id);
+            context.foregroundTasks.delete(message.task_id);
             if (context.turnState && !context.taskTurnIds.has(message.task_id)) {
               context.taskTurnIds.set(message.task_id, asCanonicalTurnId(context.turnState.turnId));
             }
@@ -5917,6 +6003,23 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
               message.task_id,
               message.tool_use_id,
             );
+            // Only the main conversation's own foreground work ends with its
+            // turn; a background subagent's foreground Bash keeps running.
+            // `is_backgrounded` is set only for agents and shells: other task
+            // types (Monitor, workflows) can outlive the turn.
+            if (
+              message.is_backgrounded === false &&
+              startedOwner.target === context &&
+              startedOwner.run?.background !== true &&
+              context.subagentRoot === undefined &&
+              context.turnState !== undefined
+            ) {
+              context.foregroundTasks.set(message.task_id, startedOwner.run?.toolUseId);
+              // Work that started after a steer would otherwise hold it until it returns.
+              if (hasPendingSteer(context) && typeof message.tool_use_id === "string") {
+                yield* releaseForegroundWorkForSteer(context, message.tool_use_id);
+              }
+            }
             if (message.task_type === "local_workflow") {
               context.liveWorkflowTaskIds.add(message.task_id);
               context.knownWorkflowTaskIds.add(message.task_id);
@@ -6029,6 +6132,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           case "task_notification": {
             yield* emitTaskUsageSnapshot(context, message);
             context.terminalTaskIds.add(message.task_id);
+            context.foregroundTasks.delete(message.task_id);
             yield* settlePendingHumanInteractionsForAgent(context, message.task_id);
             context.knownBackgroundTaskIds.delete(message.task_id);
             const workflowTaskId = context.workflowTaskIdByMemberTaskId.get(message.task_id);
@@ -6124,6 +6228,7 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             context.knownBackgroundTaskIds.clear();
             for (const task of tasks) {
               context.knownBackgroundTaskIds.add(task.task_id);
+              context.foregroundTasks.delete(task.task_id);
             }
             if (added.length === 0) {
               return;
@@ -6325,6 +6430,17 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
         }
 
         yield* ensureThreadId(context, message);
+
+        // Not in the SDK's declared message union yet; it carries no transcript content.
+        const untypedMessage = message as {
+          readonly type: string;
+          readonly command_uuid?: unknown;
+          readonly state?: unknown;
+        };
+        if (untypedMessage.type === "command_lifecycle") {
+          handleCommandLifecycleMessage(context, untypedMessage);
+          return;
+        }
 
         switch (message.type) {
           case "stream_event":
@@ -6529,6 +6645,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
           });
         }
         context.knownBackgroundTaskIds.clear();
+        context.foregroundTasks.clear();
+        context.pendingSteers.clear();
         context.taskTurnIds.clear();
 
         const updatedAt = yield* nowIso;
@@ -7601,6 +7719,8 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             knownBackgroundTaskIds: new Set(),
             taskTurnIds: new Map(),
             terminalTaskIds: new Set(),
+            foregroundTasks: new Map(),
+            pendingSteers: new Map(),
             settledSubagentToolUseIds: new Map(),
             subagentToolOwners: new Map(),
             subagentRunHistory: new Map(),
@@ -8353,10 +8473,28 @@ function makeClaudeAdapter(options?: ClaudeAdapterLiveOptions) {
             attachmentsDir: serverConfig.attachmentsDir,
             nativeCommandNames: yield* resolveNativeCommandNames(context, input.input),
           });
-          yield* Queue.offer(context.promptQueue, {
-            type: "message",
-            message,
-          }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/steer", cause)));
+          // The uuid makes the CLI report when the model reads the steer.
+          const commandUuid = yield* Random.nextUUIDv4;
+          const steerMessage = { ...message, uuid: commandUuid } as SDKUserMessage;
+          const enqueued = yield* Effect.sync(() => {
+            const offered = Queue.offerUnsafe(context.promptQueue, {
+              type: "message",
+              message: steerMessage,
+            });
+            if (offered) context.pendingSteers.set(commandUuid, liveTurnState.turnId);
+            return offered;
+          });
+          if (!enqueued) {
+            return yield* toRequestError(
+              input.threadId,
+              "turn/steer",
+              new Error("Claude's prompt queue is closed."),
+            );
+          }
+          // Foreground work already running would hold the steer until it returns.
+          if (hasPendingSteer(context) && context.foregroundTasks.size > 0) {
+            yield* releaseForegroundWorkForSteer(context);
+          }
 
           const steerText = input.input?.trim();
           if (steerText) {
