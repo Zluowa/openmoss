@@ -69,6 +69,7 @@ export function prepareReplyMarkdownForPreview(markdown: string): string {
 // partway through one, too short for the full pattern: such a tail is masked as well.
 const SECRET_PREFIXES = [
   "moss_sk_",
+  "moss_dk_",
   "sk-",
   "rk_live_",
   "sk_live_",

@@ -429,6 +429,13 @@ import {
   MossCloudStartGoogleOAuthResult,
   MossCloudUpdatePasswordInput,
 } from "./mossCloudAccount";
+import {
+  MossDeveloperApiKeysState,
+  MossDeveloperCreateApiKeyInput,
+  MossDeveloperCreateApiKeyResult,
+  MossDeveloperRevokeApiKeyInput,
+  MossDeveloperRevokeApiKeyResult,
+} from "./mossDeveloperKeys";
 import { MossEnterpriseKeySignInInput, MossEnterpriseKeyState } from "./mossEnterpriseKey";
 import {
   MossPayCatalog,
@@ -2394,6 +2401,24 @@ export const WsServerMossEnterpriseKeySignOutRpc = Rpc.make(
   },
 );
 
+export const WsServerMossDeveloperKeyListRpc = Rpc.make(WS_METHODS.serverMossDeveloperKeyList, {
+  payload: Schema.Struct({}),
+  success: MossDeveloperApiKeysState,
+  error: WsRpcError,
+});
+
+export const WsServerMossDeveloperKeyCreateRpc = Rpc.make(WS_METHODS.serverMossDeveloperKeyCreate, {
+  payload: MossDeveloperCreateApiKeyInput,
+  success: MossDeveloperCreateApiKeyResult,
+  error: WsRpcError,
+});
+
+export const WsServerMossDeveloperKeyRevokeRpc = Rpc.make(WS_METHODS.serverMossDeveloperKeyRevoke, {
+  payload: MossDeveloperRevokeApiKeyInput,
+  success: MossDeveloperRevokeApiKeyResult,
+  error: WsRpcError,
+});
+
 export const WsServerMossPayCatalogRpc = Rpc.make(WS_METHODS.serverMossPayCatalog, {
   payload: Schema.Struct({}),
   success: MossPayCatalog,
@@ -3649,6 +3674,9 @@ export const WsFeatureRpcGroup: RpcGroup.RpcGroup<WsFeatureRpc> = RpcGroup.make(
   WsServerMossEnterpriseKeySignInRpc,
   WsServerMossEnterpriseKeyActivateRpc,
   WsServerMossEnterpriseKeySignOutRpc,
+  WsServerMossDeveloperKeyListRpc,
+  WsServerMossDeveloperKeyCreateRpc,
+  WsServerMossDeveloperKeyRevokeRpc,
   WsServerMossPayCatalogRpc,
   WsServerMossPayQuotaRpc,
   WsServerMossPayCreateOrderRpc,

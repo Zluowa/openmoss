@@ -25,6 +25,7 @@ export const SETTINGS_SECTION_IDS = [
   "archived",
   "models",
   "providers",
+  "developer",
   "skills",
   "usage",
   "connectors",
@@ -245,6 +246,14 @@ const ALL_SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
     description: "Sign in, install and order your coding agents.",
     icon: "agents",
     eyebrow: "Coding agents",
+  },
+  {
+    id: "developer",
+    group: "coding",
+    label: "Developer API",
+    description: "Create API keys and use ¥3.00 developer credit.",
+    icon: "key-1",
+    eyebrow: "Developer API",
   },
   {
     id: "models",

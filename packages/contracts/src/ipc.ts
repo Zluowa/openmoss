@@ -590,6 +590,13 @@ import type {
   MossCloudStartGoogleOAuthResult,
   MossCloudUpdatePasswordInput,
 } from "./mossCloudAccount";
+import type {
+  MossDeveloperApiKeysState,
+  MossDeveloperCreateApiKeyInput,
+  MossDeveloperCreateApiKeyResult,
+  MossDeveloperRevokeApiKeyInput,
+  MossDeveloperRevokeApiKeyResult,
+} from "./mossDeveloperKeys";
 import type { MossEnterpriseKeySignInInput, MossEnterpriseKeyState } from "./mossEnterpriseKey";
 import type {
   MossPayCatalog,
@@ -2284,6 +2291,13 @@ export interface NativeApi {
     /** Hand the managed Moss surface back to the saved enterprise key. */
     activateMossEnterpriseKey: () => Promise<MossEnterpriseKeyState>;
     signOutMossEnterpriseKey: () => Promise<MossEnterpriseKeyState>;
+    listMossDeveloperApiKeys: () => Promise<MossDeveloperApiKeysState>;
+    createMossDeveloperApiKey: (
+      input: MossDeveloperCreateApiKeyInput,
+    ) => Promise<MossDeveloperCreateApiKeyResult>;
+    revokeMossDeveloperApiKey: (
+      input: MossDeveloperRevokeApiKeyInput,
+    ) => Promise<MossDeveloperRevokeApiKeyResult>;
     getMossPayCatalog: () => Promise<MossPayCatalog>;
     getMossPayQuota: () => Promise<MossPayQuota>;
     createMossPayOrder: (input: MossPayCreateOrderInput) => Promise<MossPayOrder>;

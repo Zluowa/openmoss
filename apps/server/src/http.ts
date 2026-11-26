@@ -1,5 +1,6 @@
 import { readEventLoopStatus } from "./eventLoopMonitor";
 import { boardAssistEffectRouteLayer } from "./boardAssistRoute";
+import { mossDeveloperGatewayEffectRouteLayer } from "./mossDeveloperGatewayRoute";
 import { mossMediaJobsEffectRouteLayer } from "./mossMediaJobsRoute";
 import { pageAssistantEffectRouteLayer } from "./pages/pageAssistantHttp";
 import * as fs from "node:fs/promises";
@@ -341,6 +342,7 @@ export function makeEffectHttpRouteLayer(
     makeDesktopComputerEmergencyStopRouteLayer(),
     makeDesktopAgentRuntimesRouteLayer(),
     authEffectRouteLayer,
+    mossDeveloperGatewayEffectRouteLayer,
     mossMediaJobsEffectRouteLayer,
     boardAssistEffectRouteLayer,
     pageAssistantEffectRouteLayer,

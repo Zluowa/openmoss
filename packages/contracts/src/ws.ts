@@ -198,6 +198,10 @@ import {
   MossCloudSignUpInput,
   MossCloudUpdatePasswordInput,
 } from "./mossCloudAccount";
+import {
+  MossDeveloperCreateApiKeyInput,
+  MossDeveloperRevokeApiKeyInput,
+} from "./mossDeveloperKeys";
 import { MossEnterpriseKeySignInInput } from "./mossEnterpriseKey";
 import { MossPayCreateOrderInput, MossPayGetOrderInput } from "./mossPay";
 import {
@@ -577,6 +581,9 @@ export const WS_METHODS = {
   serverMossEnterpriseKeySignIn: "server.mossEnterpriseKey.signIn",
   serverMossEnterpriseKeyActivate: "server.mossEnterpriseKey.activate",
   serverMossEnterpriseKeySignOut: "server.mossEnterpriseKey.signOut",
+  serverMossDeveloperKeyList: "server.mossDeveloperKey.list",
+  serverMossDeveloperKeyCreate: "server.mossDeveloperKey.create",
+  serverMossDeveloperKeyRevoke: "server.mossDeveloperKey.revoke",
   serverMossPayCatalog: "server.mossPay.catalog",
   serverMossPayQuota: "server.mossPay.quota",
   serverMossPayCreateOrder: "server.mossPay.createOrder",
@@ -1094,6 +1101,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverMossEnterpriseKeySignIn, MossEnterpriseKeySignInInput),
   tagRequestBody(WS_METHODS.serverMossEnterpriseKeyActivate, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverMossEnterpriseKeySignOut, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverMossDeveloperKeyList, Schema.Struct({})),
+  tagRequestBody(WS_METHODS.serverMossDeveloperKeyCreate, MossDeveloperCreateApiKeyInput),
+  tagRequestBody(WS_METHODS.serverMossDeveloperKeyRevoke, MossDeveloperRevokeApiKeyInput),
   tagRequestBody(WS_METHODS.serverMossPayCatalog, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverMossPayQuota, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverMossPayCreateOrder, MossPayCreateOrderInput),

@@ -31,7 +31,7 @@ const SECRET_PATTERNS: ReadonlyArray<{ kind: SecretKind; pattern: RegExp }> = [
     kind: "private-key",
     pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]+?-----END [A-Z0-9 ]*PRIVATE KEY-----/g,
   },
-  { kind: "moss", pattern: /\bmoss_sk_[A-Za-z0-9_-]{16,}/g },
+  { kind: "moss", pattern: /\bmoss_(?:sk|dk)_[A-Za-z0-9_-]{16,}/g },
   { kind: "anthropic", pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}/g },
   { kind: "openai", pattern: /\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}/g },
   { kind: "github", pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,})/g },

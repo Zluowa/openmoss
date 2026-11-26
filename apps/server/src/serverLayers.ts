@@ -98,6 +98,7 @@ import { MossEnterpriseKeyAccountLive } from "./account/Layers/MossEnterpriseKey
 import { MossCloudAccountServiceLive } from "./account/Layers/MossCloudAccountService";
 import { MossManagedProviderLive } from "./account/Layers/MossManagedProvider";
 import { MossPayServiceLive } from "./account/Layers/MossPayService";
+import { MossDeveloperKeyServiceLive } from "./account/Layers/MossDeveloperKeyService";
 import { MossManagedTurnPreflightLive } from "./account/Layers/MossManagedTurnPreflight";
 import { MossPhoneAccountServiceLive } from "./account/Layers/MossPhoneAccountService";
 import { MossAccountPhoneAccessLive } from "./account/Layers/MossAccountPhoneAccess";
@@ -192,6 +193,10 @@ export function makeServerRuntimeServicesLayer(
     Layer.provide(mossPhoneAccountLayer),
   );
   const mossPayLayer = MossPayServiceLive.pipe(
+    Layer.provide(mossCloudAccountLayer),
+    Layer.provide(mossPhoneAccountLayer),
+  );
+  const mossDeveloperKeyLayer = MossDeveloperKeyServiceLive.pipe(
     Layer.provide(mossCloudAccountLayer),
     Layer.provide(mossPhoneAccountLayer),
   );
@@ -558,6 +563,7 @@ export function makeServerRuntimeServicesLayer(
     mossCloudAccountLayer,
     mossAccountPhoneAccessLayer,
     mossPayLayer,
+    mossDeveloperKeyLayer,
     realtimeVoiceLayer,
     ThreadSearchQueryLive,
     authServicesLayer,

@@ -1063,6 +1063,11 @@ export function createWsNativeApi(): WsNativeApi {
           timeoutMs: MOSS_ENTERPRISE_KEY_SIGN_IN_RPC_TIMEOUT_MS,
         }),
       signOutMossEnterpriseKey: () => transport.request(WS_METHODS.serverMossEnterpriseKeySignOut),
+      listMossDeveloperApiKeys: () => transport.request(WS_METHODS.serverMossDeveloperKeyList),
+      createMossDeveloperApiKey: (input) =>
+        transport.request(WS_METHODS.serverMossDeveloperKeyCreate, input),
+      revokeMossDeveloperApiKey: (input) =>
+        transport.request(WS_METHODS.serverMossDeveloperKeyRevoke, input),
       getMossPayCatalog: () => transport.request(WS_METHODS.serverMossPayCatalog),
       getMossPayQuota: () => transport.request(WS_METHODS.serverMossPayQuota),
       createMossPayOrder: (input) => transport.request(WS_METHODS.serverMossPayCreateOrder, input),

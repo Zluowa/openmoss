@@ -23,6 +23,8 @@ import type {
   MossCloudSignInInput,
   MossCloudSignUpInput,
   MossCloudUpdatePasswordInput,
+  MossDeveloperCreateApiKeyInput,
+  MossDeveloperRevokeApiKeyInput,
   MossPayCreateOrderInput,
 } from "@moss/contracts";
 import { isMossPayOrderSettled } from "@moss/contracts";
@@ -44,6 +46,8 @@ export const mossServerQueryKeys = {
     ["server", "mossPay", "quota", accountIdentity ?? null] as const,
   mossPayOrder: (outTradeNo: string | null) =>
     ["server", "mossPay", "order", outTradeNo ?? null] as const,
+  mossDeveloperKeysState: (accountIdentity?: string | null) =>
+    ["server", "mossDeveloper", "keys", accountIdentity ?? null] as const,
 };
 
 export const mossServerMutationKeys = {
@@ -69,6 +73,8 @@ export const mossServerMutationKeys = {
   mossEnterpriseKeyActivate: () => ["server", "mutation", "mossEnterpriseKey", "activate"] as const,
   mossEnterpriseKeySignOut: () => ["server", "mutation", "mossEnterpriseKey", "signOut"] as const,
   mossPayCreateOrder: () => ["server", "mutation", "mossPay", "createOrder"] as const,
+  mossDeveloperKeyCreate: () => ["server", "mutation", "mossDeveloper", "createKey"] as const,
+  mossDeveloperKeyRevoke: () => ["server", "mutation", "mossDeveloper", "revokeKey"] as const,
 };
 
 async function refreshMossManagedProviderCaches(queryClient: QueryClient): Promise<void> {
@@ -641,6 +647,51 @@ export function serverMossLogoutMutationOptions(input: { queryClient: QueryClien
     onSettled: () => {
       void input.queryClient.invalidateQueries({
         queryKey: mossServerQueryKeys.mossAccountSession(),
+      });
+    },
+  });
+}
+
+export function serverMossDeveloperKeysQueryOptions(
+  input: { enabled?: boolean; accountIdentity?: string | null } = {},
+) {
+  return queryOptions({
+    queryKey: mossServerQueryKeys.mossDeveloperKeysState(input.accountIdentity),
+    enabled: input.enabled ?? true,
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      return api.server.listMossDeveloperApiKeys();
+    },
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
+export function serverMossDeveloperCreateKeyMutationOptions(input: { queryClient: QueryClient }) {
+  return mutationOptions({
+    mutationKey: mossServerMutationKeys.mossDeveloperKeyCreate(),
+    mutationFn: async (payload: MossDeveloperCreateApiKeyInput) => {
+      const api = ensureNativeApi();
+      return api.server.createMossDeveloperApiKey(payload);
+    },
+    onSuccess: async () => {
+      await input.queryClient.invalidateQueries({
+        queryKey: ["server", "mossDeveloper", "keys"],
+      });
+    },
+  });
+}
+
+export function serverMossDeveloperRevokeKeyMutationOptions(input: { queryClient: QueryClient }) {
+  return mutationOptions({
+    mutationKey: mossServerMutationKeys.mossDeveloperKeyRevoke(),
+    mutationFn: async (payload: MossDeveloperRevokeApiKeyInput) => {
+      const api = ensureNativeApi();
+      return api.server.revokeMossDeveloperApiKey(payload);
+    },
+    onSuccess: async () => {
+      await input.queryClient.invalidateQueries({
+        queryKey: ["server", "mossDeveloper", "keys"],
       });
     },
   });

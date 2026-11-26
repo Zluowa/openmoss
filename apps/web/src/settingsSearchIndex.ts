@@ -85,6 +85,14 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
       "sign in sign out login methods phone google enterprise api key credits plan 账号 登录方式 会员 积分 退出登录",
     target: null,
   },
+  {
+    id: "developer:api-keys",
+    section: "developer",
+    title: "Developer API",
+    keywords:
+      "developer api key moss_dk curl llm image video voice quota 3.00 开发者 密钥 接口 额度 大模型 生图 视频 语音",
+    target: null,
+  },
   // ── General ────────────────────────────────────────────────────────────────
   {
     id: "general:default-provider",

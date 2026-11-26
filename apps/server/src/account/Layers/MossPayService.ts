@@ -72,7 +72,7 @@ export const sanitizeMossPayError = (cause: unknown): MossPayError => {
   });
 };
 
-const toMossPayError = sanitizeMossPayError;
+export const toMossPayError = sanitizeMossPayError;
 
 /**
  * Resolves exactly one account credential for a payment/quota request. The

@@ -103,6 +103,8 @@ import {
   type MossCloudUpdatePasswordInput,
   type MossEnterpriseKeySignInInput,
   type MossPayCreateOrderInput,
+  type MossDeveloperCreateApiKeyInput,
+  type MossDeveloperRevokeApiKeyInput,
   type MossProfileCheckHandleInput,
   type MossProfileUpdateInput,
   type MossProfileUploadAvatarInput,
@@ -433,6 +435,10 @@ import {
 } from "./account/Services/MossPhoneAccountService";
 import { accountLane, phoneAccountSignedIn } from "./account/accountLane.ts";
 import { MossPayService, type MossPayServiceShape } from "./account/Services/MossPayService";
+import {
+  MossDeveloperKeyService,
+  type MossDeveloperKeyServiceShape,
+} from "./account/Services/MossDeveloperKeyService";
 import { makeMossProfileService, type MossProfileServiceShape } from "./profile/mossProfile";
 import { MossCloudAccountServiceError } from "./account/mossCloudAccountErrors";
 import { MossPayError } from "./account/mossPayGateway";
@@ -2482,6 +2488,7 @@ const makeWsRpcHandlersLayer = () =>
       const mossCloudAccountService = yield* MossCloudAccountService;
       const mossEnterpriseKeyAccount = yield* MossEnterpriseKeyAccount;
       const mossPayService = yield* MossPayService;
+      const mossDeveloperKeyServiceOption = yield* Effect.serviceOption(MossDeveloperKeyService);
       const mossProfileService = yield* makeMossProfileService({
         phoneAccount: mossPhoneAccountService,
         cloudAccount: mossCloudAccountService,
@@ -5691,6 +5698,35 @@ const makeWsRpcHandlersLayer = () =>
           () => mcpConnectors.servicePlugins.resync(),
         ),
         ...makeMossPayRpcHandlers(mossPayService),
+        ...makeMossDeveloperKeyRpcHandlers(
+          Option.getOrElse(mossDeveloperKeyServiceOption, () => ({
+            getState: () =>
+              Effect.succeed({
+                configured: false,
+                authenticated: false,
+                gatewayBaseUrl: null,
+                localGatewayBaseUrl: null,
+                wallet: null,
+                breakdown: [],
+                keys: [],
+                recentLedger: [],
+              }),
+            createKey: () =>
+              Effect.fail(
+                new MossPayError({
+                  code: "not_configured",
+                  message: "开发者密钥服务当前不可用。",
+                }),
+              ),
+            revokeKey: () =>
+              Effect.fail(
+                new MossPayError({
+                  code: "not_configured",
+                  message: "开发者密钥服务当前不可用。",
+                }),
+              ),
+          })),
+        ),
         ...makeMossProfileRpcHandlers(mossProfileService),
         ...makeRealtimeVoiceRpcHandlers(realtimeVoiceService),
         [WS_METHODS.realtimeVoiceSubscribe]: (_, { clientId }) =>
@@ -5853,6 +5889,9 @@ const makeWsRpcHandlersLayer = () =>
         WS_METHODS.serverMossPayQuota,
         WS_METHODS.serverMossPayCreateOrder,
         WS_METHODS.serverMossPayGetOrder,
+        WS_METHODS.serverMossDeveloperKeyList,
+        WS_METHODS.serverMossDeveloperKeyCreate,
+        WS_METHODS.serverMossDeveloperKeyRevoke,
         WS_METHODS.serverUpdateSettings,
         WS_METHODS.serverSaveUnifiedProvider,
         WS_METHODS.serverDeleteUnifiedProvider,
@@ -6616,6 +6655,15 @@ export const makeMossPayRpcHandlers = (service: MossPayServiceShape) => ({
     mossPayRpcEffect(service.createOrder(input), "Failed to create the Moss payment order"),
   [WS_METHODS.serverMossPayGetOrder]: (input: MossPayGetOrderInput) =>
     mossPayRpcEffect(service.getOrder(input), "Failed to load the Moss payment order"),
+});
+
+export const makeMossDeveloperKeyRpcHandlers = (service: MossDeveloperKeyServiceShape) => ({
+  [WS_METHODS.serverMossDeveloperKeyList]: () =>
+    mossPayRpcEffect(service.getState(), "Failed to load Moss developer API keys"),
+  [WS_METHODS.serverMossDeveloperKeyCreate]: (input: MossDeveloperCreateApiKeyInput) =>
+    mossPayRpcEffect(service.createKey(input), "Failed to create Moss developer API key"),
+  [WS_METHODS.serverMossDeveloperKeyRevoke]: (input: MossDeveloperRevokeApiKeyInput) =>
+    mossPayRpcEffect(service.revokeKey(input), "Failed to revoke Moss developer API key"),
 });
 
 const realtimeVoiceRpcEffect = <A, R>(

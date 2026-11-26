@@ -75,6 +75,7 @@ import {
   KeyboardShortcutsSettingsPanel,
 } from "./KeyboardShortcutsSettingsPanel";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
+import { DeveloperSettingsPanel } from "./DeveloperSettingsPanel";
 import { ProfileSettingsPanel } from "./ProfileSettingsPanel";
 import { UsageSettingsPanel } from "./UsageSettingsPanel";
 import {
@@ -1680,6 +1681,8 @@ export function SettingsContent({
         return <ProfileSettingsPanel />;
       case "account":
         return <AccountSettingsPanel accountView={location.accountView} onNavigate={onNavigate} />;
+      case "developer":
+        return <DeveloperSettingsPanel onNavigate={onNavigate} />;
       case "usage":
         return <UsageSettingsPanel />;
       default:
@@ -1693,6 +1696,7 @@ export function SettingsContent({
   const pageHasNoDefaults =
     activeSection === "profile" ||
     activeSection === "account" ||
+    activeSection === "developer" ||
     activeSection === "connections" ||
     activeSection === "computer-use" ||
     activeSection === "archived" ||

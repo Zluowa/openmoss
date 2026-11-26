@@ -121,6 +121,30 @@ export function mossEnterpriseApiKeyDisplayPrefix(key: string): string {
   return key.slice(0, MOSS_ENTERPRISE_API_KEY_PREFIX.length + 4);
 }
 
+/** Personal developer API keys are `moss_dk_[cn_|gl_]` followed by random base64url bytes. */
+export const MOSS_DEVELOPER_API_KEY_PREFIX = "moss_dk_";
+const MOSS_DEVELOPER_API_KEY_PATTERN = /^moss_dk_(?:cn_|gl_)?[A-Za-z0-9_-]{32,64}$/u;
+
+export function isMossDeveloperApiKey(value: string): boolean {
+  return MOSS_DEVELOPER_API_KEY_PATTERN.test(value);
+}
+
+export function mossDeveloperApiKeyRealmHint(key: string): MossRealm | null {
+  if (key.startsWith("moss_dk_cn_")) return "cn";
+  if (key.startsWith("moss_dk_gl_")) return "global";
+  return null;
+}
+
+/** Non-secret prefix stored beside the developer key digest and shown in the UI. */
+export function mossDeveloperApiKeyDisplayPrefix(key: string): string {
+  const hintPrefix = key.startsWith("moss_dk_cn_")
+    ? "moss_dk_cn_"
+    : key.startsWith("moss_dk_gl_")
+      ? "moss_dk_gl_"
+      : MOSS_DEVELOPER_API_KEY_PREFIX;
+  return key.slice(0, hintPrefix.length + 4);
+}
+
 /**
  * Upstream that serves one model for a gateway configured with `providers`
  * (default first) and optional family overrides. Falls back to the first

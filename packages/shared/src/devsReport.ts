@@ -85,7 +85,7 @@ const DEVS_RULES: ReadonlyArray<{
   // Key shapes the shared rules only catch when they are 32 characters or longer.
   {
     pattern:
-      /\b(?:moss_sk_|sk_(?:live|test)_|rk_(?:live|test)_|pk_live_|glpat-|npm_|hf_|xai-|pypi-|dop_v1_|shpat_|ya29\.)[A-Za-z0-9_.-]{6,}/g,
+      /\b(?:moss_(?:sk|dk)_|sk_(?:live|test)_|rk_(?:live|test)_|pk_live_|glpat-|npm_|hf_|xai-|pypi-|dop_v1_|shpat_|ya29\.)[A-Za-z0-9_.-]{6,}/g,
     replace: REDACTED,
   },
   // A run mixing upper and lower case with digits is a credential, not a word.
