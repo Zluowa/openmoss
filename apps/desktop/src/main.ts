@@ -4626,7 +4626,11 @@ function syncWindowsTaskbarShortcuts(shellIconPath: string): string[] {
 
 function materializeWindowsShellIcon(icon: DesktopAppIcon, sourcePath: string): string {
   const bytes = toWindowsTaskbarIcoBytes(sourcePath);
-  const contentKey = windowsShellIconContentKey(icon, bytes);
+  const contentKey = windowsShellIconContentKey(
+    icon,
+    bytes,
+    app.isPackaged ? app.getVersion() : null,
+  );
   const cacheKey = nextWindowsShellIconCacheKey(contentKey);
   const fallbackDirectory = Path.join(STATE_DIR, "taskbar-icons");
   const directories = [
@@ -9709,13 +9713,16 @@ function createWindow(
     // subsequent window bounds and maximized state from the upstream state store.
     if (!savedWindowState) {
       showDesktopWindowAtLaunchSize(window, options);
-      return;
+    } else {
+      showDesktopStartupWindow(window, {
+        background: options.background ?? false,
+        maximized: savedWindowState.isMaximized,
+      });
     }
-    showDesktopStartupWindow(window, {
-      background: options.background ?? false,
-      maximized: savedWindowState.isMaximized,
-    });
     if (process.platform === "win32") {
+      // Re-materialize the version-tagged ICO, resync shortcuts, and stamp
+      // AppUserModel properties via the deferred setImmediate path (never
+      // immediate/spawnSync on startup), including when no saved window state exists.
       void applyPersistedDesktopAppIcon(window);
     }
     emitDesktopWindowState(window);

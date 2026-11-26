@@ -30,7 +30,11 @@ export function serverMossProfileQueryOptions(input: { enabled?: boolean } = {})
     enabled: input.enabled ?? true,
     staleTime: 30_000,
     refetchOnWindowFocus: false,
-    retry: false,
+    // Packaged Windows can mount before the local RPC transport finishes its
+    // first handshake; transient retries prevent the avatar from sticking on
+    // the fallback initials after an update restart.
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(250 * 2 ** attemptIndex, 1_000),
     queryFn: async (): Promise<MossProfileState> => {
       const api = ensureNativeApi();
       return api.profile.get();

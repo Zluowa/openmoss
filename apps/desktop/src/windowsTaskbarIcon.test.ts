@@ -51,13 +51,18 @@ afterEach(() => {
 });
 
 describe("windowsShellIconCachePath", () => {
-  it("changes the cache identity when packaged icon bytes change", () => {
+  it("changes the cache identity when packaged icon bytes or app version change", () => {
     const first = windowsShellIconContentKey("default", Buffer.from("first artwork"));
     const second = windowsShellIconContentKey("default", Buffer.from("updated artwork"));
+    const v16 = windowsShellIconContentKey("icon", Buffer.from("same artwork"), "1.0.16");
+    const v17 = windowsShellIconContentKey("icon", Buffer.from("same artwork"), "1.0.17");
 
     expect(first).toMatch(/^default-[0-9a-f]{12}$/);
     expect(second).toMatch(/^default-[0-9a-f]{12}$/);
     expect(second).not.toBe(first);
+    expect(v16).toMatch(/^icon-1\.0\.16-[0-9a-f]{12}$/);
+    expect(v17).toMatch(/^icon-1\.0\.17-[0-9a-f]{12}$/);
+    expect(v17).not.toBe(v16);
   });
 
   it("keeps a distinct on-disk ICO per preference so Explorer cannot reuse a stale cache entry", () => {

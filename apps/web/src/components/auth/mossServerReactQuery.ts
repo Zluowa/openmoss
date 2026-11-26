@@ -305,7 +305,11 @@ export function serverMossCloudSignInMutationOptions(input: { queryClient: Query
         return;
       }
 
-      await Promise.all([refreshAccounts, synchronizeMossManagedChatReadiness(input.queryClient)]);
+      await Promise.all([
+        refreshAccounts,
+        synchronizeMossManagedChatReadiness(input.queryClient),
+        input.queryClient.invalidateQueries({ queryKey: profileQueryKeys.state() }),
+      ]);
       void input.queryClient
         .invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all })
         .catch(() => undefined);
@@ -409,7 +413,11 @@ export function serverMossCloudExchangeGoogleOAuthCodeMutationOptions(input: {
       // A verified Google session is the navigation boundary. Account/provider
       // cache hydration continues in the background; the managed runtime starts
       // on the first real turn and must not delay entry into chat.
-      void Promise.all([refreshAccounts, synchronizeMossManagedChatReadiness(input.queryClient)])
+      void Promise.all([
+        refreshAccounts,
+        synchronizeMossManagedChatReadiness(input.queryClient),
+        input.queryClient.invalidateQueries({ queryKey: profileQueryKeys.state() }),
+      ])
         .then(() =>
           input.queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),
         )
@@ -524,6 +532,7 @@ function invalidateMossAccountLanes(queryClient: QueryClient): void {
     mossServerQueryKeys.mossAccountSession(),
     mossServerQueryKeys.mossCloudAccountState(),
     mossServerQueryKeys.mossEnterpriseKeyState(),
+    profileQueryKeys.state(),
   ]) {
     void queryClient.invalidateQueries({ queryKey });
   }
@@ -596,6 +605,7 @@ export function serverMossPhoneLoginMutationOptions(input: { queryClient: QueryC
       // and must never turn that successful login into a rejected mutation.
       clearMossManagedProviderAuthoritySnapshot(input.queryClient);
       input.queryClient.setQueryData(mossServerQueryKeys.mossAccountSession(), result);
+      void input.queryClient.invalidateQueries({ queryKey: profileQueryKeys.state() });
       void synchronizeMossManagedChatReadiness(input.queryClient)
         .then(() =>
           input.queryClient.invalidateQueries({ queryKey: providerDiscoveryQueryKeys.all }),

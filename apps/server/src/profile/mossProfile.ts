@@ -53,11 +53,13 @@ export interface MossProfileServiceOptions {
   readonly phoneAccount: Pick<
     MossPhoneAccountServiceShape,
     "getLocalAuthority" | "getAuthorityCredential"
-  >;
+  > &
+    Partial<Pick<MossPhoneAccountServiceShape, "getSession">>;
   readonly cloudAccount: Pick<
     MossCloudAccountServiceShape,
     "getLocalAuthority" | "getAuthorityCredential"
-  >;
+  > &
+    Partial<Pick<MossCloudAccountServiceShape, "getState">>;
   readonly stateDir: string;
   readonly homeDir: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
@@ -302,31 +304,53 @@ export function makeMossProfileService(options: MossProfileServiceOptions) {
         updatedAt: null,
       };
     };
-    // Local account state only (no network): a phone account first, as payments do.
+    // Local account state only (no network): respect activeRealm when both realms
+    // are signed in (matching MossPayService), otherwise prefer phone then cloud.
     const resolveAccount = Effect.gen(function* () {
       const phone = yield* options.phoneAccount
         .getLocalAuthority()
         .pipe(Effect.catch(() => Effect.succeed({ identity: null })));
-      if (phone.identity) {
-        return {
-          realm: "cn",
-          key: `cn:${phone.identity.account.id}`,
-          defaultName: defaultDisplayName(phone.identity.displayName, homeName),
-          credential: () => options.phoneAccount.getAuthorityCredential(),
-        } satisfies ResolvedAccount;
-      }
       const cloud = yield* options.cloudAccount
         .getLocalAuthority()
         .pipe(Effect.catch(() => Effect.succeed({ identity: null })));
-      if (cloud.identity) {
-        return {
-          realm: "global",
-          key: `global:${cloud.identity.account.id}`,
-          defaultName: defaultDisplayName(cloud.identity.displayName, homeName),
-          credential: () => options.cloudAccount.getAuthorityCredential(),
-        } satisfies ResolvedAccount;
+      const phoneResolved: ResolvedAccount | null = phone.identity
+        ? {
+            realm: "cn",
+            key: `cn:${phone.identity.account.id}`,
+            defaultName: defaultDisplayName(phone.identity.displayName, homeName),
+            credential: () => options.phoneAccount.getAuthorityCredential(),
+          }
+        : null;
+      const cloudResolved: ResolvedAccount | null = cloud.identity
+        ? {
+            realm: "global",
+            key: `global:${cloud.identity.account.id}`,
+            defaultName: defaultDisplayName(cloud.identity.displayName, homeName),
+            credential: () => options.cloudAccount.getAuthorityCredential(),
+          }
+        : null;
+      if (
+        phoneResolved &&
+        cloudResolved &&
+        options.phoneAccount.getSession &&
+        options.cloudAccount.getState
+      ) {
+        const [phoneSession, cloudState] = yield* Effect.all([
+          Effect.result(options.phoneAccount.getSession()),
+          Effect.result(options.cloudAccount.getState()),
+        ]);
+        const preferGlobal =
+          phoneSession._tag === "Success" &&
+          cloudState._tag === "Success" &&
+          cloudState.success.authenticated === true &&
+          cloudState.success.account !== null &&
+          (cloudState.success.activeRealm === "global" ||
+            phoneSession.success.activeRealm === "global");
+        if (preferGlobal) {
+          return cloudResolved;
+        }
       }
-      return null;
+      return phoneResolved ?? cloudResolved;
     });
 
     const connect = (account: ResolvedAccount) =>
@@ -426,11 +450,60 @@ export function makeMossProfileService(options: MossProfileServiceOptions) {
     const logOutcome = (operation: string, scope: string, outcome: string) =>
       Effect.logInfo("Moss profile request", { operation, scope, outcome });
 
+    const fallbackAccountProfile = (account: ResolvedAccount, store: ProfileStore): MossProfile => {
+      const cachedAccount = store.accounts[account.key];
+      if (cachedAccount) {
+        return cachedAccount;
+      }
+      // If the user customized an avatar locally before signing in (or before a
+      // remote profile row was created), keep that avatar instead of resetting
+      // back to initials.
+      if (store.local && store.local.avatar.kind !== "initials") {
+        return {
+          ...accountDefaults(account),
+          avatar: store.local.avatar,
+        };
+      }
+      return accountDefaults(account);
+    };
+
+    const fallbackRowFromProfile = (
+      profile: MossProfile,
+      baseUrl: string,
+    ): Omit<ProfileRow, "updated_at"> => {
+      if (profile.avatar.kind === "preset") {
+        return {
+          display_name: profile.displayName,
+          handle: profile.handle,
+          avatar_kind: "preset",
+          avatar_ref: profile.avatar.id,
+        };
+      }
+      if (profile.avatar.kind === "upload") {
+        const storagePrefix = `${baseUrl}/storage/v1/object/public/${AVATAR_BUCKET}/`;
+        if (profile.avatar.url.startsWith(storagePrefix)) {
+          const objectPath = profile.avatar.url.slice(storagePrefix.length).split("?")[0] ?? "";
+          if (objectPath.length > 0) {
+            return {
+              display_name: profile.displayName,
+              handle: profile.handle,
+              avatar_kind: "upload",
+              avatar_ref: objectPath,
+            };
+          }
+        }
+      }
+      return {
+        display_name: profile.displayName,
+        handle: profile.handle,
+        avatar_kind: "initials",
+        avatar_ref: null,
+      };
+    };
+
     const offlineAccountState = (account: ResolvedAccount) =>
       readStore.pipe(
-        Effect.map((store) =>
-          accountState(account, store.accounts[account.key] ?? accountDefaults(account), false),
-        ),
+        Effect.map((store) => accountState(account, fallbackAccountProfile(account, store), false)),
       );
 
     const get: MossProfileServiceShape["get"] = () =>
@@ -444,9 +517,7 @@ export function makeMossProfileService(options: MossProfileServiceOptions) {
         const fetched = yield* connect(account).pipe(
           Effect.flatMap((remote) =>
             readRow(remote).pipe(
-              Effect.map((row) =>
-                row ? profileFromRow(row, remote.baseUrl) : accountDefaults(account),
-              ),
+              Effect.map((row) => (row ? profileFromRow(row, remote.baseUrl) : null)),
             ),
           ),
           Effect.option,
@@ -454,6 +525,11 @@ export function makeMossProfileService(options: MossProfileServiceOptions) {
         if (fetched._tag === "None") {
           yield* logOutcome("get", account.realm, "offline");
           return yield* offlineAccountState(account);
+        }
+        if (fetched.value === null) {
+          const store = yield* readStore;
+          yield* logOutcome("get", account.realm, "synced");
+          return accountState(account, fallbackAccountProfile(account, store), true);
         }
         if (fetched.value.updatedAt !== null) yield* cacheAccount(account, fetched.value);
         yield* logOutcome("get", account.realm, "synced");
@@ -472,12 +548,9 @@ export function makeMossProfileService(options: MossProfileServiceOptions) {
       Effect.gen(function* () {
         const remote = yield* connect(account).pipe(Effect.mapError(() => offlineError()));
         const current = yield* readRow(remote).pipe(Effect.mapError(() => offlineError()));
-        const base = current ?? {
-          display_name: account.defaultName,
-          handle: null,
-          avatar_kind: "initials" as const,
-          avatar_ref: null,
-        };
+        const base =
+          current ??
+          fallbackRowFromProfile(fallbackAccountProfile(account, yield* readStore), remote.baseUrl);
         const saved = yield* saveRow(remote, yield* change(base, remote));
         const profile = profileFromRow(saved, remote.baseUrl);
         yield* cacheAccount(account, profile);

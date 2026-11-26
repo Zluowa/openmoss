@@ -17,6 +17,10 @@ vi.mock("~/lib/serverReactQuery", () => ({
 }));
 // The header asks whether a Moss account is signed in; these cases run signed out.
 vi.mock("~/components/auth/mossServerReactQuery", () => ({
+  mossServerQueryKeys: {
+    mossAccountSession: () => ["server", "mossAccount", "session"] as const,
+    mossCloudAccountState: () => ["server", "mossCloudAccount", "state"] as const,
+  },
   serverMossAccountSessionQueryOptions: () => ({ queryKey: ["account"] }),
   serverMossCloudAccountStateQueryOptions: () => ({ queryKey: ["account"] }),
   serverMossEnterpriseKeyStateQueryOptions: () => ({ queryKey: ["account"] }),

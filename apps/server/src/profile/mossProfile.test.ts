@@ -397,4 +397,116 @@ describe("signed-in account profile", () => {
     expect(state).toMatchObject({ scope: "account", sync: "offline", editable: false });
     expect(state.profile.displayName).toBe("Grace.Hopper");
   });
+
+  it("respects activeRealm=global when both phone and cloud accounts are signed in", async () => {
+    const { realm, fetch } = fakeRealm();
+    const profile = await service({
+      fetch,
+      phoneAccount: {
+        ...phoneAccount(),
+        getSession: () =>
+          Effect.succeed({
+            authenticated: true,
+            activeRealm: "global" as const,
+            session: null,
+          } as never),
+      },
+      cloudAccount: {
+        ...googleAccount("Ada Global"),
+        getState: () =>
+          Effect.succeed({
+            authenticated: true,
+            activeRealm: "global" as const,
+            account: { id: "google-account" },
+            session: null,
+          } as never),
+      },
+    });
+    const state = await run(profile.update({ handle: "ada_global" }));
+    expect(state).toMatchObject({ realm: "global", sync: "synced" });
+    expect(realm.origins).toEqual(new Set([GLOBAL_URL]));
+  });
+
+  it("preserves a cached account or local custom avatar when the remote realm has no row yet", async () => {
+    const { realm, fetch } = fakeRealm();
+    const localOnly = await service({ fetch });
+    await run(localOnly.update({ avatar: { kind: "preset", id: "cat-nap" } }));
+
+    // Signed-in account with empty remote row keeps the customized local avatar instead of initials.
+    const signedIn = await service({ fetch, cloudAccount: googleAccount("Ada Lovelace") });
+    const first = await run(signedIn.get());
+    expect(first.profile.avatar).toEqual({ kind: "preset", id: "cat-nap" });
+
+    // Once saved and cached, an empty remote response still does not reset the cached avatar.
+    await run(signedIn.update({ avatar: { kind: "preset", id: "leaf-sprout" } }));
+    realm.row = null;
+    const afterEmptyRemote = await run(signedIn.get());
+    expect(afterEmptyRemote.profile.avatar).toEqual({ kind: "preset", id: "leaf-sprout" });
+  });
+
+  it("preserves fallback preset avatar and cached profile fields when updating after an empty remote row", async () => {
+    const { realm, fetch } = fakeRealm();
+    const localOnly = await service({ fetch });
+    await run(localOnly.update({ avatar: { kind: "preset", id: "cat-nap" } }));
+
+    // Empty remote row on first sign-in: editing displayName preserves the fallback preset avatar.
+    const signedIn = await service({ fetch, cloudAccount: googleAccount("Ada Lovelace") });
+    const initial = await run(signedIn.get());
+    expect(initial.profile.avatar).toEqual({ kind: "preset", id: "cat-nap" });
+
+    const updatedName = await run(signedIn.update({ displayName: "阿达" }));
+    expect(updatedName.profile).toMatchObject({
+      displayName: "阿达",
+      handle: null,
+      avatar: { kind: "preset", id: "cat-nap" },
+    });
+    expect(realm.row).toMatchObject({
+      display_name: "阿达",
+      avatar_kind: "preset",
+      avatar_ref: "cat-nap",
+    });
+
+    // Cached account profile with handle + preset avatar: if remote row is missing,
+    // updating displayName preserves both the cached handle and preset avatar.
+    await run(
+      signedIn.update({ handle: "ada_saved", avatar: { kind: "preset", id: "leaf-sprout" } }),
+    );
+    realm.row = null;
+    const preservedCached = await run(signedIn.update({ displayName: "阿达新名字" }));
+    expect(preservedCached.profile).toMatchObject({
+      displayName: "阿达新名字",
+      handle: "ada_saved",
+      avatar: { kind: "preset", id: "leaf-sprout" },
+    });
+    expect(realm.row).toMatchObject({
+      display_name: "阿达新名字",
+      handle: "ada_saved",
+      avatar_kind: "preset",
+      avatar_ref: "leaf-sprout",
+    });
+  });
+
+  it("does not write a local data URL upload into remote avatar_ref when updating after an empty remote row", async () => {
+    const { realm, fetch } = fakeRealm();
+    const localOnly = await service({ fetch });
+    const localUploaded = await run(
+      localOnly.uploadAvatar({ mimeType: "image/png", dataBase64: PNG }),
+    );
+    expect(localUploaded.profile.avatar).toEqual({
+      kind: "upload",
+      url: `data:image/png;base64,${PNG}`,
+    });
+
+    const signedIn = await service({ fetch, cloudAccount: googleAccount("Ada Lovelace") });
+    const updated = await run(signedIn.update({ displayName: "阿达" }));
+    expect(updated.profile).toMatchObject({
+      displayName: "阿达",
+      avatar: { kind: "initials" },
+    });
+    expect(realm.row).toMatchObject({
+      display_name: "阿达",
+      avatar_kind: "initials",
+      avatar_ref: null,
+    });
+  });
 });

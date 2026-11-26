@@ -36,9 +36,22 @@ export function windowsShellIconCachePath(cacheDirectory: string, iconKey: strin
   return Path.join(cacheDirectory, `taskbar-${iconKey}.ico`);
 }
 
-export function windowsShellIconContentKey(iconKey: string, ico: Buffer): string {
+export function windowsShellIconContentKey(
+  iconKey: string,
+  ico: Buffer,
+  versionTag?: string | null,
+): string {
   const digest = Crypto.createHash("sha256").update(ico).digest("hex").slice(0, 12);
-  return `${iconKey}-${digest}`;
+  const sanitizedVersion =
+    typeof versionTag === "string"
+      ? versionTag
+          .trim()
+          .replace(/[^0-9A-Za-z._-]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+      : "";
+  return sanitizedVersion.length > 0
+    ? `${iconKey}-${sanitizedVersion}-${digest}`
+    : `${iconKey}-${digest}`;
 }
 
 export function resolveWindowsShellIconCacheDirectory(input: {

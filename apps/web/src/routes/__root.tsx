@@ -2461,6 +2461,7 @@ function EventRouter() {
           await scopedSubscriptionRefresh;
         } else {
           await ensureScopedSubscriptions();
+          void queryClient.invalidateQueries({ queryKey: ["server", "mossProfile", "state"] });
         }
         if (disposed) {
           return;
